@@ -1,0 +1,27 @@
+{
+    "name": "siyuan-plugin-task-horizon",
+    "author": "5kyfkr",
+    "url": "https://github.com/5kyfkr/siyuan-plugin-task-horizon.git",
+    "version": "1.0.0",
+    "minAppVersion": "3.0.12",
+    "disabledInPublish": false,
+    "backends": [
+        "all"
+    ],
+    "frontends": [
+        "all"
+    ],
+    "displayName": {
+        "default": "Task Horizon",
+        "zh_CN": "任务管理器"
+    },
+    "description": {
+        "default": "Task manager with custom filters, grouping, and sorting for SiYuan.",
+        "zh_CN": "思源笔记任务管理器：支持自定义筛选规则分组和排序。"
+    },
+    "readme": {
+        "default": "README.md",
+        "zh_CN": "README_zh_CN.md"
+    },
+    "keywords": ["task", "manager", "filter", "siyuan"]
+}
