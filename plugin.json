@@ -2,9 +2,9 @@
     "name": "siyuan-plugin-task-horizon",
     "author": "5kyfkr",
     "url": "https://github.com/5kyfkr/siyuan-plugin-task-horizon",
-    "version": "1.0.1",
-    "minAppVersion": "3.0.12",
-    "disabledInPublish": false,
+    "version": "1.0.3",
+    "minAppVersion": "3.5.0",
+    "disabledInPublish": true,
     "backends": [
         "all"
     ],
@@ -20,8 +20,7 @@
         "zh_CN": "思源笔记任务管理器：汇总多文档任务，支持规则筛选、分组/排序、列配置与悬浮条快速编辑。支持与底栏番茄钟联动"
     },
     "readme": {
-        "default": "README.md",
-        "zh_CN": "README_zh_CN.md"
+        "default": "README.md"
     },
-    "keywords": ["task", "manager", "filter", "siyuan"]
+    "keywords": ["task", "manager", "filter"]
 }

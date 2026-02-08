@@ -39,6 +39,10 @@ try {
         }
     }
 
+    Get-ChildItem -Path $tempDir -Filter '*.zip' -File -ErrorAction SilentlyContinue | ForEach-Object {
+        try { Remove-Item -LiteralPath $_.FullName -Force } catch {}
+    }
+
     if (Test-Path -LiteralPath $output) {
         Remove-Item -LiteralPath $output -Force
     }

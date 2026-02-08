@@ -1189,6 +1189,8 @@
             statusIntervalId = null;
 
             hideFloatBar();
+            try { document.querySelectorAll('.sy-custom-props-floatbar, .sy-custom-props-floatbar__select, .sy-custom-props-floatbar__input-editor').forEach(el => el.remove()); } catch (e) {}
+            try { document.getElementById('sy-custom-props-floatbar-style')?.remove?.(); } catch (e) {}
         }
 
         // 监听任务管理器状态变化
@@ -1224,6 +1226,13 @@
             try { localStorage.setItem('tm_enable_quickbar', JSON.stringify(on)); } catch (e) {}
             if (on) startQuickbar();
             else stopQuickbar();
+        };
+
+        globalThis.__taskHorizonQuickbarCleanup = () => {
+            try { stopQuickbar(); } catch (e) {}
+            try { delete globalThis.__taskHorizonQuickbarToggle; } catch (e) {}
+            try { delete globalThis.__taskHorizonQuickbarCleanup; } catch (e) {}
+            try { delete globalThis.__taskHorizonQuickbarLoaded; } catch (e) {}
         };
 
         if (isQuickbarEnabled()) startQuickbar();

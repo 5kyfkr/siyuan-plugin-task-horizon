@@ -121,6 +121,7 @@ module.exports = class TaskHorizonPlugin extends Plugin {
 
     onunload() {
         try { globalThis.__TaskManagerCleanup?.(); } catch (e) {}
+        try { globalThis.__taskHorizonQuickbarCleanup?.(); } catch (e) {}
         try { globalThis.tmClose?.(); } catch (e) {}
 
         try { delete globalThis.__taskHorizonPluginApp; } catch (e) {}
@@ -131,5 +132,31 @@ module.exports = class TaskHorizonPlugin extends Plugin {
         try { delete globalThis.__taskHorizonOpenTabView; } catch (e) {}
         try { delete globalThis.__taskHorizonTabElement; } catch (e) {}
         try { delete globalThis.__taskHorizonQuickbarLoaded; } catch (e) {}
+        try { delete globalThis.__taskHorizonQuickbarToggle; } catch (e) {}
+        try { delete globalThis.__taskHorizonQuickbarCleanup; } catch (e) {}
+    }
+
+    async uninstall() {
+        try { globalThis.__TaskManagerCleanup?.(); } catch (e) {}
+        try { globalThis.__taskHorizonQuickbarCleanup?.(); } catch (e) {}
+
+        try {
+            const ns = globalThis["siyuan-plugin-task-horizon"];
+            if (ns && typeof ns.uninstallCleanup === "function") {
+                await ns.uninstallCleanup();
+            }
+        } catch (e) {}
+
+        try {
+            const paths = [
+                "/data/storage/petal/siyuan-plugin-task-horizon/task-settings.json",
+                "/data/storage/petal/siyuan-plugin-task-horizon/task-meta.json",
+            ];
+            await Promise.all(paths.map((path) => fetch("/api/file/removeFile", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ path }),
+            }).catch(() => null)));
+        } catch (e) {}
     }
 };
