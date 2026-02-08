@@ -1,27 +1,33 @@
-// ==UserScript==
-// @name         思源笔记任务管理器（代码片段版）
-// @namespace    siyuan://plugins/snippets
-// @version      9.0
+// @name         思源笔记任务管理器
+// @version      1.0.2
 // @description  任务管理器，支持自定义筛选规则分组和排序（适配思源笔记代码片段）
-// @author       You
-// @match        *://localhost:6806/*
-// @run-at       document-end
-// ==/UserScript*/
-
-/*
-使用方法：
-1. 在思源笔记中打开：设置 → 外观 → 代码片段 → JavaScript
-2. 点击"新建"
-3. 将此脚本完整复制粘贴到编辑器中
-4. 保存并启用
-5. 在思源笔记页面刷新后，右下角会显示"📋 任务管理"按钮
-*/
+// @author       5KYFKR
 
 (function() {
     'use strict';
     
-    const style = document.createElement('style');
-    style.textContent = `
+    const __tmNsKey = 'siyuan-plugin-task-horizon';
+    const __tmNs = (() => {
+        try {
+            const w = window;
+            const existing = w[__tmNsKey];
+            if (!existing || typeof existing !== 'object') w[__tmNsKey] = {};
+            return w[__tmNsKey];
+        } catch (e) {
+            return {};
+        }
+    })();
+    const __tmWindowKeysBefore = (() => {
+        try {
+            return new Set(Object.getOwnPropertyNames(window));
+        } catch (e) {
+            return new Set();
+        }
+    })();
+
+    const __tmStyleEl = document.createElement('style');
+    __tmStyleEl.dataset.tmTaskHorizonStyle = '1';
+    __tmStyleEl.textContent = `
         :root {
             --tm-bg-color: #ffffff;
             --tm-text-color: #333333;
@@ -1214,7 +1220,7 @@
             flex-shrink: 0;
         }
     `;
-    document.head.appendChild(style);
+    document.head.appendChild(__tmStyleEl);
 
     // 本地存储（用于快速读取和云端同步失败时的备用）
     // 主存储使用云端文件（/data/storage/ 目录）
@@ -1302,10 +1308,6 @@
             // 排除 'null' 字符串（SQL 查询返回的 null 会被转成字符串 'null'）
             const isValidValue = (val) => val !== undefined && val !== null && val !== '' && val !== 'null';
 
-            // 关键：优先应用 MetaStore 的 done 状态（如果存在）
-            if ('done' in v && v.done !== undefined && v.done !== null) {
-                task.done = v.done;
-            }
             if ('priority' in v && isValidValue(v.priority)) task.priority = v.priority;
             if ('pinned' in v && isValidValue(v.pinned)) task.pinned = v.pinned;
             if ('duration' in v && isValidValue(v.duration)) task.duration = v.duration;
@@ -3072,13 +3074,13 @@
                     return;
                 }
                 const gap = Date.now() - (__tmWasHiddenAt || 0);
-                if (gap > 10000) __tmScheduleWakeReload('visibility');
+                if (__tmWasHiddenAt && gap > 10000) __tmScheduleWakeReload('visibility');
             } catch (e) {}
         };
         __tmFocusHandler = () => {
             try {
                 const gap = Date.now() - (__tmWasHiddenAt || 0);
-                if (gap > 10000) __tmScheduleWakeReload('focus');
+                if (__tmWasHiddenAt && gap > 10000) __tmScheduleWakeReload('focus');
             } catch (e) {}
         };
         try { document.addEventListener('visibilitychange', __tmVisibilityHandler); } catch (e) {}
@@ -4824,7 +4826,7 @@
         // 同时保存当前选中的规则
         SettingsStore.data.currentRule = state.currentRule;
         await SettingsStore.save();
-        hint('✅ 所有规则已保存（已同步到云端）', 'success');
+        hint('✅ 所有规则已保存', 'success');
         closeRulesManager();
     };
 
@@ -4986,6 +4988,11 @@
 
     window.tmSwitchDocGroup = async function(groupId) {
         const nextGroupId = String(groupId || 'all').trim() || 'all';
+        const prevGroupId = String(SettingsStore.data.currentGroupId || 'all').trim() || 'all';
+        if (nextGroupId === prevGroupId) {
+            try { __tmHideMobileMenu(); } catch (e) {}
+            return;
+        }
         SettingsStore.data.currentGroupId = nextGroupId;
 
         const firstRuleId = (state.filterRules || []).find(r => r && r.enabled)?.id || '';
@@ -5659,7 +5666,6 @@
 
         const meta = MetaStore.get(task.id);
         if (meta) {
-            if ('done' in meta && meta.done !== undefined && meta.done !== null) task.done = meta.done;
             if ('pinned' in meta) {
                 const ms = meta.pinned;
                 if (typeof ms === 'boolean') task.pinned = ms;
@@ -9085,6 +9091,28 @@
         }
     }
 
+    let __tmAllDocumentsFetchedAt = 0;
+    let __tmAllDocumentsFetchPromise = null;
+    function __tmEnsureAllDocumentsLoaded(force = false) {
+        const now = Date.now();
+        if (!force && Array.isArray(state.allDocuments) && state.allDocuments.length > 0 && (now - (__tmAllDocumentsFetchedAt || 0) < 60000)) {
+            return;
+        }
+        if (__tmAllDocumentsFetchPromise) return;
+        __tmAllDocumentsFetchPromise = Promise.resolve()
+            .then(() => API.getAllDocuments())
+            .then((docs) => {
+                if (Array.isArray(docs)) state.allDocuments = docs;
+                __tmAllDocumentsFetchedAt = Date.now();
+            })
+            .catch((e) => {
+                try { console.error('[设置] 刷新文档列表失败:', e); } catch (e2) {}
+            })
+            .finally(() => {
+                __tmAllDocumentsFetchPromise = null;
+            });
+    }
+
     // 显示设置
     function showSettings() {
         try { __tmHideMobileMenu(); } catch (e) {}
@@ -9095,15 +9123,6 @@
 
         state.settingsModal = document.createElement('div');
         state.settingsModal.className = 'tm-settings-modal';
-
-        // 确保文档列表是最新的
-        try {
-            API.getAllDocuments().then(docs => {
-                state.allDocuments = docs;
-            }).catch(e => {
-                console.error('[设置] 刷新文档列表失败:', e);
-            });
-        } catch (e) {}
 
         const groups = SettingsStore.data.docGroups || [];
         const currentGroupId = SettingsStore.data.currentGroupId || 'all';
@@ -9206,6 +9225,9 @@
         if (state.settingsActiveTab === 'appearance') activeTab = 'appearance';
         if (state.settingsActiveTab === 'rules') activeTab = 'rules';
         if (state.settingsActiveTab === 'priority') activeTab = 'priority';
+        if (activeTab === 'main') {
+            try { __tmEnsureAllDocumentsLoaded(false); } catch (e) {}
+        }
 
         state.settingsModal.innerHTML = `
             <div class="tm-settings-box" style="overflow: hidden;">
@@ -9459,6 +9481,7 @@
     }
     window.showSettings = showSettings;
     window.tmSwitchSettingsTab = function(tab) {
+        const prev = state.settingsActiveTab || 'main';
         if (tab === 'rules') {
             state.settingsActiveTab = 'rules';
         } else if (tab === 'appearance') {
@@ -9469,6 +9492,7 @@
         } else {
             state.settingsActiveTab = 'main';
         }
+        if ((state.settingsActiveTab || 'main') === prev) return;
         showSettings();
     };
 
@@ -9963,7 +9987,7 @@
 
         input.value = '';
         if (recursiveCheck) recursiveCheck.checked = false;
-        hint('✅ 已添加文档（已同步到云端）', 'success');
+        hint('✅ 已添加文档', 'success');
     };
 
     // 根据ID获取文档名称
@@ -10225,14 +10249,14 @@
     };
 
     window.saveSettings = async function() {
-        // 同步到 SettingsStore 并保存到云端
+        // 同步到 SettingsStore 并保存到本地插件存储
         SettingsStore.data.selectedDocIds = state.selectedDocIds;
         SettingsStore.data.queryLimit = state.queryLimit;
         SettingsStore.data.showCompletionTime = state.showCompletionTime;
         SettingsStore.data.groupByDocName = state.groupByDocName;
         SettingsStore.data.groupByTime = state.groupByTime;
         await SettingsStore.save();
-        hint('✅ 设置已保存（已同步到云端）', 'success');
+        hint('✅ 设置已保存', 'success');
         render();
         closeSettings();
     };
@@ -10741,6 +10765,22 @@
                 SettingsStore.saving = false;
             } catch (e2) {}
         } catch (e) {}
+
+        try { __tmStyleEl?.remove?.(); } catch (e) {}
+
+        try {
+            const ns = window?.[__tmNsKey];
+            const keys = Array.isArray(ns?.__exportKeys) ? ns.__exportKeys : [];
+            keys.forEach((k) => {
+                if (!k) return;
+                try { delete window[k]; } catch (e) {
+                    try { window[k] = undefined; } catch (e2) {}
+                }
+            });
+        } catch (e) {}
+        try { delete window[__tmNsKey]; } catch (e) {
+            try { window[__tmNsKey] = undefined; } catch (e2) {}
+        }
     }
 
     // 暴露清理函数给插件卸载调用
@@ -10760,6 +10800,71 @@
         });
     };
 
+    try {
+        const now = Object.getOwnPropertyNames(window);
+        const added = now.filter(k => !__tmWindowKeysBefore.has(k));
+        const exportKeys = [];
+        added.forEach((k) => {
+            if (!k) return;
+            const v = window[k];
+            if (typeof v !== 'function') return;
+            try { __tmNs[k] = v; } catch (e) {}
+            exportKeys.push(k);
+        });
+        __tmNs.__exportKeys = exportKeys;
+    } catch (e) {}
+
+    __tmNs.uninstallCleanup = async function() {
+        try {
+            await fetch('/api/file/removeFile', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ path: SETTINGS_FILE_PATH }),
+            }).catch(() => null);
+        } catch (e) {}
+
+        try {
+            await fetch('/api/file/removeFile', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ path: META_FILE_PATH }),
+            }).catch(() => null);
+        } catch (e) {}
+
+        try {
+            [
+                'tm_selected_doc_ids',
+                'tm_query_limit',
+                'tm_group_by_docname',
+                'tm_group_by_time',
+                'tm_collapsed_task_ids',
+                'tm_collapsed_groups',
+                'tm_current_rule',
+                'tm_filter_rules',
+                'tm_font_size',
+                'tm_font_size_mobile',
+                'tm_enable_quickbar',
+                'tm_pin_new_tasks_by_default',
+                'tm_new_task_doc_id',
+                'tm_enable_tomato_integration',
+                'tm_tomato_spent_attr_mode',
+                'tm_tomato_spent_attr_key_minutes',
+                'tm_tomato_spent_attr_key_hours',
+                'tm_default_doc_id',
+                'tm_default_doc_id_by_group',
+                'tm_priority_score_config',
+                'tm_doc_groups',
+                'tm_current_group_id',
+                'tm_custom_status_options',
+                'tm_column_widths',
+                'tm_column_order',
+                'tm_meta_cache',
+            ].forEach((k) => {
+                try { Storage.remove(k); } catch (e) {}
+            });
+        } catch (e) {}
+    };
+
     if (document.readyState === 'loading') {
         __tmDomReadyHandler = init;
         document.addEventListener('DOMContentLoaded', __tmDomReadyHandler);
@@ -10767,6 +10872,4 @@
         init();
     }
 })();
-
-
 
