@@ -15,13 +15,13 @@
         // 第一行显示的属性
         firstRow: [
             {
-                name: '优先级',
+                name: '重要性',
                 attrKey: 'custom-priority',
                 type: 'select',
                 options: [
                     { value: 'high', label: '高', color: '#ea4335' },
                     { value: 'medium', label: '中', color: '#f9ab00' },
-                    { value: 'low', label: '低', color: '#34a853' },
+                    { value: 'low', label: '低', color: '#4285f4' },
                     { value: 'none', label: '无', color: '#9e9e9e' }
                 ],
                 defaultValue: 'none'
@@ -67,7 +67,7 @@
     const completedCheckboxColName = '优先';
     const completedCheckboxCheckedValue = false;
     const isEnableTaskBlockFloatBar = false;  // 关闭原有的AV列悬浮条
-    const isEnableBlockContextMenu = true;
+    const isEnableBlockContextMenu = false;
 
     // 缓存系统版本和数据库信息
     let systemVersion = '';
@@ -510,6 +510,11 @@
                 transition: all 0.2s;
                 padding: 0;
             }
+            .sy-custom-props-floatbar__action.is-wide {
+                width: auto;
+                padding: 0 6px;
+                gap: 4px;
+            }
             .sy-custom-props-floatbar__action:hover {
                 background: var(--b3-theme-background);
                 border-color: var(--b3-theme-primary);
@@ -587,6 +592,14 @@
             }
         }
 
+        window.addEventListener('storage', (e) => {
+            if (!e) return;
+            if (e.key !== 'tm_custom_status_options') return;
+            loadStatusOptions().then(() => {
+                try { renderFloatBar(); } catch (e) {}
+            });
+        });
+
         // 获取块的自定义属性
         async function getBlockCustomAttrs(blockId) {
             try {
@@ -614,10 +627,20 @@
             }
         }
 
-        // 格式化日期（ISO/时间戳 -> YYYY-MM-DD）
+        // 格式化日期（YYYY-MM-DD / ISO / 时间戳 -> YYYY-MM-DD）
         function formatDate(value) {
             if (!value) return '';
-            const d = new Date(value);
+            const s = String(value || '').trim();
+            if (!s) return '';
+            if (/^\d{4}-\d{2}-\d{2}$/.test(s)) return s;
+
+            let d;
+            if (/^\d+$/.test(s)) {
+                const n = Number(s);
+                d = new Date(n);
+            } else {
+                d = new Date(s);
+            }
             if (Number.isNaN(d.getTime()) || d.getTime() === 0) return '';
             const y = d.getFullYear();
             const m = String(d.getMonth() + 1).padStart(2, '0');
@@ -625,18 +648,13 @@
             return `${y}-${m}-${day}`;
         }
 
-        // 解析 YYYY-MM-DD 为 ISO（本地 00:00）
+        // 解析 YYYY-MM-DD（保持日期语义，避免时区偏移）
         function parseDate(dateStr) {
             const s = String(dateStr || '').trim();
             if (!s) return '';
             const m = s.match(/^(\d{4})-(\d{2})-(\d{2})$/);
             if (!m) return '';
-            const y = Number(m[1]);
-            const mon = Number(m[2]) - 1;
-            const d = Number(m[3]);
-            const dt = new Date(y, mon, d, 0, 0, 0, 0);
-            if (Number.isNaN(dt.getTime())) return '';
-            return dt.toISOString();
+            return `${m[1]}-${m[2]}-${m[3]}`;
         }
 
         // 获取优先级的显示文本
@@ -655,7 +673,7 @@
             const colorMap = {
                 'high': '#ea4335',
                 'medium': '#f9ab00',
-                'low': '#34a853',
+                'low': '#4285f4',
                 'none': '#9e9e9e'
             };
             return colorMap[value] || '#757575';
@@ -666,7 +684,7 @@
             const colorMap = {
                 'high': 'rgba(234, 67, 53, 0.15)',
                 'medium': 'rgba(249, 171, 0, 0.15)',
-                'low': 'rgba(52, 168, 83, 0.15)',
+                'low': 'rgba(66, 133, 244, 0.15)',
                 'none': 'rgba(158, 158, 158, 0.12)'
             };
             return colorMap[value] || 'rgba(117, 117, 117, 0.1)';
@@ -692,7 +710,8 @@
                 'custom-status': attrs['custom-status'] || 'todo',
                 'custom-completion-time': attrs['custom-completion-time'] || '',
                 'custom-duration': attrs['custom-duration'] || '',
-                'custom-remark': attrs['custom-remark'] || ''
+                'custom-remark': attrs['custom-remark'] || '',
+                'custom-pinned': attrs['custom-pinned'] || ''
             };
         }
 
@@ -704,13 +723,16 @@
             const firstRowProps = customPropsConfig.firstRow.map(config => {
                 return renderPropElement(config, currentProps[config.attrKey]);
             });
-            firstRowProps.push(`<button class="sy-custom-props-floatbar__action" data-action="reminder" title="添加提醒">⏰</button>`);
             rows.push(`<div class="sy-custom-props-floatbar__row">${firstRowProps.join('')}</div>`);
 
             // 第二行属性
             const secondRowProps = customPropsConfig.secondRow.map(config => {
                 return renderPropElement(config, currentProps[config.attrKey]);
             });
+            const pinnedRaw = String(currentProps['custom-pinned'] || '').trim().toLowerCase();
+            const pinned = pinnedRaw === 'true' || pinnedRaw === '1';
+            secondRowProps.unshift(`<button class="sy-custom-props-floatbar__action is-wide" data-action="pin" title="置顶">🔝${pinned ? '✅' : '⬜'}</button>`);
+            secondRowProps.push(`<button class="sy-custom-props-floatbar__action" data-action="reminder" title="添加提醒">⏰</button>`);
             rows.push(`<div class="sy-custom-props-floatbar__row">${secondRowProps.join('')}</div>`);
 
             floatBar.innerHTML = rows.join('');
@@ -793,6 +815,31 @@
                 const actionEl = e.target.closest('.sy-custom-props-floatbar__action');
                 if (actionEl) {
                     const action = String(actionEl.dataset.action || '');
+                    if (action === 'pin') {
+                        const raw = String(currentProps['custom-pinned'] || '').trim().toLowerCase();
+                        const pinned = raw === 'true' || raw === '1';
+                        const next = pinned ? '' : 'true';
+                        
+                        // 1. 立即更新UI，不等后端返回
+                        currentProps['custom-pinned'] = next;
+                        renderFloatBar();
+                        
+                        // 2. 异步更新后端
+                        setBlockCustomAttrs(currentBlockId, { 'custom-pinned': next }).then(success => {
+                            if (success) {
+                                try { globalThis.__taskHorizonOnPinnedChanged?.(currentBlockId, !pinned); } catch (e) {}
+                                try { globalThis.__taskHorizonRefresh?.(); } catch (e) {}
+                                showMessage(pinned ? '已取消置顶' : '已置顶', false, 1500);
+                            } else {
+                                // 如果失败，回滚UI
+                                console.warn('置顶更新失败，回滚状态');
+                                currentProps['custom-pinned'] = raw;
+                                renderFloatBar();
+                                showMessage('更新置顶失败', true, 1500);
+                            }
+                        });
+                        return;
+                    }
                     if (action === 'reminder') {
                         const showDialog = globalThis.__tomatoReminder?.showDialog;
                         if (typeof showDialog === 'function') {
@@ -856,7 +903,8 @@
 
             // 计算位置
             const anchorRect = anchorEl.getBoundingClientRect();
-            const menuWidth = Math.max(120, anchorRect.width);
+            const maxLen = options.reduce((m, o) => Math.max(m, String(o?.label || '').length), 0);
+            const menuWidth = Math.min(200, Math.max(120, maxLen * 14 + 32));
 
             selectMenu.style.width = `${menuWidth}px`;
             selectMenu.style.left = `${window.scrollX + anchorRect.left}px`;
@@ -882,6 +930,7 @@
                 if (success) {
                     currentProps[config.attrKey] = newValue;
                     renderFloatBar();
+                    try { globalThis.__taskHorizonRefresh?.(); } catch (e) {}
                     showMessage(`已更新${config.name}`, false, 1500);
                 } else {
                     showMessage('更新失败', true, 2000);
@@ -922,6 +971,7 @@
                 if (success) {
                     currentProps[config.attrKey] = newValue;
                     renderFloatBar();
+                    try { globalThis.__taskHorizonRefresh?.(); } catch (e) {}
                     showMessage(`已更新${config.name}`, false, 1500);
                 } else {
                     showMessage('更新失败', true, 2000);
@@ -930,6 +980,7 @@
                 inputEditor.classList.remove('is-visible');
             };
 
+            input.onchange = () => saveDate();
             input.onkeydown = (e) => {
                 if (e.key === 'Enter') {
                     e.preventDefault();
@@ -973,6 +1024,7 @@
                 if (success) {
                     currentProps[config.attrKey] = newValue;
                     renderFloatBar();
+                    try { globalThis.__taskHorizonRefresh?.(); } catch (e) {}
                     if (newValue) {
                         showMessage(`已更新${config.name}`, false, 1500);
                     } else {

@@ -20,8 +20,6 @@
 (function() {
     'use strict';
     
-    console.log('🍅 任务管理器 v9.0 启动 - 支持自定义筛选规则');
-    
     const style = document.createElement('style');
     style.textContent = `
         :root {
@@ -52,6 +50,7 @@
             --tm-section-bg: #f8f9fa;
             --tm-card-bg: #ffffff;
             --tm-font-size: 14px;
+            --tm-empty-cell-bg: #f1f3f4;
         }
 
         [data-theme-mode="dark"] {
@@ -81,6 +80,7 @@
             --tm-info-border: #6ba5ff;
             --tm-section-bg: #252525;
             --tm-card-bg: #2d2d2d;
+            --tm-empty-cell-bg: #1a1a1a;
         }
 
         .tm-cell-editable {
@@ -565,21 +565,6 @@
             box-shadow: 0 2px 10px rgba(102, 126, 234, 0.3);
         }
 
-        .tm-toolbar-btn {
-            background: transparent;
-            border: none;
-            cursor: pointer;
-            padding: 4px 6px;
-            border-radius: 6px;
-            font-size: 16px;
-            line-height: 1;
-            color: white;
-        }
-
-        .tm-toolbar-btn:hover {
-            background: rgba(255,255,255,0.2);
-        }
-
         /* 任务管理器弹窗样式 */
         .tm-modal {
             position: fixed;
@@ -592,6 +577,23 @@
             display: flex;
             align-items: center;
             justify-content: center;
+        }
+
+        .tm-modal.tm-modal--mobile {
+            align-items: stretch;
+            justify-content: stretch;
+        }
+
+        .tm-modal.tm-modal--mobile .tm-box {
+            width: 100%;
+            height: 100%;
+            max-width: none;
+            max-height: none;
+            border-radius: 0;
+        }
+
+        .tm-modal.tm-modal--mobile .tm-body {
+            max-height: none;
         }
 
         @media (max-width: 768px) {
@@ -690,6 +692,23 @@
             font-size: 13px;
             font-weight: 500;
             transition: all 0.2s;
+        }
+
+        .tm-btn-secondary {
+            background: var(--tm-bg-color);
+            color: var(--tm-text-color);
+            border: 1px solid var(--tm-border-color);
+        }
+
+        .tm-btn-secondary:hover {
+            background: var(--tm-hover-bg);
+            border-color: var(--tm-text-color);
+        }
+
+        select.tm-btn-secondary {
+            background: var(--tm-bg-color) !important;
+            color: var(--tm-text-color) !important;
+            border: 1px solid var(--tm-border-color) !important;
         }
 
         .tm-btn-primary {
@@ -852,8 +871,27 @@
             color: var(--tm-text-color);
         }
 
+        .tm-table td.tm-cell-empty {
+            background: var(--tm-empty-cell-bg);
+            color: var(--tm-secondary-text);
+        }
+
         .tm-table tr:hover {
             background: var(--tm-hover-bg);
+        }
+
+        .tm-table tr.tm-timer-dim {
+            opacity: 0.28;
+        }
+
+        .tm-table tr.tm-timer-focus {
+            opacity: 1;
+            background: rgba(66, 133, 244, 0.12);
+            box-shadow: inset 0 0 0 2px var(--tm-primary-color);
+        }
+
+        .tm-table tr.tm-timer-focus:hover {
+            background: rgba(66, 133, 244, 0.16);
         }
 
         /* 列宽调整手柄 */
@@ -890,15 +928,26 @@
 
         .tm-task-cell {
             display: flex;
-            align-items: center;
+            align-items: flex-start;
             gap: 6px;
             min-width: 0;
+            padding-top: 2px;
+            padding-bottom: 2px;
         }
 
         .tm-task-text {
+            flex: 1 1 auto;
+            min-width: 0;
+            display: block;
             overflow: hidden;
             white-space: normal;
             word-break: break-all;
+            line-height: 1.5;
+        }
+
+        /* 顶层任务字体加粗 */
+        .tm-task-text[data-level="0"] {
+            font-weight: 600;
         }
 
         .tm-task-content-clickable {
@@ -913,22 +962,32 @@
 
         .tm-tree-toggle {
             width: 14px;
+            height: 14px;
+            line-height: 14px;
             display: inline-flex;
             justify-content: center;
+            align-items: center;
             cursor: pointer;
             user-select: none;
             color: var(--tm-secondary-text);
+            flex-shrink: 0;
+            margin-top: calc((1.5em - 14px) / 2);
         }
 
         .tm-tree-spacer {
             width: 14px;
+            height: 14px;
             display: inline-flex;
+            flex-shrink: 0;
+            margin-top: calc((1.5em - 14px) / 2);
         }
 
         .tm-task-checkbox {
             width: 14px;
             height: 14px;
             margin: 0;
+            flex-shrink: 0;
+            margin-top: calc((1.5em - 14px) / 2);
         }
 
         .tm-priority-high {
@@ -942,7 +1001,8 @@
         }
 
         .tm-priority-low {
-            color: var(--tm-success-color) !important;
+            color: var(--tm-primary-color) !important;
+            font-weight: 600;
         }
 
         .tm-priority-none {
@@ -1164,7 +1224,6 @@
                 const value = localStorage.getItem(key);
                 return value !== null ? JSON.parse(value) : defaultValue;
             } catch (e) {
-                console.warn(`[存储] 读取 ${key} 失败:`, e);
                 return defaultValue;
             }
         },
@@ -1172,7 +1231,6 @@
             try {
                 localStorage.setItem(key, JSON.stringify(value));
             } catch (e) {
-                console.warn(`[存储] 保存 ${key} 失败:`, e);
             }
         },
         remove(key) {
@@ -1221,12 +1279,10 @@
                                 return;
                             }
                         } catch (parseError) {
-                            console.warn('[元数据] 解析云端数据失败，跳过同步:', parseError);
                         }
                     }
                 }
             } catch (e) {
-                console.warn('[元数据] 从云端加载失败:', e);
             }
 
             // 云端没有数据，使用本地缓存（已在初始化时加载）
@@ -1242,16 +1298,12 @@
         applyToTask(task) {
             const v = this.get(task?.id);
             if (!v) return;
-            // 调试：检查应用前的数据
-            console.log(`[Meta应用] 任务 ${task.id?.slice(-6)}: 现有 priority='${task.priority}', MetaStore=${JSON.stringify(v || {})}`);
-
             // 优先使用 MetaStore 的值（非空字符串、非 'null'、非 undefined）
             // 排除 'null' 字符串（SQL 查询返回的 null 会被转成字符串 'null'）
             const isValidValue = (val) => val !== undefined && val !== null && val !== '' && val !== 'null';
 
             // 关键：优先应用 MetaStore 的 done 状态（如果存在）
             if ('done' in v && v.done !== undefined && v.done !== null) {
-                console.log(`[Meta应用] 任务 ${task.id?.slice(-6)}: 应用 MetaStore done=${v.done} (原 done=${task.done})`);
                 task.done = v.done;
             }
             if ('priority' in v && isValidValue(v.priority)) task.priority = v.priority;
@@ -1261,9 +1313,6 @@
             if ('completionTime' in v && isValidValue(v.completionTime)) task.completionTime = v.completionTime;
             if ('customTime' in v && isValidValue(v.customTime)) task.customTime = v.customTime;
             if ('customStatus' in v && isValidValue(v.customStatus)) task.customStatus = v.customStatus;
-
-            // 调试：检查应用后的数据
-            console.log(`[Meta应用后] 任务 ${task.id?.slice(-6)}: done='${task.done}', priority='${task.priority}', completionTime='${task.completionTime}'`);
         },
 
         mergeFromTaskIfMissing(task) {
@@ -1345,6 +1394,12 @@
             fontSize: 14,
             fontSizeMobile: 14,
             enableQuickbar: true,
+            pinNewTasksByDefault: false,
+            newTaskDocId: '',
+            enableTomatoIntegration: true,
+            tomatoSpentAttrMode: 'minutes',
+            tomatoSpentAttrKeyMinutes: 'custom-tomato-minutes',
+            tomatoSpentAttrKeyHours: 'custom-tomato-time',
             defaultDocId: '',
             defaultDocIdByGroup: {},
             // 默认状态选项
@@ -1391,12 +1446,18 @@
                 priority: 96,           // 重要性
                 completionTime: 170,    // 完成时间
                 duration: 96,           // 时长
+                spent: 96,              // 耗时
                 remark: 240             // 备注
             },
             // 列顺序设置
-            columnOrder: ['pinned', 'content', 'status', 'score', 'doc', 'h2', 'priority', 'completionTime', 'duration', 'remark']
+            columnOrder: ['pinned', 'content', 'status', 'score', 'doc', 'h2', 'priority', 'completionTime', 'duration', 'spent', 'remark']
         },
         loaded: false,
+        saving: false,
+        saveTimer: null,
+        saveDirty: false,
+        savePromise: null,
+        savePromiseResolve: null,
 
         async load() {
             if (this.loaded) return;
@@ -1428,6 +1489,12 @@
                                 if (typeof cloudData.fontSize === 'number') this.data.fontSize = cloudData.fontSize;
                                 if (typeof cloudData.fontSizeMobile === 'number') this.data.fontSizeMobile = cloudData.fontSizeMobile;
                                 if (typeof cloudData.enableQuickbar === 'boolean') this.data.enableQuickbar = cloudData.enableQuickbar;
+                                if (typeof cloudData.pinNewTasksByDefault === 'boolean') this.data.pinNewTasksByDefault = cloudData.pinNewTasksByDefault;
+                                if (typeof cloudData.newTaskDocId === 'string') this.data.newTaskDocId = cloudData.newTaskDocId;
+                                if (typeof cloudData.enableTomatoIntegration === 'boolean') this.data.enableTomatoIntegration = cloudData.enableTomatoIntegration;
+                                if (typeof cloudData.tomatoSpentAttrMode === 'string') this.data.tomatoSpentAttrMode = cloudData.tomatoSpentAttrMode;
+                                if (typeof cloudData.tomatoSpentAttrKeyMinutes === 'string') this.data.tomatoSpentAttrKeyMinutes = cloudData.tomatoSpentAttrKeyMinutes;
+                                if (typeof cloudData.tomatoSpentAttrKeyHours === 'string') this.data.tomatoSpentAttrKeyHours = cloudData.tomatoSpentAttrKeyHours;
                                 if (typeof cloudData.defaultDocId === 'string') this.data.defaultDocId = cloudData.defaultDocId;
                                 if (cloudData.defaultDocIdByGroup && typeof cloudData.defaultDocIdByGroup === 'object') this.data.defaultDocIdByGroup = cloudData.defaultDocIdByGroup;
                                 if (cloudData.priorityScoreConfig && typeof cloudData.priorityScoreConfig === 'object') this.data.priorityScoreConfig = cloudData.priorityScoreConfig;
@@ -1450,12 +1517,10 @@
                                 return;
                             }
                         } catch (parseError) {
-                            console.warn('[设置] 解析云端设置失败，跳过同步:', parseError);
                         }
                     }
                 }
             } catch (e) {
-                console.warn('[设置] 从云端加载设置失败:', e);
             }
 
             // 云端没有数据，从本地缓存读取
@@ -1476,6 +1541,12 @@
             this.data.fontSize = Storage.get('tm_font_size', 14);
             this.data.fontSizeMobile = Storage.get('tm_font_size_mobile', this.data.fontSize);
             this.data.enableQuickbar = Storage.get('tm_enable_quickbar', true);
+            this.data.pinNewTasksByDefault = Storage.get('tm_pin_new_tasks_by_default', false);
+            this.data.newTaskDocId = Storage.get('tm_new_task_doc_id', '');
+            this.data.enableTomatoIntegration = Storage.get('tm_enable_tomato_integration', true);
+            this.data.tomatoSpentAttrMode = Storage.get('tm_tomato_spent_attr_mode', 'minutes');
+            this.data.tomatoSpentAttrKeyMinutes = Storage.get('tm_tomato_spent_attr_key_minutes', this.data.tomatoSpentAttrKeyMinutes);
+            this.data.tomatoSpentAttrKeyHours = Storage.get('tm_tomato_spent_attr_key_hours', this.data.tomatoSpentAttrKeyHours);
             this.data.defaultDocId = Storage.get('tm_default_doc_id', '');
             this.data.defaultDocIdByGroup = Storage.get('tm_default_doc_id_by_group', {}) || {};
             this.data.priorityScoreConfig = Storage.get('tm_priority_score_config', this.data.priorityScoreConfig) || this.data.priorityScoreConfig;
@@ -1506,6 +1577,12 @@
             Storage.set('tm_font_size', this.data.fontSize);
             Storage.set('tm_font_size_mobile', this.data.fontSizeMobile);
             Storage.set('tm_enable_quickbar', !!this.data.enableQuickbar);
+            Storage.set('tm_pin_new_tasks_by_default', !!this.data.pinNewTasksByDefault);
+            Storage.set('tm_new_task_doc_id', String(this.data.newTaskDocId || '').trim());
+            Storage.set('tm_enable_tomato_integration', !!this.data.enableTomatoIntegration);
+            Storage.set('tm_tomato_spent_attr_mode', String(this.data.tomatoSpentAttrMode || 'minutes'));
+            Storage.set('tm_tomato_spent_attr_key_minutes', String(this.data.tomatoSpentAttrKeyMinutes || '').trim());
+            Storage.set('tm_tomato_spent_attr_key_hours', String(this.data.tomatoSpentAttrKeyHours || '').trim());
             Storage.set('tm_default_doc_id', this.data.defaultDocId);
             Storage.set('tm_default_doc_id_by_group', this.data.defaultDocIdByGroup || {});
             Storage.set('tm_priority_score_config', this.data.priorityScoreConfig || {});
@@ -1517,7 +1594,7 @@
         },
 
         normalizeColumns() {
-            const defaultOrder = ['pinned', 'content', 'status', 'score', 'doc', 'h2', 'priority', 'completionTime', 'duration', 'remark'];
+            const defaultOrder = ['pinned', 'content', 'status', 'score', 'doc', 'h2', 'priority', 'completionTime', 'duration', 'spent', 'remark'];
             const known = new Set(defaultOrder);
             if (!Array.isArray(this.data.columnOrder)) this.data.columnOrder = defaultOrder;
             this.data.columnOrder = this.data.columnOrder.filter(k => known.has(k));
@@ -1525,8 +1602,8 @@
                 if (!this.data.columnOrder.includes(k)) this.data.columnOrder.push(k);
             });
 
-            const percentFallback = { pinned: 5, content: 35, status: 8, score: 8, doc: 12, h2: 12, priority: 8, completionTime: 18, duration: 8, remark: 19 };
-            const pxDefault = { pinned: 48, content: 360, status: 96, score: 96, doc: 180, h2: 180, priority: 96, completionTime: 170, duration: 96, remark: 240 };
+            const percentFallback = { pinned: 5, content: 35, status: 8, score: 8, doc: 12, h2: 12, priority: 8, completionTime: 18, duration: 8, spent: 8, remark: 19 };
+            const pxDefault = { pinned: 48, content: 360, status: 96, score: 96, doc: 180, h2: 180, priority: 96, completionTime: 170, duration: 96, spent: 96, remark: 240 };
 
             const widths = (this.data.columnWidths && typeof this.data.columnWidths === 'object') ? { ...this.data.columnWidths } : {};
             const vals = Object.values(widths).filter(v => typeof v === 'number' && Number.isFinite(v));
@@ -1551,24 +1628,47 @@
         },
 
         async save() {
-            // 先同步到本地缓存
             this.syncToLocal();
+            this.saveDirty = true;
+            try { if (this.saveTimer) clearTimeout(this.saveTimer); } catch (e) {}
+            if (!this.savePromise) {
+                this.savePromise = new Promise((resolve) => {
+                    this.savePromiseResolve = resolve;
+                });
+            }
+            this.saveTimer = setTimeout(() => {
+                this.saveTimer = null;
+                this.flushSave();
+            }, 350);
+            return this.savePromise;
+        },
 
-            // 保存到云端
+        async flushSave() {
+            if (this.saving) return;
+            if (!this.saveDirty) return;
+            this.saving = true;
+            this.saveDirty = false;
             try {
                 const formData = new FormData();
                 formData.append('path', SETTINGS_FILE_PATH);
                 formData.append('isDir', 'false');
                 formData.append('file', new Blob([JSON.stringify(this.data, null, 2)], { type: 'application/json' }));
 
-                const res = await fetch('/api/file/putFile', { method: 'POST', body: formData });
-
-                if (!res.ok) {
-                    throw new Error(`HTTP ${res.status}: ${res.statusText}`);
-                }
-                console.log('[设置] 已保存到云端');
+                await fetch('/api/file/putFile', { method: 'POST', body: formData }).catch(() => null);
             } catch (e) {
-                console.warn('[设置] 保存到云端失败，本地数据已保存:', e);
+            } finally {
+                this.saving = false;
+                if (this.saveDirty) {
+                    try { if (this.saveTimer) clearTimeout(this.saveTimer); } catch (e) {}
+                    this.saveTimer = setTimeout(() => {
+                        this.saveTimer = null;
+                        this.flushSave();
+                    }, 50);
+                    return;
+                }
+                try { this.savePromiseResolve?.(); } catch (e) {}
+                this.savePromise = null;
+                this.savePromiseResolve = null;
             }
         },
 
@@ -1895,9 +1995,10 @@
         
         // 评估时间条件
         evaluateTimeCondition(taskTime, operator, value) {
-            if (!taskTime) return operator === '!='; // 空时间处理
-            
-            const taskDate = new Date(taskTime);
+            const taskTs = __tmParseTimeToTs(taskTime);
+            if (!taskTs) return operator === '!='; // 空时间处理
+
+            const taskDate = new Date(taskTs);
             const now = new Date();
             
             switch(operator) {
@@ -1922,11 +2023,11 @@
                     return taskDate >= yearStart && taskDate < yearEnd;
                 }
                 case 'before': {
-                    const targetDate = new Date(value);
+                    const targetDate = new Date(__tmParseTimeToTs(value) || value);
                     return taskDate < targetDate;
                 }
                 case 'after': {
-                    const targetDate = new Date(value);
+                    const targetDate = new Date(__tmParseTimeToTs(value) || value);
                     return taskDate > targetDate;
                 }
                 case 'between': {
@@ -1940,8 +2041,8 @@
                         from = parts[0] || '';
                         to = parts[1] || '';
                     }
-                    const fromDate = new Date(from);
-                    const toDate = new Date(to);
+                    const fromDate = new Date(__tmParseTimeToTs(from) || from);
+                    const toDate = new Date(__tmParseTimeToTs(to) || to);
                     return taskDate >= fromDate && taskDate <= toDate;
                 }
                 case '=': return taskTime === value;
@@ -1985,7 +2086,9 @@
             // 处理优先级特殊比较
             if (field === 'priority') {
                 const priorityOrder = { high: 3, medium: 2, low: 1 };
-                return (priorityOrder[a] || 0) - (priorityOrder[b] || 0);
+                const na = ({ '高': 'high', '中': 'medium', '低': 'low' }[String(a ?? '').trim()] || String(a ?? '').trim());
+                const nb = ({ '高': 'high', '中': 'medium', '低': 'low' }[String(b ?? '').trim()] || String(b ?? '').trim());
+                return (priorityOrder[na] || 0) - (priorityOrder[nb] || 0);
             }
             if (field === 'priorityScore') {
                 const na = Number(a);
@@ -2045,6 +2148,31 @@
             return res.data;
         },
 
+        async createDailyNote(notebook) {
+            const box = String(notebook || '').trim();
+            if (!box) throw new Error('未指定笔记本');
+            const res = await this.call('/api/filetree/createDailyNote', { notebook: box });
+            if (res.code !== 0) throw new Error(res.msg || '创建日记失败');
+            const data = res.data;
+            if (typeof data === 'string') return data;
+            if (data && typeof data === 'object') {
+                const id = data.id || data.ID || data.docId || data.docID || data.docid;
+                if (id) return id;
+            }
+            throw new Error('创建日记失败');
+        },
+
+        async getDocNotebook(docId) {
+            const id = String(docId || '').trim();
+            if (!id) return '';
+            const sql = `SELECT box FROM blocks WHERE id = '${id}' AND type = 'd'`;
+            const res = await this.call('/api/query/sql', { stmt: sql });
+            if (res.code === 0 && Array.isArray(res.data) && res.data.length > 0) {
+                return String(res.data[0]?.box || '').trim();
+            }
+            return '';
+        },
+
         async getSubDocIds(docId) {
             try {
                 // 先获取根文档的 path
@@ -2061,7 +2189,6 @@
                     return res.data.map(d => d.id);
                 }
             } catch (e) {
-                console.warn('[API] 获取子文档失败:', e);
             }
             return [];
         },
@@ -2079,7 +2206,6 @@
                 const m = location.hash.match(/id=([0-9a-z-]+)/);
                 if (m) return m[1];
             } catch(e) {
-                console.warn('[文档] URL获取失败:', e.message);
             }
             return null;
         },
@@ -2141,8 +2267,21 @@
         },
 
         async getTasksByDocument(docId, limit = 500) {
-            console.log(`[查询] 开始查询文档 ${docId.slice(0, 8)}... 的任务`);
-            
+            const tomatoEnabled = !!SettingsStore.data.enableTomatoIntegration;
+            const tomatoMinutesKey = __tmSafeAttrName(SettingsStore.data.tomatoSpentAttrKeyMinutes, 'custom-tomato-minutes');
+            const tomatoHoursKey = __tmSafeAttrName(SettingsStore.data.tomatoSpentAttrKeyHours, 'custom-tomato-time');
+            const extraNames = tomatoEnabled ? [tomatoMinutesKey, tomatoHoursKey].filter((v, i, a) => v && a.indexOf(v) === i) : [];
+            const attrNamesSql = [
+                'custom-priority',
+                'custom-duration',
+                'custom-remark',
+                'custom-completion-time',
+                'custom-time',
+                'custom-status',
+                'custom-pinned',
+                ...extraNames
+            ].map(n => `'${n}'`).join(',\n                            ');
+
             const sql = `
                 SELECT 
                     task.id,
@@ -2164,7 +2303,10 @@
                     attr.remark,
                     attr.completion_time,
                     attr.time as custom_time,
-                    attr.custom_status
+                    attr.custom_status,
+                    attr.pinned,
+                    attr.tomato_minutes,
+                    attr.tomato_hours
                     
                 FROM blocks AS task
                 
@@ -2183,7 +2325,10 @@
                         MAX(CASE WHEN a.name = 'custom-remark' THEN a.value ELSE NULL END) as remark,
                         MAX(CASE WHEN a.name = 'custom-completion-time' THEN a.value ELSE NULL END) as completion_time,
                         MAX(CASE WHEN a.name = 'custom-time' THEN a.value ELSE NULL END) as time,
-                        MAX(CASE WHEN a.name = 'custom-status' THEN a.value ELSE NULL END) as custom_status
+                        MAX(CASE WHEN a.name = 'custom-status' THEN a.value ELSE NULL END) as custom_status,
+                        MAX(CASE WHEN a.name = 'custom-pinned' THEN a.value ELSE NULL END) as pinned,
+                        ${tomatoEnabled ? `MAX(CASE WHEN a.name = '${tomatoMinutesKey}' THEN a.value ELSE NULL END) as tomato_minutes` : `NULL as tomato_minutes`},
+                        ${tomatoEnabled ? `MAX(CASE WHEN a.name = '${tomatoHoursKey}' THEN a.value ELSE NULL END) as tomato_hours` : `NULL as tomato_hours`}
                     FROM attributes a
                     INNER JOIN blocks t ON t.id = a.block_id
                     WHERE 
@@ -2191,12 +2336,7 @@
                         AND t.subtype = 't'
                         AND t.root_id = '${docId}'
                         AND a.name IN (
-                            'custom-priority',
-                            'custom-duration',
-                            'custom-remark',
-                            'custom-completion-time',
-                            'custom-time',
-                            'custom-status'
+                            ${attrNamesSql}
                         )
                     GROUP BY a.block_id
                 ) AS attr ON attr.block_id = task.id
@@ -2220,8 +2360,6 @@
                 console.error(`[查询] 文档 ${docId.slice(0, 8)} 查询失败:`, res.msg);
                 return { tasks: [], queryTime };
             }
-
-            console.log(`[查询] 文档 ${docId.slice(0, 8)} 获取到 ${res.data?.length || 0} 个任务，耗时 ${queryTime}ms`);
             return { tasks: res.data || [], queryTime };
         },
 
@@ -2230,6 +2368,21 @@
             if (safeDocIds.length === 0) return { tasks: [], queryTime: 0 };
             const idList = safeDocIds.map(id => `'${id}'`).join(',');
             const perDocLimit = Number.isFinite(limitPerDoc) ? Math.max(1, Math.min(5000, limitPerDoc)) : 500;
+
+            const tomatoEnabled = !!SettingsStore.data.enableTomatoIntegration;
+            const tomatoMinutesKey = __tmSafeAttrName(SettingsStore.data.tomatoSpentAttrKeyMinutes, 'custom-tomato-minutes');
+            const tomatoHoursKey = __tmSafeAttrName(SettingsStore.data.tomatoSpentAttrKeyHours, 'custom-tomato-time');
+            const extraNames = tomatoEnabled ? [tomatoMinutesKey, tomatoHoursKey].filter((v, i, a) => v && a.indexOf(v) === i) : [];
+            const attrNamesSql = [
+                'custom-priority',
+                'custom-duration',
+                'custom-remark',
+                'custom-completion-time',
+                'custom-time',
+                'custom-status',
+                'custom-pinned',
+                ...extraNames
+            ].map(n => `'${n}'`).join(',\n                        ');
 
             const sql = `
                 WITH tasks0 AS (
@@ -2264,16 +2417,14 @@
                         MAX(CASE WHEN a.name = 'custom-remark' THEN a.value ELSE NULL END) AS remark,
                         MAX(CASE WHEN a.name = 'custom-completion-time' THEN a.value ELSE NULL END) AS completion_time,
                         MAX(CASE WHEN a.name = 'custom-time' THEN a.value ELSE NULL END) AS time,
-                        MAX(CASE WHEN a.name = 'custom-status' THEN a.value ELSE NULL END) AS custom_status
+                        MAX(CASE WHEN a.name = 'custom-status' THEN a.value ELSE NULL END) AS custom_status,
+                        MAX(CASE WHEN a.name = 'custom-pinned' THEN a.value ELSE NULL END) AS pinned,
+                        ${tomatoEnabled ? `MAX(CASE WHEN a.name = '${tomatoMinutesKey}' THEN a.value ELSE NULL END) AS tomato_minutes` : `NULL AS tomato_minutes`},
+                        ${tomatoEnabled ? `MAX(CASE WHEN a.name = '${tomatoHoursKey}' THEN a.value ELSE NULL END) AS tomato_hours` : `NULL AS tomato_hours`}
                     FROM attributes a
                     INNER JOIN tasks t ON t.id = a.block_id
                     WHERE a.name IN (
-                        'custom-priority',
-                        'custom-duration',
-                        'custom-remark',
-                        'custom-completion-time',
-                        'custom-time',
-                        'custom-status'
+                        ${attrNamesSql}
                     )
                     GROUP BY a.block_id
                 )
@@ -2293,7 +2444,10 @@
                     attr.remark,
                     attr.completion_time,
                     attr.time AS custom_time,
-                    attr.custom_status
+                    attr.custom_status,
+                    attr.pinned,
+                    attr.tomato_minutes,
+                    attr.tomato_hours
                 FROM tasks t
                 LEFT JOIN blocks parent_list ON parent_list.id = t.parent_id
                 LEFT JOIN blocks parent_task ON parent_task.id = parent_list.parent_id AND parent_task.type = 'i' AND parent_task.subtype = 't'
@@ -2317,7 +2471,6 @@
                     return { tasks: [], queryTime };
                 }
             }
-            console.log(`[查询] 批量获取到 ${res.data?.length || 0} 个任务，耗时 ${queryTime}ms`);
             return { tasks: res.data || [], queryTime };
         },
 
@@ -2455,6 +2608,51 @@
             return contextMap;
         },
 
+        async fetchNearestCustomPriority(taskIds, maxDepth = 8) {
+            const ids = Array.from(new Set((taskIds || []).map(x => String(x || '').trim()).filter(Boolean)));
+            if (ids.length === 0) return new Map();
+            const depth = Number.isFinite(Number(maxDepth)) ? Math.max(1, Math.min(20, Math.floor(Number(maxDepth)))) : 8;
+            const escapeId = (s) => String(s).replace(/'/g, "''");
+            const seeds = ids.map(id => `('${escapeId(id)}','${escapeId(id)}',0)`).join(',');
+            const sql = `
+                WITH RECURSIVE up(start_id, id, depth) AS (
+                    VALUES ${seeds}
+                    UNION ALL
+                    SELECT up.start_id, b.parent_id, up.depth + 1
+                    FROM blocks b
+                    JOIN up ON b.id = up.id
+                    WHERE up.depth < ${depth}
+                      AND b.parent_id IS NOT NULL
+                      AND b.parent_id != ''
+                ),
+                candidates AS (
+                    SELECT
+                        up.start_id,
+                        a.value AS priority,
+                        up.depth,
+                        ROW_NUMBER() OVER (PARTITION BY up.start_id ORDER BY up.depth ASC) AS rn
+                    FROM up
+                    JOIN attributes a ON a.block_id = up.id
+                    WHERE a.name = 'custom-priority'
+                      AND a.value IS NOT NULL
+                      AND a.value != ''
+                )
+                SELECT start_id, priority
+                FROM candidates
+                WHERE rn = 1
+            `;
+            const res = await this.call('/api/query/sql', { stmt: sql });
+            const map = new Map();
+            if (res.code === 0 && Array.isArray(res.data)) {
+                res.data.forEach(row => {
+                    const id = String(row?.start_id || '').trim();
+                    const v = String(row?.priority || '').trim();
+                    if (id && v) map.set(id, v);
+                });
+            }
+            return map;
+        },
+
         async setAttr(id, key, val) {
             const res = await this.call('/api/attr/setBlockAttrs', { 
                 id: id, 
@@ -2548,6 +2746,42 @@
             return id;
         },
 
+        async moveBlock(id, { previousID, parentID } = {}) {
+            const pid = String(previousID || '');
+            const par = String(parentID || '');
+            if (!pid && !par) throw new Error('移动失败：缺少目标位置');
+            const payload = { id };
+            if (pid) payload.previousID = pid;
+            if (par) payload.parentID = par;
+            const res = await this.call('/api/block/moveBlock', payload);
+            if (res.code !== 0) throw new Error(res.msg || '移动块失败');
+            return true;
+        },
+
+        async getLastDirectChildIdOfDoc(docId) {
+            const id = String(docId || '').trim();
+            if (!id) return null;
+            const sql = `SELECT id FROM blocks WHERE parent_id = '${id}' ORDER BY created DESC LIMIT 1`;
+            const res = await this.call('/api/query/sql', { stmt: sql });
+            if (res.code === 0 && res.data && res.data.length > 0) {
+                const lastId = String(res.data[0]?.id || '').trim();
+                if (lastId && lastId !== id) return lastId;
+            }
+            return null;
+        },
+
+        async getFirstDirectChildListIdOfDoc(docId) {
+            const id = String(docId || '').trim();
+            if (!id) return null;
+            const sql = `SELECT id FROM blocks WHERE parent_id = '${id}' AND type = 'l' ORDER BY created ASC LIMIT 1`;
+            const res = await this.call('/api/query/sql', { stmt: sql });
+            if (res.code === 0 && res.data && res.data.length > 0) {
+                const listId = String(res.data[0]?.id || '').trim();
+                if (listId) return listId;
+            }
+            return null;
+        },
+
         async getBlockInfo(id) {
             const res = await this.call('/api/block/getBlockInfo', { id });
             if (res.code !== 0) throw new Error(res.msg);
@@ -2565,6 +2799,56 @@
             const sql = `SELECT id FROM blocks WHERE parent_id = '${listId}' AND type = 'i' AND subtype = 't' ORDER BY created`;
             const res = await this.call('/api/query/sql', { stmt: sql });
             if (res.code === 0 && res.data) return res.data.map(r => r.id).filter(Boolean);
+            return [];
+        },
+
+        async getFirstTaskIdUnderBlock(blockId) {
+            const id = String(blockId || '').trim();
+            if (!id) return null;
+            const sql = `SELECT id FROM blocks WHERE parent_id = '${id}' AND type = 'i' AND subtype = 't' ORDER BY created ASC LIMIT 1`;
+            const res = await this.call('/api/query/sql', { stmt: sql });
+            if (res.code === 0 && res.data && res.data.length > 0) {
+                const tid = String(res.data[0]?.id || '').trim();
+                return tid || null;
+            }
+            return null;
+        },
+
+        async getFirstTaskDescendantId(blockId, maxDepth = 6) {
+            const id = String(blockId || '').trim();
+            const depth = Number.isFinite(Number(maxDepth)) ? Math.max(1, Math.min(20, Math.floor(Number(maxDepth)))) : 6;
+            if (!id) return null;
+            const sql = `
+                WITH RECURSIVE tree(id, depth) AS (
+                    SELECT '${id}' AS id, 0 AS depth
+                    UNION ALL
+                    SELECT b.id, t.depth + 1
+                    FROM blocks b
+                    JOIN tree t ON b.parent_id = t.id
+                    WHERE t.depth < ${depth}
+                )
+                SELECT b.id
+                FROM blocks b
+                JOIN tree t ON t.id = b.id
+                WHERE b.type = 'i' AND b.subtype = 't'
+                ORDER BY t.depth ASC, b.created DESC
+                LIMIT 1
+            `;
+            const res = await this.call('/api/query/sql', { stmt: sql });
+            if (res.code === 0 && res.data && res.data.length > 0) {
+                const tid = String(res.data[0]?.id || '').trim();
+                return tid || null;
+            }
+            return null;
+        },
+
+        async getBlocksByIds(ids) {
+            const list = Array.from(new Set((ids || []).map(x => String(x || '').trim()).filter(Boolean)));
+            if (list.length === 0) return [];
+            const quoted = list.map(id => `'${id.replace(/'/g, "''")}'`).join(',');
+            const sql = `SELECT id, parent_id, type, subtype FROM blocks WHERE id IN (${quoted})`;
+            const res = await this.call('/api/query/sql', { stmt: sql });
+            if (res.code === 0 && Array.isArray(res.data)) return res.data;
             return [];
         },
 
@@ -2595,8 +2879,32 @@
         });
         if (Object.keys(attrs).length === 0) return;
         API.setAttrs(id, attrs).catch(e => {
-            console.warn('[属性] 保存到区块失败:', e);
         });
+    }
+
+    async function __tmPersistMetaAndAttrsAsync(id, patch) {
+        if (!id || !patch || typeof patch !== 'object') return false;
+        MetaStore.set(id, patch);
+        const attrs = {};
+        Object.entries(patch).forEach(([key, val]) => {
+            const attrKey = __tmMetaAttrMap[key];
+            if (!attrKey) return;
+            attrs[attrKey] = String(val ?? '');
+        });
+        if (Object.keys(attrs).length === 0) return true;
+        let lastErr = null;
+        for (let i = 0; i < 3; i++) {
+            try {
+                await API.setAttrs(id, attrs);
+                try { await API.call('/api/sqlite/flushTransaction', {}); } catch (e) {}
+                try { await MetaStore.saveNow(); } catch (e) {}
+                return true;
+            } catch (e) {
+                lastErr = e;
+                await new Promise(r => setTimeout(r, 120 + i * 200));
+            }
+        }
+        throw lastErr || new Error('保存属性失败');
     }
     let state = {
         // 数据状态
@@ -2609,6 +2917,9 @@
         settingsModal: null,
         rulesModal: null,
         priorityModal: null,
+        quickAddModal: null,
+        quickAddDocPicker: null,
+        quickAdd: null,
 
         // 筛选状态
         currentRule: null,
@@ -2625,6 +2936,7 @@
         queryLimit: 500,
         groupByDocName: true,
         collapsedTaskIds: new Set(),
+        timerFocusTaskId: '',
         
         // 统计信息
         stats: {
@@ -2641,6 +2953,12 @@
     };
 
     let __tmMountEl = null;
+    let __tmWakeReloadBound = false;
+    let __tmWasHiddenAt = 0;
+    let __tmWakeReloadTimer = null;
+    let __tmWakeReloadInFlight = false;
+    let __tmVisibilityHandler = null;
+    let __tmFocusHandler = null;
 
     function __tmSetMount(el) {
         if (el && !document.body.contains(el)) {
@@ -2649,12 +2967,45 @@
         __tmMountEl = el || null;
     }
 
+    function __tmFindBestTabRoot() {
+        try {
+            const all = Array.from(document.querySelectorAll('.tm-tab-root')).filter(el => !!el && document.body.contains(el));
+            if (all.length === 0) return null;
+            const isVisible = (el) => {
+                try {
+                    if (!el) return false;
+                    const rect = el.getBoundingClientRect?.();
+                    if (!rect) return false;
+                    return rect.width > 0 && rect.height > 0;
+                } catch (e) {
+                    return false;
+                }
+            };
+            const visible = all.filter(isVisible);
+            return visible[visible.length - 1] || all[all.length - 1] || null;
+        } catch (e) {
+            return null;
+        }
+    }
+
     function __tmEnsureMount() {
         if (__tmMountEl && !document.body.contains(__tmMountEl)) {
             __tmMountEl = null;
         }
-        if (!__tmMountEl && globalThis.__taskHorizonTabElement) {
+        try {
+            if (globalThis.__taskHorizonTabElement && !document.body.contains(globalThis.__taskHorizonTabElement)) {
+                globalThis.__taskHorizonTabElement = null;
+            }
+        } catch (e) {}
+        if (!__tmMountEl && globalThis.__taskHorizonTabElement && document.body.contains(globalThis.__taskHorizonTabElement)) {
             __tmSetMount(globalThis.__taskHorizonTabElement);
+        }
+        if (!__tmMountEl) {
+            const best = __tmFindBestTabRoot();
+            if (best) {
+                try { globalThis.__taskHorizonTabElement = best; } catch (e) {}
+                __tmSetMount(best);
+            }
         }
     }
 
@@ -2668,14 +3019,162 @@
     let __tmDomReadyHandler = null;
     let __tmBreadcrumbObserver = null;
     let __tmTopBarTimer = null;
-    let __tmEntryMountTimer = null;
-    let __tmEntryObserverTimer = null;
     let __tmTopBarAdded = false;
+    let __tmTomatoTimerHooked = false;
+    let __tmTomatoOriginalTimerFns = null;
+    let __tmTomatoAssociationListenerAdded = false;
+    let __tmTomatoAssociationHandler = null;
+    let __tmPinnedListenerAdded = false;
+    let __tmQuickAddGlobalClickHandler = null;
+
+    async function __tmSafeOpenManager(reason) {
+        try {
+            await openManager();
+        } catch (e) {
+            try { console.error(`[OpenManager:${String(reason || '')}]`, e); } catch (e2) {}
+            try { hint(`❌ 加载失败: ${e?.message || String(e)}`, 'error'); } catch (e3) {}
+        }
+    }
+
+    function __tmScheduleWakeReload(reason) {
+        try { if (__tmWakeReloadTimer) clearTimeout(__tmWakeReloadTimer); } catch (e) {}
+        __tmWakeReloadTimer = setTimeout(() => {
+            __tmWakeReloadTimer = null;
+            __tmRecoverAfterWake(reason).catch(() => {});
+        }, 350);
+    }
+
+    async function __tmRecoverAfterWake(reason) {
+        if (__tmWakeReloadInFlight) return;
+        __tmWakeReloadInFlight = true;
+        try {
+            if (document.visibilityState === 'hidden') return;
+            const best = __tmFindBestTabRoot();
+            if (!best) return;
+            try { globalThis.__taskHorizonTabElement = best; } catch (e) {}
+            __tmSetMount(best);
+            __tmEnsureMount();
+            if (!__tmMountEl) return;
+            try { render(); } catch (e) {}
+            await __tmSafeOpenManager('wake:' + String(reason || 'unknown'));
+        } finally {
+            __tmWakeReloadInFlight = false;
+        }
+    }
+
+    function __tmBindWakeReload() {
+        if (__tmWakeReloadBound) return;
+        __tmWakeReloadBound = true;
+        __tmVisibilityHandler = () => {
+            try {
+                if (document.visibilityState === 'hidden') {
+                    __tmWasHiddenAt = Date.now();
+                    return;
+                }
+                const gap = Date.now() - (__tmWasHiddenAt || 0);
+                if (gap > 10000) __tmScheduleWakeReload('visibility');
+            } catch (e) {}
+        };
+        __tmFocusHandler = () => {
+            try {
+                const gap = Date.now() - (__tmWasHiddenAt || 0);
+                if (gap > 10000) __tmScheduleWakeReload('focus');
+            } catch (e) {}
+        };
+        try { document.addEventListener('visibilitychange', __tmVisibilityHandler); } catch (e) {}
+        try { window.addEventListener('focus', __tmFocusHandler); } catch (e) {}
+    }
+
+    function __tmHookTomatoTimer() {
+        if (__tmTomatoTimerHooked) return;
+        const timer = globalThis.__tomatoTimer;
+        if (!timer || typeof timer !== 'object') return;
+        if (!__tmTomatoOriginalTimerFns) __tmTomatoOriginalTimerFns = {};
+        const wrap = (name) => {
+            const current = timer[name];
+            if (typeof current !== 'function') return;
+            if (current.__tmWrapped) return;
+            if (!__tmTomatoOriginalTimerFns[name]) __tmTomatoOriginalTimerFns[name] = current;
+            const original = __tmTomatoOriginalTimerFns[name];
+            if (typeof original !== 'function') return;
+            const wrapped = function(...args) {
+                const res = original.apply(this, args);
+                try {
+                    state.timerFocusTaskId = '';
+                    if (state.modal && document.body.contains(state.modal)) render();
+                } catch (e) {}
+                return res;
+            };
+            wrapped.__tmWrapped = true;
+            try { timer[name] = wrapped; } catch (e) {}
+        };
+        [
+            'clearTaskAssociation',
+            'clearAssociation',
+            'clearTask',
+            'clearCurrentTask',
+            'unbindTask',
+            'stop',
+            'reset',
+        ].forEach(wrap);
+        __tmTomatoTimerHooked = true;
+    }
+
+    function __tmListenTomatoAssociationCleared() {
+        if (__tmTomatoAssociationListenerAdded) return;
+        __tmTomatoAssociationHandler = () => {
+            try {
+                state.timerFocusTaskId = '';
+                if (state.modal && document.body.contains(state.modal)) render();
+            } catch (e) {}
+        };
+        try { window.addEventListener('tomato:association-cleared', __tmTomatoAssociationHandler); } catch (e) {}
+        globalThis.__taskHorizonOnTomatoAssociationCleared = () => {
+            try {
+                state.timerFocusTaskId = '';
+                if (state.modal && document.body.contains(state.modal)) render();
+            } catch (e) {}
+        };
+        __tmTomatoAssociationListenerAdded = true;
+    }
+
+    function __tmListenPinnedChanged() {
+        if (__tmPinnedListenerAdded) return;
+        globalThis.__taskHorizonOnPinnedChanged = (taskId, pinned) => {
+            try {
+                const id = String(taskId || '').trim();
+                if (!id) return;
+                const task = state.flatTasks?.[id];
+                if (!task) return;
+                const val = !!pinned;
+                task.pinned = val;
+                try { MetaStore.set(id, { pinned: val }); } catch (e) {}
+                try { applyFilters(); } catch (e) {}
+                if (state.modal && document.body.contains(state.modal)) render();
+            } catch (e) {}
+        };
+        __tmPinnedListenerAdded = true;
+    }
 
     function esc(s) {
         const d = document.createElement('div');
         d.textContent = s;
         return d.innerHTML;
+    }
+
+    function __tmSafeAttrName(name, fallback) {
+        const f = String(fallback || '').trim() || 'custom-tomato-minutes';
+        const s = String(name || '').trim() || f;
+        if (!/^custom-[a-zA-Z0-9_-]+$/.test(s)) return f;
+        return s;
+    }
+
+    function __tmParseNumber(value) {
+        const s = String(value ?? '').trim();
+        if (!s) return Number.NaN;
+        const m = s.match(/-?\d+(?:\.\d+)?/);
+        if (!m) return Number.NaN;
+        return Number(m[0]);
     }
 
     const __tmIsMobileDevice = () => {
@@ -2714,6 +3213,7 @@
         const el = document.createElement('div');
         el.className = 'tm-hint';
         el.style.background = colors[type] || '#666';
+        if (!__tmIsMobileDevice()) el.style.top = '35px';
         el.textContent = msg;
         document.body.appendChild(el);
         setTimeout(() => el.remove(), 2500);
@@ -2768,6 +3268,58 @@
                     cancelBtn.click();
                 }
             };
+        });
+    }
+
+    function showConfirm(title, message) {
+        return new Promise((resolve) => {
+            const existing = document.querySelector('.tm-prompt-modal');
+            if (existing) existing.remove();
+
+            const modal = document.createElement('div');
+            modal.className = 'tm-prompt-modal';
+
+            modal.innerHTML = `
+                <div class="tm-prompt-box">
+                    <div class="tm-prompt-title">${esc(String(title || '确认'))}</div>
+                    <div style="padding: 10px 0; color: var(--tm-text-color); font-size: 14px; line-height: 1.5;">
+                        ${esc(String(message || ''))}
+                    </div>
+                    <div class="tm-prompt-buttons">
+                        <button class="tm-prompt-btn tm-prompt-btn-secondary" id="tm-confirm-cancel">取消</button>
+                        <button class="tm-prompt-btn tm-prompt-btn-primary" id="tm-confirm-ok">确定</button>
+                    </div>
+                </div>
+            `;
+
+            document.body.appendChild(modal);
+
+            const okBtn = modal.querySelector('#tm-confirm-ok');
+            const cancelBtn = modal.querySelector('#tm-confirm-cancel');
+            const cleanupKey = () => {
+                try { document.removeEventListener('keydown', onKey, true); } catch (e) {}
+            };
+            function onKey(e) {
+                if (e.key === 'Escape') {
+                    cleanupKey();
+                    cancelBtn.click();
+                }
+            }
+
+            okBtn.onclick = () => {
+                cleanupKey();
+                modal.remove();
+                resolve(true);
+            };
+            cancelBtn.onclick = () => {
+                cleanupKey();
+                modal.remove();
+                resolve(false);
+            };
+            modal.onclick = (e) => {
+                if (e.target === modal) cancelBtn.click();
+            };
+            document.addEventListener('keydown', onKey, true);
         });
     }
 
@@ -2925,10 +3477,10 @@
                 <div class="tm-rules-header">
                     <div class="tm-rules-title">📋 筛选规则管理器</div>
                     <div style="display:flex;gap:10px;align-items:center;">
-                        <button class="tm-rule-btn tm-rule-btn-secondary" onclick="showPriorityScoreSettings()">
+                        <button class="tm-rule-btn tm-rule-btn-secondary" data-tm-action="showPriorityScoreSettings">
                             优先级算法
                         </button>
-                        <button class="tm-rule-btn tm-rule-btn-success" onclick="addNewRule()">
+                        <button class="tm-rule-btn tm-rule-btn-success" data-tm-action="addNewRule">
                             <span>+</span> 添加规则
                         </button>
                     </div>
@@ -2943,14 +3495,121 @@
                         当前有 ${state.filterRules.filter(r => r.enabled).length} 个启用的规则
                     </div>
                     <div style="display: flex; gap: 10px;">
-                        <button class="tm-rule-btn tm-rule-btn-secondary" onclick="closeRulesManager()">取消</button>
-                        <button class="tm-rule-btn tm-rule-btn-success" onclick="saveRules()">保存规则</button>
+                        <button class="tm-rule-btn tm-rule-btn-secondary" data-tm-action="closeRulesManager">取消</button>
+                        <button class="tm-rule-btn tm-rule-btn-success" data-tm-action="saveRules">保存规则</button>
                     </div>
                 </div>
             </div>
         `;
         
         document.body.appendChild(state.rulesModal);
+        __tmBindRulesManagerEvents(state.rulesModal);
+    }
+
+    function __tmBindRulesManagerEvents(rootEl) {
+        const root = rootEl || state.rulesModal;
+        if (!root || root.__tmRulesManagerBound) return;
+        root.__tmRulesManagerBound = true;
+
+        root.addEventListener('click', async (e) => {
+            const target = e.target?.closest?.('[data-tm-call],[data-tm-action]');
+            if (!target || !root.contains(target)) return;
+            const tag = String(target.tagName || '').toLowerCase();
+            if (tag === 'select' || tag === 'input' || tag === 'textarea' || tag === 'option') return;
+            e.preventDefault();
+
+            const callName = String(target.dataset.tmCall || '');
+            if (callName) {
+                const fn = window[callName];
+                if (typeof fn !== 'function') return;
+                let args = [];
+                const raw = target.dataset.tmArgs;
+                if (raw) {
+                    try {
+                        const parsed = JSON.parse(raw);
+                        args = Array.isArray(parsed) ? parsed : [parsed];
+                    } catch (e2) {}
+                }
+                return await fn(...args);
+            }
+
+            const action = String(target.dataset.tmAction || '');
+            const ruleId = String(target.dataset.ruleId || '');
+            const index = target.dataset.index !== undefined ? Number(target.dataset.index) : NaN;
+            const delta = target.dataset.delta !== undefined ? Number(target.dataset.delta) : NaN;
+            const tab = String(target.dataset.tab || '');
+
+            if (action === 'editRule') return window.editRule?.(ruleId);
+            if (action === 'deleteRule') return window.deleteRule?.(ruleId);
+            if (action === 'applyRuleNow') return window.applyRuleNow?.(ruleId);
+            if (action === 'removeCondition') return window.removeCondition?.(index);
+            if (action === 'moveSortRule') return window.moveSortRule?.(index, delta);
+            if (action === 'removeSortRule') return window.removeSortRule?.(index);
+            if (action === 'tmSwitchSettingsTab') return window.tmSwitchSettingsTab?.(tab);
+
+            const fn = window[action];
+            if (typeof fn === 'function') return await fn();
+        });
+
+        root.addEventListener('change', (e) => {
+            const target = e.target?.closest?.('[data-tm-call],[data-tm-change]');
+            if (!target || !root.contains(target)) return;
+
+            const callName = String(target.dataset.tmCall || '');
+            if (callName) {
+                const fn = window[callName];
+                if (typeof fn !== 'function') return;
+                let args = [];
+                const raw = target.dataset.tmArgs;
+                if (raw) {
+                    try {
+                        const parsed = JSON.parse(raw);
+                        args = Array.isArray(parsed) ? parsed : [parsed];
+                    } catch (e2) {}
+                }
+                const val = (target.type === 'checkbox') ? !!target.checked : target.value;
+                return fn(...args, val);
+            }
+
+            const changeType = String(target.dataset.tmChange || '');
+            const ruleId = String(target.dataset.ruleId || '');
+            const index = target.dataset.index !== undefined ? Number(target.dataset.index) : NaN;
+            const optionValue = String(target.dataset.optionValue || '');
+            const rangeKey = String(target.dataset.rangeKey || '');
+
+            if (changeType === 'toggleRuleEnabled') return window.toggleRuleEnabled?.(ruleId, !!target.checked);
+            if (changeType === 'updateConditionField') return window.updateConditionField?.(index, target.value);
+            if (changeType === 'updateConditionOperator') return window.updateConditionOperator?.(index, target.value);
+            if (changeType === 'updateConditionValue') return window.updateConditionValue?.(index, target.value);
+            if (changeType === 'toggleConditionMultiValue') return window.toggleConditionMultiValue?.(index, optionValue, !!target.checked);
+            if (changeType === 'updateConditionValueRange') return window.updateConditionValueRange?.(index, rangeKey, target.value);
+            if (changeType === 'updateSortField') return window.updateSortField?.(index, target.value);
+            if (changeType === 'updateSortOrder') return window.updateSortOrder?.(index, target.value);
+        });
+
+        root.addEventListener('input', (e) => {
+            const target = e.target?.closest?.('[data-tm-call],[data-tm-input]');
+            if (!target || !root.contains(target)) return;
+
+            const callName = String(target.dataset.tmCall || '');
+            if (callName) {
+                const fn = window[callName];
+                if (typeof fn !== 'function') return;
+                let args = [];
+                const raw = target.dataset.tmArgs;
+                if (raw) {
+                    try {
+                        const parsed = JSON.parse(raw);
+                        args = Array.isArray(parsed) ? parsed : [parsed];
+                    } catch (e2) {}
+                }
+                const val = (target.type === 'checkbox') ? !!target.checked : target.value;
+                return fn(...args, val);
+            }
+
+            const inputType = String(target.dataset.tmInput || '');
+            if (inputType === 'updateEditingRuleName') return window.updateEditingRuleName?.(target.value);
+        });
     }
 
     // 渲染规则列表
@@ -3039,16 +3698,17 @@
                 <div class="tm-rule-group-header">
                     <div class="tm-rule-group-title">
                         <input type="checkbox" ${rule.enabled ? 'checked' : ''} 
-                               onchange="toggleRuleEnabled('${rule.id}', this.checked)"
+                               data-tm-change="toggleRuleEnabled"
+                               data-rule-id="${esc(String(rule.id))}"
                                style="margin-right: 8px;">
                         ${esc(rule.name)}
                         ${state.currentRule === rule.id ? '<span style="color: var(--tm-success-color); margin-left: 8px;">(当前应用)</span>' : ''}
                     </div>
                     <div class="tm-rule-group-controls">
-                        <button class="tm-rule-btn tm-rule-btn-primary" onclick="editRule('${rule.id}')">
+                        <button class="tm-rule-btn tm-rule-btn-primary" data-tm-action="editRule" data-rule-id="${esc(String(rule.id))}">
                             编辑
                         </button>
-                        <button class="tm-rule-btn tm-rule-btn-danger" onclick="deleteRule('${rule.id}')">
+                        <button class="tm-rule-btn tm-rule-btn-danger" data-tm-action="deleteRule" data-rule-id="${esc(String(rule.id))}">
                             删除
                         </button>
                     </div>
@@ -3062,7 +3722,7 @@
                 </div>
                 
                 <div class="tm-rule-actions">
-                    <button class="tm-rule-btn tm-rule-btn-primary" onclick="applyRuleNow('${rule.id}')">
+                    <button class="tm-rule-btn tm-rule-btn-primary" data-tm-action="applyRuleNow" data-rule-id="${esc(String(rule.id))}">
                         立即应用
                     </button>
                 </div>
@@ -3079,13 +3739,13 @@
             <div class="tm-rule-group">
                 <div class="tm-rule-group-header">
                     <input type="text" class="tm-rule-input" value="${esc(rule.name)}" 
-                           placeholder="规则名称" oninput="updateEditingRuleName(this.value)">
+                           placeholder="规则名称" data-tm-input="updateEditingRuleName">
                 </div>
                 
                 <div class="tm-rule-section">
                     <div class="tm-rule-section-title">
                         <span>筛选条件</span>
-                        <button class="tm-rule-btn tm-rule-btn-add" onclick="addCondition()">
+                        <button class="tm-rule-btn tm-rule-btn-add" data-tm-action="addCondition">
                             + 添加条件
                         </button>
                     </div>
@@ -3097,7 +3757,7 @@
                 <div class="tm-rule-section">
                     <div class="tm-rule-section-title">
                         <span>排序规则</span>
-                        <button class="tm-rule-btn tm-rule-btn-add" onclick="addSortRule()">
+                        <button class="tm-rule-btn tm-rule-btn-add" data-tm-action="addSortRule">
                             + 添加排序
                         </button>
                     </div>
@@ -3107,10 +3767,10 @@
                 </div>
                 
                 <div class="tm-rule-actions">
-                    <button class="tm-rule-btn tm-rule-btn-secondary" onclick="cancelEditRule()">
+                    <button class="tm-rule-btn tm-rule-btn-secondary" data-tm-action="cancelEditRule">
                         取消
                     </button>
-                    <button class="tm-rule-btn tm-rule-btn-success" onclick="saveEditRule()">
+                    <button class="tm-rule-btn tm-rule-btn-success" data-tm-action="saveEditRule">
                         保存规则
                     </button>
                 </div>
@@ -3132,14 +3792,14 @@
             
             return `
                 <div class="tm-rule-condition">
-                    <select class="tm-rule-condition-field" onchange="updateConditionField(${index}, this.value)">
+                    <select class="tm-rule-condition-field" data-tm-change="updateConditionField" data-index="${index}">
                         ${availableFields.map(f => 
                             `<option value="${f.value}" ${condition.field === f.value ? 'selected' : ''}>
                                 ${f.label}
                             </option>`
                         ).join('')}
                     </select>
-                    <select class="tm-rule-condition-operator" onchange="updateConditionOperator(${index}, this.value)">
+                    <select class="tm-rule-condition-operator" data-tm-change="updateConditionOperator" data-index="${index}">
                         ${operators.map(op => 
                             `<option value="${op.value}" ${condition.operator === op.value ? 'selected' : ''}>
                                 ${op.label}
@@ -3147,7 +3807,7 @@
                         ).join('')}
                     </select>
                     ${renderConditionValue(condition, index, field?.type)}
-                    <button class="tm-rule-btn tm-rule-btn-danger" onclick="removeCondition(${index})">
+                    <button class="tm-rule-btn tm-rule-btn-danger" data-tm-action="removeCondition" data-index="${index}">
                         ×
                     </button>
                 </div>
@@ -3159,7 +3819,7 @@
     function renderConditionValue(condition, index, fieldType) {
         if (fieldType === 'boolean') {
             return `
-                <select class="tm-rule-condition-value" onchange="updateConditionValue(${index}, this.value)">
+                <select class="tm-rule-condition-value" data-tm-change="updateConditionValue" data-index="${index}">
                     <option value="true" ${condition.value === true || condition.value === 'true' ? 'selected' : ''}>是</option>
                     <option value="false" ${condition.value === false || condition.value === 'false' ? 'selected' : ''}>否</option>
                 </select>
@@ -3199,7 +3859,9 @@
                             <label style="display: flex; align-items: center; gap: 4px; cursor: pointer;">
                                 <input type="checkbox"
                                        ${selectedValues.includes(opt) ? 'checked' : ''}
-                                       onchange="toggleConditionMultiValue(${index}, '${opt}', this.checked)">
+                                       data-tm-change="toggleConditionMultiValue"
+                                       data-index="${index}"
+                                       data-option-value="${esc(String(opt))}">
                                 <span>${optionLabels[opt] || opt}</span>
                             </label>
                         `).join('')}
@@ -3211,7 +3873,7 @@
             const singleValue = Array.isArray(condition.value) ? '' : condition.value;
             
             return `
-                <select class="tm-rule-condition-value" onchange="updateConditionValue(${index}, this.value)">
+                <select class="tm-rule-condition-value" data-tm-change="updateConditionValue" data-index="${index}">
                     <option value="">-- 请选择 --</option>
                     ${allOptions.map(opt =>
                         `<option value="${opt}" ${singleValue === opt ? 'selected' : ''}>
@@ -3230,13 +3892,17 @@
                            class="tm-time-input" 
                            placeholder="开始值"
                            value="${condition.value?.from || ''}"
-                           onchange="updateConditionValueRange(${index}, 'from', this.value)">
+                           data-tm-change="updateConditionValueRange"
+                           data-index="${index}"
+                           data-range-key="from">
                     <span class="tm-time-separator">至</span>
                     <input type="${inputType}" 
                            class="tm-time-input" 
                            placeholder="结束值"
                            value="${condition.value?.to || ''}"
-                           onchange="updateConditionValueRange(${index}, 'to', this.value)">
+                           data-tm-change="updateConditionValueRange"
+                           data-index="${index}"
+                           data-range-key="to">
                 </div>
             `;
         }
@@ -3245,7 +3911,8 @@
             <input type="text" class="tm-rule-condition-value" 
                    value="${esc(String(condition.value || ''))}"
                    placeholder="输入值"
-                   onchange="updateConditionValue(${index}, this.value)">
+                   data-tm-change="updateConditionValue"
+                   data-index="${index}">
         `;
     }
 
@@ -3259,20 +3926,20 @@
         
         return sortRules.map((sortRule, index) => `
             <div class="tm-rule-sort-item">
-                <select class="tm-rule-sort-field" onchange="updateSortField(${index}, this.value)">
+                <select class="tm-rule-sort-field" data-tm-change="updateSortField" data-index="${index}">
                     ${sortFields.map(f => 
                         `<option value="${f.value}" ${sortRule.field === f.value ? 'selected' : ''}>
                             ${f.label}
                         </option>`
                     ).join('')}
                 </select>
-                <select class="tm-rule-sort-order" onchange="updateSortOrder(${index}, this.value)">
+                <select class="tm-rule-sort-order" data-tm-change="updateSortOrder" data-index="${index}">
                     <option value="asc" ${sortRule.order === 'asc' ? 'selected' : ''}>升序</option>
                     <option value="desc" ${sortRule.order === 'desc' ? 'selected' : ''}>降序</option>
                 </select>
-                <button class="tm-rule-btn tm-rule-btn-secondary" onclick="moveSortRule(${index}, -1)" ${index === 0 ? 'disabled' : ''} style="width: 28px; padding: 2px 0;">↑</button>
-                <button class="tm-rule-btn tm-rule-btn-secondary" onclick="moveSortRule(${index}, 1)" ${index === sortRules.length - 1 ? 'disabled' : ''} style="width: 28px; padding: 2px 0;">↓</button>
-                <button class="tm-rule-btn tm-rule-btn-danger" onclick="removeSortRule(${index})">
+                <button class="tm-rule-btn tm-rule-btn-secondary" data-tm-action="moveSortRule" data-index="${index}" data-delta="-1" ${index === 0 ? 'disabled' : ''} style="width: 28px; padding: 2px 0;">↑</button>
+                <button class="tm-rule-btn tm-rule-btn-secondary" data-tm-action="moveSortRule" data-index="${index}" data-delta="1" ${index === sortRules.length - 1 ? 'disabled' : ''} style="width: 28px; padding: 2px 0;">↓</button>
+                <button class="tm-rule-btn tm-rule-btn-danger" data-tm-action="removeSortRule" data-index="${index}">
                     ×
                 </button>
             </div>
@@ -3295,6 +3962,7 @@
                 { days: 7, delta: 5 },
                 { days: 30, delta: 0 }
             ],
+            durationUnit: 'minutes',
             durationBuckets: [
                 { maxMinutes: 15, delta: 10 },
                 { maxMinutes: 60, delta: 0 },
@@ -3319,6 +3987,7 @@
         merged.importanceDelta = { ...base.importanceDelta, ...(merged.importanceDelta || {}) };
         merged.statusDelta = { ...base.statusDelta, ...(merged.statusDelta || {}) };
         merged.dueRanges = Array.isArray(merged.dueRanges) ? merged.dueRanges : base.dueRanges;
+        merged.durationUnit = (merged.durationUnit === 'hours' || merged.durationUnit === 'minutes') ? merged.durationUnit : 'minutes';
         merged.durationBuckets = Array.isArray(merged.durationBuckets) ? merged.durationBuckets : base.durationBuckets;
         merged.docDeltas = (merged.docDeltas && typeof merged.docDeltas === 'object') ? merged.docDeltas : {};
 
@@ -3331,21 +4000,21 @@
         return merged;
     }
 
-    function __tmRenderPriorityScoreSettings() {
+    function __tmRenderPriorityScoreSettings(isEmbeddedInSettings) {
+        const embedded = !!isEmbeddedInSettings;
         const cfg = state.priorityScoreDraft || __tmEnsurePriorityDraft();
         const statuses = SettingsStore.data.customStatusOptions || [];
         const docs = state.allDocuments || [];
-        const docOptions = docs.map(d => `<option value="${d.id}">${esc(d.name || d.id)}</option>`).join('');
         const docRows = Object.entries(cfg.docDeltas || {}).map(([docId, delta]) => {
             const dName = docs.find(d => d.id === docId)?.name;
             return `
-                <div style="display:flex;gap:8px;align-items:center;margin-bottom:6px;">
-                    <select class="tm-input" style="flex:1;min-width:180px;" onchange="tmUpdatePriorityDocDelta('${esc(docId)}', this.value)">
-                        <option value="${esc(docId)}" selected>${esc(dName || docId)}</option>
-                        ${docOptions}
-                    </select>
-                    <input class="tm-input" style="width:120px;" type="number" value="${Number(delta) || 0}" onchange="tmSetPriorityDocDelta('${esc(docId)}', this.value)">
-                    <button class="tm-btn tm-btn-gray" onclick="tmRemovePriorityDocDelta('${esc(docId)}')">删除</button>
+                <div style="display:flex;gap:8px;align-items:center;margin-bottom:6px;flex-wrap:wrap;">
+                    <button class="tm-btn tm-btn-secondary" data-tm-call="tmPickPriorityDocDelta" data-tm-args='["${esc(docId)}"]' style="flex:1;min-width:180px;display:flex;align-items:center;justify-content:space-between;gap:10px;">
+                        <span style="min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${esc(dName || docId)}</span>
+                        <span style="opacity:0.8;">▾</span>
+                    </button>
+                    <input class="tm-input" style="width:120px;" type="number" value="${Number(delta) || 0}" data-tm-call="tmSetPriorityDocDelta" data-tm-args='["${esc(docId)}"]'>
+                    <button class="tm-btn tm-btn-gray" data-tm-call="tmRemovePriorityDocDelta" data-tm-args='["${esc(docId)}"]'>删除</button>
                 </div>
             `;
         }).join('');
@@ -3353,53 +4022,145 @@
         const dueRows = (Array.isArray(cfg.dueRanges) ? cfg.dueRanges : []).map((r, i) => `
             <div style="display:flex;gap:8px;align-items:center;margin-bottom:6px;">
                 <span style="width:70px;color:var(--tm-secondary-text);">≤ 天数</span>
-                <input class="tm-input" style="width:120px;" type="number" value="${Number(r.days) || 0}" onchange="tmSetPriorityDueRange(${i}, 'days', this.value)">
+                <input class="tm-input" style="width:120px;" type="number" value="${Number(r.days) || 0}" data-tm-call="tmSetPriorityDueRange" data-tm-args='[${i},"days"]'>
                 <span style="width:40px;color:var(--tm-secondary-text);">加分</span>
-                <input class="tm-input" style="width:120px;" type="number" value="${Number(r.delta) || 0}" onchange="tmSetPriorityDueRange(${i}, 'delta', this.value)">
-                <button class="tm-btn tm-btn-gray" onclick="tmRemovePriorityDueRange(${i})">删除</button>
+                <input class="tm-input" style="width:120px;" type="number" value="${Number(r.delta) || 0}" data-tm-call="tmSetPriorityDueRange" data-tm-args='[${i},"delta"]'>
+                <button class="tm-btn tm-btn-gray" data-tm-call="tmRemovePriorityDueRange" data-tm-args='[${i}]'>删除</button>
             </div>
         `).join('');
 
+        const durationUnit = (cfg.durationUnit === 'hours' || cfg.durationUnit === 'minutes') ? cfg.durationUnit : 'minutes';
+        const __tmDurationBucketToInputValue = (maxMinutes) => {
+            const m = Number(maxMinutes);
+            if (!Number.isFinite(m)) return 0;
+            const v = durationUnit === 'hours' ? (m / 60) : m;
+            return Math.round(v * 100) / 100;
+        };
+        const durationLabel = durationUnit === 'hours' ? '≤ 小时' : '≤ 分钟';
         const durRows = (Array.isArray(cfg.durationBuckets) ? cfg.durationBuckets : []).map((b, i) => `
             <div style="display:flex;gap:8px;align-items:center;margin-bottom:6px;">
-                <span style="width:70px;color:var(--tm-secondary-text);">≤ 分钟</span>
-                <input class="tm-input" style="width:120px;" type="number" value="${Number(b.maxMinutes) || 0}" onchange="tmSetPriorityDurationBucket(${i}, 'maxMinutes', this.value)">
+                <span style="width:70px;color:var(--tm-secondary-text);">${durationLabel}</span>
+                <input class="tm-input" style="width:120px;" type="number" value="${__tmDurationBucketToInputValue(b.maxMinutes)}" data-tm-call="tmSetPriorityDurationBucket" data-tm-args='[${i},"maxMinutes"]'>
                 <span style="width:40px;color:var(--tm-secondary-text);">加分</span>
-                <input class="tm-input" style="width:120px;" type="number" value="${Number(b.delta) || 0}" onchange="tmSetPriorityDurationBucket(${i}, 'delta', this.value)">
-                <button class="tm-btn tm-btn-gray" onclick="tmRemovePriorityDurationBucket(${i})">删除</button>
+                <input class="tm-input" style="width:120px;" type="number" value="${Number(b.delta) || 0}" data-tm-call="tmSetPriorityDurationBucket" data-tm-args='[${i},"delta"]'>
+                <button class="tm-btn tm-btn-gray" data-tm-call="tmRemovePriorityDurationBucket" data-tm-args='[${i}]'>删除</button>
             </div>
         `).join('');
 
+        if (embedded) {
+            return `
+                <div style="display:flex;flex-direction:column;gap:12px;">
+                    <div style="font-weight: 700; font-size: 15px;">⚙️ 优先级算法</div>
+
+                    <div class="tm-rule-section" style="margin-bottom:0;">
+                        <div style="font-weight: 700; margin-bottom: 10px;">基础分</div>
+                        <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;">
+                            <input class="tm-input" type="number" value="${Number(cfg.base) || 100}" data-tm-call="tmSetPriorityBase" style="width: 180px;">
+                            <div style="font-size: 12px; color: var(--tm-secondary-text);">用于所有任务的起始分</div>
+                        </div>
+                    </div>
+
+                    <div class="tm-rule-section" style="margin-bottom:0;">
+                        <div style="font-weight: 700; margin-bottom: 10px;">权重（微调）</div>
+                        <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:10px;">
+                            <label style="display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap;">重要性 <input class="tm-input" style="width:120px;max-width:100%;" type="number" value="${Number(cfg.weights.importance) || 1}" data-tm-call="tmSetPriorityWeight" data-tm-args='["importance"]'></label>
+                            <label style="display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap;">状态 <input class="tm-input" style="width:120px;max-width:100%;" type="number" value="${Number(cfg.weights.status) || 1}" data-tm-call="tmSetPriorityWeight" data-tm-args='["status"]'></label>
+                            <label style="display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap;">完成时间 <input class="tm-input" style="width:120px;max-width:100%;" type="number" value="${Number(cfg.weights.due) || 1}" data-tm-call="tmSetPriorityWeight" data-tm-args='["due"]'></label>
+                            <label style="display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap;">时长 <input class="tm-input" style="width:120px;max-width:100%;" type="number" value="${Number(cfg.weights.duration) || 1}" data-tm-call="tmSetPriorityWeight" data-tm-args='["duration"]'></label>
+                            <label style="display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap;">文档 <input class="tm-input" style="width:120px;max-width:100%;" type="number" value="${Number(cfg.weights.doc) || 1}" data-tm-call="tmSetPriorityWeight" data-tm-args='["doc"]'></label>
+                        </div>
+                    </div>
+
+                    <div style="display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px;">
+                        <div class="tm-rule-section" style="margin-bottom:0;">
+                            <div style="font-weight: 700; margin-bottom: 10px;">重要性加减分</div>
+                            <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:10px;">
+                                <label style="display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap;">高 <input class="tm-input" style="width:120px;max-width:100%;" type="number" value="${Number(cfg.importanceDelta.high) || 0}" data-tm-call="tmSetPriorityImportance" data-tm-args='["high"]'></label>
+                                <label style="display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap;">中 <input class="tm-input" style="width:120px;max-width:100%;" type="number" value="${Number(cfg.importanceDelta.medium) || 0}" data-tm-call="tmSetPriorityImportance" data-tm-args='["medium"]'></label>
+                                <label style="display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap;">低 <input class="tm-input" style="width:120px;max-width:100%;" type="number" value="${Number(cfg.importanceDelta.low) || 0}" data-tm-call="tmSetPriorityImportance" data-tm-args='["low"]'></label>
+                                <label style="display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap;">无 <input class="tm-input" style="width:120px;max-width:100%;" type="number" value="${Number(cfg.importanceDelta.none) || 0}" data-tm-call="tmSetPriorityImportance" data-tm-args='["none"]'></label>
+                            </div>
+                        </div>
+
+                        <div class="tm-rule-section" style="margin-bottom:0;">
+                            <div style="font-weight: 700; margin-bottom: 10px;">状态加减分</div>
+                            <div style="display:flex;flex-wrap:wrap;gap:10px;">
+                                ${statuses.map(s => `
+                                    <label style="display:flex;align-items:center;gap:8px; padding: 6px 8px; border: 1px solid var(--tm-border-color); border-radius: 8px; background: var(--tm-bg-color);">
+                                        <span style="max-width: 140px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">${esc(s.name || s.id)}</span>
+                                        <input class="tm-input" style="width:110px;" type="number" value="${Number(cfg.statusDelta[s.id]) || 0}" data-tm-call="tmSetPriorityStatus" data-tm-args='["${esc(String(s.id))}"]'>
+                                    </label>
+                                `).join('')}
+                            </div>
+                            ${statuses.length === 0 ? '<div style="color: var(--tm-secondary-text); font-size: 12px;">暂无自定义状态</div>' : ''}
+                        </div>
+                    </div>
+
+                    <div class="tm-rule-section" style="margin-bottom:0;">
+                        <div style="display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:10px;">
+                            <div style="font-weight: 700;">完成时间接近度（按“≤ 天数”匹配）</div>
+                            <button class="tm-btn tm-btn-secondary" data-tm-call="tmAddPriorityDueRange">+ 添加</button>
+                        </div>
+                        ${dueRows || '<div style="color: var(--tm-secondary-text);">暂无配置</div>'}
+                    </div>
+
+                    <div class="tm-rule-section" style="margin-bottom:0;">
+                        <div style="display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:10px;flex-wrap:wrap;">
+                            <div style="font-weight: 700;">时长分段</div>
+                            <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
+                                <select class="tm-input" style="width: 160px;" data-tm-call="tmSetPriorityDurationUnit">
+                                    <option value="minutes" ${durationUnit === 'minutes' ? 'selected' : ''}>分钟</option>
+                                    <option value="hours" ${durationUnit === 'hours' ? 'selected' : ''}>小时（可小数）</option>
+                                </select>
+                                <button class="tm-btn tm-btn-secondary" data-tm-call="tmAddPriorityDurationBucket">+ 添加</button>
+                            </div>
+                        </div>
+                        ${durRows || '<div style="color: var(--tm-secondary-text);">暂无配置</div>'}
+                    </div>
+
+                    <div class="tm-rule-section" style="margin-bottom:0;">
+                        <div style="display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:10px;">
+                            <div style="font-weight: 700;">文档加减分</div>
+                            <button class="tm-btn tm-btn-secondary" data-tm-call="tmAddPriorityDocDelta">+ 添加</button>
+                        </div>
+                        ${docRows || '<div style="color: var(--tm-secondary-text);">暂无配置</div>'}
+                    </div>
+                </div>
+            `;
+        }
+
         return `
-            <div class="tm-box" style="width: 720px; height: auto; max-height: 86vh;">
+            <div class="tm-box" style="width: ${embedded ? '100%' : '720px'}; height: auto; ${embedded ? '' : 'max-height: 86vh;'}">
                 <div class="tm-header">
                     <div style="font-size: 16px; font-weight: 700; color: var(--tm-text-color);">⚙️ 优先级算法</div>
-                    <button class="tm-btn tm-btn-gray" onclick="closePriorityScoreSettings()">关闭</button>
+                    ${embedded
+                        ? '<button class="tm-btn tm-btn-gray" data-tm-action="tmSwitchSettingsTab" data-tab="rules">返回</button>'
+                        : '<button class="tm-btn tm-btn-gray" data-tm-action="closePriorityScoreSettings">关闭</button>'}
                 </div>
                 <div style="padding: 14px; overflow: auto;">
                     <div style="margin-bottom: 14px;">
                         <div style="font-weight: 700; margin-bottom: 8px;">基础分</div>
-                        <input class="tm-input" type="number" value="${Number(cfg.base) || 100}" onchange="tmSetPriorityBase(this.value)" style="width: 160px;">
+                        <input class="tm-input" type="number" value="${Number(cfg.base) || 100}" data-tm-call="tmSetPriorityBase" style="width: 160px;">
                     </div>
 
                     <div style="margin-bottom: 14px;">
                         <div style="font-weight: 700; margin-bottom: 8px;">权重（微调）</div>
                         <div style="display:flex;gap:10px;flex-wrap:wrap;">
-                            <label style="display:flex;align-items:center;gap:6px;">重要性 <input class="tm-input" style="width:90px;" type="number" value="${Number(cfg.weights.importance) || 1}" onchange="tmSetPriorityWeight('importance', this.value)"></label>
-                            <label style="display:flex;align-items:center;gap:6px;">状态 <input class="tm-input" style="width:90px;" type="number" value="${Number(cfg.weights.status) || 1}" onchange="tmSetPriorityWeight('status', this.value)"></label>
-                            <label style="display:flex;align-items:center;gap:6px;">完成时间 <input class="tm-input" style="width:90px;" type="number" value="${Number(cfg.weights.due) || 1}" onchange="tmSetPriorityWeight('due', this.value)"></label>
-                            <label style="display:flex;align-items:center;gap:6px;">时长 <input class="tm-input" style="width:90px;" type="number" value="${Number(cfg.weights.duration) || 1}" onchange="tmSetPriorityWeight('duration', this.value)"></label>
-                            <label style="display:flex;align-items:center;gap:6px;">文档 <input class="tm-input" style="width:90px;" type="number" value="${Number(cfg.weights.doc) || 1}" onchange="tmSetPriorityWeight('doc', this.value)"></label>
+                            <label style="display:flex;align-items:center;gap:6px;">重要性 <input class="tm-input" style="width:90px;" type="number" value="${Number(cfg.weights.importance) || 1}" data-tm-call="tmSetPriorityWeight" data-tm-args='["importance"]'></label>
+                            <label style="display:flex;align-items:center;gap:6px;">状态 <input class="tm-input" style="width:90px;" type="number" value="${Number(cfg.weights.status) || 1}" data-tm-call="tmSetPriorityWeight" data-tm-args='["status"]'></label>
+                            <label style="display:flex;align-items:center;gap:6px;">完成时间 <input class="tm-input" style="width:90px;" type="number" value="${Number(cfg.weights.due) || 1}" data-tm-call="tmSetPriorityWeight" data-tm-args='["due"]'></label>
+                            <label style="display:flex;align-items:center;gap:6px;">时长 <input class="tm-input" style="width:90px;" type="number" value="${Number(cfg.weights.duration) || 1}" data-tm-call="tmSetPriorityWeight" data-tm-args='["duration"]'></label>
+                            <label style="display:flex;align-items:center;gap:6px;">文档 <input class="tm-input" style="width:90px;" type="number" value="${Number(cfg.weights.doc) || 1}" data-tm-call="tmSetPriorityWeight" data-tm-args='["doc"]'></label>
                         </div>
                     </div>
 
                     <div style="margin-bottom: 14px;">
                         <div style="font-weight: 700; margin-bottom: 8px;">重要性加减分</div>
                         <div style="display:flex;gap:10px;flex-wrap:wrap;">
-                            <label style="display:flex;align-items:center;gap:6px;">高 <input class="tm-input" style="width:90px;" type="number" value="${Number(cfg.importanceDelta.high) || 0}" onchange="tmSetPriorityImportance('high', this.value)"></label>
-                            <label style="display:flex;align-items:center;gap:6px;">中 <input class="tm-input" style="width:90px;" type="number" value="${Number(cfg.importanceDelta.medium) || 0}" onchange="tmSetPriorityImportance('medium', this.value)"></label>
-                            <label style="display:flex;align-items:center;gap:6px;">低 <input class="tm-input" style="width:90px;" type="number" value="${Number(cfg.importanceDelta.low) || 0}" onchange="tmSetPriorityImportance('low', this.value)"></label>
-                            <label style="display:flex;align-items:center;gap:6px;">无 <input class="tm-input" style="width:90px;" type="number" value="${Number(cfg.importanceDelta.none) || 0}" onchange="tmSetPriorityImportance('none', this.value)"></label>
+                            <label style="display:flex;align-items:center;gap:6px;">高 <input class="tm-input" style="width:90px;" type="number" value="${Number(cfg.importanceDelta.high) || 0}" data-tm-call="tmSetPriorityImportance" data-tm-args='["high"]'></label>
+                            <label style="display:flex;align-items:center;gap:6px;">中 <input class="tm-input" style="width:90px;" type="number" value="${Number(cfg.importanceDelta.medium) || 0}" data-tm-call="tmSetPriorityImportance" data-tm-args='["medium"]'></label>
+                            <label style="display:flex;align-items:center;gap:6px;">低 <input class="tm-input" style="width:90px;" type="number" value="${Number(cfg.importanceDelta.low) || 0}" data-tm-call="tmSetPriorityImportance" data-tm-args='["low"]'></label>
+                            <label style="display:flex;align-items:center;gap:6px;">无 <input class="tm-input" style="width:90px;" type="number" value="${Number(cfg.importanceDelta.none) || 0}" data-tm-call="tmSetPriorityImportance" data-tm-args='["none"]'></label>
                         </div>
                     </div>
 
@@ -3409,7 +4170,7 @@
                             ${statuses.map(s => `
                                 <label style="display:flex;align-items:center;gap:6px;">
                                     ${esc(s.name || s.id)}
-                                    <input class="tm-input" style="width:90px;" type="number" value="${Number(cfg.statusDelta[s.id]) || 0}" onchange="tmSetPriorityStatus('${esc(s.id)}', this.value)">
+                                    <input class="tm-input" style="width:90px;" type="number" value="${Number(cfg.statusDelta[s.id]) || 0}" data-tm-call="tmSetPriorityStatus" data-tm-args='["${esc(String(s.id))}"]'>
                                 </label>
                             `).join('')}
                         </div>
@@ -3418,15 +4179,21 @@
                     <div style="margin-bottom: 14px;">
                         <div style="display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:8px;">
                             <div style="font-weight: 700;">完成时间接近度（按“≤ 天数”匹配）</div>
-                            <button class="tm-btn tm-btn-secondary" onclick="tmAddPriorityDueRange()">+ 添加</button>
+                            <button class="tm-btn tm-btn-secondary" data-tm-call="tmAddPriorityDueRange">+ 添加</button>
                         </div>
                         ${dueRows || '<div style="color: var(--tm-secondary-text);">暂无配置</div>'}
                     </div>
 
                     <div style="margin-bottom: 14px;">
-                        <div style="display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:8px;">
-                            <div style="font-weight: 700;">时长分段（分钟）</div>
-                            <button class="tm-btn tm-btn-secondary" onclick="tmAddPriorityDurationBucket()">+ 添加</button>
+                        <div style="display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:8px;flex-wrap:wrap;">
+                            <div style="font-weight: 700;">时长分段</div>
+                            <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
+                                <select class="tm-input" style="width: 160px;" data-tm-call="tmSetPriorityDurationUnit">
+                                    <option value="minutes" ${durationUnit === 'minutes' ? 'selected' : ''}>分钟</option>
+                                    <option value="hours" ${durationUnit === 'hours' ? 'selected' : ''}>小时（可小数）</option>
+                                </select>
+                                <button class="tm-btn tm-btn-secondary" data-tm-call="tmAddPriorityDurationBucket">+ 添加</button>
+                            </div>
                         </div>
                         ${durRows || '<div style="color: var(--tm-secondary-text);">暂无配置</div>'}
                     </div>
@@ -3434,14 +4201,14 @@
                     <div style="margin-bottom: 14px;">
                         <div style="display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:8px;">
                             <div style="font-weight: 700;">文档加减分</div>
-                            <button class="tm-btn tm-btn-secondary" onclick="tmAddPriorityDocDelta()">+ 添加</button>
+                            <button class="tm-btn tm-btn-secondary" data-tm-call="tmAddPriorityDocDelta">+ 添加</button>
                         </div>
                         ${docRows || '<div style="color: var(--tm-secondary-text);">暂无配置</div>'}
                     </div>
                 </div>
                 <div class="tm-settings-footer" style="padding: 12px 14px;">
-                    <button class="tm-btn tm-btn-secondary" onclick="closePriorityScoreSettings()">取消</button>
-                    <button class="tm-btn tm-btn-success" onclick="savePriorityScoreSettings()">保存</button>
+                    <button class="tm-btn tm-btn-secondary" data-tm-action="closePriorityScoreSettings">取消</button>
+                    <button class="tm-btn tm-btn-success" data-tm-action="savePriorityScoreSettings">保存</button>
                 </div>
             </div>
         `;
@@ -3453,14 +4220,19 @@
         state.priorityModal = document.createElement('div');
         state.priorityModal.className = 'tm-modal';
         state.priorityModal.style.zIndex = '200002';
-        state.priorityModal.innerHTML = __tmRenderPriorityScoreSettings();
+        state.priorityModal.innerHTML = __tmRenderPriorityScoreSettings(false);
         document.body.appendChild(state.priorityModal);
+        __tmBindRulesManagerEvents(state.priorityModal);
     }
     window.showPriorityScoreSettings = showPriorityScoreSettings;
 
     function __tmRerenderPriorityScoreSettings() {
-        if (!state.priorityModal) return;
-        state.priorityModal.innerHTML = __tmRenderPriorityScoreSettings();
+        if (state.priorityModal) {
+            state.priorityModal.innerHTML = __tmRenderPriorityScoreSettings(false);
+            return;
+        }
+        const container = state.settingsModal?.querySelector?.('#tm-priority-settings');
+        if (container) container.innerHTML = __tmRenderPriorityScoreSettings(true);
     }
 
     window.closePriorityScoreSettings = function() {
@@ -3469,6 +4241,9 @@
             state.priorityModal = null;
         }
         state.priorityScoreDraft = null;
+        if (state.settingsModal && state.settingsActiveTab === 'priority') {
+            showSettings();
+        }
     };
 
     window.savePriorityScoreSettings = async function() {
@@ -3490,6 +4265,12 @@
         if (!state.priorityScoreDraft) return;
         if (!state.priorityScoreDraft.weights) state.priorityScoreDraft.weights = {};
         state.priorityScoreDraft.weights[key] = Number(value) || 0;
+        __tmRerenderPriorityScoreSettings();
+    };
+    window.tmSetPriorityDurationUnit = function(value) {
+        if (!state.priorityScoreDraft) return;
+        const v = String(value || '').trim();
+        state.priorityScoreDraft.durationUnit = (v === 'hours' || v === 'minutes') ? v : 'minutes';
         __tmRerenderPriorityScoreSettings();
     };
     window.tmSetPriorityImportance = function(key, value) {
@@ -3541,17 +4322,25 @@
         if (!Array.isArray(state.priorityScoreDraft.durationBuckets)) return;
         const row = state.priorityScoreDraft.durationBuckets[index];
         if (!row) return;
-        row[field] = Number(value) || 0;
+        if (field === 'maxMinutes') {
+            const unit = state.priorityScoreDraft.durationUnit === 'hours' ? 'hours' : 'minutes';
+            const n = Number(value);
+            if (!Number.isFinite(n)) {
+                row.maxMinutes = 0;
+            } else {
+                const mins = unit === 'hours' ? (n * 60) : n;
+                row.maxMinutes = Math.max(0, mins);
+            }
+        } else {
+            row[field] = Number(value) || 0;
+        }
         __tmRerenderPriorityScoreSettings();
     };
     window.tmAddPriorityDocDelta = function() {
         if (!state.priorityScoreDraft) return;
-        if (!state.priorityScoreDraft.docDeltas || typeof state.priorityScoreDraft.docDeltas !== 'object') state.priorityScoreDraft.docDeltas = {};
-        const docs = state.allDocuments || [];
-        const docId = String((docs[0] && docs[0].id) || '').trim();
-        if (!docId) return;
-        if (state.priorityScoreDraft.docDeltas[docId] === undefined) state.priorityScoreDraft.docDeltas[docId] = 0;
-        __tmRerenderPriorityScoreSettings();
+        state.priorityDocDeltaMode = 'add';
+        state.priorityDocDeltaFromDocId = '';
+        window.tmPickPriorityDocDelta?.('');
     };
     window.tmSetPriorityDocDelta = function(docId, value) {
         if (!state.priorityScoreDraft) return;
@@ -3579,32 +4368,218 @@
         __tmRerenderPriorityScoreSettings();
     };
 
+    window.tmClosePriorityDocDeltaPicker = function() {
+        if (state.priorityDocDeltaPicker) {
+            try { state.priorityDocDeltaPicker.remove(); } catch (e) {}
+            state.priorityDocDeltaPicker = null;
+        }
+    };
+
+    window.tmPriorityDocDeltaSelectDoc = function(docId) {
+        const to = String(docId || '').trim();
+        if (!to) return;
+        const mode = String(state.priorityDocDeltaMode || 'replace');
+        if (mode === 'add') {
+            if (!state.priorityScoreDraft) return;
+            if (!state.priorityScoreDraft.docDeltas || typeof state.priorityScoreDraft.docDeltas !== 'object') state.priorityScoreDraft.docDeltas = {};
+            if (state.priorityScoreDraft.docDeltas[to] === undefined) state.priorityScoreDraft.docDeltas[to] = 0;
+            __tmRerenderPriorityScoreSettings();
+        } else {
+            const from = String(state.priorityDocDeltaFromDocId || '').trim();
+            if (!from || from === to) return;
+            try { window.tmUpdatePriorityDocDelta?.(from, to); } catch (e) {}
+        }
+        state.priorityDocDeltaFromDocId = '';
+        state.priorityDocDeltaMode = '';
+        window.tmClosePriorityDocDeltaPicker?.();
+    };
+
+    window.tmPickPriorityDocDelta = async function(oldDocId) {
+        if (!state.priorityScoreDraft) return;
+        window.tmClosePriorityDocDeltaPicker?.();
+
+        const docs = state.allDocuments || [];
+        const groups = SettingsStore.data.docGroups || [];
+        const resolveDocName = (docId) => {
+            if (!docId) return '未知文档';
+            const found = docs.find(d => d.id === docId);
+            if (found) return found.name || '未命名文档';
+            const entry = state.taskTree?.find?.(d => d.id === docId);
+            return entry?.name || '未命名文档';
+        };
+
+        const selected = String(oldDocId || '').trim();
+        state.priorityDocDeltaFromDocId = selected;
+        state.priorityDocDeltaMode = selected ? 'replace' : 'add';
+
+        const picker = document.createElement('div');
+        picker.className = 'tm-prompt-modal';
+        picker.style.zIndex = '100011';
+        picker.innerHTML = `
+            <div class="tm-prompt-box" style="width:min(92vw,520px);max-height:70vh;overflow:auto;">
+                <div class="tm-prompt-title" style="margin:0 0 10px 0;">选择文档</div>
+                <div id="tmPriorityDocDeltaList"></div>
+                <div style="display:flex;gap:8px;margin-top:10px;">
+                    <button class="tm-btn tm-btn-gray" onclick="tmClosePriorityDocDeltaPicker()" style="padding: 6px 10px; font-size: 12px;">关闭</button>
+                </div>
+            </div>
+        `;
+        document.body.appendChild(picker);
+        state.priorityDocDeltaPicker = picker;
+
+        const listEl = picker.querySelector('#tmPriorityDocDeltaList');
+
+        const renderGroup = (label, docs0, groupKey, initialOpen = false) => {
+            const wrap = document.createElement('div');
+            wrap.style.cssText = 'border:1px solid var(--tm-border-color);border-radius:8px;margin-bottom:8px;overflow:hidden;';
+            const head = document.createElement('div');
+            head.style.cssText = 'display:flex;align-items:center;justify-content:space-between;padding:8px 10px;background:var(--tm-header-bg);cursor:pointer;';
+            head.innerHTML = `<div style="font-weight:600;">${esc(label)}</div><div style="opacity:0.75;">${initialOpen ? '▾' : '▸'}</div>`;
+            const body = document.createElement('div');
+            body.style.cssText = `padding:6px 10px;display:${initialOpen ? 'block' : 'none'};`;
+
+            const renderDocs = (docList) => {
+                body.innerHTML = '';
+                if (!docList || docList.length === 0) {
+                    body.innerHTML = '<div style="color:var(--tm-secondary-text);padding:8px 0;font-size:13px;">暂无文档</div>';
+                    return;
+                }
+                docList.forEach(d => {
+                    const id = String(d?.id || d || '').trim();
+                    if (!id) return;
+                    const row = document.createElement('div');
+                    const checked = id === selected;
+                    row.style.cssText = 'display:flex;align-items:center;justify-content:space-between;padding:8px 0;cursor:pointer;';
+                    row.innerHTML = `<div style="min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${esc(resolveDocName(id))}</div><div style="margin-left:10px;">${checked ? '✅' : '◻️'}</div>`;
+                    row.onclick = () => window.tmPriorityDocDeltaSelectDoc?.(id);
+                    body.appendChild(row);
+                });
+            };
+
+            if (initialOpen) renderDocs(docs0);
+
+            head.onclick = async () => {
+                const open = body.style.display !== 'none';
+                if (!open) {
+                    body.style.display = 'block';
+                    head.lastElementChild.textContent = '▾';
+                    if (groupKey) {
+                        body.innerHTML = '<div style="color:var(--tm-secondary-text);padding:8px 0;font-size:13px;">🔄 加载文档中...</div>';
+                        try {
+                            const allSet = new Set();
+                            const entries = Array.isArray(docs0) ? docs0 : [];
+                            await Promise.all(entries.map(async (d) => {
+                                const id = String(d?.id || d || '').trim();
+                                if (!id) return;
+                                allSet.add(id);
+                                const rec = !!(typeof d === 'object' && d && d.recursive);
+                                if (rec) {
+                                    try {
+                                        const subIds = await API.getSubDocIds(id);
+                                        (subIds || []).forEach(sid => {
+                                            const s = String(sid || '').trim();
+                                            if (s) allSet.add(s);
+                                        });
+                                    } catch (e) {}
+                                }
+                            }));
+                            const allIds = Array.from(allSet);
+
+                            const tasksMap = new Map();
+                            allIds.forEach(id => {
+                                const treeDoc = state.taskTree.find(d => d.id === id);
+                                if (treeDoc && treeDoc.tasks && treeDoc.tasks.length > 0) tasksMap.set(id, true);
+                            });
+
+                            const uncheckedIds = allIds.filter(id => !tasksMap.has(id));
+                            if (uncheckedIds.length > 0) {
+                                const CHUNK_SIZE = 50;
+                                for (let i = 0; i < uncheckedIds.length; i += CHUNK_SIZE) {
+                                    const chunk = uncheckedIds.slice(i, i + CHUNK_SIZE);
+                                    const idsStr = chunk.map(id => `'${id}'`).join(',');
+                                    const sql = `SELECT DISTINCT root_id FROM blocks WHERE type='i' AND subtype='t' AND root_id IN (${idsStr})`;
+                                    try {
+                                        const res = await API.call('/api/query/sql', { stmt: sql });
+                                        if (res.code === 0 && res.data) res.data.forEach(row => tasksMap.set(row.root_id, true));
+                                    } catch (e) {}
+                                }
+                            }
+
+                            const docList = allIds.map(id => ({ id, hasTasks: tasksMap.has(id) })).filter(item => item.hasTasks);
+                            docList.sort((a, b) => resolveDocName(a.id).localeCompare(resolveDocName(b.id)));
+                            renderDocs(docList);
+                        } catch (e) {
+                            renderDocs(docs0);
+                        }
+                    } else {
+                        renderDocs(docs0);
+                    }
+                } else {
+                    body.style.display = 'none';
+                    head.lastElementChild.textContent = '▸';
+                }
+            };
+
+            wrap.appendChild(head);
+            wrap.appendChild(body);
+            return wrap;
+        };
+
+        groups.forEach(g => {
+            const ds = Array.isArray(g?.docs) ? g.docs : [];
+            if (ds.length === 0) return;
+            listEl.appendChild(renderGroup(String(g?.name || '分组'), ds, String(g?.id || '')));
+        });
+    };
+
+    function __tmRerenderRulesManagerUI(scope) {
+        const html = renderRulesList();
+        if (state.rulesModal) {
+            if (scope === 'conditions') {
+                const el = state.rulesModal.querySelector('.tm-rule-conditions');
+                if (el && state.editingRule) el.innerHTML = renderConditions(state.editingRule.conditions);
+            } else if (scope === 'sort') {
+                const el = state.rulesModal.querySelector('.tm-rule-sort-items');
+                if (el && state.editingRule) el.innerHTML = renderSortRules(state.editingRule.sort);
+            } else {
+                const el = state.rulesModal.querySelector('.tm-rules-body');
+                if (el) el.innerHTML = html;
+            }
+        }
+        if (state.settingsModal) {
+            if (scope === 'conditions') {
+                const el = state.settingsModal.querySelector('.tm-rule-conditions');
+                if (el && state.editingRule) el.innerHTML = renderConditions(state.editingRule.conditions);
+            } else if (scope === 'sort') {
+                const el = state.settingsModal.querySelector('.tm-rule-sort-items');
+                if (el && state.editingRule) el.innerHTML = renderSortRules(state.editingRule.sort);
+            } else {
+                const el = state.settingsModal.querySelector('#tm-rules-list');
+                if (el) el.innerHTML = html;
+            }
+        }
+    }
+
     window.addNewRule = function() {
         const newRule = RuleManager.createRule('新规则');
         state.editingRule = newRule;
-        if (state.rulesModal) {
-            state.rulesModal.querySelector('.tm-rules-body').innerHTML = renderRulesList();
-        }
+        __tmRerenderRulesManagerUI();
     };
 
     window.editRule = function(ruleId) {
         const rule = state.filterRules.find(r => r.id === ruleId);
         if (rule) {
             state.editingRule = JSON.parse(JSON.stringify(rule));
-            if (state.rulesModal) {
-                state.rulesModal.querySelector('.tm-rules-body').innerHTML = renderRulesList();
-            }
+            __tmRerenderRulesManagerUI();
         }
     };
 
     window.cancelEditRule = function() {
         state.editingRule = null;
-        if (state.rulesModal) {
-            state.rulesModal.querySelector('.tm-rules-body').innerHTML = renderRulesList();
-        }
+        __tmRerenderRulesManagerUI();
     };
 
-    window.saveEditRule = function() {
+    window.saveEditRule = async function() {
         if (!state.editingRule) return;
         
         const index = state.filterRules.findIndex(r => r.id === state.editingRule.id);
@@ -3615,9 +4590,8 @@
         }
         
         state.editingRule = null;
-        if (state.rulesModal) {
-            state.rulesModal.querySelector('.tm-rules-body').innerHTML = renderRulesList();
-        }
+        try { await RuleManager.saveRules(state.filterRules); } catch (e) {}
+        __tmRerenderRulesManagerUI();
         hint('✅ 规则已保存', 'success');
     };
 
@@ -3640,9 +4614,7 @@
             value: ''
         });
         
-        if (state.rulesModal) {
-            state.rulesModal.querySelector('.tm-rule-conditions').innerHTML = renderConditions(state.editingRule.conditions);
-        }
+        __tmRerenderRulesManagerUI('conditions');
     };
 
     window.updateConditionField = function(index, field) {
@@ -3658,6 +4630,10 @@
             if (state.rulesModal) {
                 const conditionsDiv = state.rulesModal.querySelector('.tm-rule-conditions');
                 conditionsDiv.innerHTML = renderConditions(state.editingRule.conditions);
+            }
+            if (state.settingsModal) {
+                const conditionsDiv = state.settingsModal.querySelector('.tm-rule-conditions');
+                if (conditionsDiv) conditionsDiv.innerHTML = renderConditions(state.editingRule.conditions);
             }
         }
     };
@@ -3693,10 +4669,7 @@
             }
             
             // 立即重新渲染条件区域，以更新值输入框的类型
-            if (state.rulesModal) {
-                const conditionsDiv = state.rulesModal.querySelector('.tm-rule-conditions');
-                conditionsDiv.innerHTML = renderConditions(state.editingRule.conditions);
-            }
+            __tmRerenderRulesManagerUI('conditions');
         }
     };
 
@@ -3742,10 +4715,7 @@
     window.removeCondition = function(index) {
         if (state.editingRule) {
             state.editingRule.conditions.splice(index, 1);
-            if (state.rulesModal) {
-                const conditionsDiv = state.rulesModal.querySelector('.tm-rule-conditions');
-                conditionsDiv.innerHTML = renderConditions(state.editingRule.conditions);
-            }
+            __tmRerenderRulesManagerUI('conditions');
         }
     };
 
@@ -3757,10 +4727,7 @@
             order: 'desc'
         });
         
-        if (state.rulesModal) {
-            const sortDiv = state.rulesModal.querySelector('.tm-rule-sort-items');
-            sortDiv.innerHTML = renderSortRules(state.editingRule.sort);
-        }
+        __tmRerenderRulesManagerUI('sort');
     };
 
     window.updateSortField = function(index, field) {
@@ -3778,10 +4745,7 @@
     window.removeSortRule = function(index) {
         if (state.editingRule) {
             state.editingRule.sort.splice(index, 1);
-            if (state.rulesModal) {
-                const sortDiv = state.rulesModal.querySelector('.tm-rule-sort-items');
-                sortDiv.innerHTML = renderSortRules(state.editingRule.sort);
-            }
+            __tmRerenderRulesManagerUI('sort');
         }
     };
 
@@ -3798,16 +4762,17 @@
         list[from] = list[to];
         list[to] = tmp;
         state.editingRule.sort = list;
-        if (state.rulesModal) {
-            const sortDiv = state.rulesModal.querySelector('.tm-rule-sort-items');
-            sortDiv.innerHTML = renderSortRules(state.editingRule.sort);
-        }
+        __tmRerenderRulesManagerUI('sort');
     };
 
     window.toggleRuleEnabled = function(ruleId, enabled) {
         const rule = state.filterRules.find(r => r.id === ruleId);
         if (rule) {
             rule.enabled = enabled;
+            try {
+                SettingsStore.data.filterRules = state.filterRules;
+                SettingsStore.save();
+            } catch (e) {}
         }
     };
 
@@ -3820,9 +4785,12 @@
             if (state.currentRule === ruleId) {
                 state.currentRule = null;
             }
-            if (state.rulesModal) {
-                state.rulesModal.querySelector('.tm-rules-body').innerHTML = renderRulesList();
-            }
+            try {
+                SettingsStore.data.filterRules = state.filterRules;
+                if (SettingsStore.data.currentRule === ruleId) SettingsStore.data.currentRule = null;
+                SettingsStore.save();
+            } catch (e) {}
+            __tmRerenderRulesManagerUI();
             hint('✅ 规则已删除', 'success');
         }
     };
@@ -3906,45 +4874,64 @@
             try { t.priorityScore = __tmComputePriorityScore(t); } catch (e) { t.priorityScore = 0; }
         });
         
-        // 应用当前规则
-        if (state.currentRule) {
-            const rule = state.filterRules.find(r => r.id === state.currentRule);
-            if (rule) {
-                // 应用筛选
-                tasks = RuleManager.applyRuleFilter(tasks, rule);
-                
-                // 应用排序
-                tasks = RuleManager.applyRuleSort(tasks, rule);
-            }
-        } else {
-            // 即使没有选择规则，也要应用置顶排序
-            tasks = RuleManager.applyRuleSort(tasks, null);
+        const rule = state.currentRule ? state.filterRules.find(r => r.id === state.currentRule) : null;
+
+        let matched = tasks;
+        if (rule) {
+            matched = RuleManager.applyRuleFilter(matched, rule);
         }
-        
-        // 关键词搜索
+
         if (state.searchKeyword) {
             const keyword = state.searchKeyword.toLowerCase();
-            tasks = tasks.filter(task => 
-                String(task.content || '').toLowerCase().includes(keyword) ||
-                String(task.remark || '').toLowerCase().includes(keyword) ||
-                String(task.docName || '').toLowerCase().includes(keyword)
-            );
+            matched = matched.filter(task => String(task.content || '').toLowerCase().includes(keyword));
         }
 
-        // 将子任务一同带上（父任务命中时）
-        const expanded = [];
-        const added = new Set();
-        const addWithChildren = (task) => {
-            if (!task || added.has(task.id)) return;
-            added.add(task.id);
-            expanded.push(task);
-            if (task.done) return;
-            const children = (task.children || []).filter(c => !hasDoneAncestor(c));
-            children.forEach(child => addWithChildren(child));
-        };
-        tasks.forEach(t => addWithChildren(t));
+        const matchedSet = new Set();
+        matched.forEach(t => matchedSet.add(t.id));
 
-        state.filteredTasks = expanded;
+        const ancestorSet = new Set();
+        try {
+            matched.forEach(t => {
+                let parentId = t?.parentTaskId;
+                const seen = new Set();
+                while (parentId) {
+                    if (seen.has(parentId)) break;
+                    seen.add(parentId);
+                    const p = taskMap[parentId];
+                    if (!p) break;
+                    ancestorSet.add(p.id);
+                    parentId = p.parentTaskId;
+                }
+            });
+        } catch (e) {}
+
+        const ordered = [];
+        const added = new Set();
+        const traverse = (list, ancestorMatched = false) => {
+            const siblings = RuleManager.applyRuleSort(list || [], rule);
+            siblings.forEach(t => {
+                if (!t) return;
+                if (hasDoneAncestor(t)) return;
+                const isMatched = matchedSet.has(t.id);
+                const isAncestor = ancestorSet.has(t.id);
+                const show = isMatched || isAncestor || ancestorMatched;
+                if (show && !added.has(t.id)) {
+                    added.add(t.id);
+                    ordered.push(t);
+                }
+                if (t.done) return;
+                if (t.children && t.children.length > 0) {
+                    traverse(t.children, ancestorMatched || isMatched);
+                }
+            });
+        };
+
+        state.taskTree.forEach(doc => {
+            if (state.activeDocId !== 'all' && doc.id !== state.activeDocId) return;
+            traverse(doc.tasks || [], false);
+        });
+
+        state.filteredTasks = ordered;
     }
 
     window.tmSwitchDoc = function(docId) {
@@ -3990,19 +4977,125 @@
         };
     };
 
+    window.tmSearch = function(keyword) {
+        const next = String(keyword || '').trim();
+        state.searchKeyword = next;
+        applyFilters();
+        render();
+    };
+
     window.tmSwitchDocGroup = async function(groupId) {
-        SettingsStore.data.currentGroupId = groupId;
+        const nextGroupId = String(groupId || 'all').trim() || 'all';
+        SettingsStore.data.currentGroupId = nextGroupId;
+
+        const firstRuleId = (state.filterRules || []).find(r => r && r.enabled)?.id || '';
+        state.currentRule = firstRuleId || null;
+        SettingsStore.data.currentRule = firstRuleId || null;
+
         await SettingsStore.save();
-        loadSelectedDocuments();
+        try { __tmHideMobileMenu(); } catch (e) {}
+        await loadSelectedDocuments();
+    };
+
+    window.tmDocTabDragOver = function(ev) {
+        try {
+            ev.preventDefault?.();
+            ev.dataTransfer.dropEffect = 'move';
+        } catch (e) {}
+    };
+
+    window.tmDocTabDragEnter = function(ev) {
+        try {
+            ev.preventDefault?.();
+            ev.dataTransfer.dropEffect = 'move';
+        } catch (e) {}
+        try { ev.currentTarget?.classList?.add('is-drop-target'); } catch (e) {}
+    };
+
+    window.tmDocTabDragLeave = function(ev) {
+        try { ev.currentTarget?.classList?.remove('is-drop-target'); } catch (e) {}
+    };
+
+    window.tmDocTabDrop = async function(ev, docId) {
+        try {
+            ev.preventDefault?.();
+            ev.stopPropagation?.();
+        } catch (e) {}
+        try { ev.currentTarget?.classList?.remove('is-drop-target'); } catch (e) {}
+        const targetDocId = String(docId || '').trim();
+        if (!targetDocId || targetDocId === 'all') return;
+        let taskId = '';
+        try {
+            taskId = String(ev?.dataTransfer?.getData?.('text/plain') || '').trim();
+        } catch (e) {}
+        if (!taskId) return;
+        const task = state.flatTasks?.[taskId];
+        if (!task) return;
+        const fromDocId = String(task.docId || task.root_id || '').trim();
+        if (fromDocId && fromDocId === targetDocId) return;
+        try {
+            hint('🔄 正在移动任务...', 'info');
+            const topListId = await API.getFirstDirectChildListIdOfDoc(targetDocId);
+            if (topListId) {
+                await API.moveBlock(taskId, { parentID: topListId });
+            } else {
+                await API.moveBlock(taskId, { parentID: targetDocId });
+            }
+            try { await API.call('/api/sqlite/flushTransaction', {}); } catch (e) {}
+
+            try {
+                const t = state.flatTasks?.[taskId];
+                if (t) {
+                    t.root_id = targetDocId;
+                    t.docId = targetDocId;
+                    const name = state.allDocuments.find(d => d.id === targetDocId)?.name || '';
+                    if (name) {
+                        t.doc_name = name;
+                        t.docName = name;
+                    }
+                }
+            } catch (e) {}
+
+            hint('✅ 任务已移动', 'success');
+            await loadSelectedDocuments();
+        } catch (e) {
+            hint(`❌ 移动失败: ${e.message}`, 'error');
+        }
+    };
+
+    window.tmDragTaskStart = function(ev, taskId) {
+        const id = String(taskId || '').trim();
+        if (!id) return;
+        try {
+            ev.dataTransfer.effectAllowed = 'move';
+            ev.dataTransfer.setData('text/plain', id);
+        } catch (e) {}
+    };
+
+    window.tmRowDblClick = function(ev, taskId) {
+        const id = String(taskId || '').trim();
+        if (!id) return;
+        const t = ev?.target;
+        if (t?.closest?.('button,input,select,textarea,a,.tm-task-content-clickable,.tm-tree-toggle,.tm-col-resize')) return;
+        const task = state.flatTasks?.[id];
+        if (!task) return;
+        const filteredSet = new Set((state.filteredTasks || []).map(x => x.id));
+        const hasVisibleChild = (task.children || []).some(c => filteredSet.has(c.id));
+        if (!hasVisibleChild) return;
+        tmToggleCollapse(id, ev);
     };
 
     // 修改渲染函数以显示规则信息
     function render() {
         // 保存滚动位置
         let savedScrollTop = 0;
+        let savedScrollLeft = 0;
         if (state.modal) {
             const body = state.modal.querySelector('.tm-body');
-            if (body) savedScrollTop = body.scrollTop;
+            if (body) {
+                savedScrollTop = body.scrollTop;
+                savedScrollLeft = body.scrollLeft;
+            }
             state.modal.remove();
         }
         
@@ -4016,7 +5109,10 @@
         const currentRule = state.currentRule ? 
             state.filterRules.find(r => r.id === state.currentRule) : null;
 
-        const visibleDocs = state.taskTree.filter(doc => __tmDocHasUndoneTasks(doc));
+        const globalNewTaskDocId = String(SettingsStore.data.newTaskDocId || '').trim();
+        const visibleDocs = state.taskTree
+            .filter(doc => __tmDocHasUndoneTasks(doc))
+            .filter(doc => !globalNewTaskDocId || doc.id !== globalNewTaskDocId);
             
         // 获取文档分组信息
         const docGroups = SettingsStore.data.docGroups || [];
@@ -4026,7 +5122,7 @@
         const isMobile = __tmIsMobileDevice();
         
         state.modal = document.createElement('div');
-        state.modal.className = 'tm-modal' + (__tmMountEl ? ' tm-modal--tab' : '');
+        state.modal.className = 'tm-modal' + (__tmMountEl ? ' tm-modal--tab' : '') + (isMobile ? ' tm-modal--mobile' : '');
         
         // 构建规则选择选项
         const ruleOptions = state.filterRules
@@ -4039,65 +5135,151 @@
         state.modal.innerHTML = `
             <div class="tm-box">
                 <div class="tm-filter-rule-bar" style="padding: 8px 12px;">
-                    <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;">
-                        <div style="font-size: 16px; font-weight: 700; white-space: nowrap;">📋 任务管理器</div>
-                        <button class="tm-btn tm-btn-info" onclick="tmRefresh()" style="padding: 4px 10px;">刷新</button>
-                        <button class="tm-btn tm-btn-success" onclick="tmAdd()" style="padding: 4px 10px;">+ 新建</button>
-                        ${isMobile ? `<button class="tm-btn tm-btn-gray" onclick="tmClose();return false;" ontouchstart="tmClose();return false;" style="padding: 4px 10px;">关闭</button>` : ''}
-
-                        <div class="tm-rule-selector" style="margin-left: 6px;">
-                            <span style="color: white; font-size: 13px;">分组:</span>
-                            <select class="tm-rule-select" onchange="tmSwitchDocGroup(this.value)">
-                                <option value="all" ${currentGroupId === 'all' ? 'selected' : ''}>全部文档</option>
-                                ${docGroups.map(g => `<option value="${g.id}" ${currentGroupId === g.id ? 'selected' : ''}>${esc(g.name)}</option>`).join('')}
-                            </select>
+                    <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;justify-content:space-between;">
+                        <div style="display:flex;align-items:center;gap:10px;">
+                            <div style="font-size: 16px; font-weight: 700; white-space: nowrap;">📋 任务管理器</div>
+                            <button class="tm-btn tm-btn-success" onclick="tmAdd()" style="padding: 0 10px; height: 30px; display: inline-flex; align-items: center; justify-content: center;">+</button>
+                            ${isMobile ? `<button class="tm-btn tm-btn-info" onclick="tmRefresh()" style="padding: 0 10px; height: 30px; display: inline-flex; align-items: center; justify-content: center;">🔄️</button>` : ''}
                         </div>
 
-                        <div class="tm-rule-selector">
-                            <span style="color: white; font-size: 13px;">规则:</span>
-                            <select class="tm-rule-select" onchange="applyFilterRule(this.value)">
-                                <option value="">-- 选择规则 --</option>
-                                ${ruleOptions}
-                            </select>
-                        </div>
-                        ${currentRule ? `
-                            <div class="tm-rule-display">
-                                <span class="tm-rule-name">${esc(currentRule.name)}</span>
-                                <span class="tm-rule-stats">${filteredCount} 个任务</span>
+                        <!-- 桌面端工具栏 -->
+                        <div class="tm-desktop-toolbar" style="display:flex;align-items:center;gap:10px;flex:1;">
+                            <div class="tm-rule-selector" style="margin-left: 6px;">
+                                <span style="color: white; font-size: 13px;">分组:</span>
+                                <select class="tm-rule-select" onchange="tmSwitchDocGroup(this.value)">
+                                    <option value="all" ${currentGroupId === 'all' ? 'selected' : ''}>全部文档</option>
+                                    ${docGroups.map(g => `<option value="${g.id}" ${currentGroupId === g.id ? 'selected' : ''}>${esc(g.name)}</option>`).join('')}
+                                </select>
                             </div>
-                        ` : ''}
-                    </div>
 
-                    <div class="tm-search-box" style="flex-wrap: wrap;">
+                            <div class="tm-rule-selector">
+                                <span style="color: white; font-size: 13px;">规则:</span>
+                                <select class="tm-rule-select" onchange="applyFilterRule(this.value)">
+                                    <option value="">-- 选择规则 --</option>
+                                    ${ruleOptions}
+                                </select>
+                            </div>
+                            ${currentRule ? `
+                                <div class="tm-rule-display">
+                                    <span class="tm-rule-stats">${filteredCount} 个任务</span>
+                                </div>
+                            ` : ''}
+                            <div style="flex: 1 1 auto;"></div>
+                            
+                            <label style="display:flex;align-items:center;gap:6px;color:white;font-size:13px;cursor:pointer;">
+                                <input type="checkbox" ${state.groupByDocName ? 'checked' : ''} onchange="toggleGroupByDocName(this.checked)">
+                                按文档分组
+                            </label>
+                            <label style="display:flex;align-items:center;gap:6px;color:white;font-size:13px;cursor:pointer;">
+                                <input type="checkbox" ${state.groupByTime ? 'checked' : ''} onchange="toggleGroupByTime(this.checked)">
+                                按时间分组
+                            </label>
+
+                        </div>
+                        
+                        <!-- 移动端菜单按钮 -->
+                            <div class="tm-mobile-menu-btn" style="display:none;margin-left:auto;">
+                            <div style="display:flex;align-items:center;gap:10px;">
+                                <button class="tm-btn tm-btn-info" onclick="tmToggleMobileMenu(event)" ontouchend="tmToggleMobileMenu(event)" style="padding: 0 10px; height: 30px; display: inline-flex; align-items: center; justify-content: center;">
+                                    <span style="font-size: 16px; transform: translateY(1px); line-height: 1;">☰</span>
+                                    <span style="margin-left: 4px;">菜单</span>
+                                </button>
+                                ${isMobile ? `<button class="tm-btn tm-btn-gray" onclick="tmClose(event)" ontouchend="tmClose(event)" style="padding: 0 10px; height: 30px; display: inline-flex; align-items: center; justify-content: center;"><span style="transform: translateY(1px); line-height: 1;">✖</span></button>` : ''}
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <!-- 桌面端搜索栏 -->
+                    <div class="tm-search-box tm-desktop-toolbar" style="flex-wrap: wrap;">
+                        <button class="tm-btn tm-btn-info" onclick="tmRefresh()" style="padding: 4px 10px;" title="刷新">🔄️</button>
                         <button class="tm-btn tm-btn-info" onclick="tmShowSearchModal()" style="padding: 4px 10px; display: flex; align-items: center; gap: 4px;">
                             🔍 搜索 ${state.searchKeyword ? `<span style="background:rgba(255,255,255,0.2); padding:0 4px; border-radius:4px; font-size:11px;">${state.searchKeyword}</span>` : ''}
                         </button>
                         ${state.searchKeyword ? `<button class="tm-btn tm-btn-secondary" onclick="tmSearch('')" style="padding: 4px 10px;">清除</button>` : ''}
-
-                        <label style="display:flex;align-items:center;gap:6px;color:white;font-size:13px;cursor:pointer;">
-                            <input type="checkbox" ${state.groupByDocName ? 'checked' : ''} onchange="toggleGroupByDocName(this.checked)">
-                            按文档分组
-                        </label>
-                        <label style="display:flex;align-items:center;gap:6px;color:white;font-size:13px;cursor:pointer;">
-                            <input type="checkbox" ${state.groupByTime ? 'checked' : ''} onchange="toggleGroupByTime(this.checked)">
-                            按时间分组
-                        </label>
+                        
+                        <button class="tm-btn tm-btn-info" onclick="showSettings()" style="padding: 4px 10px;">⚙️ 设置</button>
+                        <button class="tm-btn tm-btn-info" onclick="tmToggleDesktopMenu(event)" style="padding: 4px 10px; display: flex; align-items: center; gap: 4px;">
+                            <span>☰</span> 菜单
+                        </button>
                     </div>
-                </div>
+
+                        <!-- 移动端下拉菜单 -->
+                        <div id="tmMobileMenu" style="display:none; position:absolute; right:0; top:45px; width:200px; padding:10px; border:1px solid var(--tm-border-color); border-radius:6px; background:var(--tm-header-bg); z-index:10001; box-shadow: 0 4px 12px rgba(0,0,0,0.15);">
+                            <div style="display:flex; flex-direction:column; gap:10px;">
+                                <div class="tm-mobile-only-item" style="display:flex; gap:10px; align-items:center;">
+                                    <span style="color:var(--tm-text-color);width:60px;">分组:</span>
+                                    <select class="tm-rule-select" style="flex:1;" onchange="tmSwitchDocGroup(this.value)">
+                                        <option value="all" ${currentGroupId === 'all' ? 'selected' : ''}>全部文档</option>
+                                        ${docGroups.map(g => `<option value="${g.id}" ${currentGroupId === g.id ? 'selected' : ''}>${esc(g.name)}</option>`).join('')}
+                                    </select>
+                                </div>
+                                <div class="tm-mobile-only-item" style="display:flex; gap:10px; align-items:center;">
+                                    <span style="color:var(--tm-text-color);width:60px;">规则:</span>
+                                    <select class="tm-rule-select" style="flex:1;" onchange="applyFilterRule(this.value)">
+                                        <option value="">-- 选择规则 --</option>
+                                        ${ruleOptions}
+                                    </select>
+                                </div>
+                                <div style="display:flex; gap:10px; align-items:center;">
+                                    <button class="tm-btn tm-btn-info" onclick="tmShowSearchModal()" style="flex:1; padding: 6px;">
+                                        🔍 搜索 ${state.searchKeyword ? `(${state.searchKeyword})` : ''}
+                                    </button>
+                                </div>
+                                <div class="tm-mobile-only-item" style="display:flex; gap:10px;">
+                                     <button class="tm-btn tm-btn-info" onclick="showSettings()" style="flex:1; padding: 6px;">⚙️ 设置</button>
+                                </div>
+                                <div class="tm-mobile-only-item" style="display:flex; gap:10px;">
+                                     <button class="tm-btn tm-btn-info" onclick="tmCollapseAllTasks()" style="flex:1; padding: 6px;">▸ 折叠</button>
+                                     <button class="tm-btn tm-btn-info" onclick="tmExpandAllTasks()" style="flex:1; padding: 6px;">▾ 展开</button>
+                                </div>
+                                <div style="display:flex; gap:15px; padding-top:5px;">
+                                    <label style="display:flex;align-items:center;gap:6px;color:var(--tm-text-color);font-size:13px;">
+                                        <input type="checkbox" ${state.groupByDocName ? 'checked' : ''} onchange="toggleGroupByDocName(this.checked)">
+                                        按文档分组
+                                    </label>
+                                    <label style="display:flex;align-items:center;gap:6px;color:var(--tm-text-color);font-size:13px;">
+                                        <input type="checkbox" ${state.groupByTime ? 'checked' : ''} onchange="toggleGroupByTime(this.checked)">
+                                        按时间分组
+                                    </label>
+                                </div>
+                                ${currentRule ? `<div class="tm-mobile-only-item" style="color:var(--tm-secondary-text);font-size:12px;">当前规则: ${esc(currentRule.name)} (${filteredCount}任务)</div>` : ''}
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <style>
+                        /* 默认隐藏移动端专属项（因为桌面端工具栏已经有了） */
+                        .tm-mobile-only-item {
+                            display: none !important;
+                        }
+                        
+                        /* 移动端下显示 */
+                        @media (max-width: 768px) {
+                            .tm-mobile-only-item {
+                                display: flex !important;
+                            }
+                        }
+                    </style>
 
                 <div class="tm-doc-tabs">
-                    <div style="display:flex; gap:8px; overflow-x:auto; flex:1; align-items:center; padding-bottom: 2px;">
+                    <div style="display:flex; gap:8px; overflow-x:auto; flex:1; align-items:center; padding: ${isMobile ? '4px 12px 4px 12px' : '4px 0 4px 0'};">
                         <div class="tm-doc-tab ${state.activeDocId === 'all' ? 'active' : ''}" onclick="tmSwitchDoc('all')">全部</div>
+                        ${(() => {
+                            const id = String(SettingsStore.data.newTaskDocId || '').trim();
+                            if (!id || id === '__dailyNote__') return '';
+                            const docName = state.taskTree.find(d => d.id === id)?.name
+                                || state.allDocuments.find(d => d.id === id)?.name
+                                || '未命名文档';
+                            const isActive = state.activeDocId === id;
+                            return `<div class="tm-doc-tab ${isActive ? 'active' : ''}" onclick="tmSwitchDoc('${id}')" title="全局新建文档">📥 ${esc(docName)}</div>`;
+                        })()}
                         ${visibleDocs.map(doc => {
                             const isActive = state.activeDocId === doc.id;
-                            return `<div class="tm-doc-tab ${isActive ? 'active' : ''}" onclick="tmSwitchDoc('${doc.id}')">${esc(doc.name)}</div>`;
+                            return `<div class="tm-doc-tab ${isActive ? 'active' : ''}" ondragenter="tmDocTabDragEnter(event)" ondragleave="tmDocTabDragLeave(event)" ondragover="tmDocTabDragOver(event)" ondrop="tmDocTabDrop(event, '${doc.id}')" onclick="tmSwitchDoc('${doc.id}')">${esc(doc.name)}</div>`;
                         }).join('')}
                     </div>
-                    <div style="border-left:1px solid var(--tm-border-color); padding-left:8px; margin-left:8px; display:flex; gap:8px;">
-                         <button class="tm-btn tm-btn-info" onclick="tmCollapseAllTasks()" style="padding: 2px 8px; font-size: 12px;">▸ 折叠</button>
-                         <button class="tm-btn tm-btn-info" onclick="tmExpandAllTasks()" style="padding: 2px 8px; font-size: 12px;">▾ 展开</button>
-                         <button class="tm-btn tm-btn-info" onclick="showSettings()" style="padding: 2px 8px; font-size: 12px;">⚙️ 设置</button>
-                         <button class="tm-btn tm-btn-info" onclick="showRulesManager()" style="padding: 2px 8px; font-size: 12px;">📋 规则</button>
+                    <div style="border-left:1px solid var(--tm-border-color); padding-left:8px; margin-left:8px; display:none; gap:8px;">
+                         ${!isMobile ? `` : ''}
                     </div>
                 </div>
                 
@@ -4105,7 +5287,7 @@
                     .tm-doc-tabs {
                         display: flex;
                         align-items: center;
-                        padding: 8px 15px;
+                        padding: 0 15px;
                         border-bottom: 1px solid var(--tm-border-color);
                         background: var(--tm-header-bg);
                     }
@@ -4117,28 +5299,60 @@
                         border-radius: 2px;
                     }
                     .tm-doc-tab {
-                        padding: 4px 12px;
-                        border-radius: 4px;
+                        padding: 2px 8px;
+                        border-radius: 6px;
                         background: var(--tm-bg-color);
                         color: var(--tm-text-color);
                         font-size: 13px;
                         cursor: pointer;
                         white-space: nowrap;
                         border: 1px solid var(--tm-border-color);
-                        transition: all 0.2s;
+                        transition: transform 0.12s ease, box-shadow 0.12s ease, border-color 0.12s ease, background 0.12s ease;
                         user-select: none;
-                        height: 26px;
+                        height: 24px;
                         line-height: 16px;
                         display: flex;
                         align-items: center;
                     }
                     .tm-doc-tab:hover {
                         background: var(--tm-hover-bg);
+                        border-color: var(--tm-text-color);
                     }
                     .tm-doc-tab.active {
                         background: var(--tm-primary-color);
                         color: white;
                         border-color: var(--tm-primary-color);
+                        box-shadow: 0 0 0 1px var(--tm-primary-color);
+                    }
+                    .tm-doc-tab.is-drop-target {
+                        transform: scale(1.06);
+                        border-color: var(--tm-primary-color);
+                        box-shadow: 0 6px 16px rgba(0,0,0,0.15);
+                        z-index: 10;
+                        transform-origin: center;
+                    }
+                    
+                    @media (max-width: 768px) {
+                        .tm-desktop-toolbar {
+                            display: none !important;
+                        }
+                        .tm-mobile-menu-btn {
+                            display: block !important;
+                        }
+                        .tm-filter-rule-bar {
+                            flex-wrap: wrap;
+                        }
+                        .tm-doc-tabs {
+                            padding: 8px 0;
+                            width: 100%;
+                            box-sizing: border-box;
+                        }
+                        .tm-doc-tab {
+                            font-size: 12px;
+                            padding: 2px 8px;
+                            height: 24px;
+                            border-radius: 6px;
+                        }
                     }
                 </style>
                 
@@ -4147,7 +5361,7 @@
                         <thead>
                             <tr>
                                 ${(() => {
-                                    const colOrder = SettingsStore.data.columnOrder || ['pinned', 'content', 'status', 'score', 'doc', 'h2', 'priority', 'completionTime', 'duration', 'remark'];
+                                    const colOrder = SettingsStore.data.columnOrder || ['pinned', 'content', 'status', 'score', 'doc', 'h2', 'priority', 'completionTime', 'duration', 'spent', 'remark'];
                                     const widths = SettingsStore.data.columnWidths || {};
                                     const headers = {
                                         pinned: `<th data-col="pinned" style="width: ${widths.pinned || 48}px; min-width: ${widths.pinned || 48}px; max-width: ${widths.pinned || 48}px; text-align: center; white-space: nowrap; overflow: hidden;">📌<span class="tm-col-resize" onmousedown="startColResize(event, 'pinned')"></span></th>`,
@@ -4158,6 +5372,7 @@
                                         priority: `<th data-col="priority" style="width: ${widths.priority || 96}px; min-width: ${widths.priority || 96}px; max-width: ${widths.priority || 96}px; text-align: center; white-space: nowrap; overflow: hidden;">重要性<span class="tm-col-resize" onmousedown="startColResize(event, 'priority')"></span></th>`,
                                         completionTime: `<th data-col="completionTime" style="width: ${widths.completionTime || 170}px; min-width: ${widths.completionTime || 170}px; max-width: ${widths.completionTime || 170}px; white-space: nowrap; overflow: hidden;">完成时间<span class="tm-col-resize" onmousedown="startColResize(event, 'completionTime')"></span></th>`,
                                         duration: `<th data-col="duration" style="width: ${widths.duration || 96}px; min-width: ${widths.duration || 96}px; max-width: ${widths.duration || 96}px; white-space: nowrap; overflow: hidden;">时长<span class="tm-col-resize" onmousedown="startColResize(event, 'duration')"></span></th>`,
+                                        spent: `<th data-col="spent" style="width: ${widths.spent || 96}px; min-width: ${widths.spent || 96}px; max-width: ${widths.spent || 96}px; white-space: nowrap; overflow: hidden;">耗时<span class="tm-col-resize" onmousedown="startColResize(event, 'spent')"></span></th>`,
                                         remark: `<th data-col="remark" style="width: ${widths.remark || 240}px; min-width: ${widths.remark || 240}px; max-width: ${widths.remark || 240}px; white-space: nowrap; overflow: hidden;">备注<span class="tm-col-resize" onmousedown="startColResize(event, 'remark')"></span></th>`,
                                         status: `<th data-col="status" style="width: ${widths.status || 96}px; min-width: ${widths.status || 96}px; max-width: ${widths.status || 96}px; text-align: center; white-space: nowrap; overflow: hidden;">状态<span class="tm-col-resize" onmousedown="startColResize(event, 'status')"></span></th>`
                                     };
@@ -4176,9 +5391,12 @@
         __tmGetMountRoot().appendChild(state.modal);
 
         // 恢复滚动位置
-        if (savedScrollTop > 0) {
+        if (savedScrollTop > 0 || savedScrollLeft > 0) {
             const newBody = state.modal.querySelector('.tm-body');
-            if (newBody) newBody.scrollTop = savedScrollTop;
+            if (newBody) {
+                if (savedScrollTop > 0) newBody.scrollTop = savedScrollTop;
+                if (savedScrollLeft > 0) newBody.scrollLeft = savedScrollLeft;
+            }
         }
     }
 
@@ -4228,20 +5446,128 @@
         }
     };
 
-    window.tmClose = function() {
+    window.tmToggleDesktopMenu = function(e) {
+        if (e) { e.stopPropagation(); e.preventDefault(); }
+        
+        // 移除现有的菜单
+        const existing = document.getElementById('tmDesktopMenu');
+        if (existing) {
+            existing.remove();
+            return;
+        }
+        
+        const menu = document.createElement('div');
+        menu.id = 'tmDesktopMenu';
+        menu.className = 'tm-popup-menu';
+        menu.style.cssText = `
+            position: absolute;
+            top: 45px;
+            right: 15px;
+            background: var(--tm-bg-color);
+            border: 1px solid var(--tm-border-color);
+            border-radius: 6px;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+            padding: 8px;
+            z-index: 10000;
+            display: flex;
+            flex-direction: column;
+            gap: 6px;
+            min-width: 140px;
+        `;
+        
+        menu.innerHTML = `
+            <button class="tm-btn tm-btn-info" onclick="tmCollapseAllTasks(); document.getElementById('tmDesktopMenu').remove()" style="text-align:left; padding: 6px 12px;">▸ 全部折叠</button>
+            <button class="tm-btn tm-btn-info" onclick="tmExpandAllTasks(); document.getElementById('tmDesktopMenu').remove()" style="text-align:left; padding: 6px 12px;">▾ 全部展开</button>
+        `;
+        
+        // 点击外部关闭
+        const closeHandler = (ev) => {
+            if (!menu.contains(ev.target) && ev.target !== e.target) {
+                menu.remove();
+                document.removeEventListener('click', closeHandler);
+            }
+        };
+        setTimeout(() => document.addEventListener('click', closeHandler), 0);
+        
+        const container = document.querySelector('.tm-filter-rule-bar');
+        if (container) {
+            container.style.position = 'relative';
+            container.appendChild(menu);
+        }
+    };
+
+    function __tmHideMobileMenu() {
+        const menu = document.getElementById('tmMobileMenu');
+        if (menu) menu.style.display = 'none';
+        if (state.mobileMenuCloseHandler) {
+            try { document.removeEventListener('click', state.mobileMenuCloseHandler); } catch (e) {}
+            try { document.removeEventListener('touchstart', state.mobileMenuCloseHandler); } catch (e) {}
+            state.mobileMenuCloseHandler = null;
+        }
+    }
+
+    window.tmToggleMobileMenu = function(e) {
+        const menu = document.getElementById('tmMobileMenu');
+        if (!menu) return;
+
+        const now = Date.now();
+        const type = String(e?.type || '');
+        if (type.startsWith('touch')) {
+            state.mobileMenuLastTouchTs = now;
+        } else {
+            const lastTouchTs = Number(state.mobileMenuLastTouchTs) || 0;
+            if (lastTouchTs && now - lastTouchTs < 500) return;
+        }
+        if (e) {
+            try { e.stopPropagation?.(); } catch (e2) {}
+            try { e.preventDefault?.(); } catch (e2) {}
+        }
+
+        const open = menu.style.display !== 'none';
+        if (!open) {
+            menu.style.display = 'block';
+            
+            if (state.mobileMenuCloseHandler) {
+                try { document.removeEventListener('click', state.mobileMenuCloseHandler); } catch (e2) {}
+                try { document.removeEventListener('touchstart', state.mobileMenuCloseHandler); } catch (e2) {}
+                state.mobileMenuCloseHandler = null;
+            }
+            const closeHandler = (ev) => {
+                if (menu.contains(ev.target)) return;
+                if (ev.target.closest('.tm-mobile-menu-btn')) return;
+                __tmHideMobileMenu();
+            };
+            state.mobileMenuCloseHandler = closeHandler;
+            
+            setTimeout(() => {
+                document.addEventListener('click', closeHandler);
+                document.addEventListener('touchstart', closeHandler);
+            }, 0);
+        } else {
+            __tmHideMobileMenu();
+        }
+    };
+
+    window.tmClose = function(event) {
+        if (event) {
+            event.stopPropagation();
+            event.preventDefault();
+        }
         state.openToken = (Number(state.openToken) || 0) + 1;
-        if (state.modal) {
-            state.modal.remove();
-            state.modal = null;
-        }
-        if (state.settingsModal) {
-            state.settingsModal.remove();
-            state.settingsModal = null;
-        }
-        if (state.rulesModal) {
-            state.rulesModal.remove();
-            state.rulesModal = null;
-        }
+        try { __tmHideMobileMenu(); } catch (e) {}
+        
+        // 强制移除所有可能的模态框（防御性编程）
+        const modals = document.querySelectorAll('.tm-modal, .tm-settings-modal, .tm-rules-modal, .tm-prompt-modal');
+        modals.forEach(el => {
+            try { el.remove(); } catch (e) {}
+        });
+
+        // 清理状态引用
+        state.modal = null;
+        state.settingsModal = null;
+        state.rulesModal = null;
+        state.priorityModal = null;
+        state.quickAddModal = null;
     };
 
     // 列宽调整功能
@@ -4296,19 +5622,53 @@
 
         const isValidValue = (val) => val !== undefined && val !== null && val !== '' && val !== 'null';
 
+        const normalizePriority = (raw) => {
+            const s = String(raw ?? '').trim();
+            if (!s) return '';
+            const map = {
+                high: 'high',
+                medium: 'medium',
+                low: 'low',
+                none: '',
+                '高': 'high',
+                '中': 'medium',
+                '低': 'low',
+                '无': '',
+            };
+            if (Object.prototype.hasOwnProperty.call(map, s)) return map[s];
+            const lower = s.toLowerCase();
+            if (Object.prototype.hasOwnProperty.call(map, lower)) return map[lower];
+            return '';
+        };
         const p0 = task.priority ?? task.customPriority ?? task.custom_priority ?? '';
-        task.priority = (p0 === 'high' || p0 === 'medium' || p0 === 'low' || p0 === 'none') ? p0 : '';
+        task.priority = normalizePriority(p0);
         task.duration = isValidValue(task.duration) ? String(task.duration) : (isValidValue(task.custom_duration) ? String(task.custom_duration) : '');
         task.remark = isValidValue(task.remark) ? String(task.remark) : (isValidValue(task.custom_remark) ? String(task.custom_remark) : '');
         task.completionTime = isValidValue(task.completionTime) ? String(task.completionTime) : (isValidValue(task.completion_time) ? String(task.completion_time) : '');
         task.customTime = isValidValue(task.customTime) ? String(task.customTime) : (isValidValue(task.custom_time) ? String(task.custom_time) : '');
         task.customStatus = isValidValue(task.customStatus) ? String(task.customStatus) : (isValidValue(task.custom_status) ? String(task.custom_status) : '');
+        task.tomatoMinutes = isValidValue(task.tomatoMinutes) ? String(task.tomatoMinutes) : (isValidValue(task.tomato_minutes) ? String(task.tomato_minutes) : '');
+        task.tomatoHours = isValidValue(task.tomatoHours) ? String(task.tomatoHours) : (isValidValue(task.tomato_hours) ? String(task.tomato_hours) : '');
+        const pin0 = task.pinned ?? task.customPinned ?? task.custom_pinned ?? '';
+        if (typeof pin0 === 'boolean') {
+            task.pinned = pin0;
+        } else {
+            const s = String(pin0 || '').trim().toLowerCase();
+            task.pinned = s === 'true' || s === '1';
+        }
 
         const meta = MetaStore.get(task.id);
         if (meta) {
             if ('done' in meta && meta.done !== undefined && meta.done !== null) task.done = meta.done;
-            if ('pinned' in meta && isValidValue(meta.pinned)) task.pinned = meta.pinned;
-            if (!isValidValue(task.priority) && isValidValue(meta.priority)) task.priority = meta.priority;
+            if ('pinned' in meta) {
+                const ms = meta.pinned;
+                if (typeof ms === 'boolean') task.pinned = ms;
+                else {
+                    const s = String(ms || '').trim().toLowerCase();
+                    if (s === 'true' || s === '1' || s === '') task.pinned = s === 'true' || s === '1';
+                }
+            }
+            if (!isValidValue(task.priority) && isValidValue(meta.priority)) task.priority = normalizePriority(meta.priority);
             if (!isValidValue(task.duration) && isValidValue(meta.duration)) task.duration = meta.duration;
             if (!isValidValue(task.remark) && isValidValue(meta.remark)) task.remark = meta.remark;
             if (!isValidValue(task.completionTime) && isValidValue(meta.completionTime)) task.completionTime = meta.completionTime;
@@ -4323,21 +5683,61 @@
     }
 
     function __tmFormatDate(value) {
-        if (!value) return '-';
+        if (!value) return '';
         const d = new Date(value);
-        if (Number.isNaN(d.getTime())) return '-';
+        if (Number.isNaN(d.getTime())) return '';
         return d.toLocaleDateString();
     }
 
     function __tmFormatTaskTime(value) {
         const s = String(value || '').trim();
-        if (!s) return '-';
+        if (!s) return '';
         if (/^\d{4}-\d{2}-\d{2}$/.test(s)) return s;
         if (/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}/.test(s)) return s.slice(0, 10);
+        if (/^\d{14}$/.test(s)) return `${s.slice(0, 4)}-${s.slice(4, 6)}-${s.slice(6, 8)}`;
+        if (/^\d{8}$/.test(s)) return `${s.slice(0, 4)}-${s.slice(4, 6)}-${s.slice(6, 8)}`;
+        if (/^\d+$/.test(s)) {
+            const n = Number(s);
+            if (Number.isFinite(n) && n > 0) {
+                const ts = n < 1e12 ? n * 1000 : n;
+                const d0 = new Date(ts);
+                if (!Number.isNaN(d0.getTime())) {
+                    const pad = (n) => String(n).padStart(2, '0');
+                    return `${d0.getFullYear()}-${pad(d0.getMonth() + 1)}-${pad(d0.getDate())}`;
+                }
+            }
+        }
         const d = new Date(s);
         if (Number.isNaN(d.getTime())) return s;
         const pad = (n) => String(n).padStart(2, '0');
         return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+    }
+
+    function __tmGetTaskSpentMinutes(task) {
+        if (!SettingsStore.data.enableTomatoIntegration) return null;
+        const mode = String(SettingsStore.data.tomatoSpentAttrMode || 'minutes').trim() || 'minutes';
+        if (mode === 'hours') return null;
+        const m = __tmParseNumber(task?.tomatoMinutes);
+        if (!Number.isFinite(m) || m <= 0) return null;
+        return Math.round(m);
+    }
+
+    function __tmFormatSpentHours(hours) {
+        const n = Number(hours);
+        if (!Number.isFinite(n) || n <= 0) return '';
+        const rounded = Math.round(n * 100) / 100;
+        return String(rounded);
+    }
+
+    function __tmFormatSpentMinutes(minutes) {
+        const n = Number(minutes);
+        if (!Number.isFinite(n) || n <= 0) return '';
+        const total = Math.round(n);
+        const h = Math.floor(total / 60);
+        const m = total % 60;
+        if (h > 0 && m > 0) return `${h}h${m}m`;
+        if (h > 0) return `${h}h`;
+        return `${m}m`;
     }
 
     function __tmNormalizeDateOnly(value) {
@@ -4355,6 +5755,29 @@
     function __tmParseTimeToTs(value) {
         const s = String(value || '').trim();
         if (!s) return 0;
+        if (/^\d{14}$/.test(s)) {
+            const y = Number(s.slice(0, 4));
+            const mon = Number(s.slice(4, 6)) - 1;
+            const d = Number(s.slice(6, 8));
+            const hh = Number(s.slice(8, 10));
+            const mm = Number(s.slice(10, 12));
+            const ss = Number(s.slice(12, 14));
+            const dt = new Date(y, mon, d, hh, mm, ss, 0);
+            return Number.isNaN(dt.getTime()) ? 0 : dt.getTime();
+        }
+        if (/^\d{8}$/.test(s)) {
+            const y = Number(s.slice(0, 4));
+            const mon = Number(s.slice(4, 6)) - 1;
+            const d = Number(s.slice(6, 8));
+            const dt = new Date(y, mon, d, 12, 0, 0, 0);
+            return Number.isNaN(dt.getTime()) ? 0 : dt.getTime();
+        }
+        if (/^\d+$/.test(s)) {
+            const n = Number(s);
+            if (!Number.isFinite(n) || n <= 0) return 0;
+            const ts = n < 1e12 ? n * 1000 : n;
+            return ts;
+        }
         if (/^\d{4}-\d{2}-\d{2}$/.test(s)) {
             const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(s);
             const y = Number(m[1]);
@@ -4591,8 +6014,25 @@
             input.value = val ? val.slice(0, 10) : '';
             td.appendChild(input);
 
-            const save = () => commitAndClose(input.value);
-            input.onblur = () => save();
+            const initial = input.value;
+            let committed = false;
+            const save = () => {
+                if (committed) return;
+                const next = String(input.value || '').trim();
+                if (next === String(initial || '').trim()) {
+                    committed = true;
+                    finish(false);
+                    return;
+                }
+                committed = true;
+                commitAndClose(next);
+            };
+            input.onchange = () => save();
+            input.onblur = () => {
+                if (committed) return;
+                committed = true;
+                cancel();
+            };
             input.onkeydown = (e) => {
                 if (e.key === 'Escape') cancel();
                 if (e.key === 'Enter') save();
@@ -4616,8 +6056,25 @@
             else input.value = __tmToDatetimeLocalValue(current);
             td.appendChild(input);
 
-            const save = () => commitAndClose(input.value);
-            input.onblur = () => save();
+            const initial = input.value;
+            let committed = false;
+            const save = () => {
+                if (committed) return;
+                const next = String(input.value || '').trim();
+                if (next === String(initial || '').trim()) {
+                    committed = true;
+                    finish(false);
+                    return;
+                }
+                committed = true;
+                commitAndClose(next);
+            };
+            input.onchange = () => save();
+            input.onblur = () => {
+                if (committed) return;
+                committed = true;
+                cancel();
+            };
             input.onkeydown = (e) => {
                 if (e.key === 'Escape') cancel();
                 if (e.key === 'Enter') save();
@@ -4876,7 +6333,7 @@
                 }
             };
 
-            const { wrap } = __tmBuildActions('保存', async () => {
+            const save = async () => {
                 const raw = String(input.value || '').trim();
                 const next = raw ? __tmNormalizeDateOnly(raw) : '';
                 try {
@@ -4889,10 +6346,16 @@
                 } catch (e) {
                     hint(`❌ 更新失败: ${e.message}`, 'error');
                 }
-            }, close, [clearBtn]);
-            editor.appendChild(wrap);
+            };
+
+            const actions = document.createElement('div');
+            actions.className = 'tm-inline-editor-actions';
+            actions.appendChild(clearBtn);
+            editor.appendChild(actions);
+
+            input.onchange = () => save();
             input.onkeydown = (e) => {
-                if (e.key === 'Enter') wrap.querySelector('button.tm-btn-primary')?.click?.();
+                if (e.key === 'Enter') save();
             };
         });
     };
@@ -5060,8 +6523,6 @@
             event.preventDefault();
             event.stopPropagation();
         }
-
-        console.log(`[跳转] 目标ID: ${id}`);
         const app = __getPluginApp();
         const closeAfterJump = () => {
             if (!__tmIsMobileDevice()) return;
@@ -5074,7 +6535,6 @@
         const openMobile = getOpenMobileFn();
         if (typeof openMobile === 'function') {
             try {
-                console.log('[跳转] 使用 openMobileFileById');
                 let docId = id;
                 try {
                     const sql = `SELECT root_id FROM blocks WHERE id = '${id}' LIMIT 1`;
@@ -5086,25 +6546,19 @@
                 setTimeout(() => __tmScheduleScrollToBlock(id, 24), 650);
                 closeAfterJump();
                 return;
-            } catch (e) {
-                console.warn('[跳转] openMobileFileById 失败，尝试其他方式:', e);
-            }
+            } catch (e) {}
         }
         
         // 2. 桌面端优先尝试 findDocumentIdByBlockId + openTab (参照 tomato.js)
         const openTab = getOpenTabFn();
         if (typeof openTab === 'function') {
             try {
-                console.log('[跳转] 使用 findDocumentIdByBlockId + openTab');
-                
                 // 获取所在文档ID
                 const sql = `SELECT root_id FROM blocks WHERE id = '${id}' LIMIT 1`;
                 const res = await API.call('/api/query/sql', { stmt: sql });
                 // API.call 返回的是 {code:0, data: [...]}
                 const rows = (res && res.code === 0) ? res.data : [];
                 const docId = (rows && rows[0]) ? rows[0].root_id : id;
-                
-                console.log(`[跳转] 这里的docId: ${docId}, 目标块id: ${id}`);
 
                 // 使用 openTab 打开文档
                 // 构造参数：打开文档 root_id
@@ -5128,14 +6582,11 @@
                 // 在新版思源中，可能需要 openFileById 风格的参数
                 
                 return;
-            } catch (e) {
-                console.warn('[跳转] openTab 失败，尝试其他方式:', e);
-            }
+            } catch (e) {}
         }
 
         // 3. 兜底：模拟点击 block-ref
         try {
-            console.log('[跳转] 尝试模拟 block-ref 点击');
             const tempSpan = document.createElement('span');
             tempSpan.setAttribute('data-type', 'block-ref');
             tempSpan.setAttribute('data-id', id);
@@ -5160,12 +6611,9 @@
             setTimeout(() => tempSpan.remove(), 100);
             closeAfterJump();
             return;
-        } catch (e) {
-            console.warn('[跳转] 模拟点击失败:', e);
-        }
+        } catch (e) {}
 
         // 4. 兜底：使用 URL Scheme
-        console.log('[跳转] 使用 URL Scheme 兜底');
         window.open(`siyuan://blocks/${id}`);
         closeAfterJump();
     };
@@ -5210,7 +6658,7 @@
                 : `<span class="tm-tree-spacer"></span>`;
 
             const widths = SettingsStore.data.columnWidths || {};
-            const colOrder = SettingsStore.data.columnOrder || ['pinned', 'content', 'status', 'score', 'doc', 'h2', 'priority', 'completionTime', 'duration', 'remark'];
+            const colOrder = SettingsStore.data.columnOrder || ['pinned', 'content', 'status', 'score', 'doc', 'h2', 'priority', 'completionTime', 'duration', 'spent', 'remark'];
 
             const cells = {
                 pinned: () => `
@@ -5228,14 +6676,15 @@
                                    ${isGloballyLocked ? 'disabled' : ''}
                                    onchange="tmSetDone('${task.id}', this.checked, event)">
                             <span class="tm-task-text ${done ? 'tm-task-done' : ''} tm-task-content-clickable"
+                                  data-level="${depth}"
                                   onclick="tmJumpToTask('${task.id}', event)"
                                   title="点击跳转到文档">${esc(content)}</span>
                         </div>
                     </td>`,
                 doc: () => `
-                    <td style="width: ${widths.doc || 180}px; min-width: ${widths.doc || 180}px; max-width: ${widths.doc || 180}px;" title="${esc(docName || '')}">${esc(docName || '-')}</td>`,
+                    <td style="width: ${widths.doc || 180}px; min-width: ${widths.doc || 180}px; max-width: ${widths.doc || 180}px;" title="${esc(docName || '')}">${esc(docName || '')}</td>`,
                 h2: () => `
-                    <td style="width: ${widths.h2 || 180}px; min-width: ${widths.h2 || 180}px; max-width: ${widths.h2 || 180}px;" title="${esc(task.h2 || '')}">${esc(task.h2 || '-')}</td>`,
+                    <td style="width: ${widths.h2 || 180}px; min-width: ${widths.h2 || 180}px; max-width: ${widths.h2 || 180}px;" title="${esc(task.h2 || '无')}">${esc(task.h2 || '无')}</td>`,
                 score: () => {
                     const v = Number.isFinite(Number(task.priorityScore)) ? Math.round(Number(task.priorityScore)) : 0;
                     return `<td style="width: ${widths.score || 96}px; min-width: ${widths.score || 96}px; max-width: ${widths.score || 96}px; text-align: center; font-variant-numeric: tabular-nums;">${v}</td>`;
@@ -5248,9 +6697,16 @@
                 completionTime: () => `
                     <td class="tm-cell-editable" style="width: ${widths.completionTime || 170}px; min-width: ${widths.completionTime || 170}px; max-width: ${widths.completionTime || 170}px;" onclick="tmBeginCellEdit('${task.id}','completionTime',this,event)">${__tmFormatTaskTime(completionTime)}</td>`,
                 duration: () => `
-                    <td class="tm-cell-editable" style="width: ${widths.duration || 96}px; min-width: ${widths.duration || 96}px; max-width: ${widths.duration || 96}px;" onclick="tmBeginCellEdit('${task.id}','duration',this,event)">${esc(duration || '-')}</td>`,
+                    <td class="tm-cell-editable" style="width: ${widths.duration || 96}px; min-width: ${widths.duration || 96}px; max-width: ${widths.duration || 96}px;" onclick="tmBeginCellEdit('${task.id}','duration',this,event)">${esc(duration || '')}</td>`,
+                spent: () => {
+                    const mode = String(SettingsStore.data.tomatoSpentAttrMode || 'minutes').trim() || 'minutes';
+                    const txt = (SettingsStore.data.enableTomatoIntegration && mode === 'hours')
+                        ? __tmFormatSpentHours(__tmParseNumber(task?.tomatoHours))
+                        : __tmFormatSpentMinutes(__tmGetTaskSpentMinutes(task));
+                    return `<td style="width: ${widths.spent || 96}px; min-width: ${widths.spent || 96}px; max-width: ${widths.spent || 96}px; text-align:center; font-variant-numeric: tabular-nums;">${esc(txt)}</td>`;
+                },
                 remark: () => `
-                    <td class="tm-cell-editable" style="width: ${widths.remark || 240}px; min-width: ${widths.remark || 240}px; max-width: ${widths.remark || 240}px;" title="${esc(remark || '')}" onclick="tmBeginCellEdit('${task.id}','remark',this,event)">${esc(remark || '-')}</td>`,
+                    <td class="tm-cell-editable" style="width: ${widths.remark || 240}px; min-width: ${widths.remark || 240}px; max-width: ${widths.remark || 240}px;" title="${esc(remark || '')}" onclick="tmBeginCellEdit('${task.id}','remark',this,event)">${esc(remark || '')}</td>`,
                 status: () => {
                      const statusOptions = SettingsStore.data.customStatusOptions || [];
                      const currentStatus = task.customStatus || 'todo';
@@ -5265,7 +6721,9 @@
                 }
             };
 
-            let rowHtml = `<tr data-id="${task.id}" oncontextmenu="tmShowTaskContextMenu(event, '${task.id}')">`;
+            const focusId = SettingsStore.data.enableTomatoIntegration ? String(state.timerFocusTaskId || '').trim() : '';
+            const rowClass = focusId ? (focusId === String(task.id) ? 'tm-timer-focus' : 'tm-timer-dim') : '';
+            let rowHtml = `<tr data-id="${task.id}" class="${rowClass}" draggable="true" ondragstart="tmDragTaskStart(event, '${task.id}')" ondblclick="tmRowDblClick(event, '${task.id}')" oncontextmenu="tmShowTaskContextMenu(event, '${task.id}')">`;
             colOrder.forEach(col => {
                 if (cells[col]) rowHtml += cells[col]();
             });
@@ -5327,7 +6785,6 @@
                 });
 
                 // 分离置顶和非置顶
-                const docPinned = docRootTasks.filter(t => t.pinned);
                 const docNormal = docRootTasks.filter(t => !t.pinned);
 
                 // 渲染文档标题（支持折叠）
@@ -5340,9 +6797,6 @@
 
                 // 渲染该文档的任务（如果未折叠）
                 if (!isCollapsed) {
-                    docPinned.forEach(task => {
-                        allRows.push(...renderTaskTree(task, 0));
-                    });
                     docNormal.forEach(task => {
                         allRows.push(...renderTaskTree(task, 0));
                     });
@@ -5460,14 +6914,12 @@
             this.timer = null;
 
             // 不再使用自动解锁，而是等待 render() 完成后手动解锁
-            console.log('[全局锁] 已锁定，所有复选框禁用');
         },
 
         unlock() {
             this.locked = false;
             this.timer = null;
             this.updateUI();
-            console.log('[全局锁] 已解锁');
         },
 
         updateUI() {
@@ -5753,7 +7205,6 @@
         if (doc) {
             TreeProtector.clear();
             TreeProtector.saveTree(doc.tasks);
-            console.log(`[树保护] 已保存 ${TreeProtector.snapshot.size} 个任务状态`);
         }
 
         // 关键修改：先保存原始状态，然后保存到 MetaStore（保持原始状态，等点击完成后再更新）
@@ -5777,10 +7228,6 @@
         const saveAllTasksToMetaRecursive = (tasks) => {
             tasks.forEach(t => {
                 savedCount++;
-                // 调试日志
-                const metaBefore = MetaStore.get(t.id);
-                console.log(`[Meta保存] 任务 ${t.id.slice(-6)}: priority='${t.priority}', remark='${t.remark}' (MetaStore已有: ${JSON.stringify(metaBefore || {})})`);
-
                 MetaStore.set(t.id, {
                     priority: t.priority || '',
                     duration: t.duration || '',
@@ -5799,25 +7246,6 @@
         if (doc && doc.tasks) {
             saveAllTasksToMetaRecursive(doc.tasks);
         }
-        console.log(`[Meta备份] 已保存 ${savedCount} 个任务到 MetaStore`);
-
-        // 调试：验证保存后的 MetaStore 内容
-        setTimeout(() => {
-            console.log('[Meta验证] 保存后检查 MetaStore:');
-            const docAfter = state.taskTree.find(d => d.id === docId);
-            if (docAfter && docAfter.tasks) {
-                const checkTasks = (tasks, level = 0) => {
-                    tasks.forEach(t => {
-                        const meta = MetaStore.get(t.id);
-                        console.log(`  ${'  '.repeat(level)}任务 ${t.id.slice(-6)}: MetaStore=${JSON.stringify(meta || {})}`);
-                        if (t.children && t.children.length > 0) {
-                            checkTasks(t.children, level + 1);
-                        }
-                    });
-                };
-                checkTasks(docAfter.tasks);
-            }
-        }, 50);
 
         // 注意：不要在这里 render()，因为还没点击复选框
         // render() 会在从DOM读取实际状态后调用
@@ -5827,12 +7255,8 @@
             let apiSuccess = false;
             let clickSuccess = false;
             try {
-                console.log(`[完成状态] 准备API更新: ${id} -> ${targetDone}`);
-                
                 // 1. 获取 kramdown
                 const kramdown = await API.getBlockKramdown(id);
-                // 使用 console.warn 确保在某些过滤级别下可见
-                console.warn(`[完成状态] ID=${id} kramdown内容: >>>${kramdown}<<<`);
 
                 if (kramdown) {
                     // 2. 正则匹配：匹配行首的任务标记，容忍前面的空白
@@ -5843,18 +7267,13 @@
                     if (match) {
                         const currentStatusChar = match[2];
                         const isCurrentlyDone = currentStatusChar !== ' ';
-                        console.log(`[完成状态] 解析当前状态: '${currentStatusChar}' (done=${isCurrentlyDone})`);
 
                         if (isCurrentlyDone === targetDone) {
                             apiSuccess = true;
-                            console.log('[完成状态] 状态已一致，无需更新');
                         } else {
                             // 3. 构造新的 kramdown
                             const newStatusChar = targetDone ? 'x' : ' ';
                             const newKramdown = kramdown.replace(statusRegex, `$1${newStatusChar}$3`);
-                            
-                            console.log(`[完成状态] 准备提交更新: >>>${newKramdown}<<<`);
-                            
                             // 4. 调用 updateBlock
                             const res = await API.call('/api/block/updateBlock', {
                                 dataType: 'markdown',
@@ -5864,18 +7283,15 @@
                             
                             if (res && res.code === 0) {
                                 apiSuccess = true;
-                                console.log('[完成状态] API更新成功');
                             } else {
                                 console.error('[完成状态] API更新失败:', res);
                             }
                         }
                     } else {
-                        console.warn('[完成状态] 正则匹配失败，尝试宽松匹配');
                         // Fallback: 尝试查找内容中的第一个复选框标记（即使不在行首）
                         const fallbackRegex = /(\[)([ xX])(\])/;
                         const fallbackMatch = kramdown.match(fallbackRegex);
                         if (fallbackMatch) {
-                             console.log('[完成状态] 使用宽松正则匹配成功');
                              const newStatusChar = targetDone ? 'x' : ' ';
                              // 只替换第一个匹配项
                              const newKramdown = kramdown.replace(fallbackRegex, `$1${newStatusChar}$3`);
@@ -5887,7 +7303,6 @@
                             });
                             if (res && res.code === 0) {
                                 apiSuccess = true;
-                                console.log('[完成状态] 宽松匹配API更新成功');
                             }
                         } else {
                             console.error('[完成状态] 无法在kramdown中找到任务标记');
@@ -5903,8 +7318,6 @@
             // 只有当 API 失败时才尝试查找 DOM（作为回退）
             let taskElement = null;
             if (!apiSuccess) {
-                console.log(`[完成状态] API 未成功，尝试模拟点击，targetDone=${targetDone}`);
-
                 // 尝试多种方式找到复选框并点击
                 // 方式1：通过 task.id 直接查询列表项
                 taskElement = document.querySelector(`[data-type="NodeListItem"][data-node-id="${id}"]`);
@@ -5938,7 +7351,6 @@
                 // 找到 protyle-action--task 元素并触发点击
                 const actionElement = taskElement.querySelector('.protyle-action--task');
                 if (actionElement) {
-                    console.log(`[完成状态] 找到复选框元素`);
                     // 使用多种事件触发方式
                     const mouseEvents = ['mousedown', 'mouseup', 'click', 'pointerdown', 'pointerup'];
                     for (const eventType of mouseEvents) {
@@ -5961,7 +7373,6 @@
                     // 关键修复：直接点击真正的 checkbox input 元素并触发 change 事件
                     const checkboxInput = taskElement.querySelector('input[type="checkbox"]');
                     if (checkboxInput) {
-                        console.log(`[完成状态] 直接点击 checkbox input 元素`);
                         // 直接修改 checkbox 状态
                         checkboxInput.checked = targetDone;
                         // 触发 change 事件
@@ -5970,16 +7381,10 @@
                             cancelable: true
                         });
                         checkboxInput.dispatchEvent(changeEvent);
-                        console.log(`[完成状态] checkbox input 已设为 checked=${checkboxInput.checked}`);
                     }
 
                     clickSuccess = true;
-                    console.log(`[完成状态] 事件已触发`);
-                } else {
-                    console.log(`[完成状态] 未找到 protyle-action--task 元素`);
                 }
-            } else {
-                console.log(`[完成状态] 未找到任务元素`);
             }
 
             // 等待思源处理完成
@@ -5988,7 +7393,6 @@
             // 直接使用 targetDone 作为实际状态
             // 因为我们已经模拟点击了思源的复选框，思源会正确处理状态变化
             const actualDone = targetDone;
-            console.log(`[完成状态] 使用目标状态: actualDone=${actualDone}, targetDone=${targetDone}`);
 
             // 保存到MetaStore
             MetaStore.set(id, {
@@ -6001,7 +7405,6 @@
                 done: actualDone,
                 content: task.content
             });
-            console.log(`[完成状态] 已保存到MetaStore（ID: ${id.slice(-6)}，done=${actualDone}）`);
 
             // 更新本地状态
             task.done = actualDone;
@@ -6090,7 +7493,6 @@
             const newContent = String(content || '').trim();
             // 精确匹配或新内容包含旧内容（旧内容更短）
             if (oldContent === newContent || (newContent.length > oldContent.length && newContent.includes(oldContent))) {
-                console.log(`[匹配] 找到任务 "${oldContent}" (深度=${depth})`);
                 return t;
             }
             if (t.children && t.children.length > 0) {
@@ -6098,7 +7500,6 @@
                 if (found) return found;
             }
         }
-        console.log(`[匹配] 未找到任务 "${content}"`);
         return null;
     }
 
@@ -6106,8 +7507,6 @@
     // manualRelationships: 可选，Map<childId, parentTaskId>，用于在SQL索引未更新时强制指定父子关系
     // injectedTasks: 可选，Array<Task>，用于在SQL索引未更新时强制注入新任务（乐观更新）
     async function reloadDocTasksProtected(docId, expectId = null, manualRelationships = null, injectedTasks = null) {
-        console.log(`[受保护重载] 文档 ${docId.slice(-6)} ${expectId ? '(等待ID: ' + expectId.slice(-6) + ')' : ''}`);
-
         // 0. 备份旧的父子关系（用于容灾，当SQL索引失效时恢复现有结构）
         const oldRelationships = new Map(); // Map<childId, {parentId: string, listId: string}>
         const backupRelationships = (tasks) => {
@@ -6142,13 +7541,11 @@
                 if (res.tasks && res.tasks.find(t => t.id === expectId)) {
                     flatTasks = res.tasks;
                     queryTime = res.queryTime;
-                    console.log(`[重载] 成功找到新ID ${expectId.slice(-6)} (重试 ${retries} 次)`);
                     break;
                 }
                 
                 // 如果是最后一次重试，仍然使用当前结果
                 if (retries === maxRetries - 1) {
-                    console.warn(`[重载] 超时仍未找到新ID ${expectId.slice(-6)}，使用当前结果`);
                     flatTasks = res.tasks || [];
                     queryTime = res.queryTime || 0;
                     break;
@@ -6168,7 +7565,6 @@
         if (injectedTasks && injectedTasks.length > 0) {
             injectedTasks.forEach(injected => {
                 if (!flatTasks.find(t => t.id === injected.id)) {
-                    console.log(`[乐观更新] 强制注入任务 ${injected.id.slice(-6)}`);
                     flatTasks.push(injected);
                 }
             });
@@ -6188,7 +7584,6 @@
                         const meta = MetaStore.get(t.id);
                         if (meta && Object.keys(meta).length > 0) {
                             contentToMeta.set(key, meta);
-                            console.log(`[内容映射] "${key.slice(0, 15)}" -> MetaStore数据: done=${meta.done}, priority=${meta.priority}`);
                         }
                     }
                     if (t.children && t.children.length > 0) {
@@ -6214,24 +7609,10 @@
             // 如果当前ID没有MetaStore数据，尝试从内容映射找回
             if (Object.keys(meta).length === 0 && contentKey && contentToMeta.has(contentKey)) {
                 const oldMeta = contentToMeta.get(contentKey);
-                console.log(`[内容恢复] 任务 "${contentKey.slice(0, 15)}" 通过内容匹配找回MetaStore数据: done=${oldMeta.done}, priority=${oldMeta.priority}`);
                 meta = oldMeta;
 
                 // 同时保存到当前ID下，确保后续能直接读取
                 MetaStore.set(t.id, oldMeta);
-            } else if (Object.keys(meta).length > 0) {
-                console.log(`[Meta读取] 任务 ${t.id.slice(-6)} 直接从 MetaStore 读取: done=${meta.done}, priority=${meta.priority}`);
-            }
-
-            // 调试日志：检查是否从 MetaStore 读取到属性
-            if (meta.priority || meta.duration || meta.remark || meta.completionTime || meta.customTime) {
-                console.log(`[Meta读取] 任务 ${t.id.slice(-6)} 从 MetaStore 读取到属性:`, {
-                    priority: meta.priority,
-                    duration: meta.duration,
-                    remark: meta.remark,
-                    completionTime: meta.completionTime,
-                    customTime: meta.customTime
-                });
             }
 
             taskMap.set(t.id, {
@@ -6244,12 +7625,32 @@
                 root_id: t.root_id,
                 doc_name: t.doc_name,
                 children: [],
-                // 所有自定义属性都从 MetaStore 读取，忽略 SQL 查询的值
-                priority: meta.priority || '',
-                duration: meta.duration || '',
-                remark: meta.remark || '',
-                completionTime: meta.completionTime || '',
-                customTime: meta.customTime || ''
+                priority: (() => {
+                    const mv = Object.prototype.hasOwnProperty.call(meta, 'priority') ? String(meta.priority ?? '') : '';
+                    if (mv && mv !== 'null') return mv;
+                    return String(t.priority ?? '');
+                })(),
+                duration: Object.prototype.hasOwnProperty.call(meta, 'duration')
+                    ? String(meta.duration ?? '')
+                    : String(t.duration ?? ''),
+                remark: Object.prototype.hasOwnProperty.call(meta, 'remark')
+                    ? String(meta.remark ?? '')
+                    : String(t.remark ?? ''),
+                completionTime: Object.prototype.hasOwnProperty.call(meta, 'completionTime')
+                    ? String(meta.completionTime ?? '')
+                    : String(t.completion_time ?? ''),
+                customTime: Object.prototype.hasOwnProperty.call(meta, 'customTime')
+                    ? String(meta.customTime ?? '')
+                    : String(t.custom_time ?? ''),
+                pinned: (() => {
+                    const raw = Object.prototype.hasOwnProperty.call(meta, 'pinned') ? meta.pinned : t.pinned;
+                    if (typeof raw === 'boolean') return raw;
+                    const s = String(raw || '').trim().toLowerCase();
+                    return s === 'true' || s === '1';
+                })(),
+                customStatus: Object.prototype.hasOwnProperty.call(meta, 'customStatus')
+                    ? String(meta.customStatus ?? '')
+                    : String(t.custom_status ?? '')
             });
         });
 
@@ -6299,7 +7700,6 @@
                     if (parentTask) {
                         task.parentTaskId = parentTask.id;
                         parentTask.children.push(task);
-                        // console.log(`[树恢复] 使用旧关系恢复子任务: ${t.id.slice(-6)} -> ${parentTask.id.slice(-6)}`);
                         return;
                     }
                 }
@@ -6325,7 +7725,6 @@
                         if (newTask && newTask.id !== t.id) {
                             oldIdToNewId.set(t.id, newTask.id);
                             newIdToOldId.set(newTask.id, t.id);
-                            console.log(`[ID映射] 内容匹配 "${t.content?.slice(0, 15)}": ${t.id.slice(-6)} -> ${newTask.id.slice(-6)}`);
 
                             // 如果MetaStore中有旧ID的数据，复制到新ID
                             const oldMeta = MetaStore.get(t.id);
@@ -6334,7 +7733,6 @@
                                 const newMeta = MetaStore.get(newTask.id) || {};
                                 const mergedMeta = { ...oldMeta, ...newMeta };
                                 MetaStore.set(newTask.id, mergedMeta);
-                                console.log(`[Meta同步] 已将旧ID ${t.id.slice(-6)} 的数据同步到新ID ${newTask.id.slice(-6)}`);
                             }
                         }
                     }
@@ -6347,7 +7745,6 @@
         }
 
         TreeProtector.restoreTree(rootTasks);
-        console.log(`[树恢复] 已建立 ${TreeProtector.idMapping.size} 个ID映射`);
 
         // 4. 恢复折叠状态
         TreeProtector.restoreCollapsedState();
@@ -6382,46 +7779,11 @@
         });
         flatten(rootTasks);
 
-        // 调试：验证 state.flatTasks 中的数据
-        console.log('[验证] 重新加载后 state.flatTasks 中的任务属性:');
-        Object.keys(state.flatTasks).forEach(key => {
-            const t = state.flatTasks[key];
-            if (t.root_id === docId) {
-                console.log(`  任务 ${key.slice(-6)}: priority='${t.priority}', duration='${t.duration}', remark='${t.remark}'`);
-            }
-        });
-
         state.stats.queryTime = queryTime || 0;
         recalcStats();
         applyFilters();
 
-        // 调试：检查 state.taskTree 中的数据
-        const docAfter = state.taskTree.find(d => d.id === docId);
-        if (docAfter && docAfter.tasks) {
-            console.log('[验证] state.taskTree 中的任务属性:');
-            const checkTasks = (tasks, level = 0) => {
-                tasks.forEach(t => {
-                    console.log(`  ${'  '.repeat(level)}任务 ${t.id.slice(-6)}: priority='${t.priority}', duration='${t.duration}', remark='${t.remark}'`);
-                    if (t.children && t.children.length > 0) {
-                        checkTasks(t.children, level + 1);
-                    }
-                });
-            };
-            checkTasks(docAfter.tasks);
-        }
-
         render();
-
-        // 调试：验证 render 后 state.flatTasks 中的数据
-        setTimeout(() => {
-            console.log('[验证] render 后 state.flatTasks 中的任务属性:');
-            Object.keys(state.flatTasks).forEach(key => {
-                const t = state.flatTasks[key];
-                if (t.root_id === docId) {
-                    console.log(`  任务 ${key.slice(-6)}: priority='${t.priority}', duration='${t.duration}', remark='${t.remark}'`);
-                }
-            });
-        }, 100);
 
         // 7. 保存恢复后的数据
         await MetaStore.saveNow();
@@ -6435,17 +7797,21 @@
         const task = state.flatTasks[id];
         if (!task) return;
         __tmOpenInlineEditor(el, ({ editor, close }) => {
-            editor.style.minWidth = '140px';
+            editor.style.minWidth = '120px';
             editor.style.padding = '8px';
             const wrap = document.createElement('div');
             wrap.style.display = 'flex';
+            wrap.style.flexDirection = 'column';
             wrap.style.gap = '6px';
-            wrap.style.justifyContent = 'space-between';
-            const mk = (value, label) => {
+            const mk = (value, label, color) => {
                 const b = document.createElement('button');
-                b.className = 'tm-btn tm-btn-info';
+                b.className = 'tm-btn tm-btn-secondary';
                 b.style.padding = '4px 8px';
                 b.style.fontSize = '12px';
+                b.style.textAlign = 'left';
+                b.style.background = 'transparent';
+                b.style.border = `1px solid ${color}55`;
+                b.style.color = color;
                 b.textContent = label;
                 b.onclick = async () => {
                     try {
@@ -6460,10 +7826,10 @@
                 };
                 return b;
             };
-            wrap.appendChild(mk('', '无'));
-            wrap.appendChild(mk('high', '高'));
-            wrap.appendChild(mk('medium', '中'));
-            wrap.appendChild(mk('low', '低'));
+            wrap.appendChild(mk('', '无', '#9e9e9e'));
+            wrap.appendChild(mk('high', '高', '#ea4335'));
+            wrap.appendChild(mk('medium', '中', '#f9ab00'));
+            wrap.appendChild(mk('low', '低', '#4285f4'));
             editor.appendChild(wrap);
         });
     };
@@ -6478,14 +7844,16 @@
         if (!task || !el) return;
 
         __tmOpenInlineEditor(el, ({ editor, close }) => {
-            editor.style.minWidth = '160px';
+            const options = SettingsStore.data.customStatusOptions || [];
+            const maxLen = options.reduce((m, o) => Math.max(m, String(o?.name || '').length), 0);
+            const w = Math.min(260, Math.max(110, maxLen * 14 + 38));
+            editor.style.minWidth = '0';
+            editor.style.width = `${w}px`;
             editor.style.padding = '8px';
             const wrap = document.createElement('div');
             wrap.style.display = 'flex';
             wrap.style.flexDirection = 'column';
             wrap.style.gap = '4px';
-            
-            const options = SettingsStore.data.customStatusOptions || [];
             options.forEach(opt => {
                 const b = document.createElement('button');
                 b.className = 'tm-btn';
@@ -6587,6 +7955,10 @@
 
     // 任务提醒
     window.tmReminder = async function(id) {
+        if (!SettingsStore.data.enableTomatoIntegration) {
+            hint('⚠ 番茄钟联动已关闭', 'warning');
+            return;
+        }
         const task = state.flatTasks[id];
         if (!task) return;
         const showDialog = globalThis.__tomatoReminder?.showDialog;
@@ -6598,6 +7970,10 @@
     };
 
     window.tmStartPomodoro = async function(id) {
+        if (!SettingsStore.data.enableTomatoIntegration) {
+            hint('⚠ 番茄钟联动已关闭', 'warning');
+            return;
+        }
         const task = state.flatTasks[id];
         if (!task) return;
         const timer = globalThis.__tomatoTimer;
@@ -6663,68 +8039,84 @@
 
         const task = state.flatTasks[taskId];
         const taskName = task?.content || '任务';
-        const timer = globalThis.__tomatoTimer;
-        const durations = (() => {
-            const list = timer?.getDurations?.();
-            const arr = Array.isArray(list) ? list.map(n => parseInt(n, 10)).filter(n => Number.isFinite(n) && n > 0) : [];
-            return arr.length > 0 ? arr.slice(0, 8) : [5, 15, 25, 30, 45, 60];
-        })();
+        const tomatoEnabled = !!SettingsStore.data.enableTomatoIntegration;
+        const timer = tomatoEnabled ? globalThis.__tomatoTimer : null;
+        if (tomatoEnabled && timer && typeof timer === 'object') {
+            const durations = (() => {
+                const list = timer?.getDurations?.();
+                const arr = Array.isArray(list) ? list.map(n => parseInt(n, 10)).filter(n => Number.isFinite(n) && n > 0) : [];
+                return arr.length > 0 ? arr.slice(0, 8) : [5, 15, 25, 30, 45, 60];
+            })();
 
-        const timerWrap = document.createElement('div');
-        timerWrap.style.cssText = 'padding: 6px 10px 8px;';
-        const title = document.createElement('div');
-        title.textContent = '🍅 计时';
-        title.style.cssText = 'font-size: 12px; opacity: 0.75; padding: 2px 0 6px;';
-        timerWrap.appendChild(title);
-        const btnRow = document.createElement('div');
-        btnRow.style.cssText = 'display:flex;flex-wrap:wrap;gap:6px;';
-        durations.forEach(min => {
-            const b = document.createElement('button');
-            b.className = 'tm-btn tm-btn-secondary';
-            b.textContent = `${min}m`;
-            b.style.cssText = 'padding: 2px 8px; font-size: 12px; line-height: 18px;';
-            b.onclick = (e) => {
+            const timerWrap = document.createElement('div');
+            timerWrap.style.cssText = 'padding: 6px 10px 8px;';
+            const title = document.createElement('div');
+            title.textContent = '🍅 计时';
+            title.style.cssText = 'font-size: 12px; opacity: 0.75; padding: 2px 0 6px;';
+            timerWrap.appendChild(title);
+            const btnRow = document.createElement('div');
+            btnRow.style.cssText = 'display:flex;flex-wrap:wrap;gap:6px;';
+            durations.forEach(min => {
+                const b = document.createElement('button');
+                b.className = 'tm-btn tm-btn-secondary';
+                b.textContent = `${min}m`;
+                b.style.cssText = 'padding: 2px 8px; font-size: 12px; line-height: 18px;';
+                b.onclick = (e) => {
+                    e.stopPropagation();
+                    state.timerFocusTaskId = taskId;
+                    render();
+                    const startFromTaskBlock = timer?.startFromTaskBlock;
+                    const startCountdown = timer?.startCountdown;
+                    const p = (typeof startFromTaskBlock === 'function')
+                        ? startFromTaskBlock(taskId, taskName, min, 'countdown')
+                        : (typeof startCountdown === 'function' ? startCountdown(taskId, taskName, min) : null);
+                    if (p && typeof p.finally === 'function') {
+                        p.finally(() => setTimeout(() => { try { timer?.refreshUI?.(); } catch (e) {} }, 150));
+                    }
+                    else tmStartPomodoro(taskId);
+                    menu.remove();
+                };
+                btnRow.appendChild(b);
+            });
+            const sw = document.createElement('button');
+            sw.className = 'tm-btn tm-btn-secondary';
+            sw.textContent = '⏱️ 正计时';
+            sw.style.cssText = 'padding: 2px 8px; font-size: 12px; line-height: 18px;';
+            sw.onclick = (e) => {
                 e.stopPropagation();
+                state.timerFocusTaskId = taskId;
+                render();
                 const startFromTaskBlock = timer?.startFromTaskBlock;
-                const startCountdown = timer?.startCountdown;
+                const startStopwatch = timer?.startStopwatch;
                 const p = (typeof startFromTaskBlock === 'function')
-                    ? startFromTaskBlock(taskId, taskName, min, 'countdown')
-                    : (typeof startCountdown === 'function' ? startCountdown(taskId, taskName, min) : null);
+                    ? startFromTaskBlock(taskId, taskName, 0, 'stopwatch')
+                    : (typeof startStopwatch === 'function' ? startStopwatch(taskId, taskName) : null);
                 if (p && typeof p.finally === 'function') {
                     p.finally(() => setTimeout(() => { try { timer?.refreshUI?.(); } catch (e) {} }, 150));
                 }
-                else tmStartPomodoro(taskId);
+                else hint('⚠ 未检测到正计时功能，请确认番茄插件已启用', 'warning');
                 menu.remove();
             };
-            btnRow.appendChild(b);
-        });
-        const sw = document.createElement('button');
-        sw.className = 'tm-btn tm-btn-secondary';
-        sw.textContent = '⏱️ 正计时';
-        sw.style.cssText = 'padding: 2px 8px; font-size: 12px; line-height: 18px;';
-        sw.onclick = (e) => {
-            e.stopPropagation();
-            const startFromTaskBlock = timer?.startFromTaskBlock;
-            const startStopwatch = timer?.startStopwatch;
-            const p = (typeof startFromTaskBlock === 'function')
-                ? startFromTaskBlock(taskId, taskName, 0, 'stopwatch')
-                : (typeof startStopwatch === 'function' ? startStopwatch(taskId, taskName) : null);
-            if (p && typeof p.finally === 'function') {
-                p.finally(() => setTimeout(() => { try { timer?.refreshUI?.(); } catch (e) {} }, 150));
-            }
-            else hint('⚠ 未检测到正计时功能，请确认番茄插件已启用', 'warning');
-            menu.remove();
-        };
-        btnRow.appendChild(sw);
-        timerWrap.appendChild(btnRow);
-        menu.appendChild(timerWrap);
+            btnRow.appendChild(sw);
+            timerWrap.appendChild(btnRow);
+            menu.appendChild(timerWrap);
 
-        const hrTimer = document.createElement('hr');
-        hrTimer.style.cssText = 'margin: 4px 0; border: none; border-top: 1px solid var(--b3-theme-surface-light);';
-        menu.appendChild(hrTimer);
+            const hrTimer = document.createElement('hr');
+            hrTimer.style.cssText = 'margin: 4px 0; border: none; border-top: 1px solid var(--b3-theme-surface-light);';
+            menu.appendChild(hrTimer);
+
+            if (state.timerFocusTaskId) {
+                menu.appendChild(createItem('👁️ 取消聚焦', () => {
+                    state.timerFocusTaskId = '';
+                    render();
+                }));
+            }
+        }
 
         menu.appendChild(createItem('✏️ 编辑', () => tmEdit(taskId)));
-        menu.appendChild(createItem('⏰ 提醒', () => tmReminder(taskId)));
+        if (tomatoEnabled) {
+            menu.appendChild(createItem('⏰ 提醒', () => tmReminder(taskId)));
+        }
         menu.appendChild(createItem('🗑️ 删除', () => tmDelete(taskId), true));
 
         document.body.appendChild(menu);
@@ -6742,75 +8134,657 @@
     };
 
     function __tmResolveDefaultDocId() {
-        const groupId = String(SettingsStore.data.currentGroupId || 'all').trim() || 'all';
-        const byGroup = (SettingsStore.data.defaultDocIdByGroup && typeof SettingsStore.data.defaultDocIdByGroup === 'object')
-            ? SettingsStore.data.defaultDocIdByGroup
-            : {};
-        if (groupId !== 'all') {
-            const groupConfigured = String(byGroup[groupId] || '').trim();
-            if (groupConfigured) {
-                const exists = state.taskTree.some(d => d.id === groupConfigured) || state.allDocuments.some(d => d.id === groupConfigured);
-                if (exists) return groupConfigured;
-            }
-        }
-        const configured = String(SettingsStore.data.defaultDocId || '').trim();
-        if (configured) {
-            const exists = state.taskTree.some(d => d.id === configured) || state.allDocuments.some(d => d.id === configured);
-            if (exists) return configured;
-        }
         if (state.activeDocId && state.activeDocId !== 'all') return state.activeDocId;
         if (state.taskTree && state.taskTree.length > 0) return state.taskTree[0].id;
         if (state.selectedDocIds && state.selectedDocIds.length > 0) return state.selectedDocIds[0];
         return null;
     }
 
-    // 新建任务
-    window.tmAdd = async function() {
-        const docId = __tmResolveDefaultDocId();
+    function __tmResolveQuickAddDocId() {
+        const configured = String(SettingsStore.data.newTaskDocId || '').trim();
+        if (configured) {
+            const exists = state.taskTree.some(d => d.id === configured) || state.allDocuments.some(d => d.id === configured);
+            if (exists) return configured;
+        }
+        return __tmResolveDefaultDocId();
+    }
+
+    async function __tmCreateTaskInDoc({ docId, content, priority, completionTime, pinned, customStatus } = {}) {
+        const parentDocId = String(docId || '').trim();
+        const text = String(content || '').trim();
+        if (!parentDocId) throw new Error('未设置文档');
+        if (!text) throw new Error('请输入任务内容');
+        const md = '- [ ] ' + text;
+
+        const insertedId = await API.insertBlock(parentDocId, md);
+        let taskId = insertedId;
+        try {
+            const rows = await API.getBlocksByIds([insertedId]);
+            const row = Array.isArray(rows) && rows.length > 0 ? rows[0] : null;
+            const t = String(row?.type || '').trim();
+            const st = String(row?.subtype || '').trim();
+            if (!(t === 'i' && st === 't')) {
+                // 尝试多次获取子任务ID，应对索引延迟
+                // 优化：使用短间隔高频重试，减少用户等待时间
+                let childTaskId = null;
+                for (let i = 0; i < 30; i++) {
+                    childTaskId = await API.getFirstTaskIdUnderBlock(insertedId);
+                    if (childTaskId) break;
+                    await new Promise(r => setTimeout(r, 50));
+                }
+
+                if (childTaskId) taskId = childTaskId;
+                else {
+                    const deepTaskId = await API.getFirstTaskDescendantId(insertedId, 8);
+                    if (deepTaskId) taskId = deepTaskId;
+                }
+            }
+        } catch (e) {}
+
+        const patch = {};
+        const pin = pinned !== undefined ? !!pinned : !!SettingsStore.data.pinNewTasksByDefault;
+        if (pin) patch.pinned = true;
+        const pr0 = String(priority ?? '').trim();
+        const prMap = {
+            '高': 'high',
+            '中': 'medium',
+            '低': 'low',
+            '无': '',
+            'none': '',
+        };
+        const pr = prMap.hasOwnProperty(pr0) ? prMap[pr0] : pr0;
+        if (pr === 'high' || pr === 'medium' || pr === 'low') patch.priority = pr;
+        const ct = String(completionTime || '').trim();
+        if (ct) patch.completionTime = ct;
+        const st0 = String(customStatus || '').trim();
+        if (st0) {
+            const options = SettingsStore.data.customStatusOptions || [];
+            const ok = options.some(o => String(o?.id || '').trim() === st0);
+            if (ok) patch.customStatus = st0;
+        }
+        if (Object.keys(patch).length > 0) {
+            // 异步保存属性，不阻塞UI，只要Meta写入成功即可先返回
+            __tmPersistMetaAndAttrsAsync(taskId, patch).catch(e => {
+                hint('⚠ 属性同步失败，但已保存到本地数据', 'warning');
+            });
+        }
+
+        const docName = state.allDocuments.find(d => d.id === parentDocId)?.name || '未知文档';
+        const newTask = {
+            id: taskId,
+            done: false,
+            pinned: !!pin,
+            content: text,
+            markdown: md,
+            priority: patch.priority || '',
+            duration: '',
+            remark: '',
+            completionTime: patch.completionTime || '',
+            customTime: '',
+            customStatus: patch.customStatus || '',
+            docName,
+            root_id: parentDocId,
+            docId: parentDocId,
+            created: new Date().toISOString(),
+            updated: new Date().toISOString(),
+            children: [],
+            level: 0,
+        };
+        try { normalizeTaskFields(newTask, docName); } catch (e) {}
+
+        state.flatTasks[taskId] = newTask;
+        const doc = state.taskTree.find(d => d.id === parentDocId);
+        if (doc) {
+            doc.tasks.push(newTask);
+        }
+        try { recalcStats(); } catch (e) {}
+        try { applyFilters(); } catch (e) {}
+        if (state.modal) render();
+        return taskId;
+    }
+
+    // 注册全局刷新回调，供悬浮条调用
+    globalThis.__taskHorizonRefresh = () => {
+        try {
+            if (!state.modal || !document.body.contains(state.modal)) return;
+            // 重新加载当前文档或选中文档的任务数据（如果需要完全同步）
+            // 但为了性能，这里先尝试只重新应用过滤器和渲染
+            // 如果数据源是实时更新的（例如引用了同一个对象），这应该够了
+            // 如果需要从 block 重新读取，可能需要更重的刷新
+            // 考虑到悬浮条修改的是属性，而插件读取的是内存中的 state 或 block 属性
+            // 我们可能需要触发一次轻量级的重载，或者直接调用 tmRefresh
+            // 这里先试用 applyFilters + render，如果不行再调用 tmRefresh
+            applyFilters();
+            render();
+        } catch (e) {
+        }
+    };
+
+    window.tmQuickAddClose = function() {
+        if (state.quickAddModal) {
+            try { state.quickAddModal.remove(); } catch (e) {}
+            state.quickAddModal = null;
+        }
+        if (state.quickAddDocPicker) {
+            try { state.quickAddDocPicker.remove(); } catch (e) {}
+            state.quickAddDocPicker = null;
+        }
+        state.quickAdd = null;
+    };
+
+    window.tmQuickAddOpen = function() {
+        if (state.quickAddModal) {
+            try { state.quickAddModal.remove(); } catch (e) {}
+            state.quickAddModal = null;
+        }
+        if (state.quickAddDocPicker) {
+            try { state.quickAddDocPicker.remove(); } catch (e) {}
+            state.quickAddDocPicker = null;
+        }
+
+        const docId = __tmResolveQuickAddDocId();
         if (!docId) {
             hint('⚠ 请先在设置中选择文档', 'warning');
             showSettings();
             return;
         }
 
-        const content = await showPrompt('新建任务', '请输入任务内容');
-        if (!content) return;
+        const configuredNewTaskDoc = String(SettingsStore.data.newTaskDocId || '').trim();
+        const initialMode = configuredNewTaskDoc === '__dailyNote__' ? 'dailyNote' : 'doc';
+        const initialDocId = configuredNewTaskDoc === '__dailyNote__' ? __tmResolveDefaultDocId() : docId;
 
-        const markdown = '- [ ] ' + content;
+        const stOptions = SettingsStore.data.customStatusOptions || [];
+        const defaultStatusId = String((stOptions[0] && stOptions[0].id) || 'todo').trim() || 'todo';
+        state.quickAdd = {
+            docId: initialDocId,
+            docMode: initialMode,
+            customStatus: defaultStatusId,
+            priority: 'none',
+            completionTime: '',
+        };
 
+        const modal = document.createElement('div');
+        modal.className = 'tm-prompt-modal';
+        modal.style.zIndex = '100010';
+        
+        // 优先级配置
+        const prConfig = {
+            'high': { label: '高', color: '#ea4335', bg: 'rgba(234, 67, 53, 0.1)' },
+            'medium': { label: '中', color: '#f9ab00', bg: 'rgba(249, 171, 0, 0.1)' },
+            'low': { label: '低', color: '#4285f4', bg: 'rgba(66, 133, 244, 0.1)' },
+            'none': { label: '无', color: 'var(--tm-text-color)', bg: 'transparent' }
+        };
+
+        modal.innerHTML = `
+            <div class="tm-prompt-box" style="width: min(92vw, 520px);">
+                <div style="display:flex;align-items:center;justify-content:space-between;gap:10px;">
+                    <div class="tm-prompt-title" style="margin:0;">添加待办</div>
+                    <button class="tm-btn tm-btn-primary" onclick="tmQuickAddSubmit()" style="padding: 6px 14px; font-size: 13px;">提交</button>
+                </div>
+                
+                <input type="text" id="tmQuickAddInput" class="tm-prompt-input" placeholder="输入事项…" style="margin-top:16px; font-size: 16px; padding: 12px;">
+                
+                <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-top:16px;">
+                    <button class="tm-btn tm-btn-secondary" onclick="tmQuickAddOpenDocPicker()" style="padding: 6px 12px; font-size: 13px; display:flex; align-items:center; gap:4px;">
+                        📁 <span id="tmQuickAddDocName">文档</span>
+                    </button>
+                    
+                    <button id="tmQuickAddPriorityBtn" class="tm-btn tm-btn-secondary" onclick="tmQuickAddCyclePriority()" style="padding: 6px 12px; font-size: 13px; display:flex; align-items:center; gap:4px;">
+                        ⭐ 重要性: 无
+                    </button>
+
+                    <div style="display:flex;align-items:center;gap:6px;">
+                        <span style="font-size:13px;">🏷</span>
+                        <select id="tmQuickAddStatusSelect" onchange="tmQuickAddStatusChanged(this.value)" class="tm-btn tm-btn-secondary" style="padding: 6px 10px; font-size: 13px; height: 32px;">
+                        </select>
+                    </div>
+                    
+                    <div style="position:relative; display:inline-block;">
+                        <!-- 桌面端/移动端通用的日期选择器 -->
+                        <div style="position:relative; display:inline-block;">
+                            <button class="tm-btn tm-btn-secondary" onclick="document.getElementById('tmQuickAddDateInput').showPicker ? document.getElementById('tmQuickAddDateInput').showPicker() : document.getElementById('tmQuickAddDateInput').click()" style="padding: 6px 12px; font-size: 13px; display:flex; align-items:center; gap:4px;">
+                                🗓 <span id="tmQuickAddDateLabel">完成日</span>
+                            </button>
+                            <input type="date" id="tmQuickAddDateInput" onchange="tmQuickAddDateChanged(this.value)" 
+                                   style="position:absolute; visibility:hidden; width:1px; height:1px; bottom:0; left:0;">
+                        </div>
+                    </div>
+
+                    <div style="flex:1;"></div>
+                    <button class="tm-btn tm-btn-gray" id="tmQuickAddCloseBtn" onclick="tmQuickAddClose()" style="padding: 6px 12px; font-size: 13px;">关闭</button>
+                </div>
+            </div>
+        `;
+        document.body.appendChild(modal);
+        state.quickAddModal = modal;
+        
+        // 自动聚焦 (兼容移动端)
+        const input = document.getElementById('tmQuickAddInput');
+        if (input) {
+            setTimeout(() => {
+                input.focus();
+                // 移动端尝试触发软键盘
+                try { input.click(); } catch(e) {}
+            }, 300);
+        }
+
+        window.tmQuickAddRenderMeta?.();
+    };
+
+    // 绑定全局点击事件，用于处理日期选择和关闭按钮（防止事件未被正确绑定）
+    if (!window.tmQuickAddEventsBound) {
+        window.tmQuickAddEventsBound = true;
+        __tmQuickAddGlobalClickHandler = (e) => {
+            const target = e.target;
+            if (target.id === 'tmQuickAddCloseBtn' || (target.matches('.tm-btn-gray') && target.textContent.trim() === '关闭')) {
+                if (state.quickAddModal) {
+                    tmQuickAddClose();
+                }
+            }
+        };
+        document.addEventListener('click', __tmQuickAddGlobalClickHandler);
+    }
+
+    window.tmQuickAddRenderMeta = function() {
         try {
-            const newId = await API.insertBlock(docId, markdown);
+            const qa = state.quickAdd || {};
+            
+            // 更新文档按钮文字
+            const docName = qa.docMode === 'dailyNote'
+                ? '今天日记'
+                : (state.allDocuments.find(d => d.id === qa.docId)?.name || '未知文档');
+            const docBtn = document.getElementById('tmQuickAddDocName');
+            if (docBtn) docBtn.textContent = docName;
 
-            // 添加到本地数据
-            const newTask = {
-                id: newId,
-                done: false,
-                content: content,
-                markdown: markdown,
-                priority: '',
-                duration: '',
-                remark: '',
-                completionTime: '',
-                customTime: '',
-                customStatus: '',
-                docName: state.allDocuments.find(d => d.id === docId)?.name || '未知文档',
-                created: new Date().toISOString(),
-                updated: new Date().toISOString()
-            };
-
-            state.flatTasks[newId] = newTask;
-            const doc = state.taskTree.find(d => d.id === docId);
-            if (doc) {
-                doc.tasks.push(newTask);
+            // 更新优先级按钮样式
+            const prBtn = document.getElementById('tmQuickAddPriorityBtn');
+            if (prBtn) {
+                const prMap = {
+                    'high': { label: '高', color: '#ea4335', icon: '🔴' },
+                    'medium': { label: '中', color: '#f9ab00', icon: '🟠' },
+                    'low': { label: '低', color: '#4285f4', icon: '🔵' },
+                    'none': { label: '无', color: 'var(--tm-text-color)', icon: '⚪' }
+                };
+                const pr = qa.priority || 'none';
+                const conf = prMap[pr] || prMap.none;
+                
+                prBtn.innerHTML = `${conf.icon} 重要性: <span style="font-weight:bold;">${conf.label}</span>`;
+                prBtn.style.color = conf.color === 'var(--tm-text-color)' ? '' : conf.color;
+                prBtn.style.borderColor = conf.color === 'var(--tm-text-color)' ? '' : conf.color;
+                // prBtn.style.background = conf.bg; // 背景色可能太花，暂只改文字和边框颜色
             }
 
-            recalcStats();
-            applyFilters();
-            render();
+            const stSel = document.getElementById('tmQuickAddStatusSelect');
+            if (stSel) {
+                window.tmQuickAddRefreshStatusSelect?.();
+                const options = SettingsStore.data.customStatusOptions || [];
+                const id = String(qa.customStatus || '').trim() || 'todo';
+                const opt = options.find(o => o && o.id === id) || options[0] || { id: 'todo', name: '待办', color: 'var(--tm-text-color)' };
+                const c = String(opt.color || '').trim();
+                stSel.style.color = c && c !== '#757575' ? c : '';
+                stSel.style.borderColor = c && c !== '#757575' ? c : '';
+            }
+
+            // 更新日期显示
+            const dateLabel = document.getElementById('tmQuickAddDateLabel');
+            const dateInput = document.getElementById('tmQuickAddDateInput');
+            if (dateLabel && dateInput) {
+                const ct = qa.completionTime ? __tmFormatTaskTime(qa.completionTime) : '完成日';
+                dateLabel.textContent = ct;
+                dateInput.value = qa.completionTime ? __tmNormalizeDateOnly(qa.completionTime) : '';
+                
+                if (qa.completionTime) {
+                    const btn = document.getElementById('tmQuickAddDateLabel')?.parentElement;
+                    if (btn) {
+                        btn.style.color = 'var(--tm-primary-color)';
+                        btn.style.borderColor = 'var(--tm-primary-color)';
+                    }
+                }
+            }
+        } catch (e) {}
+    };
+
+    window.tmQuickAddStatusChanged = function(value) {
+        const qa = state.quickAdd;
+        if (!qa) return;
+        qa.customStatus = String(value || '').trim();
+        window.tmQuickAddRenderMeta?.();
+    };
+
+    window.tmQuickAddRefreshStatusSelect = function() {
+        const sel = document.getElementById('tmQuickAddStatusSelect');
+        if (!sel) return;
+        const options = SettingsStore.data.customStatusOptions || [];
+        if (!Array.isArray(options) || options.length === 0) {
+            sel.innerHTML = '';
+            sel.disabled = true;
+            return;
+        }
+        sel.disabled = false;
+        const qa = state.quickAdd;
+        let current = String(qa?.customStatus || '').trim();
+        if (!options.some(o => String(o?.id || '').trim() === current)) {
+            current = String(options[0]?.id || 'todo').trim() || 'todo';
+            if (qa) qa.customStatus = current;
+        }
+        sel.innerHTML = options.map(o => {
+            const id = String(o?.id || '').trim();
+            const name = String(o?.name || id).trim() || id;
+            if (!id) return '';
+            return `<option value="${esc(id)}" ${id === current ? 'selected' : ''}>${esc(name)}</option>`;
+        }).join('');
+        try { sel.value = current; } catch (e) {}
+    };
+
+    window.tmQuickAddDateChanged = function(val) {
+        const qa = state.quickAdd;
+        if (!qa) return;
+        qa.completionTime = String(val || '').trim();
+        window.tmQuickAddRenderMeta?.();
+    };
+    // 确保该函数在全局可见
+    window.tmQuickAddDateChanged = window.tmQuickAddDateChanged;
+
+    window.tmQuickAddCyclePriority = function() {
+        const qa = state.quickAdd;
+        if (!qa) return;
+        const order = ['none', 'low', 'medium', 'high'];
+        const idx = Math.max(0, order.indexOf(String(qa.priority || 'none')));
+        qa.priority = order[(idx + 1) % order.length];
+        window.tmQuickAddRenderMeta?.();
+    };
+
+    window.tmQuickAddPickCompletion = async function() {
+        const qa = state.quickAdd;
+        if (!qa) return;
+        const v = await showPrompt('完成日', '输入日期，如 2026-02-07（留空清除）', String(qa.completionTime || ''));
+        if (v === null) return;
+        qa.completionTime = String(v || '').trim();
+        window.tmQuickAddRenderMeta?.();
+    };
+
+    window.tmQuickAddOpenDocPicker = async function() {
+        const qa = state.quickAdd;
+        if (!qa) return;
+        if (state.quickAddDocPicker) {
+            try { state.quickAddDocPicker.remove(); } catch (e) {}
+            state.quickAddDocPicker = null;
+        }
+        const groups = SettingsStore.data.docGroups || [];
+        // 移除未分组逻辑
+        
+        const resolveDocName = (docId) => {
+            if (!docId) return '未知文档';
+            const found = state.allDocuments.find(d => d.id === docId);
+            if (found) return found.name || '未命名文档';
+            const entry = state.taskTree.find(d => d.id === docId);
+            return entry?.name || '未命名文档';
+        };
+        const defaultDocId = __tmResolveDefaultDocId();
+        const defaultDocName = defaultDocId ? resolveDocName(defaultDocId) : '未设置';
+
+        const picker = document.createElement('div');
+        picker.className = 'tm-prompt-modal';
+        picker.style.zIndex = '100011';
+        picker.innerHTML = `
+            <div class="tm-prompt-box" style="width:min(92vw,520px);max-height:70vh;overflow:auto;">
+                <div class="tm-prompt-title" style="margin:0 0 10px 0;">选择文档</div>
+                <div style="border:1px solid var(--tm-border-color);border-radius:8px;margin-bottom:8px;overflow:hidden;">
+                    <div style="padding:8px 10px;background:var(--tm-header-bg);font-weight:600;">快捷</div>
+                    <div style="padding:6px 10px;">
+                        <div style="display:flex;align-items:center;justify-content:space-between;padding:8px 0;cursor:pointer;" onclick="tmQuickAddUseTodayDiary();tmQuickAddCloseDocPicker();">
+                            <div style="min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">今天日记</div>
+                            <div style="margin-left:10px;">${qa.docMode === 'dailyNote' ? '✅' : '◻️'}</div>
+                        </div>
+                        <div style="display:flex;align-items:center;justify-content:space-between;padding:8px 0;cursor:${defaultDocId ? 'pointer' : 'not-allowed'};opacity:${defaultDocId ? 1 : 0.6};" onclick="${defaultDocId ? `tmQuickAddUseDefaultDoc();tmQuickAddCloseDocPicker();` : ''}">
+                            <div style="min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">默认任务文档：${esc(defaultDocName)}</div>
+                            <div style="margin-left:10px;">${qa.docMode !== 'dailyNote' && qa.docId === defaultDocId ? '✅' : '◻️'}</div>
+                        </div>
+                    </div>
+                </div>
+                <div id="tmQuickAddDocList"></div>
+                <div style="display:flex;gap:8px;margin-top:10px;">
+                    <button class="tm-btn tm-btn-gray" onclick="tmQuickAddCloseDocPicker()" style="padding: 6px 10px; font-size: 12px;">关闭</button>
+                </div>
+            </div>
+        `;
+        document.body.appendChild(picker);
+        state.quickAddDocPicker = picker;
+
+        const listEl = picker.querySelector('#tmQuickAddDocList');
+        const renderGroup = (label, docs, groupKey, initialOpen = false) => {
+            const wrap = document.createElement('div');
+            wrap.style.cssText = 'border:1px solid var(--tm-border-color);border-radius:8px;margin-bottom:8px;overflow:hidden;';
+            const head = document.createElement('div');
+            head.style.cssText = 'display:flex;align-items:center;justify-content:space-between;padding:8px 10px;background:var(--tm-header-bg);cursor:pointer;';
+            head.innerHTML = `<div style="font-weight:600;">${esc(label)}</div><div style="opacity:0.75;">${initialOpen ? '▾' : '▸'}</div>`;
+            const body = document.createElement('div');
+            body.style.cssText = `padding:6px 10px;display:${initialOpen ? 'block' : 'none'};`;
+            
+            // 渲染文档列表的辅助函数
+            const renderDocs = (docList) => {
+                body.innerHTML = '';
+                if (docList.length === 0) {
+                    body.innerHTML = '<div style="color:var(--tm-secondary-text);padding:8px 0;font-size:13px;">暂无文档</div>';
+                    return;
+                }
+                docList.forEach(d => {
+                    const id = String(d?.id || d || '').trim();
+                    if (!id) return;
+                    const row = document.createElement('div');
+                    const checked = id === qa.docId;
+                    row.style.cssText = 'display:flex;align-items:center;justify-content:space-between;padding:8px 0;cursor:pointer;';
+                    row.innerHTML = `<div style="min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${esc(resolveDocName(id))}</div><div style="margin-left:10px;">${checked ? '✅' : '◻️'}</div>`;
+                    row.onclick = () => window.tmQuickAddSelectDoc?.(id);
+                    body.appendChild(row);
+                });
+            };
+
+            // 初始状态下不渲染文档列表，或者渲染配置的文档（视需求而定）
+            // 用户要求：点击后展示全部以查询到有任务的文档名，而不只是设置中的文档
+            // 所以初始状态可以是空的或者只显示配置文档，展开时再动态加载
+            if (initialOpen) {
+                renderDocs(docs); // 初始展开时先显示配置的
+            }
+
+            // 点击分组标题展开/折叠
+            head.onclick = async () => {
+                const open = body.style.display !== 'none';
+                if (!open) {
+                    // 展开时
+                    body.style.display = 'block';
+                    head.lastElementChild.textContent = '▾';
+                    
+                    // 动态查询该分组下所有包含任务的文档
+                    if (groupKey) {
+                        // 显示加载中状态
+                        body.innerHTML = '<div style="color:var(--tm-secondary-text);padding:8px 0;font-size:13px;">🔄 加载文档中...</div>';
+                        try {
+                            // 使用 SQL 查询：假设 docGroups 配置的是根文档或目录
+                            // 但 docGroups 配置的是文档列表。
+                            // 如果用户意图是：通过 SQL 查询该分组下（假设分组 ID 是目录 ID？）的文档
+                            // 但 docGroups 的 ID 是随机生成的 UUID，不对应真实目录。
+                            // 唯一关联真实目录的是 g.docs 里的文档 ID。
+                            
+                            // 另一种理解：用户希望在点击分组时，列出当前 state.taskTree 中加载的所有属于该分组的文档
+                            // 即使它们不在 SettingsStore 的 g.docs 配置里（可能是递归加载进来的）
+                            
+                            // 1. 获取该分组配置的所有根文档 ID
+                            const rootDocIds = new Set(docs.map(d => String(d?.id || d || '')));
+                            
+                            // 2. 遍历 state.taskTree，找到所有属于这些根文档（或其子文档）的文档
+                            // state.taskTree 是扁平的文档列表（包含递归加载的子文档）
+                            // 我们需要一种方法判断 taskTree 中的文档是否属于当前分组
+                            // 这里的逻辑假设：如果 taskTree 中的文档是 g.docs 中某个文档的子孙，则属于该分组。
+                            // 但 taskTree 结构中没有直接保留层级关系，只有 doc.id
+                            // 幸好 resolveDocIdsFromGroups 会解析递归，加载到 taskTree
+                            
+                            // 所以，我们可以认为 state.taskTree 中目前加载的所有文档，
+                            // 如果它是 g.docs 中某个文档的后代（或者就是它自己），那么它就属于该分组。
+                            // 但我们如何判断“后代”关系？API.getSubDocIds 是异步的。
+                            // state.allDocuments 包含了所有文档路径信息（如果有 path 字段）
+                            // 但 state.allDocuments 只包含 ID 和 Name。
+                            
+                            // 简便方案：既然 resolveDocIdsFromGroups 已经处理了递归逻辑并将结果存入 state.taskTree
+                            // 我们可以尝试重新运行一次 resolveDocIdsFromGroups 的逻辑（针对特定分组），
+                            // 获取该分组应该包含的所有文档 ID（包括递归的）。
+                            
+                            // 获取该分组的所有目标文档（含递归标记）
+                            const targetDocs = docs; 
+                            const finalIds = new Set();
+                            
+                            const promises = targetDocs.map(async (doc) => {
+                                const id = String(doc?.id || doc || '');
+                                if (!id) return;
+                                finalIds.add(id);
+                                if (doc.recursive) {
+                                    try {
+                                        const subIds = await API.getSubDocIds(id);
+                                        subIds.forEach(sid => finalIds.add(sid));
+                                    } catch(e) {}
+                                }
+                            });
+                            await Promise.all(promises);
+                            
+                            // 动态查询文档的任务状态（即使不在 taskTree 中）
+                            const allIds = Array.from(finalIds);
+                            // 1. 先从 taskTree 中检查
+                            const tasksMap = new Map();
+                            allIds.forEach(id => {
+                                const treeDoc = state.taskTree.find(d => d.id === id);
+                                if (treeDoc && treeDoc.tasks && treeDoc.tasks.length > 0) {
+                                    tasksMap.set(id, true);
+                                }
+                            });
+                            
+                            // 2. 对于不在 taskTree 中或者 taskTree 显示无任务的文档，使用 SQL 查询
+                            const uncheckedIds = allIds.filter(id => !tasksMap.has(id));
+                            if (uncheckedIds.length > 0) {
+                                // 批量查询：检查每个文档下是否有任务
+                                // SELECT root_id FROM blocks WHERE type='i' AND subtype='t' AND root_id IN (...) GROUP BY root_id
+                                const CHUNK_SIZE = 50; // 分批查询以避免 SQL 过长
+                                for (let i = 0; i < uncheckedIds.length; i += CHUNK_SIZE) {
+                                    const chunk = uncheckedIds.slice(i, i + CHUNK_SIZE);
+                                    const idsStr = chunk.map(id => `'${id}'`).join(',');
+                                    const sql = `SELECT DISTINCT root_id FROM blocks WHERE type='i' AND subtype='t' AND root_id IN (${idsStr})`;
+                                    try {
+                                        const res = await API.call('/api/query/sql', { stmt: sql });
+                                        if (res.code === 0 && res.data) {
+                                            res.data.forEach(row => tasksMap.set(row.root_id, true));
+                                        }
+                                    } catch(e) { console.error('SQL Query Error', e); }
+                                }
+                            }
+
+                            // 过滤：只展示有任务的文档
+                            const docList = allIds.map(id => {
+                                return { id, hasTasks: tasksMap.has(id) };
+                            }).filter(item => item.hasTasks);
+
+                            // 排序：按名称
+                            docList.sort((a, b) => {
+                                return resolveDocName(a.id).localeCompare(resolveDocName(b.id));
+                            });
+                            
+                            // 渲染
+                            renderDocs(docList);
+                            
+                        } catch (e) {
+                            console.error('[QuickAdd] 加载分组文档失败', e);
+                            renderDocs(docs); // 回退
+                        }
+                    } else {
+                        renderDocs(docs);
+                    }
+                } else {
+                    body.style.display = 'none';
+                    head.lastElementChild.textContent = '▸';
+                }
+            };
+
+            wrap.appendChild(head);
+            wrap.appendChild(body);
+            return wrap;
+        };
+
+        groups.forEach(g => {
+            const docs = Array.isArray(g?.docs) ? g.docs : [];
+            if (docs.length === 0) return;
+            // 传递 group.id 以便进行动态查询
+            listEl.appendChild(renderGroup(String(g?.name || '分组'), docs, String(g?.id || '')));
+        });
+    };
+
+    window.tmQuickAddCloseDocPicker = function() {
+        if (state.quickAddDocPicker) {
+            try { state.quickAddDocPicker.remove(); } catch (e) {}
+            state.quickAddDocPicker = null;
+        }
+    };
+
+    window.tmQuickAddSelectDoc = async function(docId) {
+        const qa = state.quickAdd;
+        if (!qa) return;
+        const id = String(docId || '').trim();
+        if (!id) return;
+        qa.docId = id;
+        qa.docMode = 'doc';
+        try { await updateNewTaskDocId(id, { refreshQuickAdd: false, refreshPicker: false }); } catch (e) {}
+        window.tmQuickAddRenderMeta?.();
+        window.tmQuickAddCloseDocPicker?.();
+    };
+
+    window.tmQuickAddUseTodayDiary = function() {
+        const qa = state.quickAdd;
+        if (!qa) return;
+        qa.docMode = 'dailyNote';
+        try { window.tmQuickAddCloseDocPicker?.(); } catch (e) {}
+        window.tmQuickAddRenderMeta?.();
+    };
+
+    window.tmQuickAddUseDefaultDoc = function() {
+        const qa = state.quickAdd;
+        if (!qa) return;
+        const id = __tmResolveDefaultDocId();
+        if (!id) {
+            hint('⚠ 未设置默认任务文档', 'warning');
+            return;
+        }
+        qa.docId = id;
+        qa.docMode = 'doc';
+        window.tmQuickAddRenderMeta?.();
+    };
+
+    window.tmQuickAddSubmit = async function() {
+        const qa = state.quickAdd;
+        if (!qa) return;
+        const input = document.getElementById('tmQuickAddInput');
+        const content = String(input?.value || '').trim();
+        if (!content) return;
+        try {
+            let targetDocId = qa.docId;
+            if (qa.docMode === 'dailyNote') {
+                const notebook = await API.getDocNotebook(qa.docId);
+                if (!notebook) throw new Error('无法确定日记所属笔记本');
+                targetDocId = await API.createDailyNote(notebook);
+                if (!String(targetDocId || '').trim()) throw new Error('获取日记文档失败');
+            }
+            await __tmCreateTaskInDoc({
+                docId: targetDocId,
+                content,
+                priority: qa.priority,
+                customStatus: qa.customStatus,
+                completionTime: qa.completionTime,
+            });
             hint('✅ 任务已创建', 'success');
+            window.tmQuickAddClose?.();
         } catch (e) {
             hint(`❌ 创建失败: ${e.message}`, 'error');
         }
+    };
+
+    window.tmAdd = async function() {
+        window.tmQuickAddOpen?.();
     };
 
     // 重新计算统计信息
@@ -6836,6 +8810,7 @@
     async function resolveDocIdsFromGroups() {
         const groups = SettingsStore.data.docGroups || [];
         const currentGroupId = SettingsStore.data.currentGroupId || 'all';
+        const quickAddDocId = String(SettingsStore.data.newTaskDocId || '').trim();
         
         let targetDocs = [];
         
@@ -6861,6 +8836,7 @@
         
         // 解析递归文档
         const finalIds = new Set();
+        if (quickAddDocId && quickAddDocId !== '__dailyNote__') finalIds.add(quickAddDocId);
         
         // 优化：并行处理
         const promises = targetDocs.map(async (doc) => {
@@ -6882,6 +8858,7 @@
         await SettingsStore.load();
         await MetaStore.load();
         try { globalThis.__taskHorizonQuickbarToggle?.(!!SettingsStore.data.enableQuickbar); } catch (e) {}
+        const quickAddDocId = String(SettingsStore.data.newTaskDocId || '').trim();
         
         // 将设置同步到 state
         state.selectedDocIds = SettingsStore.data.selectedDocIds;
@@ -6909,8 +8886,6 @@
             return;
         }
 
-        console.log(`[加载] 准备查询 ${allDocIds.length} 个文档的任务`);
-
         try {
             const startTime = Date.now();
             
@@ -6933,6 +8908,7 @@
                 } catch (e) {
                     h2ContextMap = new Map();
                 }
+                const missingPriorityIds = [];
 
                 // 3. 获取层级信息（不再依赖，改用前端递归计算）
                 // const taskIds = res.tasks.map(t => t.id);
@@ -6962,6 +8938,7 @@
                     const docName = task.docName || '未命名文档';
                     normalizeTaskFields(task, docName);
                     task.h2 = h2ContextMap.get(task.id) || '';
+                    if (!task.priority) missingPriorityIds.push(task.id);
 
                     // 初始化 MetaStore（如果不存在）
                     const existing = MetaStore.get(task.id);
@@ -6987,8 +8964,25 @@
                     state.flatTasks[task.id] = task;
                 });
 
+                try {
+                    const ids = Array.from(new Set(missingPriorityIds)).filter(Boolean);
+                    if (ids.length > 0) {
+                        const map = await API.fetchNearestCustomPriority(ids, 10);
+                        if (map && map.size > 0) {
+                            ids.forEach(id => {
+                                const v = map.get(id);
+                                if (!v) return;
+                                const t = state.flatTasks?.[id];
+                                if (!t) return;
+                                t.priority = v;
+                                try { normalizeTaskFields(t, t.docName || '未命名文档'); } catch (e) {}
+                            });
+                        }
+                    }
+                } catch (e) {}
+
                 // 按文档顺序构建树
-                allDocIds.forEach(docId => {
+                for (const docId of allDocIds) {
                     // 获取该文档的所有任务
                     const rawTasks = tasksByDoc.get(docId) || [];
                     
@@ -7004,6 +8998,47 @@
                     // 准备构建当前文档的任务树
                     const idMap = new Map();
                     rawTasks.forEach(t => idMap.set(t.id, t));
+
+                    try {
+                        const needListIds = new Set();
+                        rawTasks.forEach(t => {
+                            if (!t.parentTaskId && t.parent_id) needListIds.add(String(t.parent_id));
+                        });
+                        let frontier = Array.from(needListIds).filter(Boolean);
+                        const blockInfoMap = new Map();
+                        for (let depth = 0; depth < 6 && frontier.length > 0; depth++) {
+                            const rows = await API.getBlocksByIds(frontier);
+                            const next = [];
+                            rows.forEach(r => {
+                                const id = String(r?.id || '').trim();
+                                if (!id) return;
+                                const parentId = String(r?.parent_id || '').trim();
+                                blockInfoMap.set(id, { parentId, type: r?.type, subtype: r?.subtype });
+                                if (parentId && !blockInfoMap.has(parentId) && !idMap.has(parentId)) {
+                                    next.push(parentId);
+                                }
+                            });
+                            frontier = Array.from(new Set(next));
+                        }
+
+                        rawTasks.forEach(t => {
+                            if (t.parentTaskId) return;
+                            let cur = String(t.parent_id || '').trim();
+                            if (!cur) return;
+                            const seen = new Set();
+                            for (let i = 0; i < 6 && cur; i++) {
+                                if (seen.has(cur)) break;
+                                seen.add(cur);
+                                const info = blockInfoMap.get(cur);
+                                const pid = String(info?.parentId || '').trim();
+                                if (pid && idMap.has(pid)) {
+                                    t.parentTaskId = pid;
+                                    return;
+                                }
+                                cur = pid;
+                            }
+                        });
+                    } catch (e) {}
 
                     // 建立父子关系
                     const rootTasks = [];
@@ -7032,14 +9067,14 @@
                     calcLevel(rootTasks, 0);
 
                     // 添加到任务树
-                    if (rawTasks.length > 0 || state.selectedDocIds.includes(docId)) { 
+                    if (rawTasks.length > 0 || state.selectedDocIds.includes(docId) || (quickAddDocId && docId === quickAddDocId)) { 
                          state.taskTree.push({
                             id: docId,
                             name: docName,
                             tasks: rootTasks
                         });
                     }
-                });
+                }
                 
                 applyFilters();
                 if (state.modal && token === (Number(state.openToken) || 0)) render();
@@ -7052,6 +9087,7 @@
 
     // 显示设置
     function showSettings() {
+        try { __tmHideMobileMenu(); } catch (e) {}
         if (state.settingsModal) {
             try { state.settingsModal.remove(); } catch (e) {}
             state.settingsModal = null;
@@ -7076,13 +9112,13 @@
         const renderGroupSelector = () => {
             return `
                 <div style="margin-bottom: 12px; display: flex; align-items: center; gap: 8px;">
-                    <select id="groupSelector" onchange="switchDocGroup(this.value)" 
+                    <select id="groupSelector" data-tm-call="switchDocGroup" 
                             style="flex: 1; padding: 6px 8px; border: 1px solid var(--tm-input-border); background: var(--tm-input-bg); color: var(--tm-text-color); border-radius: 4px;">
                         <option value="all" ${currentGroupId === 'all' ? 'selected' : ''}>全部文档</option>
                         ${groups.map(g => `<option value="${g.id}" ${currentGroupId === g.id ? 'selected' : ''}>${esc(g.name)}</option>`).join('')}
                     </select>
-                    <button class="tm-btn tm-btn-primary" onclick="createNewGroup()" style="padding: 6px 10px; font-size: 12px;">+ 新建分组</button>
-                    ${currentGroupId !== 'all' ? `<button class="tm-btn tm-btn-danger" onclick="deleteCurrentGroup()" style="padding: 6px 10px; font-size: 12px;">删除分组</button>` : ''}
+                    <button class="tm-btn tm-btn-primary" data-tm-action="createNewGroup" style="padding: 6px 10px; font-size: 12px;">+ 新建分组</button>
+                    ${currentGroupId !== 'all' ? `<button class="tm-btn tm-btn-danger" data-tm-action="deleteCurrentGroup" style="padding: 6px 10px; font-size: 12px;">删除分组</button>` : ''}
                 </div>
             `;
         };
@@ -7135,18 +9171,58 @@
             const fallbackName = resolveDocName(defaultDocId);
             defaultDocOptions.push(`<option value="${defaultDocId}" selected>${esc(fallbackName)} (不在当前列表)</option>`);
         }
-        const activeTab = state.settingsActiveTab === 'appearance' ? 'appearance' : 'main';
+        const allDocsForNewTask = (() => {
+            const list = [];
+            const legacyIds = SettingsStore.data.selectedDocIds || [];
+            legacyIds.forEach(id => list.push({ id, recursive: false }));
+            (SettingsStore.data.docGroups || []).forEach(g => {
+                if (Array.isArray(g?.docs)) list.push(...g.docs);
+            });
+            const seen = new Set();
+            return list.filter(d => {
+                const id = String(d?.id || '').trim();
+                if (!id) return false;
+                if (seen.has(id)) return false;
+                seen.add(id);
+                return true;
+            });
+        })();
+        const allDocIdsForNewTask = allDocsForNewTask.map(d => String(d?.id || '').trim()).filter(Boolean);
+        const newTaskDocId = String(SettingsStore.data.newTaskDocId || '').trim();
+        const newTaskDocOptions = [
+            `<option value="" ${newTaskDocId ? '' : 'selected'}>未设置</option>`,
+            `<option value="__dailyNote__" ${newTaskDocId === '__dailyNote__' ? 'selected' : ''}>今天日记</option>`
+        ];
+        allDocsForNewTask.forEach(docItem => {
+            const docId = typeof docItem === 'object' ? docItem.id : docItem;
+            const docName = resolveDocName(docId);
+            newTaskDocOptions.push(`<option value="${docId}" ${newTaskDocId === docId ? 'selected' : ''}>${esc(docName)}</option>`);
+        });
+        if (newTaskDocId && !allDocIdsForNewTask.includes(newTaskDocId)) {
+            const fallbackName = resolveDocName(newTaskDocId);
+            newTaskDocOptions.push(`<option value="${newTaskDocId}" selected>${esc(fallbackName)} (不在当前列表)</option>`);
+        }
+        let activeTab = 'main';
+        if (state.settingsActiveTab === 'appearance') activeTab = 'appearance';
+        if (state.settingsActiveTab === 'rules') activeTab = 'rules';
+        if (state.settingsActiveTab === 'priority') activeTab = 'priority';
 
         state.settingsModal.innerHTML = `
             <div class="tm-settings-box" style="overflow: hidden;">
                 <div class="tm-settings-header">
                     <div class="tm-settings-title">⚙️ 任务管理器设置</div>
-                    <button class="tm-btn tm-btn-gray" onclick="closeSettings()">关闭</button>
+                    <button class="tm-btn tm-btn-gray" data-tm-action="closeSettings">关闭</button>
                 </div>
 
-                <div style="display:flex;gap:8px;padding:0 2px 12px 2px;">
-                    <button class="tm-btn ${activeTab === 'main' ? 'tm-btn-primary' : 'tm-btn-secondary'}" onclick="tmSwitchSettingsTab('main')" style="padding: 6px 10px; font-size: 12px;">主设置</button>
-                    <button class="tm-btn ${activeTab === 'appearance' ? 'tm-btn-primary' : 'tm-btn-secondary'}" onclick="tmSwitchSettingsTab('appearance')" style="padding: 6px 10px; font-size: 12px;">外观</button>
+                <div class="tm-settings-tabs" style="display: flex; gap: 8px; margin-bottom: 16px; border-bottom: 1px solid var(--tm-border-color); padding-bottom: 8px;">
+                    ${activeTab !== 'rule_editor' ? `
+                    <button class="tm-btn ${activeTab === 'main' ? 'tm-btn-primary' : 'tm-btn-secondary'}" data-tm-action="tmSwitchSettingsTab" data-tab="main" style="padding: 6px 10px; font-size: 12px;">常规设置</button>
+                    <button class="tm-btn ${activeTab === 'appearance' ? 'tm-btn-primary' : 'tm-btn-secondary'}" data-tm-action="tmSwitchSettingsTab" data-tab="appearance" style="padding: 6px 10px; font-size: 12px;">外观</button>
+                    <button class="tm-btn ${activeTab === 'rules' ? 'tm-btn-primary' : 'tm-btn-secondary'}" data-tm-action="tmSwitchSettingsTab" data-tab="rules" style="padding: 6px 10px; font-size: 12px;">规则管理</button>
+                    <button class="tm-btn ${activeTab === 'priority' ? 'tm-btn-primary' : 'tm-btn-secondary'}" data-tm-action="tmSwitchSettingsTab" data-tab="priority" style="padding: 6px 10px; font-size: 12px;">优先级算法</button>
+                    ` : `
+                    <button class="tm-btn tm-btn-primary" style="padding: 6px 10px; font-size: 12px;">${state.editingRule ? '编辑规则' : '新建规则'}</button>
+                    `}
                 </div>
 
                 <div style="flex: 1; overflow-y: auto; min-height: 0; padding-right: 4px; margin-bottom: 16px;">
@@ -7157,9 +9233,41 @@
                         </div>
                     ` : ''}
 
+                    ${activeTab === 'rules' ? `
+                        <div style="margin-bottom: 16px; padding: 12px; background: var(--tm-section-bg); border-radius: 8px;">
+                            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px;">
+                                <div style="font-weight: 600;">📋 筛选规则管理</div>
+                                <div style="display:flex;gap:8px;align-items:center;">
+                                    <button class="tm-btn tm-btn-secondary" data-tm-action="tmSwitchSettingsTab" data-tab="priority" style="padding: 4px 10px; font-size: 12px;">优先级算法</button>
+                                    <button class="tm-btn tm-btn-primary" data-tm-action="addNewRule" style="padding: 4px 10px; font-size: 12px;">+ 新建规则</button>
+                                </div>
+                            </div>
+                            <div id="tm-rules-list" style="display: flex; flex-direction: column; gap: 8px;">
+                                ${renderRulesList()}
+                            </div>
+                            <div style="font-size: 12px; color: var(--tm-secondary-text); margin-top: 12px; padding-top: 8px; border-top: 1px solid var(--tm-border-color);">
+                                规则说明：支持多条件组合筛选，可设置“包含/不包含”关键词、“优先级”、“状态”等条件。
+                            </div>
+                        </div>
+                    ` : ''}
+
+                    ${activeTab === 'priority' ? `
+                        <div style="margin-bottom: 16px; padding: 12px; background: var(--tm-section-bg); border-radius: 8px;">
+                            <div id="tm-priority-settings">
+                                ${__tmRenderPriorityScoreSettings(true)}
+                            </div>
+                        </div>
+                    ` : ''}
+                    
+                    ${activeTab === 'rule_editor' ? `
+                        <div class="tm-rule-editor-inline">
+                            ${state.editingRule ? RuleManager.renderEditorContent(state.editingRule) : ''}
+                        </div>
+                    ` : ''}
+
                     ${activeTab === 'main' ? `
-                    <div style="margin-bottom: 16px; display: flex; gap: 20px;">
-                        <label style="display: flex; align-items: center; gap: 8px; cursor: pointer;">
+                    <div style="margin-bottom: 16px; display: flex; gap: 12px; flex-wrap: wrap; align-items: flex-start;">
+                        <label style="display: flex; flex-wrap: wrap; align-items: center; gap: 8px; row-gap: 6px; cursor: pointer; flex: 1 1 260px; min-width: 220px;">
                             <span>查询限制: </span>
                             <input type="number" value="${state.queryLimit}"
                                    onchange="updateQueryLimit(this.value)"
@@ -7167,7 +9275,7 @@
                             <span>条任务/文档</span>
                         </label>
                         
-                        <label style="display: flex; align-items: center; gap: 8px; cursor: pointer;">
+                        <label style="display: flex; flex-wrap: wrap; align-items: center; gap: 8px; row-gap: 6px; cursor: pointer; flex: 1 1 220px; min-width: 180px;">
                             <span>字体大小: </span>
                             <input type="number" value="${SettingsStore.data.fontSize}" min="10" max="30"
                                    onchange="updateFontSize(this.value)"
@@ -7175,7 +9283,7 @@
                             <span>px</span>
                         </label>
 
-                        <label style="display: flex; align-items: center; gap: 8px; cursor: pointer;">
+                        <label style="display: flex; flex-wrap: wrap; align-items: center; gap: 8px; row-gap: 6px; cursor: pointer; flex: 1 1 240px; min-width: 200px;">
                             <span>移动端字体: </span>
                             <input type="number" value="${SettingsStore.data.fontSizeMobile || SettingsStore.data.fontSize}" min="10" max="30"
                                    onchange="updateFontSizeMobile(this.value)"
@@ -7190,35 +9298,67 @@
                             <input type="checkbox" ${SettingsStore.data.enableQuickbar ? 'checked' : ''} onchange="updateEnableQuickbar(this.checked)">
                             启用任务悬浮条（点击任务块显示自定义字段）
                         </label>
+                        <label style="display:flex;align-items:center;gap:8px;cursor:pointer;margin-top:8px;">
+                            <input type="checkbox" ${SettingsStore.data.pinNewTasksByDefault ? 'checked' : ''} onchange="updatePinNewTasksByDefault(this.checked)">
+                            新建任务默认置顶
+                        </label>
                         <div style="font-size: 12px; color: var(--tm-secondary-text); margin-top: 6px;">
                             关闭后将不再弹出悬浮条，也不会拦截点击/长按事件。
                         </div>
                     </div>
 
                     <div style="margin-bottom: 16px; padding: 12px; background: var(--tm-section-bg); border-radius: 8px;">
-                        <div style="font-weight: 600; margin-bottom: 8px;">📝 新建任务默认文档</div>
-                        <select onchange="updateDefaultDocIdFromSelect(this.value)" 
+                        <div style="font-weight: 600; margin-bottom: 8px;">🍅 番茄钟联动</div>
+                        <label style="display:flex;align-items:center;gap:8px;cursor:pointer;">
+                            <input type="checkbox" ${SettingsStore.data.enableTomatoIntegration ? 'checked' : ''} onchange="updateEnableTomatoIntegration(this.checked)">
+                            启用 tomato.js 相关功能（计时/提醒/耗时列）
+                        </label>
+                        <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-top:10px;opacity:${SettingsStore.data.enableTomatoIntegration ? 1 : 0.6};">
+                            <div style="display:flex;align-items:center;gap:8px;">
+                                <span style="font-size:12px;color:var(--tm-secondary-text);">耗时读取模式:</span>
+                                <select onchange="updateTomatoSpentAttrMode(this.value)" ${SettingsStore.data.enableTomatoIntegration ? '' : 'disabled'} style="padding: 4px 8px; border: 1px solid var(--tm-input-border); background: var(--tm-input-bg); color: var(--tm-text-color); border-radius: 4px;">
+                                    <option value="minutes" ${String(SettingsStore.data.tomatoSpentAttrMode || 'minutes') === 'minutes' ? 'selected' : ''}>分钟属性</option>
+                                    <option value="hours" ${String(SettingsStore.data.tomatoSpentAttrMode || '') === 'hours' ? 'selected' : ''}>小时属性</option>
+                                </select>
+                            </div>
+                            <div style="display:flex;align-items:center;gap:8px;flex:1;min-width:220px;">
+                                <span style="font-size:12px;color:var(--tm-secondary-text);white-space:nowrap;">分钟属性名</span>
+                                <input type="text" value="${esc(String(SettingsStore.data.tomatoSpentAttrKeyMinutes || 'custom-tomato-minutes'))}" ${SettingsStore.data.enableTomatoIntegration ? '' : 'disabled'} onchange="updateTomatoSpentAttrKeyMinutes(this.value)" style="flex:1; min-width:160px; padding: 6px 8px; border: 1px solid var(--tm-input-border); background: var(--tm-input-bg); color: var(--tm-text-color); border-radius: 4px;">
+                            </div>
+                            <div style="display:flex;align-items:center;gap:8px;flex:1;min-width:220px;">
+                                <span style="font-size:12px;color:var(--tm-secondary-text);white-space:nowrap;">小时属性名</span>
+                                <input type="text" value="${esc(String(SettingsStore.data.tomatoSpentAttrKeyHours || 'custom-tomato-time'))}" ${SettingsStore.data.enableTomatoIntegration ? '' : 'disabled'} onchange="updateTomatoSpentAttrKeyHours(this.value)" style="flex:1; min-width:160px; padding: 6px 8px; border: 1px solid var(--tm-input-border); background: var(--tm-input-bg); color: var(--tm-text-color); border-radius: 4px;">
+                            </div>
+                        </div>
+                        <div style="font-size: 12px; color: var(--tm-secondary-text); margin-top: 6px;">
+                            属性名指的是思源区块属性 name，例如 custom-tomato-minutes。
+                        </div>
+                    </div>
+
+                    <div style="margin-bottom: 16px; padding: 12px; background: var(--tm-section-bg); border-radius: 8px;">
+                        <div style="font-weight: 600; margin-bottom: 8px;">📍 全局新建文档位置设置</div>
+                        <select onchange="updateNewTaskDocIdFromSelect(this.value)" 
                                 style="width: 100%; padding: 6px 8px; border: 1px solid var(--tm-input-border); background: var(--tm-input-bg); color: var(--tm-text-color); border-radius: 4px;">
-                            ${defaultDocOptions.join('')}
+                            ${newTaskDocOptions.join('')}
                         </select>
                         <div style="display:flex; gap:8px; margin-top: 8px; align-items:center;">
-                            <input id="tmDefaultDocIdInput" class="tm-input" list="tmDefaultDocIdList"
-                                   value="${esc(defaultDocId || '')}"
+                            <input id="tmNewTaskDocIdInput" class="tm-input" list="tmNewTaskDocIdList"
+                                   value="${esc(newTaskDocId === '__dailyNote__' ? '' : (newTaskDocId || ''))}"
                                    placeholder="也可直接输入文档ID"
                                    style="flex: 1; padding: 6px 8px;">
-                            <button class="tm-btn tm-btn-secondary" onclick="tmApplyDefaultDocIdInput()" style="padding: 6px 10px; font-size: 12px;">应用</button>
-                            <button class="tm-btn tm-btn-gray" onclick="tmClearDefaultDocIdInput()" style="padding: 6px 10px; font-size: 12px;">清空</button>
+                            <button class="tm-btn tm-btn-secondary" onclick="tmApplyNewTaskDocIdInput()" style="padding: 6px 10px; font-size: 12px;">应用</button>
+                            <button class="tm-btn tm-btn-gray" onclick="tmClearNewTaskDocIdInput()" style="padding: 6px 10px; font-size: 12px;">清空</button>
                         </div>
-                        <datalist id="tmDefaultDocIdList">
-                            ${currentDocs.map(docItem => {
+                        <datalist id="tmNewTaskDocIdList">
+                            ${allDocsForNewTask.map(docItem => {
                                 const docId = typeof docItem === 'object' ? docItem.id : docItem;
                                 const docName = resolveDocName(docId);
                                 return `<option value="${docId}">${esc(docName)}</option>`;
                             }).join('')}
-                            ${defaultDocId && !currentDocIds.includes(defaultDocId) ? `<option value="${defaultDocId}"></option>` : ''}
+                            ${newTaskDocId && !allDocIdsForNewTask.includes(newTaskDocId) ? `<option value="${newTaskDocId}"></option>` : ''}
                         </datalist>
                         <div style="font-size: 12px; color: var(--tm-secondary-text); margin-top: 6px;">
-                            未设置时，将使用当前文档或列表中的第一个文档。
+                            用于“快速新建任务界面”的默认文档位置，可在新建界面临时切换。
                         </div>
                     </div>
 
@@ -7227,7 +9367,7 @@
                         <div id="tm-status-options-list">
                             ${renderStatusOptionsList()}
                         </div>
-                        <button class="tm-btn tm-btn-primary" onclick="addStatusOption()" style="margin-top: 8px; font-size: 12px;">+ 添加状态</button>
+                        <button class="tm-btn tm-btn-primary" data-tm-action="addStatusOption" style="margin-top: 8px; font-size: 12px;">+ 添加状态</button>
                     </div>
 
                     <div style="margin-bottom: 16px; padding: 12px; background: var(--tm-section-bg); border-radius: 8px;">
@@ -7241,7 +9381,7 @@
                                 <input type="checkbox" id="recursiveCheck">
                                 包含子文档
                             </label>
-                            <button class="tm-btn tm-btn-primary" onclick="addManualDoc()">添加</button>
+                            <button class="tm-btn tm-btn-primary" data-tm-action="addManualDoc">添加</button>
                         </div>
                         <div style="font-size: 12px; color: var(--tm-secondary-text); margin-top: 8px;">
                             提示：在思源笔记中打开文档，浏览器地址栏的 id= 后面的就是文档ID
@@ -7251,7 +9391,7 @@
                     <div style="margin-bottom: 0;">
                         <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
                             <span style="font-weight: 600;">📚 当前列表文档（${currentDocs.length} 个）</span>
-                            ${currentGroupId !== 'all' ? `<button class="tm-btn tm-btn-danger" onclick="clearCurrentGroupDocs()" style="padding: 4px 8px; font-size: 12px;">清空当前分组</button>` : ''}
+                            ${currentGroupId !== 'all' ? `<button class="tm-btn tm-btn-danger" data-tm-action="clearCurrentGroupDocs" style="padding: 4px 8px; font-size: 12px;">清空当前分组</button>` : ''}
                         </div>
                         ${currentDocs.length > 0 ? `
                             <div style="max-height: 150px; overflow-y: auto; border: 1px solid var(--tm-border-color); border-radius: 8px; padding: 8px;">
@@ -7295,18 +9435,48 @@
                     ` : ''}
                 </div>
 
+                ${activeTab === 'priority' ? `
                 <div class="tm-settings-footer">
-                    <button class="tm-btn tm-btn-secondary" onclick="closeSettings()">取消</button>
-                    <button class="tm-btn tm-btn-success" onclick="saveSettings()">保存设置</button>
+                    <button class="tm-btn tm-btn-secondary" data-tm-action="closePriorityScoreSettings">取消</button>
+                    <button class="tm-btn tm-btn-success" data-tm-action="savePriorityScoreSettings">保存算法</button>
                 </div>
+                ` : activeTab !== 'rule_editor' ? `
+                <div class="tm-settings-footer">
+                    <button class="tm-btn tm-btn-secondary" data-tm-action="closeSettings">取消</button>
+                    <button class="tm-btn tm-btn-success" data-tm-action="saveSettings">保存设置</button>
+                </div>
+                ` : `
+                <div class="tm-settings-footer">
+                    <button class="tm-btn tm-btn-secondary" data-tm-action="cancelEditRule">取消</button>
+                    <button class="tm-btn tm-btn-success" data-tm-action="saveEditRule">保存规则</button>
+                </div>
+                `}
             </div>
         `;
 
         document.body.appendChild(state.settingsModal);
+        __tmBindRulesManagerEvents(state.settingsModal);
     }
     window.showSettings = showSettings;
     window.tmSwitchSettingsTab = function(tab) {
-        state.settingsActiveTab = tab === 'appearance' ? 'appearance' : 'main';
+        if (tab === 'rules') {
+            state.settingsActiveTab = 'rules';
+        } else if (tab === 'appearance') {
+            state.settingsActiveTab = 'appearance';
+        } else if (tab === 'priority') {
+            state.priorityScoreDraft = state.priorityScoreDraft || __tmEnsurePriorityDraft();
+            state.settingsActiveTab = 'priority';
+        } else {
+            state.settingsActiveTab = 'main';
+        }
+        showSettings();
+    };
+
+    // 移除独立的规则管理器弹窗逻辑
+    // window.showRulesManager = function() {...}
+    // 改为直接跳转到设置页的规则标签
+    window.showRulesManager = function() {
+        state.settingsActiveTab = 'rules';
         showSettings();
     };
 
@@ -7322,10 +9492,11 @@
             { key: 'priority', label: '重要性' },
             { key: 'completionTime', label: '完成时间' },
             { key: 'duration', label: '时长' },
+            { key: 'spent', label: '耗时' },
             { key: 'remark', label: '备注' }
         ];
 
-        const currentOrder = SettingsStore.data.columnOrder || ['pinned', 'content', 'status', 'score', 'doc', 'h2', 'priority', 'completionTime', 'duration', 'remark'];
+        const currentOrder = SettingsStore.data.columnOrder || ['pinned', 'content', 'status', 'score', 'doc', 'h2', 'priority', 'completionTime', 'duration', 'spent', 'remark'];
         const widths = SettingsStore.data.columnWidths || {};
 
         let html = '<div class="tm-column-list">';
@@ -7428,11 +9599,116 @@
         const name = await showPrompt('添加状态', '请输入显示名称', '新状态');
         if (!name) return;
         
-        options.push({ id, name, color: '#888888' });
+        const color = await showPrompt('添加状态', '请输入颜色代码 (如: #FF0000)', '#66ccff');
+        if (!color) return;
+
+        options.push({ id, name, color });
         SettingsStore.data.customStatusOptions = options;
         await SettingsStore.save();
-        showSettings(); // 刷新界面
-        render(); // 刷新主界面
+        showSettings();
+        render();
+        try { window.tmQuickAddRefreshStatusSelect?.(); } catch (e) {}
+        try { window.tmQuickAddRenderMeta?.(); } catch (e) {}
+    };
+
+    // 绑定添加规则函数
+    window.tmAddRule = function() {
+        // 创建一个新规则模板
+        state.editingRule = {
+            id: 'r_' + Date.now(),
+            name: '新规则',
+            conditions: [{
+                id: 'c_' + Date.now(),
+                field: 'content',
+                operator: 'contains',
+                value: ''
+            }]
+        };
+        state.settingsActiveTab = 'rule_editor';
+        showSettings();
+    };
+
+    // 绑定编辑规则函数
+    window.tmEditRule = function(ruleId) {
+        const rule = state.filterRules.find(r => r.id === ruleId);
+        if (!rule) return;
+        
+        // 克隆规则对象，避免直接修改
+        state.editingRule = JSON.parse(JSON.stringify(rule));
+        state.settingsActiveTab = 'rule_editor';
+        showSettings();
+    };
+
+    // 绑定关闭规则编辑器函数
+    window.tmCloseRuleEditor = function() {
+        state.editingRule = null;
+        state.settingsActiveTab = 'rules';
+        showSettings();
+    };
+    
+    // 绑定规则保存函数
+    window.tmSaveRule = async function() {
+        if (!state.editingRule) return;
+        const nameInput = document.getElementById('tmRuleName');
+        const name = nameInput ? nameInput.value.trim() : '';
+        if (!name) {
+            hint('请输入规则名称', 'warning');
+            return;
+        }
+        
+        // 获取所有条件
+        const conditionRows = document.querySelectorAll('.tm-rule-condition-row');
+        const conditions = [];
+        conditionRows.forEach(row => {
+            const field = row.querySelector('.tm-rule-field').value;
+            const operator = row.querySelector('.tm-rule-operator').value;
+            let value = '';
+            
+            // 根据字段类型获取值
+            if (field === 'priority' || field === 'customStatus') {
+                // 多选
+                const checkboxes = row.querySelectorAll('input[type="checkbox"]:checked');
+                const values = Array.from(checkboxes).map(cb => cb.value);
+                if (values.length > 0) value = values;
+            } else if (field === 'done') {
+                value = row.querySelector('.tm-rule-value').value;
+            } else {
+                value = row.querySelector('.tm-rule-value').value;
+            }
+            
+            // 简单校验
+            if (value === '' || (Array.isArray(value) && value.length === 0)) return;
+            
+            conditions.push({
+                id: 'c_' + Date.now() + Math.random().toString(36).slice(2),
+                field,
+                operator,
+                value
+            });
+        });
+        
+        // 更新规则
+        state.editingRule.name = name;
+        state.editingRule.conditions = conditions;
+        
+        // 如果是新规则，添加到列表
+        const existing = state.filterRules.find(r => r.id === state.editingRule.id);
+        if (!existing) {
+            state.filterRules.push(state.editingRule);
+        } else {
+            // 更新现有规则（对象引用已更新，只需确保在列表中）
+            const idx = state.filterRules.findIndex(r => r.id === state.editingRule.id);
+            if (idx !== -1) state.filterRules[idx] = state.editingRule;
+        }
+        
+        // 保存到设置
+        SettingsStore.data.filterRules = state.filterRules;
+        await SettingsStore.save();
+        
+        // 关闭编辑器并刷新
+        tmCloseRuleEditor();
+        showSettings();
+        render(); // 如果当前应用了该规则，需要刷新主界面
     };
 
     function __tmRemapStatusId(oldId, newId) {
@@ -7502,6 +9778,8 @@
             await SettingsStore.save();
             showSettings();
             render();
+            try { window.tmQuickAddRefreshStatusSelect?.(); } catch (e) {}
+            try { window.tmQuickAddRenderMeta?.(); } catch (e) {}
             return;
         }
 
@@ -7510,6 +9788,8 @@
         await SettingsStore.save();
         // 不刷新整个界面，以免输入焦点丢失
         render(); // 刷新主界面
+        try { window.tmQuickAddRefreshStatusSelect?.(); } catch (e) {}
+        try { window.tmQuickAddRenderMeta?.(); } catch (e) {}
     };
 
     window.moveStatusOption = async function(index, direction) {
@@ -7521,16 +9801,21 @@
         await SettingsStore.save();
         showSettings();
         render();
+        try { window.tmQuickAddRefreshStatusSelect?.(); } catch (e) {}
+        try { window.tmQuickAddRenderMeta?.(); } catch (e) {}
     };
 
     window.deleteStatusOption = async function(index) {
-        if (!confirm('确定删除此状态吗？')) return;
+        const ok = await showConfirm('删除状态', '确定删除此状态吗？');
+        if (!ok) return;
         const options = SettingsStore.data.customStatusOptions || [];
         options.splice(index, 1);
         SettingsStore.data.customStatusOptions = options;
         await SettingsStore.save();
         showSettings(); // 刷新界面
         render(); // 刷新主界面
+        try { window.tmQuickAddRefreshStatusSelect?.(); } catch (e) {}
+        try { window.tmQuickAddRenderMeta?.(); } catch (e) {}
     };
 
     // 更新列宽度
@@ -7552,6 +9837,10 @@
     // 新增：切换分组
     window.switchDocGroup = async function(groupId) {
         await SettingsStore.updateCurrentGroupId(groupId);
+        const firstRuleId = (state.filterRules || []).find(r => r && r.enabled)?.id || '';
+        state.currentRule = firstRuleId || null;
+        SettingsStore.data.currentRule = firstRuleId || null;
+        await SettingsStore.save();
         showSettings();
     };
 
@@ -7686,7 +9975,6 @@
                 return res.data[0].content || '未命名文档';
             }
         } catch (e) {
-            console.warn('[文档] 获取文档信息失败:', e);
         }
         return null;
     }
@@ -7716,6 +10004,94 @@
         SettingsStore.data.enableQuickbar = !!enabled;
         await SettingsStore.save();
         try { globalThis.__taskHorizonQuickbarToggle?.(!!enabled); } catch (e) {}
+        showSettings();
+    };
+
+    window.updateEnableTomatoIntegration = async function(enabled) {
+        SettingsStore.data.enableTomatoIntegration = !!enabled;
+        await SettingsStore.save();
+        if (!enabled) state.timerFocusTaskId = '';
+        showSettings();
+        if (state.modal && document.body.contains(state.modal)) {
+            try { render(); } catch (e) {}
+        }
+    };
+
+    window.updateTomatoSpentAttrMode = async function(mode) {
+        const v = String(mode || '').trim();
+        SettingsStore.data.tomatoSpentAttrMode = (v === 'hours') ? 'hours' : 'minutes';
+        await SettingsStore.save();
+        showSettings();
+        if (state.modal && document.body.contains(state.modal)) {
+            loadSelectedDocuments();
+        }
+    };
+
+    window.updateTomatoSpentAttrKeyMinutes = async function(value) {
+        SettingsStore.data.tomatoSpentAttrKeyMinutes = String(value || '').trim();
+        await SettingsStore.save();
+        if (state.modal && document.body.contains(state.modal)) {
+            loadSelectedDocuments();
+        }
+    };
+
+    window.updateTomatoSpentAttrKeyHours = async function(value) {
+        SettingsStore.data.tomatoSpentAttrKeyHours = String(value || '').trim();
+        await SettingsStore.save();
+        if (state.modal && document.body.contains(state.modal)) {
+            loadSelectedDocuments();
+        }
+    };
+
+    window.updatePinNewTasksByDefault = async function(enabled) {
+        SettingsStore.data.pinNewTasksByDefault = !!enabled;
+        await SettingsStore.save();
+        showSettings();
+    };
+
+    window.updateNewTaskDocId = async function(value, options) {
+        const v = String(value || '').trim();
+        SettingsStore.data.newTaskDocId = v;
+        await SettingsStore.save();
+        const opt = (options && typeof options === 'object') ? options : {};
+        if (opt.refreshQuickAdd !== false) {
+            const qa = state.quickAdd;
+            if (qa) {
+                if (v === '__dailyNote__') {
+                    qa.docMode = 'dailyNote';
+                    qa.docId = qa.docId || __tmResolveDefaultDocId();
+                } else {
+                    qa.docMode = 'doc';
+                    qa.docId = v || __tmResolveDefaultDocId();
+                }
+                try { window.tmQuickAddRenderMeta?.(); } catch (e) {}
+            }
+        }
+        if (opt.refreshPicker !== false) {
+            if (state.quickAddDocPicker) {
+                try { window.tmQuickAddOpenDocPicker?.(); } catch (e) {}
+            }
+        }
+    };
+
+    window.updateNewTaskDocIdFromSelect = async function(value) {
+        await updateNewTaskDocId(value);
+        try {
+            const input = document.getElementById('tmNewTaskDocIdInput');
+            const v = String(value || '').trim();
+            if (input) input.value = v === '__dailyNote__' ? '' : v;
+        } catch (e) {}
+    };
+
+    window.tmApplyNewTaskDocIdInput = async function() {
+        const input = document.getElementById('tmNewTaskDocIdInput');
+        const v = String(input?.value || '').trim();
+        await updateNewTaskDocId(v);
+        showSettings();
+    };
+
+    window.tmClearNewTaskDocIdInput = async function() {
+        await updateNewTaskDocId('');
         showSettings();
     };
 
@@ -7922,22 +10298,24 @@
                 // 创建任务管理按钮
                 const tmBtn = document.createElement('button');
                 tmBtn.className = 'tm-breadcrumb-btn'; // 使用 class 标识
-                tmBtn.innerHTML = '📋';
-                tmBtn.title = '打开任务管理';
+                tmBtn.innerHTML = '<span style="display:flex;align-items:center;justify-content:center;width:100%;height:100%;line-height:0"><svg viewBox="0 0 24 24" width="14" height="14" style="display:block;fill:none;flex:0 0 auto;transform:translateY(1px)"><use xlink:href="#iconTaskHorizon"></use></svg></span>';
+                tmBtn.title = '打开任务管理器';
                 tmBtn.style.cssText = `
                     width: 28px;
                     height: 28px;
-                    padding: 0;
+                    padding: 0 !important;
                     margin: 0 4px;
                     background: transparent;
                     color: var(--b3-theme-on-surface, inherit);
                     border: none;
                     border-radius: 4px;
                     cursor: pointer;
-                    font-size: 16px;
-                    display: flex;
-                    align-items: center;
-                    justify-content: center;
+                    font-size: 0;
+                    line-height: 0;
+                    display: flex !important;
+                    align-items: center !important;
+                    justify-content: center !important;
+                    text-align: center !important;
                     flex-shrink: 0;
                     transition: all 0.2s;
                     z-index: 10;
@@ -7946,8 +10324,44 @@
                 tmBtn.onclick = (e) => {
                     e.preventDefault();
                     e.stopPropagation();
-                    openManager();
+                    if (tmBtn.__tmLongPressFired) {
+                        tmBtn.__tmLongPressFired = false;
+                        return;
+                    }
+                    try { window.tmQuickAddOpen?.(); } catch (e2) {}
                 };
+
+                try {
+                    let pressTimer = null;
+                    const startHandler = (e) => {
+                        tmBtn.__tmLongPressFired = false;
+                        if (pressTimer) clearTimeout(pressTimer);
+                        pressTimer = setTimeout(() => {
+                            tmBtn.__tmLongPressFired = true;
+                            try { openManager(); } catch (e) {}
+                        }, 450);
+                    };
+                    const cancelHandler = () => {
+                        if (pressTimer) clearTimeout(pressTimer);
+                        pressTimer = null;
+                    };
+                    const endHandler = (e) => {
+                        if (pressTimer) clearTimeout(pressTimer);
+                        pressTimer = null;
+                        if (tmBtn.__tmLongPressFired) {
+                            try { e.preventDefault(); } catch (e2) {}
+                            try { e.stopPropagation(); } catch (e2) {}
+                        }
+                    };
+
+                    tmBtn.addEventListener('touchstart', startHandler, { passive: true });
+                    tmBtn.addEventListener('touchmove', cancelHandler, { passive: true });
+                    tmBtn.addEventListener('touchend', endHandler, { passive: false });
+                    
+                    tmBtn.addEventListener('mousedown', startHandler);
+                    tmBtn.addEventListener('mouseleave', cancelHandler);
+                    tmBtn.addEventListener('mouseup', endHandler);
+                } catch (e) {}
 
                 breadcrumb.appendChild(tmBtn);
             });
@@ -7962,6 +10376,39 @@
     /**
      * 注册顶栏图标
      */
+    function __tmSetUseIcon(root, iconId) {
+        if (!root) return false;
+        const use = root.querySelector?.('use');
+        if (!use) return false;
+        const href = `#${iconId}`;
+        try { use.setAttribute('href', href); } catch (e) {}
+        try { use.setAttribute('xlink:href', href); } catch (e) {}
+        try { use.setAttributeNS('http://www.w3.org/1999/xlink', 'href', href); } catch (e) {}
+        return true;
+    }
+
+    function __tmPatchTaskHorizonTabIcon() {
+        const iconId = 'iconTaskHorizon';
+        const tabId = globalThis.__taskHorizonCustomTabId;
+        const uses = Array.from(document.querySelectorAll('use[href], use[xlink\\:href]'));
+        let ok = false;
+        for (const use of uses) {
+            try {
+                const href = use.getAttribute('href') || use.getAttribute('xlink:href') || '';
+                if (!href.includes('iconList') && !href.includes(iconId)) continue;
+                const owner = tabId
+                    ? (use.closest?.(`[data-id="${tabId}"], [data-key="${tabId}"]`) || use.closest?.('[data-id], [data-key], li, button, div'))
+                    : (use.closest?.('[data-id], [data-key], li, button, div'));
+                if (!owner) continue;
+                if ((tabId && (owner.getAttribute?.('data-id') === tabId || owner.getAttribute?.('data-key') === tabId)) || String(owner.textContent || '').includes('任务管理器')) {
+                    const root = owner.closest?.(`[data-id="${tabId}"], [data-key="${tabId}"]`) || owner;
+                    if (__tmSetUseIcon(root, iconId)) ok = true;
+                }
+            } catch (e) {}
+        }
+        return ok;
+    }
+
     function addTopBarIcon() {
         if (__tmTopBarAdded) return;
         if (__tmIsMobileDevice()) return;
@@ -7973,21 +10420,24 @@
             // 如果已经添加过，思源可能会处理，或者我们可以检查 DOM
             // 但是 addTopBar 没有 ID 参数，不好检查。
             // 我们可以检查 aria-label 或 title
-            const exists = document.querySelector('[aria-label="任务管理"]');
-            if (exists) return;
+            const exists = document.querySelector('[aria-label="任务管理器"], [aria-label="任务管理"]');
+            if (exists) {
+                __tmSetUseIcon(exists, 'iconTaskHorizon');
+                __tmTopBarAdded = true;
+                return;
+            }
 
             pluginInstance.addTopBar({
-                icon: "iconList", // 使用内置列表图标，或者自定义
-                title: "任务管理",
+                icon: "iconTaskHorizon",
+                title: "任务管理器",
                 position: "right",
                 callback: () => {
                     openManager();
                 }
             });
             __tmTopBarAdded = true;
-            console.log('🍅 已注册顶栏图标');
+            setTimeout(() => { try { __tmSetUseIcon(document.querySelector('[aria-label="任务管理器"], [aria-label="任务管理"]'), 'iconTaskHorizon'); } catch (e) {} }, 0);
         } else {
-            console.warn('🍅 无法注册顶栏图标：未找到插件实例');
         }
     }
 
@@ -7996,9 +10446,8 @@
      */
     function observeBreadcrumb() {
         // 先尝试添加一次
-        if (__tmIsMobileDevice()) {
-            addBreadcrumbButton();
-        } else {
+        addBreadcrumbButton();
+        if (!__tmIsMobileDevice()) {
             addTopBarIcon();
         }
 
@@ -8008,7 +10457,7 @@
             __tmBreadcrumbObserver = null;
         }
         const observer = new MutationObserver(() => {
-            if (__tmIsMobileDevice()) addBreadcrumbButton();
+            addBreadcrumbButton();
         });
 
         // 监听整个文档的子节点变化
@@ -8023,12 +10472,11 @@
     }
 
     async function init() {
-        console.log('🍅 任务管理器 v9.0 初始化...');
+        try { __tmBindWakeReload(); } catch (e) {}
 
         // 1. 先加载设置（包括文档ID）
         try {
             await SettingsStore.load();
-            console.log('[设置] 已加载:', SettingsStore.data.selectedDocIds);
 
             // 初始化状态
             state.selectedDocIds = SettingsStore.data.selectedDocIds;
@@ -8049,7 +10497,6 @@
         // 2. 获取所有文档列表
         try {
             state.allDocuments = await API.getAllDocuments();
-            console.log('[文档] 已加载文档列表:', state.allDocuments.length);
         } catch (e) {
             console.error('[初始化] 加载文档列表失败:', e);
         }
@@ -8068,75 +10515,23 @@
         }
         */
 
-        // 尝试在工具栏中挂载按钮（作为增强）
-        const isVisible = (el) => {
-            try { return !!el && el.offsetParent !== null; } catch (e) { return false; }
-        };
-
-        const mountToolbarBtn = () => {
-            const activeProtyle =
-                document.querySelector('.layout__wnd--active .protyle') ||
-                Array.from(document.querySelectorAll('.protyle')).find(isVisible) ||
-                null;
-
-            let toolbar =
-                activeProtyle?.querySelector?.('.protyle-toolbar') ||
-                document.querySelector('.layout__wnd--active .protyle-toolbar') ||
-                null;
-
-            if (!toolbar || !isVisible(toolbar)) {
-                const all = Array.from(document.querySelectorAll('.protyle-toolbar')).filter(isVisible);
-                toolbar = all[all.length - 1] || null;
-            }
-            if (!toolbar) return;
-
-            const host =
-                toolbar.querySelector('.protyle-toolbar__buttons, .protyle-toolbar__items, .protyle-toolbar__content') ||
-                toolbar;
-
-            if (document.getElementById('tmEntryBtn')) return;
-
-            const btn = document.createElement('button');
-            btn.id = 'tmEntryBtn';
-            const sampleBtn = host.querySelector('button');
-            btn.className = (sampleBtn?.className ? `${sampleBtn.className} ` : '') + 'tm-toolbar-btn';
-            btn.type = 'button';
-            btn.title = '任务管理';
-            btn.textContent = '📋';
-            btn.onclick = openManager;
-            host.appendChild(btn);
-        };
-
-        if (!__tmIsMobileDevice()) {
-            __tmEntryMountTimer = setTimeout(mountToolbarBtn, 0);
-            __tmEntryObserverTimer = setTimeout(() => {
-                if (!globalThis.__tmEntryObserver) {
-                    globalThis.__tmEntryObserver = new MutationObserver(() => {
-                        if (!document.getElementById('tmEntryBtn')) {
-                            mountToolbarBtn();
-                        }
-                    });
-                    globalThis.__tmEntryObserver.observe(document.body, { childList: true, subtree: true });
-                }
-            }, 300);
-        }
-
         // 启动面包屑按钮观察者
         observeBreadcrumb();
-
-        console.log('🍅 任务管理器 v9.0 已启动');
     }
 
-    async function __tmEnsureTabOpened() {
+    async function __tmEnsureTabOpened(maxWaitMs = 1500) {
         if (typeof globalThis.__taskHorizonOpenTabView !== 'function') return;
-        if (globalThis.__taskHorizonPluginIsMobile) return;
+        try {
+            if (window.siyuan?.config?.isMobile) return;
+        } catch (e) {}
+        if (__tmIsMobileDevice()) return;
         __tmEnsureMount();
         if (__tmMountEl && document.body.contains(__tmMountEl)) return;
 
         globalThis.__taskHorizonOpenTabView();
 
         const start = Date.now();
-        while (!globalThis.__taskHorizonTabElement && Date.now() - start < 1500) {
+        while (!globalThis.__taskHorizonTabElement && Date.now() - start < (Number(maxWaitMs) || 1500)) {
             await new Promise(r => setTimeout(r, 50));
         }
         if (globalThis.__taskHorizonTabElement) {
@@ -8147,17 +10542,29 @@
     async function openManager() {
         state.openToken = (Number(state.openToken) || 0) + 1;
         const token = Number(state.openToken) || 0;
-        console.log('[打开管理器] 当前文档ID:', state.selectedDocIds);
+        try { __tmListenPinnedChanged(); } catch (e) {}
 
-        await __tmEnsureTabOpened();
+        if (!__tmIsMobileDevice()) {
+            await __tmEnsureTabOpened();
+            try {
+                setTimeout(() => { try { __tmPatchTaskHorizonTabIcon(); } catch (e) {} }, 0);
+                setTimeout(() => { try { __tmPatchTaskHorizonTabIcon(); } catch (e) {} }, 250);
+                setTimeout(() => { try { __tmPatchTaskHorizonTabIcon(); } catch (e) {} }, 900);
+            } catch (e) {}
+        }
 
-        if (!state.modal) {
-            try { render(); } catch (e) {}
+        // 强制重新渲染，确保 DOM 存在
+        try { render(); } catch (e) {
+            console.error('[OpenManager] Render failed:', e);
         }
 
         hint('🔄 加载任务中...', 'info');
 
         await SettingsStore.load();
+        if (SettingsStore.data.enableTomatoIntegration) {
+            try { __tmHookTomatoTimer(); } catch (e) {}
+            try { __tmListenTomatoAssociationCleared(); } catch (e) {}
+        }
         state.selectedDocIds = SettingsStore.data.selectedDocIds;
 
         if (!state.selectedDocIds || state.selectedDocIds.length === 0) {
@@ -8167,7 +10574,12 @@
         }
 
         if (!state.modal || token !== (Number(state.openToken) || 0)) return;
-        await loadSelectedDocuments();
+        try {
+            await new Promise(resolve => {
+                requestAnimationFrame(() => requestAnimationFrame(resolve));
+            });
+        } catch (e) {}
+        loadSelectedDocuments().catch(e => hint(`❌ 加载失败: ${e.message}`, 'error'));
     }
 
     // ... 保留原有的 loadSelectedDocuments 和其他函数 ...
@@ -8175,10 +10587,64 @@
     // 插件卸载清理
     function __tmCleanup() {
         try {
+            if (__tmVisibilityHandler) {
+                document.removeEventListener('visibilitychange', __tmVisibilityHandler);
+                __tmVisibilityHandler = null;
+            }
+        } catch (e) {}
+        try {
+            if (__tmFocusHandler) {
+                window.removeEventListener('focus', __tmFocusHandler);
+                __tmFocusHandler = null;
+            }
+        } catch (e) {}
+        try {
             if (__tmGlobalClickHandler) {
                 window.removeEventListener('click', __tmGlobalClickHandler);
                 __tmGlobalClickHandler = null;
             }
+        } catch (e) {}
+        try {
+            if (__tmQuickAddGlobalClickHandler) {
+                document.removeEventListener('click', __tmQuickAddGlobalClickHandler);
+                __tmQuickAddGlobalClickHandler = null;
+            }
+            try { if (window.tmQuickAddEventsBound) window.tmQuickAddEventsBound = false; } catch (e2) {}
+        } catch (e) {}
+        try {
+            if (__tmWakeReloadTimer) {
+                clearTimeout(__tmWakeReloadTimer);
+                __tmWakeReloadTimer = null;
+            }
+            __tmWakeReloadInFlight = false;
+            __tmWakeReloadBound = false;
+            __tmWasHiddenAt = 0;
+        } catch (e) {}
+        try {
+            if (__tmTomatoAssociationHandler) {
+                window.removeEventListener('tomato:association-cleared', __tmTomatoAssociationHandler);
+                __tmTomatoAssociationHandler = null;
+            }
+        } catch (e) {}
+        try {
+            const timer = globalThis.__tomatoTimer;
+            if (timer && typeof timer === 'object' && __tmTomatoOriginalTimerFns) {
+                Object.entries(__tmTomatoOriginalTimerFns).forEach(([k, fn]) => {
+                    if (typeof fn === 'function') {
+                        try { timer[k] = fn; } catch (e) {}
+                    }
+                });
+            }
+            __tmTomatoOriginalTimerFns = null;
+            __tmTomatoTimerHooked = false;
+        } catch (e) {}
+        try {
+            if (globalThis.__taskHorizonOnTomatoAssociationCleared) delete globalThis.__taskHorizonOnTomatoAssociationCleared;
+            __tmTomatoAssociationListenerAdded = false;
+        } catch (e) {}
+        try {
+            if (globalThis.__taskHorizonOnPinnedChanged) delete globalThis.__taskHorizonOnPinnedChanged;
+            __tmPinnedListenerAdded = false;
         } catch (e) {}
 
         try {
@@ -8203,30 +10669,9 @@
         } catch (e) {}
 
         try {
-            if (__tmEntryMountTimer != null) {
-                clearTimeout(__tmEntryMountTimer);
-                __tmEntryMountTimer = null;
-            }
-        } catch (e) {}
-
-        try {
-            if (__tmEntryObserverTimer != null) {
-                clearTimeout(__tmEntryObserverTimer);
-                __tmEntryObserverTimer = null;
-            }
-        } catch (e) {}
-
-        try {
             if (__tmBreadcrumbObserver) {
                 __tmBreadcrumbObserver.disconnect();
                 __tmBreadcrumbObserver = null;
-            }
-        } catch (e) {}
-
-        try {
-            if (globalThis.__tmEntryObserver) {
-                globalThis.__tmEntryObserver.disconnect();
-                globalThis.__tmEntryObserver = null;
             }
         } catch (e) {}
 
@@ -8240,6 +10685,7 @@
             }
         } catch (e) {}
 
+        try { __tmHideMobileMenu?.(); } catch (e) {}
         try { __tmCloseInlineEditor(); } catch (e) {}
         try { __tmCloseCellEditor(false); } catch (e) {}
 
@@ -8273,11 +10719,6 @@
         } catch (e) {}
 
         try {
-            const entryBtn = document.getElementById('tmEntryBtn');
-            if (entryBtn) entryBtn.remove();
-        } catch (e) {}
-
-        try {
             document.querySelectorAll('.tm-breadcrumb-btn').forEach(btn => btn.remove());
         } catch (e) {}
 
@@ -8287,6 +10728,19 @@
                 MetaStore.saveTimer = null;
             }
         } catch (e) {}
+        try {
+            if (SettingsStore?.saveTimer) {
+                clearTimeout(SettingsStore.saveTimer);
+                SettingsStore.saveTimer = null;
+            }
+            try { SettingsStore?.savePromiseResolve?.(); } catch (e2) {}
+            try {
+                SettingsStore.savePromise = null;
+                SettingsStore.savePromiseResolve = null;
+                SettingsStore.saveDirty = false;
+                SettingsStore.saving = false;
+            } catch (e2) {}
+        } catch (e) {}
     }
 
     // 暴露清理函数给插件卸载调用
@@ -8294,7 +10748,16 @@
     // 暴露挂载函数供自定义 Tab 使用
     globalThis.__taskHorizonMount = (el) => {
         __tmSetMount(el);
-        openManager().catch(() => {});
+        openManager().catch((e) => {
+            try { console.error('[task-horizon] openManager failed:', e); } catch (e2) {}
+            try { hint(`❌ 加载失败: ${e?.message || String(e)}`, 'error'); } catch (e3) {}
+            try {
+                setTimeout(() => {
+                    if (document.visibilityState === 'hidden') return;
+                    __tmSafeOpenManager('mount-retry');
+                }, 900);
+            } catch (e4) {}
+        });
     };
 
     if (document.readyState === 'loading') {

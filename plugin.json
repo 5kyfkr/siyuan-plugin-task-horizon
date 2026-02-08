@@ -1,8 +1,8 @@
 {
     "name": "siyuan-plugin-task-horizon",
     "author": "5kyfkr",
-    "url": "https://github.com/5kyfkr/siyuan-plugin-task-horizon.git",
-    "version": "1.0.0",
+    "url": "https://github.com/5kyfkr/siyuan-plugin-task-horizon",
+    "version": "1.0.1",
     "minAppVersion": "3.0.12",
     "disabledInPublish": false,
     "backends": [
@@ -16,8 +16,8 @@
         "zh_CN": "任务管理器"
     },
     "description": {
-        "default": "Task manager with custom filters, grouping, and sorting for SiYuan.",
-        "zh_CN": "思源笔记任务管理器：支持自定义筛选规则分组和排序。"
+        "default": "Aggregate tasks across documents with rule-based filters, grouping/sorting, configurable columns, and a quickbar editor for SiYuan.",
+        "zh_CN": "思源笔记任务管理器：汇总多文档任务，支持规则筛选、分组/排序、列配置与悬浮条快速编辑。支持与底栏番茄钟联动"
     },
     "readme": {
         "default": "README.md",
