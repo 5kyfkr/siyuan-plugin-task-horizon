@@ -6,6 +6,7 @@ const QUICKBAR_SCRIPT_PATH = `/data/plugins/${PLUGIN_ID}/quickbar.js`;
 const TAB_TYPE = "task-horizon";
 const TAB_TITLE = "任务管理器";
 const ICON_ID = "iconTaskHorizon";
+const CUSTOM_TAB_ID = PLUGIN_ID + TAB_TYPE;
 
 const ICON_SYMBOL = `<symbol id="${ICON_ID}" viewBox="0 0 24 24">
   <g transform="translate(12 12) scale(1.25) translate(-12 -12)" fill="none" stroke="currentColor">
@@ -46,13 +47,17 @@ const loadScriptText = async (path, sourceName) => {
 
 module.exports = class TaskHorizonPlugin extends Plugin {
     async onload() {
+        const mountToken = String(Date.now());
+        this._mountToken = mountToken;
         globalThis.__taskHorizonPluginApp = this.app;
         globalThis.__taskHorizonPluginInstance = this;
         globalThis.__taskHorizonPluginIsMobile = !!this.isMobile;
         globalThis.__taskHorizonOpenTab = typeof openTab === "function" ? openTab : null;
         globalThis.__taskHorizonOpenMobileFileById = typeof openMobileFileById === "function" ? openMobileFileById : null;
         globalThis.__taskHorizonOpenTabView = this.openTaskHorizonTab.bind(this);
-        globalThis.__taskHorizonCustomTabId = this.name + TAB_TYPE;
+        globalThis.__taskHorizonCustomTabId = CUSTOM_TAB_ID;
+        globalThis.__taskHorizonTabType = TAB_TYPE;
+        globalThis.__taskHorizonMountToken = mountToken;
         try { this.addIcons(ICON_SYMBOL); } catch (e) {}
         this.ensureCustomTab();
         await loadScriptText(TASK_SCRIPT_PATH, "task.js");
@@ -87,13 +92,15 @@ module.exports = class TaskHorizonPlugin extends Plugin {
             tries += 1;
             const mountFn = globalThis.__taskHorizonMount;
             const roots = Array.from(document.querySelectorAll(".tm-tab-root"));
+            const token = String(globalThis.__taskHorizonMountToken || this._mountToken || "");
             if (typeof mountFn === "function") {
                 roots.forEach((el) => {
-                    if (!el || el.dataset?.tmTaskHorizonMounted === "1") return;
+                    if (!el) return;
+                    if (token && el.dataset?.tmTaskHorizonMounted === token) return;
                     try {
                         globalThis.__taskHorizonTabElement = el;
                         mountFn(el);
-                        el.dataset.tmTaskHorizonMounted = "1";
+                        if (token) el.dataset.tmTaskHorizonMounted = token;
                     } catch (e) {}
                 });
                 return;
@@ -111,10 +118,11 @@ module.exports = class TaskHorizonPlugin extends Plugin {
         this.ensureCustomTab();
         openTab({
             app: this.app,
+            openNewTab: false,
             custom: {
                 title: TAB_TITLE,
                 icon: ICON_ID,
-                id: this.name + TAB_TYPE,
+                id: CUSTOM_TAB_ID,
             },
         });
     }
@@ -130,10 +138,15 @@ module.exports = class TaskHorizonPlugin extends Plugin {
         try { delete globalThis.__taskHorizonOpenTab; } catch (e) {}
         try { delete globalThis.__taskHorizonOpenMobileFileById; } catch (e) {}
         try { delete globalThis.__taskHorizonOpenTabView; } catch (e) {}
+        try { delete globalThis.__taskHorizonCustomTabId; } catch (e) {}
         try { delete globalThis.__taskHorizonTabElement; } catch (e) {}
         try { delete globalThis.__taskHorizonQuickbarLoaded; } catch (e) {}
         try { delete globalThis.__taskHorizonQuickbarToggle; } catch (e) {}
         try { delete globalThis.__taskHorizonQuickbarCleanup; } catch (e) {}
+        try { delete globalThis.__taskHorizonMount; } catch (e) {}
+        try { delete globalThis.__TaskManagerCleanup; } catch (e) {}
+        try { delete globalThis.__taskHorizonMountToken; } catch (e) {}
+        try { delete globalThis.__taskHorizonTabType; } catch (e) {}
     }
 
     async uninstall() {

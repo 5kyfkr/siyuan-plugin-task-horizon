@@ -1,6 +1,6 @@
 // @name         思源笔记任务管理器
-// @version      1.0.3
-// @description  任务管理器，支持自定义筛选规则分组和排序（适配思源笔记代码片段）
+// @version      1.0.5
+// @description  任务管理器，支持自定义筛选规则分组和排序
 // @author       5KYFKR
 
 (function() {
@@ -1417,6 +1417,8 @@
             docGroups: [],
             // 当前选中的分组ID (UI显示用)
             currentGroupId: 'all', 
+            // 任务标题级别 (h1-h6)
+            taskHeadingLevel: 'h2',
             priorityScoreConfig: {
                 base: 100,
                 weights: { importance: 1, status: 1, due: 1, duration: 1, doc: 1 },
@@ -1502,6 +1504,7 @@
                                 if (cloudData.priorityScoreConfig && typeof cloudData.priorityScoreConfig === 'object') this.data.priorityScoreConfig = cloudData.priorityScoreConfig;
                                 if (Array.isArray(cloudData.docGroups)) this.data.docGroups = cloudData.docGroups;
                                 if (cloudData.currentGroupId) this.data.currentGroupId = cloudData.currentGroupId;
+                                if (cloudData.taskHeadingLevel) this.data.taskHeadingLevel = cloudData.taskHeadingLevel;
                                 if (Array.isArray(cloudData.customStatusOptions)) this.data.customStatusOptions = cloudData.customStatusOptions;
                                 if (cloudData.columnWidths && typeof cloudData.columnWidths === 'object') {
                                     // 旧版本兼容：如果有 customTime 配置，迁移到 completionTime
@@ -1914,7 +1917,11 @@
                 { value: 'updated', label: '更新时间' },
                 { value: 'content', label: '任务内容' },
                 { value: 'docName', label: '文档名称' },
-                { value: 'h2', label: '二级标题' },
+                { value: 'h2', label: (() => {
+                    const level = SettingsStore.data.taskHeadingLevel || 'h2';
+                    const labels = { h1: '一级标题', h2: '二级标题', h3: '三级标题', h4: '四级标题', h5: '五级标题', h6: '六级标题' };
+                    return labels[level] || '标题';
+                })() },
                 { value: 'duration', label: '任务时长' }
             ];
         },
@@ -2593,7 +2600,7 @@
                     SELECT a.task_id, b.content, a.depth
                     FROM ancestors a
                     JOIN blocks b ON a.ancestor_id = b.id
-                    WHERE b.type = 'h' AND b.subtype = 'h2'
+                    WHERE b.type = 'h' AND b.subtype = '${SettingsStore.data.taskHeadingLevel || 'h2'}'
                     ORDER BY a.task_id, a.depth ASC
                 `;
                 try {
@@ -3022,6 +3029,9 @@
     let __tmBreadcrumbObserver = null;
     let __tmTopBarTimer = null;
     let __tmTopBarAdded = false;
+    let __tmTopBarEl = null;
+    let __tmTopBarClickCaptureHandler = null;
+    let __tmTopBarClickInFlight = false;
     let __tmTomatoTimerHooked = false;
     let __tmTomatoOriginalTimerFns = null;
     let __tmTomatoAssociationListenerAdded = false;
@@ -3071,6 +3081,8 @@
             try {
                 if (document.visibilityState === 'hidden') {
                     __tmWasHiddenAt = Date.now();
+                    // 标记页面曾被隐藏，用于下次打开时跳过加载提示
+                    state.wasHidden = true;
                     return;
                 }
                 const gap = Date.now() - (__tmWasHiddenAt || 0);
@@ -4241,8 +4253,10 @@
         if (state.priorityModal) {
             state.priorityModal.remove();
             state.priorityModal = null;
+            // 只有关闭独立的优先级设置模态框时才重置draft
+            state.priorityScoreDraft = null;
         }
-        state.priorityScoreDraft = null;
+        // 在设置界面中切换Tab时，不重置draft，保留用户输入的数据
         if (state.settingsModal && state.settingsActiveTab === 'priority') {
             showSettings();
         }
@@ -4348,7 +4362,8 @@
         if (!state.priorityScoreDraft) return;
         if (!state.priorityScoreDraft.docDeltas || typeof state.priorityScoreDraft.docDeltas !== 'object') state.priorityScoreDraft.docDeltas = {};
         state.priorityScoreDraft.docDeltas[docId] = Number(value) || 0;
-        __tmRerenderPriorityScoreSettings();
+        // 不再调用 __tmRerenderPriorityScoreSettings()，避免重新渲染导致输入框失去焦点
+        // 数据已保存在 state.priorityScoreDraft 中，用户点击"应用修改"或"保存"时会持久化
     };
     window.tmUpdatePriorityDocDelta = function(oldDocId, newDocId) {
         if (!state.priorityScoreDraft) return;
@@ -4928,10 +4943,48 @@
             });
         };
 
-        state.taskTree.forEach(doc => {
-            if (state.activeDocId !== 'all' && doc.id !== state.activeDocId) return;
-            traverse(doc.tasks || [], false);
-        });
+        if (state.activeDocId === 'all') {
+            // 全部模式下：先收集所有任务，再进行全局排序
+            // 这样排序规则 > 文档分组
+            
+            // 收集所有文档的所有任务到一个扁平数组
+            const allTasks = [];
+            const collectAll = (list) => {
+                list.forEach(t => {
+                    allTasks.push(t);
+                    if (t.children && t.children.length > 0) {
+                        collectAll(t.children);
+                    }
+                });
+            };
+            state.taskTree.forEach(doc => {
+                collectAll(doc.tasks || []);
+            });
+            
+            // 对所有任务应用排序规则
+            const sortedAllTasks = RuleManager.applyRuleSort(allTasks, rule);
+            
+            // 筛选并保持排序后的顺序
+            const globalAdded = new Set();
+            sortedAllTasks.forEach(t => {
+                if (!t) return;
+                if (hasDoneAncestor(t)) return;
+                const isMatched = matchedSet.has(t.id);
+                const isAncestor = ancestorSet.has(t.id);
+                if (isMatched || isAncestor) {
+                    if (!globalAdded.has(t.id)) {
+                        globalAdded.add(t.id);
+                        ordered.push(t);
+                    }
+                }
+            });
+        } else {
+            // 单个文档模式下：保持原有逻辑
+            state.taskTree.forEach(doc => {
+                if (state.activeDocId !== 'all' && doc.id !== state.activeDocId) return;
+                traverse(doc.tasks || [], false);
+            });
+        }
 
         state.filteredTasks = ordered;
     }
@@ -5375,7 +5428,12 @@
                                         content: `<th data-col="content" style="width: ${widths.content || 360}px; min-width: ${widths.content || 360}px; max-width: ${widths.content || 360}px; white-space: nowrap; overflow: hidden;">任务内容<span class="tm-col-resize" onmousedown="startColResize(event, 'content')"></span></th>`,
                                         score: `<th data-col="score" style="width: ${widths.score || 96}px; min-width: ${widths.score || 96}px; max-width: ${widths.score || 96}px; text-align: center; white-space: nowrap; overflow: hidden;">优先级<span class="tm-col-resize" onmousedown="startColResize(event, 'score')"></span></th>`,
                                         doc: `<th data-col="doc" style="width: ${widths.doc || 180}px; min-width: ${widths.doc || 180}px; max-width: ${widths.doc || 180}px; white-space: nowrap; overflow: hidden;">文档<span class="tm-col-resize" onmousedown="startColResize(event, 'doc')"></span></th>`,
-                                        h2: `<th data-col="h2" style="width: ${widths.h2 || 180}px; min-width: ${widths.h2 || 180}px; max-width: ${widths.h2 || 180}px; white-space: nowrap; overflow: hidden;">二级标题<span class="tm-col-resize" onmousedown="startColResize(event, 'h2')"></span></th>`,
+                                        h2: (() => {
+                                            const level = SettingsStore.data.taskHeadingLevel || 'h2';
+                                            const labels = { h1: '一级标题', h2: '二级标题', h3: '三级标题', h4: '四级标题', h5: '五级标题', h6: '六级标题' };
+                                            const label = labels[level] || '标题';
+                                            return `<th data-col="h2" style="width: ${widths.h2 || 180}px; min-width: ${widths.h2 || 180}px; max-width: ${widths.h2 || 180}px; white-space: nowrap; overflow: hidden;">${label}<span class="tm-col-resize" onmousedown="startColResize(event, 'h2')"></span></th>`;
+                                        })(),
                                         priority: `<th data-col="priority" style="width: ${widths.priority || 96}px; min-width: ${widths.priority || 96}px; max-width: ${widths.priority || 96}px; text-align: center; white-space: nowrap; overflow: hidden;">重要性<span class="tm-col-resize" onmousedown="startColResize(event, 'priority')"></span></th>`,
                                         completionTime: `<th data-col="completionTime" style="width: ${widths.completionTime || 170}px; min-width: ${widths.completionTime || 170}px; max-width: ${widths.completionTime || 170}px; white-space: nowrap; overflow: hidden;">完成时间<span class="tm-col-resize" onmousedown="startColResize(event, 'completionTime')"></span></th>`,
                                         duration: `<th data-col="duration" style="width: ${widths.duration || 96}px; min-width: ${widths.duration || 96}px; max-width: ${widths.duration || 96}px; white-space: nowrap; overflow: hidden;">时长<span class="tm-col-resize" onmousedown="startColResize(event, 'duration')"></span></th>`,
@@ -6444,6 +6502,13 @@
     window.updateFontSizeMobile = async function(value) {
         const size = parseInt(value) || 14;
         await SettingsStore.updateFontSizeMobile(size);
+        render();
+    };
+
+    window.updateTaskHeadingLevel = async function(value) {
+        const level = String(value || 'h2').trim();
+        SettingsStore.data.taskHeadingLevel = level;
+        await SettingsStore.save();
         render();
     };
 
@@ -8733,9 +8798,10 @@
         if (!qa) return;
         const id = String(docId || '').trim();
         if (!id) return;
+        // 仅更新本地状态，不修改全局设置
         qa.docId = id;
         qa.docMode = 'doc';
-        try { await updateNewTaskDocId(id, { refreshQuickAdd: false, refreshPicker: false }); } catch (e) {}
+        // 移除对 updateNewTaskDocId 的调用，避免修改全局新建文档设置
         window.tmQuickAddRenderMeta?.();
         window.tmQuickAddCloseDocPicker?.();
     };
@@ -9312,6 +9378,19 @@
                                    style="width: 60px; padding: 4px 8px; border: 1px solid var(--tm-input-border); background: var(--tm-input-bg); color: var(--tm-text-color); border-radius: 4px;">
                             <span>px</span>
                         </label>
+
+                        <label style="display: flex; flex-wrap: wrap; align-items: center; gap: 8px; row-gap: 6px; cursor: pointer; flex: 1 1 240px; min-width: 200px;">
+                            <span>任务标题级别: </span>
+                            <select onchange="updateTaskHeadingLevel(this.value)"
+                                    style="padding: 4px 8px; border: 1px solid var(--tm-input-border); background: var(--tm-input-bg); color: var(--tm-text-color); border-radius: 4px;">
+                                <option value="h1" ${SettingsStore.data.taskHeadingLevel === 'h1' ? 'selected' : ''}>H1 一级标题</option>
+                                <option value="h2" ${SettingsStore.data.taskHeadingLevel === 'h2' ? 'selected' : ''}>H2 二级标题</option>
+                                <option value="h3" ${SettingsStore.data.taskHeadingLevel === 'h3' ? 'selected' : ''}>H3 三级标题</option>
+                                <option value="h4" ${SettingsStore.data.taskHeadingLevel === 'h4' ? 'selected' : ''}>H4 四级标题</option>
+                                <option value="h5" ${SettingsStore.data.taskHeadingLevel === 'h5' ? 'selected' : ''}>H5 五级标题</option>
+                                <option value="h6" ${SettingsStore.data.taskHeadingLevel === 'h6' ? 'selected' : ''}>H6 六级标题</option>
+                            </select>
+                        </label>
                     </div>
 
                     <div style="margin-bottom: 16px; padding: 12px; background: var(--tm-section-bg); border-radius: 8px;">
@@ -9406,7 +9485,7 @@
                             <button class="tm-btn tm-btn-primary" data-tm-action="addManualDoc">添加</button>
                         </div>
                         <div style="font-size: 12px; color: var(--tm-secondary-text); margin-top: 8px;">
-                            提示：在思源笔记中打开文档，浏览器地址栏的 id= 后面的就是文档ID
+                            提示：在思源笔记中打开文档，文档菜单中复制ID即可得到文档ID
                         </div>
                     </div>
 
@@ -9447,7 +9526,9 @@
                                             </div>
                                             ${currentGroupId !== 'all' ? `
                                                 <button class="tm-btn tm-btn-danger" onclick="removeDocFromGroup(${index})" style="padding: 2px 6px; font-size: 11px;">移除</button>
-                                            ` : '<span style="font-size: 11px; color: var(--tm-secondary-text);">只读</span>'}
+                                            ` : `
+                                                <button class="tm-btn tm-btn-danger" onclick="removeDocFromAll('${docId}')" style="padding: 2px 6px; font-size: 11px;">移除</button>
+                                            `}
                                         </div>
                                     `;
                                 }).join('')}
@@ -9512,7 +9593,11 @@
             { key: 'status', label: '状态' },
             { key: 'score', label: '优先级' },
             { key: 'doc', label: '文档' },
-            { key: 'h2', label: '二级标题' },
+            { key: 'h2', label: (() => {
+                const level = SettingsStore.data.taskHeadingLevel || 'h2';
+                const labels = { h1: '一级标题', h2: '二级标题', h3: '三级标题', h4: '四级标题', h5: '五级标题', h6: '六级标题' };
+                return labels[level] || '标题';
+            })() },
             { key: 'priority', label: '重要性' },
             { key: 'completionTime', label: '完成时间' },
             { key: 'duration', label: '时长' },
@@ -9927,6 +10012,46 @@
             await SettingsStore.updateDocGroups(groups);
             showSettings();
         }
+    };
+
+    window.removeDocFromAll = async function(docId) {
+        const id = String(docId || '').trim();
+        if (!id) return;
+
+        let changed = false;
+
+        try {
+            const legacy = Array.isArray(SettingsStore.data.selectedDocIds) ? SettingsStore.data.selectedDocIds : [];
+            const nextLegacy = legacy.filter(x => String(x) !== id);
+            if (nextLegacy.length !== legacy.length) {
+                SettingsStore.data.selectedDocIds = nextLegacy;
+                changed = true;
+            }
+        } catch (e) {}
+
+        try {
+            const groups = Array.isArray(SettingsStore.data.docGroups) ? SettingsStore.data.docGroups : [];
+            let groupsChanged = false;
+            groups.forEach(g => {
+                if (!g || !Array.isArray(g.docs)) return;
+                const before = g.docs.length;
+                g.docs = g.docs.filter(d => String((typeof d === 'object' ? d?.id : d) || '') !== id);
+                if (g.docs.length !== before) groupsChanged = true;
+            });
+            if (groupsChanged) {
+                SettingsStore.data.docGroups = groups;
+                changed = true;
+            }
+        } catch (e) {}
+
+        if (!changed) {
+            hint('⚠ 未找到该文档', 'warning');
+            return;
+        }
+
+        await SettingsStore.save();
+        state.selectedDocIds = SettingsStore.data.selectedDocIds;
+        showSettings();
     };
 
     // 手动添加文档ID（增强版）
@@ -10433,8 +10558,64 @@
         return ok;
     }
 
+    function __tmFocusExistingTaskHorizonTab() {
+        try {
+            const tabId = globalThis.__taskHorizonCustomTabId;
+            if (!tabId) return false;
+            try {
+                const tab = __tmFindExistingTaskManagerTab?.();
+                if (tab && window.siyuan?.layout?.centerLayout?.switchTab) {
+                    window.siyuan.layout.centerLayout.switchTab(tab);
+                    return true;
+                }
+            } catch (e) {}
+
+            const els = Array.from(document.querySelectorAll(`[data-id="${tabId}"], [data-key="${tabId}"]`));
+            if (els.length === 0) return false;
+            const el = els.find(x => x && x.querySelector && x.querySelector('.tm-tab-root')) || els[0];
+            try {
+                el.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
+            } catch (e) {
+                try { el.click(); } catch (e2) {}
+            }
+            return true;
+        } catch (e) {}
+        return false;
+    }
+
+    let __tmEnsureTabPromise = null;
+
+    function __tmBindTopBarClickCapture(topBarEl) {
+        const el = topBarEl || __tmTopBarEl;
+        if (!el) return;
+        if (__tmTopBarEl && __tmTopBarEl !== el && __tmTopBarClickCaptureHandler) {
+            try { __tmTopBarEl.removeEventListener('click', __tmTopBarClickCaptureHandler, true); } catch (e) {}
+        }
+        __tmTopBarEl = el;
+        if (__tmTopBarClickCaptureHandler) return;
+        __tmTopBarClickCaptureHandler = (e) => {
+            if (__tmTopBarClickInFlight) return;
+            __tmTopBarClickInFlight = true;
+            try {
+                try { e.preventDefault?.(); } catch (e2) {}
+                try { e.stopImmediatePropagation?.(); } catch (e2) {}
+                try { e.stopPropagation?.(); } catch (e2) {}
+                try { openManager(); } catch (e2) {}
+            } finally {
+                setTimeout(() => { __tmTopBarClickInFlight = false; }, 0);
+            }
+        };
+        try { el.addEventListener('click', __tmTopBarClickCaptureHandler, true); } catch (e) {}
+    }
+
     function addTopBarIcon() {
-        if (__tmTopBarAdded) return;
+        if (__tmTopBarAdded) {
+            try {
+                const exists = document.querySelector('[aria-label="任务管理器"], [aria-label="任务管理"]');
+                if (exists) __tmBindTopBarClickCapture(exists);
+            } catch (e) {}
+            return;
+        }
         if (__tmIsMobileDevice()) return;
         // 尝试通过全局插件实例添加
         const pluginInstance = globalThis.__taskHorizonPluginInstance || globalThis.__tomatoPluginInstance;
@@ -10447,22 +10628,60 @@
             const exists = document.querySelector('[aria-label="任务管理器"], [aria-label="任务管理"]');
             if (exists) {
                 __tmSetUseIcon(exists, 'iconTaskHorizon');
+                try { __tmBindTopBarClickCapture(exists); } catch (e) {}
                 __tmTopBarAdded = true;
                 return;
             }
 
-            pluginInstance.addTopBar({
+            const topBarEl = pluginInstance.addTopBar({
                 icon: "iconTaskHorizon",
                 title: "任务管理器",
                 position: "right",
-                callback: () => {
-                    openManager();
-                }
+                callback: () => {}
             });
+            try { __tmBindTopBarClickCapture(topBarEl || document.querySelector('[aria-label="任务管理器"], [aria-label="任务管理"]')); } catch (e) {}
             __tmTopBarAdded = true;
             setTimeout(() => { try { __tmSetUseIcon(document.querySelector('[aria-label="任务管理器"], [aria-label="任务管理"]'), 'iconTaskHorizon'); } catch (e) {} }, 0);
         } else {
         }
+    }
+
+    function __tmFindExistingTaskHorizonCustomModel() {
+        const tabType = String(globalThis.__taskHorizonTabType || 'task-horizon');
+        const tabId = String(globalThis.__taskHorizonCustomTabId || '');
+        try {
+            const inst = globalThis.__taskHorizonPluginInstance;
+            if (inst && typeof inst.getOpenedTab === 'function') {
+                const opened = inst.getOpenedTab();
+                if (opened && typeof opened === 'object') {
+                    const customs = [];
+                    Object.values(opened).forEach((arr) => {
+                        if (Array.isArray(arr)) arr.forEach((c) => customs.push(c));
+                    });
+                    for (const c of customs) {
+                        if (!c) continue;
+                        if (c.type === tabType) return c;
+                        if (tabId && c?.tab?.id === tabId) return c;
+                        if (c.tab?.title === '任务管理器' || c.title === '任务管理器') return c;
+                        if (__tmMountEl && c.element && c.element.contains(__tmMountEl)) return c;
+                    }
+                }
+            }
+        } catch (e) {}
+        try {
+            if (window.siyuan && typeof window.siyuan.getAllModels === 'function') {
+                const models = window.siyuan.getAllModels();
+                const list = Array.isArray(models?.custom) ? models.custom : [];
+                for (const c of list) {
+                    if (!c) continue;
+                    if (c.type === tabType) return c;
+                    if (tabId && c?.tab?.id === tabId) return c;
+                    if (c.tab?.title === '任务管理器' || c.title === '任务管理器') return c;
+                    if (__tmMountEl && c.element && c.element.contains(__tmMountEl)) return c;
+                }
+            }
+        } catch (e) {}
+        return null;
     }
 
     /**
@@ -10550,26 +10769,152 @@
         } catch (e) {}
         if (__tmIsMobileDevice()) return;
         __tmEnsureMount();
-        if (__tmMountEl && document.body.contains(__tmMountEl)) return;
+        // Removed aggressive openTabView call if mount exists, relying on findExistingModel logic instead
+        
+        try {
+            const custom = __tmFindExistingTaskHorizonCustomModel();
+            if (custom) {
+                try {
+                    const tab = custom.tab || custom;
+                    if (tab && window.siyuan?.layout?.centerLayout?.switchTab) {
+                        window.siyuan.layout.centerLayout.switchTab(tab);
+                    } else if (tab?.headElement?.click) {
+                        tab.headElement.click();
+                    }
+                } catch (e2) {}
+                try {
+                    const el = custom.element;
+                    if (el && document.body.contains(el)) {
+                        try { globalThis.__taskHorizonTabElement = el; } catch (e3) {}
+                        __tmSetMount(el);
+                    }
+                } catch (e2) {}
+                return;
+            }
+        } catch (e) {}
+        try {
+            const existingTab = __tmFindExistingTaskManagerTab?.();
+            if (existingTab) {
+                try { __tmSwitchToTab(existingTab); } catch (e) {}
+                try {
+                    await new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+                } catch (e) {}
+                __tmEnsureMount();
+                if (__tmMountEl && document.body.contains(__tmMountEl)) return;
+                const best = __tmFindBestTabRoot?.();
+                if (best && document.body.contains(best)) {
+                    try { globalThis.__taskHorizonTabElement = best; } catch (e) {}
+                    __tmSetMount(best);
+                }
+                return;
+            }
+        } catch (e) {}
+        
+        // 尝试查找并点击标签页标题 (Fallback)
+        try {
+            const headers = document.querySelectorAll('.layout-tab-bar__item');
+            for (const h of headers) {
+                if ((h.innerText && h.innerText.includes('任务管理器')) || h.querySelector('[aria-label="任务管理器"]')) {
+                    h.click();
+                    
+                    // 轮询等待内容加载 (最多 2 秒)
+                    const start = Date.now();
+                    while (Date.now() - start < 2000) {
+                        await new Promise(r => setTimeout(r, 100));
+                        __tmEnsureMount();
+                        if (__tmMountEl && document.body.contains(__tmMountEl)) {
+                            try { globalThis.__taskHorizonTabElement = __tmMountEl; } catch (e) {}
+                            return;
+                        }
+                    }
+                    // 即使超时，只要找到了 header，我们也认为不需要新建，避免重复
+                    return;
+                }
+            }
+        } catch(e) {}
 
-        globalThis.__taskHorizonOpenTabView();
+        if (__tmEnsureTabPromise) return __tmEnsureTabPromise;
+        __tmEnsureTabPromise = (async () => {
+            try {
+                try { globalThis.__taskHorizonOpenTabView(); } catch (e) {}
+                const start = Date.now();
+                while (!globalThis.__taskHorizonTabElement && Date.now() - start < (Number(maxWaitMs) || 1500)) {
+                    try {
+                        const tabId = globalThis.__taskHorizonCustomTabId;
+                        if (tabId) {
+                            const root = document.querySelector(`[data-id="${tabId}"] .tm-tab-root, [data-key="${tabId}"] .tm-tab-root`);
+                            if (root) globalThis.__taskHorizonTabElement = root;
+                        }
+                    } catch (e) {}
+                    await new Promise(r => setTimeout(r, 50));
+                }
+                __tmEnsureMount();
+                if (globalThis.__taskHorizonTabElement && document.body.contains(globalThis.__taskHorizonTabElement)) {
+                    __tmSetMount(globalThis.__taskHorizonTabElement);
+                }
+            } finally {
+                __tmEnsureTabPromise = null;
+            }
+        })();
+        return __tmEnsureTabPromise;
+    }
 
-        const start = Date.now();
-        while (!globalThis.__taskHorizonTabElement && Date.now() - start < (Number(maxWaitMs) || 1500)) {
-            await new Promise(r => setTimeout(r, 50));
+    // 检查是否有任何分组包含文档（支持全部文档和自定义分组）
+    async function checkAnyGroupHasDocs() {
+        // 检查全部文档分组
+        if (SettingsStore.data.selectedDocIds && SettingsStore.data.selectedDocIds.length > 0) {
+            return true;
         }
-        if (globalThis.__taskHorizonTabElement) {
-            __tmSetMount(globalThis.__taskHorizonTabElement);
+        
+        // 检查自定义分组
+        const groups = SettingsStore.data.docGroups || [];
+        for (const group of groups) {
+            if (group.docs && group.docs.length > 0) {
+                return true;
+            }
+        }
+        
+        return false;
+    }
+
+    // 查找已打开的任务管理器标签页
+    function __tmFindExistingTaskManagerTab() {
+        try {
+            if (!window.siyuan || !window.siyuan.ws || !window.siyuan.ws.apps) return null;
+            
+            const apps = window.siyuan.ws.apps;
+            for (const app of apps) {
+                if (app && app.custom && app.custom['task-horizon']) {
+                    return app;
+                }
+            }
+        } catch (e) {}
+        return null;
+    }
+
+    // 切换到指定标签页
+    function __tmSwitchToTab(tab) {
+        try {
+            if (window.siyuan && window.siyuan.layout && window.siyuan.layout.centerLayout) {
+                window.siyuan.layout.centerLayout.switchTab(tab);
+            }
+        } catch (e) {
+            // 如果切换失败，则打开新标签页
+            openManager();
         }
     }
 
-    async function openManager() {
+    async function openManager(options) {
         state.openToken = (Number(state.openToken) || 0) + 1;
         const token = Number(state.openToken) || 0;
         try { __tmListenPinnedChanged(); } catch (e) {}
 
         if (!__tmIsMobileDevice()) {
-            await __tmEnsureTabOpened();
+            if (!options || !options.skipEnsureTabOpened) {
+                await __tmEnsureTabOpened();
+            } else {
+                __tmEnsureMount();
+            }
             try {
                 setTimeout(() => { try { __tmPatchTaskHorizonTabIcon(); } catch (e) {} }, 0);
                 setTimeout(() => { try { __tmPatchTaskHorizonTabIcon(); } catch (e) {} }, 250);
@@ -10582,7 +10927,12 @@
             console.error('[OpenManager] Render failed:', e);
         }
 
-        hint('🔄 加载任务中...', 'info');
+        // 静默加载，不显示加载提示（从后台切回时不提示）
+        // 仅在首次手动打开时显示
+        if (!state.wasHidden) {
+            hint('🔄 加载任务中...', 'info');
+        }
+        state.wasHidden = false;
 
         await SettingsStore.load();
         if (SettingsStore.data.enableTomatoIntegration) {
@@ -10591,8 +10941,10 @@
         }
         state.selectedDocIds = SettingsStore.data.selectedDocIds;
 
-        if (!state.selectedDocIds || state.selectedDocIds.length === 0) {
-            hint('⚠ 请先选择要显示的文档', 'warning');
+        // 检查是否至少有一个分组包含文档
+        const hasDocs = await checkAnyGroupHasDocs();
+        if (!hasDocs) {
+            hint('⚠ 请先在设置中添加要显示的文档', 'warning');
             if (state.modal && token === (Number(state.openToken) || 0)) showSettings();
             return;
         }
@@ -10627,6 +10979,14 @@
                 window.removeEventListener('click', __tmGlobalClickHandler);
                 __tmGlobalClickHandler = null;
             }
+        } catch (e) {}
+        try {
+            if (__tmTopBarClickCaptureHandler) {
+                try { __tmTopBarEl?.removeEventListener?.('click', __tmTopBarClickCaptureHandler, true); } catch (e2) {}
+                __tmTopBarClickCaptureHandler = null;
+            }
+            __tmTopBarEl = null;
+            __tmTopBarClickInFlight = false;
         } catch (e) {}
         try {
             if (__tmQuickAddGlobalClickHandler) {
@@ -10770,6 +11130,7 @@
         try { document.getElementById('sy-custom-props-floatbar-style')?.remove?.(); } catch (e) {}
         try { document.querySelectorAll('.sy-custom-props-floatbar, .sy-custom-props-floatbar__select, .sy-custom-props-floatbar__input-editor').forEach(el => el.remove()); } catch (e) {}
 
+        try { delete globalThis.__taskHorizonMount; } catch (e) {}
         try {
             const ns = window?.[__tmNsKey];
             const keys = Array.isArray(ns?.__exportKeys) ? ns.__exportKeys : [];
@@ -10783,6 +11144,7 @@
         try { delete window[__tmNsKey]; } catch (e) {
             try { window[__tmNsKey] = undefined; } catch (e2) {}
         }
+        try { delete globalThis.__TaskManagerCleanup; } catch (e) {}
     }
 
     // 暴露清理函数给插件卸载调用
@@ -10790,7 +11152,7 @@
     // 暴露挂载函数供自定义 Tab 使用
     globalThis.__taskHorizonMount = (el) => {
         __tmSetMount(el);
-        openManager().catch((e) => {
+        openManager({ skipEnsureTabOpened: true }).catch((e) => {
             try { console.error('[task-horizon] openManager failed:', e); } catch (e2) {}
             try { hint(`❌ 加载失败: ${e?.message || String(e)}`, 'error'); } catch (e3) {}
             try {

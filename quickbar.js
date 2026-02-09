@@ -1069,6 +1069,7 @@
 
             const rect = currentBlockEl.getBoundingClientRect();
             const barHeight = floatBar.getBoundingClientRect().height || 40;
+            const barWidth = floatBar.getBoundingClientRect().width || 240;
             const gap = 8;
 
             let top = window.scrollY + rect.top - gap - barHeight;
@@ -1076,7 +1077,11 @@
                 top = window.scrollY + rect.bottom + gap;
             }
 
-            const left = window.scrollX + rect.left;
+            const desiredLeft = window.scrollX + rect.left + 30;
+            const viewportW = document.documentElement?.clientWidth || window.innerWidth || 0;
+            const minLeft = window.scrollX + 4;
+            const maxLeft = window.scrollX + Math.max(0, viewportW - barWidth - 4);
+            const left = Math.max(minLeft, Math.min(desiredLeft, maxLeft));
             floatBar.style.top = `${Math.max(0, top)}px`;
             floatBar.style.left = `${Math.max(0, left)}px`;
         }
