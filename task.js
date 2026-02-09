@@ -1,5 +1,5 @@
 // @name         思源笔记任务管理器
-// @version      1.0.5
+// @version      1.0.6
 // @description  任务管理器，支持自定义筛选规则分组和排序
 // @author       5KYFKR
 
@@ -57,6 +57,12 @@
             --tm-card-bg: #ffffff;
             --tm-font-size: 14px;
             --tm-empty-cell-bg: #f1f3f4;
+            --tm-topbar-grad-start: #667eea;
+            --tm-topbar-grad-end: #764ba2;
+            --tm-task-content-color: var(--tm-text-color);
+            --tm-group-doc-label-color: var(--tm-text-color);
+            --tm-time-group-base-color: #1a73e8;
+            --tm-time-group-overdue-color: #d93025;
         }
 
         [data-theme-mode="dark"] {
@@ -87,6 +93,84 @@
             --tm-section-bg: #252525;
             --tm-card-bg: #2d2d2d;
             --tm-empty-cell-bg: #1a1a1a;
+            --tm-topbar-grad-start: #3b49b7;
+            --tm-topbar-grad-end: #5b2d7a;
+            --tm-task-content-color: var(--tm-text-color);
+            --tm-group-doc-label-color: var(--tm-text-color);
+            --tm-time-group-base-color: #6ba5ff;
+            --tm-time-group-overdue-color: #ff6b6b;
+        }
+
+        .tm-color-picker-backdrop {
+            position: fixed;
+            inset: 0;
+            background: var(--tm-modal-overlay);
+            z-index: 200005;
+            display: flex;
+            justify-content: center;
+            align-items: flex-end;
+            padding: 12px;
+            box-sizing: border-box;
+        }
+
+        .tm-color-picker-dialog {
+            width: 100%;
+            max-width: 520px;
+            background: var(--tm-bg-color);
+            border: 1px solid var(--tm-border-color);
+            border-radius: 14px;
+            box-shadow: var(--tm-shadow);
+            padding: 14px;
+            box-sizing: border-box;
+        }
+
+        .tm-color-grid-10 {
+            display: grid;
+            grid-template-columns: repeat(10, minmax(0, 1fr));
+            gap: 8px;
+        }
+
+        .tm-color-grid-10 button {
+            width: 100%;
+            aspect-ratio: 1 / 1;
+            border-radius: 8px;
+            border: 1px solid var(--tm-border-color);
+            padding: 0;
+        }
+
+        .tm-color-actions {
+            display: flex;
+            justify-content: flex-end;
+            gap: 10px;
+            margin-top: 12px;
+        }
+
+        .tm-color-btn {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            padding: 6px 10px;
+            border: 1px solid var(--tm-border-color);
+            border-radius: 8px;
+            background: var(--tm-input-bg);
+            color: var(--tm-text-color);
+            cursor: pointer;
+            min-width: 120px;
+            justify-content: space-between;
+        }
+
+        .tm-color-swatch {
+            width: 18px;
+            height: 18px;
+            border-radius: 6px;
+            border: 1px solid var(--tm-border-color);
+            flex: 0 0 auto;
+        }
+
+        .tm-color-text {
+            font-size: 12px;
+            opacity: 0.9;
+            font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
         }
 
         .tm-cell-editable {
@@ -505,7 +589,7 @@
         /* 新增的筛选工具栏样式 */
         .tm-filter-rule-bar {
             padding: 12px 24px;
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            background: linear-gradient(135deg, var(--tm-topbar-grad-start) 0%, var(--tm-topbar-grad-end) 100%);
             color: white;
             display: flex;
             justify-content: space-between;
@@ -546,7 +630,7 @@
             width: 56px;
             height: 56px;
             border-radius: 50%;
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            background: linear-gradient(135deg, var(--tm-topbar-grad-start) 0%, var(--tm-topbar-grad-end) 100%);
             color: white;
             font-size: 14px;
             font-weight: 600;
@@ -765,7 +849,7 @@
 
         .tm-filter-rule-bar {
             padding: 12px 24px;
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            background: linear-gradient(135deg, var(--tm-topbar-grad-start) 0%, var(--tm-topbar-grad-end) 100%);
             color: white;
             display: flex;
             justify-content: space-between;
@@ -949,6 +1033,10 @@
             white-space: normal;
             word-break: break-all;
             line-height: 1.5;
+        }
+
+        .tm-task-text:not(.tm-task-done) {
+            color: var(--tm-task-content-color);
         }
 
         /* 顶层任务字体加粗 */
@@ -1419,6 +1507,19 @@
             currentGroupId: 'all', 
             // 任务标题级别 (h1-h6)
             taskHeadingLevel: 'h2',
+            // 外观配色（支持亮/暗）
+            topbarGradientLightStart: '#667eea',
+            topbarGradientLightEnd: '#764ba2',
+            topbarGradientDarkStart: '#3b49b7',
+            topbarGradientDarkEnd: '#5b2d7a',
+            taskContentColorLight: '#333333',
+            taskContentColorDark: '#e0e0e0',
+            groupDocLabelColorLight: '#333333',
+            groupDocLabelColorDark: '#e0e0e0',
+            timeGroupBaseColorLight: '#1a73e8',
+            timeGroupBaseColorDark: '#6ba5ff',
+            timeGroupOverdueColorLight: '#d93025',
+            timeGroupOverdueColorDark: '#ff6b6b',
             priorityScoreConfig: {
                 base: 100,
                 weights: { importance: 1, status: 1, due: 1, duration: 1, doc: 1 },
@@ -1505,6 +1606,18 @@
                                 if (Array.isArray(cloudData.docGroups)) this.data.docGroups = cloudData.docGroups;
                                 if (cloudData.currentGroupId) this.data.currentGroupId = cloudData.currentGroupId;
                                 if (cloudData.taskHeadingLevel) this.data.taskHeadingLevel = cloudData.taskHeadingLevel;
+                                if (typeof cloudData.topbarGradientLightStart === 'string') this.data.topbarGradientLightStart = cloudData.topbarGradientLightStart;
+                                if (typeof cloudData.topbarGradientLightEnd === 'string') this.data.topbarGradientLightEnd = cloudData.topbarGradientLightEnd;
+                                if (typeof cloudData.topbarGradientDarkStart === 'string') this.data.topbarGradientDarkStart = cloudData.topbarGradientDarkStart;
+                                if (typeof cloudData.topbarGradientDarkEnd === 'string') this.data.topbarGradientDarkEnd = cloudData.topbarGradientDarkEnd;
+                                if (typeof cloudData.taskContentColorLight === 'string') this.data.taskContentColorLight = cloudData.taskContentColorLight;
+                                if (typeof cloudData.taskContentColorDark === 'string') this.data.taskContentColorDark = cloudData.taskContentColorDark;
+                                if (typeof cloudData.groupDocLabelColorLight === 'string') this.data.groupDocLabelColorLight = cloudData.groupDocLabelColorLight;
+                                if (typeof cloudData.groupDocLabelColorDark === 'string') this.data.groupDocLabelColorDark = cloudData.groupDocLabelColorDark;
+                                if (typeof cloudData.timeGroupBaseColorLight === 'string') this.data.timeGroupBaseColorLight = cloudData.timeGroupBaseColorLight;
+                                if (typeof cloudData.timeGroupBaseColorDark === 'string') this.data.timeGroupBaseColorDark = cloudData.timeGroupBaseColorDark;
+                                if (typeof cloudData.timeGroupOverdueColorLight === 'string') this.data.timeGroupOverdueColorLight = cloudData.timeGroupOverdueColorLight;
+                                if (typeof cloudData.timeGroupOverdueColorDark === 'string') this.data.timeGroupOverdueColorDark = cloudData.timeGroupOverdueColorDark;
                                 if (Array.isArray(cloudData.customStatusOptions)) this.data.customStatusOptions = cloudData.customStatusOptions;
                                 if (cloudData.columnWidths && typeof cloudData.columnWidths === 'object') {
                                     // 旧版本兼容：如果有 customTime 配置，迁移到 completionTime
@@ -1545,6 +1658,18 @@
             this.data.filterRules = Storage.get('tm_filter_rules', []);
             this.data.fontSize = Storage.get('tm_font_size', 14);
             this.data.fontSizeMobile = Storage.get('tm_font_size_mobile', this.data.fontSize);
+            this.data.topbarGradientLightStart = Storage.get('tm_topbar_gradient_light_start', this.data.topbarGradientLightStart);
+            this.data.topbarGradientLightEnd = Storage.get('tm_topbar_gradient_light_end', this.data.topbarGradientLightEnd);
+            this.data.topbarGradientDarkStart = Storage.get('tm_topbar_gradient_dark_start', this.data.topbarGradientDarkStart);
+            this.data.topbarGradientDarkEnd = Storage.get('tm_topbar_gradient_dark_end', this.data.topbarGradientDarkEnd);
+            this.data.taskContentColorLight = Storage.get('tm_task_content_color_light', this.data.taskContentColorLight);
+            this.data.taskContentColorDark = Storage.get('tm_task_content_color_dark', this.data.taskContentColorDark);
+            this.data.groupDocLabelColorLight = Storage.get('tm_group_doc_label_color_light', this.data.groupDocLabelColorLight);
+            this.data.groupDocLabelColorDark = Storage.get('tm_group_doc_label_color_dark', this.data.groupDocLabelColorDark);
+            this.data.timeGroupBaseColorLight = Storage.get('tm_time_group_base_color_light', this.data.timeGroupBaseColorLight);
+            this.data.timeGroupBaseColorDark = Storage.get('tm_time_group_base_color_dark', this.data.timeGroupBaseColorDark);
+            this.data.timeGroupOverdueColorLight = Storage.get('tm_time_group_overdue_color_light', this.data.timeGroupOverdueColorLight);
+            this.data.timeGroupOverdueColorDark = Storage.get('tm_time_group_overdue_color_dark', this.data.timeGroupOverdueColorDark);
             this.data.enableQuickbar = Storage.get('tm_enable_quickbar', true);
             this.data.pinNewTasksByDefault = Storage.get('tm_pin_new_tasks_by_default', false);
             this.data.newTaskDocId = Storage.get('tm_new_task_doc_id', '');
@@ -1581,6 +1706,18 @@
             Storage.set('tm_filter_rules', this.data.filterRules);
             Storage.set('tm_font_size', this.data.fontSize);
             Storage.set('tm_font_size_mobile', this.data.fontSizeMobile);
+            Storage.set('tm_topbar_gradient_light_start', String(this.data.topbarGradientLightStart || '').trim());
+            Storage.set('tm_topbar_gradient_light_end', String(this.data.topbarGradientLightEnd || '').trim());
+            Storage.set('tm_topbar_gradient_dark_start', String(this.data.topbarGradientDarkStart || '').trim());
+            Storage.set('tm_topbar_gradient_dark_end', String(this.data.topbarGradientDarkEnd || '').trim());
+            Storage.set('tm_task_content_color_light', String(this.data.taskContentColorLight || '').trim());
+            Storage.set('tm_task_content_color_dark', String(this.data.taskContentColorDark || '').trim());
+            Storage.set('tm_group_doc_label_color_light', String(this.data.groupDocLabelColorLight || '').trim());
+            Storage.set('tm_group_doc_label_color_dark', String(this.data.groupDocLabelColorDark || '').trim());
+            Storage.set('tm_time_group_base_color_light', String(this.data.timeGroupBaseColorLight || '').trim());
+            Storage.set('tm_time_group_base_color_dark', String(this.data.timeGroupBaseColorDark || '').trim());
+            Storage.set('tm_time_group_overdue_color_light', String(this.data.timeGroupOverdueColorLight || '').trim());
+            Storage.set('tm_time_group_overdue_color_dark', String(this.data.timeGroupOverdueColorDark || '').trim());
             Storage.set('tm_enable_quickbar', !!this.data.enableQuickbar);
             Storage.set('tm_pin_new_tasks_by_default', !!this.data.pinNewTasksByDefault);
             Storage.set('tm_new_task_doc_id', String(this.data.newTaskDocId || '').trim());
@@ -3027,6 +3164,7 @@
     let __tmGlobalClickHandler = null;
     let __tmDomReadyHandler = null;
     let __tmBreadcrumbObserver = null;
+    let __tmThemeModeObserver = null;
     let __tmTopBarTimer = null;
     let __tmTopBarAdded = false;
     let __tmTopBarEl = null;
@@ -3204,6 +3342,184 @@
         const mobileSize = SettingsStore.data.fontSizeMobile || base;
         return __tmIsMobileDevice() ? mobileSize : base;
     };
+
+    const __tmIsDarkMode = () => {
+        try {
+            return String(document.documentElement.getAttribute('data-theme-mode') || '').toLowerCase() === 'dark';
+        } catch (e) {
+            return false;
+        }
+    };
+
+    function __tmClamp(n, min, max) {
+        const v = Number(n);
+        if (!Number.isFinite(v)) return min;
+        return Math.min(max, Math.max(min, v));
+    }
+
+    function __tmNormalizeHexColor(input, fallback) {
+        const s = String(input || '').trim();
+        if (/^#[0-9a-fA-F]{6}$/.test(s)) return s.toLowerCase();
+        const f = String(fallback || '').trim();
+        if (/^#[0-9a-fA-F]{6}$/.test(f)) return f.toLowerCase();
+        return '';
+    }
+
+    function __tmHexToRgb(hex) {
+        const h = __tmNormalizeHexColor(hex, '');
+        if (!h) return null;
+        const r = parseInt(h.slice(1, 3), 16);
+        const g = parseInt(h.slice(3, 5), 16);
+        const b = parseInt(h.slice(5, 7), 16);
+        if (![r, g, b].every((x) => Number.isFinite(x))) return null;
+        return { r, g, b };
+    }
+
+    function __tmWithAlpha(hex, alpha) {
+        const rgb = __tmHexToRgb(hex);
+        if (!rgb) return String(hex || '').trim();
+        const a = __tmClamp(alpha, 0, 1);
+        return `rgba(${rgb.r}, ${rgb.g}, ${rgb.b}, ${a})`;
+    }
+
+    function __tmRemoveElementsById(...ids) {
+        try {
+            ids.forEach((id) => {
+                const el = document.getElementById(String(id || '').trim());
+                if (el) el.remove();
+            });
+        } catch (e) {}
+    }
+
+    function __tmOpenColorPickerDialog(titleText, initialColor, onApply, options = {}) {
+        __tmRemoveElementsById('tm-color-picker-backdrop');
+        const swatches = Array.isArray(options?.swatches) && options.swatches.length > 0 ? options.swatches : [
+            '#F44336', '#E91E63', '#9C27B0', '#673AB7', '#3F51B5',
+            '#2196F3', '#03A9F4', '#00BCD4', '#009688', '#4CAF50',
+            '#8BC34A', '#CDDC39', '#FFEB3B', '#FFC107', '#FF9800',
+            '#795548', '#9E9E9E', '#607D8B', '#000000', '#FFFFFF'
+        ];
+
+        const defaultColor = __tmNormalizeHexColor(options?.defaultColor, '#f44336') || '#f44336';
+        let current = __tmNormalizeHexColor(initialColor, defaultColor) || defaultColor;
+
+        const backdrop = document.createElement('div');
+        backdrop.id = 'tm-color-picker-backdrop';
+        backdrop.className = 'tm-color-picker-backdrop';
+
+        const dialog = document.createElement('div');
+        dialog.className = 'tm-color-picker-dialog';
+
+        const title = document.createElement('div');
+        title.textContent = String(titleText || '选择颜色');
+        title.style.cssText = 'font-weight:700;font-size:15px;margin-bottom:12px;color:var(--tm-text-color);';
+        dialog.appendChild(title);
+
+        const preview = document.createElement('div');
+        preview.style.cssText = 'display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:12px;';
+        const previewBox = document.createElement('div');
+        previewBox.style.cssText = `width:44px;height:28px;border-radius:8px;border:1px solid var(--tm-border-color);background:${current};flex:0 0 auto;`;
+        const hexInput = document.createElement('input');
+        hexInput.type = 'text';
+        hexInput.value = String(current || '').toUpperCase();
+        hexInput.placeholder = '#RRGGBB';
+        hexInput.style.cssText = 'flex:1;padding:8px 10px;border:1px solid var(--tm-input-border);border-radius:8px;background:var(--tm-input-bg);color:var(--tm-text-color);';
+        hexInput.oninput = () => {
+            const norm = __tmNormalizeHexColor(hexInput.value, '');
+            if (norm) {
+                current = norm;
+                previewBox.style.background = current;
+                hexInput.style.borderColor = 'var(--tm-input-border)';
+            } else {
+                hexInput.style.borderColor = 'var(--tm-danger-color)';
+            }
+        };
+        preview.appendChild(previewBox);
+        preview.appendChild(hexInput);
+        dialog.appendChild(preview);
+
+        const grid = document.createElement('div');
+        grid.className = 'tm-color-grid-10';
+        swatches.forEach((c) => {
+            const norm = __tmNormalizeHexColor(c, '');
+            if (!norm) return;
+            const btn = document.createElement('button');
+            btn.type = 'button';
+            btn.style.background = norm;
+            btn.onclick = () => {
+                current = norm;
+                hexInput.value = String(current || '').toUpperCase();
+                hexInput.style.borderColor = 'var(--tm-input-border)';
+                previewBox.style.background = current;
+            };
+            grid.appendChild(btn);
+        });
+        dialog.appendChild(grid);
+
+        const actions = document.createElement('div');
+        actions.className = 'tm-color-actions';
+        const cancelBtn = document.createElement('button');
+        cancelBtn.type = 'button';
+        cancelBtn.className = 'tm-btn tm-btn-gray';
+        cancelBtn.textContent = '取消';
+        const okBtn = document.createElement('button');
+        okBtn.type = 'button';
+        okBtn.className = 'tm-btn tm-btn-primary';
+        okBtn.textContent = '应用';
+
+        const close = () => {
+            try { backdrop.remove(); } catch (e) {}
+        };
+
+        cancelBtn.onclick = close;
+        okBtn.onclick = () => {
+            const norm = __tmNormalizeHexColor(current, '');
+            if (!norm) return;
+            try { onApply?.(norm); } catch (e) {}
+            close();
+        };
+        actions.appendChild(cancelBtn);
+        actions.appendChild(okBtn);
+        dialog.appendChild(actions);
+
+        backdrop.onclick = (e) => {
+            if (e.target === backdrop) close();
+        };
+
+        backdrop.appendChild(dialog);
+        document.body.appendChild(backdrop);
+    }
+
+    function __tmApplyAppearanceThemeVars() {
+        const isDark = __tmIsDarkMode();
+        const root = document.documentElement;
+
+        const start = isDark
+            ? __tmNormalizeHexColor(SettingsStore.data.topbarGradientDarkStart, '#3b49b7')
+            : __tmNormalizeHexColor(SettingsStore.data.topbarGradientLightStart, '#667eea');
+        const end = isDark
+            ? __tmNormalizeHexColor(SettingsStore.data.topbarGradientDarkEnd, '#5b2d7a')
+            : __tmNormalizeHexColor(SettingsStore.data.topbarGradientLightEnd, '#764ba2');
+        const taskColor = isDark
+            ? __tmNormalizeHexColor(SettingsStore.data.taskContentColorDark, '#e0e0e0')
+            : __tmNormalizeHexColor(SettingsStore.data.taskContentColorLight, '#333333');
+        const docGroupColor = isDark
+            ? __tmNormalizeHexColor(SettingsStore.data.groupDocLabelColorDark, '#e0e0e0')
+            : __tmNormalizeHexColor(SettingsStore.data.groupDocLabelColorLight, '#333333');
+        const timeBase = isDark
+            ? __tmNormalizeHexColor(SettingsStore.data.timeGroupBaseColorDark, '#6ba5ff')
+            : __tmNormalizeHexColor(SettingsStore.data.timeGroupBaseColorLight, '#1a73e8');
+        const timeOverdue = isDark
+            ? __tmNormalizeHexColor(SettingsStore.data.timeGroupOverdueColorDark, '#ff6b6b')
+            : __tmNormalizeHexColor(SettingsStore.data.timeGroupOverdueColorLight, '#d93025');
+
+        try { if (start) root.style.setProperty('--tm-topbar-grad-start', start); } catch (e) {}
+        try { if (end) root.style.setProperty('--tm-topbar-grad-end', end); } catch (e) {}
+        try { if (taskColor) root.style.setProperty('--tm-task-content-color', taskColor); } catch (e) {}
+        try { if (docGroupColor) root.style.setProperty('--tm-group-doc-label-color', docGroupColor); } catch (e) {}
+        try { if (timeBase) root.style.setProperty('--tm-time-group-base-color', timeBase); } catch (e) {}
+        try { if (timeOverdue) root.style.setProperty('--tm-time-group-overdue-color', timeOverdue); } catch (e) {}
+    }
 
     function __tmDocHasUndoneTasks(doc) {
         if (!doc || !Array.isArray(doc.tasks) || doc.tasks.length === 0) return false;
@@ -5161,6 +5477,7 @@
         
         // 应用字体大小
         document.documentElement.style.setProperty('--tm-font-size', (__tmGetFontSize()) + 'px');
+        try { __tmApplyAppearanceThemeVars(); } catch (e) {}
 
         const { totalTasks, doneTasks, queryTime } = state.stats;
         const todoTasks = totalTasks - doneTasks;
@@ -6698,6 +7015,23 @@
 
         const isGloballyLocked = GlobalLock.isLocked();
         const colCount = (SettingsStore.data.columnOrder || []).length || 7;
+        const isDark = __tmIsDarkMode();
+        const timeBaseColor = isDark
+            ? __tmNormalizeHexColor(SettingsStore.data.timeGroupBaseColorDark, '#6ba5ff')
+            : __tmNormalizeHexColor(SettingsStore.data.timeGroupBaseColorLight, '#1a73e8');
+        const timeOverdueColor = isDark
+            ? __tmNormalizeHexColor(SettingsStore.data.timeGroupOverdueColorDark, '#ff6b6b')
+            : __tmNormalizeHexColor(SettingsStore.data.timeGroupOverdueColorLight, '#d93025');
+        const __tmGetTimeGroupLabelColor = (groupInfo) => {
+            const key = String(groupInfo?.key || '');
+            const sortValue = Number(groupInfo?.sortValue);
+            if (key === 'pending' || !Number.isFinite(sortValue)) return 'var(--tm-secondary-text)';
+            if (sortValue < 0) return timeOverdueColor || 'var(--tm-danger-color)';
+            const minA = isDark ? 0.52 : 0.42;
+            const step = isDark ? 0.085 : 0.11;
+            const alpha = __tmClamp(1 - sortValue * step, minA, 1);
+            return __tmWithAlpha(timeBaseColor || 'var(--tm-primary-color)', alpha);
+        };
 
         // 构建全局 Filtered ID 集合和顺序映射（用于保持全局排序）
         const filteredIdSet = new Set(state.filteredTasks.map(t => t.id));
@@ -6864,7 +7198,7 @@
                 const isCollapsed = state.collapsedGroups?.has(groupKey);
                 const toggle = `<span class="tm-group-toggle" onclick="tmToggleGroupCollapse('${groupKey}', event)" style="cursor:pointer;margin-right:8px;display:inline-block;width:12px;">${isCollapsed ? '▸' : '▾'}</span>`;
 
-                allRows.push(`<tr class="tm-group-row"><td colspan="${colCount}" style="background:var(--tm-header-bg);padding:8px 12px;font-weight:bold;color:var(--tm-text-color);border-bottom:1px solid var(--tm-border-color);">${toggle}📄 ${esc(docName)} <span style="font-weight:normal;color:var(--tm-secondary-text);font-size:12px;background:var(--tm-doc-count-bg);padding:1px 6px;border-radius:10px;margin-left:4px;">${docTasks.length}</span></td></tr>`);
+                allRows.push(`<tr class="tm-group-row"><td colspan="${colCount}" style="background:var(--tm-header-bg);padding:8px 12px;font-weight:bold;color:var(--tm-text-color);border-bottom:1px solid var(--tm-border-color);">${toggle}<span class="tm-group-label" style="color: var(--tm-group-doc-label-color);">📄 ${esc(docName)}</span> <span style="font-weight:normal;color:var(--tm-secondary-text);font-size:12px;background:var(--tm-doc-count-bg);padding:1px 6px;border-radius:10px;margin-left:4px;">${docTasks.length}</span></td></tr>`);
 
                 // 渲染该文档的任务（如果未折叠）
                 if (!isCollapsed) {
@@ -6916,8 +7250,9 @@
             sortedGroups.forEach(group => {
                 const isCollapsed = state.collapsedGroups?.has(group.key);
                 const toggle = `<span class="tm-group-toggle" onclick="tmToggleGroupCollapse('${group.key}', event)" style="cursor:pointer;margin-right:8px;display:inline-block;width:12px;">${isCollapsed ? '▸' : '▾'}</span>`;
+                const labelColor = __tmGetTimeGroupLabelColor(group);
 
-                allRows.push(`<tr class="tm-group-row"><td colspan="${colCount}" style="background:var(--tm-header-bg);padding:8px 12px;font-weight:bold;color:var(--tm-text-color);border-bottom:1px solid var(--tm-border-color);">${toggle}${group.label} <span style="font-weight:normal;color:var(--tm-secondary-text);font-size:12px;background:var(--tm-doc-count-bg);padding:1px 6px;border-radius:10px;margin-left:4px;">${group.items.length}</span></td></tr>`);
+                allRows.push(`<tr class="tm-group-row"><td colspan="${colCount}" style="background:var(--tm-header-bg);padding:8px 12px;font-weight:bold;color:var(--tm-text-color);border-bottom:1px solid var(--tm-border-color);">${toggle}<span class="tm-group-label" style="color:${labelColor};">${esc(group.label)}</span> <span style="font-weight:normal;color:var(--tm-secondary-text);font-size:12px;background:var(--tm-doc-count-bg);padding:1px 6px;border-radius:10px;margin-left:4px;">${group.items.length}</span></td></tr>`);
 
                 if (!isCollapsed) {
                     // 组内任务按照全局顺序排列
@@ -9319,6 +9654,10 @@
                             <div style="font-weight: 600; margin-bottom: 12px;">📏 列设置 (显示/排序/宽度)</div>
                             ${renderColumnWidthSettings()}
                         </div>
+                        <div style="margin-bottom: 0; padding: 12px; background: var(--tm-section-bg); border-radius: 8px;">
+                            <div style="font-weight: 600; margin-bottom: 12px;">🎨 配色</div>
+                            ${renderAppearanceColorSettings()}
+                        </div>
                     ` : ''}
 
                     ${activeTab === 'rules' ? `
@@ -9646,6 +9985,180 @@
         html += '</div>';
         return html;
     }
+
+    function renderAppearanceColorSettings() {
+        const d = SettingsStore.data || {};
+        const isMobile = __tmIsMobileDevice();
+        const items = [
+            {
+                title: '插件顶栏渐变',
+                rows: [
+                    { label: '亮色 起始', key: 'topbarGradientLightStart', value: d.topbarGradientLightStart || '#667eea' },
+                    { label: '亮色 结束', key: 'topbarGradientLightEnd', value: d.topbarGradientLightEnd || '#764ba2' },
+                    { label: '夜间 起始', key: 'topbarGradientDarkStart', value: d.topbarGradientDarkStart || '#3b49b7' },
+                    { label: '夜间 结束', key: 'topbarGradientDarkEnd', value: d.topbarGradientDarkEnd || '#5b2d7a' }
+                ]
+            },
+            {
+                title: '任务内容列字体颜色',
+                rows: [
+                    { label: '亮色', key: 'taskContentColorLight', value: d.taskContentColorLight || '#333333' },
+                    { label: '夜间', key: 'taskContentColorDark', value: d.taskContentColorDark || '#e0e0e0' }
+                ]
+            },
+            {
+                title: '分组名称（按文档分组）',
+                rows: [
+                    { label: '亮色', key: 'groupDocLabelColorLight', value: d.groupDocLabelColorLight || '#333333' },
+                    { label: '夜间', key: 'groupDocLabelColorDark', value: d.groupDocLabelColorDark || '#e0e0e0' }
+                ]
+            },
+            {
+                title: '分组名称（按时间分组）',
+                rows: [
+                    { label: '未来基础色 亮色', key: 'timeGroupBaseColorLight', value: d.timeGroupBaseColorLight || '#1a73e8' },
+                    { label: '未来基础色 夜间', key: 'timeGroupBaseColorDark', value: d.timeGroupBaseColorDark || '#6ba5ff' },
+                    { label: '已过期 亮色', key: 'timeGroupOverdueColorLight', value: d.timeGroupOverdueColorLight || '#d93025' },
+                    { label: '已过期 夜间', key: 'timeGroupOverdueColorDark', value: d.timeGroupOverdueColorDark || '#ff6b6b' }
+                ]
+            }
+        ];
+
+        const renderRow = (row) => {
+            const raw = __tmNormalizeHexColor(row.value, '#000000') || '#000000';
+            if (isMobile) {
+                const upper = String(raw || '').toUpperCase();
+                return `
+                    <label style="display:flex;align-items:center;justify-content:space-between;gap:10px;padding:6px 8px;border:1px solid var(--tm-border-color);border-radius:8px;background:var(--tm-bg-color);">
+                        <span style="font-size:12px;color:var(--tm-secondary-text);">${esc(row.label)}</span>
+                        <button type="button" class="tm-color-btn" data-tm-color-key="${esc(row.key)}" data-tm-color-label="${esc(row.label)}" onclick="tmOpenAppearanceColorPicker(this)">
+                            <span class="tm-color-swatch" style="background:${esc(raw)}"></span>
+                            <span class="tm-color-text">${esc(upper)}</span>
+                        </button>
+                    </label>
+                `;
+            }
+            return `
+                <label style="display:flex;align-items:center;justify-content:space-between;gap:10px;padding:6px 8px;border:1px solid var(--tm-border-color);border-radius:8px;background:var(--tm-bg-color);">
+                    <span style="font-size:12px;color:var(--tm-secondary-text);">${esc(row.label)}</span>
+                    <input type="color" value="${esc(raw)}" onchange="tmUpdateAppearanceColor('${esc(row.key)}', this.value)" style="width:44px;height:28px;padding:0;border:none;background:transparent;">
+                </label>
+            `;
+        };
+
+        const cards = items.map((it) => `
+            <div style="padding:10px;border:1px solid var(--tm-border-color);border-radius:10px;background:var(--tm-card-bg);">
+                <div style="font-weight:600;margin-bottom:10px;">${esc(it.title)}</div>
+                <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:8px;">
+                    ${(it.rows || []).map(renderRow).join('')}
+                </div>
+            </div>
+        `).join('');
+
+        const previewLight = `linear-gradient(135deg, ${esc(__tmNormalizeHexColor(d.topbarGradientLightStart, '#667eea') || '#667eea')} 0%, ${esc(__tmNormalizeHexColor(d.topbarGradientLightEnd, '#764ba2') || '#764ba2')} 100%)`;
+        const previewDark = `linear-gradient(135deg, ${esc(__tmNormalizeHexColor(d.topbarGradientDarkStart, '#3b49b7') || '#3b49b7')} 0%, ${esc(__tmNormalizeHexColor(d.topbarGradientDarkEnd, '#5b2d7a') || '#5b2d7a')} 100%)`;
+
+        return `
+            <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-bottom:12px;">
+                <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;">
+                    <span style="font-size:12px;color:var(--tm-secondary-text);">预览(亮色):</span>
+                    <div id="tmAppearancePreviewLight" style="width:180px;height:22px;border-radius:8px;background:${previewLight};border:1px solid rgba(0,0,0,0.06);"></div>
+                </div>
+                <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;">
+                    <span style="font-size:12px;color:var(--tm-secondary-text);">预览(夜间):</span>
+                    <div id="tmAppearancePreviewDark" style="width:180px;height:22px;border-radius:8px;background:${previewDark};border:1px solid rgba(0,0,0,0.06);"></div>
+                </div>
+                <div style="flex:1;"></div>
+                <button class="tm-btn tm-btn-gray" onclick="tmResetAppearanceColors()" style="padding: 4px 10px; font-size: 12px;">恢复默认</button>
+            </div>
+            <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:12px;">
+                ${cards}
+            </div>
+            <div style="margin-top:10px;font-size:12px;color:var(--tm-secondary-text);line-height:1.5;">
+                按时间分组的分组名称会根据“距离今天的天数”自动变淡，已过期固定使用“已过期颜色”，以保证可读性并适配夜间模式。
+            </div>
+        `;
+    }
+
+    window.tmOpenAppearanceColorPicker = function(el) {
+        const btn = el && el.nodeType === 1 ? el : null;
+        const k = String(btn?.dataset?.tmColorKey || '').trim();
+        const label = String(btn?.dataset?.tmColorLabel || '选择颜色').trim() || '选择颜色';
+        if (!k) return;
+        const defaults = {
+            topbarGradientLightStart: '#667eea',
+            topbarGradientLightEnd: '#764ba2',
+            topbarGradientDarkStart: '#3b49b7',
+            topbarGradientDarkEnd: '#5b2d7a',
+            taskContentColorLight: '#333333',
+            taskContentColorDark: '#e0e0e0',
+            groupDocLabelColorLight: '#333333',
+            groupDocLabelColorDark: '#e0e0e0',
+            timeGroupBaseColorLight: '#1a73e8',
+            timeGroupBaseColorDark: '#6ba5ff',
+            timeGroupOverdueColorLight: '#d93025',
+            timeGroupOverdueColorDark: '#ff6b6b'
+        };
+        const initial = __tmNormalizeHexColor(SettingsStore.data[k], defaults[k] || '#f44336') || (defaults[k] || '#f44336');
+        __tmOpenColorPickerDialog(label, initial, (next) => {
+            tmUpdateAppearanceColor(k, next);
+        }, { defaultColor: defaults[k] || '#f44336' });
+    };
+
+    window.tmUpdateAppearanceColor = async function(key, value) {
+        const allowed = new Set([
+            'topbarGradientLightStart', 'topbarGradientLightEnd', 'topbarGradientDarkStart', 'topbarGradientDarkEnd',
+            'taskContentColorLight', 'taskContentColorDark',
+            'groupDocLabelColorLight', 'groupDocLabelColorDark',
+            'timeGroupBaseColorLight', 'timeGroupBaseColorDark',
+            'timeGroupOverdueColorLight', 'timeGroupOverdueColorDark'
+        ]);
+        const k = String(key || '').trim();
+        if (!allowed.has(k)) return;
+        const v = __tmNormalizeHexColor(value, '');
+        if (!v) return;
+        SettingsStore.data[k] = v;
+        await SettingsStore.save();
+        try { __tmApplyAppearanceThemeVars(); } catch (e) {}
+        try {
+            const buttons = Array.from(document.querySelectorAll(`[data-tm-color-key="${k}"]`));
+            buttons.forEach((b) => {
+                const sw = b.querySelector?.('.tm-color-swatch');
+                const tx = b.querySelector?.('.tm-color-text');
+                try { if (sw) sw.style.background = v; } catch (e) {}
+                try { if (tx) tx.textContent = String(v || '').toUpperCase(); } catch (e) {}
+            });
+        } catch (e) {}
+        try {
+            const d = SettingsStore.data || {};
+            const p1 = document.getElementById('tmAppearancePreviewLight');
+            const p2 = document.getElementById('tmAppearancePreviewDark');
+            const previewLight = `linear-gradient(135deg, ${__tmNormalizeHexColor(d.topbarGradientLightStart, '#667eea') || '#667eea'} 0%, ${__tmNormalizeHexColor(d.topbarGradientLightEnd, '#764ba2') || '#764ba2'} 100%)`;
+            const previewDark = `linear-gradient(135deg, ${__tmNormalizeHexColor(d.topbarGradientDarkStart, '#3b49b7') || '#3b49b7'} 0%, ${__tmNormalizeHexColor(d.topbarGradientDarkEnd, '#5b2d7a') || '#5b2d7a'} 100%)`;
+            if (p1) p1.style.background = previewLight;
+            if (p2) p2.style.background = previewDark;
+        } catch (e) {}
+        render();
+    };
+
+    window.tmResetAppearanceColors = async function() {
+        SettingsStore.data.topbarGradientLightStart = '#667eea';
+        SettingsStore.data.topbarGradientLightEnd = '#764ba2';
+        SettingsStore.data.topbarGradientDarkStart = '#3b49b7';
+        SettingsStore.data.topbarGradientDarkEnd = '#5b2d7a';
+        SettingsStore.data.taskContentColorLight = '#333333';
+        SettingsStore.data.taskContentColorDark = '#e0e0e0';
+        SettingsStore.data.groupDocLabelColorLight = '#333333';
+        SettingsStore.data.groupDocLabelColorDark = '#e0e0e0';
+        SettingsStore.data.timeGroupBaseColorLight = '#1a73e8';
+        SettingsStore.data.timeGroupBaseColorDark = '#6ba5ff';
+        SettingsStore.data.timeGroupOverdueColorLight = '#d93025';
+        SettingsStore.data.timeGroupOverdueColorDark = '#ff6b6b';
+        await SettingsStore.save();
+        try { __tmApplyAppearanceThemeVars(); } catch (e) {}
+        showSettings();
+        render();
+    };
 
     window.toggleColumn = function(key, show) {
         let order = SettingsStore.data.columnOrder || [];
@@ -10737,6 +11250,19 @@
             console.error('[初始化] 加载设置失败:', e);
         }
 
+        try {
+            if (__tmThemeModeObserver) {
+                __tmThemeModeObserver.disconnect();
+                __tmThemeModeObserver = null;
+            }
+            __tmThemeModeObserver = new MutationObserver(() => {
+                try { __tmApplyAppearanceThemeVars(); } catch (e) {}
+                try { if (state.modal) render(); } catch (e) {}
+            });
+            __tmThemeModeObserver.observe(document.documentElement, { attributes: true, attributeFilter: ['data-theme-mode'] });
+        } catch (e) {}
+        try { __tmApplyAppearanceThemeVars(); } catch (e) {}
+
         // 2. 获取所有文档列表
         try {
             state.allDocuments = await API.getAllDocuments();
@@ -11060,6 +11586,13 @@
         } catch (e) {}
 
         try {
+            if (__tmThemeModeObserver) {
+                __tmThemeModeObserver.disconnect();
+                __tmThemeModeObserver = null;
+            }
+        } catch (e) {}
+
+        try {
             if (__tmResizeState) {
                 document.removeEventListener('mousemove', __tmOnResize);
                 document.removeEventListener('mouseup', __tmStopResize);
@@ -11222,6 +11755,18 @@
                 'tm_custom_status_options',
                 'tm_column_widths',
                 'tm_column_order',
+                'tm_topbar_gradient_light_start',
+                'tm_topbar_gradient_light_end',
+                'tm_topbar_gradient_dark_start',
+                'tm_topbar_gradient_dark_end',
+                'tm_task_content_color_light',
+                'tm_task_content_color_dark',
+                'tm_group_doc_label_color_light',
+                'tm_group_doc_label_color_dark',
+                'tm_time_group_base_color_light',
+                'tm_time_group_base_color_dark',
+                'tm_time_group_overdue_color_light',
+                'tm_time_group_overdue_color_dark',
                 'tm_meta_cache',
             ].forEach((k) => {
                 try { Storage.remove(k); } catch (e) {}
