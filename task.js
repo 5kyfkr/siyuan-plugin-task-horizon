@@ -1,5 +1,5 @@
 // @name         思源笔记任务管理器
-// @version      1.0.8
+// @version      1.1.0
 // @description  任务管理器，支持自定义筛选规则分组和排序
 // @author       5KYFKR
 
@@ -32,6 +32,7 @@
             --tm-bg-color: #ffffff;
             --tm-text-color: #333333;
             --tm-border-color: #e9ecef;
+            --tm-table-border-color: #e9ecef;
             --tm-hover-bg: #f8f9fa;
             --tm-secondary-text: #666666;
             --tm-modal-overlay: rgba(0,0,0,0.5);
@@ -56,6 +57,8 @@
             --tm-section-bg: #f8f9fa;
             --tm-card-bg: #ffffff;
             --tm-font-size: 14px;
+            --tm-row-height: clamp(24px, calc(var(--tm-font-size) * 1.25 + 12px), 42px);
+            --tm-gantt-bar-height: clamp(12px, calc(var(--tm-row-height) * 0.6), 22px);
             --tm-empty-cell-bg: #f1f3f4;
             --tm-topbar-grad-start: #667eea;
             --tm-topbar-grad-end: #764ba2;
@@ -73,6 +76,7 @@
             --tm-bg-color: #1e1e1e;
             --tm-text-color: #e0e0e0;
             --tm-border-color: #333333;
+            --tm-table-border-color: #333333;
             --tm-hover-bg: #2d2d2d;
             --tm-secondary-text: #aaaaaa;
             --tm-modal-overlay: rgba(0,0,0,0.7);
@@ -240,7 +244,22 @@
             background: var(--tm-header-bg);
             color: var(--tm-text-color);
             font-weight: 600;
-            border-bottom: 1px solid var(--tm-border-color);
+            border-bottom: 1px solid var(--tm-table-border-color);
+        }
+
+        .tm-table .tm-group-row td {
+            padding: 0;
+        }
+
+        .tm-group-sticky {
+            position: sticky;
+            left: 0;
+            z-index: 3;
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            padding: 8px 12px;
+            background: var(--tm-header-bg);
         }
         
         /* 四象限分组样式 */
@@ -774,7 +793,7 @@
             top: 0;
             z-index: 10;
             /* 确保边框在滚动时可见 */
-            box-shadow: inset 0 -1px 0 var(--tm-border-color);
+            box-shadow: inset 0 -1px 0 var(--tm-table-border-color);
         }
 
         .tm-box {
@@ -922,6 +941,278 @@
             overflow-y: auto;
         }
 
+        .tm-body.tm-body--timeline {
+            overflow: hidden;
+            overflow-x: hidden;
+            overflow-y: hidden;
+            display: flex;
+            flex-direction: column;
+        }
+
+        .tm-timeline-split {
+            flex: 1;
+            display: flex;
+            min-height: 0;
+            width: 100%;
+        }
+
+        .tm-timeline-left {
+            flex: 0 0 auto;
+            width: 540px;
+            min-width: 360px;
+            max-width: 900px;
+            display: flex;
+            flex-direction: column;
+            min-height: 0;
+        }
+
+        .tm-timeline-splitter {
+            flex: 0 0 auto;
+            width: 6px;
+            cursor: col-resize;
+            background: transparent;
+            position: relative;
+        }
+
+        .tm-timeline-splitter::before {
+            content: '';
+            position: absolute;
+            top: 0;
+            bottom: 0;
+            left: 2px;
+            width: 2px;
+            background: var(--tm-border-color);
+            opacity: 0.9;
+        }
+
+        .tm-timeline-splitter:hover::before {
+            background: var(--tm-primary-color);
+            opacity: 1;
+        }
+
+        .tm-timeline-left-body {
+            flex: 1;
+            min-height: 0;
+            overflow: auto;
+            position: relative;
+            scrollbar-width: none;
+            -ms-overflow-style: none;
+        }
+
+        .tm-timeline-left-body::-webkit-scrollbar {
+            width: 0;
+            height: 0;
+        }
+
+        .tm-timeline-right {
+            flex: 1 1 auto;
+            min-width: 0;
+            display: flex;
+            flex-direction: column;
+            min-height: 0;
+        }
+
+        .tm-timeline-right-header {
+            flex: 0 0 auto;
+            overflow: hidden;
+            background: var(--tm-table-header-bg);
+            height: 44px;
+            box-shadow: inset 0 -1px 0 var(--tm-border-color);
+        }
+
+        .tm-timeline-right-body {
+            flex: 1;
+            min-height: 0;
+            overflow: auto;
+            position: relative;
+            background: var(--tm-bg-color);
+        }
+
+        .tm-timeline-table-left {
+            min-width: 0;
+            width: max-content;
+            table-layout: fixed;
+        }
+
+        .tm-body--timeline .tm-timeline-table-left {
+            border-collapse: separate;
+            border-spacing: 0;
+        }
+
+        .tm-body--timeline .tm-timeline-table-left thead th {
+            height: 44px;
+            padding: 0 4px;
+            line-height: 44px;
+            vertical-align: middle;
+        }
+
+        .tm-body--timeline .tm-timeline-left-body thead th {
+            position: sticky;
+            top: 0;
+            z-index: 6;
+            background: var(--tm-table-header-bg);
+            box-shadow: inset 0 -1px 0 var(--tm-border-color);
+        }
+
+        .tm-timeline-row td {
+            height: var(--tm-row-height);
+            max-height: var(--tm-row-height);
+            overflow: hidden;
+            white-space: nowrap;
+            text-overflow: ellipsis;
+            padding: 0 6px;
+            box-sizing: border-box;
+        }
+
+        .tm-body--timeline .tm-cell-editable {
+            white-space: nowrap;
+            word-break: keep-all;
+        }
+
+        .tm-body--timeline .tm-task-cell {
+            height: var(--tm-row-height);
+            max-height: var(--tm-row-height);
+            overflow: hidden;
+            align-items: center;
+            padding-top: 0;
+            padding-bottom: 0;
+        }
+
+        .tm-body--timeline .tm-task-text,
+        .tm-body--timeline .tm-task-content-clickable {
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+
+        .tm-body--timeline .tm-group-row td {
+            height: var(--tm-row-height);
+            max-height: var(--tm-row-height);
+            padding: 0 12px;
+            line-height: var(--tm-row-height);
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+
+        .tm-gantt-header-inner {
+            display: flex;
+            flex-direction: column;
+            user-select: none;
+        }
+
+        .tm-gantt-month-row,
+        .tm-gantt-day-row {
+            display: flex;
+            flex-direction: row;
+        }
+
+        .tm-gantt-month {
+            height: 20px;
+            line-height: 20px;
+            font-size: 12px;
+            padding-left: 6px;
+            box-sizing: border-box;
+            border-right: 1px solid var(--tm-border-color);
+            color: var(--tm-text-color);
+            opacity: 0.9;
+        }
+
+        .tm-gantt-day {
+            height: 24px;
+            line-height: 24px;
+            font-size: 12px;
+            text-align: center;
+            box-sizing: border-box;
+            border-right: 1px solid var(--tm-border-color);
+            color: var(--tm-text-color);
+            opacity: 0.9;
+        }
+
+        .tm-gantt-day--weekend {
+            background: var(--tm-hover-bg);
+        }
+
+        .tm-gantt-day--month-start {
+            border-left: 2px solid var(--tm-border-color);
+        }
+
+        .tm-gantt-body-inner {
+            position: relative;
+        }
+
+        .tm-gantt-row {
+            position: relative;
+            height: var(--tm-row-height);
+            box-sizing: border-box;
+            border-bottom: 1px solid var(--tm-border-color);
+        }
+
+        .tm-gantt-row--group {
+            background: var(--tm-header-bg);
+        }
+
+        .tm-gantt-today {
+            position: absolute;
+            top: 0;
+            bottom: 0;
+            width: 2px;
+            background: rgba(255, 82, 82, 0.55);
+            pointer-events: none;
+            z-index: 50;
+        }
+
+        .tm-gantt-bar {
+            position: absolute;
+            top: calc((var(--tm-row-height) - var(--tm-gantt-bar-height)) / 2);
+            height: var(--tm-gantt-bar-height);
+            background: var(--tm-primary-color);
+            border-radius: calc(var(--tm-gantt-bar-height) / 2);
+            box-shadow: 0 1px 2px rgba(0,0,0,0.18);
+            cursor: grab;
+            z-index: 4;
+        }
+
+        .tm-gantt-bar:active {
+            cursor: grabbing;
+        }
+
+        .tm-gantt-bar-handle {
+            position: absolute;
+            top: 0;
+            width: 10px;
+            height: 100%;
+            background: rgba(255,255,255,0.35);
+            cursor: ew-resize;
+        }
+
+        .tm-gantt-bar-handle--start {
+            left: 0;
+            border-top-left-radius: 9px;
+            border-bottom-left-radius: 9px;
+        }
+
+        .tm-gantt-bar-handle--end {
+            right: 0;
+            border-top-right-radius: 9px;
+            border-bottom-right-radius: 9px;
+        }
+
+        .tm-gantt-drag-tip {
+            position: fixed;
+            z-index: 1000002;
+            padding: 6px 10px;
+            border-radius: 8px;
+            background: rgba(0, 0, 0, 0.78);
+            color: #fff;
+            font-size: 12px;
+            line-height: 1;
+            pointer-events: none;
+            transform: translate(10px, -18px);
+            white-space: nowrap;
+            font-variant-numeric: tabular-nums;
+        }
+
         .tm-table {
             width: max-content;
             border-collapse: collapse;
@@ -940,9 +1231,9 @@
             color: var(--tm-text-color);
             /* 使用 box-shadow 替代 border-bottom，确保滚动时边框始终可见 */
             border-bottom: none;
-            box-shadow: inset 0 -1px 0 var(--tm-border-color);
+            box-shadow: inset 0 -1px 0 var(--tm-table-border-color);
             /* 添加右侧列分隔线 */
-            border-right: 1px solid var(--tm-border-color);
+            border-right: 1px solid var(--tm-table-border-color);
             /* 表头固定 */
             position: -webkit-sticky; /* Safari 浏览器 */
             position: sticky;
@@ -958,12 +1249,12 @@
 
         .tm-table thead th {
             /* 使用 box-shadow 确保边框在滚动时始终可见 */
-            box-shadow: inset 0 -1px 0 var(--tm-border-color);
+            box-shadow: inset 0 -1px 0 var(--tm-table-border-color);
             position: sticky;
             top: 0;
             z-index: 20;
             /* 最后一列不显示右侧边框 */
-            border-right: 1px solid var(--tm-border-color);
+            border-right: 1px solid var(--tm-table-border-color);
         }
         
         /* 最后一列不显示右侧边框 */
@@ -987,8 +1278,8 @@
 
         .tm-table td {
             padding: 6px 6px;
-            border-bottom: 1px solid var(--tm-border-color);
-            border-right: 1px solid var(--tm-border-color);
+            border-bottom: 1px solid var(--tm-table-border-color);
+            border-right: 1px solid var(--tm-table-border-color);
             vertical-align: middle;
             color: var(--tm-text-color);
         }
@@ -1509,6 +1800,7 @@
             queryLimit: 500,
             groupByDocName: true,
             groupByTime: false,
+            groupMode: 'doc',
             collapsedTaskIds: [],
             currentRule: null,
             filterRules: [],
@@ -1541,9 +1833,13 @@
             // 时长显示格式: 'hours' 或 'minutes'
             durationFormat: 'hours',
             // 不查找已完成任务（提升性能）
-            excludeCompletedTasks: false,
+            excludeCompletedTasks: true,
             // 开始日期（新增列）
             startDate: 90,
+            // 时间轴模式左侧宽度
+            timelineLeftWidth: 540,
+            // 时间轴模式任务内容列宽度（不影响表格视图）
+            timelineContentWidth: 360,
             // 外观配色（支持亮/暗）
             topbarGradientLightStart: '#667eea',
             topbarGradientLightEnd: '#764ba2',
@@ -1559,6 +1855,8 @@
             timeGroupOverdueColorDark: '#ff6b6b',
             progressBarColorLight: '#4caf50',
             progressBarColorDark: '#81c784',
+            tableBorderColorLight: '#e9ecef',
+            tableBorderColorDark: '#333333',
             priorityScoreConfig: {
                 base: 100,
                 weights: { importance: 1, status: 1, due: 1, duration: 1, doc: 1 },
@@ -1641,6 +1939,10 @@
         async load() {
             if (this.loaded) return;
 
+            // 先从本地缓存加载一份作为兜底（避免云端旧版本配置缺字段导致覆盖丢失）
+            // 云端数据存在时，再用云端字段覆盖本地字段
+            try { this.loadFromLocal(); } catch (e) {}
+
             // 从云端加载设置（优先）
             try {
                 const res = await fetch('/api/file/getFile', {
@@ -1661,6 +1963,7 @@
                                 if (typeof cloudData.queryLimit === 'number') this.data.queryLimit = cloudData.queryLimit;
                                 if (typeof cloudData.groupByDocName === 'boolean') this.data.groupByDocName = cloudData.groupByDocName;
                                 if (typeof cloudData.groupByTime === 'boolean') this.data.groupByTime = cloudData.groupByTime;
+                                if (typeof cloudData.groupMode === 'string') this.data.groupMode = cloudData.groupMode;
                                 if (Array.isArray(cloudData.collapsedTaskIds)) this.data.collapsedTaskIds = cloudData.collapsedTaskIds;
                                 if (Array.isArray(cloudData.collapsedGroups)) this.data.collapsedGroups = cloudData.collapsedGroups;
                                 if (cloudData.currentRule !== undefined) this.data.currentRule = cloudData.currentRule;
@@ -1695,6 +1998,8 @@
                                 if (typeof cloudData.timeGroupOverdueColorDark === 'string') this.data.timeGroupOverdueColorDark = cloudData.timeGroupOverdueColorDark;
                                 if (typeof cloudData.progressBarColorLight === 'string') this.data.progressBarColorLight = cloudData.progressBarColorLight;
                                 if (typeof cloudData.progressBarColorDark === 'string') this.data.progressBarColorDark = cloudData.progressBarColorDark;
+                                if (typeof cloudData.tableBorderColorLight === 'string') this.data.tableBorderColorLight = cloudData.tableBorderColorLight;
+                                if (typeof cloudData.tableBorderColorDark === 'string') this.data.tableBorderColorDark = cloudData.tableBorderColorDark;
                                 if (Array.isArray(cloudData.customStatusOptions)) this.data.customStatusOptions = cloudData.customStatusOptions;
                                 if (cloudData.columnWidths && typeof cloudData.columnWidths === 'object') {
                                     // 旧版本兼容：如果有 customTime 配置，迁移到 completionTime
@@ -1709,6 +2014,36 @@
                                 if (typeof cloudData.durationFormat === 'string') this.data.durationFormat = cloudData.durationFormat;
                                 if (typeof cloudData.excludeCompletedTasks === 'boolean') this.data.excludeCompletedTasks = cloudData.excludeCompletedTasks;
                                 if (typeof cloudData.startDate === 'number') this.data.startDate = cloudData.startDate;
+                                if (typeof cloudData.timelineLeftWidth === 'number') this.data.timelineLeftWidth = cloudData.timelineLeftWidth;
+                                if (typeof cloudData.timelineContentWidth === 'number') this.data.timelineContentWidth = cloudData.timelineContentWidth;
+
+                                const validModes = new Set(['none', 'doc', 'time', 'quadrant']);
+                                if (!validModes.has(String(this.data.groupMode || ''))) {
+                                    const q = !!(this.data.quadrantConfig && this.data.quadrantConfig.enabled);
+                                    this.data.groupMode = q ? 'quadrant' : (this.data.groupByTime ? 'time' : (this.data.groupByDocName ? 'doc' : 'none'));
+                                }
+                                if (this.data.groupMode === 'doc') {
+                                    this.data.groupByDocName = true;
+                                    this.data.groupByTime = false;
+                                    this.data.quadrantConfig = this.data.quadrantConfig || {};
+                                    this.data.quadrantConfig.enabled = false;
+                                } else if (this.data.groupMode === 'time') {
+                                    this.data.groupByDocName = false;
+                                    this.data.groupByTime = true;
+                                    this.data.quadrantConfig = this.data.quadrantConfig || {};
+                                    this.data.quadrantConfig.enabled = false;
+                                } else if (this.data.groupMode === 'quadrant') {
+                                    this.data.groupByDocName = false;
+                                    this.data.groupByTime = false;
+                                    this.data.quadrantConfig = this.data.quadrantConfig || {};
+                                    this.data.quadrantConfig.enabled = true;
+                                } else {
+                                    this.data.groupByDocName = false;
+                                    this.data.groupByTime = false;
+                                    this.data.quadrantConfig = this.data.quadrantConfig || {};
+                                    this.data.quadrantConfig.enabled = false;
+                                    this.data.groupMode = 'none';
+                                }
 
                                 // 同步到本地缓存
                                 this.normalizeColumns();
@@ -1722,9 +2057,6 @@
                 }
             } catch (e) {
             }
-
-            // 云端没有数据，从本地缓存读取
-            this.loadFromLocal();
             this.loaded = true;
         },
 
@@ -1734,6 +2066,7 @@
             this.data.queryLimit = Storage.get('tm_query_limit', 500);
             this.data.groupByDocName = Storage.get('tm_group_by_docname', true);
             this.data.groupByTime = Storage.get('tm_group_by_time', false);
+            this.data.groupMode = Storage.get('tm_group_mode', this.data.groupMode);
             this.data.collapsedTaskIds = Storage.get('tm_collapsed_task_ids', []) || [];
             this.data.collapsedGroups = Storage.get('tm_collapsed_groups', []) || [];
             this.data.currentRule = Storage.get('tm_current_rule', null);
@@ -1754,6 +2087,8 @@
             this.data.timeGroupOverdueColorDark = Storage.get('tm_time_group_overdue_color_dark', this.data.timeGroupOverdueColorDark);
             this.data.progressBarColorLight = Storage.get('tm_progress_bar_color_light', this.data.progressBarColorLight);
             this.data.progressBarColorDark = Storage.get('tm_progress_bar_color_dark', this.data.progressBarColorDark);
+            this.data.tableBorderColorLight = Storage.get('tm_table_border_color_light', this.data.tableBorderColorLight);
+            this.data.tableBorderColorDark = Storage.get('tm_table_border_color_dark', this.data.tableBorderColorDark);
             this.data.enableQuickbar = Storage.get('tm_enable_quickbar', true);
             this.data.pinNewTasksByDefault = Storage.get('tm_pin_new_tasks_by_default', false);
             this.data.newTaskDocId = Storage.get('tm_new_task_doc_id', '');
@@ -1772,12 +2107,41 @@
             this.data.durationFormat = Storage.get('tm_duration_format', this.data.durationFormat);
             this.data.excludeCompletedTasks = Storage.get('tm_exclude_completed_tasks', this.data.excludeCompletedTasks);
             this.data.startDate = Storage.get('tm_start_date', this.data.startDate);
+            this.data.timelineLeftWidth = Storage.get('tm_timeline_left_width', this.data.timelineLeftWidth);
+            this.data.timelineContentWidth = Storage.get('tm_timeline_content_width', this.data.timelineContentWidth);
             const savedWidths = Storage.get('tm_column_widths', null);
             if (savedWidths && typeof savedWidths === 'object') {
                 if (savedWidths.customTime && !savedWidths.completionTime) {
                     savedWidths.completionTime = savedWidths.customTime;
                 }
                 this.data.columnWidths = { ...this.data.columnWidths, ...savedWidths };
+            }
+            const validModes = new Set(['none', 'doc', 'time', 'quadrant']);
+            if (!validModes.has(String(this.data.groupMode || ''))) {
+                const q = !!(this.data.quadrantConfig && this.data.quadrantConfig.enabled);
+                this.data.groupMode = q ? 'quadrant' : (this.data.groupByTime ? 'time' : (this.data.groupByDocName ? 'doc' : 'none'));
+            }
+            if (this.data.groupMode === 'doc') {
+                this.data.groupByDocName = true;
+                this.data.groupByTime = false;
+                this.data.quadrantConfig = this.data.quadrantConfig || {};
+                this.data.quadrantConfig.enabled = false;
+            } else if (this.data.groupMode === 'time') {
+                this.data.groupByDocName = false;
+                this.data.groupByTime = true;
+                this.data.quadrantConfig = this.data.quadrantConfig || {};
+                this.data.quadrantConfig.enabled = false;
+            } else if (this.data.groupMode === 'quadrant') {
+                this.data.groupByDocName = false;
+                this.data.groupByTime = false;
+                this.data.quadrantConfig = this.data.quadrantConfig || {};
+                this.data.quadrantConfig.enabled = true;
+            } else {
+                this.data.groupByDocName = false;
+                this.data.groupByTime = false;
+                this.data.quadrantConfig = this.data.quadrantConfig || {};
+                this.data.quadrantConfig.enabled = false;
+                this.data.groupMode = 'none';
             }
             this.normalizeColumns();
         },
@@ -1788,6 +2152,7 @@
             Storage.set('tm_query_limit', this.data.queryLimit);
             Storage.set('tm_group_by_docname', this.data.groupByDocName);
             Storage.set('tm_group_by_time', this.data.groupByTime);
+            Storage.set('tm_group_mode', String(this.data.groupMode || '').trim() || 'none');
             Storage.set('tm_collapsed_task_ids', this.data.collapsedTaskIds);
             Storage.set('tm_collapsed_groups', this.data.collapsedGroups || []);
             Storage.set('tm_current_rule', this.data.currentRule);
@@ -1808,6 +2173,8 @@
             Storage.set('tm_time_group_overdue_color_dark', String(this.data.timeGroupOverdueColorDark || '').trim());
             Storage.set('tm_progress_bar_color_light', String(this.data.progressBarColorLight || '').trim());
             Storage.set('tm_progress_bar_color_dark', String(this.data.progressBarColorDark || '').trim());
+            Storage.set('tm_table_border_color_light', String(this.data.tableBorderColorLight || '').trim());
+            Storage.set('tm_table_border_color_dark', String(this.data.tableBorderColorDark || '').trim());
             Storage.set('tm_enable_quickbar', !!this.data.enableQuickbar);
             Storage.set('tm_pin_new_tasks_by_default', !!this.data.pinNewTasksByDefault);
             Storage.set('tm_new_task_doc_id', String(this.data.newTaskDocId || '').trim());
@@ -1824,10 +2191,12 @@
             Storage.set('tm_custom_status_options', this.data.customStatusOptions);
             Storage.set('tm_column_widths', this.data.columnWidths);
             Storage.set('tm_column_order', this.data.columnOrder);
+            Storage.set('tm_timeline_left_width', this.data.timelineLeftWidth);
+            Storage.set('tm_timeline_content_width', this.data.timelineContentWidth);
         },
 
         normalizeColumns() {
-            const defaultOrder = ['pinned', 'content', 'status', 'score', 'doc', 'h2', 'priority', 'completionTime', 'duration', 'spent', 'remark'];
+            const defaultOrder = ['pinned', 'content', 'status', 'score', 'doc', 'h2', 'priority', 'startDate', 'completionTime', 'duration', 'spent', 'remark'];
             const known = new Set(defaultOrder);
             if (!Array.isArray(this.data.columnOrder)) this.data.columnOrder = defaultOrder;
             this.data.columnOrder = this.data.columnOrder.filter(k => known.has(k));
@@ -1835,8 +2204,8 @@
                 if (!this.data.columnOrder.includes(k)) this.data.columnOrder.push(k);
             });
 
-            const percentFallback = { pinned: 5, content: 35, status: 8, score: 8, doc: 12, h2: 12, priority: 8, completionTime: 18, duration: 8, spent: 8, remark: 19 };
-            const pxDefault = { pinned: 48, content: 360, status: 96, score: 96, doc: 180, h2: 180, priority: 96, completionTime: 170, duration: 96, spent: 96, remark: 240 };
+            const percentFallback = { pinned: 5, content: 35, status: 8, score: 8, doc: 12, h2: 12, priority: 8, startDate: 7, completionTime: 18, duration: 8, spent: 8, remark: 19 };
+            const pxDefault = { pinned: 48, content: 360, status: 96, score: 96, doc: 180, h2: 180, priority: 96, startDate: 90, completionTime: 170, duration: 96, spent: 96, remark: 240 };
 
             const widths = (this.data.columnWidths && typeof this.data.columnWidths === 'object') ? { ...this.data.columnWidths } : {};
             const vals = Object.values(widths).filter(v => typeof v === 'number' && Number.isFinite(v));
@@ -2512,6 +2881,7 @@
                 'custom-priority',
                 'custom-duration',
                 'custom-remark',
+                'custom-start-date',
                 'custom-completion-time',
                 'custom-time',
                 'custom-status',
@@ -2542,6 +2912,7 @@
                     attr.priority,
                     attr.duration,
                     attr.remark,
+                    attr.start_date,
                     attr.completion_time,
                     attr.time as custom_time,
                     attr.custom_status,
@@ -2564,6 +2935,7 @@
                         MAX(CASE WHEN a.name = 'custom-priority' THEN a.value ELSE NULL END) as priority,
                         MAX(CASE WHEN a.name = 'custom-duration' THEN a.value ELSE NULL END) as duration,
                         MAX(CASE WHEN a.name = 'custom-remark' THEN a.value ELSE NULL END) as remark,
+                        MAX(CASE WHEN a.name = 'custom-start-date' THEN a.value ELSE NULL END) as start_date,
                         MAX(CASE WHEN a.name = 'custom-completion-time' THEN a.value ELSE NULL END) as completion_time,
                         MAX(CASE WHEN a.name = 'custom-time' THEN a.value ELSE NULL END) as time,
                         MAX(CASE WHEN a.name = 'custom-status' THEN a.value ELSE NULL END) as custom_status,
@@ -2618,6 +2990,7 @@
                 'custom-priority',
                 'custom-duration',
                 'custom-remark',
+                'custom-start-date',
                 'custom-completion-time',
                 'custom-time',
                 'custom-status',
@@ -2662,6 +3035,7 @@
                         MAX(CASE WHEN a.name = 'custom-priority' THEN a.value ELSE NULL END) AS priority,
                         MAX(CASE WHEN a.name = 'custom-duration' THEN a.value ELSE NULL END) AS duration,
                         MAX(CASE WHEN a.name = 'custom-remark' THEN a.value ELSE NULL END) AS remark,
+                        MAX(CASE WHEN a.name = 'custom-start-date' THEN a.value ELSE NULL END) AS start_date,
                         MAX(CASE WHEN a.name = 'custom-completion-time' THEN a.value ELSE NULL END) AS completion_time,
                         MAX(CASE WHEN a.name = 'custom-time' THEN a.value ELSE NULL END) AS time,
                         MAX(CASE WHEN a.name = 'custom-status' THEN a.value ELSE NULL END) AS custom_status,
@@ -2689,6 +3063,7 @@
                     attr.priority,
                     attr.duration,
                     attr.remark,
+                    attr.start_date,
                     attr.completion_time,
                     attr.time AS custom_time,
                     attr.custom_status,
@@ -2738,6 +3113,7 @@
                     attr.priority,
                     attr.duration,
                     attr.remark,
+                    attr.start_date,
                     attr.completion_time,
                     attr.time as custom_time,
                     attr.custom_status
@@ -2751,6 +3127,7 @@
                         MAX(CASE WHEN name = 'custom-priority' THEN value ELSE NULL END) as priority,
                         MAX(CASE WHEN name = 'custom-duration' THEN value ELSE NULL END) as duration,
                         MAX(CASE WHEN name = 'custom-remark' THEN value ELSE NULL END) as remark,
+                        MAX(CASE WHEN name = 'custom-start-date' THEN value ELSE NULL END) as start_date,
                         MAX(CASE WHEN name = 'custom-completion-time' THEN value ELSE NULL END) as completion_time,
                         MAX(CASE WHEN name = 'custom-time' THEN value ELSE NULL END) as time,
                         MAX(CASE WHEN name = 'custom-status' THEN value ELSE NULL END) as custom_status
@@ -3109,6 +3486,7 @@
         priority: 'custom-priority',
         duration: 'custom-duration',
         remark: 'custom-remark',
+        startDate: 'custom-start-date',
         completionTime: 'custom-completion-time',
         customTime: 'custom-time',
         customStatus: 'custom-status',
@@ -3167,6 +3545,12 @@
         quickAddModal: null,
         quickAddDocPicker: null,
         quickAdd: null,
+        viewMode: 'list',
+        docTabsHidden: false,
+        ganttView: {
+            dayWidth: 24,
+            paddingDays: 7,
+        },
 
         // 筛选状态
         currentRule: null,
@@ -3636,6 +4020,9 @@ async function __tmRefreshAfterWake(reason) {
         const timeOverdue = isDark
             ? __tmNormalizeHexColor(SettingsStore.data.timeGroupOverdueColorDark, '#ff6b6b')
             : __tmNormalizeHexColor(SettingsStore.data.timeGroupOverdueColorLight, '#d93025');
+        const tableBorder = isDark
+            ? __tmNormalizeHexColor(SettingsStore.data.tableBorderColorDark, '#333333')
+            : __tmNormalizeHexColor(SettingsStore.data.tableBorderColorLight, '#e9ecef');
 
         try { if (start) root.style.setProperty('--tm-topbar-grad-start', start); } catch (e) {}
         try { if (end) root.style.setProperty('--tm-topbar-grad-end', end); } catch (e) {}
@@ -3643,6 +4030,7 @@ async function __tmRefreshAfterWake(reason) {
         try { if (docGroupColor) root.style.setProperty('--tm-group-doc-label-color', docGroupColor); } catch (e) {}
         try { if (timeBase) root.style.setProperty('--tm-time-group-base-color', timeBase); } catch (e) {}
         try { if (timeOverdue) root.style.setProperty('--tm-time-group-overdue-color', timeOverdue); } catch (e) {}
+        try { if (tableBorder) root.style.setProperty('--tm-table-border-color', tableBorder); } catch (e) {}
     }
 
     function __tmDocHasUndoneTasks(doc) {
@@ -5863,19 +6251,44 @@ async function __tmRefreshAfterWake(reason) {
         tmToggleCollapse(id, ev);
     };
 
+    window.tmToggleDocTabs = function(ev) {
+        try { ev?.stopPropagation?.(); } catch (e) {}
+        try { ev?.preventDefault?.(); } catch (e) {}
+        state.docTabsHidden = !state.docTabsHidden;
+        try { Storage.set('tm_doc_tabs_hidden', !!state.docTabsHidden); } catch (e) {}
+        render();
+    };
+
     // 修改渲染函数以显示规则信息
     function render() {
         // 保存滚动位置
         let savedScrollTop = 0;
         let savedScrollLeft = 0;
+        let savedTimelineScrollTop = 0;
+        let savedTimelineScrollLeft = 0;
         if (state.modal) {
-            const body = state.modal.querySelector('.tm-body');
-            if (body) {
-                savedScrollTop = body.scrollTop;
-                savedScrollLeft = body.scrollLeft;
+            const timelineLeftBody = state.modal.querySelector('#tmTimelineLeftBody');
+            const ganttBody = state.modal.querySelector('#tmGanttBody');
+            if (timelineLeftBody) {
+                savedTimelineScrollTop = timelineLeftBody.scrollTop;
+                if (ganttBody) savedTimelineScrollLeft = ganttBody.scrollLeft;
+            } else {
+                const body = state.modal.querySelector('.tm-body');
+                if (body) {
+                    savedScrollTop = body.scrollTop;
+                    savedScrollLeft = body.scrollLeft;
+                }
             }
             state.modal.remove();
         }
+        try {
+            state.viewScroll = state.viewScroll && typeof state.viewScroll === 'object' ? state.viewScroll : {};
+            if (savedTimelineScrollTop || savedTimelineScrollLeft) {
+                state.viewScroll.timeline = { top: savedTimelineScrollTop, left: savedTimelineScrollLeft };
+            } else if (savedScrollTop || savedScrollLeft) {
+                state.viewScroll.list = { top: savedScrollTop, left: savedScrollLeft };
+            }
+        } catch (e) {}
         
         // 应用字体大小
         document.documentElement.style.setProperty('--tm-font-size', (__tmGetFontSize()) + 'px');
@@ -5899,6 +6312,7 @@ async function __tmRefreshAfterWake(reason) {
         const currentGroup = docGroups.find(g => g.id === currentGroupId);
         const groupName = currentGroupId === 'all' ? '全部文档' : (currentGroup ? currentGroup.name : '未知分组');
         const isMobile = __tmIsMobileDevice();
+        const isLandscape = !!(isMobile && (() => { try { return !!window.matchMedia?.('(orientation: landscape)')?.matches; } catch (e) { return false; } })());
         
         state.modal = document.createElement('div');
         state.modal.className = 'tm-modal' + (__tmMountEl ? ' tm-modal--tab' : '') + (isMobile ? ' tm-modal--mobile' : '');
@@ -5910,19 +6324,181 @@ async function __tmRefreshAfterWake(reason) {
                 ${esc(rule.name)}
             </option>`)
             .join('');
+
+        const __tmRenderListBodyHtml = () => `
+                <div class="tm-body">
+                    <table class="tm-table" id="tmTaskTable">
+                        <thead>
+                            <tr>
+                                ${(() => {
+                                    const colOrder = SettingsStore.data.columnOrder || ['pinned', 'content', 'status', 'score', 'doc', 'h2', 'priority', 'startDate', 'completionTime', 'duration', 'spent', 'remark'];
+                                    const widths = SettingsStore.data.columnWidths || {};
+                                    const headers = {
+                                        pinned: `<th data-col="pinned" style="width: ${widths.pinned || 48}px; min-width: ${widths.pinned || 48}px; max-width: ${widths.pinned || 48}px; text-align: center; white-space: nowrap; overflow: hidden;">📌<span class="tm-col-resize" onmousedown="startColResize(event, 'pinned')"></span></th>`,
+                                        content: `<th data-col="content" style="width: ${widths.content || 360}px; min-width: ${widths.content || 360}px; max-width: ${widths.content || 360}px; white-space: nowrap; overflow: hidden;">任务内容<span class="tm-col-resize" onmousedown="startColResize(event, 'content')"></span></th>`,
+                                        score: `<th data-col="score" style="width: ${widths.score || 96}px; min-width: ${widths.score || 96}px; max-width: ${widths.score || 96}px; text-align: center; white-space: nowrap; overflow: hidden;">优先级<span class="tm-col-resize" onmousedown="startColResize(event, 'score')"></span></th>`,
+                                        doc: `<th data-col="doc" style="width: ${widths.doc || 180}px; min-width: ${widths.doc || 180}px; max-width: ${widths.doc || 180}px; white-space: nowrap; overflow: hidden;">文档<span class="tm-col-resize" onmousedown="startColResize(event, 'doc')"></span></th>`,
+                                        h2: (() => {
+                                            const level = SettingsStore.data.taskHeadingLevel || 'h2';
+                                            const labels = { h1: '一级标题', h2: '二级标题', h3: '三级标题', h4: '四级标题', h5: '五级标题', h6: '六级标题' };
+                                            const label = labels[level] || '标题';
+                                            return `<th data-col="h2" style="width: ${widths.h2 || 180}px; min-width: ${widths.h2 || 180}px; max-width: ${widths.h2 || 180}px; white-space: nowrap; overflow: hidden;">${label}<span class="tm-col-resize" onmousedown="startColResize(event, 'h2')"></span></th>`;
+                                        })(),
+                                        priority: `<th data-col="priority" style="width: ${widths.priority || 96}px; min-width: ${widths.priority || 96}px; max-width: ${widths.priority || 96}px; text-align: center; white-space: nowrap; overflow: hidden;">重要性<span class="tm-col-resize" onmousedown="startColResize(event, 'priority')"></span></th>`,
+                                        startDate: `<th data-col="startDate" style="width: ${widths.startDate || 90}px; min-width: ${widths.startDate || 90}px; max-width: ${widths.startDate || 90}px; white-space: nowrap; overflow: hidden;">开始日期<span class="tm-col-resize" onmousedown="startColResize(event, 'startDate')"></span></th>`,
+                                        completionTime: `<th data-col="completionTime" style="width: ${widths.completionTime || 170}px; min-width: ${widths.completionTime || 170}px; max-width: ${widths.completionTime || 170}px; white-space: nowrap; overflow: hidden;">完成时间<span class="tm-col-resize" onmousedown="startColResize(event, 'completionTime')"></span></th>`,
+                                        duration: `<th data-col="duration" style="width: ${widths.duration || 96}px; min-width: ${widths.duration || 96}px; max-width: ${widths.duration || 96}px; white-space: nowrap; overflow: hidden;">时长<span class="tm-col-resize" onmousedown="startColResize(event, 'duration')"></span></th>`,
+                                        spent: `<th data-col="spent" style="width: ${widths.spent || 96}px; min-width: ${widths.spent || 96}px; max-width: ${widths.spent || 96}px; white-space: nowrap; overflow: hidden;">耗时<span class="tm-col-resize" onmousedown="startColResize(event, 'spent')"></span></th>`,
+                                        remark: `<th data-col="remark" style="width: ${widths.remark || 240}px; min-width: ${widths.remark || 240}px; max-width: ${widths.remark || 240}px; white-space: nowrap; overflow: hidden;">备注<span class="tm-col-resize" onmousedown="startColResize(event, 'remark')"></span></th>`,
+                                        status: `<th data-col="status" style="width: ${widths.status || 96}px; min-width: ${widths.status || 96}px; max-width: ${widths.status || 96}px; text-align: center; white-space: nowrap; overflow: hidden;">状态<span class="tm-col-resize" onmousedown="startColResize(event, 'status')"></span></th>`
+                                    };
+                                    return colOrder.map(col => headers[col] || '').join('');
+                                })()}
+                            </tr>
+                        </thead>
+                        <tbody>
+                            ${renderTaskList()}
+                        </tbody>
+                    </table>
+                </div>
+            `;
+
+        const __tmRenderTimelineBodyHtml = (rowModel) => {
+            const widths = SettingsStore.data.columnWidths || {};
+            const isGloballyLocked = GlobalLock.isLocked();
+            const leftWidth0 = Number(SettingsStore.data.timelineLeftWidth);
+            const timelineContentWidth0 = Number(SettingsStore.data.timelineContentWidth);
+            const timelineContentWidth = Number.isFinite(timelineContentWidth0) ? Math.max(160, Math.min(800, Math.round(timelineContentWidth0))) : (Number(widths.content) || 360);
+            const timelineStartW = Math.max(60, Math.min(240, Math.round(Number(widths.startDate) || 90)));
+            const timelineEndW = Math.max(120, Math.min(360, Math.round(Number(widths.completionTime) || 170)));
+            const leftTableWidth = Math.round(timelineContentWidth + timelineStartW + timelineEndW + 2);
+            const computedAuto = leftTableWidth;
+            const leftWidth = (Number.isFinite(leftWidth0) && leftWidth0 > 0)
+                ? Math.max(360, Math.min(900, Math.round(leftWidth0)))
+                : Math.max(360, Math.min(900, computedAuto));
+            const isDark = __tmIsDarkMode();
+            const progressBarColor = isDark
+                ? __tmNormalizeHexColor(SettingsStore.data.progressBarColorDark, '#81c784')
+                : __tmNormalizeHexColor(SettingsStore.data.progressBarColorLight, '#4caf50');
+
+            const renderGroupRow = (row) => {
+                const isCollapsed = !!row?.collapsed;
+                const toggle = `<span class="tm-group-toggle" onclick="tmToggleGroupCollapse('${row.key}', event)" style="cursor:pointer;margin-right:8px;display:inline-block;width:12px;">${isCollapsed ? '▸' : '▾'}</span>`;
+                if (row.kind === 'doc') {
+                    return `<tr class="tm-group-row tm-timeline-row"><td colspan="3" onclick="tmToggleGroupCollapse('${row.key}', event)" style="cursor:pointer;font-weight:bold;color:var(--tm-text-color);">${toggle}<span class="tm-group-label" style="color: var(--tm-group-doc-label-color);">📄 ${esc(row.label || '')}</span> <span style="font-weight:normal;color:var(--tm-secondary-text);font-size:12px;background:var(--tm-doc-count-bg);padding:1px 6px;border-radius:10px;margin-left:4px;">${Number(row.count) || 0}</span></td></tr>`;
+                }
+                if (row.kind === 'time') {
+                    const labelColor = String(row.labelColor || 'var(--tm-text-color)');
+                    const durationSum = String(row.durationSum || '').trim();
+                    return `<tr class="tm-group-row tm-timeline-row"><td colspan="3" onclick="tmToggleGroupCollapse('${row.key}', event)" style="cursor:pointer;font-weight:bold;color:var(--tm-text-color);">${toggle}<span class="tm-group-label" style="color:${labelColor};">${esc(row.label || '')}</span> <span style="font-weight:normal;color:var(--tm-secondary-text);font-size:12px;background:var(--tm-doc-count-bg);padding:1px 6px;border-radius:10px;margin-left:4px;">${Number(row.count) || 0}</span>${durationSum ? `<span style="font-weight:normal;color:var(--tm-primary-color);font-size:12px;background:var(--tm-info-bg);padding:1px 6px;border-radius:10px;margin-left:4px;border:1px solid var(--tm-info-border);">📊 ${esc(durationSum)}</span>` : ''}</td></tr>`;
+                }
+                if (row.kind === 'quadrant') {
+                    const durationSum = String(row.durationSum || '').trim();
+                    const colorMap = { red: 'var(--tm-quadrant-red)', yellow: 'var(--tm-quadrant-yellow)', blue: 'var(--tm-quadrant-blue)', green: 'var(--tm-quadrant-green)' };
+                    const color = colorMap[String(row.color || '')] || 'var(--tm-text-color)';
+                    return `<tr class="tm-group-row tm-timeline-row"><td colspan="3" onclick="tmToggleGroupCollapse('${row.key}', event)" style="cursor:pointer;font-weight:bold;color:${color};">${toggle}<span class="tm-quadrant-indicator tm-quadrant-bg-${esc(row.color || '')}"></span>${esc(row.label || '')} <span style="font-weight:normal;color:var(--tm-secondary-text);font-size:12px;background:var(--tm-doc-count-bg);padding:1px 6px;border-radius:10px;margin-left:4px;">${Number(row.count) || 0}</span>${durationSum ? `<span style="font-weight:normal;color:var(--tm-primary-color);font-size:12px;background:var(--tm-info-bg);padding:1px 6px;border-radius:10px;margin-left:4px;border:1px solid var(--tm-info-border);">📊 ${esc(durationSum)}</span>` : ''}</td></tr>`;
+                }
+                return `<tr class="tm-group-row tm-timeline-row"><td colspan="3" onclick="tmToggleGroupCollapse('${row.key}', event)" style="cursor:pointer;font-weight:bold;color:var(--tm-text-color);">${toggle}${esc(row.label || '')}</td></tr>`;
+            };
+
+            const renderTaskRow = (row) => {
+                const task = state.flatTasks[row.id];
+                if (!task) return '';
+                const indent = (Math.max(0, Number(row.depth) || 0)) * 12;
+                const toggle = row.hasChildren
+                    ? `<span class="tm-tree-toggle" onclick="tmToggleCollapse('${task.id}', event)">${row.collapsed ? '▸' : '▾'}</span>`
+                    : `<span class="tm-tree-spacer"></span>`;
+                const focusId = SettingsStore.data.enableTomatoIntegration ? String(state.timerFocusTaskId || '').trim() : '';
+                const rowClass = focusId ? (focusId === String(task.id) ? 'tm-timer-focus' : 'tm-timer-dim') : '';
+
+                const allChildren = task.children || [];
+                const totalChildren = allChildren.length;
+                const completedChildren = allChildren.filter(c => c.done).length;
+                const progressPercent = totalChildren > 0 ? Math.round((completedChildren / totalChildren) * 100) : 0;
+                const progressBgImage = (row.hasChildren && progressPercent > 0)
+                    ? `linear-gradient(90deg, ${progressBarColor} ${progressPercent}%, transparent ${progressPercent}%)`
+                    : '';
+                const isDoneSubtask = !!task.done && (Math.max(0, Number(row.depth) || 0) > 0);
+                const doneSubtaskBg = isDoneSubtask ? __tmWithAlpha(progressBarColor, isDark ? 0.22 : 0.14) : '';
+                const contentCellBgStyle = `${doneSubtaskBg ? `background-color:${doneSubtaskBg};` : ''}${progressBgImage ? `background-image:${progressBgImage};background-repeat:no-repeat;` : ''}`;
+
+                return `
+                    <tr class="tm-timeline-row ${rowClass}" data-id="${task.id}" onclick="tmRowClick(event, '${task.id}')" oncontextmenu="tmShowTaskContextMenu(event, '${task.id}')">
+                        <td style="width: ${timelineContentWidth}px; min-width: ${timelineContentWidth}px; max-width: ${timelineContentWidth}px; ${contentCellBgStyle}">
+                            <div class="tm-task-cell" style="padding-left:${indent}px">
+                                ${toggle}
+                                <input class="tm-task-checkbox ${isGloballyLocked ? 'tm-operating' : ''}"
+                                       type="checkbox" ${task.done ? 'checked' : ''}
+                                       ${isGloballyLocked ? 'disabled' : ''}
+                                       onchange="tmSetDone('${task.id}', this.checked, event)">
+                                <span class="tm-task-text ${task.done ? 'tm-task-done' : ''}" data-level="${row.depth}" title="点击跳转到文档">
+                                    <span class="tm-task-content-clickable" onclick="tmJumpToTask('${task.id}', event)">${esc(task.content || '')}</span>
+                                </span>
+                            </div>
+                        </td>
+                        <td class="tm-cell-editable" style="width:${timelineStartW}px; min-width:${timelineStartW}px; max-width:${timelineStartW}px;" onclick="tmBeginCellEdit('${task.id}','startDate',this,event)">${__tmFormatTaskTime(task.startDate)}</td>
+                        <td class="tm-cell-editable" style="width:${timelineEndW}px; min-width:${timelineEndW}px; max-width:${timelineEndW}px;" onclick="tmBeginCellEdit('${task.id}','completionTime',this,event)">${__tmFormatTaskTime(task.completionTime)}</td>
+                    </tr>
+                `;
+            };
+
+            const leftRowsHtml = (Array.isArray(rowModel) ? rowModel : []).map(r => {
+                if (r.type === 'group') return renderGroupRow(r);
+                if (r.type === 'task') return renderTaskRow(r);
+                return '';
+            }).join('');
+
+            return `
+                <div class="tm-body tm-body--timeline">
+                    <div class="tm-timeline-split">
+                        <div class="tm-timeline-left" style="width:${leftWidth}px">
+                            <div class="tm-timeline-left-body" id="tmTimelineLeftBody">
+                                <table class="tm-table tm-timeline-table-left" id="tmTimelineLeftTable" style="width:${leftTableWidth}px;min-width:${leftTableWidth}px;max-width:${leftTableWidth}px;">
+                                    <colgroup>
+                                        <col id="tmTimelineColContent" style="width:${timelineContentWidth}px">
+                                        <col id="tmTimelineColStart" style="width:${timelineStartW}px">
+                                        <col id="tmTimelineColEnd" style="width:${timelineEndW}px">
+                                    </colgroup>
+                                    <thead>
+                                        <tr>
+                                            <th style="width:${timelineContentWidth}px; min-width:${timelineContentWidth}px; max-width:${timelineContentWidth}px;">任务内容<span class="tm-col-resize" onmousedown="tmStartTimelineContentResize(event)"></span></th>
+                                            <th style="width:${timelineStartW}px; min-width:${timelineStartW}px; max-width:${timelineStartW}px;">开始日期</th>
+                                            <th style="width:${timelineEndW}px; min-width:${timelineEndW}px; max-width:${timelineEndW}px;">完成时间</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        ${leftRowsHtml || `<tr><td colspan="3" style="text-align:center; padding:40px; color:var(--tm-secondary-text);">暂无任务</td></tr>`}
+                                    </tbody>
+                                </table>
+                            </div>
+                        </div>
+                        <div class="tm-timeline-splitter" onmousedown="tmStartTimelineSplitResize(event)" title="拖拽调整宽度"></div>
+                        <div class="tm-timeline-right">
+                            <div class="tm-timeline-right-header"><div id="tmGanttHeader"></div></div>
+                            <div class="tm-timeline-right-body" id="tmGanttBody"></div>
+                        </div>
+                    </div>
+                </div>
+            `;
+        };
+
+        const __tmTimelineRowModel = state.viewMode === 'timeline' ? __tmBuildTaskRowModel() : null;
+        const mainBodyHtml = state.viewMode === 'timeline'
+            ? __tmRenderTimelineBodyHtml(__tmTimelineRowModel)
+            : __tmRenderListBodyHtml();
         
         state.modal.innerHTML = `
             <div class="tm-box">
                 <div class="tm-filter-rule-bar" style="padding: 8px 12px;">
                     <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;justify-content:space-between;">
                         <div style="display:flex;align-items:center;gap:10px;">
-                            <div style="font-size: 16px; font-weight: 700; white-space: nowrap;">📋 任务管理器</div>
+                            <div class="tm-title" onclick="tmToggleDocTabs(event)" style="font-size: 16px; font-weight: 700; white-space: nowrap;">📋 任务管理器</div>
                             <button class="tm-btn tm-btn-success" onclick="tmAdd()" style="padding: 0 10px; height: 30px; display: inline-flex; align-items: center; justify-content: center;">+</button>
                             ${isMobile ? `<button class="tm-btn tm-btn-info" onclick="tmRefresh()" style="padding: 0 10px; height: 30px; display: inline-flex; align-items: center; justify-content: center;">🔄️</button>` : ''}
                         </div>
 
                         <!-- 桌面端工具栏 -->
-                        <div class="tm-desktop-toolbar" style="display:flex;align-items:center;gap:10px;flex:1;">
+                        <div class="tm-desktop-toolbar tm-header-selectors" style="display:flex;align-items:center;gap:10px;flex:1;">
                             <div class="tm-rule-selector" style="margin-left: 6px;">
                                 <span style="color: white; font-size: 13px;">分组:</span>
                                 <select class="tm-rule-select" onchange="tmSwitchDocGroup(this.value)">
@@ -5945,18 +6521,15 @@ async function __tmRefreshAfterWake(reason) {
                             ` : ''}
                             <div style="flex: 1 1 auto;"></div>
                             
-                            <label style="display:flex;align-items:center;gap:6px;color:white;font-size:13px;cursor:pointer;">
-                                <input type="checkbox" ${state.groupByDocName ? 'checked' : ''} onchange="toggleGroupByDocName(this.checked)">
-                                按文档分组
-                            </label>
-                            <label style="display:flex;align-items:center;gap:6px;color:white;font-size:13px;cursor:pointer;">
-                                <input type="checkbox" ${state.groupByTime ? 'checked' : ''} onchange="toggleGroupByTime(this.checked)">
-                                按时间分组
-                            </label>
-                            <label style="display:flex;align-items:center;gap:6px;color:white;font-size:13px;cursor:pointer;">
-                                <input type="checkbox" ${state.quadrantEnabled ? 'checked' : ''} onchange="toggleQuadrantGroup(this.checked)">
-                                四象限分组
-                            </label>
+                            <div class="tm-rule-selector">
+                                <span style="color: white; font-size: 13px;">模式:</span>
+                                <select class="tm-rule-select" onchange="tmSwitchGroupMode(this.value)">
+                                    <option value="none" ${(!state.groupByDocName && !state.groupByTime && !state.quadrantEnabled) ? 'selected' : ''}>不分组</option>
+                                    <option value="doc" ${state.groupByDocName ? 'selected' : ''}>按文档</option>
+                                    <option value="time" ${state.groupByTime ? 'selected' : ''}>按时间</option>
+                                    <option value="quadrant" ${state.quadrantEnabled ? 'selected' : ''}>四象限</option>
+                                </select>
+                            </div>
 
                         </div>
                         
@@ -5975,15 +6548,20 @@ async function __tmRefreshAfterWake(reason) {
                     <!-- 桌面端搜索栏 -->
                     <div class="tm-search-box tm-desktop-toolbar" style="flex-wrap: wrap;">
                         <button class="tm-btn tm-btn-info" onclick="tmRefresh()" style="padding: 4px 10px;" title="刷新">🔄️</button>
-                        <button class="tm-btn tm-btn-info" onclick="tmShowSearchModal()" style="padding: 4px 10px; display: flex; align-items: center; gap: 4px;">
-                            🔍 搜索 ${state.searchKeyword ? `<span style="background:rgba(255,255,255,0.2); padding:0 4px; border-radius:4px; font-size:11px;">${state.searchKeyword}</span>` : ''}
-                        </button>
-                        ${state.searchKeyword ? `<button class="tm-btn tm-btn-secondary" onclick="tmSearch('')" style="padding: 4px 10px;">清除</button>` : ''}
+                        <button class="tm-btn tm-btn-info ${state.viewMode === 'timeline' ? 'tm-filter-active' : ''}" onclick="tmToggleTimelineMode()" style="padding: 4px 10px;" title="切换时间轴模式">🗓️ 时间轴</button>
+                        ${state.viewMode === 'timeline' ? `
+                            <button class="tm-btn tm-btn-info" onclick="tmGanttZoomOut()" style="padding: 4px 10px;" title="缩小">－</button>
+                            <button class="tm-btn tm-btn-info" onclick="tmGanttZoomIn()" style="padding: 4px 10px;" title="放大">＋</button>
+                            <button class="tm-btn tm-btn-info" onclick="tmGanttFit()" style="padding: 4px 10px;" title="适配范围">🎯</button>
+                            <button class="tm-btn tm-btn-info" onclick="tmGanttToday()" style="padding: 4px 10px;" title="定位今天">📍</button>
+                        ` : ''}
                         
                         <button class="tm-btn tm-btn-info" onclick="showSettings()" style="padding: 4px 10px;">⚙️ 设置</button>
-                        <button class="tm-btn tm-btn-info" onclick="tmToggleDesktopMenu(event)" style="padding: 4px 10px; display: flex; align-items: center; gap: 4px;">
-                            <span>☰</span> 菜单
-                        </button>
+                        ${!isMobile ? `
+                            <button class="tm-btn tm-btn-info tm-desktop-menu-btn" onclick="tmToggleDesktopMenu(event)" style="padding: 4px 10px; display: flex; align-items: center; gap: 4px;">
+                                <span>☰</span> 菜单
+                            </button>
+                        ` : ''}
                     </div>
 
                         <!-- 移动端下拉菜单 -->
@@ -6008,6 +6586,21 @@ async function __tmRefreshAfterWake(reason) {
                                         🔍 搜索 ${state.searchKeyword ? `(${state.searchKeyword})` : ''}
                                     </button>
                                 </div>
+                                ${isLandscape ? `
+                                <div class="tm-mobile-only-item" style="display:flex; gap:10px;">
+                                    <button class="tm-btn tm-btn-info" onclick="tmToggleTimelineMode(); try{document.getElementById('tmMobileMenu').style.display='none';}catch(e){}" style="flex:1; padding: 6px;">
+                                        🗓️ 时间轴 ${state.viewMode === 'timeline' ? '(开)' : ''}
+                                    </button>
+                                </div>
+                                ${state.viewMode === 'timeline' ? `
+                                <div class="tm-mobile-only-item" style="display:flex; gap:10px;">
+                                    <button class="tm-btn tm-btn-info" onclick="tmGanttZoomOut(); try{document.getElementById('tmMobileMenu').style.display='none';}catch(e){}" style="flex:1; padding: 6px;">－</button>
+                                    <button class="tm-btn tm-btn-info" onclick="tmGanttZoomIn(); try{document.getElementById('tmMobileMenu').style.display='none';}catch(e){}" style="flex:1; padding: 6px;">＋</button>
+                                    <button class="tm-btn tm-btn-info" onclick="tmGanttFit(); try{document.getElementById('tmMobileMenu').style.display='none';}catch(e){}" style="flex:1; padding: 6px;">🎯</button>
+                                    <button class="tm-btn tm-btn-info" onclick="tmGanttToday(); try{document.getElementById('tmMobileMenu').style.display='none';}catch(e){}" style="flex:1; padding: 6px;">📍</button>
+                                </div>
+                                ` : ''}
+                                ` : ''}
                                 <div class="tm-mobile-only-item" style="display:flex; gap:10px;">
                                      <button class="tm-btn tm-btn-info" onclick="showSettings()" style="flex:1; padding: 6px;">⚙️ 设置</button>
                                 </div>
@@ -6015,19 +6608,14 @@ async function __tmRefreshAfterWake(reason) {
                                      <button class="tm-btn tm-btn-info" onclick="tmCollapseAllTasks()" style="flex:1; padding: 6px;">▸ 折叠</button>
                                      <button class="tm-btn tm-btn-info" onclick="tmExpandAllTasks()" style="flex:1; padding: 6px;">▾ 展开</button>
                                 </div>
-                                <div style="display:flex; gap:15px; padding-top:5px;">
-                                    <label style="display:flex;align-items:center;gap:6px;color:var(--tm-text-color);font-size:13px;">
-                                        <input type="checkbox" ${state.groupByDocName ? 'checked' : ''} onchange="toggleGroupByDocName(this.checked)">
-                                        按文档分组
-                                    </label>
-                                    <label style="display:flex;align-items:center;gap:6px;color:var(--tm-text-color);font-size:13px;">
-                                        <input type="checkbox" ${state.groupByTime ? 'checked' : ''} onchange="toggleGroupByTime(this.checked)">
-                                        按时间分组
-                                    </label>
-                                    <label style="display:flex;align-items:center;gap:6px;color:var(--tm-text-color);font-size:13px;">
-                                        <input type="checkbox" ${state.quadrantEnabled ? 'checked' : ''} onchange="toggleQuadrantGroup(this.checked)">
-                                        四象限分组
-                                    </label>
+                                <div class="tm-mobile-only-item" style="display:flex; gap:10px; align-items:center;">
+                                    <span style="color:var(--tm-text-color);width:60px;">模式:</span>
+                                    <select class="tm-rule-select" style="flex:1;" onchange="tmSwitchGroupMode(this.value)">
+                                        <option value="none" ${(!state.groupByDocName && !state.groupByTime && !state.quadrantEnabled) ? 'selected' : ''}>不分组</option>
+                                        <option value="doc" ${state.groupByDocName ? 'selected' : ''}>按文档</option>
+                                        <option value="time" ${state.groupByTime ? 'selected' : ''}>按时间</option>
+                                        <option value="quadrant" ${state.quadrantEnabled ? 'selected' : ''}>四象限</option>
+                                    </select>
                                 </div>
                                 ${currentRule ? `<div class="tm-mobile-only-item" style="color:var(--tm-secondary-text);font-size:12px;">当前规则: ${esc(currentRule.name)} (${filteredCount}任务)</div>` : ''}
                             </div>
@@ -6048,7 +6636,7 @@ async function __tmRefreshAfterWake(reason) {
                         }
                     </style>
 
-                <div class="tm-doc-tabs">
+                <div class="tm-doc-tabs ${state.docTabsHidden ? 'tm-doc-tabs--hidden' : ''}">
                     <div style="display:flex; gap:8px; overflow-x:auto; flex:1; align-items:center; padding: ${isMobile ? '4px 12px 4px 12px' : '4px 0 4px 0'};">
                         <div class="tm-doc-tab ${state.activeDocId === 'all' ? 'active' : ''}" onclick="tmSwitchDoc('all')">全部</div>
                         ${(() => {
@@ -6071,12 +6659,28 @@ async function __tmRefreshAfterWake(reason) {
                 </div>
                 
                 <style>
+                    .tm-title {
+                        cursor: pointer;
+                        user-select: none;
+                    }
                     .tm-doc-tabs {
                         display: flex;
                         align-items: center;
                         padding: 0 15px;
                         border-bottom: 1px solid var(--tm-border-color);
                         background: var(--tm-header-bg);
+                        max-height: 56px;
+                        overflow: hidden;
+                        transition: max-height 0.18s ease, opacity 0.18s ease, border-color 0.18s ease, padding-top 0.18s ease, padding-bottom 0.18s ease;
+                        opacity: 1;
+                    }
+                    .tm-doc-tabs.tm-doc-tabs--hidden {
+                        max-height: 0;
+                        opacity: 0;
+                        border-bottom-color: transparent;
+                        padding-top: 0;
+                        padding-bottom: 0;
+                        pointer-events: none;
                     }
                     .tm-doc-tabs > div::-webkit-scrollbar {
                         height: 4px;
@@ -6141,54 +6745,183 @@ async function __tmRefreshAfterWake(reason) {
                             border-radius: 6px;
                         }
                     }
+
+                    @media (max-width: 1024px) {
+                        .tm-header-selectors {
+                            display: none !important;
+                        }
+                        .tm-mobile-menu-btn {
+                            display: block !important;
+                        }
+                        .tm-mobile-only-item {
+                            display: flex !important;
+                        }
+                        .tm-desktop-menu-btn {
+                            display: none !important;
+                        }
+                    }
                 </style>
                 
-                <div class="tm-body">
-                    <table class="tm-table" id="tmTaskTable">
-                        <thead>
-                            <tr>
-                                ${(() => {
-                                    const colOrder = SettingsStore.data.columnOrder || ['pinned', 'content', 'status', 'score', 'doc', 'h2', 'priority', 'completionTime', 'duration', 'spent', 'remark'];
-                                    const widths = SettingsStore.data.columnWidths || {};
-                                    const headers = {
-                                        pinned: `<th data-col="pinned" style="width: ${widths.pinned || 48}px; min-width: ${widths.pinned || 48}px; max-width: ${widths.pinned || 48}px; text-align: center; white-space: nowrap; overflow: hidden;">📌<span class="tm-col-resize" onmousedown="startColResize(event, 'pinned')"></span></th>`,
-                                        content: `<th data-col="content" style="width: ${widths.content || 360}px; min-width: ${widths.content || 360}px; max-width: ${widths.content || 360}px; white-space: nowrap; overflow: hidden;">任务内容<span class="tm-col-resize" onmousedown="startColResize(event, 'content')"></span></th>`,
-                                        score: `<th data-col="score" style="width: ${widths.score || 96}px; min-width: ${widths.score || 96}px; max-width: ${widths.score || 96}px; text-align: center; white-space: nowrap; overflow: hidden;">优先级<span class="tm-col-resize" onmousedown="startColResize(event, 'score')"></span></th>`,
-                                        doc: `<th data-col="doc" style="width: ${widths.doc || 180}px; min-width: ${widths.doc || 180}px; max-width: ${widths.doc || 180}px; white-space: nowrap; overflow: hidden;">文档<span class="tm-col-resize" onmousedown="startColResize(event, 'doc')"></span></th>`,
-                                        h2: (() => {
-                                            const level = SettingsStore.data.taskHeadingLevel || 'h2';
-                                            const labels = { h1: '一级标题', h2: '二级标题', h3: '三级标题', h4: '四级标题', h5: '五级标题', h6: '六级标题' };
-                                            const label = labels[level] || '标题';
-                                            return `<th data-col="h2" style="width: ${widths.h2 || 180}px; min-width: ${widths.h2 || 180}px; max-width: ${widths.h2 || 180}px; white-space: nowrap; overflow: hidden;">${label}<span class="tm-col-resize" onmousedown="startColResize(event, 'h2')"></span></th>`;
-                                        })(),
-                                        priority: `<th data-col="priority" style="width: ${widths.priority || 96}px; min-width: ${widths.priority || 96}px; max-width: ${widths.priority || 96}px; text-align: center; white-space: nowrap; overflow: hidden;">重要性<span class="tm-col-resize" onmousedown="startColResize(event, 'priority')"></span></th>`,
-                                        startDate: `<th data-col="startDate" style="width: ${widths.startDate || 90}px; min-width: ${widths.startDate || 90}px; max-width: ${widths.startDate || 90}px; white-space: nowrap; overflow: hidden;">开始日期<span class="tm-col-resize" onmousedown="startColResize(event, 'startDate')"></span></th>`,
-                                        completionTime: `<th data-col="completionTime" style="width: ${widths.completionTime || 170}px; min-width: ${widths.completionTime || 170}px; max-width: ${widths.completionTime || 170}px; white-space: nowrap; overflow: hidden;">完成时间<span class="tm-col-resize" onmousedown="startColResize(event, 'completionTime')"></span></th>`,
-                                        duration: `<th data-col="duration" style="width: ${widths.duration || 96}px; min-width: ${widths.duration || 96}px; max-width: ${widths.duration || 96}px; white-space: nowrap; overflow: hidden;">时长<span class="tm-col-resize" onmousedown="startColResize(event, 'duration')"></span></th>`,
-                                        spent: `<th data-col="spent" style="width: ${widths.spent || 96}px; min-width: ${widths.spent || 96}px; max-width: ${widths.spent || 96}px; white-space: nowrap; overflow: hidden;">耗时<span class="tm-col-resize" onmousedown="startColResize(event, 'spent')"></span></th>`,
-                                        remark: `<th data-col="remark" style="width: ${widths.remark || 240}px; min-width: ${widths.remark || 240}px; max-width: ${widths.remark || 240}px; white-space: nowrap; overflow: hidden;">备注<span class="tm-col-resize" onmousedown="startColResize(event, 'remark')"></span></th>`,
-                                        status: `<th data-col="status" style="width: ${widths.status || 96}px; min-width: ${widths.status || 96}px; max-width: ${widths.status || 96}px; text-align: center; white-space: nowrap; overflow: hidden;">状态<span class="tm-col-resize" onmousedown="startColResize(event, 'status')"></span></th>`
-                                    };
-                                    return colOrder.map(col => headers[col] || '').join('');
-                                })()}
-                            </tr>
-                        </thead>
-                        <tbody>
-                            ${renderTaskList()}
-                        </tbody>
-                    </table>
-                </div>
+                ${mainBodyHtml}
             </div>
         `;
         
         __tmGetMountRoot().appendChild(state.modal);
 
         // 恢复滚动位置
-        if (savedScrollTop > 0 || savedScrollLeft > 0) {
+        if (state.viewMode === 'timeline') {
+            const leftBody = state.modal.querySelector('#tmTimelineLeftBody');
+            const ganttBody = state.modal.querySelector('#tmGanttBody');
+            const ganttHeader = state.modal.querySelector('#tmGanttHeader');
+
+            if (leftBody) leftBody.scrollTop = savedTimelineScrollTop;
+            if (ganttBody) {
+                ganttBody.scrollTop = savedTimelineScrollTop;
+                ganttBody.scrollLeft = savedTimelineScrollLeft;
+            }
+
+            const rowModel = Array.isArray(__tmTimelineRowModel) ? __tmTimelineRowModel : __tmBuildTaskRowModel();
+            const view = globalThis.__TaskHorizonGanttView;
+            if (view && typeof view.render === 'function' && ganttHeader && ganttBody) {
+                view.render({
+                    headerEl: ganttHeader,
+                    bodyEl: ganttBody,
+                    rowModel,
+                    getTaskById: (id) => state.flatTasks[String(id)],
+                    viewState: state.ganttView,
+                    onUpdateTaskDates: async (taskId, patch) => {
+                        const id = String(taskId || '').trim();
+                        if (!id) return;
+                        const task = state.flatTasks[id];
+                        if (!task) return;
+                        const startDate = String(patch?.startDate || '').trim();
+                        const completionTime = String(patch?.completionTime || '').trim();
+                        const nextStart = startDate ? __tmNormalizeDateOnly(startDate) : '';
+                        const nextEnd = completionTime ? __tmNormalizeDateOnly(completionTime) : '';
+                        task.startDate = nextStart;
+                        task.completionTime = nextEnd;
+                        try {
+                            await __tmPersistMetaAndAttrsAsync(id, { startDate: nextStart, completionTime: nextEnd });
+                        } catch (e) {
+                            hint(`❌ 更新失败: ${e.message}`, 'error');
+                        }
+                        applyFilters();
+                        render();
+                    },
+                });
+            }
+
+            const syncHeaderX = () => {
+                if (!ganttBody || !ganttHeader) return;
+                const inner = ganttHeader.querySelector('.tm-gantt-header-inner');
+                if (!inner) return;
+                inner.style.transform = `translateX(${-ganttBody.scrollLeft}px)`;
+            };
+            syncHeaderX();
+
+            const desiredTop = Number.isFinite(savedTimelineScrollTop) && savedTimelineScrollTop > 0
+                ? savedTimelineScrollTop
+                : (Number.isFinite(savedScrollTop) && savedScrollTop > 0 ? savedScrollTop : (Number(state.viewScroll?.timeline?.top) || Number(state.viewScroll?.list?.top) || 0));
+            const forcedLeft = Number(state.ganttView?.__forceScrollLeft);
+            const hasForcedLeft = Number.isFinite(forcedLeft);
+            const desiredLeft = hasForcedLeft
+                ? forcedLeft
+                : (Number.isFinite(savedTimelineScrollLeft) && savedTimelineScrollLeft > 0
+                    ? savedTimelineScrollLeft
+                    : (Number.isFinite(savedScrollLeft) && savedScrollLeft > 0 ? savedScrollLeft : (Number(state.viewScroll?.timeline?.left) || 0)));
+            requestAnimationFrame(() => requestAnimationFrame(() => {
+                try { if (leftBody) leftBody.scrollTop = desiredTop; } catch (e) {}
+                try { if (ganttBody) ganttBody.scrollTop = desiredTop; } catch (e) {}
+                try { if (ganttBody) ganttBody.scrollLeft = desiredLeft; } catch (e) {}
+                try { syncHeaderX(); } catch (e) {}
+                try { if (hasForcedLeft) delete state.ganttView.__forceScrollLeft; } catch (e) {}
+            }));
+
+            const syncRowHeights = () => {
+                if (!leftBody || !ganttBody) return;
+                const leftRows = leftBody.querySelectorAll('tbody tr');
+                const rightRows = ganttBody.querySelectorAll('.tm-gantt-row');
+                const n = Math.min(leftRows.length, rightRows.length);
+                if (n <= 0) return;
+                for (let i = 0; i < n; i++) {
+                    const h = leftRows[i]?.getBoundingClientRect?.().height;
+                    if (!Number.isFinite(h) || h <= 0) continue;
+                    const rr = rightRows[i];
+                    rr.style.height = `${h}px`;
+                    rr.style.minHeight = `${h}px`;
+                    rr.style.maxHeight = `${h}px`;
+                    const bar = rr.querySelector?.('.tm-gantt-bar');
+                    if (bar) {
+                        const barH = bar.getBoundingClientRect?.().height;
+                        const bh = Number.isFinite(barH) && barH > 0 ? barH : Math.max(12, Math.min(22, Math.round(h * 0.6)));
+                        const top = Math.max(2, (h - bh) / 2);
+                        bar.style.top = `${top}px`;
+                    }
+                }
+            };
+
+            requestAnimationFrame(() => requestAnimationFrame(() => {
+                syncRowHeights();
+                setTimeout(syncRowHeights, 60);
+                setTimeout(syncRowHeights, 260);
+            }));
+
+            requestAnimationFrame(() => requestAnimationFrame(() => {
+                if (!Number.isFinite(Number(SettingsStore.data.timelineLeftWidth)) || Number(SettingsStore.data.timelineLeftWidth) <= 0) {
+                    const leftTable = state.modal?.querySelector?.('#tmTimelineLeftTable');
+                    const w = leftTable?.getBoundingClientRect?.().width;
+                    if (Number.isFinite(w) && w > 0) {
+                        SettingsStore.data.timelineLeftWidth = Math.max(360, Math.min(900, Math.round(w)));
+                        try { SettingsStore.save(); } catch (e) {}
+                    }
+                }
+            }));
+
+            if (leftBody && ganttBody) {
+                const onGroupClick = (ev) => {
+                    const el = ev?.target instanceof Element ? ev.target.closest('.tm-gantt-row--group') : null;
+                    if (!el) return;
+                    const key = String(el.getAttribute('data-group-key') || '').trim();
+                    if (!key) return;
+                    tmToggleGroupCollapse(key, ev);
+                };
+                let syncing = false;
+                const syncFromLeft = () => {
+                    if (syncing) return;
+                    syncing = true;
+                    requestAnimationFrame(() => {
+                        try { ganttBody.scrollTop = leftBody.scrollTop; } catch (e) {}
+                        syncing = false;
+                    });
+                };
+                const syncFromRight = () => {
+                    if (syncing) return;
+                    syncing = true;
+                    requestAnimationFrame(() => {
+                        try { leftBody.scrollTop = ganttBody.scrollTop; } catch (e) {}
+                        syncing = false;
+                    });
+                };
+                leftBody.addEventListener('scroll', syncFromLeft, { passive: true });
+                ganttBody.addEventListener('scroll', () => {
+                    syncHeaderX();
+                    syncFromRight();
+                }, { passive: true });
+                ganttBody.addEventListener('click', onGroupClick, true);
+            } else if (ganttBody) {
+                ganttBody.addEventListener('scroll', syncHeaderX, { passive: true });
+            }
+        } else {
             const newBody = state.modal.querySelector('.tm-body');
             if (newBody) {
-                if (savedScrollTop > 0) newBody.scrollTop = savedScrollTop;
-                if (savedScrollLeft > 0) newBody.scrollLeft = savedScrollLeft;
+                const desiredTop = Number.isFinite(savedScrollTop) && savedScrollTop > 0
+                    ? savedScrollTop
+                    : (Number.isFinite(savedTimelineScrollTop) && savedTimelineScrollTop > 0 ? savedTimelineScrollTop : (Number(state.viewScroll?.list?.top) || 0));
+                const desiredLeft = Number.isFinite(savedScrollLeft) && savedScrollLeft > 0
+                    ? savedScrollLeft
+                    : (Number(state.viewScroll?.list?.left) || 0);
+                try { newBody.scrollTop = desiredTop; } catch (e) {}
+                try { newBody.scrollLeft = desiredLeft; } catch (e) {}
             }
         }
     }
@@ -6239,12 +6972,96 @@ async function __tmRefreshAfterWake(reason) {
         }
     };
 
+    window.tmToggleTimelineMode = function() {
+        state.viewMode = state.viewMode === 'timeline' ? 'list' : 'timeline';
+        render();
+    };
+
+    window.tmGanttZoomIn = function() {
+        const next = Math.min(60, Math.max(10, Math.round((Number(state.ganttView?.dayWidth) || 24) + 4)));
+        state.ganttView.dayWidth = next;
+        render();
+    };
+
+    window.tmGanttZoomOut = function() {
+        const next = Math.min(60, Math.max(10, Math.round((Number(state.ganttView?.dayWidth) || 24) - 4)));
+        state.ganttView.dayWidth = next;
+        render();
+    };
+
+    window.tmGanttFit = function() {
+        if (state.viewMode !== 'timeline') return;
+        try {
+            const body = state.modal?.querySelector?.('#tmGanttBody');
+            const w = body?.clientWidth;
+            if (!Number.isFinite(w) || w <= 0) {
+                state.ganttView.__forceScrollLeft = 0;
+                render();
+                return;
+            }
+            const view = globalThis.__TaskHorizonGanttView;
+            const parse = view?.parseDateOnlyToTs;
+            const startOfDayTs = view?.startOfDayTs;
+            const DAY_MS = Number(view?.DAY_MS) || 86400000;
+            if (typeof parse !== 'function' || typeof startOfDayTs !== 'function') {
+                state.ganttView.__forceScrollLeft = 0;
+                render();
+                return;
+            }
+            const rowModel = __tmBuildTaskRowModel();
+            let minTs = 0;
+            let maxTs = 0;
+            for (const r of rowModel) {
+                if (r?.type !== 'task') continue;
+                const t = state.flatTasks[String(r.id)];
+                if (!t) continue;
+                const sTs = parse(t?.startDate);
+                const eTs = parse(t?.completionTime);
+                const a = sTs || eTs;
+                const b = eTs || sTs;
+                if (!a || !b) continue;
+                if (!minTs || a < minTs) minTs = a;
+                if (!maxTs || b > maxTs) maxTs = b;
+            }
+            const now = Date.now();
+            const paddingDays = Math.max(0, Number(state.ganttView?.paddingDays) || 0);
+            const pad = paddingDays * DAY_MS;
+            const startTs = startOfDayTs((minTs || now) - pad);
+            const endTs = startOfDayTs((maxTs || now) + pad);
+            const dayCount = Math.max(1, Math.min(366, Math.round((endTs - startTs) / DAY_MS) + 1));
+            const usableW = Math.max(120, w - 24);
+            const next = Math.max(10, Math.min(60, Math.floor(usableW / dayCount)));
+            state.ganttView.dayWidth = next;
+            state.ganttView.__forceScrollLeft = 0;
+            render();
+        } catch (e) {
+            try { state.ganttView.__forceScrollLeft = 0; } catch (e2) {}
+            render();
+        }
+    };
+
+    window.tmGanttToday = function() {
+        const body = state.modal?.querySelector?.('#tmGanttBody');
+        if (!body) return;
+        const todayLine = body.querySelector('.tm-gantt-today');
+        if (!todayLine) return;
+        const left = Number.parseFloat(String(todayLine.style.left || '').replace('px', ''));
+        if (!Number.isFinite(left)) return;
+        const target = Math.max(0, Math.round(left - body.clientWidth * 0.35));
+        body.scrollLeft = target;
+        try { body.dispatchEvent(new Event('scroll')); } catch (e) {}
+    };
+
     window.tmToggleDesktopMenu = function(e) {
         if (e) { e.stopPropagation(); e.preventDefault(); }
         
         // 移除现有的菜单
         const existing = document.getElementById('tmDesktopMenu');
         if (existing) {
+            if (state.desktopMenuCloseHandler) {
+                try { document.removeEventListener('click', state.desktopMenuCloseHandler); } catch (e2) {}
+                state.desktopMenuCloseHandler = null;
+            }
             existing.remove();
             return;
         }
@@ -6269,6 +7086,8 @@ async function __tmRefreshAfterWake(reason) {
         `;
         
         menu.innerHTML = `
+            <button class="tm-btn tm-btn-info" onclick="tmShowSearchModal(); document.getElementById('tmDesktopMenu').remove()" style="text-align:left; padding: 6px 12px;">🔍 搜索${state.searchKeyword ? ` (${String(state.searchKeyword || '').trim()})` : ''}</button>
+            ${state.searchKeyword ? `<button class="tm-btn tm-btn-secondary" onclick="tmSearch(''); document.getElementById('tmDesktopMenu').remove()" style="text-align:left; padding: 6px 12px;">清除搜索</button>` : ''}
             <button class="tm-btn tm-btn-info" onclick="tmCollapseAllTasks(); document.getElementById('tmDesktopMenu').remove()" style="text-align:left; padding: 6px 12px;">▸ 全部折叠</button>
             <button class="tm-btn tm-btn-info" onclick="tmExpandAllTasks(); document.getElementById('tmDesktopMenu').remove()" style="text-align:left; padding: 6px 12px;">▾ 全部展开</button>
         `;
@@ -6277,9 +7096,11 @@ async function __tmRefreshAfterWake(reason) {
         const closeHandler = (ev) => {
             if (!menu.contains(ev.target) && ev.target !== e.target) {
                 menu.remove();
-                document.removeEventListener('click', closeHandler);
+                try { document.removeEventListener('click', closeHandler); } catch (e2) {}
+                if (state.desktopMenuCloseHandler === closeHandler) state.desktopMenuCloseHandler = null;
             }
         };
+        state.desktopMenuCloseHandler = closeHandler;
         setTimeout(() => document.addEventListener('click', closeHandler), 0);
         
         const container = document.querySelector('.tm-filter-rule-bar');
@@ -6365,6 +7186,7 @@ async function __tmRefreshAfterWake(reason) {
 
     // 列宽调整功能
     let __tmResizeState = null;
+    let __tmTimelineSplitResizeState = null;
 
     window.startColResize = function(event, colName) {
         event.preventDefault();
@@ -6408,6 +7230,87 @@ async function __tmRefreshAfterWake(reason) {
         document.body.style.cursor = '';
         document.body.style.userSelect = '';
         __tmResizeState = null;
+    };
+
+    window.tmStartTimelineSplitResize = function(event) {
+        try { event.preventDefault(); } catch (e) {}
+        try { event.stopPropagation(); } catch (e) {}
+        const leftEl = state.modal?.querySelector?.('.tm-timeline-left');
+        if (!leftEl) return;
+        const startX = event.clientX;
+        const startWidth = leftEl.getBoundingClientRect().width;
+        __tmTimelineSplitResizeState = { startX, startWidth, leftEl };
+
+        const onMove = (ev) => {
+            if (!__tmTimelineSplitResizeState) return;
+            const dx = ev.clientX - __tmTimelineSplitResizeState.startX;
+            const next = Math.max(360, Math.min(900, Math.round(__tmTimelineSplitResizeState.startWidth + dx)));
+            __tmTimelineSplitResizeState.leftEl.style.width = `${next}px`;
+        };
+        const onUp = async (ev) => {
+            if (!__tmTimelineSplitResizeState) return;
+            const dx = ev.clientX - __tmTimelineSplitResizeState.startX;
+            const next = Math.max(360, Math.min(900, Math.round(__tmTimelineSplitResizeState.startWidth + dx)));
+            __tmTimelineSplitResizeState = null;
+            try { document.removeEventListener('mousemove', onMove); } catch (e) {}
+            try { document.removeEventListener('mouseup', onUp); } catch (e) {}
+            document.body.style.cursor = '';
+            document.body.style.userSelect = '';
+            SettingsStore.data.timelineLeftWidth = next;
+            try { await SettingsStore.save(); } catch (e) {}
+        };
+
+        document.addEventListener('mousemove', onMove);
+        document.addEventListener('mouseup', onUp);
+        document.body.style.cursor = 'col-resize';
+        document.body.style.userSelect = 'none';
+    };
+
+    window.tmStartTimelineContentResize = function(event) {
+        try { event.preventDefault(); } catch (e) {}
+        try { event.stopPropagation(); } catch (e) {}
+        const th = event.target.closest('th');
+        if (!th) return;
+        const startX = event.clientX;
+        const table = state.modal?.querySelector?.('#tmTimelineLeftTable');
+        const col = state.modal?.querySelector?.('#tmTimelineColContent');
+        const startWidth = th.getBoundingClientRect().width;
+        const startW = Number.isFinite(startWidth) ? startWidth : th.offsetWidth;
+
+        const onMove = (ev) => {
+            const dx = ev.clientX - startX;
+            const next = Math.max(160, Math.min(800, Math.round(startW + dx)));
+            if (col) col.style.width = `${next}px`;
+            th.style.width = `${next}px`;
+            th.style.minWidth = `${next}px`;
+            th.style.maxWidth = `${next}px`;
+            const startW2 = Number(SettingsStore.data.columnWidths?.startDate) || 90;
+            const endW2 = Number(SettingsStore.data.columnWidths?.completionTime) || 170;
+            const total = Math.round(next + startW2 + endW2 + 2);
+            if (table) {
+                table.style.width = `${total}px`;
+                table.style.minWidth = `${total}px`;
+                table.style.maxWidth = `${total}px`;
+            }
+        };
+
+        const onUp = async (ev) => {
+            const dx = ev.clientX - startX;
+            const next = Math.max(160, Math.min(800, Math.round(startW + dx)));
+            try { document.removeEventListener('mousemove', onMove); } catch (e) {}
+            try { document.removeEventListener('mouseup', onUp); } catch (e) {}
+            document.body.style.cursor = '';
+            document.body.style.userSelect = '';
+
+            SettingsStore.data.timelineContentWidth = next;
+            try { await SettingsStore.save(); } catch (e) {}
+            render();
+        };
+
+        document.addEventListener('mousemove', onMove);
+        document.addEventListener('mouseup', onUp);
+        document.body.style.cursor = 'col-resize';
+        document.body.style.userSelect = 'none';
     };
 
     function normalizeTaskFields(task, docNameFallback) {
@@ -6720,6 +7623,14 @@ async function __tmRefreshAfterWake(reason) {
                 hint(next ? '✅ 完成时间已更新' : '✅ 完成时间已清空', 'success');
                 return;
             }
+            if (field === 'startDate') {
+                const raw = String(value || '').trim();
+                const next = raw ? __tmNormalizeDateOnly(raw) : '';
+                task.startDate = next;
+                __tmPersistMetaAndAttrs(id, { startDate: next });
+                hint(next ? '✅ 开始日期已更新' : '✅ 开始日期已清空', 'success');
+                return;
+            }
             if (field === 'customTime') {
                 const raw = String(value || '').trim();
                 task.customTime = raw;
@@ -6805,6 +7716,47 @@ async function __tmRefreshAfterWake(reason) {
             input.type = 'date';
             input.className = 'tm-cell-editor-input';
             const val = String(task.completionTime || '').trim();
+            input.value = val ? val.slice(0, 10) : '';
+            td.appendChild(input);
+
+            const initial = input.value;
+            let committed = false;
+            const save = () => {
+                if (committed) return;
+                const next = String(input.value || '').trim();
+                if (next === String(initial || '').trim()) {
+                    committed = true;
+                    finish(false);
+                    return;
+                }
+                committed = true;
+                commitAndClose(next);
+            };
+            input.onchange = () => save();
+            input.onblur = () => {
+                if (committed) return;
+                committed = true;
+                cancel();
+            };
+            input.onkeydown = (e) => {
+                if (e.key === 'Escape') cancel();
+                if (e.key === 'Enter') save();
+            };
+            input.onclick = () => {
+                try { input.showPicker?.(); } catch (e) {}
+            };
+            try {
+                input.focus();
+                input.showPicker?.();
+            } catch (e) {}
+            return;
+        }
+
+        if (field === 'startDate') {
+            const input = document.createElement('input');
+            input.type = 'date';
+            input.className = 'tm-cell-editor-input';
+            const val = String(task.startDate || '').trim();
             input.value = val ? val.slice(0, 10) : '';
             td.appendChild(input);
 
@@ -7419,6 +8371,288 @@ async function __tmRefreshAfterWake(reason) {
         closeAfterJump();
     };
 
+    function __tmBuildTaskRowModel() {
+        if (!Array.isArray(state.filteredTasks) || state.filteredTasks.length === 0) return [];
+
+        const isDark = __tmIsDarkMode();
+        const timeBaseColor = isDark
+            ? __tmNormalizeHexColor(SettingsStore.data.timeGroupBaseColorDark, '#6ba5ff')
+            : __tmNormalizeHexColor(SettingsStore.data.timeGroupBaseColorLight, '#1a73e8');
+        const timeOverdueColor = isDark
+            ? __tmNormalizeHexColor(SettingsStore.data.timeGroupOverdueColorDark, '#ff6b6b')
+            : __tmNormalizeHexColor(SettingsStore.data.timeGroupOverdueColorLight, '#d93025');
+        const __tmGetTimeGroupLabelColor = (groupInfo) => {
+            const key = String(groupInfo?.key || '');
+            const sortValue = Number(groupInfo?.sortValue);
+            if (key === 'pending' || !Number.isFinite(sortValue)) return 'var(--tm-secondary-text)';
+            if (sortValue < 0) return timeOverdueColor || 'var(--tm-danger-color)';
+            const minA = isDark ? 0.52 : 0.42;
+            const step = isDark ? 0.085 : 0.11;
+            const alpha = __tmClamp(1 - sortValue * step, minA, 1);
+            return __tmWithAlpha(timeBaseColor || 'var(--tm-primary-color)', alpha);
+        };
+
+        const rows = [];
+
+        const filteredIdSet = new Set(state.filteredTasks.map(t => t.id));
+        const orderMap = new Map(state.filteredTasks.map((t, i) => [t.id, i]));
+        const getTaskOrder = (taskId) => orderMap.get(taskId) ?? Infinity;
+
+        const rootTasks = state.filteredTasks.filter(t => {
+            if (!t.parentTaskId) return true;
+            return !filteredIdSet.has(t.parentTaskId);
+        });
+
+        const pinnedRoots = rootTasks.filter(t => t.pinned);
+        const normalRoots = rootTasks.filter(t => !t.pinned);
+        pinnedRoots.sort((a, b) => getTaskOrder(a.id) - getTaskOrder(b.id));
+        normalRoots.sort((a, b) => getTaskOrder(a.id) - getTaskOrder(b.id));
+
+        const emitTask = (task, depth, hasChildren, collapsed) => {
+            rows.push({
+                type: 'task',
+                id: String(task?.id || ''),
+                depth: Math.max(0, Number(depth) || 0),
+                hasChildren: !!hasChildren,
+                collapsed: !!collapsed,
+            });
+        };
+
+        const walkTaskTree = (task, depth) => {
+            const childTasks = (task.children || []).filter(c => filteredIdSet.has(c.id));
+            childTasks.sort((a, b) => getTaskOrder(a.id) - getTaskOrder(b.id));
+            const hasChildren = childTasks.length > 0;
+            const collapsed = state.collapsedTaskIds.has(String(task.id));
+            const showChildren = hasChildren && !task.done;
+            emitTask(task, depth, showChildren, collapsed);
+            if (showChildren && !collapsed) {
+                childTasks.forEach(child => walkTaskTree(child, depth + 1));
+            }
+        };
+
+        pinnedRoots.forEach(task => walkTaskTree(task, 0));
+
+        if (state.quadrantEnabled && normalRoots.length > 0) {
+            const quadrantRules = (SettingsStore.data.quadrantConfig && SettingsStore.data.quadrantConfig.rules) || [];
+            const getImportanceLevel = (task) => {
+                const priority = String(task.priority || '').toLowerCase();
+                if (priority === 'a' || priority === '高' || priority === 'high') return 'high';
+                if (priority === 'b' || priority === '中' || priority === 'medium') return 'medium';
+                if (priority === 'c' || priority === '低' || priority === 'low') return 'low';
+                return 'none';
+            };
+            const getTimeRange = (task) => {
+                const timeStr = task.completionTime;
+                if (!timeStr) return 'nodate';
+                const taskDate = new Date(timeStr);
+                if (isNaN(taskDate.getTime())) return 'nodate';
+                const now = new Date();
+                const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+                const target = new Date(taskDate.getFullYear(), taskDate.getMonth(), taskDate.getDate());
+                const diffDays = Math.ceil((target - today) / (1000 * 60 * 60 * 24));
+                if (diffDays < 0) return 'overdue';
+                if (diffDays <= 7) return 'within7days';
+                if (diffDays <= 15) return 'within15days';
+                if (diffDays <= 30) return 'within30days';
+                return 'beyond30days';
+            };
+            const getTaskDays = (task) => {
+                const timeStr = task.completionTime;
+                if (!timeStr) return Infinity;
+                const taskDate = new Date(timeStr);
+                if (isNaN(taskDate.getTime())) return Infinity;
+                const now = new Date();
+                const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+                const target = new Date(taskDate.getFullYear(), taskDate.getMonth(), taskDate.getDate());
+                return Math.ceil((target - today) / (1000 * 60 * 60 * 24));
+            };
+
+            const quadrantGroups = {};
+            quadrantRules.forEach(rule => {
+                quadrantGroups[rule.id] = { ...rule, items: [] };
+            });
+            const quadrantOrder = ['urgent-important', 'not-urgent-important', 'urgent-not-important', 'not-urgent-not-important'];
+
+            normalRoots.forEach(task => {
+                const importance = getImportanceLevel(task);
+                const timeRange = getTimeRange(task);
+                const taskDays = getTaskDays(task);
+                let matchedRule = null;
+                for (const rule of quadrantRules) {
+                    const importanceMatch = rule.importance.includes(importance);
+                    let timeRangeMatch = rule.timeRanges.includes(timeRange);
+                    if (!timeRangeMatch) {
+                        for (const range of rule.timeRanges) {
+                            if (range.startsWith('beyond') && range !== 'beyond30days') {
+                                const days = parseInt(range.replace('beyond', '').replace('days', ''));
+                                if (!isNaN(days) && taskDays > days) { timeRangeMatch = true; break; }
+                            }
+                        }
+                    }
+                    if (importanceMatch && timeRangeMatch) { matchedRule = rule; break; }
+                }
+                if (matchedRule && quadrantGroups[matchedRule.id]) {
+                    quadrantGroups[matchedRule.id].items.push(task);
+                }
+            });
+
+            const calculateDuration = (items) => {
+                const durationFormat = SettingsStore.data.durationFormat || 'hours';
+                let totalMinutes = 0;
+                items.forEach(task => {
+                    const durationStr = String(task.duration || '').trim();
+                    if (!durationStr) return;
+                    let minutes = 0;
+                    if (durationStr.toLowerCase().endsWith('h')) {
+                        const hours = parseFloat(durationStr.toLowerCase().replace('h', ''));
+                        if (!isNaN(hours)) minutes = hours * 60;
+                    } else if (durationStr.toLowerCase().endsWith('min')) {
+                        const mins = parseFloat(durationStr.toLowerCase().replace('min', ''));
+                        if (!isNaN(mins)) minutes = mins;
+                    } else {
+                        const num = parseFloat(durationStr);
+                        if (!isNaN(num)) minutes = num > 100 ? num : num * 60;
+                    }
+                    totalMinutes += minutes;
+                });
+                if (totalMinutes === 0) return '';
+                if (durationFormat === 'hours') {
+                    const hours = Math.round(totalMinutes / 60 * 10) / 10;
+                    return `${hours}h`;
+                }
+                return `${totalMinutes}min`;
+            };
+
+            quadrantOrder.forEach((quadrantId) => {
+                const group = quadrantGroups[quadrantId];
+                if (!group || !Array.isArray(group.items) || group.items.length === 0) return;
+                const groupKey = `quadrant_${quadrantId}`;
+                const isCollapsed = state.collapsedGroups?.has(groupKey);
+                rows.push({
+                    type: 'group',
+                    kind: 'quadrant',
+                    key: groupKey,
+                    label: String(group.name || ''),
+                    color: String(group.color || ''),
+                    count: group.items.length,
+                    durationSum: calculateDuration(group.items),
+                    collapsed: !!isCollapsed,
+                });
+                if (!isCollapsed) {
+                    group.items.forEach(task => walkTaskTree(task, 0));
+                }
+            });
+            return rows;
+        }
+
+        if (state.groupByDocName) {
+            const docsInOrder = state.taskTree.map(d => d.id).filter(Boolean);
+            docsInOrder.forEach(docId => {
+                const docEntry = state.taskTree.find(d => d.id === docId);
+                if (!docEntry) return;
+                const docTasks = state.filteredTasks.filter(t => t.root_id === docId);
+                if (docTasks.length === 0) return;
+                const docRootTasks = docTasks.filter(t => {
+                    if (!t.parentTaskId) return true;
+                    return !filteredIdSet.has(t.parentTaskId);
+                });
+                const docNormal = docRootTasks.filter(t => !t.pinned);
+                const docName = docEntry.name || '未知文档';
+                const groupKey = `doc_${docId}`;
+                const isCollapsed = state.collapsedGroups?.has(groupKey);
+                rows.push({
+                    type: 'group',
+                    kind: 'doc',
+                    key: groupKey,
+                    label: String(docName),
+                    count: docTasks.length,
+                    collapsed: !!isCollapsed,
+                });
+                if (!isCollapsed) {
+                    docNormal.forEach(task => walkTaskTree(task, 0));
+                }
+            });
+            return rows;
+        }
+
+        if (state.groupByTime && normalRoots.length > 0) {
+            const getTimeGroup = (task) => {
+                const timeStr = task.completionTime;
+                if (!timeStr) return { key: 'pending', label: '待定', sortValue: Infinity };
+                const taskDate = new Date(timeStr);
+                if (isNaN(taskDate.getTime())) return { key: 'pending', label: '待定', sortValue: Infinity };
+                const now = new Date();
+                const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+                const target = new Date(taskDate.getFullYear(), taskDate.getMonth(), taskDate.getDate());
+                const diffDays = Math.ceil((target - today) / (1000 * 60 * 60 * 24));
+                if (diffDays < 0) return { key: 'overdue', label: '已过期', sortValue: diffDays };
+                if (diffDays === 0) return { key: 'today', label: '今天', sortValue: 0 };
+                if (diffDays === 1) return { key: 'tomorrow', label: '明天', sortValue: 1 };
+                if (diffDays === 2) return { key: 'after_tomorrow', label: '后天', sortValue: 2 };
+                return { key: `days_${diffDays}`, label: `余${diffDays}天`, sortValue: diffDays };
+            };
+
+            const timeGroups = new Map();
+            normalRoots.forEach(task => {
+                const groupInfo = getTimeGroup(task);
+                if (!timeGroups.has(groupInfo.key)) timeGroups.set(groupInfo.key, { ...groupInfo, items: [] });
+                timeGroups.get(groupInfo.key).items.push(task);
+            });
+
+            const sortedGroups = [...timeGroups.values()].sort((a, b) => a.sortValue - b.sortValue);
+            const calculateGroupDuration = (items) => {
+                const durationFormat = SettingsStore.data.durationFormat || 'hours';
+                let totalMinutes = 0;
+                items.forEach(task => {
+                    const durationStr = String(task.duration || '').trim();
+                    if (!durationStr) return;
+                    let minutes = 0;
+                    if (durationStr.toLowerCase().endsWith('h')) {
+                        const hours = parseFloat(durationStr.toLowerCase().replace('h', ''));
+                        if (!isNaN(hours)) minutes = hours * 60;
+                    } else if (durationStr.toLowerCase().endsWith('min')) {
+                        const mins = parseFloat(durationStr.toLowerCase().replace('min', ''));
+                        if (!isNaN(mins)) minutes = mins;
+                    } else {
+                        const num = parseFloat(durationStr);
+                        if (!isNaN(num)) minutes = num > 100 ? num : num * 60;
+                    }
+                    totalMinutes += minutes;
+                });
+                if (totalMinutes <= 0) return '';
+                if (durationFormat === 'hours') {
+                    const hours = totalMinutes / 60;
+                    if (hours < 1) return `${Math.round(totalMinutes)}min`;
+                    if (hours === Math.floor(hours)) return `${Math.round(hours)}h`;
+                    return `${hours.toFixed(1)}h`;
+                }
+                return `${totalMinutes}min`;
+            };
+
+            sortedGroups.forEach(group => {
+                const isCollapsed = state.collapsedGroups?.has(group.key);
+                rows.push({
+                    type: 'group',
+                    kind: 'time',
+                    key: String(group.key),
+                    label: String(group.label || ''),
+                    count: Array.isArray(group.items) ? group.items.length : 0,
+                    labelColor: __tmGetTimeGroupLabelColor(group),
+                    durationSum: calculateGroupDuration(group.items || []),
+                    collapsed: !!isCollapsed,
+                });
+                if (!isCollapsed) {
+                    group.items.sort((a, b) => getTaskOrder(a.id) - getTaskOrder(b.id));
+                    group.items.forEach(task => walkTaskTree(task, 0));
+                }
+            });
+            return rows;
+        }
+
+        normalRoots.forEach(task => walkTaskTree(task, 0));
+        return rows;
+    }
+
 // 渲染任务列表（支持跨文档全局排序）
     function renderTaskList() {
         if (state.filteredTasks.length === 0) {
@@ -7759,7 +8993,7 @@ async function __tmRefreshAfterWake(reason) {
                 };
                 const durationSum = calculateDuration(group.items);
                 
-                allRows.push(`<tr class="tm-group-row"><td colspan="${colCount}" onclick="tmToggleGroupCollapse('${groupKey}', event)" style="cursor:pointer;background:var(--tm-header-bg);padding:8px 12px;font-weight:bold;color:${color};border-bottom:1px solid var(--tm-border-color);">${toggle}<span class="tm-quadrant-indicator tm-quadrant-bg-${group.color}"></span>${esc(group.name)} <span style="font-weight:normal;color:var(--tm-secondary-text);font-size:12px;background:var(--tm-doc-count-bg);padding:1px 6px;border-radius:10px;margin-left:4px;">${group.items.length}</span>${durationSum ? `<span style="font-weight:normal;color:var(--tm-primary-color);font-size:12px;background:var(--tm-info-bg);padding:1px 6px;border-radius:10px;margin-left:4px;border:1px solid var(--tm-info-border);">📊 ${durationSum}</span>` : ''}</td></tr>`);
+                allRows.push(`<tr class="tm-group-row"><td colspan="${colCount}" onclick="tmToggleGroupCollapse('${groupKey}', event)" style="cursor:pointer;background:var(--tm-header-bg);font-weight:bold;color:${color};border-bottom:1px solid var(--tm-table-border-color);"><div class="tm-group-sticky">${toggle}<span class="tm-quadrant-indicator tm-quadrant-bg-${group.color}"></span>${esc(group.name)} <span style="font-weight:normal;color:var(--tm-secondary-text);font-size:12px;background:var(--tm-doc-count-bg);padding:1px 6px;border-radius:10px;margin-left:4px;">${group.items.length}</span>${durationSum ? `<span style="font-weight:normal;color:var(--tm-primary-color);font-size:12px;background:var(--tm-info-bg);padding:1px 6px;border-radius:10px;margin-left:4px;border:1px solid var(--tm-info-border);">📊 ${durationSum}</span>` : ''}</div></td></tr>`);
                 
                 // 如果未折叠，渲染任务
                 if (!isCollapsed) {
@@ -7795,7 +9029,7 @@ async function __tmRefreshAfterWake(reason) {
                 const isCollapsed = state.collapsedGroups?.has(groupKey);
                 const toggle = `<span class="tm-group-toggle" onclick="tmToggleGroupCollapse('${groupKey}', event)" style="cursor:pointer;margin-right:8px;display:inline-block;width:12px;">${isCollapsed ? '▸' : '▾'}</span>`;
 
-                allRows.push(`<tr class="tm-group-row"><td colspan="${colCount}" onclick="tmToggleGroupCollapse('${groupKey}', event)" style="cursor:pointer;background:var(--tm-header-bg);padding:8px 12px;font-weight:bold;color:var(--tm-text-color);border-bottom:1px solid var(--tm-border-color);">${toggle}<span class="tm-group-label" style="color: var(--tm-group-doc-label-color);">📄 ${esc(docName)}</span> <span style="font-weight:normal;color:var(--tm-secondary-text);font-size:12px;background:var(--tm-doc-count-bg);padding:1px 6px;border-radius:10px;margin-left:4px;">${docTasks.length}</span></td></tr>`);
+                allRows.push(`<tr class="tm-group-row"><td colspan="${colCount}" onclick="tmToggleGroupCollapse('${groupKey}', event)" style="cursor:pointer;background:var(--tm-header-bg);font-weight:bold;color:var(--tm-text-color);border-bottom:1px solid var(--tm-table-border-color);"><div class="tm-group-sticky">${toggle}<span class="tm-group-label" style="color: var(--tm-group-doc-label-color);">📄 ${esc(docName)}</span> <span style="font-weight:normal;color:var(--tm-secondary-text);font-size:12px;background:var(--tm-doc-count-bg);padding:1px 6px;border-radius:10px;margin-left:4px;">${docTasks.length}</span></div></td></tr>`);
 
                 // 渲染该文档的任务（如果未折叠）
                 if (!isCollapsed) {
@@ -7904,7 +9138,7 @@ async function __tmRefreshAfterWake(reason) {
                 // 计算该分组下所有任务的时长总和
                 const durationSum = calculateGroupDuration(group.items);
                 
-                allRows.push(`<tr class="tm-group-row"><td colspan="${colCount}" onclick="tmToggleGroupCollapse('${group.key}', event)" style="cursor:pointer;background:var(--tm-header-bg);padding:8px 12px;font-weight:bold;color:var(--tm-text-color);border-bottom:1px solid var(--tm-border-color);">${toggle}<span class="tm-group-label" style="color:${labelColor};">${esc(group.label)}</span> <span style="font-weight:normal;color:var(--tm-secondary-text);font-size:12px;background:var(--tm-doc-count-bg);padding:1px 6px;border-radius:10px;margin-left:4px;">${group.items.length}</span>${durationSum ? `<span style="font-weight:normal;color:var(--tm-primary-color);font-size:12px;background:var(--tm-info-bg);padding:1px 6px;border-radius:10px;margin-left:4px;border:1px solid var(--tm-info-border);">📊 ${durationSum}</span>` : ''}</td></tr>`);
+                allRows.push(`<tr class="tm-group-row"><td colspan="${colCount}" onclick="tmToggleGroupCollapse('${group.key}', event)" style="cursor:pointer;background:var(--tm-header-bg);font-weight:bold;color:var(--tm-text-color);border-bottom:1px solid var(--tm-table-border-color);"><div class="tm-group-sticky">${toggle}<span class="tm-group-label" style="color:${labelColor};">${esc(group.label)}</span> <span style="font-weight:normal;color:var(--tm-secondary-text);font-size:12px;background:var(--tm-doc-count-bg);padding:1px 6px;border-radius:10px;margin-left:4px;">${group.items.length}</span>${durationSum ? `<span style="font-weight:normal;color:var(--tm-primary-color);font-size:12px;background:var(--tm-info-bg);padding:1px 6px;border-radius:10px;margin-left:4px;border:1px solid var(--tm-info-border);">📊 ${durationSum}</span>` : ''}</div></td></tr>`);
 
                 if (!isCollapsed) {
                     // 组内任务按照全局顺序排列
@@ -9056,6 +10290,11 @@ async function __tmRefreshAfterWake(reason) {
         // Close any existing context menu
         const existingMenu = document.getElementById('tm-task-context-menu');
         if (existingMenu) existingMenu.remove();
+        if (state.taskContextMenuCloseHandler) {
+            try { document.removeEventListener('click', state.taskContextMenuCloseHandler); } catch (e) {}
+            try { document.removeEventListener('contextmenu', state.taskContextMenuCloseHandler); } catch (e) {}
+            state.taskContextMenuCloseHandler = null;
+        }
 
         const menu = document.createElement('div');
         menu.id = 'tm-task-context-menu';
@@ -9182,9 +10421,11 @@ async function __tmRefreshAfterWake(reason) {
         // Click outside to close
         const closeHandler = () => {
             menu.remove();
-            document.removeEventListener('click', closeHandler);
-            document.removeEventListener('contextmenu', closeHandler);
+            try { document.removeEventListener('click', closeHandler); } catch (e) {}
+            try { document.removeEventListener('contextmenu', closeHandler); } catch (e) {}
+            if (state.taskContextMenuCloseHandler === closeHandler) state.taskContextMenuCloseHandler = null;
         };
+        state.taskContextMenuCloseHandler = closeHandler;
         setTimeout(() => {
             document.addEventListener('click', closeHandler);
             document.addEventListener('contextmenu', closeHandler);
@@ -9922,8 +11163,28 @@ async function __tmRefreshAfterWake(reason) {
         // 将设置同步到 state
         state.selectedDocIds = SettingsStore.data.selectedDocIds;
         state.queryLimit = SettingsStore.data.queryLimit;
-        state.groupByDocName = SettingsStore.data.groupByDocName;
-        state.groupByTime = SettingsStore.data.groupByTime;
+        const gm0 = String(SettingsStore.data.groupMode || '').trim();
+        if (gm0 === 'doc') {
+            state.groupByDocName = true;
+            state.groupByTime = false;
+            state.quadrantEnabled = false;
+        } else if (gm0 === 'time') {
+            state.groupByDocName = false;
+            state.groupByTime = true;
+            state.quadrantEnabled = false;
+        } else if (gm0 === 'quadrant') {
+            state.groupByDocName = false;
+            state.groupByTime = false;
+            state.quadrantEnabled = true;
+        } else if (gm0 === 'none') {
+            state.groupByDocName = false;
+            state.groupByTime = false;
+            state.quadrantEnabled = false;
+        } else {
+            state.groupByDocName = SettingsStore.data.groupByDocName;
+            state.groupByTime = SettingsStore.data.groupByTime;
+            state.quadrantEnabled = SettingsStore.data.quadrantConfig?.enabled || false;
+        }
         state.collapsedTaskIds = new Set(SettingsStore.data.collapsedTaskIds || []);
         state.collapsedGroups = new Set(SettingsStore.data.collapsedGroups || []);
         state.currentRule = SettingsStore.data.currentRule;
@@ -10623,13 +11884,14 @@ async function __tmRefreshAfterWake(reason) {
                 return labels[level] || '标题';
             })() },
             { key: 'priority', label: '重要性' },
+            { key: 'startDate', label: '开始日期' },
             { key: 'completionTime', label: '完成时间' },
             { key: 'duration', label: '时长' },
             { key: 'spent', label: '耗时' },
             { key: 'remark', label: '备注' }
         ];
 
-        const currentOrder = SettingsStore.data.columnOrder || ['pinned', 'content', 'status', 'score', 'doc', 'h2', 'priority', 'completionTime', 'duration', 'spent', 'remark'];
+        const currentOrder = SettingsStore.data.columnOrder || ['pinned', 'content', 'status', 'score', 'doc', 'h2', 'priority', 'startDate', 'completionTime', 'duration', 'spent', 'remark'];
         const widths = SettingsStore.data.columnWidths || {};
 
         let html = '<div class="tm-column-list">';
@@ -10696,6 +11958,13 @@ async function __tmRefreshAfterWake(reason) {
                 rows: [
                     { label: '亮色', key: 'progressBarColorLight', value: d.progressBarColorLight || '#4caf50' },
                     { label: '夜间', key: 'progressBarColorDark', value: d.progressBarColorDark || '#81c784' }
+                ]
+            },
+            {
+                title: '表格边框线颜色',
+                rows: [
+                    { label: '亮色', key: 'tableBorderColorLight', value: d.tableBorderColorLight || '#e9ecef' },
+                    { label: '夜间', key: 'tableBorderColorDark', value: d.tableBorderColorDark || '#333333' }
                 ]
             },
             {
@@ -10791,7 +12060,9 @@ async function __tmRefreshAfterWake(reason) {
             timeGroupOverdueColorLight: '#d93025',
             timeGroupOverdueColorDark: '#ff6b6b',
             progressBarColorLight: '#4caf50',
-            progressBarColorDark: '#81c784'
+            progressBarColorDark: '#81c784',
+            tableBorderColorLight: '#e9ecef',
+            tableBorderColorDark: '#333333'
         };
         const initial = __tmNormalizeHexColor(SettingsStore.data[k], defaults[k] || '#f44336') || (defaults[k] || '#f44336');
         __tmOpenColorPickerDialog(label, initial, (next) => {
@@ -10806,7 +12077,8 @@ async function __tmRefreshAfterWake(reason) {
             'groupDocLabelColorLight', 'groupDocLabelColorDark',
             'timeGroupBaseColorLight', 'timeGroupBaseColorDark',
             'timeGroupOverdueColorLight', 'timeGroupOverdueColorDark',
-            'progressBarColorLight', 'progressBarColorDark'
+            'progressBarColorLight', 'progressBarColorDark',
+            'tableBorderColorLight', 'tableBorderColorDark'
         ]);
         const k = String(key || '').trim();
         if (!allowed.has(k)) return;
@@ -10851,6 +12123,8 @@ async function __tmRefreshAfterWake(reason) {
         SettingsStore.data.timeGroupOverdueColorDark = '#ff6b6b';
         SettingsStore.data.progressBarColorLight = '#4caf50';
         SettingsStore.data.progressBarColorDark = '#81c784';
+        SettingsStore.data.tableBorderColorLight = '#e9ecef';
+        SettingsStore.data.tableBorderColorDark = '#333333';
         await SettingsStore.save();
         try { __tmApplyAppearanceThemeVars(); } catch (e) {}
         showSettings();
@@ -11514,18 +12788,6 @@ async function __tmRefreshAfterWake(reason) {
         showSettings();
     };
 
-    window.toggleGroupByDocName = async function(checked) {
-        state.groupByDocName = !!checked;
-        if (state.groupByDocName) {
-            state.groupByTime = false;
-            SettingsStore.data.groupByTime = false;
-        }
-        SettingsStore.data.groupByDocName = state.groupByDocName;
-        await SettingsStore.save();
-        applyFilters();
-        render();
-    };
-
     window.toggleGroupByTime = async function(checked) {
         state.groupByTime = !!checked;
         if (state.groupByTime) {
@@ -11533,11 +12795,14 @@ async function __tmRefreshAfterWake(reason) {
             state.quadrantEnabled = false;
             SettingsStore.data.groupByDocName = false;
             SettingsStore.data.groupByTime = true;
+            SettingsStore.data.groupMode = 'time';
             SettingsStore.data.quadrantConfig = SettingsStore.data.quadrantConfig || {};
             SettingsStore.data.quadrantConfig.enabled = false;
         } else {
             SettingsStore.data.groupByTime = false;
+            SettingsStore.data.groupMode = 'none';
         }
+        try { SettingsStore.syncToLocal(); } catch (e) {}
         await SettingsStore.save();
         applyFilters();
         render();
@@ -11550,11 +12815,14 @@ async function __tmRefreshAfterWake(reason) {
             state.quadrantEnabled = false;
             SettingsStore.data.groupByTime = false;
             SettingsStore.data.groupByDocName = true;
+            SettingsStore.data.groupMode = 'doc';
             SettingsStore.data.quadrantConfig = SettingsStore.data.quadrantConfig || {};
             SettingsStore.data.quadrantConfig.enabled = false;
         } else {
             SettingsStore.data.groupByDocName = false;
+            SettingsStore.data.groupMode = 'none';
         }
+        try { SettingsStore.syncToLocal(); } catch (e) {}
         await SettingsStore.save();
         applyFilters();
         render();
@@ -11567,12 +12835,34 @@ async function __tmRefreshAfterWake(reason) {
             state.groupByTime = false;
             SettingsStore.data.groupByDocName = false;
             SettingsStore.data.groupByTime = false;
+            SettingsStore.data.groupMode = 'quadrant';
             SettingsStore.data.quadrantConfig = SettingsStore.data.quadrantConfig || {};
             SettingsStore.data.quadrantConfig.enabled = true;
         } else {
             SettingsStore.data.quadrantConfig = SettingsStore.data.quadrantConfig || {};
             SettingsStore.data.quadrantConfig.enabled = false;
+            SettingsStore.data.groupMode = 'none';
         }
+        try { SettingsStore.syncToLocal(); } catch (e) {}
+        await SettingsStore.save();
+        applyFilters();
+        render();
+    };
+
+    window.tmSwitchGroupMode = async function(mode) {
+        const m = String(mode || '').trim();
+        if (m === 'doc') return toggleGroupByDocName(true);
+        if (m === 'time') return toggleGroupByTime(true);
+        if (m === 'quadrant') return toggleQuadrantGroup(true);
+        SettingsStore.data.groupByDocName = false;
+        SettingsStore.data.groupByTime = false;
+        SettingsStore.data.groupMode = 'none';
+        SettingsStore.data.quadrantConfig = SettingsStore.data.quadrantConfig || {};
+        SettingsStore.data.quadrantConfig.enabled = false;
+        state.groupByDocName = false;
+        state.groupByTime = false;
+        state.quadrantEnabled = false;
+        try { SettingsStore.syncToLocal(); } catch (e) {}
         await SettingsStore.save();
         applyFilters();
         render();
@@ -11996,13 +13286,33 @@ async function __tmRefreshAfterWake(reason) {
             // 初始化状态
             state.selectedDocIds = SettingsStore.data.selectedDocIds;
             state.queryLimit = SettingsStore.data.queryLimit;
-            state.groupByDocName = SettingsStore.data.groupByDocName;
-            state.groupByTime = SettingsStore.data.groupByTime;
-            state.quadrantEnabled = SettingsStore.data.quadrantConfig?.enabled || false;
+            const gm0 = String(SettingsStore.data.groupMode || '').trim();
+            if (gm0 === 'doc') {
+                state.groupByDocName = true;
+                state.groupByTime = false;
+                state.quadrantEnabled = false;
+            } else if (gm0 === 'time') {
+                state.groupByDocName = false;
+                state.groupByTime = true;
+                state.quadrantEnabled = false;
+            } else if (gm0 === 'quadrant') {
+                state.groupByDocName = false;
+                state.groupByTime = false;
+                state.quadrantEnabled = true;
+            } else if (gm0 === 'none') {
+                state.groupByDocName = false;
+                state.groupByTime = false;
+                state.quadrantEnabled = false;
+            } else {
+                state.groupByDocName = SettingsStore.data.groupByDocName;
+                state.groupByTime = SettingsStore.data.groupByTime;
+                state.quadrantEnabled = SettingsStore.data.quadrantConfig?.enabled || false;
+            }
             state.collapsedTaskIds = new Set(SettingsStore.data.collapsedTaskIds || []);
             state.collapsedGroups = new Set(SettingsStore.data.collapsedGroups || []);
             state.currentRule = SettingsStore.data.currentRule;
             state.columnWidths = SettingsStore.data.columnWidths;
+            state.docTabsHidden = !!Storage.get('tm_doc_tabs_hidden', false);
 
             // 加载筛选规则
             state.filterRules = await RuleManager.initRules();
@@ -12363,6 +13673,19 @@ async function __tmRefreshAfterWake(reason) {
         } catch (e) {}
 
         try { __tmHideMobileMenu?.(); } catch (e) {}
+        try {
+            if (state.desktopMenuCloseHandler) {
+                document.removeEventListener('click', state.desktopMenuCloseHandler);
+                state.desktopMenuCloseHandler = null;
+            }
+        } catch (e) {}
+        try {
+            if (state.taskContextMenuCloseHandler) {
+                document.removeEventListener('click', state.taskContextMenuCloseHandler);
+                document.removeEventListener('contextmenu', state.taskContextMenuCloseHandler);
+                state.taskContextMenuCloseHandler = null;
+            }
+        } catch (e) {}
         try { __tmCloseInlineEditor(); } catch (e) {}
         try { __tmCloseCellEditor(false); } catch (e) {}
 
@@ -12393,6 +13716,10 @@ async function __tmRefreshAfterWake(reason) {
         try {
             const ctxMenu = document.getElementById('tm-task-context-menu');
             if (ctxMenu) ctxMenu.remove();
+        } catch (e) {}
+        try {
+            const desktopMenu = document.getElementById('tmDesktopMenu');
+            if (desktopMenu) desktopMenu.remove();
         } catch (e) {}
 
         try {
@@ -12494,6 +13821,7 @@ async function __tmRefreshAfterWake(reason) {
                 'tm_query_limit',
                 'tm_group_by_docname',
                 'tm_group_by_time',
+                'tm_group_mode',
                 'tm_collapsed_task_ids',
                 'tm_collapsed_groups',
                 'tm_current_rule',
@@ -12528,12 +13856,358 @@ async function __tmRefreshAfterWake(reason) {
                 'tm_time_group_base_color_dark',
                 'tm_time_group_overdue_color_light',
                 'tm_time_group_overdue_color_dark',
+                'tm_table_border_color_light',
+                'tm_table_border_color_dark',
                 'tm_meta_cache',
             ].forEach((k) => {
                 try { Storage.remove(k); } catch (e) {}
             });
         } catch (e) {}
     };
+
+    (function () {
+        const DAY_MS = 86400000;
+        const cleanupMap = new WeakMap();
+    
+        function clamp(n, min, max) {
+            return Math.max(min, Math.min(max, n));
+        }
+    
+        function parseDateOnlyToTs(value) {
+            const s = String(value || '').trim();
+            if (!s) return 0;
+            if (/^\d{4}-\d{2}-\d{2}$/.test(s)) {
+                const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(s);
+                const y = Number(m[1]);
+                const mon = Number(m[2]) - 1;
+                const d = Number(m[3]);
+                const dt = new Date(y, mon, d, 12, 0, 0, 0);
+                return Number.isNaN(dt.getTime()) ? 0 : dt.getTime();
+            }
+            const t = new Date(s).getTime();
+            return Number.isNaN(t) ? 0 : t;
+        }
+    
+        function formatDateOnlyFromTs(ts) {
+            const d = new Date(ts);
+            if (Number.isNaN(d.getTime())) return '';
+            const pad = (n) => String(n).padStart(2, '0');
+            return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+        }
+    
+        function startOfDayTs(ts) {
+            const d = new Date(ts);
+            if (Number.isNaN(d.getTime())) return 0;
+            return new Date(d.getFullYear(), d.getMonth(), d.getDate(), 0, 0, 0, 0).getTime();
+        }
+    
+        function computeAutoRangeTs(taskItems, paddingDays) {
+            let minTs = 0;
+            let maxTs = 0;
+            for (const t of taskItems) {
+                const sTs = parseDateOnlyToTs(t?.startDate);
+                const eTs = parseDateOnlyToTs(t?.completionTime);
+                const a = sTs || eTs;
+                const b = eTs || sTs;
+                if (!a || !b) continue;
+                if (!minTs || a < minTs) minTs = a;
+                if (!maxTs || b > maxTs) maxTs = b;
+            }
+            const now = Date.now();
+            if (!minTs || !maxTs) {
+                const today = startOfDayTs(now);
+                const start = today - 7 * DAY_MS;
+                const end = today + 21 * DAY_MS;
+                return { startTs: start, endTs: end };
+            }
+            const pad = Math.max(0, Number(paddingDays) || 0) * DAY_MS;
+            const startTs = startOfDayTs(minTs - pad);
+            const endTs = startOfDayTs(maxTs + pad);
+            return { startTs, endTs };
+        }
+    
+        function buildDayCellsHtml(startTs, dayCount, dayWidth) {
+            const cells = [];
+            let lastMonthKey = '';
+            for (let i = 0; i < dayCount; i++) {
+                const ts = startTs + i * DAY_MS;
+                const d = new Date(ts);
+                const monthKey = `${d.getFullYear()}-${d.getMonth() + 1}`;
+                const isNewMonth = monthKey !== lastMonthKey;
+                if (isNewMonth) lastMonthKey = monthKey;
+                const day = d.getDate();
+                const isWeekend = d.getDay() === 0 || d.getDay() === 6;
+                const cls = `tm-gantt-day${isWeekend ? ' tm-gantt-day--weekend' : ''}${isNewMonth ? ' tm-gantt-day--month-start' : ''}`;
+                cells.push(`<div class="${cls}" style="width:${dayWidth}px">${day}</div>`);
+            }
+            return cells.join('');
+        }
+    
+        function buildMonthHeaderHtml(startTs, dayCount, dayWidth) {
+            const parts = [];
+            let i = 0;
+            while (i < dayCount) {
+                const ts = startTs + i * DAY_MS;
+                const d = new Date(ts);
+                const y = d.getFullYear();
+                const m = d.getMonth();
+                const monthStartTs = new Date(y, m, 1, 0, 0, 0, 0).getTime();
+                const nextMonthTs = new Date(y, m + 1, 1, 0, 0, 0, 0).getTime();
+                const monthEndTs = nextMonthTs - DAY_MS;
+                const startIndex = Math.max(0, Math.floor((monthStartTs - startTs) / DAY_MS));
+                const endIndex = Math.min(dayCount - 1, Math.floor((monthEndTs - startTs) / DAY_MS));
+                const spanDays = endIndex - startIndex + 1;
+                const width = spanDays * dayWidth;
+                const label = `${y}-${String(m + 1).padStart(2, '0')}`;
+                parts.push(`<div class="tm-gantt-month" style="width:${width}px">${label}</div>`);
+                i = endIndex + 1;
+            }
+            return parts.join('');
+        }
+    
+        function getDayIndexByTs(startTs, ts) {
+            return Math.round((startOfDayTs(ts) - startTs) / DAY_MS);
+        }
+    
+        function renderGantt(opts) {
+            const headerEl = opts?.headerEl;
+            const bodyEl = opts?.bodyEl;
+            const rowModel = Array.isArray(opts?.rowModel) ? opts.rowModel : [];
+            const getTaskById = typeof opts?.getTaskById === 'function' ? opts.getTaskById : null;
+            const onUpdateTaskDates = typeof opts?.onUpdateTaskDates === 'function' ? opts.onUpdateTaskDates : null;
+            if (!headerEl || !bodyEl || !getTaskById) return;
+    
+            try { cleanupMap.get(bodyEl)?.(); } catch (e) {}
+    
+            const viewState = (opts.viewState && typeof opts.viewState === 'object') ? opts.viewState : {};
+            const paddingDays = Number.isFinite(Number(viewState.paddingDays)) ? Number(viewState.paddingDays) : 7;
+            const dayWidth = clamp(Number(viewState.dayWidth) || 24, 10, 60);
+    
+            const tasks = [];
+            for (const r of rowModel) {
+                if (r?.type !== 'task') continue;
+                const t = getTaskById(r.id);
+                if (t) tasks.push(t);
+            }
+    
+            const range = computeAutoRangeTs(tasks, paddingDays);
+            const startTs = range.startTs;
+            const endTs = range.endTs;
+            const dayCount = clamp(Math.round((endTs - startTs) / DAY_MS) + 1, 1, 366);
+            const totalWidth = dayCount * dayWidth;
+            try { bodyEl.dataset.tmGanttStartTs = String(startTs); } catch (e) {}
+            try { bodyEl.dataset.tmGanttDayWidth = String(dayWidth); } catch (e) {}
+            try { bodyEl.dataset.tmGanttDayCount = String(dayCount); } catch (e) {}
+            try { bodyEl.dataset.tmGanttTotalWidth = String(totalWidth); } catch (e) {}
+    
+            headerEl.innerHTML = `
+                <div class="tm-gantt-header-inner" style="width:${totalWidth}px">
+                    <div class="tm-gantt-month-row">${buildMonthHeaderHtml(startTs, dayCount, dayWidth)}</div>
+                    <div class="tm-gantt-day-row">${buildDayCellsHtml(startTs, dayCount, dayWidth)}</div>
+                </div>
+            `;
+    
+            const nowIdx = getDayIndexByTs(startTs, Date.now());
+            const todayIdx = clamp(nowIdx, 0, dayCount - 1);
+            const todayLeft = todayIdx * dayWidth;
+            const rowsHtml = [];
+            for (const r of rowModel) {
+                if (r?.type === 'group') {
+                    rowsHtml.push(`<div class="tm-gantt-row tm-gantt-row--group" data-group-key="${String(r?.key || '')}" style="width:${totalWidth}px;cursor:pointer"></div>`);
+                    continue;
+                }
+                if (r?.type !== 'task') continue;
+                const task = getTaskById(r.id);
+                const sTs0 = parseDateOnlyToTs(task?.startDate);
+                const eTs0 = parseDateOnlyToTs(task?.completionTime);
+                const aTs = sTs0 || eTs0;
+                const bTs = eTs0 || sTs0;
+                if (!aTs && !bTs) {
+                    rowsHtml.push(`<div class="tm-gantt-row" data-id="${String(r.id)}" style="width:${totalWidth}px"></div>`);
+                    continue;
+                }
+                const startIdx = clamp(getDayIndexByTs(startTs, aTs), 0, dayCount - 1);
+                const endIdx = clamp(getDayIndexByTs(startTs, bTs), 0, dayCount - 1);
+                const left = Math.min(startIdx, endIdx) * dayWidth;
+                const width = (Math.abs(endIdx - startIdx) + 1) * dayWidth;
+                rowsHtml.push(`
+                    <div class="tm-gantt-row" data-id="${String(r.id)}" style="width:${totalWidth}px">
+                        <div class="tm-gantt-bar" style="left:${left}px;width:${width}px" title="${String(task?.content || '').trim()}\\n${formatDateOnlyFromTs(aTs)} ~ ${formatDateOnlyFromTs(bTs)}">
+                            <div class="tm-gantt-bar-handle tm-gantt-bar-handle--start" data-handle="start"></div>
+                            <div class="tm-gantt-bar-handle tm-gantt-bar-handle--end" data-handle="end"></div>
+                        </div>
+                    </div>
+                `);
+            }
+    
+            bodyEl.innerHTML = `
+                <div class="tm-gantt-body-inner" style="width:${totalWidth}px">
+                    <div class="tm-gantt-today" style="left:${todayLeft}px"></div>
+                    ${rowsHtml.join('')}
+                </div>
+            `;
+    
+            const onPointerDown = (e) => {
+                if (!onUpdateTaskDates) return;
+                const target = e.target;
+                if (!(target instanceof Element)) return;
+                const handleEl = target.closest('.tm-gantt-bar-handle');
+                const barEl = target.closest('.tm-gantt-bar');
+                if (!barEl) return;
+                const rowEl = barEl.closest('.tm-gantt-row');
+                const taskId = rowEl?.getAttribute?.('data-id');
+                if (!taskId) return;
+    
+                const handleType = handleEl?.getAttribute?.('data-handle');
+                const action = handleType === 'start' ? 'start' : handleType === 'end' ? 'end' : 'move';
+    
+                const startTsStr = String(bodyEl.dataset?.tmGanttStartTs || '');
+                const dayWidthStr = String(bodyEl.dataset?.tmGanttDayWidth || '');
+                const dayCountStr = String(bodyEl.dataset?.tmGanttDayCount || '');
+                const startTs0 = Number(startTsStr);
+                const dayWidth0 = Number(dayWidthStr);
+                const dayCount0 = Number(dayCountStr);
+                if (!Number.isFinite(startTs0) || !Number.isFinite(dayWidth0) || !Number.isFinite(dayCount0) || dayWidth0 <= 0) return;
+    
+                const rect = bodyEl.getBoundingClientRect();
+                const startX = e.clientX;
+                const baseScrollLeft = bodyEl.scrollLeft;
+                const initialLeftPx = Number.parseFloat(String(barEl.style.left || '').replace('px', '')) || 0;
+                const initialWidthPx = Number.parseFloat(String(barEl.style.width || '').replace('px', '')) || dayWidth0;
+                const initialStartIdx = clamp(Math.round(initialLeftPx / dayWidth0), 0, dayCount0 - 1);
+                const initialLen = Math.max(1, Math.round(initialWidthPx / dayWidth0));
+                const initialEndIdx = clamp(initialStartIdx + initialLen - 1, 0, dayCount0 - 1);
+    
+                let lastStartIdx = initialStartIdx;
+                let lastEndIdx = initialEndIdx;
+                let raf = 0;
+                let dragging = true;
+    
+                const applyBar = (sIdx, eIdx) => {
+                    const s = clamp(Math.min(sIdx, eIdx), 0, dayCount0 - 1);
+                    const e2 = clamp(Math.max(sIdx, eIdx), 0, dayCount0 - 1);
+                    lastStartIdx = s;
+                    lastEndIdx = e2;
+                    const left = s * dayWidth0;
+                    const width = (e2 - s + 1) * dayWidth0;
+                    barEl.style.left = `${left}px`;
+                    barEl.style.width = `${width}px`;
+                };
+    
+                const onMove = (ev) => {
+                    if (!dragging) return;
+                    const dx = (ev.clientX - startX);
+                    const deltaDays = Math.round(dx / dayWidth0);
+                    if (action === 'start') {
+                        applyBar(initialStartIdx + deltaDays, initialEndIdx);
+                    } else if (action === 'end') {
+                        applyBar(initialStartIdx, initialEndIdx + deltaDays);
+                    } else {
+                        const len = Math.max(1, initialEndIdx - initialStartIdx + 1);
+                        let nextStart = initialStartIdx + deltaDays;
+                        let nextEnd = nextStart + len - 1;
+                        if (nextStart < 0) { nextStart = 0; nextEnd = len - 1; }
+                        if (nextEnd > dayCount0 - 1) { nextEnd = dayCount0 - 1; nextStart = nextEnd - len + 1; }
+                        applyBar(nextStart, nextEnd);
+                    }
+                };
+    
+                const tip = document.createElement('div');
+                tip.className = 'tm-gantt-drag-tip';
+                tip.textContent = '';
+                try {
+                    tip.style.position = 'fixed';
+                    tip.style.zIndex = '1000002';
+                    tip.style.padding = '6px 10px';
+                    tip.style.borderRadius = '8px';
+                    tip.style.background = 'rgba(0, 0, 0, 0.78)';
+                    tip.style.color = '#fff';
+                    tip.style.fontSize = '12px';
+                    tip.style.lineHeight = '1';
+                    tip.style.pointerEvents = 'none';
+                    tip.style.transform = 'translate(10px, -18px)';
+                    tip.style.whiteSpace = 'nowrap';
+                    tip.style.fontVariantNumeric = 'tabular-nums';
+                } catch (e4) {}
+                try {
+                    const host = bodyEl?.ownerDocument?.body || document.body || bodyEl;
+                    host.appendChild(tip);
+                } catch (e4) {}
+    
+                const updateTip = (ev) => {
+                    const sDate = formatDateOnlyFromTs(startTs0 + lastStartIdx * DAY_MS);
+                    const eDate = formatDateOnlyFromTs(startTs0 + lastEndIdx * DAY_MS);
+                    tip.textContent = action === 'start' ? sDate : action === 'end' ? eDate : `${sDate} ~ ${eDate}`;
+                    tip.style.left = `${ev.clientX}px`;
+                    tip.style.top = `${ev.clientY}px`;
+                };
+    
+                const onWinPointerMove = (ev) => {
+                    if (!dragging) return;
+                    if (raf) return;
+                    raf = requestAnimationFrame(() => {
+                        raf = 0;
+                        onMove(ev);
+                        updateTip(ev);
+                    });
+                };
+    
+                const onUp = async () => {
+                    if (!dragging) return;
+                    dragging = false;
+                    try { window.removeEventListener('pointermove', onWinPointerMove, true); } catch (e) {}
+                    try { window.removeEventListener('pointerup', onUp, true); } catch (e) {}
+                    try { window.removeEventListener('pointercancel', onUp, true); } catch (e) {}
+                    try { window.removeEventListener('blur', onUp, true); } catch (e) {}
+                    if (raf) cancelAnimationFrame(raf);
+                    try { tip.remove(); } catch (e) {}
+    
+                    const startDate = formatDateOnlyFromTs(startTs0 + lastStartIdx * DAY_MS);
+                    const completionTime = formatDateOnlyFromTs(startTs0 + lastEndIdx * DAY_MS);
+                    try {
+                        await onUpdateTaskDates(String(taskId), { startDate, completionTime });
+                    } catch (e) {
+                    }
+                };
+    
+                try {
+                    barEl.setPointerCapture?.(e.pointerId);
+                } catch (e2) {}
+    
+                window.addEventListener('pointermove', onWinPointerMove, true);
+                window.addEventListener('pointerup', onUp, true);
+                window.addEventListener('pointercancel', onUp, true);
+                window.addEventListener('blur', onUp, true);
+    
+                try { e.preventDefault(); } catch (e3) {}
+                try { e.stopPropagation(); } catch (e3) {}
+    
+                if (action === 'move') {
+                    const relX = e.clientX - rect.left + baseScrollLeft;
+                    const anchor = clamp(relX, 0, totalWidth);
+                    const newScroll = clamp(anchor - bodyEl.clientWidth * 0.5, 0, Math.max(0, totalWidth - bodyEl.clientWidth));
+                    bodyEl.scrollLeft = newScroll;
+                }
+    
+                updateTip(e);
+            };
+    
+            bodyEl.addEventListener('pointerdown', onPointerDown, { passive: false });
+            cleanupMap.set(bodyEl, () => {
+                try { bodyEl.removeEventListener('pointerdown', onPointerDown, { passive: false }); } catch (e) {
+                    try { bodyEl.removeEventListener('pointerdown', onPointerDown); } catch (e2) {}
+                }
+            });
+        }
+    
+        globalThis.__TaskHorizonGanttView = {
+            render: renderGantt,
+            parseDateOnlyToTs,
+            formatDateOnlyFromTs,
+            startOfDayTs,
+            DAY_MS,
+        };
+    })();
 
     if (document.readyState === 'loading') {
         __tmDomReadyHandler = init;
