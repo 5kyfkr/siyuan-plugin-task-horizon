@@ -1,5 +1,5 @@
 // @name         思源笔记任务管理器
-// @version      1.0.6
+// @version      1.0.7
 // @description  任务管理器，支持自定义筛选规则分组和排序
 // @author       5KYFKR
 
@@ -3186,31 +3186,45 @@
         }
     }
 
-    function __tmScheduleWakeReload(reason) {
-        try { if (__tmWakeReloadTimer) clearTimeout(__tmWakeReloadTimer); } catch (e) {}
-        __tmWakeReloadTimer = setTimeout(() => {
-            __tmWakeReloadTimer = null;
-            __tmRecoverAfterWake(reason).catch(() => {});
-        }, 350);
-    }
+function __tmScheduleWakeReload(reason) {
+    try { if (__tmWakeReloadTimer) clearTimeout(__tmWakeReloadTimer); } catch (e) {}
+    __tmWakeReloadTimer = setTimeout(() => {
+        __tmWakeReloadTimer = null;
+        // 只刷新数据，不自动打开管理器
+        __tmRefreshAfterWake(reason).catch(() => {});
+    }, 350);
+}
 
-    async function __tmRecoverAfterWake(reason) {
-        if (__tmWakeReloadInFlight) return;
-        __tmWakeReloadInFlight = true;
-        try {
-            if (document.visibilityState === 'hidden') return;
-            const best = __tmFindBestTabRoot();
-            if (!best) return;
-            try { globalThis.__taskHorizonTabElement = best; } catch (e) {}
-            __tmSetMount(best);
-            __tmEnsureMount();
-            if (!__tmMountEl) return;
-            try { render(); } catch (e) {}
-            await __tmSafeOpenManager('wake:' + String(reason || 'unknown'));
-        } finally {
-            __tmWakeReloadInFlight = false;
+// 新增：后台唤醒后只刷新数据，不自动跳转
+async function __tmRefreshAfterWake(reason) {
+    if (__tmWakeReloadInFlight) return;
+    __tmWakeReloadInFlight = true;
+    try {
+        if (document.visibilityState === 'hidden') return;
+        
+        // 只有在管理器已经打开的情况下才刷新
+        if (!state.modal || !document.body.contains(state.modal)) {
+            return;
         }
+        
+        const best = __tmFindBestTabRoot();
+        if (!best) return;
+        
+        try { globalThis.__taskHorizonTabElement = best; } catch (e) {}
+        __tmSetMount(best);
+        __tmEnsureMount();
+        if (!__tmMountEl) return;
+        
+        // 静默刷新数据，不显示加载提示
+        try { 
+            await loadSelectedDocuments();
+        } catch (e) {}
+        
+    } finally {
+        __tmWakeReloadInFlight = false;
     }
+}
+
 
     function __tmBindWakeReload() {
         if (__tmWakeReloadBound) return;
@@ -3224,13 +3238,19 @@
                     return;
                 }
                 const gap = Date.now() - (__tmWasHiddenAt || 0);
-                if (__tmWasHiddenAt && gap > 10000) __tmScheduleWakeReload('visibility');
-            } catch (e) {}
-        };
-        __tmFocusHandler = () => {
-            try {
-                const gap = Date.now() - (__tmWasHiddenAt || 0);
-                if (__tmWasHiddenAt && gap > 10000) __tmScheduleWakeReload('focus');
+				// 只有管理器已打开时才刷新，且不再自动打开
+				if (__tmWasHiddenAt && gap > 10000 && state.modal && document.body.contains(state.modal)) {
+					__tmScheduleWakeReload('visibility');
+				}
+			} catch (e) {}
+		};
+		__tmFocusHandler = () => {
+			try {
+				const gap = Date.now() - (__tmWasHiddenAt || 0);
+				// 只有管理器已打开时才刷新
+				if (__tmWasHiddenAt && gap > 10000 && state.modal && document.body.contains(state.modal)) {
+					__tmScheduleWakeReload('focus');
+				}
             } catch (e) {}
         };
         try { document.addEventListener('visibilitychange', __tmVisibilityHandler); } catch (e) {}
