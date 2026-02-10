@@ -1159,7 +1159,7 @@
             width: 2px;
             background: rgba(255, 82, 82, 0.55);
             pointer-events: none;
-            z-index: 50;
+            z-index: 7;
         }
 
         .tm-gantt-bar {
