@@ -1,5 +1,5 @@
 // @name         思源笔记任务管理器
-// @version      1.0.7
+// @version      1.0.8
 // @description  任务管理器，支持自定义筛选规则分组和排序
 // @author       5KYFKR
 
@@ -63,6 +63,10 @@
             --tm-group-doc-label-color: var(--tm-text-color);
             --tm-time-group-base-color: #1a73e8;
             --tm-time-group-overdue-color: #d93025;
+            --tm-quadrant-red: #ea4335;
+            --tm-quadrant-yellow: #f9ab00;
+            --tm-quadrant-blue: #1a73e8;
+            --tm-quadrant-green: #34a853;
         }
 
         [data-theme-mode="dark"] {
@@ -99,6 +103,10 @@
             --tm-group-doc-label-color: var(--tm-text-color);
             --tm-time-group-base-color: #6ba5ff;
             --tm-time-group-overdue-color: #ff6b6b;
+            --tm-quadrant-red: #ef5350;
+            --tm-quadrant-yellow: #f9ab00;
+            --tm-quadrant-blue: #6ba5ff;
+            --tm-quadrant-green: #4caf50;
         }
 
         .tm-color-picker-backdrop {
@@ -234,6 +242,30 @@
             font-weight: 600;
             border-bottom: 1px solid var(--tm-border-color);
         }
+        
+        /* 四象限分组样式 */
+        .tm-quadrant-group {
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+        }
+        
+        .tm-quadrant-indicator {
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            flex-shrink: 0;
+        }
+        
+        .tm-quadrant-red { color: var(--tm-quadrant-red); }
+        .tm-quadrant-yellow { color: var(--tm-quadrant-yellow); }
+        .tm-quadrant-blue { color: var(--tm-quadrant-blue); }
+        .tm-quadrant-green { color: var(--tm-quadrant-green); }
+        
+        .tm-quadrant-bg-red { background: var(--tm-quadrant-red); }
+        .tm-quadrant-bg-yellow { background: var(--tm-quadrant-yellow); }
+        .tm-quadrant-bg-blue { background: var(--tm-quadrant-blue); }
+        .tm-quadrant-bg-green { background: var(--tm-quadrant-green); }
         
         /* 规则管理器样式 */
         .tm-rules-manager {
@@ -1018,7 +1050,7 @@
 
         .tm-task-cell {
             display: flex;
-            align-items: flex-start;
+            align-items: center;
             gap: 6px;
             min-width: 0;
             padding-top: 2px;
@@ -1057,7 +1089,6 @@
         .tm-tree-toggle {
             width: 14px;
             height: 14px;
-            line-height: 14px;
             display: inline-flex;
             justify-content: center;
             align-items: center;
@@ -1065,7 +1096,8 @@
             user-select: none;
             color: var(--tm-secondary-text);
             flex-shrink: 0;
-            margin-top: calc((1.5em - 14px) / 2);
+            vertical-align: middle;
+            margin-top: -3px;
         }
 
         .tm-tree-spacer {
@@ -1081,7 +1113,6 @@
             height: 14px;
             margin: 0;
             flex-shrink: 0;
-            margin-top: calc((1.5em - 14px) / 2);
         }
 
         .tm-priority-high {
@@ -1507,6 +1538,12 @@
             currentGroupId: 'all', 
             // 任务标题级别 (h1-h6)
             taskHeadingLevel: 'h2',
+            // 时长显示格式: 'hours' 或 'minutes'
+            durationFormat: 'hours',
+            // 不查找已完成任务（提升性能）
+            excludeCompletedTasks: false,
+            // 开始日期（新增列）
+            startDate: 90,
             // 外观配色（支持亮/暗）
             topbarGradientLightStart: '#667eea',
             topbarGradientLightEnd: '#764ba2',
@@ -1520,6 +1557,8 @@
             timeGroupBaseColorDark: '#6ba5ff',
             timeGroupOverdueColorLight: '#d93025',
             timeGroupOverdueColorDark: '#ff6b6b',
+            progressBarColorLight: '#4caf50',
+            progressBarColorDark: '#81c784',
             priorityScoreConfig: {
                 base: 100,
                 weights: { importance: 1, status: 1, due: 1, duration: 1, doc: 1 },
@@ -1540,6 +1579,40 @@
                 ],
                 docDeltas: {}
             },
+            // 四象限分组配置
+            quadrantConfig: {
+                enabled: false,
+                rules: [
+                    {
+                        id: 'urgent-important',
+                        name: '重要紧急',
+                        color: 'red',
+                        importance: ['high', 'medium'],
+                        timeRanges: ['overdue', 'within7days']
+                    },
+                    {
+                        id: 'not-urgent-important',
+                        name: '重要不紧急',
+                        color: 'yellow',
+                        importance: ['high', 'medium'],
+                        timeRanges: ['beyond7days', 'nodate']
+                    },
+                    {
+                        id: 'urgent-not-important',
+                        name: '不重要紧急',
+                        color: 'blue',
+                        importance: ['low', 'none'],
+                        timeRanges: ['overdue', 'within7days']
+                    },
+                    {
+                        id: 'not-urgent-not-important',
+                        name: '不重要不紧急',
+                        color: 'green',
+                        importance: ['low', 'none'],
+                        timeRanges: ['beyond7days', 'nodate']
+                    }
+                ]
+            },
             // 列宽度设置（像素）
             columnWidths: {
                 pinned: 48,             // 置顶
@@ -1550,12 +1623,13 @@
                 h2: 180,                // 二级标题
                 priority: 96,           // 重要性
                 completionTime: 170,    // 完成时间
+                startDate: 90,           // 开始日期
                 duration: 96,           // 时长
                 spent: 96,              // 耗时
                 remark: 240             // 备注
             },
-            // 列顺序设置
-            columnOrder: ['pinned', 'content', 'status', 'score', 'doc', 'h2', 'priority', 'completionTime', 'duration', 'spent', 'remark']
+            // 列顺序设置（注意：startDate 在 completionTime 前面）
+            columnOrder: ['pinned', 'content', 'status', 'score', 'doc', 'h2', 'priority', 'startDate', 'completionTime', 'duration', 'spent', 'remark']
         },
         loaded: false,
         saving: false,
@@ -1603,6 +1677,7 @@
                                 if (typeof cloudData.defaultDocId === 'string') this.data.defaultDocId = cloudData.defaultDocId;
                                 if (cloudData.defaultDocIdByGroup && typeof cloudData.defaultDocIdByGroup === 'object') this.data.defaultDocIdByGroup = cloudData.defaultDocIdByGroup;
                                 if (cloudData.priorityScoreConfig && typeof cloudData.priorityScoreConfig === 'object') this.data.priorityScoreConfig = cloudData.priorityScoreConfig;
+                                if (cloudData.quadrantConfig && typeof cloudData.quadrantConfig === 'object') this.data.quadrantConfig = cloudData.quadrantConfig;
                                 if (Array.isArray(cloudData.docGroups)) this.data.docGroups = cloudData.docGroups;
                                 if (cloudData.currentGroupId) this.data.currentGroupId = cloudData.currentGroupId;
                                 if (cloudData.taskHeadingLevel) this.data.taskHeadingLevel = cloudData.taskHeadingLevel;
@@ -1618,6 +1693,8 @@
                                 if (typeof cloudData.timeGroupBaseColorDark === 'string') this.data.timeGroupBaseColorDark = cloudData.timeGroupBaseColorDark;
                                 if (typeof cloudData.timeGroupOverdueColorLight === 'string') this.data.timeGroupOverdueColorLight = cloudData.timeGroupOverdueColorLight;
                                 if (typeof cloudData.timeGroupOverdueColorDark === 'string') this.data.timeGroupOverdueColorDark = cloudData.timeGroupOverdueColorDark;
+                                if (typeof cloudData.progressBarColorLight === 'string') this.data.progressBarColorLight = cloudData.progressBarColorLight;
+                                if (typeof cloudData.progressBarColorDark === 'string') this.data.progressBarColorDark = cloudData.progressBarColorDark;
                                 if (Array.isArray(cloudData.customStatusOptions)) this.data.customStatusOptions = cloudData.customStatusOptions;
                                 if (cloudData.columnWidths && typeof cloudData.columnWidths === 'object') {
                                     // 旧版本兼容：如果有 customTime 配置，迁移到 completionTime
@@ -1627,6 +1704,11 @@
                                     this.data.columnWidths = { ...this.data.columnWidths, ...cloudData.columnWidths };
                                 }
                                 if (Array.isArray(cloudData.columnOrder)) this.data.columnOrder = cloudData.columnOrder;
+                                
+                                // 新增字段处理
+                                if (typeof cloudData.durationFormat === 'string') this.data.durationFormat = cloudData.durationFormat;
+                                if (typeof cloudData.excludeCompletedTasks === 'boolean') this.data.excludeCompletedTasks = cloudData.excludeCompletedTasks;
+                                if (typeof cloudData.startDate === 'number') this.data.startDate = cloudData.startDate;
 
                                 // 同步到本地缓存
                                 this.normalizeColumns();
@@ -1670,6 +1752,8 @@
             this.data.timeGroupBaseColorDark = Storage.get('tm_time_group_base_color_dark', this.data.timeGroupBaseColorDark);
             this.data.timeGroupOverdueColorLight = Storage.get('tm_time_group_overdue_color_light', this.data.timeGroupOverdueColorLight);
             this.data.timeGroupOverdueColorDark = Storage.get('tm_time_group_overdue_color_dark', this.data.timeGroupOverdueColorDark);
+            this.data.progressBarColorLight = Storage.get('tm_progress_bar_color_light', this.data.progressBarColorLight);
+            this.data.progressBarColorDark = Storage.get('tm_progress_bar_color_dark', this.data.progressBarColorDark);
             this.data.enableQuickbar = Storage.get('tm_enable_quickbar', true);
             this.data.pinNewTasksByDefault = Storage.get('tm_pin_new_tasks_by_default', false);
             this.data.newTaskDocId = Storage.get('tm_new_task_doc_id', '');
@@ -1680,10 +1764,14 @@
             this.data.defaultDocId = Storage.get('tm_default_doc_id', '');
             this.data.defaultDocIdByGroup = Storage.get('tm_default_doc_id_by_group', {}) || {};
             this.data.priorityScoreConfig = Storage.get('tm_priority_score_config', this.data.priorityScoreConfig) || this.data.priorityScoreConfig;
+            this.data.quadrantConfig = Storage.get('tm_quadrant_config', this.data.quadrantConfig);
             this.data.docGroups = Storage.get('tm_doc_groups', []);
             this.data.currentGroupId = Storage.get('tm_current_group_id', 'all');
             this.data.customStatusOptions = Storage.get('tm_custom_status_options', this.data.customStatusOptions);
             this.data.columnOrder = Storage.get('tm_column_order', this.data.columnOrder);
+            this.data.durationFormat = Storage.get('tm_duration_format', this.data.durationFormat);
+            this.data.excludeCompletedTasks = Storage.get('tm_exclude_completed_tasks', this.data.excludeCompletedTasks);
+            this.data.startDate = Storage.get('tm_start_date', this.data.startDate);
             const savedWidths = Storage.get('tm_column_widths', null);
             if (savedWidths && typeof savedWidths === 'object') {
                 if (savedWidths.customTime && !savedWidths.completionTime) {
@@ -1718,6 +1806,8 @@
             Storage.set('tm_time_group_base_color_dark', String(this.data.timeGroupBaseColorDark || '').trim());
             Storage.set('tm_time_group_overdue_color_light', String(this.data.timeGroupOverdueColorLight || '').trim());
             Storage.set('tm_time_group_overdue_color_dark', String(this.data.timeGroupOverdueColorDark || '').trim());
+            Storage.set('tm_progress_bar_color_light', String(this.data.progressBarColorLight || '').trim());
+            Storage.set('tm_progress_bar_color_dark', String(this.data.progressBarColorDark || '').trim());
             Storage.set('tm_enable_quickbar', !!this.data.enableQuickbar);
             Storage.set('tm_pin_new_tasks_by_default', !!this.data.pinNewTasksByDefault);
             Storage.set('tm_new_task_doc_id', String(this.data.newTaskDocId || '').trim());
@@ -1728,6 +1818,7 @@
             Storage.set('tm_default_doc_id', this.data.defaultDocId);
             Storage.set('tm_default_doc_id_by_group', this.data.defaultDocIdByGroup || {});
             Storage.set('tm_priority_score_config', this.data.priorityScoreConfig || {});
+            Storage.set('tm_quadrant_config', this.data.quadrantConfig);
             Storage.set('tm_doc_groups', this.data.docGroups);
             Storage.set('tm_current_group_id', this.data.currentGroupId);
             Storage.set('tm_custom_status_options', this.data.customStatusOptions);
@@ -2428,6 +2519,10 @@
                 ...extraNames
             ].map(n => `'${n}'`).join(',\n                            ');
 
+            // 不查找已完成任务的过滤条件
+            // 不查找已完成任务的过滤条件（数据库层面暂不过滤，全部在JavaScript中过滤）
+            const excludeCompletedCondition = '';
+
             const sql = `
                 SELECT 
                     task.id,
@@ -2492,7 +2587,7 @@
                     AND task.subtype = 't'
                     AND task.root_id = '${docId}'
                     AND task.markdown IS NOT NULL
-                    AND task.markdown != ''
+                    AND task.markdown != ''${excludeCompletedCondition}
                 
                 ORDER BY task.created
                 LIMIT ${limit}
@@ -2530,6 +2625,10 @@
                 ...extraNames
             ].map(n => `'${n}'`).join(',\n                        ');
 
+            // 不查找已完成任务的过滤条件
+            // 不查找已完成任务的过滤条件（数据库层面暂不过滤，全部在JavaScript中过滤）
+            const excludeCompletedCondition = '';
+
             const sql = `
                 WITH tasks0 AS (
                     SELECT
@@ -2545,12 +2644,14 @@
                         ROW_NUMBER() OVER (PARTITION BY task.root_id ORDER BY task.created) AS rn
                     FROM blocks AS task
                     INNER JOIN blocks AS doc ON task.root_id = doc.id
+                    LEFT JOIN blocks parent_list ON parent_list.id = task.parent_id
+                    LEFT JOIN blocks parent_task ON parent_task.id = parent_list.parent_id AND parent_task.type = 'i' AND parent_task.subtype = 't'
                     WHERE
                         task.type = 'i'
                         AND task.subtype = 't'
                         AND task.root_id IN (${idList})
                         AND task.markdown IS NOT NULL
-                        AND task.markdown != ''
+                        AND task.markdown != ''${excludeCompletedCondition}
                 ),
                 tasks AS (
                     SELECT * FROM tasks0 WHERE rn <= ${perDocLimit}
@@ -3095,7 +3196,10 @@
         
         // 规则编辑器状态
         editingRule: null,
-        priorityScoreDraft: null
+        priorityScoreDraft: null,
+        
+        // 四象限分组状态
+        quadrantEnabled: false
     };
 
     let __tmMountEl = null;
@@ -4608,6 +4712,219 @@ async function __tmRefreshAfterWake(reason) {
         hint('✅ 优先级算法已保存', 'success');
     };
 
+    // 渲染四象限设置
+    function renderQuadrantSettings() {
+        const quadrantConfig = SettingsStore.data.quadrantConfig || {
+            enabled: false,
+            rules: [
+                { id: 'urgent-important', name: '重要紧急', color: 'red', importance: ['high', 'medium'], timeRanges: ['overdue', 'today', 'tomorrow', 'within1days'] },
+                { id: 'not-urgent-important', name: '重要不紧急', color: 'yellow', importance: ['high', 'medium'], timeRanges: ['within3days', 'beyond3days', 'within7days', 'beyond7days', 'within15days', 'beyond15days', 'within30days', 'beyond30days', 'nodate'] },
+                { id: 'urgent-not-important', name: '不重要紧急', color: 'blue', importance: ['low', 'none'], timeRanges: ['overdue', 'today', 'tomorrow', 'within1days'] },
+                { id: 'not-urgent-not-important', name: '不重要不紧急', color: 'green', importance: ['low', 'none'], timeRanges: ['within3days', 'beyond3days', 'within7days', 'beyond7days', 'within15days', 'beyond15days', 'within30days', 'beyond30days', 'nodate'] }
+            ]
+        };
+        
+        const rules = quadrantConfig.rules || [];
+        const colorLabels = { red: '🔴 红色', yellow: '🟡 黄色', blue: '🔵 蓝色', green: '🟢 绿色' };
+        const importanceLabels = { high: '高', medium: '中', low: '低', none: '无' };
+        const timeRangeLabels = { 
+            overdue: '已过期', 
+            today: '今天', 
+            tomorrow: '明天',
+            within1days: '余1天以内',
+            within3days: '余3天以内',
+            beyond3days: '余3天以上',
+            within7days: '余7天以内',
+            beyond7days: '余7天以上',
+            within15days: '余15天以内',
+            beyond15days: '余15天以上',
+            within30days: '余30天以内',
+            beyond30days: '余30天以上',
+            nodate: '无日期' 
+        };
+        
+        let html = '<div style="display: flex; flex-direction: column; gap: 12px;">';
+        
+        rules.forEach((rule, index) => {
+            const importanceNames = (rule.importance || []).map(i => importanceLabels[i] || i).join('+');
+            const timeRangeNames = (rule.timeRanges || []).map(t => timeRangeLabels[t] || t).join('+');
+            
+            html += `
+                <div style="background: var(--tm-bg-color); border: 1px solid var(--tm-border-color); border-radius: 8px; padding: 12px;">
+                    <div style="display: flex; align-items: center; gap: 8px; margin-bottom: 8px;">
+                        <span class="tm-quadrant-indicator tm-quadrant-bg-${rule.color}"></span>
+                        <span style="font-weight: 600; color: var(--tm-quadrant-${rule.color});">${esc(rule.name)}</span>
+                        <span style="margin-left: auto; color: var(--tm-secondary-text); font-size: 12px;">${colorLabels[rule.color]}</span>
+                    </div>
+                    <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 8px; font-size: 13px;">
+                        <div style="padding: 8px; background: var(--tm-section-bg); border-radius: 4px;">
+                            <div style="color: var(--tm-secondary-text); font-size: 11px; margin-bottom: 4px;">重要性</div>
+                            <div>${esc(importanceNames)}</div>
+                        </div>
+                        <div style="padding: 8px; background: var(--tm-section-bg); border-radius: 4px;">
+                            <div style="color: var(--tm-secondary-text); font-size: 11px; margin-bottom: 4px;">完成时间</div>
+                            <div>${esc(timeRangeNames)}</div>
+                        </div>
+                    </div>
+                    <div style="margin-top: 8px; display: flex; gap: 8px;">
+                        <button class="tm-btn tm-btn-secondary" data-tm-call="tmEditQuadrantRule" data-tm-args='[${index}]' style="flex: 1; padding: 4px 8px; font-size: 12px;">编辑规则</button>
+                        <button class="tm-btn tm-btn-secondary" data-tm-call="tmResetQuadrantRule" data-tm-args='[${index}]' style="padding: 4px 8px; font-size: 12px;">重置</button>
+                    </div>
+                </div>
+            `;
+        });
+        
+        html += '</div>';
+        
+        html += `
+            <div style="margin-top: 16px; padding: 12px; background: var(--tm-info-bg); border: 1px solid var(--tm-info-border); border-radius: 8px; font-size: 12px; color: var(--tm-secondary-text);">
+                <div style="font-weight: 600; margin-bottom: 8px;">📌 使用说明</div>
+                <ul style="margin: 0; padding-left: 16px;">
+                    <li>在顶部工具栏启用「四象限分组」即可按此规则分组显示</li>
+                    <li>任务会根据「重要性」和「完成时间」自动分配到对应象限</li>
+                    <li>点击「编辑规则」可自定义每个象限的条件</li>
+                    <li>点击「重置」可恢复该象限的默认配置</li>
+                </ul>
+            </div>
+        `;
+        
+        return html;
+    }
+
+    // 编辑四象限规则
+    window.tmEditQuadrantRule = async function(index) {
+        const quadrantConfig = SettingsStore.data.quadrantConfig || {
+            enabled: false,
+            rules: [
+                { id: 'urgent-important', name: '重要紧急', color: 'red', importance: ['high', 'medium'], timeRanges: ['overdue', 'within7days'] },
+                { id: 'not-urgent-important', name: '重要不紧急', color: 'yellow', importance: ['high', 'medium'], timeRanges: ['beyond7days', 'nodate'] },
+                { id: 'urgent-not-important', name: '不重要紧急', color: 'blue', importance: ['low', 'none'], timeRanges: ['overdue', 'within7days'] },
+                { id: 'not-urgent-not-important', name: '不重要不紧急', color: 'green', importance: ['low', 'none'], timeRanges: ['beyond7days', 'nodate'] }
+            ]
+        };
+        
+        const rules = quadrantConfig.rules || [];
+        const rule = rules[index];
+        if (!rule) return;
+        
+        const importanceOptions = [
+            { value: 'high', label: '高' },
+            { value: 'medium', label: '中' },
+            { value: 'low', label: '低' },
+            { value: 'none', label: '无' }
+        ];
+        
+        const timeRangeOptions = [
+            { value: 'overdue', label: '已过期' },
+            { value: 'within3days', label: '余3天以内' },
+            { value: 'beyond3days', label: '余3天以上' },
+            { value: 'within7days', label: '余7天以内' },
+            { value: 'beyond7days', label: '余7天以上' },
+            { value: 'within15days', label: '余15天以内' },
+            { value: 'beyond15days', label: '余15天以上' },
+            { value: 'within30days', label: '余30天以内' },
+            { value: 'beyond30days', label: '余30天以上' },
+            { value: 'nodate', label: '无日期' }
+        ];
+        
+        // 根据象限类型过滤时间范围选项
+        // 判断是否紧急象限：ID必须以 'urgent-' 开头（urgent-important, urgent-not-important）
+        const isUrgent = rule.id && (rule.id.startsWith('urgent-') || rule.id === 'urgent-important' || rule.id === 'urgent-not-important');
+        const filteredTimeRangeOptions = timeRangeOptions.filter(opt => {
+            if (isUrgent) {
+                // 紧急象限：只显示已过期、以及余X天以内
+                return opt.value === 'overdue' || opt.value.startsWith('within');
+            } else {
+                // 不紧急象限：只显示无日期、以及余X天以上
+                return opt.value === 'nodate' || opt.value.startsWith('beyond');
+            }
+        });
+        
+        const importanceCheckboxes = importanceOptions.map(opt => `
+            <label style="display: inline-flex; align-items: center; gap: 4px; margin-right: 12px; margin-bottom: 6px; cursor: pointer; white-space: nowrap;">
+                <input type="checkbox" value="${opt.value}" ${rule.importance?.includes(opt.value) ? 'checked' : ''} data-quadrant-importance>
+                ${opt.label}
+            </label>
+        `).join('');
+        
+        const timeRangeCheckboxes = filteredTimeRangeOptions.map(opt => `
+            <label style="display: inline-flex; align-items: center; gap: 4px; margin-right: 12px; margin-bottom: 6px; cursor: pointer; white-space: nowrap;">
+                <input type="checkbox" value="${opt.value}" ${rule.timeRanges?.includes(opt.value) ? 'checked' : ''} data-quadrant-timerange>
+                ${opt.label}
+            </label>
+        `).join('');
+        
+        const modal = document.createElement('div');
+        modal.className = 'tm-prompt-modal';
+        modal.innerHTML = `
+            <div class="tm-prompt-box" style="width: 90%; max-width: 400px; max-height: 90vh; overflow-y: auto; box-sizing: border-box;">
+                <div class="tm-prompt-title">编辑四象限规则 - ${esc(rule.name)}</div>
+                <div style="margin-bottom: 16px; max-height: 60vh; overflow-y: auto;">
+                    <div style="margin-bottom: 12px;">
+                        <div style="font-size: 13px; font-weight: 500; margin-bottom: 6px;">重要性（可多选）</div>
+                        ${importanceCheckboxes}
+                    </div>
+                    <div>
+                        <div style="font-size: 13px; font-weight: 500; margin-bottom: 6px;">完成时间范围（可多选）</div>
+                        ${timeRangeCheckboxes}
+                    </div>
+                </div>
+                <div class="tm-prompt-buttons">
+                    <button class="tm-prompt-btn tm-prompt-btn-secondary" onclick="this.closest('.tm-prompt-modal').remove()">取消</button>
+                    <button class="tm-prompt-btn tm-prompt-btn-primary" id="tm-save-quadrant-rule">保存</button>
+                </div>
+            </div>
+        `;
+        
+        document.body.appendChild(modal);
+        
+        document.getElementById('tm-save-quadrant-rule').onclick = async function() {
+            const selectedImportance = Array.from(modal.querySelectorAll('[data-quadrant-importance]:checked')).map(cb => cb.value);
+            const selectedTimeRanges = Array.from(modal.querySelectorAll('[data-quadrant-timerange]:checked')).map(cb => cb.value);
+            
+            if (selectedImportance.length === 0) {
+                hint('⚠ 请至少选择一个重要性条件', 'warning');
+                return;
+            }
+            
+            if (selectedTimeRanges.length === 0) {
+                hint('⚠ 请至少选择一个时间范围条件', 'warning');
+                return;
+            }
+            
+            rules[index].importance = selectedImportance;
+            rules[index].timeRanges = selectedTimeRanges;
+            
+            SettingsStore.data.quadrantConfig = quadrantConfig;
+            await SettingsStore.save();
+            
+            modal.remove();
+            hint('✅ 四象限规则已更新', 'success');
+            showSettings();
+        };
+    };
+
+    // 重置四象限规则
+    window.tmResetQuadrantRule = async function(index) {
+        const defaultRules = [
+            { id: 'urgent-important', name: '重要紧急', color: 'red', importance: ['high', 'medium'], timeRanges: ['overdue', 'within7days'] },
+            { id: 'not-urgent-important', name: '重要不紧急', color: 'yellow', importance: ['high', 'medium'], timeRanges: ['beyond7days', 'nodate'] },
+            { id: 'urgent-not-important', name: '不重要紧急', color: 'blue', importance: ['low', 'none'], timeRanges: ['overdue', 'within7days'] },
+            { id: 'not-urgent-not-important', name: '不重要不紧急', color: 'green', importance: ['low', 'none'], timeRanges: ['beyond7days', 'nodate'] }
+        ];
+        
+        const quadrantConfig = SettingsStore.data.quadrantConfig || { enabled: false, rules: defaultRules };
+        const rules = quadrantConfig.rules || [];
+        
+        if (rules[index]) {
+            rules[index] = { ...defaultRules[index] };
+            SettingsStore.data.quadrantConfig = quadrantConfig;
+            await SettingsStore.save();
+            hint('✅ 已重置为默认值', 'success');
+            showSettings();
+        }
+    };
+
     window.tmSetPriorityBase = function(value) {
         if (!state.priorityScoreDraft) return;
         state.priorityScoreDraft.base = Number(value) || 0;
@@ -5220,8 +5537,45 @@ async function __tmRefreshAfterWake(reason) {
             return false;
         };
 
-        // 父任务完成则子任务不显示
-        tasks = tasks.filter(t => !hasDoneAncestor(t));
+        // 排除已完成任务的设置
+        const excludeCompleted = state.excludeCompletedTasks;
+
+        // 检查当前规则是否明确排除已完成任务
+        const currentRuleExcludesCompleted = () => {
+            const rule = state.currentRule ? state.filterRules.find(r => r.id === state.currentRule) : null;
+            if (!rule || !rule.conditions || rule.conditions.length === 0) return false;
+
+            // 检查是否有条件明确要求排除已完成任务 (done = false)
+            return rule.conditions.some(condition =>
+                condition.field === 'done' &&
+                condition.operator === '=' &&
+                String(condition.value) === 'false'
+            );
+        };
+
+        // 过滤逻辑：
+        // 1. 未完成父任务下的所有子任务（无论是否完成）保留显示
+        // 2. 如果 excludeCompleted 开启，已完成根任务：过滤
+        // 3. 已完成父任务下的所有子任务：过滤
+        // 4. 如果 excludeCompleted 开启且当前规则没有排除已完成，则已完成子任务（父任务未完成）保留显示
+        const ruleExcludesCompleted = currentRuleExcludesCompleted();
+        tasks = tasks.filter(t => {
+            // 排除已完成任务时，已完成根任务才过滤
+            if (excludeCompleted && t.done && !t.parentTaskId) return false;
+
+            // 父任务已完成：过滤
+            if (hasDoneAncestor(t)) return false;
+
+            // 已完成子任务（父任务未完成）的处理
+            if (excludeCompleted && t.done && t.parentTaskId) {
+                // 如果当前规则没有明确排除已完成任务，则保留显示已完成子任务
+                if (!ruleExcludesCompleted) return true;
+                // 如果当前规则明确排除已完成任务，则过滤
+                return false;
+            }
+
+            return true;
+        });
 
         tasks.forEach(t => {
             try { t.priorityScore = __tmComputePriorityScore(t); } catch (e) { t.priorityScore = 0; }
@@ -5264,7 +5618,9 @@ async function __tmRefreshAfterWake(reason) {
             const siblings = RuleManager.applyRuleSort(list || [], rule);
             siblings.forEach(t => {
                 if (!t) return;
-                if (hasDoneAncestor(t)) return;
+                // 如果任务本身已完成且有已完成祖先，则不显示（这是合理的）
+                // 但已完成子任务（父任务未完成）应该显示，所以不能在这里过滤
+                // 这里只检查是否已存在于 matchedSet（由规则筛选结果决定）
                 const isMatched = matchedSet.has(t.id);
                 const isAncestor = ancestorSet.has(t.id);
                 const show = isMatched || isAncestor || ancestorMatched;
@@ -5272,7 +5628,7 @@ async function __tmRefreshAfterWake(reason) {
                     added.add(t.id);
                     ordered.push(t);
                 }
-                if (t.done) return;
+                // 无论任务是否完成，都需要处理子任务
                 if (t.children && t.children.length > 0) {
                     traverse(t.children, ancestorMatched || isMatched);
                 }
@@ -5297,6 +5653,11 @@ async function __tmRefreshAfterWake(reason) {
                 collectAll(doc.tasks || []);
             });
             
+            // 确保所有任务都有 priorityScore（排序需要）
+            allTasks.forEach(t => {
+                try { t.priorityScore = __tmComputePriorityScore(t); } catch (e) { t.priorityScore = 0; }
+            });
+            
             // 对所有任务应用排序规则
             const sortedAllTasks = RuleManager.applyRuleSort(allTasks, rule);
             
@@ -5304,7 +5665,28 @@ async function __tmRefreshAfterWake(reason) {
             const globalAdded = new Set();
             sortedAllTasks.forEach(t => {
                 if (!t) return;
-                if (hasDoneAncestor(t)) return;
+
+                // 检查是否应该过滤（与之前的过滤逻辑保持一致）
+                let shouldFilter = false;
+
+                // 已完成根任务且开启了排除已完成
+                if (excludeCompleted && t.done && !t.parentTaskId) {
+                    shouldFilter = true;
+                }
+                // 父任务已完成
+                else if (hasDoneAncestor(t)) {
+                    shouldFilter = true;
+                }
+                // 已完成子任务（父任务未完成）的处理
+                else if (excludeCompleted && t.done && t.parentTaskId && !hasDoneAncestor(t)) {
+                    // 如果当前规则没有明确排除已完成任务，则保留显示已完成子任务
+                    if (ruleExcludesCompleted) {
+                        shouldFilter = true;
+                    }
+                }
+
+                if (shouldFilter) return;
+                
                 const isMatched = matchedSet.has(t.id);
                 const isAncestor = ancestorSet.has(t.id);
                 if (isMatched || isAncestor) {
@@ -5468,7 +5850,7 @@ async function __tmRefreshAfterWake(reason) {
         } catch (e) {}
     };
 
-    window.tmRowDblClick = function(ev, taskId) {
+    window.tmRowClick = function(ev, taskId) {
         const id = String(taskId || '').trim();
         if (!id) return;
         const t = ev?.target;
@@ -5571,6 +5953,10 @@ async function __tmRefreshAfterWake(reason) {
                                 <input type="checkbox" ${state.groupByTime ? 'checked' : ''} onchange="toggleGroupByTime(this.checked)">
                                 按时间分组
                             </label>
+                            <label style="display:flex;align-items:center;gap:6px;color:white;font-size:13px;cursor:pointer;">
+                                <input type="checkbox" ${state.quadrantEnabled ? 'checked' : ''} onchange="toggleQuadrantGroup(this.checked)">
+                                四象限分组
+                            </label>
 
                         </div>
                         
@@ -5637,6 +6023,10 @@ async function __tmRefreshAfterWake(reason) {
                                     <label style="display:flex;align-items:center;gap:6px;color:var(--tm-text-color);font-size:13px;">
                                         <input type="checkbox" ${state.groupByTime ? 'checked' : ''} onchange="toggleGroupByTime(this.checked)">
                                         按时间分组
+                                    </label>
+                                    <label style="display:flex;align-items:center;gap:6px;color:var(--tm-text-color);font-size:13px;">
+                                        <input type="checkbox" ${state.quadrantEnabled ? 'checked' : ''} onchange="toggleQuadrantGroup(this.checked)">
+                                        四象限分组
                                     </label>
                                 </div>
                                 ${currentRule ? `<div class="tm-mobile-only-item" style="color:var(--tm-secondary-text);font-size:12px;">当前规则: ${esc(currentRule.name)} (${filteredCount}任务)</div>` : ''}
@@ -5772,6 +6162,7 @@ async function __tmRefreshAfterWake(reason) {
                                             return `<th data-col="h2" style="width: ${widths.h2 || 180}px; min-width: ${widths.h2 || 180}px; max-width: ${widths.h2 || 180}px; white-space: nowrap; overflow: hidden;">${label}<span class="tm-col-resize" onmousedown="startColResize(event, 'h2')"></span></th>`;
                                         })(),
                                         priority: `<th data-col="priority" style="width: ${widths.priority || 96}px; min-width: ${widths.priority || 96}px; max-width: ${widths.priority || 96}px; text-align: center; white-space: nowrap; overflow: hidden;">重要性<span class="tm-col-resize" onmousedown="startColResize(event, 'priority')"></span></th>`,
+                                        startDate: `<th data-col="startDate" style="width: ${widths.startDate || 90}px; min-width: ${widths.startDate || 90}px; max-width: ${widths.startDate || 90}px; white-space: nowrap; overflow: hidden;">开始日期<span class="tm-col-resize" onmousedown="startColResize(event, 'startDate')"></span></th>`,
                                         completionTime: `<th data-col="completionTime" style="width: ${widths.completionTime || 170}px; min-width: ${widths.completionTime || 170}px; max-width: ${widths.completionTime || 170}px; white-space: nowrap; overflow: hidden;">完成时间<span class="tm-col-resize" onmousedown="startColResize(event, 'completionTime')"></span></th>`,
                                         duration: `<th data-col="duration" style="width: ${widths.duration || 96}px; min-width: ${widths.duration || 96}px; max-width: ${widths.duration || 96}px; white-space: nowrap; overflow: hidden;">时长<span class="tm-col-resize" onmousedown="startColResize(event, 'duration')"></span></th>`,
                                         spent: `<th data-col="spent" style="width: ${widths.spent || 96}px; min-width: ${widths.spent || 96}px; max-width: ${widths.spent || 96}px; white-space: nowrap; overflow: hidden;">耗时<span class="tm-col-resize" onmousedown="startColResize(event, 'spent')"></span></th>`,
@@ -6047,6 +6438,7 @@ async function __tmRefreshAfterWake(reason) {
         task.duration = isValidValue(task.duration) ? String(task.duration) : (isValidValue(task.custom_duration) ? String(task.custom_duration) : '');
         task.remark = isValidValue(task.remark) ? String(task.remark) : (isValidValue(task.custom_remark) ? String(task.custom_remark) : '');
         task.completionTime = isValidValue(task.completionTime) ? String(task.completionTime) : (isValidValue(task.completion_time) ? String(task.completion_time) : '');
+        task.startDate = isValidValue(task.startDate) ? String(task.startDate) : (isValidValue(task.start_date) ? String(task.start_date) : '');
         task.customTime = isValidValue(task.customTime) ? String(task.customTime) : (isValidValue(task.custom_time) ? String(task.custom_time) : '');
         task.customStatus = isValidValue(task.customStatus) ? String(task.customStatus) : (isValidValue(task.custom_status) ? String(task.custom_status) : '');
         task.tomatoMinutes = isValidValue(task.tomatoMinutes) ? String(task.tomatoMinutes) : (isValidValue(task.tomato_minutes) ? String(task.tomato_minutes) : '');
@@ -6073,6 +6465,7 @@ async function __tmRefreshAfterWake(reason) {
             if (!isValidValue(task.duration) && isValidValue(meta.duration)) task.duration = meta.duration;
             if (!isValidValue(task.remark) && isValidValue(meta.remark)) task.remark = meta.remark;
             if (!isValidValue(task.completionTime) && isValidValue(meta.completionTime)) task.completionTime = meta.completionTime;
+            if (!isValidValue(task.startDate) && isValidValue(meta.startDate)) task.startDate = meta.startDate;
             if (!isValidValue(task.customTime) && isValidValue(meta.customTime)) task.customTime = meta.customTime;
             if (!isValidValue(task.customStatus) && isValidValue(meta.customStatus)) task.customStatus = meta.customStatus;
         }
@@ -7076,14 +7469,35 @@ async function __tmRefreshAfterWake(reason) {
 
         // 渲染单行（保持原有 emitRow 逻辑）
         const emitRow = (task, depth, hasChildren, collapsed) => {
-            const { done, content, priority, completionTime, duration, remark, docName, pinned } = task;
+            const { done, content, priority, completionTime, duration, remark, docName, pinned, startDate } = task;
+            
+            // 计算子任务统计信息
+            const allChildren = task.children || [];
+            const totalChildren = allChildren.length;
+            const completedChildren = allChildren.filter(c => c.done).length;
+            const remainingChildren = totalChildren - completedChildren;
+            const childStatsHtml = remainingChildren > 0 
+                ? `<span style="font-size: 11px; color: var(--tm-secondary-text); margin-left: 4px; background: var(--tm-doc-count-bg); padding: 1px 5px; border-radius: 8px; display: inline-flex; align-items: center; justify-content: center; height: 14px;" title="共${totalChildren}个任务，已完成${completedChildren}个，剩余${remainingChildren}个">${remainingChildren}</span>`
+                : '';
+            
             const indent = Math.max(0, Number(depth) || 0) * 12;
+            
+            // 计算子任务进度条背景（复用已定义的 allChildren, totalChildren, completedChildren）
+            const progressPercent = totalChildren > 0 ? Math.round((completedChildren / totalChildren) * 100) : 0;
+            const isDark = __tmIsDarkMode();
+            const progressBarColor = isDark 
+                ? __tmNormalizeHexColor(SettingsStore.data.progressBarColorDark, '#81c784')
+                : __tmNormalizeHexColor(SettingsStore.data.progressBarColorLight, '#4caf50');
+            const progressBarBgStyle = (hasChildren && progressPercent > 0) 
+                ? `background: linear-gradient(90deg, ${progressBarColor} ${progressPercent}%, transparent ${progressPercent}%);` 
+                : '';
+            
             const toggle = hasChildren
                 ? `<span class="tm-tree-toggle" onclick="tmToggleCollapse('${task.id}', event)">${collapsed ? '▸' : '▾'}</span>`
                 : `<span class="tm-tree-spacer"></span>`;
 
             const widths = SettingsStore.data.columnWidths || {};
-            const colOrder = SettingsStore.data.columnOrder || ['pinned', 'content', 'status', 'score', 'doc', 'h2', 'priority', 'completionTime', 'duration', 'spent', 'remark'];
+            const colOrder = SettingsStore.data.columnOrder || ['pinned', 'content', 'status', 'score', 'doc', 'h2', 'priority', 'startDate', 'completionTime', 'duration', 'spent', 'remark'];
 
             const cells = {
                 pinned: () => `
@@ -7093,17 +7507,19 @@ async function __tmRefreshAfterWake(reason) {
                                title="置顶">
                     </td>`,
                 content: () => `
-                    <td style="width: ${widths.content || 360}px; min-width: ${widths.content || 360}px; max-width: ${widths.content || 360}px;">
+                    <td style="width: ${widths.content || 360}px; min-width: ${widths.content || 360}px; max-width: ${widths.content || 360}px; ${progressBarBgStyle}">
                         <div class="tm-task-cell" style="padding-left:${indent}px">
                             ${toggle}
                             <input class="tm-task-checkbox ${isGloballyLocked ? 'tm-operating' : ''}"
                                    type="checkbox" ${done ? 'checked' : ''}
                                    ${isGloballyLocked ? 'disabled' : ''}
                                    onchange="tmSetDone('${task.id}', this.checked, event)">
-                            <span class="tm-task-text ${done ? 'tm-task-done' : ''} tm-task-content-clickable"
+                            <span class="tm-task-text ${done ? 'tm-task-done' : ''}"
                                   data-level="${depth}"
-                                  onclick="tmJumpToTask('${task.id}', event)"
-                                  title="点击跳转到文档">${esc(content)}</span>
+                                  title="点击跳转到文档">
+                                <span class="tm-task-content-clickable" onclick="tmJumpToTask('${task.id}', event)">${esc(content)}</span>
+                            </span>
+                            ${childStatsHtml}
                         </div>
                     </td>`,
                 doc: () => `
@@ -7119,6 +7535,8 @@ async function __tmRefreshAfterWake(reason) {
                     const priorityText = priority ? ({ high: '高', medium: '中', low: '低' }[priority] || '无') : '无';
                     return `<td class="${priorityClass} tm-cell-editable" style="width: ${widths.priority || 96}px; min-width: ${widths.priority || 96}px; max-width: ${widths.priority || 96}px; text-align: center;" onclick="tmPickPriority('${task.id}', this, event)">${priorityText}</td>`;
                 },
+                startDate: () => `
+                    <td class="tm-cell-editable" style="width: ${widths.startDate || 90}px; min-width: ${widths.startDate || 90}px; max-width: ${widths.startDate || 90}px;" onclick="tmBeginCellEdit('${task.id}','startDate',this,event)">${__tmFormatTaskTime(startDate)}</td>`,
                 completionTime: () => `
                     <td class="tm-cell-editable" style="width: ${widths.completionTime || 170}px; min-width: ${widths.completionTime || 170}px; max-width: ${widths.completionTime || 170}px;" onclick="tmBeginCellEdit('${task.id}','completionTime',this,event)">${__tmFormatTaskTime(completionTime)}</td>`,
                 duration: () => `
@@ -7148,7 +7566,7 @@ async function __tmRefreshAfterWake(reason) {
 
             const focusId = SettingsStore.data.enableTomatoIntegration ? String(state.timerFocusTaskId || '').trim() : '';
             const rowClass = focusId ? (focusId === String(task.id) ? 'tm-timer-focus' : 'tm-timer-dim') : '';
-            let rowHtml = `<tr data-id="${task.id}" class="${rowClass}" draggable="true" ondragstart="tmDragTaskStart(event, '${task.id}')" ondblclick="tmRowDblClick(event, '${task.id}')" oncontextmenu="tmShowTaskContextMenu(event, '${task.id}')">`;
+            let rowHtml = `<tr data-id="${task.id}" class="${rowClass}" draggable="true" ondragstart="tmDragTaskStart(event, '${task.id}')" onclick="tmRowClick(event, '${task.id}')" oncontextmenu="tmShowTaskContextMenu(event, '${task.id}')">`;
             colOrder.forEach(col => {
                 if (cells[col]) rowHtml += cells[col]();
             });
@@ -7191,7 +7609,166 @@ async function __tmRefreshAfterWake(reason) {
         }
 
         // 处理普通任务
-        if (state.groupByDocName) {
+        if (state.quadrantEnabled && normalRoots.length > 0) {
+            // 四象限分组逻辑
+            const quadrantRules = (SettingsStore.data.quadrantConfig && SettingsStore.data.quadrantConfig.rules) || [];
+            
+            // 获取任务的重要性等级
+            const getImportanceLevel = (task) => {
+                const priority = String(task.priority || '').toLowerCase();
+                if (priority === 'a' || priority === '高' || priority === 'high') return 'high';
+                if (priority === 'b' || priority === '中' || priority === 'medium') return 'medium';
+                if (priority === 'c' || priority === '低' || priority === 'low') return 'low';
+                return 'none';
+            };
+            
+            // 获取任务的时间范围分类
+            const getTimeRange = (task) => {
+                const timeStr = task.completionTime;
+                if (!timeStr) return 'nodate';
+                
+                const taskDate = new Date(timeStr);
+                if (isNaN(taskDate.getTime())) return 'nodate';
+                
+                const now = new Date();
+                const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+                const target = new Date(taskDate.getFullYear(), taskDate.getMonth(), taskDate.getDate());
+                
+                const diffDays = Math.ceil((target - today) / (1000 * 60 * 60 * 24));
+                
+                if (diffDays < 0) return 'overdue';
+                if (diffDays <= 7) return 'within7days';
+                if (diffDays <= 15) return 'within15days';
+                if (diffDays <= 30) return 'within30days';
+                return 'beyond30days';
+            };
+            
+            // 获取任务距离今天的天数
+            const getTaskDays = (task) => {
+                const timeStr = task.completionTime;
+                if (!timeStr) return Infinity;
+                const taskDate = new Date(timeStr);
+                if (isNaN(taskDate.getTime())) return Infinity;
+                const now = new Date();
+                const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+                const target = new Date(taskDate.getFullYear(), taskDate.getMonth(), taskDate.getDate());
+                return Math.ceil((target - today) / (1000 * 60 * 60 * 24));
+            };
+            
+            // 将任务分配到四象限
+            const quadrantGroups = {};
+            quadrantRules.forEach(rule => {
+                quadrantGroups[rule.id] = {
+                    ...rule,
+                    items: [],
+                    sortOrder: 0
+                };
+            });
+            
+            // 四象限排序：重要紧急 > 重要不紧急 > 不重要紧急 > 不重要不紧急
+            const quadrantOrder = ['urgent-important', 'not-urgent-important', 'urgent-not-important', 'not-urgent-not-important'];
+            
+            normalRoots.forEach(task => {
+                const importance = getImportanceLevel(task);
+                const timeRange = getTimeRange(task);
+                const taskDays = getTaskDays(task);
+                
+                // 查找匹配的四象限规则
+                let matchedRule = null;
+                for (const rule of quadrantRules) {
+                    const importanceMatch = rule.importance.includes(importance);
+                    
+                    // 检查时间范围匹配（支持 beyondXdays 范围）
+                    let timeRangeMatch = rule.timeRanges.includes(timeRange);
+                    if (!timeRangeMatch) {
+                        // 检查是否选择了 "余X天以上" 选项
+                        for (const range of rule.timeRanges) {
+                            if (range.startsWith('beyond') && range !== 'beyond30days') {
+                                const days = parseInt(range.replace('beyond', '').replace('days', ''));
+                                if (!isNaN(days) && taskDays > days) {
+                                    timeRangeMatch = true;
+                                    break;
+                                }
+                            }
+                        }
+                    }
+                    
+                    if (importanceMatch && timeRangeMatch) {
+                        matchedRule = rule;
+                        break;
+                    }
+                }
+                
+                if (matchedRule) {
+                    quadrantGroups[matchedRule.id].items.push(task);
+                }
+            });
+            
+            // 渲染四象限分组
+            const colorMap = {
+                red: 'var(--tm-quadrant-red)',
+                yellow: 'var(--tm-quadrant-yellow)',
+                blue: 'var(--tm-quadrant-blue)',
+                green: 'var(--tm-quadrant-green)'
+            };
+            
+            const bgColorMap = {
+                red: 'var(--tm-quadrant-bg-red)',
+                yellow: 'var(--tm-quadrant-bg-yellow)',
+                blue: 'var(--tm-quadrant-bg-blue)',
+                green: 'var(--tm-quadrant-bg-green)'
+            };
+            
+            quadrantOrder.forEach((quadrantId, index) => {
+                const group = quadrantGroups[quadrantId];
+                if (!group || group.items.length === 0) return;
+                
+                const color = colorMap[group.color] || 'var(--tm-text-color)';
+                
+                // 支持折叠
+                const groupKey = `quadrant_${quadrantId}`;
+                const isCollapsed = state.collapsedGroups?.has(groupKey);
+                const toggle = `<span class="tm-group-toggle" onclick="tmToggleGroupCollapse('${groupKey}', event)" style="cursor:pointer;margin-right:8px;display:inline-block;width:12px;">${isCollapsed ? '▸' : '▾'}</span>`;
+                
+                // 计算时长总和
+                const durationFormat = SettingsStore.data.durationFormat || 'hours';
+                const calculateDuration = (items) => {
+                    let totalMinutes = 0;
+                    items.forEach(task => {
+                        const durationStr = String(task.duration || '').trim();
+                        if (!durationStr) return;
+                        let minutes = 0;
+                        if (durationStr.toLowerCase().endsWith('h')) {
+                            const hours = parseFloat(durationStr.toLowerCase().replace('h', ''));
+                            if (!isNaN(hours)) minutes = hours * 60;
+                        } else if (durationStr.toLowerCase().endsWith('min')) {
+                            const mins = parseFloat(durationStr.toLowerCase().replace('min', ''));
+                            if (!isNaN(mins)) minutes = mins;
+                        } else {
+                            const num = parseFloat(durationStr);
+                            if (!isNaN(num)) minutes = num > 100 ? num : num * 60;
+                        }
+                        totalMinutes += minutes;
+                    });
+                    if (totalMinutes === 0) return '';
+                    if (durationFormat === 'hours') {
+                        const hours = Math.round(totalMinutes / 60 * 10) / 10;
+                        return `${hours}h`;
+                    }
+                    return `${totalMinutes}min`;
+                };
+                const durationSum = calculateDuration(group.items);
+                
+                allRows.push(`<tr class="tm-group-row"><td colspan="${colCount}" onclick="tmToggleGroupCollapse('${groupKey}', event)" style="cursor:pointer;background:var(--tm-header-bg);padding:8px 12px;font-weight:bold;color:${color};border-bottom:1px solid var(--tm-border-color);">${toggle}<span class="tm-quadrant-indicator tm-quadrant-bg-${group.color}"></span>${esc(group.name)} <span style="font-weight:normal;color:var(--tm-secondary-text);font-size:12px;background:var(--tm-doc-count-bg);padding:1px 6px;border-radius:10px;margin-left:4px;">${group.items.length}</span>${durationSum ? `<span style="font-weight:normal;color:var(--tm-primary-color);font-size:12px;background:var(--tm-info-bg);padding:1px 6px;border-radius:10px;margin-left:4px;border:1px solid var(--tm-info-border);">📊 ${durationSum}</span>` : ''}</td></tr>`);
+                
+                // 如果未折叠，渲染任务
+                if (!isCollapsed) {
+                    group.items.forEach(task => {
+                        allRows.push(...renderTaskTree(task, 0));
+                    });
+                }
+            });
+        } else if (state.groupByDocName) {
             // 按文档分组模式：不应用全局混排，按文档顺序显示，支持折叠
             const docsInOrder = state.taskTree.map(d => d.id).filter(Boolean);
 
@@ -7218,7 +7795,7 @@ async function __tmRefreshAfterWake(reason) {
                 const isCollapsed = state.collapsedGroups?.has(groupKey);
                 const toggle = `<span class="tm-group-toggle" onclick="tmToggleGroupCollapse('${groupKey}', event)" style="cursor:pointer;margin-right:8px;display:inline-block;width:12px;">${isCollapsed ? '▸' : '▾'}</span>`;
 
-                allRows.push(`<tr class="tm-group-row"><td colspan="${colCount}" style="background:var(--tm-header-bg);padding:8px 12px;font-weight:bold;color:var(--tm-text-color);border-bottom:1px solid var(--tm-border-color);">${toggle}<span class="tm-group-label" style="color: var(--tm-group-doc-label-color);">📄 ${esc(docName)}</span> <span style="font-weight:normal;color:var(--tm-secondary-text);font-size:12px;background:var(--tm-doc-count-bg);padding:1px 6px;border-radius:10px;margin-left:4px;">${docTasks.length}</span></td></tr>`);
+                allRows.push(`<tr class="tm-group-row"><td colspan="${colCount}" onclick="tmToggleGroupCollapse('${groupKey}', event)" style="cursor:pointer;background:var(--tm-header-bg);padding:8px 12px;font-weight:bold;color:var(--tm-text-color);border-bottom:1px solid var(--tm-border-color);">${toggle}<span class="tm-group-label" style="color: var(--tm-group-doc-label-color);">📄 ${esc(docName)}</span> <span style="font-weight:normal;color:var(--tm-secondary-text);font-size:12px;background:var(--tm-doc-count-bg);padding:1px 6px;border-radius:10px;margin-left:4px;">${docTasks.length}</span></td></tr>`);
 
                 // 渲染该文档的任务（如果未折叠）
                 if (!isCollapsed) {
@@ -7267,12 +7844,67 @@ async function __tmRefreshAfterWake(reason) {
             // 按时间顺序渲染分组
             const sortedGroups = [...timeGroups.values()].sort((a, b) => a.sortValue - b.sortValue);
 
+            // 计算时长总和的辅助函数
+            const calculateGroupDuration = (items) => {
+                const durationFormat = SettingsStore.data.durationFormat || 'hours';
+                let totalMinutes = 0;
+                
+                items.forEach(task => {
+                    // 获取任务的时长（可能是数字或字符串）
+                    const durationStr = String(task.duration || '').trim();
+                    if (!durationStr) return;
+                    
+                    // 尝试解析时长（支持 "1.5h", "90min", "90", "1.5" 等格式）
+                    let minutes = 0;
+                    
+                    if (durationStr.toLowerCase().endsWith('h')) {
+                        // 小时格式，如 "1.5h"
+                        const hours = parseFloat(durationStr.toLowerCase().replace('h', ''));
+                        if (!isNaN(hours)) minutes = hours * 60;
+                    } else if (durationStr.toLowerCase().endsWith('min')) {
+                        // 分钟格式，如 "90min"
+                        const mins = parseFloat(durationStr.toLowerCase().replace('min', ''));
+                        if (!isNaN(mins)) minutes = mins;
+                    } else {
+                        // 纯数字，可能是小时或分钟
+                        const num = parseFloat(durationStr);
+                        if (!isNaN(num)) {
+                            // 如果数字大于100，认为是分钟，否则是小时
+                            minutes = num > 100 ? num : num * 60;
+                        }
+                    }
+                    
+                    totalMinutes += minutes;
+                });
+                
+                // 如果总时长为0，返回空字符串（不显示）
+                if (totalMinutes <= 0) return '';
+                
+                // 根据设置格式化输出
+                if (durationFormat === 'hours') {
+                    const hours = totalMinutes / 60;
+                    // 如果小于1小时，显示分钟；如果大于等于1小时，显示小时
+                    if (hours < 1) {
+                        return `${Math.round(totalMinutes)}min`;
+                    } else if (hours === Math.floor(hours)) {
+                        return `${Math.round(hours)}h`;
+                    } else {
+                        return `${hours.toFixed(1)}h`;
+                    }
+                } else {
+                    return `${totalMinutes}min`;
+                }
+            };
+
             sortedGroups.forEach(group => {
                 const isCollapsed = state.collapsedGroups?.has(group.key);
                 const toggle = `<span class="tm-group-toggle" onclick="tmToggleGroupCollapse('${group.key}', event)" style="cursor:pointer;margin-right:8px;display:inline-block;width:12px;">${isCollapsed ? '▸' : '▾'}</span>`;
                 const labelColor = __tmGetTimeGroupLabelColor(group);
-
-                allRows.push(`<tr class="tm-group-row"><td colspan="${colCount}" style="background:var(--tm-header-bg);padding:8px 12px;font-weight:bold;color:var(--tm-text-color);border-bottom:1px solid var(--tm-border-color);">${toggle}<span class="tm-group-label" style="color:${labelColor};">${esc(group.label)}</span> <span style="font-weight:normal;color:var(--tm-secondary-text);font-size:12px;background:var(--tm-doc-count-bg);padding:1px 6px;border-radius:10px;margin-left:4px;">${group.items.length}</span></td></tr>`);
+                
+                // 计算该分组下所有任务的时长总和
+                const durationSum = calculateGroupDuration(group.items);
+                
+                allRows.push(`<tr class="tm-group-row"><td colspan="${colCount}" onclick="tmToggleGroupCollapse('${group.key}', event)" style="cursor:pointer;background:var(--tm-header-bg);padding:8px 12px;font-weight:bold;color:var(--tm-text-color);border-bottom:1px solid var(--tm-border-color);">${toggle}<span class="tm-group-label" style="color:${labelColor};">${esc(group.label)}</span> <span style="font-weight:normal;color:var(--tm-secondary-text);font-size:12px;background:var(--tm-doc-count-bg);padding:1px 6px;border-radius:10px;margin-left:4px;">${group.items.length}</span>${durationSum ? `<span style="font-weight:normal;color:var(--tm-primary-color);font-size:12px;background:var(--tm-info-bg);padding:1px 6px;border-radius:10px;margin-left:4px;border:1px solid var(--tm-info-border);">📊 ${durationSum}</span>` : ''}</td></tr>`);
 
                 if (!isCollapsed) {
                     // 组内任务按照全局顺序排列
@@ -9296,6 +9928,7 @@ async function __tmRefreshAfterWake(reason) {
         state.collapsedGroups = new Set(SettingsStore.data.collapsedGroups || []);
         state.currentRule = SettingsStore.data.currentRule;
         state.columnWidths = SettingsStore.data.columnWidths;
+        state.excludeCompletedTasks = !!SettingsStore.data.excludeCompletedTasks;
 
         // 加载筛选规则
         state.filterRules = await RuleManager.initRules();
@@ -9645,6 +10278,7 @@ async function __tmRefreshAfterWake(reason) {
         let activeTab = 'main';
         if (state.settingsActiveTab === 'appearance') activeTab = 'appearance';
         if (state.settingsActiveTab === 'rules') activeTab = 'rules';
+        if (state.settingsActiveTab === 'quadrant') activeTab = 'quadrant';
         if (state.settingsActiveTab === 'priority') activeTab = 'priority';
         if (activeTab === 'main') {
             try { __tmEnsureAllDocumentsLoaded(false); } catch (e) {}
@@ -9662,6 +10296,7 @@ async function __tmRefreshAfterWake(reason) {
                     <button class="tm-btn ${activeTab === 'main' ? 'tm-btn-primary' : 'tm-btn-secondary'}" data-tm-action="tmSwitchSettingsTab" data-tab="main" style="padding: 6px 10px; font-size: 12px;">常规设置</button>
                     <button class="tm-btn ${activeTab === 'appearance' ? 'tm-btn-primary' : 'tm-btn-secondary'}" data-tm-action="tmSwitchSettingsTab" data-tab="appearance" style="padding: 6px 10px; font-size: 12px;">外观</button>
                     <button class="tm-btn ${activeTab === 'rules' ? 'tm-btn-primary' : 'tm-btn-secondary'}" data-tm-action="tmSwitchSettingsTab" data-tab="rules" style="padding: 6px 10px; font-size: 12px;">规则管理</button>
+                    <button class="tm-btn ${activeTab === 'quadrant' ? 'tm-btn-primary' : 'tm-btn-secondary'}" data-tm-action="tmSwitchSettingsTab" data-tab="quadrant" style="padding: 6px 10px; font-size: 12px;">四象限</button>
                     <button class="tm-btn ${activeTab === 'priority' ? 'tm-btn-primary' : 'tm-btn-secondary'}" data-tm-action="tmSwitchSettingsTab" data-tab="priority" style="padding: 6px 10px; font-size: 12px;">优先级算法</button>
                     ` : `
                     <button class="tm-btn tm-btn-primary" style="padding: 6px 10px; font-size: 12px;">${state.editingRule ? '编辑规则' : '新建规则'}</button>
@@ -9703,6 +10338,16 @@ async function __tmRefreshAfterWake(reason) {
                             <div id="tm-priority-settings">
                                 ${__tmRenderPriorityScoreSettings(true)}
                             </div>
+                        </div>
+                    ` : ''}
+                    
+                    ${activeTab === 'quadrant' ? `
+                        <div style="margin-bottom: 16px; padding: 12px; background: var(--tm-section-bg); border-radius: 8px;">
+                            <div style="font-weight: 600; margin-bottom: 12px;">📊 四象限分组规则</div>
+                            <div style="font-size: 12px; color: var(--tm-secondary-text); margin-bottom: 12px;">
+                                根据任务的「重要性」和「完成时间」自动将任务分配到四个象限。
+                            </div>
+                            ${renderQuadrantSettings()}
                         </div>
                     ` : ''}
                     
@@ -9750,6 +10395,24 @@ async function __tmRefreshAfterWake(reason) {
                                 <option value="h6" ${SettingsStore.data.taskHeadingLevel === 'h6' ? 'selected' : ''}>H6 六级标题</option>
                             </select>
                         </label>
+                    </div>
+
+                    <div style="margin-bottom: 16px; padding: 12px; background: var(--tm-section-bg); border-radius: 8px;">
+                        <div style="font-weight: 600; margin-bottom: 8px;">⚡ 性能与显示设置</div>
+                        <label style="display:flex;align-items:center;gap:8px;cursor:pointer;">
+                            <input type="checkbox" ${SettingsStore.data.excludeCompletedTasks ? 'checked' : ''} onchange="updateExcludeCompletedTasks(this.checked)">
+                            不查找已完成父任务（提升搜索性能和长期使用性能）
+                        </label>
+                        <div style="font-size: 12px; color: var(--tm-secondary-text); margin-top: 6px; margin-bottom: 12px;">
+                            开启后仅查找未完成任务。含有子任务的任务，如果父任务未完成，已完成的子任务仍会显示。
+                        </div>
+                        <div style="display:flex;align-items:center;gap:8px;">
+                            <span style="font-size:12px;color:var(--tm-secondary-text);">时长显示格式:</span>
+                            <select onchange="updateDurationFormat(this.value)" style="padding: 4px 8px; border: 1px solid var(--tm-input-border); background: var(--tm-input-bg); color: var(--tm-text-color); border-radius: 4px;">
+                                <option value="hours" ${String(SettingsStore.data.durationFormat || 'hours') === 'hours' ? 'selected' : ''}>小时 (如 1.5h)</option>
+                                <option value="minutes" ${String(SettingsStore.data.durationFormat || '') === 'minutes' ? 'selected' : ''}>分钟 (如 90min)</option>
+                            </select>
+                        </div>
                     </div>
 
                     <div style="margin-bottom: 16px; padding: 12px; background: var(--tm-section-bg); border-radius: 8px;">
@@ -9926,6 +10589,8 @@ async function __tmRefreshAfterWake(reason) {
             state.settingsActiveTab = 'rules';
         } else if (tab === 'appearance') {
             state.settingsActiveTab = 'appearance';
+        } else if (tab === 'quadrant') {
+            state.settingsActiveTab = 'quadrant';
         } else if (tab === 'priority') {
             state.priorityScoreDraft = state.priorityScoreDraft || __tmEnsurePriorityDraft();
             state.settingsActiveTab = 'priority';
@@ -10027,6 +10692,13 @@ async function __tmRefreshAfterWake(reason) {
                 ]
             },
             {
+                title: '子任务进度条背景',
+                rows: [
+                    { label: '亮色', key: 'progressBarColorLight', value: d.progressBarColorLight || '#4caf50' },
+                    { label: '夜间', key: 'progressBarColorDark', value: d.progressBarColorDark || '#81c784' }
+                ]
+            },
+            {
                 title: '分组名称（按文档分组）',
                 rows: [
                     { label: '亮色', key: 'groupDocLabelColorLight', value: d.groupDocLabelColorLight || '#333333' },
@@ -10117,7 +10789,9 @@ async function __tmRefreshAfterWake(reason) {
             timeGroupBaseColorLight: '#1a73e8',
             timeGroupBaseColorDark: '#6ba5ff',
             timeGroupOverdueColorLight: '#d93025',
-            timeGroupOverdueColorDark: '#ff6b6b'
+            timeGroupOverdueColorDark: '#ff6b6b',
+            progressBarColorLight: '#4caf50',
+            progressBarColorDark: '#81c784'
         };
         const initial = __tmNormalizeHexColor(SettingsStore.data[k], defaults[k] || '#f44336') || (defaults[k] || '#f44336');
         __tmOpenColorPickerDialog(label, initial, (next) => {
@@ -10131,7 +10805,8 @@ async function __tmRefreshAfterWake(reason) {
             'taskContentColorLight', 'taskContentColorDark',
             'groupDocLabelColorLight', 'groupDocLabelColorDark',
             'timeGroupBaseColorLight', 'timeGroupBaseColorDark',
-            'timeGroupOverdueColorLight', 'timeGroupOverdueColorDark'
+            'timeGroupOverdueColorLight', 'timeGroupOverdueColorDark',
+            'progressBarColorLight', 'progressBarColorDark'
         ]);
         const k = String(key || '').trim();
         if (!allowed.has(k)) return;
@@ -10174,6 +10849,8 @@ async function __tmRefreshAfterWake(reason) {
         SettingsStore.data.timeGroupBaseColorDark = '#6ba5ff';
         SettingsStore.data.timeGroupOverdueColorLight = '#d93025';
         SettingsStore.data.timeGroupOverdueColorDark = '#ff6b6b';
+        SettingsStore.data.progressBarColorLight = '#4caf50';
+        SettingsStore.data.progressBarColorDark = '#81c784';
         await SettingsStore.save();
         try { __tmApplyAppearanceThemeVars(); } catch (e) {}
         showSettings();
@@ -10725,6 +11402,27 @@ async function __tmRefreshAfterWake(reason) {
         }
     };
 
+    window.updateExcludeCompletedTasks = async function(enabled) {
+        SettingsStore.data.excludeCompletedTasks = !!enabled;
+        await SettingsStore.save();
+        state.excludeCompletedTasks = !!enabled;
+        showSettings();
+        if (state.modal && document.body.contains(state.modal)) {
+            loadSelectedDocuments();
+        }
+    };
+
+    window.updateDurationFormat = async function(format) {
+        const v = String(format || '').trim();
+        SettingsStore.data.durationFormat = (v === 'minutes') ? 'minutes' : 'hours';
+        state.durationFormat = SettingsStore.data.durationFormat;
+        await SettingsStore.save();
+        showSettings();
+        if (state.modal && document.body.contains(state.modal)) {
+            render();
+        }
+    };
+
     window.updatePinNewTasksByDefault = async function(enabled) {
         SettingsStore.data.pinNewTasksByDefault = !!enabled;
         await SettingsStore.save();
@@ -10832,9 +11530,49 @@ async function __tmRefreshAfterWake(reason) {
         state.groupByTime = !!checked;
         if (state.groupByTime) {
             state.groupByDocName = false;
+            state.quadrantEnabled = false;
+            SettingsStore.data.groupByDocName = false;
+            SettingsStore.data.groupByTime = true;
+            SettingsStore.data.quadrantConfig = SettingsStore.data.quadrantConfig || {};
+            SettingsStore.data.quadrantConfig.enabled = false;
+        } else {
+            SettingsStore.data.groupByTime = false;
+        }
+        await SettingsStore.save();
+        applyFilters();
+        render();
+    };
+
+    window.toggleGroupByDocName = async function(checked) {
+        state.groupByDocName = !!checked;
+        if (state.groupByDocName) {
+            state.groupByTime = false;
+            state.quadrantEnabled = false;
+            SettingsStore.data.groupByTime = false;
+            SettingsStore.data.groupByDocName = true;
+            SettingsStore.data.quadrantConfig = SettingsStore.data.quadrantConfig || {};
+            SettingsStore.data.quadrantConfig.enabled = false;
+        } else {
             SettingsStore.data.groupByDocName = false;
         }
-        SettingsStore.data.groupByTime = state.groupByTime;
+        await SettingsStore.save();
+        applyFilters();
+        render();
+    };
+
+    window.toggleQuadrantGroup = async function(checked) {
+        state.quadrantEnabled = !!checked;
+        if (state.quadrantEnabled) {
+            state.groupByDocName = false;
+            state.groupByTime = false;
+            SettingsStore.data.groupByDocName = false;
+            SettingsStore.data.groupByTime = false;
+            SettingsStore.data.quadrantConfig = SettingsStore.data.quadrantConfig || {};
+            SettingsStore.data.quadrantConfig.enabled = true;
+        } else {
+            SettingsStore.data.quadrantConfig = SettingsStore.data.quadrantConfig || {};
+            SettingsStore.data.quadrantConfig.enabled = false;
+        }
         await SettingsStore.save();
         applyFilters();
         render();
@@ -10850,7 +11588,8 @@ async function __tmRefreshAfterWake(reason) {
         else state.collapsedGroups.add(groupKey);
 
         SettingsStore.data.collapsedGroups = [...state.collapsedGroups];
-        await SettingsStore.save();
+        // 直接同步到本地存储，不等待云端同步，避免延迟
+        try { Storage.set('tm_collapsed_groups', SettingsStore.data.collapsedGroups); } catch (e) {}
         render();
     };
 
@@ -10864,9 +11603,9 @@ async function __tmRefreshAfterWake(reason) {
         if (state.collapsedTaskIds.has(key)) state.collapsedTaskIds.delete(key);
         else state.collapsedTaskIds.add(key);
 
-        // 同步到云端存储
+        // 直接同步到本地存储，不等待云端同步，避免延迟
         SettingsStore.data.collapsedTaskIds = [...state.collapsedTaskIds];
-        await SettingsStore.save();
+        try { Storage.set('tm_collapsed_task_ids', SettingsStore.data.collapsedTaskIds); } catch (e) {}
         render();
     };
 
@@ -11259,6 +11998,7 @@ async function __tmRefreshAfterWake(reason) {
             state.queryLimit = SettingsStore.data.queryLimit;
             state.groupByDocName = SettingsStore.data.groupByDocName;
             state.groupByTime = SettingsStore.data.groupByTime;
+            state.quadrantEnabled = SettingsStore.data.quadrantConfig?.enabled || false;
             state.collapsedTaskIds = new Set(SettingsStore.data.collapsedTaskIds || []);
             state.collapsedGroups = new Set(SettingsStore.data.collapsedGroups || []);
             state.currentRule = SettingsStore.data.currentRule;
@@ -11770,6 +12510,7 @@ async function __tmRefreshAfterWake(reason) {
                 'tm_default_doc_id',
                 'tm_default_doc_id_by_group',
                 'tm_priority_score_config',
+                'tm_quadrant_config',
                 'tm_doc_groups',
                 'tm_current_group_id',
                 'tm_custom_status_options',
