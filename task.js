@@ -2198,11 +2198,9 @@
         normalizeColumns() {
             const defaultOrder = ['pinned', 'content', 'status', 'score', 'doc', 'h2', 'priority', 'startDate', 'completionTime', 'duration', 'spent', 'remark'];
             const known = new Set(defaultOrder);
-            if (!Array.isArray(this.data.columnOrder)) this.data.columnOrder = defaultOrder;
+            if (!Array.isArray(this.data.columnOrder)) this.data.columnOrder = [...defaultOrder];
             this.data.columnOrder = this.data.columnOrder.filter(k => known.has(k));
-            defaultOrder.forEach(k => {
-                if (!this.data.columnOrder.includes(k)) this.data.columnOrder.push(k);
-            });
+            if (this.data.columnOrder.length === 0) this.data.columnOrder = [...defaultOrder];
 
             const percentFallback = { pinned: 5, content: 35, status: 8, score: 8, doc: 12, h2: 12, priority: 8, startDate: 7, completionTime: 18, duration: 8, spent: 8, remark: 19 };
             const pxDefault = { pinned: 48, content: 360, status: 96, score: 96, doc: 180, h2: 180, priority: 96, startDate: 90, completionTime: 170, duration: 96, spent: 96, remark: 240 };
