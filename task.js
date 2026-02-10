@@ -4034,17 +4034,19 @@ async function __tmRefreshAfterWake(reason) {
     function __tmDocHasUndoneTasks(doc) {
         if (!doc || !Array.isArray(doc.tasks) || doc.tasks.length === 0) return false;
         let hasUndone = false;
-        const walk = (list) => {
+        const excludeCompletedParent = !!SettingsStore.data.excludeCompletedTasks;
+        const walk = (list, parentDone) => {
             for (const t of list) {
+                if (excludeCompletedParent && parentDone) continue;
                 if (!t.done) {
                     hasUndone = true;
                     return;
                 }
-                if (t.children && t.children.length > 0) walk(t.children);
+                if (t.children && t.children.length > 0) walk(t.children, excludeCompletedParent ? true : false);
                 if (hasUndone) return;
             }
         };
-        walk(doc.tasks);
+        walk(doc.tasks, false);
         return hasUndone;
     }
 
