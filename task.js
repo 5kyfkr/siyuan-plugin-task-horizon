@@ -1,5 +1,5 @@
 // @name         思源笔记任务管理器
-// @version      1.1.3
+// @version      1.1.5
 // @description  任务管理器，支持自定义筛选规则分组和排序
 // @author       5KYFKR
 
@@ -34,6 +34,7 @@
             --tm-border-color: #e9ecef;
             --tm-table-border-color: #e9ecef;
             --tm-hover-bg: #f8f9fa;
+            --tm-gantt-weekend-bg: rgba(0,0,0,0.12);
             --tm-secondary-text: #666666;
             --tm-modal-overlay: rgba(0,0,0,0.5);
             --tm-shadow: 0 10px 40px rgba(0,0,0,0.2);
@@ -78,6 +79,7 @@
             --tm-border-color: #333333;
             --tm-table-border-color: #333333;
             --tm-hover-bg: #2d2d2d;
+            --tm-gantt-weekend-bg: rgba(0,0,0,0.46);
             --tm-secondary-text: #aaaaaa;
             --tm-modal-overlay: rgba(0,0,0,0.7);
             --tm-shadow: 0 10px 40px rgba(0,0,0,0.5);
@@ -1130,7 +1132,7 @@
         }
 
         .tm-gantt-day--weekend {
-            background: var(--tm-hover-bg);
+            background: var(--tm-gantt-weekend-bg);
         }
 
         .tm-gantt-day--month-start {
@@ -1164,7 +1166,8 @@
 
         .tm-gantt-bar {
             position: absolute;
-            top: calc((var(--tm-row-height) - var(--tm-gantt-bar-height)) / 2);
+            top: 50%;
+            transform: translateY(-50%);
             height: var(--tm-gantt-bar-height);
             background: var(--tm-primary-color);
             border-radius: calc(var(--tm-gantt-bar-height) / 2);
@@ -1448,6 +1451,33 @@
                 opacity: 1;
                 transform: translateX(-50%) translateY(0);
             }
+        }
+
+        @keyframes tmBodyFadeSlide {
+            from { opacity: 1; transform: translateY(6px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+
+        .tm-body.tm-body-anim {
+            animation: tmBodyFadeSlide 180ms ease-out;
+        }
+
+        @keyframes tmBodyInFromRight {
+            from { opacity: 1; transform: translateX(26px); }
+            to { opacity: 1; transform: translateX(0); }
+        }
+
+        @keyframes tmBodyInFromLeft {
+            from { opacity: 1; transform: translateX(-18px); }
+            to { opacity: 1; transform: translateX(0); }
+        }
+
+        .tm-body.tm-body-anim--from-right {
+            animation: tmBodyInFromRight 220ms cubic-bezier(0.2, 0, 0, 1);
+        }
+
+        .tm-body.tm-body-anim--from-left {
+            animation: tmBodyInFromLeft 220ms cubic-bezier(0.2, 0, 0, 1);
         }
 
         /* 提示框样式 */
@@ -1840,6 +1870,9 @@
             timelineLeftWidth: 540,
             // 时间轴模式任务内容列宽度（不影响表格视图）
             timelineContentWidth: 360,
+            timelineForceSortByCompletionNearToday: false,
+            docColorMap: {},
+            docColorSeed: 1,
             // 外观配色（支持亮/暗）
             topbarGradientLightStart: '#667eea',
             topbarGradientLightEnd: '#764ba2',
@@ -1857,6 +1890,7 @@
             progressBarColorDark: '#81c784',
             tableBorderColorLight: '#e9ecef',
             tableBorderColorDark: '#333333',
+            enableGroupTaskBgByGroupColor: true,
             priorityScoreConfig: {
                 base: 100,
                 weights: { importance: 1, status: 1, due: 1, duration: 1, doc: 1 },
@@ -2016,6 +2050,9 @@
                                 if (typeof cloudData.startDate === 'number') this.data.startDate = cloudData.startDate;
                                 if (typeof cloudData.timelineLeftWidth === 'number') this.data.timelineLeftWidth = cloudData.timelineLeftWidth;
                                 if (typeof cloudData.timelineContentWidth === 'number') this.data.timelineContentWidth = cloudData.timelineContentWidth;
+                                if (typeof cloudData.timelineForceSortByCompletionNearToday === 'boolean') this.data.timelineForceSortByCompletionNearToday = cloudData.timelineForceSortByCompletionNearToday;
+                                if (cloudData.docColorMap && typeof cloudData.docColorMap === 'object') this.data.docColorMap = cloudData.docColorMap;
+                                if (typeof cloudData.docColorSeed === 'number') this.data.docColorSeed = cloudData.docColorSeed;
 
                                 const validModes = new Set(['none', 'doc', 'time', 'quadrant']);
                                 if (!validModes.has(String(this.data.groupMode || ''))) {
@@ -2109,6 +2146,9 @@
             this.data.startDate = Storage.get('tm_start_date', this.data.startDate);
             this.data.timelineLeftWidth = Storage.get('tm_timeline_left_width', this.data.timelineLeftWidth);
             this.data.timelineContentWidth = Storage.get('tm_timeline_content_width', this.data.timelineContentWidth);
+            this.data.timelineForceSortByCompletionNearToday = Storage.get('tm_timeline_force_sort_completion_near_today', this.data.timelineForceSortByCompletionNearToday);
+            this.data.docColorMap = Storage.get('tm_doc_color_map', this.data.docColorMap) || {};
+            this.data.docColorSeed = Storage.get('tm_doc_color_seed', this.data.docColorSeed);
             const savedWidths = Storage.get('tm_column_widths', null);
             if (savedWidths && typeof savedWidths === 'object') {
                 if (savedWidths.customTime && !savedWidths.completionTime) {
@@ -2193,6 +2233,9 @@
             Storage.set('tm_column_order', this.data.columnOrder);
             Storage.set('tm_timeline_left_width', this.data.timelineLeftWidth);
             Storage.set('tm_timeline_content_width', this.data.timelineContentWidth);
+            Storage.set('tm_timeline_force_sort_completion_near_today', !!this.data.timelineForceSortByCompletionNearToday);
+            Storage.set('tm_doc_color_map', this.data.docColorMap || {});
+            Storage.set('tm_doc_color_seed', Number(this.data.docColorSeed) || 1);
         },
 
         normalizeColumns() {
@@ -2222,9 +2265,14 @@
                 const raw = Number(widths[k]);
                 const d = pxDefault[k] || 120;
                 const normalized = Number.isFinite(raw) ? Math.round(raw) : d;
-                widths[k] = Math.max(40, Math.min(800, normalized));
+                widths[k] = Math.max(10, Math.min(800, normalized));
             });
             this.data.columnWidths = widths;
+            const map = this.data.docColorMap;
+            this.data.docColorMap = (map && typeof map === 'object' && !Array.isArray(map)) ? map : {};
+            const seed = Number(this.data.docColorSeed);
+            this.data.docColorSeed = (Number.isFinite(seed) && seed > 0) ? Math.floor(seed) : 1;
+            this.data.timelineForceSortByCompletionNearToday = !!this.data.timelineForceSortByCompletionNearToday;
         },
 
         async save() {
@@ -2274,7 +2322,7 @@
 
         // 便捷方法：更新列宽度
         async updateColumnWidth(column, width) {
-            if (typeof width === 'number' && width >= 40 && width <= 800) {
+            if (typeof width === 'number' && width >= 10 && width <= 800) {
                 this.data.columnWidths[column] = width;
                 await this.save();
             }
@@ -2507,6 +2555,7 @@
                 { value: 'priorityScore', label: '优先级数值' },
                 { value: 'priority', label: '优先级' },
                 { value: 'customStatus', label: '状态' },
+                { value: 'startDate', label: '开始日期' },
                 { value: 'completionTime', label: '完成时间' },
                 { value: 'created', label: '创建时间' },
                 { value: 'updated', label: '更新时间' },
@@ -2713,7 +2762,7 @@
             }
             
             // 处理时间比较
-            if (field.includes('Time') || field === 'created' || field === 'updated') {
+            if (field === 'startDate' || field.includes('Time') || field === 'created' || field === 'updated') {
                 const timeA = a ? __tmParseTimeToTs(a) : 0;
                 const timeB = b ? __tmParseTimeToTs(b) : 0;
                 return timeA - timeB;
@@ -3881,6 +3930,138 @@ async function __tmRefreshAfterWake(reason) {
         return { r, g, b };
     }
 
+    function __tmRgbToHex(rgb) {
+        const r = __tmClamp(rgb?.r, 0, 255);
+        const g = __tmClamp(rgb?.g, 0, 255);
+        const b = __tmClamp(rgb?.b, 0, 255);
+        const to2 = (n) => Math.round(n).toString(16).padStart(2, '0');
+        return `#${to2(r)}${to2(g)}${to2(b)}`.toLowerCase();
+    }
+
+    function __tmMixRgb(a, b, t) {
+        const x = __tmClamp(t, 0, 1);
+        return {
+            r: Math.round((a.r || 0) + ((b.r || 0) - (a.r || 0)) * x),
+            g: Math.round((a.g || 0) + ((b.g || 0) - (a.g || 0)) * x),
+            b: Math.round((a.b || 0) + ((b.b || 0) - (a.b || 0)) * x),
+        };
+    }
+
+    function __tmHslToRgb(h, s, l) {
+        const hh = ((Number(h) % 360) + 360) % 360;
+        const ss = __tmClamp(s, 0, 100) / 100;
+        const ll = __tmClamp(l, 0, 100) / 100;
+        const c = (1 - Math.abs(2 * ll - 1)) * ss;
+        const x = c * (1 - Math.abs(((hh / 60) % 2) - 1));
+        const m = ll - c / 2;
+        let r1 = 0, g1 = 0, b1 = 0;
+        if (hh < 60) { r1 = c; g1 = x; b1 = 0; }
+        else if (hh < 120) { r1 = x; g1 = c; b1 = 0; }
+        else if (hh < 180) { r1 = 0; g1 = c; b1 = x; }
+        else if (hh < 240) { r1 = 0; g1 = x; b1 = c; }
+        else if (hh < 300) { r1 = x; g1 = 0; b1 = c; }
+        else { r1 = c; g1 = 0; b1 = x; }
+        return {
+            r: Math.round((r1 + m) * 255),
+            g: Math.round((g1 + m) * 255),
+            b: Math.round((b1 + m) * 255),
+        };
+    }
+
+    function __tmHash32(str) {
+        const s = String(str || '');
+        let h = 2166136261;
+        for (let i = 0; i < s.length; i++) {
+            h ^= s.charCodeAt(i);
+            h = Math.imul(h, 16777619);
+        }
+        return h >>> 0;
+    }
+
+    function __tmAutoDocColor(docId, isDark) {
+        const seed = Number(SettingsStore?.data?.docColorSeed) || 1;
+        const h0 = __tmHash32(`${String(docId || '')}:${String(seed)}`);
+        const hue = h0 % 360;
+        const sat = (isDark ? 58 : 62) + ((h0 >>> 8) % 16);
+        const light = (isDark ? 58 : 42) + ((h0 >>> 16) % (isDark ? 12 : 14));
+        return __tmRgbToHex(__tmHslToRgb(hue, sat, light));
+    }
+
+    function __tmThemeAdjustHex(hex, isDark) {
+        const rgb = __tmHexToRgb(hex);
+        if (!rgb) return __tmNormalizeHexColor(hex, '#6ba5ff') || '#6ba5ff';
+        const lum = (0.2126 * rgb.r + 0.7152 * rgb.g + 0.0722 * rgb.b) / 255;
+        if (isDark) {
+            if (lum < 0.42) return __tmRgbToHex(__tmMixRgb(rgb, { r: 255, g: 255, b: 255 }, __tmClamp((0.52 - lum) * 1.2, 0.12, 0.55)));
+            return __tmRgbToHex(rgb);
+        }
+        if (lum > 0.78) return __tmRgbToHex(__tmMixRgb(rgb, { r: 0, g: 0, b: 0 }, __tmClamp((lum - 0.72) * 1.1, 0.10, 0.55)));
+        return __tmRgbToHex(rgb);
+    }
+
+    function __tmGetDocColorHex(docId, isDark) {
+        const id = String(docId || '').trim();
+        const map = (SettingsStore?.data?.docColorMap && typeof SettingsStore.data.docColorMap === 'object') ? SettingsStore.data.docColorMap : null;
+        const raw = map ? __tmNormalizeHexColor(map[id], '') : '';
+        if (raw) return __tmThemeAdjustHex(raw, isDark);
+        return __tmAutoDocColor(id, isDark);
+    }
+
+    function __tmDarkenHex(hex, amount) {
+        const rgb = __tmHexToRgb(hex);
+        if (!rgb) return __tmNormalizeHexColor(hex, '#6ba5ff') || '#6ba5ff';
+        const t = __tmClamp(amount, 0, 1);
+        return __tmRgbToHex(__tmMixRgb(rgb, { r: 0, g: 0, b: 0 }, t));
+    }
+
+    function __tmDesaturateHex(hex, amount) {
+        const rgb = __tmHexToRgb(hex);
+        if (!rgb) return __tmNormalizeHexColor(hex, '#6ba5ff') || '#6ba5ff';
+        const t = __tmClamp(amount, 0, 1);
+        const g = Math.round(0.299 * rgb.r + 0.587 * rgb.g + 0.114 * rgb.b);
+        return __tmRgbToHex(__tmMixRgb(rgb, { r: g, g: g, b: g }, t));
+    }
+
+    function __tmParseCssColorToRgba(input) {
+        const s0 = String(input || '').trim();
+        if (!s0) return null;
+        if (s0.startsWith('var(')) {
+            const m = /^var\(\s*(--[a-zA-Z0-9\-_]+)\s*\)$/.exec(s0);
+            if (!m) return null;
+            const varName = m[1];
+            const v = String(getComputedStyle(document.documentElement).getPropertyValue(varName) || '').trim();
+            return __tmParseCssColorToRgba(v);
+        }
+        const hex = __tmNormalizeHexColor(s0, '');
+        if (hex) {
+            const rgb = __tmHexToRgb(hex);
+            return rgb ? { ...rgb, a: 1 } : null;
+        }
+        const rgbm = /^rgba?\(\s*([0-9.]+)\s*,\s*([0-9.]+)\s*,\s*([0-9.]+)(?:\s*,\s*([0-9.]+)\s*)?\)$/.exec(s0);
+        if (rgbm) {
+            const r = __tmClamp(Number(rgbm[1]), 0, 255);
+            const g = __tmClamp(Number(rgbm[2]), 0, 255);
+            const b = __tmClamp(Number(rgbm[3]), 0, 255);
+            const a = rgbm[4] === undefined ? 1 : __tmClamp(Number(rgbm[4]), 0, 1);
+            return { r, g, b, a };
+        }
+        return null;
+    }
+
+    function __tmGroupBgFromLabelColor(colorStr, isDark) {
+        const rgba = __tmParseCssColorToRgba(colorStr);
+        if (!rgba) return '';
+        const alpha0 = __tmClamp(Number(rgba.a ?? 1), 0, 1);
+        const g = Math.round(0.299 * rgba.r + 0.587 * rgba.g + 0.114 * rgba.b);
+        const mixBase = isDark ? 0.42 : 0.34;
+        const mixExtra = (1 - alpha0) * (isDark ? 0.18 : 0.22);
+        const mix = __tmClamp(mixBase + mixExtra, 0, 0.9);
+        const soft = __tmMixRgb(rgba, { r: g, g: g, b: g }, mix);
+        const baseA = isDark ? 0.22 : 0.10;
+        const a = baseA * alpha0;
+        return `rgba(${soft.r}, ${soft.g}, ${soft.b}, ${a})`;
+    }
+
     function __tmWithAlpha(hex, alpha) {
         const rgb = __tmHexToRgb(hex);
         if (!rgb) return String(hex || '').trim();
@@ -3895,6 +4076,671 @@ async function __tmRefreshAfterWake(reason) {
                 if (el) el.remove();
             });
         } catch (e) {}
+    }
+
+    function __tmCancelAnimationsWithin(rootEl) {
+        const root = rootEl instanceof Element ? rootEl : null;
+        if (!root) return;
+        const list = root.querySelectorAll('tr[data-id],tr[data-group-key],.tm-gantt-row[data-id],.tm-gantt-row--group[data-group-key]');
+        list.forEach((el) => {
+            try {
+                const anims = el.getAnimations?.() || [];
+                anims.forEach((a) => {
+                    try { a.cancel(); } catch (e2) {}
+                });
+            } catch (e) {}
+        });
+    }
+
+    function __tmResetFlipState(modalEl) {
+        const root = modalEl instanceof Element ? modalEl : state.modal;
+        try { if (root) __tmCancelAnimationsWithin(root); } catch (e) {}
+        try {
+            const a = state.__tmFlipRunningAnims;
+            if (Array.isArray(a)) {
+                a.forEach((x) => { try { x?.cancel?.(); } catch (e2) {} });
+                a.length = 0;
+            }
+        } catch (e) {}
+        state.__tmFlipFirst = null;
+        state.__tmFlipAction = null;
+        state.__tmFlipTs = Date.now();
+    }
+
+    function __tmUpdateToggleGlyphInDom(opts) {
+        const o = (opts && typeof opts === 'object') ? opts : {};
+        const kind = String(o.kind || '');
+        const key = String(o.key || '').trim();
+        const action = String(o.action || '');
+        if (!key) return;
+        const modal = state.modal;
+        if (!modal) return;
+        const glyph = action === 'collapse' ? '▸' : action === 'expand' ? '▾' : '';
+        if (!glyph) return;
+        if (kind === 'task') {
+            const row = modal.querySelector(`#tmTaskTable tbody tr[data-id="${CSS.escape(key)}"],#tmTimelineLeftTable tbody tr[data-id="${CSS.escape(key)}"]`);
+            const t = row?.querySelector?.('.tm-tree-toggle');
+            if (t) t.textContent = glyph;
+            return;
+        }
+        if (kind === 'group') {
+            const row = modal.querySelector(`#tmTaskTable tbody tr[data-group-key="${CSS.escape(key)}"],#tmTimelineLeftTable tbody tr[data-group-key="${CSS.escape(key)}"]`);
+            const t = row?.querySelector?.('.tm-group-toggle');
+            if (t) t.textContent = glyph;
+        }
+    }
+
+    function __tmScheduleCollapseRerender() {
+        try {
+            const id0 = Number(state.__tmCollapseRafId) || 0;
+            if (id0) cancelAnimationFrame(id0);
+        } catch (e) {}
+        try {
+            state.__tmCollapseRafId = requestAnimationFrame(() => {
+                state.__tmCollapseRafId = 0;
+                if (!__tmRerenderCollapseInPlace()) render();
+            });
+        } catch (e) {
+            if (!__tmRerenderCollapseInPlace()) render();
+        }
+    }
+
+    function __tmGetActiveTbody(modalEl) {
+        const modal = modalEl instanceof Element ? modalEl : state.modal;
+        if (!modal) return null;
+        if (state.viewMode === 'timeline') return modal.querySelector('#tmTimelineLeftTable tbody');
+        return modal.querySelector('#tmTaskTable tbody');
+    }
+
+    function __tmApplyVisibilityFromState(modalEl) {
+        const modal = modalEl instanceof Element ? modalEl : state.modal;
+        if (!modal) return false;
+        const tbody = __tmGetActiveTbody(modal);
+        if (!tbody) return false;
+        const collapsedTaskIds = state.collapsedTaskIds instanceof Set ? state.collapsedTaskIds : new Set();
+        const collapsedGroups = state.collapsedGroups instanceof Set ? state.collapsedGroups : new Set();
+
+        const leftRows = tbody.querySelectorAll('tr');
+        let groupCollapsed = false;
+        let collapsedAncestorDepth = null;
+
+        leftRows.forEach((row) => {
+            if (!(row instanceof Element)) return;
+            if (row.matches('tr[data-group-key]')) {
+                const gk = String(row.getAttribute('data-group-key') || '').trim();
+                groupCollapsed = !!(gk && collapsedGroups.has(gk));
+                row.style.display = '';
+                collapsedAncestorDepth = null;
+                return;
+            }
+            if (!row.matches('tr[data-id]')) return;
+            const id = String(row.getAttribute('data-id') || '').trim();
+            const d = Number(row.getAttribute('data-depth')) || 0;
+            while (collapsedAncestorDepth !== null && d <= collapsedAncestorDepth) collapsedAncestorDepth = null;
+            const hide = groupCollapsed || collapsedAncestorDepth !== null;
+            row.style.display = hide ? 'none' : '';
+            row.style.visibility = '';
+            row.style.pointerEvents = '';
+            if (!hide && id) {
+                const hasToggle = !!row.querySelector('.tm-tree-toggle');
+                if (hasToggle && collapsedTaskIds.has(id)) collapsedAncestorDepth = d;
+            }
+        });
+
+        if (state.viewMode !== 'timeline') return true;
+
+        const ganttBody = modal.querySelector('#tmGanttBody');
+        if (!ganttBody) return true;
+        const rightRows = ganttBody.querySelectorAll('.tm-gantt-row,.tm-gantt-row--group');
+        const n = Math.min(leftRows.length, rightRows.length);
+        for (let i = 0; i < n; i++) {
+            const lr = leftRows[i];
+            const rr = rightRows[i];
+            if (!(lr instanceof Element) || !(rr instanceof Element)) continue;
+            const disp = lr.style.display || '';
+            rr.style.display = disp;
+        }
+
+        const syncRowHeightsOnce = () => {
+            if (Date.now() - (Number(state.__tmFlipTs) || 0) < 240) return;
+            const n2 = Math.min(leftRows.length, rightRows.length);
+            for (let i = 0; i < n2; i++) {
+                const lr = leftRows[i];
+                const rr = rightRows[i];
+                if (!(lr instanceof Element) || !(rr instanceof Element)) continue;
+                if ((lr.style.display || '') === 'none') continue;
+                const h = lr.getBoundingClientRect?.().height;
+                if (!Number.isFinite(h) || h <= 0) continue;
+                rr.style.height = `${h}px`;
+                rr.style.minHeight = `${h}px`;
+                rr.style.maxHeight = `${h}px`;
+                const bar = rr.querySelector?.('.tm-gantt-bar');
+                if (bar) {
+                    bar.style.top = '50%';
+                    bar.style.transform = 'translateY(-50%)';
+                }
+            }
+        };
+        try {
+            requestAnimationFrame(() => {
+                syncRowHeightsOnce();
+                if (leftRows.length <= 400) {
+                    setTimeout(syncRowHeightsOnce, 60);
+                    setTimeout(syncRowHeightsOnce, 260);
+                }
+            });
+        } catch (e) {}
+
+        return true;
+    }
+
+    function __tmGetFlipKeyForEl(el) {
+        if (!(el instanceof Element)) return '';
+        const isGanttRow = !!(el.classList?.contains('tm-gantt-row') || el.classList?.contains('tm-gantt-row--group'));
+        const prefix = isGanttRow ? 'gantt' : 'table';
+        const id = String(el.getAttribute('data-id') || '').trim();
+        if (id) return `${prefix}:task:${id}`;
+        const gk = String(el.getAttribute('data-group-key') || '').trim();
+        if (gk) return `${prefix}:group:${gk}`;
+        return '';
+    }
+
+    function __tmCaptureFlipSnapshot(modalEl) {
+        const root = modalEl instanceof Element ? modalEl : state.modal;
+        if (!root) return new Map();
+        const list = root.querySelectorAll('tr[data-id],tr[data-group-key],.tm-gantt-row[data-id],.tm-gantt-row--group[data-group-key]');
+        const m = new Map();
+        list.forEach((el) => {
+            const k = __tmGetFlipKeyForEl(el);
+            if (!k) return;
+            try {
+                const r = el.getBoundingClientRect();
+                if (!r || r.height <= 0 || r.width <= 0) return;
+                m.set(k, r);
+            } catch (e) {}
+        });
+        return m;
+    }
+
+    function __tmCollectAffectedRowsForCollapse(containerEl, opts) {
+        const container = containerEl instanceof Element ? containerEl : null;
+        const o = (opts && typeof opts === 'object') ? opts : {};
+        const kind = String(o.kind || '');
+        const key = String(o.key || '').trim();
+        if (!container || !key) return [];
+        const anchor = kind === 'group'
+            ? container.querySelector(`tr[data-group-key="${CSS.escape(key)}"]`)
+            : container.querySelector(`tr[data-id="${CSS.escape(key)}"]`);
+        if (!anchor) return [];
+
+        const out = [];
+        if (kind === 'group') {
+            let n = anchor.nextElementSibling;
+            while (n) {
+                if (n instanceof Element && n.matches('tr[data-group-key]')) break;
+                if (n instanceof Element && n.matches('tr[data-id]')) out.push(n);
+                n = n.nextElementSibling;
+            }
+            return out;
+        }
+
+        const baseDepth = Number(anchor.getAttribute('data-depth')) || 0;
+        let n = anchor.nextElementSibling;
+        while (n) {
+            if (!(n instanceof Element)) break;
+            if (n.matches('tr[data-group-key]')) break;
+            const d = Number(n.getAttribute('data-depth'));
+            if (!Number.isFinite(d) || d <= baseDepth) break;
+            if (n.matches('tr[data-id]')) out.push(n);
+            n = n.nextElementSibling;
+        }
+        return out;
+    }
+
+    function __tmCountAffectedRowsForCollapse(containerEl, opts, stopAfter = Infinity) {
+        const container = containerEl instanceof Element ? containerEl : null;
+        const o = (opts && typeof opts === 'object') ? opts : {};
+        const kind = String(o.kind || '');
+        const key = String(o.key || '').trim();
+        if (!container || !key) return 0;
+        const anchor = kind === 'group'
+            ? container.querySelector(`tr[data-group-key="${CSS.escape(key)}"]`)
+            : container.querySelector(`tr[data-id="${CSS.escape(key)}"]`);
+        if (!anchor) return 0;
+
+        let count = 0;
+        if (kind === 'group') {
+            let n = anchor.nextElementSibling;
+            while (n) {
+                if (n instanceof Element && n.matches('tr[data-group-key]')) break;
+                if (n instanceof Element && n.matches('tr[data-id]')) {
+                    count++;
+                    if (count >= stopAfter) break;
+                }
+                n = n.nextElementSibling;
+            }
+            return count;
+        }
+
+        const baseDepth = Number(anchor.getAttribute('data-depth')) || 0;
+        let n = anchor.nextElementSibling;
+        while (n) {
+            if (!(n instanceof Element)) break;
+            if (n.matches('tr[data-group-key]')) break;
+            const d = Number(n.getAttribute('data-depth'));
+            if (!Number.isFinite(d) || d <= baseDepth) break;
+            if (n.matches('tr[data-id]')) {
+                count++;
+                if (count >= stopAfter) break;
+            }
+            n = n.nextElementSibling;
+        }
+        return count;
+    }
+
+    function __tmCollectAffectedRowsForCollapseLimited(containerEl, opts, limit = 0) {
+        const rows = [];
+        const cap = Math.max(0, Number(limit) || 0);
+        if (cap <= 0) return { rows, count: 0, truncated: false };
+        const container = containerEl instanceof Element ? containerEl : null;
+        const o = (opts && typeof opts === 'object') ? opts : {};
+        const kind = String(o.kind || '');
+        const key = String(o.key || '').trim();
+        if (!container || !key) return { rows, count: 0, truncated: false };
+        const anchor = kind === 'group'
+            ? container.querySelector(`tr[data-group-key="${CSS.escape(key)}"]`)
+            : container.querySelector(`tr[data-id="${CSS.escape(key)}"]`);
+        if (!anchor) return { rows, count: 0, truncated: false };
+
+        let count = 0;
+        let truncated = false;
+        if (kind === 'group') {
+            let n = anchor.nextElementSibling;
+            while (n) {
+                if (n instanceof Element && n.matches('tr[data-group-key]')) break;
+                if (n instanceof Element && n.matches('tr[data-id]')) {
+                    count++;
+                    if (rows.length < cap) rows.push(n);
+                    else truncated = true;
+                }
+                n = n.nextElementSibling;
+            }
+            return { rows, count, truncated };
+        }
+
+        const baseDepth = Number(anchor.getAttribute('data-depth')) || 0;
+        let n = anchor.nextElementSibling;
+        while (n) {
+            if (!(n instanceof Element)) break;
+            if (n.matches('tr[data-group-key]')) break;
+            const d = Number(n.getAttribute('data-depth'));
+            if (!Number.isFinite(d) || d <= baseDepth) break;
+            if (n.matches('tr[data-id]')) {
+                count++;
+                if (rows.length < cap) rows.push(n);
+                else truncated = true;
+            }
+            n = n.nextElementSibling;
+        }
+        return { rows, count, truncated };
+    }
+
+    function __tmAnimateExitingRows(rows) {
+        const list = Array.isArray(rows) ? rows : [];
+        if (list.length === 0) return;
+        list.forEach((row) => {
+            if (!(row instanceof Element)) return;
+            let rect;
+            try { rect = row.getBoundingClientRect(); } catch (e) { return; }
+            if (!rect || rect.height <= 0 || rect.width <= 0) return;
+            const wrap = document.createElement('div');
+            wrap.style.position = 'fixed';
+            wrap.style.left = `${rect.left}px`;
+            wrap.style.top = `${rect.top}px`;
+            wrap.style.width = `${rect.width}px`;
+            wrap.style.height = `${rect.height}px`;
+            wrap.style.pointerEvents = 'none';
+            wrap.style.zIndex = '100004';
+            const table = document.createElement('table');
+            table.className = 'tm-table';
+            table.style.width = '100%';
+            table.style.borderCollapse = 'collapse';
+            const tbody = document.createElement('tbody');
+            tbody.appendChild(row.cloneNode(true));
+            table.appendChild(tbody);
+            wrap.appendChild(table);
+            document.body.appendChild(wrap);
+            try { row.style.visibility = 'hidden'; } catch (e) {}
+            try { row.style.pointerEvents = 'none'; } catch (e) {}
+            try {
+                const anim = wrap.animate([
+                    { transform: 'translateY(0px)', opacity: 1 },
+                    { transform: 'translateY(-10px)', opacity: 0 },
+                ], { duration: 130, easing: 'cubic-bezier(0.2, 0.9, 0.2, 1)', fill: 'forwards' });
+                anim.onfinish = () => { try { wrap.remove(); } catch (e) {} };
+            } catch (e) {
+                try { wrap.remove(); } catch (e2) {}
+            }
+        });
+    }
+
+    function __tmPrepareFlipAnimation(opts) {
+        if (!state.modal) return;
+        try { __tmCancelAnimationsWithin(state.modal); } catch (e) {}
+        state.__tmFlipFirst = __tmCaptureFlipSnapshot(state.modal);
+        state.__tmFlipAction = (opts && typeof opts === 'object') ? { ...opts } : null;
+        state.__tmFlipTs = Date.now();
+        if (state.__tmFlipAction?.action !== 'collapse') return;
+        const tbody = state.viewMode === 'timeline'
+            ? state.modal.querySelector('#tmTimelineLeftTable tbody')
+            : state.modal.querySelector('#tmTaskTable tbody');
+        if (!tbody) return;
+        const r = __tmCollectAffectedRowsForCollapseLimited(tbody, state.__tmFlipAction, 24);
+        if (!r.truncated && Array.isArray(r.rows) && r.rows.length > 0) __tmAnimateExitingRows(r.rows);
+    }
+
+    function __tmAnimateEnteringRows(modalEl, opts) {
+        const root = modalEl instanceof Element ? modalEl : state.modal;
+        const o = (opts && typeof opts === 'object') ? opts : {};
+        if (!root || o.action !== 'expand') return;
+        const tbody = state.viewMode === 'timeline'
+            ? root.querySelector('#tmTimelineLeftTable tbody')
+            : root.querySelector('#tmTaskTable tbody');
+        if (!tbody) return;
+        const kind = String(o.kind || '');
+        const key = String(o.key || '').trim();
+        if (!key) return;
+        const anchor = kind === 'group'
+            ? tbody.querySelector(`tr[data-group-key="${CSS.escape(key)}"]`)
+            : tbody.querySelector(`tr[data-id="${CSS.escape(key)}"]`);
+        if (!anchor) return;
+        const r = __tmCollectAffectedRowsForCollapseLimited(tbody, o, 24);
+        if (r.truncated || r.rows.length === 0) return;
+        const rows = r.rows;
+        rows.forEach((row) => {
+            try {
+                row.animate([
+                    { opacity: 0 },
+                    { opacity: 1 },
+                ], { duration: 130, easing: 'cubic-bezier(0.2, 0.9, 0.2, 1)', fill: 'both' });
+            } catch (e) {}
+        });
+    }
+
+    function __tmRunFlipAnimation(modalEl) {
+        const first = state.__tmFlipFirst;
+        if (!(first instanceof Map) || first.size === 0) return;
+        const root = modalEl instanceof Element ? modalEl : state.modal;
+        if (!root) return;
+        try { __tmCancelAnimationsWithin(root); } catch (e) {}
+        try { state.__tmFlipRunningAnims = Array.isArray(state.__tmFlipRunningAnims) ? state.__tmFlipRunningAnims : []; } catch (e) {}
+        const els = root.querySelectorAll('tr[data-id],tr[data-group-key],.tm-gantt-row[data-id],.tm-gantt-row--group[data-group-key]');
+        els.forEach((el) => {
+            const k = __tmGetFlipKeyForEl(el);
+            if (!k) return;
+            const r0 = first.get(k);
+            if (!r0) return;
+            let r1;
+            try { r1 = el.getBoundingClientRect(); } catch (e) { return; }
+            if (!r1 || r1.height <= 0 || r1.width <= 0) return;
+            const dy0 = (r0.top - r1.top);
+            if (!Number.isFinite(dy0) || Math.abs(dy0) < 0.5) return;
+            const dy = Math.round(dy0);
+            if (!Number.isFinite(dy) || Math.abs(dy) < 1) return;
+            try {
+                try { el.style.willChange = 'transform'; } catch (e2) {}
+                const anim = el.animate([
+                    { transform: `translate3d(0px, ${dy}px, 0px)` },
+                    { transform: 'translate3d(0px, 0px, 0px)' },
+                ], { duration: 180, easing: 'cubic-bezier(0.2, 0.9, 0.2, 1)', fill: 'both' });
+                try { state.__tmFlipRunningAnims.push(anim); } catch (e2) {}
+                if (anim && typeof anim.commitStyles === 'function') {
+                    anim.onfinish = () => {
+                        try { anim.commitStyles(); } catch (e2) {}
+                        try { anim.cancel(); } catch (e2) {}
+                        try { el.style.willChange = ''; } catch (e2) {}
+                        try {
+                            const a = state.__tmFlipRunningAnims;
+                            if (Array.isArray(a)) {
+                                const idx = a.indexOf(anim);
+                                if (idx !== -1) a.splice(idx, 1);
+                            }
+                        } catch (e2) {}
+                    };
+                } else if (anim) {
+                    anim.onfinish = () => {
+                        try { el.style.willChange = ''; } catch (e2) {}
+                        try {
+                            const a = state.__tmFlipRunningAnims;
+                            if (Array.isArray(a)) {
+                                const idx = a.indexOf(anim);
+                                if (idx !== -1) a.splice(idx, 1);
+                            }
+                        } catch (e2) {}
+                    };
+                }
+            } catch (e) {}
+        });
+        try { __tmAnimateEnteringRows(root, state.__tmFlipAction); } catch (e) {}
+        state.__tmFlipFirst = null;
+        state.__tmFlipAction = null;
+    }
+
+    function __tmRerenderListInPlace(modalEl) {
+        const modal = modalEl instanceof Element ? modalEl : state.modal;
+        if (!modal) return false;
+        const body = modal.querySelector('.tm-body');
+        const tbody = modal.querySelector('#tmTaskTable tbody');
+        if (!tbody) return false;
+        const top = Number(body?.scrollTop) || 0;
+        const left = Number(body?.scrollLeft) || 0;
+        try { tbody.innerHTML = renderTaskList(); } catch (e) { return false; }
+        try { if (body) body.scrollTop = top; } catch (e) {}
+        try { if (body) body.scrollLeft = left; } catch (e) {}
+        try { queueMicrotask(() => { try { __tmRunFlipAnimation(modal); } catch (e) {} }); } catch (e) {
+            try { Promise.resolve().then(() => { try { __tmRunFlipAnimation(modal); } catch (e2) {} }); } catch (e2) {}
+        }
+        return true;
+    }
+
+    function __tmRerenderTimelineInPlace(modalEl) {
+        const modal = modalEl instanceof Element ? modalEl : state.modal;
+        if (!modal) return false;
+        const leftBody = modal.querySelector('#tmTimelineLeftBody');
+        const ganttBody = modal.querySelector('#tmGanttBody');
+        const ganttHeader = modal.querySelector('#tmGanttHeader');
+        const tbody = modal.querySelector('#tmTimelineLeftTable tbody');
+        if (!leftBody || !ganttBody || !tbody) return false;
+
+        const savedTop = Number(leftBody.scrollTop) || 0;
+        const savedLeft = Number(ganttBody.scrollLeft) || 0;
+
+        const widths = SettingsStore.data.columnWidths || {};
+        const isGloballyLocked = GlobalLock.isLocked();
+        const timelineContentWidth0 = Number(SettingsStore.data.timelineContentWidth);
+        const timelineContentWidth = Number.isFinite(timelineContentWidth0) ? Math.max(10, Math.min(800, Math.round(timelineContentWidth0))) : (Number(widths.content) || 360);
+        const timelineStartW = Math.max(10, Math.min(240, Math.round(Number(widths.startDate) || 90)));
+        const timelineEndW = Math.max(10, Math.min(360, Math.round(Number(widths.completionTime) || 170)));
+        const isDark = __tmIsDarkMode();
+        const progressBarColor = isDark
+            ? __tmNormalizeHexColor(SettingsStore.data.progressBarColorDark, '#81c784')
+            : __tmNormalizeHexColor(SettingsStore.data.progressBarColorLight, '#4caf50');
+        const enableGroupBg = !!SettingsStore.data.enableGroupTaskBgByGroupColor;
+        let currentGroupBg = '';
+
+        const renderGroupRow = (row) => {
+            const isCollapsed = !!row?.collapsed;
+            const toggle = `<span class="tm-group-toggle" onclick="tmToggleGroupCollapse('${row.key}', event)" style="cursor:pointer;margin-right:8px;display:inline-block;width:12px;">${isCollapsed ? '▸' : '▾'}</span>`;
+            if (row.kind === 'doc') {
+                const labelColor = String(row.labelColor || 'var(--tm-group-doc-label-color)');
+                return `<tr class="tm-group-row tm-timeline-row" data-group-key="${esc(row.key)}"><td colspan="3" onclick="tmToggleGroupCollapse('${row.key}', event)" style="cursor:pointer;font-weight:bold;color:var(--tm-text-color);">${toggle}<span class="tm-group-label" style="color:${labelColor};">📄 ${esc(row.label || '')}</span> <span style="font-weight:normal;color:var(--tm-secondary-text);font-size:12px;background:var(--tm-doc-count-bg);padding:1px 6px;border-radius:10px;margin-left:4px;">${Number(row.count) || 0}</span></td></tr>`;
+            }
+            if (row.kind === 'time') {
+                const labelColor = String(row.labelColor || 'var(--tm-text-color)');
+                const durationSum = String(row.durationSum || '').trim();
+                return `<tr class="tm-group-row tm-timeline-row" data-group-key="${esc(row.key)}"><td colspan="3" onclick="tmToggleGroupCollapse('${row.key}', event)" style="cursor:pointer;font-weight:bold;color:var(--tm-text-color);">${toggle}<span class="tm-group-label" style="color:${labelColor};">${esc(row.label || '')}</span> <span style="font-weight:normal;color:var(--tm-secondary-text);font-size:12px;background:var(--tm-doc-count-bg);padding:1px 6px;border-radius:10px;margin-left:4px;">${Number(row.count) || 0}</span>${durationSum ? `<span style="font-weight:normal;color:var(--tm-primary-color);font-size:12px;background:var(--tm-info-bg);padding:1px 6px;border-radius:10px;margin-left:4px;border:1px solid var(--tm-info-border);">📊 ${esc(durationSum)}</span>` : ''}</td></tr>`;
+            }
+            if (row.kind === 'quadrant') {
+                const durationSum = String(row.durationSum || '').trim();
+                const colorMap = { red: 'var(--tm-quadrant-red)', yellow: 'var(--tm-quadrant-yellow)', blue: 'var(--tm-quadrant-blue)', green: 'var(--tm-quadrant-green)' };
+                const color = colorMap[String(row.color || '')] || 'var(--tm-text-color)';
+                return `<tr class="tm-group-row tm-timeline-row" data-group-key="${esc(row.key)}"><td colspan="3" onclick="tmToggleGroupCollapse('${row.key}', event)" style="cursor:pointer;font-weight:bold;color:${color};">${toggle}<span class="tm-quadrant-indicator tm-quadrant-bg-${esc(row.color || '')}"></span>${esc(row.label || '')} <span style="font-weight:normal;color:var(--tm-secondary-text);font-size:12px;background:var(--tm-doc-count-bg);padding:1px 6px;border-radius:10px;margin-left:4px;">${Number(row.count) || 0}</span>${durationSum ? `<span style="font-weight:normal;color:var(--tm-primary-color);font-size:12px;background:var(--tm-info-bg);padding:1px 6px;border-radius:10px;margin-left:4px;border:1px solid var(--tm-info-border);">📊 ${esc(durationSum)}</span>` : ''}</td></tr>`;
+            }
+            return `<tr class="tm-group-row tm-timeline-row" data-group-key="${esc(row.key)}"><td colspan="3" onclick="tmToggleGroupCollapse('${row.key}', event)" style="cursor:pointer;font-weight:bold;color:var(--tm-text-color);">${toggle}${esc(row.label || '')}</td></tr>`;
+        };
+
+        const renderTaskRow = (row) => {
+            const task = state.flatTasks[row.id];
+            if (!task) return '';
+            const indent = (Math.max(0, Number(row.depth) || 0)) * 12;
+            const toggle = row.hasChildren
+                ? `<span class="tm-tree-toggle" onclick="tmToggleCollapse('${task.id}', event)">${row.collapsed ? '▸' : '▾'}</span>`
+                : `<span class="tm-tree-spacer"></span>`;
+            const focusId = SettingsStore.data.enableTomatoIntegration ? String(state.timerFocusTaskId || '').trim() : '';
+            const rowClass = focusId ? (focusId === String(task.id) ? 'tm-timer-focus' : 'tm-timer-dim') : '';
+
+            const allChildren = task.children || [];
+            const totalChildren = allChildren.length;
+            const completedChildren = allChildren.filter(c => c.done).length;
+            const progressPercent = totalChildren > 0 ? Math.round((completedChildren / totalChildren) * 100) : 0;
+            const isDoneSubtask = !!task.done && (Math.max(0, Number(row.depth) || 0) > 0);
+            const groupBg = enableGroupBg ? currentGroupBg : '';
+            const doneSubtaskBg = (!enableGroupBg && isDoneSubtask) ? __tmWithAlpha(progressBarColor, isDark ? 0.22 : 0.14) : '';
+            const baseBg = groupBg || doneSubtaskBg;
+            const progressBgStyle = (row.hasChildren && progressPercent > 0)
+                ? (enableGroupBg && groupBg
+                    ? `background-image:linear-gradient(90deg, ${progressBarColor} ${progressPercent}%, transparent ${progressPercent}%);background-repeat:no-repeat;background-size:100% 3px;background-position:left bottom;`
+                    : `background-image:linear-gradient(90deg, ${progressBarColor} ${progressPercent}%, transparent ${progressPercent}%);background-repeat:no-repeat;`)
+                : '';
+            const contentCellBgStyle = `${baseBg ? `background-color:${baseBg};` : ''}${progressBgStyle ? `${progressBgStyle};` : ''}`;
+            const otherCellBgStyle = groupBg ? `background-color:${groupBg};` : '';
+
+            return `
+                <tr class="tm-timeline-row ${rowClass}" data-id="${task.id}" data-depth="${row.depth}" onclick="tmRowClick(event, '${task.id}')" oncontextmenu="tmShowTaskContextMenu(event, '${task.id}')">
+                    <td style="width: ${timelineContentWidth}px; min-width: ${timelineContentWidth}px; max-width: ${timelineContentWidth}px; ${contentCellBgStyle}">
+                        <div class="tm-task-cell" style="padding-left:${indent}px">
+                            ${toggle}
+                            <input class="tm-task-checkbox ${isGloballyLocked ? 'tm-operating' : ''}"
+                                   type="checkbox" ${task.done ? 'checked' : ''}
+                                   ${isGloballyLocked ? 'disabled' : ''}
+                                   onchange="tmSetDone('${task.id}', this.checked, event)">
+                            <span class="tm-task-text ${task.done ? 'tm-task-done' : ''}" data-level="${row.depth}" title="点击跳转到文档">
+                                <span class="tm-task-content-clickable" onclick="tmJumpToTask('${task.id}', event)">${esc(task.content || '')}</span>
+                            </span>
+                        </div>
+                    </td>
+                    <td class="tm-cell-editable" style="width:${timelineStartW}px; min-width:${timelineStartW}px; max-width:${timelineStartW}px; ${otherCellBgStyle}" onclick="tmBeginCellEdit('${task.id}','startDate',this,event)">${__tmFormatTaskTime(task.startDate)}</td>
+                    <td class="tm-cell-editable" style="width:${timelineEndW}px; min-width:${timelineEndW}px; max-width:${timelineEndW}px; ${otherCellBgStyle}" onclick="tmBeginCellEdit('${task.id}','completionTime',this,event)">${__tmFormatTaskTime(task.completionTime)}</td>
+                </tr>
+            `;
+        };
+
+        const rowModel = __tmBuildTaskRowModel();
+        try { globalThis.__tmTimelineRowModel = rowModel; } catch (e) {}
+        const leftRows = [];
+        for (const r of (Array.isArray(rowModel) ? rowModel : [])) {
+            if (r?.type === 'group') {
+                let labelColor = '';
+                if (r.kind === 'doc') labelColor = String(r.labelColor || 'var(--tm-group-doc-label-color)');
+                else if (r.kind === 'time') labelColor = String(r.labelColor || 'var(--tm-text-color)');
+                else if (r.kind === 'quadrant') {
+                    const colorMap = { red: 'var(--tm-quadrant-red)', yellow: 'var(--tm-quadrant-yellow)', blue: 'var(--tm-quadrant-blue)', green: 'var(--tm-quadrant-green)' };
+                    labelColor = colorMap[String(r.color || '')] || 'var(--tm-text-color)';
+                } else {
+                    labelColor = 'var(--tm-text-color)';
+                }
+                currentGroupBg = enableGroupBg ? __tmGroupBgFromLabelColor(labelColor, isDark) : '';
+                leftRows.push(renderGroupRow(r));
+                continue;
+            }
+            if (r?.type === 'task') {
+                leftRows.push(renderTaskRow(r));
+                continue;
+            }
+        }
+        const html = leftRows.join('') || `<tr><td colspan="3" style="text-align:center; padding:40px; color:var(--tm-secondary-text);">暂无任务</td></tr>`;
+        try { tbody.innerHTML = html; } catch (e) { return false; }
+
+        const view = globalThis.__TaskHorizonGanttView;
+        if (view && typeof view.render === 'function' && ganttHeader && ganttBody) {
+            try {
+                view.render({
+                    headerEl: ganttHeader,
+                    bodyEl: ganttBody,
+                    rowModel,
+                    getTaskById: (id) => state.flatTasks[String(id)],
+                    viewState: state.ganttView,
+                    onUpdateTaskDates: async (taskId, patch) => {
+                        const id = String(taskId || '').trim();
+                        if (!id) return;
+                        const task = state.flatTasks[id];
+                        if (!task) return;
+                        const startDate = String(patch?.startDate || '').trim();
+                        const completionTime = String(patch?.completionTime || '').trim();
+                        const nextStart = startDate ? __tmNormalizeDateOnly(startDate) : '';
+                        const nextEnd = completionTime ? __tmNormalizeDateOnly(completionTime) : '';
+                        task.startDate = nextStart;
+                        task.completionTime = nextEnd;
+                        try {
+                            await __tmPersistMetaAndAttrsAsync(id, { startDate: nextStart, completionTime: nextEnd });
+                        } catch (e) {
+                            hint(`❌ 更新失败: ${e.message}`, 'error');
+                        }
+                        applyFilters();
+                        render();
+                    },
+                });
+            } catch (e) {}
+        }
+
+        try { leftBody.scrollTop = savedTop; } catch (e) {}
+        try { ganttBody.scrollTop = savedTop; } catch (e) {}
+        try { ganttBody.scrollLeft = savedLeft; } catch (e) {}
+        try {
+            const inner = ganttHeader?.querySelector?.('.tm-gantt-header-inner');
+            if (inner) inner.style.transform = `translateX(${-ganttBody.scrollLeft}px)`;
+        } catch (e) {}
+
+        const syncRowHeights = () => {
+            if (Date.now() - (Number(state.__tmFlipTs) || 0) < 320) return;
+            const leftRowsNow = leftBody.querySelectorAll('tbody tr');
+            const rightRowsNow = ganttBody.querySelectorAll('.tm-gantt-row');
+            const n = Math.min(leftRowsNow.length, rightRowsNow.length);
+            if (n <= 0) return;
+            for (let i = 0; i < n; i++) {
+                const h = leftRowsNow[i]?.getBoundingClientRect?.().height;
+                if (!Number.isFinite(h) || h <= 0) continue;
+                const rr = rightRowsNow[i];
+                rr.style.height = `${h}px`;
+                rr.style.minHeight = `${h}px`;
+                rr.style.maxHeight = `${h}px`;
+                const bar = rr.querySelector?.('.tm-gantt-bar');
+                if (bar) {
+                    bar.style.top = '50%';
+                    bar.style.transform = 'translateY(-50%)';
+                }
+            }
+        };
+        try {
+            requestAnimationFrame(() => requestAnimationFrame(() => {
+                syncRowHeights();
+                setTimeout(syncRowHeights, 60);
+                setTimeout(syncRowHeights, 260);
+                setTimeout(syncRowHeights, 420);
+            }));
+        } catch (e) {}
+
+        try { queueMicrotask(() => { try { __tmRunFlipAnimation(modal); } catch (e) {} }); } catch (e) {
+            try { Promise.resolve().then(() => { try { __tmRunFlipAnimation(modal); } catch (e2) {} }); } catch (e2) {}
+        }
+        return true;
+    }
+
+    function __tmRerenderCollapseInPlace() {
+        const modal = state.modal;
+        if (!modal) return false;
+        if (state.viewMode === 'timeline') return __tmRerenderTimelineInPlace(modal);
+        return __tmRerenderListInPlace(modal);
     }
 
     function __tmOpenColorPickerDialog(titleText, initialColor, onApply, options = {}) {
@@ -4329,6 +5175,10 @@ async function __tmRefreshAfterWake(reason) {
                 </div>
                 
                 <div class="tm-rules-body">
+                    <div style="display:flex; align-items:center; justify-content:space-between; gap:10px; padding:10px 12px; border-bottom:1px solid var(--tm-border-color); background: var(--tm-bg-color);">
+                        <div style="font-size:13px; color: var(--tm-text-color);">时间轴强制按完成时间排序（越近今天越靠前）</div>
+                        <input type="checkbox" ${SettingsStore.data.timelineForceSortByCompletionNearToday ? 'checked' : ''} onchange="tmToggleTimelineForceSortByCompletionNearToday(this.checked)">
+                    </div>
                     ${renderRulesList()}
                 </div>
                 
@@ -6101,6 +6951,143 @@ async function __tmRefreshAfterWake(reason) {
         render();
     };
 
+    function __tmHideDocTabMenu() {
+        const menu = document.getElementById('tm-doc-tab-menu');
+        if (menu) menu.remove();
+        if (state.docTabMenuCloseHandler) {
+            try { document.removeEventListener('click', state.docTabMenuCloseHandler); } catch (e) {}
+            try { document.removeEventListener('contextmenu', state.docTabMenuCloseHandler); } catch (e) {}
+            state.docTabMenuCloseHandler = null;
+        }
+    }
+
+    function __tmShowDocTabMenuAt(docId, x, y) {
+        const id = String(docId || '').trim();
+        if (!id || id === 'all') return;
+        __tmHideDocTabMenu();
+
+        const menu = document.createElement('div');
+        menu.id = 'tm-doc-tab-menu';
+        menu.style.cssText = `
+            position: fixed;
+            top: ${Math.max(8, Number(y) || 0)}px;
+            left: ${Math.max(8, Number(x) || 0)}px;
+            background: var(--b3-theme-background);
+            border: 1px solid var(--b3-theme-surface-light);
+            border-radius: 6px;
+            box-shadow: 0 6px 18px rgba(0,0,0,0.22);
+            padding: 6px 0;
+            z-index: 200000;
+            min-width: 160px;
+            user-select: none;
+        `;
+
+        const name = state.taskTree?.find?.(d => d.id === id)?.name
+            || state.allDocuments?.find?.(d => d.id === id)?.name
+            || id;
+
+        const title = document.createElement('div');
+        title.textContent = String(name || '文档');
+        title.style.cssText = 'padding: 6px 12px; font-size: 12px; opacity: 0.75; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;';
+        menu.appendChild(title);
+
+        const hr = document.createElement('hr');
+        hr.style.cssText = 'margin: 4px 0; border: none; border-top: 1px solid var(--b3-theme-surface-light);';
+        menu.appendChild(hr);
+
+        const item = (text, onClick) => {
+            const el = document.createElement('div');
+            el.textContent = text;
+            el.style.cssText = 'padding: 8px 12px; cursor: pointer; font-size: 13px;';
+            el.onmouseenter = () => el.style.backgroundColor = 'var(--b3-theme-surface-light)';
+            el.onmouseleave = () => el.style.backgroundColor = 'transparent';
+            el.onclick = (e) => {
+                try { e.stopPropagation(); } catch (e2) {}
+                __tmHideDocTabMenu();
+                try { onClick?.(); } catch (e2) {}
+            };
+            return el;
+        };
+
+        const map = (SettingsStore.data.docColorMap && typeof SettingsStore.data.docColorMap === 'object') ? SettingsStore.data.docColorMap : (SettingsStore.data.docColorMap = {});
+        const existing = __tmNormalizeHexColor(map[id], '');
+
+        menu.appendChild(item('🎨 设置颜色…', () => {
+            const initial = existing || __tmGetDocColorHex(id, __tmIsDarkMode());
+            __tmOpenColorPickerDialog('文档颜色', initial, async (next) => {
+                const v = __tmNormalizeHexColor(next, '');
+                if (!v) return;
+                map[id] = v;
+                try { await SettingsStore.save(); } catch (e) {}
+                render();
+            }, { defaultColor: initial });
+        }));
+
+        menu.appendChild(item('♻ 恢复自动颜色', async () => {
+            if (map[id]) delete map[id];
+            try { await SettingsStore.save(); } catch (e) {}
+            render();
+        }));
+
+        menu.appendChild(item('🎲 重新随机未自定义颜色', async () => {
+            SettingsStore.data.docColorSeed = Math.floor(Math.random() * 1000000000) + 1;
+            try { await SettingsStore.save(); } catch (e) {}
+            render();
+        }));
+
+        document.body.appendChild(menu);
+
+        const closeHandler = (ev) => {
+            try {
+                if (menu.contains(ev.target)) return;
+            } catch (e) {}
+            __tmHideDocTabMenu();
+        };
+        state.docTabMenuCloseHandler = closeHandler;
+        setTimeout(() => {
+            document.addEventListener('click', closeHandler);
+            document.addEventListener('contextmenu', closeHandler);
+        }, 0);
+    }
+
+    window.tmShowDocTabContextMenu = function(event, docId) {
+        try { event?.preventDefault?.(); } catch (e) {}
+        try { event?.stopPropagation?.(); } catch (e) {}
+        __tmShowDocTabMenuAt(docId, event?.clientX, event?.clientY);
+    };
+
+    window.tmDocTabTouchStart = function(event, docId) {
+        if (!__tmIsMobileDevice()) return;
+        try { state.docTabTouchMoved = false; } catch (e) {}
+        try { if (state.docTabLongPressTimer) clearTimeout(state.docTabLongPressTimer); } catch (e) {}
+        const t = event?.touches?.[0];
+        const x = t?.clientX;
+        const y = t?.clientY;
+        try { state.docTabTouchStartX = Number(x) || 0; } catch (e) {}
+        try { state.docTabTouchStartY = Number(y) || 0; } catch (e) {}
+        state.docTabLongPressTimer = setTimeout(() => {
+            if (state.docTabTouchMoved) return;
+            __tmShowDocTabMenuAt(docId, x, y);
+        }, 520);
+    };
+
+    window.tmDocTabTouchMove = function(event) {
+        if (!__tmIsMobileDevice()) return;
+        const t = event?.touches?.[0];
+        const x = Number(t?.clientX) || 0;
+        const y = Number(t?.clientY) || 0;
+        const dx = x - (Number(state.docTabTouchStartX) || 0);
+        const dy = y - (Number(state.docTabTouchStartY) || 0);
+        if (Math.abs(dx) + Math.abs(dy) > 10) state.docTabTouchMoved = true;
+    };
+
+    window.tmDocTabTouchEnd = function() {
+        if (!__tmIsMobileDevice()) return;
+        try { if (state.docTabLongPressTimer) clearTimeout(state.docTabLongPressTimer); } catch (e) {}
+        state.docTabLongPressTimer = null;
+        state.docTabTouchMoved = false;
+    };
+
     // 搜索弹窗
     window.tmShowSearchModal = function() {
         const modal = document.createElement('div');
@@ -6256,17 +7243,32 @@ async function __tmRefreshAfterWake(reason) {
         try { ev?.preventDefault?.(); } catch (e) {}
         state.docTabsHidden = !state.docTabsHidden;
         try { Storage.set('tm_doc_tabs_hidden', !!state.docTabsHidden); } catch (e) {}
+        const el = state.modal?.querySelector?.('.tm-doc-tabs');
+        if (el) {
+            try {
+                if (state.docTabsHidden) el.classList.add('tm-doc-tabs--hidden');
+                else el.classList.remove('tm-doc-tabs--hidden');
+            } catch (e) {}
+            return;
+        }
         render();
     };
 
     // 修改渲染函数以显示规则信息
     function render() {
+        const kind0 = String(state.uiAnimKind || '').trim();
+        const isViewSwitchAnim = (kind0 === 'from-right' || kind0 === 'from-left')
+            && (Date.now() - (Number(state.uiAnimTs) || 0) < 380);
+        const isTimelineView = state.viewMode === 'timeline';
+        const useSoftSwap = isViewSwitchAnim || isTimelineView;
+        let prevModalEl = null;
         // 保存滚动位置
         let savedScrollTop = 0;
         let savedScrollLeft = 0;
         let savedTimelineScrollTop = 0;
         let savedTimelineScrollLeft = 0;
         if (state.modal) {
+            prevModalEl = state.modal;
             const timelineLeftBody = state.modal.querySelector('#tmTimelineLeftBody');
             const ganttBody = state.modal.querySelector('#tmGanttBody');
             if (timelineLeftBody) {
@@ -6279,7 +7281,12 @@ async function __tmRefreshAfterWake(reason) {
                     savedScrollLeft = body.scrollLeft;
                 }
             }
-            state.modal.remove();
+            if (!useSoftSwap) {
+                state.modal.remove();
+                prevModalEl = null;
+            } else {
+                try { prevModalEl.style.pointerEvents = 'none'; } catch (e) {}
+            }
         }
         try {
             state.viewScroll = state.viewScroll && typeof state.viewScroll === 'object' ? state.viewScroll : {};
@@ -6313,9 +7320,20 @@ async function __tmRefreshAfterWake(reason) {
         const groupName = currentGroupId === 'all' ? '全部文档' : (currentGroup ? currentGroup.name : '未知分组');
         const isMobile = __tmIsMobileDevice();
         const isLandscape = !!(isMobile && (() => { try { return !!window.matchMedia?.('(orientation: landscape)')?.matches; } catch (e) { return false; } })());
+        const kind = String(state.uiAnimKind || '').trim();
+        const bodyAnimClass = (Date.now() - (Number(state.uiAnimTs) || 0) < 300)
+            ? (kind === 'from-right' ? ' tm-body-anim--from-right' : kind === 'from-left' ? ' tm-body-anim--from-left' : ' tm-body-anim')
+            : '';
         
         state.modal = document.createElement('div');
         state.modal.className = 'tm-modal' + (__tmMountEl ? ' tm-modal--tab' : '') + (isMobile ? ' tm-modal--mobile' : '');
+        if (!useSoftSwap) {
+            try { state.modal.style.visibility = 'hidden'; } catch (e) {}
+        } else if (prevModalEl) {
+            try { state.modal.style.opacity = '0'; } catch (e) {}
+            try { state.modal.style.transition = 'opacity 120ms ease-out'; } catch (e) {}
+            try { state.modal.style.pointerEvents = 'none'; } catch (e) {}
+        }
         
         // 构建规则选择选项
         const ruleOptions = state.filterRules
@@ -6326,7 +7344,7 @@ async function __tmRefreshAfterWake(reason) {
             .join('');
 
         const __tmRenderListBodyHtml = () => `
-                <div class="tm-body">
+                <div class="tm-body${bodyAnimClass}">
                     <table class="tm-table" id="tmTaskTable">
                         <thead>
                             <tr>
@@ -6368,9 +7386,9 @@ async function __tmRefreshAfterWake(reason) {
             const isGloballyLocked = GlobalLock.isLocked();
             const leftWidth0 = Number(SettingsStore.data.timelineLeftWidth);
             const timelineContentWidth0 = Number(SettingsStore.data.timelineContentWidth);
-            const timelineContentWidth = Number.isFinite(timelineContentWidth0) ? Math.max(160, Math.min(800, Math.round(timelineContentWidth0))) : (Number(widths.content) || 360);
-            const timelineStartW = Math.max(60, Math.min(240, Math.round(Number(widths.startDate) || 90)));
-            const timelineEndW = Math.max(120, Math.min(360, Math.round(Number(widths.completionTime) || 170)));
+            const timelineContentWidth = Number.isFinite(timelineContentWidth0) ? Math.max(10, Math.min(800, Math.round(timelineContentWidth0))) : (Number(widths.content) || 360);
+            const timelineStartW = Math.max(10, Math.min(240, Math.round(Number(widths.startDate) || 90)));
+            const timelineEndW = Math.max(10, Math.min(360, Math.round(Number(widths.completionTime) || 170)));
             const leftTableWidth = Math.round(timelineContentWidth + timelineStartW + timelineEndW + 2);
             const computedAuto = leftTableWidth;
             const leftWidth = (Number.isFinite(leftWidth0) && leftWidth0 > 0)
@@ -6380,25 +7398,28 @@ async function __tmRefreshAfterWake(reason) {
             const progressBarColor = isDark
                 ? __tmNormalizeHexColor(SettingsStore.data.progressBarColorDark, '#81c784')
                 : __tmNormalizeHexColor(SettingsStore.data.progressBarColorLight, '#4caf50');
+            const enableGroupBg = !!SettingsStore.data.enableGroupTaskBgByGroupColor;
+            let currentGroupBg = '';
 
             const renderGroupRow = (row) => {
                 const isCollapsed = !!row?.collapsed;
                 const toggle = `<span class="tm-group-toggle" onclick="tmToggleGroupCollapse('${row.key}', event)" style="cursor:pointer;margin-right:8px;display:inline-block;width:12px;">${isCollapsed ? '▸' : '▾'}</span>`;
                 if (row.kind === 'doc') {
-                    return `<tr class="tm-group-row tm-timeline-row"><td colspan="3" onclick="tmToggleGroupCollapse('${row.key}', event)" style="cursor:pointer;font-weight:bold;color:var(--tm-text-color);">${toggle}<span class="tm-group-label" style="color: var(--tm-group-doc-label-color);">📄 ${esc(row.label || '')}</span> <span style="font-weight:normal;color:var(--tm-secondary-text);font-size:12px;background:var(--tm-doc-count-bg);padding:1px 6px;border-radius:10px;margin-left:4px;">${Number(row.count) || 0}</span></td></tr>`;
+                    const labelColor = String(row.labelColor || 'var(--tm-group-doc-label-color)');
+                    return `<tr class="tm-group-row tm-timeline-row" data-group-key="${esc(row.key)}"><td colspan="3" onclick="tmToggleGroupCollapse('${row.key}', event)" style="cursor:pointer;font-weight:bold;color:var(--tm-text-color);">${toggle}<span class="tm-group-label" style="color:${labelColor};">📄 ${esc(row.label || '')}</span> <span style="font-weight:normal;color:var(--tm-secondary-text);font-size:12px;background:var(--tm-doc-count-bg);padding:1px 6px;border-radius:10px;margin-left:4px;">${Number(row.count) || 0}</span></td></tr>`;
                 }
                 if (row.kind === 'time') {
                     const labelColor = String(row.labelColor || 'var(--tm-text-color)');
                     const durationSum = String(row.durationSum || '').trim();
-                    return `<tr class="tm-group-row tm-timeline-row"><td colspan="3" onclick="tmToggleGroupCollapse('${row.key}', event)" style="cursor:pointer;font-weight:bold;color:var(--tm-text-color);">${toggle}<span class="tm-group-label" style="color:${labelColor};">${esc(row.label || '')}</span> <span style="font-weight:normal;color:var(--tm-secondary-text);font-size:12px;background:var(--tm-doc-count-bg);padding:1px 6px;border-radius:10px;margin-left:4px;">${Number(row.count) || 0}</span>${durationSum ? `<span style="font-weight:normal;color:var(--tm-primary-color);font-size:12px;background:var(--tm-info-bg);padding:1px 6px;border-radius:10px;margin-left:4px;border:1px solid var(--tm-info-border);">📊 ${esc(durationSum)}</span>` : ''}</td></tr>`;
+                    return `<tr class="tm-group-row tm-timeline-row" data-group-key="${esc(row.key)}"><td colspan="3" onclick="tmToggleGroupCollapse('${row.key}', event)" style="cursor:pointer;font-weight:bold;color:var(--tm-text-color);">${toggle}<span class="tm-group-label" style="color:${labelColor};">${esc(row.label || '')}</span> <span style="font-weight:normal;color:var(--tm-secondary-text);font-size:12px;background:var(--tm-doc-count-bg);padding:1px 6px;border-radius:10px;margin-left:4px;">${Number(row.count) || 0}</span>${durationSum ? `<span style="font-weight:normal;color:var(--tm-primary-color);font-size:12px;background:var(--tm-info-bg);padding:1px 6px;border-radius:10px;margin-left:4px;border:1px solid var(--tm-info-border);">📊 ${esc(durationSum)}</span>` : ''}</td></tr>`;
                 }
                 if (row.kind === 'quadrant') {
                     const durationSum = String(row.durationSum || '').trim();
                     const colorMap = { red: 'var(--tm-quadrant-red)', yellow: 'var(--tm-quadrant-yellow)', blue: 'var(--tm-quadrant-blue)', green: 'var(--tm-quadrant-green)' };
                     const color = colorMap[String(row.color || '')] || 'var(--tm-text-color)';
-                    return `<tr class="tm-group-row tm-timeline-row"><td colspan="3" onclick="tmToggleGroupCollapse('${row.key}', event)" style="cursor:pointer;font-weight:bold;color:${color};">${toggle}<span class="tm-quadrant-indicator tm-quadrant-bg-${esc(row.color || '')}"></span>${esc(row.label || '')} <span style="font-weight:normal;color:var(--tm-secondary-text);font-size:12px;background:var(--tm-doc-count-bg);padding:1px 6px;border-radius:10px;margin-left:4px;">${Number(row.count) || 0}</span>${durationSum ? `<span style="font-weight:normal;color:var(--tm-primary-color);font-size:12px;background:var(--tm-info-bg);padding:1px 6px;border-radius:10px;margin-left:4px;border:1px solid var(--tm-info-border);">📊 ${esc(durationSum)}</span>` : ''}</td></tr>`;
+                    return `<tr class="tm-group-row tm-timeline-row" data-group-key="${esc(row.key)}"><td colspan="3" onclick="tmToggleGroupCollapse('${row.key}', event)" style="cursor:pointer;font-weight:bold;color:${color};">${toggle}<span class="tm-quadrant-indicator tm-quadrant-bg-${esc(row.color || '')}"></span>${esc(row.label || '')} <span style="font-weight:normal;color:var(--tm-secondary-text);font-size:12px;background:var(--tm-doc-count-bg);padding:1px 6px;border-radius:10px;margin-left:4px;">${Number(row.count) || 0}</span>${durationSum ? `<span style="font-weight:normal;color:var(--tm-primary-color);font-size:12px;background:var(--tm-info-bg);padding:1px 6px;border-radius:10px;margin-left:4px;border:1px solid var(--tm-info-border);">📊 ${esc(durationSum)}</span>` : ''}</td></tr>`;
                 }
-                return `<tr class="tm-group-row tm-timeline-row"><td colspan="3" onclick="tmToggleGroupCollapse('${row.key}', event)" style="cursor:pointer;font-weight:bold;color:var(--tm-text-color);">${toggle}${esc(row.label || '')}</td></tr>`;
+                return `<tr class="tm-group-row tm-timeline-row" data-group-key="${esc(row.key)}"><td colspan="3" onclick="tmToggleGroupCollapse('${row.key}', event)" style="cursor:pointer;font-weight:bold;color:var(--tm-text-color);">${toggle}${esc(row.label || '')}</td></tr>`;
             };
 
             const renderTaskRow = (row) => {
@@ -6415,15 +7436,20 @@ async function __tmRefreshAfterWake(reason) {
                 const totalChildren = allChildren.length;
                 const completedChildren = allChildren.filter(c => c.done).length;
                 const progressPercent = totalChildren > 0 ? Math.round((completedChildren / totalChildren) * 100) : 0;
-                const progressBgImage = (row.hasChildren && progressPercent > 0)
-                    ? `linear-gradient(90deg, ${progressBarColor} ${progressPercent}%, transparent ${progressPercent}%)`
-                    : '';
                 const isDoneSubtask = !!task.done && (Math.max(0, Number(row.depth) || 0) > 0);
-                const doneSubtaskBg = isDoneSubtask ? __tmWithAlpha(progressBarColor, isDark ? 0.22 : 0.14) : '';
-                const contentCellBgStyle = `${doneSubtaskBg ? `background-color:${doneSubtaskBg};` : ''}${progressBgImage ? `background-image:${progressBgImage};background-repeat:no-repeat;` : ''}`;
+                const groupBg = enableGroupBg ? currentGroupBg : '';
+                const doneSubtaskBg = (!enableGroupBg && isDoneSubtask) ? __tmWithAlpha(progressBarColor, isDark ? 0.22 : 0.14) : '';
+                const baseBg = groupBg || doneSubtaskBg;
+                const progressBgStyle = (row.hasChildren && progressPercent > 0)
+                    ? (enableGroupBg && groupBg
+                        ? `background-image:linear-gradient(90deg, ${progressBarColor} ${progressPercent}%, transparent ${progressPercent}%);background-repeat:no-repeat;background-size:100% 3px;background-position:left bottom;`
+                        : `background-image:linear-gradient(90deg, ${progressBarColor} ${progressPercent}%, transparent ${progressPercent}%);background-repeat:no-repeat;`)
+                    : '';
+                const contentCellBgStyle = `${baseBg ? `background-color:${baseBg};` : ''}${progressBgStyle ? `${progressBgStyle};` : ''}`;
+                const otherCellBgStyle = groupBg ? `background-color:${groupBg};` : '';
 
                 return `
-                    <tr class="tm-timeline-row ${rowClass}" data-id="${task.id}" onclick="tmRowClick(event, '${task.id}')" oncontextmenu="tmShowTaskContextMenu(event, '${task.id}')">
+                    <tr class="tm-timeline-row ${rowClass}" data-id="${task.id}" data-depth="${row.depth}" onclick="tmRowClick(event, '${task.id}')" oncontextmenu="tmShowTaskContextMenu(event, '${task.id}')">
                         <td style="width: ${timelineContentWidth}px; min-width: ${timelineContentWidth}px; max-width: ${timelineContentWidth}px; ${contentCellBgStyle}">
                             <div class="tm-task-cell" style="padding-left:${indent}px">
                                 ${toggle}
@@ -6436,20 +7462,37 @@ async function __tmRefreshAfterWake(reason) {
                                 </span>
                             </div>
                         </td>
-                        <td class="tm-cell-editable" style="width:${timelineStartW}px; min-width:${timelineStartW}px; max-width:${timelineStartW}px;" onclick="tmBeginCellEdit('${task.id}','startDate',this,event)">${__tmFormatTaskTime(task.startDate)}</td>
-                        <td class="tm-cell-editable" style="width:${timelineEndW}px; min-width:${timelineEndW}px; max-width:${timelineEndW}px;" onclick="tmBeginCellEdit('${task.id}','completionTime',this,event)">${__tmFormatTaskTime(task.completionTime)}</td>
+                        <td class="tm-cell-editable" style="width:${timelineStartW}px; min-width:${timelineStartW}px; max-width:${timelineStartW}px; ${otherCellBgStyle}" onclick="tmBeginCellEdit('${task.id}','startDate',this,event)">${__tmFormatTaskTime(task.startDate)}</td>
+                        <td class="tm-cell-editable" style="width:${timelineEndW}px; min-width:${timelineEndW}px; max-width:${timelineEndW}px; ${otherCellBgStyle}" onclick="tmBeginCellEdit('${task.id}','completionTime',this,event)">${__tmFormatTaskTime(task.completionTime)}</td>
                     </tr>
                 `;
             };
 
-            const leftRowsHtml = (Array.isArray(rowModel) ? rowModel : []).map(r => {
-                if (r.type === 'group') return renderGroupRow(r);
-                if (r.type === 'task') return renderTaskRow(r);
-                return '';
-            }).join('');
+            const leftRows = [];
+            for (const r of (Array.isArray(rowModel) ? rowModel : [])) {
+                if (r?.type === 'group') {
+                    let labelColor = '';
+                    if (r.kind === 'doc') labelColor = String(r.labelColor || 'var(--tm-group-doc-label-color)');
+                    else if (r.kind === 'time') labelColor = String(r.labelColor || 'var(--tm-text-color)');
+                    else if (r.kind === 'quadrant') {
+                        const colorMap = { red: 'var(--tm-quadrant-red)', yellow: 'var(--tm-quadrant-yellow)', blue: 'var(--tm-quadrant-blue)', green: 'var(--tm-quadrant-green)' };
+                        labelColor = colorMap[String(r.color || '')] || 'var(--tm-text-color)';
+                    } else {
+                        labelColor = 'var(--tm-text-color)';
+                    }
+                    currentGroupBg = enableGroupBg ? __tmGroupBgFromLabelColor(labelColor, isDark) : '';
+                    leftRows.push(renderGroupRow(r));
+                    continue;
+                }
+                if (r?.type === 'task') {
+                    leftRows.push(renderTaskRow(r));
+                    continue;
+                }
+            }
+            const leftRowsHtml = leftRows.join('');
 
             return `
-                <div class="tm-body tm-body--timeline">
+                <div class="tm-body tm-body--timeline${bodyAnimClass}">
                     <div class="tm-timeline-split">
                         <div class="tm-timeline-left" style="width:${leftWidth}px">
                             <div class="tm-timeline-left-body" id="tmTimelineLeftBody">
@@ -6646,11 +7689,13 @@ async function __tmRefreshAfterWake(reason) {
                                 || state.allDocuments.find(d => d.id === id)?.name
                                 || '未命名文档';
                             const isActive = state.activeDocId === id;
-                            return `<div class="tm-doc-tab ${isActive ? 'active' : ''}" onclick="tmSwitchDoc('${id}')" title="全局新建文档">📥 ${esc(docName)}</div>`;
+                            const c = __tmGetDocColorHex(id, __tmIsDarkMode());
+                            return `<div class="tm-doc-tab ${isActive ? 'active' : ''}" style="--tm-doc-color:${esc(c)}" oncontextmenu="tmShowDocTabContextMenu(event, '${id}')" ontouchstart="tmDocTabTouchStart(event, '${id}')" ontouchmove="tmDocTabTouchMove(event)" ontouchend="tmDocTabTouchEnd(event)" onclick="tmSwitchDoc('${id}')" title="全局新建文档">📥 ${esc(docName)}</div>`;
                         })()}
                         ${visibleDocs.map(doc => {
                             const isActive = state.activeDocId === doc.id;
-                            return `<div class="tm-doc-tab ${isActive ? 'active' : ''}" ondragenter="tmDocTabDragEnter(event)" ondragleave="tmDocTabDragLeave(event)" ondragover="tmDocTabDragOver(event)" ondrop="tmDocTabDrop(event, '${doc.id}')" onclick="tmSwitchDoc('${doc.id}')">${esc(doc.name)}</div>`;
+                            const c = __tmGetDocColorHex(doc.id, __tmIsDarkMode());
+                            return `<div class="tm-doc-tab ${isActive ? 'active' : ''}" style="--tm-doc-color:${esc(c)}" oncontextmenu="tmShowDocTabContextMenu(event, '${doc.id}')" ontouchstart="tmDocTabTouchStart(event, '${doc.id}')" ontouchmove="tmDocTabTouchMove(event)" ontouchend="tmDocTabTouchEnd(event)" ondragenter="tmDocTabDragEnter(event)" ondragleave="tmDocTabDragLeave(event)" ondragover="tmDocTabDragOver(event)" ondrop="tmDocTabDrop(event, '${doc.id}')" onclick="tmSwitchDoc('${doc.id}')">${esc(doc.name)}</div>`;
                         }).join('')}
                     </div>
                     <div style="border-left:1px solid var(--tm-border-color); padding-left:8px; margin-left:8px; display:none; gap:8px;">
@@ -6689,6 +7734,10 @@ async function __tmRefreshAfterWake(reason) {
                         background: var(--tm-border-color);
                         border-radius: 2px;
                     }
+                    .tm-doc-tabs > div {
+                        min-width: 0;
+                        -webkit-overflow-scrolling: touch;
+                    }
                     .tm-doc-tab {
                         padding: 2px 8px;
                         border-radius: 6px;
@@ -6697,6 +7746,7 @@ async function __tmRefreshAfterWake(reason) {
                         font-size: 13px;
                         cursor: pointer;
                         white-space: nowrap;
+                        flex: 0 0 auto;
                         border: 1px solid var(--tm-border-color);
                         transition: transform 0.12s ease, box-shadow 0.12s ease, border-color 0.12s ease, background 0.12s ease;
                         user-select: none;
@@ -6704,6 +7754,19 @@ async function __tmRefreshAfterWake(reason) {
                         line-height: 16px;
                         display: flex;
                         align-items: center;
+                        position: relative;
+                        overflow: hidden;
+                    }
+                    .tm-doc-tab::after {
+                        content: '';
+                        position: absolute;
+                        left: 0;
+                        right: 0;
+                        bottom: -1px;
+                        height: 4px;
+                        border-radius: 0;
+                        background: var(--tm-doc-color, transparent);
+                        opacity: 0.95;
                     }
                     .tm-doc-tab:hover {
                         background: var(--tm-hover-bg);
@@ -6835,10 +7898,21 @@ async function __tmRefreshAfterWake(reason) {
                 try { if (ganttBody) ganttBody.scrollLeft = desiredLeft; } catch (e) {}
                 try { syncHeaderX(); } catch (e) {}
                 try { if (hasForcedLeft) delete state.ganttView.__forceScrollLeft; } catch (e) {}
+                try { __tmRunFlipAnimation(state.modal); } catch (e) {}
+                if (!useSoftSwap) {
+                    try { state.modal.style.visibility = ''; } catch (e) {}
+                } else {
+                    try { state.modal.style.opacity = '1'; } catch (e) {}
+                    try { state.modal.style.pointerEvents = ''; } catch (e) {}
+                    if (prevModalEl) {
+                        setTimeout(() => { try { prevModalEl.remove(); } catch (e2) {} }, 140);
+                    }
+                }
             }));
 
             const syncRowHeights = () => {
                 if (!leftBody || !ganttBody) return;
+                if (Date.now() - (Number(state.__tmFlipTs) || 0) < 320) return;
                 const leftRows = leftBody.querySelectorAll('tbody tr');
                 const rightRows = ganttBody.querySelectorAll('.tm-gantt-row');
                 const n = Math.min(leftRows.length, rightRows.length);
@@ -6852,10 +7926,8 @@ async function __tmRefreshAfterWake(reason) {
                     rr.style.maxHeight = `${h}px`;
                     const bar = rr.querySelector?.('.tm-gantt-bar');
                     if (bar) {
-                        const barH = bar.getBoundingClientRect?.().height;
-                        const bh = Number.isFinite(barH) && barH > 0 ? barH : Math.max(12, Math.min(22, Math.round(h * 0.6)));
-                        const top = Math.max(2, (h - bh) / 2);
-                        bar.style.top = `${top}px`;
+                        bar.style.top = '50%';
+                        bar.style.transform = 'translateY(-50%)';
                     }
                 }
             };
@@ -6864,6 +7936,7 @@ async function __tmRefreshAfterWake(reason) {
                 syncRowHeights();
                 setTimeout(syncRowHeights, 60);
                 setTimeout(syncRowHeights, 260);
+                setTimeout(syncRowHeights, 420);
             }));
 
             requestAnimationFrame(() => requestAnimationFrame(() => {
@@ -6884,6 +7957,21 @@ async function __tmRefreshAfterWake(reason) {
                     const key = String(el.getAttribute('data-group-key') || '').trim();
                     if (!key) return;
                     tmToggleGroupCollapse(key, ev);
+                };
+                const onGanttWheel = (ev) => {
+                    if (!ev?.shiftKey) return;
+                    const canScrollX = (ganttBody.scrollWidth - ganttBody.clientWidth) > 2;
+                    if (!canScrollX) return;
+                    let delta = 0;
+                    const dx = Number(ev.deltaX) || 0;
+                    const dy = Number(ev.deltaY) || 0;
+                    delta = Math.abs(dx) >= Math.abs(dy) ? dx : dy;
+                    if (!Number.isFinite(delta) || delta === 0) return;
+                    if (ev.deltaMode === 1) delta *= 16;
+                    else if (ev.deltaMode === 2) delta *= ganttBody.clientWidth;
+                    ganttBody.scrollLeft = ganttBody.scrollLeft + delta;
+                    try { ev.preventDefault(); } catch (e) {}
+                    try { ev.stopPropagation(); } catch (e) {}
                 };
                 let syncing = false;
                 const syncFromLeft = () => {
@@ -6907,9 +7995,28 @@ async function __tmRefreshAfterWake(reason) {
                     syncHeaderX();
                     syncFromRight();
                 }, { passive: true });
+                ganttBody.addEventListener('wheel', onGanttWheel, { passive: false });
+                if (ganttHeader) ganttHeader.addEventListener('wheel', onGanttWheel, { passive: false });
                 ganttBody.addEventListener('click', onGroupClick, true);
             } else if (ganttBody) {
                 ganttBody.addEventListener('scroll', syncHeaderX, { passive: true });
+                const onGanttWheel = (ev) => {
+                    if (!ev?.shiftKey) return;
+                    const canScrollX = (ganttBody.scrollWidth - ganttBody.clientWidth) > 2;
+                    if (!canScrollX) return;
+                    let delta = 0;
+                    const dx = Number(ev.deltaX) || 0;
+                    const dy = Number(ev.deltaY) || 0;
+                    delta = Math.abs(dx) >= Math.abs(dy) ? dx : dy;
+                    if (!Number.isFinite(delta) || delta === 0) return;
+                    if (ev.deltaMode === 1) delta *= 16;
+                    else if (ev.deltaMode === 2) delta *= ganttBody.clientWidth;
+                    ganttBody.scrollLeft = ganttBody.scrollLeft + delta;
+                    try { ev.preventDefault(); } catch (e) {}
+                    try { ev.stopPropagation(); } catch (e) {}
+                };
+                ganttBody.addEventListener('wheel', onGanttWheel, { passive: false });
+                if (ganttHeader) ganttHeader.addEventListener('wheel', onGanttWheel, { passive: false });
             }
         } else {
             const newBody = state.modal.querySelector('.tm-body');
@@ -6923,6 +8030,34 @@ async function __tmRefreshAfterWake(reason) {
                 try { newBody.scrollTop = desiredTop; } catch (e) {}
                 try { newBody.scrollLeft = desiredLeft; } catch (e) {}
             }
+            try {
+                requestAnimationFrame(() => {
+                    try { __tmRunFlipAnimation(state.modal); } catch (e) {}
+                    if (!useSoftSwap) {
+                        try { state.modal.style.visibility = ''; } catch (e) {}
+                    } else {
+                        try { state.modal.style.opacity = '1'; } catch (e) {}
+                        try { state.modal.style.pointerEvents = ''; } catch (e) {}
+                        if (prevModalEl) {
+                            setTimeout(() => { try { prevModalEl.remove(); } catch (e2) {} }, 140);
+                        }
+                    }
+                });
+            } catch (e) {
+                if (!useSoftSwap) {
+                    try { state.modal.style.visibility = ''; } catch (e2) {}
+                } else {
+                    try { state.modal.style.opacity = '1'; } catch (e2) {}
+                    try { state.modal.style.pointerEvents = ''; } catch (e2) {}
+                    if (prevModalEl) {
+                        setTimeout(() => { try { prevModalEl.remove(); } catch (e3) {} }, 140);
+                    }
+                }
+            }
+        }
+
+        if (isViewSwitchAnim) {
+            try { state.uiAnimKind = ''; } catch (e) {}
         }
     }
 
@@ -6973,7 +8108,10 @@ async function __tmRefreshAfterWake(reason) {
     };
 
     window.tmToggleTimelineMode = function() {
-        state.viewMode = state.viewMode === 'timeline' ? 'list' : 'timeline';
+        const next = state.viewMode === 'timeline' ? 'list' : 'timeline';
+        state.uiAnimKind = next === 'timeline' ? 'from-right' : 'from-left';
+        state.viewMode = next;
+        state.uiAnimTs = Date.now();
         render();
     };
 
@@ -7211,7 +8349,7 @@ async function __tmRefreshAfterWake(reason) {
     function __tmOnResize(event) {
         if (!__tmResizeState) return;
         const deltaX = event.clientX - __tmResizeState.startX;
-        const newWidth = Math.max(40, Math.min(800, Math.round(__tmResizeState.startWidth + deltaX)));
+        const newWidth = Math.max(10, Math.min(800, Math.round(__tmResizeState.startWidth + deltaX)));
         __tmResizeState.th.style.width = newWidth + 'px';
         __tmResizeState.th.style.minWidth = newWidth + 'px';
         __tmResizeState.th.style.maxWidth = newWidth + 'px';
@@ -7221,7 +8359,7 @@ async function __tmRefreshAfterWake(reason) {
         if (!__tmResizeState) return;
 
         const deltaX = event.clientX - __tmResizeState.startX;
-        const newWidth = Math.max(40, Math.min(800, Math.round(__tmResizeState.startWidth + deltaX)));
+        const newWidth = Math.max(10, Math.min(800, Math.round(__tmResizeState.startWidth + deltaX)));
         SettingsStore.updateColumnWidth(__tmResizeState.colName, newWidth);
 
         // 清理
@@ -7279,7 +8417,7 @@ async function __tmRefreshAfterWake(reason) {
 
         const onMove = (ev) => {
             const dx = ev.clientX - startX;
-            const next = Math.max(160, Math.min(800, Math.round(startW + dx)));
+            const next = Math.max(10, Math.min(800, Math.round(startW + dx)));
             if (col) col.style.width = `${next}px`;
             th.style.width = `${next}px`;
             th.style.minWidth = `${next}px`;
@@ -7296,7 +8434,7 @@ async function __tmRefreshAfterWake(reason) {
 
         const onUp = async (ev) => {
             const dx = ev.clientX - startX;
-            const next = Math.max(160, Math.min(800, Math.round(startW + dx)));
+            const next = Math.max(10, Math.min(800, Math.round(startW + dx)));
             try { document.removeEventListener('mousemove', onMove); } catch (e) {}
             try { document.removeEventListener('mouseup', onUp); } catch (e) {}
             document.body.style.cursor = '';
@@ -7312,6 +8450,95 @@ async function __tmRefreshAfterWake(reason) {
         document.body.style.cursor = 'col-resize';
         document.body.style.userSelect = 'none';
     };
+
+    function __tmUpdateTimelineTaskInDOM(taskId) {
+        const id = String(taskId || '').trim();
+        if (!id) return;
+        const task = state.flatTasks?.[id];
+        if (!task) return;
+        const modal = state.modal;
+        if (!modal) return;
+
+        try {
+            const row = modal.querySelector(`#tmTimelineLeftTable tbody tr[data-id="${id}"]`);
+            if (row) {
+                const tds = row.querySelectorAll('td');
+                if (tds && tds.length >= 3) {
+                    try { tds[1].textContent = __tmFormatTaskTime(task.startDate); } catch (e) {}
+                    try { tds[2].textContent = __tmFormatTaskTime(task.completionTime); } catch (e) {}
+                }
+            }
+        } catch (e) {}
+
+        try {
+            const ganttBody = modal.querySelector('#tmGanttBody');
+            if (!ganttBody) return;
+            const rowEl = ganttBody.querySelector(`.tm-gantt-row[data-id="${id}"]`);
+            if (!rowEl) return;
+
+            const view = globalThis.__TaskHorizonGanttView;
+            if (!view) return;
+            const startTs0 = Number(ganttBody.dataset?.tmGanttStartTs);
+            const dayWidth0 = Number(ganttBody.dataset?.tmGanttDayWidth);
+            const dayCount0 = Number(ganttBody.dataset?.tmGanttDayCount);
+            if (!Number.isFinite(startTs0) || !Number.isFinite(dayWidth0) || !Number.isFinite(dayCount0) || dayWidth0 <= 0) return;
+
+            const sTs0 = view.parseDateOnlyToTs(task?.startDate);
+            const eTs0 = view.parseDateOnlyToTs(task?.completionTime);
+            const aTs = sTs0 || eTs0;
+            const bTs = eTs0 || sTs0;
+
+            const bar = rowEl.querySelector('.tm-gantt-bar');
+            if (!aTs && !bTs) {
+                if (bar) bar.remove();
+                return;
+            }
+
+            const dayIdxOf = (ts) => Math.round((view.startOfDayTs(ts) - view.startOfDayTs(startTs0)) / view.DAY_MS);
+            const startIdx = __tmClamp(dayIdxOf(aTs), 0, dayCount0 - 1);
+            const endIdx = __tmClamp(dayIdxOf(bTs), 0, dayCount0 - 1);
+            const left = Math.min(startIdx, endIdx) * dayWidth0;
+            const width = (Math.abs(endIdx - startIdx) + 1) * dayWidth0;
+
+            const docId = String(task?.docId || task?.root_id || '').trim();
+            const isDark = __tmIsDarkMode();
+            const baseColor = __tmGetDocColorHex(docId, isDark);
+            const done = !!task?.done;
+            const barColor = done
+                ? __tmDesaturateHex(__tmDarkenHex(baseColor, isDark ? 0.48 : 0.36), isDark ? 0.36 : 0.26)
+                : baseColor;
+
+            const title = `${String(task?.content || '').trim()}\n${view.formatDateOnlyFromTs(aTs)} ~ ${view.formatDateOnlyFromTs(bTs)}`;
+
+            if (bar) {
+                bar.style.left = `${left}px`;
+                bar.style.width = `${width}px`;
+                bar.style.background = barColor;
+                bar.style.top = '50%';
+                bar.style.transform = 'translateY(-50%)';
+                bar.title = title;
+                return;
+            }
+
+            const barEl = document.createElement('div');
+            barEl.className = 'tm-gantt-bar';
+            barEl.style.left = `${left}px`;
+            barEl.style.width = `${width}px`;
+            barEl.style.background = barColor;
+            barEl.style.top = '50%';
+            barEl.style.transform = 'translateY(-50%)';
+            barEl.title = title;
+            const h1 = document.createElement('div');
+            h1.className = 'tm-gantt-bar-handle tm-gantt-bar-handle--start';
+            h1.setAttribute('data-handle', 'start');
+            const h2 = document.createElement('div');
+            h2.className = 'tm-gantt-bar-handle tm-gantt-bar-handle--end';
+            h2.setAttribute('data-handle', 'end');
+            barEl.appendChild(h1);
+            barEl.appendChild(h2);
+            rowEl.appendChild(barEl);
+        } catch (e) {}
+    }
 
     function normalizeTaskFields(task, docNameFallback) {
         if (!task || typeof task !== 'object') return task;
@@ -7580,6 +8807,7 @@ async function __tmRefreshAfterWake(reason) {
     let __tmCellEditorState = null;
 
     function __tmCloseCellEditor(shouldRerender) {
+        const last = __tmCellEditorState;
         if (__tmCellEditorState?.cleanup) {
             try { __tmCellEditorState.cleanup(); } catch (e) {}
         }
@@ -7669,7 +8897,7 @@ async function __tmRefreshAfterWake(reason) {
                 try { fn(); } catch (e) {}
             }
         };
-        __tmCellEditorState = { td, cleanup };
+        __tmCellEditorState = { td, cleanup, taskId: id, field };
 
         const task = state.flatTasks[id];
         if (!task) return;
@@ -7721,6 +8949,18 @@ async function __tmRefreshAfterWake(reason) {
 
             const initial = input.value;
             let committed = false;
+            if (__tmIsMobileDevice()) {
+                const onDocPointerDown = (e) => {
+                    const t = e?.target;
+                    if (!t) return;
+                    if (td.contains(t)) return;
+                    if (committed) return;
+                    committed = true;
+                    cancel();
+                };
+                document.addEventListener('pointerdown', onDocPointerDown, true);
+                cleanupFns.push(() => document.removeEventListener('pointerdown', onDocPointerDown, true));
+            }
             const save = () => {
                 if (committed) return;
                 const next = String(input.value || '').trim();
@@ -7734,6 +8974,7 @@ async function __tmRefreshAfterWake(reason) {
             };
             input.onchange = () => save();
             input.onblur = () => {
+                if (__tmIsMobileDevice()) return;
                 if (committed) return;
                 committed = true;
                 cancel();
@@ -7762,6 +9003,18 @@ async function __tmRefreshAfterWake(reason) {
 
             const initial = input.value;
             let committed = false;
+            if (__tmIsMobileDevice()) {
+                const onDocPointerDown = (e) => {
+                    const t = e?.target;
+                    if (!t) return;
+                    if (td.contains(t)) return;
+                    if (committed) return;
+                    committed = true;
+                    cancel();
+                };
+                document.addEventListener('pointerdown', onDocPointerDown, true);
+                cleanupFns.push(() => document.removeEventListener('pointerdown', onDocPointerDown, true));
+            }
             const save = () => {
                 if (committed) return;
                 const next = String(input.value || '').trim();
@@ -7775,6 +9028,7 @@ async function __tmRefreshAfterWake(reason) {
             };
             input.onchange = () => save();
             input.onblur = () => {
+                if (__tmIsMobileDevice()) return;
                 if (committed) return;
                 committed = true;
                 cancel();
@@ -7804,6 +9058,18 @@ async function __tmRefreshAfterWake(reason) {
 
             const initial = input.value;
             let committed = false;
+            if (__tmIsMobileDevice()) {
+                const onDocPointerDown = (e) => {
+                    const t = e?.target;
+                    if (!t) return;
+                    if (td.contains(t)) return;
+                    if (committed) return;
+                    committed = true;
+                    cancel();
+                };
+                document.addEventListener('pointerdown', onDocPointerDown, true);
+                cleanupFns.push(() => document.removeEventListener('pointerdown', onDocPointerDown, true));
+            }
             const save = () => {
                 if (committed) return;
                 const next = String(input.value || '').trim();
@@ -7817,6 +9083,7 @@ async function __tmRefreshAfterWake(reason) {
             };
             input.onchange = () => save();
             input.onblur = () => {
+                if (__tmIsMobileDevice()) return;
                 if (committed) return;
                 committed = true;
                 cancel();
@@ -8395,7 +9662,18 @@ async function __tmRefreshAfterWake(reason) {
         const rows = [];
 
         const filteredIdSet = new Set(state.filteredTasks.map(t => t.id));
-        const orderMap = new Map(state.filteredTasks.map((t, i) => [t.id, i]));
+        let orderMap = new Map(state.filteredTasks.map((t, i) => [t.id, i]));
+        if (SettingsStore.data.timelineForceSortByCompletionNearToday) {
+            const now = new Date();
+            const todayTs = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 12, 0, 0, 0).getTime();
+            const items = state.filteredTasks.map((t, i) => {
+                const ts = __tmParseTimeToTs(t?.completionTime);
+                const dist = ts ? Math.abs(ts - todayTs) : Infinity;
+                return { id: String(t?.id || ''), dist, ts, i };
+            }).filter(x => x.id);
+            items.sort((a, b) => (a.dist - b.dist) || (a.ts - b.ts) || (a.i - b.i));
+            orderMap = new Map(items.map((x, idx) => [x.id, idx]));
+        }
         const getTaskOrder = (taskId) => orderMap.get(taskId) ?? Infinity;
 
         const rootTasks = state.filteredTasks.filter(t => {
@@ -8560,12 +9838,14 @@ async function __tmRefreshAfterWake(reason) {
                 const docName = docEntry.name || '未知文档';
                 const groupKey = `doc_${docId}`;
                 const isCollapsed = state.collapsedGroups?.has(groupKey);
+                const labelColor = __tmGetDocColorHex(docId, isDark) || 'var(--tm-group-doc-label-color)';
                 rows.push({
                     type: 'group',
                     kind: 'doc',
                     key: groupKey,
                     label: String(docName),
                     count: docTasks.length,
+                    labelColor,
                     collapsed: !!isCollapsed,
                 });
                 if (!isCollapsed) {
@@ -8663,6 +9943,8 @@ async function __tmRefreshAfterWake(reason) {
         const isGloballyLocked = GlobalLock.isLocked();
         const colCount = (SettingsStore.data.columnOrder || []).length || 7;
         const isDark = __tmIsDarkMode();
+        const enableGroupBg = !!SettingsStore.data.enableGroupTaskBgByGroupColor;
+        let currentGroupBg = '';
         const timeBaseColor = isDark
             ? __tmNormalizeHexColor(SettingsStore.data.timeGroupBaseColorDark, '#6ba5ff')
             : __tmNormalizeHexColor(SettingsStore.data.timeGroupBaseColorLight, '#1a73e8');
@@ -8722,8 +10004,11 @@ async function __tmRefreshAfterWake(reason) {
             const progressBarColor = isDark 
                 ? __tmNormalizeHexColor(SettingsStore.data.progressBarColorDark, '#81c784')
                 : __tmNormalizeHexColor(SettingsStore.data.progressBarColorLight, '#4caf50');
-            const progressBarBgStyle = (hasChildren && progressPercent > 0) 
-                ? `background: linear-gradient(90deg, ${progressBarColor} ${progressPercent}%, transparent ${progressPercent}%);` 
+            const groupBg = enableGroupBg ? currentGroupBg : '';
+            const progressBgStyle = (hasChildren && progressPercent > 0)
+                ? (enableGroupBg && groupBg
+                    ? `background-image: linear-gradient(90deg, ${progressBarColor} ${progressPercent}%, transparent ${progressPercent}%);background-repeat:no-repeat;background-size:100% 3px;background-position:left bottom;`
+                    : `background-image: linear-gradient(90deg, ${progressBarColor} ${progressPercent}%, transparent ${progressPercent}%);background-repeat:no-repeat;`)
                 : '';
             
             const toggle = hasChildren
@@ -8741,7 +10026,7 @@ async function __tmRefreshAfterWake(reason) {
                                title="置顶">
                     </td>`,
                 content: () => `
-                    <td style="width: ${widths.content || 360}px; min-width: ${widths.content || 360}px; max-width: ${widths.content || 360}px; ${progressBarBgStyle}">
+                    <td style="width: ${widths.content || 360}px; min-width: ${widths.content || 360}px; max-width: ${widths.content || 360}px; ${progressBgStyle}">
                         <div class="tm-task-cell" style="padding-left:${indent}px">
                             ${toggle}
                             <input class="tm-task-checkbox ${isGloballyLocked ? 'tm-operating' : ''}"
@@ -8800,7 +10085,7 @@ async function __tmRefreshAfterWake(reason) {
 
             const focusId = SettingsStore.data.enableTomatoIntegration ? String(state.timerFocusTaskId || '').trim() : '';
             const rowClass = focusId ? (focusId === String(task.id) ? 'tm-timer-focus' : 'tm-timer-dim') : '';
-            let rowHtml = `<tr data-id="${task.id}" class="${rowClass}" draggable="true" ondragstart="tmDragTaskStart(event, '${task.id}')" onclick="tmRowClick(event, '${task.id}')" oncontextmenu="tmShowTaskContextMenu(event, '${task.id}')">`;
+            let rowHtml = `<tr data-id="${task.id}" data-depth="${depth}" class="${rowClass}" ${groupBg ? `style="background-color:${groupBg};"` : ''} draggable="true" ondragstart="tmDragTaskStart(event, '${task.id}')" onclick="tmRowClick(event, '${task.id}')" oncontextmenu="tmShowTaskContextMenu(event, '${task.id}')">`;
             colOrder.forEach(col => {
                 if (cells[col]) rowHtml += cells[col]();
             });
@@ -8837,6 +10122,7 @@ async function __tmRefreshAfterWake(reason) {
 
         // 处理置顶任务（全局混排）
         if (pinnedRoots.length > 0) {
+            currentGroupBg = '';
             pinnedRoots.forEach(task => {
                 allRows.push(...renderTaskTree(task, 0));
             });
@@ -8993,10 +10279,11 @@ async function __tmRefreshAfterWake(reason) {
                 };
                 const durationSum = calculateDuration(group.items);
                 
-                allRows.push(`<tr class="tm-group-row"><td colspan="${colCount}" onclick="tmToggleGroupCollapse('${groupKey}', event)" style="cursor:pointer;background:var(--tm-header-bg);font-weight:bold;color:${color};border-bottom:1px solid var(--tm-table-border-color);"><div class="tm-group-sticky">${toggle}<span class="tm-quadrant-indicator tm-quadrant-bg-${group.color}"></span>${esc(group.name)} <span style="font-weight:normal;color:var(--tm-secondary-text);font-size:12px;background:var(--tm-doc-count-bg);padding:1px 6px;border-radius:10px;margin-left:4px;">${group.items.length}</span>${durationSum ? `<span style="font-weight:normal;color:var(--tm-primary-color);font-size:12px;background:var(--tm-info-bg);padding:1px 6px;border-radius:10px;margin-left:4px;border:1px solid var(--tm-info-border);">📊 ${durationSum}</span>` : ''}</div></td></tr>`);
+                allRows.push(`<tr class="tm-group-row" data-group-key="${groupKey}"><td colspan="${colCount}" onclick="tmToggleGroupCollapse('${groupKey}', event)" style="cursor:pointer;background:var(--tm-header-bg);font-weight:bold;color:${color};border-bottom:1px solid var(--tm-table-border-color);"><div class="tm-group-sticky">${toggle}${esc(group.name)} <span style="font-weight:normal;color:var(--tm-secondary-text);font-size:12px;background:var(--tm-doc-count-bg);padding:1px 6px;border-radius:10px;margin-left:4px;">${group.items.length}</span>${durationSum ? `<span style="font-weight:normal;color:var(--tm-primary-color);font-size:12px;background:var(--tm-info-bg);padding:1px 6px;border-radius:10px;margin-left:4px;border:1px solid var(--tm-info-border);">📊 ${durationSum}</span>` : ''}</div></td></tr>`);
                 
                 // 如果未折叠，渲染任务
                 if (!isCollapsed) {
+                    currentGroupBg = enableGroupBg ? __tmGroupBgFromLabelColor(color, isDark) : '';
                     group.items.forEach(task => {
                         allRows.push(...renderTaskTree(task, 0));
                     });
@@ -9028,11 +10315,13 @@ async function __tmRefreshAfterWake(reason) {
                 const groupKey = `doc_${docId}`;
                 const isCollapsed = state.collapsedGroups?.has(groupKey);
                 const toggle = `<span class="tm-group-toggle" onclick="tmToggleGroupCollapse('${groupKey}', event)" style="cursor:pointer;margin-right:8px;display:inline-block;width:12px;">${isCollapsed ? '▸' : '▾'}</span>`;
+                const labelColor = __tmGetDocColorHex(docId, isDark) || 'var(--tm-group-doc-label-color)';
 
-                allRows.push(`<tr class="tm-group-row"><td colspan="${colCount}" onclick="tmToggleGroupCollapse('${groupKey}', event)" style="cursor:pointer;background:var(--tm-header-bg);font-weight:bold;color:var(--tm-text-color);border-bottom:1px solid var(--tm-table-border-color);"><div class="tm-group-sticky">${toggle}<span class="tm-group-label" style="color: var(--tm-group-doc-label-color);">📄 ${esc(docName)}</span> <span style="font-weight:normal;color:var(--tm-secondary-text);font-size:12px;background:var(--tm-doc-count-bg);padding:1px 6px;border-radius:10px;margin-left:4px;">${docTasks.length}</span></div></td></tr>`);
+                allRows.push(`<tr class="tm-group-row" data-group-key="${groupKey}"><td colspan="${colCount}" onclick="tmToggleGroupCollapse('${groupKey}', event)" style="cursor:pointer;background:var(--tm-header-bg);font-weight:bold;color:var(--tm-text-color);border-bottom:1px solid var(--tm-table-border-color);"><div class="tm-group-sticky">${toggle}<span class="tm-group-label" style="color:${labelColor};">📄 ${esc(docName)}</span> <span style="font-weight:normal;color:var(--tm-secondary-text);font-size:12px;background:var(--tm-doc-count-bg);padding:1px 6px;border-radius:10px;margin-left:4px;">${docTasks.length}</span></div></td></tr>`);
 
                 // 渲染该文档的任务（如果未折叠）
                 if (!isCollapsed) {
+                    currentGroupBg = enableGroupBg ? __tmGroupBgFromLabelColor(labelColor, isDark) : '';
                     docNormal.forEach(task => {
                         allRows.push(...renderTaskTree(task, 0));
                     });
@@ -9138,9 +10427,10 @@ async function __tmRefreshAfterWake(reason) {
                 // 计算该分组下所有任务的时长总和
                 const durationSum = calculateGroupDuration(group.items);
                 
-                allRows.push(`<tr class="tm-group-row"><td colspan="${colCount}" onclick="tmToggleGroupCollapse('${group.key}', event)" style="cursor:pointer;background:var(--tm-header-bg);font-weight:bold;color:var(--tm-text-color);border-bottom:1px solid var(--tm-table-border-color);"><div class="tm-group-sticky">${toggle}<span class="tm-group-label" style="color:${labelColor};">${esc(group.label)}</span> <span style="font-weight:normal;color:var(--tm-secondary-text);font-size:12px;background:var(--tm-doc-count-bg);padding:1px 6px;border-radius:10px;margin-left:4px;">${group.items.length}</span>${durationSum ? `<span style="font-weight:normal;color:var(--tm-primary-color);font-size:12px;background:var(--tm-info-bg);padding:1px 6px;border-radius:10px;margin-left:4px;border:1px solid var(--tm-info-border);">📊 ${durationSum}</span>` : ''}</div></td></tr>`);
+                allRows.push(`<tr class="tm-group-row" data-group-key="${esc(group.key)}"><td colspan="${colCount}" onclick="tmToggleGroupCollapse('${group.key}', event)" style="cursor:pointer;background:var(--tm-header-bg);font-weight:bold;color:var(--tm-text-color);border-bottom:1px solid var(--tm-table-border-color);"><div class="tm-group-sticky">${toggle}<span class="tm-group-label" style="color:${labelColor};">${esc(group.label)}</span> <span style="font-weight:normal;color:var(--tm-secondary-text);font-size:12px;background:var(--tm-doc-count-bg);padding:1px 6px;border-radius:10px;margin-left:4px;">${group.items.length}</span>${durationSum ? `<span style="font-weight:normal;color:var(--tm-primary-color);font-size:12px;background:var(--tm-info-bg);padding:1px 6px;border-radius:10px;margin-left:4px;border:1px solid var(--tm-info-border);">📊 ${durationSum}</span>` : ''}</div></td></tr>`);
 
                 if (!isCollapsed) {
+                    currentGroupBg = enableGroupBg ? __tmGroupBgFromLabelColor(labelColor, isDark) : '';
                     // 组内任务按照全局顺序排列
                     group.items.sort((a, b) => getTaskOrder(a.id) - getTaskOrder(b.id));
                     group.items.forEach(task => {
@@ -9150,6 +10440,7 @@ async function __tmRefreshAfterWake(reason) {
             });
         } else {
             // 普通全局混排（不按时间分组，不按文档分组）
+            currentGroupBg = '';
             normalRoots.forEach(task => {
                 allRows.push(...renderTaskTree(task, 0));
             });
@@ -10645,7 +11936,7 @@ async function __tmRefreshAfterWake(reason) {
                                 🗓 <span id="tmQuickAddDateLabel">完成日</span>
                             </button>
                             <input type="date" id="tmQuickAddDateInput" onchange="tmQuickAddDateChanged(this.value)" 
-                                   style="position:absolute; visibility:hidden; width:1px; height:1px; bottom:0; left:0;">
+                                   style="position:fixed; opacity:0; width:1px; height:1px; left:0; top:0; pointer-events:none;">
                         </div>
                     </div>
 
@@ -11585,6 +12876,10 @@ async function __tmRefreshAfterWake(reason) {
                                     <button class="tm-btn tm-btn-primary" data-tm-action="addNewRule" style="padding: 4px 10px; font-size: 12px;">+ 新建规则</button>
                                 </div>
                             </div>
+                            <div style="display:flex; align-items:center; justify-content:space-between; gap:10px; padding:10px 12px; border:1px solid var(--tm-border-color); border-radius:8px; background: var(--tm-card-bg); margin-bottom: 12px;">
+                                <div style="font-size:13px; color: var(--tm-text-color);">时间轴强制按完成时间排序（越近今天越靠前）</div>
+                                <input type="checkbox" ${SettingsStore.data.timelineForceSortByCompletionNearToday ? 'checked' : ''} onchange="tmToggleTimelineForceSortByCompletionNearToday(this.checked)">
+                            </div>
                             <div id="tm-rules-list" style="display: flex; flex-direction: column; gap: 8px;">
                                 ${renderRulesList()}
                             </div>
@@ -11909,7 +13204,7 @@ async function __tmRefreshAfterWake(reason) {
                         <button class="tm-btn" onclick="moveColumn('${key}', -1)" ${index === 0 ? 'disabled' : ''} style="padding: 2px 6px; font-size: 10px;">↑</button>
                         <button class="tm-btn" onclick="moveColumn('${key}', 1)" ${index === currentOrder.length - 1 ? 'disabled' : ''} style="padding: 2px 6px; font-size: 10px;">↓</button>
                     </div>
-                    <input type="range" min="40" max="800" value="${width}" style="flex: 1; margin: 0 8px;" onchange="updateColumnWidth('${key}', parseInt(this.value))" title="宽度调整">
+                    <input type="range" min="10" max="800" value="${width}" style="flex: 1; margin: 0 8px;" onchange="updateColumnWidth('${key}', parseInt(this.value))" title="宽度调整">
                     <span style="font-size: 12px; width: 52px; text-align: right;">${width}px</span>
                 </div>
             `;
@@ -12032,6 +13327,10 @@ async function __tmRefreshAfterWake(reason) {
                 <div style="flex:1;"></div>
                 <button class="tm-btn tm-btn-gray" onclick="tmResetAppearanceColors()" style="padding: 4px 10px; font-size: 12px;">恢复默认</button>
             </div>
+            <label style="display:flex;align-items:center;justify-content:space-between;gap:10px;padding:8px 10px;border:1px solid var(--tm-border-color);border-radius:10px;background:var(--tm-card-bg);margin-bottom:12px;">
+                <span style="font-size:12px;color:var(--tm-secondary-text);">分组内任务行背景使用分组色</span>
+                <input type="checkbox" ${d.enableGroupTaskBgByGroupColor ? 'checked' : ''} onchange="tmToggleGroupTaskBgByGroupColor(this.checked)">
+            </label>
             <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:12px;">
                 ${cards}
             </div>
@@ -12105,6 +13404,18 @@ async function __tmRefreshAfterWake(reason) {
             if (p1) p1.style.background = previewLight;
             if (p2) p2.style.background = previewDark;
         } catch (e) {}
+        render();
+    };
+
+    window.tmToggleGroupTaskBgByGroupColor = async function(enabled) {
+        SettingsStore.data.enableGroupTaskBgByGroupColor = !!enabled;
+        await SettingsStore.save();
+        render();
+    };
+
+    window.tmToggleTimelineForceSortByCompletionNearToday = async function(enabled) {
+        SettingsStore.data.timelineForceSortByCompletionNearToday = !!enabled;
+        await SettingsStore.save();
         render();
     };
 
@@ -12873,6 +14184,21 @@ async function __tmRefreshAfterWake(reason) {
             ev?.stopPropagation?.();
             ev?.preventDefault?.();
         } catch (e) {}
+
+        const k0 = String(groupKey || '').trim();
+        const action = state.collapsedGroups.has(k0) ? 'expand' : 'collapse';
+        const flipOpts = { kind: 'group', key: k0, action };
+        let skipAnim = false;
+        try {
+            const tbody = __tmGetActiveTbody(state.modal);
+            const n = __tmCountAffectedRowsForCollapse(tbody, flipOpts, 161);
+            skipAnim = n > 160;
+        } catch (e) {}
+        if (!skipAnim) {
+            try { __tmPrepareFlipAnimation(flipOpts); } catch (e) {}
+        } else {
+            try { __tmResetFlipState(state.modal); } catch (e) {}
+        }
         
         if (state.collapsedGroups.has(groupKey)) state.collapsedGroups.delete(groupKey);
         else state.collapsedGroups.add(groupKey);
@@ -12880,7 +14206,18 @@ async function __tmRefreshAfterWake(reason) {
         SettingsStore.data.collapsedGroups = [...state.collapsedGroups];
         // 直接同步到本地存储，不等待云端同步，避免延迟
         try { Storage.set('tm_collapsed_groups', SettingsStore.data.collapsedGroups); } catch (e) {}
-        render();
+        try { __tmUpdateToggleGlyphInDom({ kind: 'group', key: k0, action }); } catch (e) {}
+        if (action === 'collapse') {
+            if (state.modal && __tmApplyVisibilityFromState(state.modal)) {
+                if (!skipAnim) {
+                    try { queueMicrotask(() => { try { __tmRunFlipAnimation(state.modal); } catch (e) {} }); } catch (e) {}
+                }
+                return;
+            }
+            __tmScheduleCollapseRerender();
+            return;
+        }
+        __tmScheduleCollapseRerender();
     };
 
     window.tmToggleCollapse = async function(id, ev) {
@@ -12890,13 +14227,38 @@ async function __tmRefreshAfterWake(reason) {
         } catch (e) {}
         const key = String(id || '');
         if (!key) return;
+
+        const action = state.collapsedTaskIds.has(key) ? 'expand' : 'collapse';
+        const flipOpts = { kind: 'task', key, action };
+        let skipAnim = false;
+        try {
+            const tbody = __tmGetActiveTbody(state.modal);
+            const n = __tmCountAffectedRowsForCollapse(tbody, flipOpts, 161);
+            skipAnim = n > 160;
+        } catch (e) {}
+        if (!skipAnim) {
+            try { __tmPrepareFlipAnimation(flipOpts); } catch (e) {}
+        } else {
+            try { __tmResetFlipState(state.modal); } catch (e) {}
+        }
         if (state.collapsedTaskIds.has(key)) state.collapsedTaskIds.delete(key);
         else state.collapsedTaskIds.add(key);
 
         // 直接同步到本地存储，不等待云端同步，避免延迟
         SettingsStore.data.collapsedTaskIds = [...state.collapsedTaskIds];
         try { Storage.set('tm_collapsed_task_ids', SettingsStore.data.collapsedTaskIds); } catch (e) {}
-        render();
+        try { __tmUpdateToggleGlyphInDom({ kind: 'task', key, action }); } catch (e) {}
+        if (action === 'collapse') {
+            if (state.modal && __tmApplyVisibilityFromState(state.modal)) {
+                if (!skipAnim) {
+                    try { queueMicrotask(() => { try { __tmRunFlipAnimation(state.modal); } catch (e) {} }); } catch (e) {}
+                }
+                return;
+            }
+            __tmScheduleCollapseRerender();
+            return;
+        }
+        __tmScheduleCollapseRerender();
     };
 
     window.tmCollapseAllTasks = async function() {
@@ -12917,15 +14279,21 @@ async function __tmRefreshAfterWake(reason) {
         });
         state.collapsedTaskIds = next;
         SettingsStore.data.collapsedTaskIds = [...next];
+        try { Storage.set('tm_collapsed_task_ids', SettingsStore.data.collapsedTaskIds); } catch (e) {}
+        try { __tmResetFlipState(state.modal); } catch (e) {}
+        if (!(state.modal && __tmApplyVisibilityFromState(state.modal))) {
+            if (!__tmRerenderCollapseInPlace()) render();
+        }
         await SettingsStore.save();
-        render();
     };
 
     window.tmExpandAllTasks = async function() {
         state.collapsedTaskIds = new Set();
         SettingsStore.data.collapsedTaskIds = [];
+        try { Storage.set('tm_collapsed_task_ids', []); } catch (e) {}
+        try { __tmResetFlipState(state.modal); } catch (e) {}
+        if (!__tmRerenderCollapseInPlace()) render();
         await SettingsStore.save();
-        render();
     };
 
     window.closeSettings = function() {
@@ -13721,6 +15089,14 @@ async function __tmRefreshAfterWake(reason) {
             const desktopMenu = document.getElementById('tmDesktopMenu');
             if (desktopMenu) desktopMenu.remove();
         } catch (e) {}
+        try { __tmHideDocTabMenu?.(); } catch (e) {}
+        try {
+            if (state.docTabLongPressTimer) {
+                clearTimeout(state.docTabLongPressTimer);
+                state.docTabLongPressTimer = null;
+            }
+            state.docTabTouchMoved = false;
+        } catch (e) {}
 
         try {
             document.querySelectorAll('.tm-breadcrumb-btn').forEach(btn => btn.remove());
@@ -14009,21 +15385,41 @@ async function __tmRefreshAfterWake(reason) {
     
             const nowIdx = getDayIndexByTs(startTs, Date.now());
             const todayIdx = clamp(nowIdx, 0, dayCount - 1);
-            const todayLeft = todayIdx * dayWidth;
+            const todayLeft = todayIdx * dayWidth + dayWidth * 0.5;
             const rowsHtml = [];
+            const enableGroupBg = !!SettingsStore.data.enableGroupTaskBgByGroupColor;
+            const isDark = __tmIsDarkMode();
+            let currentGroupBg = '';
             for (const r of rowModel) {
                 if (r?.type === 'group') {
+                    let labelColor = '';
+                    if (r.kind === 'doc') labelColor = String(r.labelColor || 'var(--tm-group-doc-label-color)');
+                    else if (r.kind === 'time') labelColor = String(r.labelColor || 'var(--tm-text-color)');
+                    else if (r.kind === 'quadrant') {
+                        const colorMap = { red: 'var(--tm-quadrant-red)', yellow: 'var(--tm-quadrant-yellow)', blue: 'var(--tm-quadrant-blue)', green: 'var(--tm-quadrant-green)' };
+                        labelColor = colorMap[String(r.color || '')] || 'var(--tm-text-color)';
+                    } else {
+                        labelColor = 'var(--tm-text-color)';
+                    }
+                    currentGroupBg = enableGroupBg ? (__tmGroupBgFromLabelColor(labelColor, isDark) || '') : '';
                     rowsHtml.push(`<div class="tm-gantt-row tm-gantt-row--group" data-group-key="${String(r?.key || '')}" style="width:${totalWidth}px;cursor:pointer"></div>`);
                     continue;
                 }
                 if (r?.type !== 'task') continue;
                 const task = getTaskById(r.id);
+                const docId = String(task?.docId || task?.root_id || '').trim();
+                const baseColor = __tmGetDocColorHex(docId, isDark);
+                const done = !!task?.done;
+                const barColor = done
+                    ? __tmDesaturateHex(__tmDarkenHex(baseColor, isDark ? 0.48 : 0.36), isDark ? 0.36 : 0.26)
+                    : baseColor;
                 const sTs0 = parseDateOnlyToTs(task?.startDate);
                 const eTs0 = parseDateOnlyToTs(task?.completionTime);
                 const aTs = sTs0 || eTs0;
                 const bTs = eTs0 || sTs0;
+                const rowBgStyle = (enableGroupBg && currentGroupBg) ? `background:${currentGroupBg};` : '';
                 if (!aTs && !bTs) {
-                    rowsHtml.push(`<div class="tm-gantt-row" data-id="${String(r.id)}" style="width:${totalWidth}px"></div>`);
+                    rowsHtml.push(`<div class="tm-gantt-row" data-id="${String(r.id)}" style="width:${totalWidth}px;${rowBgStyle}"></div>`);
                     continue;
                 }
                 const startIdx = clamp(getDayIndexByTs(startTs, aTs), 0, dayCount - 1);
@@ -14031,8 +15427,8 @@ async function __tmRefreshAfterWake(reason) {
                 const left = Math.min(startIdx, endIdx) * dayWidth;
                 const width = (Math.abs(endIdx - startIdx) + 1) * dayWidth;
                 rowsHtml.push(`
-                    <div class="tm-gantt-row" data-id="${String(r.id)}" style="width:${totalWidth}px">
-                        <div class="tm-gantt-bar" style="left:${left}px;width:${width}px" title="${String(task?.content || '').trim()}\\n${formatDateOnlyFromTs(aTs)} ~ ${formatDateOnlyFromTs(bTs)}">
+                    <div class="tm-gantt-row" data-id="${String(r.id)}" style="width:${totalWidth}px;${rowBgStyle}">
+                        <div class="tm-gantt-bar" style="left:${left}px;width:${width}px;background:${barColor};" title="${String(task?.content || '').trim()}\\n${formatDateOnlyFromTs(aTs)} ~ ${formatDateOnlyFromTs(bTs)}">
                             <div class="tm-gantt-bar-handle tm-gantt-bar-handle--start" data-handle="start"></div>
                             <div class="tm-gantt-bar-handle tm-gantt-bar-handle--end" data-handle="end"></div>
                         </div>
@@ -14192,11 +15588,186 @@ async function __tmRefreshAfterWake(reason) {
                 updateTip(e);
             };
     
+            const onPanPointerDown = (e) => {
+                const target = e.target;
+                if (!(target instanceof Element)) return;
+                if (e && typeof e.button === 'number' && e.button !== 0) return;
+                if (target.closest('.tm-gantt-bar, .tm-gantt-bar-handle')) return;
+    
+                const startX = e.clientX;
+                const startY = e.clientY;
+                const baseScrollLeft = bodyEl.scrollLeft;
+                let active = false;
+                let ended = false;
+                let winMoveBound = false;
+                const threshold = 6;
+    
+                const cleanup = () => {
+                    if (ended) return;
+                    ended = true;
+                    if (winMoveBound) {
+                        try { window.removeEventListener('pointermove', onWinMove, true); } catch (e2) {}
+                        try { window.removeEventListener('pointerup', onWinUp, true); } catch (e2) {}
+                        try { window.removeEventListener('pointercancel', onWinUp, true); } catch (e2) {}
+                        try { window.removeEventListener('blur', onWinUp, true); } catch (e2) {}
+                    }
+                    try { bodyEl.style.cursor = ''; } catch (e2) {}
+                };
+    
+                const onWinMove = (ev) => {
+                    if (ended) return;
+                    const dx = ev.clientX - startX;
+                    const dy = ev.clientY - startY;
+                    if (!active) {
+                        if (Math.abs(dx) < threshold) return;
+                        if (Math.abs(dx) <= Math.abs(dy)) return;
+                        active = true;
+                        try { bodyEl.setPointerCapture?.(e.pointerId); } catch (e2) {}
+                        try { bodyEl.style.cursor = 'grabbing'; } catch (e2) {}
+                    }
+                    const totalWidth0 = Number(bodyEl.dataset?.tmGanttTotalWidth || 0) || totalWidth;
+                    const maxLeft = Math.max(0, totalWidth0 - bodyEl.clientWidth);
+                    bodyEl.scrollLeft = clamp(baseScrollLeft - dx, 0, maxLeft);
+                    try { ev.preventDefault(); } catch (e2) {}
+                };
+    
+                const onWinUp = () => {
+                    cleanup();
+                };
+    
+                winMoveBound = true;
+                window.addEventListener('pointermove', onWinMove, true);
+                window.addEventListener('pointerup', onWinUp, true);
+                window.addEventListener('pointercancel', onWinUp, true);
+                window.addEventListener('blur', onWinUp, true);
+            };
+
+            const onDblClick = async (e) => {
+                if (!onUpdateTaskDates) return;
+                const target = e.target;
+                if (!(target instanceof Element)) return;
+                if (target.closest('.tm-gantt-bar, .tm-gantt-bar-handle')) return;
+                const rowEl = target.closest('.tm-gantt-row');
+                const taskId = rowEl?.getAttribute?.('data-id');
+                if (!taskId) return;
+
+                const startTsStr = String(bodyEl.dataset?.tmGanttStartTs || '');
+                const dayWidthStr = String(bodyEl.dataset?.tmGanttDayWidth || '');
+                const dayCountStr = String(bodyEl.dataset?.tmGanttDayCount || '');
+                const startTs0 = Number(startTsStr);
+                const dayWidth0 = Number(dayWidthStr);
+                const dayCount0 = Number(dayCountStr);
+                if (!Number.isFinite(startTs0) || !Number.isFinite(dayWidth0) || !Number.isFinite(dayCount0) || dayWidth0 <= 0) return;
+
+                const rect = bodyEl.getBoundingClientRect();
+                const relX = e.clientX - rect.left + bodyEl.scrollLeft;
+                const dayIdx = clamp(Math.floor(relX / dayWidth0), 0, dayCount0 - 1);
+                const completionTs = startTs0 + dayIdx * DAY_MS;
+                const completionTime = formatDateOnlyFromTs(completionTs);
+                if (!completionTime) return;
+
+                const task = getTaskById(taskId);
+                const startDateRaw = String(task?.startDate || '').trim();
+                const startTs = parseDateOnlyToTs(startDateRaw);
+                let startDate = startDateRaw;
+                if (!startDate) startDate = completionTime;
+                else if (Number.isFinite(startTs) && startTs > completionTs) startDate = completionTime;
+
+                try {
+                    await onUpdateTaskDates(String(taskId), { startDate, completionTime });
+                    try { hint(`✅ 完成时间：${completionTime}`, 'success'); } catch (e3) {}
+                } catch (e2) {}
+            };
+
+            const onContextMenu = (e) => {
+                if (!onUpdateTaskDates) return;
+                const target = e.target;
+                if (!(target instanceof Element)) return;
+                const rowEl = target.closest('.tm-gantt-row');
+                const taskId = rowEl?.getAttribute?.('data-id');
+                if (!taskId) return;
+                if (rowEl.classList.contains('tm-gantt-row--group')) return;
+
+                try { e.preventDefault(); } catch (e2) {}
+                try { e.stopPropagation(); } catch (e2) {}
+
+                const existingMenu = document.getElementById('tm-task-context-menu');
+                if (existingMenu) existingMenu.remove();
+                try { window.tmHideDocTabMenu?.(); } catch (e2) {}
+
+                const menu = document.createElement('div');
+                menu.id = 'tm-task-context-menu';
+                menu.style.cssText = `
+                    position: fixed;
+                    top: ${e.clientY}px;
+                    left: ${e.clientX}px;
+                    background: var(--b3-theme-background);
+                    border: 1px solid var(--b3-theme-surface-light);
+                    border-radius: 4px;
+                    box-shadow: 0 4px 12px rgba(0,0,0,0.2);
+                    padding: 4px 0;
+                    z-index: 200000;
+                    min-width: 160px;
+                    user-select: none;
+                `;
+
+                const createItem = (label, onClick, isDanger) => {
+                    const item = document.createElement('div');
+                    item.textContent = label;
+                    item.style.cssText = `
+                        padding: 6px 12px;
+                        cursor: pointer;
+                        font-size: 13px;
+                        color: ${isDanger ? 'var(--b3-theme-error)' : 'var(--b3-theme-on-background)'};
+                        display: flex;
+                        align-items: center;
+                        gap: 8px;
+                    `;
+                    item.onmouseenter = () => item.style.backgroundColor = 'var(--b3-theme-surface-light)';
+                    item.onmouseleave = () => item.style.backgroundColor = 'transparent';
+                    item.onclick = (ev) => {
+                        ev.stopPropagation();
+                        menu.remove();
+                        onClick?.();
+                    };
+                    return item;
+                };
+
+                menu.appendChild(createItem('🧹 清除时间轴（清空起止）', async () => {
+                    try {
+                        await onUpdateTaskDates(String(taskId), { startDate: '', completionTime: '' });
+                        try { hint('✅ 已清除时间轴', 'success'); } catch (e3) {}
+                    } catch (e2) {
+                        try { hint(`❌ 清除失败: ${e2?.message || String(e2)}`, 'error'); } catch (e3) {}
+                    }
+                }, true));
+
+                document.body.appendChild(menu);
+
+                const closeHandler = () => {
+                    try { menu.remove(); } catch (e2) {}
+                    try { document.removeEventListener('click', closeHandler); } catch (e2) {}
+                    try { document.removeEventListener('contextmenu', closeHandler); } catch (e2) {}
+                };
+                setTimeout(() => {
+                    document.addEventListener('click', closeHandler);
+                    document.addEventListener('contextmenu', closeHandler);
+                }, 0);
+            };
+    
             bodyEl.addEventListener('pointerdown', onPointerDown, { passive: false });
+            bodyEl.addEventListener('pointerdown', onPanPointerDown, { passive: false });
+            bodyEl.addEventListener('dblclick', onDblClick);
+            bodyEl.addEventListener('contextmenu', onContextMenu);
             cleanupMap.set(bodyEl, () => {
                 try { bodyEl.removeEventListener('pointerdown', onPointerDown, { passive: false }); } catch (e) {
                     try { bodyEl.removeEventListener('pointerdown', onPointerDown); } catch (e2) {}
                 }
+                try { bodyEl.removeEventListener('pointerdown', onPanPointerDown, { passive: false }); } catch (e) {
+                    try { bodyEl.removeEventListener('pointerdown', onPanPointerDown); } catch (e2) {}
+                }
+                try { bodyEl.removeEventListener('dblclick', onDblClick); } catch (e) {}
+                try { bodyEl.removeEventListener('contextmenu', onContextMenu); } catch (e) {}
             });
         }
     
