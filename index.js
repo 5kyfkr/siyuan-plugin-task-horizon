@@ -49,6 +49,8 @@ module.exports = class TaskHorizonPlugin extends Plugin {
     async onload() {
         const mountToken = String(Date.now());
         this._mountToken = mountToken;
+        this._mountExistingTabsStopped = false;
+        this._mountExistingTabsTimer = null;
         globalThis.__taskHorizonPluginApp = this.app;
         globalThis.__taskHorizonPluginInstance = this;
         globalThis.__taskHorizonPluginIsMobile = !!this.isMobile;
@@ -89,6 +91,7 @@ module.exports = class TaskHorizonPlugin extends Plugin {
         if (this.isMobile) return;
         let tries = 0;
         const run = () => {
+            if (this._mountExistingTabsStopped) return;
             tries += 1;
             const mountFn = globalThis.__taskHorizonMount;
             const roots = Array.from(document.querySelectorAll(".tm-tab-root"));
@@ -105,7 +108,7 @@ module.exports = class TaskHorizonPlugin extends Plugin {
                 });
                 return;
             }
-            if (tries < 50) setTimeout(run, 200);
+            if (tries < 50) this._mountExistingTabsTimer = setTimeout(run, 200);
         };
         run();
     }
@@ -128,6 +131,13 @@ module.exports = class TaskHorizonPlugin extends Plugin {
     }
 
     onunload() {
+        try {
+            this._mountExistingTabsStopped = true;
+            if (this._mountExistingTabsTimer) {
+                clearTimeout(this._mountExistingTabsTimer);
+                this._mountExistingTabsTimer = null;
+            }
+        } catch (e) {}
         try { globalThis.__TaskManagerCleanup?.(); } catch (e) {}
         try { globalThis.__taskHorizonQuickbarCleanup?.(); } catch (e) {}
         try { globalThis.tmClose?.(); } catch (e) {}

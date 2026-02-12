@@ -1,5 +1,5 @@
 // @name         思源笔记任务管理器
-// @version      1.1.6
+// @version      1.1.7
 // @description  任务管理器，支持自定义筛选规则分组和排序
 // @author       5KYFKR
 
@@ -58,7 +58,12 @@
             --tm-section-bg: #f8f9fa;
             --tm-card-bg: #ffffff;
             --tm-font-size: 14px;
-            --tm-row-height: clamp(24px, calc(var(--tm-font-size) * 1.25 + 12px), 42px);
+            --tm-header-height: 44px;
+            --tm-row-height-scale: 1.25;
+            --tm-row-height-offset: 12px;
+            --tm-row-height-min: 24px;
+            --tm-row-height-max: 42px;
+            --tm-row-height: clamp(var(--tm-row-height-min), calc(var(--tm-font-size) * var(--tm-row-height-scale) + var(--tm-row-height-offset)), var(--tm-row-height-max));
             --tm-gantt-bar-height: clamp(12px, calc(var(--tm-row-height) * 0.6), 22px);
             --tm-empty-cell-bg: #f1f3f4;
             --tm-topbar-grad-start: #667eea;
@@ -246,11 +251,12 @@
             background: var(--tm-header-bg);
             color: var(--tm-text-color);
             font-weight: 600;
-            border-bottom: 1px solid var(--tm-table-border-color);
+            border-bottom: none;
         }
 
         .tm-table .tm-group-row td {
             padding: 0;
+            height: var(--tm-row-height);
         }
 
         .tm-group-sticky {
@@ -260,8 +266,10 @@
             display: inline-flex;
             align-items: center;
             gap: 6px;
-            padding: 8px 12px;
+            padding: 0 12px;
+            height: var(--tm-row-height);
             background: var(--tm-header-bg);
+            box-shadow: inset 0 -1px 0 var(--tm-table-border-color);
         }
         
         /* 四象限分组样式 */
@@ -1018,7 +1026,7 @@
             flex: 0 0 auto;
             overflow: hidden;
             background: var(--tm-table-header-bg);
-            height: 44px;
+            height: var(--tm-header-height);
             box-shadow: inset 0 -1px 0 var(--tm-border-color);
         }
 
@@ -1037,14 +1045,13 @@
         }
 
         .tm-body--timeline .tm-timeline-table-left {
-            border-collapse: separate;
-            border-spacing: 0;
+            border-collapse: collapse;
         }
 
         .tm-body--timeline .tm-timeline-table-left thead th {
-            height: 44px;
+            height: var(--tm-header-height);
             padding: 0 4px;
-            line-height: 44px;
+            line-height: var(--tm-header-height);
             vertical-align: middle;
         }
 
@@ -1063,6 +1070,15 @@
             white-space: nowrap;
             text-overflow: ellipsis;
             padding: 0 6px;
+            box-sizing: border-box;
+            box-shadow: inset 0 -1px 0 var(--tm-table-border-color);
+        }
+
+        .tm-body--timeline #tmTimelineLeftTable tbody tr {
+            height: var(--tm-row-height);
+        }
+
+        .tm-body--timeline #tmTimelineLeftTable tbody td {
             box-sizing: border-box;
         }
 
@@ -1147,7 +1163,8 @@
             position: relative;
             height: var(--tm-row-height);
             box-sizing: border-box;
-            border-bottom: 1px solid var(--tm-border-color);
+            border-bottom: none;
+            box-shadow: inset 0 -1px 0 var(--tm-border-color);
         }
 
         .tm-gantt-row--group {
@@ -1259,6 +1276,12 @@
             /* 最后一列不显示右侧边框 */
             border-right: 1px solid var(--tm-table-border-color);
         }
+
+        .tm-body:not(.tm-body--timeline) .tm-table thead th {
+            height: var(--tm-header-height);
+            line-height: var(--tm-header-height);
+            padding: 0 4px;
+        }
         
         /* 最后一列不显示右侧边框 */
         .tm-table th:last-child,
@@ -1280,11 +1303,22 @@
         }
 
         .tm-table td {
-            padding: 6px 6px;
-            border-bottom: 1px solid var(--tm-table-border-color);
+            padding: 0 6px;
+            border-bottom: none;
+            box-shadow: inset 0 -1px 0 var(--tm-table-border-color);
             border-right: 1px solid var(--tm-table-border-color);
             vertical-align: middle;
             color: var(--tm-text-color);
+            height: var(--tm-row-height);
+            max-height: var(--tm-row-height);
+            box-sizing: border-box;
+            overflow: hidden;
+            white-space: nowrap;
+            text-overflow: ellipsis;
+        }
+
+        .tm-body:not(.tm-body--timeline) #tmTaskTable tbody tr {
+            height: var(--tm-row-height);
         }
 
         .tm-table td.tm-cell-empty {
@@ -1351,6 +1385,14 @@
             padding-bottom: 2px;
         }
 
+        .tm-body:not(.tm-body--timeline) .tm-task-cell {
+            height: var(--tm-row-height);
+            max-height: var(--tm-row-height);
+            overflow: hidden;
+            padding-top: 0;
+            padding-bottom: 0;
+        }
+
         .tm-task-text {
             flex: 1 1 auto;
             min-width: 0;
@@ -1359,6 +1401,12 @@
             white-space: normal;
             word-break: break-all;
             line-height: 1.5;
+        }
+
+        .tm-body:not(.tm-body--timeline) .tm-task-text {
+            white-space: nowrap;
+            word-break: keep-all;
+            text-overflow: ellipsis;
         }
 
         .tm-task-text:not(.tm-task-done) {
@@ -1836,6 +1884,8 @@
             filterRules: [],
             fontSize: 14,
             fontSizeMobile: 14,
+            rowHeightMode: 'normal',
+            rowHeightPx: 0,
             enableQuickbar: true,
             pinNewTasksByDefault: false,
             newTaskDocId: '',
@@ -2004,6 +2054,8 @@
                                 if (Array.isArray(cloudData.filterRules)) this.data.filterRules = cloudData.filterRules;
                                 if (typeof cloudData.fontSize === 'number') this.data.fontSize = cloudData.fontSize;
                                 if (typeof cloudData.fontSizeMobile === 'number') this.data.fontSizeMobile = cloudData.fontSizeMobile;
+                                if (typeof cloudData.rowHeightMode === 'string') this.data.rowHeightMode = cloudData.rowHeightMode;
+                                if (typeof cloudData.rowHeightPx === 'number') this.data.rowHeightPx = cloudData.rowHeightPx;
                                 if (typeof cloudData.enableQuickbar === 'boolean') this.data.enableQuickbar = cloudData.enableQuickbar;
                                 if (typeof cloudData.pinNewTasksByDefault === 'boolean') this.data.pinNewTasksByDefault = cloudData.pinNewTasksByDefault;
                                 if (typeof cloudData.newTaskDocId === 'string') this.data.newTaskDocId = cloudData.newTaskDocId;
@@ -2110,6 +2162,8 @@
             this.data.filterRules = Storage.get('tm_filter_rules', []);
             this.data.fontSize = Storage.get('tm_font_size', 14);
             this.data.fontSizeMobile = Storage.get('tm_font_size_mobile', this.data.fontSize);
+            this.data.rowHeightMode = Storage.get('tm_row_height_mode', this.data.rowHeightMode);
+            this.data.rowHeightPx = Storage.get('tm_row_height_px', this.data.rowHeightPx);
             this.data.topbarGradientLightStart = Storage.get('tm_topbar_gradient_light_start', this.data.topbarGradientLightStart);
             this.data.topbarGradientLightEnd = Storage.get('tm_topbar_gradient_light_end', this.data.topbarGradientLightEnd);
             this.data.topbarGradientDarkStart = Storage.get('tm_topbar_gradient_dark_start', this.data.topbarGradientDarkStart);
@@ -2199,6 +2253,8 @@
             Storage.set('tm_filter_rules', this.data.filterRules);
             Storage.set('tm_font_size', this.data.fontSize);
             Storage.set('tm_font_size_mobile', this.data.fontSizeMobile);
+            Storage.set('tm_row_height_mode', String(this.data.rowHeightMode || 'auto').trim() || 'auto');
+            Storage.set('tm_row_height_px', Number(this.data.rowHeightPx) || 0);
             Storage.set('tm_topbar_gradient_light_start', String(this.data.topbarGradientLightStart || '').trim());
             Storage.set('tm_topbar_gradient_light_end', String(this.data.topbarGradientLightEnd || '').trim());
             Storage.set('tm_topbar_gradient_dark_start', String(this.data.topbarGradientDarkStart || '').trim());
@@ -2590,7 +2646,9 @@
 
             // 处理布尔值
             if (field === 'done') {
-                const targetValue = value === true || value === 'true';
+                const targetValue = (value === '' || value === null || typeof value === 'undefined')
+                    ? true
+                    : (value === true || value === 'true');
                 if (operator === '=') return task.done === targetValue;
                 if (operator === '!=') return task.done !== targetValue;
             }
@@ -2919,7 +2977,7 @@
             }
         },
 
-        async getTasksByDocument(docId, limit = 500) {
+        async getTasksByDocument(docId, limit = 500, options = null) {
             const tomatoEnabled = !!SettingsStore.data.enableTomatoIntegration;
             const tomatoMinutesKey = __tmSafeAttrName(SettingsStore.data.tomatoSpentAttrKeyMinutes, 'custom-tomato-minutes');
             const tomatoHoursKey = __tmSafeAttrName(SettingsStore.data.tomatoSpentAttrKeyHours, 'custom-tomato-time');
@@ -2939,6 +2997,9 @@
             // 不查找已完成任务的过滤条件
             // 不查找已完成任务的过滤条件（数据库层面暂不过滤，全部在JavaScript中过滤）
             const excludeCompletedCondition = '';
+            const doneOnlyCondition = (options && options.doneOnly === true)
+                ? ` AND (task.markdown LIKE '%[x]%' OR task.markdown LIKE '%[X]%')`
+                : '';
 
             const sql = `
                 SELECT 
@@ -3006,7 +3067,7 @@
                     AND task.subtype = 't'
                     AND task.root_id = '${docId}'
                     AND task.markdown IS NOT NULL
-                    AND task.markdown != ''${excludeCompletedCondition}
+                    AND task.markdown != ''${excludeCompletedCondition}${doneOnlyCondition}
                 
                 ORDER BY task.created
                 LIMIT ${limit}
@@ -3023,7 +3084,7 @@
             return { tasks: res.data || [], queryTime };
         },
 
-        async getTasksByDocuments(docIds, limitPerDoc = 500) {
+        async getTasksByDocuments(docIds, limitPerDoc = 500, options = null) {
             const safeDocIds = Array.isArray(docIds) ? docIds.filter(id => /^[0-9]+-[a-zA-Z0-9]+$/.test(String(id || ''))) : [];
             if (safeDocIds.length === 0) return { tasks: [], queryTime: 0 };
             const idList = safeDocIds.map(id => `'${id}'`).join(',');
@@ -3048,6 +3109,9 @@
             // 不查找已完成任务的过滤条件
             // 不查找已完成任务的过滤条件（数据库层面暂不过滤，全部在JavaScript中过滤）
             const excludeCompletedCondition = '';
+            const doneOnlyCondition = (options && options.doneOnly === true)
+                ? ` AND (task.markdown LIKE '%[x]%' OR task.markdown LIKE '%[X]%')`
+                : '';
 
             const sql = `
                 WITH tasks0 AS (
@@ -3071,7 +3135,7 @@
                         AND task.subtype = 't'
                         AND task.root_id IN (${idList})
                         AND task.markdown IS NOT NULL
-                        AND task.markdown != ''${excludeCompletedCondition}
+                        AND task.markdown != ''${excludeCompletedCondition}${doneOnlyCondition}
                 ),
                 tasks AS (
                     SELECT * FROM tasks0 WHERE rn <= ${perDocLimit}
@@ -3131,7 +3195,7 @@
                 console.error(`[查询] 批量查询失败:`, res.msg);
                 try {
                     const fallbackStart = Date.now();
-                    const results = await Promise.all(safeDocIds.map(id => this.getTasksByDocument(id, perDocLimit)));
+                    const results = await Promise.all(safeDocIds.map(id => this.getTasksByDocument(id, perDocLimit, options)));
                     const tasks = [];
                     results.forEach(r => tasks.push(...(r?.tasks || [])));
                     const fallbackTime = Date.now() - fallbackStart;
@@ -3701,6 +3765,7 @@
     let __tmBreadcrumbObserver = null;
     let __tmThemeModeObserver = null;
     let __tmTopBarTimer = null;
+    let __tmMountRetryTimer = null;
     let __tmTopBarAdded = false;
     let __tmTopBarEl = null;
     let __tmTopBarClickCaptureHandler = null;
@@ -3896,6 +3961,27 @@ async function __tmRefreshAfterWake(reason) {
         const base = SettingsStore.data.fontSize || 14;
         const mobileSize = SettingsStore.data.fontSizeMobile || base;
         return __tmIsMobileDevice() ? mobileSize : base;
+    };
+
+    const __tmApplyRowHeightVars = () => {
+        const px = Number(SettingsStore.data.rowHeightPx);
+        if (Number.isFinite(px) && px > 0) {
+            try { document.documentElement.style.setProperty('--tm-row-height', `${Math.round(px)}px`); } catch (e) {}
+            return;
+        }
+        try { document.documentElement.style.removeProperty('--tm-row-height'); } catch (e) {}
+        const mode = String(SettingsStore.data.rowHeightMode || 'auto').trim() || 'auto';
+        const presets = {
+            auto: { scale: 1.35, offset: 14, min: 28, max: 48 },
+            compact: { scale: 1.25, offset: 12, min: 24, max: 42 },
+            normal: { scale: 1.5, offset: 16, min: 32, max: 56 },
+            comfortable: { scale: 1.75, offset: 20, min: 38, max: 64 },
+        };
+        const p = presets[mode] || presets.auto;
+        try { document.documentElement.style.setProperty('--tm-row-height-scale', String(p.scale)); } catch (e) {}
+        try { document.documentElement.style.setProperty('--tm-row-height-offset', `${p.offset}px`); } catch (e) {}
+        try { document.documentElement.style.setProperty('--tm-row-height-min', `${p.min}px`); } catch (e) {}
+        try { document.documentElement.style.setProperty('--tm-row-height-max', `${p.max}px`); } catch (e) {}
     };
 
     const __tmIsDarkMode = () => {
@@ -4708,12 +4794,10 @@ async function __tmRefreshAfterWake(reason) {
             const n = Math.min(leftRowsNow.length, rightRowsNow.length);
             if (n <= 0) return;
             for (let i = 0; i < n; i++) {
-                const h = leftRowsNow[i]?.getBoundingClientRect?.().height;
-                if (!Number.isFinite(h) || h <= 0) continue;
                 const rr = rightRowsNow[i];
-                rr.style.height = `${h}px`;
-                rr.style.minHeight = `${h}px`;
-                rr.style.maxHeight = `${h}px`;
+                rr.style.height = '';
+                rr.style.minHeight = '';
+                rr.style.maxHeight = '';
                 const bar = rr.querySelector?.('.tm-gantt-bar');
                 if (bar) {
                     bar.style.top = '50%';
@@ -5358,6 +5442,10 @@ async function __tmRefreshAfterWake(reason) {
                     } else {
                         valueDisplay = priorityMap[c.value] || c.value;
                     }
+                } else if (field?.type === 'boolean') {
+                    if (c.value === true || c.value === 'true') valueDisplay = 'true';
+                    else if (c.value === false || c.value === 'false') valueDisplay = 'false';
+                    else valueDisplay = 'true';
                 }
 
                 // 多值显示处理
@@ -6489,6 +6577,16 @@ async function __tmRefreshAfterWake(reason) {
 
     window.saveEditRule = async function() {
         if (!state.editingRule) return;
+        const savedRuleId = String(state.editingRule.id || '').trim();
+
+        try {
+            const fields = RuleManager.getAvailableFields();
+            (state.editingRule.conditions || []).forEach(c => {
+                const fieldInfo = fields.find(f => f.value === c.field);
+                if (!fieldInfo || fieldInfo.type !== 'boolean') return;
+                if (c.value === '' || c.value === null || typeof c.value === 'undefined') c.value = 'true';
+            });
+        } catch (e) {}
         
         const index = state.filterRules.findIndex(r => r.id === state.editingRule.id);
         if (index >= 0) {
@@ -6500,6 +6598,19 @@ async function __tmRefreshAfterWake(reason) {
         state.editingRule = null;
         try { await RuleManager.saveRules(state.filterRules); } catch (e) {}
         __tmRerenderRulesManagerUI();
+        if (savedRuleId && String(state.currentRule || '').trim() === savedRuleId) {
+            const prevDoneOnly = !!state.__tmQueryDoneOnly;
+            const nextRule = state.filterRules.find(r => r.id === savedRuleId);
+            const nextDoneOnly = !!(nextRule && nextRule.conditions && nextRule.conditions.some(c => c && c.field === 'done' && c.operator === '=' && (c.value === true || String(c.value) === 'true' || c.value === '')));
+            state.__tmQueryDoneOnly = nextDoneOnly;
+            if (prevDoneOnly !== nextDoneOnly) {
+                await loadSelectedDocuments();
+                hint('✅ 规则已保存', 'success');
+                return;
+            }
+            applyFilters();
+            render();
+        }
         hint('✅ 规则已保存', 'success');
     };
 
@@ -6533,7 +6644,7 @@ async function __tmRefreshAfterWake(reason) {
             const fieldInfo = availableFields.find(f => f.value === field);
             const operators = RuleManager.getOperators(fieldInfo?.type || 'text');
             state.editingRule.conditions[index].operator = operators[0].value;
-            state.editingRule.conditions[index].value = '';
+            state.editingRule.conditions[index].value = (fieldInfo?.type === 'boolean') ? 'true' : '';
             
             if (state.rulesModal) {
                 const conditionsDiv = state.rulesModal.querySelector('.tm-rule-conditions');
@@ -6775,21 +6886,27 @@ async function __tmRefreshAfterWake(reason) {
             return false;
         };
 
-        // 排除已完成任务的设置
-        const excludeCompleted = state.excludeCompletedTasks;
+        const rule = state.currentRule ? state.filterRules.find(r => r.id === state.currentRule) : null;
 
-        // 检查当前规则是否明确排除已完成任务
         const currentRuleExcludesCompleted = () => {
-            const rule = state.currentRule ? state.filterRules.find(r => r.id === state.currentRule) : null;
             if (!rule || !rule.conditions || rule.conditions.length === 0) return false;
-
-            // 检查是否有条件明确要求排除已完成任务 (done = false)
             return rule.conditions.some(condition =>
                 condition.field === 'done' &&
                 condition.operator === '=' &&
                 String(condition.value) === 'false'
             );
         };
+
+        const currentRuleIncludesCompleted = () => {
+            if (!rule || !rule.conditions || rule.conditions.length === 0) return false;
+            return rule.conditions.some(condition =>
+                condition.field === 'done' &&
+                condition.operator === '=' &&
+                (condition.value === true || String(condition.value) === 'true' || condition.value === '')
+            );
+        };
+
+        const excludeCompleted = state.excludeCompletedTasks && !currentRuleIncludesCompleted();
 
         // 过滤逻辑：
         // 1. 未完成父任务下的所有子任务（无论是否完成）保留显示
@@ -6802,7 +6919,7 @@ async function __tmRefreshAfterWake(reason) {
             if (excludeCompleted && t.done && !t.parentTaskId) return false;
 
             // 父任务已完成：过滤
-            if (hasDoneAncestor(t)) return false;
+            if (excludeCompleted && hasDoneAncestor(t)) return false;
 
             // 已完成子任务（父任务未完成）的处理
             if (excludeCompleted && t.done && t.parentTaskId) {
@@ -6818,8 +6935,6 @@ async function __tmRefreshAfterWake(reason) {
         tasks.forEach(t => {
             try { t.priorityScore = __tmComputePriorityScore(t); } catch (e) { t.priorityScore = 0; }
         });
-        
-        const rule = state.currentRule ? state.filterRules.find(r => r.id === state.currentRule) : null;
 
         let matched = tasks;
         if (rule) {
@@ -6912,7 +7027,7 @@ async function __tmRefreshAfterWake(reason) {
                     shouldFilter = true;
                 }
                 // 父任务已完成
-                else if (hasDoneAncestor(t)) {
+                else if (excludeCompleted && hasDoneAncestor(t)) {
                     shouldFilter = true;
                 }
                 // 已完成子任务（父任务未完成）的处理
@@ -7262,43 +7377,48 @@ async function __tmRefreshAfterWake(reason) {
         const isTimelineView = state.viewMode === 'timeline';
         const useSoftSwap = isViewSwitchAnim;
         let prevModalEl = null;
+        const prevModalSnapshot = state.modal instanceof Element ? state.modal : null;
+        const prevWasTimeline = !!(prevModalSnapshot && prevModalSnapshot.querySelector && prevModalSnapshot.querySelector('#tmTimelineLeftBody'));
         // 保存滚动位置
         let savedScrollTop = 0;
         let savedScrollLeft = 0;
         let savedTimelineScrollTop = 0;
         let savedTimelineScrollLeft = 0;
-        if (state.modal) {
-            prevModalEl = state.modal;
-            const timelineLeftBody = state.modal.querySelector('#tmTimelineLeftBody');
-            const ganttBody = state.modal.querySelector('#tmGanttBody');
+        if (prevModalSnapshot) {
+            prevModalEl = prevModalSnapshot;
+            const timelineLeftBody = prevModalSnapshot.querySelector('#tmTimelineLeftBody');
+            const ganttBody = prevModalSnapshot.querySelector('#tmGanttBody');
             if (timelineLeftBody) {
                 savedTimelineScrollTop = timelineLeftBody.scrollTop;
                 if (ganttBody) savedTimelineScrollLeft = ganttBody.scrollLeft;
             } else {
-                const body = state.modal.querySelector('.tm-body');
+                const body = prevModalSnapshot.querySelector('.tm-body');
                 if (body) {
                     savedScrollTop = body.scrollTop;
                     savedScrollLeft = body.scrollLeft;
                 }
             }
-            if (!useSoftSwap) {
-                state.modal.remove();
-                prevModalEl = null;
-            } else {
-                try { prevModalEl.style.pointerEvents = 'none'; } catch (e) {}
-            }
         }
         try {
             state.viewScroll = state.viewScroll && typeof state.viewScroll === 'object' ? state.viewScroll : {};
-            if (savedTimelineScrollTop || savedTimelineScrollLeft) {
-                state.viewScroll.timeline = { top: savedTimelineScrollTop, left: savedTimelineScrollLeft };
-            } else if (savedScrollTop || savedScrollLeft) {
-                state.viewScroll.list = { top: savedScrollTop, left: savedScrollLeft };
+            if (prevModalSnapshot) {
+                if (prevWasTimeline) state.viewScroll.timeline = { top: Number(savedTimelineScrollTop) || 0, left: Number(savedTimelineScrollLeft) || 0 };
+                else state.viewScroll.list = { top: Number(savedScrollTop) || 0, left: Number(savedScrollLeft) || 0 };
             }
         } catch (e) {}
+
+        if (prevModalSnapshot) {
+            if (!useSoftSwap) {
+                try { prevModalSnapshot.remove(); } catch (e) {}
+                prevModalEl = null;
+            } else {
+                try { prevModalSnapshot.style.pointerEvents = 'none'; } catch (e) {}
+            }
+        }
         
         // 应用字体大小
         document.documentElement.style.setProperty('--tm-font-size', (__tmGetFontSize()) + 'px');
+        try { __tmApplyRowHeightVars(); } catch (e) {}
         try { __tmApplyAppearanceThemeVars(); } catch (e) {}
 
         const { totalTasks, doneTasks, queryTime } = state.stats;
@@ -7828,231 +7948,220 @@ async function __tmRefreshAfterWake(reason) {
         __tmGetMountRoot().appendChild(state.modal);
 
         // 恢复滚动位置
-        if (state.viewMode === 'timeline') {
-            const leftBody = state.modal.querySelector('#tmTimelineLeftBody');
-            const ganttBody = state.modal.querySelector('#tmGanttBody');
-            const ganttHeader = state.modal.querySelector('#tmGanttHeader');
-
-            if (leftBody) leftBody.scrollTop = savedTimelineScrollTop;
-            if (ganttBody) {
-                ganttBody.scrollTop = savedTimelineScrollTop;
-                ganttBody.scrollLeft = savedTimelineScrollLeft;
-            }
-
-            const rowModel = Array.isArray(__tmTimelineRowModel) ? __tmTimelineRowModel : __tmBuildTaskRowModel();
-            const view = globalThis.__TaskHorizonGanttView;
-            if (view && typeof view.render === 'function' && ganttHeader && ganttBody) {
-                view.render({
-                    headerEl: ganttHeader,
-                    bodyEl: ganttBody,
-                    rowModel,
-                    getTaskById: (id) => state.flatTasks[String(id)],
-                    viewState: state.ganttView,
-                    onUpdateTaskDates: async (taskId, patch) => {
-                        const id = String(taskId || '').trim();
-                        if (!id) return;
-                        const task = state.flatTasks[id];
-                        if (!task) return;
-                        const startDate = String(patch?.startDate || '').trim();
-                        const completionTime = String(patch?.completionTime || '').trim();
-                        const nextStart = startDate ? __tmNormalizeDateOnly(startDate) : '';
-                        const nextEnd = completionTime ? __tmNormalizeDateOnly(completionTime) : '';
-                        task.startDate = nextStart;
-                        task.completionTime = nextEnd;
-                        try {
-                            await __tmPersistMetaAndAttrsAsync(id, { startDate: nextStart, completionTime: nextEnd });
-                        } catch (e) {
-                            hint(`❌ 更新失败: ${e.message}`, 'error');
-                        }
-                        applyFilters();
-                        render();
-                    },
-                });
-            }
-
-            const syncHeaderX = () => {
-                if (!ganttBody || !ganttHeader) return;
-                const inner = ganttHeader.querySelector('.tm-gantt-header-inner');
-                if (!inner) return;
-                inner.style.transform = `translateX(${-ganttBody.scrollLeft}px)`;
-            };
-            syncHeaderX();
-
-            const desiredTop = Number.isFinite(savedTimelineScrollTop) && savedTimelineScrollTop > 0
-                ? savedTimelineScrollTop
-                : (Number(state.viewScroll?.timeline?.top) || 0);
-            const forcedLeft = Number(state.ganttView?.__forceScrollLeft);
-            const hasForcedLeft = Number.isFinite(forcedLeft);
-            const desiredLeft = hasForcedLeft
-                ? forcedLeft
-                : (Number.isFinite(savedTimelineScrollLeft) && savedTimelineScrollLeft > 0
-                    ? savedTimelineScrollLeft
-                    : (Number(state.viewScroll?.timeline?.left) || 0));
-            requestAnimationFrame(() => requestAnimationFrame(() => {
-                try { if (leftBody) leftBody.scrollTop = desiredTop; } catch (e) {}
-                try { if (ganttBody) ganttBody.scrollTop = desiredTop; } catch (e) {}
-                try { if (ganttBody) ganttBody.scrollLeft = desiredLeft; } catch (e) {}
-                try { syncHeaderX(); } catch (e) {}
-                try { if (hasForcedLeft) delete state.ganttView.__forceScrollLeft; } catch (e) {}
-                try { __tmRunFlipAnimation(state.modal); } catch (e) {}
-                if (!useSoftSwap) {
-                } else {
-                    try { state.modal.style.opacity = '1'; } catch (e) {}
-                    try { state.modal.style.pointerEvents = ''; } catch (e) {}
-                    if (prevModalEl) {
-                        try { prevModalEl.style.visibility = 'hidden'; } catch (e2) {}
-                        setTimeout(() => { try { prevModalEl.remove(); } catch (e2) {} }, 140);
-                    }
+        try {
+            const isTimeline = state.viewMode === 'timeline';
+            const pickNum = (v, fallback = 0) => (typeof v === 'number' && Number.isFinite(v) ? v : fallback);
+            const listTop = pickNum(state.viewScroll?.list?.top, 0);
+            const listLeft = pickNum(state.viewScroll?.list?.left, 0);
+            const timelineTop = pickNum(state.viewScroll?.timeline?.top, 0);
+            const timelineLeft = pickNum(state.viewScroll?.timeline?.left, 0);
+            const desiredTop = prevWasTimeline ? timelineTop : listTop;
+            const desiredLeft = isTimeline ? timelineLeft : listLeft;
+            
+            if (isTimeline) {
+                const leftBody = state.modal.querySelector('#tmTimelineLeftBody');
+                const ganttBody = state.modal.querySelector('#tmGanttBody');
+                const ganttHeader = state.modal.querySelector('#tmGanttHeader');
+                
+                if (leftBody) leftBody.scrollTop = desiredTop;
+                if (ganttBody) {
+                    ganttBody.scrollTop = desiredTop;
+                    ganttBody.scrollLeft = desiredLeft;
                 }
-            }));
-
-            const syncRowHeights = () => {
-                if (!leftBody || !ganttBody) return;
-                if (Date.now() - (Number(state.__tmFlipTs) || 0) < 320) return;
-                const leftRows = leftBody.querySelectorAll('tbody tr');
-                const rightRows = ganttBody.querySelectorAll('.tm-gantt-row');
-                const n = Math.min(leftRows.length, rightRows.length);
-                if (n <= 0) return;
-                for (let i = 0; i < n; i++) {
-                    const h = leftRows[i]?.getBoundingClientRect?.().height;
-                    if (!Number.isFinite(h) || h <= 0) continue;
-                    const rr = rightRows[i];
-                    rr.style.height = `${h}px`;
-                    rr.style.minHeight = `${h}px`;
-                    rr.style.maxHeight = `${h}px`;
-                    const bar = rr.querySelector?.('.tm-gantt-bar');
-                    if (bar) {
-                        bar.style.top = '50%';
-                        bar.style.transform = 'translateY(-50%)';
-                    }
-                }
-            };
-
-            requestAnimationFrame(() => requestAnimationFrame(() => {
-                syncRowHeights();
-                setTimeout(syncRowHeights, 60);
-                setTimeout(syncRowHeights, 260);
-                setTimeout(syncRowHeights, 420);
-            }));
-
-            requestAnimationFrame(() => requestAnimationFrame(() => {
-                if (!Number.isFinite(Number(SettingsStore.data.timelineLeftWidth)) || Number(SettingsStore.data.timelineLeftWidth) <= 0) {
-                    const leftTable = state.modal?.querySelector?.('#tmTimelineLeftTable');
-                    const w = leftTable?.getBoundingClientRect?.().width;
-                    if (Number.isFinite(w) && w > 0) {
-                        SettingsStore.data.timelineLeftWidth = Math.max(360, Math.min(900, Math.round(w)));
-                        try { SettingsStore.save(); } catch (e) {}
-                    }
-                }
-            }));
-
-            if (leftBody && ganttBody) {
-                const onGroupClick = (ev) => {
-                    const el = ev?.target instanceof Element ? ev.target.closest('.tm-gantt-row--group') : null;
-                    if (!el) return;
-                    const key = String(el.getAttribute('data-group-key') || '').trim();
-                    if (!key) return;
-                    tmToggleGroupCollapse(key, ev);
-                };
-                const onGanttWheel = (ev) => {
-                    if (!ev?.shiftKey) return;
-                    const canScrollX = (ganttBody.scrollWidth - ganttBody.clientWidth) > 2;
-                    if (!canScrollX) return;
-                    let delta = 0;
-                    const dx = Number(ev.deltaX) || 0;
-                    const dy = Number(ev.deltaY) || 0;
-                    delta = Math.abs(dx) >= Math.abs(dy) ? dx : dy;
-                    if (!Number.isFinite(delta) || delta === 0) return;
-                    if (ev.deltaMode === 1) delta *= 16;
-                    else if (ev.deltaMode === 2) delta *= ganttBody.clientWidth;
-                    ganttBody.scrollLeft = ganttBody.scrollLeft + delta;
-                    try { ev.preventDefault(); } catch (e) {}
-                    try { ev.stopPropagation(); } catch (e) {}
-                };
-                let syncing = false;
-                const syncFromLeft = () => {
-                    if (syncing) return;
-                    syncing = true;
-                    requestAnimationFrame(() => {
-                        try { ganttBody.scrollTop = leftBody.scrollTop; } catch (e) {}
-                        syncing = false;
+                
+                // 渲染 Gantt
+                const rowModel = Array.isArray(__tmTimelineRowModel) ? __tmTimelineRowModel : __tmBuildTaskRowModel();
+                const view = globalThis.__TaskHorizonGanttView;
+                if (view && typeof view.render === 'function' && ganttHeader && ganttBody) {
+                    view.render({
+                        headerEl: ganttHeader,
+                        bodyEl: ganttBody,
+                        rowModel,
+                        getTaskById: (id) => state.flatTasks[String(id)],
+                        viewState: state.ganttView,
+                        onUpdateTaskDates: async (taskId, patch) => {
+                            const id = String(taskId || '').trim();
+                            if (!id) return;
+                            const task = state.flatTasks[id];
+                            if (!task) return;
+                            const startDate = String(patch?.startDate || '').trim();
+                            const completionTime = String(patch?.completionTime || '').trim();
+                            const nextStart = startDate ? __tmNormalizeDateOnly(startDate) : '';
+                            const nextEnd = completionTime ? __tmNormalizeDateOnly(completionTime) : '';
+                            task.startDate = nextStart;
+                            task.completionTime = nextEnd;
+                            try {
+                                await __tmPersistMetaAndAttrsAsync(id, { startDate: nextStart, completionTime: nextEnd });
+                            } catch (e) {
+                                hint(`❌ 更新失败: ${e.message}`, 'error');
+                            }
+                            applyFilters();
+                            render();
+                        },
                     });
+                }
+                
+                const syncHeaderX = () => {
+                    if (!ganttBody || !ganttHeader) return;
+                    const inner = ganttHeader.querySelector('.tm-gantt-header-inner');
+                    if (!inner) return;
+                    inner.style.transform = `translateX(${-ganttBody.scrollLeft}px)`;
                 };
-                const syncFromRight = () => {
-                    if (syncing) return;
-                    syncing = true;
-                    requestAnimationFrame(() => {
-                        try { leftBody.scrollTop = ganttBody.scrollTop; } catch (e) {}
-                        syncing = false;
-                    });
-                };
-                leftBody.addEventListener('scroll', syncFromLeft, { passive: true });
-                ganttBody.addEventListener('scroll', () => {
-                    syncHeaderX();
-                    syncFromRight();
-                }, { passive: true });
-                ganttBody.addEventListener('wheel', onGanttWheel, { passive: false });
-                if (ganttHeader) ganttHeader.addEventListener('wheel', onGanttWheel, { passive: false });
-                ganttBody.addEventListener('click', onGroupClick, true);
-            } else if (ganttBody) {
-                ganttBody.addEventListener('scroll', syncHeaderX, { passive: true });
-                const onGanttWheel = (ev) => {
-                    if (!ev?.shiftKey) return;
-                    const canScrollX = (ganttBody.scrollWidth - ganttBody.clientWidth) > 2;
-                    if (!canScrollX) return;
-                    let delta = 0;
-                    const dx = Number(ev.deltaX) || 0;
-                    const dy = Number(ev.deltaY) || 0;
-                    delta = Math.abs(dx) >= Math.abs(dy) ? dx : dy;
-                    if (!Number.isFinite(delta) || delta === 0) return;
-                    if (ev.deltaMode === 1) delta *= 16;
-                    else if (ev.deltaMode === 2) delta *= ganttBody.clientWidth;
-                    ganttBody.scrollLeft = ganttBody.scrollLeft + delta;
-                    try { ev.preventDefault(); } catch (e) {}
-                    try { ev.stopPropagation(); } catch (e) {}
-                };
-                ganttBody.addEventListener('wheel', onGanttWheel, { passive: false });
-                if (ganttHeader) ganttHeader.addEventListener('wheel', onGanttWheel, { passive: false });
-            }
-        } else {
-            const newBody = state.modal.querySelector('.tm-body');
-            if (newBody) {
-                const desiredTop = Number.isFinite(savedScrollTop) && savedScrollTop > 0
-                    ? savedScrollTop
-                    : (Number.isFinite(savedTimelineScrollTop) && savedTimelineScrollTop > 0 ? savedTimelineScrollTop : (Number(state.viewScroll?.list?.top) || 0));
-                const desiredLeft = Number.isFinite(savedScrollLeft) && savedScrollLeft > 0
-                    ? savedScrollLeft
-                    : (Number(state.viewScroll?.list?.left) || 0);
-                try { newBody.scrollTop = desiredTop; } catch (e) {}
-                try { newBody.scrollLeft = desiredLeft; } catch (e) {}
-            }
-            try {
-                requestAnimationFrame(() => {
+                syncHeaderX();
+                
+                // 强制左侧对齐（如果需要）
+                const forcedLeft = Number(state.ganttView?.__forceScrollLeft);
+                if (Number.isFinite(forcedLeft)) {
+                     if (ganttBody) ganttBody.scrollLeft = forcedLeft;
+                     delete state.ganttView.__forceScrollLeft;
+                }
+                
+                requestAnimationFrame(() => requestAnimationFrame(() => {
+                    try { if (leftBody) leftBody.scrollTop = desiredTop; } catch (e) {}
+                    try { if (ganttBody) ganttBody.scrollTop = desiredTop; } catch (e) {}
+                    try { syncHeaderX(); } catch (e) {}
                     try { __tmRunFlipAnimation(state.modal); } catch (e) {}
-                    if (!useSoftSwap) {
-                        try { state.modal.style.visibility = ''; } catch (e) {}
-                    } else {
-                        try { state.modal.style.opacity = '1'; } catch (e) {}
-                        try { state.modal.style.pointerEvents = ''; } catch (e) {}
-                        if (prevModalEl) {
-                            try { prevModalEl.style.visibility = 'hidden'; } catch (e2) {}
-                            setTimeout(() => { try { prevModalEl.remove(); } catch (e2) {} }, 140);
+                    
+                    if (useSoftSwap) {
+                         try { state.modal.style.opacity = '1'; } catch (e) {}
+                         try { state.modal.style.pointerEvents = ''; } catch (e) {}
+                         if (prevModalEl) {
+                             try { prevModalEl.style.visibility = 'hidden'; } catch (e2) {}
+                             setTimeout(() => { try { prevModalEl.remove(); } catch (e2) {} }, 140);
+                         }
+                    }
+                }));
+
+                const syncRowHeights = () => {
+                    if (!leftBody || !ganttBody) return;
+                    if (Date.now() - (Number(state.__tmFlipTs) || 0) < 320) return;
+                    const leftRows = leftBody.querySelectorAll('tbody tr');
+                    const rightRows = ganttBody.querySelectorAll('.tm-gantt-row');
+                    const n = Math.min(leftRows.length, rightRows.length);
+                    if (n <= 0) return;
+                    for (let i = 0; i < n; i++) {
+                        const rr = rightRows[i];
+                        rr.style.height = '';
+                        rr.style.minHeight = '';
+                        rr.style.maxHeight = '';
+                        const bar = rr.querySelector?.('.tm-gantt-bar');
+                        if (bar) {
+                            bar.style.top = '50%';
+                            bar.style.transform = 'translateY(-50%)';
                         }
                     }
-                });
-            } catch (e) {
-                if (!useSoftSwap) {
-                    try { state.modal.style.visibility = ''; } catch (e2) {}
-                } else {
-                    try { state.modal.style.opacity = '1'; } catch (e2) {}
-                    try { state.modal.style.pointerEvents = ''; } catch (e2) {}
-                    if (prevModalEl) {
-                        try { prevModalEl.style.visibility = 'hidden'; } catch (e3) {}
-                        setTimeout(() => { try { prevModalEl.remove(); } catch (e3) {} }, 140);
+                };
+                try {
+                    requestAnimationFrame(() => requestAnimationFrame(() => {
+                        syncRowHeights();
+                        setTimeout(syncRowHeights, 60);
+                        setTimeout(syncRowHeights, 260);
+                        setTimeout(syncRowHeights, 420);
+                    }));
+                } catch (e) {}
+
+                requestAnimationFrame(() => requestAnimationFrame(() => {
+                    if (!Number.isFinite(Number(SettingsStore.data.timelineLeftWidth)) || Number(SettingsStore.data.timelineLeftWidth) <= 0) {
+                        const leftTable = state.modal?.querySelector?.('#tmTimelineLeftTable');
+                        const w = leftTable?.getBoundingClientRect?.().width;
+                        if (Number.isFinite(w) && w > 0) {
+                            SettingsStore.data.timelineLeftWidth = Math.max(360, Math.min(900, Math.round(w)));
+                            try { SettingsStore.save(); } catch (e) {}
+                        }
                     }
+                }));
+
+                if (leftBody && ganttBody) {
+                    const onGroupClick = (ev) => {
+                        const el = ev?.target instanceof Element ? ev.target.closest('.tm-gantt-row--group') : null;
+                        if (!el) return;
+                        const key = String(el.getAttribute('data-group-key') || '').trim();
+                        if (!key) return;
+                        tmToggleGroupCollapse(key, ev);
+                    };
+                    const onGanttWheel = (ev) => {
+                        if (!ev?.shiftKey) return;
+                        const canScrollX = (ganttBody.scrollWidth - ganttBody.clientWidth) > 2;
+                        if (!canScrollX) return;
+                        let delta = 0;
+                        const dx = Number(ev.deltaX) || 0;
+                        const dy = Number(ev.deltaY) || 0;
+                        delta = Math.abs(dx) >= Math.abs(dy) ? dx : dy;
+                        if (!Number.isFinite(delta) || delta === 0) return;
+                        if (ev.deltaMode === 1) delta *= 16;
+                        else if (ev.deltaMode === 2) delta *= ganttBody.clientWidth;
+                        ganttBody.scrollLeft = ganttBody.scrollLeft + delta;
+                        try { ev.preventDefault(); } catch (e) {}
+                        try { ev.stopPropagation(); } catch (e) {}
+                    };
+                    let syncing = false;
+                    const syncFromLeft = () => {
+                        if (syncing) return;
+                        syncing = true;
+                        requestAnimationFrame(() => {
+                            try { ganttBody.scrollTop = leftBody.scrollTop; } catch (e) {}
+                            syncing = false;
+                        });
+                    };
+                    const syncFromRight = () => {
+                        if (syncing) return;
+                        syncing = true;
+                        requestAnimationFrame(() => {
+                            try { leftBody.scrollTop = ganttBody.scrollTop; } catch (e) {}
+                            syncing = false;
+                        });
+                    };
+                    leftBody.addEventListener('scroll', syncFromLeft, { passive: true });
+                    ganttBody.addEventListener('scroll', () => {
+                        syncHeaderX();
+                        syncFromRight();
+                    }, { passive: true });
+                    ganttBody.addEventListener('wheel', onGanttWheel, { passive: false });
+                    if (ganttHeader) ganttHeader.addEventListener('wheel', onGanttWheel, { passive: false });
+                    ganttBody.addEventListener('click', onGroupClick, true);
+                } else if (ganttBody) {
+                    ganttBody.addEventListener('scroll', syncHeaderX, { passive: true });
+                    const onGanttWheel = (ev) => {
+                        if (!ev?.shiftKey) return;
+                        const canScrollX = (ganttBody.scrollWidth - ganttBody.clientWidth) > 2;
+                        if (!canScrollX) return;
+                        let delta = 0;
+                        const dx = Number(ev.deltaX) || 0;
+                        const dy = Number(ev.deltaY) || 0;
+                        delta = Math.abs(dx) >= Math.abs(dy) ? dx : dy;
+                        if (!Number.isFinite(delta) || delta === 0) return;
+                        if (ev.deltaMode === 1) delta *= 16;
+                        else if (ev.deltaMode === 2) delta *= ganttBody.clientWidth;
+                        ganttBody.scrollLeft = ganttBody.scrollLeft + delta;
+                        try { ev.preventDefault(); } catch (e) {}
+                        try { ev.stopPropagation(); } catch (e) {}
+                    };
+                    ganttBody.addEventListener('wheel', onGanttWheel, { passive: false });
+                    if (ganttHeader) ganttHeader.addEventListener('wheel', onGanttWheel, { passive: false });
                 }
+            } else {
+                // 列表模式
+                const body = state.modal.querySelector('.tm-body');
+                if (body) {
+                    body.scrollTop = desiredTop;
+                    body.scrollLeft = desiredLeft;
+                }
+                
+                requestAnimationFrame(() => requestAnimationFrame(() => {
+                     try { if (body) body.scrollTop = desiredTop; } catch (e) {}
+                     try { __tmRunFlipAnimation(state.modal); } catch (e) {}
+                     
+                     if (useSoftSwap) {
+                         try { state.modal.style.opacity = '1'; } catch (e) {}
+                         try { state.modal.style.pointerEvents = ''; } catch (e) {}
+                         if (prevModalEl) {
+                             try { prevModalEl.style.visibility = 'hidden'; } catch (e2) {}
+                             setTimeout(() => { try { prevModalEl.remove(); } catch (e2) {} }, 140);
+                         }
+                     }
+                }));
             }
-        }
+        } catch (e) {}
 
         if (isViewSwitchAnim) {
             try { state.uiAnimKind = ''; } catch (e) {}
@@ -8070,6 +8179,20 @@ async function __tmRefreshAfterWake(reason) {
             SettingsStore.data.currentRule = null;
             await SettingsStore.save();
         }
+        const prevDoneOnly = !!state.__tmQueryDoneOnly;
+        const nextRule = ruleId ? state.filterRules.find(r => r.id === ruleId) : null;
+        const nextDoneOnly = !!(nextRule && nextRule.conditions && nextRule.conditions.some(c => c && c.field === 'done' && c.operator === '=' && (c.value === true || String(c.value) === 'true' || c.value === '')));
+        state.__tmQueryDoneOnly = nextDoneOnly;
+        if (prevDoneOnly !== nextDoneOnly) {
+            await loadSelectedDocuments();
+            if (ruleId) {
+                const rule = state.filterRules.find(r => r.id === ruleId);
+                if (rule) {
+                    hint(`✅ 已应用规则: ${rule.name}`, 'success');
+                }
+            }
+            return;
+        }
         applyFilters();
         render();
 
@@ -8082,9 +8205,16 @@ async function __tmRefreshAfterWake(reason) {
     };
 
     window.clearFilterRule = async function() {
+        const prevDoneOnly = !!state.__tmQueryDoneOnly;
         state.currentRule = null;
         SettingsStore.data.currentRule = null;
         await SettingsStore.save();
+        state.__tmQueryDoneOnly = false;
+        if (prevDoneOnly) {
+            await loadSelectedDocuments();
+            hint('✅ 已清除筛选规则', 'success');
+            return;
+        }
         applyFilters();
         render();
         hint('✅ 已清除筛选规则', 'success');
@@ -8194,6 +8324,7 @@ async function __tmRefreshAfterWake(reason) {
         // 移除现有的菜单
         const existing = document.getElementById('tmDesktopMenu');
         if (existing) {
+            try { if (state.desktopMenuCloseTimer) { clearTimeout(state.desktopMenuCloseTimer); state.desktopMenuCloseTimer = null; } } catch (e2) {}
             if (state.desktopMenuCloseHandler) {
                 try { document.removeEventListener('click', state.desktopMenuCloseHandler); } catch (e2) {}
                 state.desktopMenuCloseHandler = null;
@@ -8237,7 +8368,11 @@ async function __tmRefreshAfterWake(reason) {
             }
         };
         state.desktopMenuCloseHandler = closeHandler;
-        setTimeout(() => document.addEventListener('click', closeHandler), 0);
+        try { if (state.desktopMenuCloseTimer) { clearTimeout(state.desktopMenuCloseTimer); state.desktopMenuCloseTimer = null; } } catch (e2) {}
+        state.desktopMenuCloseTimer = setTimeout(() => {
+            try { document.addEventListener('click', closeHandler); } catch (e2) {}
+            try { state.desktopMenuCloseTimer = null; } catch (e2) {}
+        }, 0);
         
         const container = document.querySelector('.tm-filter-rule-bar');
         if (container) {
@@ -8249,6 +8384,7 @@ async function __tmRefreshAfterWake(reason) {
     function __tmHideMobileMenu() {
         const menu = document.getElementById('tmMobileMenu');
         if (menu) menu.style.display = 'none';
+        try { if (state.mobileMenuCloseTimer) { clearTimeout(state.mobileMenuCloseTimer); state.mobileMenuCloseTimer = null; } } catch (e) {}
         if (state.mobileMenuCloseHandler) {
             try { document.removeEventListener('click', state.mobileMenuCloseHandler); } catch (e) {}
             try { document.removeEventListener('touchstart', state.mobileMenuCloseHandler); } catch (e) {}
@@ -8289,9 +8425,11 @@ async function __tmRefreshAfterWake(reason) {
             };
             state.mobileMenuCloseHandler = closeHandler;
             
-            setTimeout(() => {
-                document.addEventListener('click', closeHandler);
-                document.addEventListener('touchstart', closeHandler);
+            try { if (state.mobileMenuCloseTimer) { clearTimeout(state.mobileMenuCloseTimer); state.mobileMenuCloseTimer = null; } } catch (e2) {}
+            state.mobileMenuCloseTimer = setTimeout(() => {
+                try { document.addEventListener('click', closeHandler); } catch (e2) {}
+                try { document.addEventListener('touchstart', closeHandler); } catch (e2) {}
+                try { state.mobileMenuCloseTimer = null; } catch (e2) {}
             }, 0);
         } else {
             __tmHideMobileMenu();
@@ -8305,6 +8443,51 @@ async function __tmRefreshAfterWake(reason) {
         }
         state.openToken = (Number(state.openToken) || 0) + 1;
         try { __tmHideMobileMenu(); } catch (e) {}
+        try {
+            if (state.desktopMenuCloseTimer) {
+                clearTimeout(state.desktopMenuCloseTimer);
+                state.desktopMenuCloseTimer = null;
+            }
+            if (state.desktopMenuCloseHandler) {
+                document.removeEventListener('click', state.desktopMenuCloseHandler);
+                state.desktopMenuCloseHandler = null;
+            }
+            document.getElementById('tmDesktopMenu')?.remove?.();
+        } catch (e) {}
+        try {
+            if (state.taskContextMenuCloseHandler) {
+                document.removeEventListener('click', state.taskContextMenuCloseHandler);
+                document.removeEventListener('contextmenu', state.taskContextMenuCloseHandler);
+                state.taskContextMenuCloseHandler = null;
+            }
+            document.getElementById('tm-task-context-menu')?.remove?.();
+        } catch (e) {}
+        try {
+            if (__tmResizeState) {
+                document.removeEventListener('mousemove', __tmOnResize);
+                document.removeEventListener('mouseup', __tmStopResize);
+                document.body.style.cursor = '';
+                document.body.style.userSelect = '';
+                __tmResizeState = null;
+            }
+        } catch (e) {}
+        try {
+            if (__tmTimelineSplitResizeOnMove) document.removeEventListener('mousemove', __tmTimelineSplitResizeOnMove);
+            if (__tmTimelineSplitResizeOnUp) document.removeEventListener('mouseup', __tmTimelineSplitResizeOnUp);
+            __tmTimelineSplitResizeOnMove = null;
+            __tmTimelineSplitResizeOnUp = null;
+            __tmTimelineSplitResizeState = null;
+            document.body.style.cursor = '';
+            document.body.style.userSelect = '';
+        } catch (e) {}
+        try {
+            if (__tmTimelineContentResizeOnMove) document.removeEventListener('mousemove', __tmTimelineContentResizeOnMove);
+            if (__tmTimelineContentResizeOnUp) document.removeEventListener('mouseup', __tmTimelineContentResizeOnUp);
+            __tmTimelineContentResizeOnMove = null;
+            __tmTimelineContentResizeOnUp = null;
+            document.body.style.cursor = '';
+            document.body.style.userSelect = '';
+        } catch (e) {}
         
         // 强制移除所有可能的模态框（防御性编程）
         const modals = document.querySelectorAll('.tm-modal, .tm-settings-modal, .tm-rules-modal, .tm-prompt-modal');
@@ -8323,6 +8506,10 @@ async function __tmRefreshAfterWake(reason) {
     // 列宽调整功能
     let __tmResizeState = null;
     let __tmTimelineSplitResizeState = null;
+    let __tmTimelineSplitResizeOnMove = null;
+    let __tmTimelineSplitResizeOnUp = null;
+    let __tmTimelineContentResizeOnMove = null;
+    let __tmTimelineContentResizeOnUp = null;
 
     window.startColResize = function(event, colName) {
         event.preventDefault();
@@ -8373,6 +8560,12 @@ async function __tmRefreshAfterWake(reason) {
         try { event.stopPropagation(); } catch (e) {}
         const leftEl = state.modal?.querySelector?.('.tm-timeline-left');
         if (!leftEl) return;
+        try {
+            if (__tmTimelineSplitResizeOnMove) document.removeEventListener('mousemove', __tmTimelineSplitResizeOnMove);
+            if (__tmTimelineSplitResizeOnUp) document.removeEventListener('mouseup', __tmTimelineSplitResizeOnUp);
+        } catch (e) {}
+        __tmTimelineSplitResizeOnMove = null;
+        __tmTimelineSplitResizeOnUp = null;
         const startX = event.clientX;
         const startWidth = leftEl.getBoundingClientRect().width;
         __tmTimelineSplitResizeState = { startX, startWidth, leftEl };
@@ -8390,12 +8583,16 @@ async function __tmRefreshAfterWake(reason) {
             __tmTimelineSplitResizeState = null;
             try { document.removeEventListener('mousemove', onMove); } catch (e) {}
             try { document.removeEventListener('mouseup', onUp); } catch (e) {}
+            __tmTimelineSplitResizeOnMove = null;
+            __tmTimelineSplitResizeOnUp = null;
             document.body.style.cursor = '';
             document.body.style.userSelect = '';
             SettingsStore.data.timelineLeftWidth = next;
             try { await SettingsStore.save(); } catch (e) {}
         };
 
+        __tmTimelineSplitResizeOnMove = onMove;
+        __tmTimelineSplitResizeOnUp = onUp;
         document.addEventListener('mousemove', onMove);
         document.addEventListener('mouseup', onUp);
         document.body.style.cursor = 'col-resize';
@@ -8407,6 +8604,12 @@ async function __tmRefreshAfterWake(reason) {
         try { event.stopPropagation(); } catch (e) {}
         const th = event.target.closest('th');
         if (!th) return;
+        try {
+            if (__tmTimelineContentResizeOnMove) document.removeEventListener('mousemove', __tmTimelineContentResizeOnMove);
+            if (__tmTimelineContentResizeOnUp) document.removeEventListener('mouseup', __tmTimelineContentResizeOnUp);
+        } catch (e) {}
+        __tmTimelineContentResizeOnMove = null;
+        __tmTimelineContentResizeOnUp = null;
         const startX = event.clientX;
         const table = state.modal?.querySelector?.('#tmTimelineLeftTable');
         const col = state.modal?.querySelector?.('#tmTimelineColContent');
@@ -8435,6 +8638,8 @@ async function __tmRefreshAfterWake(reason) {
             const next = Math.max(10, Math.min(800, Math.round(startW + dx)));
             try { document.removeEventListener('mousemove', onMove); } catch (e) {}
             try { document.removeEventListener('mouseup', onUp); } catch (e) {}
+            __tmTimelineContentResizeOnMove = null;
+            __tmTimelineContentResizeOnUp = null;
             document.body.style.cursor = '';
             document.body.style.userSelect = '';
 
@@ -8443,6 +8648,8 @@ async function __tmRefreshAfterWake(reason) {
             render();
         };
 
+        __tmTimelineContentResizeOnMove = onMove;
+        __tmTimelineContentResizeOnUp = onUp;
         document.addEventListener('mousemove', onMove);
         document.addEventListener('mouseup', onUp);
         document.body.style.cursor = 'col-resize';
@@ -9452,6 +9659,20 @@ async function __tmRefreshAfterWake(reason) {
         render();
     };
 
+    window.updateRowHeightMode = async function(value) {
+        const mode = String(value || 'auto').trim() || 'auto';
+        SettingsStore.data.rowHeightMode = mode;
+        await SettingsStore.save();
+        render();
+    };
+
+    window.updateRowHeightPx = async function(value) {
+        const px = Math.max(0, Math.floor(Number(value) || 0));
+        SettingsStore.data.rowHeightPx = px;
+        await SettingsStore.save();
+        render();
+    };
+
     window.updateTaskHeadingLevel = async function(value) {
         const level = String(value || 'h2').trim();
         SettingsStore.data.taskHeadingLevel = level;
@@ -10277,7 +10498,7 @@ async function __tmRefreshAfterWake(reason) {
                 };
                 const durationSum = calculateDuration(group.items);
                 
-                allRows.push(`<tr class="tm-group-row" data-group-key="${groupKey}"><td colspan="${colCount}" onclick="tmToggleGroupCollapse('${groupKey}', event)" style="cursor:pointer;background:var(--tm-header-bg);font-weight:bold;color:${color};border-bottom:1px solid var(--tm-table-border-color);"><div class="tm-group-sticky">${toggle}${esc(group.name)} <span style="font-weight:normal;color:var(--tm-secondary-text);font-size:12px;background:var(--tm-doc-count-bg);padding:1px 6px;border-radius:10px;margin-left:4px;">${group.items.length}</span>${durationSum ? `<span style="font-weight:normal;color:var(--tm-primary-color);font-size:12px;background:var(--tm-info-bg);padding:1px 6px;border-radius:10px;margin-left:4px;border:1px solid var(--tm-info-border);">📊 ${durationSum}</span>` : ''}</div></td></tr>`);
+                allRows.push(`<tr class="tm-group-row" data-group-key="${groupKey}"><td colspan="${colCount}" onclick="tmToggleGroupCollapse('${groupKey}', event)" style="cursor:pointer;background:var(--tm-header-bg);font-weight:bold;color:${color};"><div class="tm-group-sticky">${toggle}${esc(group.name)} <span style="font-weight:normal;color:var(--tm-secondary-text);font-size:12px;background:var(--tm-doc-count-bg);padding:1px 6px;border-radius:10px;margin-left:4px;">${group.items.length}</span>${durationSum ? `<span style="font-weight:normal;color:var(--tm-primary-color);font-size:12px;background:var(--tm-info-bg);padding:1px 6px;border-radius:10px;margin-left:4px;border:1px solid var(--tm-info-border);">📊 ${durationSum}</span>` : ''}</div></td></tr>`);
                 
                 // 如果未折叠，渲染任务
                 if (!isCollapsed) {
@@ -10315,7 +10536,7 @@ async function __tmRefreshAfterWake(reason) {
                 const toggle = `<span class="tm-group-toggle" onclick="tmToggleGroupCollapse('${groupKey}', event)" style="cursor:pointer;margin-right:8px;display:inline-block;width:12px;">${isCollapsed ? '▸' : '▾'}</span>`;
                 const labelColor = __tmGetDocColorHex(docId, isDark) || 'var(--tm-group-doc-label-color)';
 
-                allRows.push(`<tr class="tm-group-row" data-group-key="${groupKey}"><td colspan="${colCount}" onclick="tmToggleGroupCollapse('${groupKey}', event)" style="cursor:pointer;background:var(--tm-header-bg);font-weight:bold;color:var(--tm-text-color);border-bottom:1px solid var(--tm-table-border-color);"><div class="tm-group-sticky">${toggle}<span class="tm-group-label" style="color:${labelColor};">📄 ${esc(docName)}</span> <span style="font-weight:normal;color:var(--tm-secondary-text);font-size:12px;background:var(--tm-doc-count-bg);padding:1px 6px;border-radius:10px;margin-left:4px;">${docTasks.length}</span></div></td></tr>`);
+                allRows.push(`<tr class="tm-group-row" data-group-key="${groupKey}"><td colspan="${colCount}" onclick="tmToggleGroupCollapse('${groupKey}', event)" style="cursor:pointer;background:var(--tm-header-bg);font-weight:bold;color:var(--tm-text-color);"><div class="tm-group-sticky">${toggle}<span class="tm-group-label" style="color:${labelColor};">📄 ${esc(docName)}</span> <span style="font-weight:normal;color:var(--tm-secondary-text);font-size:12px;background:var(--tm-doc-count-bg);padding:1px 6px;border-radius:10px;margin-left:4px;">${docTasks.length}</span></div></td></tr>`);
 
                 // 渲染该文档的任务（如果未折叠）
                 if (!isCollapsed) {
@@ -10425,7 +10646,7 @@ async function __tmRefreshAfterWake(reason) {
                 // 计算该分组下所有任务的时长总和
                 const durationSum = calculateGroupDuration(group.items);
                 
-                allRows.push(`<tr class="tm-group-row" data-group-key="${esc(group.key)}"><td colspan="${colCount}" onclick="tmToggleGroupCollapse('${group.key}', event)" style="cursor:pointer;background:var(--tm-header-bg);font-weight:bold;color:var(--tm-text-color);border-bottom:1px solid var(--tm-table-border-color);"><div class="tm-group-sticky">${toggle}<span class="tm-group-label" style="color:${labelColor};">${esc(group.label)}</span> <span style="font-weight:normal;color:var(--tm-secondary-text);font-size:12px;background:var(--tm-doc-count-bg);padding:1px 6px;border-radius:10px;margin-left:4px;">${group.items.length}</span>${durationSum ? `<span style="font-weight:normal;color:var(--tm-primary-color);font-size:12px;background:var(--tm-info-bg);padding:1px 6px;border-radius:10px;margin-left:4px;border:1px solid var(--tm-info-border);">📊 ${durationSum}</span>` : ''}</div></td></tr>`);
+                allRows.push(`<tr class="tm-group-row" data-group-key="${esc(group.key)}"><td colspan="${colCount}" onclick="tmToggleGroupCollapse('${group.key}', event)" style="cursor:pointer;background:var(--tm-header-bg);font-weight:bold;color:var(--tm-text-color);"><div class="tm-group-sticky">${toggle}<span class="tm-group-label" style="color:${labelColor};">${esc(group.label)}</span> <span style="font-weight:normal;color:var(--tm-secondary-text);font-size:12px;background:var(--tm-doc-count-bg);padding:1px 6px;border-radius:10px;margin-left:4px;">${group.items.length}</span>${durationSum ? `<span style="font-weight:normal;color:var(--tm-primary-color);font-size:12px;background:var(--tm-info-bg);padding:1px 6px;border-radius:10px;margin-left:4px;border:1px solid var(--tm-info-border);">📊 ${durationSum}</span>` : ''}</div></td></tr>`);
 
                 if (!isCollapsed) {
                     currentGroupBg = enableGroupBg ? __tmGroupBgFromLabelColor(labelColor, isDark) : '';
@@ -12482,6 +12703,8 @@ async function __tmRefreshAfterWake(reason) {
 
         // 加载筛选规则
         state.filterRules = await RuleManager.initRules();
+        const currentRule = state.currentRule ? state.filterRules.find(r => r.id === state.currentRule) : null;
+        state.__tmQueryDoneOnly = !!(currentRule && currentRule.conditions && currentRule.conditions.some(c => c && c.field === 'done' && c.operator === '=' && (c.value === true || String(c.value) === 'true' || c.value === '')));
 
         // 1. 解析所有需要查询的文档ID
         const allDocIds = await resolveDocIdsFromGroups();
@@ -12500,7 +12723,7 @@ async function __tmRefreshAfterWake(reason) {
             const startTime = Date.now();
             
             // 2. 批量获取任务
-            const res = await API.getTasksByDocuments(allDocIds, state.queryLimit);
+            const res = await API.getTasksByDocuments(allDocIds, state.queryLimit, { doneOnly: !!state.__tmQueryDoneOnly });
             
             // 更新统计信息
             state.stats.queryTime = res.queryTime || (Date.now() - startTime);
@@ -12935,6 +13158,25 @@ async function __tmRefreshAfterWake(reason) {
                                    onchange="updateFontSizeMobile(this.value)"
                                    style="width: 60px; padding: 4px 8px; border: 1px solid var(--tm-input-border); background: var(--tm-input-bg); color: var(--tm-text-color); border-radius: 4px;">
                             <span>px</span>
+                        </label>
+
+                        <label style="display: flex; flex-wrap: wrap; align-items: center; gap: 8px; row-gap: 6px; cursor: pointer; flex: 1 1 240px; min-width: 200px;">
+                            <span>行高: </span>
+                            <select onchange="updateRowHeightMode(this.value)"
+                                    style="padding: 4px 8px; border: 1px solid var(--tm-input-border); background: var(--tm-input-bg); color: var(--tm-text-color); border-radius: 4px;">
+                                <option value="auto" ${String(SettingsStore.data.rowHeightMode || 'auto') === 'auto' ? 'selected' : ''}>自动</option>
+                                <option value="compact" ${String(SettingsStore.data.rowHeightMode || '') === 'compact' ? 'selected' : ''}>紧凑</option>
+                                <option value="normal" ${String(SettingsStore.data.rowHeightMode || '') === 'normal' ? 'selected' : ''}>标准</option>
+                                <option value="comfortable" ${String(SettingsStore.data.rowHeightMode || '') === 'comfortable' ? 'selected' : ''}>宽松</option>
+                            </select>
+                        </label>
+
+                        <label style="display: flex; flex-wrap: wrap; align-items: center; gap: 8px; row-gap: 6px; cursor: pointer; flex: 1 1 260px; min-width: 220px;">
+                            <span>行高(px): </span>
+                            <input type="number" value="${Number(SettingsStore.data.rowHeightPx) || 0}" min="0" max="120"
+                                   onchange="updateRowHeightPx(this.value)"
+                                   style="width: 70px; padding: 4px 8px; border: 1px solid var(--tm-input-border); background: var(--tm-input-bg); color: var(--tm-text-color); border-radius: 4px;">
+                            <span style="font-size:12px;color:var(--tm-secondary-text);">(0=跟随)</span>
                         </label>
 
                         <label style="display: flex; flex-wrap: wrap; align-items: center; gap: 8px; row-gap: 6px; cursor: pointer; flex: 1 1 240px; min-width: 200px;">
@@ -15013,6 +15255,12 @@ async function __tmRefreshAfterWake(reason) {
                 __tmTopBarTimer = null;
             }
         } catch (e) {}
+        try {
+            if (__tmMountRetryTimer != null) {
+                clearTimeout(__tmMountRetryTimer);
+                __tmMountRetryTimer = null;
+            }
+        } catch (e) {}
 
         try {
             if (__tmBreadcrumbObserver) {
@@ -15037,9 +15285,30 @@ async function __tmRefreshAfterWake(reason) {
                 __tmResizeState = null;
             }
         } catch (e) {}
+        try {
+            if (__tmTimelineSplitResizeOnMove) document.removeEventListener('mousemove', __tmTimelineSplitResizeOnMove);
+            if (__tmTimelineSplitResizeOnUp) document.removeEventListener('mouseup', __tmTimelineSplitResizeOnUp);
+            __tmTimelineSplitResizeOnMove = null;
+            __tmTimelineSplitResizeOnUp = null;
+            __tmTimelineSplitResizeState = null;
+            document.body.style.cursor = '';
+            document.body.style.userSelect = '';
+        } catch (e) {}
+        try {
+            if (__tmTimelineContentResizeOnMove) document.removeEventListener('mousemove', __tmTimelineContentResizeOnMove);
+            if (__tmTimelineContentResizeOnUp) document.removeEventListener('mouseup', __tmTimelineContentResizeOnUp);
+            __tmTimelineContentResizeOnMove = null;
+            __tmTimelineContentResizeOnUp = null;
+            document.body.style.cursor = '';
+            document.body.style.userSelect = '';
+        } catch (e) {}
 
         try { __tmHideMobileMenu?.(); } catch (e) {}
         try {
+            if (state.desktopMenuCloseTimer) {
+                clearTimeout(state.desktopMenuCloseTimer);
+                state.desktopMenuCloseTimer = null;
+            }
             if (state.desktopMenuCloseHandler) {
                 document.removeEventListener('click', state.desktopMenuCloseHandler);
                 state.desktopMenuCloseHandler = null;
@@ -15150,7 +15419,8 @@ async function __tmRefreshAfterWake(reason) {
             try { console.error('[task-horizon] openManager failed:', e); } catch (e2) {}
             try { hint(`❌ 加载失败: ${e?.message || String(e)}`, 'error'); } catch (e3) {}
             try {
-                setTimeout(() => {
+                try { if (__tmMountRetryTimer) { clearTimeout(__tmMountRetryTimer); __tmMountRetryTimer = null; } } catch (e4) {}
+                __tmMountRetryTimer = setTimeout(() => {
                     if (document.visibilityState === 'hidden') return;
                     __tmSafeOpenManager('mount-retry');
                 }, 900);
@@ -15202,6 +15472,8 @@ async function __tmRefreshAfterWake(reason) {
                 'tm_filter_rules',
                 'tm_font_size',
                 'tm_font_size_mobile',
+                'tm_row_height_mode',
+                'tm_row_height_px',
                 'tm_enable_quickbar',
                 'tm_pin_new_tasks_by_default',
                 'tm_new_task_doc_id',
