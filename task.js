@@ -1,5 +1,5 @@
 // @name         思源笔记任务管理器
-// @version      1.1.5
+// @version      1.1.6
 // @description  任务管理器，支持自定义筛选规则分组和排序
 // @author       5KYFKR
 
@@ -7260,7 +7260,7 @@ async function __tmRefreshAfterWake(reason) {
         const isViewSwitchAnim = (kind0 === 'from-right' || kind0 === 'from-left')
             && (Date.now() - (Number(state.uiAnimTs) || 0) < 380);
         const isTimelineView = state.viewMode === 'timeline';
-        const useSoftSwap = isViewSwitchAnim || isTimelineView;
+        const useSoftSwap = isViewSwitchAnim;
         let prevModalEl = null;
         // 保存滚动位置
         let savedScrollTop = 0;
@@ -7327,11 +7327,7 @@ async function __tmRefreshAfterWake(reason) {
         
         state.modal = document.createElement('div');
         state.modal.className = 'tm-modal' + (__tmMountEl ? ' tm-modal--tab' : '') + (isMobile ? ' tm-modal--mobile' : '');
-        if (!useSoftSwap) {
-            try { state.modal.style.visibility = 'hidden'; } catch (e) {}
-        } else if (prevModalEl) {
-            try { state.modal.style.opacity = '0'; } catch (e) {}
-            try { state.modal.style.transition = 'opacity 120ms ease-out'; } catch (e) {}
+        if (useSoftSwap && prevModalEl) {
             try { state.modal.style.pointerEvents = 'none'; } catch (e) {}
         }
         
@@ -7884,14 +7880,14 @@ async function __tmRefreshAfterWake(reason) {
 
             const desiredTop = Number.isFinite(savedTimelineScrollTop) && savedTimelineScrollTop > 0
                 ? savedTimelineScrollTop
-                : (Number.isFinite(savedScrollTop) && savedScrollTop > 0 ? savedScrollTop : (Number(state.viewScroll?.timeline?.top) || Number(state.viewScroll?.list?.top) || 0));
+                : (Number(state.viewScroll?.timeline?.top) || 0);
             const forcedLeft = Number(state.ganttView?.__forceScrollLeft);
             const hasForcedLeft = Number.isFinite(forcedLeft);
             const desiredLeft = hasForcedLeft
                 ? forcedLeft
                 : (Number.isFinite(savedTimelineScrollLeft) && savedTimelineScrollLeft > 0
                     ? savedTimelineScrollLeft
-                    : (Number.isFinite(savedScrollLeft) && savedScrollLeft > 0 ? savedScrollLeft : (Number(state.viewScroll?.timeline?.left) || 0)));
+                    : (Number(state.viewScroll?.timeline?.left) || 0));
             requestAnimationFrame(() => requestAnimationFrame(() => {
                 try { if (leftBody) leftBody.scrollTop = desiredTop; } catch (e) {}
                 try { if (ganttBody) ganttBody.scrollTop = desiredTop; } catch (e) {}
@@ -7900,11 +7896,11 @@ async function __tmRefreshAfterWake(reason) {
                 try { if (hasForcedLeft) delete state.ganttView.__forceScrollLeft; } catch (e) {}
                 try { __tmRunFlipAnimation(state.modal); } catch (e) {}
                 if (!useSoftSwap) {
-                    try { state.modal.style.visibility = ''; } catch (e) {}
                 } else {
                     try { state.modal.style.opacity = '1'; } catch (e) {}
                     try { state.modal.style.pointerEvents = ''; } catch (e) {}
                     if (prevModalEl) {
+                        try { prevModalEl.style.visibility = 'hidden'; } catch (e2) {}
                         setTimeout(() => { try { prevModalEl.remove(); } catch (e2) {} }, 140);
                     }
                 }
@@ -8039,6 +8035,7 @@ async function __tmRefreshAfterWake(reason) {
                         try { state.modal.style.opacity = '1'; } catch (e) {}
                         try { state.modal.style.pointerEvents = ''; } catch (e) {}
                         if (prevModalEl) {
+                            try { prevModalEl.style.visibility = 'hidden'; } catch (e2) {}
                             setTimeout(() => { try { prevModalEl.remove(); } catch (e2) {} }, 140);
                         }
                     }
@@ -8050,6 +8047,7 @@ async function __tmRefreshAfterWake(reason) {
                     try { state.modal.style.opacity = '1'; } catch (e2) {}
                     try { state.modal.style.pointerEvents = ''; } catch (e2) {}
                     if (prevModalEl) {
+                        try { prevModalEl.style.visibility = 'hidden'; } catch (e3) {}
                         setTimeout(() => { try { prevModalEl.remove(); } catch (e3) {} }, 140);
                     }
                 }
@@ -8109,9 +8107,9 @@ async function __tmRefreshAfterWake(reason) {
 
     window.tmToggleTimelineMode = function() {
         const next = state.viewMode === 'timeline' ? 'list' : 'timeline';
-        state.uiAnimKind = next === 'timeline' ? 'from-right' : 'from-left';
         state.viewMode = next;
-        state.uiAnimTs = Date.now();
+        state.uiAnimKind = '';
+        state.uiAnimTs = 0;
         render();
     };
 
