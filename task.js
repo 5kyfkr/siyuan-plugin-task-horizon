@@ -287,6 +287,8 @@
             box-sizing: border-box;
             vertical-align: middle;
             flex-shrink: 0;
+            position: relative;
+            top: 1px;
         }
 
         .tm-badge--count {
