@@ -8290,6 +8290,8 @@ async function __tmRefreshAfterWake(reason) {
                             <div class="tm-title" onclick="tmToggleDocTabs(event)" style="font-size: 16px; font-weight: 700; white-space: nowrap;">📋 任务管理器</div>
                             <button class="tm-btn tm-btn-success" onclick="tmAdd()" style="padding: 0 10px; height: 30px; display: inline-flex; align-items: center; justify-content: center;">+</button>
                             ${isMobile ? `<button class="tm-btn tm-btn-info" onclick="tmRefresh()" style="padding: 0 10px; height: 30px; display: inline-flex; align-items: center; justify-content: center;">🔄️</button>` : ''}
+                            ${isMobile ? `<button class="tm-btn tm-btn-info ${state.viewMode === 'timeline' ? 'tm-filter-active' : ''}" onclick="tmToggleTimelineMode()" ontouchend="tmToggleTimelineMode()" style="padding: 0 10px; height: 30px; display: inline-flex; align-items: center; justify-content: center;" title="切换时间轴模式">🗓️</button>` : ''}
+                            ${isMobile ? `<button class="tm-btn tm-btn-info ${state.viewMode === 'kanban' ? 'tm-filter-active' : ''}" onclick="tmToggleKanbanMode()" ontouchend="tmToggleKanbanMode()" style="padding: 0 10px; height: 30px; display: inline-flex; align-items: center; justify-content: center;" title="切换看板模式">🧱</button>` : ''}
                         </div>
 
                         <!-- 桌面端工具栏 -->
