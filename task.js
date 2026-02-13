@@ -8290,8 +8290,6 @@ async function __tmRefreshAfterWake(reason) {
                             <div class="tm-title" onclick="tmToggleDocTabs(event)" style="font-size: 16px; font-weight: 700; white-space: nowrap;">📋 任务管理器</div>
                             <button class="tm-btn tm-btn-success" onclick="tmAdd()" style="padding: 0 10px; height: 30px; display: inline-flex; align-items: center; justify-content: center;">+</button>
                             ${isMobile ? `<button class="tm-btn tm-btn-info" onclick="tmRefresh()" style="padding: 0 10px; height: 30px; display: inline-flex; align-items: center; justify-content: center;">🔄️</button>` : ''}
-                            ${isMobile ? `<button class="tm-btn tm-btn-info ${state.viewMode === 'timeline' ? 'tm-filter-active' : ''}" onclick="tmToggleTimelineMode()" ontouchend="tmToggleTimelineMode()" style="padding: 0 10px; height: 30px; display: inline-flex; align-items: center; justify-content: center;" title="切换时间轴模式">🗓️</button>` : ''}
-                            ${isMobile ? `<button class="tm-btn tm-btn-info ${state.viewMode === 'kanban' ? 'tm-filter-active' : ''}" onclick="tmToggleKanbanMode()" ontouchend="tmToggleKanbanMode()" style="padding: 0 10px; height: 30px; display: inline-flex; align-items: center; justify-content: center;" title="切换看板模式">🧱</button>` : ''}
                         </div>
 
                         <!-- 桌面端工具栏 -->
@@ -8384,24 +8382,11 @@ async function __tmRefreshAfterWake(reason) {
                                         🔍 搜索 ${state.searchKeyword ? `(${state.searchKeyword})` : ''}
                                     </button>
                                 </div>
-                                ${isLandscape ? `
                                 <div class="tm-mobile-only-item" style="display:flex; gap:10px;">
-                                    <button class="tm-btn tm-btn-info" onclick="tmToggleTimelineMode(); try{document.getElementById('tmMobileMenu').style.display='none';}catch(e){}" style="flex:1; padding: 6px;">
-                                        🗓️ 时间轴 ${state.viewMode === 'timeline' ? '(开)' : ''}
-                                    </button>
-                                    <button class="tm-btn tm-btn-info" onclick="tmToggleKanbanMode(); try{document.getElementById('tmMobileMenu').style.display='none';}catch(e){}" style="flex:1; padding: 6px;">
+                                    <button class="tm-btn tm-btn-info" onclick="tmToggleKanbanMode(); tmHideMobileMenu();" style="flex:1; padding: 6px;">
                                         🧱 看板 ${state.viewMode === 'kanban' ? '(开)' : ''}
                                     </button>
                                 </div>
-                                ${state.viewMode === 'timeline' ? `
-                                <div class="tm-mobile-only-item" style="display:flex; gap:10px;">
-                                    <button class="tm-btn tm-btn-info" onclick="tmGanttZoomOut(); try{document.getElementById('tmMobileMenu').style.display='none';}catch(e){}" style="flex:1; padding: 6px;">－</button>
-                                    <button class="tm-btn tm-btn-info" onclick="tmGanttZoomIn(); try{document.getElementById('tmMobileMenu').style.display='none';}catch(e){}" style="flex:1; padding: 6px;">＋</button>
-                                    <button class="tm-btn tm-btn-info" onclick="tmGanttFit(); try{document.getElementById('tmMobileMenu').style.display='none';}catch(e){}" style="flex:1; padding: 6px;">🎯</button>
-                                    <button class="tm-btn tm-btn-info" onclick="tmGanttToday(); try{document.getElementById('tmMobileMenu').style.display='none';}catch(e){}" style="flex:1; padding: 6px;">📍</button>
-                                </div>
-                                ` : ''}
-                                ` : ''}
                                 <div class="tm-mobile-only-item" style="display:flex; gap:10px;">
                                      <button class="tm-btn tm-btn-info" onclick="showSettings()" style="flex:1; padding: 6px;">⚙️ 设置</button>
                                 </div>
@@ -8891,6 +8876,7 @@ async function __tmRefreshAfterWake(reason) {
         state.viewMode = next;
         state.uiAnimKind = '';
         state.uiAnimTs = 0;
+        try { __tmHideMobileMenu(); } catch (e) {}
         render();
     };
 
@@ -9373,6 +9359,10 @@ async function __tmRefreshAfterWake(reason) {
         } else {
             __tmHideMobileMenu();
         }
+    };
+
+    window.tmHideMobileMenu = function() {
+        try { __tmHideMobileMenu(); } catch (e) {}
     };
 
     window.tmClose = function(event) {
