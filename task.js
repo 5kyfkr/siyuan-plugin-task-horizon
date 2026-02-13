@@ -1,5 +1,5 @@
 // @name         思源笔记任务管理器
-// @version      1.2.1
+// @version      1.2.5
 // @description  任务管理器，支持自定义筛选规则分组和排序
 // @author       5KYFKR
 
@@ -287,8 +287,6 @@
             box-sizing: border-box;
             vertical-align: middle;
             flex-shrink: 0;
-            position: relative;
-            top: 1px;
         }
 
         .tm-badge--count {
@@ -857,6 +855,10 @@
             color: var(--tm-text-color);
         }
 
+        .tm-modal:not(.tm-modal--mobile):not(.tm-modal--tab) .tm-box {
+            height: 90vh;
+        }
+
         .tm-header {
             padding: 20px 24px;
             background: var(--tm-header-bg);
@@ -995,6 +997,357 @@
             overflow-y: hidden;
             display: flex;
             flex-direction: column;
+        }
+
+        .tm-body.tm-body--kanban {
+            overflow: hidden;
+            overflow-x: auto;
+            overflow-y: hidden;
+            padding: 10px;
+            max-height: none;
+            height: 100%;
+            min-height: 0;
+            overscroll-behavior: contain;
+        }
+
+        .tm-kanban {
+            display: flex;
+            gap: 10px;
+            align-items: stretch;
+            width: max-content;
+            min-height: 100%;
+            height: 100%;
+        }
+
+        .tm-kanban-col {
+            width: 320px;
+            min-width: 280px;
+            max-width: 360px;
+            background: var(--tm-table-header-bg);
+            border: 1px solid var(--tm-border-color);
+            border-radius: 10px;
+            display: flex;
+            flex-direction: column;
+            height: 100%;
+            max-height: 100%;
+        }
+
+        .tm-kanban-col.tm-kanban-col--dragover {
+            border-color: var(--tm-primary-color);
+            box-shadow: 0 0 0 2px rgba(0,0,0,0.04);
+        }
+
+        .tm-kanban-col-header {
+            padding: 10px 10px 8px;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 8px;
+            font-weight: 700;
+            color: var(--tm-text-color);
+            border-bottom: 1px solid var(--tm-border-color);
+            position: sticky;
+            top: 0;
+            background: var(--tm-table-header-bg);
+            z-index: 6;
+            border-top-left-radius: 10px;
+            border-top-right-radius: 10px;
+        }
+
+        .tm-kanban-col-title {
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+            flex: 1 1 auto;
+            min-width: 0;
+        }
+
+        .tm-kanban-col-title.tm-kanban-col-title--pill {
+            padding: 4px 10px;
+            border-radius: 999px;
+            line-height: 1.1;
+            font-weight: 800;
+            font-size: 13px;
+            flex: 0 1 auto;
+            width: fit-content;
+        }
+
+        .tm-kanban--compact {
+            gap: 8px;
+        }
+
+        .tm-kanban--compact .tm-kanban-col {
+            width: 270px;
+            min-width: 240px;
+            max-width: 300px;
+        }
+
+        .tm-kanban--compact .tm-kanban-col-header {
+            padding: 8px 8px 6px;
+        }
+
+        .tm-kanban--compact .tm-kanban-col-title.tm-kanban-col-title--pill {
+            padding: 3px 8px;
+            font-size: 12px;
+        }
+
+        .tm-kanban--compact .tm-kanban-col-body {
+            padding: 8px;
+            gap: 6px;
+        }
+
+        .tm-kanban--compact .tm-kanban-card {
+            padding: 8px;
+            border-radius: 9px;
+        }
+
+        .tm-kanban--compact .tm-kanban-card-top {
+            margin-bottom: 4px;
+        }
+
+        .tm-kanban--compact .tm-kanban-card-meta {
+            gap: 4px;
+            margin-bottom: 4px;
+            font-size: 11px;
+        }
+
+        .tm-kanban--compact .tm-kanban-card-title-inline {
+            -webkit-line-clamp: 1;
+        }
+
+        .tm-kanban--compact .tm-kanban-chip {
+            padding: 1px 7px;
+            font-size: 11px;
+        }
+
+        .tm-kanban--compact .tm-kanban-more {
+            height: 22px;
+            min-width: 26px;
+            padding: 0 6px;
+            line-height: 20px;
+        }
+
+        .tm-kanban--compact .tm-kanban-subtasks {
+            margin-top: 6px;
+            padding-left: 8px;
+            gap: 6px;
+        }
+
+        .tm-kanban-col-body {
+            padding: 10px;
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+            overflow: auto;
+            min-height: 120px;
+            flex: 1 1 auto;
+            overscroll-behavior: contain;
+        }
+
+        .tm-kanban-card {
+            background: var(--tm-bg-color);
+            border: 1px solid var(--tm-table-border-color);
+            border-radius: 10px;
+            padding: 10px;
+            color: var(--tm-text-color);
+            box-shadow: 0 1px 0 rgba(0,0,0,0.03);
+        }
+
+        .tm-kanban-card.tm-kanban-card--dragging {
+            opacity: 0.65;
+        }
+
+        .tm-kanban-subtasks {
+            margin-top: 8px;
+            padding-left: 10px;
+            border-left: 2px solid var(--tm-border-color);
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+        }
+
+        .tm-kanban-card.tm-kanban-card--sub {
+            background: var(--tm-section-bg);
+        }
+
+        .tm-kanban-card:not(.tm-kanban-card--sub):not(.tm-kanban-card--childroot) .tm-kanban-card-title-inline {
+            font-weight: 700;
+        }
+
+        .tm-kanban-parent-line strong {
+            font-weight: 700;
+            color: var(--tm-text-color);
+        }
+
+        .tm-kanban-card-top {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 8px;
+            margin-bottom: 6px;
+        }
+
+        .tm-kanban-card-head {
+            display: flex;
+            align-items: flex-start;
+            gap: 8px;
+            flex: 1 1 auto;
+            min-width: 0;
+        }
+
+        .tm-kanban-card-head .tm-task-checkbox {
+            margin-top: 1px;
+        }
+
+        .tm-kanban-card-head .tm-kanban-toggle {
+            margin-top: 0px;
+        }
+
+        .tm-kanban-card-title {
+            font-size: 13px;
+            line-height: 1.35;
+            margin-bottom: 8px;
+            word-break: break-word;
+        }
+
+        .tm-kanban-card-title .tm-task-content-clickable {
+            cursor: pointer;
+        }
+
+        .tm-kanban-card-title-inline {
+            font-size: 13px;
+            line-height: 1.25;
+            word-break: break-word;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            display: -webkit-box;
+            -webkit-line-clamp: 2;
+            -webkit-box-orient: vertical;
+            flex: 1 1 auto;
+            min-width: 0;
+        }
+
+        .tm-kanban-toggle {
+            width: 20px;
+            height: 20px;
+            border: 1px solid var(--tm-border-color);
+            background: transparent;
+            color: var(--tm-secondary-text);
+            border-radius: 6px;
+            cursor: pointer;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            line-height: 1;
+            flex: 0 0 auto;
+        }
+
+        .tm-kanban-toggle:hover {
+            background: var(--tm-table-header-bg);
+            color: var(--tm-text-color);
+        }
+
+        .tm-kanban-card-meta {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 6px;
+            align-items: center;
+            font-size: 12px;
+            color: var(--tm-secondary-text);
+            margin-bottom: 6px;
+        }
+
+        .tm-kanban-chip {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            padding: 2px 8px;
+            border-radius: 999px;
+            font-size: 12px;
+            line-height: 1.1;
+            cursor: pointer;
+            user-select: none;
+            border: 1px solid transparent;
+        }
+
+        .tm-kanban-chip--muted {
+            background: var(--tm-doc-count-bg);
+            color: var(--tm-secondary-text);
+        }
+
+        .tm-kanban-more {
+            border: 1px solid var(--tm-border-color);
+            background: transparent;
+            color: var(--tm-secondary-text);
+            border-radius: 8px;
+            height: 24px;
+            min-width: 28px;
+            padding: 0 8px;
+            cursor: pointer;
+            line-height: 22px;
+        }
+
+        .tm-kanban-more:hover {
+            background: var(--tm-table-header-bg);
+        }
+
+        .tm-task-detail-overlay {
+            position: fixed;
+            inset: 0;
+            background: rgba(0,0,0,0.4);
+            z-index: 200001;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            padding: 20px;
+        }
+
+        .tm-task-detail {
+            width: 520px;
+            max-width: 95vw;
+            max-height: 90vh;
+            overflow: auto;
+            background: var(--tm-bg-color);
+            border: 1px solid var(--tm-border-color);
+            border-radius: 12px;
+            box-shadow: var(--tm-shadow);
+            padding: 16px;
+            color: var(--tm-text-color);
+        }
+
+        .tm-task-detail-row {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 12px;
+            padding: 8px 0;
+            border-bottom: 1px solid var(--tm-border-color);
+        }
+
+        .tm-task-detail-row:last-child {
+            border-bottom: none;
+        }
+
+        .tm-task-detail-label {
+            font-size: 12px;
+            color: var(--tm-secondary-text);
+            flex: 0 0 auto;
+            width: 92px;
+        }
+
+        .tm-task-detail-value {
+            flex: 1 1 auto;
+            min-width: 0;
+        }
+
+        .tm-task-detail-actions {
+            display: flex;
+            justify-content: flex-end;
+            gap: 8px;
+            margin-top: 12px;
         }
 
         .tm-timeline-split {
@@ -1920,8 +2273,12 @@
             queryLimit: 500,
             groupByDocName: true,
             groupByTime: false,
+            defaultViewMode: 'list',
+            kanbanCompactMode: false,
+            kanbanShowDoneColumn: false,
             groupMode: 'doc',
             collapsedTaskIds: [],
+            kanbanCollapsedTaskIds: [],
             currentRule: null,
             filterRules: [],
             fontSize: 14,
@@ -2089,8 +2446,12 @@
                                 if (typeof cloudData.queryLimit === 'number') this.data.queryLimit = cloudData.queryLimit;
                                 if (typeof cloudData.groupByDocName === 'boolean') this.data.groupByDocName = cloudData.groupByDocName;
                                 if (typeof cloudData.groupByTime === 'boolean') this.data.groupByTime = cloudData.groupByTime;
+                                if (typeof cloudData.defaultViewMode === 'string') this.data.defaultViewMode = cloudData.defaultViewMode;
+                                if (typeof cloudData.kanbanCompactMode === 'boolean') this.data.kanbanCompactMode = cloudData.kanbanCompactMode;
+                                if (typeof cloudData.kanbanShowDoneColumn === 'boolean') this.data.kanbanShowDoneColumn = cloudData.kanbanShowDoneColumn;
                                 if (typeof cloudData.groupMode === 'string') this.data.groupMode = cloudData.groupMode;
                                 if (Array.isArray(cloudData.collapsedTaskIds)) this.data.collapsedTaskIds = cloudData.collapsedTaskIds;
+                                if (Array.isArray(cloudData.kanbanCollapsedTaskIds)) this.data.kanbanCollapsedTaskIds = cloudData.kanbanCollapsedTaskIds;
                                 if (Array.isArray(cloudData.collapsedGroups)) this.data.collapsedGroups = cloudData.collapsedGroups;
                                 if (cloudData.currentRule !== undefined) this.data.currentRule = cloudData.currentRule;
                                 if (Array.isArray(cloudData.filterRules)) this.data.filterRules = cloudData.filterRules;
@@ -2197,8 +2558,12 @@
             this.data.queryLimit = Storage.get('tm_query_limit', 500);
             this.data.groupByDocName = Storage.get('tm_group_by_docname', true);
             this.data.groupByTime = Storage.get('tm_group_by_time', false);
+            this.data.defaultViewMode = Storage.get('tm_default_view_mode', this.data.defaultViewMode);
+            this.data.kanbanCompactMode = !!Storage.get('tm_kanban_compact_mode', this.data.kanbanCompactMode);
+            this.data.kanbanShowDoneColumn = !!Storage.get('tm_kanban_show_done_column', this.data.kanbanShowDoneColumn);
             this.data.groupMode = Storage.get('tm_group_mode', this.data.groupMode);
             this.data.collapsedTaskIds = Storage.get('tm_collapsed_task_ids', []) || [];
+            this.data.kanbanCollapsedTaskIds = Storage.get('tm_kanban_collapsed_task_ids', []) || [];
             this.data.collapsedGroups = Storage.get('tm_collapsed_groups', []) || [];
             this.data.currentRule = Storage.get('tm_current_rule', null);
             this.data.filterRules = Storage.get('tm_filter_rules', []);
@@ -2288,8 +2653,12 @@
             Storage.set('tm_query_limit', this.data.queryLimit);
             Storage.set('tm_group_by_docname', this.data.groupByDocName);
             Storage.set('tm_group_by_time', this.data.groupByTime);
+            Storage.set('tm_default_view_mode', String(this.data.defaultViewMode || 'list').trim() || 'list');
+            Storage.set('tm_kanban_compact_mode', !!this.data.kanbanCompactMode);
+            Storage.set('tm_kanban_show_done_column', !!this.data.kanbanShowDoneColumn);
             Storage.set('tm_group_mode', String(this.data.groupMode || '').trim() || 'none');
             Storage.set('tm_collapsed_task_ids', this.data.collapsedTaskIds);
+            Storage.set('tm_kanban_collapsed_task_ids', this.data.kanbanCollapsedTaskIds || []);
             Storage.set('tm_collapsed_groups', this.data.collapsedGroups || []);
             Storage.set('tm_current_rule', this.data.currentRule);
             Storage.set('tm_filter_rules', this.data.filterRules);
@@ -2688,6 +3057,7 @@
 
             // 处理布尔值
             if (field === 'done') {
+                if (String(value) === '__all__') return true;
                 const targetValue = (value === '' || value === null || typeof value === 'undefined')
                     ? true
                     : (value === true || value === 'true');
@@ -5279,6 +5649,63 @@ async function __tmRefreshAfterWake(reason) {
         });
     }
 
+    function showDatePrompt(title, defaultDate) {
+        return new Promise((resolve) => {
+            const existing = document.querySelector('.tm-prompt-modal');
+            if (existing) existing.remove();
+
+            const modal = document.createElement('div');
+            modal.className = 'tm-prompt-modal';
+
+            const d0 = String(defaultDate || '').trim().slice(0, 10);
+            modal.innerHTML = `
+                <div class="tm-prompt-box">
+                    <div class="tm-prompt-title">${title}</div>
+                    <input type="date" class="tm-prompt-input" value="${esc(d0)}" autofocus>
+                    <div class="tm-prompt-buttons" style="justify-content: space-between;">
+                        <button class="tm-prompt-btn tm-prompt-btn-secondary" id="tm-prompt-clear">清空</button>
+                        <div style="display:flex;gap:10px;">
+                            <button class="tm-prompt-btn tm-prompt-btn-secondary" id="tm-prompt-cancel">取消</button>
+                            <button class="tm-prompt-btn tm-prompt-btn-primary" id="tm-prompt-ok">确定</button>
+                        </div>
+                    </div>
+                </div>
+            `;
+
+            document.body.appendChild(modal);
+            const input = modal.querySelector('.tm-prompt-input');
+            const okBtn = modal.querySelector('#tm-prompt-ok');
+            const cancelBtn = modal.querySelector('#tm-prompt-cancel');
+            const clearBtn = modal.querySelector('#tm-prompt-clear');
+
+            okBtn.onclick = () => {
+                const raw = String(input.value || '').trim();
+                modal.remove();
+                resolve(raw ? __tmNormalizeDateOnly(raw) : '');
+            };
+            clearBtn.onclick = () => {
+                modal.remove();
+                resolve('');
+            };
+            cancelBtn.onclick = () => {
+                modal.remove();
+                resolve(null);
+            };
+            input.onclick = () => { try { input.showPicker?.(); } catch (e) {} };
+            input.onkeydown = (e) => {
+                if (e.key === 'Enter') okBtn.click();
+                else if (e.key === 'Escape') cancelBtn.click();
+            };
+            modal.onclick = (e) => {
+                if (e.target === modal) cancelBtn.click();
+            };
+            try {
+                input.focus();
+                input.showPicker?.();
+            } catch (e) {}
+        });
+    }
+
     // 显示规则管理器
     async function showRulesManager() {
         if (state.rulesModal) return;
@@ -5642,6 +6069,7 @@ async function __tmRefreshAfterWake(reason) {
         if (fieldType === 'boolean') {
             return `
                 <select class="tm-rule-condition-value" data-tm-change="updateConditionValue" data-index="${index}">
+                    <option value="__all__" ${String(condition.value) === '__all__' ? 'selected' : ''}>所有状态(忽略不查找已完成父任务)</option>
                     <option value="true" ${condition.value === true || condition.value === 'true' ? 'selected' : ''}>是</option>
                     <option value="false" ${condition.value === false || condition.value === 'false' ? 'selected' : ''}>否</option>
                 </select>
@@ -6948,7 +7376,16 @@ async function __tmRefreshAfterWake(reason) {
             );
         };
 
-        const excludeCompleted = state.excludeCompletedTasks && !currentRuleIncludesCompleted();
+        const currentRuleAllStatuses = () => {
+            if (!rule || !rule.conditions || rule.conditions.length === 0) return false;
+            return rule.conditions.some(condition =>
+                condition.field === 'done' &&
+                condition.operator === '=' &&
+                String(condition.value) === '__all__'
+            );
+        };
+
+        const excludeCompleted = state.excludeCompletedTasks && !currentRuleIncludesCompleted() && !currentRuleAllStatuses();
 
         // 过滤逻辑：
         // 1. 未完成父任务下的所有子任务（无论是否完成）保留显示
@@ -7683,10 +8120,167 @@ async function __tmRefreshAfterWake(reason) {
             `;
         };
 
+        const __tmRenderKanbanBodyHtml = () => {
+            const isGloballyLocked = GlobalLock.isLocked();
+            const isCompact = !!SettingsStore.data.kanbanCompactMode;
+            const showDoneCol = !!SettingsStore.data.kanbanShowDoneColumn;
+            const statusOptionsRaw = Array.isArray(SettingsStore.data.customStatusOptions) ? SettingsStore.data.customStatusOptions : [];
+            const statusOptions = statusOptionsRaw
+                .map(o => ({ id: String(o?.id || '').trim(), name: String(o?.name || '').trim(), color: String(o?.color || '').trim() }))
+                .filter(o => o.id);
+            const todoOpt = statusOptions.find(o => o.id === 'todo') || { id: 'todo', name: '待办', color: '#757575' };
+            const cols = showDoneCol
+                ? [todoOpt, ...statusOptions.filter(o => o.id !== 'todo'), { id: '__done__', name: '已完成', color: '#9e9e9e' }]
+                : [todoOpt, ...statusOptions.filter(o => o.id !== 'todo')];
+
+            const docNameById = new Map();
+            (Array.isArray(state.taskTree) ? state.taskTree : []).forEach(d => {
+                const id = String(d?.id || '').trim();
+                if (id) docNameById.set(id, String(d?.name || '').trim());
+            });
+            (Array.isArray(state.allDocuments) ? state.allDocuments : []).forEach(d => {
+                const id = String(d?.id || '').trim();
+                if (id && !docNameById.has(id)) docNameById.set(id, String(d?.name || '').trim());
+            });
+
+            const filtered = Array.isArray(state.filteredTasks) ? state.filteredTasks : [];
+            const filteredIdList = filtered.map(t => String(t?.id || '').trim()).filter(Boolean);
+            const filteredIdSet = new Set(filteredIdList);
+            const indexById = new Map(filteredIdList.map((id, i) => [id, i]));
+
+            const tasksByStatus = new Map(cols.map(c => [c.id, []]));
+            filtered.forEach(task => {
+                const key = task?.done ? '__done__' : (String(task?.customStatus || '').trim() || 'todo');
+                if (!showDoneCol && key === '__done__') return;
+                if (!tasksByStatus.has(key)) tasksByStatus.set(key, []);
+                tasksByStatus.get(key).push(task);
+            });
+
+            const renderCard = (task, depthInCol, isSub, isChildRoot, parentTxt, childrenHtml, toggleHtml, isParent) => {
+                const id = String(task?.id || '').trim();
+                if (!id) return '';
+                const content = String(task?.content || '').trim();
+                const docName = docNameById.get(String(task?.root_id || '').trim()) || '';
+                const st = String(task?.customStatus || '').trim() || 'todo';
+                const opt = statusOptions.find(o => o.id === st) || (st === 'todo' ? todoOpt : { id: st, name: st, color: '#757575' });
+                const pr = String(task?.priority || '').toLowerCase();
+                const prLabel = pr === 'high' ? '高' : pr === 'medium' ? '中' : pr === 'low' ? '低' : '无';
+                const timeTxt = String(task?.completionTime || '').trim() || String(task?.startDate || '').trim();
+                const dateTxt = timeTxt ? __tmFormatTaskTime(timeTxt) : '';
+                const allChildren = Array.isArray(task?.children) ? task.children : [];
+                const totalChildren = allChildren.length;
+                const completedChildren = totalChildren > 0 ? allChildren.filter(c => c && c.done).length : 0;
+                const remainingChildren = Math.max(0, totalChildren - completedChildren);
+                const childTxt = totalChildren > 0 ? `${remainingChildren}/${totalChildren}` : '';
+                const statusChip = task?.done
+                    ? `<span class="tm-kanban-chip tm-kanban-chip--muted" style="cursor:default;">完成</span>`
+                    : `<span class="tm-kanban-chip" style="background-color:${esc(opt.color || '#757575')};color:#fff;" onclick="tmKanbanOpenStatusSelect('${id}', this, event)">${esc(opt.name || '')}</span>`;
+
+                return `
+                    <div class="tm-kanban-card${isSub ? ' tm-kanban-card--sub' : ''}${isChildRoot ? ' tm-kanban-card--childroot' : ''}${isParent ? ' tm-kanban-card--parent' : ''}" data-id="${id}" draggable="true" ondragstart="tmKanbanDragStart(event, '${id}')" ondragend="tmKanbanDragEnd(event, '${id}')" oncontextmenu="tmShowTaskContextMenu(event, '${id}')" style="${isSub ? '' : ''}">
+                        <div class="tm-kanban-card-top">
+                            <div class="tm-kanban-card-head">
+                                ${toggleHtml || ''}
+                                <input class="tm-task-checkbox ${isGloballyLocked ? 'tm-operating' : ''}"
+                                       type="checkbox" ${task?.done ? 'checked' : ''}
+                                       ${isGloballyLocked ? 'disabled' : ''}
+                                       onchange="tmSetDone('${id}', this.checked, event)">
+                                <span class="tm-kanban-card-title-inline tm-task-content-clickable" onclick="tmJumpToTask('${id}', event)">${esc((content || '(无内容)'))}</span>
+                            </div>
+                            <button class="tm-kanban-more" onclick="tmOpenTaskDetail('${id}', event)">⋯</button>
+                        </div>
+                        ${parentTxt ? `<div class="tm-kanban-parent-line" style="font-size:12px;color:var(--tm-secondary-text);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;margin-bottom:6px;" title="${esc(parentTxt)}"><span>父任务：</span><span style="font-weight:800;color:var(--tm-text-color);">${esc(parentTxt)}</span></div>` : ''}
+                        <div class="tm-kanban-card-meta">
+                            ${statusChip}
+                            <span class="tm-kanban-chip tm-kanban-chip--muted" onclick="tmPickPriority('${id}', this, event)">重要性:${esc(prLabel)}</span>
+                            <span class="tm-kanban-chip tm-kanban-chip--muted" onclick="tmKanbanPickDate('${id}', event)" title="点击设置日期">📅 ${esc(dateTxt || '设置日期')}</span>
+                        </div>
+                        ${docName ? `<div style="font-size:12px;color:var(--tm-secondary-text);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">📄 ${esc(docName)}</div>` : ''}
+                        ${childrenHtml ? `<div class="tm-kanban-subtasks">${childrenHtml}</div>` : ''}
+                    </div>
+                `;
+            };
+
+            const colsHtml = cols.map(c => {
+                const list0 = tasksByStatus.get(c.id) || [];
+                const map = new Map();
+                list0.forEach(t => {
+                    const id = String(t?.id || '').trim();
+                    if (id) map.set(id, t);
+                });
+                const childrenByParent = new Map();
+                list0.forEach(t => {
+                    const id = String(t?.id || '').trim();
+                    const pid = String(t?.parentTaskId || '').trim();
+                    if (!id || !pid) return;
+                    if (!map.has(pid)) return;
+                    if (!childrenByParent.has(pid)) childrenByParent.set(pid, []);
+                    childrenByParent.get(pid).push(t);
+                });
+                const roots = list0.filter(t => {
+                    const pid = String(t?.parentTaskId || '').trim();
+                    return !pid || !map.has(pid);
+                });
+                const getIdx = (t) => indexById.get(String(t?.id || '').trim()) ?? 999999;
+                const sortByIdx = (a, b) => getIdx(a) - getIdx(b);
+                roots.sort(sortByIdx);
+                childrenByParent.forEach(arr => arr.sort(sortByIdx));
+
+                const renderTree = (task, depthInCol) => {
+                    const id = String(task?.id || '').trim();
+                    const pid = String(task?.parentTaskId || '').trim();
+                    const parentInCol = !!(pid && map.has(pid));
+                    const parent = pid ? state.flatTasks[pid] : null;
+                    const parentTxt = (depthInCol > 0 && parent) ? String(parent.content || '').trim() : ((!parentInCol && parent) ? String(parent.content || '').trim() : '');
+                    const childList = childrenByParent.get(id) || [];
+                    const collapsed = childList.length ? __tmKanbanGetCollapsedSet().has(id) : false;
+                    const toggleHtml = childList.length
+                        ? `<button class="tm-kanban-toggle" onclick="tmKanbanToggleCollapse('${id}', event)" title="${collapsed ? '展开子任务' : '折叠子任务'}">${collapsed ? '▸' : '▾'}</button>`
+                        : '';
+                    const childrenHtml = (!collapsed && childList.length) ? childList.map(ch => renderTree(ch, depthInCol + 1)).join('') : '';
+                    return renderCard(
+                        task,
+                        depthInCol,
+                        depthInCol > 0,
+                        depthInCol === 0 && !!pid,
+                        parentTxt,
+                        childrenHtml,
+                        toggleHtml,
+                        depthInCol === 0 && childList.length > 0
+                    );
+                };
+
+                const listHtml = roots.length ? roots.map(t => renderTree(t, 0)).join('') : '';
+                const count = list0.length;
+                const title = c.id === '__done__' ? '✅ 已完成' : c.id === 'todo' ? `🗂️ ${c.name}` : c.name;
+                return `
+                    <div class="tm-kanban-col" data-status="${esc(c.id)}">
+                        <div class="tm-kanban-col-header">
+                            <div class="tm-kanban-col-title tm-kanban-col-title--pill" style="background-color:${esc(c.color || '#757575')};color:#fff;" title="${esc(c.name)}">${esc(title)}</div>
+                            <span class="tm-badge tm-badge--count">${count}</span>
+                        </div>
+                        <div class="tm-kanban-col-body" ondragover="tmKanbanDragOver(event)" ondragleave="tmKanbanDragLeave(event)" ondrop="tmKanbanDrop(event)">
+                            ${listHtml || `<div style="color:var(--tm-secondary-text);font-size:12px;padding:8px 4px;">空</div>`}
+                        </div>
+                    </div>
+                `;
+            }).join('');
+
+            return `
+                <div class="tm-body tm-body--kanban${bodyAnimClass}${isCompact ? ' tm-body--kanban-compact' : ''}" ondragover="tmKanbanAutoScroll(event)">
+                    <div class="tm-kanban${isCompact ? ' tm-kanban--compact' : ''}">
+                        ${colsHtml}
+                    </div>
+                </div>
+            `;
+        };
+
         const __tmTimelineRowModel = state.viewMode === 'timeline' ? __tmBuildTaskRowModel() : null;
         const mainBodyHtml = state.viewMode === 'timeline'
             ? __tmRenderTimelineBodyHtml(__tmTimelineRowModel)
-            : __tmRenderListBodyHtml();
+            : state.viewMode === 'kanban'
+                ? __tmRenderKanbanBodyHtml()
+                : __tmRenderListBodyHtml();
         
         state.modal.innerHTML = `
             <div class="tm-box">
@@ -7750,6 +8344,7 @@ async function __tmRefreshAfterWake(reason) {
                     <div class="tm-search-box tm-desktop-toolbar" style="flex-wrap: wrap;">
                         <button class="tm-btn tm-btn-info" onclick="tmRefresh()" style="padding: 4px 10px;" title="刷新">🔄️</button>
                         <button class="tm-btn tm-btn-info ${state.viewMode === 'timeline' ? 'tm-filter-active' : ''}" onclick="tmToggleTimelineMode()" style="padding: 4px 10px;" title="切换时间轴模式">🗓️ 时间轴</button>
+                        <button class="tm-btn tm-btn-info ${state.viewMode === 'kanban' ? 'tm-filter-active' : ''}" onclick="tmToggleKanbanMode()" style="padding: 4px 10px;" title="切换看板模式">🧱 看板</button>
                         ${state.viewMode === 'timeline' ? `
                             <button class="tm-btn tm-btn-info" onclick="tmGanttZoomOut()" style="padding: 4px 10px;" title="缩小">－</button>
                             <button class="tm-btn tm-btn-info" onclick="tmGanttZoomIn()" style="padding: 4px 10px;" title="放大">＋</button>
@@ -7791,6 +8386,9 @@ async function __tmRefreshAfterWake(reason) {
                                 <div class="tm-mobile-only-item" style="display:flex; gap:10px;">
                                     <button class="tm-btn tm-btn-info" onclick="tmToggleTimelineMode(); try{document.getElementById('tmMobileMenu').style.display='none';}catch(e){}" style="flex:1; padding: 6px;">
                                         🗓️ 时间轴 ${state.viewMode === 'timeline' ? '(开)' : ''}
+                                    </button>
+                                    <button class="tm-btn tm-btn-info" onclick="tmToggleKanbanMode(); try{document.getElementById('tmMobileMenu').style.display='none';}catch(e){}" style="flex:1; padding: 6px;">
+                                        🧱 看板 ${state.viewMode === 'kanban' ? '(开)' : ''}
                                     </button>
                                 </div>
                                 ${state.viewMode === 'timeline' ? `
@@ -7987,6 +8585,7 @@ async function __tmRefreshAfterWake(reason) {
             </div>
         `;
         
+        try { if (state.viewMode === 'kanban') __tmBindKanbanPan(state.modal); } catch (e) {}
         __tmGetMountRoot().appendChild(state.modal);
 
         // 恢复滚动位置
@@ -8223,7 +8822,7 @@ async function __tmRefreshAfterWake(reason) {
         }
         const prevDoneOnly = !!state.__tmQueryDoneOnly;
         const nextRule = ruleId ? state.filterRules.find(r => r.id === ruleId) : null;
-        const nextDoneOnly = !!(nextRule && nextRule.conditions && nextRule.conditions.some(c => c && c.field === 'done' && c.operator === '=' && (c.value === true || String(c.value) === 'true' || c.value === '')));
+        const nextDoneOnly = !!(nextRule && nextRule.conditions && nextRule.conditions.some(c => c && c.field === 'done' && c.operator === '=' && (c.value === true || String(c.value) === 'true' || c.value === '') && String(c.value) !== '__all__'));
         state.__tmQueryDoneOnly = nextDoneOnly;
         if (prevDoneOnly !== nextDoneOnly) {
             await loadSelectedDocuments();
@@ -8283,6 +8882,302 @@ async function __tmRefreshAfterWake(reason) {
         state.uiAnimKind = '';
         state.uiAnimTs = 0;
         render();
+    };
+
+    window.tmToggleKanbanMode = function() {
+        const next = state.viewMode === 'kanban' ? 'list' : 'kanban';
+        state.viewMode = next;
+        state.uiAnimKind = '';
+        state.uiAnimTs = 0;
+        render();
+    };
+
+    function __tmKanbanClearDragOver(modalEl) {
+        const modal = modalEl instanceof Element ? modalEl : state.modal;
+        if (!modal) return;
+        try {
+            const cols = modal.querySelectorAll('.tm-kanban-col.tm-kanban-col--dragover');
+            cols.forEach(el => { try { el.classList.remove('tm-kanban-col--dragover'); } catch (e) {} });
+        } catch (e) {}
+    }
+
+    function __tmKanbanGetCollapsedSet() {
+        if (!(state.__tmKanbanCollapsedIds instanceof Set)) state.__tmKanbanCollapsedIds = new Set();
+        return state.__tmKanbanCollapsedIds;
+    }
+
+    function __tmKanbanPersistCollapsed() {
+        try {
+            const s = __tmKanbanGetCollapsedSet();
+            const arr = Array.from(s).map(x => String(x || '').trim()).filter(Boolean);
+            SettingsStore.data.kanbanCollapsedTaskIds = arr;
+            try { Storage.set('tm_kanban_collapsed_task_ids', arr); } catch (e) {}
+            SettingsStore.save();
+        } catch (e) {}
+    }
+
+    window.tmKanbanToggleCollapse = function(id, ev) {
+        try {
+            ev?.stopPropagation?.();
+            ev?.preventDefault?.();
+        } catch (e) {}
+        const tid = String(id || '').trim();
+        if (!tid) return;
+        const s = __tmKanbanGetCollapsedSet();
+        if (s.has(tid)) s.delete(tid);
+        else s.add(tid);
+        __tmKanbanPersistCollapsed();
+        render();
+    };
+
+    function __tmKanbanCollectDescendantIds(rootId) {
+        const id0 = String(rootId || '').trim();
+        if (!id0) return [];
+        const out = [];
+        const seen = new Set();
+        const walk = (id) => {
+            const tid = String(id || '').trim();
+            if (!tid || seen.has(tid)) return;
+            seen.add(tid);
+            out.push(tid);
+            const t = state.flatTasks[tid];
+            const kids = Array.isArray(t?.children) ? t.children : [];
+            kids.forEach(k => walk(k?.id));
+        };
+        walk(id0);
+        return out;
+    }
+
+    async function __tmKanbanWaitForUnlock(timeoutMs = 8000) {
+        const start = Date.now();
+        while (GlobalLock.isLocked()) {
+            if (Date.now() - start > timeoutMs) return false;
+            await new Promise(r => setTimeout(r, 32));
+        }
+        return true;
+    }
+
+    window.tmKanbanDragStart = function(ev, id) {
+        const taskId = String(id || '').trim();
+        if (!taskId) return;
+        try { ev.dataTransfer.effectAllowed = 'move'; } catch (e) {}
+        try { ev.dataTransfer.setData('text/plain', taskId); } catch (e) {}
+        state.__tmKanbanDragId = taskId;
+        state.__tmKanbanDragIds = [taskId];
+        try { ev.currentTarget?.classList?.add?.('tm-kanban-card--dragging'); } catch (e) {}
+    };
+
+    window.tmKanbanDragEnd = function(ev, id) {
+        try { ev.currentTarget?.classList?.remove?.('tm-kanban-card--dragging'); } catch (e) {}
+        try { delete state.__tmKanbanDragId; } catch (e) {}
+        try { delete state.__tmKanbanDragIds; } catch (e) {}
+        __tmKanbanClearDragOver();
+    };
+
+    window.tmKanbanDragOver = function(ev) {
+        try { ev.preventDefault(); } catch (e) {}
+        try { ev.dataTransfer.dropEffect = 'move'; } catch (e) {}
+        const col = ev?.target instanceof Element ? ev.target.closest('.tm-kanban-col') : null;
+        if (!col) return;
+        try {
+            if (!col.classList.contains('tm-kanban-col--dragover')) {
+                __tmKanbanClearDragOver();
+                col.classList.add('tm-kanban-col--dragover');
+            }
+        } catch (e) {}
+    };
+
+    window.tmKanbanDragLeave = function(ev) {
+        const col = ev?.target instanceof Element ? ev.target.closest('.tm-kanban-col') : null;
+        if (!col) return;
+        const rel = ev?.relatedTarget instanceof Element ? ev.relatedTarget : null;
+        if (rel && col.contains(rel)) return;
+        try { col.classList.remove('tm-kanban-col--dragover'); } catch (e) {}
+    };
+
+    window.tmKanbanAutoScroll = function(ev) {
+        try { ev.preventDefault(); } catch (e) {}
+        const modal = state.modal;
+        if (!modal) return;
+        const body = modal.querySelector('.tm-body.tm-body--kanban');
+        if (!body) return;
+        const rect = body.getBoundingClientRect();
+        const x = ev.clientX;
+        const y = ev.clientY;
+        const edge = 48;
+        const speed = 18;
+
+        const dx = x < rect.left + edge ? -speed : x > rect.right - edge ? speed : 0;
+        const dy = y < rect.top + edge ? -speed : y > rect.bottom - edge ? speed : 0;
+        if (!dx && !dy) return;
+
+        const prevTs = Number(state.__tmKanbanAutoScrollTs) || 0;
+        const now = Date.now();
+        if (now - prevTs < 16) return;
+        state.__tmKanbanAutoScrollTs = now;
+
+        try { if (dx) body.scrollLeft += dx; } catch (e) {}
+        try {
+            if (dy) {
+                const col = ev?.target instanceof Element ? ev.target.closest('.tm-kanban-col') : null;
+                const colBody = col?.querySelector?.('.tm-kanban-col-body');
+                if (colBody) colBody.scrollTop += dy;
+            }
+        } catch (e) {}
+    };
+
+    function __tmBindKanbanPan(modalEl) {
+        const modal = modalEl instanceof Element ? modalEl : state.modal;
+        if (!modal) return;
+        const bodyEl = modal.querySelector('.tm-body.tm-body--kanban');
+        if (!bodyEl) return;
+        if (String(bodyEl.dataset?.tmKanbanPanBound || '') === '1') return;
+        bodyEl.dataset.tmKanbanPanBound = '1';
+        const clamp0 = (n, min, max) => Math.max(min, Math.min(max, n));
+
+        const onPanPointerDown = (e) => {
+            const target = e?.target;
+            if (!(target instanceof Element)) return;
+            if (e && typeof e.button === 'number' && e.button !== 0) return;
+            if (target.closest('input,button,select,textarea,a')) return;
+            if (target.closest('.tm-kanban-card,.tm-kanban-chip,.tm-kanban-more,.tm-kanban-toggle,.tm-task-checkbox,.tm-task-content-clickable')) return;
+            if ((bodyEl.scrollWidth - bodyEl.clientWidth) <= 2) return;
+
+            const startX = e.clientX;
+            const startY = e.clientY;
+            const baseScrollLeft = bodyEl.scrollLeft;
+            let active = false;
+            let ended = false;
+            let winMoveBound = false;
+            const threshold = 6;
+
+            const cleanup = () => {
+                if (ended) return;
+                ended = true;
+                if (winMoveBound) {
+                    try { window.removeEventListener('pointermove', onWinMove, true); } catch (e2) {}
+                    try { window.removeEventListener('pointerup', onWinUp, true); } catch (e2) {}
+                    try { window.removeEventListener('pointercancel', onWinUp, true); } catch (e2) {}
+                    try { window.removeEventListener('blur', onWinUp, true); } catch (e2) {}
+                }
+                try { bodyEl.style.cursor = ''; } catch (e2) {}
+                try { bodyEl.style.userSelect = ''; } catch (e2) {}
+            };
+
+            const onWinMove = (ev) => {
+                if (ended) return;
+                const dx = ev.clientX - startX;
+                const dy = ev.clientY - startY;
+                if (!active) {
+                    if (Math.abs(dx) < threshold) return;
+                    if (Math.abs(dx) <= Math.abs(dy)) return;
+                    active = true;
+                    try { bodyEl.setPointerCapture?.(e.pointerId); } catch (e2) {}
+                    try { bodyEl.style.cursor = 'grabbing'; } catch (e2) {}
+                    try { bodyEl.style.userSelect = 'none'; } catch (e2) {}
+                }
+                const maxLeft = Math.max(0, bodyEl.scrollWidth - bodyEl.clientWidth);
+                bodyEl.scrollLeft = clamp0(baseScrollLeft - dx, 0, maxLeft);
+                try { ev.preventDefault(); } catch (e2) {}
+            };
+
+            const onWinUp = () => cleanup();
+
+            winMoveBound = true;
+            window.addEventListener('pointermove', onWinMove, true);
+            window.addEventListener('pointerup', onWinUp, true);
+            window.addEventListener('pointercancel', onWinUp, true);
+            window.addEventListener('blur', onWinUp, true);
+        };
+
+        bodyEl.addEventListener('pointerdown', onPanPointerDown, { passive: false });
+    }
+
+    async function __tmKanbanMoveIdsToStatus(taskIds, targetStatus) {
+        const st = String(targetStatus || '').trim();
+        const ids0 = Array.isArray(taskIds) ? taskIds : [];
+        const ids = Array.from(new Set(ids0.map(x => String(x || '').trim()).filter(Boolean)));
+        if (!ids.length || !st) return;
+        if (GlobalLock.isLocked()) {
+            hint('⚠ 操作频繁，请稍后再试', 'warning');
+            return;
+        }
+
+        const isDoneCol = st === '__done__';
+        for (const id of ids) {
+            const t0 = state.flatTasks[id];
+            if (!t0) continue;
+
+            if (isDoneCol) {
+                if (!t0.done) {
+                    const ok0 = await __tmKanbanWaitForUnlock();
+                    if (!ok0) break;
+                    await tmSetDone(id, true);
+                    await __tmKanbanWaitForUnlock();
+                }
+                continue;
+            }
+
+            if (t0.done) {
+                const ok0 = await __tmKanbanWaitForUnlock();
+                if (!ok0) break;
+                await tmSetDone(id, false);
+                await __tmKanbanWaitForUnlock();
+            }
+
+            const t = state.flatTasks[id];
+            if (!t) continue;
+            const prev = String(t.customStatus || '').trim() || 'todo';
+            if (prev === st) continue;
+            t.customStatus = st;
+            try {
+                await __tmPersistMetaAndAttrsAsync(id, { customStatus: st });
+            } catch (e) {
+                hint(`❌ 状态更新失败: ${e.message}`, 'error');
+                return;
+            }
+        }
+
+        applyFilters();
+        render();
+    }
+
+    window.tmKanbanDrop = function(ev) {
+        try { ev.preventDefault(); } catch (e) {}
+        const col = ev?.target instanceof Element ? ev.target.closest('.tm-kanban-col') : null;
+        const st = String(col?.dataset?.status || '').trim();
+        __tmKanbanClearDragOver();
+        let id = '';
+        try { id = String(ev.dataTransfer.getData('text/plain') || '').trim(); } catch (e) {}
+        if (!id) id = String(state.__tmKanbanDragId || '').trim();
+        if (!id || !st) return;
+        const ids = Array.isArray(state.__tmKanbanDragIds) && state.__tmKanbanDragIds.length ? state.__tmKanbanDragIds : [id];
+        __tmKanbanMoveIdsToStatus(ids, st).catch(e => {
+            hint(`❌ 操作失败: ${e.message}`, 'error');
+        });
+    };
+
+    window.tmKanbanPickDate = async function(id, ev) {
+        try {
+            ev?.stopPropagation?.();
+            ev?.preventDefault?.();
+        } catch (e) {}
+        const tid = String(id || '').trim();
+        if (!tid) return;
+        const task = state.flatTasks[tid];
+        if (!task) return;
+        const current = String(task.completionTime || '').trim() || String(task.startDate || '').trim();
+        const next = await showDatePrompt('设置日期', current);
+        if (next == null) return;
+        try {
+            task.completionTime = String(next || '').trim();
+            await __tmPersistMetaAndAttrsAsync(tid, { completionTime: String(next || '').trim() });
+            applyFilters();
+            render();
+            hint(next ? '✅ 日期已更新' : '✅ 日期已清空', 'success');
+        } catch (e) {
+            hint(`❌ 更新失败: ${e.message}`, 'error');
+        }
     };
 
     window.tmGanttZoomIn = function() {
@@ -11726,6 +12621,219 @@ async function __tmRefreshAfterWake(reason) {
         });
     };
 
+    window.tmKanbanOpenStatusSelect = function(id, el, ev) {
+        try {
+            ev?.stopPropagation?.();
+            ev?.preventDefault?.();
+        } catch (e) {}
+        const task = state.flatTasks[id];
+        if (!task || !(el instanceof Element)) return;
+
+        __tmOpenInlineEditor(el, ({ editor, close }) => {
+            const options = SettingsStore.data.customStatusOptions || [];
+            const maxLen = options.reduce((m, o) => Math.max(m, String(o?.name || '').length), 0);
+            const w = Math.min(260, Math.max(110, maxLen * 14 + 38));
+            editor.style.minWidth = '0';
+            editor.style.width = `${w}px`;
+            editor.style.padding = '8px';
+            const wrap = document.createElement('div');
+            wrap.style.display = 'flex';
+            wrap.style.flexDirection = 'column';
+            wrap.style.gap = '4px';
+            options.forEach(opt => {
+                const b = document.createElement('button');
+                b.className = 'tm-btn';
+                b.style.padding = '4px 8px';
+                b.style.fontSize = '12px';
+                b.style.textAlign = 'left';
+                b.style.backgroundColor = opt.color;
+                b.style.color = '#fff';
+                b.style.border = 'none';
+                b.textContent = opt.name;
+                b.onclick = async () => {
+                    try {
+                        task.customStatus = opt.id;
+                        __tmPersistMetaAndAttrs(id, { customStatus: opt.id });
+                        close();
+                        applyFilters();
+                        render();
+                    } catch (e) {
+                        hint(`❌ 更新失败: ${e.message}`, 'error');
+                    }
+                };
+                wrap.appendChild(b);
+            });
+            editor.appendChild(wrap);
+        });
+    };
+
+    window.tmOpenTaskDetail = function(id, ev) {
+        try {
+            ev?.stopPropagation?.();
+            ev?.preventDefault?.();
+        } catch (e) {}
+        const task = state.flatTasks[String(id || '').trim()];
+        if (!task) return;
+
+        __tmRemoveElementsById('tm-task-detail-overlay');
+
+        const overlay = document.createElement('div');
+        overlay.id = 'tm-task-detail-overlay';
+        overlay.className = 'tm-task-detail-overlay';
+
+        const statusOptionsRaw = Array.isArray(SettingsStore.data.customStatusOptions) ? SettingsStore.data.customStatusOptions : [];
+        const statusOptions = statusOptionsRaw
+            .map(o => ({ id: String(o?.id || '').trim(), name: String(o?.name || '').trim() }))
+            .filter(o => o.id);
+        if (!statusOptions.some(o => o.id === 'todo')) statusOptions.unshift({ id: 'todo', name: '待办' });
+
+        const curStatus = String(task.customStatus || '').trim() || 'todo';
+        const curPriority = String(task.priority || '').toLowerCase();
+        const curPinned = !!task.pinned;
+
+        overlay.innerHTML = `
+            <div class="tm-task-detail" role="dialog" aria-modal="true">
+                <div style="display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:10px;">
+                    <div style="font-size:16px;font-weight:800;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">任务详情</div>
+                    <button class="tm-btn tm-btn-gray" data-tm-detail="close" style="padding:0 10px;height:30px;display:inline-flex;align-items:center;justify-content:center;">✖</button>
+                </div>
+
+                <div class="tm-task-detail-row">
+                    <div class="tm-task-detail-label">内容</div>
+                    <div class="tm-task-detail-value" style="display:flex;gap:8px;align-items:center;">
+                        <div style="flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="${esc(task.content || '')}">${esc(task.content || '') || '(无内容)'}</div>
+                        <button class="tm-btn tm-btn-info" data-tm-detail="editContent" style="padding:0 10px;height:30px;">编辑</button>
+                    </div>
+                </div>
+
+                <div class="tm-task-detail-row">
+                    <div class="tm-task-detail-label">状态</div>
+                    <div class="tm-task-detail-value">
+                        <select class="tm-rule-select" data-tm-detail="status">
+                            ${statusOptions.map(o => `<option value="${esc(o.id)}" ${o.id === curStatus ? 'selected' : ''}>${esc(o.name)}</option>`).join('')}
+                        </select>
+                    </div>
+                </div>
+
+                <div class="tm-task-detail-row">
+                    <div class="tm-task-detail-label">重要性</div>
+                    <div class="tm-task-detail-value">
+                        <select class="tm-rule-select" data-tm-detail="priority">
+                            <option value="" ${!curPriority ? 'selected' : ''}>无</option>
+                            <option value="high" ${curPriority === 'high' ? 'selected' : ''}>高</option>
+                            <option value="medium" ${curPriority === 'medium' ? 'selected' : ''}>中</option>
+                            <option value="low" ${curPriority === 'low' ? 'selected' : ''}>低</option>
+                        </select>
+                    </div>
+                </div>
+
+                <div class="tm-task-detail-row">
+                    <div class="tm-task-detail-label">置顶</div>
+                    <div class="tm-task-detail-value">
+                        <label style="display:inline-flex;align-items:center;gap:8px;">
+                            <input type="checkbox" data-tm-detail="pinned" ${curPinned ? 'checked' : ''}>
+                            <span style="color:var(--tm-secondary-text);font-size:12px;">在列表/看板中置顶</span>
+                        </label>
+                    </div>
+                </div>
+
+                <div class="tm-task-detail-row">
+                    <div class="tm-task-detail-label">开始日期</div>
+                    <div class="tm-task-detail-value">
+                        <input class="tm-input" type="date" data-tm-detail="startDate" value="${esc(String(task.startDate || '').trim().slice(0, 10))}">
+                    </div>
+                </div>
+
+                <div class="tm-task-detail-row">
+                    <div class="tm-task-detail-label">完成时间</div>
+                    <div class="tm-task-detail-value">
+                        <input class="tm-input" type="date" data-tm-detail="completionTime" value="${esc(String(task.completionTime || '').trim().slice(0, 10))}">
+                    </div>
+                </div>
+
+                <div class="tm-task-detail-row">
+                    <div class="tm-task-detail-label">时长</div>
+                    <div class="tm-task-detail-value">
+                        <input class="tm-input" data-tm-detail="duration" placeholder="如 1h / 30min" value="${esc(task.duration || '')}">
+                    </div>
+                </div>
+
+                <div class="tm-task-detail-row">
+                    <div class="tm-task-detail-label">备注</div>
+                    <div class="tm-task-detail-value">
+                        <input class="tm-input" data-tm-detail="remark" value="${esc(task.remark || '')}">
+                    </div>
+                </div>
+
+                <div class="tm-task-detail-actions">
+                    <button class="tm-btn tm-btn-secondary" data-tm-detail="cancel" style="padding:0 12px;height:32px;">取消</button>
+                    <button class="tm-btn tm-btn-primary" data-tm-detail="save" style="padding:0 12px;height:32px;">保存</button>
+                </div>
+            </div>
+        `;
+
+        const close = () => { try { overlay.remove(); } catch (e) {} };
+        overlay.addEventListener('click', (e) => {
+            if (e.target === overlay) close();
+        });
+        overlay.querySelector('[data-tm-detail="close"]')?.addEventListener('click', close);
+        overlay.querySelector('[data-tm-detail="cancel"]')?.addEventListener('click', close);
+        overlay.querySelector('[data-tm-detail="editContent"]')?.addEventListener('click', () => {
+            close();
+            tmEdit(id);
+        });
+        try {
+            const dateInputs = overlay.querySelectorAll('input[type="date"][data-tm-detail]');
+            dateInputs.forEach(inp => {
+                inp.addEventListener('click', () => { try { inp.showPicker?.(); } catch (e) {} });
+            });
+        } catch (e) {}
+        overlay.querySelector('[data-tm-detail="save"]')?.addEventListener('click', async () => {
+            const normalize = (s) => {
+                const v = String(s || '').trim();
+                if (!v) return '';
+                try { if (typeof __tmNormalizeDateOnly === 'function') return __tmNormalizeDateOnly(v); } catch (e) {}
+                return v;
+            };
+            const nextStatus = String(overlay.querySelector('[data-tm-detail="status"]')?.value || '').trim() || 'todo';
+            const nextPriority = String(overlay.querySelector('[data-tm-detail="priority"]')?.value || '').trim();
+            const nextPinned = !!overlay.querySelector('[data-tm-detail="pinned"]')?.checked;
+            const nextStart = normalize(overlay.querySelector('[data-tm-detail="startDate"]')?.value);
+            const nextEnd = normalize(overlay.querySelector('[data-tm-detail="completionTime"]')?.value);
+            const nextDuration = String(overlay.querySelector('[data-tm-detail="duration"]')?.value || '').trim();
+            const nextRemark = String(overlay.querySelector('[data-tm-detail="remark"]')?.value || '').trim();
+
+            const patch = {
+                customStatus: nextStatus,
+                priority: nextPriority,
+                pinned: nextPinned ? '1' : '',
+                startDate: nextStart,
+                completionTime: nextEnd,
+                duration: nextDuration,
+                remark: nextRemark
+            };
+
+            try {
+                task.customStatus = nextStatus;
+                task.priority = nextPriority;
+                task.pinned = nextPinned;
+                task.startDate = nextStart;
+                task.completionTime = nextEnd;
+                task.duration = nextDuration;
+                task.remark = nextRemark;
+                await __tmPersistMetaAndAttrsAsync(String(id || '').trim(), patch);
+                close();
+                applyFilters();
+                render();
+                hint('✅ 已保存', 'success');
+            } catch (e) {
+                hint(`❌ 保存失败: ${e.message}`, 'error');
+            }
+        });
+
+        document.body.appendChild(overlay);
+    };
+
     // 辅助：手动插入任务到树中（支持位置控制）
     // position: 'before' | 'after' | 'child'
     // Removed manualInsertTaskToTree
@@ -12746,7 +13854,7 @@ async function __tmRefreshAfterWake(reason) {
         // 加载筛选规则
         state.filterRules = await RuleManager.initRules();
         const currentRule = state.currentRule ? state.filterRules.find(r => r.id === state.currentRule) : null;
-        state.__tmQueryDoneOnly = !!(currentRule && currentRule.conditions && currentRule.conditions.some(c => c && c.field === 'done' && c.operator === '=' && (c.value === true || String(c.value) === 'true' || c.value === '')));
+        state.__tmQueryDoneOnly = !!(currentRule && currentRule.conditions && currentRule.conditions.some(c => c && c.field === 'done' && c.operator === '=' && (c.value === true || String(c.value) === 'true' || c.value === '') && String(c.value) !== '__all__'));
 
         // 1. 解析所有需要查询的文档ID
         const allDocIds = await resolveDocIdsFromGroups();
@@ -13244,6 +14352,22 @@ async function __tmRefreshAfterWake(reason) {
                         <div style="font-size: 12px; color: var(--tm-secondary-text); margin-top: 6px; margin-bottom: 12px;">
                             开启后仅查找未完成任务。含有子任务的任务，如果父任务未完成，已完成的子任务仍会显示。
                         </div>
+                        <div style="display:flex;align-items:center;gap:8px;margin-bottom:10px;flex-wrap:wrap;">
+                            <span style="font-size:12px;color:var(--tm-secondary-text);">默认视图:</span>
+                            <select onchange="updateDefaultViewMode(this.value)" style="padding: 4px 8px; border: 1px solid var(--tm-input-border); background: var(--tm-input-bg); color: var(--tm-text-color); border-radius: 4px;">
+                                <option value="list" ${String(SettingsStore.data.defaultViewMode || 'list') === 'list' ? 'selected' : ''}>表格视图</option>
+                                <option value="timeline" ${String(SettingsStore.data.defaultViewMode || '') === 'timeline' ? 'selected' : ''}>时间轴视图</option>
+                                <option value="kanban" ${String(SettingsStore.data.defaultViewMode || '') === 'kanban' ? 'selected' : ''}>看板视图</option>
+                            </select>
+                        </div>
+                        <label style="display:flex;align-items:center;gap:8px;cursor:pointer;margin-bottom:10px;">
+                            <input type="checkbox" ${SettingsStore.data.kanbanCompactMode ? 'checked' : ''} onchange="updateKanbanCompactMode(this.checked)">
+                            看板紧凑模式（更窄更矮，显示更多卡片）
+                        </label>
+                        <label style="display:flex;align-items:center;gap:8px;cursor:pointer;margin-bottom:10px;">
+                            <input type="checkbox" ${SettingsStore.data.kanbanShowDoneColumn ? 'checked' : ''} onchange="updateKanbanShowDoneColumn(this.checked)">
+                            看板显示“已完成”列
+                        </label>
                         <div style="display:flex;align-items:center;gap:8px;">
                             <span style="font-size:12px;color:var(--tm-secondary-text);">时长显示格式:</span>
                             <select onchange="updateDurationFormat(this.value)" style="padding: 4px 8px; border: 1px solid var(--tm-input-border); background: var(--tm-input-bg); color: var(--tm-text-color); border-radius: 4px;">
@@ -14279,6 +15403,33 @@ async function __tmRefreshAfterWake(reason) {
         }
     };
 
+    window.updateDefaultViewMode = async function(mode) {
+        const m0 = String(mode || '').trim();
+        const allow = new Set(['list', 'timeline', 'kanban']);
+        const next = allow.has(m0) ? m0 : 'list';
+        SettingsStore.data.defaultViewMode = next;
+        await SettingsStore.save();
+        showSettings();
+    };
+
+    window.updateKanbanCompactMode = async function(enabled) {
+        SettingsStore.data.kanbanCompactMode = !!enabled;
+        await SettingsStore.save();
+        showSettings();
+        if (state.modal && document.body.contains(state.modal)) {
+            render();
+        }
+    };
+
+    window.updateKanbanShowDoneColumn = async function(enabled) {
+        SettingsStore.data.kanbanShowDoneColumn = !!enabled;
+        await SettingsStore.save();
+        showSettings();
+        if (state.modal && document.body.contains(state.modal)) {
+            render();
+        }
+    };
+
     window.updateDurationFormat = async function(format) {
         const v = String(format || '').trim();
         SettingsStore.data.durationFormat = (v === 'minutes') ? 'minutes' : 'hours';
@@ -14544,6 +15695,29 @@ async function __tmRefreshAfterWake(reason) {
     };
 
     window.tmCollapseAllTasks = async function() {
+        if (state.viewMode === 'kanban') {
+            const filtered = Array.isArray(state.filteredTasks) ? state.filteredTasks : [];
+            const filteredIdSet = new Set(filtered.map(t => String(t?.id || '').trim()).filter(Boolean));
+            const colKey = (t) => (t?.done ? '__done__' : (String(t?.customStatus || '').trim() || 'todo'));
+            const collapsed = __tmKanbanGetCollapsedSet();
+            filtered.forEach(t => {
+                const id = String(t?.id || '').trim();
+                if (!id) return;
+                const kids = Array.isArray(t?.children) ? t.children : [];
+                if (!kids.length) return;
+                const k0 = colKey(t);
+                const hasSameColChild = kids.some(c => {
+                    const cid = String(c?.id || '').trim();
+                    if (!cid || !filteredIdSet.has(cid)) return false;
+                    const ct = state.flatTasks[cid] || c;
+                    return colKey(ct) === k0;
+                });
+                if (hasSameColChild) collapsed.add(id);
+            });
+            __tmKanbanPersistCollapsed();
+            render();
+            return;
+        }
         const filteredSet = new Set(state.filteredTasks.map(t => t.id));
         const next = new Set(state.collapsedTaskIds || []);
         const applyCollapse = (list) => {
@@ -14570,6 +15744,12 @@ async function __tmRefreshAfterWake(reason) {
     };
 
     window.tmExpandAllTasks = async function() {
+        if (state.viewMode === 'kanban') {
+            __tmKanbanGetCollapsedSet().clear();
+            __tmKanbanPersistCollapsed();
+            render();
+            return;
+        }
         state.collapsedTaskIds = new Set();
         SettingsStore.data.collapsedTaskIds = [];
         try { Storage.set('tm_collapsed_task_ids', []); } catch (e) {}
@@ -15181,6 +16361,19 @@ async function __tmRefreshAfterWake(reason) {
         state.wasHidden = false;
 
         await SettingsStore.load();
+        try {
+            const allow = new Set(['list', 'timeline', 'kanban']);
+            const m0 = String(SettingsStore.data.defaultViewMode || 'list').trim();
+            state.viewMode = allow.has(m0) ? m0 : 'list';
+        } catch (e) {
+            state.viewMode = 'list';
+        }
+        try {
+            const ids = Array.isArray(SettingsStore.data.kanbanCollapsedTaskIds) ? SettingsStore.data.kanbanCollapsedTaskIds : [];
+            state.__tmKanbanCollapsedIds = new Set(ids.map(x => String(x || '').trim()).filter(Boolean));
+        } catch (e) {
+            state.__tmKanbanCollapsedIds = new Set();
+        }
         if (SettingsStore.data.enableTomatoIntegration) {
             try { __tmHookTomatoTimer(); } catch (e) {}
             try { __tmListenTomatoAssociationCleared(); } catch (e) {}
