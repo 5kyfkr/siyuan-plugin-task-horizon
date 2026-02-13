@@ -16356,7 +16356,9 @@ async function __tmRefreshAfterWake(reason) {
         try {
             const allow = new Set(['list', 'timeline', 'kanban']);
             const m0 = String(SettingsStore.data.defaultViewMode || 'list').trim();
-            state.viewMode = allow.has(m0) ? m0 : 'list';
+            const isMobileDevice = __tmIsMobileDevice();
+            const m1 = (isMobileDevice && m0 === 'timeline') ? 'list' : m0;
+            state.viewMode = allow.has(m1) ? m1 : 'list';
         } catch (e) {
             state.viewMode = 'list';
         }
