@@ -1,5 +1,5 @@
 // @name         思源笔记任务管理器
-// @version      1.3.2
+// @version      1.3.3
 // @description  任务管理器，支持自定义筛选规则分组和排序
 // @author       5KYFKR
 
@@ -9243,15 +9243,11 @@ async function __tmRefreshAfterWake(reason) {
     };
 
     window.tmToggleCalendarMode = function() {
-        const prev = state.viewMode;
         const next = state.viewMode === 'calendar' ? 'list' : 'calendar';
         state.viewMode = next;
         state.uiAnimKind = '';
         state.uiAnimTs = 0;
         try { __tmHideMobileMenu(); } catch (e) {}
-        if (prev === 'calendar' || next === 'calendar') {
-            loadSelectedDocuments().catch(e => hint(`❌ 加载失败: ${e.message}`, 'error'));
-        }
         render();
     };
 
@@ -9259,14 +9255,10 @@ async function __tmRefreshAfterWake(reason) {
         const allow = new Set(['list', 'timeline', 'kanban', 'calendar']);
         const next = allow.has(String(mode || '').trim()) ? String(mode || '').trim() : 'list';
         if (state.viewMode === next) return;
-        const prev = state.viewMode;
         state.viewMode = next;
         state.uiAnimKind = '';
         state.uiAnimTs = 0;
         try { __tmHideMobileMenu(); } catch (e) {}
-        if (prev === 'calendar' || next === 'calendar') {
-            loadSelectedDocuments().catch(e => hint(`❌ 加载失败: ${e.message}`, 'error'));
-        }
         render();
     };
 
@@ -9410,6 +9402,67 @@ async function __tmRefreshAfterWake(reason) {
         const rangeStartTs = toTs(startKey) || 0;
         const rangeEndTs = toTs(endKey) || 0;
 
+        const getAllDocIdsForCalendar = async () => {
+            const groups = Array.isArray(SettingsStore.data.docGroups) ? SettingsStore.data.docGroups : [];
+            const legacyIds = Array.isArray(SettingsStore.data.selectedDocIds) ? SettingsStore.data.selectedDocIds : [];
+            const quickAddDocId = String(SettingsStore.data.newTaskDocId || '').trim();
+            const targetDocs = [];
+            legacyIds.forEach((id) => {
+                const did = String(id || '').trim();
+                if (did) targetDocs.push({ id: did, recursive: false });
+            });
+            groups.forEach((g) => {
+                const docs = Array.isArray(g?.docs) ? g.docs : [];
+                docs.forEach((d) => {
+                    const did = String((typeof d === 'object' ? d?.id : d) || '').trim();
+                    if (!did) return;
+                    targetDocs.push({ id: did, recursive: !!(typeof d === 'object' && d && d.recursive) });
+                });
+            });
+            const finalIds = new Set();
+            if (quickAddDocId && quickAddDocId !== '__dailyNote__') finalIds.add(quickAddDocId);
+            await Promise.all(targetDocs.map(async (doc) => {
+                if (!doc || !doc.id) return;
+                finalIds.add(doc.id);
+                if (doc.recursive && API && typeof API.getSubDocIds === 'function') {
+                    try {
+                        const subIds = await API.getSubDocIds(doc.id);
+                        (Array.isArray(subIds) ? subIds : []).forEach((sid) => {
+                            const s = String(sid || '').trim();
+                            if (s) finalIds.add(s);
+                        });
+                    } catch (e) {}
+                }
+            }));
+            return Array.from(finalIds);
+        };
+
+        const getAllTasksForCalendar = async () => {
+            const limit = Number.isFinite(Number(SettingsStore.data.queryLimit)) ? Number(SettingsStore.data.queryLimit) : 2000;
+            const allDocIds = await getAllDocIdsForCalendar();
+            const docKey = allDocIds.slice().sort().join(',');
+            const key = `${limit}|${docKey}`;
+            const prev = window.__tmCalendarAllTasksCache;
+            if (prev && prev.key === key && Array.isArray(prev.tasks) && (Date.now() - (Number(prev.ts) || 0) < 8000)) return prev.tasks;
+            try { await MetaStore.load?.(); } catch (e) {}
+            const res = await API.getTasksByDocuments(allDocIds, limit, { doneOnly: false });
+            const tasks = Array.isArray(res?.tasks) ? res.tasks : [];
+            const out = [];
+            for (const task of tasks) {
+                if (!task || typeof task !== 'object') continue;
+                try {
+                    const parsed = API.parseTaskStatus(task.markdown);
+                    task.done = !!parsed.done;
+                    task.content = parsed.content;
+                } catch (e) {}
+                try { MetaStore.applyToTask?.(task); } catch (e) {}
+                try { normalizeTaskFields(task, task.docName || '未命名文档'); } catch (e) {}
+                out.push(task);
+            }
+            window.__tmCalendarAllTasksCache = { key, ts: Date.now(), tasks: out };
+            return out;
+        };
+
         const getDocsToGroupMap = async () => {
             const groups = Array.isArray(SettingsStore.data.docGroups) ? SettingsStore.data.docGroups : [];
             const parts = [];
@@ -9467,7 +9520,8 @@ async function __tmRefreshAfterWake(reason) {
             return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
         };
 
-        const filtered = Array.isArray(state.filteredTasks) ? state.filteredTasks : [];
+        let filtered = [];
+        try { filtered = await getAllTasksForCalendar(); } catch (e) { filtered = []; }
         const out = [];
         for (const t of filtered) {
             if (!t) continue;
@@ -14537,11 +14591,9 @@ async function __tmRefreshAfterWake(reason) {
     }
 
     // 解析文档分组中的所有文档ID
-    async function resolveDocIdsFromGroups(opts) {
-        const o = (opts && typeof opts === 'object') ? opts : {};
+    async function resolveDocIdsFromGroups() {
         const groups = SettingsStore.data.docGroups || [];
-        let currentGroupId = String(o.groupId || '').trim() || (SettingsStore.data.currentGroupId || 'all');
-        if (state.viewMode === 'calendar') currentGroupId = 'all';
+        const currentGroupId = SettingsStore.data.currentGroupId || 'all';
         const quickAddDocId = String(SettingsStore.data.newTaskDocId || '').trim();
         
         let targetDocs = [];
@@ -14584,7 +14636,7 @@ async function __tmRefreshAfterWake(reason) {
     }
 
     // 加载所有选中文档的任务（带递归支持）
-    async function loadSelectedDocuments(opts) {
+    async function loadSelectedDocuments() {
         const token = Number(state.openToken) || 0;
         // 加载设置（包括文档ID列表）
         await SettingsStore.load();
@@ -14629,7 +14681,7 @@ async function __tmRefreshAfterWake(reason) {
         state.__tmQueryDoneOnly = !!(currentRule && currentRule.conditions && currentRule.conditions.some(c => c && c.field === 'done' && c.operator === '=' && (c.value === true || String(c.value) === 'true' || c.value === '') && String(c.value) !== '__all__'));
 
         // 1. 解析所有需要查询的文档ID
-        const allDocIds = await resolveDocIdsFromGroups(opts);
+        const allDocIds = await resolveDocIdsFromGroups();
         
         // 如果没有文档，打开设置
         if (allDocIds.length === 0) {
