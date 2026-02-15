@@ -2235,6 +2235,10 @@
         try {
             state.filteredTasksListener = () => {
                 try { renderTaskPage(wrap, getSettings()); } catch (e2) {}
+                try {
+                    if (state._tasksRefetchTimer) clearTimeout(state._tasksRefetchTimer);
+                    state._tasksRefetchTimer = setTimeout(() => { try { calendar?.refetchEvents?.(); } catch (e3) {} }, 80);
+                } catch (e2) {}
             };
             window.addEventListener('tm:filtered-tasks-updated', state.filteredTasksListener);
         } catch (e) {}
