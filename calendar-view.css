@@ -1219,6 +1219,12 @@
     cursor: pointer;
 }
 
+.tm-calendar-wrap .fc .tm-cal-task-event.tm-cal-task-event--done .tm-cal-task-event-title {
+    color: var(--tm-secondary-text, #8a8a8a) !important;
+    text-decoration: line-through !important;
+    opacity: 0.9;
+}
+
 .tm-calendar-edit-modal {
     position: fixed;
     inset: 0;
