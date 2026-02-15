@@ -1723,9 +1723,9 @@
                                 </div>
                             </div>
                         </div>
-                        <div class="tm-calendar-side-page" data-tm-cal-side-page="tasks" data-tm-cal-role="task-page" style="display:none; flex:1; overflow:hidden; flex-direction:column;">
-                            <div class="tm-calendar-task-table-wrap" style="flex:1; overflow:hidden; display:flex; flex-direction:column;">
-                                <div class="tm-calendar-task-table" data-tm-cal-role="task-table" style="flex:1; overflow:hidden;"></div>
+                        <div class="tm-calendar-side-page" data-tm-cal-side-page="tasks" data-tm-cal-role="task-page" style="display:none; flex:1; overflow:hidden; flex-direction:column; min-height:0;">
+                            <div class="tm-calendar-task-table-wrap" style="flex:1; overflow:hidden; display:flex; flex-direction:column; min-height:0;">
+                                <div class="tm-calendar-task-table" data-tm-cal-role="task-table" style="flex:1; overflow:auto; min-height:0;"></div>
                             </div>
                         </div>
                         <div class="tm-calendar-sidebar-footer">
@@ -2235,10 +2235,6 @@
         try {
             state.filteredTasksListener = () => {
                 try { renderTaskPage(wrap, getSettings()); } catch (e2) {}
-                try {
-                    if (state._tasksRefetchTimer) clearTimeout(state._tasksRefetchTimer);
-                    state._tasksRefetchTimer = setTimeout(() => { try { calendar?.refetchEvents?.(); } catch (e3) {} }, 80);
-                } catch (e2) {}
             };
             window.addEventListener('tm:filtered-tasks-updated', state.filteredTasksListener);
         } catch (e) {}
