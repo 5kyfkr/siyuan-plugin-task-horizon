@@ -3,6 +3,10 @@ const { Plugin, openTab, openMobileFileById } = require("siyuan");
 const PLUGIN_ID = "siyuan-plugin-task-horizon";
 const TASK_SCRIPT_PATH = `/data/plugins/${PLUGIN_ID}/task.js`;
 const QUICKBAR_SCRIPT_PATH = `/data/plugins/${PLUGIN_ID}/quickbar.js`;
+const FULLCALENDAR_MIN_SCRIPT_PATH = `/data/plugins/${PLUGIN_ID}/src/fullcalendar/index.global.min.js`;
+const FULLCALENDAR_ZH_LOCALE_SCRIPT_PATH = `/data/plugins/${PLUGIN_ID}/src/fullcalendar/locales/zh-cn.global.min.js`;
+const CALENDAR_VIEW_SCRIPT_PATH = `/data/plugins/${PLUGIN_ID}/calendar-view.js`;
+const CALENDAR_VIEW_CSS_PATH = `/data/plugins/${PLUGIN_ID}/calendar-view.css`;
 const TAB_TYPE = "task-horizon";
 const TAB_TITLE = "任务管理器";
 const ICON_ID = "iconTaskHorizon";
@@ -28,9 +32,35 @@ const fetchText = async (url, data) => {
     return await res.text();
 };
 
+const unwrapGetFileText = (raw) => {
+    const text = String(raw ?? "");
+    const trimmed = text.replace(/^\uFEFF/, "").trim();
+    if (!trimmed) return "";
+    if (!trimmed.startsWith("{")) return text;
+    if (!/\"(code|msg|data|content)\"\s*:/.test(trimmed)) return text;
+
+    let obj;
+    try {
+        obj = JSON.parse(trimmed);
+    } catch (e) {
+        throw new Error(`getFile response looks like JSON but failed to parse: ${e?.message || e}`);
+    }
+
+    if (obj && typeof obj === "object") {
+        if (typeof obj.data === "string") return obj.data;
+        if (typeof obj.content === "string") return obj.content;
+        if (obj.data && typeof obj.data === "object" && typeof obj.data.content === "string") return obj.data.content;
+        if (typeof obj.msg === "string" && typeof obj.code !== "undefined") {
+            throw new Error(`getFile error: ${obj.code} ${obj.msg}`);
+        }
+    }
+    return text;
+};
+
 const loadScriptText = async (path, sourceName) => {
     try {
-        const code = await fetchText("/api/file/getFile", { path });
+        const raw = await fetchText("/api/file/getFile", { path });
+        const code = unwrapGetFileText(raw);
         if (!code || !code.trim()) throw new Error("empty script");
 
         const script = document.createElement("script");
@@ -40,7 +70,33 @@ const loadScriptText = async (path, sourceName) => {
 
         return true;
     } catch (e) {
+        const msg = String(e?.message || e || "");
+        if (msg.includes("getFile error: 404") || msg.includes("file does not exist")) {
+            console.warn("[task-horizon] script not found", sourceName);
+            return false;
+        }
         console.error("[task-horizon] load script failed", sourceName, e);
+        return false;
+    }
+};
+
+const loadStyleText = async (path, sourceName) => {
+    try {
+        const raw = await fetchText("/api/file/getFile", { path });
+        const css = unwrapGetFileText(raw);
+        if (!css || !css.trim()) throw new Error("empty style");
+        const style = document.createElement("style");
+        style.textContent = css + `\n/*# sourceURL=${sourceName} */`;
+        style.dataset.tmStyleSource = sourceName || "";
+        document.head.appendChild(style);
+        return true;
+    } catch (e) {
+        const msg = String(e?.message || e || "");
+        if (msg.includes("getFile error: 404") || msg.includes("file does not exist")) {
+            console.warn("[task-horizon] style not found", sourceName);
+            return false;
+        }
+        console.error("[task-horizon] load style failed", sourceName, e);
         return false;
     }
 };
@@ -62,8 +118,21 @@ module.exports = class TaskHorizonPlugin extends Plugin {
         globalThis.__taskHorizonMountToken = mountToken;
         try { this.addIcons(ICON_SYMBOL); } catch (e) {}
         this.ensureCustomTab();
+        try {
+            document.querySelectorAll('style[data-tm-style-source="calendar-view.css"]').forEach((el) => { try { el.remove(); } catch (e) {} });
+        } catch (e) {}
+        try {
+            globalThis.__tmCalendar?.cleanup?.();
+        } catch (e) {}
+        try {
+            delete globalThis.__tmCalendar;
+        } catch (e) {}
         await loadScriptText(TASK_SCRIPT_PATH, "task.js");
         await loadScriptText(QUICKBAR_SCRIPT_PATH, "quickbar.js");
+        await loadScriptText(FULLCALENDAR_MIN_SCRIPT_PATH, "fullcalendar/index.global.min.js");
+        await loadScriptText(FULLCALENDAR_ZH_LOCALE_SCRIPT_PATH, "fullcalendar/locales/zh-cn.global.min.js");
+        await loadScriptText(CALENDAR_VIEW_SCRIPT_PATH, "calendar-view.js");
+        await loadStyleText(CALENDAR_VIEW_CSS_PATH, "calendar-view.css");
         this.mountExistingTabs();
     }
 
@@ -141,6 +210,16 @@ module.exports = class TaskHorizonPlugin extends Plugin {
         try { globalThis.__TaskManagerCleanup?.(); } catch (e) {}
         try { globalThis.__taskHorizonQuickbarCleanup?.(); } catch (e) {}
         try { globalThis.tmClose?.(); } catch (e) {}
+
+        try {
+            const styles = Array.from(document.querySelectorAll('style[data-tm-style-source]'));
+            styles.forEach((el) => {
+                const s = String(el?.dataset?.tmStyleSource || '');
+                if (s === 'calendar-view.css') {
+                    try { el.remove(); } catch (e) {}
+                }
+            });
+        } catch (e) {}
 
         try { delete globalThis.__taskHorizonPluginApp; } catch (e) {}
         try { delete globalThis.__taskHorizonPluginInstance; } catch (e) {}

@@ -8,6 +8,7 @@
 (async () => {
     if (globalThis.__taskHorizonQuickbarLoaded) return;
     globalThis.__taskHorizonQuickbarLoaded = true;
+    let quickbarDisposed = false;
     // ==================== 悬浮条自定义属性配置 ====================
     // 对接任务管理器的自定义属性系统
     const isEnableCustomPropsBar = true;  // 是否启用自定义属性悬浮条
@@ -149,16 +150,18 @@
         };
     }
 
-    document.addEventListener('contextmenu', (e) => {
+    const __tmQBOnContextmenuCapture = (e) => {
         markBlockMenuTrigger(e.target, 'contextmenu');
-    }, true);
+    };
+    document.addEventListener('contextmenu', __tmQBOnContextmenuCapture, true);
 
-    document.addEventListener('pointerdown', (e) => {
+    const __tmQBOnPointerdownCapture = (e) => {
         const t = e.target;
         const isGutterTrigger = !!t?.closest?.('.protyle-gutters,.protyle-gutter,.protyle-gutter__icon,.protyle-gutter__item,[data-type="gutter"],[data-type="gutterBlock"],.protyle-action,.protyle-icon');
         if (!isGutterTrigger) return;
         markBlockMenuTrigger(t, 'gutter');
-    }, true);
+    };
+    document.addEventListener('pointerdown', __tmQBOnPointerdownCapture, true);
 
     // 块菜单配置
     const menus = [
@@ -1234,7 +1237,12 @@
         };
 
         globalThis.__taskHorizonQuickbarCleanup = () => {
+            quickbarDisposed = true;
             try { stopQuickbar(); } catch (e) {}
+            try { document.removeEventListener('contextmenu', __tmQBOnContextmenuCapture, true); } catch (e) {}
+            try { document.removeEventListener('pointerdown', __tmQBOnPointerdownCapture, true); } catch (e) {}
+            try { blockMenuObserver?.disconnect?.(); } catch (e) {}
+            blockMenuObserver = null;
             try { delete globalThis.__taskHorizonQuickbarToggle; } catch (e) {}
             try { delete globalThis.__taskHorizonQuickbarCleanup; } catch (e) {}
             try { delete globalThis.__taskHorizonQuickbarLoaded; } catch (e) {}
@@ -1245,9 +1253,11 @@
     }
 
     // ==================== 原有块菜单逻辑（保留） ====================
+    let blockMenuObserver = null;
     if (isEnableBlockContextMenu) {
         whenElementExist('#commonMenu .b3-menu__items').then((menuItems) => {
-            observeBlockMenu(menuItems, async (isTitleMenu) => {
+            if (!menuItems) return;
+            blockMenuObserver = observeBlockMenu(menuItems, async (isTitleMenu) => {
                 const isTaskContextMenu = !isTitleMenu && (
                     (lastBlockMenuTrigger.isTask && Date.now() - lastBlockMenuTrigger.ts < 1500) ||
                     isTaskBlockElement(getSelectedBlockElementForMenu())
@@ -1891,6 +1901,7 @@
     function whenElementExist(selector, node) {
         return new Promise(resolve => {
             const check = () => {
+                if (quickbarDisposed) return;
                 const el = typeof selector === 'function' ? selector() : (node || document).querySelector(selector);
                 el ? resolve(el) : requestAnimationFrame(check);
             };

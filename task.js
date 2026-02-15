@@ -1,5 +1,5 @@
 // @name         思源笔记任务管理器
-// @version      1.2.5
+// @version      1.3.0
 // @description  任务管理器，支持自定义筛选规则分组和排序
 // @author       5KYFKR
 
@@ -589,19 +589,43 @@
         .tm-rule-selector {
             display: flex;
             align-items: center;
-            gap: 10px;
+            gap: 6px;
+            min-width: 0;
         }
         
         .tm-rule-select {
-            min-width: 100px;
-            padding: 6px 10px;
+            min-width: 72px;
+            max-width: 160px;
+            padding: 4px 8px;
             border: 1px solid var(--tm-input-border);
             border-radius: 4px;
-            font-size: 13px;
+            font-size: 12px;
             background: var(--tm-input-bg);
             color: var(--tm-text-color);
+            height: 28px;
+            min-height: 28px;
+            line-height: 18px;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
         }
         
+        .tm-rule-label {
+            color: rgba(255, 255, 255, 0.92);
+            font-size: 12px;
+            white-space: nowrap;
+            flex: 0 0 auto;
+        }
+
+        @media (max-width: 1280px) {
+            .tm-header-selectors .tm-rule-label {
+                display: none;
+            }
+            .tm-header-selectors .tm-rule-select {
+                max-width: 120px;
+            }
+        }
+
         .tm-rule-select:focus {
             border-color: var(--tm-primary-color);
             outline: none;
@@ -691,6 +715,22 @@
             display: flex;
             justify-content: space-between;
             align-items: center;
+        }
+
+        .tm-header-selectors {
+            min-width: 0;
+            flex-wrap: nowrap;
+            overflow-x: auto;
+            -webkit-overflow-scrolling: touch;
+        }
+
+        .tm-header-selectors::-webkit-scrollbar {
+            height: 4px;
+        }
+
+        .tm-header-selectors::-webkit-scrollbar-thumb {
+            background: rgba(255, 255, 255, 0.25);
+            border-radius: 999px;
         }
         
         .tm-rule-display {
@@ -961,6 +1001,48 @@
             display: flex;
             align-items: center;
             gap: 8px;
+        }
+
+        .tm-view-segmented {
+            display: inline-flex;
+            align-items: stretch;
+            height: 30px;
+            border-radius: 999px;
+            overflow: hidden;
+            background: rgba(255,255,255,0.18);
+            border: 1px solid rgba(255,255,255,0.26);
+            flex: none;
+        }
+
+        .tm-view-seg-item {
+            appearance: none;
+            border: none;
+            background: transparent;
+            color: rgba(255,255,255,0.86);
+            padding: 0 12px;
+            font-size: 13px;
+            font-weight: 600;
+            cursor: pointer;
+            line-height: 30px;
+            white-space: nowrap;
+            user-select: none;
+        }
+
+        .tm-view-seg-item + .tm-view-seg-item {
+            border-left: 1px solid rgba(255,255,255,0.22);
+        }
+
+        .tm-view-seg-item:hover {
+            background: rgba(0,0,0,0.12);
+        }
+
+        .tm-view-seg-item--active {
+            background: rgba(0,0,0,0.26);
+            color: #fff;
+        }
+
+        .tm-view-seg-item--active:hover {
+            background: rgba(0,0,0,0.32);
         }
 
         .tm-search-input {
@@ -2292,6 +2374,37 @@
             tomatoSpentAttrMode: 'minutes',
             tomatoSpentAttrKeyMinutes: 'custom-tomato-minutes',
             tomatoSpentAttrKeyHours: 'custom-tomato-time',
+            calendarEnabled: true,
+            calendarLinkDockTomato: true,
+            calendarInitialView: 'timeGridWeek',
+            calendarMonthAggregate: true,
+            calendarShowSchedule: true,
+            calendarShowFocus: true,
+            calendarShowBreak: true,
+            calendarShowStopwatch: true,
+            calendarShowIdle: false,
+            calendarColorFocus: '#1a73e8',
+            calendarColorBreak: '#34a853',
+            calendarColorStopwatch: '#f9ab00',
+            calendarColorIdle: '#9aa0a6',
+            calendarCalendarsConfig: {},
+            calendarDefaultCalendarId: 'default',
+            calendarLastViewType: '',
+            calendarLastDate: '',
+            calendarSidebarWidth: 280,
+            calendarColumnWidths: { content: 140, duration: 60, spent: 60 },
+            calendarSidebarCollapseCalendars: false,
+            calendarSidebarCollapseDocGroups: false,
+            calendarSidebarCollapseTomato: false,
+            calendarSidebarCollapseTasks: false,
+            calendarShowTomatoMaster: true,
+            calendarShowTaskDates: true,
+            calendarTaskDateColorMode: 'group',
+            calendarScheduleColor: '',
+            calendarTaskDatesColor: '#6b7280',
+            calendarShowCnHoliday: true,
+            calendarCnHolidayColor: '#ff3333',
+            calendarShowLunar: false,
             defaultDocId: '',
             defaultDocIdByGroup: {},
             // 默认状态选项
@@ -2466,6 +2579,37 @@
                                 if (typeof cloudData.tomatoSpentAttrMode === 'string') this.data.tomatoSpentAttrMode = cloudData.tomatoSpentAttrMode;
                                 if (typeof cloudData.tomatoSpentAttrKeyMinutes === 'string') this.data.tomatoSpentAttrKeyMinutes = cloudData.tomatoSpentAttrKeyMinutes;
                                 if (typeof cloudData.tomatoSpentAttrKeyHours === 'string') this.data.tomatoSpentAttrKeyHours = cloudData.tomatoSpentAttrKeyHours;
+                                if (typeof cloudData.calendarEnabled === 'boolean') this.data.calendarEnabled = cloudData.calendarEnabled;
+                                if (typeof cloudData.calendarLinkDockTomato === 'boolean') this.data.calendarLinkDockTomato = cloudData.calendarLinkDockTomato;
+                                if (typeof cloudData.calendarInitialView === 'string') this.data.calendarInitialView = cloudData.calendarInitialView;
+                                if (typeof cloudData.calendarMonthAggregate === 'boolean') this.data.calendarMonthAggregate = cloudData.calendarMonthAggregate;
+                                if (typeof cloudData.calendarShowSchedule === 'boolean') this.data.calendarShowSchedule = cloudData.calendarShowSchedule;
+                                if (typeof cloudData.calendarShowTomatoMaster === 'boolean') this.data.calendarShowTomatoMaster = cloudData.calendarShowTomatoMaster;
+                                if (typeof cloudData.calendarShowFocus === 'boolean') this.data.calendarShowFocus = cloudData.calendarShowFocus;
+                                if (typeof cloudData.calendarShowBreak === 'boolean') this.data.calendarShowBreak = cloudData.calendarShowBreak;
+                                if (typeof cloudData.calendarShowStopwatch === 'boolean') this.data.calendarShowStopwatch = cloudData.calendarShowStopwatch;
+                                if (typeof cloudData.calendarShowIdle === 'boolean') this.data.calendarShowIdle = cloudData.calendarShowIdle;
+                                if (typeof cloudData.calendarColorFocus === 'string') this.data.calendarColorFocus = cloudData.calendarColorFocus;
+                                if (typeof cloudData.calendarColorBreak === 'string') this.data.calendarColorBreak = cloudData.calendarColorBreak;
+                                if (typeof cloudData.calendarColorStopwatch === 'string') this.data.calendarColorStopwatch = cloudData.calendarColorStopwatch;
+                                if (typeof cloudData.calendarColorIdle === 'string') this.data.calendarColorIdle = cloudData.calendarColorIdle;
+                                if (typeof cloudData.calendarSidebarWidth === 'number') this.data.calendarSidebarWidth = cloudData.calendarSidebarWidth;
+                                if (cloudData.calendarColumnWidths && typeof cloudData.calendarColumnWidths === 'object') this.data.calendarColumnWidths = cloudData.calendarColumnWidths;
+                                if (typeof cloudData.calendarLastViewType === 'string') this.data.calendarLastViewType = cloudData.calendarLastViewType;
+                                if (typeof cloudData.calendarLastDate === 'string') this.data.calendarLastDate = cloudData.calendarLastDate;
+                                if (cloudData.calendarCalendarsConfig && typeof cloudData.calendarCalendarsConfig === 'object') this.data.calendarCalendarsConfig = cloudData.calendarCalendarsConfig;
+                                if (typeof cloudData.calendarDefaultCalendarId === 'string') this.data.calendarDefaultCalendarId = cloudData.calendarDefaultCalendarId;
+                                if (typeof cloudData.calendarSidebarCollapseCalendars === 'boolean') this.data.calendarSidebarCollapseCalendars = cloudData.calendarSidebarCollapseCalendars;
+                                if (typeof cloudData.calendarSidebarCollapseDocGroups === 'boolean') this.data.calendarSidebarCollapseDocGroups = cloudData.calendarSidebarCollapseDocGroups;
+                                if (typeof cloudData.calendarSidebarCollapseTomato === 'boolean') this.data.calendarSidebarCollapseTomato = cloudData.calendarSidebarCollapseTomato;
+                                if (typeof cloudData.calendarSidebarCollapseTasks === 'boolean') this.data.calendarSidebarCollapseTasks = cloudData.calendarSidebarCollapseTasks;
+                                if (typeof cloudData.calendarShowTaskDates === 'boolean') this.data.calendarShowTaskDates = cloudData.calendarShowTaskDates;
+                                if (typeof cloudData.calendarTaskDateColorMode === 'string') this.data.calendarTaskDateColorMode = cloudData.calendarTaskDateColorMode;
+                                if (typeof cloudData.calendarScheduleColor === 'string') this.data.calendarScheduleColor = cloudData.calendarScheduleColor;
+                                if (typeof cloudData.calendarTaskDatesColor === 'string') this.data.calendarTaskDatesColor = cloudData.calendarTaskDatesColor;
+                                if (typeof cloudData.calendarShowCnHoliday === 'boolean') this.data.calendarShowCnHoliday = cloudData.calendarShowCnHoliday;
+                                if (typeof cloudData.calendarCnHolidayColor === 'string') this.data.calendarCnHolidayColor = cloudData.calendarCnHolidayColor;
+                                if (typeof cloudData.calendarShowLunar === 'boolean') this.data.calendarShowLunar = cloudData.calendarShowLunar;
                                 if (typeof cloudData.defaultDocId === 'string') this.data.defaultDocId = cloudData.defaultDocId;
                                 if (cloudData.defaultDocIdByGroup && typeof cloudData.defaultDocIdByGroup === 'object') this.data.defaultDocIdByGroup = cloudData.defaultDocIdByGroup;
                                 if (cloudData.priorityScoreConfig && typeof cloudData.priorityScoreConfig === 'object') this.data.priorityScoreConfig = cloudData.priorityScoreConfig;
@@ -2594,6 +2738,37 @@
             this.data.tomatoSpentAttrMode = Storage.get('tm_tomato_spent_attr_mode', 'minutes');
             this.data.tomatoSpentAttrKeyMinutes = Storage.get('tm_tomato_spent_attr_key_minutes', this.data.tomatoSpentAttrKeyMinutes);
             this.data.tomatoSpentAttrKeyHours = Storage.get('tm_tomato_spent_attr_key_hours', this.data.tomatoSpentAttrKeyHours);
+            this.data.calendarEnabled = Storage.get('tm_calendar_enabled', this.data.calendarEnabled);
+            this.data.calendarLinkDockTomato = Storage.get('tm_calendar_link_docktomato', this.data.calendarLinkDockTomato);
+            this.data.calendarInitialView = Storage.get('tm_calendar_initial_view', this.data.calendarInitialView);
+            this.data.calendarMonthAggregate = Storage.get('tm_calendar_month_aggregate', this.data.calendarMonthAggregate);
+            this.data.calendarShowSchedule = Storage.get('tm_calendar_show_schedule', this.data.calendarShowSchedule);
+            this.data.calendarShowTomatoMaster = Storage.get('tm_calendar_show_tomato_master', this.data.calendarShowTomatoMaster);
+            this.data.calendarShowFocus = Storage.get('tm_calendar_show_focus', this.data.calendarShowFocus);
+            this.data.calendarShowBreak = Storage.get('tm_calendar_show_break', this.data.calendarShowBreak);
+            this.data.calendarShowStopwatch = Storage.get('tm_calendar_show_stopwatch', this.data.calendarShowStopwatch);
+            this.data.calendarShowIdle = Storage.get('tm_calendar_show_idle', this.data.calendarShowIdle);
+            this.data.calendarShowTaskDates = Storage.get('tm_calendar_show_task_dates', this.data.calendarShowTaskDates);
+            this.data.calendarTaskDateColorMode = Storage.get('tm_calendar_task_date_color_mode', this.data.calendarTaskDateColorMode);
+            this.data.calendarScheduleColor = Storage.get('tm_calendar_schedule_color', this.data.calendarScheduleColor);
+            this.data.calendarTaskDatesColor = Storage.get('tm_calendar_task_dates_color', this.data.calendarTaskDatesColor);
+            this.data.calendarShowCnHoliday = Storage.get('tm_calendar_show_cn_holiday', this.data.calendarShowCnHoliday);
+            this.data.calendarCnHolidayColor = Storage.get('tm_calendar_cn_holiday_color', this.data.calendarCnHolidayColor);
+            this.data.calendarShowLunar = Storage.get('tm_calendar_show_lunar', this.data.calendarShowLunar);
+            this.data.calendarColorFocus = Storage.get('tm_calendar_color_focus', this.data.calendarColorFocus);
+            this.data.calendarColorBreak = Storage.get('tm_calendar_color_break', this.data.calendarColorBreak);
+            this.data.calendarColorStopwatch = Storage.get('tm_calendar_color_stopwatch', this.data.calendarColorStopwatch);
+            this.data.calendarColorIdle = Storage.get('tm_calendar_color_idle', this.data.calendarColorIdle);
+            this.data.calendarSidebarWidth = Storage.get('tm_calendar_sidebar_width', this.data.calendarSidebarWidth);
+            this.data.calendarColumnWidths = Storage.get('tm_calendar_column_widths', this.data.calendarColumnWidths) || this.data.calendarColumnWidths;
+            this.data.calendarLastViewType = Storage.get('tm_calendar_last_view_type', this.data.calendarLastViewType);
+            this.data.calendarLastDate = Storage.get('tm_calendar_last_date', this.data.calendarLastDate);
+            this.data.calendarCalendarsConfig = Storage.get('tm_calendar_calendars_config', this.data.calendarCalendarsConfig) || this.data.calendarCalendarsConfig;
+            this.data.calendarDefaultCalendarId = Storage.get('tm_calendar_default_calendar_id', this.data.calendarDefaultCalendarId);
+            this.data.calendarSidebarCollapseCalendars = Storage.get('tm_calendar_sidebar_collapse_calendars', this.data.calendarSidebarCollapseCalendars);
+            this.data.calendarSidebarCollapseDocGroups = Storage.get('tm_calendar_sidebar_collapse_doc_groups', this.data.calendarSidebarCollapseDocGroups);
+            this.data.calendarSidebarCollapseTomato = Storage.get('tm_calendar_sidebar_collapse_tomato', this.data.calendarSidebarCollapseTomato);
+            this.data.calendarSidebarCollapseTasks = Storage.get('tm_calendar_sidebar_collapse_tasks', this.data.calendarSidebarCollapseTasks);
             this.data.defaultDocId = Storage.get('tm_default_doc_id', '');
             this.data.defaultDocIdByGroup = Storage.get('tm_default_doc_id_by_group', {}) || {};
             this.data.priorityScoreConfig = Storage.get('tm_priority_score_config', this.data.priorityScoreConfig) || this.data.priorityScoreConfig;
@@ -2689,6 +2864,37 @@
             Storage.set('tm_tomato_spent_attr_mode', String(this.data.tomatoSpentAttrMode || 'minutes'));
             Storage.set('tm_tomato_spent_attr_key_minutes', String(this.data.tomatoSpentAttrKeyMinutes || '').trim());
             Storage.set('tm_tomato_spent_attr_key_hours', String(this.data.tomatoSpentAttrKeyHours || '').trim());
+            Storage.set('tm_calendar_enabled', !!this.data.calendarEnabled);
+            Storage.set('tm_calendar_link_docktomato', !!this.data.calendarLinkDockTomato);
+            Storage.set('tm_calendar_initial_view', String(this.data.calendarInitialView || 'timeGridWeek').trim() || 'timeGridWeek');
+            Storage.set('tm_calendar_month_aggregate', !!this.data.calendarMonthAggregate);
+            Storage.set('tm_calendar_show_schedule', !!this.data.calendarShowSchedule);
+            Storage.set('tm_calendar_show_tomato_master', !!this.data.calendarShowTomatoMaster);
+            Storage.set('tm_calendar_show_focus', !!this.data.calendarShowFocus);
+            Storage.set('tm_calendar_show_break', !!this.data.calendarShowBreak);
+            Storage.set('tm_calendar_show_stopwatch', !!this.data.calendarShowStopwatch);
+            Storage.set('tm_calendar_show_idle', !!this.data.calendarShowIdle);
+            Storage.set('tm_calendar_show_task_dates', !!this.data.calendarShowTaskDates);
+            Storage.set('tm_calendar_task_date_color_mode', String(this.data.calendarTaskDateColorMode || 'group').trim() || 'group');
+            Storage.set('tm_calendar_schedule_color', String(this.data.calendarScheduleColor || '').trim());
+            Storage.set('tm_calendar_task_dates_color', String(this.data.calendarTaskDatesColor || '').trim());
+            Storage.set('tm_calendar_show_cn_holiday', !!this.data.calendarShowCnHoliday);
+            Storage.set('tm_calendar_cn_holiday_color', String(this.data.calendarCnHolidayColor || '').trim());
+            Storage.set('tm_calendar_show_lunar', !!this.data.calendarShowLunar);
+            Storage.set('tm_calendar_color_focus', String(this.data.calendarColorFocus || '').trim());
+            Storage.set('tm_calendar_color_break', String(this.data.calendarColorBreak || '').trim());
+            Storage.set('tm_calendar_color_stopwatch', String(this.data.calendarColorStopwatch || '').trim());
+            Storage.set('tm_calendar_color_idle', String(this.data.calendarColorIdle || '').trim());
+            Storage.set('tm_calendar_sidebar_width', Number(this.data.calendarSidebarWidth) || 280);
+            Storage.set('tm_calendar_column_widths', this.data.calendarColumnWidths || {});
+            Storage.set('tm_calendar_last_view_type', String(this.data.calendarLastViewType || '').trim());
+            Storage.set('tm_calendar_last_date', String(this.data.calendarLastDate || '').trim());
+            Storage.set('tm_calendar_calendars_config', this.data.calendarCalendarsConfig || {});
+            Storage.set('tm_calendar_default_calendar_id', String(this.data.calendarDefaultCalendarId || 'default').trim() || 'default');
+            Storage.set('tm_calendar_sidebar_collapse_calendars', !!this.data.calendarSidebarCollapseCalendars);
+            Storage.set('tm_calendar_sidebar_collapse_doc_groups', !!this.data.calendarSidebarCollapseDocGroups);
+            Storage.set('tm_calendar_sidebar_collapse_tomato', !!this.data.calendarSidebarCollapseTomato);
+            Storage.set('tm_calendar_sidebar_collapse_tasks', !!this.data.calendarSidebarCollapseTasks);
             Storage.set('tm_default_doc_id', this.data.defaultDocId);
             Storage.set('tm_default_doc_id_by_group', this.data.defaultDocIdByGroup || {});
             Storage.set('tm_priority_score_config', this.data.priorityScoreConfig || {});
@@ -4191,7 +4397,7 @@
 
     async function __tmSafeOpenManager(reason) {
         try {
-            await openManager();
+            await openManager({ preserveViewMode: true });
         } catch (e) {
             try { console.error(`[OpenManager:${String(reason || '')}]`, e); } catch (e2) {}
             try { hint(`❌ 加载失败: ${e?.message || String(e)}`, 'error'); } catch (e3) {}
@@ -4230,6 +4436,19 @@ async function __tmRefreshAfterWake(reason) {
         // 静默刷新数据，不显示加载提示
         try { 
             await loadSelectedDocuments();
+        } catch (e) {}
+
+        try {
+            await SettingsStore.load();
+            const allow = new Set(['list', 'timeline', 'kanban', 'calendar']);
+            const isMobileDevice = __tmIsMobileDevice();
+            const current = String(state.viewMode || '').trim();
+            if (!allow.has(current)) {
+                const m0 = String(SettingsStore.data.defaultViewMode || 'list').trim();
+                const m1 = (isMobileDevice && m0 === 'timeline') ? 'list' : m0;
+                state.viewMode = allow.has(m1) ? m1 : 'list';
+            }
+            try { render(); } catch (e2) {}
         } catch (e) {}
         
     } finally {
@@ -5028,11 +5247,29 @@ async function __tmRefreshAfterWake(reason) {
         const modal = modalEl instanceof Element ? modalEl : state.modal;
         if (!modal) return false;
         const body = modal.querySelector('.tm-body');
+        const table = modal.querySelector('#tmTaskTable');
         const tbody = modal.querySelector('#tmTaskTable tbody');
         if (!tbody) return false;
         const top = Number(body?.scrollTop) || 0;
         const left = Number(body?.scrollLeft) || 0;
-        try { tbody.innerHTML = renderTaskList(); } catch (e) { return false; }
+        const isCalendarTaskTable = String(table?.getAttribute?.('data-tm-table') || '') === 'calendar';
+        const originalOrder = SettingsStore.data.columnOrder;
+        const originalWidths = SettingsStore.data.columnWidths;
+        if (isCalendarTaskTable) {
+            try {
+                if (!SettingsStore.data.calendarColumnWidths || Object.keys(SettingsStore.data.calendarColumnWidths).length === 0) {
+                    SettingsStore.data.calendarColumnWidths = { content: 140, duration: 60, spent: 60 };
+                }
+                SettingsStore.data.columnOrder = ['content', 'duration', 'spent'];
+                SettingsStore.data.columnWidths = SettingsStore.data.calendarColumnWidths;
+            } catch (e) {}
+        }
+        try { tbody.innerHTML = renderTaskList(); } catch (e) { return false; } finally {
+            if (isCalendarTaskTable) {
+                SettingsStore.data.columnOrder = originalOrder;
+                SettingsStore.data.columnWidths = originalWidths;
+            }
+        }
         try { if (body) body.scrollTop = top; } catch (e) {}
         try { if (body) body.scrollLeft = left; } catch (e) {}
         try { queueMicrotask(() => { try { __tmRunFlipAnimation(modal); } catch (e) {} }); } catch (e) {
@@ -7537,6 +7774,7 @@ async function __tmRefreshAfterWake(reason) {
         }
 
         state.filteredTasks = ordered;
+        try { window.dispatchEvent(new CustomEvent('tm:filtered-tasks-updated')); } catch (e) {}
     }
 
     window.tmSwitchDoc = function(docId) {
@@ -7681,6 +7919,37 @@ async function __tmRefreshAfterWake(reason) {
         state.docTabLongPressTimer = null;
         state.docTabTouchMoved = false;
     };
+
+    function __tmEnsureDocTabTouchDelegation() {
+        try { if (state.docTabTouchDelegationBound) return; } catch (e) {}
+        state.docTabTouchDelegationBound = true;
+        const start = (ev) => {
+            const el = ev?.target?.closest?.('.tm-doc-tab[data-tm-doc-id]');
+            if (!el) return;
+            const docId = String(el.getAttribute('data-tm-doc-id') || '').trim();
+            if (!docId) return;
+            state.docTabTouchActive = true;
+            state.docTabTouchActiveDocId = docId;
+            tmDocTabTouchStart(ev, docId);
+        };
+        const move = (ev) => {
+            if (!state.docTabTouchActive) return;
+            tmDocTabTouchMove(ev);
+        };
+        const end = () => {
+            if (!state.docTabTouchActive) return;
+            state.docTabTouchActive = false;
+            state.docTabTouchActiveDocId = null;
+            tmDocTabTouchEnd();
+        };
+        const opts = { passive: true };
+        state.docTabTouchDelegationHandlers = { start, move, end };
+        state.docTabTouchDelegationOptions = opts;
+        document.addEventListener('touchstart', start, opts);
+        document.addEventListener('touchmove', move, opts);
+        document.addEventListener('touchend', end, opts);
+        document.addEventListener('touchcancel', end, opts);
+    }
 
     // 搜索弹窗
     window.tmShowSearchModal = function() {
@@ -7850,6 +8119,7 @@ async function __tmRefreshAfterWake(reason) {
 
     // 修改渲染函数以显示规则信息
     function render() {
+        try { __tmEnsureDocTabTouchDelegation(); } catch (e) {}
         const kind0 = String(state.uiAnimKind || '').trim();
         const isViewSwitchAnim = (kind0 === 'from-right' || kind0 === 'from-left')
             && (Date.now() - (Number(state.uiAnimTs) || 0) < 380);
@@ -7858,11 +8128,14 @@ async function __tmRefreshAfterWake(reason) {
         let prevModalEl = null;
         const prevModalSnapshot = state.modal instanceof Element ? state.modal : null;
         const prevWasTimeline = !!(prevModalSnapshot && prevModalSnapshot.querySelector && prevModalSnapshot.querySelector('#tmTimelineLeftBody'));
+        const prevWasCalendar = !!(prevModalSnapshot && prevModalSnapshot.querySelector && prevModalSnapshot.querySelector('#tmCalendarRoot'));
         // 保存滚动位置
         let savedScrollTop = 0;
         let savedScrollLeft = 0;
         let savedTimelineScrollTop = 0;
         let savedTimelineScrollLeft = 0;
+        let savedCalendarScrollTop = 0;
+        let savedCalendarScrollLeft = 0;
         if (prevModalSnapshot) {
             prevModalEl = prevModalSnapshot;
             const timelineLeftBody = prevModalSnapshot.querySelector('#tmTimelineLeftBody');
@@ -7870,6 +8143,19 @@ async function __tmRefreshAfterWake(reason) {
             if (timelineLeftBody) {
                 savedTimelineScrollTop = timelineLeftBody.scrollTop;
                 if (ganttBody) savedTimelineScrollLeft = ganttBody.scrollLeft;
+            } else if (prevWasCalendar) {
+                try {
+                    const root = prevModalSnapshot.querySelector('#tmCalendarRoot');
+                    const preferred = root?.querySelector?.('.fc-timegrid-body .fc-scroller') || null;
+                    const list = Array.from(root?.querySelectorAll?.('.fc-scroller') || []);
+                    const scroller = (preferred && preferred.scrollHeight > preferred.clientHeight + 1)
+                        ? preferred
+                        : (list.find((el) => el && el.scrollHeight > el.clientHeight + 1) || preferred || list[0] || null);
+                    if (scroller) {
+                        savedCalendarScrollTop = scroller.scrollTop;
+                        savedCalendarScrollLeft = scroller.scrollLeft;
+                    }
+                } catch (e) {}
             } else {
                 const body = prevModalSnapshot.querySelector('.tm-body');
                 if (body) {
@@ -7882,11 +8168,17 @@ async function __tmRefreshAfterWake(reason) {
             state.viewScroll = state.viewScroll && typeof state.viewScroll === 'object' ? state.viewScroll : {};
             if (prevModalSnapshot) {
                 if (prevWasTimeline) state.viewScroll.timeline = { top: Number(savedTimelineScrollTop) || 0, left: Number(savedTimelineScrollLeft) || 0 };
+                else if (prevWasCalendar) state.viewScroll.calendar = { top: Number(savedCalendarScrollTop) || 0, left: Number(savedCalendarScrollLeft) || 0 };
                 else state.viewScroll.list = { top: Number(savedScrollTop) || 0, left: Number(savedScrollLeft) || 0 };
             }
         } catch (e) {}
 
         if (prevModalSnapshot) {
+            try {
+                if (prevModalSnapshot.querySelector && prevModalSnapshot.querySelector('#tmCalendarRoot')) {
+                    globalThis.__tmCalendar?.unmount?.();
+                }
+            } catch (e) {}
             if (!useSoftSwap) {
                 try { prevModalSnapshot.remove(); } catch (e) {}
                 prevModalEl = null;
@@ -8275,17 +8567,27 @@ async function __tmRefreshAfterWake(reason) {
             `;
         };
 
+        const __tmRenderCalendarBodyHtml = () => {
+            return `
+                <div class="tm-body tm-body--calendar${bodyAnimClass}" style="display:flex;flex-direction:column;min-height:0;">
+                    <div id="tmCalendarRoot" style="flex:1;min-height:0;"></div>
+                </div>
+            `;
+        };
+
         const __tmTimelineRowModel = state.viewMode === 'timeline' ? __tmBuildTaskRowModel() : null;
-        const mainBodyHtml = state.viewMode === 'timeline'
-            ? __tmRenderTimelineBodyHtml(__tmTimelineRowModel)
-            : state.viewMode === 'kanban'
-                ? __tmRenderKanbanBodyHtml()
-                : __tmRenderListBodyHtml();
+        const mainBodyHtml = state.viewMode === 'calendar'
+            ? __tmRenderCalendarBodyHtml()
+            : state.viewMode === 'timeline'
+                ? __tmRenderTimelineBodyHtml(__tmTimelineRowModel)
+                : state.viewMode === 'kanban'
+                    ? __tmRenderKanbanBodyHtml()
+                    : __tmRenderListBodyHtml();
         
         state.modal.innerHTML = `
             <div class="tm-box">
                 <div class="tm-filter-rule-bar" style="padding: 8px 12px;">
-                    <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;justify-content:space-between;">
+                    <div style="display:flex;align-items:center;gap:10px;flex-wrap:nowrap;justify-content:space-between;min-width:0;">
                         <div style="display:flex;align-items:center;gap:10px;">
                             <div class="tm-title" onclick="tmToggleDocTabs(event)" style="font-size: 16px; font-weight: 700; white-space: nowrap;">📋 任务管理器</div>
                             <button class="tm-btn tm-btn-success" onclick="tmAdd()" style="padding: 0 10px; height: 30px; display: inline-flex; align-items: center; justify-content: center;">+</button>
@@ -8293,19 +8595,19 @@ async function __tmRefreshAfterWake(reason) {
                         </div>
 
                         <!-- 桌面端工具栏 -->
-                        <div class="tm-desktop-toolbar tm-header-selectors" style="display:flex;align-items:center;gap:10px;flex:1;">
+                        <div class="tm-desktop-toolbar tm-header-selectors" style="display:flex;align-items:center;gap:8px;flex:1;min-width:0;">
                             <div class="tm-rule-selector" style="margin-left: 6px;">
-                                <span style="color: white; font-size: 13px;">分组:</span>
-                                <select class="tm-rule-select" onchange="tmSwitchDocGroup(this.value)">
+                                <span class="tm-rule-label">分组:</span>
+                                <select class="tm-rule-select" onchange="tmSwitchDocGroup(this.value)" aria-label="分组" title="分组">
                                     <option value="all" ${currentGroupId === 'all' ? 'selected' : ''}>全部文档</option>
                                     ${docGroups.map(g => `<option value="${g.id}" ${currentGroupId === g.id ? 'selected' : ''}>${esc(g.name)}</option>`).join('')}
                                 </select>
                             </div>
 
                             <div class="tm-rule-selector">
-                                <span style="color: white; font-size: 13px;">规则:</span>
-                                <select class="tm-rule-select" onchange="applyFilterRule(this.value)">
-                                    <option value="">-- 选择规则 --</option>
+                                <span class="tm-rule-label">规则:</span>
+                                <select class="tm-rule-select" onchange="applyFilterRule(this.value)" aria-label="规则" title="规则">
+                                    <option value="">全部</option>
                                     ${ruleOptions}
                                 </select>
                             </div>
@@ -8317,8 +8619,8 @@ async function __tmRefreshAfterWake(reason) {
                             <div style="flex: 1 1 auto;"></div>
                             
                             <div class="tm-rule-selector">
-                                <span style="color: white; font-size: 13px;">模式:</span>
-                                <select class="tm-rule-select" onchange="tmSwitchGroupMode(this.value)">
+                                <span class="tm-rule-label">模式:</span>
+                                <select class="tm-rule-select" onchange="tmSwitchGroupMode(this.value)" aria-label="模式" title="模式">
                                     <option value="none" ${(!state.groupByDocName && !state.groupByTime && !state.quadrantEnabled) ? 'selected' : ''}>不分组</option>
                                     <option value="doc" ${state.groupByDocName ? 'selected' : ''}>按文档</option>
                                     <option value="time" ${state.groupByTime ? 'selected' : ''}>按时间</option>
@@ -8342,9 +8644,12 @@ async function __tmRefreshAfterWake(reason) {
                     
                     <!-- 桌面端搜索栏 -->
                     <div class="tm-search-box tm-desktop-toolbar" style="flex-wrap: wrap;">
-                        <button class="tm-btn tm-btn-info" onclick="tmRefresh()" style="padding: 4px 10px;" title="刷新">🔄️</button>
-                        <button class="tm-btn tm-btn-info ${state.viewMode === 'timeline' ? 'tm-filter-active' : ''}" onclick="tmToggleTimelineMode()" style="padding: 4px 10px;" title="切换时间轴模式">🗓️ 时间轴</button>
-                        <button class="tm-btn tm-btn-info ${state.viewMode === 'kanban' ? 'tm-filter-active' : ''}" onclick="tmToggleKanbanMode()" style="padding: 4px 10px;" title="切换看板模式">🧱 看板</button>
+                        <div class="tm-view-segmented" role="tablist" aria-label="视图">
+                            <button class="tm-view-seg-item ${state.viewMode === 'list' ? 'tm-view-seg-item--active' : ''}" onclick="tmSwitchViewMode('list')" role="tab" aria-selected="${state.viewMode === 'list' ? 'true' : 'false'}" title="表格">表格</button>
+                            <button class="tm-view-seg-item ${state.viewMode === 'timeline' ? 'tm-view-seg-item--active' : ''}" onclick="tmSwitchViewMode('timeline')" role="tab" aria-selected="${state.viewMode === 'timeline' ? 'true' : 'false'}" title="时间轴">时间轴</button>
+                            <button class="tm-view-seg-item ${state.viewMode === 'kanban' ? 'tm-view-seg-item--active' : ''}" onclick="tmSwitchViewMode('kanban')" role="tab" aria-selected="${state.viewMode === 'kanban' ? 'true' : 'false'}" title="看板">看板</button>
+                            <button class="tm-view-seg-item ${state.viewMode === 'calendar' ? 'tm-view-seg-item--active' : ''}" onclick="tmSwitchViewMode('calendar')" role="tab" aria-selected="${state.viewMode === 'calendar' ? 'true' : 'false'}" title="日历">日历</button>
+                        </div>
                         ${state.viewMode === 'timeline' ? `
                             <button class="tm-btn tm-btn-info" onclick="tmGanttZoomOut()" style="padding: 4px 10px;" title="缩小">－</button>
                             <button class="tm-btn tm-btn-info" onclick="tmGanttZoomIn()" style="padding: 4px 10px;" title="放大">＋</button>
@@ -8352,6 +8657,7 @@ async function __tmRefreshAfterWake(reason) {
                             <button class="tm-btn tm-btn-info" onclick="tmGanttToday()" style="padding: 4px 10px;" title="定位今天">📍</button>
                         ` : ''}
                         
+                        <button class="tm-btn tm-btn-info" onclick="tmRefresh()" style="padding: 4px 10px;" title="刷新">🔄️</button>
                         <button class="tm-btn tm-btn-info" onclick="showSettings()" style="padding: 4px 10px;">⚙️ 设置</button>
                         ${!isMobile ? `
                             <button class="tm-btn tm-btn-info tm-desktop-menu-btn" onclick="tmToggleDesktopMenu(event)" style="padding: 4px 10px; display: flex; align-items: center; gap: 4px;">
@@ -8373,7 +8679,7 @@ async function __tmRefreshAfterWake(reason) {
                                 <div class="tm-mobile-only-item" style="display:flex; gap:10px; align-items:center;">
                                     <span style="color:var(--tm-text-color);width:60px;">规则:</span>
                                     <select class="tm-rule-select" style="flex:1;" onchange="applyFilterRule(this.value)">
-                                        <option value="">-- 选择规则 --</option>
+                                        <option value="">全部</option>
                                         ${ruleOptions}
                                     </select>
                                 </div>
@@ -8384,7 +8690,12 @@ async function __tmRefreshAfterWake(reason) {
                                 </div>
                                 <div class="tm-mobile-only-item" style="display:flex; gap:10px;">
                                     <button class="tm-btn tm-btn-info" onclick="tmToggleKanbanMode(); tmHideMobileMenu();" style="flex:1; padding: 6px;">
-                                        🧱 看板 ${state.viewMode === 'kanban' ? '(开)' : ''}
+                                        ${state.viewMode === 'kanban' ? '📋 表格' : '🧱 看板'}
+                                    </button>
+                                </div>
+                                <div class="tm-mobile-only-item" style="display:flex; gap:10px;">
+                                    <button class="tm-btn tm-btn-info" onclick="tmToggleCalendarMode(); tmHideMobileMenu();" style="flex:1; padding: 6px;">
+                                        ${state.viewMode === 'calendar' ? '📋 表格' : '📅 日历'}
                                     </button>
                                 </div>
                                 <div class="tm-mobile-only-item" style="display:flex; gap:10px;">
@@ -8433,12 +8744,12 @@ async function __tmRefreshAfterWake(reason) {
                                 || '未命名文档';
                             const isActive = state.activeDocId === id;
                             const c = __tmGetDocColorHex(id, __tmIsDarkMode());
-                            return `<div class="tm-doc-tab ${isActive ? 'active' : ''}" style="--tm-doc-color:${esc(c)}" oncontextmenu="tmShowDocTabContextMenu(event, '${id}')" ontouchstart="tmDocTabTouchStart(event, '${id}')" ontouchmove="tmDocTabTouchMove(event)" ontouchend="tmDocTabTouchEnd(event)" onclick="tmSwitchDoc('${id}')" title="全局新建文档">📥 ${esc(docName)}</div>`;
+                            return `<div class="tm-doc-tab ${isActive ? 'active' : ''}" data-tm-doc-id="${esc(id)}" style="--tm-doc-color:${esc(c)}" oncontextmenu="tmShowDocTabContextMenu(event, '${id}')" onclick="tmSwitchDoc('${id}')" title="全局新建文档">📥 ${esc(docName)}</div>`;
                         })()}
                         ${visibleDocs.map(doc => {
                             const isActive = state.activeDocId === doc.id;
                             const c = __tmGetDocColorHex(doc.id, __tmIsDarkMode());
-                            return `<div class="tm-doc-tab ${isActive ? 'active' : ''}" style="--tm-doc-color:${esc(c)}" oncontextmenu="tmShowDocTabContextMenu(event, '${doc.id}')" ontouchstart="tmDocTabTouchStart(event, '${doc.id}')" ontouchmove="tmDocTabTouchMove(event)" ontouchend="tmDocTabTouchEnd(event)" ondragenter="tmDocTabDragEnter(event)" ondragleave="tmDocTabDragLeave(event)" ondragover="tmDocTabDragOver(event)" ondrop="tmDocTabDrop(event, '${doc.id}')" onclick="tmSwitchDoc('${doc.id}')">${esc(doc.name)}</div>`;
+                            return `<div class="tm-doc-tab ${isActive ? 'active' : ''}" data-tm-doc-id="${esc(doc.id)}" style="--tm-doc-color:${esc(c)}" oncontextmenu="tmShowDocTabContextMenu(event, '${doc.id}')" ondragenter="tmDocTabDragEnter(event)" ondragleave="tmDocTabDragLeave(event)" ondragover="tmDocTabDragOver(event)" ondrop="tmDocTabDrop(event, '${doc.id}')" onclick="tmSwitchDoc('${doc.id}')">${esc(doc.name)}</div>`;
                         }).join('')}
                     </div>
                     <div style="border-left:1px solid var(--tm-border-color); padding-left:8px; margin-left:8px; display:none; gap:8px;">
@@ -8574,6 +8885,23 @@ async function __tmRefreshAfterWake(reason) {
         
         try { if (state.viewMode === 'kanban') __tmBindKanbanPan(state.modal); } catch (e) {}
         __tmGetMountRoot().appendChild(state.modal);
+        try {
+            if (state.viewMode === 'calendar') {
+                const el = state.modal.querySelector('#tmCalendarRoot');
+                if (el) {
+                    if (!SettingsStore.data.calendarEnabled) {
+                        el.innerHTML = `<div style="padding:12px;color:var(--tm-secondary-text);">日历视图已关闭，可在设置 → 日历中开启。</div>`;
+                    } else if (globalThis.__tmCalendar && typeof globalThis.__tmCalendar.mount === 'function') {
+                        const ok = globalThis.__tmCalendar.mount(el, { settingsStore: SettingsStore });
+                        if (!ok) {
+                            el.innerHTML = `<div style="padding:12px;color:var(--tm-secondary-text);">日历初始化失败，请确认 FullCalendar 已加载。</div>`;
+                        }
+                    } else {
+                        el.innerHTML = `<div style="padding:12px;color:var(--tm-secondary-text);">日历模块未加载。</div>`;
+                    }
+                }
+            }
+        } catch (e) {}
 
         // 恢复滚动位置
         try {
@@ -8583,6 +8911,8 @@ async function __tmRefreshAfterWake(reason) {
             const listLeft = pickNum(state.viewScroll?.list?.left, 0);
             const timelineTop = pickNum(state.viewScroll?.timeline?.top, 0);
             const timelineLeft = pickNum(state.viewScroll?.timeline?.left, 0);
+            const calendarTop = pickNum(state.viewScroll?.calendar?.top, 0);
+            const calendarLeft = pickNum(state.viewScroll?.calendar?.left, 0);
             const desiredTop = prevWasTimeline ? timelineTop : listTop;
             const desiredLeft = isTimeline ? timelineLeft : listLeft;
             
@@ -8768,26 +9098,58 @@ async function __tmRefreshAfterWake(reason) {
                     if (ganttHeader) ganttHeader.addEventListener('wheel', onGanttWheel, { passive: false });
                 }
             } else {
-                // 列表模式
-                const body = state.modal.querySelector('.tm-body');
-                if (body) {
-                    body.scrollTop = desiredTop;
-                    body.scrollLeft = desiredLeft;
-                }
-                
-                requestAnimationFrame(() => requestAnimationFrame(() => {
-                     try { if (body) body.scrollTop = desiredTop; } catch (e) {}
-                     try { __tmRunFlipAnimation(state.modal); } catch (e) {}
-                     
-                     if (useSoftSwap) {
-                         try { state.modal.style.opacity = '1'; } catch (e) {}
-                         try { state.modal.style.pointerEvents = ''; } catch (e) {}
-                         if (prevModalEl) {
-                             try { prevModalEl.style.visibility = 'hidden'; } catch (e2) {}
-                             setTimeout(() => { try { prevModalEl.remove(); } catch (e2) {} }, 140);
+                const isCalendar = state.viewMode === 'calendar';
+                if (isCalendar) {
+                    const root = state.modal.querySelector('#tmCalendarRoot');
+                    const apply = () => {
+                        try {
+                            if (!root || !root.querySelectorAll) return;
+                            const preferred = root.querySelector('.fc-timegrid-body .fc-scroller');
+                            const list = Array.from(root.querySelectorAll('.fc-scroller'));
+                            const scroller = (preferred && preferred.scrollHeight > preferred.clientHeight + 1)
+                                ? preferred
+                                : (list.find((el) => el && el.scrollHeight > el.clientHeight + 1) || preferred || list[0] || null);
+                            if (!scroller) return;
+                            scroller.scrollTop = calendarTop;
+                            scroller.scrollLeft = calendarLeft;
+                        } catch (e) {}
+                    };
+                    apply();
+                    requestAnimationFrame(() => requestAnimationFrame(apply));
+                    setTimeout(apply, 0);
+                    requestAnimationFrame(() => requestAnimationFrame(() => {
+                        try { __tmRunFlipAnimation(state.modal); } catch (e) {}
+                        if (useSoftSwap) {
+                            try { state.modal.style.opacity = '1'; } catch (e) {}
+                            try { state.modal.style.pointerEvents = ''; } catch (e) {}
+                            if (prevModalEl) {
+                                try { prevModalEl.style.visibility = 'hidden'; } catch (e2) {}
+                                setTimeout(() => { try { prevModalEl.remove(); } catch (e2) {} }, 140);
+                            }
+                        }
+                    }));
+                } else {
+                    // 列表模式
+                    const body = state.modal.querySelector('.tm-body');
+                    if (body) {
+                        body.scrollTop = desiredTop;
+                        body.scrollLeft = desiredLeft;
+                    }
+                    
+                    requestAnimationFrame(() => requestAnimationFrame(() => {
+                         try { if (body) body.scrollTop = desiredTop; } catch (e) {}
+                         try { __tmRunFlipAnimation(state.modal); } catch (e) {}
+                         
+                         if (useSoftSwap) {
+                             try { state.modal.style.opacity = '1'; } catch (e) {}
+                             try { state.modal.style.pointerEvents = ''; } catch (e) {}
+                             if (prevModalEl) {
+                                 try { prevModalEl.style.visibility = 'hidden'; } catch (e2) {}
+                                 setTimeout(() => { try { prevModalEl.remove(); } catch (e2) {} }, 140);
+                             }
                          }
-                     }
-                }));
+                    }));
+                }
             }
         } catch (e) {}
 
@@ -8878,6 +9240,405 @@ async function __tmRefreshAfterWake(reason) {
         state.uiAnimTs = 0;
         try { __tmHideMobileMenu(); } catch (e) {}
         render();
+    };
+
+    window.tmToggleCalendarMode = function() {
+        const next = state.viewMode === 'calendar' ? 'list' : 'calendar';
+        state.viewMode = next;
+        state.uiAnimKind = '';
+        state.uiAnimTs = 0;
+        try { __tmHideMobileMenu(); } catch (e) {}
+        render();
+    };
+
+    window.tmSwitchViewMode = function(mode) {
+        const allow = new Set(['list', 'timeline', 'kanban', 'calendar']);
+        const next = allow.has(String(mode || '').trim()) ? String(mode || '').trim() : 'list';
+        if (state.viewMode === next) return;
+        state.viewMode = next;
+        state.uiAnimKind = '';
+        state.uiAnimTs = 0;
+        try { __tmHideMobileMenu(); } catch (e) {}
+        render();
+    };
+
+    window.tmGetCalendarDragTasks = function(limit) {
+        const max = Number.isFinite(Number(limit)) ? Math.max(1, Math.min(500, Math.floor(Number(limit)))) : 200;
+        const filtered = Array.isArray(state.filteredTasks) ? state.filteredTasks : [];
+        const docsToGroup = new Map();
+        try {
+            const groups = Array.isArray(SettingsStore.data.docGroups) ? SettingsStore.data.docGroups : [];
+            groups.forEach((g) => {
+                const gid = String(g?.id || '').trim();
+                const docs = Array.isArray(g?.docs) ? g.docs : [];
+                if (!gid) return;
+                docs.forEach((d) => {
+                    const did = String((typeof d === 'object' ? d?.id : d) || '').trim();
+                    if (!did) return;
+                    if (!docsToGroup.has(did)) docsToGroup.set(did, gid);
+                });
+            });
+        } catch (e) {}
+
+        const mode = String(SettingsStore.data.tomatoSpentAttrMode || 'minutes').trim() || 'minutes';
+        const useHours = !!(SettingsStore.data.enableTomatoIntegration && mode === 'hours');
+
+        const out = [];
+        for (const t of filtered) {
+            if (!t) continue;
+            if (t.done) continue;
+            const id = String(t.id || '').trim();
+            if (!id) continue;
+            const title = String(t.content || '').trim();
+            const docId = String(t.root_id || '').trim();
+            const gid = docId ? docsToGroup.get(docId) : '';
+            const calendarId = gid ? `group:${gid}` : 'default';
+
+            const mins = __tmParseDurationMinutes(t?.duration);
+            const durationMin = (Number.isFinite(Number(mins)) && Number(mins) > 0) ? Math.round(Number(mins)) : 60;
+
+            let spent = '';
+            try {
+                if (useHours) spent = __tmFormatSpentHours(__tmParseNumber(t?.tomatoHours)) || '';
+                else spent = __tmFormatSpentMinutes(__tmGetTaskSpentMinutes(t)) || '';
+            } catch (e) {}
+
+            out.push({ id, title: title || '(无标题)', spent, durationMin, calendarId });
+            if (out.length >= max) break;
+        }
+        return out;
+    };
+
+    window.tmQueryCalendarTasks = function(params) {
+        const p = (params && typeof params === 'object') ? params : {};
+        const size = Number.isFinite(Number(p.pageSize)) ? Math.max(20, Math.min(500, Math.floor(Number(p.pageSize)))) : 200;
+        const page = Number.isFinite(Number(p.page)) ? Math.max(1, Math.floor(Number(p.page))) : 1;
+        const q = String(p.query || '').trim().toLowerCase();
+
+        const filtered = Array.isArray(state.filteredTasks) ? state.filteredTasks : [];
+        const map = new Map(filtered.map((t) => [String(t?.id || '').trim(), t]).filter(([k]) => !!k));
+        const childSet = new Set();
+        for (const t of filtered) {
+            const pid = String(t?.parentTaskId || '').trim();
+            if (pid) childSet.add(pid);
+        }
+        const depthMemo = new Map();
+        const getDepth = (id) => {
+            if (!id) return 0;
+            if (depthMemo.has(id)) return depthMemo.get(id);
+            const t = map.get(id);
+            if (!t) return 0;
+            const pid = String(t.parentTaskId || '').trim();
+            const d = pid ? Math.min(20, getDepth(pid) + 1) : 0;
+            depthMemo.set(id, d);
+            return d;
+        };
+
+        const docsToGroup = new Map();
+        try {
+            const groups = Array.isArray(SettingsStore.data.docGroups) ? SettingsStore.data.docGroups : [];
+            groups.forEach((g) => {
+                const gid = String(g?.id || '').trim();
+                const docs = Array.isArray(g?.docs) ? g.docs : [];
+                if (!gid) return;
+                docs.forEach((d) => {
+                    const did = String(d?.id || '').trim();
+                    if (!did) return;
+                    if (!docsToGroup.has(did)) docsToGroup.set(did, gid);
+                });
+            });
+        } catch (e) {}
+
+        const mode = String(SettingsStore.data.tomatoSpentAttrMode || 'minutes').trim() || 'minutes';
+        const useHours = !!(SettingsStore.data.enableTomatoIntegration && mode === 'hours');
+
+        const all = [];
+        for (const t of filtered) {
+            if (!t) continue;
+            if (t.done) continue;
+            const id = String(t.id || '').trim();
+            if (!id) continue;
+            const title = String(t.content || '').trim() || '(无标题)';
+            if (q && !title.toLowerCase().includes(q)) continue;
+            const docId = String(t.root_id || '').trim();
+            const gid = docId ? docsToGroup.get(docId) : '';
+            const calendarId = gid ? `group:${gid}` : 'default';
+
+            const mins = __tmParseDurationMinutes(t?.duration);
+            const durationMin = (Number.isFinite(Number(mins)) && Number(mins) > 0) ? Math.round(Number(mins)) : 60;
+
+            let spent = '';
+            try {
+                if (useHours) spent = __tmFormatSpentHours(__tmParseNumber(t?.tomatoHours)) || '';
+                else spent = __tmFormatSpentMinutes(__tmGetTaskSpentMinutes(t)) || '';
+            } catch (e) {}
+
+            all.push({
+                id,
+                title,
+                spent,
+                durationMin,
+                calendarId,
+                depth: getDepth(id),
+                hasChildren: childSet.has(id),
+            });
+        }
+
+        const total = all.length;
+        const start = (page - 1) * size;
+        const items = all.slice(start, start + size);
+        return { total, page, pageSize: size, items };
+    };
+
+    window.tmQueryCalendarTaskDateEvents = async function(rangeStart, rangeEnd) {
+        const startKey = __tmNormalizeDateOnly(rangeStart);
+        const endKey = __tmNormalizeDateOnly(rangeEnd);
+        const toTs = (k) => {
+            const kk = String(k || '').trim();
+            if (!kk) return 0;
+            const d = new Date(`${kk}T12:00:00`);
+            return Number.isNaN(d.getTime()) ? 0 : d.getTime();
+        };
+        const rangeStartTs = toTs(startKey) || 0;
+        const rangeEndTs = toTs(endKey) || 0;
+
+        const getDocsToGroupMap = async () => {
+            const groups = Array.isArray(SettingsStore.data.docGroups) ? SettingsStore.data.docGroups : [];
+            const parts = [];
+            for (const g of groups) {
+                const gid = String(g?.id || '').trim();
+                if (!gid) continue;
+                const docs = Array.isArray(g?.docs) ? g.docs : [];
+                const ds = docs.map((d) => {
+                    const did = String((typeof d === 'object' ? d?.id : d) || '').trim();
+                    const rec = !!(typeof d === 'object' && d && d.recursive);
+                    if (!did) return '';
+                    return did + (rec ? '*' : '');
+                }).filter(Boolean);
+                parts.push(`${gid}:${ds.join(',')}`);
+            }
+            const key = parts.join('|');
+            const prev = window.__tmCalendarDocsToGroupCache;
+            if (prev && prev.key === key && prev.map instanceof Map) return prev.map;
+
+            const map = new Map();
+            for (const g of groups) {
+                const gid = String(g?.id || '').trim();
+                if (!gid) continue;
+                const docs = Array.isArray(g?.docs) ? g.docs : [];
+                for (const d of docs) {
+                    const did = String((typeof d === 'object' ? d?.id : d) || '').trim();
+                    const rec = !!(typeof d === 'object' && d && d.recursive);
+                    if (!did) continue;
+                    if (!map.has(did)) map.set(did, gid);
+                    if (rec && API && typeof API.getSubDocIds === 'function') {
+                        try {
+                            const subIds = await API.getSubDocIds(did);
+                            (Array.isArray(subIds) ? subIds : []).forEach((sid) => {
+                                const s = String(sid || '').trim();
+                                if (!s) return;
+                                if (!map.has(s)) map.set(s, gid);
+                            });
+                        } catch (e) {}
+                    }
+                }
+            }
+
+            window.__tmCalendarDocsToGroupCache = { key, map };
+            return map;
+        };
+
+        let docsToGroup = new Map();
+        try { docsToGroup = await getDocsToGroupMap(); } catch (e) {}
+
+        const nextDay = (k) => {
+            const ts = toTs(k);
+            if (!ts) return '';
+            const d = new Date(ts + 86400000);
+            const pad = (n) => String(n).padStart(2, '0');
+            return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+        };
+
+        const filtered = Array.isArray(state.filteredTasks) ? state.filteredTasks : [];
+        const out = [];
+        for (const t of filtered) {
+            if (!t) continue;
+            if (t.done) continue;
+            const id = String(t.id || '').trim();
+            if (!id) continue;
+            const s0 = __tmNormalizeDateOnly(t?.startDate);
+            const e0 = __tmNormalizeDateOnly(t?.completionTime);
+            if (!s0 && !e0) continue;
+            const start = s0 || e0;
+            const end = e0 || s0 || start;
+            const startTs = toTs(start);
+            const endExKey = nextDay(end);
+            const endExTs = toTs(endExKey);
+            if (rangeStartTs && endExTs && endExTs <= rangeStartTs) continue;
+            if (rangeEndTs && startTs && startTs >= rangeEndTs) continue;
+
+            const title = String(t.content || '').trim() || '(无标题)';
+            const docId = String(t.root_id || '').trim();
+            const gid = docId ? docsToGroup.get(docId) : '';
+            const calendarId = gid ? `group:${gid}` : 'default';
+            out.push({ id, title, start, endExclusive: endExKey || nextDay(start), calendarId });
+        }
+        return out;
+    };
+
+    window.tmRenderCalendarTaskTableHtml = function() {
+        const originalOrder = SettingsStore.data.columnOrder;
+        const originalWidths = SettingsStore.data.columnWidths;
+        try {
+            // Ensure calendarColumnWidths is initialized with defaults if missing or empty
+            if (!SettingsStore.data.calendarColumnWidths || Object.keys(SettingsStore.data.calendarColumnWidths).length === 0) {
+                SettingsStore.data.calendarColumnWidths = { content: 140, duration: 60, spent: 60 };
+            }
+            
+            SettingsStore.data.columnOrder = ['content', 'duration', 'spent'];
+            SettingsStore.data.columnWidths = SettingsStore.data.calendarColumnWidths;
+
+            const colOrder = SettingsStore.data.columnOrder;
+            const widths = SettingsStore.data.columnWidths || {};
+            const headers = {
+                pinned: `<th data-col="pinned" style="width: ${widths.pinned || 48}px; min-width: ${widths.pinned || 48}px; max-width: ${widths.pinned || 48}px; text-align: center; white-space: nowrap; overflow: hidden;">📌<span class="tm-col-resize" onmousedown="startColResize(event, 'pinned')"></span></th>`,
+                content: `<th data-col="content" style="width: ${widths.content || 360}px; min-width: ${widths.content || 360}px; max-width: ${widths.content || 360}px; white-space: nowrap; overflow: hidden;">任务内容<span class="tm-col-resize" onmousedown="startColResize(event, 'content')"></span></th>`,
+                score: `<th data-col="score" style="width: ${widths.score || 96}px; min-width: ${widths.score || 96}px; max-width: ${widths.score || 96}px; text-align: center; white-space: nowrap; overflow: hidden;">优先级<span class="tm-col-resize" onmousedown="startColResize(event, 'score')"></span></th>`,
+                doc: `<th data-col="doc" style="width: ${widths.doc || 180}px; min-width: ${widths.doc || 180}px; max-width: ${widths.doc || 180}px; white-space: nowrap; overflow: hidden;">文档<span class="tm-col-resize" onmousedown="startColResize(event, 'doc')"></span></th>`,
+                h2: (() => {
+                    const level = SettingsStore.data.taskHeadingLevel || 'h2';
+                    const labels = { h1: '一级标题', h2: '二级标题', h3: '三级标题', h4: '四级标题', h5: '五级标题', h6: '六级标题' };
+                    const label = labels[level] || '标题';
+                    return `<th data-col="h2" style="width: ${widths.h2 || 180}px; min-width: ${widths.h2 || 180}px; max-width: ${widths.h2 || 180}px; white-space: nowrap; overflow: hidden;">${label}<span class="tm-col-resize" onmousedown="startColResize(event, 'h2')"></span></th>`;
+                })(),
+                priority: `<th data-col="priority" style="width: ${widths.priority || 96}px; min-width: ${widths.priority || 96}px; max-width: ${widths.priority || 96}px; text-align: center; white-space: nowrap; overflow: hidden;">重要性<span class="tm-col-resize" onmousedown="startColResize(event, 'priority')"></span></th>`,
+                startDate: `<th data-col="startDate" style="width: ${widths.startDate || 90}px; min-width: ${widths.startDate || 90}px; max-width: ${widths.startDate || 90}px; white-space: nowrap; overflow: hidden;">开始日期<span class="tm-col-resize" onmousedown="startColResize(event, 'startDate')"></span></th>`,
+                completionTime: `<th data-col="completionTime" style="width: ${widths.completionTime || 170}px; min-width: ${widths.completionTime || 170}px; max-width: ${widths.completionTime || 170}px; white-space: nowrap; overflow: hidden;">完成时间<span class="tm-col-resize" onmousedown="startColResize(event, 'completionTime')"></span></th>`,
+                duration: `<th data-col="duration" style="width: ${widths.duration || 96}px; min-width: ${widths.duration || 96}px; max-width: ${widths.duration || 96}px; white-space: nowrap; overflow: hidden;">时长<span class="tm-col-resize" onmousedown="startColResize(event, 'duration')"></span></th>`,
+                spent: `<th data-col="spent" style="width: ${widths.spent || 96}px; min-width: ${widths.spent || 96}px; max-width: ${widths.spent || 96}px; white-space: nowrap; overflow: hidden;">耗时<span class="tm-col-resize" onmousedown="startColResize(event, 'spent')"></span></th>`,
+                remark: `<th data-col="remark" style="width: ${widths.remark || 240}px; min-width: ${widths.remark || 240}px; max-width: ${widths.remark || 240}px; white-space: nowrap; overflow: hidden;">备注<span class="tm-col-resize" onmousedown="startColResize(event, 'remark')"></span></th>`,
+                status: `<th data-col="status" style="width: ${widths.status || 96}px; min-width: ${widths.status || 96}px; max-width: ${widths.status || 96}px; text-align: center; white-space: nowrap; overflow: hidden;">状态<span class="tm-col-resize" onmousedown="startColResize(event, 'status')"></span></th>`
+            };
+            const thead = colOrder.map(col => headers[col] || '').join('');
+            return `
+                <div class="tm-calendar-task-list" style="height:100%; display:flex; flex-direction:column;">
+                    <table class="tm-table" id="tmTaskTable" data-tm-table="calendar">
+                        <thead><tr>${thead}</tr></thead>
+                        <tbody>${renderTaskList()}</tbody>
+                    </table>
+                </div>
+            `;
+        } catch (e) {
+            return '';
+        } finally {
+            SettingsStore.data.columnOrder = originalOrder;
+            SettingsStore.data.columnWidths = originalWidths;
+        }
+    };
+
+    window.tmCalendarApplyCollapseDom = function() {
+        try { __tmApplyVisibilityFromState(state.modal); } catch (e) {}
+    };
+
+    window.tmCalendarGetTaskDragMeta = function(id) {
+        const tid = String(id || '').trim();
+        if (!tid) return null;
+        const t = state.flatTasks?.[tid] || null;
+        if (!t) return null;
+
+        const buildDocsToGroupKey = () => {
+            const groups = Array.isArray(SettingsStore.data.docGroups) ? SettingsStore.data.docGroups : [];
+            const parts = [];
+            for (const g of groups) {
+                const gid = String(g?.id || '').trim();
+                if (!gid) continue;
+                const docs = Array.isArray(g?.docs) ? g.docs : [];
+                const ds = docs.map((d) => {
+                    const did = String((typeof d === 'object' ? d?.id : d) || '').trim();
+                    const rec = !!(typeof d === 'object' && d && d.recursive);
+                    if (!did) return '';
+                    return did + (rec ? '*' : '');
+                }).filter(Boolean);
+                parts.push(`${gid}:${ds.join(',')}`);
+            }
+            return parts.join('|');
+        };
+
+        const key = buildDocsToGroupKey();
+        let docsToGroup = null;
+        const cached = window.__tmCalendarDocsToGroupCache;
+        if (cached && cached.key === key && cached.map instanceof Map) {
+            docsToGroup = cached.map;
+        } else {
+            docsToGroup = new Map();
+            try {
+                const groups = Array.isArray(SettingsStore.data.docGroups) ? SettingsStore.data.docGroups : [];
+                groups.forEach((g) => {
+                    const gid = String(g?.id || '').trim();
+                    const docs = Array.isArray(g?.docs) ? g.docs : [];
+                    if (!gid) return;
+                    docs.forEach((d) => {
+                        const did = String((typeof d === 'object' ? d?.id : d) || '').trim();
+                        if (!did) return;
+                        if (!docsToGroup.has(did)) docsToGroup.set(did, gid);
+                    });
+                });
+            } catch (e) {}
+            try { Promise.resolve().then(() => window.tmCalendarWarmDocsToGroupCache?.()).catch(() => null); } catch (e) {}
+        }
+        const docId = String(t.root_id || '').trim();
+        const gid = docId ? docsToGroup.get(docId) : '';
+        const calendarId = gid ? `group:${gid}` : 'default';
+
+        const mins = __tmParseDurationMinutes(t?.duration);
+        const durationMin = (Number.isFinite(Number(mins)) && Number(mins) > 0) ? Math.round(Number(mins)) : 60;
+        const title = String(t.content || '').trim() || '(无标题)';
+        return { title, durationMin, calendarId };
+    };
+
+    window.tmCalendarWarmDocsToGroupCache = async function() {
+        const groups = Array.isArray(SettingsStore.data.docGroups) ? SettingsStore.data.docGroups : [];
+        const parts = [];
+        for (const g of groups) {
+            const gid = String(g?.id || '').trim();
+            if (!gid) continue;
+            const docs = Array.isArray(g?.docs) ? g.docs : [];
+            const ds = docs.map((d) => {
+                const did = String((typeof d === 'object' ? d?.id : d) || '').trim();
+                const rec = !!(typeof d === 'object' && d && d.recursive);
+                if (!did) return '';
+                return did + (rec ? '*' : '');
+            }).filter(Boolean);
+            parts.push(`${gid}:${ds.join(',')}`);
+        }
+        const key = parts.join('|');
+        const prev = window.__tmCalendarDocsToGroupCache;
+        if (prev && prev.key === key && prev.map instanceof Map) return true;
+
+        const map = new Map();
+        for (const g of groups) {
+            const gid = String(g?.id || '').trim();
+            if (!gid) continue;
+            const docs = Array.isArray(g?.docs) ? g.docs : [];
+            for (const d of docs) {
+                const did = String((typeof d === 'object' ? d?.id : d) || '').trim();
+                const rec = !!(typeof d === 'object' && d && d.recursive);
+                if (!did) continue;
+                if (!map.has(did)) map.set(did, gid);
+                if (rec && API && typeof API.getSubDocIds === 'function') {
+                    try {
+                        const subIds = await API.getSubDocIds(did);
+                        (Array.isArray(subIds) ? subIds : []).forEach((sid) => {
+                            const s = String(sid || '').trim();
+                            if (!s) return;
+                            if (!map.has(s)) map.set(s, gid);
+                        });
+                    } catch (e) {}
+                }
+            }
+        }
+        window.__tmCalendarDocsToGroupCache = { key, map };
+        return true;
     };
 
     function __tmKanbanClearDragOver(modalEl) {
@@ -9353,7 +10114,7 @@ async function __tmRefreshAfterWake(reason) {
             try { if (state.mobileMenuCloseTimer) { clearTimeout(state.mobileMenuCloseTimer); state.mobileMenuCloseTimer = null; } } catch (e2) {}
             state.mobileMenuCloseTimer = setTimeout(() => {
                 try { document.addEventListener('click', closeHandler); } catch (e2) {}
-                try { document.addEventListener('touchstart', closeHandler); } catch (e2) {}
+                try { document.addEventListener('touchstart', closeHandler, { passive: true }); } catch (e2) {}
                 try { state.mobileMenuCloseTimer = null; } catch (e2) {}
             }, 0);
         } else {
@@ -9446,12 +10207,14 @@ async function __tmRefreshAfterWake(reason) {
         const th = event.target.closest('th');
         const startX = event.clientX;
         const startWidth = th.offsetWidth;
+        const isCalendar = !!th.closest('.tm-calendar-task-list');
 
         __tmResizeState = {
             colName,
             startX,
             startWidth,
-            th
+            th,
+            isCalendar
         };
 
         document.addEventListener('mousemove', __tmOnResize);
@@ -9474,7 +10237,14 @@ async function __tmRefreshAfterWake(reason) {
 
         const deltaX = event.clientX - __tmResizeState.startX;
         const newWidth = Math.max(10, Math.min(800, Math.round(__tmResizeState.startWidth + deltaX)));
-        SettingsStore.updateColumnWidth(__tmResizeState.colName, newWidth);
+        
+        if (__tmResizeState.isCalendar) {
+            if (!SettingsStore.data.calendarColumnWidths) SettingsStore.data.calendarColumnWidths = {};
+            SettingsStore.data.calendarColumnWidths[__tmResizeState.colName] = newWidth;
+            SettingsStore.save();
+        } else {
+            SettingsStore.updateColumnWidth(__tmResizeState.colName, newWidth);
+        }
 
         // 清理
         document.removeEventListener('mousemove', __tmOnResize);
@@ -14192,6 +14962,7 @@ async function __tmRefreshAfterWake(reason) {
         }
         let activeTab = 'main';
         if (state.settingsActiveTab === 'appearance') activeTab = 'appearance';
+        if (state.settingsActiveTab === 'calendar') activeTab = 'calendar';
         if (state.settingsActiveTab === 'rules') activeTab = 'rules';
         if (state.settingsActiveTab === 'quadrant') activeTab = 'quadrant';
         if (state.settingsActiveTab === 'priority') activeTab = 'priority';
@@ -14210,6 +14981,7 @@ async function __tmRefreshAfterWake(reason) {
                     ${activeTab !== 'rule_editor' ? `
                     <button class="tm-btn ${activeTab === 'main' ? 'tm-btn-primary' : 'tm-btn-secondary'}" data-tm-action="tmSwitchSettingsTab" data-tab="main" style="padding: 6px 10px; font-size: 12px;">常规设置</button>
                     <button class="tm-btn ${activeTab === 'appearance' ? 'tm-btn-primary' : 'tm-btn-secondary'}" data-tm-action="tmSwitchSettingsTab" data-tab="appearance" style="padding: 6px 10px; font-size: 12px;">外观</button>
+                    <button class="tm-btn ${activeTab === 'calendar' ? 'tm-btn-primary' : 'tm-btn-secondary'}" data-tm-action="tmSwitchSettingsTab" data-tab="calendar" style="padding: 6px 10px; font-size: 12px;">日历</button>
                     <button class="tm-btn ${activeTab === 'rules' ? 'tm-btn-primary' : 'tm-btn-secondary'}" data-tm-action="tmSwitchSettingsTab" data-tab="rules" style="padding: 6px 10px; font-size: 12px;">规则管理</button>
                     <button class="tm-btn ${activeTab === 'quadrant' ? 'tm-btn-primary' : 'tm-btn-secondary'}" data-tm-action="tmSwitchSettingsTab" data-tab="quadrant" style="padding: 6px 10px; font-size: 12px;">四象限</button>
                     <button class="tm-btn ${activeTab === 'priority' ? 'tm-btn-primary' : 'tm-btn-secondary'}" data-tm-action="tmSwitchSettingsTab" data-tab="priority" style="padding: 6px 10px; font-size: 12px;">优先级算法</button>
@@ -14227,6 +14999,13 @@ async function __tmRefreshAfterWake(reason) {
                         <div style="margin-bottom: 0; padding: 12px; background: var(--tm-section-bg); border-radius: 8px;">
                             <div style="font-weight: 600; margin-bottom: 12px;">🎨 配色</div>
                             ${renderAppearanceColorSettings()}
+                        </div>
+                    ` : ''}
+
+                    ${activeTab === 'calendar' ? `
+                        <div style="margin-bottom: 0; padding: 12px; background: var(--tm-section-bg); border-radius: 8px;">
+                            <div style="font-weight: 600; margin-bottom: 12px;">🗓️ 日历</div>
+                            <div id="tm-calendar-settings-root"></div>
                         </div>
                     ` : ''}
 
@@ -14343,6 +15122,8 @@ async function __tmRefreshAfterWake(reason) {
                         </label>
                         <div style="font-size: 12px; color: var(--tm-secondary-text); margin-top: 6px; margin-bottom: 12px;">
                             开启后仅查找未完成任务。含有子任务的任务，如果父任务未完成，已完成的子任务仍会显示。
+                            <br>示例：假设笔记中有 1000 条任务，其中 800 条已完成，则这 800 条任务在开启后不会被查找到。
+                            <br>如需复盘已完成任务：在规则设置中添加/选择条件「完成状态」，将其设置为「所有状态」或「是」均可在筛选已完成任务时搜索到全部已完成任务。
                         </div>
                         <div style="display:flex;align-items:center;gap:8px;margin-bottom:10px;flex-wrap:wrap;">
                             <span style="font-size:12px;color:var(--tm-secondary-text);">默认视图:</span>
@@ -14350,6 +15131,7 @@ async function __tmRefreshAfterWake(reason) {
                                 <option value="list" ${String(SettingsStore.data.defaultViewMode || 'list') === 'list' ? 'selected' : ''}>表格视图</option>
                                 <option value="timeline" ${String(SettingsStore.data.defaultViewMode || '') === 'timeline' ? 'selected' : ''}>时间轴视图</option>
                                 <option value="kanban" ${String(SettingsStore.data.defaultViewMode || '') === 'kanban' ? 'selected' : ''}>看板视图</option>
+                                <option value="calendar" ${String(SettingsStore.data.defaultViewMode || '') === 'calendar' ? 'selected' : ''}>日历视图</option>
                             </select>
                         </div>
                         <label style="display:flex;align-items:center;gap:8px;cursor:pointer;margin-bottom:10px;">
@@ -14535,6 +15317,14 @@ async function __tmRefreshAfterWake(reason) {
 
         document.body.appendChild(state.settingsModal);
         __tmBindRulesManagerEvents(state.settingsModal);
+        try {
+            if (activeTab === 'calendar') {
+                const el = state.settingsModal.querySelector('#tm-calendar-settings-root');
+                if (el && globalThis.__tmCalendar && typeof globalThis.__tmCalendar.renderSettings === 'function') {
+                    globalThis.__tmCalendar.renderSettings(el, SettingsStore);
+                }
+            }
+        } catch (e) {}
     }
     window.showSettings = showSettings;
     window.tmSwitchSettingsTab = function(tab) {
@@ -14543,6 +15333,8 @@ async function __tmRefreshAfterWake(reason) {
             state.settingsActiveTab = 'rules';
         } else if (tab === 'appearance') {
             state.settingsActiveTab = 'appearance';
+        } else if (tab === 'calendar') {
+            state.settingsActiveTab = 'calendar';
         } else if (tab === 'quadrant') {
             state.settingsActiveTab = 'quadrant';
         } else if (tab === 'priority') {
@@ -15871,7 +16663,7 @@ async function __tmRefreshAfterWake(reason) {
                         if (pressTimer) clearTimeout(pressTimer);
                         pressTimer = setTimeout(() => {
                             tmBtn.__tmLongPressFired = true;
-                            try { openManager(); } catch (e) {}
+                            try { openManager({ preserveViewMode: true }); } catch (e) {}
                         }, 450);
                     };
                     const cancelHandler = () => {
@@ -15984,7 +16776,7 @@ async function __tmRefreshAfterWake(reason) {
                 try { e.preventDefault?.(); } catch (e2) {}
                 try { e.stopImmediatePropagation?.(); } catch (e2) {}
                 try { e.stopPropagation?.(); } catch (e2) {}
-                try { openManager(); } catch (e2) {}
+                try { openManager({ preserveViewMode: true }); } catch (e2) {}
             } finally {
                 setTimeout(() => { __tmTopBarClickInFlight = false; }, 0);
             }
@@ -16318,7 +17110,7 @@ async function __tmRefreshAfterWake(reason) {
             }
         } catch (e) {
             // 如果切换失败，则打开新标签页
-            openManager();
+            openManager({ preserveViewMode: true });
         }
     }
 
@@ -16354,11 +17146,17 @@ async function __tmRefreshAfterWake(reason) {
 
         await SettingsStore.load();
         try {
-            const allow = new Set(['list', 'timeline', 'kanban']);
-            const m0 = String(SettingsStore.data.defaultViewMode || 'list').trim();
+            const allow = new Set(['list', 'timeline', 'kanban', 'calendar']);
             const isMobileDevice = __tmIsMobileDevice();
-            const m1 = (isMobileDevice && m0 === 'timeline') ? 'list' : m0;
-            state.viewMode = allow.has(m1) ? m1 : 'list';
+            const preserve = !!(options && options.preserveViewMode);
+            const current = String(state.viewMode || '').trim();
+            if (preserve && allow.has(current)) {
+                state.viewMode = (isMobileDevice && current === 'timeline') ? 'list' : current;
+            } else {
+                const m0 = String(SettingsStore.data.defaultViewMode || 'list').trim();
+                const m1 = (isMobileDevice && m0 === 'timeline') ? 'list' : m0;
+                state.viewMode = allow.has(m1) ? m1 : 'list';
+            }
         } catch (e) {
             state.viewMode = 'list';
         }
@@ -16552,6 +17350,8 @@ async function __tmRefreshAfterWake(reason) {
         } catch (e) {}
         try { __tmCloseInlineEditor(); } catch (e) {}
         try { __tmCloseCellEditor(false); } catch (e) {}
+        try { globalThis.__tmCalendar?.cleanup?.(); } catch (e) {}
+        try { delete globalThis.__tmCalendar; } catch (e) {}
 
         try {
             if (state.modal) {
@@ -16587,6 +17387,19 @@ async function __tmRefreshAfterWake(reason) {
         } catch (e) {}
         try { __tmHideDocTabMenu?.(); } catch (e) {}
         try {
+            const h = state.docTabTouchDelegationHandlers;
+            const opts = state.docTabTouchDelegationOptions || { passive: true };
+            if (h) {
+                try { document.removeEventListener('touchstart', h.start, opts); } catch (e2) {}
+                try { document.removeEventListener('touchmove', h.move, opts); } catch (e2) {}
+                try { document.removeEventListener('touchend', h.end, opts); } catch (e2) {}
+                try { document.removeEventListener('touchcancel', h.end, opts); } catch (e2) {}
+            }
+            state.docTabTouchDelegationHandlers = null;
+            state.docTabTouchDelegationOptions = null;
+            state.docTabTouchDelegationBound = false;
+            state.docTabTouchActive = false;
+            state.docTabTouchActiveDocId = null;
             if (state.docTabLongPressTimer) {
                 clearTimeout(state.docTabLongPressTimer);
                 state.docTabLongPressTimer = null;
@@ -16644,7 +17457,7 @@ async function __tmRefreshAfterWake(reason) {
     // 暴露挂载函数供自定义 Tab 使用
     globalThis.__taskHorizonMount = (el) => {
         __tmSetMount(el);
-        openManager({ skipEnsureTabOpened: true }).catch((e) => {
+        openManager({ skipEnsureTabOpened: true, preserveViewMode: true }).catch((e) => {
             try { console.error('[task-horizon] openManager failed:', e); } catch (e2) {}
             try { hint(`❌ 加载失败: ${e?.message || String(e)}`, 'error'); } catch (e3) {}
             try {
