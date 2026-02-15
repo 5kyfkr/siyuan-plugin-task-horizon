@@ -1,5 +1,5 @@
 // @name         思源笔记任务管理器
-// @version      1.3.1
+// @version      1.3.2
 // @description  任务管理器，支持自定义筛选规则分组和排序
 // @author       5KYFKR
 
@@ -9243,11 +9243,15 @@ async function __tmRefreshAfterWake(reason) {
     };
 
     window.tmToggleCalendarMode = function() {
+        const prev = state.viewMode;
         const next = state.viewMode === 'calendar' ? 'list' : 'calendar';
         state.viewMode = next;
         state.uiAnimKind = '';
         state.uiAnimTs = 0;
         try { __tmHideMobileMenu(); } catch (e) {}
+        if (prev === 'calendar' || next === 'calendar') {
+            loadSelectedDocuments().catch(e => hint(`❌ 加载失败: ${e.message}`, 'error'));
+        }
         render();
     };
 
@@ -9255,10 +9259,14 @@ async function __tmRefreshAfterWake(reason) {
         const allow = new Set(['list', 'timeline', 'kanban', 'calendar']);
         const next = allow.has(String(mode || '').trim()) ? String(mode || '').trim() : 'list';
         if (state.viewMode === next) return;
+        const prev = state.viewMode;
         state.viewMode = next;
         state.uiAnimKind = '';
         state.uiAnimTs = 0;
         try { __tmHideMobileMenu(); } catch (e) {}
+        if (prev === 'calendar' || next === 'calendar') {
+            loadSelectedDocuments().catch(e => hint(`❌ 加载失败: ${e.message}`, 'error'));
+        }
         render();
     };
 
@@ -14529,9 +14537,11 @@ async function __tmRefreshAfterWake(reason) {
     }
 
     // 解析文档分组中的所有文档ID
-    async function resolveDocIdsFromGroups() {
+    async function resolveDocIdsFromGroups(opts) {
+        const o = (opts && typeof opts === 'object') ? opts : {};
         const groups = SettingsStore.data.docGroups || [];
-        const currentGroupId = SettingsStore.data.currentGroupId || 'all';
+        let currentGroupId = String(o.groupId || '').trim() || (SettingsStore.data.currentGroupId || 'all');
+        if (state.viewMode === 'calendar') currentGroupId = 'all';
         const quickAddDocId = String(SettingsStore.data.newTaskDocId || '').trim();
         
         let targetDocs = [];
@@ -14574,7 +14584,7 @@ async function __tmRefreshAfterWake(reason) {
     }
 
     // 加载所有选中文档的任务（带递归支持）
-    async function loadSelectedDocuments() {
+    async function loadSelectedDocuments(opts) {
         const token = Number(state.openToken) || 0;
         // 加载设置（包括文档ID列表）
         await SettingsStore.load();
@@ -14619,7 +14629,7 @@ async function __tmRefreshAfterWake(reason) {
         state.__tmQueryDoneOnly = !!(currentRule && currentRule.conditions && currentRule.conditions.some(c => c && c.field === 'done' && c.operator === '=' && (c.value === true || String(c.value) === 'true' || c.value === '') && String(c.value) !== '__all__'));
 
         // 1. 解析所有需要查询的文档ID
-        const allDocIds = await resolveDocIdsFromGroups();
+        const allDocIds = await resolveDocIdsFromGroups(opts);
         
         // 如果没有文档，打开设置
         if (allDocIds.length === 0) {
