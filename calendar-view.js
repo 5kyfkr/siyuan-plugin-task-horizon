@@ -30,6 +30,9 @@
         settingsAbort: null,
         uiAbort: null,
         modalEl: null,
+        isMobileDevice: false,
+        sidebarOpen: false,
+        mobileDragCloseTimer: null,
     };
 
     function esc(s) {
@@ -592,6 +595,42 @@
                     try { window.tmShowTaskContextMenu(e, taskId); } catch (e2) {}
                 }
             }, { signal: abort.signal });
+
+            if (state.isMobileDevice) {
+                const clearDragCloseTimer = () => {
+                    if (state.mobileDragCloseTimer) {
+                        try { clearTimeout(state.mobileDragCloseTimer); } catch (e2) {}
+                        state.mobileDragCloseTimer = null;
+                    }
+                };
+                const scheduleDragClose = (ev) => {
+                    const target = ev?.target;
+                    if (!(target instanceof Element)) return;
+                    if (!target.closest('tr[data-id], .tm-cal-task')) return;
+                    clearDragCloseTimer();
+                    state.mobileDragCloseTimer = setTimeout(() => {
+                        state.mobileDragCloseTimer = null;
+                        try {
+                            const wrapEl = state.wrapEl;
+                            if (wrapEl) setMobileSidebarOpen(wrapEl, false);
+                        } catch (e2) {}
+                    }, 180);
+                };
+                host.addEventListener('touchstart', scheduleDragClose, { passive: true, signal: abort.signal });
+                host.addEventListener('touchmove', clearDragCloseTimer, { passive: true, signal: abort.signal });
+                host.addEventListener('touchend', clearDragCloseTimer, { passive: true, signal: abort.signal });
+                host.addEventListener('touchcancel', clearDragCloseTimer, { passive: true, signal: abort.signal });
+                host.addEventListener('dragstart', (ev) => {
+                    const target = ev?.target;
+                    if (!(target instanceof Element)) return;
+                    if (!target.closest('tr[data-id], .tm-cal-task')) return;
+                    clearDragCloseTimer();
+                    try {
+                        const wrapEl = state.wrapEl;
+                        if (wrapEl) setMobileSidebarOpen(wrapEl, false);
+                    } catch (e2) {}
+                }, { signal: abort.signal });
+            }
         } catch (e) {}
         try { globalThis.tmCalendarApplyCollapseDom?.(); } catch (e) {}
         bindTaskDraggable(settings);
@@ -610,6 +649,27 @@
                 el.classList.toggle('tm-calendar-side-tab--active', key === v);
             });
         } catch (e) {}
+    }
+
+    function setMobileSidebarOpen(wrap, open, page) {
+        try {
+            if (!wrap || !wrap.classList?.contains?.('tm-calendar-wrap--mobile')) return false;
+            if (page) setSidePage(wrap, page);
+            const next = !!open;
+            wrap.classList.toggle('tm-calendar-wrap--sidebar-open', next);
+            state.sidebarOpen = next;
+            try { requestAnimationFrame(() => { try { state.calendar?.updateSize?.(); } catch (e2) {} }); } catch (e) {}
+            return next;
+        } catch (e) {
+            return false;
+        }
+    }
+
+    function toggleMobileSidebar(wrap, open, page) {
+        const isMobile = !!wrap?.classList?.contains?.('tm-calendar-wrap--mobile');
+        if (!isMobile) return false;
+        const next = (open === undefined) ? !wrap.classList.contains('tm-calendar-wrap--sidebar-open') : !!open;
+        return setMobileSidebarOpen(wrap, next, page);
     }
 
     function miniMonthKeyFromDate(d) {
@@ -1259,7 +1319,7 @@
             const dateKey = String(it?.date || '').trim();
             if (!dateKey) continue;
             const ds = toMs(dateKey);
-            if (!Number.isFinite(ds) || ds < startMs || ds >= endMs) continue;
+            if (!Number.isFinite(ds)) continue;
             const type = Number(it?.type);
             if (type !== 2 && type !== 3 && type !== 4) continue;
             if (type === 4) continue;
@@ -1283,6 +1343,9 @@
             const dateKey = String(it?.dateKey || '').trim();
             const name = String(it?.name || '').trim();
             if (!dateKey || !name) continue;
+            const ds = toMs(dateKey);
+            if (!Number.isFinite(ds) || ds < startMs || ds >= endMs) continue;
+
             if (vt === 'timeGridDay') {
                 out.push({
                     id: `cn-holiday-bg:${dateKey}`,
@@ -1772,6 +1835,7 @@
         const isMobileDevice = !!globalThis.__taskHorizonPluginIsMobile || (() => {
             try { return !!window.matchMedia?.('(pointer: coarse)')?.matches; } catch (e) { return false; }
         })();
+        state.isMobileDevice = !!isMobileDevice;
         try {
             Promise.resolve().then(() => globalThis.tmCalendarWarmDocsToGroupCache?.()).catch(() => null);
         } catch (e) {}
@@ -1781,7 +1845,7 @@
         } catch (e) {}
 
         const wrap = document.createElement('div');
-        wrap.className = 'tm-calendar-wrap';
+        wrap.className = 'tm-calendar-wrap' + (isMobileDevice ? ' tm-calendar-wrap--mobile' : '');
         wrap.innerHTML = `
             <div class="tm-calendar-layout">
                 <div class="tm-calendar-sidebar">
@@ -1829,6 +1893,7 @@
                     </div>
                 </div>
                 <div class="tm-calendar-sidebar-resizer" data-tm-cal-role="sidebar-resizer"></div>
+                <div class="tm-calendar-mobile-backdrop" data-tm-cal-action="closeSidebar"></div>
                 <div class="tm-calendar-main">
                     <div class="tm-calendar-host"></div>
                 </div>
@@ -1837,6 +1902,10 @@
         rootEl.appendChild(wrap);
         const host = wrap.querySelector('.tm-calendar-host');
         state.calendarEl = host;
+        let _tmClickTracker = { x: 0, y: 0, ts: 0 };
+        wrap.addEventListener('mousedown', (e) => {
+            _tmClickTracker = { x: e.clientX, y: e.clientY, ts: Date.now() };
+        }, true);
         const miniHost = wrap.querySelector('.tm-calendar-mini');
         state.miniCalendarEl = miniHost;
         const s = getSettings();
@@ -1848,6 +1917,7 @@
         renderSidebar(wrap, s);
         renderTaskPage(wrap, s);
         setSidePage(wrap, state.sidePage);
+        if (isMobileDevice) setMobileSidebarOpen(wrap, false);
         bindSidebarResize(wrap);
         let calendar = null;
         const preferredInitialView = (() => {
@@ -1925,6 +1995,17 @@
                     title.className = 'tm-cal-task-event-title';
                     title.textContent = String(arg?.event?.title || '').trim() || '任务';
                     title.onclick = (ev) => {
+                        if (_tmClickTracker && _tmClickTracker.ts > 0) {
+                            const dur = Date.now() - _tmClickTracker.ts;
+                            const x = Number(ev.clientX);
+                            const y = Number(ev.clientY);
+                            if (Number.isFinite(x) && Number.isFinite(y)) {
+                                const dx = Math.abs(x - _tmClickTracker.x);
+                                const dy = Math.abs(y - _tmClickTracker.y);
+                                const dist = Math.sqrt(dx * dx + dy * dy);
+                                if (dur > 500 || dist > 5) return;
+                            }
+                        }
                         if (!tid || typeof window.tmJumpToTask !== 'function') return;
                         try { window.tmJumpToTask(tid, ev); } catch (e) {}
                     };
@@ -2134,6 +2215,17 @@
                         arg.jsEvent.preventDefault?.();
                     }
                 } catch (e0) {}
+                if (_tmClickTracker && _tmClickTracker.ts > 0 && arg?.jsEvent) {
+                    const dur = Date.now() - _tmClickTracker.ts;
+                    const x = Number(arg.jsEvent.clientX);
+                    const y = Number(arg.jsEvent.clientY);
+                    if (Number.isFinite(x) && Number.isFinite(y)) {
+                        const dx = Math.abs(x - _tmClickTracker.x);
+                        const dy = Math.abs(y - _tmClickTracker.y);
+                        const dist = Math.sqrt(dx * dx + dy * dy);
+                        if (dur > 500 || dist > 5) return;
+                    }
+                }
                 const ext = arg?.event?.extendedProps || {};
                 const aggDay = String(ext.__tmAggregateDay || '').trim();
                 if (aggDay) {
@@ -2419,6 +2511,14 @@
             const btn = e.target?.closest?.('[data-tm-cal-action]');
             const action = String(btn?.getAttribute?.('data-tm-cal-action') || '');
             if (!action) return;
+            if (action === 'toggleSidebar') {
+                toggleMobileSidebar(wrap, undefined, state.sidePage || 'calendar');
+                return;
+            }
+            if (action === 'closeSidebar') {
+                setMobileSidebarOpen(wrap, false);
+                return;
+            }
             if (action === 'taskPrev') {
                 state.taskPage = Math.max(1, (Number(state.taskPage) || 1) - 1);
                 renderTaskPage(wrap, getSettings());
@@ -2496,12 +2596,32 @@
             }
         };
         wrap.addEventListener('click', onToolbarClick);
+        wrap.addEventListener('pointerdown', (e) => {
+            try {
+                if (!state.isMobileDevice || !state.sidebarOpen) return;
+                const t = e?.target;
+                if (!(t instanceof Element)) return;
+                if (t.closest('.tm-calendar-sidebar')) return;
+                setMobileSidebarOpen(wrap, false);
+            } catch (e2) {}
+        }, true);
         state.wrapEl = wrap;
         state.onToolbarClick = onToolbarClick;
 
         const onCalendarEventClickFallbackCapture = (e) => {
             try {
                 if (e && e.__tmCalHandled) return;
+                if (_tmClickTracker && _tmClickTracker.ts > 0) {
+                    const dur = Date.now() - _tmClickTracker.ts;
+                    const x = Number(e.clientX);
+                    const y = Number(e.clientY);
+                    if (Number.isFinite(x) && Number.isFinite(y)) {
+                        const dx = Math.abs(x - _tmClickTracker.x);
+                        const dy = Math.abs(y - _tmClickTracker.y);
+                        const dist = Math.sqrt(dx * dx + dy * dy);
+                        if (dur > 500 || dist > 5) return;
+                    }
+                }
                 const target = e?.target;
                 if (!(target instanceof Element)) return;
                 const hostEl = target.closest('.tm-calendar-host');
@@ -2933,6 +3053,10 @@
         if (state.taskDraggable) {
             try { state.taskDraggable.destroy(); } catch (e) {}
         }
+        if (state.mobileDragCloseTimer) {
+            try { clearTimeout(state.mobileDragCloseTimer); } catch (e) {}
+            state.mobileDragCloseTimer = null;
+        }
         state.taskDraggable = null;
         state.taskListEl = null;
         if (state._persistTimer) {
@@ -2948,6 +3072,8 @@
         state.miniCalendarEl = null;
         state.settingsStore = null;
         state.opts = null;
+        state.isMobileDevice = false;
+        state.sidebarOpen = false;
     }
 
     function renderSettings(containerEl, settingsStore) {
@@ -3077,5 +3203,20 @@
         unmount,
         renderSettings,
         cleanup,
+        toggleSidebar: (open, page) => {
+            const wrap = state.wrapEl;
+            if (!wrap) return false;
+            return toggleMobileSidebar(wrap, open, page);
+        },
+        openSidebar: (page) => {
+            const wrap = state.wrapEl;
+            if (!wrap) return false;
+            return setMobileSidebarOpen(wrap, true, page || state.sidePage || 'calendar');
+        },
+        closeSidebar: () => {
+            const wrap = state.wrapEl;
+            if (!wrap) return false;
+            return setMobileSidebarOpen(wrap, false);
+        },
     };
 })();

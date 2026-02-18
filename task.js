@@ -1,5 +1,5 @@
 // @name         思源笔记任务管理器
-// @version      1.3.5
+// @version      1.3.6
 // @description  任务管理器，支持自定义筛选规则分组和排序
 // @author       5KYFKR
 
@@ -68,6 +68,22 @@
             --tm-empty-cell-bg: #f1f3f4;
             --tm-topbar-grad-start: #667eea;
             --tm-topbar-grad-end: #764ba2;
+            --tm-topbar-text-color: #ffffff;
+            --tm-topbar-control-bg: rgba(255,255,255,0.12);
+            --tm-topbar-control-text: #ffffff;
+            --tm-topbar-control-border: rgba(255,255,255,0.34);
+            --tm-topbar-control-hover: rgba(0,0,0,0.12);
+            --tm-topbar-seg-bg: rgba(255,255,255,0.18);
+            --tm-topbar-seg-border: rgba(255,255,255,0.26);
+            --tm-topbar-seg-item-text: rgba(255,255,255,0.86);
+            --tm-topbar-seg-item-sep: rgba(255,255,255,0.22);
+            --tm-topbar-seg-item-hover: rgba(0,0,0,0.12);
+            --tm-topbar-seg-item-active-bg: rgba(0,0,0,0.26);
+            --tm-topbar-seg-item-active-hover: rgba(0,0,0,0.32);
+            --tm-topbar-search-bg: rgba(255,255,255,0.9);
+            --tm-topbar-search-text: #333333;
+            --tm-topbar-search-border: rgba(255,255,255,0.3);
+            --tm-topbar-scrollbar-thumb: rgba(255,255,255,0.25);
             --tm-task-content-color: var(--tm-text-color);
             --tm-group-doc-label-color: var(--tm-text-color);
             --tm-time-group-base-color: #1a73e8;
@@ -110,6 +126,7 @@
             --tm-empty-cell-bg: #1a1a1a;
             --tm-topbar-grad-start: #3b49b7;
             --tm-topbar-grad-end: #5b2d7a;
+            --tm-topbar-text-color: #ffffff;
             --tm-task-content-color: var(--tm-text-color);
             --tm-group-doc-label-color: var(--tm-text-color);
             --tm-time-group-base-color: #6ba5ff;
@@ -611,7 +628,7 @@
         }
         
         .tm-rule-label {
-            color: rgba(255, 255, 255, 0.92);
+            color: var(--tm-topbar-text-color);
             font-size: 12px;
             white-space: nowrap;
             flex: 0 0 auto;
@@ -711,10 +728,48 @@
         .tm-filter-rule-bar {
             padding: 12px 24px;
             background: linear-gradient(135deg, var(--tm-topbar-grad-start) 0%, var(--tm-topbar-grad-end) 100%);
-            color: white;
+            color: var(--tm-topbar-text-color);
             display: flex;
             justify-content: space-between;
             align-items: center;
+        }
+
+        .tm-filter-rule-bar .tm-btn-info {
+            background: var(--tm-topbar-control-bg);
+            color: var(--tm-topbar-control-text);
+            border: 1px solid var(--tm-topbar-control-border);
+        }
+
+        .tm-filter-rule-bar .tm-btn-info:hover {
+            background: var(--tm-topbar-control-hover);
+            opacity: 1;
+        }
+
+        .tm-filter-rule-bar .tm-rule-select {
+            background: var(--tm-topbar-control-bg);
+            color: var(--tm-topbar-control-text);
+            border: 1px solid var(--tm-topbar-control-border);
+        }
+
+        .tm-filter-rule-bar .tm-rule-select:focus {
+            border-color: var(--tm-topbar-control-text);
+        }
+
+        .tm-filter-rule-bar .tm-rule-select option {
+            color: #111827;
+            background: #ffffff;
+        }
+
+        .tm-filter-rule-bar .tm-popup-menu .tm-btn-info,
+        .tm-filter-rule-bar #tmMobileMenu .tm-btn-info {
+            background: var(--tm-info-bg);
+            color: var(--tm-primary-color);
+            border: 1px solid var(--tm-primary-color);
+        }
+
+        .tm-filter-rule-bar .tm-popup-menu .tm-btn-info:hover,
+        .tm-filter-rule-bar #tmMobileMenu .tm-btn-info:hover {
+            opacity: 0.9;
         }
 
         .tm-header-selectors {
@@ -729,7 +784,7 @@
         }
 
         .tm-header-selectors::-webkit-scrollbar-thumb {
-            background: rgba(255, 255, 255, 0.25);
+            background: var(--tm-topbar-scrollbar-thumb);
             border-radius: 999px;
         }
         
@@ -991,7 +1046,7 @@
         .tm-filter-rule-bar {
             padding: 12px 24px;
             background: linear-gradient(135deg, var(--tm-topbar-grad-start) 0%, var(--tm-topbar-grad-end) 100%);
-            color: white;
+            color: var(--tm-topbar-text-color);
             display: flex;
             justify-content: space-between;
             align-items: center;
@@ -1009,8 +1064,8 @@
             height: 30px;
             border-radius: 999px;
             overflow: hidden;
-            background: rgba(255,255,255,0.18);
-            border: 1px solid rgba(255,255,255,0.26);
+            background: var(--tm-topbar-seg-bg);
+            border: 1px solid var(--tm-topbar-seg-border);
             flex: none;
         }
 
@@ -1018,7 +1073,7 @@
             appearance: none;
             border: none;
             background: transparent;
-            color: rgba(255,255,255,0.86);
+            color: var(--tm-topbar-seg-item-text);
             padding: 0 12px;
             font-size: 13px;
             font-weight: 600;
@@ -1029,35 +1084,35 @@
         }
 
         .tm-view-seg-item + .tm-view-seg-item {
-            border-left: 1px solid rgba(255,255,255,0.22);
+            border-left: 1px solid var(--tm-topbar-seg-item-sep);
         }
 
         .tm-view-seg-item:hover {
-            background: rgba(0,0,0,0.12);
+            background: var(--tm-topbar-seg-item-hover);
         }
 
         .tm-view-seg-item--active {
-            background: rgba(0,0,0,0.26);
-            color: #fff;
+            background: var(--tm-topbar-seg-item-active-bg);
+            color: var(--tm-topbar-control-text);
         }
 
         .tm-view-seg-item--active:hover {
-            background: rgba(0,0,0,0.32);
+            background: var(--tm-topbar-seg-item-active-hover);
         }
 
         .tm-search-input {
             padding: 6px 12px;
-            border: 1px solid rgba(255,255,255,0.3);
+            border: 1px solid var(--tm-topbar-search-border);
             border-radius: 4px;
             font-size: 13px;
-            background: rgba(255,255,255,0.9);
+            background: var(--tm-topbar-search-bg);
             width: 200px;
-            color: #333;
+            color: var(--tm-topbar-search-text);
         }
 
         .tm-search-input:focus {
             outline: none;
-            border-color: white;
+            border-color: var(--tm-topbar-control-text);
         }
 
         .tm-body {
@@ -1227,6 +1282,33 @@
             min-height: 120px;
             flex: 1 1 auto;
             overscroll-behavior: contain;
+        }
+
+        .tm-kanban-group {
+            display: flex;
+            flex-direction: column;
+            gap: 6px;
+        }
+
+        .tm-kanban-group-title {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            padding: 4px 6px;
+            border-radius: 6px;
+            background: var(--tm-header-bg);
+            border: 1px solid var(--tm-border-color);
+            font-size: 12px;
+            font-weight: 600;
+            color: var(--tm-text-color);
+            cursor: pointer;
+            user-select: none;
+        }
+
+        .tm-kanban-group-items {
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
         }
 
         .tm-kanban-card {
@@ -1668,6 +1750,19 @@
 
         .tm-gantt-bar:active {
             cursor: grabbing;
+        }
+
+        .tm-gantt-milestone {
+            position: absolute;
+            top: 50%;
+            transform: translate(-50%, -50%);
+            color: #e53935;
+            font-size: 18px;
+            line-height: 1;
+            cursor: pointer;
+            z-index: 8;
+            text-shadow: 0 1px 2px rgba(0,0,0,0.3);
+            user-select: none;
         }
 
         .tm-gantt-bar-handle {
@@ -2275,6 +2370,7 @@
 
             if ('priority' in v && isValidValue(v.priority)) task.priority = v.priority;
             if ('pinned' in v && isValidValue(v.pinned)) task.pinned = v.pinned;
+            if ('milestone' in v && isValidValue(v.milestone)) task.milestone = v.milestone;
             if ('duration' in v && isValidValue(v.duration)) task.duration = v.duration;
             if ('remark' in v && isValidValue(v.remark)) task.remark = v.remark;
             if ('completionTime' in v && isValidValue(v.completionTime)) task.completionTime = v.completionTime;
@@ -2289,6 +2385,7 @@
             const candidate = {};
             if (task.priority) candidate.priority = task.priority;
             if (task.pinned !== undefined) candidate.pinned = task.pinned;
+            if (task.milestone !== undefined) candidate.milestone = task.milestone;
             if (task.duration) candidate.duration = task.duration;
             if (task.remark) candidate.remark = task.remark;
             if (task.completionTime) candidate.completionTime = task.completionTime;
@@ -2357,7 +2454,9 @@
             groupByTime: false,
             defaultViewMode: 'list',
             kanbanCompactMode: false,
+            kanbanColumnWidth: 320,
             kanbanShowDoneColumn: false,
+            kanbanDragSyncSubtasks: false,
             groupMode: 'doc',
             collapsedTaskIds: [],
             kanbanCollapsedTaskIds: [],
@@ -2418,6 +2517,9 @@
             // 文档分组配置
             // 结构: [{ id: 'uuid', name: '分组名', docs: [{ id: 'docId', recursive: boolean }] }]
             docGroups: [],
+            // 文档页签钉住（按分组存储）
+            // 结构: { [groupId]: ['docId1', 'docId2'] }
+            docPinnedByGroup: {},
             // 当前选中的分组ID (UI显示用)
             currentGroupId: 'all', 
             // 任务标题级别 (h1-h6)
@@ -2440,6 +2542,8 @@
             topbarGradientLightEnd: '#764ba2',
             topbarGradientDarkStart: '#3b49b7',
             topbarGradientDarkEnd: '#5b2d7a',
+            topbarTextColorLight: '#ffffff',
+            topbarTextColorDark: '#ffffff',
             taskContentColorLight: '#333333',
             taskContentColorDark: '#e0e0e0',
             groupDocLabelColorLight: '#333333',
@@ -2561,6 +2665,7 @@
                                 if (typeof cloudData.groupByTime === 'boolean') this.data.groupByTime = cloudData.groupByTime;
                                 if (typeof cloudData.defaultViewMode === 'string') this.data.defaultViewMode = cloudData.defaultViewMode;
                                 if (typeof cloudData.kanbanCompactMode === 'boolean') this.data.kanbanCompactMode = cloudData.kanbanCompactMode;
+                                if (typeof cloudData.kanbanColumnWidth === 'number') this.data.kanbanColumnWidth = cloudData.kanbanColumnWidth;
                                 if (typeof cloudData.kanbanShowDoneColumn === 'boolean') this.data.kanbanShowDoneColumn = cloudData.kanbanShowDoneColumn;
                                 if (typeof cloudData.groupMode === 'string') this.data.groupMode = cloudData.groupMode;
                                 if (Array.isArray(cloudData.collapsedTaskIds)) this.data.collapsedTaskIds = cloudData.collapsedTaskIds;
@@ -2615,12 +2720,15 @@
                                 if (cloudData.priorityScoreConfig && typeof cloudData.priorityScoreConfig === 'object') this.data.priorityScoreConfig = cloudData.priorityScoreConfig;
                                 if (cloudData.quadrantConfig && typeof cloudData.quadrantConfig === 'object') this.data.quadrantConfig = cloudData.quadrantConfig;
                                 if (Array.isArray(cloudData.docGroups)) this.data.docGroups = cloudData.docGroups;
+                                if (cloudData.docPinnedByGroup && typeof cloudData.docPinnedByGroup === 'object') this.data.docPinnedByGroup = cloudData.docPinnedByGroup;
                                 if (cloudData.currentGroupId) this.data.currentGroupId = cloudData.currentGroupId;
                                 if (cloudData.taskHeadingLevel) this.data.taskHeadingLevel = cloudData.taskHeadingLevel;
                                 if (typeof cloudData.topbarGradientLightStart === 'string') this.data.topbarGradientLightStart = cloudData.topbarGradientLightStart;
                                 if (typeof cloudData.topbarGradientLightEnd === 'string') this.data.topbarGradientLightEnd = cloudData.topbarGradientLightEnd;
                                 if (typeof cloudData.topbarGradientDarkStart === 'string') this.data.topbarGradientDarkStart = cloudData.topbarGradientDarkStart;
                                 if (typeof cloudData.topbarGradientDarkEnd === 'string') this.data.topbarGradientDarkEnd = cloudData.topbarGradientDarkEnd;
+                                if (typeof cloudData.topbarTextColorLight === 'string') this.data.topbarTextColorLight = cloudData.topbarTextColorLight;
+                                if (typeof cloudData.topbarTextColorDark === 'string') this.data.topbarTextColorDark = cloudData.topbarTextColorDark;
                                 if (typeof cloudData.taskContentColorLight === 'string') this.data.taskContentColorLight = cloudData.taskContentColorLight;
                                 if (typeof cloudData.taskContentColorDark === 'string') this.data.taskContentColorDark = cloudData.taskContentColorDark;
                                 if (typeof cloudData.groupDocLabelColorLight === 'string') this.data.groupDocLabelColorLight = cloudData.groupDocLabelColorLight;
@@ -2704,6 +2812,7 @@
             this.data.groupByTime = Storage.get('tm_group_by_time', false);
             this.data.defaultViewMode = Storage.get('tm_default_view_mode', this.data.defaultViewMode);
             this.data.kanbanCompactMode = !!Storage.get('tm_kanban_compact_mode', this.data.kanbanCompactMode);
+            this.data.kanbanColumnWidth = Storage.get('tm_kanban_column_width', this.data.kanbanColumnWidth);
             this.data.kanbanShowDoneColumn = !!Storage.get('tm_kanban_show_done_column', this.data.kanbanShowDoneColumn);
             this.data.groupMode = Storage.get('tm_group_mode', this.data.groupMode);
             this.data.collapsedTaskIds = Storage.get('tm_collapsed_task_ids', []) || [];
@@ -2719,6 +2828,8 @@
             this.data.topbarGradientLightEnd = Storage.get('tm_topbar_gradient_light_end', this.data.topbarGradientLightEnd);
             this.data.topbarGradientDarkStart = Storage.get('tm_topbar_gradient_dark_start', this.data.topbarGradientDarkStart);
             this.data.topbarGradientDarkEnd = Storage.get('tm_topbar_gradient_dark_end', this.data.topbarGradientDarkEnd);
+            this.data.topbarTextColorLight = Storage.get('tm_topbar_text_color_light', this.data.topbarTextColorLight);
+            this.data.topbarTextColorDark = Storage.get('tm_topbar_text_color_dark', this.data.topbarTextColorDark);
             this.data.taskContentColorLight = Storage.get('tm_task_content_color_light', this.data.taskContentColorLight);
             this.data.taskContentColorDark = Storage.get('tm_task_content_color_dark', this.data.taskContentColorDark);
             this.data.groupDocLabelColorLight = Storage.get('tm_group_doc_label_color_light', this.data.groupDocLabelColorLight);
@@ -2774,6 +2885,7 @@
             this.data.priorityScoreConfig = Storage.get('tm_priority_score_config', this.data.priorityScoreConfig) || this.data.priorityScoreConfig;
             this.data.quadrantConfig = Storage.get('tm_quadrant_config', this.data.quadrantConfig);
             this.data.docGroups = Storage.get('tm_doc_groups', []);
+            this.data.docPinnedByGroup = Storage.get('tm_doc_pinned_by_group', this.data.docPinnedByGroup) || {};
             this.data.currentGroupId = Storage.get('tm_current_group_id', 'all');
             this.data.customStatusOptions = Storage.get('tm_custom_status_options', this.data.customStatusOptions);
             this.data.columnOrder = Storage.get('tm_column_order', this.data.columnOrder);
@@ -2830,6 +2942,7 @@
             Storage.set('tm_group_by_time', this.data.groupByTime);
             Storage.set('tm_default_view_mode', String(this.data.defaultViewMode || 'list').trim() || 'list');
             Storage.set('tm_kanban_compact_mode', !!this.data.kanbanCompactMode);
+            Storage.set('tm_kanban_column_width', Number(this.data.kanbanColumnWidth) || 320);
             Storage.set('tm_kanban_show_done_column', !!this.data.kanbanShowDoneColumn);
             Storage.set('tm_group_mode', String(this.data.groupMode || '').trim() || 'none');
             Storage.set('tm_collapsed_task_ids', this.data.collapsedTaskIds);
@@ -2845,6 +2958,8 @@
             Storage.set('tm_topbar_gradient_light_end', String(this.data.topbarGradientLightEnd || '').trim());
             Storage.set('tm_topbar_gradient_dark_start', String(this.data.topbarGradientDarkStart || '').trim());
             Storage.set('tm_topbar_gradient_dark_end', String(this.data.topbarGradientDarkEnd || '').trim());
+            Storage.set('tm_topbar_text_color_light', String(this.data.topbarTextColorLight || '').trim());
+            Storage.set('tm_topbar_text_color_dark', String(this.data.topbarTextColorDark || '').trim());
             Storage.set('tm_task_content_color_light', String(this.data.taskContentColorLight || '').trim());
             Storage.set('tm_task_content_color_dark', String(this.data.taskContentColorDark || '').trim());
             Storage.set('tm_group_doc_label_color_light', String(this.data.groupDocLabelColorLight || '').trim());
@@ -2900,6 +3015,7 @@
             Storage.set('tm_priority_score_config', this.data.priorityScoreConfig || {});
             Storage.set('tm_quadrant_config', this.data.quadrantConfig);
             Storage.set('tm_doc_groups', this.data.docGroups);
+            Storage.set('tm_doc_pinned_by_group', this.data.docPinnedByGroup || {});
             Storage.set('tm_current_group_id', this.data.currentGroupId);
             Storage.set('tm_custom_status_options', this.data.customStatusOptions);
             Storage.set('tm_column_widths', this.data.columnWidths);
@@ -2943,13 +3059,31 @@
             this.data.columnWidths = widths;
             const map = this.data.docColorMap;
             this.data.docColorMap = (map && typeof map === 'object' && !Array.isArray(map)) ? map : {};
+            const pinMap0 = this.data.docPinnedByGroup;
+            const pinMap = (pinMap0 && typeof pinMap0 === 'object' && !Array.isArray(pinMap0)) ? pinMap0 : {};
+            const normalizedPinMap = {};
+            Object.keys(pinMap).forEach((k) => {
+                const key = String(k || '').trim() || 'all';
+                const arr = Array.isArray(pinMap[k]) ? pinMap[k] : [];
+                const seen = new Set();
+                const list = [];
+                arr.forEach((id) => {
+                    const s = String(id || '').trim();
+                    if (!s || seen.has(s)) return;
+                    seen.add(s);
+                    list.push(s);
+                });
+                normalizedPinMap[key] = list;
+            });
+            this.data.docPinnedByGroup = normalizedPinMap;
             const seed = Number(this.data.docColorSeed);
             this.data.docColorSeed = (Number.isFinite(seed) && seed > 0) ? Math.floor(seed) : 1;
+            const kw = Number(this.data.kanbanColumnWidth);
+            this.data.kanbanColumnWidth = Number.isFinite(kw) ? Math.max(220, Math.min(520, Math.round(kw))) : 320;
             this.data.timelineForceSortByCompletionNearToday = !!this.data.timelineForceSortByCompletionNearToday;
         },
 
         async save() {
-            this.syncToLocal();
             this.saveDirty = true;
             try { if (this.saveTimer) clearTimeout(this.saveTimer); } catch (e) {}
             if (!this.savePromise) {
@@ -2970,6 +3104,8 @@
             this.saving = true;
             this.saveDirty = false;
             try {
+                // 本地缓存延后到 flush，避免每次 save() 都全量写 localStorage
+                this.syncToLocal();
                 const formData = new FormData();
                 formData.append('path', SETTINGS_FILE_PATH);
                 formData.append('isDir', 'false');
@@ -3606,6 +3742,7 @@
                 'custom-remark',
                 'custom-start-date',
                 'custom-completion-time',
+                'custom-milestone-event',
                 'custom-time',
                 'custom-status',
                 'custom-pinned',
@@ -3640,6 +3777,7 @@
                     attr.remark,
                     attr.start_date,
                     attr.completion_time,
+                    attr.milestone,
                     attr.time as custom_time,
                     attr.custom_status,
                     attr.pinned,
@@ -3663,6 +3801,7 @@
                         MAX(CASE WHEN a.name = 'custom-remark' THEN a.value ELSE NULL END) as remark,
                         MAX(CASE WHEN a.name = 'custom-start-date' THEN a.value ELSE NULL END) as start_date,
                         MAX(CASE WHEN a.name = 'custom-completion-time' THEN a.value ELSE NULL END) as completion_time,
+                        MAX(CASE WHEN a.name = 'custom-milestone-event' THEN a.value ELSE NULL END) as milestone,
                         MAX(CASE WHEN a.name = 'custom-time' THEN a.value ELSE NULL END) as time,
                         MAX(CASE WHEN a.name = 'custom-status' THEN a.value ELSE NULL END) as custom_status,
                         MAX(CASE WHEN a.name = 'custom-pinned' THEN a.value ELSE NULL END) as pinned,
@@ -3718,6 +3857,7 @@
                 'custom-remark',
                 'custom-start-date',
                 'custom-completion-time',
+                'custom-milestone-event',
                 'custom-time',
                 'custom-status',
                 'custom-pinned',
@@ -3766,6 +3906,7 @@
                         MAX(CASE WHEN a.name = 'custom-remark' THEN a.value ELSE NULL END) AS remark,
                         MAX(CASE WHEN a.name = 'custom-start-date' THEN a.value ELSE NULL END) AS start_date,
                         MAX(CASE WHEN a.name = 'custom-completion-time' THEN a.value ELSE NULL END) AS completion_time,
+                        MAX(CASE WHEN a.name = 'custom-milestone-event' THEN a.value ELSE NULL END) AS milestone,
                         MAX(CASE WHEN a.name = 'custom-time' THEN a.value ELSE NULL END) AS time,
                         MAX(CASE WHEN a.name = 'custom-status' THEN a.value ELSE NULL END) AS custom_status,
                         MAX(CASE WHEN a.name = 'custom-pinned' THEN a.value ELSE NULL END) AS pinned,
@@ -3794,6 +3935,7 @@
                     attr.remark,
                     attr.start_date,
                     attr.completion_time,
+                    attr.milestone,
                     attr.time AS custom_time,
                     attr.custom_status,
                     attr.pinned,
@@ -3844,8 +3986,10 @@
                     attr.remark,
                     attr.start_date,
                     attr.completion_time,
+                    attr.milestone,
                     attr.time as custom_time,
-                    attr.custom_status
+                    attr.custom_status,
+                    attr.pinned
                 FROM blocks AS task
                 INNER JOIN blocks AS doc ON task.root_id = doc.id
                 LEFT JOIN blocks AS parent_list ON parent_list.id = task.parent_id
@@ -3858,8 +4002,10 @@
                         MAX(CASE WHEN name = 'custom-remark' THEN value ELSE NULL END) as remark,
                         MAX(CASE WHEN name = 'custom-start-date' THEN value ELSE NULL END) as start_date,
                         MAX(CASE WHEN name = 'custom-completion-time' THEN value ELSE NULL END) as completion_time,
+                        MAX(CASE WHEN name = 'custom-milestone-event' THEN value ELSE NULL END) as milestone,
                         MAX(CASE WHEN name = 'custom-time' THEN value ELSE NULL END) as time,
-                        MAX(CASE WHEN name = 'custom-status' THEN value ELSE NULL END) as custom_status
+                        MAX(CASE WHEN name = 'custom-status' THEN value ELSE NULL END) as custom_status,
+                        MAX(CASE WHEN name = 'custom-pinned' THEN value ELSE NULL END) as pinned
                     FROM attributes
                     WHERE block_id = '${id}'
                     GROUP BY block_id
@@ -4217,6 +4363,7 @@
         remark: 'custom-remark',
         startDate: 'custom-start-date',
         completionTime: 'custom-completion-time',
+        milestone: 'custom-milestone-event',
         customTime: 'custom-time',
         customStatus: 'custom-status',
         pinned: 'custom-pinned'
@@ -4716,6 +4863,47 @@ async function __tmRefreshAfterWake(reason) {
         return __tmRgbToHex(rgb);
     }
 
+    const __tmDocProgressCache = new Map();
+
+    window.__tmUpdateDocTabProgress = async (docId, elId, color) => {
+        const el = document.getElementById(elId);
+        if (!el) return;
+        
+        // 1. 优先使用缓存
+        if (__tmDocProgressCache.has(docId)) {
+            const cachedPercent = __tmDocProgressCache.get(docId);
+            el.style.width = `${cachedPercent}%`;
+        }
+
+        const sql = `SELECT 
+            (SELECT count(*) FROM blocks WHERE root_id = '${docId}' AND type='i' AND subtype='t') as total,
+            (SELECT count(*) FROM blocks WHERE root_id = '${docId}' AND type='i' AND subtype='t' AND markdown LIKE '%[x]%') as completed`;
+        
+        let data;
+        try {
+            const res = await fetch("/api/query/sql", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ stmt: sql }),
+            }).then(r => r.json());
+            data = res.data?.[0];
+        } catch (e) { return; }
+        
+        if (!data) return;
+        const total = Number(data.total) || 0;
+        const completed = Number(data.completed) || 0;
+        let percent = 0;
+        if (total > 0) {
+            percent = Math.min(100, Math.max(0, Math.round((completed / total) * 100)));
+        }
+        
+        // 2. 更新缓存和 DOM
+        if (__tmDocProgressCache.get(docId) !== percent) {
+            __tmDocProgressCache.set(docId, percent);
+            el.style.width = `${percent}%`;
+        }
+    };
+
     function __tmGetDocColorHex(docId, isDark) {
         const id = String(docId || '').trim();
         const map = (SettingsStore?.data?.docColorMap && typeof SettingsStore.data.docColorMap === 'object') ? SettingsStore.data.docColorMap : null;
@@ -4898,9 +5086,12 @@ async function __tmRefreshAfterWake(reason) {
             row.style.display = hide ? 'none' : '';
             row.style.visibility = '';
             row.style.pointerEvents = '';
-            if (!hide && id) {
-                const hasToggle = !!row.querySelector('.tm-tree-toggle');
-                if (hasToggle && collapsedTaskIds.has(id)) collapsedAncestorDepth = d;
+            if (id) {
+                const toggleEl = row.querySelector('.tm-tree-toggle');
+                const hasToggle = !!toggleEl;
+                const isCollapsed = hasToggle && collapsedTaskIds.has(id);
+                if (hasToggle && toggleEl) toggleEl.textContent = isCollapsed ? '▸' : '▾';
+                if (!hide && isCollapsed) collapsedAncestorDepth = d;
             }
         });
 
@@ -5421,8 +5612,23 @@ async function __tmRefreshAfterWake(reason) {
                         } catch (e) {
                             hint(`❌ 更新失败: ${e.message}`, 'error');
                         }
-                        applyFilters();
-                        render();
+                        __tmScheduleRender({ withFilters: true });
+                    },
+                    onUpdateTaskMeta: async (taskId, patch) => {
+                        const id = String(taskId || '').trim();
+                        if (!id || !patch || typeof patch !== 'object') return;
+                        const task = state.flatTasks[id];
+                        if (!task) return;
+                        const hasMilestone = Object.prototype.hasOwnProperty.call(patch, 'milestone');
+                        if (!hasMilestone) return;
+                        const val = !!patch.milestone;
+                        task.milestone = val;
+                        try {
+                            await __tmPersistMetaAndAttrsAsync(id, { milestone: val ? '1' : '' });
+                        } catch (e) {
+                            hint(`❌ 更新失败: ${e.message}`, 'error');
+                        }
+                        __tmScheduleRender({ withFilters: true });
                     },
                 });
             } catch (e) {}
@@ -5585,6 +5791,9 @@ async function __tmRefreshAfterWake(reason) {
         const end = isDark
             ? __tmNormalizeHexColor(SettingsStore.data.topbarGradientDarkEnd, '#5b2d7a')
             : __tmNormalizeHexColor(SettingsStore.data.topbarGradientLightEnd, '#764ba2');
+        const topbarText = isDark
+            ? __tmNormalizeHexColor(SettingsStore.data.topbarTextColorDark, '#ffffff')
+            : __tmNormalizeHexColor(SettingsStore.data.topbarTextColorLight, '#ffffff');
         const taskColor = isDark
             ? __tmNormalizeHexColor(SettingsStore.data.taskContentColorDark, '#e0e0e0')
             : __tmNormalizeHexColor(SettingsStore.data.taskContentColorLight, '#333333');
@@ -5600,9 +5809,41 @@ async function __tmRefreshAfterWake(reason) {
         const tableBorder = isDark
             ? __tmNormalizeHexColor(SettingsStore.data.tableBorderColorDark, '#333333')
             : __tmNormalizeHexColor(SettingsStore.data.tableBorderColorLight, '#e9ecef');
+        const lightInk = topbarText || '#ffffff';
+        const controlText = lightInk;
+        const controlBg = __tmWithAlpha('#ffffff', 0.12);
+        const controlBorder = __tmWithAlpha('#ffffff', 0.34);
+        const controlHover = __tmWithAlpha('#000000', 0.12);
+        const segBg = __tmWithAlpha('#ffffff', 0.18);
+        const segBorder = __tmWithAlpha('#ffffff', 0.26);
+        const segText = __tmWithAlpha('#ffffff', 0.86);
+        const segSep = __tmWithAlpha('#ffffff', 0.22);
+        const segHover = __tmWithAlpha('#000000', 0.12);
+        const segActive = __tmWithAlpha('#000000', 0.26);
+        const segActiveHover = __tmWithAlpha('#000000', 0.32);
+        const searchBg = __tmWithAlpha('#ffffff', 0.9);
+        const searchText = '#333333';
+        const searchBorder = __tmWithAlpha('#ffffff', 0.3);
+        const thumb = __tmWithAlpha('#ffffff', 0.25);
 
         try { if (start) root.style.setProperty('--tm-topbar-grad-start', start); } catch (e) {}
         try { if (end) root.style.setProperty('--tm-topbar-grad-end', end); } catch (e) {}
+        try { if (topbarText) root.style.setProperty('--tm-topbar-text-color', topbarText); } catch (e) {}
+        try { root.style.setProperty('--tm-topbar-control-bg', controlBg); } catch (e) {}
+        try { root.style.setProperty('--tm-topbar-control-text', controlText); } catch (e) {}
+        try { root.style.setProperty('--tm-topbar-control-border', controlBorder); } catch (e) {}
+        try { root.style.setProperty('--tm-topbar-control-hover', controlHover); } catch (e) {}
+        try { root.style.setProperty('--tm-topbar-seg-bg', segBg); } catch (e) {}
+        try { root.style.setProperty('--tm-topbar-seg-border', segBorder); } catch (e) {}
+        try { root.style.setProperty('--tm-topbar-seg-item-text', segText); } catch (e) {}
+        try { root.style.setProperty('--tm-topbar-seg-item-sep', segSep); } catch (e) {}
+        try { root.style.setProperty('--tm-topbar-seg-item-hover', segHover); } catch (e) {}
+        try { root.style.setProperty('--tm-topbar-seg-item-active-bg', segActive); } catch (e) {}
+        try { root.style.setProperty('--tm-topbar-seg-item-active-hover', segActiveHover); } catch (e) {}
+        try { root.style.setProperty('--tm-topbar-search-bg', searchBg); } catch (e) {}
+        try { root.style.setProperty('--tm-topbar-search-text', searchText); } catch (e) {}
+        try { root.style.setProperty('--tm-topbar-search-border', searchBorder); } catch (e) {}
+        try { root.style.setProperty('--tm-topbar-scrollbar-thumb', thumb); } catch (e) {}
         try { if (taskColor) root.style.setProperty('--tm-task-content-color', taskColor); } catch (e) {}
         try { if (docGroupColor) root.style.setProperty('--tm-group-doc-label-color', docGroupColor); } catch (e) {}
         try { if (timeBase) root.style.setProperty('--tm-time-group-base-color', timeBase); } catch (e) {}
@@ -6739,8 +6980,7 @@ async function __tmRefreshAfterWake(reason) {
         if (!state.priorityScoreDraft) return;
         SettingsStore.data.priorityScoreConfig = state.priorityScoreDraft;
         await SettingsStore.save();
-        applyFilters();
-        render();
+        __tmScheduleRender({ withFilters: true });
         closePriorityScoreSettings();
         hint('✅ 优先级算法已保存', 'success');
     };
@@ -7315,8 +7555,7 @@ async function __tmRefreshAfterWake(reason) {
                 hint('✅ 规则已保存', 'success');
                 return;
             }
-            applyFilters();
-            render();
+            __tmScheduleRender({ withFilters: true });
         }
         hint('✅ 规则已保存', 'success');
     };
@@ -7793,6 +8032,53 @@ async function __tmRefreshAfterWake(reason) {
         }
     }
 
+    function __tmGetDocPinnedIdsForGroup(groupId) {
+        const gid = String(groupId || 'all').trim() || 'all';
+        const map0 = SettingsStore.data?.docPinnedByGroup;
+        const map = (map0 && typeof map0 === 'object' && !Array.isArray(map0)) ? map0 : {};
+        const list0 = Array.isArray(map[gid]) ? map[gid] : [];
+        return list0.map(id => String(id || '').trim()).filter(Boolean);
+    }
+
+    function __tmIsDocPinnedInGroup(docId, groupId) {
+        const id = String(docId || '').trim();
+        if (!id) return false;
+        return __tmGetDocPinnedIdsForGroup(groupId).includes(id);
+    }
+
+    function __tmSortDocEntriesByPinned(docEntries, groupId) {
+        const list = Array.isArray(docEntries) ? [...docEntries] : [];
+        if (list.length <= 1) return list;
+        const pinned = __tmGetDocPinnedIdsForGroup(groupId);
+        if (!pinned.length) return list;
+        const rank = new Map();
+        pinned.forEach((id, idx) => rank.set(String(id || '').trim(), idx));
+        return list.sort((a, b) => {
+            const aId = String((a && typeof a === 'object') ? (a.id || '') : (a || '')).trim();
+            const bId = String((b && typeof b === 'object') ? (b.id || '') : (b || '')).trim();
+            const ai = rank.has(aId) ? rank.get(aId) : -1;
+            const bi = rank.has(bId) ? rank.get(bId) : -1;
+            if (ai >= 0 && bi >= 0) return ai - bi;
+            if (ai >= 0) return -1;
+            if (bi >= 0) return 1;
+            return 0;
+        });
+    }
+
+    async function __tmSetDocPinnedForGroup(docId, pinned, groupId) {
+        const id = String(docId || '').trim();
+        const gid = String(groupId || 'all').trim() || 'all';
+        if (!id) return;
+        const map0 = SettingsStore.data.docPinnedByGroup;
+        const map = (map0 && typeof map0 === 'object' && !Array.isArray(map0)) ? map0 : {};
+        const list0 = Array.isArray(map[gid]) ? map[gid] : [];
+        const next = list0.map(x => String(x || '').trim()).filter(Boolean).filter(x => x !== id);
+        if (pinned) next.unshift(id);
+        map[gid] = next;
+        SettingsStore.data.docPinnedByGroup = map;
+        await SettingsStore.save();
+    }
+
     function __tmShowDocTabMenuAt(docId, x, y) {
         const id = String(docId || '').trim();
         if (!id || id === 'all') return;
@@ -7843,6 +8129,13 @@ async function __tmRefreshAfterWake(reason) {
 
         const map = (SettingsStore.data.docColorMap && typeof SettingsStore.data.docColorMap === 'object') ? SettingsStore.data.docColorMap : (SettingsStore.data.docColorMap = {});
         const existing = __tmNormalizeHexColor(map[id], '');
+        const pinGroupId = String(SettingsStore.data.currentGroupId || 'all').trim() || 'all';
+        const pinnedInGroup = __tmIsDocPinnedInGroup(id, pinGroupId);
+
+        menu.appendChild(item(pinnedInGroup ? '📌 取消钉住' : '📌 钉住到最左侧', async () => {
+            await __tmSetDocPinnedForGroup(id, !pinnedInGroup, pinGroupId);
+            await loadSelectedDocuments();
+        }));
 
         menu.appendChild(item('🎨 设置颜色…', () => {
             const initial = existing || __tmGetDocColorHex(id, __tmIsDarkMode());
@@ -8200,13 +8493,14 @@ async function __tmRefreshAfterWake(reason) {
             state.filterRules.find(r => r.id === state.currentRule) : null;
 
         const globalNewTaskDocId = String(SettingsStore.data.newTaskDocId || '').trim();
-        const visibleDocs = state.taskTree
+        const currentGroupId = SettingsStore.data.currentGroupId || 'all';
+        const docsForTabs = __tmSortDocEntriesByPinned(state.taskTree || [], currentGroupId);
+        const visibleDocs = docsForTabs
             .filter(doc => __tmDocHasUndoneTasks(doc))
             .filter(doc => !globalNewTaskDocId || doc.id !== globalNewTaskDocId);
             
         // 获取文档分组信息
         const docGroups = SettingsStore.data.docGroups || [];
-        const currentGroupId = SettingsStore.data.currentGroupId || 'all';
         const currentGroup = docGroups.find(g => g.id === currentGroupId);
         const groupName = currentGroupId === 'all' ? '全部文档' : (currentGroup ? currentGroup.name : '未知分组');
         const isMobile = __tmIsMobileDevice();
@@ -8415,7 +8709,11 @@ async function __tmRefreshAfterWake(reason) {
         const __tmRenderKanbanBodyHtml = () => {
             const isGloballyLocked = GlobalLock.isLocked();
             const isCompact = !!SettingsStore.data.kanbanCompactMode;
+            const baseKanbanW0 = Number(SettingsStore.data.kanbanColumnWidth);
+            const baseKanbanW = Number.isFinite(baseKanbanW0) ? Math.max(220, Math.min(520, Math.round(baseKanbanW0))) : 320;
+            const kanbanColW = isCompact ? Math.max(220, baseKanbanW - 40) : baseKanbanW;
             const showDoneCol = !!SettingsStore.data.kanbanShowDoneColumn;
+            const currentGroupId = String(SettingsStore.data.currentGroupId || 'all').trim() || 'all';
             const statusOptionsRaw = Array.isArray(SettingsStore.data.customStatusOptions) ? SettingsStore.data.customStatusOptions : [];
             const statusOptions = statusOptionsRaw
                 .map(o => ({ id: String(o?.id || '').trim(), name: String(o?.name || '').trim(), color: String(o?.color || '').trim() }))
@@ -8439,6 +8737,108 @@ async function __tmRefreshAfterWake(reason) {
             const filteredIdList = filtered.map(t => String(t?.id || '').trim()).filter(Boolean);
             const filteredIdSet = new Set(filteredIdList);
             const indexById = new Map(filteredIdList.map((id, i) => [id, i]));
+            const escSq = (s) => String(s || '').replace(/\\/g, '\\\\').replace(/'/g, "\\'");
+            const isDark = __tmIsDarkMode();
+            const timeBaseColor = isDark
+                ? __tmNormalizeHexColor(SettingsStore.data.timeGroupBaseColorDark, '#6ba5ff')
+                : __tmNormalizeHexColor(SettingsStore.data.timeGroupBaseColorLight, '#1a73e8');
+            const timeOverdueColor = isDark
+                ? __tmNormalizeHexColor(SettingsStore.data.timeGroupOverdueColorDark, '#ff6b6b')
+                : __tmNormalizeHexColor(SettingsStore.data.timeGroupOverdueColorLight, '#d93025');
+            const getTimeGroupLabelColor = (groupInfo) => {
+                const key = String(groupInfo?.key || '');
+                const sortValue = Number(groupInfo?.sortValue);
+                if (key === 'pending' || !Number.isFinite(sortValue)) return 'var(--tm-secondary-text)';
+                if (sortValue < 0) return timeOverdueColor || 'var(--tm-danger-color)';
+                const minA = isDark ? 0.52 : 0.42;
+                const step = isDark ? 0.085 : 0.11;
+                const alpha = __tmClamp(1 - sortValue * step, minA, 1);
+                return __tmWithAlpha(timeBaseColor || 'var(--tm-primary-color)', alpha);
+            };
+            const getTimeGroup = (task) => {
+                const timeStr = String(task?.completionTime || task?.startDate || '').trim();
+                if (!timeStr) return { key: 'pending', label: '待定', sortValue: Infinity };
+                const taskDate = new Date(timeStr);
+                if (isNaN(taskDate.getTime())) return { key: 'pending', label: '待定', sortValue: Infinity };
+                const now = new Date();
+                const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+                const target = new Date(taskDate.getFullYear(), taskDate.getMonth(), taskDate.getDate());
+                const diffDays = Math.ceil((target - today) / (1000 * 60 * 60 * 24));
+                if (diffDays < 0) return { key: 'overdue', label: '已过期', sortValue: diffDays };
+                if (diffDays === 0) return { key: 'today', label: '今天', sortValue: 0 };
+                if (diffDays === 1) return { key: 'tomorrow', label: '明天', sortValue: 1 };
+                if (diffDays <= 7) return { key: 'week', label: '本周', sortValue: diffDays };
+                if (diffDays <= 14) return { key: 'nextweek', label: '下周', sortValue: diffDays };
+                return { key: 'later', label: `${diffDays}天后`, sortValue: diffDays };
+            };
+            const getImportanceLevel = (task) => {
+                const priority = String(task?.priority || '').toLowerCase();
+                if (priority === 'a' || priority === '高' || priority === 'high') return 'high';
+                if (priority === 'b' || priority === '中' || priority === 'medium') return 'medium';
+                if (priority === 'c' || priority === '低' || priority === 'low') return 'low';
+                return 'none';
+            };
+            const getTimeRange = (task) => {
+                const timeStr = String(task?.completionTime || '').trim();
+                if (!timeStr) return 'nodate';
+                const taskDate = new Date(timeStr);
+                if (isNaN(taskDate.getTime())) return 'nodate';
+                const now = new Date();
+                const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+                const target = new Date(taskDate.getFullYear(), taskDate.getMonth(), taskDate.getDate());
+                const diffDays = Math.ceil((target - today) / (1000 * 60 * 60 * 24));
+                if (diffDays < 0) return 'overdue';
+                if (diffDays <= 7) return 'within7days';
+                if (diffDays <= 15) return 'within15days';
+                if (diffDays <= 30) return 'within30days';
+                return 'beyond30days';
+            };
+            const getTaskDays = (task) => {
+                const timeStr = String(task?.completionTime || '').trim();
+                if (!timeStr) return Infinity;
+                const taskDate = new Date(timeStr);
+                if (isNaN(taskDate.getTime())) return Infinity;
+                const now = new Date();
+                const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+                const target = new Date(taskDate.getFullYear(), taskDate.getMonth(), taskDate.getDate());
+                return Math.ceil((target - today) / (1000 * 60 * 60 * 24));
+            };
+            const quadrantRules = (SettingsStore.data.quadrantConfig && Array.isArray(SettingsStore.data.quadrantConfig.rules))
+                ? SettingsStore.data.quadrantConfig.rules
+                : [];
+            const quadrantOrder = ['urgent-important', 'not-urgent-important', 'urgent-not-important', 'not-urgent-not-important'];
+            const quadrantColorMap = {
+                red: 'var(--tm-quadrant-red)',
+                yellow: 'var(--tm-quadrant-yellow)',
+                blue: 'var(--tm-quadrant-blue)',
+                green: 'var(--tm-quadrant-green)'
+            };
+            const resolveQuadrantRule = (task) => {
+                const importance = getImportanceLevel(task);
+                const timeRange = getTimeRange(task);
+                const taskDays = getTaskDays(task);
+                for (const rule of quadrantRules) {
+                    const imp = Array.isArray(rule?.importance) ? rule.importance : [];
+                    const trs = Array.isArray(rule?.timeRanges) ? rule.timeRanges : [];
+                    if (!imp.includes(importance)) continue;
+                    let ok = trs.includes(timeRange);
+                    if (!ok) {
+                        for (const range of trs) {
+                            const s = String(range || '');
+                            if (!s.startsWith('beyond') || s === 'beyond30days') continue;
+                            const days = parseInt(s.replace('beyond', '').replace('days', ''), 10);
+                            if (!isNaN(days) && taskDays > days) {
+                                ok = true;
+                                break;
+                            }
+                        }
+                    }
+                    if (ok) return rule;
+                }
+                return null;
+            };
+            const docsInOrder = __tmSortDocEntriesByPinned(state.taskTree || [], currentGroupId).map(d => String(d?.id || '').trim()).filter(Boolean);
+            const docRank = new Map(docsInOrder.map((id, idx) => [id, idx]));
 
             const tasksByStatus = new Map(cols.map(c => [c.id, []]));
             filtered.forEach(task => {
@@ -8456,7 +8856,13 @@ async function __tmRefreshAfterWake(reason) {
                 const st = String(task?.customStatus || '').trim() || 'todo';
                 const opt = statusOptions.find(o => o.id === st) || (st === 'todo' ? todoOpt : { id: st, name: st, color: '#757575' });
                 const pr = String(task?.priority || '').toLowerCase();
-                const prLabel = pr === 'high' ? '高' : pr === 'medium' ? '中' : pr === 'low' ? '低' : '无';
+                const prMeta = pr === 'high'
+                    ? { label: '高', color: '#ea4335' }
+                    : pr === 'medium'
+                        ? { label: '中', color: '#f9ab00' }
+                        : pr === 'low'
+                            ? { label: '低', color: '#34a853' }
+                            : { label: '无', color: '#9aa0a6' };
                 const timeTxt = String(task?.completionTime || '').trim() || String(task?.startDate || '').trim();
                 const dateTxt = timeTxt ? __tmFormatTaskTime(timeTxt) : '';
                 const allChildren = Array.isArray(task?.children) ? task.children : [];
@@ -8484,8 +8890,8 @@ async function __tmRefreshAfterWake(reason) {
                         ${parentTxt ? `<div class="tm-kanban-parent-line" style="font-size:12px;color:var(--tm-secondary-text);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;margin-bottom:6px;" title="${esc(parentTxt)}"><span>父任务：</span><span style="font-weight:800;color:var(--tm-text-color);">${esc(parentTxt)}</span></div>` : ''}
                         <div class="tm-kanban-card-meta">
                             ${statusChip}
-                            <span class="tm-kanban-chip tm-kanban-chip--muted" onclick="tmPickPriority('${id}', this, event)">重要性:${esc(prLabel)}</span>
-                            <span class="tm-kanban-chip tm-kanban-chip--muted" onclick="tmKanbanPickDate('${id}', event)" title="点击设置日期">📅 ${esc(dateTxt || '设置日期')}</span>
+                            <span class="tm-kanban-chip" style="background-color:${esc(prMeta.color)};color:#fff;" onclick="tmPickPriority('${id}', this, event)">${esc(prMeta.label)}</span>
+                            <span class="tm-kanban-chip tm-kanban-chip--muted" onclick="tmKanbanPickDate('${id}', event)" title="点击选择日期">📅 ${esc(dateTxt || '日期')}</span>
                         </div>
                         ${docName ? `<div style="font-size:12px;color:var(--tm-secondary-text);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">📄 ${esc(docName)}</div>` : ''}
                         ${childrenHtml ? `<div class="tm-kanban-subtasks">${childrenHtml}</div>` : ''}
@@ -8542,11 +8948,114 @@ async function __tmRefreshAfterWake(reason) {
                     );
                 };
 
-                const listHtml = roots.length ? roots.map(t => renderTree(t, 0)).join('') : '';
+                const renderGroupTitle = (groupKey, titleHtml, count, color) => {
+                    const isCollapsed = state.collapsedGroups?.has(groupKey);
+                    return `
+                        <div class="tm-kanban-group-title" onclick="tmToggleGroupCollapse('${escSq(groupKey)}', event)" style="${color ? `color:${color};` : ''}">
+                            <span class="tm-group-toggle" style="cursor:pointer;display:inline-block;width:12px;">${isCollapsed ? '▸' : '▾'}</span>
+                            <span>${titleHtml}</span>
+                            <span class="tm-badge tm-badge--count">${Number(count) || 0}</span>
+                        </div>
+                    `;
+                };
+
+                const renderGroupedByDoc = () => {
+                    const rootByDoc = new Map();
+                    const countByDoc = new Map();
+                    list0.forEach(t => {
+                        const did = String(t?.root_id || '').trim() || '__unknown__';
+                        countByDoc.set(did, (countByDoc.get(did) || 0) + 1);
+                    });
+                    roots.forEach(t => {
+                        const did = String(t?.root_id || '').trim() || '__unknown__';
+                        if (!rootByDoc.has(did)) rootByDoc.set(did, []);
+                        rootByDoc.get(did).push(t);
+                    });
+                    const docIds = Array.from(rootByDoc.keys());
+                    docIds.sort((a, b) => {
+                        const ar = docRank.has(a) ? docRank.get(a) : 999999;
+                        const br = docRank.has(b) ? docRank.get(b) : 999999;
+                        if (ar !== br) return ar - br;
+                        const a0 = rootByDoc.get(a)?.[0];
+                        const b0 = rootByDoc.get(b)?.[0];
+                        return getIdx(a0) - getIdx(b0);
+                    });
+                    return docIds.map((docId) => {
+                        const items = rootByDoc.get(docId) || [];
+                        const groupKey = `kanban_${c.id}_doc_${docId}`;
+                        const isCollapsed = state.collapsedGroups?.has(groupKey);
+                        const docName = docNameById.get(docId) || '未知文档';
+                        const labelColor = docId === '__unknown__' ? 'var(--tm-secondary-text)' : (__tmGetDocColorHex(docId, isDark) || 'var(--tm-group-doc-label-color)');
+                        const title = `<span style="color:${labelColor};">📄 ${esc(docName)}</span>`;
+                        const body = isCollapsed ? '' : `<div class="tm-kanban-group-items">${items.map(t => renderTree(t, 0)).join('')}</div>`;
+                        return `<div class="tm-kanban-group">${renderGroupTitle(groupKey, title, countByDoc.get(docId) || items.length)}${body}</div>`;
+                    }).join('');
+                };
+
+                const renderGroupedByTime = () => {
+                    const gm = new Map();
+                    roots.forEach(t => {
+                        const info = getTimeGroup(t);
+                        const key = String(info.key || 'pending');
+                        if (!gm.has(key)) gm.set(key, { ...info, items: [] });
+                        gm.get(key).items.push(t);
+                    });
+                    const groups = Array.from(gm.values()).sort((a, b) => (Number(a.sortValue) || Infinity) - (Number(b.sortValue) || Infinity));
+                    return groups.map((g) => {
+                        const groupKey = `kanban_${c.id}_time_${g.key}`;
+                        const isCollapsed = state.collapsedGroups?.has(groupKey);
+                        const color = getTimeGroupLabelColor(g);
+                        const title = `<span style="color:${color};">${esc(g.label || '')}</span>`;
+                        const body = isCollapsed ? '' : `<div class="tm-kanban-group-items">${g.items.map(t => renderTree(t, 0)).join('')}</div>`;
+                        return `<div class="tm-kanban-group">${renderGroupTitle(groupKey, title, g.items.length)}${body}</div>`;
+                    }).join('');
+                };
+
+                const renderGroupedByQuadrant = () => {
+                    const gm = new Map();
+                    quadrantRules.forEach(r => {
+                        const id = String(r?.id || '').trim();
+                        if (!id) return;
+                        gm.set(id, { rule: r, items: [] });
+                    });
+                    const unmatchedKey = '__unmatched__';
+                    gm.set(unmatchedKey, { rule: { id: unmatchedKey, name: '未匹配四象限', color: '' }, items: [] });
+                    roots.forEach(t => {
+                        const rule = resolveQuadrantRule(t);
+                        const key = String(rule?.id || unmatchedKey);
+                        if (!gm.has(key)) gm.set(key, { rule: rule || { id: key, name: key, color: '' }, items: [] });
+                        gm.get(key).items.push(t);
+                    });
+                    const orderKeys = [...quadrantOrder, ...Array.from(gm.keys()).filter(k => !quadrantOrder.includes(k) && k !== unmatchedKey), unmatchedKey];
+                    return orderKeys
+                        .filter(k => gm.has(k) && (gm.get(k).items || []).length > 0)
+                        .map((k) => {
+                            const g = gm.get(k);
+                            const rule = g.rule || {};
+                            const groupKey = `kanban_${c.id}_quadrant_${String(rule.id || k)}`;
+                            const isCollapsed = state.collapsedGroups?.has(groupKey);
+                            const color = quadrantColorMap[String(rule.color || '')] || 'var(--tm-text-color)';
+                            const title = `<span style="color:${color};">${esc(String(rule.name || k))}</span>`;
+                            const body = isCollapsed ? '' : `<div class="tm-kanban-group-items">${(g.items || []).map(t => renderTree(t, 0)).join('')}</div>`;
+                            return `<div class="tm-kanban-group">${renderGroupTitle(groupKey, title, (g.items || []).length, color)}${body}</div>`;
+                        })
+                        .join('');
+                };
+
+                let listHtml = '';
+                if (state.quadrantEnabled) {
+                    listHtml = renderGroupedByQuadrant();
+                } else if (state.groupByDocName) {
+                    listHtml = renderGroupedByDoc();
+                } else if (state.groupByTime) {
+                    listHtml = renderGroupedByTime();
+                } else {
+                    listHtml = roots.length ? roots.map(t => renderTree(t, 0)).join('') : '';
+                }
                 const count = list0.length;
                 const title = c.id === '__done__' ? '✅ 已完成' : c.id === 'todo' ? `🗂️ ${c.name}` : c.name;
                 return `
-                    <div class="tm-kanban-col" data-status="${esc(c.id)}">
+                    <div class="tm-kanban-col" data-status="${esc(c.id)}" style="width:${kanbanColW}px;min-width:${kanbanColW}px;max-width:${kanbanColW}px;">
                         <div class="tm-kanban-col-header">
                             <div class="tm-kanban-col-title tm-kanban-col-title--pill" style="background-color:${esc(c.color || '#757575')};color:#fff;" title="${esc(c.name)}">${esc(title)}</div>
                             <span class="tm-badge tm-badge--count">${count}</span>
@@ -8592,6 +9101,7 @@ async function __tmRefreshAfterWake(reason) {
                             <div class="tm-title" onclick="tmToggleDocTabs(event)" style="font-size: 16px; font-weight: 700; white-space: nowrap;">📋 任务管理器</div>
                             <button class="tm-btn tm-btn-success" onclick="tmAdd()" style="padding: 0 10px; height: 30px; display: inline-flex; align-items: center; justify-content: center;">+</button>
                             ${isMobile ? `<button class="tm-btn tm-btn-info" onclick="tmRefresh()" style="padding: 0 10px; height: 30px; display: inline-flex; align-items: center; justify-content: center;">🔄️</button>` : ''}
+                            ${isMobile && state.viewMode === 'calendar' ? `<button class="tm-btn tm-btn-info" onclick="tmCalendarToggleSidebar()" style="padding: 0 10px; height: 30px; display: inline-flex; align-items: center; justify-content: center;" title="侧边栏">📅</button>` : ''}
                         </div>
 
                         <!-- 桌面端工具栏 -->
@@ -8653,8 +9163,8 @@ async function __tmRefreshAfterWake(reason) {
                         ${state.viewMode === 'timeline' ? `
                             <button class="tm-btn tm-btn-info" onclick="tmGanttZoomOut()" style="padding: 4px 10px;" title="缩小">－</button>
                             <button class="tm-btn tm-btn-info" onclick="tmGanttZoomIn()" style="padding: 4px 10px;" title="放大">＋</button>
-                            <button class="tm-btn tm-btn-info" onclick="tmGanttFit()" style="padding: 4px 10px;" title="适配范围">🎯</button>
-                            <button class="tm-btn tm-btn-info" onclick="tmGanttToday()" style="padding: 4px 10px;" title="定位今天">📍</button>
+                            <button class="tm-btn tm-btn-info" onclick="tmGanttFit()" style="padding: 4px 10px;" title="适配范围">🗺️</button>
+                            <button class="tm-btn tm-btn-info" onclick="tmGanttToday()" style="padding: 4px 10px;" title="定位今天">📅</button>
                         ` : ''}
                         
                         <button class="tm-btn tm-btn-info" onclick="tmRefresh()" style="padding: 4px 10px;" title="刷新">🔄️</button>
@@ -8683,6 +9193,15 @@ async function __tmRefreshAfterWake(reason) {
                                         ${ruleOptions}
                                     </select>
                                 </div>
+                                <div class="tm-mobile-only-item" style="display:flex; gap:10px; align-items:center;">
+                                    <span style="color:var(--tm-text-color);width:60px;">模式:</span>
+                                    <select class="tm-rule-select" style="flex:1;" onchange="tmSwitchGroupMode(this.value)">
+                                        <option value="none" ${(!state.groupByDocName && !state.groupByTime && !state.quadrantEnabled) ? 'selected' : ''}>不分组</option>
+                                        <option value="doc" ${state.groupByDocName ? 'selected' : ''}>按文档</option>
+                                        <option value="time" ${state.groupByTime ? 'selected' : ''}>按时间</option>
+                                        <option value="quadrant" ${state.quadrantEnabled ? 'selected' : ''}>四象限</option>
+                                    </select>
+                                </div>
                                 <div style="display:flex; gap:10px; align-items:center;">
                                     <button class="tm-btn tm-btn-info" onclick="tmShowSearchModal()" style="flex:1; padding: 6px;">
                                         🔍 搜索 ${state.searchKeyword ? `(${state.searchKeyword})` : ''}
@@ -8704,15 +9223,6 @@ async function __tmRefreshAfterWake(reason) {
                                 <div class="tm-mobile-only-item" style="display:flex; gap:10px;">
                                      <button class="tm-btn tm-btn-info" onclick="tmCollapseAllTasks()" style="flex:1; padding: 6px;">▸ 折叠</button>
                                      <button class="tm-btn tm-btn-info" onclick="tmExpandAllTasks()" style="flex:1; padding: 6px;">▾ 展开</button>
-                                </div>
-                                <div class="tm-mobile-only-item" style="display:flex; gap:10px; align-items:center;">
-                                    <span style="color:var(--tm-text-color);width:60px;">模式:</span>
-                                    <select class="tm-rule-select" style="flex:1;" onchange="tmSwitchGroupMode(this.value)">
-                                        <option value="none" ${(!state.groupByDocName && !state.groupByTime && !state.quadrantEnabled) ? 'selected' : ''}>不分组</option>
-                                        <option value="doc" ${state.groupByDocName ? 'selected' : ''}>按文档</option>
-                                        <option value="time" ${state.groupByTime ? 'selected' : ''}>按时间</option>
-                                        <option value="quadrant" ${state.quadrantEnabled ? 'selected' : ''}>四象限</option>
-                                    </select>
                                 </div>
                                 ${currentRule ? `<div class="tm-mobile-only-item" style="color:var(--tm-secondary-text);font-size:12px;">当前规则: ${esc(currentRule.name)} (${filteredCount}任务)</div>` : ''}
                             </div>
@@ -8749,7 +9259,23 @@ async function __tmRefreshAfterWake(reason) {
                         ${visibleDocs.map(doc => {
                             const isActive = state.activeDocId === doc.id;
                             const c = __tmGetDocColorHex(doc.id, __tmIsDarkMode());
-                            return `<div class="tm-doc-tab ${isActive ? 'active' : ''}" data-tm-doc-id="${esc(doc.id)}" style="--tm-doc-color:${esc(c)}" oncontextmenu="tmShowDocTabContextMenu(event, '${doc.id}')" ondragenter="tmDocTabDragEnter(event)" ondragleave="tmDocTabDragLeave(event)" ondragover="tmDocTabDragOver(event)" ondrop="tmDocTabDrop(event, '${doc.id}')" onclick="tmSwitchDoc('${doc.id}')">${esc(doc.name)}</div>`;
+                            const pid = `tm-doc-prog-${doc.id}`;
+                            // 预设宽度（如果缓存有值，直接渲染，减少闪烁）
+                            const cachedPercent = __tmDocProgressCache?.get(doc.id) || 0;
+                            // 调度异步更新
+                            setTimeout(() => __tmUpdateDocTabProgress(doc.id, pid, c), 0);
+                            return `<div class="tm-doc-tab ${isActive ? 'active' : ''}" 
+                                data-tm-doc-id="${esc(doc.id)}" 
+                                style="--tm-doc-color:${esc(c)}" 
+                                oncontextmenu="tmShowDocTabContextMenu(event, '${doc.id}')" 
+                                ondragenter="tmDocTabDragEnter(event)" 
+                                ondragleave="tmDocTabDragLeave(event)" 
+                                ondragover="tmDocTabDragOver(event)" 
+                                ondrop="tmDocTabDrop(event, '${doc.id}')" 
+                                onclick="tmSwitchDoc('${doc.id}')">
+                                <div class="tm-doc-tab-bg" id="${pid}" style="width:${cachedPercent}%"></div>
+                                <div class="tm-doc-tab-text">${esc(doc.name)}</div>
+                            </div>`;
                         }).join('')}
                     </div>
                     <div style="border-left:1px solid var(--tm-border-color); padding-left:8px; margin-left:8px; display:none; gap:8px;">
@@ -8811,6 +9337,22 @@ async function __tmRefreshAfterWake(reason) {
                         position: relative;
                         overflow: hidden;
                     }
+                    .tm-doc-tab-bg {
+                        position: absolute;
+                        top: 0;
+                        left: 0;
+                        width: 0%;
+                        height: 100%;
+                        background: var(--tm-doc-color, transparent);
+                        opacity: 0.2;
+                        transition: width 0.3s ease;
+                        z-index: 0;
+                        pointer-events: none;
+                    }
+                    .tm-doc-tab-text {
+                        position: relative;
+                        z-index: 1;
+                    }
                     .tm-doc-tab::after {
                         content: '';
                         position: absolute;
@@ -8821,6 +9363,7 @@ async function __tmRefreshAfterWake(reason) {
                         border-radius: 0;
                         background: var(--tm-doc-color, transparent);
                         opacity: 0.95;
+                        z-index: 2;
                     }
                     .tm-doc-tab:hover {
                         background: var(--tm-hover-bg);
@@ -8953,8 +9496,23 @@ async function __tmRefreshAfterWake(reason) {
                             } catch (e) {
                                 hint(`❌ 更新失败: ${e.message}`, 'error');
                             }
-                            applyFilters();
-                            render();
+                            __tmScheduleRender({ withFilters: true });
+                        },
+                        onUpdateTaskMeta: async (taskId, patch) => {
+                            const id = String(taskId || '').trim();
+                            if (!id || !patch || typeof patch !== 'object') return;
+                            const task = state.flatTasks[id];
+                            if (!task) return;
+                            const hasMilestone = Object.prototype.hasOwnProperty.call(patch, 'milestone');
+                            if (!hasMilestone) return;
+                            const val = !!patch.milestone;
+                            task.milestone = val;
+                            try {
+                                await __tmPersistMetaAndAttrsAsync(id, { milestone: val ? '1' : '' });
+                            } catch (e) {
+                                hint(`❌ 更新失败: ${e.message}`, 'error');
+                            }
+                            __tmScheduleRender({ withFilters: true });
                         },
                     });
                 }
@@ -9249,6 +9807,14 @@ async function __tmRefreshAfterWake(reason) {
         state.uiAnimTs = 0;
         try { __tmHideMobileMenu(); } catch (e) {}
         render();
+    };
+
+    window.tmCalendarToggleSidebar = function() {
+        try {
+            if (state.viewMode !== 'calendar') return;
+            if (!globalThis.__tmCalendar || typeof globalThis.__tmCalendar.toggleSidebar !== 'function') return;
+            globalThis.__tmCalendar.toggleSidebar(undefined, 'calendar');
+        } catch (e) {}
     };
 
     window.tmSwitchViewMode = function(mode) {
@@ -9776,6 +10342,7 @@ async function __tmRefreshAfterWake(reason) {
     }
 
     window.tmKanbanDragStart = function(ev, id) {
+        try { ev.stopPropagation(); } catch (e) {}
         const taskId = String(id || '').trim();
         if (!taskId) return;
         try { ev.dataTransfer.effectAllowed = 'move'; } catch (e) {}
@@ -9783,6 +10350,28 @@ async function __tmRefreshAfterWake(reason) {
         state.__tmKanbanDragId = taskId;
         state.__tmKanbanDragIds = [taskId];
         try { ev.currentTarget?.classList?.add?.('tm-kanban-card--dragging'); } catch (e) {}
+
+        if (!SettingsStore.data.kanbanDragSyncSubtasks) {
+            try {
+                const target = ev.currentTarget;
+                if (target instanceof Element && target.querySelector('.tm-kanban-subtasks')) {
+                    const clone = target.cloneNode(true);
+                    const sub = clone.querySelector('.tm-kanban-subtasks');
+                    if (sub) sub.remove();
+                    clone.style.position = 'absolute';
+                    clone.style.top = '-9999px';
+                    clone.style.left = '-9999px';
+                    clone.style.width = `${target.offsetWidth}px`;
+                    clone.style.background = getComputedStyle(target).background;
+                    document.body.appendChild(clone);
+                    const rect = target.getBoundingClientRect();
+                    ev.dataTransfer.setDragImage(clone, ev.clientX - rect.left, ev.clientY - rect.top);
+                    setTimeout(() => clone.remove(), 0);
+                }
+            } catch (e) {
+                console.error('Failed to set drag image', e);
+            }
+        }
     };
 
     window.tmKanbanDragEnd = function(ev, id) {
@@ -9969,7 +10558,17 @@ async function __tmRefreshAfterWake(reason) {
         try { id = String(ev.dataTransfer.getData('text/plain') || '').trim(); } catch (e) {}
         if (!id) id = String(state.__tmKanbanDragId || '').trim();
         if (!id || !st) return;
-        const ids = Array.isArray(state.__tmKanbanDragIds) && state.__tmKanbanDragIds.length ? state.__tmKanbanDragIds : [id];
+        let ids = Array.isArray(state.__tmKanbanDragIds) && state.__tmKanbanDragIds.length ? state.__tmKanbanDragIds : [id];
+        
+        if (SettingsStore.data.kanbanDragSyncSubtasks) {
+            const allIds = new Set(ids);
+            ids.forEach(rootId => {
+                const descendants = __tmKanbanCollectDescendantIds(rootId);
+                descendants.forEach(did => allIds.add(did));
+            });
+            ids = Array.from(allIds);
+        }
+
         __tmKanbanMoveIdsToStatus(ids, st).catch(e => {
             hint(`❌ 操作失败: ${e.message}`, 'error');
         });
@@ -9984,18 +10583,84 @@ async function __tmRefreshAfterWake(reason) {
         if (!tid) return;
         const task = state.flatTasks[tid];
         if (!task) return;
+        const anchorEl = (ev?.currentTarget instanceof Element)
+            ? ev.currentTarget
+            : (ev?.target instanceof Element ? ev.target.closest('.tm-kanban-chip') : null);
         const current = String(task.completionTime || '').trim() || String(task.startDate || '').trim();
-        const next = await showDatePrompt('设置日期', current);
-        if (next == null) return;
-        try {
-            task.completionTime = String(next || '').trim();
-            await __tmPersistMetaAndAttrsAsync(tid, { completionTime: String(next || '').trim() });
-            applyFilters();
-            render();
-            hint(next ? '✅ 日期已更新' : '✅ 日期已清空', 'success');
-        } catch (e) {
-            hint(`❌ 更新失败: ${e.message}`, 'error');
+
+        if (!(anchorEl instanceof Element)) {
+            const next = await showDatePrompt('设置日期', current);
+            if (next == null) return;
+            try {
+                task.completionTime = String(next || '').trim();
+                await __tmPersistMetaAndAttrsAsync(tid, { completionTime: String(next || '').trim() });
+                applyFilters();
+                render();
+                hint(next ? '✅ 日期已更新' : '✅ 日期已清空', 'success');
+            } catch (e) {
+                hint(`❌ 更新失败: ${e.message}`, 'error');
+            }
+            return;
         }
+
+        __tmOpenInlineEditor(anchorEl, ({ editor, close }) => {
+            editor.style.minWidth = '168px';
+            editor.style.padding = '8px';
+
+            const input = document.createElement('input');
+            input.type = 'date';
+            input.className = 'tm-input';
+            input.value = __tmNormalizeDateOnly(current || '');
+            editor.appendChild(input);
+
+            const clearBtn = document.createElement('button');
+            clearBtn.className = 'tm-btn tm-btn-secondary';
+            clearBtn.textContent = '清空';
+            clearBtn.onclick = async () => {
+                try {
+                    task.completionTime = '';
+                    await __tmPersistMetaAndAttrsAsync(tid, { completionTime: '' });
+                    close();
+                    applyFilters();
+                    render();
+                    hint('✅ 日期已清空', 'success');
+                } catch (e) {
+                    hint(`❌ 更新失败: ${e.message}`, 'error');
+                }
+            };
+
+            const actions = document.createElement('div');
+            actions.className = 'tm-inline-editor-actions';
+            actions.appendChild(clearBtn);
+            editor.appendChild(actions);
+
+            const save = async () => {
+                const raw = String(input.value || '').trim();
+                const next = raw ? __tmNormalizeDateOnly(raw) : '';
+                try {
+                    task.completionTime = next;
+                    await __tmPersistMetaAndAttrsAsync(tid, { completionTime: next });
+                    close();
+                    applyFilters();
+                    render();
+                    hint(next ? '✅ 日期已更新' : '✅ 日期已清空', 'success');
+                } catch (e) {
+                    hint(`❌ 更新失败: ${e.message}`, 'error');
+                }
+            };
+
+            input.onchange = () => { save(); };
+            input.onkeydown = (e) => {
+                if (e.key === 'Enter') save();
+            };
+            input.onclick = () => { try { input.showPicker?.(); } catch (e) {} };
+            setTimeout(() => {
+                try {
+                    input.focus();
+                    input.showPicker?.();
+                } catch (e) {}
+            }, 0);
+        });
     };
 
     window.tmGanttZoomIn = function() {
@@ -10460,10 +11125,16 @@ async function __tmRefreshAfterWake(reason) {
             const eTs0 = view.parseDateOnlyToTs(task?.completionTime);
             const aTs = sTs0 || eTs0;
             const bTs = eTs0 || sTs0;
+            const milestoneRaw = task?.milestone;
+            const isMilestone = typeof milestoneRaw === 'boolean'
+                ? milestoneRaw
+                : ['1', 'true'].includes(String(milestoneRaw || '').trim().toLowerCase());
 
             const bar = rowEl.querySelector('.tm-gantt-bar');
+            const marker = rowEl.querySelector('.tm-gantt-milestone');
             if (!aTs && !bTs) {
                 if (bar) bar.remove();
+                if (marker) marker.remove();
                 return;
             }
 
@@ -10472,6 +11143,7 @@ async function __tmRefreshAfterWake(reason) {
             const endIdx = __tmClamp(dayIdxOf(bTs), 0, dayCount0 - 1);
             const left = Math.min(startIdx, endIdx) * dayWidth0;
             const width = (Math.abs(endIdx - startIdx) + 1) * dayWidth0;
+            const milestoneLeft = endIdx * dayWidth0 + (dayWidth0 * 0.5);
 
             const docId = String(task?.docId || task?.root_id || '').trim();
             const isDark = __tmIsDarkMode();
@@ -10482,6 +11154,25 @@ async function __tmRefreshAfterWake(reason) {
                 : baseColor;
 
             const title = `${String(task?.content || '').trim()}\n${view.formatDateOnlyFromTs(aTs)} ~ ${view.formatDateOnlyFromTs(bTs)}`;
+            const milestoneTitle = `${String(task?.content || '').trim()}\n里程碑：${view.formatDateOnlyFromTs(bTs)}`;
+
+            if (isMilestone && bTs) {
+                if (bar) bar.remove();
+                if (marker) {
+                    marker.style.left = `${milestoneLeft}px`;
+                    marker.title = milestoneTitle;
+                    return;
+                }
+                const markerEl = document.createElement('div');
+                markerEl.className = 'tm-gantt-milestone';
+                markerEl.style.left = `${milestoneLeft}px`;
+                markerEl.title = milestoneTitle;
+                markerEl.textContent = '🚩';
+                rowEl.appendChild(markerEl);
+                return;
+            }
+
+            if (marker) marker.remove();
 
             if (bar) {
                 bar.style.left = `${left}px`;
@@ -10538,6 +11229,13 @@ async function __tmRefreshAfterWake(reason) {
         };
         const p0 = task.priority ?? task.customPriority ?? task.custom_priority ?? '';
         task.priority = normalizePriority(p0);
+        const milestone0 = task.milestone ?? task.customMilestone ?? task.custom_milestone ?? '';
+        if (typeof milestone0 === 'boolean') {
+            task.milestone = milestone0;
+        } else {
+            const ms = String(milestone0 || '').trim().toLowerCase();
+            task.milestone = ms === 'true' || ms === '1';
+        }
         task.duration = isValidValue(task.duration) ? String(task.duration) : (isValidValue(task.custom_duration) ? String(task.custom_duration) : '');
         task.remark = isValidValue(task.remark) ? String(task.remark) : (isValidValue(task.custom_remark) ? String(task.custom_remark) : '');
         task.completionTime = isValidValue(task.completionTime) ? String(task.completionTime) : (isValidValue(task.completion_time) ? String(task.completion_time) : '');
@@ -10562,6 +11260,14 @@ async function __tmRefreshAfterWake(reason) {
                 else {
                     const s = String(ms || '').trim().toLowerCase();
                     if (s === 'true' || s === '1' || s === '') task.pinned = s === 'true' || s === '1';
+                }
+            }
+            if ('milestone' in meta) {
+                const ms = meta.milestone;
+                if (typeof ms === 'boolean') task.milestone = ms;
+                else {
+                    const s = String(ms || '').trim().toLowerCase();
+                    if (s === 'true' || s === '1' || s === '') task.milestone = s === 'true' || s === '1';
                 }
             }
             if (!isValidValue(task.priority) && isValidValue(meta.priority)) task.priority = normalizePriority(meta.priority);
@@ -11811,7 +12517,10 @@ async function __tmRefreshAfterWake(reason) {
         }
 
         if (state.groupByDocName) {
-            const docsInOrder = state.taskTree.map(d => d.id).filter(Boolean);
+            const docsInOrder = __tmSortDocEntriesByPinned(
+                state.taskTree || [],
+                String(SettingsStore.data.currentGroupId || 'all').trim() || 'all'
+            ).map(d => d.id).filter(Boolean);
             docsInOrder.forEach(docId => {
                 const docEntry = state.taskTree.find(d => d.id === docId);
                 if (!docEntry) return;
@@ -12278,7 +12987,10 @@ async function __tmRefreshAfterWake(reason) {
             });
         } else if (state.groupByDocName) {
             // 按文档分组模式：不应用全局混排，按文档顺序显示，支持折叠
-            const docsInOrder = state.taskTree.map(d => d.id).filter(Boolean);
+            const docsInOrder = __tmSortDocEntriesByPinned(
+                state.taskTree || [],
+                String(SettingsStore.data.currentGroupId || 'all').trim() || 'all'
+            ).map(d => d.id).filter(Boolean);
 
             docsInOrder.forEach(docId => {
                 const docEntry = state.taskTree.find(d => d.id === docId);
@@ -12459,12 +13171,17 @@ async function __tmRefreshAfterWake(reason) {
     }
 
     let __tmRenderScheduled = false;
-    function __tmScheduleRender() {
+    let __tmRenderNeedFilters = false;
+    function __tmScheduleRender(options = {}) {
+        const withFilters = !(options && options.withFilters === false);
+        __tmRenderNeedFilters = __tmRenderNeedFilters || withFilters;
         if (__tmRenderScheduled) return;
         __tmRenderScheduled = true;
         requestAnimationFrame(() => {
             __tmRenderScheduled = false;
-            applyFilters();
+            const needFilters = __tmRenderNeedFilters;
+            __tmRenderNeedFilters = false;
+            if (needFilters) applyFilters();
             render();
         });
     }
@@ -14624,22 +15341,38 @@ async function __tmRefreshAfterWake(reason) {
                 targetDocs = group.docs;
             }
         }
-        
-        // 解析递归文档
-        const finalIds = new Set();
-        if (quickAddDocId && quickAddDocId !== '__dailyNote__') finalIds.add(quickAddDocId);
-        
-        // 优化：并行处理
-        const promises = targetDocs.map(async (doc) => {
-            finalIds.add(doc.id);
+
+        // 归一化文档项并按当前分组钉住顺序前置
+        const normalizedDocs = (targetDocs || [])
+            .map((doc) => {
+                const id = String((typeof doc === 'object' ? doc?.id : doc) || '').trim();
+                if (!id) return null;
+                return { id, recursive: !!(typeof doc === 'object' ? doc?.recursive : false) };
+            })
+            .filter(Boolean);
+        const docsInOrder = __tmSortDocEntriesByPinned(normalizedDocs, currentGroupId);
+
+        // 解析递归文档（保持顺序去重）
+        const finalIds = [];
+        const seen = new Set();
+        const pushId = (id0) => {
+            const id = String(id0 || '').trim();
+            if (!id || seen.has(id)) return;
+            seen.add(id);
+            finalIds.push(id);
+        };
+        if (quickAddDocId && quickAddDocId !== '__dailyNote__') pushId(quickAddDocId);
+
+        const promises = docsInOrder.map(async (doc) => {
+            pushId(doc.id);
             if (doc.recursive) {
                 const subIds = await API.getSubDocIds(doc.id);
-                subIds.forEach(id => finalIds.add(id));
+                (subIds || []).forEach(id => pushId(id));
             }
         });
-        
+
         await Promise.all(promises);
-        return Array.from(finalIds);
+        return finalIds;
     }
 
     // 加载所有选中文档的任务（带递归支持）
@@ -14889,6 +15622,10 @@ async function __tmRefreshAfterWake(reason) {
                         });
                     }
                 }
+                state.taskTree = __tmSortDocEntriesByPinned(
+                    state.taskTree || [],
+                    String(SettingsStore.data.currentGroupId || 'all').trim() || 'all'
+                );
                 
                 applyFilters();
                 if (state.modal && token === (Number(state.openToken) || 0)) render();
@@ -15207,9 +15944,18 @@ async function __tmRefreshAfterWake(reason) {
                             <input type="checkbox" ${SettingsStore.data.kanbanCompactMode ? 'checked' : ''} onchange="updateKanbanCompactMode(this.checked)">
                             看板紧凑模式（更窄更矮，显示更多卡片）
                         </label>
+                        <div style="display:flex;align-items:center;gap:8px;margin-bottom:10px;flex-wrap:wrap;">
+                            <span style="font-size:12px;color:var(--tm-secondary-text);">看板宽度:</span>
+                            <input type="range" min="220" max="520" step="10" value="${Number(SettingsStore.data.kanbanColumnWidth) || 320}" onchange="updateKanbanColumnWidth(this.value)" style="width: 180px;">
+                            <span style="font-size:12px;min-width:52px;">${Math.max(220, Math.min(520, Number(SettingsStore.data.kanbanColumnWidth) || 320))}px</span>
+                        </div>
                         <label style="display:flex;align-items:center;gap:8px;cursor:pointer;margin-bottom:10px;">
                             <input type="checkbox" ${SettingsStore.data.kanbanShowDoneColumn ? 'checked' : ''} onchange="updateKanbanShowDoneColumn(this.checked)">
                             看板显示“已完成”列
+                        </label>
+                        <label style="display:flex;align-items:center;gap:8px;cursor:pointer;margin-bottom:10px;">
+                            <input type="checkbox" ${SettingsStore.data.kanbanDragSyncSubtasks ? 'checked' : ''} onchange="updateKanbanDragSyncSubtasks(this.checked)">
+                            看板拖动父任务时同步更改子任务状态
                         </label>
                         <div style="display:flex;align-items:center;gap:8px;">
                             <span style="font-size:12px;color:var(--tm-secondary-text);">时长显示格式:</span>
@@ -15497,7 +16243,9 @@ async function __tmRefreshAfterWake(reason) {
                     { label: '亮色 起始', key: 'topbarGradientLightStart', value: d.topbarGradientLightStart || '#667eea' },
                     { label: '亮色 结束', key: 'topbarGradientLightEnd', value: d.topbarGradientLightEnd || '#764ba2' },
                     { label: '夜间 起始', key: 'topbarGradientDarkStart', value: d.topbarGradientDarkStart || '#3b49b7' },
-                    { label: '夜间 结束', key: 'topbarGradientDarkEnd', value: d.topbarGradientDarkEnd || '#5b2d7a' }
+                    { label: '夜间 结束', key: 'topbarGradientDarkEnd', value: d.topbarGradientDarkEnd || '#5b2d7a' },
+                    { label: '顶栏文字 亮色', key: 'topbarTextColorLight', value: d.topbarTextColorLight || '#ffffff' },
+                    { label: '顶栏文字 夜间', key: 'topbarTextColorDark', value: d.topbarTextColorDark || '#ffffff' }
                 ]
             },
             {
@@ -15609,6 +16357,8 @@ async function __tmRefreshAfterWake(reason) {
             topbarGradientLightEnd: '#764ba2',
             topbarGradientDarkStart: '#3b49b7',
             topbarGradientDarkEnd: '#5b2d7a',
+            topbarTextColorLight: '#ffffff',
+            topbarTextColorDark: '#ffffff',
             taskContentColorLight: '#333333',
             taskContentColorDark: '#e0e0e0',
             groupDocLabelColorLight: '#333333',
@@ -15631,6 +16381,7 @@ async function __tmRefreshAfterWake(reason) {
     window.tmUpdateAppearanceColor = async function(key, value) {
         const allowed = new Set([
             'topbarGradientLightStart', 'topbarGradientLightEnd', 'topbarGradientDarkStart', 'topbarGradientDarkEnd',
+            'topbarTextColorLight', 'topbarTextColorDark',
             'taskContentColorLight', 'taskContentColorDark',
             'groupDocLabelColorLight', 'groupDocLabelColorDark',
             'timeGroupBaseColorLight', 'timeGroupBaseColorDark',
@@ -15666,6 +16417,12 @@ async function __tmRefreshAfterWake(reason) {
         render();
     };
 
+    window.updateKanbanDragSyncSubtasks = async function(enabled) {
+        SettingsStore.data.kanbanDragSyncSubtasks = !!enabled;
+        await SettingsStore.save();
+        render();
+    };
+
     window.tmToggleGroupTaskBgByGroupColor = async function(enabled) {
         SettingsStore.data.enableGroupTaskBgByGroupColor = !!enabled;
         await SettingsStore.save();
@@ -15683,6 +16440,8 @@ async function __tmRefreshAfterWake(reason) {
         SettingsStore.data.topbarGradientLightEnd = '#764ba2';
         SettingsStore.data.topbarGradientDarkStart = '#3b49b7';
         SettingsStore.data.topbarGradientDarkEnd = '#5b2d7a';
+        SettingsStore.data.topbarTextColorLight = '#ffffff';
+        SettingsStore.data.topbarTextColorDark = '#ffffff';
         SettingsStore.data.taskContentColorLight = '#333333';
         SettingsStore.data.taskContentColorDark = '#e0e0e0';
         SettingsStore.data.groupDocLabelColorLight = '#333333';
@@ -16032,6 +16791,15 @@ async function __tmRefreshAfterWake(reason) {
         const currentId = SettingsStore.data.currentGroupId;
         let groups = SettingsStore.data.docGroups || [];
         groups = groups.filter(g => g.id !== currentId);
+        try {
+            const pinMap = (SettingsStore.data.docPinnedByGroup && typeof SettingsStore.data.docPinnedByGroup === 'object')
+                ? SettingsStore.data.docPinnedByGroup
+                : {};
+            if (Object.prototype.hasOwnProperty.call(pinMap, currentId)) {
+                delete pinMap[currentId];
+                SettingsStore.data.docPinnedByGroup = pinMap;
+            }
+        } catch (e) {}
         
         await SettingsStore.updateDocGroups(groups);
         await SettingsStore.updateCurrentGroupId('all');
@@ -16094,6 +16862,25 @@ async function __tmRefreshAfterWake(reason) {
             });
             if (groupsChanged) {
                 SettingsStore.data.docGroups = groups;
+                changed = true;
+            }
+        } catch (e) {}
+
+        try {
+            const pinMap = (SettingsStore.data.docPinnedByGroup && typeof SettingsStore.data.docPinnedByGroup === 'object')
+                ? SettingsStore.data.docPinnedByGroup
+                : {};
+            let pinChanged = false;
+            Object.keys(pinMap).forEach((gid) => {
+                const arr = Array.isArray(pinMap[gid]) ? pinMap[gid] : [];
+                const next = arr.map(x => String(x || '').trim()).filter(Boolean).filter(x => x !== id);
+                if (next.length !== arr.length) {
+                    pinMap[gid] = next;
+                    pinChanged = true;
+                }
+            });
+            if (pinChanged) {
+                SettingsStore.data.docPinnedByGroup = pinMap;
                 changed = true;
             }
         } catch (e) {}
@@ -16267,6 +17054,16 @@ async function __tmRefreshAfterWake(reason) {
 
     window.updateKanbanCompactMode = async function(enabled) {
         SettingsStore.data.kanbanCompactMode = !!enabled;
+        await SettingsStore.save();
+        showSettings();
+        if (state.modal && document.body.contains(state.modal)) {
+            render();
+        }
+    };
+
+    window.updateKanbanColumnWidth = async function(width) {
+        const n = Number(width);
+        SettingsStore.data.kanbanColumnWidth = Number.isFinite(n) ? Math.max(220, Math.min(520, Math.round(n))) : 320;
         await SettingsStore.save();
         showSettings();
         if (state.modal && document.body.contains(state.modal)) {
@@ -17206,9 +18003,11 @@ async function __tmRefreshAfterWake(reason) {
             console.error('[OpenManager] Render failed:', e);
         }
 
-        // 静默加载，不显示加载提示（从后台切回时不提示）
-        // 仅在首次手动打开时显示
-        if (!state.wasHidden) {
+        // 仅在主动打开时显示加载提示；页签挂载恢复/静默恢复不提示
+        const shouldShowLoadingHint = !state.wasHidden
+            && !(options && options.skipLoadingHint)
+            && !(options && options.skipEnsureTabOpened);
+        if (shouldShowLoadingHint) {
             hint('🔄 加载任务中...', 'info');
         }
         state.wasHidden = false;
@@ -17491,6 +18290,11 @@ async function __tmRefreshAfterWake(reason) {
                 clearTimeout(SettingsStore.saveTimer);
                 SettingsStore.saveTimer = null;
             }
+            try {
+                if (SettingsStore?.saveDirty && typeof SettingsStore.syncToLocal === 'function') {
+                    SettingsStore.syncToLocal();
+                }
+            } catch (e2) {}
             try { SettingsStore?.savePromiseResolve?.(); } catch (e2) {}
             try {
                 SettingsStore.savePromise = null;
@@ -17605,6 +18409,8 @@ async function __tmRefreshAfterWake(reason) {
                 'tm_topbar_gradient_light_end',
                 'tm_topbar_gradient_dark_start',
                 'tm_topbar_gradient_dark_end',
+                'tm_topbar_text_color_light',
+                'tm_topbar_text_color_dark',
                 'tm_task_content_color_light',
                 'tm_task_content_color_dark',
                 'tm_group_doc_label_color_light',
@@ -17732,6 +18538,7 @@ async function __tmRefreshAfterWake(reason) {
             const rowModel = Array.isArray(opts?.rowModel) ? opts.rowModel : [];
             const getTaskById = typeof opts?.getTaskById === 'function' ? opts.getTaskById : null;
             const onUpdateTaskDates = typeof opts?.onUpdateTaskDates === 'function' ? opts.onUpdateTaskDates : null;
+            const onUpdateTaskMeta = typeof opts?.onUpdateTaskMeta === 'function' ? opts.onUpdateTaskMeta : null;
             if (!headerEl || !bodyEl || !getTaskById) return;
     
             try { cleanupMap.get(bodyEl)?.(); } catch (e) {}
@@ -17798,9 +18605,23 @@ async function __tmRefreshAfterWake(reason) {
                 const eTs0 = parseDateOnlyToTs(task?.completionTime);
                 const aTs = sTs0 || eTs0;
                 const bTs = eTs0 || sTs0;
+                const milestoneRaw = task?.milestone;
+                const isMilestone = typeof milestoneRaw === 'boolean'
+                    ? milestoneRaw
+                    : ['1', 'true'].includes(String(milestoneRaw || '').trim().toLowerCase());
                 const rowBgStyle = (enableGroupBg && currentGroupBg) ? `background:${currentGroupBg};` : '';
                 if (!aTs && !bTs) {
                     rowsHtml.push(`<div class="tm-gantt-row" data-id="${String(r.id)}" style="width:${totalWidth}px;${rowBgStyle}"></div>`);
+                    continue;
+                }
+                if (isMilestone && eTs0) {
+                    const endIdx0 = clamp(getDayIndexByTs(startTs, eTs0), 0, dayCount - 1);
+                    const markerLeft = endIdx0 * dayWidth + (dayWidth * 0.5);
+                    rowsHtml.push(`
+                        <div class="tm-gantt-row" data-id="${String(r.id)}" style="width:${totalWidth}px;${rowBgStyle}">
+                            <div class="tm-gantt-milestone" style="left:${markerLeft}px;" title="${String(task?.content || '').trim()}\\n里程碑：${formatDateOnlyFromTs(eTs0)}">🚩</div>
+                        </div>
+                    `);
                     continue;
                 }
                 const startIdx = clamp(getDayIndexByTs(startTs, aTs), 0, dayCount - 1);
@@ -18061,13 +18882,19 @@ async function __tmRefreshAfterWake(reason) {
             };
 
             const onContextMenu = (e) => {
-                if (!onUpdateTaskDates) return;
+                if (!onUpdateTaskDates && !onUpdateTaskMeta) return;
                 const target = e.target;
                 if (!(target instanceof Element)) return;
                 const rowEl = target.closest('.tm-gantt-row');
                 const taskId = rowEl?.getAttribute?.('data-id');
                 if (!taskId) return;
                 if (rowEl.classList.contains('tm-gantt-row--group')) return;
+                const task = getTaskById(taskId);
+                if (!task) return;
+                const milestoneRaw = task?.milestone;
+                const isMilestone = typeof milestoneRaw === 'boolean'
+                    ? milestoneRaw
+                    : ['1', 'true'].includes(String(milestoneRaw || '').trim().toLowerCase());
 
                 try { e.preventDefault(); } catch (e2) {}
                 try { e.stopPropagation(); } catch (e2) {}
@@ -18122,6 +18949,33 @@ async function __tmRefreshAfterWake(reason) {
                         try { hint(`❌ 清除失败: ${e2?.message || String(e2)}`, 'error'); } catch (e3) {}
                     }
                 }, true));
+
+                if (onUpdateTaskMeta && !isMilestone) {
+                    menu.appendChild(createItem('🚩 设为里程碑事件', async () => {
+                        try {
+                            const endDate = String(task?.completionTime || '').trim();
+                            if (!endDate) {
+                                hint('⚠️ 请先设置完成日期后再设为里程碑', 'error');
+                                return;
+                            }
+                            await onUpdateTaskMeta(String(taskId), { milestone: true });
+                            try { hint('✅ 已设为里程碑', 'success'); } catch (e3) {}
+                        } catch (e2) {
+                            try { hint(`❌ 设置失败: ${e2?.message || String(e2)}`, 'error'); } catch (e3) {}
+                        }
+                    }));
+                }
+
+                if (onUpdateTaskMeta && isMilestone) {
+                    menu.appendChild(createItem('↩ 还原普通时间轴', async () => {
+                        try {
+                            await onUpdateTaskMeta(String(taskId), { milestone: false });
+                            try { hint('✅ 已还原普通时间轴', 'success'); } catch (e3) {}
+                        } catch (e2) {
+                            try { hint(`❌ 还原失败: ${e2?.message || String(e2)}`, 'error'); } catch (e3) {}
+                        }
+                    }));
+                }
 
                 document.body.appendChild(menu);
 
