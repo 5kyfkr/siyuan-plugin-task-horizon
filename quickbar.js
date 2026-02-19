@@ -582,7 +582,6 @@
                         const newLength = options.length;
 
                         if (currentLength !== newLength) {
-                            console.log('🎯 状态选项数量变化:', currentLength, '->', newLength);
                         }
 
                         taskStatusOptions = options;

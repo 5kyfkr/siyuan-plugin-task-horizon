@@ -1,5 +1,5 @@
 // @name         思源笔记任务管理器
-// @version      1.3.7
+// @version      1.3.8
 // @description  任务管理器，支持自定义筛选规则分组和排序
 // @author       5KYFKR
 
@@ -50,6 +50,7 @@
             --tm-doc-count-color: #4285f4;
             --tm-rule-group-bg: #f8f9fa;
             --tm-rule-item-bg: #f8f9fa;
+            --tm-subgroup-bg: #f1f3f5;
             --tm-primary-color: #4285f4;
             --tm-success-color: #34a853;
             --tm-danger-color: #ea4335;
@@ -116,6 +117,7 @@
             --tm-doc-count-color: #6ba5ff;
             --tm-rule-group-bg: #252525;
             --tm-rule-item-bg: #2d2d2d;
+            --tm-subgroup-bg: #2b3037;
             --tm-primary-color: #6ba5ff;
             --tm-success-color: #4caf50;
             --tm-danger-color: #ef5350;
@@ -277,6 +279,10 @@
             height: var(--tm-row-height);
         }
 
+        .tm-group-row[data-group-kind="h2"] td {
+            background: var(--tm-subgroup-bg) !important;
+        }
+
         .tm-group-sticky {
             position: sticky;
             left: 0;
@@ -288,6 +294,10 @@
             height: var(--tm-row-height);
             background: var(--tm-header-bg);
             box-shadow: inset 0 -1px 0 var(--tm-table-border-color);
+        }
+
+        .tm-group-row[data-group-kind="h2"] .tm-group-sticky {
+            background: var(--tm-subgroup-bg);
         }
 
         .tm-badge {
@@ -770,6 +780,17 @@
         .tm-filter-rule-bar .tm-popup-menu .tm-btn-info:hover,
         .tm-filter-rule-bar #tmMobileMenu .tm-btn-info:hover {
             opacity: 0.9;
+        }
+
+        .tm-filter-rule-bar #tmMobileMenu .tm-rule-select {
+            background: var(--tm-input-bg);
+            color: var(--tm-text-color);
+            border: 1px solid var(--tm-input-border);
+        }
+
+        .tm-filter-rule-bar #tmMobileMenu .tm-rule-select option {
+            color: #111827;
+            background: #ffffff;
         }
 
         .tm-header-selectors {
@@ -2457,6 +2478,7 @@
             kanbanColumnWidth: 320,
             kanbanShowDoneColumn: false,
             kanbanDragSyncSubtasks: false,
+            docH2SubgroupEnabled: true,
             groupMode: 'doc',
             collapsedTaskIds: [],
             kanbanCollapsedTaskIds: [],
@@ -2668,6 +2690,7 @@
                                 if (typeof cloudData.kanbanColumnWidth === 'number') this.data.kanbanColumnWidth = cloudData.kanbanColumnWidth;
                                 if (typeof cloudData.kanbanShowDoneColumn === 'boolean') this.data.kanbanShowDoneColumn = cloudData.kanbanShowDoneColumn;
                                 if (typeof cloudData.kanbanDragSyncSubtasks === 'boolean') this.data.kanbanDragSyncSubtasks = cloudData.kanbanDragSyncSubtasks;
+                                if (typeof cloudData.docH2SubgroupEnabled === 'boolean') this.data.docH2SubgroupEnabled = cloudData.docH2SubgroupEnabled;
                                 if (typeof cloudData.groupMode === 'string') this.data.groupMode = cloudData.groupMode;
                                 if (Array.isArray(cloudData.collapsedTaskIds)) this.data.collapsedTaskIds = cloudData.collapsedTaskIds;
                                 if (Array.isArray(cloudData.kanbanCollapsedTaskIds)) this.data.kanbanCollapsedTaskIds = cloudData.kanbanCollapsedTaskIds;
@@ -2816,6 +2839,7 @@
             this.data.kanbanColumnWidth = Storage.get('tm_kanban_column_width', this.data.kanbanColumnWidth);
             this.data.kanbanShowDoneColumn = !!Storage.get('tm_kanban_show_done_column', this.data.kanbanShowDoneColumn);
             this.data.kanbanDragSyncSubtasks = !!Storage.get('tm_kanban_drag_sync_subtasks', this.data.kanbanDragSyncSubtasks);
+            this.data.docH2SubgroupEnabled = !!Storage.get('tm_doc_h2_subgroup_enabled', this.data.docH2SubgroupEnabled);
             this.data.groupMode = Storage.get('tm_group_mode', this.data.groupMode);
             this.data.collapsedTaskIds = Storage.get('tm_collapsed_task_ids', []) || [];
             this.data.kanbanCollapsedTaskIds = Storage.get('tm_kanban_collapsed_task_ids', []) || [];
@@ -2947,6 +2971,7 @@
             Storage.set('tm_kanban_column_width', Number(this.data.kanbanColumnWidth) || 320);
             Storage.set('tm_kanban_show_done_column', !!this.data.kanbanShowDoneColumn);
             Storage.set('tm_kanban_drag_sync_subtasks', !!this.data.kanbanDragSyncSubtasks);
+            Storage.set('tm_doc_h2_subgroup_enabled', !!this.data.docH2SubgroupEnabled);
             Storage.set('tm_group_mode', String(this.data.groupMode || '').trim() || 'none');
             Storage.set('tm_collapsed_task_ids', this.data.collapsedTaskIds);
             Storage.set('tm_kanban_collapsed_task_ids', this.data.kanbanCollapsedTaskIds || []);
@@ -3083,6 +3108,7 @@
             this.data.docColorSeed = (Number.isFinite(seed) && seed > 0) ? Math.floor(seed) : 1;
             const kw = Number(this.data.kanbanColumnWidth);
             this.data.kanbanColumnWidth = Number.isFinite(kw) ? Math.max(220, Math.min(520, Math.round(kw))) : 320;
+            this.data.docH2SubgroupEnabled = this.data.docH2SubgroupEnabled !== false;
             this.data.timelineForceSortByCompletionNearToday = !!this.data.timelineForceSortByCompletionNearToday;
         },
 
@@ -5067,17 +5093,30 @@ async function __tmRefreshAfterWake(reason) {
         if (!tbody) return false;
         const collapsedTaskIds = state.collapsedTaskIds instanceof Set ? state.collapsedTaskIds : new Set();
         const collapsedGroups = state.collapsedGroups instanceof Set ? state.collapsedGroups : new Set();
+        const getGroupLevel = (groupKey) => {
+            const k = String(groupKey || '').trim();
+            if (!k) return 0;
+            if (k.includes('__h2_')) return 1;
+            return 0;
+        };
 
         const leftRows = tbody.querySelectorAll('tr');
-        let groupCollapsed = false;
+        const groupStack = [];
         let collapsedAncestorDepth = null;
 
         leftRows.forEach((row) => {
             if (!(row instanceof Element)) return;
             if (row.matches('tr[data-group-key]')) {
                 const gk = String(row.getAttribute('data-group-key') || '').trim();
-                groupCollapsed = !!(gk && collapsedGroups.has(gk));
-                row.style.display = '';
+                const level = getGroupLevel(gk);
+                while (groupStack.length > 0 && groupStack[groupStack.length - 1].level >= level) {
+                    groupStack.pop();
+                }
+                const parentCollapsed = groupStack.some(it => !!it.collapsed);
+                const selfCollapsed = !!(gk && collapsedGroups.has(gk));
+                const effectiveCollapsed = parentCollapsed || selfCollapsed;
+                groupStack.push({ level, collapsed: effectiveCollapsed });
+                row.style.display = parentCollapsed ? 'none' : '';
                 collapsedAncestorDepth = null;
                 return;
             }
@@ -5085,6 +5124,7 @@ async function __tmRefreshAfterWake(reason) {
             const id = String(row.getAttribute('data-id') || '').trim();
             const d = Number(row.getAttribute('data-depth')) || 0;
             while (collapsedAncestorDepth !== null && d <= collapsedAncestorDepth) collapsedAncestorDepth = null;
+            const groupCollapsed = groupStack.some(it => !!it.collapsed);
             const hide = groupCollapsed || collapsedAncestorDepth !== null;
             row.style.display = hide ? 'none' : '';
             row.style.visibility = '';
@@ -5508,6 +5548,9 @@ async function __tmRefreshAfterWake(reason) {
                 const labelColor = String(row.labelColor || 'var(--tm-text-color)');
                 const durationSum = String(row.durationSum || '').trim();
                 return `<tr class="tm-group-row tm-timeline-row" data-group-key="${esc(row.key)}"><td colspan="3" onclick="tmToggleGroupCollapse('${row.key}', event)" style="cursor:pointer;font-weight:bold;color:var(--tm-text-color);"><div class="tm-group-sticky">${toggle}<span class="tm-group-label" style="color:${labelColor};">${esc(row.label || '')}</span><span class="tm-badge tm-badge--count">${Number(row.count) || 0}</span>${durationSum ? `<span class="tm-badge tm-badge--duration"><span class="tm-badge__icon">📊</span>${esc(durationSum)}</span>` : ''}</div></td></tr>`;
+            }
+            if (row.kind === 'h2') {
+                return `<tr class="tm-group-row tm-timeline-row" data-group-kind="h2" data-group-key="${esc(row.key)}"><td colspan="3" onclick="tmToggleGroupCollapse('${row.key}', event)" style="cursor:pointer;font-weight:bold;color:var(--tm-secondary-text);"><div class="tm-group-sticky" style="padding-left:2ch;">${toggle}<span class="tm-group-label">🧩 ${esc(row.label || '')}</span><span class="tm-badge tm-badge--count">${Number(row.count) || 0}</span></div></td></tr>`;
             }
             if (row.kind === 'quadrant') {
                 const durationSum = String(row.durationSum || '').trim();
@@ -8597,6 +8640,9 @@ async function __tmRefreshAfterWake(reason) {
                     const durationSum = String(row.durationSum || '').trim();
                     return `<tr class="tm-group-row tm-timeline-row" data-group-key="${esc(row.key)}"><td colspan="3" onclick="tmToggleGroupCollapse('${row.key}', event)" style="cursor:pointer;font-weight:bold;color:var(--tm-text-color);"><div class="tm-group-sticky">${toggle}<span class="tm-group-label" style="color:${labelColor};">${esc(row.label || '')}</span><span class="tm-badge tm-badge--count">${Number(row.count) || 0}</span>${durationSum ? `<span class="tm-badge tm-badge--duration"><span class="tm-badge__icon">📊</span>${esc(durationSum)}</span>` : ''}</div></td></tr>`;
                 }
+                if (row.kind === 'h2') {
+                    return `<tr class="tm-group-row tm-timeline-row" data-group-kind="h2" data-group-key="${esc(row.key)}"><td colspan="3" onclick="tmToggleGroupCollapse('${row.key}', event)" style="cursor:pointer;font-weight:bold;color:var(--tm-secondary-text);"><div class="tm-group-sticky" style="padding-left:2ch;">${toggle}<span class="tm-group-label">🧩 ${esc(row.label || '')}</span><span class="tm-badge tm-badge--count">${Number(row.count) || 0}</span></div></td></tr>`;
+                }
                 if (row.kind === 'quadrant') {
                     const durationSum = String(row.durationSum || '').trim();
                     const colorMap = { red: 'var(--tm-quadrant-red)', yellow: 'var(--tm-quadrant-yellow)', blue: 'var(--tm-quadrant-blue)', green: 'var(--tm-quadrant-green)' };
@@ -8658,6 +8704,7 @@ async function __tmRefreshAfterWake(reason) {
                     let labelColor = '';
                     if (r.kind === 'doc') labelColor = String(r.labelColor || 'var(--tm-group-doc-label-color)');
                     else if (r.kind === 'time') labelColor = String(r.labelColor || 'var(--tm-text-color)');
+                    else if (r.kind === 'h2') labelColor = 'var(--tm-secondary-text)';
                     else if (r.kind === 'quadrant') {
                         const colorMap = { red: 'var(--tm-quadrant-red)', yellow: 'var(--tm-quadrant-yellow)', blue: 'var(--tm-quadrant-blue)', green: 'var(--tm-quadrant-green)' };
                         labelColor = colorMap[String(r.color || '')] || 'var(--tm-text-color)';
@@ -12520,6 +12567,10 @@ async function __tmRefreshAfterWake(reason) {
         }
 
         if (state.groupByDocName) {
+            const enableDocH2Subgroup = SettingsStore.data.docH2SubgroupEnabled !== false;
+            const headingLevel = String(SettingsStore.data.taskHeadingLevel || 'h2').trim() || 'h2';
+            const headingLabelMap = { h1: '一级标题', h2: '二级标题', h3: '三级标题', h4: '四级标题', h5: '五级标题', h6: '六级标题' };
+            const noHeadingLabel = `无${headingLabelMap[headingLevel] || '标题'}`;
             const docsInOrder = __tmSortDocEntriesByPinned(
                 state.taskTree || [],
                 String(SettingsStore.data.currentGroupId || 'all').trim() || 'all'
@@ -12534,6 +12585,7 @@ async function __tmRefreshAfterWake(reason) {
                     return !filteredIdSet.has(t.parentTaskId);
                 });
                 const docNormal = docRootTasks.filter(t => !t.pinned);
+                docNormal.sort((a, b) => getTaskOrder(a.id) - getTaskOrder(b.id));
                 const docName = docEntry.name || '未知文档';
                 const groupKey = `doc_${docId}`;
                 const isCollapsed = state.collapsedGroups?.has(groupKey);
@@ -12548,7 +12600,33 @@ async function __tmRefreshAfterWake(reason) {
                     collapsed: !!isCollapsed,
                 });
                 if (!isCollapsed) {
-                    docNormal.forEach(task => walkTaskTree(task, 0));
+                    if (!enableDocH2Subgroup) {
+                        docNormal.forEach(task => walkTaskTree(task, 0));
+                        return;
+                    }
+                    const h2Groups = new Map();
+                    docNormal.forEach(task => {
+                        const raw = String(task?.h2 || '').trim();
+                        const label = raw || noHeadingLabel;
+                        if (!h2Groups.has(label)) h2Groups.set(label, []);
+                        h2Groups.get(label).push(task);
+                    });
+                    h2Groups.forEach((items, label) => {
+                        const h2Raw = String(label || '').trim() === noHeadingLabel ? '' : String(label || '').trim();
+                        const h2Key = `doc_${docId}__h2_${encodeURIComponent(h2Raw || '__none__')}`;
+                        const h2Collapsed = state.collapsedGroups?.has(h2Key);
+                        rows.push({
+                            type: 'group',
+                            kind: 'h2',
+                            key: h2Key,
+                            label: String(label),
+                            count: Array.isArray(items) ? items.length : 0,
+                            collapsed: !!h2Collapsed,
+                        });
+                        if (!h2Collapsed) {
+                            items.forEach(task => walkTaskTree(task, 0));
+                        }
+                    });
                 }
             });
             return rows;
@@ -12990,6 +13068,10 @@ async function __tmRefreshAfterWake(reason) {
             });
         } else if (state.groupByDocName) {
             // 按文档分组模式：不应用全局混排，按文档顺序显示，支持折叠
+            const enableDocH2Subgroup = SettingsStore.data.docH2SubgroupEnabled !== false;
+            const headingLevel = String(SettingsStore.data.taskHeadingLevel || 'h2').trim() || 'h2';
+            const headingLabelMap = { h1: '一级标题', h2: '二级标题', h3: '三级标题', h4: '四级标题', h5: '五级标题', h6: '六级标题' };
+            const noHeadingLabel = `无${headingLabelMap[headingLevel] || '标题'}`;
             const docsInOrder = __tmSortDocEntriesByPinned(
                 state.taskTree || [],
                 String(SettingsStore.data.currentGroupId || 'all').trim() || 'all'
@@ -13011,6 +13093,7 @@ async function __tmRefreshAfterWake(reason) {
 
                 // 分离置顶和非置顶
                 const docNormal = docRootTasks.filter(t => !t.pinned);
+                docNormal.sort((a, b) => getTaskOrder(a.id) - getTaskOrder(b.id));
 
                 // 渲染文档标题（支持折叠）
                 const docName = docEntry.name || '未知文档';
@@ -13024,9 +13107,32 @@ async function __tmRefreshAfterWake(reason) {
                 // 渲染该文档的任务（如果未折叠）
                 if (!isCollapsed) {
                     currentGroupBg = enableGroupBg ? __tmGroupBgFromLabelColor(labelColor, isDark) : '';
-                    docNormal.forEach(task => {
-                        allRows.push(...renderTaskTree(task, 0));
-                    });
+                    if (!enableDocH2Subgroup) {
+                        docNormal.forEach(task => {
+                            allRows.push(...renderTaskTree(task, 0));
+                        });
+                    } else {
+                        const h2Groups = new Map();
+                        docNormal.forEach(task => {
+                                const raw = String(task?.h2 || '').trim();
+                                const label = raw || noHeadingLabel;
+                                if (!h2Groups.has(label)) h2Groups.set(label, []);
+                                h2Groups.get(label).push(task);
+                            });
+
+                        h2Groups.forEach((items, label) => {
+                            const h2Raw = String(label || '').trim() === noHeadingLabel ? '' : String(label || '').trim();
+                            const h2Key = `doc_${docId}__h2_${encodeURIComponent(h2Raw || '__none__')}`;
+                            const h2Collapsed = state.collapsedGroups?.has(h2Key);
+                            const toggleH2 = `<span class="tm-group-toggle" onclick="tmToggleGroupCollapse('${h2Key}', event)" style="cursor:pointer;margin-right:8px;display:inline-block;width:12px;">${h2Collapsed ? '▸' : '▾'}</span>`;
+                            allRows.push(`<tr class="tm-group-row" data-group-kind="h2" data-group-key="${esc(h2Key)}"><td colspan="${colCount}" onclick="tmToggleGroupCollapse('${h2Key}', event)" style="cursor:pointer;background:var(--tm-header-bg);font-weight:bold;color:var(--tm-secondary-text);"><div class="tm-group-sticky" style="padding-left:2ch;">${toggleH2}<span class="tm-group-label">🧩 ${esc(label)}</span><span class="tm-badge tm-badge--count">${Array.isArray(items) ? items.length : 0}</span></div></td></tr>`);
+                            if (!h2Collapsed) {
+                                items.forEach(task => {
+                                    allRows.push(...renderTaskTree(task, 0));
+                                });
+                            }
+                        });
+                    }
                 }
             });
         } else if (state.groupByTime && normalRoots.length > 0) {
@@ -15960,6 +16066,10 @@ async function __tmRefreshAfterWake(reason) {
                             <input type="checkbox" ${SettingsStore.data.kanbanDragSyncSubtasks ? 'checked' : ''} onchange="updateKanbanDragSyncSubtasks(this.checked)">
                             看板拖动父任务时同步更改子任务状态
                         </label>
+                        <label style="display:flex;align-items:center;gap:8px;cursor:pointer;margin-bottom:10px;">
+                            <input type="checkbox" ${SettingsStore.data.docH2SubgroupEnabled !== false ? 'checked' : ''} onchange="updateDocH2SubgroupEnabled(this.checked)">
+                            文档分组下按二级标题子分组（时间轴/表格/日历侧边栏）
+                        </label>
                         <div style="display:flex;align-items:center;gap:8px;">
                             <span style="font-size:12px;color:var(--tm-secondary-text);">时长显示格式:</span>
                             <select onchange="updateDurationFormat(this.value)" style="padding: 4px 8px; border: 1px solid var(--tm-input-border); background: var(--tm-input-bg); color: var(--tm-text-color); border-radius: 4px;">
@@ -17076,6 +17186,15 @@ async function __tmRefreshAfterWake(reason) {
 
     window.updateKanbanShowDoneColumn = async function(enabled) {
         SettingsStore.data.kanbanShowDoneColumn = !!enabled;
+        await SettingsStore.save();
+        showSettings();
+        if (state.modal && document.body.contains(state.modal)) {
+            render();
+        }
+    };
+
+    window.updateDocH2SubgroupEnabled = async function(enabled) {
+        SettingsStore.data.docH2SubgroupEnabled = !!enabled;
         await SettingsStore.save();
         showSettings();
         if (state.modal && document.body.contains(state.modal)) {
@@ -18384,6 +18503,7 @@ async function __tmRefreshAfterWake(reason) {
                 'tm_group_by_docname',
                 'tm_group_by_time',
                 'tm_group_mode',
+                'tm_doc_h2_subgroup_enabled',
                 'tm_collapsed_task_ids',
                 'tm_collapsed_groups',
                 'tm_current_rule',
@@ -18586,6 +18706,7 @@ async function __tmRefreshAfterWake(reason) {
                     let labelColor = '';
                     if (r.kind === 'doc') labelColor = String(r.labelColor || 'var(--tm-group-doc-label-color)');
                     else if (r.kind === 'time') labelColor = String(r.labelColor || 'var(--tm-text-color)');
+                    else if (r.kind === 'h2') labelColor = 'var(--tm-secondary-text)';
                     else if (r.kind === 'quadrant') {
                         const colorMap = { red: 'var(--tm-quadrant-red)', yellow: 'var(--tm-quadrant-yellow)', blue: 'var(--tm-quadrant-blue)', green: 'var(--tm-quadrant-green)' };
                         labelColor = colorMap[String(r.color || '')] || 'var(--tm-text-color)';
