@@ -9,6 +9,7 @@
     if (globalThis.__taskHorizonQuickbarLoaded) return;
     globalThis.__taskHorizonQuickbarLoaded = true;
     let quickbarDisposed = false;
+    let __tmQBStatusRenderStorageHandler = null;
     // ==================== 悬浮条自定义属性配置 ====================
     // 对接任务管理器的自定义属性系统
     const isEnableCustomPropsBar = true;  // 是否启用自定义属性悬浮条
@@ -594,13 +595,14 @@
             }
         }
 
-        window.addEventListener('storage', (e) => {
+        __tmQBStatusRenderStorageHandler = (e) => {
             if (!e) return;
             if (e.key !== 'tm_custom_status_options') return;
             loadStatusOptions().then(() => {
                 try { renderFloatBar(); } catch (e) {}
             });
-        });
+        };
+        window.addEventListener('storage', __tmQBStatusRenderStorageHandler);
 
         // 获取块的自定义属性
         async function getBlockCustomAttrs(blockId) {
@@ -1238,6 +1240,8 @@
         globalThis.__taskHorizonQuickbarCleanup = () => {
             quickbarDisposed = true;
             try { stopQuickbar(); } catch (e) {}
+            try { if (__tmQBStatusRenderStorageHandler) window.removeEventListener('storage', __tmQBStatusRenderStorageHandler); } catch (e) {}
+            __tmQBStatusRenderStorageHandler = null;
             try { document.removeEventListener('contextmenu', __tmQBOnContextmenuCapture, true); } catch (e) {}
             try { document.removeEventListener('pointerdown', __tmQBOnPointerdownCapture, true); } catch (e) {}
             try { blockMenuObserver?.disconnect?.(); } catch (e) {}

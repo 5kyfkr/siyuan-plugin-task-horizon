@@ -93,6 +93,7 @@
             --tm-quadrant-yellow: #f9ab00;
             --tm-quadrant-blue: #1a73e8;
             --tm-quadrant-green: #34a853;
+            --tm-whiteboard-grid-color: rgba(0,0,0,0.06);
         }
 
         [data-theme-mode="dark"] {
@@ -137,6 +138,7 @@
             --tm-quadrant-yellow: #f9ab00;
             --tm-quadrant-blue: #6ba5ff;
             --tm-quadrant-green: #4caf50;
+            --tm-whiteboard-grid-color: rgba(255,255,255,0.10);
         }
 
         .tm-color-picker-backdrop {
@@ -788,6 +790,40 @@
             border: 1px solid var(--tm-input-border);
         }
 
+        .tm-filter-rule-bar #tmMobileMenu .tm-view-segmented {
+            background: var(--tm-input-bg);
+            border: 1px solid var(--tm-input-border);
+        }
+
+        .tm-filter-rule-bar #tmMobileMenu .tm-view-seg-item {
+            color: var(--tm-text-color);
+        }
+
+        .tm-filter-rule-bar #tmMobileMenu .tm-view-seg-item + .tm-view-seg-item {
+            border-left-color: var(--tm-input-border);
+        }
+
+        .tm-filter-rule-bar #tmMobileMenu .tm-view-seg-item:hover {
+            background: var(--tm-hover-bg);
+        }
+
+        .tm-filter-rule-bar #tmMobileMenu .tm-view-seg-item--active {
+            background: var(--tm-primary-color);
+            color: #ffffff;
+        }
+
+        .tm-filter-rule-bar #tmMobileMenu .tm-view-seg-item--active:hover {
+            opacity: 0.92;
+        }
+
+        .tm-filter-rule-bar #tmMobileMenu .tm-mobile-only-item {
+            min-width: 0;
+        }
+
+        .tm-filter-rule-bar #tmMobileMenu .tm-mobile-only-item .tm-btn {
+            min-width: 0;
+        }
+
         .tm-filter-rule-bar #tmMobileMenu .tm-rule-select option {
             color: #111827;
             background: #ffffff;
@@ -1166,6 +1202,930 @@
             height: 100%;
             min-height: 0;
             overscroll-behavior: contain;
+        }
+
+        .tm-body.tm-body--whiteboard {
+            overflow: hidden;
+            overflow-x: hidden;
+            overflow-y: hidden;
+            padding: 0;
+            max-height: none;
+            min-height: 0;
+            background: var(--tm-bg-color);
+        }
+
+        .tm-whiteboard-viewport {
+            position: relative;
+            width: 100%;
+            height: 100%;
+            min-height: 0;
+            overflow: hidden;
+            cursor: grab;
+            background:
+                linear-gradient(0deg, transparent 31px, var(--tm-whiteboard-grid-color) 32px),
+                linear-gradient(90deg, transparent 31px, var(--tm-whiteboard-grid-color) 32px),
+                var(--tm-bg-color);
+            background-size: 32px 32px, 32px 32px, auto;
+            background-position: 0 0, 0 0, 0 0;
+        }
+
+        .tm-whiteboard-viewport.tm-whiteboard-viewport--panning {
+            cursor: grabbing;
+        }
+
+        .tm-whiteboard-viewport.tm-whiteboard-viewport--tool-pan .tm-whiteboard-card {
+            cursor: grab;
+        }
+
+        .tm-whiteboard-viewport.tm-whiteboard-viewport--tool-pan {
+            touch-action: none;
+        }
+
+        .tm-whiteboard-viewport.tm-whiteboard-viewport--tool-pan.tm-whiteboard-viewport--panning,
+        .tm-whiteboard-viewport.tm-whiteboard-viewport--tool-pan.tm-whiteboard-viewport--panning .tm-whiteboard-card {
+            cursor: grabbing;
+        }
+
+        .tm-whiteboard-world {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 50000px;
+            min-height: 30000px;
+            transform-origin: 0 0;
+            will-change: transform;
+            pointer-events: none;
+        }
+
+        .tm-whiteboard-world > * {
+            pointer-events: auto;
+        }
+
+        .tm-whiteboard {
+            position: relative;
+            display: flex;
+            flex-direction: column;
+            gap: 12px;
+            min-width: 1600px;
+            min-height: 1200px;
+            padding: 20px;
+            box-sizing: border-box;
+        }
+
+        .tm-whiteboard-layout {
+            display: flex;
+            width: 100%;
+            height: 100%;
+            min-height: 0;
+        }
+
+        .tm-whiteboard-sidebar {
+            width: var(--tm-wb-sidebar-width, 300px);
+            min-width: var(--tm-wb-sidebar-width, 300px);
+            max-width: var(--tm-wb-sidebar-width, 300px);
+            border-right: 1px solid var(--tm-border-color);
+            background: var(--tm-section-bg);
+            overflow: auto;
+            padding: 10px;
+            box-sizing: border-box;
+            z-index: 8;
+            transition: width 220ms ease, min-width 220ms ease, max-width 220ms ease, padding 220ms ease, opacity 180ms ease, border-color 220ms ease;
+        }
+
+        .tm-whiteboard-layout.tm-whiteboard-layout--sidebar-collapsed .tm-whiteboard-sidebar {
+            width: 0;
+            min-width: 0;
+            max-width: 0;
+            padding: 0;
+            opacity: 0;
+            border-right-color: transparent;
+            overflow: hidden;
+            pointer-events: none;
+        }
+
+        .tm-whiteboard-sidebar-resizer {
+            width: 8px;
+            min-width: 8px;
+            cursor: col-resize;
+            background: transparent;
+            border-right: 1px solid var(--tm-border-color);
+            transition: background 140ms ease, width 220ms ease, min-width 220ms ease, opacity 180ms ease, border-color 220ms ease;
+            z-index: 9;
+        }
+
+        .tm-whiteboard-sidebar-resizer:hover {
+            background: rgba(127, 127, 127, 0.18);
+        }
+
+        .tm-whiteboard-layout.tm-whiteboard-layout--sidebar-collapsed .tm-whiteboard-sidebar-resizer {
+            width: 0;
+            min-width: 0;
+            opacity: 0;
+            border-right-color: transparent;
+            pointer-events: none;
+        }
+
+        .tm-whiteboard-sidebar-title {
+            font-size: 13px;
+            font-weight: 700;
+            color: var(--tm-text-color);
+            margin-bottom: 8px;
+        }
+
+        .tm-whiteboard-sidebar-title-row {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 8px;
+            margin-bottom: 8px;
+        }
+
+        .tm-whiteboard-sidebar-switch {
+            display: inline-flex;
+            align-items: center;
+            gap: 4px;
+            font-size: 12px;
+            color: var(--tm-secondary-text);
+            user-select: none;
+        }
+
+        .tm-whiteboard-pool-doc {
+            margin-bottom: 10px;
+            border: 1px solid var(--tm-border-color);
+            border-radius: 10px;
+            background: var(--tm-bg-color);
+            overflow: hidden;
+        }
+
+        .tm-whiteboard-pool-doc-head {
+            padding: 6px 8px;
+            border-bottom: 1px solid var(--tm-border-color);
+            background: var(--tm-table-header-bg);
+            font-size: 12px;
+            font-weight: 700;
+        }
+
+        .tm-whiteboard-pool-list {
+            padding: 6px;
+            display: flex;
+            flex-direction: column;
+            gap: 6px;
+        }
+
+        .tm-whiteboard-pool-node {
+            display: block;
+        }
+
+        .tm-whiteboard-pool-h2 {
+            font-size: 12px;
+            font-weight: 700;
+            color: var(--tm-secondary-text);
+            padding: 2px 4px;
+            cursor: grab;
+            user-select: none;
+        }
+
+        .tm-whiteboard-pool-item {
+            border: 1px solid var(--tm-border-color);
+            border-radius: 8px;
+            background: var(--tm-bg-color);
+            padding: 7px 8px;
+            font-size: 12px;
+            line-height: 1.3;
+            cursor: grab;
+            user-select: none;
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            box-shadow: 0 1px 0 rgba(0,0,0,0.03);
+        }
+
+        .tm-whiteboard-pool-item.tm-whiteboard-pool-item--done {
+            color: var(--tm-task-done-color);
+            text-decoration: line-through;
+        }
+
+        .tm-whiteboard-pool-item.tm-whiteboard-pool-item--done .tm-whiteboard-pool-item-title {
+            color: var(--tm-task-done-color);
+        }
+
+        .tm-whiteboard-pool-item.tm-whiteboard-pool-item--parent .tm-whiteboard-pool-item-title {
+            font-weight: 700;
+        }
+        .tm-whiteboard-pool-item.tm-whiteboard-pool-item--top .tm-whiteboard-pool-item-title {
+            font-weight: 700;
+        }
+
+        .tm-whiteboard-pool-item.tm-whiteboard-pool-item--locked {
+            color: var(--tm-task-done-color);
+            cursor: not-allowed;
+            background: color-mix(in srgb, var(--tm-section-bg) 86%, var(--tm-bg-color));
+        }
+
+        .tm-whiteboard-pool-item.tm-whiteboard-pool-item--locked .tm-whiteboard-pool-item-title {
+            color: var(--tm-task-done-color);
+        }
+        .tm-whiteboard-pool-item.tm-whiteboard-pool-item--selected {
+            border-color: #2f6fed;
+            box-shadow: 0 0 0 2px rgba(47,111,237,0.18);
+            background: color-mix(in srgb, var(--tm-bg-color) 86%, #2f6fed 14%);
+        }
+
+        .tm-whiteboard-pool-toggle {
+            flex: 0 0 auto;
+            width: 14px;
+            height: 14px;
+            line-height: 12px;
+            font-size: 12px;
+            text-align: center;
+            border: 1px solid var(--tm-border-color);
+            border-radius: 4px;
+            background: var(--tm-bg-color);
+            color: var(--tm-secondary-text);
+            cursor: pointer;
+            padding: 0;
+        }
+
+        .tm-whiteboard-pool-toggle:hover {
+            color: var(--tm-text-color);
+            border-color: var(--tm-secondary-text);
+        }
+
+        .tm-whiteboard-pool-item-prefix {
+            color: var(--tm-secondary-text);
+            flex: 0 0 auto;
+        }
+
+        .tm-whiteboard-pool-item-title {
+            min-width: 0;
+            flex: 1 1 auto;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+        }
+
+        .tm-whiteboard-pool-item:active {
+            cursor: grabbing;
+        }
+
+        .tm-whiteboard-main {
+            flex: 1 1 auto;
+            min-width: 0;
+            min-height: 0;
+            position: relative;
+        }
+
+        .tm-whiteboard-sidebar-toggle {
+            position: absolute;
+            top: 10px;
+            left: 10px;
+            z-index: 12;
+            padding: 4px 10px;
+            border-radius: 8px;
+        }
+
+        .tm-whiteboard-board {
+            position: relative;
+            min-width: 2800px;
+            min-height: 1800px;
+        }
+
+        .tm-whiteboard-doc {
+            border: 1px solid var(--tm-border-color);
+            border-radius: 12px;
+            background: var(--tm-section-bg);
+            overflow: visible;
+            min-width: 560px;
+            display: inline-block;
+            width: fit-content;
+        }
+
+        .tm-whiteboard-doc-frame {
+            position: absolute;
+            border: 1px solid var(--tm-border-color);
+            border-radius: 12px;
+            background: color-mix(in srgb, var(--tm-section-bg) 92%, transparent);
+            z-index: 1;
+            box-sizing: border-box;
+            overflow: visible;
+        }
+
+        .tm-whiteboard-doc-frame-head {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 8px;
+            padding: 8px 10px;
+            border-bottom: 1px solid var(--tm-border-color);
+            background: var(--tm-table-header-bg);
+            font-weight: 700;
+            font-size: 13px;
+        }
+
+        .tm-whiteboard-doc-frame-body {
+            position: relative;
+            width: 100%;
+            height: calc(100% - 38px);
+        }
+
+        .tm-whiteboard-doc-resize {
+            position: absolute;
+            z-index: 6;
+            background: transparent;
+        }
+
+        .tm-whiteboard-doc-resize--right {
+            top: 0;
+            right: -4px;
+            width: 8px;
+            height: 100%;
+            cursor: ew-resize;
+        }
+
+        .tm-whiteboard-doc-resize--left {
+            top: 0;
+            left: -4px;
+            width: 8px;
+            height: 100%;
+            cursor: ew-resize;
+        }
+
+        .tm-whiteboard-doc-resize--bottom {
+            left: 0;
+            bottom: -4px;
+            width: 100%;
+            height: 8px;
+            cursor: ns-resize;
+        }
+
+        .tm-whiteboard-doc-resize--top {
+            left: 0;
+            top: -4px;
+            width: 100%;
+            height: 8px;
+            cursor: ns-resize;
+        }
+
+        .tm-whiteboard-doc-resize--corner {
+            right: -4px;
+            bottom: -4px;
+            width: 14px;
+            height: 14px;
+            border-radius: 4px;
+            border: 1px solid var(--tm-border-color);
+            background: var(--tm-bg-color);
+            cursor: nwse-resize;
+        }
+
+        .tm-whiteboard-doc-resize--tl {
+            left: -4px;
+            top: -4px;
+            width: 14px;
+            height: 14px;
+            border-radius: 4px;
+            border: 1px solid var(--tm-border-color);
+            background: var(--tm-bg-color);
+            cursor: nwse-resize;
+        }
+
+        .tm-whiteboard-doc-resize--tr {
+            right: -4px;
+            top: -4px;
+            width: 14px;
+            height: 14px;
+            border-radius: 4px;
+            border: 1px solid var(--tm-border-color);
+            background: var(--tm-bg-color);
+            cursor: nesw-resize;
+        }
+
+        .tm-whiteboard-doc-resize--bl {
+            left: -4px;
+            bottom: -4px;
+            width: 14px;
+            height: 14px;
+            border-radius: 4px;
+            border: 1px solid var(--tm-border-color);
+            background: var(--tm-bg-color);
+            cursor: nesw-resize;
+        }
+
+        .tm-whiteboard-doc-head {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 8px;
+            padding: 10px 12px;
+            border-bottom: 1px solid var(--tm-border-color);
+            background: var(--tm-table-header-bg);
+            font-weight: 700;
+        }
+
+        .tm-whiteboard-doc-body {
+            position: relative;
+            padding: 0;
+            min-height: 220px;
+            min-width: 520px;
+            overflow: visible;
+            background: transparent;
+        }
+
+        .tm-whiteboard-edges {
+            position: absolute;
+            top: 0;
+            left: 0;
+            pointer-events: none;
+            z-index: 2;
+            overflow: visible;
+        }
+
+        .tm-whiteboard-edge {
+            fill: none;
+            stroke: #8aa0c6;
+            stroke-width: 1.8;
+            opacity: 0.9;
+            pointer-events: none;
+        }
+
+        .tm-whiteboard-edge.tm-whiteboard-edge--auto {
+            stroke-dasharray: 4 3;
+            opacity: 0.65;
+        }
+
+        .tm-whiteboard-edge.tm-whiteboard-edge--manual {
+            stroke: #2f6fed;
+            pointer-events: stroke;
+            cursor: pointer;
+        }
+
+        .tm-whiteboard-edge.tm-whiteboard-edge--selected {
+            stroke-width: 2.6;
+            opacity: 1;
+        }
+
+        .tm-whiteboard-edge.tm-whiteboard-multi-selected {
+            stroke-width: 2.8;
+            opacity: 1;
+            filter: drop-shadow(0 0 1px rgba(47,111,237,.45));
+        }
+
+        .tm-whiteboard-edge.tm-whiteboard-edge--preview {
+            stroke: #2f6fed;
+            stroke-dasharray: 6 4;
+            opacity: 0.9;
+        }
+
+        .tm-whiteboard-h2-section {
+            position: relative;
+            z-index: 3;
+            border: 1px solid var(--tm-border-color);
+            border-radius: 10px;
+            background: var(--tm-bg-color);
+            padding: 8px;
+            margin-bottom: 10px;
+        }
+
+        .tm-whiteboard-h2-guides {
+            position: absolute;
+            inset: 0;
+            z-index: 1;
+            pointer-events: none;
+        }
+
+        .tm-whiteboard-h2-guide {
+            position: absolute;
+            left: 20px;
+            right: 20px;
+            border: 1px dashed var(--tm-border-color);
+            border-radius: 12px;
+            background: rgba(0,0,0,0.015);
+        }
+
+        .tm-whiteboard-h2-guide-title {
+            position: absolute;
+            left: 12px;
+            top: -10px;
+            padding: 0 6px;
+            font-size: 12px;
+            color: var(--tm-secondary-text);
+            background: var(--tm-bg-color);
+            border: 1px solid var(--tm-border-color);
+            border-radius: 8px;
+        }
+
+        .tm-whiteboard-h2-head {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            font-size: 12px;
+            color: var(--tm-secondary-text);
+            margin-bottom: 8px;
+        }
+
+        .tm-whiteboard-h2-lane {
+            min-height: 74px;
+            border-radius: 8px;
+            border: 1px dashed var(--tm-border-color);
+            padding: 8px;
+        }
+
+        .tm-whiteboard-cards {
+            display: flex;
+            flex-wrap: wrap;
+            align-items: flex-start;
+            gap: 8px;
+        }
+
+        .tm-whiteboard-card {
+            position: absolute;
+            width: 300px;
+            min-height: 62px;
+            background: var(--tm-bg-color);
+            border: 1px solid var(--tm-border-color);
+            border-radius: 10px;
+            box-shadow: 0 1px 0 rgba(0,0,0,0.03);
+            padding: 8px;
+            z-index: 3;
+            cursor: move;
+            user-select: none;
+            box-sizing: border-box;
+        }
+
+        .tm-whiteboard-card.tm-whiteboard-card--selected {
+            border-color: #2f6fed;
+            box-shadow: 0 0 0 2px rgba(47,111,237,0.18);
+        }
+
+        .tm-whiteboard-subcard.tm-whiteboard-card--selected {
+            border-color: #2f6fed;
+            box-shadow: 0 0 0 2px rgba(47,111,237,0.18);
+        }
+
+        .tm-whiteboard-card.tm-whiteboard-multi-selected,
+        .tm-whiteboard-subcard.tm-whiteboard-multi-selected,
+        .tm-whiteboard-node.tm-whiteboard-multi-selected,
+        .tm-whiteboard-note.tm-whiteboard-multi-selected {
+            border-color: #2f6fed !important;
+            box-shadow: 0 0 0 2px rgba(47,111,237,0.26) !important;
+            outline: 1px solid rgba(47,111,237,0.55);
+            outline-offset: 0;
+        }
+
+        .tm-whiteboard-card-tools {
+            position: absolute;
+            left: 0;
+            top: -34px;
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            padding: 4px 6px;
+            border: 1px solid var(--tm-border-color);
+            border-radius: 8px;
+            background: color-mix(in srgb, var(--tm-bg-color) 92%, transparent);
+            box-shadow: 0 4px 10px rgba(0,0,0,0.12);
+            z-index: 8;
+        }
+
+        .tm-whiteboard-card.tm-whiteboard-card--sub {
+            background: var(--tm-section-bg);
+        }
+
+        .tm-whiteboard-node--root {
+            position: absolute;
+            z-index: 5;
+        }
+
+        .tm-whiteboard-node--root.tm-whiteboard-card--selected {
+            z-index: 8;
+        }
+
+        .tm-whiteboard-node--root.tm-whiteboard-node--parent {
+            z-index: 9;
+        }
+
+        .tm-whiteboard-node--root.tm-whiteboard-node--parent.tm-whiteboard-card--selected {
+            z-index: 10;
+        }
+
+        .tm-whiteboard-card.tm-whiteboard-node--root:not(.tm-whiteboard-card--selected) {
+            border-color: color-mix(in srgb, var(--tm-border-color) 82%, var(--tm-text-color) 18%);
+            box-shadow: 0 4px 12px rgba(0,0,0,0.08), 0 1px 0 rgba(0,0,0,0.03);
+        }
+
+        .tm-whiteboard-node.tm-whiteboard-card--selected {
+            border-color: #2f6fed !important;
+            box-shadow: 0 0 0 2px rgba(47,111,237,0.18) !important;
+        }
+
+        .tm-whiteboard-node--sub {
+            position: relative;
+        }
+
+        .tm-whiteboard-subcard {
+            position: relative;
+            border: 1px solid var(--tm-border-color);
+            border-radius: 9px;
+            background: var(--tm-section-bg);
+            padding: 8px;
+            box-sizing: border-box;
+            cursor: move;
+        }
+
+        .tm-whiteboard-card-head {
+            display: flex;
+            align-items: flex-start;
+            gap: 6px;
+            margin-bottom: 4px;
+            position: relative;
+            padding-left: 0;
+            padding-right: 0;
+        }
+
+        .tm-whiteboard-card-title {
+            flex: 1 1 auto;
+            min-width: 0;
+            font-size: 13px;
+            line-height: 1.25;
+            word-break: break-word;
+        }
+
+        .tm-whiteboard-node--parent .tm-whiteboard-card-title {
+            font-weight: 700;
+        }
+        .tm-whiteboard-node--root .tm-whiteboard-card-title {
+            font-weight: 700;
+        }
+
+        .tm-whiteboard-card-title .tm-task-content-clickable {
+            cursor: pointer;
+        }
+
+        .tm-whiteboard-subtasks {
+            margin-top: 6px;
+            padding-left: 10px;
+            border-left: 2px solid var(--tm-border-color);
+            display: flex;
+            flex-direction: column;
+            gap: 6px;
+        }
+
+        .tm-whiteboard-note {
+            border: 1px solid var(--tm-border-color);
+            border-radius: 8px;
+            background: var(--tm-header-bg);
+            color: var(--tm-text-color);
+            font-size: 12px;
+            padding: 6px 8px;
+            max-width: none;
+            margin-bottom: 8px;
+            white-space: pre;
+            word-break: normal;
+            cursor: move;
+            user-select: none;
+            box-sizing: border-box;
+        }
+
+        .tm-whiteboard-note.tm-whiteboard-note--selected {
+            border-color: #2f6fed;
+            box-shadow: 0 0 0 2px rgba(47,111,237,0.18);
+        }
+
+        .tm-whiteboard-note-tools {
+            position: absolute;
+            left: 0;
+            top: 0;
+            transform: translateY(calc(-100% - 6px));
+            display: inline-flex;
+            align-items: center;
+            flex-wrap: nowrap;
+            white-space: nowrap;
+            gap: 6px;
+            padding: 4px 6px;
+            border: 1px solid var(--tm-border-color);
+            border-radius: 8px;
+            background: color-mix(in srgb, var(--tm-bg-color) 92%, transparent);
+            box-shadow: 0 4px 10px rgba(0,0,0,0.12);
+            z-index: 8;
+        }
+        .tm-whiteboard-note-tools .tm-btn {
+            white-space: nowrap;
+            flex: 0 0 auto;
+            min-width: 28px;
+            line-height: 1.1;
+        }
+        .tm-whiteboard-note-resize {
+            position: absolute;
+            right: -6px;
+            bottom: -6px;
+            width: 12px;
+            height: 12px;
+            border-radius: 3px;
+            border: 1px solid #2f6fed;
+            background: color-mix(in srgb, #2f6fed 72%, #ffffff);
+            cursor: nwse-resize;
+            z-index: 9;
+            box-shadow: 0 1px 2px rgba(0,0,0,0.18);
+        }
+        .tm-whiteboard-note-width-resize {
+            position: absolute;
+            right: -6px;
+            top: 50%;
+            transform: translateY(-50%);
+            width: 10px;
+            height: 18px;
+            border-radius: 3px;
+            border: 1px solid #2f6fed;
+            background: color-mix(in srgb, #2f6fed 60%, #ffffff);
+            cursor: ew-resize;
+            z-index: 9;
+            box-shadow: 0 1px 2px rgba(0,0,0,0.18);
+        }
+
+        .tm-whiteboard-note-editor {
+            position: absolute;
+            min-width: 160px;
+            max-width: 360px;
+            min-height: 72px;
+            padding: 6px 8px;
+            border: 1px solid var(--tm-primary-color);
+            border-radius: 8px;
+            background: var(--tm-bg-color);
+            color: var(--tm-text-color);
+            font-size: 12px;
+            line-height: 1.35;
+            resize: both;
+            z-index: 9;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.14);
+            outline: none;
+        }
+
+        .tm-whiteboard-link-tools {
+            position: absolute;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            gap: 6px;
+            padding: 4px 6px;
+            border: 1px solid var(--tm-border-color);
+            border-radius: 8px;
+            background: color-mix(in srgb, var(--tm-bg-color) 92%, transparent);
+            box-shadow: 0 4px 10px rgba(0,0,0,0.12);
+            width: auto;
+            height: auto;
+            box-sizing: border-box;
+            z-index: 12;
+            pointer-events: auto;
+        }
+
+        .tm-whiteboard-marquee {
+            position: absolute;
+            border: 1px dashed #2f6fed;
+            background: rgba(47,111,237,0.12);
+            pointer-events: none;
+            z-index: 11;
+        }
+
+        .tm-whiteboard-multi-tools {
+            position: absolute;
+            transform: translate(-50%, -100%);
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            padding: 4px 6px;
+            border: 1px solid var(--tm-border-color);
+            border-radius: 8px;
+            background: color-mix(in srgb, var(--tm-bg-color) 92%, transparent);
+            box-shadow: 0 4px 10px rgba(0,0,0,0.12);
+            z-index: 12;
+        }
+
+        .tm-whiteboard-toolbar {
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            flex-wrap: wrap;
+        }
+
+        .tm-task-link-dot {
+            width: 10px;
+            height: 10px;
+            border-radius: 50%;
+            border: 1px solid var(--tm-border-color);
+            background: var(--tm-bg-color);
+            position: absolute;
+            top: 50%;
+            transform: translate(-50%, -50%);
+            display: inline-flex;
+            cursor: crosshair;
+            user-select: none;
+            z-index: 5;
+            opacity: 0;
+            pointer-events: none;
+            transition: opacity .16s ease;
+        }
+
+        .tm-whiteboard-node > .tm-task-link-dot {
+            top: 50%;
+        }
+
+        .tm-whiteboard-node:hover > .tm-task-link-dot,
+        .tm-whiteboard-node.tm-whiteboard-node--has-links > .tm-task-link-dot,
+        .tm-whiteboard-node.tm-whiteboard-node--link-hover > .tm-task-link-dot,
+        .tm-whiteboard-node > .tm-task-link-dot.tm-task-link-dot--active {
+            opacity: 1;
+            pointer-events: auto;
+        }
+
+        .tm-whiteboard-node > .tm-task-link-dot--in {
+            left: -1px;
+        }
+
+        .tm-whiteboard-node > .tm-task-link-dot--out {
+            left: calc(100% + 1px);
+        }
+
+        .tm-whiteboard-collapse-proxy-dot {
+            top: auto !important;
+            left: 50% !important;
+            bottom: -6px;
+            transform: translateX(-50%);
+            border-color: #2f6fed;
+            background: color-mix(in srgb, var(--tm-bg-color) 86%, #2f6fed 14%);
+            z-index: 6;
+        }
+
+        .tm-task-link-dot--timeline {
+            width: 8px;
+            height: 8px;
+            top: 50%;
+            z-index: 6;
+            opacity: 0;
+            pointer-events: none;
+            transition: opacity .16s ease;
+            border-color: #2f6fed;
+            background: var(--tm-bg-color) !important;
+        }
+
+        .tm-task-link-dot--in {
+            left: 0;
+        }
+
+        .tm-task-link-dot--out {
+            left: 100%;
+        }
+
+        .tm-task-link-dot.tm-task-link-dot--out {
+            background: #2f6fed;
+            border-color: #2f6fed;
+        }
+
+        .tm-task-link-dot.tm-task-link-dot--in {
+            background: #ffffff;
+            border-color: #2f6fed;
+        }
+
+        .tm-task-link-dot.tm-task-link-dot--active {
+            box-shadow: 0 0 0 2px rgba(47,111,237,0.24);
+        }
+
+        .tm-gantt-row:hover .tm-task-link-dot--timeline,
+        .tm-gantt-row.tm-gantt-row--dot-open .tm-task-link-dot--timeline,
+        .tm-gantt-row.tm-gantt-row--link-hover .tm-task-link-dot--timeline,
+        .tm-task-link-dot--timeline.tm-task-link-dot--active {
+            opacity: 1;
+            pointer-events: auto;
+        }
+
+        .tm-link-badge {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            min-width: 18px;
+            height: 16px;
+            padding: 0 4px;
+            border-radius: 8px;
+            background: var(--tm-doc-count-bg);
+            color: var(--tm-secondary-text);
+            font-size: 11px;
+            line-height: 1;
+        }
+
+        .tm-whiteboard-bottom-toolbar {
+            position: absolute;
+            left: 50%;
+            bottom: 12px;
+            transform: translateX(-50%);
+            z-index: 9;
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+            flex-wrap: wrap;
+            padding: 8px 10px;
+            border: 1px solid var(--tm-border-color);
+            border-radius: 10px;
+            background: color-mix(in srgb, var(--tm-bg-color) 90%, transparent);
+            box-shadow: 0 6px 16px rgba(0, 0, 0, 0.12);
+            backdrop-filter: blur(4px);
         }
 
         .tm-kanban {
@@ -1733,6 +2693,30 @@
 
         .tm-gantt-body-inner {
             position: relative;
+        }
+
+        .tm-gantt-deps {
+            position: absolute;
+            inset: 0;
+            z-index: 3;
+            pointer-events: none;
+        }
+
+        .tm-gantt-dep {
+            fill: none;
+            stroke: #6d88b6;
+            stroke-width: 1.4;
+            opacity: 0.86;
+            vector-effect: non-scaling-stroke;
+        }
+
+        .tm-gantt-dep.tm-gantt-dep--auto {
+            stroke-dasharray: 4 3;
+            opacity: 0.58;
+        }
+
+        .tm-gantt-dep.tm-gantt-dep--manual {
+            stroke: #2f6fed;
         }
 
         .tm-gantt-row {
@@ -2335,6 +3319,8 @@
     const PLUGIN_STORAGE_DIR = '/data/storage/petal/siyuan-plugin-task-horizon';
     const META_FILE_PATH = `${PLUGIN_STORAGE_DIR}/task-meta.json`;
     const SETTINGS_FILE_PATH = `${PLUGIN_STORAGE_DIR}/task-settings.json`;
+    const WHITEBOARD_DATA_FILE_PATH = `${PLUGIN_STORAGE_DIR}/whiteboard-data.json`;
+    const WHITEBOARD_DATA_CACHE_KEY = 'tm_whiteboard_data_cache';
 
     const MetaStore = {
         data: Storage.get('tm_meta_cache', {}) || {},
@@ -2557,6 +3543,21 @@
             // 时间轴模式任务内容列宽度（不影响表格视图）
             timelineContentWidth: 360,
             timelineForceSortByCompletionNearToday: false,
+            // 白板视图
+            whiteboardLinks: [],
+            whiteboardAutoConnectByCreated: false,
+            whiteboardDetachedChildren: {},
+            whiteboardNotes: [],
+            whiteboardTool: 'pan',
+            whiteboardSidebarCollapsed: false,
+            whiteboardSidebarWidth: 300,
+            whiteboardShowDone: false,
+            whiteboardView: { x: 64, y: 40, zoom: 1 },
+            whiteboardNodePos: {},
+            whiteboardAutoLayout: false,
+            whiteboardPlacedTaskIds: {},
+            whiteboardDocFrameSize: {},
+            whiteboardSequenceMode: false,
             docColorMap: {},
             docColorSeed: 1,
             // 外观配色（支持亮/暗）
@@ -2782,6 +3783,20 @@
                                 if (typeof cloudData.timelineLeftWidth === 'number') this.data.timelineLeftWidth = cloudData.timelineLeftWidth;
                                 if (typeof cloudData.timelineContentWidth === 'number') this.data.timelineContentWidth = cloudData.timelineContentWidth;
                                 if (typeof cloudData.timelineForceSortByCompletionNearToday === 'boolean') this.data.timelineForceSortByCompletionNearToday = cloudData.timelineForceSortByCompletionNearToday;
+                                if (Array.isArray(cloudData.whiteboardLinks)) this.data.whiteboardLinks = cloudData.whiteboardLinks;
+                                if (typeof cloudData.whiteboardAutoConnectByCreated === 'boolean') this.data.whiteboardAutoConnectByCreated = cloudData.whiteboardAutoConnectByCreated;
+                                if (cloudData.whiteboardDetachedChildren && typeof cloudData.whiteboardDetachedChildren === 'object') this.data.whiteboardDetachedChildren = cloudData.whiteboardDetachedChildren;
+                                if (Array.isArray(cloudData.whiteboardNotes)) this.data.whiteboardNotes = cloudData.whiteboardNotes;
+                                if (typeof cloudData.whiteboardTool === 'string') this.data.whiteboardTool = cloudData.whiteboardTool;
+                                if (typeof cloudData.whiteboardSidebarCollapsed === 'boolean') this.data.whiteboardSidebarCollapsed = cloudData.whiteboardSidebarCollapsed;
+                                if (typeof cloudData.whiteboardSidebarWidth === 'number') this.data.whiteboardSidebarWidth = cloudData.whiteboardSidebarWidth;
+                                if (typeof cloudData.whiteboardShowDone === 'boolean') this.data.whiteboardShowDone = cloudData.whiteboardShowDone;
+                                if (cloudData.whiteboardView && typeof cloudData.whiteboardView === 'object') this.data.whiteboardView = cloudData.whiteboardView;
+                                if (cloudData.whiteboardNodePos && typeof cloudData.whiteboardNodePos === 'object') this.data.whiteboardNodePos = cloudData.whiteboardNodePos;
+                                if (typeof cloudData.whiteboardAutoLayout === 'boolean') this.data.whiteboardAutoLayout = cloudData.whiteboardAutoLayout;
+                                if (cloudData.whiteboardPlacedTaskIds && typeof cloudData.whiteboardPlacedTaskIds === 'object') this.data.whiteboardPlacedTaskIds = cloudData.whiteboardPlacedTaskIds;
+                                if (cloudData.whiteboardDocFrameSize && typeof cloudData.whiteboardDocFrameSize === 'object') this.data.whiteboardDocFrameSize = cloudData.whiteboardDocFrameSize;
+                                if (typeof cloudData.whiteboardSequenceMode === 'boolean') this.data.whiteboardSequenceMode = cloudData.whiteboardSequenceMode;
                                 if (cloudData.docColorMap && typeof cloudData.docColorMap === 'object') this.data.docColorMap = cloudData.docColorMap;
                                 if (typeof cloudData.docColorSeed === 'number') this.data.docColorSeed = cloudData.docColorSeed;
 
@@ -2921,6 +3936,20 @@
             this.data.timelineLeftWidth = Storage.get('tm_timeline_left_width', this.data.timelineLeftWidth);
             this.data.timelineContentWidth = Storage.get('tm_timeline_content_width', this.data.timelineContentWidth);
             this.data.timelineForceSortByCompletionNearToday = Storage.get('tm_timeline_force_sort_completion_near_today', this.data.timelineForceSortByCompletionNearToday);
+            this.data.whiteboardLinks = Storage.get('tm_whiteboard_links', this.data.whiteboardLinks) || [];
+            this.data.whiteboardAutoConnectByCreated = Storage.get('tm_whiteboard_auto_connect_by_created', this.data.whiteboardAutoConnectByCreated);
+            this.data.whiteboardDetachedChildren = Storage.get('tm_whiteboard_detached_children', this.data.whiteboardDetachedChildren) || {};
+            this.data.whiteboardNotes = Storage.get('tm_whiteboard_notes', this.data.whiteboardNotes) || [];
+            this.data.whiteboardTool = Storage.get('tm_whiteboard_tool', this.data.whiteboardTool);
+            this.data.whiteboardSidebarCollapsed = Storage.get('tm_whiteboard_sidebar_collapsed', this.data.whiteboardSidebarCollapsed);
+            this.data.whiteboardSidebarWidth = Storage.get('tm_whiteboard_sidebar_width', this.data.whiteboardSidebarWidth);
+            this.data.whiteboardShowDone = Storage.get('tm_whiteboard_show_done', this.data.whiteboardShowDone);
+            this.data.whiteboardView = Storage.get('tm_whiteboard_view', this.data.whiteboardView) || this.data.whiteboardView;
+            this.data.whiteboardNodePos = Storage.get('tm_whiteboard_node_pos', this.data.whiteboardNodePos) || {};
+            this.data.whiteboardAutoLayout = Storage.get('tm_whiteboard_auto_layout', this.data.whiteboardAutoLayout);
+            this.data.whiteboardPlacedTaskIds = Storage.get('tm_whiteboard_placed_task_ids', this.data.whiteboardPlacedTaskIds) || {};
+            this.data.whiteboardDocFrameSize = Storage.get('tm_whiteboard_doc_frame_size', this.data.whiteboardDocFrameSize) || {};
+            this.data.whiteboardSequenceMode = Storage.get('tm_whiteboard_sequence_mode', this.data.whiteboardSequenceMode);
             this.data.docColorMap = Storage.get('tm_doc_color_map', this.data.docColorMap) || {};
             this.data.docColorSeed = Storage.get('tm_doc_color_seed', this.data.docColorSeed);
             const savedWidths = Storage.get('tm_column_widths', null);
@@ -3051,6 +4080,20 @@
             Storage.set('tm_timeline_left_width', this.data.timelineLeftWidth);
             Storage.set('tm_timeline_content_width', this.data.timelineContentWidth);
             Storage.set('tm_timeline_force_sort_completion_near_today', !!this.data.timelineForceSortByCompletionNearToday);
+            Storage.set('tm_whiteboard_links', this.data.whiteboardLinks || []);
+            Storage.set('tm_whiteboard_auto_connect_by_created', !!this.data.whiteboardAutoConnectByCreated);
+            Storage.set('tm_whiteboard_detached_children', this.data.whiteboardDetachedChildren || {});
+            Storage.set('tm_whiteboard_notes', this.data.whiteboardNotes || []);
+            Storage.set('tm_whiteboard_tool', String(this.data.whiteboardTool || 'pan').trim() || 'pan');
+            Storage.set('tm_whiteboard_sidebar_collapsed', !!this.data.whiteboardSidebarCollapsed);
+            Storage.set('tm_whiteboard_sidebar_width', Number(this.data.whiteboardSidebarWidth) || 300);
+            Storage.set('tm_whiteboard_show_done', !!this.data.whiteboardShowDone);
+            Storage.set('tm_whiteboard_view', this.data.whiteboardView || { x: 64, y: 40, zoom: 1 });
+            Storage.set('tm_whiteboard_node_pos', this.data.whiteboardNodePos || {});
+            Storage.set('tm_whiteboard_auto_layout', this.data.whiteboardAutoLayout !== false);
+            Storage.set('tm_whiteboard_placed_task_ids', this.data.whiteboardPlacedTaskIds || {});
+            Storage.set('tm_whiteboard_doc_frame_size', this.data.whiteboardDocFrameSize || {});
+            Storage.set('tm_whiteboard_sequence_mode', !!this.data.whiteboardSequenceMode);
             Storage.set('tm_doc_color_map', this.data.docColorMap || {});
             Storage.set('tm_doc_color_seed', Number(this.data.docColorSeed) || 1);
         },
@@ -3110,6 +4153,55 @@
             this.data.kanbanColumnWidth = Number.isFinite(kw) ? Math.max(220, Math.min(520, Math.round(kw))) : 320;
             this.data.docH2SubgroupEnabled = this.data.docH2SubgroupEnabled !== false;
             this.data.timelineForceSortByCompletionNearToday = !!this.data.timelineForceSortByCompletionNearToday;
+            this.data.whiteboardLinks = Array.isArray(this.data.whiteboardLinks) ? this.data.whiteboardLinks : [];
+            this.data.whiteboardAutoConnectByCreated = false;
+            this.data.whiteboardDetachedChildren = (this.data.whiteboardDetachedChildren && typeof this.data.whiteboardDetachedChildren === 'object' && !Array.isArray(this.data.whiteboardDetachedChildren))
+                ? this.data.whiteboardDetachedChildren
+                : {};
+            this.data.whiteboardNotes = Array.isArray(this.data.whiteboardNotes) ? this.data.whiteboardNotes : [];
+            const wbTool = String(this.data.whiteboardTool || 'pan').trim();
+            this.data.whiteboardTool = (wbTool === 'select' || wbTool === 'text' || wbTool === 'pan') ? wbTool : 'pan';
+            this.data.whiteboardSidebarCollapsed = !!this.data.whiteboardSidebarCollapsed;
+            const wbSidebarWidth = Number(this.data.whiteboardSidebarWidth);
+            this.data.whiteboardSidebarWidth = Number.isFinite(wbSidebarWidth) ? Math.max(220, Math.min(520, Math.round(wbSidebarWidth))) : 300;
+            this.data.whiteboardShowDone = !!this.data.whiteboardShowDone;
+            const wv0 = (this.data.whiteboardView && typeof this.data.whiteboardView === 'object') ? this.data.whiteboardView : {};
+            const x0 = Number(wv0.x);
+            const y0 = Number(wv0.y);
+            const z0 = Number(wv0.zoom);
+            this.data.whiteboardView = {
+                x: Number.isFinite(x0) ? x0 : 64,
+                y: Number.isFinite(y0) ? y0 : 40,
+                zoom: Number.isFinite(z0) ? Math.max(0.35, Math.min(2.5, z0)) : 1,
+            };
+            this.data.whiteboardNodePos = (this.data.whiteboardNodePos && typeof this.data.whiteboardNodePos === 'object' && !Array.isArray(this.data.whiteboardNodePos))
+                ? this.data.whiteboardNodePos
+                : {};
+            this.data.whiteboardAutoLayout = false;
+            this.data.whiteboardSequenceMode = !!this.data.whiteboardSequenceMode;
+            const wbPlaced0 = (this.data.whiteboardPlacedTaskIds && typeof this.data.whiteboardPlacedTaskIds === 'object' && !Array.isArray(this.data.whiteboardPlacedTaskIds))
+                ? this.data.whiteboardPlacedTaskIds
+                : {};
+            const wbPlaced = {};
+            Object.keys(wbPlaced0).forEach((k) => {
+                const id = String(k || '').trim();
+                if (!id) return;
+                if (wbPlaced0[k]) wbPlaced[id] = true;
+            });
+            this.data.whiteboardPlacedTaskIds = wbPlaced;
+            const wbFrame0 = (this.data.whiteboardDocFrameSize && typeof this.data.whiteboardDocFrameSize === 'object' && !Array.isArray(this.data.whiteboardDocFrameSize))
+                ? this.data.whiteboardDocFrameSize
+                : {};
+            const wbFrame = {};
+            Object.keys(wbFrame0).forEach((k) => {
+                const id = String(k || '').trim();
+                if (!id) return;
+                const w = Number(wbFrame0[k]?.w);
+                const h = Number(wbFrame0[k]?.h);
+                if (!Number.isFinite(w) || !Number.isFinite(h)) return;
+                wbFrame[id] = { w: Math.max(520, Math.round(w)), h: Math.max(220, Math.round(h)) };
+            });
+            this.data.whiteboardDocFrameSize = wbFrame;
         },
 
         async save() {
@@ -3222,6 +4314,205 @@
             this.data.fontSizeMobile = size;
             await this.save();
         }
+    };
+
+    const WhiteboardStore = {
+        data: Storage.get(WHITEBOARD_DATA_CACHE_KEY, { cards: {}, links: [] }) || { cards: {}, links: [] },
+        loaded: false,
+        saving: false,
+        saveTimer: null,
+        saveDirty: false,
+
+        normalize() {
+            const raw = (this.data && typeof this.data === 'object') ? this.data : {};
+            const cards0 = (raw.cards && typeof raw.cards === 'object' && !Array.isArray(raw.cards)) ? raw.cards : {};
+            const cards = {};
+            Object.keys(cards0).forEach((k) => {
+                const id = String(k || '').trim();
+                if (!id) return;
+                const v = cards0[k];
+                if (!v || typeof v !== 'object') return;
+                const docId = String(v.docId || '').trim();
+                const content = String(v.content || '').trim();
+                if (!docId || !content) return;
+                cards[id] = {
+                    id,
+                    docId,
+                    content,
+                    parentTaskId: String(v.parentTaskId || '').trim(),
+                    h2: String(v.h2 || '').trim(),
+                    h2Id: String(v.h2Id || '').trim(),
+                    h2Path: String(v.h2Path || '').trim(),
+                    h2Sort: Number(v.h2Sort),
+                    h2Created: String(v.h2Created || '').trim(),
+                    h2Rank: Number(v.h2Rank),
+                    headingLevel: String(v.headingLevel || '').trim(),
+                    startDate: String(v.startDate || '').trim(),
+                    completionTime: String(v.completionTime || '').trim(),
+                    done: !!v.done,
+                    updatedAt: String(v.updatedAt || Date.now()),
+                };
+            });
+            const links0 = Array.isArray(raw.links) ? raw.links : [];
+            const links = links0
+                .map((x) => {
+                    const item = (x && typeof x === 'object') ? x : {};
+                    const from = String(item.from || '').trim();
+                    const to = String(item.to || '').trim();
+                    const docId = String(item.docId || '').trim();
+                    if (!from || !to || !docId || from === to) return null;
+                    return {
+                        id: String(item.id || '').trim() || `link_${docId}_${from}_${to}`,
+                        from,
+                        to,
+                        docId,
+                        createdAt: String(item.createdAt || Date.now()),
+                    };
+                })
+                .filter(Boolean);
+            this.data = { cards, links };
+        },
+
+        async load() {
+            if (this.loaded) return;
+            try { this.normalize(); } catch (e) {}
+            try {
+                const res = await fetch('/api/file/getFile', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ path: WHITEBOARD_DATA_FILE_PATH }),
+                });
+                if (res.ok) {
+                    const text = await res.text();
+                    if (text && text.trim()) {
+                        const json = JSON.parse(text);
+                        if (json && typeof json === 'object') this.data = json;
+                    }
+                }
+            } catch (e) {}
+            try { this.normalize(); } catch (e) {}
+            try { Storage.set(WHITEBOARD_DATA_CACHE_KEY, this.data || { cards: {}, links: [] }); } catch (e) {}
+            this.loaded = true;
+        },
+
+        scheduleSave() {
+            this.saveDirty = true;
+            try { if (this.saveTimer) clearTimeout(this.saveTimer); } catch (e) {}
+            this.saveTimer = setTimeout(() => {
+                this.saveTimer = null;
+                this.saveNow();
+            }, 420);
+        },
+
+        async saveNow() {
+            if (this.saving) return;
+            if (!this.saveDirty) return;
+            this.saving = true;
+            this.saveDirty = false;
+            try {
+                this.normalize();
+                try { Storage.set(WHITEBOARD_DATA_CACHE_KEY, this.data || { cards: {}, links: [] }); } catch (e) {}
+                const formDir = new FormData();
+                formDir.append('path', PLUGIN_STORAGE_DIR);
+                formDir.append('isDir', 'true');
+                await fetch('/api/file/putFile', { method: 'POST', body: formDir }).catch(() => null);
+
+                const formData = new FormData();
+                formData.append('path', WHITEBOARD_DATA_FILE_PATH);
+                formData.append('isDir', 'false');
+                formData.append('file', new Blob([JSON.stringify(this.data || { cards: {}, links: [] }, null, 2)], { type: 'application/json' }));
+                await fetch('/api/file/putFile', { method: 'POST', body: formData }).catch(() => null);
+            } catch (e) {
+            } finally {
+                this.saving = false;
+                if (this.saveDirty) this.scheduleSave();
+            }
+        },
+
+        getTask(taskId) {
+            const id = String(taskId || '').trim();
+            if (!id) return null;
+            const cards = (this.data && this.data.cards && typeof this.data.cards === 'object') ? this.data.cards : {};
+            const item = cards[id];
+            return (item && typeof item === 'object') ? item : null;
+        },
+
+        upsertTask(task, opts = {}) {
+            const t = (task && typeof task === 'object') ? task : {};
+            const id = String(t.id || '').trim();
+            const docId = String(t.root_id || t.docId || '').trim();
+            const content = String(t.content || '').trim();
+            if (!id || !docId || !content) return false;
+            const cards = (this.data.cards && typeof this.data.cards === 'object' && !Array.isArray(this.data.cards))
+                ? this.data.cards
+                : {};
+            const prev = cards[id] || {};
+            const next = {
+                id,
+                docId,
+                content,
+                parentTaskId: String(t.parentTaskId || '').trim(),
+                h2: String(t.h2 || '').trim(),
+                h2Id: String(t.h2Id || '').trim(),
+                h2Path: String(t.h2Path || '').trim(),
+                h2Sort: Number(t.h2Sort),
+                h2Created: String(t.h2Created || '').trim(),
+                h2Rank: Number(t.h2Rank),
+                headingLevel: String(SettingsStore.data.taskHeadingLevel || 'h2').trim() || 'h2',
+                startDate: String(t.startDate || '').trim(),
+                completionTime: String(t.completionTime || '').trim(),
+                done: !!t.done,
+                updatedAt: String(Date.now()),
+            };
+            const changed = JSON.stringify({
+                docId: prev.docId || '',
+                content: prev.content || '',
+                parentTaskId: prev.parentTaskId || '',
+                h2: prev.h2 || '',
+                h2Id: prev.h2Id || '',
+                h2Path: prev.h2Path || '',
+                h2Sort: Number(prev.h2Sort),
+                h2Created: prev.h2Created || '',
+                h2Rank: Number(prev.h2Rank),
+                headingLevel: prev.headingLevel || '',
+                startDate: prev.startDate || '',
+                completionTime: prev.completionTime || '',
+                done: !!prev.done,
+            }) !== JSON.stringify({
+                docId: next.docId,
+                content: next.content,
+                parentTaskId: next.parentTaskId,
+                h2: next.h2,
+                h2Id: next.h2Id,
+                h2Path: next.h2Path,
+                h2Sort: Number(next.h2Sort),
+                h2Created: next.h2Created,
+                h2Rank: Number(next.h2Rank),
+                headingLevel: next.headingLevel,
+                startDate: next.startDate,
+                completionTime: next.completionTime,
+                done: next.done,
+            });
+            if (!changed) return false;
+            cards[id] = next;
+            this.data.cards = cards;
+            if (opts && opts.persist === false) return true;
+            this.scheduleSave();
+            return true;
+        },
+
+        upsertTasks(tasks, opts = {}) {
+            const list = Array.isArray(tasks) ? tasks : [];
+            if (!list.length) return false;
+            let changed = false;
+            list.forEach((t) => {
+                if (this.upsertTask(t, { persist: false })) changed = true;
+            });
+            if (!changed) return false;
+            if (opts && opts.persist === false) return true;
+            this.scheduleSave();
+            return true;
+        },
     };
 
     // 规则管理器
@@ -3695,6 +4986,44 @@
             return data?.kramdown || data?.content || '';
         },
 
+        async fetchHeadingOrderByDocs(docIds, headingLevel = 'h2') {
+            const ids = Array.from(new Set((docIds || []).map(x => String(x || '').trim()).filter(Boolean)));
+            const out = new Map();
+            if (ids.length === 0) return out;
+            const lvRaw = String(headingLevel || 'h2').trim().toLowerCase();
+            const lvNum0 = Number((lvRaw.match(/^h([1-6])$/) || [])[1]);
+            const lvNum = Number.isFinite(lvNum0) ? lvNum0 : 2;
+            const parseId = (line) => {
+                const s = String(line || '');
+                const m = s.match(/\{\:\s*[^}]*\bid="([^"]+)"/);
+                return m ? String(m[1] || '').trim() : '';
+            };
+            for (const docId of ids) {
+                let km = '';
+                try { km = await this.getBlockKramdown(docId); } catch (e) { km = ''; }
+                if (!km) continue;
+                const lines = String(km).split(/\r?\n/);
+                let rank = 0;
+                const seen = new Set();
+                for (let i = 0; i < lines.length; i++) {
+                    const line = String(lines[i] || '');
+                    const hm = line.match(/^(#{1,6})\s+/);
+                    if (!hm || hm[1].length !== lvNum) continue;
+                    let hid = parseId(line);
+                    if (!hid) {
+                        for (let j = i + 1; j <= Math.min(i + 4, lines.length - 1); j++) {
+                            hid = parseId(lines[j]);
+                            if (hid) break;
+                        }
+                    }
+                    if (!hid || seen.has(hid)) continue;
+                    seen.add(hid);
+                    out.set(`${docId}::${hid}`, rank++);
+                }
+            }
+            return out;
+        },
+
         async getDocId() {
             try {
                 const m = location.hash.match(/id=([0-9a-z-]+)/);
@@ -3793,6 +5122,8 @@
                     task.parent_id,
                     parent_task.id as parent_task_id,
                     task.root_id,
+                    task.path as block_path,
+                    task.sort as block_sort,
                     task.created,
                     task.updated,
                     
@@ -3855,7 +5186,7 @@
                     AND task.markdown IS NOT NULL
                     AND task.markdown != ''${excludeCompletedCondition}${doneOnlyCondition}
                 
-                ORDER BY task.created
+                ORDER BY task.path, task.sort, task.created
                 LIMIT ${limit}
             `;
             
@@ -3908,11 +5239,13 @@
                         task.content AS raw_content,
                         task.parent_id,
                         task.root_id,
+                        task.path AS block_path,
+                        task.sort AS block_sort,
                         task.created,
                         task.updated,
                         doc.content AS doc_name,
                         doc.hpath AS doc_path,
-                        ROW_NUMBER() OVER (PARTITION BY task.root_id ORDER BY task.created) AS rn
+                        ROW_NUMBER() OVER (PARTITION BY task.root_id ORDER BY task.path, task.sort, task.created) AS rn
                     FROM blocks AS task
                     INNER JOIN blocks AS doc ON task.root_id = doc.id
                     LEFT JOIN blocks parent_list ON parent_list.id = task.parent_id
@@ -3955,6 +5288,8 @@
                     t.parent_id,
                     parent_task.id AS parent_task_id,
                     t.root_id,
+                    t.block_path,
+                    t.block_sort,
                     t.created,
                     t.updated,
                     t.doc_name,
@@ -3974,7 +5309,7 @@
                 LEFT JOIN blocks parent_list ON parent_list.id = t.parent_id
                 LEFT JOIN blocks parent_task ON parent_task.id = parent_list.parent_id AND parent_task.type = 'i' AND parent_task.subtype = 't'
                 LEFT JOIN attr ON attr.block_id = t.id
-                ORDER BY t.root_id, t.created
+                ORDER BY t.root_id, t.block_path, t.block_sort, t.created
             `;
 
             const startTime = Date.now();
@@ -4103,33 +5438,225 @@
             for (let i = 0; i < taskIds.length; i += batchSize) {
                 const batch = taskIds.slice(i, i + batchSize);
                 const idList = batch.map(id => `'${id}'`).join(',');
+                const taskRootMap = new Map();
+                try {
+                    const rootsSql = `SELECT id AS task_id, root_id FROM blocks WHERE id IN (${idList})`;
+                    const rootsRes = await this.call('/api/query/sql', { stmt: rootsSql });
+                    if (rootsRes.code === 0 && Array.isArray(rootsRes.data)) {
+                        rootsRes.data.forEach((r) => {
+                            const tid = String(r?.task_id || '').trim();
+                            const rid = String(r?.root_id || '').trim();
+                            if (tid && rid) taskRootMap.set(tid, rid);
+                        });
+                    }
+                } catch (e) {}
                 const sql = `
-                    WITH RECURSIVE ancestors AS (
-                        SELECT id AS task_id, parent_id, id AS ancestor_id, 0 AS depth
+                    WITH RECURSIVE task_roots AS (
+                        SELECT id AS task_id, root_id
                         FROM blocks
                         WHERE id IN (${idList})
+                    ),
+                    doc_roots AS (
+                        SELECT DISTINCT root_id
+                        FROM task_roots
+                    ),
+                    doc_tree AS (
+                        SELECT
+                            d.id,
+                            d.id AS root_id,
+                            0 AS depth,
+                            '' AS order_key
+                        FROM blocks d
+                        WHERE d.id IN (SELECT root_id FROM doc_roots)
 
                         UNION ALL
 
-                        SELECT a.task_id, b.parent_id, b.id, a.depth + 1
+                        SELECT
+                            b.id,
+                            t.root_id,
+                            t.depth + 1 AS depth,
+                            (t.order_key || '/' ||
+                                CASE
+                                    WHEN TRIM(CAST(b.sort AS TEXT)) GLOB '[0-9]*' AND TRIM(CAST(b.sort AS TEXT)) != ''
+                                        THEN ('0:' || printf('%020d', CAST(TRIM(CAST(b.sort AS TEXT)) AS INTEGER)))
+                                    ELSE ('1:' || COALESCE(NULLIF(TRIM(CAST(b.sort AS TEXT)), ''), ''))
+                                END
+                                || ':' || b.id) AS order_key
                         FROM blocks b
-                        INNER JOIN ancestors a ON b.id = a.parent_id
-                        WHERE a.depth < 20
+                        INNER JOIN doc_tree t ON b.parent_id = t.id
+                        WHERE t.depth < 128
+                    ),
+                    headings AS (
+                        SELECT
+                            b.id,
+                            b.root_id,
+                            b.path,
+                            b.sort,
+                            b.created,
+                            COALESCE(dt.order_key, '') AS heading_order_key,
+                            ROW_NUMBER() OVER (
+                                PARTITION BY b.root_id
+                                ORDER BY COALESCE(dt.order_key, ''), b.created, b.id
+                            ) AS heading_rank
+                        FROM blocks b
+                        LEFT JOIN doc_tree dt ON dt.id = b.id
+                        WHERE b.type = 'h'
+                          AND b.subtype = '${SettingsStore.data.taskHeadingLevel || 'h2'}'
+                          AND b.root_id IN (SELECT DISTINCT root_id FROM task_roots)
+                    ),
+                    task_orders AS (
+                        SELECT
+                            tr.task_id,
+                            tr.root_id,
+                            COALESCE(dt.order_key, '') AS task_order_key
+                        FROM task_roots tr
+                        LEFT JOIN doc_tree dt ON dt.id = tr.task_id
+                    ),
+                    matched AS (
+                        SELECT
+                            t.task_id,
+                            t.root_id,
+                            h.id AS heading_id,
+                            h.path AS heading_path,
+                            h.sort AS heading_sort,
+                            h.created AS heading_created,
+                            h.heading_rank,
+                            ROW_NUMBER() OVER (
+                                PARTITION BY t.task_id
+                                ORDER BY h.heading_order_key DESC, h.heading_rank DESC
+                            ) AS rn
+                        FROM task_orders t
+                        LEFT JOIN headings h
+                            ON h.root_id = t.root_id
+                           AND h.heading_order_key <= t.task_order_key
                     )
-                    SELECT a.task_id, b.content, a.depth
-                    FROM ancestors a
-                    JOIN blocks b ON a.ancestor_id = b.id
-                    WHERE b.type = 'h' AND b.subtype = '${SettingsStore.data.taskHeadingLevel || 'h2'}'
-                    ORDER BY a.task_id, a.depth ASC
+                    SELECT
+                        m.task_id,
+                        m.root_id,
+                        m.heading_id,
+                        hb.content,
+                        m.heading_path,
+                        m.heading_sort,
+                        m.heading_created,
+                        m.heading_rank
+                    FROM matched m
+                    LEFT JOIN blocks hb ON hb.id = m.heading_id
+                    WHERE m.rn = 1
                 `;
                 try {
                     const res = await this.call('/api/query/sql', { stmt: sql });
                     if (res.code === 0 && res.data) {
-                        res.data.forEach(row => {
+                        const rows = Array.isArray(res.data) ? res.data : [];
+                        let headingOrderMap = new Map();
+                        try {
+                            const rootIds = Array.from(new Set(rows.map(r => String(r?.root_id || '').trim()).filter(Boolean)));
+                            headingOrderMap = await this.fetchHeadingOrderByDocs(rootIds, SettingsStore.data.taskHeadingLevel || 'h2');
+                        } catch (e) {
+                            headingOrderMap = new Map();
+                        }
+                        rows.forEach(row => {
                             if (!contextMap.has(row.task_id)) {
-                                contextMap.set(row.task_id, row.content);
+                                const hid = String(row?.heading_id || '').trim();
+                                if (!hid) return;
+                                const did = String(row?.root_id || '').trim();
+                                const rankByDocText = headingOrderMap.get(`${did}::${hid}`);
+                                const rank = Number.isFinite(Number(rankByDocText)) ? Number(rankByDocText) : Number(row?.heading_rank);
+                                contextMap.set(row.task_id, {
+                                    id: hid,
+                                    content: String(row?.content || '').trim(),
+                                    path: String(row?.heading_path || '').trim(),
+                                    sort: Number(row?.heading_sort),
+                                    created: String(row?.heading_created || '').trim(),
+                                    rank,
+                                });
                             }
                         });
+                    }
+                } catch (e) {}
+
+                // 强制对齐文档真实文本顺序：按 Kramdown 文本流映射“任务 -> 前置最近标题”
+                try {
+                    const lvRaw = String(SettingsStore.data.taskHeadingLevel || 'h2').trim().toLowerCase();
+                    const lvNum0 = Number((lvRaw.match(/^h([1-6])$/) || [])[1]);
+                    const lvNum = Number.isFinite(lvNum0) ? lvNum0 : 2;
+                    const tasksByDoc = new Map();
+                    batch.forEach((tid0) => {
+                        const tid = String(tid0 || '').trim();
+                        const rid = String(taskRootMap.get(tid) || '').trim();
+                        if (!tid || !rid) return;
+                        if (!tasksByDoc.has(rid)) tasksByDoc.set(rid, new Set());
+                        tasksByDoc.get(rid).add(tid);
+                    });
+                    const parseIds = (line) => {
+                        const out = [];
+                        const s = String(line || '');
+                        const re = /\bid="([^"]+)"/g;
+                        let m;
+                        while ((m = re.exec(s)) !== null) {
+                            const id = String(m[1] || '').trim();
+                            if (id) out.push(id);
+                        }
+                        return out;
+                    };
+                    const stripHeadingText = (line) => {
+                        let s = String(line || '').replace(/^#{1,6}\s+/, '').trim();
+                        s = s.replace(/\s*\{\:\s*[^}]*\}\s*$/, '').trim();
+                        return s;
+                    };
+                    for (const [docId, tidSet] of tasksByDoc.entries()) {
+                        let km = '';
+                        try { km = await this.getBlockKramdown(docId); } catch (e) { km = ''; }
+                        if (!km) continue;
+                        const lines = String(km).split(/\r?\n/);
+                        let headingRank = -1;
+                        let currentHeading = null;
+                        let pendingHeading = null;
+                        for (let ln = 0; ln < lines.length; ln++) {
+                            const line = String(lines[ln] || '');
+                            const hm = line.match(/^(#{1,6})\s+(.*)$/);
+                            if (hm && hm[1].length === lvNum) {
+                                pendingHeading = {
+                                    text: stripHeadingText(line),
+                                    expires: ln + 4,
+                                };
+                                const idsInline = parseIds(line);
+                                if (idsInline.length > 0) {
+                                    headingRank += 1;
+                                    currentHeading = {
+                                        id: String(idsInline[0] || '').trim(),
+                                        content: String(pendingHeading.text || '').trim(),
+                                        rank: headingRank,
+                                    };
+                                    pendingHeading = null;
+                                }
+                            }
+                            const ids = parseIds(line);
+                            if (pendingHeading && ids.length > 0) {
+                                headingRank += 1;
+                                currentHeading = {
+                                    id: String(ids[0] || '').trim(),
+                                    content: String(pendingHeading.text || '').trim(),
+                                    rank: headingRank,
+                                };
+                                pendingHeading = null;
+                            }
+                            if (pendingHeading && ln > Number(pendingHeading.expires || 0)) {
+                                pendingHeading = null;
+                            }
+                            if (!ids.length || !currentHeading || !currentHeading.id) continue;
+                            ids.forEach((bid) => {
+                                const tid = String(bid || '').trim();
+                                if (!tid || !tidSet.has(tid)) return;
+                                contextMap.set(tid, {
+                                    id: String(currentHeading.id || '').trim(),
+                                    content: String(currentHeading.content || '').trim(),
+                                    path: '',
+                                    sort: Number.NaN,
+                                    created: '',
+                                    rank: Number(currentHeading.rank),
+                                });
+                            });
+                        }
                     }
                 } catch (e) {}
             }
@@ -4294,6 +5821,18 @@
             if (res.code === 0 && res.data && res.data.length > 0) {
                 const lastId = String(res.data[0]?.id || '').trim();
                 if (lastId && lastId !== id) return lastId;
+            }
+            return null;
+        },
+
+        async getFirstDirectChildIdOfDoc(docId) {
+            const id = String(docId || '').trim();
+            if (!id) return null;
+            const sql = `SELECT id FROM blocks WHERE parent_id = '${id}' ORDER BY created ASC LIMIT 1`;
+            const res = await this.call('/api/query/sql', { stmt: sql });
+            if (res.code === 0 && res.data && res.data.length > 0) {
+                const firstId = String(res.data[0]?.id || '').trim();
+                if (firstId && firstId !== id) return firstId;
             }
             return null;
         },
@@ -4488,7 +6027,36 @@
         priorityScoreDraft: null,
         
         // 四象限分组状态
-        quadrantEnabled: false
+        quadrantEnabled: false,
+        // 白板视图交互状态
+        whiteboardLinkFromTaskId: '',
+        whiteboardLinkFromDocId: '',
+        whiteboardLinkPress: null,
+        whiteboardLinkPreview: null,
+        whiteboardLinkHoverTaskId: '',
+        whiteboardLinkHoverDocId: '',
+        whiteboardSelectedLinkId: '',
+        whiteboardSelectedLinkDocId: '',
+        timelineLinkHoverTaskId: '',
+        whiteboardSelectedTaskId: '',
+        whiteboardSelectedNoteId: '',
+        whiteboardMultiSelectedTaskIds: [],
+        whiteboardMultiSelectedNoteIds: [],
+        whiteboardMultiSelectedLinkKeys: [],
+        whiteboardNoteEditor: null,
+        whiteboardEdgeRafId: 0,
+        whiteboardPanSession: null,
+        whiteboardNodeDrag: null,
+        whiteboardNoteDrag: null,
+        whiteboardMarqueeSession: null,
+        whiteboardSuppressClickUntil: 0,
+        whiteboardPoolSelectedTaskIds: [],
+        whiteboardPoolDragGhostEl: null,
+        whiteboardDocFrameMap: {},
+        whiteboardDocResize: null,
+        whiteboardNoteClickTimer: 0,
+        timelineDotPinnedTaskId: '',
+        __tmTimelineRenderDeps: null,
     };
 
     let __tmMountEl = null;
@@ -4498,6 +6066,7 @@
     let __tmWakeReloadInFlight = false;
     let __tmVisibilityHandler = null;
     let __tmFocusHandler = null;
+    let __tmWhiteboardViewSaveTimer = null;
 
     function __tmSetMount(el) {
         if (el && !document.body.contains(el)) {
@@ -4616,7 +6185,7 @@ async function __tmRefreshAfterWake(reason) {
 
         try {
             await SettingsStore.load();
-            const allow = new Set(['list', 'timeline', 'kanban', 'calendar']);
+            const allow = new Set(['list', 'timeline', 'kanban', 'calendar', 'whiteboard']);
             const isMobileDevice = __tmIsMobileDevice();
             const current = String(state.viewMode || '').trim();
             if (!allow.has(current)) {
@@ -4739,6 +6308,88 @@ async function __tmRefreshAfterWake(reason) {
         const d = document.createElement('div');
         d.textContent = s;
         return d.innerHTML;
+    }
+
+    function __tmCompareTasksByDocFlow(a, b) {
+        const qa = Number(a?.docSeq);
+        const qb = Number(b?.docSeq);
+        if (Number.isFinite(qa) && Number.isFinite(qb) && qa !== qb) return qa - qb;
+        const pa = String(a?.blockPath || '').trim();
+        const pb = String(b?.blockPath || '').trim();
+        if (pa && pb && pa !== pb) return pa.localeCompare(pb);
+        const sa = Number(a?.blockSort);
+        const sb = Number(b?.blockSort);
+        if (Number.isFinite(sa) && Number.isFinite(sb) && sa !== sb) return sa - sb;
+        const ca = String(a?.created || '');
+        const cb = String(b?.created || '');
+        if (ca !== cb) return ca.localeCompare(cb);
+        return String(a?.id || '').localeCompare(String(b?.id || ''));
+    }
+
+    function __tmGetDocHeadingBucket(task, noHeadingLabel) {
+        const noneLabel = String(noHeadingLabel || '').trim() || '无标题';
+        const raw = String(task?.h2 || '').trim();
+        const label = raw || noneLabel;
+        const hid = String(task?.h2Id || '').trim();
+        if (hid) return { key: `id:${hid}`, label, id: hid };
+        const hrank0 = Number(task?.h2Rank);
+        if (Number.isFinite(hrank0)) return { key: `rank:${Math.trunc(hrank0)}`, label, id: '' };
+        const hpath = String(task?.h2Path || '').trim();
+        const hsort0 = Number(task?.h2Sort);
+        const hsort = Number.isFinite(hsort0) ? String(Math.trunc(hsort0)) : '';
+        const hcreated = String(task?.h2Created || '').trim();
+        if (hpath || hsort || hcreated) {
+            return { key: `pos:${hpath}|${hsort}|${hcreated}`, label, id: '' };
+        }
+        return { key: `label:${label}`, label, id: '' };
+    }
+
+    function __tmBuildDocHeadingBuckets(tasks, noHeadingLabel) {
+        const list = Array.isArray(tasks) ? tasks : [];
+        const buckets = [];
+        const seen = new Set();
+        const cmpHeadingPos = (a, b) => {
+            const ra = Number(a?.h2Rank);
+            const rb = Number(b?.h2Rank);
+            const raOk = Number.isFinite(ra);
+            const rbOk = Number.isFinite(rb);
+            if (raOk && rbOk && ra !== rb) return ra - rb;
+            if (raOk && !rbOk) return -1;
+            if (!raOk && rbOk) return 1;
+            const aHas = !!String(a?.h2Id || '').trim();
+            const bHas = !!String(b?.h2Id || '').trim();
+            if (aHas && !bHas) return -1;
+            if (!aHas && bHas) return 1;
+            if (aHas && bHas) {
+                const pa = String(a?.h2Path || '').trim();
+                const pb = String(b?.h2Path || '').trim();
+                if (pa && pb && pa !== pb) return pa.localeCompare(pb);
+                const sa = Number(a?.h2Sort);
+                const sb = Number(b?.h2Sort);
+                if (Number.isFinite(sa) && Number.isFinite(sb) && sa !== sb) return sa - sb;
+                const ca = String(a?.h2Created || '').trim();
+                const cb = String(b?.h2Created || '').trim();
+                if (ca !== cb) return ca.localeCompare(cb);
+                const ia = String(a?.h2Id || '').trim();
+                const ib = String(b?.h2Id || '').trim();
+                if (ia !== ib) return ia.localeCompare(ib);
+            }
+            return __tmCompareTasksByDocFlow(a, b);
+        };
+        list
+            .slice()
+            .sort(cmpHeadingPos)
+            .forEach((task) => {
+                const b = __tmGetDocHeadingBucket(task, noHeadingLabel);
+                if (!b || seen.has(b.key)) return;
+                seen.add(b.key);
+                buckets.push(b);
+            });
+        return buckets;
+    }
+
+    function __tmBuildDocHeadingOrder(tasks, noHeadingLabel) {
+        return __tmBuildDocHeadingBuckets(tasks, noHeadingLabel).map((b) => String(b?.label || ''));
     }
 
     function __tmSafeAttrName(name, fallback) {
@@ -8058,14 +9709,282 @@ async function __tmRefreshAfterWake(reason) {
             });
         }
 
-        state.filteredTasks = ordered;
+        const finalOrdered = __tmApplyWhiteboardSequenceFilter(ordered);
+        state.filteredTasks = finalOrdered;
         try { window.dispatchEvent(new CustomEvent('tm:filtered-tasks-updated')); } catch (e) {}
     }
 
+    function __tmIsTaskAndDescDone(taskId, memo, visiting) {
+        const id = String(taskId || '').trim();
+        if (!id) return true;
+        const m = (memo && typeof memo === 'object') ? memo : {};
+        if (Object.prototype.hasOwnProperty.call(m, id)) return !!m[id];
+        const v = visiting instanceof Set ? visiting : new Set();
+        if (v.has(id)) return true;
+        v.add(id);
+        const t = state.flatTasks?.[id];
+        if (!t) {
+            m[id] = true;
+            v.delete(id);
+            return true;
+        }
+        if (!t.done) {
+            m[id] = false;
+            v.delete(id);
+            return false;
+        }
+        const kids = Array.isArray(t.children) ? t.children : [];
+        for (const c of kids) {
+            const cid = String(c?.id || '').trim();
+            if (!cid) continue;
+            if (!__tmIsTaskAndDescDone(cid, m, v)) {
+                m[id] = false;
+                v.delete(id);
+                return false;
+            }
+        }
+        m[id] = true;
+        v.delete(id);
+        return true;
+    }
+
+    function __tmIsTaskAndDescDoneForSequence(taskId, memo, visiting, options = {}) {
+        const id = String(taskId || '').trim();
+        if (!id) return true;
+        const m = (memo && typeof memo === 'object') ? memo : {};
+        if (Object.prototype.hasOwnProperty.call(m, id)) return !!m[id];
+        const v = visiting instanceof Set ? visiting : new Set();
+        if (v.has(id)) return true;
+        v.add(id);
+        const t = state.flatTasks?.[id];
+        if (!t) {
+            m[id] = true;
+            v.delete(id);
+            return true;
+        }
+        if (!t.done) {
+            m[id] = false;
+            v.delete(id);
+            return false;
+        }
+        const ignoreChildRoots = (options && options.ignoreChildRoots instanceof Set) ? options.ignoreChildRoots : new Set();
+        const kids = Array.isArray(t.children) ? t.children : [];
+        for (const c of kids) {
+            const cid = String(c?.id || '').trim();
+            if (!cid) continue;
+            if (ignoreChildRoots.has(cid)) continue;
+            if (!__tmIsTaskAndDescDoneForSequence(cid, m, v, options)) {
+                m[id] = false;
+                v.delete(id);
+                return false;
+            }
+        }
+        m[id] = true;
+        v.delete(id);
+        return true;
+    }
+
+    function __tmCollectSequenceDescendants(rootId, allowedSet, excludedChildRoots) {
+        const root = String(rootId || '').trim();
+        if (!root) return [];
+        const allowed = allowedSet instanceof Set ? allowedSet : new Set();
+        const excluded = excludedChildRoots instanceof Set ? excludedChildRoots : new Set();
+        const out = [];
+        const seen = new Set();
+        const stack = [];
+        const t0 = state.flatTasks?.[root];
+        (Array.isArray(t0?.children) ? t0.children : []).forEach((c) => {
+            const cid = String(c?.id || '').trim();
+            if (cid) stack.push(cid);
+        });
+        while (stack.length) {
+            const id = String(stack.pop() || '').trim();
+            if (!id || seen.has(id)) continue;
+            seen.add(id);
+            if (excluded.has(id)) continue;
+            if (!allowed.has(id)) continue;
+            out.push(id);
+            const t = state.flatTasks?.[id];
+            const kids = Array.isArray(t?.children) ? t.children : [];
+            kids.forEach((c) => {
+                const cid = String(c?.id || '').trim();
+                if (cid) stack.push(cid);
+            });
+        }
+        return out;
+    }
+
+    function __tmCollectCyclicNodes(nodes, adj) {
+        const color = new Map();
+        const stack = [];
+        const cycleNodes = new Set();
+        const markCycleFrom = (startId) => {
+            let hit = false;
+            for (const sid of stack) {
+                if (sid === startId) hit = true;
+                if (hit) cycleNodes.add(sid);
+            }
+            cycleNodes.add(startId);
+        };
+        const dfs = (u) => {
+            color.set(u, 1);
+            stack.push(u);
+            const outs = Array.isArray(adj.get(u)) ? adj.get(u) : [];
+            for (const v of outs) {
+                if (!nodes.has(v)) continue;
+                const c = Number(color.get(v) || 0);
+                if (c === 0) dfs(v);
+                else if (c === 1) markCycleFrom(v);
+            }
+            stack.pop();
+            color.set(u, 2);
+        };
+        nodes.forEach((id) => {
+            if (Number(color.get(id) || 0) === 0) dfs(id);
+        });
+        return cycleNodes;
+    }
+
+    function __tmBuildWhiteboardSequenceVisibleTaskSet(candidateTasks) {
+        const list = Array.isArray(candidateTasks) ? candidateTasks : [];
+        if (!list.length) return null;
+        const orderMap = new Map(list.map((t, i) => [String(t?.id || '').trim(), i]));
+        const taskIds = Array.from(orderMap.keys()).filter(Boolean);
+        if (!taskIds.length) return null;
+
+        const byDoc = new Map();
+        taskIds.forEach((id) => {
+            const did = String(__tmGetTaskDocIdById(id) || state.flatTasks?.[id]?.docId || state.flatTasks?.[id]?.root_id || '').trim();
+            if (!did) return;
+            if (!byDoc.has(did)) byDoc.set(did, new Set());
+            byDoc.get(did).add(id);
+        });
+        if (!byDoc.size) return null;
+
+        const manualLinks = __tmGetManualTaskLinks();
+        const visible = new Set();
+
+        byDoc.forEach((nodes, docId) => {
+            const linkedDetachedChildren = new Set();
+            manualLinks.forEach((ln) => {
+                const did = String(ln?.docId || '').trim();
+                if (did !== docId) return;
+                const from = String(ln?.from || '').trim();
+                const to = String(ln?.to || '').trim();
+                [from, to].forEach((id) => {
+                    if (!id || !nodes.has(id)) return;
+                    const pid = String(__tmResolveWhiteboardTaskParentId(id) || '').trim();
+                    if (!pid || !nodes.has(pid)) return;
+                    if (!__tmIsWhiteboardChildDetached(id)) return;
+                    linkedDetachedChildren.add(id);
+                });
+            });
+
+            const seqNodes = new Set();
+            nodes.forEach((id) => {
+                const pid = String(__tmResolveWhiteboardTaskParentId(id) || '').trim();
+                const hasParentInScope = !!(pid && nodes.has(pid));
+                if (!hasParentInScope || linkedDetachedChildren.has(id)) seqNodes.add(id);
+            });
+            if (!seqNodes.size) return;
+
+            const adj = new Map();
+            seqNodes.forEach((id) => {
+                adj.set(id, []);
+            });
+            manualLinks.forEach((ln) => {
+                const did = String(ln?.docId || '').trim();
+                if (did !== docId) return;
+                const from = String(ln?.from || '').trim();
+                const to = String(ln?.to || '').trim();
+                if (!from || !to || from === to) return;
+                if (!seqNodes.has(from) || !seqNodes.has(to)) return;
+                const arr = adj.get(from);
+                if (!Array.isArray(arr)) return;
+                if (arr.includes(to)) return;
+                arr.push(to);
+            });
+
+            const addVisibleWithChildren = (id) => {
+                const k = String(id || '').trim();
+                if (!k) return;
+                visible.add(k);
+                __tmCollectSequenceDescendants(k, nodes, linkedDetachedChildren).forEach((cid) => visible.add(cid));
+            };
+
+            const cyclic = __tmCollectCyclicNodes(seqNodes, adj);
+            cyclic.forEach((id) => addVisibleWithChildren(id));
+
+            const dagNodes = new Set(Array.from(seqNodes).filter((id) => !cyclic.has(id)));
+            if (!dagNodes.size) return;
+
+            const indeg2 = new Map();
+            dagNodes.forEach((id) => indeg2.set(id, 0));
+            dagNodes.forEach((from) => {
+                const outs = Array.isArray(adj.get(from)) ? adj.get(from) : [];
+                outs.forEach((to) => {
+                    if (!dagNodes.has(to)) return;
+                    indeg2.set(to, Number(indeg2.get(to) || 0) + 1);
+                });
+            });
+
+            const layers = [];
+            const seen = new Set();
+            let frontier = Array.from(dagNodes).filter((id) => Number(indeg2.get(id) || 0) === 0);
+            while (frontier.length) {
+                frontier.sort((a, b) => (orderMap.get(a) ?? 999999) - (orderMap.get(b) ?? 999999));
+                layers.push(frontier.slice());
+                const next = [];
+                frontier.forEach((u) => {
+                    seen.add(u);
+                    const outs = Array.isArray(adj.get(u)) ? adj.get(u) : [];
+                    outs.forEach((v) => {
+                        if (!dagNodes.has(v)) return;
+                        const nv = Number(indeg2.get(v) || 0) - 1;
+                        indeg2.set(v, nv);
+                        if (nv === 0) next.push(v);
+                    });
+                });
+                frontier = Array.from(new Set(next));
+            }
+            const leftovers = Array.from(dagNodes).filter((id) => !seen.has(id));
+            if (leftovers.length) {
+                leftovers.sort((a, b) => (orderMap.get(a) ?? 999999) - (orderMap.get(b) ?? 999999));
+                layers.push(leftovers);
+            }
+            if (!layers.length) return;
+
+            const doneMemo = {};
+            let currentLayerIdx = layers.findIndex((layer) => !layer.every((id) => __tmIsTaskAndDescDoneForSequence(id, doneMemo, new Set(), { ignoreChildRoots: linkedDetachedChildren })));
+            if (currentLayerIdx < 0) currentLayerIdx = layers.length - 1;
+            (layers[currentLayerIdx] || []).forEach((id) => addVisibleWithChildren(id));
+        });
+
+        return visible;
+    }
+
+    function __tmApplyWhiteboardSequenceFilter(tasks) {
+        const list = Array.isArray(tasks) ? tasks : [];
+        if (!list.length) return list;
+        if (state.viewMode === 'whiteboard') return list;
+        if (!SettingsStore.data.whiteboardSequenceMode) return list;
+        const visibleSet = __tmBuildWhiteboardSequenceVisibleTaskSet(list);
+        if (!(visibleSet instanceof Set) || !visibleSet.size) return list;
+        return list.filter((t) => visibleSet.has(String(t?.id || '').trim()));
+    }
+
     window.tmSwitchDoc = function(docId) {
+        if (Number(state.suppressDocTabClickUntil || 0) > Date.now()) return;
         state.activeDocId = docId;
         applyFilters();
         render();
+        if (state.viewMode === 'whiteboard') {
+            try {
+                requestAnimationFrame(() => {
+                    try { window.tmWhiteboardResetView?.(); } catch (e) {}
+                });
+            } catch (e) {}
+        }
     };
 
     function __tmHideDocTabMenu() {
@@ -8342,6 +10261,14 @@ async function __tmRefreshAfterWake(reason) {
             return;
         }
         SettingsStore.data.currentGroupId = nextGroupId;
+        // 切换文档分组后，统一回到“全部文档”页签，避免白板停留在旧分组文档导致空白
+        state.activeDocId = 'all';
+        state.whiteboardSelectedTaskId = '';
+        state.whiteboardSelectedNoteId = '';
+        state.whiteboardSelectedLinkId = '';
+        state.whiteboardSelectedLinkDocId = '';
+        state.whiteboardMultiSelectedTaskIds = [];
+        state.whiteboardMultiSelectedNoteIds = [];
 
         const firstRuleId = (state.filterRules || []).find(r => r && r.enabled)?.id || '';
         state.currentRule = firstRuleId || null;
@@ -8350,39 +10277,110 @@ async function __tmRefreshAfterWake(reason) {
         await SettingsStore.save();
         try { __tmHideMobileMenu(); } catch (e) {}
         await loadSelectedDocuments();
+        if (state.viewMode === 'whiteboard') {
+            try {
+                requestAnimationFrame(() => {
+                    try { window.tmWhiteboardResetView?.(); } catch (e) {}
+                });
+            } catch (e) {}
+        }
     };
 
     window.tmDocTabDragOver = function(ev) {
         try {
             ev.preventDefault?.();
+            ev.stopPropagation?.();
             ev.dataTransfer.dropEffect = 'move';
         } catch (e) {}
+        try { ev.currentTarget?.classList?.add('is-drop-target'); } catch (e) {}
     };
 
     window.tmDocTabDragEnter = function(ev) {
         try {
             ev.preventDefault?.();
+            ev.stopPropagation?.();
             ev.dataTransfer.dropEffect = 'move';
         } catch (e) {}
         try { ev.currentTarget?.classList?.add('is-drop-target'); } catch (e) {}
     };
 
     window.tmDocTabDragLeave = function(ev) {
+        try {
+            const cur = ev?.currentTarget;
+            const rel = ev?.relatedTarget;
+            if (cur instanceof Element && rel instanceof Element && cur.contains(rel)) return;
+        } catch (e) {}
         try { ev.currentTarget?.classList?.remove('is-drop-target'); } catch (e) {}
     };
+
+    function __tmGetDraggedTaskId(ev) {
+        let taskId = '';
+        try {
+            taskId = String(ev?.dataTransfer?.getData?.('application/x-tm-task-id') || '').trim();
+            if (taskId) return taskId;
+        } catch (e) {}
+        try {
+            const raw = String(ev?.dataTransfer?.getData?.('text/plain') || '').trim();
+            if (raw && !raw.startsWith('{') && !raw.startsWith('[')) {
+                taskId = raw;
+            }
+        } catch (e) {}
+        if (!taskId) taskId = String(state.draggingTaskId || '').trim();
+        if (!taskId) return '';
+        return state.flatTasks?.[taskId] ? taskId : '';
+    }
+
+    function __tmClearDocTabDropTarget() {
+        try {
+            state.modal?.querySelectorAll?.('.tm-doc-tab.is-drop-target')?.forEach?.((el) => {
+                try { el.classList.remove('is-drop-target'); } catch (e) {}
+            });
+        } catch (e) {}
+    }
+
+    async function __tmMoveTaskToDoc(taskId, targetDocId, opts = {}) {
+        const id = String(taskId || '').trim();
+        const did = String(targetDocId || '').trim();
+        if (!id || !did) return false;
+        const o = (opts && typeof opts === 'object') ? opts : {};
+        const t = state.flatTasks?.[id];
+        const fromDocId = String(t?.docId || t?.root_id || '').trim();
+        if (fromDocId && fromDocId === did) return false;
+        const topListId = await API.getFirstDirectChildListIdOfDoc(did);
+        if (topListId) {
+            await API.moveBlock(id, { parentID: topListId });
+        } else {
+            await API.moveBlock(id, { parentID: did });
+        }
+        try { await API.call('/api/sqlite/flushTransaction', {}); } catch (e) {}
+        try {
+            if (t) {
+                t.root_id = did;
+                t.docId = did;
+                const name = state.allDocuments.find(d => d.id === did)?.name || '';
+                if (name) {
+                    t.doc_name = name;
+                    t.docName = name;
+                }
+            }
+        } catch (e) {}
+        if (!o.silentHint) {
+            try { hint('✅ 任务已移动', 'success'); } catch (e) {}
+        }
+        return true;
+    }
 
     window.tmDocTabDrop = async function(ev, docId) {
         try {
             ev.preventDefault?.();
             ev.stopPropagation?.();
         } catch (e) {}
+        state.suppressDocTabClickUntil = Date.now() + 300;
         try { ev.currentTarget?.classList?.remove('is-drop-target'); } catch (e) {}
+        try { __tmClearDocTabDropTarget(); } catch (e) {}
         const targetDocId = String(docId || '').trim();
         if (!targetDocId || targetDocId === 'all') return;
-        let taskId = '';
-        try {
-            taskId = String(ev?.dataTransfer?.getData?.('text/plain') || '').trim();
-        } catch (e) {}
+        const taskId = __tmGetDraggedTaskId(ev);
         if (!taskId) return;
         const task = state.flatTasks?.[taskId];
         if (!task) return;
@@ -8390,27 +10388,7 @@ async function __tmRefreshAfterWake(reason) {
         if (fromDocId && fromDocId === targetDocId) return;
         try {
             hint('🔄 正在移动任务...', 'info');
-            const topListId = await API.getFirstDirectChildListIdOfDoc(targetDocId);
-            if (topListId) {
-                await API.moveBlock(taskId, { parentID: topListId });
-            } else {
-                await API.moveBlock(taskId, { parentID: targetDocId });
-            }
-            try { await API.call('/api/sqlite/flushTransaction', {}); } catch (e) {}
-
-            try {
-                const t = state.flatTasks?.[taskId];
-                if (t) {
-                    t.root_id = targetDocId;
-                    t.docId = targetDocId;
-                    const name = state.allDocuments.find(d => d.id === targetDocId)?.name || '';
-                    if (name) {
-                        t.doc_name = name;
-                        t.docName = name;
-                    }
-                }
-            } catch (e) {}
-
+            await __tmMoveTaskToDoc(taskId, targetDocId, { silentHint: true });
             hint('✅ 任务已移动', 'success');
             await loadSelectedDocuments();
         } catch (e) {
@@ -8421,10 +10399,17 @@ async function __tmRefreshAfterWake(reason) {
     window.tmDragTaskStart = function(ev, taskId) {
         const id = String(taskId || '').trim();
         if (!id) return;
+        state.draggingTaskId = id;
         try {
             ev.dataTransfer.effectAllowed = 'move';
+            ev.dataTransfer.setData('application/x-tm-task-id', id);
             ev.dataTransfer.setData('text/plain', id);
         } catch (e) {}
+    };
+
+    window.tmDragTaskEnd = function() {
+        state.draggingTaskId = '';
+        try { __tmClearDocTabDropTarget(); } catch (e) {}
     };
 
     window.tmRowClick = function(ev, taskId) {
@@ -8468,6 +10453,8 @@ async function __tmRefreshAfterWake(reason) {
         const prevModalSnapshot = state.modal instanceof Element ? state.modal : null;
         const prevWasTimeline = !!(prevModalSnapshot && prevModalSnapshot.querySelector && prevModalSnapshot.querySelector('#tmTimelineLeftBody'));
         const prevWasCalendar = !!(prevModalSnapshot && prevModalSnapshot.querySelector && prevModalSnapshot.querySelector('#tmCalendarRoot'));
+        const prevWasKanban = !!(prevModalSnapshot && prevModalSnapshot.querySelector && prevModalSnapshot.querySelector('.tm-body.tm-body--kanban'));
+        const prevWasWhiteboard = !!(prevModalSnapshot && prevModalSnapshot.querySelector && prevModalSnapshot.querySelector('.tm-body.tm-body--whiteboard'));
         // 保存滚动位置
         let savedScrollTop = 0;
         let savedScrollLeft = 0;
@@ -8475,6 +10462,9 @@ async function __tmRefreshAfterWake(reason) {
         let savedTimelineScrollLeft = 0;
         let savedCalendarScrollTop = 0;
         let savedCalendarScrollLeft = 0;
+        let savedKanbanScrollLeft = 0;
+        let savedKanbanColScrollTopByStatus = {};
+        let savedWhiteboardSidebarScrollTop = 0;
         if (prevModalSnapshot) {
             prevModalEl = prevModalSnapshot;
             const timelineLeftBody = prevModalSnapshot.querySelector('#tmTimelineLeftBody');
@@ -8482,6 +10472,22 @@ async function __tmRefreshAfterWake(reason) {
             if (timelineLeftBody) {
                 savedTimelineScrollTop = timelineLeftBody.scrollTop;
                 if (ganttBody) savedTimelineScrollLeft = ganttBody.scrollLeft;
+            } else if (prevWasKanban) {
+                const kbBody = prevModalSnapshot.querySelector('.tm-body.tm-body--kanban');
+                if (kbBody) savedKanbanScrollLeft = Number(kbBody.scrollLeft) || 0;
+                const map = {};
+                try {
+                    prevModalSnapshot.querySelectorAll('.tm-kanban-col[data-status]').forEach((col) => {
+                        const status = String(col?.getAttribute?.('data-status') || '').trim();
+                        if (!status) return;
+                        const body = col.querySelector('.tm-kanban-col-body');
+                        map[status] = Number(body?.scrollTop) || 0;
+                    });
+                } catch (e) {}
+                savedKanbanColScrollTopByStatus = map;
+            } else if (prevWasWhiteboard) {
+                const sidebar = prevModalSnapshot.querySelector('.tm-whiteboard-sidebar');
+                if (sidebar) savedWhiteboardSidebarScrollTop = Number(sidebar.scrollTop) || 0;
             } else if (prevWasCalendar) {
                 try {
                     const root = prevModalSnapshot.querySelector('#tmCalendarRoot');
@@ -8507,6 +10513,8 @@ async function __tmRefreshAfterWake(reason) {
             state.viewScroll = state.viewScroll && typeof state.viewScroll === 'object' ? state.viewScroll : {};
             if (prevModalSnapshot) {
                 if (prevWasTimeline) state.viewScroll.timeline = { top: Number(savedTimelineScrollTop) || 0, left: Number(savedTimelineScrollLeft) || 0 };
+                else if (prevWasKanban) state.viewScroll.kanban = { left: Number(savedKanbanScrollLeft) || 0, cols: savedKanbanColScrollTopByStatus || {} };
+                else if (prevWasWhiteboard) state.viewScroll.whiteboard = { sidebarTop: Number(savedWhiteboardSidebarScrollTop) || 0 };
                 else if (prevWasCalendar) state.viewScroll.calendar = { top: Number(savedCalendarScrollTop) || 0, left: Number(savedCalendarScrollLeft) || 0 };
                 else state.viewScroll.list = { top: Number(savedScrollTop) || 0, left: Number(savedScrollLeft) || 0 };
             }
@@ -8551,6 +10559,7 @@ async function __tmRefreshAfterWake(reason) {
         const groupName = currentGroupId === 'all' ? '全部文档' : (currentGroup ? currentGroup.name : '未知分组');
         const isMobile = __tmIsMobileDevice();
         const isLandscape = !!(isMobile && (() => { try { return !!window.matchMedia?.('(orientation: landscape)')?.matches; } catch (e) { return false; } })());
+        const isDesktopNarrow = !!(!isMobile && (() => { try { return !!window.matchMedia?.('(max-width: 768px)')?.matches; } catch (e) { return false; } })());
         const kind = String(state.uiAnimKind || '').trim();
         const bodyAnimClass = (Date.now() - (Number(state.uiAnimTs) || 0) < 300)
             ? (kind === 'from-right' ? ' tm-body-anim--from-right' : kind === 'from-left' ? ' tm-body-anim--from-left' : ' tm-body-anim')
@@ -8758,6 +10767,7 @@ async function __tmRefreshAfterWake(reason) {
 
         const __tmRenderKanbanBodyHtml = () => {
             const isGloballyLocked = GlobalLock.isLocked();
+            const isAllTabsView = !(state.activeDocId && state.activeDocId !== 'all');
             const isCompact = !!SettingsStore.data.kanbanCompactMode;
             const baseKanbanW0 = Number(SettingsStore.data.kanbanColumnWidth);
             const baseKanbanW = Number.isFinite(baseKanbanW0) ? Math.max(220, Math.min(520, Math.round(baseKanbanW0))) : 320;
@@ -8943,7 +10953,7 @@ async function __tmRefreshAfterWake(reason) {
                             <span class="tm-kanban-chip" style="background-color:${esc(prMeta.color)};color:#fff;" onclick="tmPickPriority('${id}', this, event)">${esc(prMeta.label)}</span>
                             <span class="tm-kanban-chip tm-kanban-chip--muted" onclick="tmKanbanPickDate('${id}', event)" title="点击选择日期">📅 ${esc(dateTxt || '日期')}</span>
                         </div>
-                        ${docName ? `<div style="font-size:12px;color:var(--tm-secondary-text);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">📄 ${esc(docName)}</div>` : ''}
+                        ${(isAllTabsView && docName) ? `<div style="font-size:12px;color:var(--tm-secondary-text);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">📄 ${esc(docName)}</div>` : ''}
                         ${childrenHtml ? `<div class="tm-kanban-subtasks">${childrenHtml}</div>` : ''}
                     </div>
                 `;
@@ -8979,7 +10989,7 @@ async function __tmRefreshAfterWake(reason) {
                     const pid = String(task?.parentTaskId || '').trim();
                     const parentInCol = !!(pid && map.has(pid));
                     const parent = pid ? state.flatTasks[pid] : null;
-                    const parentTxt = (depthInCol > 0 && parent) ? String(parent.content || '').trim() : ((!parentInCol && parent) ? String(parent.content || '').trim() : '');
+                    const parentTxt = (!parentInCol && parent) ? String(parent.content || '').trim() : '';
                     const childList = childrenByParent.get(id) || [];
                     const collapsed = childList.length ? __tmKanbanGetCollapsedSet().has(id) : false;
                     const toggleHtml = childList.length
@@ -9134,9 +11144,725 @@ async function __tmRefreshAfterWake(reason) {
             `;
         };
 
+        const __tmRenderWhiteboardBodyHtml = () => {
+            const filtered = Array.isArray(state.filteredTasks) ? state.filteredTasks : [];
+            try { __tmUpsertWhiteboardTaskSnapshots(filtered); } catch (e) {}
+            const orderMap = new Map(filtered.map((t, i) => [String(t?.id || '').trim(), i]));
+            const getOrder = (taskId) => orderMap.get(String(taskId || '').trim()) ?? 999999;
+            const escSq = (s) => String(s || '').replace(/\\/g, '\\\\').replace(/'/g, "\\'");
+            const showDoneTasks = !!SettingsStore.data.whiteboardShowDone;
+            const statusOptionsRaw = Array.isArray(SettingsStore.data.customStatusOptions) ? SettingsStore.data.customStatusOptions : [];
+            const statusOptions = statusOptionsRaw
+                .map(o => ({ id: String(o?.id || '').trim(), name: String(o?.name || '').trim(), color: String(o?.color || '').trim() }))
+                .filter(o => o.id);
+            const todoOpt = statusOptions.find(o => o.id === 'todo') || { id: 'todo', name: '待办', color: '#757575' };
+            const currentGroupId = String(SettingsStore.data.currentGroupId || 'all').trim() || 'all';
+            const docsInOrder0 = __tmSortDocEntriesByPinned(state.taskTree || [], currentGroupId).map(d => String(d?.id || '').trim()).filter(Boolean);
+            const docNameById = new Map((state.taskTree || []).map(d => [String(d?.id || '').trim(), String(d?.name || '').trim() || '未命名文档']));
+            const snapMap = __tmGetWhiteboardCardSnapshotMap();
+            // 仅使用当前分组已加载文档，避免把其他分组/历史快照文档混入“全部页签”白板
+            const docsInOrder = docsInOrder0;
+            const detachedMap = __tmGetDetachedChildrenMap();
+            const headingLevel = String(SettingsStore.data.taskHeadingLevel || 'h2').trim() || 'h2';
+            const headingLabelMap = { h1: '一级标题', h2: '二级标题', h3: '三级标题', h4: '四级标题', h5: '五级标题', h6: '六级标题' };
+            const noHeadingLabel = `无${headingLabelMap[headingLevel] || '标题'}`;
+            const notes = Array.isArray(SettingsStore.data.whiteboardNotes) ? SettingsStore.data.whiteboardNotes : [];
+            const noteColorOptions = ['#1f2937', '#2f6fed', '#16a34a', '#d97706', '#b91c1c', '#7c3aed'];
+            const view = __tmGetWhiteboardView();
+            const posMap = { ...__tmGetWhiteboardNodePosMap() };
+            const placedMap = { ...__tmGetWhiteboardPlacedTaskMap() };
+            let posDirty = false;
+            let placedDirty = false;
+            const isDetachedTask = (taskId) => {
+                const v = detachedMap[String(taskId || '').trim()];
+                return !!(v && typeof v === 'object' && v.detached === true);
+            };
+
+            const selectedDocIds = (state.activeDocId && state.activeDocId !== 'all')
+                ? [String(state.activeDocId)]
+                : docsInOrder;
+            const isAllTabsView = !(state.activeDocId && state.activeDocId !== 'all');
+            const docIdSet = new Set(selectedDocIds);
+            const byDoc = new Map();
+            const pushDocTask = (taskLike) => {
+                if (!taskLike || typeof taskLike !== 'object') return;
+                const docId = String(taskLike?.root_id || taskLike?.docId || '').trim();
+                const id = String(taskLike?.id || '').trim();
+                if (!docId || !id || !docIdSet.has(docId)) return;
+                if (!showDoneTasks && !!taskLike?.done) return;
+                if (!byDoc.has(docId)) byDoc.set(docId, []);
+                const list = byDoc.get(docId);
+                if (list.some(x => String(x?.id || '').trim() === id)) return;
+                list.push(taskLike);
+            };
+            filtered.forEach((task) => {
+                pushDocTask(task);
+            });
+            Object.keys(snapMap || {}).forEach((id) => {
+                const snap = snapMap[id];
+                if (!snap || typeof snap !== 'object') return;
+                const docId = String(snap.docId || '').trim();
+                if (!docId || !docIdSet.has(docId)) return;
+                if (state.flatTasks?.[id]) return;
+                const snapHeadingLevel = String(snap.headingLevel || '').trim();
+                const useSnapHeading = snapHeadingLevel ? (snapHeadingLevel === headingLevel) : (headingLevel === 'h2');
+                pushDocTask({
+                    id: String(id || '').trim(),
+                    content: String(snap.content || '').trim() || '(无内容)',
+                    root_id: docId,
+                    docId,
+                    parentTaskId: String(snap.parentTaskId || '').trim(),
+                    h2: useSnapHeading ? String(snap.h2 || '').trim() : '',
+                    h2Id: useSnapHeading ? String(snap.h2Id || '').trim() : '',
+                    h2Path: useSnapHeading ? String(snap.h2Path || '').trim() : '',
+                    h2Sort: useSnapHeading ? Number(snap.h2Sort) : Number.NaN,
+                    h2Created: useSnapHeading ? String(snap.h2Created || '').trim() : '',
+                    h2Rank: useSnapHeading ? Number(snap.h2Rank) : Number.NaN,
+                    startDate: String(snap.startDate || '').trim(),
+                    completionTime: String(snap.completionTime || '').trim(),
+                    done: !!snap.done,
+                    __tmGhost: true,
+                });
+            });
+            Object.keys(placedMap).forEach((taskId) => {
+                const id = String(taskId || '').trim();
+                if (!id || !placedMap[id]) return;
+                if (state.flatTasks?.[id]) {
+                    pushDocTask(state.flatTasks[id]);
+                    return;
+                }
+                const snap = snapMap[id];
+                if (!snap || typeof snap !== 'object') return;
+                const snapHeadingLevel = String(snap.headingLevel || '').trim();
+                const useSnapHeading = snapHeadingLevel ? (snapHeadingLevel === headingLevel) : (headingLevel === 'h2');
+                pushDocTask({
+                    id,
+                    content: String(snap.content || '').trim() || '(无内容)',
+                    root_id: String(snap.docId || '').trim(),
+                    docId: String(snap.docId || '').trim(),
+                    parentTaskId: String(snap.parentTaskId || '').trim(),
+                    h2: useSnapHeading ? String(snap.h2 || '').trim() : '',
+                    h2Id: useSnapHeading ? String(snap.h2Id || '').trim() : '',
+                    h2Path: useSnapHeading ? String(snap.h2Path || '').trim() : '',
+                    h2Sort: useSnapHeading ? Number(snap.h2Sort) : Number.NaN,
+                    h2Created: useSnapHeading ? String(snap.h2Created || '').trim() : '',
+                    h2Rank: useSnapHeading ? Number(snap.h2Rank) : Number.NaN,
+                    startDate: String(snap.startDate || '').trim(),
+                    completionTime: String(snap.completionTime || '').trim(),
+                    done: !!snap.done,
+                    __tmGhost: true,
+                });
+            });
+            Object.keys(placedMap).forEach((id) => {
+                const tid = String(id || '').trim();
+                const hasTask = !!(tid && (state.flatTasks?.[tid] || snapMap?.[tid]));
+                if (!tid || !hasTask) {
+                    delete placedMap[id];
+                    placedDirty = true;
+                }
+            });
+            if (state.whiteboardSelectedTaskId) {
+                const selId = String(state.whiteboardSelectedTaskId || '').trim();
+                // 子任务通常不会单独标记为 placed，不应因此丢失选中；仅在任务不存在时清理选中态
+                if (selId && !state.flatTasks?.[selId] && !snapMap?.[selId]) {
+                    state.whiteboardSelectedTaskId = '';
+                }
+            }
+            // 不在这里按完成状态强制清空选中，避免点击已完成卡片后选中态立即丢失。
+            // 仅当任务真实不存在时（见上方分支）才清理选中态。
+
+            const ensureNodePos = (task, docId, idx) => {
+                const id = String(task?.id || '').trim();
+                const did = String(docId || '').trim();
+                if (!id || !did) return { x: 24, y: 56 };
+                const existing = posMap[id];
+                if (existing && typeof existing === 'object' && String(existing.docId || '').trim() === did) {
+                    const ex = Number(existing.x);
+                    const ey = Number(existing.y);
+                    if (Number.isFinite(ex) && Number.isFinite(ey)) return { x: ex, y: ey };
+                }
+                const x = 24 + (Number(idx) % 10) * 300;
+                const y = 56 + Math.floor(Number(idx) / 10) * 220;
+                posMap[id] = { docId: did, x, y, updatedAt: String(Date.now()) };
+                posDirty = true;
+                return { x, y };
+            };
+
+            const allView = !(state.activeDocId && state.activeDocId !== 'all');
+            const docsHtml = selectedDocIds.map((docIdRaw) => {
+                const docId = String(docIdRaw || '').trim();
+                if (!docId) return '';
+                const docTasks0 = (byDoc.get(docId) || []).slice().sort((a, b) => getOrder(a?.id) - getOrder(b?.id));
+                const seenDocTask = new Set();
+                const docTasks = docTasks0.filter((t) => {
+                    const id = String(t?.id || '').trim();
+                    if (!id || seenDocTask.has(id)) return false;
+                    seenDocTask.add(id);
+                    return true;
+                });
+                Object.keys(placedMap).forEach((taskId) => {
+                    const tid = String(taskId || '').trim();
+                    if (!tid || !placedMap[tid]) return;
+                    const pos = posMap?.[tid];
+                    const posDocId = String(pos?.docId || '').trim();
+                    if (!posDocId || posDocId !== docId) return;
+                    if (seenDocTask.has(tid)) return;
+                    const taskObj = state.flatTasks?.[tid] || (snapMap?.[tid] ? {
+                        id: tid,
+                        content: String(snapMap[tid]?.content || '').trim() || '(无内容)',
+                        root_id: String(snapMap[tid]?.docId || '').trim(),
+                        docId: String(snapMap[tid]?.docId || '').trim(),
+                        parentTaskId: String(snapMap[tid]?.parentTaskId || '').trim(),
+                        h2: String(snapMap[tid]?.h2 || '').trim(),
+                        startDate: String(snapMap[tid]?.startDate || '').trim(),
+                        completionTime: String(snapMap[tid]?.completionTime || '').trim(),
+                        done: !!snapMap[tid]?.done,
+                        __tmGhost: true,
+                    } : null);
+                    if (!taskObj) return;
+                    seenDocTask.add(tid);
+                    docTasks.push(taskObj);
+                });
+                const taskById = new Map(docTasks.map(t => [String(t?.id || '').trim(), t]).filter(([k]) => !!k));
+                const childMap = new Map();
+                docTasks.forEach((t) => {
+                    const id = String(t?.id || '').trim();
+                    const pid = String(t?.parentTaskId || '').trim();
+                    if (!id || !pid || !taskById.has(pid) || isDetachedTask(id)) return;
+                    if (!childMap.has(pid)) childMap.set(pid, []);
+                    childMap.get(pid).push(id);
+                });
+                childMap.forEach((arr) => arr.sort((a, b) => getOrder(a) - getOrder(b)));
+                const rootIds = docTasks
+                    .map(t => String(t?.id || '').trim())
+                    .filter((id) => {
+                        if (!id || !placedMap[id]) return false;
+                        const t = taskById.get(id);
+                        if (!t) return false;
+                        const pid = String(t?.parentTaskId || '').trim();
+                        if (isDetachedTask(id)) return true;
+                        return !pid || !taskById.has(pid) || !placedMap[pid];
+                    })
+                    .sort((a, b) => getOrder(a) - getOrder(b));
+                const rootSet = new Set(rootIds);
+                const links = __tmGetAllTaskLinks({ docId, includeAuto: true });
+                const indeg = new Map(rootIds.map(id => [id, 0]));
+                const adj = new Map(rootIds.map(id => [id, []]));
+                const seenEdge = new Set();
+                links.forEach((ln) => {
+                    const from = String(ln?.from || '').trim();
+                    const to = String(ln?.to || '').trim();
+                    if (!rootSet.has(from) || !rootSet.has(to) || from === to) return;
+                    const key = `${from}->${to}`;
+                    if (seenEdge.has(key)) return;
+                    seenEdge.add(key);
+                    adj.get(from).push(to);
+                    indeg.set(to, (indeg.get(to) || 0) + 1);
+                });
+                const queue = rootIds.filter(id => (indeg.get(id) || 0) === 0).sort((a, b) => getOrder(a) - getOrder(b));
+                const orderedRoots = [];
+                while (queue.length) {
+                    const id = queue.shift();
+                    if (!id) continue;
+                    if (orderedRoots.includes(id)) continue;
+                    orderedRoots.push(id);
+                    (adj.get(id) || []).forEach((to) => {
+                        const n = (indeg.get(to) || 0) - 1;
+                        indeg.set(to, n);
+                        if (n === 0) {
+                            queue.push(to);
+                            queue.sort((a, b) => getOrder(a) - getOrder(b));
+                        }
+                    });
+                }
+                rootIds
+                    .filter(id => !orderedRoots.includes(id))
+                    .sort((a, b) => getOrder(a) - getOrder(b))
+                    .forEach(id => orderedRoots.push(id));
+
+                orderedRoots.forEach((id, idx) => {
+                    const t = taskById.get(id);
+                    ensureNodePos(t, docId, idx);
+                });
+                const docNotes = notes.filter(n => String(n?.docId || '').trim() === docId);
+                const framePlan = (() => {
+                    if (!allView) return { offsetX: 0, offsetY: 0, w: 0, h: 0, empty: false };
+                    const CARD_W = 320;
+                    const CARD_H = 220;
+                    const NOTE_W = 280;
+                    const NOTE_H = 120;
+                    const PAD = 32;
+                    let minX = Infinity;
+                    let minY = Infinity;
+                    let maxX = -Infinity;
+                    let maxY = -Infinity;
+                    orderedRoots.forEach((rid) => {
+                        const p = posMap[rid];
+                        if (!p || String(p?.docId || '').trim() !== docId) return;
+                        const x = Number(p.x);
+                        const y = Number(p.y);
+                        if (!Number.isFinite(x) || !Number.isFinite(y)) return;
+                        minX = Math.min(minX, x);
+                        minY = Math.min(minY, y);
+                        maxX = Math.max(maxX, x + CARD_W);
+                        maxY = Math.max(maxY, y + CARD_H);
+                    });
+                    docNotes.forEach((n, idx) => {
+                        const x = Number.isFinite(Number(n?.x)) ? Number(n.x) : 24;
+                        const y = Number.isFinite(Number(n?.y)) ? Number(n.y) : (24 + idx * 42);
+                        minX = Math.min(minX, x);
+                        minY = Math.min(minY, y);
+                        maxX = Math.max(maxX, x + NOTE_W);
+                        maxY = Math.max(maxY, y + NOTE_H);
+                    });
+                    if (!Number.isFinite(minX) || !Number.isFinite(minY) || !Number.isFinite(maxX) || !Number.isFinite(maxY)) {
+                        return { offsetX: 0, offsetY: 0, w: 1000, h: 1000, empty: true };
+                    }
+                    // Always normalize doc-local coordinates to its own frame,
+                    // so historical large absolute positions won't inflate frame size.
+                    const offsetX = PAD - minX;
+                    const offsetY = PAD - minY;
+                    const spanW = Math.max(0, maxX - minX);
+                    const spanH = Math.max(0, maxY - minY);
+                    const w = Math.max(520, Math.ceil(spanW + PAD * 2));
+                    const h = Math.max(220, Math.ceil(spanH + PAD * 2));
+                    return { offsetX, offsetY, w, h, empty: false };
+                })();
+
+                const renderTaskNode = (id, depth = 0) => {
+                    const task = taskById.get(String(id || '').trim());
+                    if (!task) return '';
+                    const tid = String(task.id || '').trim();
+                    const children = (childMap.get(tid) || []).filter((cid) => {
+                        const c = String(cid || '').trim();
+                        return !!c && taskById.has(c) && !isDetachedTask(c);
+                    });
+                    const isGhost = !!task.__tmGhost;
+                    const selected = String(state.whiteboardSelectedTaskId || '').trim() === tid;
+                    const dateTxt = __tmFormatTaskTime(String(task?.completionTime || task?.startDate || '').trim());
+                    const opBtn = !isGhost
+                        ? `<button class="tm-kanban-more" onclick="tmOpenTaskDetail('${escSq(tid)}', event)" title="任务详情">⋯</button>`
+                        : '';
+                    const collapsed = children.length ? __tmKanbanGetCollapsedSet().has(tid) : false;
+                    const linkStats = __tmGetTaskLinkStats(tid, { docId, includeAuto: false });
+                    const hasTaskLinks = (Number(linkStats?.incoming || 0) + Number(linkStats?.outgoing || 0)) > 0;
+                    const toggleHtml = children.length
+                        ? `<button class="tm-kanban-toggle" onclick="tmWhiteboardToggleTaskCollapse('${escSq(tid)}', event)" title="${collapsed ? '展开子任务' : '折叠子任务'}">${collapsed ? '▸' : '▾'}</button>`
+                        : '';
+                    const collapseProxyDot = (collapsed && children.length)
+                        ? `<span class="tm-task-link-dot tm-whiteboard-collapse-proxy-dot" title="折叠子任务连线汇聚点"></span>`
+                        : '';
+                    const childrenHtml = children.length
+                        ? (collapsed ? '' : `<div class="tm-whiteboard-subtasks">${children.map(cid => renderTaskNode(cid, depth + 1)).join('')}</div>`)
+                        : '';
+                    const parentCls = children.length ? ' tm-whiteboard-node--parent' : '';
+                    const linkCls = hasTaskLinks ? ' tm-whiteboard-node--has-links' : '';
+                    const cls = depth === 0
+                        ? `tm-whiteboard-card tm-whiteboard-node tm-whiteboard-node--root${parentCls}${linkCls}${selected ? ' tm-whiteboard-card--selected' : ''}${isGhost ? ' tm-whiteboard-card--ghost' : ''}`
+                        : `tm-whiteboard-subcard tm-whiteboard-node tm-whiteboard-node--sub${parentCls}${linkCls}${selected ? ' tm-whiteboard-card--selected' : ''}`;
+                    const rootPos = depth === 0 ? (posMap[tid] || { x: 24, y: 56 }) : null;
+                    const rootStyle = depth === 0
+                        ? (() => {
+                            const px = Math.round((Number(rootPos.x) || 24) + (allView ? framePlan.offsetX : 0));
+                            const py = Math.round((Number(rootPos.y) || 56) + (allView ? framePlan.offsetY : 0));
+                            return ` data-x="${px}" data-y="${py}" style="left:${px}px;top:${py}px;"`;
+                        })()
+                        : '';
+                    const nodeMouse = ` onmousedown="tmWhiteboardCardMouseDown(event, '${escSq(tid)}', '${escSq(docId)}')"`;
+                    const selectClick = ` onclick="tmWhiteboardSelectTask('${escSq(tid)}', event)"`;
+                    const deleteTitle = isGhost ? '移除快照卡片并彻底移除记录（不进入侧边栏）' : '移除卡片并回到侧栏';
+                    const parentId = __tmResolveWhiteboardTaskParentId(tid);
+                    const parentTask = parentId ? (state.flatTasks?.[parentId] || (snapMap?.[parentId] ? { content: String(snapMap[parentId]?.content || '') } : null)) : null;
+                    const parentText = String(parentTask?.content || '').trim();
+                    const detachedOrDetachedLike = !!parentId && (
+                        isDetachedTask(tid)
+                        || (!!placedMap[tid] && !!placedMap[parentId] && rootSet.has(tid))
+                    );
+                    const canMoveBack = selected && !!parentId && detachedOrDetachedLike;
+                    const toolsHtml = selected ? `
+                        <div class="tm-whiteboard-card-tools">
+                            <button class="tm-btn tm-btn-danger" style="padding:2px 8px;font-size:12px;" onclick="tmWhiteboardDeleteCard('${escSq(tid)}', '${escSq(docId)}', event)" title="${esc(deleteTitle)}">移除</button>
+                            ${canMoveBack ? `<button class="tm-btn tm-btn-info" style="padding:2px 8px;font-size:12px;" onclick="tmWhiteboardMoveBackToParent('${escSq(tid)}', '${escSq(docId)}', event)" title="移回父任务">移回父任务</button>` : ''}
+                        </div>
+                    ` : '';
+                    const ghostTip = isGhost ? `<span class="tm-kanban-chip tm-kanban-chip--muted" style="cursor:default;">快照</span>` : '';
+                    const st = String(task?.customStatus || '').trim() || 'todo';
+                    const opt = statusOptions.find(o => o.id === st) || (st === 'todo' ? todoOpt : { id: st, name: st, color: '#757575' });
+                    const pr = String(task?.priority || '').toLowerCase();
+                    const prMeta = pr === 'high'
+                        ? { label: '高', color: '#ea4335' }
+                        : pr === 'medium'
+                            ? { label: '中', color: '#f9ab00' }
+                            : pr === 'low'
+                                ? { label: '低', color: '#34a853' }
+                                : { label: '无', color: '#9aa0a6' };
+                    const editableMeta = !isGhost;
+                    const statusChip = task?.done
+                        ? `<span class="tm-kanban-chip tm-kanban-chip--muted" style="cursor:default;">完成</span>`
+                        : `<span class="tm-kanban-chip" style="background-color:${esc(opt.color || '#757575')};color:#fff;cursor:${editableMeta ? 'pointer' : 'default'};" ${editableMeta ? `onclick="tmWhiteboardEditStatus('${escSq(tid)}', this, event)"` : ''}>${esc(opt.name || '')}</span>`;
+                    return `
+                        <div class="${cls}" data-task-id="${esc(tid)}" data-doc-id="${esc(docId)}"${rootStyle}${nodeMouse}${selectClick} oncontextmenu="tmShowTaskContextMenu(event, '${escSq(tid)}')">
+                            ${toolsHtml}
+                            <span class="tm-task-link-dot tm-task-link-dot--in${state.whiteboardLinkFromTaskId === tid ? ' tm-task-link-dot--active' : ''}" draggable="true" onmousedown="tmTaskLinkDotPressStart(event, '${escSq(tid)}', '${escSq(docId)}')" ondragstart="tmTaskLinkDotDragStart(event, '${escSq(tid)}', '${escSq(docId)}')" ondragend="tmTaskLinkDotDragEnd(event)" ondragover="tmTaskLinkDotDragOver(event, '${escSq(tid)}', '${escSq(docId)}')" ondrop="tmTaskLinkDotDrop(event, '${escSq(tid)}', '${escSq(docId)}')" title="连接输入点"></span>
+                            <span class="tm-task-link-dot tm-task-link-dot--out${state.whiteboardLinkFromTaskId === tid ? ' tm-task-link-dot--active' : ''}" draggable="true" onmousedown="tmTaskLinkDotPressStart(event, '${escSq(tid)}', '${escSq(docId)}')" ondragstart="tmTaskLinkDotDragStart(event, '${escSq(tid)}', '${escSq(docId)}')" ondragend="tmTaskLinkDotDragEnd(event)" ondragover="tmTaskLinkDotDragOver(event, '${escSq(tid)}', '${escSq(docId)}')" ondrop="tmTaskLinkDotDrop(event, '${escSq(tid)}', '${escSq(docId)}')" title="连接输出点"></span>
+                            ${collapseProxyDot}
+                            <div class="tm-whiteboard-card-head">
+                                ${toggleHtml}
+                                <input class="tm-task-checkbox ${GlobalLock.isLocked() ? 'tm-operating' : ''}" type="checkbox" ${task?.done ? 'checked' : ''} ${(GlobalLock.isLocked() || isGhost) ? 'disabled' : ''} ${isGhost ? 'title="快照任务，当前不可直接勾选"' : ''} onmousedown="event.stopPropagation()" onclick="event.stopPropagation()" onchange="tmSetDone('${escSq(tid)}', this.checked, event)">
+                                <div class="tm-whiteboard-card-title ${task?.done ? 'tm-task-done' : ''}">
+                                    <span class="tm-task-content-clickable" onclick="tmJumpToTask('${escSq(tid)}', event)">${esc(String(task?.content || '').trim() || '(无内容)')}</span>
+                                </div>
+                                ${opBtn}
+                            </div>
+                            ${(detachedOrDetachedLike && parentText) ? `<div style="font-size:12px;color:var(--tm-secondary-text);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;margin-bottom:4px;" title="${esc(parentText)}"><span>父任务：</span><span style="font-weight:800;color:var(--tm-text-color);">${esc(parentText)}</span></div>` : ''}
+                            <div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap;">
+                                ${statusChip}
+                                <span class="tm-kanban-chip" style="background-color:${esc(prMeta.color)};color:#fff;cursor:${editableMeta ? 'pointer' : 'default'};" ${editableMeta ? `onclick="tmWhiteboardEditPriority('${escSq(tid)}', this, event)"` : ''}>${esc(prMeta.label)}</span>
+                                <span class="tm-kanban-chip tm-kanban-chip--muted" style="cursor:${editableMeta ? 'pointer' : 'default'};" ${editableMeta ? `onclick="tmWhiteboardEditDate('${escSq(tid)}', event)"` : ''} title="${editableMeta ? '点击选择日期' : ''}">📅 ${esc(dateTxt || '日期')}</span>
+                                ${ghostTip}
+                            </div>
+                            ${childrenHtml}
+                        </div>
+                    `;
+                };
+
+                const cardsHtml = orderedRoots.map((rid) => renderTaskNode(rid, 0)).join('');
+                let maxX = 0;
+                let maxY = 0;
+                orderedRoots.forEach((rid) => {
+                    const p = posMap[rid];
+                    if (!p || String(p?.docId || '').trim() !== docId) return;
+                    const x = Number(p.x);
+                    const y = Number(p.y);
+                    if (Number.isFinite(x)) maxX = Math.max(maxX, x);
+                    if (Number.isFinite(y)) maxY = Math.max(maxY, y);
+                });
+                const frameSize = __tmGetWhiteboardDocFrameSize(docId);
+                const hasManualSize = false;
+                const autoBoardH = allView ? framePlan.h : (maxY + 230);
+                const autoBoardW = allView ? framePlan.w : (maxX + 340);
+                let boardH = hasManualSize
+                    ? Math.max(220, Number(frameSize?.h) || 0)
+                    : (allView ? Math.max(220, autoBoardH) : Math.max(300, autoBoardH));
+                let boardW = hasManualSize
+                    ? Math.max(520, Number(frameSize?.w) || 0)
+                    : (allView ? Math.max(520, autoBoardW) : Math.max(1000, autoBoardW));
+                const noCardsAndNotes = !!framePlan.empty;
+                if (allView && noCardsAndNotes) {
+                    boardW = 500;
+                    boardH = 100;
+                }
+                // 单文档白板不应受文档框尺寸限制：统一扩展为大画布，避免形成“方框限制区域”
+                if (!allView) {
+                    boardW = Math.max(boardW, 12000);
+                    boardH = Math.max(boardH, 8000);
+                }
+                const cardEmptyHtml = cardsHtml || `<div style="position:absolute;inset:0;display:flex;align-items:center;justify-content:center;color:var(--tm-secondary-text);font-size:14px;">无任务</div>`;
+                if (!allView) {
+                    return `
+                        <section class="tm-whiteboard-doc" data-doc-id="${esc(docId)}" style="border:none;background:transparent;">
+                            <div class="tm-whiteboard-doc-body" data-doc-id="${esc(docId)}" style="height:${Math.round(boardH)}px;width:${Math.round(boardW)}px;" ondragover="tmWhiteboardBoardDragOver(event)" ondrop="tmWhiteboardBoardDrop(event, '${escSq(docId)}')">
+                                <svg class="tm-whiteboard-edges" aria-hidden="true"></svg>
+                                ${docNotes.map((n, idx) => {
+                                    const nid = String(n?.id || '').trim();
+                                    const nx0 = Number.isFinite(Number(n?.x)) ? Number(n.x) : 24;
+                                    const ny0 = Number.isFinite(Number(n?.y)) ? Number(n.y) : (24 + idx * 42);
+                                    const nx = Math.round(nx0 + (allView ? framePlan.offsetX : 0));
+                                    const ny = Math.round(ny0 + (allView ? framePlan.offsetY : 0));
+                                    const selected = String(state.whiteboardSelectedNoteId || '').trim() === nid;
+                                    const noteColor = __tmNormalizeWhiteboardNoteColor(n?.color) || '';
+                                    const noteFont = __tmNormalizeWhiteboardNoteFontSize(n?.fontSize);
+                                    const noteBold = __tmNormalizeWhiteboardNoteBold(n?.bold);
+                                    const noteWidth = __tmNormalizeWhiteboardNoteWidth(n?.width);
+                                    const noteStyle = `${noteColor ? `color:${noteColor};` : ''}font-size:${noteFont}px;font-weight:${noteBold ? '700' : '400'};${noteWidth > 0 ? `width:${noteWidth}px;white-space:pre-wrap;overflow-wrap:anywhere;` : 'white-space:pre;overflow-wrap:normal;'}`;
+                                    const toolsHtml = selected
+                                        ? `<div class="tm-whiteboard-note-tools">
+                                            <button class="tm-btn ${noteBold ? 'tm-btn-primary' : 'tm-btn-secondary'}" style="padding:2px 8px;font-size:12px;font-weight:700;" onclick="tmWhiteboardToggleNoteBold('${escSq(nid)}', event)" title="加粗">B</button>
+                                            <button class="tm-btn tm-btn-info" style="padding:2px 6px;font-size:12px;" onclick="tmWhiteboardAdjustNoteFontSize('${escSq(nid)}', -1, event)" title="减小字号">A-</button>
+                                            <button class="tm-btn tm-btn-info" style="padding:2px 6px;font-size:12px;" onclick="tmWhiteboardAdjustNoteFontSize('${escSq(nid)}', 1, event)" title="增大字号">A+</button>
+                                            ${noteColorOptions.map((c) => `<button class="tm-btn" style="padding:0;width:14px;height:14px;min-width:14px;border-radius:50%;background:${c};border:${noteColor === c ? '2px solid var(--tm-primary-color)' : '1px solid var(--tm-border-color)'};" onclick="tmWhiteboardSetNoteColor('${escSq(nid)}', '${escSq(c)}', event)" title="文字颜色"></button>`).join('')}
+                                            <button class="tm-btn tm-btn-danger" style="padding:2px 8px;font-size:12px;" onclick="tmWhiteboardDeleteNote('${escSq(nid)}', event)" title="移除文本">移除</button>
+                                        </div>`
+                                        : '';
+                                    const resizeHtml = selected ? `<span class="tm-whiteboard-note-resize" onmousedown="tmWhiteboardNoteResizeStart(event, '${escSq(nid)}', '${escSq(docId)}')" title="拖拽调节字号"></span><span class="tm-whiteboard-note-width-resize" onmousedown="tmWhiteboardNoteResizeWidthStart(event, '${escSq(nid)}', '${escSq(docId)}')" title="拖拽调节文本框宽度"></span>` : '';
+                                    return `<div class="tm-whiteboard-note${selected ? ' tm-whiteboard-note--selected' : ''}" data-note-id="${esc(nid)}" data-doc-id="${esc(docId)}" style="position:absolute;left:${nx}px;top:${ny}px;z-index:4;${noteStyle}" onclick="tmWhiteboardNoteClick('${escSq(nid)}', event)" onmousedown="tmWhiteboardNoteMouseDown(event, '${escSq(nid)}', '${escSq(docId)}')" ondblclick="tmWhiteboardEditNote('${escSq(nid)}', '${escSq(docId)}', event)" title="拖动便签位置，双击编辑">${toolsHtml}${esc(String(n?.text || '').trim())}${resizeHtml}</div>`;
+                                }).join('')}
+                                ${cardEmptyHtml}
+                            </div>
+                        </section>
+                    `;
+                }
+                return `
+                    <section class="tm-whiteboard-doc" data-doc-id="${esc(docId)}" style="width:${Math.round(boardW)}px;min-width:${Math.round(boardW)}px;">
+                        <header class="tm-whiteboard-doc-head" onclick="tmSwitchDoc('${escSq(docId)}')" title="切换到该文档页签" style="cursor:pointer;">
+                            <span>📄 ${esc(docNameById.get(docId) || '未知文档')}</span>
+                            <span class="tm-badge tm-badge--count">${docTasks.length}</span>
+                        </header>
+                        <div class="tm-whiteboard-doc-body" data-doc-id="${esc(docId)}" data-frame-offset-x="${allView ? Math.round(framePlan.offsetX) : 0}" data-frame-offset-y="${allView ? Math.round(framePlan.offsetY) : 0}" style="height:${Math.round(boardH)}px;min-height:${Math.round(boardH)}px;width:${Math.round(boardW)}px;min-width:${Math.round(boardW)}px;" ondragover="tmWhiteboardBoardDragOver(event)" ondrop="tmWhiteboardBoardDrop(event, '${escSq(docId)}')">
+                            <svg class="tm-whiteboard-edges" aria-hidden="true"></svg>
+                            ${docNotes.map((n, idx) => {
+                                const nid = String(n?.id || '').trim();
+                                const nx0 = Number.isFinite(Number(n?.x)) ? Number(n.x) : 24;
+                                const ny0 = Number.isFinite(Number(n?.y)) ? Number(n.y) : (24 + idx * 42);
+                                const nx = Math.round(nx0 + (allView ? framePlan.offsetX : 0));
+                                const ny = Math.round(ny0 + (allView ? framePlan.offsetY : 0));
+                                const selected = String(state.whiteboardSelectedNoteId || '').trim() === nid;
+                                const noteColor = __tmNormalizeWhiteboardNoteColor(n?.color) || '';
+                                const noteFont = __tmNormalizeWhiteboardNoteFontSize(n?.fontSize);
+                                const noteBold = __tmNormalizeWhiteboardNoteBold(n?.bold);
+                                const noteWidth = __tmNormalizeWhiteboardNoteWidth(n?.width);
+                                const noteStyle = `${noteColor ? `color:${noteColor};` : ''}font-size:${noteFont}px;font-weight:${noteBold ? '700' : '400'};${noteWidth > 0 ? `width:${noteWidth}px;white-space:pre-wrap;overflow-wrap:anywhere;` : 'white-space:pre;overflow-wrap:normal;'}`;
+                                const toolsHtml = selected
+                                    ? `<div class="tm-whiteboard-note-tools">
+                                        <button class="tm-btn ${noteBold ? 'tm-btn-primary' : 'tm-btn-secondary'}" style="padding:2px 8px;font-size:12px;font-weight:700;" onclick="tmWhiteboardToggleNoteBold('${escSq(nid)}', event)" title="加粗">B</button>
+                                        <button class="tm-btn tm-btn-info" style="padding:2px 6px;font-size:12px;" onclick="tmWhiteboardAdjustNoteFontSize('${escSq(nid)}', -1, event)" title="减小字号">A-</button>
+                                        <button class="tm-btn tm-btn-info" style="padding:2px 6px;font-size:12px;" onclick="tmWhiteboardAdjustNoteFontSize('${escSq(nid)}', 1, event)" title="增大字号">A+</button>
+                                        ${noteColorOptions.map((c) => `<button class="tm-btn" style="padding:0;width:14px;height:14px;min-width:14px;border-radius:50%;background:${c};border:${noteColor === c ? '2px solid var(--tm-primary-color)' : '1px solid var(--tm-border-color)'};" onclick="tmWhiteboardSetNoteColor('${escSq(nid)}', '${escSq(c)}', event)" title="文字颜色"></button>`).join('')}
+                                        <button class="tm-btn tm-btn-danger" style="padding:2px 8px;font-size:12px;" onclick="tmWhiteboardDeleteNote('${escSq(nid)}', event)" title="移除文本">移除</button>
+                                    </div>`
+                                    : '';
+                                const resizeHtml = selected ? `<span class="tm-whiteboard-note-resize" onmousedown="tmWhiteboardNoteResizeStart(event, '${escSq(nid)}', '${escSq(docId)}')" title="拖拽调节字号"></span><span class="tm-whiteboard-note-width-resize" onmousedown="tmWhiteboardNoteResizeWidthStart(event, '${escSq(nid)}', '${escSq(docId)}')" title="拖拽调节文本框宽度"></span>` : '';
+                                return `<div class="tm-whiteboard-note${selected ? ' tm-whiteboard-note--selected' : ''}" data-note-id="${esc(nid)}" data-doc-id="${esc(docId)}" style="position:absolute;left:${nx}px;top:${ny}px;z-index:4;${noteStyle}" onclick="tmWhiteboardNoteClick('${escSq(nid)}', event)" onmousedown="tmWhiteboardNoteMouseDown(event, '${escSq(nid)}', '${escSq(docId)}')" ondblclick="tmWhiteboardEditNote('${escSq(nid)}', '${escSq(docId)}', event)" title="拖动便签位置，双击编辑">${toolsHtml}${esc(String(n?.text || '').trim())}${resizeHtml}</div>`;
+                            }).join('')}
+                            ${cardEmptyHtml}
+                        </div>
+                    </section>
+                `;
+            }).join('');
+
+            const poolSourceDocIds = allView
+                ? selectedDocIds.filter((id) => /inbox/i.test(String(docNameById.get(String(id || '').trim()) || ''))
+                    || /收件箱|收集箱|收件/.test(String(docNameById.get(String(id || '').trim()) || ''))
+                )
+                : selectedDocIds;
+            const poolSelectedSet = new Set((Array.isArray(state.whiteboardPoolSelectedTaskIds) ? state.whiteboardPoolSelectedTaskIds : []).map((x) => String(x || '').trim()).filter(Boolean));
+            const poolHtml = poolSourceDocIds.map((docIdRaw) => {
+                const docId = String(docIdRaw || '').trim();
+                if (!docId) return '';
+                const docTasks0 = (byDoc.get(docId) || []).slice().sort((a, b) => getOrder(a?.id) - getOrder(b?.id));
+                const map = new Map();
+                docTasks0.forEach((t) => {
+                    const id = String(t?.id || '').trim();
+                    if (!id || map.has(id)) return;
+                    map.set(id, t);
+                });
+                const hasPlacedAncestor = (taskId) => {
+                    let cur = String(taskId || '').trim();
+                    const seen = new Set();
+                    while (cur && !seen.has(cur)) {
+                        seen.add(cur);
+                        const t = map.get(cur);
+                        const pid = String(t?.parentTaskId || '').trim();
+                        if (!pid) return false;
+                        if (placedMap[pid]) return true;
+                        cur = pid;
+                    }
+                    return false;
+                };
+                const listMap = new Map();
+                const addToList = (t, locked = false) => {
+                    const id = String(t?.id || '').trim();
+                    if (!id) return;
+                    if (!showDoneTasks && !!t?.done) return;
+                    const prev = listMap.get(id);
+                    if (prev) {
+                        if (!prev.__tmPoolLocked && locked) return;
+                        if (prev.__tmPoolLocked && !locked) {
+                            const next = { ...(prev || {}), __tmPoolLocked: false };
+                            listMap.set(id, next);
+                        }
+                        return;
+                    }
+                    listMap.set(id, { ...(t || {}), __tmPoolLocked: !!locked });
+                };
+                Array.from(map.values()).forEach((t) => {
+                    const id = String(t?.id || '').trim();
+                    if (!id) return;
+                    const placed = !!placedMap[id];
+                    const detached = isDetachedTask(id);
+                    const hiddenByPlacedAncestor = hasPlacedAncestor(id);
+                    if (!placed && !hiddenByPlacedAncestor) {
+                        addToList(t, false);
+                        return;
+                    }
+                    if (!placed && hiddenByPlacedAncestor) {
+                        // 父任务在白板时，只有“已移出父任务(detached)”的子任务才应回到侧栏显示。
+                        if (!detached) return;
+                        addToList(t, false);
+                        let cur = id;
+                        const seen = new Set();
+                        while (cur && !seen.has(cur)) {
+                            seen.add(cur);
+                            const tt = map.get(cur);
+                            const pid = String(tt?.parentTaskId || '').trim();
+                            if (!pid) break;
+                            const pt = map.get(pid);
+                            if (pt && placedMap[pid]) addToList(pt, true);
+                            cur = pid;
+                        }
+                    }
+                });
+                const list = Array.from(listMap.values());
+                if (!list.length) return '';
+                const groups = new Map();
+                list.forEach((t) => {
+                    const b = __tmGetDocHeadingBucket(t, noHeadingLabel);
+                    if (!groups.has(b.key)) groups.set(b.key, { label: b.label, items: [] });
+                    groups.get(b.key).items.push(t);
+                });
+                const groupKeys0 = __tmBuildDocHeadingBuckets(list, noHeadingLabel).map((b) => b.key);
+                const groupKeys = groupKeys0.concat(
+                    Array.from(groups.keys()).filter((k) => !groupKeys0.includes(k))
+                );
+                return `
+                    <section class="tm-whiteboard-pool-doc">
+                        <header class="tm-whiteboard-pool-doc-head">📄 ${esc(docNameById.get(docId) || '未知文档')} · ${list.length}</header>
+                        <div class="tm-whiteboard-pool-list">
+                            ${groupKeys.map((gk) => {
+                                const g = groups.get(gk) || { label: noHeadingLabel, items: [] };
+                                const items = (Array.isArray(g.items) ? g.items : []).slice().sort((a, b) => getOrder(a?.id) - getOrder(b?.id));
+                                const groupLabel = String(g.label || noHeadingLabel);
+                                const h2DragTaskIds = items
+                                    .map((t) => String(t?.id || '').trim())
+                                    .filter((tid) => {
+                                        if (!tid) return false;
+                                        const tt = map.get(tid) || null;
+                                        if (tt && tt.__tmPoolLocked) return false;
+                                        return true;
+                                    });
+                                const groupTaskMap = new Map();
+                                items.forEach((t) => {
+                                    const id = String(t?.id || '').trim();
+                                    if (!id || groupTaskMap.has(id)) return;
+                                    groupTaskMap.set(id, t);
+                                });
+                                const groupChildrenMap = new Map();
+                                items.forEach((t) => {
+                                    const id = String(t?.id || '').trim();
+                                    const pid = String(t?.parentTaskId || '').trim();
+                                    if (!id || !pid || !groupTaskMap.has(pid)) return;
+                                    if (!groupChildrenMap.has(pid)) groupChildrenMap.set(pid, []);
+                                    groupChildrenMap.get(pid).push(id);
+                                });
+                                groupChildrenMap.forEach((arr) => arr.sort((a, b) => getOrder(a) - getOrder(b)));
+                                const groupRootIds = Array.from(groupTaskMap.keys())
+                                    .filter((id) => {
+                                        const t = groupTaskMap.get(id);
+                                        if (!t) return false;
+                                        const pid = String(t?.parentTaskId || '').trim();
+                                        return !pid || !groupTaskMap.has(pid);
+                                    })
+                                    .sort((a, b) => getOrder(a) - getOrder(b));
+                                const renderPoolTaskNode = (taskId, depth = 0) => {
+                                    const t = groupTaskMap.get(String(taskId || '').trim());
+                                    if (!t) return '';
+                                    const tid = String(t?.id || '').trim();
+                                    if (!tid) return '';
+                                    const childIds = (groupChildrenMap.get(tid) || []).filter((cid) => groupTaskMap.has(cid));
+                                    const collapsed = childIds.length ? __tmKanbanGetCollapsedSet().has(tid) : false;
+                                    const toggleHtml = childIds.length
+                                        ? `<button class="tm-whiteboard-pool-toggle" onclick="tmWhiteboardToggleTaskCollapse('${escSq(tid)}', event)" onmousedown="event.stopPropagation()" title="${collapsed ? '展开子任务' : '折叠子任务'}">${collapsed ? '▸' : '▾'}</button>`
+                                        : '<span style="display:inline-block;width:14px;height:14px;"></span>';
+                                    const indent = Math.max(0, Math.min(10, Number(depth) || 0)) * 16;
+                                    const doneCls = t?.done ? ' tm-whiteboard-pool-item--done' : '';
+                                    const parentCls = childIds.length ? ' tm-whiteboard-pool-item--parent' : '';
+                                    const topCls = depth === 0 ? ' tm-whiteboard-pool-item--top' : '';
+                                    const lockedCls = t?.__tmPoolLocked ? ' tm-whiteboard-pool-item--locked' : '';
+                                    const selectedCls = poolSelectedSet.has(tid) ? ' tm-whiteboard-pool-item--selected' : '';
+                                    const draggableAttr = t?.__tmPoolLocked ? 'false' : 'true';
+                                    const dragStartAttr = t?.__tmPoolLocked ? '' : ` ondragstart="tmWhiteboardPoolDragStart(event, '${escSq(tid)}', '${escSq(docId)}')"`;
+                                    const dragEndAttr = t?.__tmPoolLocked ? '' : ' ondragend="tmWhiteboardPoolDragEnd(event)"';
+                                    const mouseDownAttr = ` onmousedown="tmWhiteboardPoolItemMouseDown(event, '${escSq(tid)}', '${escSq(docId)}', ${t?.__tmPoolLocked ? 'true' : 'false'})"`;
+                                    const itemTitle = t?.__tmPoolLocked ? '父任务已在白板中，不可重复拖入' : '拖动到白板';
+                                    const kidsHtml = (!collapsed && childIds.length)
+                                        ? childIds.map((cid) => renderPoolTaskNode(cid, depth + 1)).join('')
+                                        : '';
+                                    return `
+                                        <div class="tm-whiteboard-pool-node" style="padding-left:${indent}px;">
+                                            <div class="tm-whiteboard-pool-item${doneCls}${parentCls}${topCls}${lockedCls}${selectedCls}" data-task-id="${esc(tid)}" draggable="${draggableAttr}"${mouseDownAttr}${dragStartAttr}${dragEndAttr} title="${itemTitle}">
+                                                ${toggleHtml}
+                                                <input class="tm-task-checkbox" type="checkbox" ${t?.done ? 'checked' : ''} onchange="tmSetDone('${escSq(tid)}', this.checked, event)" onmousedown="event.stopPropagation()" title="完成状态">
+                                                <span class="tm-whiteboard-pool-item-title"><span class="tm-task-content-clickable" onclick="tmJumpToTask('${escSq(tid)}', event)">${esc(String(t?.content || '').trim() || '(无内容)')}</span></span>
+                                            </div>
+                                            ${kidsHtml}
+                                        </div>
+                                    `;
+                };
+                                return `
+                                    <div class="tm-whiteboard-pool-h2"
+                                        draggable="${h2DragTaskIds.length ? 'true' : 'false'}"
+                                        data-doc-id="${esc(docId)}"
+                                        data-h2="${esc(groupLabel)}"
+                                        data-task-ids="${esc(h2DragTaskIds.join(','))}"
+                                        ${h2DragTaskIds.length ? `ondragstart="tmWhiteboardPoolH2DragStart(event, '${escSq(docId)}', '${escSq(groupLabel)}')" ondragend="tmWhiteboardPoolDragEnd(event)"` : ''}
+                                        title="${h2DragTaskIds.length ? '拖动该二级标题及其任务到白板' : ''}">🧩 ${esc(groupLabel)} · ${items.length}</div>
+                                    ${groupRootIds.map((rid) => renderPoolTaskNode(rid, 0)).join('')}
+                                `;
+                            }).join('')}
+                        </div>
+                    </section>
+                `;
+            }).join('');
+
+            if (posDirty) {
+                SettingsStore.data.whiteboardNodePos = posMap;
+                try { SettingsStore.syncToLocal(); } catch (e) {}
+            }
+            if (placedDirty) {
+                SettingsStore.data.whiteboardPlacedTaskIds = placedMap;
+                try { SettingsStore.syncToLocal(); } catch (e) {}
+            }
+
+            const whiteboardTool = String(SettingsStore.data.whiteboardTool || 'pan').trim();
+            const viewportPanClass = whiteboardTool === 'pan' ? ' tm-whiteboard-viewport--tool-pan' : '';
+            const sidebarCollapsed = !!SettingsStore.data.whiteboardSidebarCollapsed;
+            const sidebarWidth = Math.max(220, Math.min(520, Math.round(Number(SettingsStore.data.whiteboardSidebarWidth) || 300)));
+            const layoutClass = sidebarCollapsed ? ' tm-whiteboard-layout--sidebar-collapsed' : '';
+            const sidebarToggleLabel = sidebarCollapsed ? '展开侧栏' : '折叠侧栏';
+            const sidebarToggleGlyph = sidebarCollapsed ? '☰' : '⟨';
+            return `
+                <div class="tm-body tm-body--whiteboard${bodyAnimClass}" id="tmWhiteboardBody">
+                    <div class="tm-whiteboard-layout${layoutClass}" style="--tm-wb-sidebar-width:${sidebarWidth}px;">
+                        <aside class="tm-whiteboard-sidebar">
+                            <div class="tm-whiteboard-sidebar-title-row">
+                                <div class="tm-whiteboard-sidebar-title">任务池</div>
+                                <label class="tm-whiteboard-sidebar-switch" title="显示已完成任务">
+                                    <input type="checkbox" ${showDoneTasks ? 'checked' : ''} onchange="tmWhiteboardToggleShowDone(this.checked)">
+                                    <span>已完成</span>
+                                </label>
+                            </div>
+                            ${poolHtml || `<div style="color:var(--tm-secondary-text);font-size:12px;">当前没有可拖出的任务</div>`}
+                        </aside>
+                        <div class="tm-whiteboard-sidebar-resizer" onmousedown="tmStartWhiteboardSidebarResize(event)" title="拖拽调整侧栏宽度"></div>
+                        <div class="tm-whiteboard-main">
+                            <button class="tm-btn tm-btn-info tm-whiteboard-sidebar-toggle" onclick="tmWhiteboardToggleSidebar(event)" title="${sidebarToggleLabel}">${sidebarToggleGlyph}</button>
+                            <div id="tmWhiteboardViewport" class="tm-whiteboard-viewport${viewportPanClass}" onpointerdown="tmWhiteboardViewportMouseDown(event)" ontouchstart="tmWhiteboardViewportTouchStart(event)" ontouchmove="tmWhiteboardViewportTouchMove(event)" ontouchend="tmWhiteboardViewportTouchEnd(event)" ontouchcancel="tmWhiteboardViewportTouchEnd(event)" onclick="tmWhiteboardBoardClick(event)" ondblclick="tmWhiteboardBoardDblClick(event)" onwheel="tmWhiteboardViewportWheel(event)" ondragover="tmWhiteboardBoardDragOver(event)" ondrop="tmWhiteboardBoardDrop(event)">
+                                <div id="tmWhiteboardWorld" class="tm-whiteboard-world" style="transform:translate(${view.x}px, ${view.y}px) scale(${view.zoom});">
+                                    <div class="tm-whiteboard">
+                                        ${docsHtml || `<div style="padding:18px;color:var(--tm-secondary-text);">暂无任务可用于白板视图</div>`}
+                                    </div>
+                                </div>
+                                <div class="tm-whiteboard-bottom-toolbar">
+                                    <button class="tm-btn ${whiteboardTool === 'pan' ? 'tm-btn-primary' : 'tm-btn-info'}" onclick="tmWhiteboardSetTool('pan')" style="padding: 4px 10px;" title="平移模式">平移</button>
+                                    <button class="tm-btn ${whiteboardTool === 'select' ? 'tm-btn-primary' : 'tm-btn-info'}" onclick="tmWhiteboardSetTool('select')" style="padding: 4px 10px;" title="多选模式">多选</button>
+                                    <button class="tm-btn ${whiteboardTool === 'text' ? 'tm-btn-primary' : 'tm-btn-info'}" onclick="tmWhiteboardSetTool('text')" style="padding: 4px 10px;" title="文字模式">文字</button>
+                                    <button class="tm-btn tm-btn-info" onclick="tmWhiteboardZoomOut()" style="padding: 4px 10px;" title="缩小画布">－</button>
+                                    <button class="tm-btn tm-btn-info" onclick="tmWhiteboardZoomIn()" style="padding: 4px 10px;" title="放大画布">＋</button>
+                                    <button class="tm-btn tm-btn-info" onclick="tmWhiteboardResetView()" style="padding: 4px 10px;" title="重置视图">重置</button>
+                                    <button class="tm-btn tm-btn-info" onclick="tmWhiteboardClearLinks()" style="padding: 4px 10px;" title="清空手动连线">清空连线</button>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            `;
+        };
+
         const __tmTimelineRowModel = state.viewMode === 'timeline' ? __tmBuildTaskRowModel() : null;
         const mainBodyHtml = state.viewMode === 'calendar'
             ? __tmRenderCalendarBodyHtml()
+            : state.viewMode === 'whiteboard'
+                ? __tmRenderWhiteboardBodyHtml()
             : state.viewMode === 'timeline'
                 ? __tmRenderTimelineBodyHtml(__tmTimelineRowModel)
                 : state.viewMode === 'kanban'
@@ -9152,10 +11878,16 @@ async function __tmRefreshAfterWake(reason) {
                             <button class="tm-btn tm-btn-success" onclick="tmAdd()" style="padding: 0 10px; height: 30px; display: inline-flex; align-items: center; justify-content: center;">+</button>
                             ${isMobile ? `<button class="tm-btn tm-btn-info" onclick="tmRefresh()" style="padding: 0 10px; height: 30px; display: inline-flex; align-items: center; justify-content: center;">🔄️</button>` : ''}
                             ${isMobile && state.viewMode === 'calendar' ? `<button class="tm-btn tm-btn-info" onclick="tmCalendarToggleSidebar()" style="padding: 0 10px; height: 30px; display: inline-flex; align-items: center; justify-content: center;" title="侧边栏">📅</button>` : ''}
+                            ${(state.viewMode === 'timeline' && ((isMobile && isLandscape) || isDesktopNarrow)) ? `
+                                <button class="tm-btn tm-btn-info" onclick="tmGanttZoomOut()" style="padding: 0 8px; height: 30px; display: inline-flex; align-items: center; justify-content: center;" title="缩小">－</button>
+                                <button class="tm-btn tm-btn-info" onclick="tmGanttZoomIn()" style="padding: 0 8px; height: 30px; display: inline-flex; align-items: center; justify-content: center;" title="放大">＋</button>
+                                <button class="tm-btn tm-btn-info" onclick="tmGanttFit()" style="padding: 0 8px; height: 30px; display: inline-flex; align-items: center; justify-content: center;" title="适配范围">🗺️</button>
+                                <button class="tm-btn tm-btn-info" onclick="tmGanttToday()" style="padding: 0 8px; height: 30px; display: inline-flex; align-items: center; justify-content: center;" title="定位今天">📅</button>
+                            ` : ''}
                         </div>
 
                         <!-- 桌面端工具栏 -->
-                        <div class="tm-desktop-toolbar tm-header-selectors" style="display:flex;align-items:center;gap:8px;flex:1;min-width:0;">
+                        <div class="tm-desktop-toolbar tm-header-selectors" style="display:${isMobile ? 'none' : 'flex'};align-items:center;gap:8px;flex:1;min-width:0;">
                             <div class="tm-rule-selector" style="margin-left: 6px;">
                                 <span class="tm-rule-label">分组:</span>
                                 <select class="tm-rule-select" onchange="tmSwitchDocGroup(this.value)" aria-label="分组" title="分组">
@@ -9191,7 +11923,7 @@ async function __tmRefreshAfterWake(reason) {
                         </div>
                         
                         <!-- 移动端菜单按钮 -->
-                            <div class="tm-mobile-menu-btn" style="display:none;margin-left:auto;">
+                            <div class="tm-mobile-menu-btn" style="display:${isMobile ? 'block' : 'none'};margin-left:auto;">
                             <div style="display:flex;align-items:center;gap:10px;">
                                 <button class="tm-btn tm-btn-info" onclick="tmToggleMobileMenu(event)" ontouchend="tmToggleMobileMenu(event)" style="padding: 0 10px; height: 30px; display: inline-flex; align-items: center; justify-content: center;">
                                     <span style="font-size: 16px; transform: translateY(1px); line-height: 1;">☰</span>
@@ -9203,10 +11935,11 @@ async function __tmRefreshAfterWake(reason) {
                     </div>
                     
                     <!-- 桌面端搜索栏 -->
-                    <div class="tm-search-box tm-desktop-toolbar" style="flex-wrap: wrap;">
+                    <div class="tm-search-box tm-desktop-toolbar" style="display:${isMobile ? 'none' : 'flex'}; flex-wrap: wrap;">
                         <div class="tm-view-segmented" role="tablist" aria-label="视图">
                             <button class="tm-view-seg-item ${state.viewMode === 'list' ? 'tm-view-seg-item--active' : ''}" onclick="tmSwitchViewMode('list')" role="tab" aria-selected="${state.viewMode === 'list' ? 'true' : 'false'}" title="表格">表格</button>
                             <button class="tm-view-seg-item ${state.viewMode === 'timeline' ? 'tm-view-seg-item--active' : ''}" onclick="tmSwitchViewMode('timeline')" role="tab" aria-selected="${state.viewMode === 'timeline' ? 'true' : 'false'}" title="时间轴">时间轴</button>
+                            <button class="tm-view-seg-item ${state.viewMode === 'whiteboard' ? 'tm-view-seg-item--active' : ''}" onclick="tmSwitchViewMode('whiteboard')" role="tab" aria-selected="${state.viewMode === 'whiteboard' ? 'true' : 'false'}" title="白板">白板</button>
                             <button class="tm-view-seg-item ${state.viewMode === 'kanban' ? 'tm-view-seg-item--active' : ''}" onclick="tmSwitchViewMode('kanban')" role="tab" aria-selected="${state.viewMode === 'kanban' ? 'true' : 'false'}" title="看板">看板</button>
                             <button class="tm-view-seg-item ${state.viewMode === 'calendar' ? 'tm-view-seg-item--active' : ''}" onclick="tmSwitchViewMode('calendar')" role="tab" aria-selected="${state.viewMode === 'calendar' ? 'true' : 'false'}" title="日历">日历</button>
                         </div>
@@ -9216,7 +11949,6 @@ async function __tmRefreshAfterWake(reason) {
                             <button class="tm-btn tm-btn-info" onclick="tmGanttFit()" style="padding: 4px 10px;" title="适配范围">🗺️</button>
                             <button class="tm-btn tm-btn-info" onclick="tmGanttToday()" style="padding: 4px 10px;" title="定位今天">📅</button>
                         ` : ''}
-                        
                         <button class="tm-btn tm-btn-info" onclick="tmRefresh()" style="padding: 4px 10px;" title="刷新">🔄️</button>
                         <button class="tm-btn tm-btn-info" onclick="showSettings()" style="padding: 4px 10px;">⚙️ 设置</button>
                         ${!isMobile ? `
@@ -9227,8 +11959,20 @@ async function __tmRefreshAfterWake(reason) {
                     </div>
 
                         <!-- 移动端下拉菜单 -->
-                        <div id="tmMobileMenu" style="display:none; position:absolute; right:0; top:45px; width:200px; padding:10px; border:1px solid var(--tm-border-color); border-radius:6px; background:var(--tm-header-bg); z-index:10001; box-shadow: 0 4px 12px rgba(0,0,0,0.15);">
+                        <div id="tmMobileMenu" style="display:none; position:absolute; right:0; top:45px; width:max-content; max-width:calc(100vw - 20px); min-width:0; box-sizing:border-box; padding:10px; border:1px solid var(--tm-border-color); border-radius:6px; background:var(--tm-header-bg); z-index:10001; box-shadow: 0 4px 12px rgba(0,0,0,0.15);">
                             <div style="display:flex; flex-direction:column; gap:10px;">
+                                <div class="tm-mobile-only-item" style="display:flex; flex-direction:column; gap:6px; align-items:stretch;">
+                                    <span style="color:var(--tm-text-color);">视图:</span>
+                                    <div style="overflow-x:auto; -webkit-overflow-scrolling:touch;">
+                                        <div class="tm-view-segmented" role="tablist" aria-label="视图" style="height:28px; min-width:max-content;">
+                                            <button class="tm-view-seg-item ${state.viewMode === 'list' ? 'tm-view-seg-item--active' : ''}" onclick="tmSwitchViewMode('list')" role="tab" aria-selected="${state.viewMode === 'list' ? 'true' : 'false'}" style="line-height:28px; padding:0 10px;">表格</button>
+                                            <button class="tm-view-seg-item ${state.viewMode === 'timeline' ? 'tm-view-seg-item--active' : ''}" onclick="tmSwitchViewMode('timeline')" role="tab" aria-selected="${state.viewMode === 'timeline' ? 'true' : 'false'}" style="line-height:28px; padding:0 10px;">时间轴</button>
+                                            <button class="tm-view-seg-item ${state.viewMode === 'whiteboard' ? 'tm-view-seg-item--active' : ''}" onclick="tmSwitchViewMode('whiteboard')" role="tab" aria-selected="${state.viewMode === 'whiteboard' ? 'true' : 'false'}" style="line-height:28px; padding:0 10px;">白板</button>
+                                            <button class="tm-view-seg-item ${state.viewMode === 'kanban' ? 'tm-view-seg-item--active' : ''}" onclick="tmSwitchViewMode('kanban')" role="tab" aria-selected="${state.viewMode === 'kanban' ? 'true' : 'false'}" style="line-height:28px; padding:0 10px;">看板</button>
+                                            <button class="tm-view-seg-item ${state.viewMode === 'calendar' ? 'tm-view-seg-item--active' : ''}" onclick="tmSwitchViewMode('calendar')" role="tab" aria-selected="${state.viewMode === 'calendar' ? 'true' : 'false'}" style="line-height:28px; padding:0 10px;">日历</button>
+                                        </div>
+                                    </div>
+                                </div>
                                 <div class="tm-mobile-only-item" style="display:flex; gap:10px; align-items:center;">
                                     <span style="color:var(--tm-text-color);width:60px;">分组:</span>
                                     <select class="tm-rule-select" style="flex:1;" onchange="tmSwitchDocGroup(this.value)">
@@ -9257,14 +12001,9 @@ async function __tmRefreshAfterWake(reason) {
                                         🔍 搜索 ${state.searchKeyword ? `(${state.searchKeyword})` : ''}
                                     </button>
                                 </div>
-                                <div class="tm-mobile-only-item" style="display:flex; gap:10px;">
-                                    <button class="tm-btn tm-btn-info" onclick="tmToggleKanbanMode(); tmHideMobileMenu();" style="flex:1; padding: 6px;">
-                                        ${state.viewMode === 'kanban' ? '📋 表格' : '🧱 看板'}
-                                    </button>
-                                </div>
-                                <div class="tm-mobile-only-item" style="display:flex; gap:10px;">
-                                    <button class="tm-btn tm-btn-info" onclick="tmToggleCalendarMode(); tmHideMobileMenu();" style="flex:1; padding: 6px;">
-                                        ${state.viewMode === 'calendar' ? '📋 表格' : '📅 日历'}
+                                <div class="tm-mobile-only-item" style="display:flex; gap:10px; align-items:center;">
+                                    <button class="tm-btn tm-btn-info" onclick="tmToggleWhiteboardSequenceMode(); tmHideMobileMenu();" style="flex:1; padding: 6px;">
+                                        ${SettingsStore.data.whiteboardSequenceMode ? '☑' : '☐'} 白板顺序模式
                                     </button>
                                 </div>
                                 <div class="tm-mobile-only-item" style="display:flex; gap:10px;">
@@ -9494,11 +12233,17 @@ async function __tmRefreshAfterWake(reason) {
                     }
                 }
             }
+            if (state.viewMode === 'whiteboard') {
+                __tmApplyWhiteboardTransform();
+                __tmScheduleWhiteboardEdgeRedraw();
+            }
         } catch (e) {}
 
         // 恢复滚动位置
         try {
             const isTimeline = state.viewMode === 'timeline';
+            const isKanban = state.viewMode === 'kanban';
+            const isWhiteboard = state.viewMode === 'whiteboard';
             const pickNum = (v, fallback = 0) => (typeof v === 'number' && Number.isFinite(v) ? v : fallback);
             const listTop = pickNum(state.viewScroll?.list?.top, 0);
             const listLeft = pickNum(state.viewScroll?.list?.left, 0);
@@ -9506,6 +12251,11 @@ async function __tmRefreshAfterWake(reason) {
             const timelineLeft = pickNum(state.viewScroll?.timeline?.left, 0);
             const calendarTop = pickNum(state.viewScroll?.calendar?.top, 0);
             const calendarLeft = pickNum(state.viewScroll?.calendar?.left, 0);
+            const kanbanLeft = pickNum(state.viewScroll?.kanban?.left, 0);
+            const kanbanCols = (state.viewScroll?.kanban?.cols && typeof state.viewScroll.kanban.cols === 'object')
+                ? state.viewScroll.kanban.cols
+                : {};
+            const wbSidebarTop = pickNum(state.viewScroll?.whiteboard?.sidebarTop, 0);
             const desiredTop = prevWasTimeline ? timelineTop : listTop;
             const desiredLeft = isTimeline ? timelineLeft : listLeft;
             
@@ -9736,6 +12486,53 @@ async function __tmRefreshAfterWake(reason) {
                             }
                         }
                     }));
+                } else if (isKanban) {
+                    const kbBody = state.modal.querySelector('.tm-body.tm-body--kanban');
+                    const apply = () => {
+                        try { if (kbBody) kbBody.scrollLeft = kanbanLeft; } catch (e) {}
+                        try {
+                            state.modal.querySelectorAll('.tm-kanban-col[data-status]').forEach((col) => {
+                                const status = String(col?.getAttribute?.('data-status') || '').trim();
+                                if (!status) return;
+                                const colBody = col.querySelector('.tm-kanban-col-body');
+                                if (!(colBody instanceof HTMLElement)) return;
+                                const top = pickNum(kanbanCols[status], 0);
+                                colBody.scrollTop = top;
+                            });
+                        } catch (e) {}
+                    };
+                    apply();
+                    requestAnimationFrame(() => requestAnimationFrame(apply));
+                    requestAnimationFrame(() => requestAnimationFrame(() => {
+                        try { __tmRunFlipAnimation(state.modal); } catch (e) {}
+                        if (useSoftSwap) {
+                            try { state.modal.style.opacity = '1'; } catch (e) {}
+                            try { state.modal.style.pointerEvents = ''; } catch (e) {}
+                            if (prevModalEl) {
+                                try { prevModalEl.style.visibility = 'hidden'; } catch (e2) {}
+                                setTimeout(() => { try { prevModalEl.remove(); } catch (e2) {} }, 140);
+                            }
+                        }
+                    }));
+                } else if (isWhiteboard) {
+                    const sidebar = state.modal.querySelector('.tm-whiteboard-sidebar');
+                    const apply = () => {
+                        try { if (sidebar) sidebar.scrollTop = wbSidebarTop; } catch (e) {}
+                    };
+                    apply();
+                    requestAnimationFrame(() => requestAnimationFrame(apply));
+                    requestAnimationFrame(() => requestAnimationFrame(() => {
+                        try { __tmRunFlipAnimation(state.modal); } catch (e) {}
+                        try { __tmScheduleWhiteboardEdgeRedraw(); } catch (e) {}
+                        if (useSoftSwap) {
+                            try { state.modal.style.opacity = '1'; } catch (e) {}
+                            try { state.modal.style.pointerEvents = ''; } catch (e) {}
+                            if (prevModalEl) {
+                                try { prevModalEl.style.visibility = 'hidden'; } catch (e2) {}
+                                setTimeout(() => { try { prevModalEl.remove(); } catch (e2) {} }, 140);
+                            }
+                        }
+                    }));
                 } else {
                     // 列表模式
                     const body = state.modal.querySelector('.tm-body');
@@ -9747,6 +12544,9 @@ async function __tmRefreshAfterWake(reason) {
                     requestAnimationFrame(() => requestAnimationFrame(() => {
                          try { if (body) body.scrollTop = desiredTop; } catch (e) {}
                          try { __tmRunFlipAnimation(state.modal); } catch (e) {}
+                         if (state.viewMode === 'whiteboard') {
+                             try { __tmScheduleWhiteboardEdgeRedraw(); } catch (e) {}
+                         }
                          
                          if (useSoftSwap) {
                              try { state.modal.style.opacity = '1'; } catch (e) {}
@@ -9825,7 +12625,15 @@ async function __tmRefreshAfterWake(reason) {
         hint('🔄 正在刷新...', 'info');
         try {
             await loadSelectedDocuments();
-            hint('✅ 刷新完成', 'success');
+            let removedCount = 0;
+            try {
+                removedCount = Number(__tmSyncWhiteboardFrozenTasksWithLiveTasks()) || 0;
+            } catch (e) {}
+            if (removedCount > 0) {
+                try { applyFilters(); } catch (e) {}
+                try { if (state.modal) render(); } catch (e) {}
+            }
+            hint(removedCount > 0 ? `✅ 刷新完成，已清理冻结任务 ${removedCount} 项` : '✅ 刷新完成', 'success');
         } catch (e) {
             hint(`❌ 刷新失败: ${e.message}`, 'error');
         } finally {
@@ -9838,6 +12646,7 @@ async function __tmRefreshAfterWake(reason) {
         state.viewMode = next;
         state.uiAnimKind = '';
         state.uiAnimTs = 0;
+        try { applyFilters(); } catch (e) {}
         render();
     };
 
@@ -9847,6 +12656,7 @@ async function __tmRefreshAfterWake(reason) {
         state.uiAnimKind = '';
         state.uiAnimTs = 0;
         try { __tmHideMobileMenu(); } catch (e) {}
+        try { applyFilters(); } catch (e) {}
         render();
     };
 
@@ -9856,6 +12666,17 @@ async function __tmRefreshAfterWake(reason) {
         state.uiAnimKind = '';
         state.uiAnimTs = 0;
         try { __tmHideMobileMenu(); } catch (e) {}
+        try { applyFilters(); } catch (e) {}
+        render();
+    };
+
+    window.tmToggleWhiteboardMode = function() {
+        const next = state.viewMode === 'whiteboard' ? 'list' : 'whiteboard';
+        state.viewMode = next;
+        state.uiAnimKind = '';
+        state.uiAnimTs = 0;
+        try { __tmHideMobileMenu(); } catch (e) {}
+        try { applyFilters(); } catch (e) {}
         render();
     };
 
@@ -9868,13 +12689,3220 @@ async function __tmRefreshAfterWake(reason) {
     };
 
     window.tmSwitchViewMode = function(mode) {
-        const allow = new Set(['list', 'timeline', 'kanban', 'calendar']);
+        const allow = new Set(['list', 'timeline', 'kanban', 'calendar', 'whiteboard']);
         const next = allow.has(String(mode || '').trim()) ? String(mode || '').trim() : 'list';
         if (state.viewMode === next) return;
         state.viewMode = next;
         state.uiAnimKind = '';
         state.uiAnimTs = 0;
         try { __tmHideMobileMenu(); } catch (e) {}
+        try { applyFilters(); } catch (e) {}
+        render();
+        if (next === 'whiteboard') {
+            try {
+                requestAnimationFrame(() => {
+                    try { window.tmWhiteboardResetView?.(); } catch (e) {}
+                });
+            } catch (e) {}
+        }
+    };
+
+    function __tmScheduleWhiteboardEdgeRedraw() {
+        if (state.viewMode !== 'whiteboard') return;
+        try {
+            const id0 = Number(state.whiteboardEdgeRafId) || 0;
+            if (id0) cancelAnimationFrame(id0);
+        } catch (e) {}
+        try {
+            state.whiteboardEdgeRafId = requestAnimationFrame(() => {
+                state.whiteboardEdgeRafId = 0;
+                __tmNormalizeWhiteboardAllViewFrames();
+                __tmRenderWhiteboardEdges();
+                try {
+                    requestAnimationFrame(() => {
+                        __tmNormalizeWhiteboardAllViewFrames();
+                        __tmRenderWhiteboardEdges();
+                    });
+                } catch (e) {}
+            });
+        } catch (e) {
+            __tmNormalizeWhiteboardAllViewFrames();
+            __tmRenderWhiteboardEdges();
+        }
+    }
+
+    function __tmScheduleWhiteboardViewSave() {
+        try { if (__tmWhiteboardViewSaveTimer) clearTimeout(__tmWhiteboardViewSaveTimer); } catch (e) {}
+        __tmWhiteboardViewSaveTimer = setTimeout(() => {
+            __tmWhiteboardViewSaveTimer = null;
+            try { SettingsStore.save(); } catch (e) {}
+        }, 180);
+    }
+
+    function __tmApplyWhiteboardTransform() {
+        if (state.viewMode !== 'whiteboard') return;
+        const world = state.modal?.querySelector?.('#tmWhiteboardWorld');
+        if (!(world instanceof HTMLElement)) return;
+        const view = __tmGetWhiteboardView();
+        world.style.transform = `translate(${view.x}px, ${view.y}px) scale(${view.zoom})`;
+        __tmScheduleWhiteboardEdgeRedraw();
+    }
+
+    function __tmNormalizeWhiteboardAllViewFrames() {
+        if (state.viewMode !== 'whiteboard') return;
+        if (state.activeDocId && state.activeDocId !== 'all') return;
+        const body = state.modal?.querySelector?.('#tmWhiteboardBody');
+        if (!(body instanceof Element)) return;
+        const docBodies = body.querySelectorAll('.tm-whiteboard-doc-body[data-doc-id]');
+        docBodies.forEach((docBody) => {
+            if (!(docBody instanceof HTMLElement)) return;
+            const styledHeight = Number.parseFloat(docBody.style.height) || 0;
+            const styledMinHeight = Number.parseFloat(docBody.style.minHeight) || 0;
+            const baseHeight = Math.max(220, styledHeight, styledMinHeight, docBody.clientHeight, 0);
+            let maxBottom = 0;
+            try {
+                docBody.querySelectorAll('.tm-whiteboard-node,.tm-whiteboard-note').forEach((el) => {
+                    if (!(el instanceof HTMLElement)) return;
+                    const top = Number(el.offsetTop);
+                    const h = Number(el.offsetHeight);
+                    if (!Number.isFinite(top) || !Number.isFinite(h) || h <= 0) return;
+                    const bottom = top + h;
+                    if (Number.isFinite(bottom)) maxBottom = Math.max(maxBottom, bottom);
+                });
+            } catch (e) {}
+            const targetHeight = Math.max(baseHeight, Math.ceil(maxBottom + 28));
+            const currentHeight = Math.max(
+                Number.parseFloat(docBody.style.height) || 0,
+                docBody.clientHeight || 0,
+                docBody.scrollHeight || 0,
+            );
+            if (targetHeight > currentHeight + 1) {
+                docBody.style.height = `${targetHeight}px`;
+                docBody.style.minHeight = `${targetHeight}px`;
+            }
+        });
+    }
+
+    function __tmApplyWhiteboardCardSelectionDom(taskId) {
+        if (state.viewMode !== 'whiteboard') return;
+        const body = state.modal?.querySelector?.('#tmWhiteboardBody');
+        if (!(body instanceof Element)) return;
+        const id = String(taskId || '').trim();
+        try {
+            body.querySelectorAll('.tm-whiteboard-node.tm-whiteboard-card--selected').forEach((el) => {
+                try { el.classList.remove('tm-whiteboard-card--selected'); } catch (e) {}
+            });
+        } catch (e) {}
+        try {
+            body.querySelectorAll('.tm-whiteboard-card-tools[data-tm-wb-dyn="1"]').forEach((el) => {
+                try { el.remove(); } catch (e) {}
+            });
+        } catch (e) {}
+        if (!id) return;
+        try {
+            const card = body.querySelector(`.tm-whiteboard-node[data-task-id="${CSS.escape(id)}"]`);
+            if (card instanceof HTMLElement) {
+                card.classList.add('tm-whiteboard-card--selected');
+                const allView = !(state.activeDocId && state.activeDocId !== 'all');
+                if (!allView) {
+                    const tid = String(card.getAttribute('data-task-id') || '').trim();
+                    const did = String(card.getAttribute('data-doc-id') || '').trim();
+                    if (tid && did) {
+                        const isGhost = !state.flatTasks?.[tid] && !!__tmGetWhiteboardCardSnapshot(tid);
+                        const deleteTitle = isGhost ? '移除快照卡片并彻底移除记录（不进入侧边栏）' : '移除卡片并回到侧栏';
+                        const parentId = __tmResolveWhiteboardTaskParentId(tid);
+                        const detachedOrDetachedLike = !!parentId && (
+                            __tmIsWhiteboardChildDetached(tid)
+                            || card.classList.contains('tm-whiteboard-node--root')
+                        );
+                        const canMoveBack = detachedOrDetachedLike;
+                        const tools = document.createElement('div');
+                        tools.className = 'tm-whiteboard-card-tools';
+                        tools.setAttribute('data-tm-wb-dyn', '1');
+                        tools.innerHTML = `
+                            <button class="tm-btn tm-btn-danger" data-tm-wb-action="delete" style="padding:2px 8px;font-size:12px;" title="${esc(deleteTitle)}">移除</button>
+                            ${canMoveBack ? `<button class="tm-btn tm-btn-info" data-tm-wb-action="moveBack" style="padding:2px 8px;font-size:12px;" title="移回父任务">移回父任务</button>` : ''}
+                        `;
+                        const deleteBtn = tools.querySelector('button[data-tm-wb-action="delete"]');
+                        if (deleteBtn instanceof HTMLButtonElement) {
+                            deleteBtn.addEventListener('click', (ev) => {
+                                try { ev.stopPropagation(); } catch (e) {}
+                                try { window.tmWhiteboardDeleteCard?.(tid, did, ev); } catch (e) {}
+                            });
+                        }
+                        const moveBackBtn = tools.querySelector('button[data-tm-wb-action="moveBack"]');
+                        if (moveBackBtn instanceof HTMLButtonElement) {
+                            moveBackBtn.addEventListener('click', (ev) => {
+                                try { ev.stopPropagation(); } catch (e) {}
+                                try { window.tmWhiteboardMoveBackToParent?.(tid, did, ev); } catch (e) {}
+                            });
+                        }
+                        try { card.prepend(tools); } catch (e) {}
+                    }
+                }
+            }
+        } catch (e) {}
+    }
+
+    function __tmResolveWhiteboardPointerInfo(ev, docIdHint = '') {
+        const hint = String(docIdHint || '').trim();
+        let cx = Number(ev?.clientX);
+        let cy = Number(ev?.clientY);
+        if (!Number.isFinite(cx) || !Number.isFinite(cy) || (Math.abs(cx) < 1 && Math.abs(cy) < 1)) {
+            return null;
+        }
+        let docBody = null;
+        try {
+            const hit = document.elementFromPoint(cx, cy)?.closest?.('.tm-whiteboard-doc-body[data-doc-id]');
+            if (hit instanceof HTMLElement) docBody = hit;
+        } catch (e) {}
+        if (!(docBody instanceof HTMLElement) && hint) {
+            try {
+                const fallback = state.modal?.querySelector?.(`.tm-whiteboard-doc-body[data-doc-id="${CSS.escape(hint)}"]`);
+                if (fallback instanceof HTMLElement) docBody = fallback;
+            } catch (e) {}
+        }
+        if (!(docBody instanceof HTMLElement)) return null;
+        const docId = String(docBody.getAttribute('data-doc-id') || '').trim();
+        if (!docId) return null;
+        const zoom = Math.max(0.01, Number(__tmGetWhiteboardView()?.zoom) || 1);
+        const docRect = docBody.getBoundingClientRect();
+        const localX = (cx - docRect.left) / zoom;
+        const localY = (cy - docRect.top) / zoom;
+        if (!Number.isFinite(localX) || !Number.isFinite(localY)) return null;
+        return { docId, clientX: cx, clientY: cy, localX, localY, at: Date.now() };
+    }
+
+    function __tmTrackWhiteboardPointerFromClient(clientX, clientY, docIdHint = '') {
+        const cx = Number(clientX);
+        const cy = Number(clientY);
+        if (!Number.isFinite(cx) || !Number.isFinite(cy) || (Math.abs(cx) < 1 && Math.abs(cy) < 1)) return null;
+        const hint = String(docIdHint || '').trim();
+        let docBody = null;
+        try {
+            const hit = document.elementFromPoint(cx, cy)?.closest?.('.tm-whiteboard-doc-body[data-doc-id]');
+            if (hit instanceof HTMLElement) docBody = hit;
+        } catch (e) {}
+        if (!(docBody instanceof HTMLElement) && hint) {
+            try {
+                const fallback = state.modal?.querySelector?.(`.tm-whiteboard-doc-body[data-doc-id="${CSS.escape(hint)}"]`);
+                if (fallback instanceof HTMLElement) docBody = fallback;
+            } catch (e) {}
+        }
+        if (!(docBody instanceof HTMLElement)) return null;
+        const docId = String(docBody.getAttribute('data-doc-id') || '').trim();
+        if (!docId) return null;
+        const zoom = Math.max(0.01, Number(__tmGetWhiteboardView()?.zoom) || 1);
+        const rect = docBody.getBoundingClientRect();
+        const localX = (cx - rect.left) / zoom;
+        const localY = (cy - rect.top) / zoom;
+        if (!Number.isFinite(localX) || !Number.isFinite(localY)) return null;
+        const at = Date.now();
+        state.whiteboardLastBoardPointer = { clientX: cx, clientY: cy, docId, at };
+        state.whiteboardLastBoardLocal = { docId, x: localX, y: localY, at };
+        return state.whiteboardLastBoardLocal;
+    }
+
+    function __tmStartWhiteboardPoolGlobalTracking(docIdHint = '') {
+        __tmStopWhiteboardPoolGlobalTracking();
+        const hint = String(docIdHint || '').trim();
+        const onDocDragOver = (ev) => {
+            __tmTrackWhiteboardPointerFromClient(ev?.clientX, ev?.clientY, hint);
+        };
+        const onDocDrop = () => {
+            __tmStopWhiteboardPoolGlobalTracking();
+        };
+        const onDocDragEnd = () => {
+            __tmStopWhiteboardPoolGlobalTracking();
+        };
+        state.whiteboardPoolGlobalTracker = { onDocDragOver, onDocDrop, onDocDragEnd };
+        try { document.addEventListener('dragover', onDocDragOver, true); } catch (e) {}
+        try { document.addEventListener('drop', onDocDrop, true); } catch (e) {}
+        try { document.addEventListener('dragend', onDocDragEnd, true); } catch (e) {}
+    }
+
+    function __tmStopWhiteboardPoolGlobalTracking() {
+        const t = state.whiteboardPoolGlobalTracker;
+        if (!t || typeof t !== 'object') return;
+        try { document.removeEventListener('dragover', t.onDocDragOver, true); } catch (e) {}
+        try { document.removeEventListener('drop', t.onDocDrop, true); } catch (e) {}
+        try { document.removeEventListener('dragend', t.onDocDragEnd, true); } catch (e) {}
+        state.whiteboardPoolGlobalTracker = null;
+    }
+
+    window.tmWhiteboardZoomIn = function() {
+        const v = __tmGetWhiteboardView();
+        __tmSetWhiteboardView({ zoom: Math.min(2.5, v.zoom * 1.1) }, { persist: false });
+        __tmApplyWhiteboardTransform();
+        __tmScheduleWhiteboardViewSave();
+    };
+
+    window.tmWhiteboardZoomOut = function() {
+        const v = __tmGetWhiteboardView();
+        __tmSetWhiteboardView({ zoom: Math.max(0.35, v.zoom / 1.1) }, { persist: false });
+        __tmApplyWhiteboardTransform();
+        __tmScheduleWhiteboardViewSave();
+    };
+
+    function __tmFitWhiteboardToVisibleCards() {
+        const viewport = state.modal?.querySelector?.('#tmWhiteboardViewport');
+        const body = state.modal?.querySelector?.('#tmWhiteboardBody');
+        if (!(viewport instanceof HTMLElement) || !(body instanceof HTMLElement)) return false;
+        const nodes = Array.from(body.querySelectorAll('.tm-whiteboard-card[data-task-id],.tm-whiteboard-note'));
+        if (!nodes.length) return false;
+        const view = __tmGetWhiteboardView();
+        const vr = viewport.getBoundingClientRect();
+        const toWorldRect = (el) => {
+            if (!(el instanceof HTMLElement)) return null;
+            const r = el.getBoundingClientRect();
+            if (!Number.isFinite(r.left) || !Number.isFinite(r.top) || r.width <= 0 || r.height <= 0) return null;
+            const x = (r.left - vr.left - view.x) / view.zoom;
+            const y = (r.top - vr.top - view.y) / view.zoom;
+            const w = r.width / view.zoom;
+            const h = r.height / view.zoom;
+            if (!Number.isFinite(x) || !Number.isFinite(y) || !Number.isFinite(w) || !Number.isFinite(h)) return null;
+            return { x, y, w, h };
+        };
+        const rects = nodes.map(toWorldRect).filter(Boolean);
+        if (!rects.length) return false;
+        let minX = Number.POSITIVE_INFINITY;
+        let minY = Number.POSITIVE_INFINITY;
+        let maxX = Number.NEGATIVE_INFINITY;
+        let maxY = Number.NEGATIVE_INFINITY;
+        rects.forEach((r) => {
+            minX = Math.min(minX, r.x);
+            minY = Math.min(minY, r.y);
+            maxX = Math.max(maxX, r.x + r.w);
+            maxY = Math.max(maxY, r.y + r.h);
+        });
+        if (!Number.isFinite(minX) || !Number.isFinite(minY) || !Number.isFinite(maxX) || !Number.isFinite(maxY)) return false;
+        const pad = 48;
+        const w = Math.max(1, maxX - minX);
+        const h = Math.max(1, maxY - minY);
+        const fitZoomW = (vr.width - pad * 2) / w;
+        const fitZoomH = (vr.height - pad * 2) / h;
+        const zoom = Math.max(0.35, Math.min(2.5, Math.min(fitZoomW, fitZoomH)));
+        const cx = minX + w / 2;
+        const cy = minY + h / 2;
+        const x = (vr.width / 2) - (cx * zoom);
+        const y = (vr.height / 2) - (cy * zoom);
+        __tmSetWhiteboardView({ x, y, zoom }, { persist: false });
+        __tmApplyWhiteboardTransform();
+        __tmScheduleWhiteboardViewSave();
+        return true;
+    }
+
+    window.tmWhiteboardResetView = function() {
+        if (__tmFitWhiteboardToVisibleCards()) return;
+        __tmSetWhiteboardView({ x: 64, y: 40, zoom: 1 }, { persist: false });
+        __tmApplyWhiteboardTransform();
+        __tmScheduleWhiteboardViewSave();
+    };
+
+    function __tmRemoveWhiteboardMultiTools() {
+        const viewport = state.modal?.querySelector?.('#tmWhiteboardViewport');
+        if (!(viewport instanceof HTMLElement)) return;
+        try { viewport.querySelectorAll('#tmWhiteboardMultiTools').forEach((el) => el.remove()); } catch (e) {}
+    }
+
+    function __tmApplyWhiteboardMultiSelectionDom() {
+        const body = state.modal?.querySelector?.('#tmWhiteboardBody');
+        if (!(body instanceof Element)) return;
+        const taskSet = new Set((Array.isArray(state.whiteboardMultiSelectedTaskIds) ? state.whiteboardMultiSelectedTaskIds : []).map((x) => String(x || '').trim()).filter(Boolean));
+        const noteSet = new Set((Array.isArray(state.whiteboardMultiSelectedNoteIds) ? state.whiteboardMultiSelectedNoteIds : []).map((x) => String(x || '').trim()).filter(Boolean));
+        const linkSet = new Set((Array.isArray(state.whiteboardMultiSelectedLinkKeys) ? state.whiteboardMultiSelectedLinkKeys : []).map((x) => String(x || '').trim()).filter(Boolean));
+        try {
+            body.querySelectorAll('.tm-whiteboard-multi-selected').forEach((el) => {
+                try { el.classList.remove('tm-whiteboard-multi-selected'); } catch (e) {}
+            });
+        } catch (e) {}
+        taskSet.forEach((id) => {
+            try {
+            const el = body.querySelector(`.tm-whiteboard-node[data-task-id="${CSS.escape(id)}"]`);
+            if (el instanceof HTMLElement) el.classList.add('tm-whiteboard-multi-selected');
+            } catch (e) {}
+        });
+        noteSet.forEach((id) => {
+            try {
+                const el = body.querySelector(`.tm-whiteboard-note[data-note-id="${CSS.escape(id)}"]`);
+                if (el instanceof HTMLElement) el.classList.add('tm-whiteboard-multi-selected');
+            } catch (e) {}
+        });
+        linkSet.forEach((key) => {
+            const k = String(key || '').trim();
+            if (!k) return;
+            const idx = k.indexOf('::');
+            if (idx <= 0) return;
+            const did = k.slice(0, idx);
+            const lid = k.slice(idx + 2);
+            if (!did || !lid) return;
+            try {
+                const el = body.querySelector(`.tm-whiteboard-edge.tm-whiteboard-edge--manual[data-link-id="${CSS.escape(lid)}"][data-doc-id="${CSS.escape(did)}"]`);
+                if (el instanceof Element) el.classList.add('tm-whiteboard-multi-selected');
+            } catch (e) {}
+        });
+    }
+
+    function __tmComputeWhiteboardMultiSelectionRect() {
+        const viewport = state.modal?.querySelector?.('#tmWhiteboardViewport');
+        const body = state.modal?.querySelector?.('#tmWhiteboardBody');
+        if (!(viewport instanceof HTMLElement) || !(body instanceof Element)) return null;
+        const vr = viewport.getBoundingClientRect();
+        const idsTask = Array.isArray(state.whiteboardMultiSelectedTaskIds) ? state.whiteboardMultiSelectedTaskIds : [];
+        const idsNote = Array.isArray(state.whiteboardMultiSelectedNoteIds) ? state.whiteboardMultiSelectedNoteIds : [];
+        const idsLink = Array.isArray(state.whiteboardMultiSelectedLinkKeys) ? state.whiteboardMultiSelectedLinkKeys : [];
+        const targets = [];
+        idsTask.forEach((id) => {
+            const tid = String(id || '').trim();
+            if (!tid) return;
+            try {
+                const el = body.querySelector(`.tm-whiteboard-node[data-task-id="${CSS.escape(tid)}"]`);
+                if (el instanceof HTMLElement) targets.push(el);
+            } catch (e) {}
+        });
+        idsNote.forEach((id) => {
+            const nid = String(id || '').trim();
+            if (!nid) return;
+            try {
+                const el = body.querySelector(`.tm-whiteboard-note[data-note-id="${CSS.escape(nid)}"]`);
+                if (el instanceof HTMLElement) targets.push(el);
+            } catch (e) {}
+        });
+        idsLink.forEach((key) => {
+            const k = String(key || '').trim();
+            if (!k) return;
+            const idx = k.indexOf('::');
+            if (idx <= 0) return;
+            const did = k.slice(0, idx);
+            const lid = k.slice(idx + 2);
+            if (!did || !lid) return;
+            try {
+                const el = body.querySelector(`.tm-whiteboard-edge.tm-whiteboard-edge--manual[data-link-id="${CSS.escape(lid)}"][data-doc-id="${CSS.escape(did)}"]`);
+                if (el instanceof Element) targets.push(el);
+            } catch (e) {}
+        });
+        if (!targets.length) return null;
+        let minX = Infinity;
+        let minY = Infinity;
+        let maxX = -Infinity;
+        let maxY = -Infinity;
+        targets.forEach((el) => {
+            try {
+                const r = el.getBoundingClientRect();
+                minX = Math.min(minX, r.left - vr.left);
+                minY = Math.min(minY, r.top - vr.top);
+                maxX = Math.max(maxX, r.right - vr.left);
+                maxY = Math.max(maxY, r.bottom - vr.top);
+            } catch (e) {}
+        });
+        if (!Number.isFinite(minX) || !Number.isFinite(minY) || !Number.isFinite(maxX) || !Number.isFinite(maxY)) return null;
+        return { x: minX, y: minY, w: Math.max(0, maxX - minX), h: Math.max(0, maxY - minY) };
+    }
+
+    function __tmClearWhiteboardMultiSelection() {
+        state.whiteboardMultiSelectedTaskIds = [];
+        state.whiteboardMultiSelectedNoteIds = [];
+        state.whiteboardMultiSelectedLinkKeys = [];
+        __tmApplyWhiteboardMultiSelectionDom();
+        __tmRemoveWhiteboardMultiTools();
+    }
+
+    function __tmRenderWhiteboardMultiTools(rect) {
+        const viewport = state.modal?.querySelector?.('#tmWhiteboardViewport');
+        if (!(viewport instanceof HTMLElement)) return;
+        __tmRemoveWhiteboardMultiTools();
+        const taskCount = Array.isArray(state.whiteboardMultiSelectedTaskIds) ? state.whiteboardMultiSelectedTaskIds.length : 0;
+        const noteCount = Array.isArray(state.whiteboardMultiSelectedNoteIds) ? state.whiteboardMultiSelectedNoteIds.length : 0;
+        const linkCount = Array.isArray(state.whiteboardMultiSelectedLinkKeys) ? state.whiteboardMultiSelectedLinkKeys.length : 0;
+        const total = taskCount + noteCount + linkCount;
+        if (total <= 0) return;
+        const fallbackRect = __tmComputeWhiteboardMultiSelectionRect();
+        const rr = (rect && Number.isFinite(Number(rect.x)) && Number.isFinite(Number(rect.y)))
+            ? rect
+            : (fallbackRect || { x: 24, y: 40, w: 120, h: 40 });
+        const x = Number(rr?.x);
+        const y = Number(rr?.y);
+        const w = Number(rr?.w);
+        const top = Number.isFinite(y) ? Math.max(12, y - 8) : 20;
+        const left = Number.isFinite(x) && Number.isFinite(w) ? (x + w / 2) : 120;
+        const tools = document.createElement('div');
+        tools.id = 'tmWhiteboardMultiTools';
+        tools.className = 'tm-whiteboard-multi-tools';
+        tools.style.left = `${left}px`;
+        tools.style.top = `${top}px`;
+        tools.innerHTML = `
+            <button class="tm-btn tm-btn-info" style="padding:2px 8px;font-size:12px;" title="按行自动连线">自动连线</button>
+            <button class="tm-btn tm-btn-danger" style="padding:2px 8px;font-size:12px;" title="移除框选对象">移除(${total})</button>
+        `;
+        const connectBtn = tools.querySelector('button.tm-btn-info');
+        if (connectBtn instanceof HTMLButtonElement) {
+            connectBtn.addEventListener('click', (ev) => {
+                try { ev.stopPropagation(); } catch (e) {}
+                try { window.tmWhiteboardAutoConnectMultiSelected?.(ev); } catch (e) {}
+            });
+        }
+        const btn = tools.querySelector('button.tm-btn-danger');
+        if (btn instanceof HTMLButtonElement) {
+            btn.addEventListener('click', (ev) => {
+                try { ev.stopPropagation(); } catch (e) {}
+                try { window.tmWhiteboardDeleteMultiSelected?.(ev); } catch (e) {}
+            });
+        }
+        try { viewport.appendChild(tools); } catch (e) {}
+    }
+
+    window.tmWhiteboardViewportWheel = function(ev) {
+        if (state.viewMode !== 'whiteboard') return;
+        try { ev?.preventDefault?.(); } catch (e) {}
+        const viewport = state.modal?.querySelector?.('#tmWhiteboardViewport');
+        if (!(viewport instanceof HTMLElement)) return;
+        const rect = viewport.getBoundingClientRect();
+        const px = Number(ev?.clientX) - rect.left;
+        const py = Number(ev?.clientY) - rect.top;
+        const v = __tmGetWhiteboardView();
+        const factor = Number(ev?.deltaY) > 0 ? 0.92 : 1.08;
+        const nextZoom = Math.max(0.35, Math.min(2.5, v.zoom * factor));
+        const wx = (px - v.x) / v.zoom;
+        const wy = (py - v.y) / v.zoom;
+        const nextX = px - wx * nextZoom;
+        const nextY = py - wy * nextZoom;
+        __tmSetWhiteboardView({ x: nextX, y: nextY, zoom: nextZoom }, { persist: false });
+        __tmApplyWhiteboardTransform();
+        __tmScheduleWhiteboardViewSave();
+    };
+
+    function __tmBuildWhiteboardTouchPanSession(viewport, touchLike) {
+        const t = touchLike || {};
+        const v = __tmGetWhiteboardView();
+        return {
+            mode: 'pan',
+            viewport,
+            startClientX: Number(t.clientX) || 0,
+            startClientY: Number(t.clientY) || 0,
+            startX: Number(v.x) || 0,
+            startY: Number(v.y) || 0,
+        };
+    }
+
+    function __tmBuildWhiteboardTouchPinchSession(viewport, touchA, touchB) {
+        const t1 = touchA || {};
+        const t2 = touchB || {};
+        const rect = viewport.getBoundingClientRect();
+        const cxClient = ((Number(t1.clientX) || 0) + (Number(t2.clientX) || 0)) / 2;
+        const cyClient = ((Number(t1.clientY) || 0) + (Number(t2.clientY) || 0)) / 2;
+        const dx = (Number(t2.clientX) || 0) - (Number(t1.clientX) || 0);
+        const dy = (Number(t2.clientY) || 0) - (Number(t1.clientY) || 0);
+        const dist = Math.max(1, Math.hypot(dx, dy));
+        const v = __tmGetWhiteboardView();
+        const startZoom = Math.max(0.01, Number(v.zoom) || 1);
+        const cx = cxClient - rect.left;
+        const cy = cyClient - rect.top;
+        return {
+            mode: 'pinch',
+            viewport,
+            startDist: dist,
+            startZoom,
+            anchorWx: (cx - (Number(v.x) || 0)) / startZoom,
+            anchorWy: (cy - (Number(v.y) || 0)) / startZoom,
+        };
+    }
+
+    window.tmWhiteboardViewportTouchStart = function(ev) {
+        if (state.viewMode !== 'whiteboard') return;
+        const tool = String(SettingsStore.data.whiteboardTool || 'pan').trim();
+        if (tool !== 'pan') return;
+        const viewport = state.modal?.querySelector?.('#tmWhiteboardViewport');
+        if (!(viewport instanceof HTMLElement)) return;
+        const target = ev?.target;
+        if (target && target.closest && target.closest('.tm-whiteboard-sidebar,.tm-whiteboard-bottom-toolbar,.tm-btn,input,button,select,textarea,label,a,.tm-whiteboard-doc-resize,.tm-task-link-dot,.tm-task-content-clickable,.tm-task-checkbox,.tm-kanban-chip,.tm-whiteboard-card-tools,.tm-whiteboard-note-tools,.tm-whiteboard-link-tools,.tm-whiteboard-edge')) return;
+        const touches = ev?.touches;
+        const n = Number(touches?.length) || 0;
+        if (n <= 0) return;
+        try { ev?.preventDefault?.(); } catch (e) {}
+        if (n >= 2) {
+            state.whiteboardTouchSession = __tmBuildWhiteboardTouchPinchSession(viewport, touches[0], touches[1]);
+        } else {
+            state.whiteboardTouchSession = __tmBuildWhiteboardTouchPanSession(viewport, touches[0]);
+        }
+        try { viewport.classList.add('tm-whiteboard-viewport--panning'); } catch (e) {}
+    };
+
+    window.tmWhiteboardViewportTouchMove = function(ev) {
+        if (state.viewMode !== 'whiteboard') return;
+        const s = state.whiteboardTouchSession;
+        if (!s || typeof s !== 'object') return;
+        const viewport = state.modal?.querySelector?.('#tmWhiteboardViewport');
+        if (!(viewport instanceof HTMLElement)) return;
+        const touches = ev?.touches;
+        const n = Number(touches?.length) || 0;
+        if (n <= 0) return;
+        try { ev?.preventDefault?.(); } catch (e) {}
+        if (n >= 2) {
+            if (s.mode !== 'pinch') {
+                state.whiteboardTouchSession = __tmBuildWhiteboardTouchPinchSession(viewport, touches[0], touches[1]);
+                return;
+            }
+            const t1 = touches[0];
+            const t2 = touches[1];
+            const rect = viewport.getBoundingClientRect();
+            const cxClient = ((Number(t1?.clientX) || 0) + (Number(t2?.clientX) || 0)) / 2;
+            const cyClient = ((Number(t1?.clientY) || 0) + (Number(t2?.clientY) || 0)) / 2;
+            const cx = cxClient - rect.left;
+            const cy = cyClient - rect.top;
+            const dx = (Number(t2?.clientX) || 0) - (Number(t1?.clientX) || 0);
+            const dy = (Number(t2?.clientY) || 0) - (Number(t1?.clientY) || 0);
+            const dist = Math.max(1, Math.hypot(dx, dy));
+            const ratio = dist / Math.max(1, Number(s.startDist) || 1);
+            const nextZoom = Math.max(0.35, Math.min(2.5, (Number(s.startZoom) || 1) * ratio));
+            const nextX = cx - (Number(s.anchorWx) || 0) * nextZoom;
+            const nextY = cy - (Number(s.anchorWy) || 0) * nextZoom;
+            __tmSetWhiteboardView({ x: nextX, y: nextY, zoom: nextZoom }, { persist: false });
+            __tmApplyWhiteboardTransform();
+            return;
+        }
+        const t = touches[0];
+        if (s.mode !== 'pan') {
+            state.whiteboardTouchSession = __tmBuildWhiteboardTouchPanSession(viewport, t);
+            return;
+        }
+        const dx = (Number(t?.clientX) || 0) - (Number(s.startClientX) || 0);
+        const dy = (Number(t?.clientY) || 0) - (Number(s.startClientY) || 0);
+        __tmSetWhiteboardView({ x: (Number(s.startX) || 0) + dx, y: (Number(s.startY) || 0) + dy }, { persist: false });
+        __tmApplyWhiteboardTransform();
+    };
+
+    window.tmWhiteboardViewportTouchEnd = function(ev) {
+        if (state.viewMode !== 'whiteboard') return;
+        const s = state.whiteboardTouchSession;
+        if (!s || typeof s !== 'object') return;
+        const viewport = state.modal?.querySelector?.('#tmWhiteboardViewport');
+        const touches = ev?.touches;
+        const n = Number(touches?.length) || 0;
+        try { ev?.preventDefault?.(); } catch (e) {}
+        if (n <= 0) {
+            state.whiteboardTouchSession = null;
+            try { viewport?.classList?.remove?.('tm-whiteboard-viewport--panning'); } catch (e) {}
+            __tmScheduleWhiteboardViewSave();
+            return;
+        }
+        if (!(viewport instanceof HTMLElement)) {
+            state.whiteboardTouchSession = null;
+            __tmScheduleWhiteboardViewSave();
+            return;
+        }
+        if (n >= 2) {
+            state.whiteboardTouchSession = __tmBuildWhiteboardTouchPinchSession(viewport, touches[0], touches[1]);
+            return;
+        }
+        state.whiteboardTouchSession = __tmBuildWhiteboardTouchPanSession(viewport, touches[0]);
+    };
+
+    window.tmWhiteboardViewportMouseDown = function(ev) {
+        if (state.viewMode !== 'whiteboard') return;
+        const pType = String(ev?.pointerType || '').toLowerCase();
+        if (pType === 'touch') return;
+        if (Number(ev?.button) !== 0) return;
+        const tool = String(SettingsStore.data.whiteboardTool || 'pan').trim();
+        const panMode = tool === 'pan';
+        const selectMode = tool === 'select';
+        const target = ev?.target;
+        const viewport = state.modal?.querySelector?.('#tmWhiteboardViewport');
+        if (!(viewport instanceof HTMLElement)) return;
+        if (target && target.closest) {
+            if (panMode) {
+                if (target.closest('.tm-whiteboard-sidebar,.tm-whiteboard-bottom-toolbar,.tm-btn,input,button,select,textarea,label,a,.tm-whiteboard-doc-resize,.tm-task-link-dot,.tm-task-content-clickable,.tm-task-checkbox,.tm-kanban-chip,.tm-whiteboard-card-tools,.tm-whiteboard-note-tools,.tm-whiteboard-link-tools,.tm-whiteboard-edge,.tm-whiteboard-node,.tm-whiteboard-note,.tm-whiteboard-note-editor,.tm-whiteboard-doc-head')) return;
+            } else if (selectMode) {
+                if (target.closest('.tm-whiteboard-node,.tm-task-link-dot,.tm-task-checkbox,.tm-btn,.tm-task-content-clickable,.tm-whiteboard-note,.tm-whiteboard-note-editor,.tm-whiteboard-edge,.tm-whiteboard-link-tools,.tm-whiteboard-pool-item,.tm-whiteboard-doc-resize,.tm-whiteboard-doc-head,input,button,select,textarea,label,a')) return;
+            } else {
+                return;
+            }
+        }
+
+        if (selectMode) {
+            const vr = viewport.getBoundingClientRect();
+            const sx = Number(ev?.clientX) || 0;
+            const sy = Number(ev?.clientY) || 0;
+            let lastCx = sx;
+            let lastCy = sy;
+            let started = false;
+            let rect = { x: 0, y: 0, w: 0, h: 0 };
+            const pointerId = Number.isFinite(Number(ev?.pointerId)) ? Number(ev.pointerId) : null;
+            const marquee = document.createElement('div');
+            marquee.className = 'tm-whiteboard-marquee';
+            marquee.style.left = `${sx - vr.left}px`;
+            marquee.style.top = `${sy - vr.top}px`;
+            marquee.style.width = '0px';
+            marquee.style.height = '0px';
+            try { viewport.appendChild(marquee); } catch (e) {}
+
+            state.whiteboardSelectedTaskId = '';
+            state.whiteboardSelectedNoteId = '';
+            __tmApplyWhiteboardCardSelectionDom('');
+            state.whiteboardSelectedLinkId = '';
+            state.whiteboardSelectedLinkDocId = '';
+            __tmScheduleWhiteboardEdgeRedraw();
+            __tmClearWhiteboardMultiSelection();
+
+            const computeRect = (cx, cy) => {
+                const x1 = Math.min(sx, cx) - vr.left;
+                const y1 = Math.min(sy, cy) - vr.top;
+                const x2 = Math.max(sx, cx) - vr.left;
+                const y2 = Math.max(sy, cy) - vr.top;
+                return { x: x1, y: y1, w: Math.max(0, x2 - x1), h: Math.max(0, y2 - y1) };
+            };
+            const intersects = (a, b) => !(a.right < b.left || a.left > b.right || a.bottom < b.top || a.top > b.bottom);
+            const centerIn = (r, rr) => {
+                const cx = rr.left + rr.width / 2;
+                const cy = rr.top + rr.height / 2;
+                return cx >= r.left && cx <= r.right && cy >= r.top && cy <= r.bottom;
+            };
+            const applySelection = (r) => {
+                const sel = {
+                    left: vr.left + r.x,
+                    top: vr.top + r.y,
+                    right: vr.left + r.x + r.w,
+                    bottom: vr.top + r.y + r.h,
+                };
+                const body = state.modal?.querySelector?.('#tmWhiteboardBody');
+                const taskIds = [];
+                const noteIds = [];
+                const linkKeys = [];
+                if (body instanceof Element) {
+                    try {
+                        body.querySelectorAll('.tm-whiteboard-node[data-task-id]').forEach((el) => {
+                            if (!(el instanceof HTMLElement)) return;
+                            const rr = el.getBoundingClientRect();
+                            if (intersects(sel, rr) || centerIn(sel, rr)) {
+                                const id = String(el.getAttribute('data-task-id') || '').trim();
+                                if (id) taskIds.push(id);
+                            }
+                        });
+                    } catch (e) {}
+                    try {
+                        body.querySelectorAll('.tm-whiteboard-note[data-note-id]').forEach((el) => {
+                            if (!(el instanceof HTMLElement)) return;
+                            const rr = el.getBoundingClientRect();
+                            if (intersects(sel, rr) || centerIn(sel, rr)) {
+                                const id = String(el.getAttribute('data-note-id') || '').trim();
+                                if (id) noteIds.push(id);
+                            }
+                        });
+                    } catch (e) {}
+                    try {
+                        body.querySelectorAll('.tm-whiteboard-edge.tm-whiteboard-edge--manual[data-link-id][data-doc-id]').forEach((el) => {
+                            if (!(el instanceof Element)) return;
+                            const rr = el.getBoundingClientRect();
+                            if (intersects(sel, rr) || centerIn(sel, rr)) {
+                                const lid = String(el.getAttribute('data-link-id') || '').trim();
+                                const did = String(el.getAttribute('data-doc-id') || '').trim();
+                                if (lid && did) linkKeys.push(`${did}::${lid}`);
+                            }
+                        });
+                    } catch (e) {}
+                }
+                state.whiteboardMultiSelectedTaskIds = Array.from(new Set(taskIds));
+                state.whiteboardMultiSelectedNoteIds = Array.from(new Set(noteIds));
+                state.whiteboardMultiSelectedLinkKeys = Array.from(new Set(linkKeys));
+                __tmApplyWhiteboardMultiSelectionDom();
+            };
+
+            const cleanup = () => {
+                try { marquee.remove(); } catch (e) {}
+                try { document.removeEventListener('pointermove', onMove, true); } catch (e) {}
+                try { document.removeEventListener('pointerup', onUp, true); } catch (e) {}
+                try { document.removeEventListener('pointercancel', onUp, true); } catch (e) {}
+                if (pointerId !== null && typeof viewport.releasePointerCapture === 'function') {
+                    try { viewport.releasePointerCapture(pointerId); } catch (e) {}
+                }
+                state.whiteboardMarqueeSession = null;
+            };
+
+            const onMove = (e2) => {
+                if (pointerId !== null && Number(e2?.pointerId) !== pointerId) return;
+                const cx = Number(e2?.clientX) || lastCx;
+                const cy = Number(e2?.clientY) || lastCy;
+                lastCx = cx;
+                lastCy = cy;
+                rect = computeRect(cx, cy);
+                if (!started && (rect.w > 2 || rect.h > 2)) started = true;
+                marquee.style.left = `${rect.x}px`;
+                marquee.style.top = `${rect.y}px`;
+                marquee.style.width = `${rect.w}px`;
+                marquee.style.height = `${rect.h}px`;
+                if (started) applySelection(rect);
+                state.whiteboardMarqueeSession = { sx, sy, marquee, viewport, rect };
+            };
+
+            const onUp = (e2) => {
+                if (pointerId !== null && Number(e2?.pointerId) !== pointerId) return;
+                const cx = Number(e2?.clientX);
+                const cy = Number(e2?.clientY);
+                if (Number.isFinite(cx) && Number.isFinite(cy)) rect = computeRect(cx, cy);
+                if (!started && (rect.w > 2 || rect.h > 2)) started = true;
+                if (started) {
+                    applySelection(rect);
+                    __tmRenderWhiteboardMultiTools(__tmComputeWhiteboardMultiSelectionRect() || rect);
+                    if ((rect.w > 3 || rect.h > 3)
+                        || (Array.isArray(state.whiteboardMultiSelectedTaskIds) && state.whiteboardMultiSelectedTaskIds.length)
+                        || (Array.isArray(state.whiteboardMultiSelectedNoteIds) && state.whiteboardMultiSelectedNoteIds.length)
+                        || (Array.isArray(state.whiteboardMultiSelectedLinkKeys) && state.whiteboardMultiSelectedLinkKeys.length)) {
+                        state.whiteboardSuppressClickUntil = Date.now() + 260;
+                    }
+                }
+                cleanup();
+            };
+
+            if (pointerId !== null && typeof viewport.setPointerCapture === 'function') {
+                try { viewport.setPointerCapture(pointerId); } catch (e) {}
+            }
+            try { document.addEventListener('pointermove', onMove, true); } catch (e) {}
+            try { document.addEventListener('pointerup', onUp, true); } catch (e) {}
+            try { document.addEventListener('pointercancel', onUp, true); } catch (e) {}
+            try { ev?.preventDefault?.(); } catch (e) {}
+            return;
+        }
+
+        if (!panMode) return;
+        try {
+            const old = state.whiteboardPanSession;
+            if (old && typeof old.cleanup === 'function') old.cleanup();
+        } catch (e) {}
+        const v0 = __tmGetWhiteboardView();
+        const pointerId = Number(ev?.pointerId);
+        const hasPointerId = Number.isFinite(pointerId);
+        state.whiteboardPanSession = {
+            startClientX: Number(ev?.clientX) || 0,
+            startClientY: Number(ev?.clientY) || 0,
+            startX: v0.x,
+            startY: v0.y,
+            pointerId: hasPointerId ? pointerId : null,
+        };
+        try { viewport.classList.add('tm-whiteboard-viewport--panning'); } catch (e) {}
+        if (hasPointerId && typeof viewport.setPointerCapture === 'function') {
+            try { viewport.setPointerCapture(pointerId); } catch (e) {}
+        }
+        const onMove = (e2) => {
+            const s = state.whiteboardPanSession;
+            if (!s) return;
+            const pid = Number(s.pointerId);
+            if (Number.isFinite(pid)) {
+                const curPid = Number(e2?.pointerId);
+                if (Number.isFinite(curPid) && curPid !== pid) return;
+            }
+            const dx = (Number(e2?.clientX) || 0) - s.startClientX;
+            const dy = (Number(e2?.clientY) || 0) - s.startClientY;
+            __tmSetWhiteboardView({ x: s.startX + dx, y: s.startY + dy }, { persist: false });
+            __tmApplyWhiteboardTransform();
+        };
+        const onUp = (e2) => {
+            const s = state.whiteboardPanSession;
+            if (s && Number.isFinite(Number(s.pointerId))) {
+                const curPid = Number(e2?.pointerId);
+                if (Number.isFinite(curPid) && curPid !== Number(s.pointerId)) return;
+            }
+            try { document.removeEventListener('mousemove', onMove, true); } catch (e) {}
+            try { document.removeEventListener('mouseup', onUp, true); } catch (e) {}
+            try { document.removeEventListener('pointermove', onMove, true); } catch (e) {}
+            try { document.removeEventListener('pointerup', onUp, true); } catch (e) {}
+            try { document.removeEventListener('pointercancel', onUp, true); } catch (e) {}
+            try { window.removeEventListener('blur', onUp, true); } catch (e) {}
+            if (Number.isFinite(pointerId) && typeof viewport.releasePointerCapture === 'function') {
+                try { viewport.releasePointerCapture(pointerId); } catch (e) {}
+            }
+            try { viewport.classList.remove('tm-whiteboard-viewport--panning'); } catch (e) {}
+            state.whiteboardPanSession = null;
+            __tmScheduleWhiteboardViewSave();
+        };
+        state.whiteboardPanSession.cleanup = onUp;
+        try { document.addEventListener('mousemove', onMove, true); } catch (e) {}
+        try { document.addEventListener('mouseup', onUp, true); } catch (e) {}
+        try { document.addEventListener('pointermove', onMove, true); } catch (e) {}
+        try { document.addEventListener('pointerup', onUp, true); } catch (e) {}
+        try { document.addEventListener('pointercancel', onUp, true); } catch (e) {}
+        try { window.addEventListener('blur', onUp, true); } catch (e) {}
+        try { ev?.preventDefault?.(); } catch (e) {}
+    };
+
+    window.tmWhiteboardCardMouseDown = function(ev, taskId, docId) {
+        if (state.viewMode !== 'whiteboard') return;
+        const tool = String(SettingsStore.data.whiteboardTool || 'pan').trim();
+        if (tool !== 'pan' && tool !== 'select') return;
+        if (Number(ev?.button) !== 0) return;
+        const id = String(taskId || '').trim();
+        const did = String(docId || '').trim();
+        if (!id || !did) return;
+        const target = ev?.target;
+        const multiTaskIds0 = Array.isArray(state.whiteboardMultiSelectedTaskIds)
+            ? state.whiteboardMultiSelectedTaskIds.map((x) => String(x || '').trim()).filter(Boolean)
+            : [];
+        const multiNoteIds0 = Array.isArray(state.whiteboardMultiSelectedNoteIds)
+            ? state.whiteboardMultiSelectedNoteIds.map((x) => String(x || '').trim()).filter(Boolean)
+            : [];
+        const inMulti = multiTaskIds0.includes(id);
+        const multiCount = multiTaskIds0.length + multiNoteIds0.length;
+        const hitContent = !!(target && target.closest && target.closest('.tm-task-content-clickable,.tm-kanban-chip'));
+        if (target && target.closest && target.closest('.tm-task-link-dot,.tm-task-checkbox,.tm-btn,input,button,select,textarea,label,a')) return;
+        if (hitContent && !(multiCount > 1 && inMulti)) return;
+        const multiTaskIds = Array.isArray(state.whiteboardMultiSelectedTaskIds)
+            ? state.whiteboardMultiSelectedTaskIds.map((x) => String(x || '').trim()).filter(Boolean)
+            : [];
+        const multiNoteIds = Array.isArray(state.whiteboardMultiSelectedNoteIds)
+            ? state.whiteboardMultiSelectedNoteIds.map((x) => String(x || '').trim()).filter(Boolean)
+            : [];
+        let groupDragItems = [];
+        const wantsGroupDrag = (multiTaskIds.length + multiNoteIds.length > 1) && multiTaskIds.includes(id);
+        if (wantsGroupDrag) {
+            const uniqTaskIds = Array.from(new Set(multiTaskIds));
+            const uniqNoteIds = Array.from(new Set(multiNoteIds));
+            const taskItems = uniqTaskIds.map((tid) => {
+                const cardEl = state.modal?.querySelector?.(`.tm-whiteboard-card[data-task-id="${CSS.escape(tid)}"]`);
+                if (!(cardEl instanceof HTMLElement)) return null;
+                if (cardEl.classList.contains('tm-whiteboard-node--sub')) return null;
+                const sx = Number(cardEl.dataset?.x);
+                const sy = Number(cardEl.dataset?.y);
+                const x0 = Number.isFinite(sx) ? sx : Number((cardEl.style.left || '').replace('px', '')) || 0;
+                const y0 = Number.isFinite(sy) ? sy : Number((cardEl.style.top || '').replace('px', '')) || 0;
+                const tdid = String(cardEl.getAttribute('data-doc-id') || '').trim();
+                if (!tdid) return null;
+                return { kind: 'task', id: tid, did: tdid, el: cardEl, x0, y0 };
+            }).filter(Boolean);
+            const noteItems = uniqNoteIds.map((nid) => {
+                const noteEl = state.modal?.querySelector?.(`.tm-whiteboard-note[data-note-id="${CSS.escape(nid)}"]`);
+                if (!(noteEl instanceof HTMLElement)) return null;
+                const x0 = Number((noteEl.style.left || '').replace('px', '')) || 0;
+                const y0 = Number((noteEl.style.top || '').replace('px', '')) || 0;
+                const ndid = String(noteEl.getAttribute('data-doc-id') || '').trim();
+                if (!ndid) return null;
+                return { kind: 'note', id: nid, did: ndid, el: noteEl, x0, y0 };
+            }).filter(Boolean);
+            groupDragItems = taskItems.concat(noteItems);
+        }
+        const useGroupDrag = groupDragItems.length > 1;
+        if (!useGroupDrag) {
+            __tmClearWhiteboardMultiSelection();
+            state.whiteboardSelectedTaskId = id;
+            state.whiteboardSelectedNoteId = '';
+            __tmApplyWhiteboardCardSelectionDom(id);
+        } else {
+            state.whiteboardSelectedTaskId = '';
+            state.whiteboardSelectedNoteId = '';
+            __tmApplyWhiteboardCardSelectionDom('');
+            __tmApplyWhiteboardMultiSelectionDom();
+        }
+        const card = ev?.currentTarget instanceof HTMLElement ? ev.currentTarget : (target?.closest?.('.tm-whiteboard-node') || null);
+        if (!(card instanceof HTMLElement)) return;
+        const isSubNode = card.classList.contains('tm-whiteboard-node--sub');
+        const startX = Number(card.dataset?.x);
+        const startY = Number(card.dataset?.y);
+        const x0 = isSubNode ? 0 : (Number.isFinite(startX) ? startX : Number(card.style.left.replace('px', '')) || 0);
+        const y0 = isSubNode ? 0 : (Number.isFinite(startY) ? startY : Number(card.style.top.replace('px', '')) || 0);
+        const zoom = __tmGetWhiteboardView().zoom || 1;
+        const sx = Number(ev?.clientX) || 0;
+        const sy = Number(ev?.clientY) || 0;
+        state.whiteboardNodeDrag = { id, did, x0, y0, sx, sy, card, isSubNode, detached: false, group: useGroupDrag ? groupDragItems : null };
+        const onMove = (e2) => {
+            const d = state.whiteboardNodeDrag;
+            if (!d) return;
+            if (Array.isArray(d.group) && d.group.length > 1) {
+                const dx = ((Number(e2?.clientX) || 0) - d.sx) / (zoom || 1);
+                const dy = ((Number(e2?.clientY) || 0) - d.sy) / (zoom || 1);
+                d.group.forEach((g) => {
+                    if (!g || !(g.el instanceof HTMLElement)) return;
+                    const nx = Math.round(Number(g.x0 || 0) + dx);
+                    const ny = Math.round(Number(g.y0 || 0) + dy);
+                    g.el.style.left = `${nx}px`;
+                    g.el.style.top = `${ny}px`;
+                    if (g.kind === 'task') {
+                        g.el.dataset.x = String(nx);
+                        g.el.dataset.y = String(ny);
+                        __tmSetWhiteboardNodePos(g.id, g.did, nx, ny, { persist: false, manual: true });
+                        __tmSetWhiteboardTaskPlaced(g.id, true, { persist: false });
+                    }
+                });
+                __tmScheduleWhiteboardEdgeRedraw();
+                __tmRenderWhiteboardMultiTools(__tmComputeWhiteboardMultiSelectionRect());
+                return;
+            }
+            if (d.isSubNode && !d.detached) {
+                const dx0 = (Number(e2?.clientX) || 0) - d.sx;
+                const dy0 = (Number(e2?.clientY) || 0) - d.sy;
+                if (Math.abs(dx0) + Math.abs(dy0) < 4) return;
+                const p = __tmResolveWhiteboardPointerInfo(e2, d.did)
+                    || __tmResolveWhiteboardPointerInfo(ev, d.did)
+                    || __tmTrackWhiteboardPointerFromClient(e2?.clientX, e2?.clientY, d.did);
+                const anchorX = 18;
+                const anchorY = 16;
+                const nx0 = Math.round((Number(p?.localX) || 24) - anchorX);
+                const ny0 = Math.round((Number(p?.localY) || 24) - anchorY);
+                const dTask = state.flatTasks?.[String(d.id || '').trim()];
+                const dParentId = String(dTask?.parentTaskId || '').trim();
+                __tmSetWhiteboardChildDetached(d.id, true, dParentId);
+                __tmSetWhiteboardTaskPlaced(d.id, true, { persist: false });
+                __tmSetWhiteboardNodePos(d.id, d.did, nx0, ny0, { persist: false, manual: true });
+                state.whiteboardSelectedTaskId = d.id;
+                state.whiteboardNodeDrag = null;
+                render();
+                const nextCard = state.modal?.querySelector?.(`.tm-whiteboard-card[data-task-id="${CSS.escape(d.id)}"]`);
+                if (nextCard instanceof HTMLElement) {
+                    state.whiteboardNodeDrag = {
+                        id: d.id,
+                        did: d.did,
+                        x0: nx0,
+                        y0: ny0,
+                        sx: Number(e2?.clientX) || 0,
+                        sy: Number(e2?.clientY) || 0,
+                        card: nextCard,
+                        isSubNode: false,
+                        detached: true,
+                    };
+                }
+                return;
+            }
+            const dx = ((Number(e2?.clientX) || 0) - d.sx) / (zoom || 1);
+            const dy = ((Number(e2?.clientY) || 0) - d.sy) / (zoom || 1);
+            const nx = Math.round(d.x0 + dx);
+            const ny = Math.round(d.y0 + dy);
+            d.card.style.left = `${nx}px`;
+            d.card.style.top = `${ny}px`;
+            d.card.dataset.x = String(nx);
+            d.card.dataset.y = String(ny);
+            __tmSetWhiteboardNodePos(d.id, d.did, nx, ny, { persist: false, manual: true });
+            __tmSetWhiteboardTaskPlaced(d.id, true, { persist: false });
+            __tmScheduleWhiteboardEdgeRedraw();
+        };
+        const onUp = (eUp) => {
+            try { document.removeEventListener('mousemove', onMove, true); } catch (e) {}
+            try { document.removeEventListener('mouseup', onUp, true); } catch (e) {}
+            const d = state.whiteboardNodeDrag;
+            state.whiteboardNodeDrag = null;
+            if (d && Array.isArray(d.group) && d.group.length > 1) {
+                const notes = Array.isArray(SettingsStore.data.whiteboardNotes) ? [...SettingsStore.data.whiteboardNotes] : [];
+                const allView = !(state.activeDocId && state.activeDocId !== 'all');
+                d.group.forEach((g) => {
+                    if (!g || g.kind !== 'note' || !(g.el instanceof HTMLElement)) return;
+                    const nx = Number((g.el.style.left || '').replace('px', '')) || Number(g.x0 || 0);
+                    const ny = Number((g.el.style.top || '').replace('px', '')) || Number(g.y0 || 0);
+                    const idx = notes.findIndex((n) => String(n?.id || '').trim() === String(g.id || '').trim());
+                    if (idx < 0) return;
+                    const offX = allView ? (Number(g.el.parentElement?.dataset?.frameOffsetX) || 0) : 0;
+                    const offY = allView ? (Number(g.el.parentElement?.dataset?.frameOffsetY) || 0) : 0;
+                    notes[idx] = { ...(notes[idx] || {}), docId: g.did, x: Math.round(nx - offX), y: Math.round(ny - offY) };
+                });
+                SettingsStore.data.whiteboardNotes = notes;
+                try { SettingsStore.syncToLocal(); } catch (e) {}
+            }
+            if (d && !d.isSubNode && !(Array.isArray(d.group) && d.group.length > 1)) {
+                const task = state.flatTasks?.[String(d.id || '').trim()];
+                const parentId = String(task?.parentTaskId || '').trim();
+                const isDetached = parentId ? __tmIsWhiteboardChildDetached(d.id) : false;
+                if (parentId && isDetached) {
+                    let hit = null;
+                    try { hit = document.elementFromPoint(Number(eUp?.clientX) || 0, Number(eUp?.clientY) || 0); } catch (e) {}
+                    const parentNode = hit?.closest?.(`.tm-whiteboard-node[data-task-id="${CSS.escape(parentId)}"]`);
+                    if (parentNode instanceof Element) {
+                        __tmSetWhiteboardChildDetached(d.id, false);
+                        __tmSetWhiteboardTaskPlaced(d.id, true, { persist: false });
+                        try { SettingsStore.save(); } catch (e) {}
+                        render();
+                        return;
+                    }
+                }
+            }
+            try { SettingsStore.save(); } catch (e) {}
+        };
+        try { document.addEventListener('mousemove', onMove, true); } catch (e) {}
+        try { document.addEventListener('mouseup', onUp, true); } catch (e) {}
+        try { ev?.stopPropagation?.(); } catch (e) {}
+    };
+
+    window.tmWhiteboardSelectTask = function(taskId, ev) {
+        if (state.viewMode !== 'whiteboard') return;
+        const tool = String(SettingsStore.data.whiteboardTool || 'pan').trim();
+        if (tool !== 'pan' && tool !== 'select') return;
+        const id = String(taskId || '').trim();
+        if (!id) return;
+        try { ev?.stopPropagation?.(); } catch (e) {}
+        if (tool === 'select') {
+            state.whiteboardSelectedTaskId = '';
+            state.whiteboardSelectedNoteId = '';
+            state.whiteboardSelectedLinkId = '';
+            state.whiteboardSelectedLinkDocId = '';
+            __tmApplyWhiteboardCardSelectionDom('');
+            const setTask = new Set((Array.isArray(state.whiteboardMultiSelectedTaskIds) ? state.whiteboardMultiSelectedTaskIds : []).map((x) => String(x || '').trim()).filter(Boolean));
+            setTask.add(id);
+            state.whiteboardMultiSelectedTaskIds = Array.from(setTask);
+            state.whiteboardMultiSelectedNoteIds = Array.isArray(state.whiteboardMultiSelectedNoteIds)
+                ? state.whiteboardMultiSelectedNoteIds.map((x) => String(x || '').trim()).filter(Boolean)
+                : [];
+            __tmApplyWhiteboardMultiSelectionDom();
+            __tmRenderWhiteboardMultiTools(__tmComputeWhiteboardMultiSelectionRect());
+            __tmScheduleWhiteboardEdgeRedraw();
+            return;
+        }
+        __tmClearWhiteboardMultiSelection();
+        state.whiteboardSelectedTaskId = id;
+        state.whiteboardSelectedNoteId = '';
+        state.whiteboardSelectedLinkId = '';
+        state.whiteboardSelectedLinkDocId = '';
+        __tmApplyWhiteboardCardSelectionDom(id);
+        __tmScheduleWhiteboardEdgeRedraw();
+        render();
+    };
+
+    window.tmWhiteboardDeleteCard = async function(taskId, docId, ev) {
+        try { ev?.stopPropagation?.(); } catch (e) {}
+        const id = String(taskId || '').trim();
+        if (!id) return;
+        const ids = __tmWhiteboardCollectTaskTreeIds(id, { includeRoot: true, includeDetached: false, includeSnapshotTree: true });
+        ids.forEach((tid) => __tmSetWhiteboardTaskPlaced(tid, false, { persist: false }));
+        const snapshotIds = ids.filter((tid) => {
+            const k = String(tid || '').trim();
+            if (!k) return false;
+            if (state.flatTasks?.[k]) return false;
+            return !!__tmGetWhiteboardCardSnapshot(k);
+        });
+        __tmDeleteWhiteboardSnapshotTasks(snapshotIds);
+        const idSet = new Set(ids.map((x) => String(x || '').trim()).filter(Boolean));
+        const links = __tmGetManualTaskLinks().filter((x) => {
+            const from = String(x?.from || '').trim();
+            const to = String(x?.to || '').trim();
+            return !idSet.has(from) && !idSet.has(to);
+        });
+        __tmSetManualTaskLinks(links);
+        if (idSet.has(String(state.whiteboardSelectedTaskId || '').trim())) state.whiteboardSelectedTaskId = '';
+        try { await SettingsStore.save(); } catch (e) {}
+        render();
+    };
+
+    window.tmWhiteboardSelectNote = function(noteId, ev) {
+        if (state.viewMode !== 'whiteboard') return;
+        const tool = String(SettingsStore.data.whiteboardTool || 'pan');
+        if (tool !== 'pan' && tool !== 'text' && tool !== 'select') return;
+        if (state.whiteboardNoteEditor) return;
+        try { ev?.stopPropagation?.(); } catch (e) {}
+        const id = String(noteId || '').trim();
+        if (!id) return;
+        if (String(state.whiteboardSelectedNoteId || '').trim() === id) return;
+        __tmClearWhiteboardMultiSelection();
+        state.whiteboardSelectedNoteId = id;
+        state.whiteboardSelectedTaskId = '';
+        __tmApplyWhiteboardCardSelectionDom('');
+        state.whiteboardSelectedLinkId = '';
+        state.whiteboardSelectedLinkDocId = '';
+        __tmScheduleWhiteboardEdgeRedraw();
+        render();
+    };
+
+    window.tmWhiteboardNoteClick = function(noteId, ev) {
+        try { ev?.stopPropagation?.(); } catch (e) {}
+        const prev = Number(state.whiteboardNoteClickTimer) || 0;
+        if (prev) {
+            try { clearTimeout(prev); } catch (e) {}
+            state.whiteboardNoteClickTimer = 0;
+        }
+        state.whiteboardNoteClickTimer = setTimeout(() => {
+            state.whiteboardNoteClickTimer = 0;
+            try { window.tmWhiteboardSelectNote?.(noteId, ev); } catch (e) {}
+        }, 180);
+    };
+
+    function __tmNormalizeWhiteboardNoteColor(v) {
+        const s = String(v || '').trim();
+        if (!s) return '';
+        if (/^#[0-9a-fA-F]{3,8}$/.test(s)) return s;
+        return '';
+    }
+
+    function __tmNormalizeWhiteboardNoteFontSize(v) {
+        const n = Number(v);
+        if (!Number.isFinite(n)) return 12;
+        return Math.max(10, Math.min(40, Math.round(n)));
+    }
+
+    function __tmNormalizeWhiteboardNoteWidth(v) {
+        const n = Number(v);
+        if (!Number.isFinite(n)) return 0;
+        return Math.max(80, Math.min(2200, Math.round(n)));
+    }
+
+    function __tmNormalizeWhiteboardNoteBold(v) {
+        return !!v;
+    }
+
+    async function __tmUpdateWhiteboardNoteStyle(noteId, patch = {}) {
+        const id = String(noteId || '').trim();
+        if (!id) return false;
+        const notes = Array.isArray(SettingsStore.data.whiteboardNotes) ? [...SettingsStore.data.whiteboardNotes] : [];
+        const idx = notes.findIndex((n) => String(n?.id || '').trim() === id);
+        if (idx < 0) return false;
+        const cur = notes[idx] && typeof notes[idx] === 'object' ? notes[idx] : {};
+        const next = { ...cur };
+        if (Object.prototype.hasOwnProperty.call(patch, 'color')) {
+            const c = __tmNormalizeWhiteboardNoteColor(patch.color);
+            if (c) next.color = c;
+            else delete next.color;
+        }
+        if (Object.prototype.hasOwnProperty.call(patch, 'fontSize')) {
+            next.fontSize = __tmNormalizeWhiteboardNoteFontSize(patch.fontSize);
+        }
+        if (Object.prototype.hasOwnProperty.call(patch, 'width')) {
+            const w = __tmNormalizeWhiteboardNoteWidth(patch.width);
+            if (w > 0) next.width = w;
+            else delete next.width;
+        }
+        if (Object.prototype.hasOwnProperty.call(patch, 'bold')) {
+            next.bold = __tmNormalizeWhiteboardNoteBold(patch.bold);
+        }
+        notes[idx] = next;
+        SettingsStore.data.whiteboardNotes = notes;
+        try { SettingsStore.syncToLocal(); } catch (e) {}
+        try { await SettingsStore.save(); } catch (e) {}
+        return true;
+    }
+
+    window.tmWhiteboardAdjustNoteFontSize = async function(noteId, delta, ev) {
+        try { ev?.stopPropagation?.(); } catch (e) {}
+        const id = String(noteId || '').trim();
+        if (!id) return;
+        const notes = Array.isArray(SettingsStore.data.whiteboardNotes) ? SettingsStore.data.whiteboardNotes : [];
+        const note = notes.find((n) => String(n?.id || '').trim() === id);
+        const cur = __tmNormalizeWhiteboardNoteFontSize(note?.fontSize);
+        const d = Number(delta);
+        const next = __tmNormalizeWhiteboardNoteFontSize(cur + (Number.isFinite(d) ? d : 0));
+        const ok = await __tmUpdateWhiteboardNoteStyle(id, { fontSize: next });
+        if (!ok) return;
+        state.whiteboardSelectedNoteId = id;
+        render();
+    };
+
+    window.tmWhiteboardSetNoteColor = async function(noteId, color, ev) {
+        try { ev?.stopPropagation?.(); } catch (e) {}
+        const id = String(noteId || '').trim();
+        if (!id) return;
+        const ok = await __tmUpdateWhiteboardNoteStyle(id, { color: color });
+        if (!ok) return;
+        state.whiteboardSelectedNoteId = id;
+        render();
+    };
+
+    window.tmWhiteboardToggleNoteBold = async function(noteId, ev) {
+        try { ev?.stopPropagation?.(); } catch (e) {}
+        const id = String(noteId || '').trim();
+        if (!id) return;
+        const notes = Array.isArray(SettingsStore.data.whiteboardNotes) ? SettingsStore.data.whiteboardNotes : [];
+        const note = notes.find((n) => String(n?.id || '').trim() === id);
+        const next = !__tmNormalizeWhiteboardNoteBold(note?.bold);
+        const ok = await __tmUpdateWhiteboardNoteStyle(id, { bold: next });
+        if (!ok) return;
+        state.whiteboardSelectedNoteId = id;
+        render();
+    };
+
+    window.tmWhiteboardDeleteNote = async function(noteId, ev) {
+        try { ev?.stopPropagation?.(); } catch (e) {}
+        const id = String(noteId || '').trim();
+        if (!id) return;
+        const notes = Array.isArray(SettingsStore.data.whiteboardNotes) ? SettingsStore.data.whiteboardNotes : [];
+        SettingsStore.data.whiteboardNotes = notes.filter((n) => String(n?.id || '').trim() !== id);
+        if (String(state.whiteboardSelectedNoteId || '').trim() === id) state.whiteboardSelectedNoteId = '';
+        try { SettingsStore.syncToLocal(); } catch (e) {}
+        try { await SettingsStore.save(); } catch (e) {}
+        render();
+    };
+
+    window.tmWhiteboardDeleteMultiSelected = async function(ev) {
+        try { ev?.stopPropagation?.(); } catch (e) {}
+        const taskIds = Array.from(new Set((Array.isArray(state.whiteboardMultiSelectedTaskIds) ? state.whiteboardMultiSelectedTaskIds : []).map((x) => String(x || '').trim()).filter(Boolean)));
+        const noteIds = Array.from(new Set((Array.isArray(state.whiteboardMultiSelectedNoteIds) ? state.whiteboardMultiSelectedNoteIds : []).map((x) => String(x || '').trim()).filter(Boolean)));
+        const linkKeys = Array.from(new Set((Array.isArray(state.whiteboardMultiSelectedLinkKeys) ? state.whiteboardMultiSelectedLinkKeys : []).map((x) => String(x || '').trim()).filter(Boolean)));
+        if (!taskIds.length && !noteIds.length && !linkKeys.length) return;
+        const allTaskIds = new Set();
+        taskIds.forEach((id) => {
+            __tmWhiteboardCollectTaskTreeIds(id, { includeRoot: true, includeDetached: false, includeSnapshotTree: true })
+                .forEach((tid) => allTaskIds.add(String(tid || '').trim()));
+        });
+        allTaskIds.forEach((tid) => {
+            if (!tid) return;
+            __tmSetWhiteboardTaskPlaced(tid, false, { persist: false });
+        });
+        const snapshotIds = Array.from(allTaskIds).filter((tid) => {
+            const k = String(tid || '').trim();
+            if (!k) return false;
+            if (state.flatTasks?.[k]) return false;
+            return !!__tmGetWhiteboardCardSnapshot(k);
+        });
+        __tmDeleteWhiteboardSnapshotTasks(snapshotIds);
+        if (allTaskIds.size) {
+            const links = __tmGetManualTaskLinks().filter((x) => {
+                const from = String(x?.from || '').trim();
+                const to = String(x?.to || '').trim();
+                return !allTaskIds.has(from) && !allTaskIds.has(to);
+            });
+            __tmSetManualTaskLinks(links);
+        }
+        if (linkKeys.length) {
+            const selectedSet = new Set(linkKeys);
+            const links = __tmGetManualTaskLinks().filter((x) => {
+                const key = `${String(x?.docId || '').trim()}::${String(x?.id || '').trim()}`;
+                return !selectedSet.has(key);
+            });
+            __tmSetManualTaskLinks(links);
+        }
+        if (noteIds.length) {
+            const noteSet = new Set(noteIds);
+            const notes = Array.isArray(SettingsStore.data.whiteboardNotes) ? SettingsStore.data.whiteboardNotes : [];
+            SettingsStore.data.whiteboardNotes = notes.filter((n) => !noteSet.has(String(n?.id || '').trim()));
+        }
+        state.whiteboardSelectedTaskId = '';
+        state.whiteboardSelectedNoteId = '';
+        state.whiteboardSelectedLinkId = '';
+        state.whiteboardSelectedLinkDocId = '';
+        state.whiteboardMultiSelectedLinkKeys = [];
+        __tmApplyWhiteboardCardSelectionDom('');
+        __tmClearWhiteboardMultiSelection();
+        try { SettingsStore.syncToLocal(); } catch (e) {}
+        try { await SettingsStore.save(); } catch (e) {}
+        render();
+    };
+
+    window.tmWhiteboardAutoConnectMultiSelected = async function(ev) {
+        try { ev?.stopPropagation?.(); } catch (e) {}
+        const taskIds = Array.from(new Set((Array.isArray(state.whiteboardMultiSelectedTaskIds) ? state.whiteboardMultiSelectedTaskIds : []).map((x) => String(x || '').trim()).filter(Boolean)));
+        if (taskIds.length < 2) return;
+        const body = state.modal?.querySelector?.('#tmWhiteboardBody');
+        if (!(body instanceof Element)) return;
+        const pickNode = (taskId) => {
+            try {
+                return body.querySelector(`.tm-whiteboard-node[data-task-id="${CSS.escape(taskId)}"]`);
+            } catch (e) {
+                return null;
+            }
+        };
+        const eligibleTaskIds = taskIds.filter((id) => {
+            const el = pickNode(id);
+            if (!(el instanceof HTMLElement)) return false;
+            if (!el.classList.contains('tm-whiteboard-node--sub')) return true;
+            return __tmIsWhiteboardChildDetached(id);
+        });
+        if (eligibleTaskIds.length < 2) {
+            try { hint('ℹ 自动连线仅处理最高层卡片（已拖出的子任务除外）', 'info'); } catch (e) {}
+            return;
+        }
+        const items = eligibleTaskIds.map((id) => {
+            const el = pickNode(id);
+            if (!(el instanceof HTMLElement)) return null;
+            const rect = el.getBoundingClientRect();
+            const docId = String(el.getAttribute('data-doc-id') || __tmGetTaskDocIdById(id) || '').trim();
+            if (!docId) return null;
+            return {
+                id,
+                docId,
+                left: Number(rect.left) || 0,
+                top: Number(rect.top) || 0,
+                right: Number(rect.right) || 0,
+                bottom: Number(rect.bottom) || 0,
+            };
+        }).filter(Boolean);
+        if (items.length < 2) return;
+
+        const byDoc = new Map();
+        items.forEach((it) => {
+            const did = String(it.docId || '').trim();
+            if (!did) return;
+            if (!byDoc.has(did)) byDoc.set(did, []);
+            byDoc.get(did).push(it);
+        });
+        if (!byDoc.size) return;
+
+        const buildRowsOrder = (arr) => {
+            const remaining = arr.slice().sort((a, b) => (a.top - b.top) || (a.left - b.left));
+            const rows = [];
+            while (remaining.length) {
+                const anchor = remaining.shift();
+                const rowBottom = Number(anchor.bottom) || (Number(anchor.top) + 80);
+                const row = [anchor];
+                for (let i = remaining.length - 1; i >= 0; i--) {
+                    const x = remaining[i];
+                    if ((Number(x.top) || 0) < rowBottom) {
+                        row.push(x);
+                        remaining.splice(i, 1);
+                    }
+                }
+                row.sort((a, b) => (a.left - b.left) || (a.top - b.top));
+                rows.push(row);
+            }
+            rows.sort((a, b) => ((a[0]?.top || 0) - (b[0]?.top || 0)) || ((a[0]?.left || 0) - (b[0]?.left || 0)));
+            return rows.flatMap((r) => r);
+        };
+
+        const manual = __tmGetManualTaskLinks();
+        let added = 0;
+        let skipped = 0;
+        byDoc.forEach((arr, docId) => {
+            if (!Array.isArray(arr) || arr.length < 2) return;
+            const ordered = buildRowsOrder(arr);
+            for (let i = 1; i < ordered.length; i++) {
+                const fromId = String(ordered[i - 1]?.id || '').trim();
+                const toId = String(ordered[i]?.id || '').trim();
+                if (!fromId || !toId || fromId === toId) continue;
+                const check = __tmCanLinkTasks(fromId, toId);
+                if (!check.ok) {
+                    skipped++;
+                    continue;
+                }
+                const did = String(check.docId || docId || '').trim();
+                if (!did) {
+                    skipped++;
+                    continue;
+                }
+                const exists = manual.some((x) => String(x?.from || '') === fromId && String(x?.to || '') === toId && String(x?.docId || '') === did);
+                if (exists) {
+                    skipped++;
+                    continue;
+                }
+                manual.push({
+                    id: `link_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
+                    from: fromId,
+                    to: toId,
+                    docId: did,
+                    createdAt: String(Date.now()),
+                });
+                added++;
+            }
+        });
+        if (!added) {
+            try { hint('ℹ 未新增连线（可能已存在或跨文档）', 'info'); } catch (e) {}
+            return;
+        }
+        __tmSetManualTaskLinks(manual);
+        try { await SettingsStore.save(); } catch (e) {}
+        try { hint(`✅ 已新增 ${added} 条连线${skipped ? `（跳过 ${skipped} 条）` : ''}`, 'success'); } catch (e) {}
+        __tmScheduleWhiteboardEdgeRedraw();
+        render();
+    };
+
+    window.tmWhiteboardEditNote = function(noteId, docId, ev) {
+        try {
+            ev?.stopPropagation?.();
+            ev?.preventDefault?.();
+        } catch (e) {}
+        const t = Number(state.whiteboardNoteClickTimer) || 0;
+        if (t) {
+            try { clearTimeout(t); } catch (e) {}
+            state.whiteboardNoteClickTimer = 0;
+        }
+        if (String(SettingsStore.data.whiteboardTool || 'pan') !== 'pan') return;
+        const id = String(noteId || '').trim();
+        const did = String(docId || '').trim();
+        if (!id || !did) return;
+        const notes = Array.isArray(SettingsStore.data.whiteboardNotes) ? SettingsStore.data.whiteboardNotes : [];
+        const note = notes.find((n) => String(n?.id || '').trim() === id);
+        if (!note) return;
+        const noteEl = (ev?.currentTarget instanceof HTMLElement)
+            ? ev.currentTarget
+            : state.modal?.querySelector?.(`.tm-whiteboard-note[data-note-id="${CSS.escape(id)}"][data-doc-id="${CSS.escape(did)}"]`);
+        const docBody = (noteEl instanceof HTMLElement ? noteEl.closest('.tm-whiteboard-doc-body[data-doc-id]') : null)
+            || state.modal?.querySelector?.(`.tm-whiteboard-doc-body[data-doc-id="${CSS.escape(did)}"]`);
+        if (!(docBody instanceof HTMLElement)) return;
+        __tmClearWhiteboardMultiSelection();
+        state.whiteboardSelectedNoteId = id;
+        state.whiteboardSelectedTaskId = '';
+        __tmApplyWhiteboardCardSelectionDom('');
+        state.whiteboardSelectedLinkId = '';
+        state.whiteboardSelectedLinkDocId = '';
+        __tmScheduleWhiteboardEdgeRedraw();
+        const allView = !(state.activeDocId && state.activeDocId !== 'all');
+        const offX = allView ? (Number(docBody.dataset?.frameOffsetX) || 0) : 0;
+        const offY = allView ? (Number(docBody.dataset?.frameOffsetY) || 0) : 0;
+        let x = (Number.isFinite(Number(note?.x)) ? Number(note.x) : 24) + offX;
+        let y = (Number.isFinite(Number(note?.y)) ? Number(note.y) : 24) + offY;
+        try {
+            if (noteEl instanceof HTMLElement) {
+                const sx = Number((noteEl.style.left || '').replace('px', ''));
+                const sy = Number((noteEl.style.top || '').replace('px', ''));
+                if (Number.isFinite(sx)) x = sx;
+                if (Number.isFinite(sy)) y = sy;
+                // 兜底：当 style 坐标不可用时，再退回到基于实际渲染位置的换算
+                if (!Number.isFinite(sx) || !Number.isFinite(sy)) {
+                    const zoom = Math.max(0.01, Number(__tmGetWhiteboardView()?.zoom) || 1);
+                    const nr = noteEl.getBoundingClientRect();
+                    const dr = docBody.getBoundingClientRect();
+                    const rx = (nr.left - dr.left) / zoom;
+                    const ry = (nr.top - dr.top) / zoom;
+                    if (!Number.isFinite(sx) && Number.isFinite(rx)) x = rx;
+                    if (!Number.isFinite(sy) && Number.isFinite(ry)) y = ry;
+                }
+            }
+        } catch (e) {}
+        __tmOpenWhiteboardNoteEditor(docBody, did, x, y, {
+            noteId: id,
+            text: String(note?.text || ''),
+            offsetX: offX,
+            offsetY: offY,
+            fontSize: __tmNormalizeWhiteboardNoteFontSize(note?.fontSize),
+            color: __tmNormalizeWhiteboardNoteColor(note?.color) || '',
+            bold: __tmNormalizeWhiteboardNoteBold(note?.bold),
+        });
+    };
+
+    window.tmWhiteboardNoteMouseDown = function(ev, noteId, docId) {
+        if (state.viewMode !== 'whiteboard') return;
+        const tool = String(SettingsStore.data.whiteboardTool || 'pan');
+        if (tool !== 'pan' && tool !== 'text' && tool !== 'select') return;
+        if (Number(ev?.button) !== 0) return;
+        if (state.whiteboardNoteEditor) return;
+        // 双击用于编辑，不应进入拖拽流程，否则 mouseup-render 会把编辑框顶掉
+        if (Number(ev?.detail) >= 2) return;
+        const target = ev?.target;
+        if (target && target.closest && target.closest('.tm-whiteboard-note-resize,.tm-whiteboard-note-width-resize')) return;
+        if (target && target.closest && target.closest('.tm-btn,input,button,select,textarea,label,a')) return;
+        const id = String(noteId || '').trim();
+        const did = String(docId || '').trim();
+        if (!id || !did) return;
+        const noteEl = ev?.currentTarget instanceof HTMLElement ? ev.currentTarget : (target?.closest?.('.tm-whiteboard-note') || null);
+        if (!(noteEl instanceof HTMLElement)) return;
+        const x0 = Number(noteEl.style.left.replace('px', '')) || 0;
+        const y0 = Number(noteEl.style.top.replace('px', '')) || 0;
+        const zoom = __tmGetWhiteboardView().zoom || 1;
+        const sx = Number(ev?.clientX) || 0;
+        const sy = Number(ev?.clientY) || 0;
+        const multiTaskIds = Array.isArray(state.whiteboardMultiSelectedTaskIds)
+            ? state.whiteboardMultiSelectedTaskIds.map((x) => String(x || '').trim()).filter(Boolean)
+            : [];
+        const multiNoteIds = Array.isArray(state.whiteboardMultiSelectedNoteIds)
+            ? state.whiteboardMultiSelectedNoteIds.map((x) => String(x || '').trim()).filter(Boolean)
+            : [];
+        let groupDragItems = [];
+        const wantsGroupDrag = (multiTaskIds.length + multiNoteIds.length > 1) && multiNoteIds.includes(id);
+        if (wantsGroupDrag) {
+            const uniqTaskIds = Array.from(new Set(multiTaskIds));
+            const uniqNoteIds = Array.from(new Set(multiNoteIds));
+            const taskItems = uniqTaskIds.map((tid) => {
+                const cardEl = state.modal?.querySelector?.(`.tm-whiteboard-card[data-task-id="${CSS.escape(tid)}"]`);
+                if (!(cardEl instanceof HTMLElement)) return null;
+                if (cardEl.classList.contains('tm-whiteboard-node--sub')) return null;
+                const sx0 = Number(cardEl.dataset?.x);
+                const sy0 = Number(cardEl.dataset?.y);
+                const tx0 = Number.isFinite(sx0) ? sx0 : Number((cardEl.style.left || '').replace('px', '')) || 0;
+                const ty0 = Number.isFinite(sy0) ? sy0 : Number((cardEl.style.top || '').replace('px', '')) || 0;
+                const tdid = String(cardEl.getAttribute('data-doc-id') || '').trim();
+                if (!tdid) return null;
+                return { kind: 'task', id: tid, did: tdid, el: cardEl, x0: tx0, y0: ty0 };
+            }).filter(Boolean);
+            const noteItems = uniqNoteIds.map((nid) => {
+                const nEl = state.modal?.querySelector?.(`.tm-whiteboard-note[data-note-id="${CSS.escape(nid)}"]`);
+                if (!(nEl instanceof HTMLElement)) return null;
+                const nx0 = Number((nEl.style.left || '').replace('px', '')) || 0;
+                const ny0 = Number((nEl.style.top || '').replace('px', '')) || 0;
+                const ndid = String(nEl.getAttribute('data-doc-id') || '').trim();
+                if (!ndid) return null;
+                return { kind: 'note', id: nid, did: ndid, el: nEl, x0: nx0, y0: ny0 };
+            }).filter(Boolean);
+            groupDragItems = taskItems.concat(noteItems);
+        }
+        const useGroupDrag = groupDragItems.length > 1;
+        if (!useGroupDrag) {
+            __tmClearWhiteboardMultiSelection();
+            state.whiteboardSelectedNoteId = id;
+            state.whiteboardSelectedTaskId = '';
+            __tmApplyWhiteboardCardSelectionDom('');
+            state.whiteboardSelectedLinkId = '';
+            state.whiteboardSelectedLinkDocId = '';
+        } else {
+            state.whiteboardSelectedTaskId = '';
+            state.whiteboardSelectedNoteId = '';
+            state.whiteboardSelectedLinkId = '';
+            state.whiteboardSelectedLinkDocId = '';
+            __tmApplyWhiteboardCardSelectionDom('');
+            __tmApplyWhiteboardMultiSelectionDom();
+            __tmRenderWhiteboardMultiTools(__tmComputeWhiteboardMultiSelectionRect());
+        }
+        state.whiteboardNoteDrag = { id, did, x0, y0, sx, sy, noteEl, moved: false, group: useGroupDrag ? groupDragItems : null };
+        const onMove = (e2) => {
+            const d = state.whiteboardNoteDrag;
+            if (!d) return;
+            const dx = ((Number(e2?.clientX) || 0) - d.sx) / (zoom || 1);
+            const dy = ((Number(e2?.clientY) || 0) - d.sy) / (zoom || 1);
+            if (!d.moved) {
+                if (Math.abs(dx) + Math.abs(dy) < 3) return;
+                d.moved = true;
+            }
+            if (Array.isArray(d.group) && d.group.length > 1) {
+                d.group.forEach((g) => {
+                    if (!g || !(g.el instanceof HTMLElement)) return;
+                    const nx = Math.round(Number(g.x0 || 0) + dx);
+                    const ny = Math.round(Number(g.y0 || 0) + dy);
+                    g.el.style.left = `${nx}px`;
+                    g.el.style.top = `${ny}px`;
+                    if (g.kind === 'task') {
+                        g.el.dataset.x = String(nx);
+                        g.el.dataset.y = String(ny);
+                        __tmSetWhiteboardNodePos(g.id, g.did, nx, ny, { persist: false, manual: true });
+                        __tmSetWhiteboardTaskPlaced(g.id, true, { persist: false });
+                    }
+                });
+                __tmScheduleWhiteboardEdgeRedraw();
+                __tmRenderWhiteboardMultiTools(__tmComputeWhiteboardMultiSelectionRect());
+                return;
+            }
+            const nx = Math.round(d.x0 + dx);
+            const ny = Math.round(d.y0 + dy);
+            d.noteEl.style.left = `${nx}px`;
+            d.noteEl.style.top = `${ny}px`;
+        };
+        const onUp = async () => {
+            try { document.removeEventListener('mousemove', onMove, true); } catch (e) {}
+            try { document.removeEventListener('mouseup', onUp, true); } catch (e) {}
+            const d = state.whiteboardNoteDrag;
+            state.whiteboardNoteDrag = null;
+            if (!d) return;
+            if (!d.moved) {
+                __tmScheduleWhiteboardEdgeRedraw();
+                render();
+                return;
+            }
+            if (Array.isArray(d.group) && d.group.length > 1) {
+                const notes = Array.isArray(SettingsStore.data.whiteboardNotes) ? [...SettingsStore.data.whiteboardNotes] : [];
+                const allView = !(state.activeDocId && state.activeDocId !== 'all');
+                d.group.forEach((g) => {
+                    if (!g || g.kind !== 'note' || !(g.el instanceof HTMLElement)) return;
+                    const nx = Number((g.el.style.left || '').replace('px', '')) || Number(g.x0 || 0);
+                    const ny = Number((g.el.style.top || '').replace('px', '')) || Number(g.y0 || 0);
+                    const idx = notes.findIndex((n) => String(n?.id || '').trim() === String(g.id || '').trim());
+                    if (idx < 0) return;
+                    const offX = allView ? (Number(g.el.parentElement?.dataset?.frameOffsetX) || 0) : 0;
+                    const offY = allView ? (Number(g.el.parentElement?.dataset?.frameOffsetY) || 0) : 0;
+                    notes[idx] = { ...(notes[idx] || {}), docId: g.did, x: Math.round(nx - offX), y: Math.round(ny - offY) };
+                });
+                SettingsStore.data.whiteboardNotes = notes;
+                try { SettingsStore.syncToLocal(); } catch (e) {}
+                try { await SettingsStore.save(); } catch (e) {}
+                render();
+                return;
+            }
+            const nx = Number(d.noteEl.style.left.replace('px', '')) || d.x0;
+            const ny = Number(d.noteEl.style.top.replace('px', '')) || d.y0;
+            const notes = Array.isArray(SettingsStore.data.whiteboardNotes) ? [...SettingsStore.data.whiteboardNotes] : [];
+            const idx = notes.findIndex((n) => String(n?.id || '').trim() === d.id);
+            if (idx >= 0) {
+                const allView = !(state.activeDocId && state.activeDocId !== 'all');
+                const offX = allView ? (Number(d.noteEl.parentElement?.dataset?.frameOffsetX) || 0) : 0;
+                const offY = allView ? (Number(d.noteEl.parentElement?.dataset?.frameOffsetY) || 0) : 0;
+                notes[idx] = { ...(notes[idx] || {}), docId: d.did, x: Math.round(nx - offX), y: Math.round(ny - offY) };
+                SettingsStore.data.whiteboardNotes = notes;
+                try { SettingsStore.syncToLocal(); } catch (e) {}
+                try { await SettingsStore.save(); } catch (e) {}
+            }
+            render();
+        };
+        try { document.addEventListener('mousemove', onMove, true); } catch (e) {}
+        try { document.addEventListener('mouseup', onUp, true); } catch (e) {}
+        try { ev?.stopPropagation?.(); } catch (e) {}
+    };
+
+    window.tmWhiteboardNoteResizeStart = function(ev, noteId, docId) {
+        if (state.viewMode !== 'whiteboard') return;
+        if (Number(ev?.button) !== 0) return;
+        try { ev?.stopPropagation?.(); } catch (e) {}
+        try { ev?.preventDefault?.(); } catch (e) {}
+        const id = String(noteId || '').trim();
+        const did = String(docId || '').trim();
+        if (!id || !did) return;
+        const handle = ev?.currentTarget instanceof HTMLElement ? ev.currentTarget : null;
+        const noteEl = (handle && handle.closest('.tm-whiteboard-note')) || (ev?.target?.closest?.('.tm-whiteboard-note'));
+        if (!(noteEl instanceof HTMLElement)) return;
+        const notes = Array.isArray(SettingsStore.data.whiteboardNotes) ? SettingsStore.data.whiteboardNotes : [];
+        const note = notes.find((n) => String(n?.id || '').trim() === id);
+        const startFont = __tmNormalizeWhiteboardNoteFontSize(note?.fontSize);
+        const sx = Number(ev?.clientX) || 0;
+        const sy = Number(ev?.clientY) || 0;
+        noteEl.style.fontSize = `${startFont}px`;
+        const onMove = (e2) => {
+            const dx = (Number(e2?.clientX) || 0) - sx;
+            const dy = (Number(e2?.clientY) || 0) - sy;
+            const next = __tmNormalizeWhiteboardNoteFontSize(startFont + Math.round((dx + dy) / 12));
+            noteEl.style.fontSize = `${next}px`;
+            state.whiteboardNoteResize = { noteId: id, docId: did, fontSize: next };
+        };
+        const onUp = async () => {
+            try { document.removeEventListener('mousemove', onMove, true); } catch (e) {}
+            try { document.removeEventListener('mouseup', onUp, true); } catch (e) {}
+            const st = (state.whiteboardNoteResize && String(state.whiteboardNoteResize.noteId || '').trim() === id)
+                ? state.whiteboardNoteResize
+                : null;
+            state.whiteboardNoteResize = null;
+            const next = __tmNormalizeWhiteboardNoteFontSize(st?.fontSize ?? startFont);
+            await __tmUpdateWhiteboardNoteStyle(id, { fontSize: next });
+            state.whiteboardSelectedNoteId = id;
+            render();
+        };
+        try { document.addEventListener('mousemove', onMove, true); } catch (e) {}
+        try { document.addEventListener('mouseup', onUp, true); } catch (e) {}
+    };
+
+    window.tmWhiteboardNoteResizeWidthStart = function(ev, noteId, docId) {
+        if (state.viewMode !== 'whiteboard') return;
+        if (Number(ev?.button) !== 0) return;
+        try { ev?.stopPropagation?.(); } catch (e) {}
+        try { ev?.preventDefault?.(); } catch (e) {}
+        const id = String(noteId || '').trim();
+        const did = String(docId || '').trim();
+        if (!id || !did) return;
+        const handle = ev?.currentTarget instanceof HTMLElement ? ev.currentTarget : null;
+        const noteEl = (handle && handle.closest('.tm-whiteboard-note')) || (ev?.target?.closest?.('.tm-whiteboard-note'));
+        if (!(noteEl instanceof HTMLElement)) return;
+        const startW = __tmNormalizeWhiteboardNoteWidth(Number(noteEl.getBoundingClientRect()?.width) || Number(noteEl.offsetWidth) || 0);
+        const sx = Number(ev?.clientX) || 0;
+        noteEl.style.width = `${startW}px`;
+        noteEl.style.whiteSpace = 'pre-wrap';
+        noteEl.style.overflowWrap = 'anywhere';
+        const onMove = (e2) => {
+            const dx = (Number(e2?.clientX) || 0) - sx;
+            const next = __tmNormalizeWhiteboardNoteWidth(startW + dx);
+            noteEl.style.width = `${next}px`;
+            state.whiteboardNoteWidthResize = { noteId: id, docId: did, width: next };
+        };
+        const onUp = async () => {
+            try { document.removeEventListener('mousemove', onMove, true); } catch (e) {}
+            try { document.removeEventListener('mouseup', onUp, true); } catch (e) {}
+            const st = (state.whiteboardNoteWidthResize && String(state.whiteboardNoteWidthResize.noteId || '').trim() === id)
+                ? state.whiteboardNoteWidthResize
+                : null;
+            state.whiteboardNoteWidthResize = null;
+            const next = __tmNormalizeWhiteboardNoteWidth(st?.width ?? startW);
+            await __tmUpdateWhiteboardNoteStyle(id, { width: next });
+            state.whiteboardSelectedNoteId = id;
+            render();
+        };
+        try { document.addEventListener('mousemove', onMove, true); } catch (e) {}
+        try { document.addEventListener('mouseup', onUp, true); } catch (e) {}
+    };
+
+    async function __tmCloseWhiteboardNoteEditor(opts = {}) {
+        const o = (opts && typeof opts === 'object') ? opts : {};
+        const st = state.whiteboardNoteEditor;
+        state.whiteboardNoteEditor = null;
+        if (!st || typeof st !== 'object') return;
+        const el = st.el;
+        const did = String(st.docId || '').trim();
+        const noteId = String(st.noteId || '').trim();
+        const x = Number(st.x);
+        const y = Number(st.y);
+        const ox = Number(st.offsetX) || 0;
+        const oy = Number(st.offsetY) || 0;
+        const fs = __tmNormalizeWhiteboardNoteFontSize(st.fontSize);
+        const c = __tmNormalizeWhiteboardNoteColor(st.color) || '';
+        const bd = __tmNormalizeWhiteboardNoteBold(st.bold);
+        let value = '';
+        try { value = String(el?.value || '').trim(); } catch (e) {}
+        try { el?.remove?.(); } catch (e) {}
+        if (!o.save) return;
+        if (!did || !Number.isFinite(x) || !Number.isFinite(y)) return;
+        const allView = !(state.activeDocId && state.activeDocId !== 'all');
+        const sx = Math.round(x - (allView ? ox : 0));
+        const sy = Math.round(y - (allView ? oy : 0));
+        const notes0 = Array.isArray(SettingsStore.data.whiteboardNotes) ? [...SettingsStore.data.whiteboardNotes] : [];
+        if (noteId) {
+            const idx = notes0.findIndex((n) => String(n?.id || '').trim() === noteId);
+            if (idx < 0 || !value) return;
+            notes0[idx] = {
+                ...(notes0[idx] || {}),
+                docId: did,
+                text: value,
+                x: sx,
+                y: sy,
+                fontSize: fs,
+                color: c,
+                bold: bd,
+                updatedAt: String(Date.now()),
+            };
+            SettingsStore.data.whiteboardNotes = notes0;
+            try { SettingsStore.syncToLocal(); } catch (e) {}
+            try { await SettingsStore.save(); } catch (e) {}
+            render();
+            return;
+        }
+        if (!value) return;
+        const notes = Array.isArray(SettingsStore.data.whiteboardNotes) ? [...SettingsStore.data.whiteboardNotes] : [];
+        notes.push({
+            id: `note_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`,
+            docId: did,
+            text: value,
+            x: sx,
+            y: sy,
+            fontSize: fs,
+            color: c,
+            bold: bd,
+            createdAt: String(Date.now()),
+        });
+        SettingsStore.data.whiteboardNotes = notes;
+        try { SettingsStore.syncToLocal(); } catch (e) {}
+        try { await SettingsStore.save(); } catch (e) {}
+        render();
+    }
+
+    function __tmOpenWhiteboardNoteEditor(docBody, docId, x, y, opts = {}) {
+        const o = (opts && typeof opts === 'object') ? opts : {};
+        const bodyEl = docBody instanceof HTMLElement ? docBody : null;
+        const did = String(docId || '').trim();
+        if (!bodyEl || !did) return;
+        const noteId = String(o.noteId || '').trim();
+        const baseX = Math.round(Number(x) || 24);
+        const baseY = Math.round(Number(y) || 24);
+        const nx = baseX;
+        const ny = baseY;
+        const initialText = String(o.text || '');
+        __tmCloseWhiteboardNoteEditor({ save: false });
+        const input = document.createElement('textarea');
+        input.className = 'tm-whiteboard-note-editor';
+        input.style.left = `${nx}px`;
+        input.style.top = `${ny}px`;
+        const c0 = __tmNormalizeWhiteboardNoteColor(o.color) || '';
+        const fs0 = __tmNormalizeWhiteboardNoteFontSize(o.fontSize);
+        const bd0 = __tmNormalizeWhiteboardNoteBold(o.bold);
+        if (c0) input.style.color = c0;
+        input.style.fontSize = `${fs0}px`;
+        input.style.fontWeight = bd0 ? '700' : '400';
+        input.placeholder = '输入文字，Enter保存，Esc取消';
+        input.value = initialText;
+        input.addEventListener('mousedown', (e) => {
+            try { e.stopPropagation(); } catch (err) {}
+        });
+        input.addEventListener('click', (e) => {
+            try { e.stopPropagation(); } catch (err) {}
+        });
+        input.addEventListener('keydown', async (e) => {
+            if (e.key === 'Escape') {
+                try { e.preventDefault(); } catch (err) {}
+                try { e.stopPropagation(); } catch (err) {}
+                await __tmCloseWhiteboardNoteEditor({ save: false });
+                return;
+            }
+            if (e.key === 'Enter' && !e.shiftKey) {
+                try { e.preventDefault(); } catch (err) {}
+                try { e.stopPropagation(); } catch (err) {}
+                await __tmCloseWhiteboardNoteEditor({ save: true });
+            }
+        });
+        input.addEventListener('blur', async () => {
+            await __tmCloseWhiteboardNoteEditor({ save: true });
+        });
+        bodyEl.appendChild(input);
+        try { input.focus(); } catch (e) {}
+        try { input.setSelectionRange(input.value.length, input.value.length); } catch (e) {}
+        state.whiteboardNoteEditor = {
+            el: input,
+            docId: did,
+            noteId,
+            x: nx,
+            y: ny,
+            offsetX: Number(o.offsetX) || 0,
+            offsetY: Number(o.offsetY) || 0,
+            fontSize: fs0,
+            color: c0,
+            bold: bd0,
+        };
+    }
+
+    window.tmWhiteboardDocClick = async function(ev, docId) {
+        const allView = !(state.activeDocId && state.activeDocId !== 'all');
+        if (allView) return;
+        if (String(SettingsStore.data.whiteboardTool || 'pan') !== 'text') return;
+        const target = ev?.target;
+        if (target && target.closest && target.closest('.tm-whiteboard-node,.tm-task-link-dot,.tm-task-checkbox,.tm-btn,.tm-task-content-clickable,.tm-whiteboard-note,.tm-whiteboard-note-editor')) return;
+        const did = String(docId || '').trim();
+        if (!did) return;
+        const docBody = target?.closest?.('.tm-whiteboard-doc-body[data-doc-id]')
+            || state.modal?.querySelector?.(`.tm-whiteboard-doc-body[data-doc-id="${CSS.escape(did)}"]`);
+        if (!(docBody instanceof HTMLElement)) return;
+        const p = __tmResolveWhiteboardPointerInfo(ev, did);
+        const localX = Number.isFinite(Number(p?.localX)) ? Number(p.localX) : 24;
+        const localY = Number.isFinite(Number(p?.localY)) ? Number(p.localY) : 24;
+        __tmOpenWhiteboardNoteEditor(docBody, did, localX, localY);
+    };
+
+    window.tmWhiteboardBoardClick = async function(ev) {
+        if (Number(state.whiteboardSuppressClickUntil || 0) > Date.now()) return;
+        const target = ev?.target;
+        if (target && target.closest && target.closest('.tm-whiteboard-node,.tm-task-link-dot,.tm-task-checkbox,.tm-btn,.tm-task-content-clickable,.tm-whiteboard-note,.tm-whiteboard-note-editor,.tm-whiteboard-edge,.tm-whiteboard-doc-resize,.tm-whiteboard-link-tools,.tm-whiteboard-multi-tools')) return;
+        if (state.whiteboardNoteEditor && String(SettingsStore.data.whiteboardTool || 'pan') === 'text') {
+            await __tmCloseWhiteboardNoteEditor({ save: true });
+            return;
+        }
+        let changed = false;
+        if (String(state.whiteboardSelectedLinkId || '').trim()) {
+            state.whiteboardSelectedLinkId = '';
+            state.whiteboardSelectedLinkDocId = '';
+            __tmScheduleWhiteboardEdgeRedraw();
+            changed = true;
+        }
+        if (String(state.whiteboardSelectedNoteId || '').trim()) {
+            state.whiteboardSelectedNoteId = '';
+            changed = true;
+        }
+        if ((Array.isArray(state.whiteboardMultiSelectedTaskIds) && state.whiteboardMultiSelectedTaskIds.length)
+            || (Array.isArray(state.whiteboardMultiSelectedNoteIds) && state.whiteboardMultiSelectedNoteIds.length)) {
+            __tmClearWhiteboardMultiSelection();
+            changed = true;
+        }
+        if (String(state.whiteboardSelectedTaskId || '').trim()) {
+            state.whiteboardSelectedTaskId = '';
+            __tmApplyWhiteboardCardSelectionDom('');
+            changed = true;
+            if (String(SettingsStore.data.whiteboardTool || 'pan') !== 'text') {
+                render();
+                return;
+            }
+        } else if (String(SettingsStore.data.whiteboardTool || 'pan') !== 'text') {
+            if (changed) render();
+            return;
+        }
+        const docBody = target?.closest?.('.tm-whiteboard-doc-body[data-doc-id]');
+        if (docBody instanceof Element) {
+            const docId = String(docBody.getAttribute('data-doc-id') || '').trim();
+            if (docId) return window.tmWhiteboardDocClick(ev, docId);
+        }
+        const selectedDoc = (state.activeDocId && state.activeDocId !== 'all') ? String(state.activeDocId) : '';
+        const firstDoc = selectedDoc || String((SettingsStore.data.selectedDocIds || [])[0] || '').trim();
+        if (!firstDoc) return;
+        return window.tmWhiteboardDocClick(ev, firstDoc);
+    };
+
+    window.tmWhiteboardBoardDblClick = async function(ev) {
+        const allView = !(state.activeDocId && state.activeDocId !== 'all');
+        if (allView) return;
+        const target = ev?.target;
+        if (target && target.closest && target.closest('.tm-whiteboard-node,.tm-task-link-dot,.tm-task-checkbox,.tm-btn,.tm-task-content-clickable,.tm-whiteboard-note,.tm-whiteboard-note-editor,.tm-whiteboard-edge,.tm-whiteboard-doc-resize,.tm-whiteboard-link-tools,.tm-whiteboard-multi-tools,input,button,select,textarea,label,a')) return;
+        const did = String(state.activeDocId || '').trim();
+        if (!did || did === 'all') return;
+        const point = __tmResolveWhiteboardPointerInfo(ev, did);
+        const localX = Number.isFinite(Number(point?.localX)) ? Number(point.localX) : 24;
+        const localY = Number.isFinite(Number(point?.localY)) ? Number(point.localY) : 56;
+        const newContent = await (async () => {
+            const cx = Number(ev?.clientX) || 0;
+            const cy = Number(ev?.clientY) || 0;
+            const anchor = document.createElement('div');
+            anchor.style.position = 'fixed';
+            anchor.style.left = `${Math.round(cx)}px`;
+            anchor.style.top = `${Math.round(cy)}px`;
+            anchor.style.width = '1px';
+            anchor.style.height = '1px';
+            anchor.style.pointerEvents = 'none';
+            anchor.style.opacity = '0';
+            document.body.appendChild(anchor);
+            return await new Promise((resolve) => {
+                let settled = false;
+                const finish = (v, forceEmpty = false) => {
+                    if (settled) return;
+                    settled = true;
+                    try { anchor.remove(); } catch (e) {}
+                    resolve(forceEmpty ? '' : String(v || '').trim());
+                };
+                __tmOpenInlineEditor(anchor, ({ editor, close, onCleanup }) => {
+                    editor.style.minWidth = '220px';
+                    editor.style.padding = '8px';
+                    const input = document.createElement('input');
+                    input.type = 'text';
+                    input.placeholder = '输入任务名称（留空取消）';
+                    input.value = '';
+                    input.style.width = '100%';
+                    editor.appendChild(input);
+                    const commit = () => {
+                        const v = String(input.value || '').trim();
+                        finish(v, !v);
+                        close();
+                    };
+                    const cancel = () => {
+                        finish('', true);
+                        close();
+                    };
+                    const { wrap } = __tmBuildActions('创建', commit, cancel);
+                    editor.appendChild(wrap);
+                    input.onkeydown = (e) => {
+                        if (e.key === 'Enter') commit();
+                        if (e.key === 'Escape') cancel();
+                    };
+                    onCleanup(() => {
+                        if (!settled) finish('', true);
+                    });
+                });
+            });
+        })();
+        if (!newContent) return;
+        try {
+            const createdTaskId = await __tmCreateTaskInDoc({
+                docId: did,
+                content: newContent,
+                atTop: true,
+            });
+            if (!createdTaskId) throw new Error('任务创建失败');
+            __tmSetWhiteboardTaskPlaced(createdTaskId, true, { persist: false });
+            __tmSetWhiteboardNodePos(createdTaskId, did, localX, localY, { manual: true, persist: false });
+            try { SettingsStore.syncToLocal(); } catch (e) {}
+            try { await SettingsStore.save(); } catch (e) {}
+            state.whiteboardSelectedTaskId = createdTaskId;
+            __tmApplyWhiteboardCardSelectionDom(createdTaskId);
+            applyFilters();
+            render();
+        } catch (e) {
+            try { hint(`❌ 新建失败，已撤销: ${e?.message || String(e)}`, 'error'); } catch (e2) {}
+        }
+    };
+
+    function __tmCleanupWhiteboardPoolDragGhost() {
+        const el = state.whiteboardPoolDragGhostEl;
+        state.whiteboardPoolDragGhostEl = null;
+        if (!(el instanceof HTMLElement)) return;
+        try { el.remove(); } catch (e) {}
+    }
+
+    function __tmBuildWhiteboardPoolDragGhostFromDom(dragItemEl, opts = {}) {
+        const item = dragItemEl instanceof HTMLElement ? dragItemEl : null;
+        if (!item) return null;
+        const o = (opts && typeof opts === 'object') ? opts : {};
+        const useSelf = !!o.useSelf;
+        const node = useSelf ? item : (item.parentElement instanceof HTMLElement ? item.parentElement : item);
+        let ghost = null;
+        try { ghost = node.cloneNode(true); } catch (e) { ghost = null; }
+        if (!(ghost instanceof HTMLElement)) return null;
+        ghost.style.position = 'fixed';
+        ghost.style.left = '-9999px';
+        ghost.style.top = '-9999px';
+        ghost.style.maxWidth = '420px';
+        ghost.style.pointerEvents = 'none';
+        ghost.style.zIndex = '-1';
+        ghost.style.opacity = '0.95';
+        try { document.body.appendChild(ghost); } catch (e) {}
+        state.whiteboardPoolDragGhostEl = ghost;
+        return ghost;
+    }
+
+    function __tmBuildWhiteboardPoolH2DragGhost(h2El, taskIds) {
+        const titleEl = h2El instanceof HTMLElement ? h2El : null;
+        const ids = Array.isArray(taskIds) ? taskIds.map((x) => String(x || '').trim()).filter(Boolean) : [];
+        if (!titleEl || !ids.length) return null;
+        const wrap = document.createElement('div');
+        wrap.style.position = 'fixed';
+        wrap.style.left = '-9999px';
+        wrap.style.top = '-9999px';
+        wrap.style.maxWidth = '420px';
+        wrap.style.maxHeight = '360px';
+        wrap.style.overflow = 'hidden';
+        wrap.style.pointerEvents = 'none';
+        wrap.style.zIndex = '-1';
+        wrap.style.opacity = '0.95';
+        wrap.style.border = '1px solid var(--tm-border-color)';
+        wrap.style.borderRadius = '8px';
+        wrap.style.background = 'var(--tm-bg-color)';
+        wrap.style.padding = '6px';
+        try {
+            const h2Clone = titleEl.cloneNode(true);
+            if (h2Clone instanceof HTMLElement) {
+                h2Clone.style.cursor = 'grabbing';
+                h2Clone.style.marginBottom = '4px';
+                wrap.appendChild(h2Clone);
+            }
+        } catch (e) {}
+        const pool = state.modal?.querySelector?.('.tm-whiteboard-sidebar');
+        ids.forEach((tid) => {
+            try {
+                const src = pool?.querySelector?.(`.tm-whiteboard-pool-item[data-task-id="${CSS.escape(tid)}"]`);
+                if (!(src instanceof HTMLElement)) return;
+                const clone = src.cloneNode(true);
+                if (!(clone instanceof HTMLElement)) return;
+                clone.style.marginTop = '4px';
+                wrap.appendChild(clone);
+            } catch (e) {}
+        });
+        try { document.body.appendChild(wrap); } catch (e) {}
+        state.whiteboardPoolDragGhostEl = wrap;
+        return wrap;
+    }
+
+    window.tmWhiteboardPoolItemMouseDown = function(ev, taskId, docId, locked) {
+        if (Number(ev?.button) !== 0) return;
+        const target = ev?.target;
+        if (target && target.closest && target.closest('.tm-task-checkbox,.tm-task-content-clickable,.tm-whiteboard-pool-toggle,.tm-btn,input,button,select,textarea,label,a')) return;
+        const id = String(taskId || '').trim();
+        if (!id) return;
+        const isLocked = !!locked;
+        if (isLocked) return;
+        try { ev?.stopPropagation?.(); } catch (e) {}
+        const current = Array.isArray(state.whiteboardPoolSelectedTaskIds) ? state.whiteboardPoolSelectedTaskIds : [];
+        const set = new Set(current.map((x) => String(x || '').trim()).filter(Boolean));
+        const withModifier = !!(ev?.ctrlKey || ev?.metaKey);
+        if (withModifier) {
+            if (set.has(id)) set.delete(id);
+            else set.add(id);
+        } else {
+            set.clear();
+            set.add(id);
+        }
+        state.whiteboardPoolSelectedTaskIds = Array.from(set);
+        render();
+    };
+
+    window.tmWhiteboardPoolH2DragStart = function(ev, docId, h2Label) {
+        const did = String(docId || '').trim();
+        const h2 = String(h2Label || '').trim();
+        const el = ev?.currentTarget instanceof HTMLElement ? ev.currentTarget : null;
+        if (!did || !h2 || !(el instanceof HTMLElement)) return;
+        const rawIds = String(el.getAttribute('data-task-ids') || '').trim();
+        let taskIds = rawIds ? rawIds.split(',').map((x) => String(x || '').trim()).filter(Boolean) : [];
+        if (!taskIds.length) return;
+        const canDrag = (tid) => {
+            const node = state.modal?.querySelector?.(`.tm-whiteboard-pool-item[data-task-id="${CSS.escape(String(tid || '').trim())}"]`);
+            if (!(node instanceof HTMLElement)) return false;
+            return String(node.getAttribute('draggable') || '').toLowerCase() !== 'false';
+        };
+        taskIds = taskIds.filter((tid) => canDrag(tid));
+        if (!taskIds.length) return;
+        state.whiteboardPoolSelectedTaskIds = taskIds.slice();
+        state.draggingTaskId = taskIds[0];
+        state.whiteboardPoolDragStart = {
+            clientX: Number(ev?.clientX) || 0,
+            clientY: Number(ev?.clientY) || 0,
+            docId: did,
+            taskIds: taskIds.slice(),
+            h2,
+            at: Date.now(),
+        };
+        try {
+            const taskDocIds = {};
+            taskIds.forEach((tid) => {
+                const tdid = String(__tmGetTaskDocIdById(tid) || '').trim();
+                if (tdid) taskDocIds[tid] = tdid;
+            });
+            const payload = JSON.stringify({ type: 'tm-whiteboard-pool-h2', taskIds: taskIds.slice(), docId: did, h2, taskDocIds });
+            ev.dataTransfer.effectAllowed = 'move';
+            ev.dataTransfer.setData('application/x-tm-task-id', taskIds[0]);
+            ev.dataTransfer.setData('application/x-tm-whiteboard-pool', payload);
+            ev.dataTransfer.setData('text/plain', payload);
+            __tmCleanupWhiteboardPoolDragGhost();
+            const dragGhost = __tmBuildWhiteboardPoolH2DragGhost(el, taskIds) || __tmBuildWhiteboardPoolDragGhostFromDom(el, { useSelf: true });
+            if (dragGhost instanceof HTMLElement) {
+                try { ev.dataTransfer.setDragImage(dragGhost, 12, 12); } catch (e) {}
+            }
+        } catch (e) {}
+        __tmStartWhiteboardPoolGlobalTracking(String(state.activeDocId && state.activeDocId !== 'all' ? state.activeDocId : ''));
+    };
+
+    window.tmWhiteboardPoolDragStart = function(ev, taskId, docId) {
+        const id = String(taskId || '').trim();
+        const did = String(docId || '').trim();
+        if (!id || !did) return;
+        const selected0 = Array.isArray(state.whiteboardPoolSelectedTaskIds) ? state.whiteboardPoolSelectedTaskIds : [];
+        const selectedSet = new Set(selected0.map((x) => String(x || '').trim()).filter(Boolean));
+        let dragTaskIds = selectedSet.has(id) ? Array.from(selectedSet) : [id];
+        if (!dragTaskIds.length) dragTaskIds = [id];
+        const canDrag = (tid) => {
+            const el = state.modal?.querySelector?.(`.tm-whiteboard-pool-item[data-task-id="${CSS.escape(String(tid || '').trim())}"]`);
+            if (!(el instanceof HTMLElement)) return false;
+            return String(el.getAttribute('draggable') || '').toLowerCase() !== 'false';
+        };
+        dragTaskIds = dragTaskIds.filter((tid) => canDrag(tid));
+        if (!dragTaskIds.includes(id)) dragTaskIds.unshift(id);
+        dragTaskIds = Array.from(new Set(dragTaskIds));
+        if (!dragTaskIds.length) dragTaskIds = [id];
+        state.whiteboardPoolSelectedTaskIds = dragTaskIds.slice();
+        state.draggingTaskId = dragTaskIds[0] || id;
+        state.whiteboardPoolDragStart = {
+            clientX: Number(ev?.clientX) || 0,
+            clientY: Number(ev?.clientY) || 0,
+            docId: did,
+            taskIds: dragTaskIds.slice(),
+            at: Date.now(),
+        };
+        try {
+            const taskDocIds = {};
+            dragTaskIds.forEach((tid) => {
+                const tdid = String(__tmGetTaskDocIdById(tid) || '').trim();
+                if (tdid) taskDocIds[tid] = tdid;
+            });
+            const payload = JSON.stringify({ type: 'tm-whiteboard-pool', taskId: id, taskIds: dragTaskIds, docId: did, taskDocIds });
+            ev.dataTransfer.effectAllowed = 'move';
+            ev.dataTransfer.setData('application/x-tm-task-id', dragTaskIds[0] || id);
+            ev.dataTransfer.setData('application/x-tm-whiteboard-pool', payload);
+            ev.dataTransfer.setData('text/plain', payload);
+            __tmCleanupWhiteboardPoolDragGhost();
+            const dragGhost = __tmBuildWhiteboardPoolDragGhostFromDom(ev?.currentTarget);
+            if (dragGhost instanceof HTMLElement) {
+                try { ev.dataTransfer.setDragImage(dragGhost, 12, 12); } catch (e) {}
+            }
+        } catch (e) {}
+        __tmStartWhiteboardPoolGlobalTracking(String(state.activeDocId && state.activeDocId !== 'all' ? state.activeDocId : ''));
+    };
+
+    window.tmWhiteboardPoolDrag = function(ev, docIdHint) {
+        __tmTrackWhiteboardPointerFromClient(ev?.clientX, ev?.clientY, String(docIdHint || state.activeDocId || ''));
+    };
+
+    window.tmWhiteboardPoolDragEnd = function() {
+        state.draggingTaskId = '';
+        __tmStopWhiteboardPoolGlobalTracking();
+        __tmCleanupWhiteboardPoolDragGhost();
+        state.whiteboardPoolDragStart = null;
+        state.whiteboardLastBoardLocal = null;
+        state.whiteboardLastBoardPointer = null;
+    };
+
+    window.tmWhiteboardBoardDragOver = function(ev) {
+        try { ev?.preventDefault?.(); } catch (e) {}
+        const info = __tmResolveWhiteboardPointerInfo(ev, String(state.activeDocId && state.activeDocId !== 'all' ? state.activeDocId : ''))
+            || __tmTrackWhiteboardPointerFromClient(ev?.clientX, ev?.clientY, String(state.activeDocId && state.activeDocId !== 'all' ? state.activeDocId : ''));
+        const docId = String(info?.docId || state.whiteboardLinkFromDocId || '').trim();
+        if (info && 'clientX' in info) {
+            state.whiteboardLastBoardPointer = {
+                clientX: info.clientX,
+                clientY: info.clientY,
+                docId: info.docId,
+                at: info.at,
+            };
+            state.whiteboardLastBoardLocal = {
+                docId: info.docId,
+                x: info.localX,
+                y: info.localY,
+                at: info.at,
+            };
+        }
+        if (!String(state.whiteboardLinkFromTaskId || '').trim()) return;
+        let hoverTaskId = '';
+        let hoverDocId = '';
+        try {
+            const hit = document.elementFromPoint(Number(ev?.clientX) || 0, Number(ev?.clientY) || 0);
+            const node = hit?.closest?.('.tm-whiteboard-node[data-task-id][data-doc-id]');
+            if (node instanceof Element) {
+                hoverTaskId = String(node.getAttribute('data-task-id') || '').trim();
+                hoverDocId = String(node.getAttribute('data-doc-id') || '').trim();
+            }
+        } catch (e) {}
+        if (hoverTaskId && hoverDocId) {
+            __tmUpdateWhiteboardLinkHover(hoverTaskId, hoverDocId);
+            __tmUpdateWhiteboardLinkPreviewFromEvent(ev, hoverTaskId, hoverDocId);
+        } else {
+            __tmUpdateWhiteboardLinkHover('', '');
+            __tmUpdateWhiteboardLinkPreviewFromEvent(ev, '', docId);
+        }
+        if (state.viewMode === 'timeline') {
+            try { state.__tmTimelineRenderDeps?.(); } catch (e) {}
+        } else {
+            __tmScheduleWhiteboardEdgeRedraw();
+        }
+    };
+
+    function __tmResolveWhiteboardDropLocalPoint(ev, docId) {
+        const did = String(docId || '').trim();
+        if (!did) return null;
+        const freshMs = 1800;
+        const now = Date.now();
+        const lastLocal = state.whiteboardLastBoardLocal;
+        if (lastLocal && typeof lastLocal === 'object'
+            && String(lastLocal.docId || '').trim() === did
+            && Number.isFinite(Number(lastLocal.x))
+            && Number.isFinite(Number(lastLocal.y))
+            && (now - Number(lastLocal.at || 0)) < freshMs) {
+            return { x: Number(lastLocal.x), y: Number(lastLocal.y) };
+        }
+        const info = __tmResolveWhiteboardPointerInfo(ev, did)
+            || __tmTrackWhiteboardPointerFromClient(ev?.clientX, ev?.clientY, did);
+        if (info && Number.isFinite(Number(info.localX)) && Number.isFinite(Number(info.localY))) {
+            return { x: Number(info.localX), y: Number(info.localY) };
+        }
+        return null;
+    }
+
+    window.tmWhiteboardBoardDrop = async function(ev, docIdHint) {
+        try { ev?.preventDefault?.(); } catch (e) {}
+        try { ev?.stopPropagation?.(); } catch (e) {}
+        try {
+            const rawLink = ev?.dataTransfer?.getData?.('application/x-tm-task-link') || ev?.dataTransfer?.getData?.('text/plain');
+            if (rawLink) {
+                const obj = JSON.parse(rawLink);
+                if (String(obj?.type || '').trim() === 'tm-task-link') {
+                    let toId = '';
+                    let toDocId = '';
+                    try {
+                        const hit = document.elementFromPoint(Number(ev?.clientX) || 0, Number(ev?.clientY) || 0);
+                        const node = hit?.closest?.('.tm-whiteboard-node[data-task-id][data-doc-id]');
+                        if (node instanceof Element) {
+                            toId = String(node.getAttribute('data-task-id') || '').trim();
+                            toDocId = String(node.getAttribute('data-doc-id') || '').trim();
+                        }
+                    } catch (e2) {}
+                    if (toId) {
+                        await window.tmTaskLinkDotDrop?.(ev, toId, toDocId);
+                        return;
+                    }
+                }
+            }
+        } catch (e) {}
+        let payload = null;
+        try {
+            const raw = ev?.dataTransfer?.getData?.('application/x-tm-whiteboard-pool') || ev?.dataTransfer?.getData?.('text/plain');
+            if (raw) payload = JSON.parse(raw);
+        } catch (e) {}
+        const payloadType = String(payload?.type || '').trim();
+        if (payloadType !== 'tm-whiteboard-pool' && payloadType !== 'tm-whiteboard-pool-h2') return;
+        const taskIds = Array.isArray(payload?.taskIds)
+            ? payload.taskIds.map((x) => String(x || '').trim()).filter(Boolean)
+            : [String(payload?.taskId || '').trim()].filter(Boolean);
+        if (!taskIds.length) return;
+        const h2Title = (payloadType === 'tm-whiteboard-pool-h2') ? String(payload?.h2 || '').trim() : '';
+        const pointDocId = String(docIdHint || '').trim();
+        let docId = pointDocId;
+        if (!docId) {
+            const hitInfo = __tmResolveWhiteboardPointerInfo(ev, '')
+                || __tmTrackWhiteboardPointerFromClient(ev?.clientX, ev?.clientY, '');
+            docId = String(hitInfo?.docId || '').trim();
+        }
+        if (!docId) {
+            const lastLocal = state.whiteboardLastBoardLocal;
+            const freshMs = 1800;
+            if (lastLocal && typeof lastLocal === 'object' && (Date.now() - Number(lastLocal.at || 0)) < freshMs) {
+                docId = String(lastLocal.docId || '').trim();
+            }
+        }
+        if (!docId) {
+            docId = String(state.activeDocId && state.activeDocId !== 'all' ? state.activeDocId : '').trim();
+        }
+        if (!docId) return;
+        const globalCollectDocId = String(SettingsStore.data.newTaskDocId || '').trim();
+        const viewport = state.modal?.querySelector?.('#tmWhiteboardViewport');
+        const docBody = state.modal?.querySelector?.(`.tm-whiteboard-doc-body[data-doc-id="${CSS.escape(docId)}"]`);
+        if (!(viewport instanceof HTMLElement) || !(docBody instanceof HTMLElement)) return;
+        // 使用固定锚点，避免卡片尺寸变化（父子结构展开）影响落点体感。
+        const anchorX = 18;
+        const anchorY = 16;
+        const local = __tmResolveWhiteboardDropLocalPoint(ev, docId);
+        const docRect = docBody.getBoundingClientRect();
+        const zoom = Math.max(0.01, Number(__tmGetWhiteboardView()?.zoom) || 1);
+        const fallbackX = (docRect.width > 0 ? (docRect.width * 0.5) : 220) / zoom;
+        const fallbackY = (docRect.height > 0 ? (docRect.height * 0.5) : 140) / zoom;
+        const nx0 = Math.round((Number(local?.x) || fallbackX) - anchorX);
+        const ny = Math.round((Number(local?.y) || fallbackY) - anchorY);
+        const stepX = 320;
+        let movedAcrossDoc = false;
+        const placed = [];
+        for (let i = 0; i < taskIds.length; i++) {
+            const taskId = String(taskIds[i] || '').trim();
+            if (!taskId) continue;
+            const taskDocFromPayload = String(payload?.taskDocIds?.[taskId] || '').trim();
+            const payloadDocId = String(payload?.docId || '').trim();
+            const cardDoc = taskDocFromPayload || String(__tmGetTaskDocIdById(taskId) || '').trim() || payloadDocId;
+            if (!cardDoc) continue;
+            const cardDocName = String((state.allDocuments || []).find(d => String(d?.id || '').trim() === cardDoc)?.name || '').trim();
+            const sourceIsInbox = /inbox/i.test(cardDocName) || /收件箱|收集箱|收件/.test(cardDocName);
+            const sourceIsGlobalCollect = !!globalCollectDocId && cardDoc === globalCollectDocId;
+            if (cardDoc !== docId && !sourceIsInbox && !sourceIsGlobalCollect) continue;
+            if (cardDoc !== docId) {
+                try {
+                    movedAcrossDoc = await __tmMoveTaskToDoc(taskId, docId, { silentHint: true }) || movedAcrossDoc;
+                } catch (e) {
+                    continue;
+                }
+            }
+            try {
+                __tmWhiteboardCollectTaskTreeIds(taskId, { includeRoot: false, includeDetached: true, includeSnapshotTree: true })
+                    .forEach((cid) => {
+                        __tmSetWhiteboardChildDetached(cid, false);
+                        __tmSetWhiteboardTaskPlaced(cid, false, { persist: false });
+                    });
+            } catch (e) {}
+            const nx = nx0 + (i * stepX);
+            __tmSetWhiteboardNodePos(taskId, docId, nx, ny, { persist: false, manual: true });
+            __tmSetWhiteboardTaskPlaced(taskId, true, { persist: false });
+            try {
+                const t = state.flatTasks?.[taskId];
+                if (t) __tmUpsertWhiteboardTaskSnapshot(t, { persist: false });
+            } catch (e) {}
+            placed.push(taskId);
+        }
+        if (!placed.length) return;
+        if (h2Title) {
+            const notes = Array.isArray(SettingsStore.data.whiteboardNotes) ? [...SettingsStore.data.whiteboardNotes] : [];
+            notes.push({
+                id: `note_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`,
+                docId,
+                text: h2Title,
+                x: nx0,
+                y: Math.max(0, ny - 75),
+                fontSize: 30,
+                bold: true,
+                color: '',
+                createdAt: String(Date.now()),
+            });
+            SettingsStore.data.whiteboardNotes = notes;
+        }
+        if (placed.length > 1) {
+            state.whiteboardSelectedTaskId = '';
+            state.whiteboardSelectedNoteId = '';
+            state.whiteboardSelectedLinkId = '';
+            state.whiteboardSelectedLinkDocId = '';
+            state.whiteboardMultiSelectedTaskIds = placed.slice();
+            state.whiteboardMultiSelectedNoteIds = [];
+            state.whiteboardMultiSelectedLinkKeys = [];
+            __tmApplyWhiteboardCardSelectionDom('');
+            __tmApplyWhiteboardMultiSelectionDom();
+            __tmRenderWhiteboardMultiTools(__tmComputeWhiteboardMultiSelectionRect());
+        } else {
+            __tmClearWhiteboardMultiSelection();
+            state.whiteboardSelectedTaskId = placed[0];
+        }
+        __tmStopWhiteboardPoolGlobalTracking();
+        state.whiteboardPoolDragStart = null;
+        state.whiteboardLastBoardLocal = null;
+        state.whiteboardLastBoardPointer = null;
+        try { await SettingsStore.save(); } catch (e) {}
+        if (movedAcrossDoc) {
+            try { await loadSelectedDocuments(); } catch (e) { render(); }
+        } else {
+            render();
+        }
+    };
+
+    window.tmWhiteboardDocResizeMouseDown = function(ev, docId, dir) {
+        if (state.viewMode !== 'whiteboard') return;
+        const allView = !(state.activeDocId && state.activeDocId !== 'all');
+        if (allView) return;
+        if (Number(ev?.button) !== 0) return;
+        const did = String(docId || '').trim();
+        if (!did) return;
+        const modeRaw = String(dir || 'bottom-right').trim().toLowerCase();
+        const allowed = new Set(['left', 'right', 'top', 'bottom', 'top-left', 'top-right', 'bottom-left', 'bottom-right', 'both']);
+        const mode = allowed.has(modeRaw) ? modeRaw : 'bottom-right';
+        const bodyEl = state.modal?.querySelector?.(`.tm-whiteboard-doc-body[data-doc-id="${CSS.escape(did)}"]`);
+        if (!(bodyEl instanceof HTMLElement)) return;
+        const zoom = Math.max(0.01, Number(__tmGetWhiteboardView()?.zoom) || 1);
+        const startW = Number(bodyEl.clientWidth) || 1000;
+        const startH = Number(bodyEl.clientHeight) || 520;
+        const sx = Number(ev?.clientX) || 0;
+        const sy = Number(ev?.clientY) || 0;
+        state.whiteboardDocResize = { did, sx, sy, startW, startH, bodyEl, zoom, mode };
+        try {
+            document.body.style.userSelect = 'none';
+            const cursorMap = {
+                left: 'ew-resize',
+                right: 'ew-resize',
+                top: 'ns-resize',
+                bottom: 'ns-resize',
+                'top-left': 'nwse-resize',
+                'bottom-right': 'nwse-resize',
+                both: 'nwse-resize',
+                'top-right': 'nesw-resize',
+                'bottom-left': 'nesw-resize',
+            };
+            document.body.style.cursor = cursorMap[mode] || 'nwse-resize';
+        } catch (e) {}
+        const onMove = (e2) => {
+            const s = state.whiteboardDocResize;
+            if (!s) return;
+            const dx = ((Number(e2?.clientX) || 0) - s.sx) / s.zoom;
+            const dy = ((Number(e2?.clientY) || 0) - s.sy) / s.zoom;
+            const hasLeft = (s.mode === 'left' || s.mode === 'top-left' || s.mode === 'bottom-left');
+            const hasRight = (s.mode === 'right' || s.mode === 'top-right' || s.mode === 'bottom-right' || s.mode === 'both');
+            const hasTop = (s.mode === 'top' || s.mode === 'top-left' || s.mode === 'top-right');
+            const hasBottom = (s.mode === 'bottom' || s.mode === 'bottom-left' || s.mode === 'bottom-right' || s.mode === 'both');
+            const wRaw = hasLeft ? (s.startW - dx) : (hasRight ? (s.startW + dx) : s.startW);
+            const hRaw = hasTop ? (s.startH - dy) : (hasBottom ? (s.startH + dy) : s.startH);
+            const w = Math.max(520, Math.round(wRaw));
+            const h = Math.max(220, Math.round(hRaw));
+            s.bodyEl.style.width = `${w}px`;
+            s.bodyEl.style.height = `${h}px`;
+            __tmSetWhiteboardDocFrameSize(s.did, w, h, { persist: false });
+            __tmScheduleWhiteboardEdgeRedraw();
+        };
+        const onUp = async () => {
+            try { document.removeEventListener('mousemove', onMove, true); } catch (e) {}
+            try { document.removeEventListener('mouseup', onUp, true); } catch (e) {}
+            state.whiteboardDocResize = null;
+            try {
+                document.body.style.userSelect = '';
+                document.body.style.cursor = '';
+            } catch (e) {}
+            try { await SettingsStore.save(); } catch (e) {}
+            __tmScheduleWhiteboardEdgeRedraw();
+        };
+        try { document.addEventListener('mousemove', onMove, true); } catch (e) {}
+        try { document.addEventListener('mouseup', onUp, true); } catch (e) {}
+        try { ev?.preventDefault?.(); } catch (e) {}
+        try { ev?.stopPropagation?.(); } catch (e) {}
+    };
+
+    function __tmRenderWhiteboardEdges() {
+        if (state.viewMode !== 'whiteboard') return;
+        const body = state.modal?.querySelector?.('#tmWhiteboardBody');
+        if (!body) return;
+        const docBodies = body.querySelectorAll('.tm-whiteboard-doc-body[data-doc-id]');
+        docBodies.forEach((docBody) => {
+            if (!(docBody instanceof Element)) return;
+            try {
+                docBody.querySelectorAll('.tm-whiteboard-link-tools[data-tm-wb-dyn="1"]').forEach((el) => {
+                    try { el.remove(); } catch (e) {}
+                });
+            } catch (e) {}
+            const docId = String(docBody.getAttribute('data-doc-id') || '').trim();
+            if (!docId) return;
+            const svg = docBody.querySelector('.tm-whiteboard-edges');
+            if (!(svg instanceof SVGElement)) return;
+            const width = Math.max(Math.ceil(docBody.scrollWidth), Math.ceil(docBody.clientWidth), 1);
+            const height = Math.max(Math.ceil(docBody.scrollHeight), Math.ceil(docBody.clientHeight), 1);
+            try { svg.setAttribute('width', String(width)); } catch (e) {}
+            try { svg.setAttribute('height', String(height)); } catch (e) {}
+            try { svg.setAttribute('viewBox', `0 0 ${width} ${height}`); } catch (e) {}
+
+            const links = __tmGetAllTaskLinks({ docId, includeAuto: false });
+            const rootRect = docBody.getBoundingClientRect();
+            const zoom = Math.max(0.01, Number(__tmGetWhiteboardView()?.zoom) || 1);
+            const getLocalCenter = (el) => {
+                if (!(el instanceof Element)) return null;
+                try {
+                    const rect = el.getBoundingClientRect();
+                    return {
+                        x: (rect.left - rootRect.left + (rect.width / 2) + docBody.scrollLeft) / zoom,
+                        y: (rect.top - rootRect.top + (rect.height / 2) + docBody.scrollTop) / zoom,
+                    };
+                } catch (e) {
+                    return null;
+                }
+            };
+            const getPt = (taskId, kind) => {
+                const id = String(taskId || '').trim();
+                if (!id) return null;
+                const node = docBody.querySelector(`.tm-whiteboard-node[data-task-id="${CSS.escape(id)}"]`);
+                if (!(node instanceof Element)) {
+                    const proxyTaskId = __tmFindWhiteboardCollapsedProxyTaskId(id, docId);
+                    if (!proxyTaskId) return null;
+                    const proxyNode = docBody.querySelector(`.tm-whiteboard-node[data-task-id="${CSS.escape(proxyTaskId)}"]`);
+                    if (!(proxyNode instanceof Element)) return null;
+                    const proxyDot = proxyNode.querySelector('.tm-whiteboard-collapse-proxy-dot');
+                    if (!(proxyDot instanceof Element)) return null;
+                    return getLocalCenter(proxyDot);
+                }
+                const dotSel = kind === 'from' ? '.tm-task-link-dot--out' : '.tm-task-link-dot--in';
+                const anchor = node.querySelector(dotSel) || node;
+                return getLocalCenter(anchor);
+            };
+            const getLocalRect = (el) => {
+                if (!(el instanceof Element)) return null;
+                try {
+                    const rect = el.getBoundingClientRect();
+                    const x = (rect.left - rootRect.left + docBody.scrollLeft) / zoom;
+                    const y = (rect.top - rootRect.top + docBody.scrollTop) / zoom;
+                    const w = rect.width / zoom;
+                    const h = rect.height / zoom;
+                    if (!Number.isFinite(x) || !Number.isFinite(y) || !Number.isFinite(w) || !Number.isFinite(h)) return null;
+                    return { x, y, w: Math.max(1, w), h: Math.max(1, h) };
+                } catch (e) {
+                    return null;
+                }
+            };
+            const obstacleRects = [];
+            const rectByTaskId = new Map();
+            try {
+                docBody.querySelectorAll('.tm-whiteboard-node[data-task-id]').forEach((el) => {
+                    if (!(el instanceof Element)) return;
+                    const rid = String(el.getAttribute('data-task-id') || '').trim();
+                    const rr = getLocalRect(el);
+                    if (!rid || !rr) return;
+                    obstacleRects.push({ taskId: rid, ...rr });
+                    rectByTaskId.set(rid, rr);
+                });
+            } catch (e) {}
+            const segmentHitsRect = (a, b, rect, pad = 10) => {
+                const l = rect.x - pad;
+                const r = rect.x + rect.w + pad;
+                const t = rect.y - pad;
+                const bt = rect.y + rect.h + pad;
+                const ax = Number(a?.x);
+                const ay = Number(a?.y);
+                const bx = Number(b?.x);
+                const by = Number(b?.y);
+                if (!Number.isFinite(ax) || !Number.isFinite(ay) || !Number.isFinite(bx) || !Number.isFinite(by)) return false;
+                // 只处理正交线段
+                if (Math.abs(ay - by) <= 0.001) {
+                    const y = ay;
+                    const x0 = Math.min(ax, bx);
+                    const x1 = Math.max(ax, bx);
+                    return y >= t && y <= bt && x1 >= l && x0 <= r;
+                }
+                if (Math.abs(ax - bx) <= 0.001) {
+                    const x = ax;
+                    const y0 = Math.min(ay, by);
+                    const y1 = Math.max(ay, by);
+                    return x >= l && x <= r && y1 >= t && y0 <= bt;
+                }
+                return false;
+            };
+            const orthPathHitsObstacle = (pts, excludeTaskIds) => {
+                if (!Array.isArray(pts) || pts.length < 2) return true;
+                const excluded = new Set((excludeTaskIds || []).map((x) => String(x || '').trim()).filter(Boolean));
+                for (let i = 1; i < pts.length; i++) {
+                    const a = pts[i - 1];
+                    const b = pts[i];
+                    for (const rect of obstacleRects) {
+                        if (excluded.has(String(rect.taskId || '').trim())) continue;
+                        if (segmentHitsRect(a, b, rect, 10)) return true;
+                    }
+                }
+                return false;
+            };
+            const pointsToPathD = (pts) => {
+                if (!Array.isArray(pts) || !pts.length) return '';
+                const head = `M ${pts[0].x.toFixed(2)} ${pts[0].y.toFixed(2)}`;
+                if (pts.length === 1) return head;
+                return `${head} ${pts.slice(1).map((p) => `L ${p.x.toFixed(2)} ${p.y.toFixed(2)}`).join(' ')}`;
+            };
+            const pointsToSmoothPathD = (pts, radius = 10) => {
+                if (!Array.isArray(pts) || pts.length < 2) return '';
+                if (pts.length === 2) return pointsToPathD(pts);
+                const r0 = Math.max(0, Number(radius) || 0);
+                const fmt = (n) => Number(n).toFixed(2);
+                let d = `M ${fmt(pts[0].x)} ${fmt(pts[0].y)}`;
+                for (let i = 1; i < pts.length - 1; i++) {
+                    const p0 = pts[i - 1];
+                    const p1 = pts[i];
+                    const p2 = pts[i + 1];
+                    const v1x = p1.x - p0.x;
+                    const v1y = p1.y - p0.y;
+                    const v2x = p2.x - p1.x;
+                    const v2y = p2.y - p1.y;
+                    const l1 = Math.hypot(v1x, v1y);
+                    const l2 = Math.hypot(v2x, v2y);
+                    if (!(l1 > 0) || !(l2 > 0) || r0 <= 0) {
+                        d += ` L ${fmt(p1.x)} ${fmt(p1.y)}`;
+                        continue;
+                    }
+                    const r = Math.min(r0, l1 / 2, l2 / 2);
+                    const inX = p1.x - (v1x / l1) * r;
+                    const inY = p1.y - (v1y / l1) * r;
+                    const outX = p1.x + (v2x / l2) * r;
+                    const outY = p1.y + (v2y / l2) * r;
+                    d += ` L ${fmt(inX)} ${fmt(inY)} Q ${fmt(p1.x)} ${fmt(p1.y)} ${fmt(outX)} ${fmt(outY)}`;
+                }
+                const last = pts[pts.length - 1];
+                d += ` L ${fmt(last.x)} ${fmt(last.y)}`;
+                return d;
+            };
+            const pathMidPoint = (pts) => {
+                if (!Array.isArray(pts) || pts.length < 2) return null;
+                const segLens = [];
+                let total = 0;
+                for (let i = 1; i < pts.length; i++) {
+                    const dx = Number(pts[i].x) - Number(pts[i - 1].x);
+                    const dy = Number(pts[i].y) - Number(pts[i - 1].y);
+                    const len = Math.hypot(dx, dy);
+                    segLens.push(len);
+                    total += len;
+                }
+                if (!(total > 0)) return { x: pts[0].x, y: pts[0].y };
+                let acc = 0;
+                const half = total / 2;
+                for (let i = 1; i < pts.length; i++) {
+                    const seg = segLens[i - 1];
+                    if (acc + seg >= half) {
+                        const t = seg <= 0 ? 0 : ((half - acc) / seg);
+                        return {
+                            x: pts[i - 1].x + ((pts[i].x - pts[i - 1].x) * t),
+                            y: pts[i - 1].y + ((pts[i].y - pts[i - 1].y) * t),
+                        };
+                    }
+                    acc += seg;
+                }
+                return { x: pts[pts.length - 1].x, y: pts[pts.length - 1].y };
+            };
+            const buildAvoidPath = (from, to, excludeTaskIds = [], routeMeta = {}) => {
+                if (!from || !to) return { d: '', pts: [] };
+                const midY = (from.y + to.y) * 0.5;
+                const gap = 28;
+                const fromRect = (() => {
+                    const id = String(routeMeta?.fromTaskId || routeMeta?.fromProxyTaskId || '').trim();
+                    return id ? (rectByTaskId.get(id) || null) : null;
+                })();
+                const toRect = (() => {
+                    const id = String(routeMeta?.toTaskId || routeMeta?.toProxyTaskId || '').trim();
+                    return id ? (rectByTaskId.get(id) || null) : null;
+                })();
+                const needStartGap = !!(fromRect && toRect)
+                    ? ((fromRect.x + fromRect.w) > toRect.x)
+                    : ((to.x - from.x) < 80);
+                if (!needStartGap) {
+                    const x1 = from.x + ((to.x - from.x) * 0.5);
+                    const x2 = x1;
+                    const pts = [from, { x: x1, y: from.y }, { x: x2, y: to.y }, to];
+                    return { d: `M ${from.x.toFixed(2)} ${from.y.toFixed(2)} C ${x1.toFixed(2)} ${from.y.toFixed(2)} ${x2.toFixed(2)} ${to.y.toFixed(2)} ${to.x.toFixed(2)} ${to.y.toFixed(2)}`, pts };
+                }
+                const fx = from.x + gap;
+                const tx = to.x - gap;
+                const yCandidatesRaw = [from.y, to.y, midY];
+                obstacleRects.forEach((r) => {
+                    yCandidatesRaw.push(r.y - 14);
+                    yCandidatesRaw.push(r.y + r.h + 14);
+                });
+                const seenY = new Set();
+                const yCandidates = yCandidatesRaw
+                    .map((y) => Math.round(Number(y) * 10) / 10)
+                    .filter((y) => Number.isFinite(y))
+                    .filter((y) => {
+                        const k = String(y);
+                        if (seenY.has(k)) return false;
+                        seenY.add(k);
+                        return true;
+                    })
+                    .sort((a, b) => Math.abs(a - midY) - Math.abs(b - midY));
+                const candidates = [];
+                yCandidates.forEach((ry) => {
+                    candidates.push([
+                        from,
+                        { x: fx, y: from.y },
+                        { x: fx, y: ry },
+                        { x: tx, y: ry },
+                        { x: tx, y: to.y },
+                        to,
+                    ]);
+                });
+                for (const pts of candidates) {
+                    if (!orthPathHitsObstacle(pts, excludeTaskIds)) {
+                        return { d: pointsToSmoothPathD(pts, 10), pts };
+                    }
+                }
+                // 回退：保留原来的曲线，避免无路径时完全不显示
+                const x1 = from.x + ((to.x - from.x) * 0.5);
+                const x2 = x1;
+                const pts = [from, { x: x1, y: from.y }, { x: x2, y: to.y }, to];
+                return { d: `M ${from.x.toFixed(2)} ${from.y.toFixed(2)} C ${x1.toFixed(2)} ${from.y.toFixed(2)} ${x2.toFixed(2)} ${to.y.toFixed(2)} ${to.x.toFixed(2)} ${to.y.toFixed(2)}`, pts };
+            };
+            const markerIdIn = `tmWbArrowIn_${docId.replace(/[^a-zA-Z0-9_-]/g, '_')}`;
+            const markerIdOut = `tmWbArrowOut_${docId.replace(/[^a-zA-Z0-9_-]/g, '_')}`;
+            const defs = `
+                <defs>
+                    <marker id="${esc(markerIdOut)}" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto" markerUnits="strokeWidth">
+                        <path d="M0,0 L8,3 L0,6 Z" fill="#2f6fed"></path>
+                    </marker>
+                    <marker id="${esc(markerIdIn)}" markerWidth="8" markerHeight="6" refX="1" refY="3" orient="auto-start-reverse" markerUnits="strokeWidth">
+                        <path d="M8,0 L0,3 L8,6 Z" fill="#2f6fed"></path>
+                    </marker>
+                </defs>
+            `;
+            const selectedLinkId = String(state.whiteboardSelectedLinkId || '').trim();
+            const selectedLinkDocId = String(state.whiteboardSelectedLinkDocId || '').trim();
+            const multiSelectedLinkSet = new Set((Array.isArray(state.whiteboardMultiSelectedLinkKeys) ? state.whiteboardMultiSelectedLinkKeys : []).map((x) => String(x || '').trim()).filter(Boolean));
+            let selectedToolPos = null;
+            const paths = links.map((link) => {
+                const from = getPt(link.from, 'from');
+                const to = getPt(link.to, 'to');
+                if (!from || !to) return '';
+                const fromProxy = __tmFindWhiteboardCollapsedProxyTaskId(link.from, docId);
+                const toProxy = __tmFindWhiteboardCollapsedProxyTaskId(link.to, docId);
+                const routed = buildAvoidPath(
+                    from,
+                    to,
+                    [link.from, link.to, fromProxy, toProxy],
+                    { fromTaskId: link.from, toTaskId: link.to, fromProxyTaskId: fromProxy, toProxyTaskId: toProxy }
+                );
+                const d = routed.d;
+                const isSelected = link.manual
+                    && selectedLinkId
+                    && selectedLinkDocId === docId
+                    && String(link.id || '').trim() === selectedLinkId;
+                const linkKey = `${docId}::${String(link.id || '').trim()}`;
+                const cls = link.manual
+                    ? `tm-whiteboard-edge tm-whiteboard-edge--manual${isSelected ? ' tm-whiteboard-edge--selected' : ''}${multiSelectedLinkSet.has(linkKey) ? ' tm-whiteboard-multi-selected' : ''}`
+                    : 'tm-whiteboard-edge tm-whiteboard-edge--auto';
+                const idEsc = String(link.id || '').replace(/\\/g, '\\\\').replace(/'/g, "\\'");
+                const docEsc = String(docId || '').replace(/\\/g, '\\\\').replace(/'/g, "\\'");
+                const click = link.manual ? `onclick="tmWhiteboardSelectLink('${idEsc}', '${docEsc}', event)"` : '';
+                if (isSelected) {
+                    const pts = Array.isArray(routed.pts) && routed.pts.length >= 2 ? routed.pts : [from, to];
+                    const mp = pathMidPoint(pts) || { x: (from.x + to.x) * 0.5, y: (from.y + to.y) * 0.5 };
+                    const mx = mp.x;
+                    const my = mp.y;
+                    selectedToolPos = { x: mx, y: my };
+                }
+                const dataAttrs = link.manual ? ` data-link-id="${esc(String(link.id || ''))}" data-doc-id="${esc(String(docId || ''))}"` : '';
+                return `<path class="${cls}" d="${d}" marker-end="url(#${esc(markerIdOut)})"${dataAttrs} ${click}></path>`;
+            }).join('');
+            let previewPath = '';
+            const fromTaskId = String(state.whiteboardLinkFromTaskId || '').trim();
+            const fromDocId = String(state.whiteboardLinkFromDocId || '').trim();
+            const preview = state.whiteboardLinkPreview && typeof state.whiteboardLinkPreview === 'object' ? state.whiteboardLinkPreview : null;
+            if (fromTaskId && fromDocId === docId && preview) {
+                const from = getPt(fromTaskId, 'from');
+                if (from) {
+                    let tx = NaN;
+                    let ty = NaN;
+                    if (String(preview.targetTaskId || '').trim()) {
+                        const toPt = getPt(String(preview.targetTaskId || '').trim(), 'to');
+                        if (toPt) {
+                            tx = toPt.x;
+                            ty = toPt.y;
+                        }
+                    }
+                    if (!Number.isFinite(tx) || !Number.isFinite(ty)) {
+                        const cx = Number(preview.clientX);
+                        const cy = Number(preview.clientY);
+                        if (Number.isFinite(cx) && Number.isFinite(cy)) {
+                            tx = (cx - rootRect.left + docBody.scrollLeft) / zoom;
+                            ty = (cy - rootRect.top + docBody.scrollTop) / zoom;
+                        }
+                    }
+                    if (Number.isFinite(tx) && Number.isFinite(ty)) {
+                        const fromProxy = __tmFindWhiteboardCollapsedProxyTaskId(fromTaskId, docId);
+                        const targetTaskId = String(preview.targetTaskId || '').trim();
+                        const toProxy = targetTaskId ? __tmFindWhiteboardCollapsedProxyTaskId(targetTaskId, docId) : '';
+                        const d = buildAvoidPath(
+                            from,
+                            { x: tx, y: ty },
+                            [fromTaskId, fromProxy, targetTaskId, toProxy],
+                            { fromTaskId, toTaskId: targetTaskId, fromProxyTaskId: fromProxy, toProxyTaskId: toProxy }
+                        ).d;
+                        previewPath = `<path class="tm-whiteboard-edge tm-whiteboard-edge--preview" d="${d}" marker-end="url(#${esc(markerIdOut)})"></path>`;
+                    }
+                }
+            }
+            svg.innerHTML = defs + paths + previewPath;
+            if (selectedToolPos && selectedLinkId && selectedLinkDocId === docId) {
+                try {
+                    const tools = document.createElement('div');
+                    tools.className = 'tm-whiteboard-link-tools';
+                    tools.setAttribute('data-tm-wb-dyn', '1');
+                    tools.style.left = `${Math.round(selectedToolPos.x - 56)}px`;
+                    tools.style.top = `${Math.round(selectedToolPos.y - 42)}px`;
+                    tools.innerHTML = `<button class="tm-btn tm-btn-danger" style="padding:2px 8px;font-size:12px;" title="移除该连线">移除连线</button>`;
+                    const btn = tools.querySelector('button');
+                    if (btn) {
+                        btn.addEventListener('click', (ev) => {
+                            try { ev.stopPropagation(); } catch (e) {}
+                            try { window.tmWhiteboardRemoveSelectedLink?.(ev); } catch (e) {}
+                        });
+                    }
+                    tools.addEventListener('click', (ev) => {
+                        try { ev.stopPropagation(); } catch (e) {}
+                    });
+                    docBody.appendChild(tools);
+                } catch (e) {}
+            }
+        });
+    }
+
+    function __tmResetLinkDragState() {
+        state.whiteboardLinkFromTaskId = '';
+        state.whiteboardLinkFromDocId = '';
+        state.whiteboardLinkPress = null;
+        state.whiteboardLinkPreview = null;
+        __tmUpdateWhiteboardLinkHover('', '');
+        __tmUpdateTimelineLinkHover('');
+        try { state.__tmTimelineRenderDeps?.(); } catch (e) {}
+    }
+
+    function __tmUpdateWhiteboardLinkPreviewFromEvent(ev, targetTaskId, targetDocId) {
+        const fromTaskId = String(state.whiteboardLinkFromTaskId || '').trim();
+        const fromDocId = String(state.whiteboardLinkFromDocId || '').trim();
+        if (!fromTaskId || !fromDocId) return;
+        const tId = String(targetTaskId || '').trim();
+        const tDocId = String(targetDocId || '').trim();
+        state.whiteboardLinkPreview = {
+            mode: state.viewMode === 'timeline' ? 'timeline' : 'whiteboard',
+            clientX: Number(ev?.clientX) || 0,
+            clientY: Number(ev?.clientY) || 0,
+            targetTaskId: tId,
+            targetDocId: tDocId || fromDocId,
+        };
+    }
+
+    function __tmUpdateTimelineLinkHover(taskId) {
+        const id = String(taskId || '').trim();
+        state.timelineLinkHoverTaskId = id;
+        const body = state.modal?.querySelector?.('#tmGanttBody');
+        if (!(body instanceof HTMLElement)) return;
+        try {
+            body.querySelectorAll('.tm-gantt-row--link-hover').forEach((el) => el.classList.remove('tm-gantt-row--link-hover'));
+        } catch (e) {}
+        if (!id) return;
+        try {
+            const row = body.querySelector(`.tm-gantt-row[data-id="${CSS.escape(id)}"]`);
+            if (row instanceof HTMLElement) row.classList.add('tm-gantt-row--link-hover');
+        } catch (e) {}
+    }
+
+    function __tmUpdateWhiteboardLinkHover(taskId, docId) {
+        const tid = String(taskId || '').trim();
+        const did = String(docId || '').trim();
+        state.whiteboardLinkHoverTaskId = tid;
+        state.whiteboardLinkHoverDocId = did;
+        const body = state.modal?.querySelector?.('#tmWhiteboardBody');
+        if (!(body instanceof HTMLElement)) return;
+        try {
+            body.querySelectorAll('.tm-whiteboard-node--link-hover').forEach((el) => el.classList.remove('tm-whiteboard-node--link-hover'));
+        } catch (e) {}
+        if (!tid || !did) return;
+        try {
+            const node = body.querySelector(`.tm-whiteboard-node[data-task-id="${CSS.escape(tid)}"][data-doc-id="${CSS.escape(did)}"]`);
+            if (node instanceof HTMLElement) node.classList.add('tm-whiteboard-node--link-hover');
+        } catch (e) {}
+    }
+
+    window.tmTaskLinkDotPressStart = function(ev, taskId, docId) {
+        state.whiteboardLinkPress = {
+            taskId: String(taskId || '').trim(),
+            docId: String(docId || '').trim(),
+            at: Date.now(),
+        };
+    };
+
+    window.tmTaskLinkDotDragStart = function(ev, taskId, docId) {
+        try { ev?.stopPropagation?.(); } catch (e) {}
+        const id = String(taskId || '').trim();
+        const did = String(docId || '').trim();
+        if (!id || !did) return;
+        state.whiteboardLinkFromTaskId = id;
+        state.whiteboardLinkFromDocId = did;
+        __tmUpdateWhiteboardLinkHover('', '');
+        __tmUpdateWhiteboardLinkPreviewFromEvent(ev, '', did);
+        try {
+            ev.dataTransfer.effectAllowed = 'link';
+            const payload = JSON.stringify({ type: 'tm-task-link', taskId: id, docId: did });
+            ev.dataTransfer.setData('application/x-tm-task-link', payload);
+            ev.dataTransfer.setData('text/plain', payload);
+        } catch (e) {}
+        __tmScheduleWhiteboardEdgeRedraw();
+    };
+
+    window.tmTaskLinkDotDragOver = function(ev) {
+        try { ev?.preventDefault?.(); } catch (e) {}
+        try { ev?.stopPropagation?.(); } catch (e) {}
+        const target = ev?.currentTarget instanceof Element ? ev.currentTarget : (ev?.target?.closest?.('.tm-task-link-dot') || null);
+        const taskId = String(target?.closest?.('.tm-whiteboard-node,[data-id]')?.getAttribute?.('data-task-id') || target?.closest?.('.tm-gantt-row')?.getAttribute?.('data-id') || '').trim();
+        const docId = String(target?.closest?.('.tm-whiteboard-node')?.getAttribute?.('data-doc-id') || target?.closest?.('.tm-gantt-row')?.getAttribute?.('data-doc-id') || '').trim();
+        if (state.viewMode === 'whiteboard') __tmUpdateWhiteboardLinkHover(taskId, docId);
+        __tmUpdateWhiteboardLinkPreviewFromEvent(ev, taskId, docId);
+        if (state.viewMode === 'timeline') {
+            __tmUpdateTimelineLinkHover(taskId);
+            try { state.__tmTimelineRenderDeps?.(); } catch (e) {}
+        } else {
+            __tmScheduleWhiteboardEdgeRedraw();
+        }
+    };
+
+    window.tmTimelineLinkRowDragOver = function(ev, taskId, docId) {
+        try { ev?.preventDefault?.(); } catch (e) {}
+        try { ev?.stopPropagation?.(); } catch (e) {}
+        const fromTaskId = String(state.whiteboardLinkFromTaskId || '').trim();
+        if (!fromTaskId) return;
+        const id = String(taskId || '').trim();
+        __tmUpdateTimelineLinkHover(id);
+        __tmUpdateWhiteboardLinkPreviewFromEvent(ev, id, String(docId || '').trim());
+        try { state.__tmTimelineRenderDeps?.(); } catch (e) {}
+    };
+
+    window.tmTimelineLinkRowDragLeave = function(ev, taskId) {
+        const related = ev?.relatedTarget;
+        if (related && related instanceof Element) {
+            const row = ev?.currentTarget instanceof Element ? ev.currentTarget : null;
+            if (row && row.contains(related)) return;
+        }
+        const id = String(taskId || '').trim();
+        if (!id || String(state.timelineLinkHoverTaskId || '').trim() !== id) return;
+        __tmUpdateTimelineLinkHover('');
+        try { state.__tmTimelineRenderDeps?.(); } catch (e) {}
+    };
+
+    window.tmTaskLinkDotDragEnd = function(ev) {
+        try { ev?.stopPropagation?.(); } catch (e) {}
+        __tmResetLinkDragState();
+        __tmScheduleWhiteboardEdgeRedraw();
+    };
+
+    window.tmTaskLinkDotDrop = async function(ev, targetTaskId, targetDocId) {
+        try { ev?.preventDefault?.(); } catch (e) {}
+        try { ev?.stopPropagation?.(); } catch (e) {}
+        const toId = String(targetTaskId || '').trim();
+        let fromId = '';
+        let fromDocId = '';
+        try {
+            const raw = ev?.dataTransfer?.getData?.('application/x-tm-task-link') || ev?.dataTransfer?.getData?.('text/plain');
+            if (raw) {
+                const obj = JSON.parse(raw);
+                if (String(obj?.type || '').trim() === 'tm-task-link') {
+                    fromId = String(obj?.taskId || '').trim();
+                    fromDocId = String(obj?.docId || '').trim();
+                }
+            }
+        } catch (e) {}
+        if (!fromId) fromId = String(state.whiteboardLinkFromTaskId || '').trim();
+        if (!fromDocId) fromDocId = String(state.whiteboardLinkFromDocId || '').trim();
+        const toDocId = String(targetDocId || '').trim() || __tmGetTaskDocIdById(toId);
+        if (!fromId || !toId || !fromDocId || !toDocId || fromId === toId) {
+            __tmResetLinkDragState();
+            __tmScheduleWhiteboardEdgeRedraw();
+            return;
+        }
+        const check = __tmCanLinkTasks(fromId, toId);
+        if (!check.ok) {
+            hint(`⚠ ${check.reason}`, 'warning');
+            __tmResetLinkDragState();
+            __tmScheduleWhiteboardEdgeRedraw();
+            return;
+        }
+        const docId = String(check.docId || '').trim();
+        const manual = __tmGetManualTaskLinks();
+        const exists = manual.some(x => String(x?.from || '') === fromId && String(x?.to || '') === toId && String(x?.docId || '') === docId);
+        if (exists) {
+            hint('ℹ 该连线已存在', 'info');
+            __tmResetLinkDragState();
+            __tmScheduleWhiteboardEdgeRedraw();
+            return;
+        }
+        manual.push({
+            id: `link_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
+            from: fromId,
+            to: toId,
+            docId,
+            createdAt: String(Date.now()),
+        });
+        __tmSetManualTaskLinks(manual);
+        try { await SettingsStore.save(); } catch (e) {}
+        __tmResetLinkDragState();
+        render();
+    };
+
+    window.tmWhiteboardRemoveLink = async function(linkId, ev) {
+        try { ev?.stopPropagation?.(); } catch (e) {}
+        const id = String(linkId || '').trim();
+        if (!id) return;
+        const manual = __tmGetManualTaskLinks().filter(x => String(x?.id || '').trim() !== id);
+        __tmSetManualTaskLinks(manual);
+        if (String(state.whiteboardSelectedLinkId || '').trim() === id) {
+            state.whiteboardSelectedLinkId = '';
+            state.whiteboardSelectedLinkDocId = '';
+        }
+        try { await SettingsStore.save(); } catch (e) {}
+        if (state.viewMode === 'whiteboard') __tmScheduleWhiteboardEdgeRedraw();
+        render();
+    };
+
+    window.tmWhiteboardSelectLink = function(linkId, docId, ev) {
+        try { ev?.stopPropagation?.(); } catch (e) {}
+        const id = String(linkId || '').trim();
+        const did = String(docId || '').trim();
+        if (!id || !did) return;
+        if (String(state.whiteboardSelectedLinkId || '').trim() === id && String(state.whiteboardSelectedLinkDocId || '').trim() === did) {
+            state.whiteboardSelectedLinkId = '';
+            state.whiteboardSelectedLinkDocId = '';
+        } else {
+            state.whiteboardSelectedLinkId = id;
+            state.whiteboardSelectedLinkDocId = did;
+        }
+        __tmScheduleWhiteboardEdgeRedraw();
+    };
+
+    window.tmWhiteboardRemoveSelectedLink = async function(ev) {
+        try { ev?.stopPropagation?.(); } catch (e) {}
+        const id = String(state.whiteboardSelectedLinkId || '').trim();
+        if (!id) return;
+        return window.tmWhiteboardRemoveLink(id, ev);
+    };
+
+    window.tmWhiteboardToggleSidebar = async function(ev) {
+        try { ev?.stopPropagation?.(); } catch (e) {}
+        const next = !SettingsStore.data.whiteboardSidebarCollapsed;
+        SettingsStore.data.whiteboardSidebarCollapsed = next;
+        const body = state.modal?.querySelector?.('#tmWhiteboardBody');
+        const layout = body?.querySelector?.('.tm-whiteboard-layout');
+        const btn = body?.querySelector?.('.tm-whiteboard-sidebar-toggle');
+        if (layout) {
+            try { layout.classList.toggle('tm-whiteboard-layout--sidebar-collapsed', !!next); } catch (e) {}
+        }
+        if (btn) {
+            try {
+                btn.textContent = next ? '☰' : '⟨';
+                btn.title = next ? '展开侧栏' : '折叠侧栏';
+            } catch (e) {}
+        }
+        if (!layout || !btn) render();
+        try { await SettingsStore.save(); } catch (e) {}
+    };
+
+    window.tmWhiteboardSetTool = async function(tool) {
+        const t = String(tool || 'pan').trim();
+        const next = (t === 'select' || t === 'text' || t === 'pan') ? t : 'pan';
+        if (next !== 'text') {
+            try { await __tmCloseWhiteboardNoteEditor({ save: true }); } catch (e) {}
+        }
+        __tmClearWhiteboardMultiSelection();
+        SettingsStore.data.whiteboardTool = next;
+        try { await SettingsStore.save(); } catch (e) {}
+        render();
+    };
+
+    window.tmWhiteboardToggleShowDone = async function(enabled) {
+        SettingsStore.data.whiteboardShowDone = !!enabled;
+        try { await SettingsStore.save(); } catch (e) {}
+        render();
+    };
+
+    window.tmWhiteboardMoveBackToParent = async function(taskId, docId, ev) {
+        try { ev?.stopPropagation?.(); } catch (e) {}
+        const id = String(taskId || '').trim();
+        if (!id) return;
+        const pid = __tmResolveWhiteboardTaskParentId(id);
+        if (!pid) return;
+        __tmSetWhiteboardChildDetached(id, false);
+        __tmSetWhiteboardTaskPlaced(id, false, { persist: false });
+        try { await SettingsStore.save(); } catch (e) {}
+        render();
+    };
+
+    function __tmEnsureWhiteboardTaskSelected(taskId) {
+        const id = String(taskId || '').trim();
+        if (!id) return;
+        if (String(state.whiteboardSelectedTaskId || '').trim() === id) return;
+        __tmClearWhiteboardMultiSelection();
+        state.whiteboardSelectedTaskId = id;
+        state.whiteboardSelectedNoteId = '';
+        state.whiteboardSelectedLinkId = '';
+        state.whiteboardSelectedLinkDocId = '';
+        __tmApplyWhiteboardCardSelectionDom(id);
+        __tmScheduleWhiteboardEdgeRedraw();
+    }
+
+    function __tmCanEditWhiteboardTaskField(taskId) {
+        const id = String(taskId || '').trim();
+        if (!id) return false;
+        if (state.viewMode !== 'whiteboard') return false;
+        if (String(state.whiteboardSelectedTaskId || '').trim() !== id) return false;
+        const t = state.flatTasks?.[id];
+        if (!t) return false;
+        return true;
+    }
+
+    window.tmWhiteboardEditStatus = function(taskId, el, ev) {
+        try { ev?.stopPropagation?.(); } catch (e) {}
+        __tmEnsureWhiteboardTaskSelected(taskId);
+        if (!__tmCanEditWhiteboardTaskField(taskId)) return;
+        try { window.tmKanbanOpenStatusSelect?.(String(taskId || '').trim(), el, ev); } catch (e) {}
+    };
+
+    window.tmWhiteboardEditPriority = function(taskId, el, ev) {
+        try { ev?.stopPropagation?.(); } catch (e) {}
+        __tmEnsureWhiteboardTaskSelected(taskId);
+        if (!__tmCanEditWhiteboardTaskField(taskId)) return;
+        try { window.tmPickPriority?.(String(taskId || '').trim(), el, ev); } catch (e) {}
+    };
+
+    window.tmWhiteboardEditDate = function(taskId, ev) {
+        try { ev?.stopPropagation?.(); } catch (e) {}
+        __tmEnsureWhiteboardTaskSelected(taskId);
+        if (!__tmCanEditWhiteboardTaskField(taskId)) return;
+        try { window.tmKanbanPickDate?.(String(taskId || '').trim(), ev); } catch (e) {}
+    };
+
+    window.tmWhiteboardToggleAutoConnect = async function(enabled) {
+        SettingsStore.data.whiteboardAutoConnectByCreated = false;
+        try { await SettingsStore.save(); } catch (e) {}
+        hint('ℹ 已移除默认时间连线功能', 'info');
+    };
+
+    window.tmWhiteboardToggleAutoLayout = async function(enabled) {
+        SettingsStore.data.whiteboardAutoLayout = false;
+        try { await SettingsStore.save(); } catch (e) {}
+        hint('ℹ 已移除自动排布功能', 'info');
+    };
+
+    window.tmWhiteboardClearLinks = async function() {
+        const ok = confirm('确认清空所有手动连线？');
+        if (!ok) return;
+        __tmSetManualTaskLinks([]);
+        state.whiteboardSelectedLinkId = '';
+        state.whiteboardSelectedLinkDocId = '';
+        state.whiteboardMultiSelectedLinkKeys = [];
+        __tmApplyWhiteboardMultiSelectionDom();
+        __tmRenderWhiteboardMultiTools(__tmComputeWhiteboardMultiSelectionRect());
+        try { await SettingsStore.save(); } catch (e) {}
+        render();
+    };
+
+    window.tmWhiteboardDetachChild = async function(taskId, ev) {
+        try { ev?.stopPropagation?.(); } catch (e) {}
+        const id = String(taskId || '').trim();
+        if (!id) return;
+        const task = state.flatTasks?.[id];
+        if (!task) return;
+        const pid = String(task?.parentTaskId || '').trim();
+        if (!pid) return;
+        const docA = __tmGetTaskDocIdById(id);
+        const docB = __tmGetTaskDocIdById(pid);
+        if (!docA || !docB || docA !== docB) return;
+        __tmSetWhiteboardChildDetached(id, true, pid);
+        try { await SettingsStore.save(); } catch (e) {}
+        render();
+    };
+
+    window.tmWhiteboardReattachChild = async function(taskId, ev) {
+        try { ev?.stopPropagation?.(); } catch (e) {}
+        const id = String(taskId || '').trim();
+        if (!id) return;
+        __tmSetWhiteboardChildDetached(id, false);
+        try { await SettingsStore.save(); } catch (e) {}
+        render();
+    };
+
+    window.tmWhiteboardCardDragStart = function(ev, taskId, docId) {
+        const id = String(taskId || '').trim();
+        const did = String(docId || '').trim();
+        if (!id || !did) return;
+        try {
+            const payload = JSON.stringify({ type: 'tm-whiteboard-task', taskId: id, docId: did });
+            ev.dataTransfer.effectAllowed = 'move';
+            ev.dataTransfer.setData('application/x-tm-whiteboard-task', payload);
+            ev.dataTransfer.setData('text/plain', payload);
+        } catch (e) {}
+    };
+
+    window.tmWhiteboardLaneDragOver = function(ev) {
+        try { ev?.preventDefault?.(); } catch (e) {}
+    };
+
+    window.tmWhiteboardLaneDrop = async function(ev, docId) {
+        try { ev?.preventDefault?.(); } catch (e) {}
+        try { ev?.stopPropagation?.(); } catch (e) {}
+        let payload = null;
+        try {
+            const raw = ev?.dataTransfer?.getData?.('application/x-tm-whiteboard-task') || ev?.dataTransfer?.getData?.('text/plain');
+            if (raw) payload = JSON.parse(raw);
+        } catch (e) {}
+        if (String(payload?.type || '').trim() !== 'tm-whiteboard-task') return;
+        const taskId = String(payload?.taskId || '').trim();
+        const fromDocId = String(payload?.docId || '').trim();
+        const toDocId = String(docId || '').trim();
+        if (!taskId || !fromDocId || !toDocId || fromDocId !== toDocId) return;
+        const task = state.flatTasks?.[taskId];
+        const pid = String(task?.parentTaskId || '').trim();
+        if (!task || !pid) return;
+        if (__tmGetTaskDocIdById(pid) !== toDocId) return;
+        __tmSetWhiteboardChildDetached(taskId, true, pid);
+        try { await SettingsStore.save(); } catch (e) {}
+        render();
+    };
+
+    window.tmWhiteboardLaneClick = async function(ev, docId) {
+        return window.tmWhiteboardDocClick(ev, docId);
+    };
+
+    window.tmWhiteboardRemoveNote = async function(noteId, ev) {
+        return window.tmWhiteboardDeleteNote(noteId, ev);
+    };
+
+    window.tmWhiteboardToggleTaskCollapse = function(taskId, ev) {
+        try {
+            ev?.stopPropagation?.();
+            ev?.preventDefault?.();
+        } catch (e) {}
+        const id = String(taskId || '').trim();
+        if (!id) return;
+        const s = __tmKanbanGetCollapsedSet();
+        if (s.has(id)) s.delete(id);
+        else s.add(id);
+        __tmKanbanPersistCollapsed();
         render();
     };
 
@@ -10395,7 +16423,9 @@ async function __tmRefreshAfterWake(reason) {
         try { ev.stopPropagation(); } catch (e) {}
         const taskId = String(id || '').trim();
         if (!taskId) return;
+        state.draggingTaskId = taskId;
         try { ev.dataTransfer.effectAllowed = 'move'; } catch (e) {}
+        try { ev.dataTransfer.setData('application/x-tm-task-id', taskId); } catch (e) {}
         try { ev.dataTransfer.setData('text/plain', taskId); } catch (e) {}
         state.__tmKanbanDragId = taskId;
         state.__tmKanbanDragIds = [taskId];
@@ -10426,6 +16456,8 @@ async function __tmRefreshAfterWake(reason) {
 
     window.tmKanbanDragEnd = function(ev, id) {
         try { ev.currentTarget?.classList?.remove?.('tm-kanban-card--dragging'); } catch (e) {}
+        state.draggingTaskId = '';
+        try { __tmClearDocTabDropTarget(); } catch (e) {}
         try { delete state.__tmKanbanDragId; } catch (e) {}
         try { delete state.__tmKanbanDragIds; } catch (e) {}
         __tmKanbanClearDragOver();
@@ -10825,6 +16857,7 @@ async function __tmRefreshAfterWake(reason) {
         menu.innerHTML = `
             <button class="tm-btn tm-btn-info" onclick="tmShowSearchModal(); document.getElementById('tmDesktopMenu').remove()" style="text-align:left; padding: 6px 12px;">🔍 搜索${state.searchKeyword ? ` (${String(state.searchKeyword || '').trim()})` : ''}</button>
             ${state.searchKeyword ? `<button class="tm-btn tm-btn-secondary" onclick="tmSearch(''); document.getElementById('tmDesktopMenu').remove()" style="text-align:left; padding: 6px 12px;">清除搜索</button>` : ''}
+            <button class="tm-btn tm-btn-info" onclick="tmToggleWhiteboardSequenceMode(); document.getElementById('tmDesktopMenu').remove()" style="text-align:left; padding: 6px 12px;">${SettingsStore.data.whiteboardSequenceMode ? '☑' : '☐'} 白板顺序模式</button>
             <button class="tm-btn tm-btn-info" onclick="tmCollapseAllTasks(); document.getElementById('tmDesktopMenu').remove()" style="text-align:left; padding: 6px 12px;">▸ 全部折叠</button>
             <button class="tm-btn tm-btn-info" onclick="tmExpandAllTasks(); document.getElementById('tmDesktopMenu').remove()" style="text-align:left; padding: 6px 12px;">▾ 全部展开</button>
         `;
@@ -10849,6 +16882,14 @@ async function __tmRefreshAfterWake(reason) {
             container.style.position = 'relative';
             container.appendChild(menu);
         }
+    };
+
+    window.tmToggleWhiteboardSequenceMode = async function(enabled) {
+        const next = (typeof enabled === 'boolean') ? enabled : !SettingsStore.data.whiteboardSequenceMode;
+        SettingsStore.data.whiteboardSequenceMode = !!next;
+        try { await SettingsStore.save(); } catch (e) {}
+        try { applyFilters(); } catch (e) {}
+        render();
     };
 
     function __tmHideMobileMenu() {
@@ -10962,6 +17003,15 @@ async function __tmRefreshAfterWake(reason) {
             document.body.style.cursor = '';
             document.body.style.userSelect = '';
         } catch (e) {}
+        try {
+            if (__tmWhiteboardSidebarResizeOnMove) document.removeEventListener('mousemove', __tmWhiteboardSidebarResizeOnMove);
+            if (__tmWhiteboardSidebarResizeOnUp) document.removeEventListener('mouseup', __tmWhiteboardSidebarResizeOnUp);
+            __tmWhiteboardSidebarResizeOnMove = null;
+            __tmWhiteboardSidebarResizeOnUp = null;
+            __tmWhiteboardSidebarResizeState = null;
+            document.body.style.cursor = '';
+            document.body.style.userSelect = '';
+        } catch (e) {}
         
         // 强制移除所有可能的模态框（防御性编程）
         const modals = document.querySelectorAll('.tm-modal, .tm-settings-modal, .tm-rules-modal, .tm-prompt-modal');
@@ -10984,6 +17034,9 @@ async function __tmRefreshAfterWake(reason) {
     let __tmTimelineSplitResizeOnUp = null;
     let __tmTimelineContentResizeOnMove = null;
     let __tmTimelineContentResizeOnUp = null;
+    let __tmWhiteboardSidebarResizeState = null;
+    let __tmWhiteboardSidebarResizeOnMove = null;
+    let __tmWhiteboardSidebarResizeOnUp = null;
 
     window.startColResize = function(event, colName) {
         event.preventDefault();
@@ -11133,6 +17186,53 @@ async function __tmRefreshAfterWake(reason) {
 
         __tmTimelineContentResizeOnMove = onMove;
         __tmTimelineContentResizeOnUp = onUp;
+        document.addEventListener('mousemove', onMove);
+        document.addEventListener('mouseup', onUp);
+        document.body.style.cursor = 'col-resize';
+        document.body.style.userSelect = 'none';
+    };
+
+    window.tmStartWhiteboardSidebarResize = function(event) {
+        try { event.preventDefault(); } catch (e) {}
+        try { event.stopPropagation(); } catch (e) {}
+        if (SettingsStore.data.whiteboardSidebarCollapsed) return;
+        const layout = state.modal?.querySelector?.('.tm-whiteboard-layout');
+        const sidebar = layout?.querySelector?.('.tm-whiteboard-sidebar');
+        if (!layout || !sidebar) return;
+        try {
+            if (__tmWhiteboardSidebarResizeOnMove) document.removeEventListener('mousemove', __tmWhiteboardSidebarResizeOnMove);
+            if (__tmWhiteboardSidebarResizeOnUp) document.removeEventListener('mouseup', __tmWhiteboardSidebarResizeOnUp);
+        } catch (e) {}
+        __tmWhiteboardSidebarResizeOnMove = null;
+        __tmWhiteboardSidebarResizeOnUp = null;
+        const startX = event.clientX;
+        const startWidth = sidebar.getBoundingClientRect().width;
+        __tmWhiteboardSidebarResizeState = { startX, startWidth, layout };
+
+        const onMove = (ev) => {
+            if (!__tmWhiteboardSidebarResizeState) return;
+            const dx = ev.clientX - __tmWhiteboardSidebarResizeState.startX;
+            const next = Math.max(220, Math.min(520, Math.round(__tmWhiteboardSidebarResizeState.startWidth + dx)));
+            const el = __tmWhiteboardSidebarResizeState.layout;
+            el.style.setProperty('--tm-wb-sidebar-width', `${next}px`);
+        };
+        const onUp = async (ev) => {
+            if (!__tmWhiteboardSidebarResizeState) return;
+            const dx = ev.clientX - __tmWhiteboardSidebarResizeState.startX;
+            const next = Math.max(220, Math.min(520, Math.round(__tmWhiteboardSidebarResizeState.startWidth + dx)));
+            __tmWhiteboardSidebarResizeState = null;
+            try { document.removeEventListener('mousemove', onMove); } catch (e) {}
+            try { document.removeEventListener('mouseup', onUp); } catch (e) {}
+            __tmWhiteboardSidebarResizeOnMove = null;
+            __tmWhiteboardSidebarResizeOnUp = null;
+            document.body.style.cursor = '';
+            document.body.style.userSelect = '';
+            SettingsStore.data.whiteboardSidebarWidth = next;
+            try { await SettingsStore.save(); } catch (e) {}
+        };
+
+        __tmWhiteboardSidebarResizeOnMove = onMove;
+        __tmWhiteboardSidebarResizeOnUp = onUp;
         document.addEventListener('mousemove', onMove);
         document.addEventListener('mouseup', onUp);
         document.body.style.cursor = 'col-resize';
@@ -11332,6 +17432,9 @@ async function __tmRefreshAfterWake(reason) {
         task.docName = task.docName || task.doc_name || docNameFallback || '未知文档';
         task.parentTaskId = task.parentTaskId || task.parent_task_id || null;
         task.docId = task.docId || task.root_id || null;
+        task.docSeq = Number.isFinite(Number(task.docSeq ?? task.doc_seq)) ? Number(task.docSeq ?? task.doc_seq) : Number.POSITIVE_INFINITY;
+        task.blockPath = String(task.blockPath || task.block_path || task.path || '').trim();
+        task.blockSort = String(task.blockSort || task.block_sort || task.sort || '').trim();
         return task;
     }
 
@@ -11466,6 +17569,532 @@ async function __tmRefreshAfterWake(reason) {
         if (matched) return total;
         const n0 = Number.parseFloat(s);
         return Number.isFinite(n0) && n0 >= 0 ? n0 : null;
+    }
+
+    function __tmGetTaskDocIdById(taskId) {
+        const id = String(taskId || '').trim();
+        if (!id) return '';
+        const t = state.flatTasks?.[id];
+        if (t) return String(t?.root_id || t?.docId || '').trim();
+        const snap = WhiteboardStore.getTask(id);
+        if (!snap) return '';
+        return String(snap?.docId || '').trim();
+    }
+
+    function __tmGetWhiteboardCardSnapshotMap() {
+        try { WhiteboardStore.normalize(); } catch (e) {}
+        const raw = WhiteboardStore.data?.cards;
+        if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return {};
+        return raw;
+    }
+
+    function __tmGetWhiteboardCardSnapshot(taskId) {
+        const id = String(taskId || '').trim();
+        if (!id) return null;
+        const map = __tmGetWhiteboardCardSnapshotMap();
+        const item = map[id];
+        return (item && typeof item === 'object') ? item : null;
+    }
+
+    function __tmUpsertWhiteboardTaskSnapshot(task, opts = {}) {
+        WhiteboardStore.upsertTask(task, opts);
+    }
+
+    function __tmUpsertWhiteboardTaskSnapshots(tasks, opts = {}) {
+        WhiteboardStore.upsertTasks(tasks, opts);
+    }
+
+    function __tmDeleteWhiteboardSnapshotTasks(taskIds) {
+        const list = Array.isArray(taskIds) ? taskIds : [];
+        const ids = list.map((x) => String(x || '').trim()).filter(Boolean);
+        if (!ids.length) return;
+        const idSet = new Set(ids);
+        try { WhiteboardStore.normalize(); } catch (e) {}
+        try {
+            const cards = (WhiteboardStore.data && WhiteboardStore.data.cards && typeof WhiteboardStore.data.cards === 'object')
+                ? WhiteboardStore.data.cards
+                : {};
+            let changed = false;
+            ids.forEach((id) => {
+                if (cards[id]) {
+                    delete cards[id];
+                    changed = true;
+                }
+            });
+            if (changed) {
+                const links0 = Array.isArray(WhiteboardStore.data.links) ? WhiteboardStore.data.links : [];
+                WhiteboardStore.data.links = links0.filter((ln) => {
+                    const from = String(ln?.from || '').trim();
+                    const to = String(ln?.to || '').trim();
+                    return !idSet.has(from) && !idSet.has(to);
+                });
+                WhiteboardStore.scheduleSave();
+            }
+        } catch (e) {}
+        try {
+            const pos0 = __tmGetWhiteboardNodePosMap();
+            const pos = { ...pos0 };
+            let dirty = false;
+            ids.forEach((id) => {
+                if (id in pos) {
+                    delete pos[id];
+                    dirty = true;
+                }
+            });
+            if (dirty) SettingsStore.data.whiteboardNodePos = pos;
+        } catch (e) {}
+        try {
+            const placed0 = __tmGetWhiteboardPlacedTaskMap();
+            const placed = { ...placed0 };
+            let dirty = false;
+            ids.forEach((id) => {
+                if (id in placed) {
+                    delete placed[id];
+                    dirty = true;
+                }
+            });
+            if (dirty) SettingsStore.data.whiteboardPlacedTaskIds = placed;
+        } catch (e) {}
+        try { SettingsStore.syncToLocal(); } catch (e) {}
+    }
+
+    function __tmSyncWhiteboardFrozenTasksWithLiveTasks() {
+        const flat = (state.flatTasks && typeof state.flatTasks === 'object') ? state.flatTasks : {};
+        const liveIdSet = new Set(Object.keys(flat).map((x) => String(x || '').trim()).filter(Boolean));
+        const snapMap = __tmGetWhiteboardCardSnapshotMap();
+        const scopeDocSet = new Set(
+            (Array.isArray(state.taskTree) ? state.taskTree : [])
+                .map((d) => String(d?.id || '').trim())
+                .filter(Boolean)
+        );
+        if (!scopeDocSet.size) return 0;
+        const staleIds = Object.keys(snapMap || {})
+            .map((x) => String(x || '').trim())
+            .filter((id) => {
+                if (!id || liveIdSet.has(id)) return false;
+                const snap = snapMap?.[id];
+                const docId = String(snap?.docId || __tmGetTaskDocIdById(id) || '').trim();
+                if (!docId) return false;
+                // 仅清理“当前加载文档范围”内的冻结任务，避免跨分组误删
+                return scopeDocSet.has(docId);
+            });
+        if (!staleIds.length) return 0;
+        const staleSet = new Set(staleIds);
+        __tmDeleteWhiteboardSnapshotTasks(staleIds);
+        try {
+            const links = __tmGetManualTaskLinks();
+            const nextLinks = links.filter((ln) => !staleSet.has(String(ln?.from || '').trim()) && !staleSet.has(String(ln?.to || '').trim()));
+            __tmSetManualTaskLinks(nextLinks);
+        } catch (e) {}
+        try {
+            const detached0 = __tmGetDetachedChildrenMap();
+            const detached = { ...detached0 };
+            let dirty = false;
+            staleIds.forEach((id) => {
+                if (id in detached) {
+                    delete detached[id];
+                    dirty = true;
+                }
+            });
+            if (dirty) SettingsStore.data.whiteboardDetachedChildren = detached;
+        } catch (e) {}
+        try {
+            if (staleSet.has(String(state.whiteboardSelectedTaskId || '').trim())) state.whiteboardSelectedTaskId = '';
+            const multiTaskIds = Array.isArray(state.whiteboardMultiSelectedTaskIds) ? state.whiteboardMultiSelectedTaskIds : [];
+            state.whiteboardMultiSelectedTaskIds = multiTaskIds.filter((id) => !staleSet.has(String(id || '').trim()));
+        } catch (e) {}
+        try { SettingsStore.syncToLocal(); } catch (e) {}
+        return staleIds.length;
+    }
+
+    function __tmTaskCreatedOrderValue(task) {
+        const raw = String(task?.created || '').trim();
+        if (!raw) return Number.MAX_SAFE_INTEGER;
+        if (/^\d{14}$/.test(raw)) return Number(raw);
+        const ts = __tmParseTimeToTs(raw);
+        return ts > 0 ? ts : Number.MAX_SAFE_INTEGER;
+    }
+
+    function __tmNormalizeTaskLinkEntry(link, index) {
+        const item = (link && typeof link === 'object') ? link : {};
+        const from = String(item.from || '').trim();
+        const to = String(item.to || '').trim();
+        if (!from || !to || from === to) return null;
+        const docFrom = __tmGetTaskDocIdById(from);
+        const docTo = __tmGetTaskDocIdById(to);
+        const docId = String(item.docId || docFrom || docTo || '').trim();
+        if (!docId) return null;
+        if (docFrom && docTo && docFrom !== docTo) return null;
+        if ((docFrom && docFrom !== docId) || (docTo && docTo !== docId)) return null;
+        const createdAt = String(item.createdAt || '').trim() || String(Date.now());
+        const idRaw = String(item.id || '').trim();
+        const id = idRaw || `link_${docId}_${from}_${to}_${index}`;
+        return { id, from, to, docId, createdAt, manual: true };
+    }
+
+    function __tmGetManualTaskLinks() {
+        const srcA = Array.isArray(SettingsStore.data.whiteboardLinks) ? SettingsStore.data.whiteboardLinks : [];
+        const srcB = Array.isArray(WhiteboardStore.data?.links) ? WhiteboardStore.data.links : [];
+        if (srcA.length > 0 && srcB.length === 0) {
+            try {
+                WhiteboardStore.data.links = srcA.slice();
+                WhiteboardStore.scheduleSave();
+            } catch (e) {}
+        }
+        const src = [...srcA, ...srcB];
+        const out = [];
+        const seen = new Set();
+        src.forEach((link, index) => {
+            const normalized = __tmNormalizeTaskLinkEntry(link, index);
+            if (!normalized) return;
+            const key = `${normalized.docId}::${normalized.from}->${normalized.to}`;
+            if (seen.has(key)) return;
+            seen.add(key);
+            out.push(normalized);
+        });
+        return out;
+    }
+
+    function __tmGetAutoTaskLinks() {
+        return [];
+    }
+
+    function __tmGetAllTaskLinks(options = {}) {
+        const opt = (options && typeof options === 'object') ? options : {};
+        const includeAuto = opt.includeAuto !== false;
+        const onlyDocId = String(opt.docId || '').trim();
+        const links = [...__tmGetManualTaskLinks(), ...(includeAuto ? __tmGetAutoTaskLinks() : [])];
+        const seen = new Set();
+        return links.filter((link) => {
+            if (!link || typeof link !== 'object') return false;
+            const fromId = String(link.from || '').trim();
+            const toId = String(link.to || '').trim();
+            const docId = String(link.docId || '').trim();
+            if (!fromId || !toId || !docId || fromId === toId) return false;
+            if (onlyDocId && docId !== onlyDocId) return false;
+            const fromDoc = __tmGetTaskDocIdById(fromId);
+            const toDoc = __tmGetTaskDocIdById(toId);
+            if (fromDoc && fromDoc !== docId) return false;
+            if (toDoc && toDoc !== docId) return false;
+            const key = `${docId}::${fromId}->${toId}`;
+            if (seen.has(key)) return false;
+            seen.add(key);
+            return true;
+        });
+    }
+
+    function __tmCanLinkTasks(fromTaskId, toTaskId) {
+        const fromId = String(fromTaskId || '').trim();
+        const toId = String(toTaskId || '').trim();
+        if (!fromId || !toId || fromId === toId) return { ok: false, reason: '无效任务' };
+        const fromDocId = __tmGetTaskDocIdById(fromId);
+        const toDocId = __tmGetTaskDocIdById(toId);
+        if (!fromDocId || !toDocId) return { ok: false, reason: '任务不存在' };
+        if (fromDocId !== toDocId) return { ok: false, reason: '不支持跨文档连线' };
+        return { ok: true, docId: fromDocId };
+    }
+
+    function __tmSetManualTaskLinks(nextLinks) {
+        const list = Array.isArray(nextLinks) ? nextLinks : [];
+        const normalized = list.map((it, i) => {
+            const x = __tmNormalizeTaskLinkEntry(it, i);
+            return x ? { id: x.id, from: x.from, to: x.to, docId: x.docId, createdAt: x.createdAt } : null;
+        }).filter(Boolean);
+        SettingsStore.data.whiteboardLinks = normalized;
+        try {
+            WhiteboardStore.data.links = normalized;
+            WhiteboardStore.scheduleSave();
+        } catch (e) {}
+        try { SettingsStore.syncToLocal(); } catch (e) {}
+    }
+
+    function __tmGetTaskLinkStats(taskId, options = {}) {
+        const id = String(taskId || '').trim();
+        if (!id) return { incoming: 0, outgoing: 0 };
+        let incoming = 0;
+        let outgoing = 0;
+        __tmGetAllTaskLinks(options).forEach((link) => {
+            if (String(link.from || '') === id) outgoing += 1;
+            if (String(link.to || '') === id) incoming += 1;
+        });
+        return { incoming, outgoing };
+    }
+
+    function __tmGetDetachedChildrenMap() {
+        const map0 = SettingsStore.data.whiteboardDetachedChildren;
+        if (!map0 || typeof map0 !== 'object' || Array.isArray(map0)) return {};
+        const next = {};
+        let changed = false;
+        Object.keys(map0).forEach((k) => {
+            const id = String(k || '').trim();
+            if (!id) {
+                changed = true;
+                return;
+            }
+            const v = map0[k];
+            const taskPid = String(state.flatTasks?.[id]?.parentTaskId || '').trim();
+            const snapPid = String(__tmGetWhiteboardCardSnapshot(id)?.parentTaskId || '').trim();
+            if (v && typeof v === 'object' && v.detached === true) {
+                const parentTaskId = String(v.parentTaskId || taskPid || snapPid || '').trim();
+                const normalized = { ...v, detached: true, parentTaskId };
+                next[id] = normalized;
+                if (String(v.parentTaskId || '').trim() !== parentTaskId) changed = true;
+                return;
+            }
+            if (v === true) {
+                next[id] = { detached: true, manual: true, updatedAt: String(Date.now()), parentTaskId: String(taskPid || snapPid || '').trim() };
+                changed = true;
+                return;
+            }
+            changed = true;
+        });
+        if (changed) {
+            SettingsStore.data.whiteboardDetachedChildren = next;
+            try { SettingsStore.syncToLocal(); } catch (e) {}
+        }
+        return changed ? next : map0;
+    }
+
+    function __tmIsWhiteboardChildDetached(taskId) {
+        const id = String(taskId || '').trim();
+        if (!id) return false;
+        const map = __tmGetDetachedChildrenMap();
+        const item = map[id];
+        return !!(item && typeof item === 'object' && item.detached === true);
+    }
+
+    function __tmResolveWhiteboardTaskParentId(taskId) {
+        const id = String(taskId || '').trim();
+        if (!id) return '';
+        const task = state.flatTasks?.[id];
+        const fromTask = String(task?.parentTaskId || '').trim();
+        if (fromTask) return fromTask;
+        const detachedMap = __tmGetDetachedChildrenMap();
+        const detachedItem = detachedMap[id];
+        const fromDetached = String(detachedItem?.parentTaskId || '').trim();
+        if (fromDetached) return fromDetached;
+        const snap = __tmGetWhiteboardCardSnapshot(id);
+        return String(snap?.parentTaskId || '').trim();
+    }
+
+    function __tmSetWhiteboardChildDetached(taskId, detached, parentTaskId = '') {
+        const id = String(taskId || '').trim();
+        if (!id) return;
+        const next = { ...__tmGetDetachedChildrenMap() };
+        if (detached) {
+            const pid = String(parentTaskId || __tmResolveWhiteboardTaskParentId(id) || '').trim();
+            next[id] = { detached: true, manual: true, updatedAt: String(Date.now()), parentTaskId: pid };
+        } else delete next[id];
+        SettingsStore.data.whiteboardDetachedChildren = next;
+        try { SettingsStore.syncToLocal(); } catch (e) {}
+    }
+
+    function __tmWhiteboardCollectTaskTreeIds(rootId, opts = {}) {
+        const id0 = String(rootId || '').trim();
+        if (!id0) return [];
+        const o = (opts && typeof opts === 'object') ? opts : {};
+        const includeRoot = o.includeRoot !== false;
+        const includeDetached = o.includeDetached === true;
+        const includeSnapshotTree = o.includeSnapshotTree !== false;
+        const snapMap = includeSnapshotTree ? __tmGetWhiteboardCardSnapshotMap() : {};
+        const snapChildrenMap = new Map();
+        if (includeSnapshotTree && snapMap && typeof snapMap === 'object') {
+            Object.keys(snapMap).forEach((idRaw) => {
+                const sid = String(idRaw || '').trim();
+                if (!sid) return;
+                const s = snapMap[sid];
+                if (!s || typeof s !== 'object') return;
+                const pid = String(s.parentTaskId || '').trim();
+                if (!pid) return;
+                if (!snapChildrenMap.has(pid)) snapChildrenMap.set(pid, []);
+                snapChildrenMap.get(pid).push(sid);
+            });
+        }
+        const out = [];
+        const seen = new Set();
+        const stack = [id0];
+        while (stack.length) {
+            const cur = String(stack.pop() || '').trim();
+            if (!cur || seen.has(cur)) continue;
+            seen.add(cur);
+            if (includeRoot || cur !== id0) out.push(cur);
+            const task = state.flatTasks?.[cur];
+            const kids = Array.isArray(task?.children) ? task.children : [];
+            kids.forEach((k) => {
+                const cid = String(k?.id || '').trim();
+                if (!cid) return;
+                if (!includeDetached && __tmIsWhiteboardChildDetached(cid)) return;
+                stack.push(cid);
+            });
+            if (includeSnapshotTree) {
+                const skids = snapChildrenMap.get(cur) || [];
+                skids.forEach((sid) => {
+                    const cid = String(sid || '').trim();
+                    if (!cid) return;
+                    if (!includeDetached && __tmIsWhiteboardChildDetached(cid)) return;
+                    stack.push(cid);
+                });
+            }
+        }
+        return out;
+    }
+
+    function __tmFindWhiteboardCollapsedProxyTaskId(taskId, docId) {
+        const id0 = String(taskId || '').trim();
+        const did = String(docId || '').trim();
+        if (!id0 || !did) return '';
+        const collapsed = __tmKanbanGetCollapsedSet();
+        const getParentId = (id) => {
+            const tid = String(id || '').trim();
+            if (!tid) return '';
+            const t = state.flatTasks?.[tid];
+            if (t) return String(t?.parentTaskId || '').trim();
+            const snap = __tmGetWhiteboardCardSnapshot(tid);
+            return String(snap?.parentTaskId || '').trim();
+        };
+        let cur = id0;
+        const seen = new Set();
+        while (cur && !seen.has(cur)) {
+            seen.add(cur);
+            const parentId = getParentId(cur);
+            if (!parentId) return '';
+            if (__tmIsWhiteboardChildDetached(cur)) return '';
+            if (collapsed.has(parentId) && __tmIsWhiteboardTaskPlaced(parentId) && __tmGetTaskDocIdById(parentId) === did) {
+                return parentId;
+            }
+            cur = parentId;
+        }
+        return '';
+    }
+
+    function __tmGetWhiteboardView() {
+        const raw = (SettingsStore.data.whiteboardView && typeof SettingsStore.data.whiteboardView === 'object')
+            ? SettingsStore.data.whiteboardView
+            : {};
+        const x = Number(raw.x);
+        const y = Number(raw.y);
+        const zoom = Number(raw.zoom);
+        return {
+            x: Number.isFinite(x) ? x : 64,
+            y: Number.isFinite(y) ? y : 40,
+            zoom: Number.isFinite(zoom) ? Math.max(0.35, Math.min(2.5, zoom)) : 1,
+        };
+    }
+
+    function __tmSetWhiteboardView(patch, opts = {}) {
+        const p = (patch && typeof patch === 'object') ? patch : {};
+        const o = (opts && typeof opts === 'object') ? opts : {};
+        const prev = __tmGetWhiteboardView();
+        const x = Number.isFinite(Number(p.x)) ? Number(p.x) : prev.x;
+        const y = Number.isFinite(Number(p.y)) ? Number(p.y) : prev.y;
+        const zoom0 = Number.isFinite(Number(p.zoom)) ? Number(p.zoom) : prev.zoom;
+        const zoom = Math.max(0.35, Math.min(2.5, zoom0));
+        SettingsStore.data.whiteboardView = { x, y, zoom };
+        try { SettingsStore.syncToLocal(); } catch (e) {}
+        if (o.persist) {
+            try { SettingsStore.save(); } catch (e) {}
+        }
+    }
+
+    function __tmGetWhiteboardNodePosMap() {
+        const raw = SettingsStore.data.whiteboardNodePos;
+        if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return {};
+        return raw;
+    }
+
+    function __tmGetWhiteboardNodePos(taskId, docId) {
+        const id = String(taskId || '').trim();
+        const did = String(docId || '').trim();
+        if (!id || !did) return null;
+        const map = __tmGetWhiteboardNodePosMap();
+        const item = map[id];
+        if (!item || typeof item !== 'object') return null;
+        if (String(item.docId || '').trim() !== did) return null;
+        const x = Number(item.x);
+        const y = Number(item.y);
+        if (!Number.isFinite(x) || !Number.isFinite(y)) return null;
+        return { x, y, docId: did };
+    }
+
+    function __tmSetWhiteboardNodePos(taskId, docId, x, y, opts = {}) {
+        const id = String(taskId || '').trim();
+        const did = String(docId || '').trim();
+        if (!id || !did) return;
+        const xx = Number(x);
+        const yy = Number(y);
+        if (!Number.isFinite(xx) || !Number.isFinite(yy)) return;
+        const o = (opts && typeof opts === 'object') ? opts : {};
+        const next = { ...__tmGetWhiteboardNodePosMap() };
+        const prev = next[id];
+        const manual = (typeof o.manual === 'boolean')
+            ? o.manual
+            : !!(prev && typeof prev === 'object' && prev.manual === true);
+        next[id] = { docId: did, x: Math.round(xx), y: Math.round(yy), manual, updatedAt: String(Date.now()) };
+        SettingsStore.data.whiteboardNodePos = next;
+        try { SettingsStore.syncToLocal(); } catch (e) {}
+        if (o.persist) {
+            try { SettingsStore.save(); } catch (e) {}
+        }
+    }
+
+    function __tmGetWhiteboardPlacedTaskMap() {
+        const raw = SettingsStore.data.whiteboardPlacedTaskIds;
+        if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return {};
+        return raw;
+    }
+
+    function __tmIsWhiteboardTaskPlaced(taskId) {
+        const id = String(taskId || '').trim();
+        if (!id) return false;
+        return !!__tmGetWhiteboardPlacedTaskMap()[id];
+    }
+
+    function __tmSetWhiteboardTaskPlaced(taskId, placed, opts = {}) {
+        const id = String(taskId || '').trim();
+        if (!id) return;
+        const o = (opts && typeof opts === 'object') ? opts : {};
+        const next = { ...__tmGetWhiteboardPlacedTaskMap() };
+        if (placed) next[id] = true;
+        else delete next[id];
+        SettingsStore.data.whiteboardPlacedTaskIds = next;
+        try { SettingsStore.syncToLocal(); } catch (e) {}
+        if (o.persist) {
+            try { SettingsStore.save(); } catch (e) {}
+        }
+    }
+
+    function __tmGetWhiteboardDocFrameSizeMap() {
+        const raw = SettingsStore.data.whiteboardDocFrameSize;
+        if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return {};
+        return raw;
+    }
+
+    function __tmGetWhiteboardDocFrameSize(docId) {
+        const id = String(docId || '').trim();
+        if (!id) return null;
+        const map = __tmGetWhiteboardDocFrameSizeMap();
+        const item = map[id];
+        if (!item || typeof item !== 'object') return null;
+        const w = Number(item.w);
+        const h = Number(item.h);
+        if (!Number.isFinite(w) || !Number.isFinite(h)) return null;
+        return { w: Math.max(520, Math.round(w)), h: Math.max(220, Math.round(h)) };
+    }
+
+    function __tmSetWhiteboardDocFrameSize(docId, w, h, opts = {}) {
+        const id = String(docId || '').trim();
+        if (!id) return;
+        const ww = Number(w);
+        const hh = Number(h);
+        if (!Number.isFinite(ww) || !Number.isFinite(hh)) return;
+        const o = (opts && typeof opts === 'object') ? opts : {};
+        const next = { ...__tmGetWhiteboardDocFrameSizeMap() };
+        next[id] = { w: Math.max(520, Math.round(ww)), h: Math.max(220, Math.round(hh)), updatedAt: String(Date.now()) };
+        SettingsStore.data.whiteboardDocFrameSize = next;
+        try { SettingsStore.syncToLocal(); } catch (e) {}
+        if (o.persist) {
+            try { SettingsStore.save(); } catch (e) {}
+        }
     }
 
     function __tmComputePriorityScore(task) {
@@ -12409,12 +19038,46 @@ async function __tmRefreshAfterWake(reason) {
         if (SettingsStore.data.timelineForceSortByCompletionNearToday) {
             const now = new Date();
             const todayTs = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 12, 0, 0, 0).getTime();
+            const docsInOrder = __tmSortDocEntriesByPinned(
+                state.taskTree || [],
+                String(SettingsStore.data.currentGroupId || 'all').trim() || 'all'
+            ).map((d) => String(d?.id || '').trim()).filter(Boolean);
+            const docRankMap = new Map();
+            docsInOrder.forEach((did, idx) => docRankMap.set(did, idx));
+
+            const h2BucketRank = new Map();
+            docsInOrder.forEach((did) => {
+                const seen = new Set();
+                let rank = 0;
+                const pushByTask = (task) => {
+                    const bucket = __tmGetDocHeadingBucket(task, '无标题');
+                    const key = `${did}::${String(bucket?.key || 'label:__none__')}`;
+                    if (seen.has(key)) return;
+                    seen.add(key);
+                    const rk = Number(task?.h2Rank);
+                    if (Number.isFinite(rk)) {
+                        h2BucketRank.set(key, rk);
+                    } else {
+                        h2BucketRank.set(key, rank++);
+                    }
+                };
+                state.filteredTasks
+                    .filter((t) => String(t?.root_id || t?.docId || '').trim() === did)
+                    .slice()
+                    .sort(__tmCompareTasksByDocFlow)
+                    .forEach(pushByTask);
+            });
             const items = state.filteredTasks.map((t, i) => {
+                const docId = String(t?.root_id || t?.docId || '').trim();
+                const bucket = __tmGetDocHeadingBucket(t, '无标题');
+                const h2Key = `${docId}::${String(bucket?.key || 'label:__none__')}`;
                 const ts = __tmParseTimeToTs(t?.completionTime);
                 const dist = ts ? Math.abs(ts - todayTs) : Infinity;
-                return { id: String(t?.id || ''), dist, ts, i };
+                const docRank = Number(docRankMap.has(docId) ? docRankMap.get(docId) : 999999);
+                const h2Rank = Number(h2BucketRank.get(h2Key) ?? 999999);
+                return { id: String(t?.id || ''), docRank, h2Rank, dist, ts, i };
             }).filter(x => x.id);
-            items.sort((a, b) => (a.dist - b.dist) || (a.ts - b.ts) || (a.i - b.i));
+            items.sort((a, b) => (a.docRank - b.docRank) || (a.h2Rank - b.h2Rank) || (a.dist - b.dist) || (a.ts - b.ts) || (a.i - b.i));
             orderMap = new Map(items.map((x, idx) => [x.id, idx]));
         }
         const getTaskOrder = (taskId) => orderMap.get(taskId) ?? Infinity;
@@ -12423,9 +19086,11 @@ async function __tmRefreshAfterWake(reason) {
             if (!t.parentTaskId) return true;
             return !filteredIdSet.has(t.parentTaskId);
         });
-
-        const pinnedRoots = rootTasks.filter(t => t.pinned);
-        const normalRoots = rootTasks.filter(t => !t.pinned);
+        const timelineKeepH2Order = (state.viewMode === 'timeline')
+            && !!state.groupByDocName
+            && (SettingsStore.data.docH2SubgroupEnabled !== false);
+        const pinnedRoots = timelineKeepH2Order ? [] : rootTasks.filter(t => t.pinned);
+        const normalRoots = timelineKeepH2Order ? rootTasks.slice() : rootTasks.filter(t => !t.pinned);
         pinnedRoots.sort((a, b) => getTaskOrder(a.id) - getTaskOrder(b.id));
         normalRoots.sort((a, b) => getTaskOrder(a.id) - getTaskOrder(b.id));
 
@@ -12584,7 +19249,7 @@ async function __tmRefreshAfterWake(reason) {
                     if (!t.parentTaskId) return true;
                     return !filteredIdSet.has(t.parentTaskId);
                 });
-                const docNormal = docRootTasks.filter(t => !t.pinned);
+                const docNormal = timelineKeepH2Order ? docRootTasks.slice() : docRootTasks.filter(t => !t.pinned);
                 docNormal.sort((a, b) => getTaskOrder(a.id) - getTaskOrder(b.id));
                 const docName = docEntry.name || '未知文档';
                 const groupKey = `doc_${docId}`;
@@ -12605,21 +19270,22 @@ async function __tmRefreshAfterWake(reason) {
                         return;
                     }
                     const h2Groups = new Map();
+                    const h2Buckets = __tmBuildDocHeadingBuckets(docNormal, noHeadingLabel);
                     docNormal.forEach(task => {
-                        const raw = String(task?.h2 || '').trim();
-                        const label = raw || noHeadingLabel;
-                        if (!h2Groups.has(label)) h2Groups.set(label, []);
-                        h2Groups.get(label).push(task);
+                        const b = __tmGetDocHeadingBucket(task, noHeadingLabel);
+                        if (!h2Groups.has(b.key)) h2Groups.set(b.key, { label: b.label, items: [] });
+                        h2Groups.get(b.key).items.push(task);
                     });
-                    h2Groups.forEach((items, label) => {
-                        const h2Raw = String(label || '').trim() === noHeadingLabel ? '' : String(label || '').trim();
-                        const h2Key = `doc_${docId}__h2_${encodeURIComponent(h2Raw || '__none__')}`;
+                    h2Buckets.forEach((bucket) => {
+                        const g = h2Groups.get(bucket.key) || { label: String(bucket.label || ''), items: [] };
+                        const items = Array.isArray(g.items) ? g.items : [];
+                        const h2Key = `doc_${docId}__h2_${encodeURIComponent(String(bucket.key || 'label:__none__'))}`;
                         const h2Collapsed = state.collapsedGroups?.has(h2Key);
                         rows.push({
                             type: 'group',
                             kind: 'h2',
                             key: h2Key,
-                            label: String(label),
+                            label: String(g.label || ''),
                             count: Array.isArray(items) ? items.length : 0,
                             collapsed: !!h2Collapsed,
                         });
@@ -12862,7 +19528,7 @@ async function __tmRefreshAfterWake(reason) {
 
             const focusId = SettingsStore.data.enableTomatoIntegration ? String(state.timerFocusTaskId || '').trim() : '';
             const rowClass = focusId ? (focusId === String(task.id) ? 'tm-timer-focus' : 'tm-timer-dim') : '';
-            let rowHtml = `<tr data-id="${task.id}" data-depth="${depth}" class="${rowClass}" ${groupBg ? `style="background-color:${groupBg};"` : ''} draggable="true" ondragstart="tmDragTaskStart(event, '${task.id}')" onclick="tmRowClick(event, '${task.id}')" oncontextmenu="tmShowTaskContextMenu(event, '${task.id}')">`;
+            let rowHtml = `<tr data-id="${task.id}" data-depth="${depth}" class="${rowClass}" ${groupBg ? `style="background-color:${groupBg};"` : ''} draggable="true" ondragstart="tmDragTaskStart(event, '${task.id}')" ondragend="tmDragTaskEnd(event)" onclick="tmRowClick(event, '${task.id}')" oncontextmenu="tmShowTaskContextMenu(event, '${task.id}')">`;
             colOrder.forEach(col => {
                 if (cells[col]) rowHtml += cells[col]();
             });
@@ -13113,19 +19779,20 @@ async function __tmRefreshAfterWake(reason) {
                         });
                     } else {
                         const h2Groups = new Map();
+                        const h2Buckets = __tmBuildDocHeadingBuckets(docNormal, noHeadingLabel);
                         docNormal.forEach(task => {
-                                const raw = String(task?.h2 || '').trim();
-                                const label = raw || noHeadingLabel;
-                                if (!h2Groups.has(label)) h2Groups.set(label, []);
-                                h2Groups.get(label).push(task);
+                                const b = __tmGetDocHeadingBucket(task, noHeadingLabel);
+                                if (!h2Groups.has(b.key)) h2Groups.set(b.key, { label: b.label, items: [] });
+                                h2Groups.get(b.key).items.push(task);
                             });
 
-                        h2Groups.forEach((items, label) => {
-                            const h2Raw = String(label || '').trim() === noHeadingLabel ? '' : String(label || '').trim();
-                            const h2Key = `doc_${docId}__h2_${encodeURIComponent(h2Raw || '__none__')}`;
+                        h2Buckets.forEach((bucket) => {
+                            const g = h2Groups.get(bucket.key) || { label: String(bucket.label || ''), items: [] };
+                            const items = Array.isArray(g.items) ? g.items : [];
+                            const h2Key = `doc_${docId}__h2_${encodeURIComponent(String(bucket.key || 'label:__none__'))}`;
                             const h2Collapsed = state.collapsedGroups?.has(h2Key);
                             const toggleH2 = `<span class="tm-group-toggle" onclick="tmToggleGroupCollapse('${h2Key}', event)" style="cursor:pointer;margin-right:8px;display:inline-block;width:12px;">${h2Collapsed ? '▸' : '▾'}</span>`;
-                            allRows.push(`<tr class="tm-group-row" data-group-kind="h2" data-group-key="${esc(h2Key)}"><td colspan="${colCount}" onclick="tmToggleGroupCollapse('${h2Key}', event)" style="cursor:pointer;background:var(--tm-header-bg);font-weight:bold;color:var(--tm-secondary-text);"><div class="tm-group-sticky" style="padding-left:2ch;">${toggleH2}<span class="tm-group-label">🧩 ${esc(label)}</span><span class="tm-badge tm-badge--count">${Array.isArray(items) ? items.length : 0}</span></div></td></tr>`);
+                            allRows.push(`<tr class="tm-group-row" data-group-kind="h2" data-group-key="${esc(h2Key)}"><td colspan="${colCount}" onclick="tmToggleGroupCollapse('${h2Key}', event)" style="cursor:pointer;background:var(--tm-header-bg);font-weight:bold;color:var(--tm-secondary-text);"><div class="tm-group-sticky" style="padding-left:2ch;">${toggleH2}<span class="tm-group-label">🧩 ${esc(g.label || '')}</span><span class="tm-badge tm-badge--count">${Array.isArray(items) ? items.length : 0}</span></div></td></tr>`);
                             if (!h2Collapsed) {
                                 items.forEach(task => {
                                     allRows.push(...renderTaskTree(task, 0));
@@ -14765,14 +21432,18 @@ async function __tmRefreshAfterWake(reason) {
         return __tmResolveDefaultDocId();
     }
 
-    async function __tmCreateTaskInDoc({ docId, content, priority, completionTime, pinned, customStatus } = {}) {
+    async function __tmCreateTaskInDoc({ docId, content, priority, completionTime, pinned, customStatus, atTop } = {}) {
         const parentDocId = String(docId || '').trim();
         const text = String(content || '').trim();
         if (!parentDocId) throw new Error('未设置文档');
         if (!text) throw new Error('请输入任务内容');
         const md = '- [ ] ' + text;
 
-        const insertedId = await API.insertBlock(parentDocId, md);
+        let nextID = '';
+        if (atTop) {
+            try { nextID = String(await API.getFirstDirectChildIdOfDoc(parentDocId) || '').trim(); } catch (e) { nextID = ''; }
+        }
+        const insertedId = await API.insertBlock(parentDocId, md, nextID || undefined);
         let taskId = insertedId;
         try {
             const rows = await API.getBlocksByIds([insertedId]);
@@ -15490,6 +22161,7 @@ async function __tmRefreshAfterWake(reason) {
         // 加载设置（包括文档ID列表）
         await SettingsStore.load();
         await MetaStore.load();
+        await WhiteboardStore.load();
         try { globalThis.__taskHorizonQuickbarToggle?.(!!SettingsStore.data.enableQuickbar); } catch (e) {}
         const quickAddDocId = String(SettingsStore.data.newTaskDocId || '').trim();
         
@@ -15576,9 +22248,14 @@ async function __tmRefreshAfterWake(reason) {
                 
                 // 将任务按文档分组
                 const tasksByDoc = new Map();
+                const __tmDocSeqByRoot = new Map();
                 res.tasks.forEach(task => {
                     // 确保任务有root_id
                     if (!task.root_id) return;
+                    const __rk = String(task.root_id || '').trim();
+                    const __seq = Number(__tmDocSeqByRoot.get(__rk) || 0);
+                    task.docSeq = __seq;
+                    __tmDocSeqByRoot.set(__rk, __seq + 1);
                     
                     // 解析任务状态
                     const parsed = API.parseTaskStatus(task.markdown);
@@ -15593,7 +22270,22 @@ async function __tmRefreshAfterWake(reason) {
                     // 标准化字段
                     const docName = task.docName || '未命名文档';
                     normalizeTaskFields(task, docName);
-                    task.h2 = h2ContextMap.get(task.id) || '';
+                    const h2ctx = h2ContextMap.get(task.id);
+                    if (h2ctx && typeof h2ctx === 'object') {
+                        task.h2 = String(h2ctx.content || '').trim();
+                        task.h2Id = String(h2ctx.id || '').trim();
+                        task.h2Path = String(h2ctx.path || '').trim();
+                        task.h2Sort = Number(h2ctx.sort);
+                        task.h2Created = String(h2ctx.created || '').trim();
+                        task.h2Rank = Number(h2ctx.rank);
+                    } else {
+                        task.h2 = String(h2ctx || '').trim();
+                        task.h2Id = '';
+                        task.h2Path = '';
+                        task.h2Sort = Number.NaN;
+                        task.h2Created = '';
+                        task.h2Rank = Number.NaN;
+                    }
                     if (!task.priority) missingPriorityIds.push(task.id);
 
                     // 初始化 MetaStore（如果不存在）
@@ -15735,6 +22427,7 @@ async function __tmRefreshAfterWake(reason) {
                     state.taskTree || [],
                     String(SettingsStore.data.currentGroupId || 'all').trim() || 'all'
                 );
+                try { __tmUpsertWhiteboardTaskSnapshots(Object.values(state.flatTasks || {})); } catch (e) {}
                 
                 applyFilters();
                 if (state.modal && token === (Number(state.openToken) || 0)) render();
@@ -16047,6 +22740,7 @@ async function __tmRefreshAfterWake(reason) {
                                 <option value="timeline" ${String(SettingsStore.data.defaultViewMode || '') === 'timeline' ? 'selected' : ''}>时间轴视图</option>
                                 <option value="kanban" ${String(SettingsStore.data.defaultViewMode || '') === 'kanban' ? 'selected' : ''}>看板视图</option>
                                 <option value="calendar" ${String(SettingsStore.data.defaultViewMode || '') === 'calendar' ? 'selected' : ''}>日历视图</option>
+                                <option value="whiteboard" ${String(SettingsStore.data.defaultViewMode || '') === 'whiteboard' ? 'selected' : ''}>白板视图</option>
                             </select>
                         </div>
                         <label style="display:flex;align-items:center;gap:8px;cursor:pointer;margin-bottom:10px;">
@@ -16872,10 +23566,13 @@ async function __tmRefreshAfterWake(reason) {
     // 新增：切换分组
     window.switchDocGroup = async function(groupId) {
         await SettingsStore.updateCurrentGroupId(groupId);
+        state.activeDocId = 'all';
         const firstRuleId = (state.filterRules || []).find(r => r && r.enabled)?.id || '';
         state.currentRule = firstRuleId || null;
         SettingsStore.data.currentRule = firstRuleId || null;
         await SettingsStore.save();
+        await loadSelectedDocuments();
+        render();
         showSettings();
     };
 
@@ -17158,7 +23855,7 @@ async function __tmRefreshAfterWake(reason) {
 
     window.updateDefaultViewMode = async function(mode) {
         const m0 = String(mode || '').trim();
-        const allow = new Set(['list', 'timeline', 'kanban']);
+        const allow = new Set(['list', 'timeline', 'kanban', 'calendar', 'whiteboard']);
         const next = allow.has(m0) ? m0 : 'list';
         SettingsStore.data.defaultViewMode = next;
         await SettingsStore.save();
@@ -17467,7 +24164,7 @@ async function __tmRefreshAfterWake(reason) {
     };
 
     window.tmCollapseAllTasks = async function() {
-        if (state.viewMode === 'kanban') {
+        if (state.viewMode === 'kanban' || state.viewMode === 'whiteboard') {
             const filtered = Array.isArray(state.filteredTasks) ? state.filteredTasks : [];
             const filteredIdSet = new Set(filtered.map(t => String(t?.id || '').trim()).filter(Boolean));
             const colKey = (t) => (t?.done ? '__done__' : (String(t?.customStatus || '').trim() || 'todo'));
@@ -17516,7 +24213,7 @@ async function __tmRefreshAfterWake(reason) {
     };
 
     window.tmExpandAllTasks = async function() {
-        if (state.viewMode === 'kanban') {
+        if (state.viewMode === 'kanban' || state.viewMode === 'whiteboard') {
             __tmKanbanGetCollapsedSet().clear();
             __tmKanbanPersistCollapsed();
             render();
@@ -17884,6 +24581,7 @@ async function __tmRefreshAfterWake(reason) {
         // 1. 先加载设置（包括文档ID）
         try {
             await SettingsStore.load();
+            await WhiteboardStore.load();
 
             // 初始化状态
             state.selectedDocIds = SettingsStore.data.selectedDocIds;
@@ -18136,7 +24834,7 @@ async function __tmRefreshAfterWake(reason) {
 
         await SettingsStore.load();
         try {
-            const allow = new Set(['list', 'timeline', 'kanban', 'calendar']);
+            const allow = new Set(['list', 'timeline', 'kanban', 'calendar', 'whiteboard']);
             const isMobileDevice = __tmIsMobileDevice();
             const preserve = !!(options && options.preserveViewMode);
             const current = String(state.viewMode || '').trim();
@@ -18319,6 +25017,15 @@ async function __tmRefreshAfterWake(reason) {
             document.body.style.cursor = '';
             document.body.style.userSelect = '';
         } catch (e) {}
+        try {
+            if (__tmWhiteboardSidebarResizeOnMove) document.removeEventListener('mousemove', __tmWhiteboardSidebarResizeOnMove);
+            if (__tmWhiteboardSidebarResizeOnUp) document.removeEventListener('mouseup', __tmWhiteboardSidebarResizeOnUp);
+            __tmWhiteboardSidebarResizeOnMove = null;
+            __tmWhiteboardSidebarResizeOnUp = null;
+            __tmWhiteboardSidebarResizeState = null;
+            document.body.style.cursor = '';
+            document.body.style.userSelect = '';
+        } catch (e) {}
 
         try { __tmHideMobileMenu?.(); } catch (e) {}
         try {
@@ -18336,6 +25043,17 @@ async function __tmRefreshAfterWake(reason) {
                 document.removeEventListener('click', state.taskContextMenuCloseHandler);
                 document.removeEventListener('contextmenu', state.taskContextMenuCloseHandler);
                 state.taskContextMenuCloseHandler = null;
+            }
+        } catch (e) {}
+        try {
+            if (state.ganttContextMenuCloseBindTimer) {
+                clearTimeout(state.ganttContextMenuCloseBindTimer);
+                state.ganttContextMenuCloseBindTimer = null;
+            }
+            if (state.ganttContextMenuCloseHandler) {
+                document.removeEventListener('click', state.ganttContextMenuCloseHandler);
+                document.removeEventListener('contextmenu', state.ganttContextMenuCloseHandler);
+                state.ganttContextMenuCloseHandler = null;
             }
         } catch (e) {}
         try { __tmCloseInlineEditor(); } catch (e) {}
@@ -18406,6 +25124,17 @@ async function __tmRefreshAfterWake(reason) {
                 clearTimeout(MetaStore.saveTimer);
                 MetaStore.saveTimer = null;
             }
+        } catch (e) {}
+        try {
+            if (WhiteboardStore?.saveTimer) {
+                clearTimeout(WhiteboardStore.saveTimer);
+                WhiteboardStore.saveTimer = null;
+            }
+            try {
+                if (WhiteboardStore?.saveDirty && typeof WhiteboardStore.saveNow === 'function') {
+                    WhiteboardStore.saveNow();
+                }
+            } catch (e2) {}
         } catch (e) {}
         try {
             if (SettingsStore?.saveTimer) {
@@ -18497,6 +25226,14 @@ async function __tmRefreshAfterWake(reason) {
         } catch (e) {}
 
         try {
+            await fetch('/api/file/removeFile', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ path: WHITEBOARD_DATA_FILE_PATH }),
+            }).catch(() => null);
+        } catch (e) {}
+
+        try {
             [
                 'tm_selected_doc_ids',
                 'tm_query_limit',
@@ -18545,6 +25282,7 @@ async function __tmRefreshAfterWake(reason) {
                 'tm_table_border_color_light',
                 'tm_table_border_color_dark',
                 'tm_meta_cache',
+                'tm_whiteboard_data_cache',
             ].forEach((k) => {
                 try { Storage.remove(k); } catch (e) {}
             });
@@ -18669,6 +25407,7 @@ async function __tmRefreshAfterWake(reason) {
             const viewState = (opts.viewState && typeof opts.viewState === 'object') ? opts.viewState : {};
             const paddingDays = Number.isFinite(Number(viewState.paddingDays)) ? Number(viewState.paddingDays) : 7;
             const dayWidth = clamp(Number(viewState.dayWidth) || 24, 10, 60);
+            const escSq = (s) => String(s || '').replace(/\\/g, '\\\\').replace(/'/g, "\\'");
     
             const tasks = [];
             for (const r of rowModel) {
@@ -18734,16 +25473,22 @@ async function __tmRefreshAfterWake(reason) {
                     ? milestoneRaw
                     : ['1', 'true'].includes(String(milestoneRaw || '').trim().toLowerCase());
                 const rowBgStyle = (enableGroupBg && currentGroupBg) ? `background:${currentGroupBg};` : '';
+                const dotOpenCls = String(state.timelineDotPinnedTaskId || '').trim() === String(r.id) ? ' tm-gantt-row--dot-open' : '';
+                const dotHoverCls = String(state.timelineLinkHoverTaskId || '').trim() === String(r.id) ? ' tm-gantt-row--link-hover' : '';
                 if (!aTs && !bTs) {
-                    rowsHtml.push(`<div class="tm-gantt-row" data-id="${String(r.id)}" style="width:${totalWidth}px;${rowBgStyle}"></div>`);
+                    rowsHtml.push(`<div class="tm-gantt-row${dotOpenCls}${dotHoverCls}" data-id="${String(r.id)}" data-doc-id="${docId}" style="width:${totalWidth}px;${rowBgStyle}" ondragenter="tmTimelineLinkRowDragOver(event, '${escSq(String(r.id))}', '${escSq(docId)}')" ondragover="tmTimelineLinkRowDragOver(event, '${escSq(String(r.id))}', '${escSq(docId)}')" ondragleave="tmTimelineLinkRowDragLeave(event, '${escSq(String(r.id))}')"></div>`);
                     continue;
                 }
                 if (isMilestone && eTs0) {
                     const endIdx0 = clamp(getDayIndexByTs(startTs, eTs0), 0, dayCount - 1);
                     const markerLeft = endIdx0 * dayWidth + (dayWidth * 0.5);
+                    const inLeft = Math.max(6, markerLeft - 16);
+                    const outLeft = Math.min(totalWidth - 6, markerLeft + 16);
                     rowsHtml.push(`
-                        <div class="tm-gantt-row" data-id="${String(r.id)}" style="width:${totalWidth}px;${rowBgStyle}">
-                            <div class="tm-gantt-milestone" style="left:${markerLeft}px;" title="${String(task?.content || '').trim()}\\n里程碑：${formatDateOnlyFromTs(eTs0)}">🚩</div>
+                        <div class="tm-gantt-row${dotOpenCls}${dotHoverCls}" data-id="${String(r.id)}" data-doc-id="${docId}" style="width:${totalWidth}px;${rowBgStyle}" ondragenter="tmTimelineLinkRowDragOver(event, '${escSq(String(r.id))}', '${escSq(docId)}')" ondragover="tmTimelineLinkRowDragOver(event, '${escSq(String(r.id))}', '${escSq(docId)}')" ondragleave="tmTimelineLinkRowDragLeave(event, '${escSq(String(r.id))}')">
+                            <div class="tm-gantt-milestone" style="left:${markerLeft}px;" title="${esc(String(task?.content || '').trim())}\\n里程碑：${esc(formatDateOnlyFromTs(eTs0))}">🚩</div>
+                            <span class="tm-task-link-dot tm-task-link-dot--timeline tm-task-link-dot--in${state.whiteboardLinkFromTaskId === String(r.id) ? ' tm-task-link-dot--active' : ''}" style="left:${inLeft}px;" draggable="true" onmousedown="tmTaskLinkDotPressStart(event, '${escSq(String(r.id))}', '${escSq(docId)}')" ondragstart="tmTaskLinkDotDragStart(event, '${escSq(String(r.id))}', '${escSq(docId)}')" ondragend="tmTaskLinkDotDragEnd(event)" ondragover="tmTaskLinkDotDragOver(event, '${escSq(String(r.id))}', '${escSq(docId)}')" ondrop="tmTaskLinkDotDrop(event, '${escSq(String(r.id))}', '${escSq(docId)}')" title="连接输入点"></span>
+                            <span class="tm-task-link-dot tm-task-link-dot--timeline tm-task-link-dot--out${state.whiteboardLinkFromTaskId === String(r.id) ? ' tm-task-link-dot--active' : ''}" style="left:${outLeft}px;" draggable="true" onmousedown="tmTaskLinkDotPressStart(event, '${escSq(String(r.id))}', '${escSq(docId)}')" ondragstart="tmTaskLinkDotDragStart(event, '${escSq(String(r.id))}', '${escSq(docId)}')" ondragend="tmTaskLinkDotDragEnd(event)" ondragover="tmTaskLinkDotDragOver(event, '${escSq(String(r.id))}', '${escSq(docId)}')" ondrop="tmTaskLinkDotDrop(event, '${escSq(String(r.id))}', '${escSq(docId)}')" title="连接输出点"></span>
                         </div>
                     `);
                     continue;
@@ -18752,27 +25497,115 @@ async function __tmRefreshAfterWake(reason) {
                 const endIdx = clamp(getDayIndexByTs(startTs, bTs), 0, dayCount - 1);
                 const left = Math.min(startIdx, endIdx) * dayWidth;
                 const width = (Math.abs(endIdx - startIdx) + 1) * dayWidth;
+                const inLeft = left;
+                const outLeft = left + width;
                 rowsHtml.push(`
-                    <div class="tm-gantt-row" data-id="${String(r.id)}" style="width:${totalWidth}px;${rowBgStyle}">
-                        <div class="tm-gantt-bar" style="left:${left}px;width:${width}px;background:${barColor};" title="${String(task?.content || '').trim()}\\n${formatDateOnlyFromTs(aTs)} ~ ${formatDateOnlyFromTs(bTs)}">
+                    <div class="tm-gantt-row${dotOpenCls}${dotHoverCls}" data-id="${String(r.id)}" data-doc-id="${docId}" style="width:${totalWidth}px;${rowBgStyle}" ondragenter="tmTimelineLinkRowDragOver(event, '${escSq(String(r.id))}', '${escSq(docId)}')" ondragover="tmTimelineLinkRowDragOver(event, '${escSq(String(r.id))}', '${escSq(docId)}')" ondragleave="tmTimelineLinkRowDragLeave(event, '${escSq(String(r.id))}')">
+                        <div class="tm-gantt-bar" style="left:${left}px;width:${width}px;background:${barColor};" title="${esc(String(task?.content || '').trim())}\\n${esc(formatDateOnlyFromTs(aTs))} ~ ${esc(formatDateOnlyFromTs(bTs))}">
                             <div class="tm-gantt-bar-handle tm-gantt-bar-handle--start" data-handle="start"></div>
                             <div class="tm-gantt-bar-handle tm-gantt-bar-handle--end" data-handle="end"></div>
                         </div>
+                        <span class="tm-task-link-dot tm-task-link-dot--timeline tm-task-link-dot--in${state.whiteboardLinkFromTaskId === String(r.id) ? ' tm-task-link-dot--active' : ''}" style="left:${inLeft}px;" draggable="true" onmousedown="tmTaskLinkDotPressStart(event, '${escSq(String(r.id))}', '${escSq(docId)}')" ondragstart="tmTaskLinkDotDragStart(event, '${escSq(String(r.id))}', '${escSq(docId)}')" ondragend="tmTaskLinkDotDragEnd(event)" ondragover="tmTaskLinkDotDragOver(event, '${escSq(String(r.id))}', '${escSq(docId)}')" ondrop="tmTaskLinkDotDrop(event, '${escSq(String(r.id))}', '${escSq(docId)}')" title="连接输入点"></span>
+                        <span class="tm-task-link-dot tm-task-link-dot--timeline tm-task-link-dot--out${state.whiteboardLinkFromTaskId === String(r.id) ? ' tm-task-link-dot--active' : ''}" style="left:${outLeft}px;" draggable="true" onmousedown="tmTaskLinkDotPressStart(event, '${escSq(String(r.id))}', '${escSq(docId)}')" ondragstart="tmTaskLinkDotDragStart(event, '${escSq(String(r.id))}', '${escSq(docId)}')" ondragend="tmTaskLinkDotDragEnd(event)" ondragover="tmTaskLinkDotDragOver(event, '${escSq(String(r.id))}', '${escSq(docId)}')" ondrop="tmTaskLinkDotDrop(event, '${escSq(String(r.id))}', '${escSq(docId)}')" title="连接输出点"></span>
                     </div>
                 `);
             }
     
             bodyEl.innerHTML = `
                 <div class="tm-gantt-body-inner" style="width:${totalWidth}px">
+                    <svg class="tm-gantt-deps" aria-hidden="true"></svg>
                     <div class="tm-gantt-today" style="left:${todayLeft}px"></div>
                     ${rowsHtml.join('')}
                 </div>
             `;
+
+            const renderDependencies = () => {
+                const inner = bodyEl.querySelector('.tm-gantt-body-inner');
+                if (!(inner instanceof Element)) return;
+                const svg = inner.querySelector('.tm-gantt-deps');
+                if (!(svg instanceof SVGElement)) return;
+                const width = Math.max(Math.ceil(inner.scrollWidth), Math.ceil(inner.clientWidth), 1);
+                const height = Math.max(Math.ceil(inner.scrollHeight), Math.ceil(inner.clientHeight), 1);
+                try { svg.setAttribute('width', String(width)); } catch (e) {}
+                try { svg.setAttribute('height', String(height)); } catch (e) {}
+                try { svg.setAttribute('viewBox', `0 0 ${width} ${height}`); } catch (e) {}
+
+                const links = __tmGetAllTaskLinks({ includeAuto: true });
+                const rootRect = inner.getBoundingClientRect();
+                const getPt = (taskId, kind) => {
+                    const id = String(taskId || '').trim();
+                    if (!id) return null;
+                    const row = inner.querySelector(`.tm-gantt-row[data-id="${CSS.escape(id)}"]`);
+                    if (!(row instanceof Element)) return null;
+                    const sel = kind === 'from'
+                        ? '.tm-task-link-dot--timeline.tm-task-link-dot--out'
+                        : '.tm-task-link-dot--timeline.tm-task-link-dot--in';
+                    const dot = row.querySelector(sel);
+                    if (!(dot instanceof Element)) return null;
+                    const rect = dot.getBoundingClientRect();
+                    return {
+                        x: rect.left - rootRect.left + (rect.width / 2),
+                        y: rect.top - rootRect.top + (rect.height / 2),
+                    };
+                };
+                const markerIdIn = `tmTlArrowIn`;
+                const markerIdOut = `tmTlArrowOut`;
+                const defs = `
+                    <defs>
+                        <marker id="${markerIdOut}" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto" markerUnits="strokeWidth">
+                            <path d="M0,0 L8,3 L0,6 Z" fill="#2f6fed"></path>
+                        </marker>
+                        <marker id="${markerIdIn}" markerWidth="8" markerHeight="6" refX="1" refY="3" orient="auto-start-reverse" markerUnits="strokeWidth">
+                            <path d="M8,0 L0,3 L8,6 Z" fill="#2f6fed"></path>
+                        </marker>
+                    </defs>
+                `;
+                const paths = links.map((link) => {
+                    const from = getPt(link.from, 'from');
+                    const to = getPt(link.to, 'to');
+                    if (!from || !to) return '';
+                    const gap = Math.max(10, Math.min(24, Math.abs(to.x - from.x) * 0.35));
+                    const x1 = from.x + gap;
+                    const x2 = to.x - gap;
+                    const d = `M ${from.x.toFixed(2)} ${from.y.toFixed(2)} L ${x1.toFixed(2)} ${from.y.toFixed(2)} L ${x2.toFixed(2)} ${to.y.toFixed(2)} L ${to.x.toFixed(2)} ${to.y.toFixed(2)}`;
+                    const cls = link.manual ? 'tm-gantt-dep tm-gantt-dep--manual' : 'tm-gantt-dep tm-gantt-dep--auto';
+                    return `<path class="${cls}" d="${d}" marker-end="url(#${markerIdOut})"></path>`;
+                }).join('');
+                let previewPath = '';
+                const fromTaskId = String(state.whiteboardLinkFromTaskId || '').trim();
+                const preview = state.whiteboardLinkPreview && typeof state.whiteboardLinkPreview === 'object' ? state.whiteboardLinkPreview : null;
+                if (fromTaskId && preview) {
+                    const from = getPt(fromTaskId, 'from');
+                    if (from) {
+                        let to = null;
+                        const targetTaskId = String(preview.targetTaskId || '').trim();
+                        if (targetTaskId) to = getPt(targetTaskId, 'to');
+                        if (!to) {
+                            const cx = Number(preview.clientX);
+                            const cy = Number(preview.clientY);
+                            if (Number.isFinite(cx) && Number.isFinite(cy)) {
+                                to = { x: cx - rootRect.left, y: cy - rootRect.top };
+                            }
+                        }
+                        if (to) {
+                            const gap = Math.max(10, Math.min(24, Math.abs(to.x - from.x) * 0.35));
+                            const x1 = from.x + gap;
+                            const x2 = to.x - gap;
+                            const d = `M ${from.x.toFixed(2)} ${from.y.toFixed(2)} L ${x1.toFixed(2)} ${from.y.toFixed(2)} L ${x2.toFixed(2)} ${to.y.toFixed(2)} L ${to.x.toFixed(2)} ${to.y.toFixed(2)}`;
+                            previewPath = `<path class="tm-gantt-dep tm-gantt-dep--manual" d="${d}" marker-end="url(#${markerIdOut})"></path>`;
+                        }
+                    }
+                }
+                svg.innerHTML = defs + paths + previewPath;
+            };
+            renderDependencies();
+            state.__tmTimelineRenderDeps = renderDependencies;
     
             const onPointerDown = (e) => {
                 if (!onUpdateTaskDates) return;
                 const target = e.target;
                 if (!(target instanceof Element)) return;
+                if (target.closest('.tm-task-link-dot')) return;
                 const handleEl = target.closest('.tm-gantt-bar-handle');
                 const barEl = target.closest('.tm-gantt-bar');
                 if (!barEl) return;
@@ -18918,6 +25751,7 @@ async function __tmRefreshAfterWake(reason) {
                 const target = e.target;
                 if (!(target instanceof Element)) return;
                 if (e && typeof e.button === 'number' && e.button !== 0) return;
+                if (target.closest('.tm-task-link-dot')) return;
                 if (target.closest('.tm-gantt-bar, .tm-gantt-bar-handle')) return;
     
                 const startX = e.clientX;
@@ -18972,7 +25806,7 @@ async function __tmRefreshAfterWake(reason) {
                 if (!onUpdateTaskDates) return;
                 const target = e.target;
                 if (!(target instanceof Element)) return;
-                if (target.closest('.tm-gantt-bar, .tm-gantt-bar-handle')) return;
+                if (target.closest('.tm-gantt-bar, .tm-gantt-bar-handle, .tm-task-link-dot')) return;
                 const rowEl = target.closest('.tm-gantt-row');
                 const taskId = rowEl?.getAttribute?.('data-id');
                 if (!taskId) return;
@@ -19009,6 +25843,7 @@ async function __tmRefreshAfterWake(reason) {
                 if (!onUpdateTaskDates && !onUpdateTaskMeta) return;
                 const target = e.target;
                 if (!(target instanceof Element)) return;
+                if (target.closest('.tm-task-link-dot')) return;
                 const rowEl = target.closest('.tm-gantt-row');
                 const taskId = rowEl?.getAttribute?.('data-id');
                 if (!taskId) return;
@@ -19026,6 +25861,17 @@ async function __tmRefreshAfterWake(reason) {
                 const existingMenu = document.getElementById('tm-task-context-menu');
                 if (existingMenu) existingMenu.remove();
                 try { window.tmHideDocTabMenu?.(); } catch (e2) {}
+                try {
+                    if (state.ganttContextMenuCloseBindTimer) {
+                        clearTimeout(state.ganttContextMenuCloseBindTimer);
+                        state.ganttContextMenuCloseBindTimer = null;
+                    }
+                    if (state.ganttContextMenuCloseHandler) {
+                        document.removeEventListener('click', state.ganttContextMenuCloseHandler);
+                        document.removeEventListener('contextmenu', state.ganttContextMenuCloseHandler);
+                        state.ganttContextMenuCloseHandler = null;
+                    }
+                } catch (e2) {}
 
                 const menu = document.createElement('div');
                 menu.id = 'tm-task-context-menu';
@@ -19107,17 +25953,56 @@ async function __tmRefreshAfterWake(reason) {
                     try { menu.remove(); } catch (e2) {}
                     try { document.removeEventListener('click', closeHandler); } catch (e2) {}
                     try { document.removeEventListener('contextmenu', closeHandler); } catch (e2) {}
+                    if (state.ganttContextMenuCloseHandler === closeHandler) state.ganttContextMenuCloseHandler = null;
+                    if (state.ganttContextMenuCloseBindTimer) {
+                        try { clearTimeout(state.ganttContextMenuCloseBindTimer); } catch (e2) {}
+                        state.ganttContextMenuCloseBindTimer = null;
+                    }
                 };
-                setTimeout(() => {
+                state.ganttContextMenuCloseHandler = closeHandler;
+                state.ganttContextMenuCloseBindTimer = setTimeout(() => {
                     document.addEventListener('click', closeHandler);
                     document.addEventListener('contextmenu', closeHandler);
                 }, 0);
+            };
+
+            const onClick = (e) => {
+                const target = e.target;
+                if (!(target instanceof Element)) return;
+                if (target.closest('.tm-task-link-dot')) return;
+                const rowEl = target.closest('.tm-gantt-row');
+                if (!(rowEl instanceof Element) || rowEl.classList.contains('tm-gantt-row--group')) {
+                    if (String(state.timelineDotPinnedTaskId || '').trim()) {
+                        state.timelineDotPinnedTaskId = '';
+                        try { bodyEl.querySelectorAll('.tm-gantt-row--dot-open').forEach(el => el.classList.remove('tm-gantt-row--dot-open')); } catch (e2) {}
+                    }
+                    return;
+                }
+                const taskId = String(rowEl.getAttribute('data-id') || '').trim();
+                if (!taskId) return;
+                if (target.closest('.tm-gantt-bar-handle')) return;
+                const isBarClick = !!target.closest('.tm-gantt-bar, .tm-gantt-milestone');
+                if (!isBarClick) {
+                    if (String(state.timelineDotPinnedTaskId || '').trim()) {
+                        state.timelineDotPinnedTaskId = '';
+                        try { bodyEl.querySelectorAll('.tm-gantt-row--dot-open').forEach(el => el.classList.remove('tm-gantt-row--dot-open')); } catch (e2) {}
+                    }
+                    return;
+                }
+                const prev = String(state.timelineDotPinnedTaskId || '').trim();
+                const next = prev === taskId ? '' : taskId;
+                state.timelineDotPinnedTaskId = next;
+                try { bodyEl.querySelectorAll('.tm-gantt-row--dot-open').forEach(el => el.classList.remove('tm-gantt-row--dot-open')); } catch (e2) {}
+                if (next) {
+                    try { rowEl.classList.add('tm-gantt-row--dot-open'); } catch (e2) {}
+                }
             };
     
             bodyEl.addEventListener('pointerdown', onPointerDown, { passive: false });
             bodyEl.addEventListener('pointerdown', onPanPointerDown, { passive: false });
             bodyEl.addEventListener('dblclick', onDblClick);
             bodyEl.addEventListener('contextmenu', onContextMenu);
+            bodyEl.addEventListener('click', onClick);
             cleanupMap.set(bodyEl, () => {
                 try { bodyEl.removeEventListener('pointerdown', onPointerDown, { passive: false }); } catch (e) {
                     try { bodyEl.removeEventListener('pointerdown', onPointerDown); } catch (e2) {}
@@ -19127,6 +26012,8 @@ async function __tmRefreshAfterWake(reason) {
                 }
                 try { bodyEl.removeEventListener('dblclick', onDblClick); } catch (e) {}
                 try { bodyEl.removeEventListener('contextmenu', onContextMenu); } catch (e) {}
+                try { bodyEl.removeEventListener('click', onClick); } catch (e) {}
+                if (state.__tmTimelineRenderDeps === renderDependencies) state.__tmTimelineRenderDeps = null;
             });
         }
     

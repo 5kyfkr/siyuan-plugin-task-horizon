@@ -33,6 +33,8 @@
         isMobileDevice: false,
         sidebarOpen: false,
         mobileDragCloseTimer: null,
+        sidebarColorMenuCloseHandler: null,
+        sidebarColorMenuBindTimer: null,
     };
 
     function esc(s) {
@@ -2845,6 +2847,18 @@
             if (!(target instanceof Element)) return;
             const dot = target.closest('.tm-calendar-nav-dot[data-tm-cal-color-kind]');
             if (!dot) return;
+            try {
+                if (state.sidebarColorMenuBindTimer) {
+                    clearTimeout(state.sidebarColorMenuBindTimer);
+                    state.sidebarColorMenuBindTimer = null;
+                }
+                if (state.sidebarColorMenuCloseHandler) {
+                    document.removeEventListener('click', state.sidebarColorMenuCloseHandler);
+                    document.removeEventListener('contextmenu', state.sidebarColorMenuCloseHandler);
+                    window.removeEventListener('resize', state.sidebarColorMenuCloseHandler);
+                    state.sidebarColorMenuCloseHandler = null;
+                }
+            } catch (e2) {}
             const kind = String(dot.getAttribute('data-tm-cal-color-kind') || '').trim();
             const key = String(dot.getAttribute('data-tm-cal-color-key') || '').trim();
             const value = String(dot.getAttribute('data-tm-cal-color-value') || '').trim() || '#0078d4';
@@ -2908,8 +2922,14 @@
                 try { document.removeEventListener('click', closeHandler); } catch (e2) {}
                 try { document.removeEventListener('contextmenu', closeHandler); } catch (e2) {}
                 try { window.removeEventListener('resize', closeHandler); } catch (e2) {}
+                if (state.sidebarColorMenuCloseHandler === closeHandler) state.sidebarColorMenuCloseHandler = null;
+                if (state.sidebarColorMenuBindTimer) {
+                    try { clearTimeout(state.sidebarColorMenuBindTimer); } catch (e2) {}
+                    state.sidebarColorMenuBindTimer = null;
+                }
             };
-            setTimeout(() => {
+            state.sidebarColorMenuCloseHandler = closeHandler;
+            state.sidebarColorMenuBindTimer = setTimeout(() => {
                 document.addEventListener('click', closeHandler);
                 document.addEventListener('contextmenu', closeHandler);
                 window.addEventListener('resize', closeHandler);
@@ -3062,6 +3082,16 @@
         if (state._persistTimer) {
             try { clearTimeout(state._persistTimer); } catch (e) {}
             state._persistTimer = null;
+        }
+        if (state.sidebarColorMenuBindTimer) {
+            try { clearTimeout(state.sidebarColorMenuBindTimer); } catch (e) {}
+            state.sidebarColorMenuBindTimer = null;
+        }
+        if (state.sidebarColorMenuCloseHandler) {
+            try { document.removeEventListener('click', state.sidebarColorMenuCloseHandler); } catch (e) {}
+            try { document.removeEventListener('contextmenu', state.sidebarColorMenuCloseHandler); } catch (e) {}
+            try { window.removeEventListener('resize', state.sidebarColorMenuCloseHandler); } catch (e) {}
+            state.sidebarColorMenuCloseHandler = null;
         }
         if (state.rootEl) {
             try { state.rootEl.innerHTML = ''; } catch (e) {}
