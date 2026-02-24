@@ -1,5 +1,5 @@
 // @name         思源笔记任务管理器
-// @version      1.5.0
+// @version      1.5.1
 // @description  任务管理器，支持自定义筛选规则分组和排序
 // @author       5KYFKR
 
@@ -3484,6 +3484,7 @@
             calendarEnabled: true,
             calendarLinkDockTomato: true,
             calendarInitialView: 'timeGridWeek',
+            calendarFirstDay: 1,
             calendarMonthAggregate: true,
             calendarShowSchedule: true,
             calendarShowFocus: true,
@@ -3712,6 +3713,7 @@
                                 if (typeof cloudData.calendarEnabled === 'boolean') this.data.calendarEnabled = cloudData.calendarEnabled;
                                 if (typeof cloudData.calendarLinkDockTomato === 'boolean') this.data.calendarLinkDockTomato = cloudData.calendarLinkDockTomato;
                                 if (typeof cloudData.calendarInitialView === 'string') this.data.calendarInitialView = cloudData.calendarInitialView;
+                                if (typeof cloudData.calendarFirstDay === 'number') this.data.calendarFirstDay = cloudData.calendarFirstDay;
                                 if (typeof cloudData.calendarMonthAggregate === 'boolean') this.data.calendarMonthAggregate = cloudData.calendarMonthAggregate;
                                 if (typeof cloudData.calendarShowSchedule === 'boolean') this.data.calendarShowSchedule = cloudData.calendarShowSchedule;
                                 if (typeof cloudData.calendarShowTomatoMaster === 'boolean') this.data.calendarShowTomatoMaster = cloudData.calendarShowTomatoMaster;
@@ -3893,6 +3895,7 @@
             this.data.calendarEnabled = Storage.get('tm_calendar_enabled', this.data.calendarEnabled);
             this.data.calendarLinkDockTomato = Storage.get('tm_calendar_link_docktomato', this.data.calendarLinkDockTomato);
             this.data.calendarInitialView = Storage.get('tm_calendar_initial_view', this.data.calendarInitialView);
+            this.data.calendarFirstDay = Number(Storage.get('tm_calendar_first_day', this.data.calendarFirstDay));
             this.data.calendarMonthAggregate = Storage.get('tm_calendar_month_aggregate', this.data.calendarMonthAggregate);
             this.data.calendarShowSchedule = Storage.get('tm_calendar_show_schedule', this.data.calendarShowSchedule);
             this.data.calendarShowTomatoMaster = Storage.get('tm_calendar_show_tomato_master', this.data.calendarShowTomatoMaster);
@@ -4039,6 +4042,7 @@
             Storage.set('tm_calendar_enabled', !!this.data.calendarEnabled);
             Storage.set('tm_calendar_link_docktomato', !!this.data.calendarLinkDockTomato);
             Storage.set('tm_calendar_initial_view', String(this.data.calendarInitialView || 'timeGridWeek').trim() || 'timeGridWeek');
+            Storage.set('tm_calendar_first_day', Number(this.data.calendarFirstDay) === 0 ? 0 : 1);
             Storage.set('tm_calendar_month_aggregate', !!this.data.calendarMonthAggregate);
             Storage.set('tm_calendar_show_schedule', !!this.data.calendarShowSchedule);
             Storage.set('tm_calendar_show_tomato_master', !!this.data.calendarShowTomatoMaster);
@@ -4846,7 +4850,7 @@
                 return 0;
             };
 
-            if (!rule || !rule.sort || rule.sort.length === 0) {
+            if (!__tmRuleHasExplicitSort(rule)) {
                 return [...tasks].sort(pinnedSort);
             }
             
@@ -5290,6 +5294,7 @@
                     t.root_id,
                     t.block_path,
                     t.block_sort,
+                    t.rn AS doc_seq,
                     t.created,
                     t.updated,
                     t.doc_name,
@@ -5661,6 +5666,124 @@
                 } catch (e) {}
             }
             return contextMap;
+        },
+
+        async fetchTaskFlowRanks(taskIds) {
+            const ids = Array.from(new Set((taskIds || []).map(x => String(x || '').trim()).filter(Boolean)));
+            if (ids.length === 0) return new Map();
+            const out = new Map();
+            const escId = (s) => String(s || '').replace(/'/g, "''");
+            const batchSize = 200;
+
+            // 先按文档划分任务
+            const tasksByDoc = new Map();
+            for (let i = 0; i < ids.length; i += batchSize) {
+                const batch = ids.slice(i, i + batchSize);
+                const idList = batch.map(id => `'${escId(id)}'`).join(',');
+                const sql = `
+                    SELECT id AS task_id, root_id
+                    FROM blocks
+                    WHERE id IN (${idList})
+                `;
+                try {
+                    const res = await this.call('/api/query/sql', { stmt: sql });
+                    if (res.code === 0 && Array.isArray(res.data)) {
+                        res.data.forEach((r) => {
+                            const tid = String(r?.task_id || '').trim();
+                            const docId = String(r?.root_id || '').trim();
+                            if (!tid || !docId) return;
+                            if (!tasksByDoc.has(docId)) tasksByDoc.set(docId, new Set());
+                            tasksByDoc.get(docId).add(tid);
+                        });
+                    }
+                } catch (e) {}
+            }
+
+            // 主路径：基于文档 kramdown 中 block id 的出现顺序，得到最稳定的文档流顺序
+            for (const [docId, tidSet] of tasksByDoc.entries()) {
+                let km = '';
+                try { km = await this.getBlockKramdown(docId); } catch (e) { km = ''; }
+                if (!km) continue;
+                let rank = 0;
+                const re = /\{\:\s*[^}]*\bid=(?:"([^"]+)"|'([^']+)')[^}]*\}/g;
+                let m;
+                while ((m = re.exec(String(km))) !== null) {
+                    const bid = String(m?.[1] || m?.[2] || '').trim();
+                    if (!bid || !tidSet.has(bid) || out.has(bid)) continue;
+                    rank += 1;
+                    out.set(bid, rank);
+                }
+            }
+
+            // 回退：对于未在 kramdown 顺序中命中的任务，再用 SQL 递归顺序补齐
+            const missing = ids.filter((id) => !out.has(id));
+            for (let i = 0; i < missing.length; i += batchSize) {
+                const batch = missing.slice(i, i + batchSize);
+                if (batch.length === 0) continue;
+                const idList = batch.map(id => `'${escId(id)}'`).join(',');
+                const sql = `
+                    WITH RECURSIVE task_roots AS (
+                        SELECT id AS task_id, root_id
+                        FROM blocks
+                        WHERE id IN (${idList})
+                    ),
+                    doc_roots AS (
+                        SELECT DISTINCT root_id
+                        FROM task_roots
+                    ),
+                    doc_tree AS (
+                        SELECT
+                            d.id,
+                            d.id AS root_id,
+                            0 AS depth,
+                            '' AS order_key
+                        FROM blocks d
+                        WHERE d.id IN (SELECT root_id FROM doc_roots)
+                        UNION ALL
+                        SELECT
+                            b.id,
+                            t.root_id,
+                            t.depth + 1 AS depth,
+                            (t.order_key || '/' ||
+                                CASE
+                                    WHEN TRIM(CAST(b.sort AS TEXT)) GLOB '[0-9]*' AND TRIM(CAST(b.sort AS TEXT)) != ''
+                                        THEN ('0:' || printf('%020d', CAST(TRIM(CAST(b.sort AS TEXT)) AS INTEGER)))
+                                    ELSE ('1:' || COALESCE(NULLIF(TRIM(CAST(b.sort AS TEXT)), ''), ''))
+                                END
+                                || ':' || b.id) AS order_key
+                        FROM blocks b
+                        INNER JOIN doc_tree t ON b.parent_id = t.id
+                        WHERE t.depth < 128
+                    ),
+                    task_pos AS (
+                        SELECT
+                            tr.task_id,
+                            tr.root_id,
+                            COALESCE(dt.order_key, '') AS task_order_key
+                        FROM task_roots tr
+                        LEFT JOIN doc_tree dt ON dt.id = tr.task_id
+                    )
+                    SELECT
+                        task_id,
+                        ROW_NUMBER() OVER (
+                            PARTITION BY root_id
+                            ORDER BY task_order_key, task_id
+                        ) AS task_rank
+                    FROM task_pos
+                `;
+                try {
+                    const res = await this.call('/api/query/sql', { stmt: sql });
+                    if (res.code === 0 && Array.isArray(res.data)) {
+                        res.data.forEach((r) => {
+                            const tid = String(r?.task_id || '').trim();
+                            const rank = Number(r?.task_rank);
+                            if (!tid || !Number.isFinite(rank) || out.has(tid)) return;
+                            out.set(tid, rank);
+                        });
+                    }
+                } catch (e) {}
+            }
+            return out;
         },
 
         async fetchNearestCustomPriority(taskIds, maxDepth = 8) {
@@ -6317,9 +6440,16 @@ async function __tmRefreshAfterWake(reason) {
         const pa = String(a?.blockPath || '').trim();
         const pb = String(b?.blockPath || '').trim();
         if (pa && pb && pa !== pb) return pa.localeCompare(pb);
+        if (pa && !pb) return -1;
+        if (!pa && pb) return 1;
         const sa = Number(a?.blockSort);
         const sb = Number(b?.blockSort);
         if (Number.isFinite(sa) && Number.isFinite(sb) && sa !== sb) return sa - sb;
+        const ssa = String(a?.blockSort || '').trim();
+        const ssb = String(b?.blockSort || '').trim();
+        if (ssa && ssb && ssa !== ssb) return ssa.localeCompare(ssb);
+        if (ssa && !ssb) return -1;
+        if (!ssa && ssb) return 1;
         const ca = String(a?.created || '');
         const cb = String(b?.created || '');
         if (ca !== cb) return ca.localeCompare(cb);
@@ -7247,8 +7377,8 @@ async function __tmRefreshAfterWake(reason) {
                                    type="checkbox" ${task.done ? 'checked' : ''}
                                    ${isGloballyLocked ? 'disabled' : ''}
                                    onchange="tmSetDone('${task.id}', this.checked, event)">
-                            <span class="tm-task-text ${task.done ? 'tm-task-done' : ''}" data-level="${row.depth}" title="点击跳转到文档">
-                                <span class="tm-task-content-clickable" onclick="tmJumpToTask('${task.id}', event)">${esc(task.content || '')}</span>
+                            <span class="tm-task-text ${task.done ? 'tm-task-done' : ''}" data-level="${row.depth}" title="${esc(task.content || '')}">
+                                <span class="tm-task-content-clickable" onclick="tmJumpToTask('${task.id}', event)" title="${esc(task.content || '')}">${esc(task.content || '')}</span>
                             </span>
                         </div>
                     </td>
@@ -8110,7 +8240,7 @@ async function __tmRefreshAfterWake(reason) {
             }).join('， ')
             : '无条件';
         
-        const sortText = rule.sort.length > 0
+        const sortText = __tmRuleHasExplicitSort(rule)
             ? rule.sort.map((s, i) => {
                 const fieldLabel = (RuleManager.getSortFields().find(f => f.value === s.field)?.label || s.field);
                 return `${i + 1}. ${fieldLabel} (${s.order === 'desc' ? '降序' : '升序'})`;
@@ -8898,13 +9028,11 @@ async function __tmRefreshAfterWake(reason) {
     window.tmSetPriorityBase = function(value) {
         if (!state.priorityScoreDraft) return;
         state.priorityScoreDraft.base = Number(value) || 0;
-        __tmRerenderPriorityScoreSettings();
     };
     window.tmSetPriorityWeight = function(key, value) {
         if (!state.priorityScoreDraft) return;
         if (!state.priorityScoreDraft.weights) state.priorityScoreDraft.weights = {};
         state.priorityScoreDraft.weights[key] = Number(value) || 0;
-        __tmRerenderPriorityScoreSettings();
     };
     window.tmSetPriorityDurationUnit = function(value) {
         if (!state.priorityScoreDraft) return;
@@ -8916,13 +9044,11 @@ async function __tmRefreshAfterWake(reason) {
         if (!state.priorityScoreDraft) return;
         if (!state.priorityScoreDraft.importanceDelta) state.priorityScoreDraft.importanceDelta = {};
         state.priorityScoreDraft.importanceDelta[key] = Number(value) || 0;
-        __tmRerenderPriorityScoreSettings();
     };
     window.tmSetPriorityStatus = function(statusId, value) {
         if (!state.priorityScoreDraft) return;
         if (!state.priorityScoreDraft.statusDelta) state.priorityScoreDraft.statusDelta = {};
         state.priorityScoreDraft.statusDelta[statusId] = Number(value) || 0;
-        __tmRerenderPriorityScoreSettings();
     };
     window.tmAddPriorityDueRange = function() {
         if (!state.priorityScoreDraft) return;
@@ -8942,7 +9068,6 @@ async function __tmRefreshAfterWake(reason) {
         const row = state.priorityScoreDraft.dueRanges[index];
         if (!row) return;
         row[field] = Number(value) || 0;
-        __tmRerenderPriorityScoreSettings();
     };
     window.tmAddPriorityDurationBucket = function() {
         if (!state.priorityScoreDraft) return;
@@ -8973,7 +9098,6 @@ async function __tmRefreshAfterWake(reason) {
         } else {
             row[field] = Number(value) || 0;
         }
-        __tmRerenderPriorityScoreSettings();
     };
     window.tmAddPriorityDocDelta = function() {
         if (!state.priorityScoreDraft) return;
@@ -9490,6 +9614,28 @@ async function __tmRefreshAfterWake(reason) {
         closeRulesManager();
     };
 
+    function __tmIsAllRuleLike(rule) {
+        if (!rule || typeof rule !== 'object') return false;
+        const id = String(rule.id || '').trim().toLowerCase();
+        const name = String(rule.name || '').trim().toLowerCase();
+        if (id === 'all' || id === '__all__' || id === 'all_tasks' || id.includes('all')) return true;
+        if (name === '全部' || name === 'all' || name === 'all tasks' || name === 'all_tasks' || name.includes('全部')) return true;
+        const conds = Array.isArray(rule.conditions) ? rule.conditions.filter(Boolean) : [];
+        if (conds.length === 0) return true;
+        if (conds.length === 1) {
+            const c = conds[0] || {};
+            if (String(c.field || '') === 'done' && String(c.operator || '') === '=' && String(c.value) === '__all__') {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    function __tmRuleHasExplicitSort(rule) {
+        if (!rule || typeof rule !== 'object') return false;
+        return Array.isArray(rule.sort) && rule.sort.length > 0;
+    }
+
     // 修改原有的applyFilters函数以支持规则
     function applyFilters() {
         let tasks = [];
@@ -9530,6 +9676,8 @@ async function __tmRefreshAfterWake(reason) {
         };
 
         const rule = state.currentRule ? state.filterRules.find(r => r.id === state.currentRule) : null;
+        const hasExplicitSortRule = __tmRuleHasExplicitSort(rule);
+        const keepDocFlowOrder = !!state.groupByDocName && !hasExplicitSortRule;
 
         const currentRuleExcludesCompleted = () => {
             if (!rule || !rule.conditions || rule.conditions.length === 0) return false;
@@ -9620,7 +9768,9 @@ async function __tmRefreshAfterWake(reason) {
         const ordered = [];
         const added = new Set();
         const traverse = (list, ancestorMatched = false) => {
-            const siblings = RuleManager.applyRuleSort(list || [], rule);
+            const siblings = keepDocFlowOrder
+                ? [...(list || [])].sort(__tmCompareTasksByDocFlow)
+                : RuleManager.applyRuleSort(list || [], rule);
             siblings.forEach(t => {
                 if (!t) return;
                 // 如果任务本身已完成且有已完成祖先，则不显示（这是合理的）
@@ -9647,7 +9797,10 @@ async function __tmRefreshAfterWake(reason) {
             // 收集所有文档的所有任务到一个扁平数组
             const allTasks = [];
             const collectAll = (list) => {
-                list.forEach(t => {
+                const siblings = keepDocFlowOrder
+                    ? [...(list || [])].sort(__tmCompareTasksByDocFlow)
+                    : (list || []);
+                siblings.forEach(t => {
                     allTasks.push(t);
                     if (t.children && t.children.length > 0) {
                         collectAll(t.children);
@@ -9664,7 +9817,9 @@ async function __tmRefreshAfterWake(reason) {
             });
             
             // 对所有任务应用排序规则
-            const sortedAllTasks = RuleManager.applyRuleSort(allTasks, rule);
+            const sortedAllTasks = keepDocFlowOrder
+                ? allTasks
+                : RuleManager.applyRuleSort(allTasks, rule);
             
             // 筛选并保持排序后的顺序
             const globalAdded = new Set();
@@ -10696,8 +10851,8 @@ async function __tmRefreshAfterWake(reason) {
                                        type="checkbox" ${task.done ? 'checked' : ''}
                                        ${isGloballyLocked ? 'disabled' : ''}
                                        onchange="tmSetDone('${task.id}', this.checked, event)">
-                                <span class="tm-task-text ${task.done ? 'tm-task-done' : ''}" data-level="${row.depth}" title="点击跳转到文档">
-                                    <span class="tm-task-content-clickable" onclick="tmJumpToTask('${task.id}', event)">${esc(task.content || '')}</span>
+                                <span class="tm-task-text ${task.done ? 'tm-task-done' : ''}" data-level="${row.depth}" title="${esc(task.content || '')}">
+                                    <span class="tm-task-content-clickable" onclick="tmJumpToTask('${task.id}', event)" title="${esc(task.content || '')}">${esc(task.content || '')}</span>
                                 </span>
                             </div>
                         </td>
@@ -10943,7 +11098,7 @@ async function __tmRefreshAfterWake(reason) {
                                        type="checkbox" ${task?.done ? 'checked' : ''}
                                        ${isGloballyLocked ? 'disabled' : ''}
                                        onchange="tmSetDone('${id}', this.checked, event)">
-                                <span class="tm-kanban-card-title-inline tm-task-content-clickable" onclick="tmJumpToTask('${id}', event)">${esc((content || '(无内容)'))}</span>
+                                <span class="tm-kanban-card-title-inline tm-task-content-clickable" onclick="tmJumpToTask('${id}', event)" title="${esc((content || '(无内容)'))}">${esc((content || '(无内容)'))}</span>
                             </div>
                             <button class="tm-kanban-more" onclick="tmOpenTaskDetail('${id}', event)">⋯</button>
                         </div>
@@ -11510,7 +11665,7 @@ async function __tmRefreshAfterWake(reason) {
                                 ${toggleHtml}
                                 <input class="tm-task-checkbox ${GlobalLock.isLocked() ? 'tm-operating' : ''}" type="checkbox" ${task?.done ? 'checked' : ''} ${(GlobalLock.isLocked() || isGhost) ? 'disabled' : ''} ${isGhost ? 'title="快照任务，当前不可直接勾选"' : ''} onmousedown="event.stopPropagation()" onclick="event.stopPropagation()" onchange="tmSetDone('${escSq(tid)}', this.checked, event)">
                                 <div class="tm-whiteboard-card-title ${task?.done ? 'tm-task-done' : ''}">
-                                    <span class="tm-task-content-clickable" onclick="tmJumpToTask('${escSq(tid)}', event)">${esc(String(task?.content || '').trim() || '(无内容)')}</span>
+                                    <span class="tm-task-content-clickable" onclick="tmJumpToTask('${escSq(tid)}', event)" title="${esc(String(task?.content || '').trim() || '(无内容)')}">${esc(String(task?.content || '').trim() || '(无内容)')}</span>
                                 </div>
                                 ${opBtn}
                             </div>
@@ -11782,7 +11937,7 @@ async function __tmRefreshAfterWake(reason) {
                                             <div class="tm-whiteboard-pool-item${doneCls}${parentCls}${topCls}${lockedCls}${selectedCls}" data-task-id="${esc(tid)}" draggable="${draggableAttr}"${mouseDownAttr}${dragStartAttr}${dragEndAttr} title="${itemTitle}">
                                                 ${toggleHtml}
                                                 <input class="tm-task-checkbox" type="checkbox" ${t?.done ? 'checked' : ''} onchange="tmSetDone('${escSq(tid)}', this.checked, event)" onmousedown="event.stopPropagation()" title="完成状态">
-                                                <span class="tm-whiteboard-pool-item-title"><span class="tm-task-content-clickable" onclick="tmJumpToTask('${escSq(tid)}', event)">${esc(String(t?.content || '').trim() || '(无内容)')}</span></span>
+                                                <span class="tm-whiteboard-pool-item-title"><span class="tm-task-content-clickable" onclick="tmJumpToTask('${escSq(tid)}', event)" title="${esc(String(t?.content || '').trim() || '(无内容)')}">${esc(String(t?.content || '').trim() || '(无内容)')}</span></span>
                                             </div>
                                             ${kidsHtml}
                                         </div>
@@ -12159,10 +12314,13 @@ async function __tmRefreshAfterWake(reason) {
                         border-color: var(--tm-text-color);
                     }
                     .tm-doc-tab.active {
-                        background: var(--tm-primary-color);
-                        color: white;
+                        background: var(--tm-bg-color);
+                        color: var(--tm-text-color);
                         border-color: var(--tm-primary-color);
-                        box-shadow: 0 0 0 1px var(--tm-primary-color);
+                        box-shadow: inset 0 0 0 1px var(--tm-primary-color), 0 0 0 1px color-mix(in srgb, var(--tm-primary-color) 18%, transparent);
+                    }
+                    .tm-doc-tab.active .tm-doc-tab-bg {
+                        opacity: 0.38;
                     }
                     .tm-doc-tab.is-drop-target {
                         transform: scale(1.06);
@@ -19478,8 +19636,8 @@ async function __tmRefreshAfterWake(reason) {
                                    onchange="tmSetDone('${task.id}', this.checked, event)">
                             <span class="tm-task-text ${done ? 'tm-task-done' : ''}"
                                   data-level="${depth}"
-                                  title="点击跳转到文档">
-                                <span class="tm-task-content-clickable" onclick="tmJumpToTask('${task.id}', event)">${esc(content)}</span>
+                                  title="${esc(content)}">
+                                <span class="tm-task-content-clickable" onclick="tmJumpToTask('${task.id}', event)" title="${esc(content)}">${esc(content)}</span>
                             </span>
                             ${childStatsHtml}
                         </div>
@@ -22220,14 +22378,14 @@ async function __tmRefreshAfterWake(reason) {
             // 2. 批量获取任务
             const res = await API.getTasksByDocuments(allDocIds, state.queryLimit, { doneOnly: !!state.__tmQueryDoneOnly });
             
+            if (token !== (Number(state.openToken) || 0)) return;
             // 更新统计信息
             state.stats.queryTime = res.queryTime || (Date.now() - startTime);
             state.stats.totalTasks = res.totalCount || 0;
             state.stats.doneTasks = res.doneCount || 0;
 
-            state.taskTree = [];
-            state.flatTasks = {};
-            const tasksByDoc = new Map();
+            const nextTaskTree = [];
+            const nextFlatTasks = {};
 
             if (res.tasks) {
                 let h2ContextMap = new Map();
@@ -22236,6 +22394,12 @@ async function __tmRefreshAfterWake(reason) {
                 } catch (e) {
                     h2ContextMap = new Map();
                 }
+                let taskFlowRankMap = new Map();
+                try {
+                    taskFlowRankMap = await API.fetchTaskFlowRanks(res.tasks.map(t => t.id));
+                } catch (e) {
+                    taskFlowRankMap = new Map();
+                }
                 const missingPriorityIds = [];
 
                 // 3. 获取层级信息（不再依赖，改用前端递归计算）
@@ -22243,19 +22407,13 @@ async function __tmRefreshAfterWake(reason) {
                 // const hierarchyCache = await API.getTasksHierarchy(taskIds);
 
                 // 4. 构建任务树
-                state.taskTree = [];
-                state.flatTasks = {};
-                
                 // 将任务按文档分组
                 const tasksByDoc = new Map();
-                const __tmDocSeqByRoot = new Map();
                 res.tasks.forEach(task => {
                     // 确保任务有root_id
                     if (!task.root_id) return;
-                    const __rk = String(task.root_id || '').trim();
-                    const __seq = Number(__tmDocSeqByRoot.get(__rk) || 0);
-                    task.docSeq = __seq;
-                    __tmDocSeqByRoot.set(__rk, __seq + 1);
+                    const flowRank = Number(taskFlowRankMap.get(String(task.id || '').trim()));
+                    if (Number.isFinite(flowRank)) task.docSeq = flowRank;
                     
                     // 解析任务状态
                     const parsed = API.parseTaskStatus(task.markdown);
@@ -22309,7 +22467,7 @@ async function __tmRefreshAfterWake(reason) {
                         tasksByDoc.set(task.root_id, []);
                     }
                     tasksByDoc.get(task.root_id).push(task);
-                    state.flatTasks[task.id] = task;
+                    nextFlatTasks[task.id] = task;
                 });
 
                 try {
@@ -22320,7 +22478,7 @@ async function __tmRefreshAfterWake(reason) {
                             ids.forEach(id => {
                                 const v = map.get(id);
                                 if (!v) return;
-                                const t = state.flatTasks?.[id];
+                                const t = nextFlatTasks?.[id];
                                 if (!t) return;
                                 t.priority = v;
                                 try { normalizeTaskFields(t, t.docName || '未命名文档'); } catch (e) {}
@@ -22416,17 +22574,19 @@ async function __tmRefreshAfterWake(reason) {
 
                     // 添加到任务树
                     if (rawTasks.length > 0 || state.selectedDocIds.includes(docId) || (quickAddDocId && docId === quickAddDocId)) { 
-                         state.taskTree.push({
+                         nextTaskTree.push({
                             id: docId,
                             name: docName,
                             tasks: rootTasks
                         });
                     }
                 }
+                if (token !== (Number(state.openToken) || 0)) return;
                 state.taskTree = __tmSortDocEntriesByPinned(
-                    state.taskTree || [],
+                    nextTaskTree || [],
                     String(SettingsStore.data.currentGroupId || 'all').trim() || 'all'
                 );
+                state.flatTasks = nextFlatTasks;
                 try { __tmUpsertWhiteboardTaskSnapshots(Object.values(state.flatTasks || {})); } catch (e) {}
                 
                 applyFilters();

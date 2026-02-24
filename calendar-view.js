@@ -191,6 +191,7 @@
         return {
             enabled: !!s.calendarEnabled,
             linkDockTomato: !!s.calendarLinkDockTomato,
+            firstDay: Number(s.calendarFirstDay) === 0 ? 0 : 1,
             monthAggregate: !!s.calendarMonthAggregate,
             showSchedule: s.calendarShowSchedule !== false,
             showTaskDates: s.calendarShowTaskDates !== false,
@@ -704,6 +705,7 @@
         const mini = wrap?.querySelector?.('.tm-calendar-mini');
         const calendar = state.calendar;
         if (!mini || !(mini instanceof Element) || !calendar) return;
+        const firstDay = Number(getSettings().firstDay) === 0 ? 0 : 1;
 
         const selected = calendar?.getDate?.() instanceof Date ? calendar.getDate() : null;
         const selectedKey = selected ? formatDateKey(selected) : '';
@@ -717,12 +719,14 @@
         if (!Number.isFinite(y) || !Number.isFinite(m)) return;
 
         const first = new Date(y, m - 1, 1, 12, 0, 0);
-        const firstDow = (first.getDay() + 6) % 7;
+        const firstDow = (first.getDay() - firstDay + 7) % 7;
         const start = new Date(first.getTime());
         start.setDate(first.getDate() - firstDow);
         const todayKey = formatDateKey(new Date());
 
-        const dows = ['一', '二', '三', '四', '五', '六', '日'];
+        const dows = firstDay === 0
+            ? ['日', '一', '二', '三', '四', '五', '六']
+            : ['一', '二', '三', '四', '五', '六', '日'];
         const cells = [];
         for (let i = 0; i < 42; i += 1) {
             const d = new Date(start.getTime());
@@ -1939,7 +1943,7 @@
             expandRows: true,
             handleWindowResize: true,
             locale: 'zh-cn',
-            firstDay: 1,
+            firstDay: Number(s.firstDay) === 0 ? 0 : 1,
             weekText: '周',
             allDayText: '全天',
             moreLinkText: (n) => `+${n} 更多`,
@@ -3150,6 +3154,13 @@
                     </label>
                 </div>
                 <div class="tm-calendar-settings-row">
+                    <div class="tm-calendar-settings-label">日历起始日</div>
+                    <select class="tm-calendar-settings-select" data-tm-cal-setting="calendarFirstDay">
+                        <option value="1" ${Number(s.firstDay) === 1 ? 'selected' : ''}>周一</option>
+                        <option value="0" ${Number(s.firstDay) === 0 ? 'selected' : ''}>周日</option>
+                    </select>
+                </div>
+                <div class="tm-calendar-settings-row">
                     <div class="tm-calendar-settings-label">显示农历</div>
                     <label class="tm-switch">
                         <input type="checkbox" data-tm-cal-setting="calendarShowLunar" ${s.showLunar ? 'checked' : ''}>
@@ -3187,8 +3198,13 @@
             if (!key) return;
             const store = state.settingsStore;
             if (!store || !store.data) return;
-            if (el.type === 'checkbox') store.data[key] = !!el.checked;
-            else store.data[key] = String(el.value || '');
+            if (key === 'calendarFirstDay') {
+                store.data[key] = String(el.value || '').trim() === '0' ? 0 : 1;
+            } else if (el.type === 'checkbox') {
+                store.data[key] = !!el.checked;
+            } else {
+                store.data[key] = String(el.value || '');
+            }
             try {
                 if (typeof store.save === 'function') await store.save();
             } catch (e2) {}
@@ -3201,6 +3217,10 @@
                     } catch (e2) {}
                     try { state.calendar?.refetchEvents?.(); } catch (e2) {}
                 } else if (state.calendar) {
+                    if (key === 'calendarFirstDay') {
+                        try { state.calendar.setOption('firstDay', Number(store.data.calendarFirstDay) === 0 ? 0 : 1); } catch (e2) {}
+                        try { renderMiniCalendar(state.rootEl); } catch (e2) {}
+                    }
                     try { state.calendar.refetchEvents(); } catch (e2) {}
                     if (key === 'calendarShowLunar') {
                         try { requestAnimationFrame(() => { try { applyCnLunarLabels(state.rootEl); } catch (e4) {} }); } catch (e4) {}
