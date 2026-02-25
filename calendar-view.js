@@ -1055,6 +1055,7 @@
         setScheduleCache(list);
         try { localStorage.setItem(STORAGE.SCHEDULE_LS_KEY, JSON.stringify(list)); } catch (e) {}
         try { await putFileText(STORAGE.SCHEDULE_FILE, JSON.stringify(list, null, 2)); } catch (e) {}
+        try { window.dispatchEvent(new CustomEvent('tm:calendar-schedule-updated', { detail: { ts: Date.now() } })); } catch (e) {}
         return true;
     }
 

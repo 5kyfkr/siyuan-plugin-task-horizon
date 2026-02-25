@@ -1,5 +1,5 @@
 // @name         思源笔记任务管理器
-// @version      1.5.1
+// @version      1.5.3
 // @description  任务管理器，支持自定义筛选规则分组和排序
 // @author       5KYFKR
 
@@ -6260,7 +6260,122 @@
         timelineDotPinnedTaskId: '',
         timelineMultiSelectedTaskIds: [],
         __tmTimelineRenderDeps: null,
+        todayScheduledTaskIds: new Set(),
+        todayScheduledTaskIdsDay: '',
+        todayScheduledTaskIdsLoading: null,
+        todayScheduledSourceReady: false,
     };
+
+    function __tmGetTodayDateKey() {
+        const d = new Date();
+        const pad = (n) => String(n).padStart(2, '0');
+        return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+    }
+
+    function __tmHasTaskScheduledToday(taskId) {
+        const tid = String(taskId || '').trim();
+        if (!tid) return false;
+        if (String(state.todayScheduledTaskIdsDay || '') !== __tmGetTodayDateKey()) return false;
+        const set = state.todayScheduledTaskIds;
+        return !!(set instanceof Set && set.has(tid));
+    }
+
+    async function __tmLoadTodayScheduledTaskIds(force = false) {
+        const dayKey = __tmGetTodayDateKey();
+        const api = globalThis.__tmCalendar?.listTaskSchedulesByDay;
+        const sourceReady = typeof api === 'function';
+        state.todayScheduledSourceReady = !!sourceReady;
+        if (!sourceReady) {
+            return {
+                changed: false,
+                set: (state.todayScheduledTaskIds instanceof Set) ? state.todayScheduledTaskIds : new Set(),
+            };
+        }
+        if (!force && state.todayScheduledSourceReady && String(state.todayScheduledTaskIdsDay || '') === dayKey && state.todayScheduledTaskIds instanceof Set) {
+            return { changed: false, set: state.todayScheduledTaskIds };
+        }
+        if (!force && state.todayScheduledTaskIdsLoading) return state.todayScheduledTaskIdsLoading;
+        const runner = (async () => {
+            const next = new Set();
+            try {
+                const list = await api(dayKey);
+                (Array.isArray(list) ? list : []).forEach((it) => {
+                    const tid = String(it?.taskId || it?.task_id || it?.linkedTaskId || it?.linked_task_id || '').trim();
+                    if (tid) next.add(tid);
+                });
+            } catch (e) {}
+            const prev = (state.todayScheduledTaskIds instanceof Set) ? state.todayScheduledTaskIds : new Set();
+            let changed = prev.size !== next.size;
+            if (!changed) {
+                for (const id of prev) {
+                    if (!next.has(id)) { changed = true; break; }
+                }
+            }
+            state.todayScheduledTaskIds = next;
+            state.todayScheduledTaskIdsDay = dayKey;
+            state.todayScheduledSourceReady = true;
+            return { changed, set: next };
+        })();
+        state.todayScheduledTaskIdsLoading = runner;
+        try {
+            return await runner;
+        } finally {
+            if (state.todayScheduledTaskIdsLoading === runner) state.todayScheduledTaskIdsLoading = null;
+        }
+    }
+
+    function __tmApplyTodayScheduledTaskNameMarks(modalEl) {
+        const modal = modalEl instanceof Element ? modalEl : state.modal;
+        if (!(modal instanceof Element)) return;
+        const selectors = [
+            '#tmTaskTable tbody tr[data-id] .tm-task-content-clickable',
+            '#tmTimelineLeftTable tbody tr[data-id] .tm-task-content-clickable',
+            '.tm-body--kanban .tm-kanban-card[data-id] .tm-task-content-clickable',
+        ].join(',');
+        const items = modal.querySelectorAll(selectors);
+        items.forEach((el) => {
+            if (!(el instanceof HTMLElement)) return;
+            const owner = el.closest('tr[data-id], .tm-kanban-card[data-id]');
+            const tid = String(owner?.getAttribute?.('data-id') || '').trim();
+            if (!tid) return;
+            if (__tmHasTaskScheduledToday(tid)) el.style.color = '#1a73e8';
+            else el.style.removeProperty('color');
+        });
+    }
+
+    function __tmScheduleTodayScheduledTaskNameMarksRefresh(modalEl, force = false) {
+        const modal = modalEl instanceof Element ? modalEl : state.modal;
+        if (!(modal instanceof Element)) return;
+        Promise.resolve().then(async () => {
+            try {
+                await __tmLoadTodayScheduledTaskIds(force);
+            } catch (e) {}
+            if (!modal.isConnected) return;
+            __tmApplyTodayScheduledTaskNameMarks(modal);
+        }).catch(() => null);
+    }
+
+    function __tmBindCalendarScheduleUpdated() {
+        if (__tmCalendarScheduleUpdatedHandler) return;
+        __tmCalendarScheduleUpdatedHandler = () => {
+            try {
+                if (__tmTodayScheduleRefreshTimer) {
+                    clearTimeout(__tmTodayScheduleRefreshTimer);
+                    __tmTodayScheduleRefreshTimer = null;
+                }
+            } catch (e) {}
+            __tmTodayScheduleRefreshTimer = setTimeout(() => {
+                __tmTodayScheduleRefreshTimer = null;
+                const modal = state.modal;
+                if (modal && modal.isConnected) {
+                    __tmScheduleTodayScheduledTaskNameMarksRefresh(modal, true);
+                } else {
+                    Promise.resolve().then(() => __tmLoadTodayScheduledTaskIds(true)).catch(() => null);
+                }
+            }, 60);
+        };
+        try { window.addEventListener('tm:calendar-schedule-updated', __tmCalendarScheduleUpdatedHandler); } catch (e) {}
+    }
 
     let __tmMountEl = null;
     let __tmWakeReloadBound = false;
@@ -6342,6 +6457,8 @@
     let __tmTomatoAssociationHandler = null;
     let __tmPinnedListenerAdded = false;
     let __tmQuickAddGlobalClickHandler = null;
+    let __tmCalendarScheduleUpdatedHandler = null;
+    let __tmTodayScheduleRefreshTimer = null;
 
     async function __tmSafeOpenManager(reason) {
         try {
@@ -7417,6 +7534,8 @@ async function __tmRefreshAfterWake(reason) {
         }
         try { if (body) body.scrollTop = top; } catch (e) {}
         try { if (body) body.scrollLeft = left; } catch (e) {}
+        try { __tmApplyTodayScheduledTaskNameMarks(modal); } catch (e) {}
+        try { __tmScheduleTodayScheduledTaskNameMarksRefresh(modal); } catch (e) {}
         try { queueMicrotask(() => { try { __tmRunFlipAnimation(modal); } catch (e) {} }); } catch (e) {
             try { Promise.resolve().then(() => { try { __tmRunFlipAnimation(modal); } catch (e2) {} }); } catch (e2) {}
         }
@@ -7654,6 +7773,8 @@ async function __tmRefreshAfterWake(reason) {
         try { queueMicrotask(() => { try { __tmRunFlipAnimation(modal); } catch (e) {} }); } catch (e) {
             try { Promise.resolve().then(() => { try { __tmRunFlipAnimation(modal); } catch (e2) {} }); } catch (e2) {}
         }
+        try { __tmApplyTodayScheduledTaskNameMarks(modal); } catch (e) {}
+        try { __tmScheduleTodayScheduledTaskNameMarksRefresh(modal); } catch (e) {}
         return true;
     }
 
@@ -12750,6 +12871,8 @@ async function __tmRefreshAfterWake(reason) {
         
         try { if (state.viewMode === 'kanban') __tmBindKanbanPan(state.modal); } catch (e) {}
         __tmGetMountRoot().appendChild(state.modal);
+        try { __tmApplyTodayScheduledTaskNameMarks(state.modal); } catch (e) {}
+        try { __tmScheduleTodayScheduledTaskNameMarksRefresh(state.modal); } catch (e) {}
         try {
             if (state.viewMode === 'calendar') {
                 const el = state.modal.querySelector('#tmCalendarRoot');
@@ -26770,6 +26893,7 @@ async function __tmRefreshAfterWake(reason) {
 
     async function init() {
         try { __tmBindWakeReload(); } catch (e) {}
+        try { __tmBindCalendarScheduleUpdated(); } catch (e) {}
 
         // 1. 先加载设置（包括文档ID）
         try {
@@ -27129,6 +27253,16 @@ async function __tmRefreshAfterWake(reason) {
             __tmWakeReloadInFlight = false;
             __tmWakeReloadBound = false;
             __tmWasHiddenAt = 0;
+        } catch (e) {}
+        try {
+            if (__tmCalendarScheduleUpdatedHandler) {
+                window.removeEventListener('tm:calendar-schedule-updated', __tmCalendarScheduleUpdatedHandler);
+                __tmCalendarScheduleUpdatedHandler = null;
+            }
+            if (__tmTodayScheduleRefreshTimer) {
+                clearTimeout(__tmTodayScheduleRefreshTimer);
+                __tmTodayScheduleRefreshTimer = null;
+            }
         } catch (e) {}
         try {
             if (__tmTomatoAssociationHandler) {
