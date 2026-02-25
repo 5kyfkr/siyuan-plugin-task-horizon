@@ -37,7 +37,7 @@
                 defaultValue: 'todo'
             },
             {
-                name: '完成日',
+                name: '完成日期',
                 attrKey: 'custom-completion-time',
                 type: 'date',
                 defaultValue: ''
@@ -958,11 +958,18 @@
             inputEditor.classList.add('is-visible');
 
             input.focus();
+            try { input.showPicker?.(); } catch (e) {}
+            setTimeout(() => {
+                try { input.showPicker?.(); } catch (e) {}
+            }, 0);
             try {
                 if (input.value && typeof input.setSelectionRange === 'function') {
                     input.setSelectionRange(0, 0);
                 }
             } catch (e) {}
+            input.onclick = () => {
+                try { input.showPicker?.(); } catch (e) {}
+            };
 
             // 绑定事件
             const saveDate = async () => {

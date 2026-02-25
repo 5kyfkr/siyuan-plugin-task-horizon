@@ -2,7 +2,7 @@
     "name": "siyuan-plugin-task-horizon",
     "author": "5kyfkr",
     "url": "https://github.com/5kyfkr/siyuan-plugin-task-horizon",
-    "version": "1.5.1",
+    "version": "1.5.2",
     "minAppVersion": "3.5.0",
     "disabledInPublish": true,
     "backends": [
@@ -22,5 +22,10 @@
     "readme": {
         "default": "README.md"
     },
+	"funding": {
+    "custom": [
+      "https://free.picui.cn/free/2026/02/25/699f05ad97ce4.png"
+    ]
+  },
     "keywords": ["task", "manager", "filter"]
 }

@@ -35,6 +35,22 @@
         mobileDragCloseTimer: null,
         sidebarColorMenuCloseHandler: null,
         sidebarColorMenuBindTimer: null,
+        sidebarResizeCleanup: null,
+        scheduleCache: {
+            list: null,
+            loadedAt: 0,
+            inflight: null,
+        },
+        sideDay: {
+            rootEl: null,
+            calendar: null,
+            dateKey: '',
+            settingsStore: null,
+            resolveTask: null,
+            dragHost: null,
+            draggable: null,
+            nativeDropAbort: null,
+        },
     };
 
     function esc(s) {
@@ -186,7 +202,7 @@
     }
 
     function getSettings() {
-        const s = state.settingsStore?.data || {};
+        const s = state.settingsStore?.data || state.sideDay?.settingsStore?.data || {};
         const tomatoMaster = s.calendarShowTomatoMaster !== false;
         return {
             enabled: !!s.calendarEnabled,
@@ -258,7 +274,7 @@
 
     function getCalendarDefs(settings) {
         const list = [{ id: 'default', name: '未分组', color: '#0078d4' }];
-        const groups = state.settingsStore?.data?.docGroups;
+        const groups = state.settingsStore?.data?.docGroups || state.sideDay?.settingsStore?.data?.docGroups;
         if (Array.isArray(groups)) {
             for (const g of groups) {
                 const gid = String(g?.id || '').trim();
@@ -460,10 +476,11 @@
                     let durMin = NaN;
                     if (isTableBody) {
                         taskId = String(el?.getAttribute?.('data-id') || '').trim();
+                        calendarId = String(el?.getAttribute?.('data-calendar-id') || '').trim();
                         try {
                             const meta = (typeof window.tmCalendarGetTaskDragMeta === 'function') ? window.tmCalendarGetTaskDragMeta(taskId) : null;
                             title = String(meta?.title || '').trim();
-                            calendarId = String(meta?.calendarId || '').trim();
+                            if (!calendarId) calendarId = String(meta?.calendarId || '').trim();
                             durMin = Number(meta?.durationMin);
                         } catch (e) {}
                         if (!title) {
@@ -539,6 +556,11 @@
                 const taskId = getTaskIdFromEvent(e);
                 if (!taskId) return;
                 if (el.classList.contains('tm-task-checkbox')) {
+                    const tr = el.closest('tr[data-id]');
+                    const textEl = tr?.querySelector?.('.tm-task-text');
+                    try {
+                        if (textEl && textEl.classList) textEl.classList.toggle('tm-task-done', !!el.checked);
+                    } catch (e2) {}
                     if (typeof window.tmSetDone === 'function') {
                         try { window.tmSetDone(taskId, !!el.checked, e); } catch (e2) {}
                     }
@@ -549,7 +571,7 @@
                         try { window.tmSetPinned(taskId, !!el.checked, e); } catch (e2) {}
                     }
                 }
-            }, { signal: abort.signal });
+            }, { signal: abort.signal, capture: true });
 
             host.addEventListener('click', (e) => {
                 const target = e.target;
@@ -637,12 +659,39 @@
         } catch (e) {}
         try { globalThis.tmCalendarApplyCollapseDom?.(); } catch (e) {}
         bindTaskDraggable(settings);
+        Promise.resolve().then(() => markTodayScheduledTaskRows(host)).catch(() => null);
+    }
+
+    async function markTodayScheduledTaskRows(host) {
+        const tbody = host?.querySelector?.('#tmTaskTable tbody');
+        if (!(tbody instanceof Element)) return;
+        const dayStart = new Date();
+        dayStart.setHours(0, 0, 0, 0);
+        const dayEnd = new Date(dayStart.getTime() + 24 * 60 * 60 * 1000);
+        const list = await loadScheduleForRange(dayStart, dayEnd);
+        const todayTaskIds = new Set(
+            (Array.isArray(list) ? list : [])
+                .map((x) => String(x?.taskId || '').trim())
+                .filter(Boolean)
+        );
+        tbody.querySelectorAll('tr[data-id]').forEach((tr) => {
+            const tid = String(tr?.getAttribute?.('data-id') || '').trim();
+            const marked = !!(tid && todayTaskIds.has(tid));
+            const textEl = tr.querySelector('.tm-task-content-clickable, .tm-task-text');
+            if (textEl instanceof HTMLElement) {
+                if (marked) textEl.style.color = '#1a73e8';
+                else textEl.style.removeProperty('color');
+            }
+        });
     }
 
     function setSidePage(wrap, next) {
         const v = (next === 'tasks') ? 'tasks' : 'calendar';
         state.sidePage = v;
         try {
+            wrap.classList.toggle('tm-calendar-wrap--tasks-page', v === 'tasks');
+            const inner = wrap.querySelector('.tm-calendar-sidebar-inner');
+            if (inner) inner.style.gap = (v === 'tasks') ? '0' : '10px';
             wrap.querySelectorAll('[data-tm-cal-side-page]').forEach((el) => {
                 const key = String(el.getAttribute('data-tm-cal-side-page') || '');
                 el.style.display = (key === v) ? '' : 'none';
@@ -860,6 +909,8 @@
         const sidebar = wrap?.querySelector?.('.tm-calendar-sidebar');
         const resizer = wrap?.querySelector?.('[data-tm-cal-role="sidebar-resizer"]');
         if (!sidebar || !resizer) return;
+        try { state.sidebarResizeCleanup?.(); } catch (e) {}
+        state.sidebarResizeCleanup = null;
         let dragging = false;
         let startX = 0;
         let startW = 0;
@@ -880,12 +931,23 @@
             } catch (e2) {}
             try { state.calendar?.updateSize?.(); } catch (e2) {}
         };
-        const onUp = () => {
+        const clearSaveTimer = () => {
+            if (saveTimer) {
+                try { clearTimeout(saveTimer); } catch (e) {}
+                saveTimer = null;
+            }
+        };
+        const cleanupDocDrag = () => {
             dragging = false;
+            clearSaveTimer();
             try { document.body.classList.remove('tm-cal-resizing'); } catch (e) {}
             try { document.removeEventListener('mousemove', onMove, true); } catch (e) {}
             try { document.removeEventListener('mouseup', onUp, true); } catch (e) {}
         };
+        const onUp = () => {
+            cleanupDocDrag();
+        };
+        state.sidebarResizeCleanup = cleanupDocDrag;
         resizer.addEventListener('mousedown', (e) => {
             try { e.preventDefault(); } catch (e2) {}
             dragging = true;
@@ -907,29 +969,789 @@
         return `id-${Date.now()}-${Math.random().toString(16).slice(2)}`;
     }
 
+    function cloneScheduleList(items) {
+        const src = Array.isArray(items) ? items : [];
+        return src.map((it) => ((it && typeof it === 'object') ? { ...it } : {}));
+    }
+
+    function setScheduleCache(items) {
+        state.scheduleCache.list = cloneScheduleList(items);
+        state.scheduleCache.loadedAt = Date.now();
+    }
+
     async function loadScheduleAll() {
+        const cacheTtlMs = 1200;
+        const normalizeList = (arr) => {
+            const list0 = Array.isArray(arr) ? arr : [];
+            let changed = false;
+            const out = list0.map((it) => {
+                const base = (it && typeof it === 'object') ? it : {};
+                const id0 = String(base.id || '').trim();
+                const taskId0 = String(base.taskId || base.task_id || base.linkedTaskId || base.linked_task_id || '').trim();
+                const id = id0 || uuid();
+                if (id !== id0) changed = true;
+                if (taskId0 && taskId0 !== String(base.taskId || '').trim()) changed = true;
+                return {
+                    ...base,
+                    id,
+                    taskId: taskId0,
+                };
+            });
+            return { out, changed };
+        };
         try {
-            const raw = await getFileText(STORAGE.SCHEDULE_FILE);
-            if (raw && raw.trim()) {
-                const parsed = JSON.parse(raw);
-                return Array.isArray(parsed) ? parsed : [];
+            const cache = state.scheduleCache;
+            if (Array.isArray(cache.list) && (Date.now() - (Number(cache.loadedAt) || 0) < cacheTtlMs)) {
+                return cloneScheduleList(cache.list);
+            }
+            if (cache.inflight) {
+                const list = await cache.inflight;
+                return cloneScheduleList(list);
             }
         } catch (e) {}
+        state.scheduleCache.inflight = (async () => {
+            try {
+                const raw = await getFileText(STORAGE.SCHEDULE_FILE);
+                if (raw && raw.trim()) {
+                    const parsed = JSON.parse(raw);
+                    const { out, changed } = normalizeList(parsed);
+                    if (changed) {
+                        try { await saveScheduleAll(out); } catch (e2) {}
+                    } else {
+                        setScheduleCache(out);
+                    }
+                    return Array.isArray(state.scheduleCache.list) ? state.scheduleCache.list : out;
+                }
+            } catch (e) {}
+            try {
+                const raw = String(localStorage.getItem(STORAGE.SCHEDULE_LS_KEY) || '');
+                if (!raw.trim()) {
+                    setScheduleCache([]);
+                    return [];
+                }
+                const parsed = JSON.parse(raw);
+                const { out, changed } = normalizeList(parsed);
+                if (changed) {
+                    try { await saveScheduleAll(out); } catch (e2) {}
+                } else {
+                    setScheduleCache(out);
+                }
+                return Array.isArray(state.scheduleCache.list) ? state.scheduleCache.list : out;
+            } catch (e) {
+                setScheduleCache([]);
+                return [];
+            }
+        })();
         try {
-            const raw = String(localStorage.getItem(STORAGE.SCHEDULE_LS_KEY) || '');
-            if (!raw.trim()) return [];
-            const parsed = JSON.parse(raw);
-            return Array.isArray(parsed) ? parsed : [];
-        } catch (e) {
-            return [];
+            const list = await state.scheduleCache.inflight;
+            return cloneScheduleList(list);
+        } finally {
+            state.scheduleCache.inflight = null;
         }
     }
 
     async function saveScheduleAll(items) {
         const list = Array.isArray(items) ? items : [];
+        setScheduleCache(list);
         try { localStorage.setItem(STORAGE.SCHEDULE_LS_KEY, JSON.stringify(list)); } catch (e) {}
         try { await putFileText(STORAGE.SCHEDULE_FILE, JSON.stringify(list, null, 2)); } catch (e) {}
         return true;
+    }
+
+    function refetchAllCalendars() {
+        try { state.calendar?.refetchEvents?.(); } catch (e) {}
+        try { state.sideDay?.calendar?.refetchEvents?.(); } catch (e) {}
+    }
+
+    async function addTaskSchedule(input) {
+        const base = (input && typeof input === 'object') ? input : {};
+        const taskId = String(base.taskId || '').trim();
+        let startMs = toMs(base.start);
+        let endMs = toMs(base.end);
+        const durationMin = Number(base.durationMin);
+        const forceAllDay = base.allDay === true;
+        if (!taskId || !Number.isFinite(startMs) || startMs <= 0) throw new Error('invalid schedule payload');
+        if (forceAllDay) {
+            const sDate = new Date(startMs);
+            sDate.setHours(0, 0, 0, 0);
+            let eDate = Number.isFinite(endMs) ? new Date(endMs) : null;
+            if (!(eDate instanceof Date) || Number.isNaN(eDate.getTime())) {
+                eDate = new Date(sDate.getTime() + 86400000);
+            } else {
+                eDate.setHours(0, 0, 0, 0);
+                if (eDate.getTime() <= sDate.getTime()) eDate = new Date(sDate.getTime() + 86400000);
+            }
+            startMs = sDate.getTime();
+            endMs = eDate.getTime();
+        }
+        if (!Number.isFinite(endMs) || endMs <= startMs) {
+            const safeMin = (Number.isFinite(durationMin) && durationMin > 0) ? Math.max(15, Math.round(durationMin)) : 60;
+            endMs = startMs + safeMin * 60000;
+        }
+        const start = new Date(startMs);
+        const end = new Date(endMs);
+        const settings = getSettings();
+        const calendarId = String(base.calendarId || '').trim() || pickDefaultCalendarId(settings);
+        const title = String(base.title || '').trim() || '任务';
+        const color = String(base.color || '').trim();
+        const list = await loadScheduleAll();
+        const item = {
+            id: uuid(),
+            title,
+            start: safeISO(start),
+            end: safeISO(end),
+            allDay: forceAllDay ? true : isAllDayRange(start, end),
+            color,
+            calendarId,
+            taskId,
+        };
+        list.push(item);
+        await saveScheduleAll(list);
+        refetchAllCalendars();
+        return item;
+    }
+
+    function parseTaskDurationMinutes(raw) {
+        const s = String(raw || '').trim().toLowerCase();
+        if (!s) return 60;
+        const num = Number(s);
+        if (Number.isFinite(num) && num > 0) return Math.max(15, Math.round(num));
+        const m1 = /(\d+(?:\.\d+)?)\s*h/.exec(s);
+        if (m1) return Math.max(15, Math.round(Number(m1[1]) * 60));
+        const m2 = /(\d+(?:\.\d+)?)\s*(m|min|分钟)/.exec(s);
+        if (m2) return Math.max(15, Math.round(Number(m2[1])));
+        return 60;
+    }
+
+    function parseTaskDropPayload(jsEvent, draggedEl, resolveTask) {
+        const dt = jsEvent?.dataTransfer;
+        let taskId = '';
+        let calendarId = '';
+        let titleFromPayload = '';
+        let durationFromPayload = NaN;
+        const tryJson = (raw) => {
+            try { return JSON.parse(raw); } catch (e) {}
+            return null;
+        };
+        try {
+            const rawTask = String(dt?.getData?.('application/x-tm-task') || '').trim();
+            const pTask = rawTask ? tryJson(rawTask) : null;
+            if (pTask && typeof pTask === 'object') {
+                taskId = String(pTask.id || pTask.taskId || '').trim() || taskId;
+                calendarId = String(pTask.calendarId || '').trim() || calendarId;
+                titleFromPayload = String(pTask.title || '').trim() || titleFromPayload;
+                const m = Number(pTask.durationMin);
+                if (Number.isFinite(m) && m > 0) durationFromPayload = Math.max(15, Math.round(m));
+            }
+        } catch (e) {}
+        try {
+            const d0 = draggedEl && typeof draggedEl.getAttribute === 'function' ? draggedEl : null;
+            if (d0) {
+                taskId = String(d0.getAttribute('data-id') || d0.getAttribute('data-task-id') || '').trim();
+                if (!calendarId) calendarId = String(d0.getAttribute('data-calendar-id') || '').trim();
+            }
+        } catch (e) {}
+        try { if (!taskId) taskId = String(dt?.getData?.('application/x-tm-task-id') || '').trim(); } catch (e) {}
+        if (!taskId) {
+            try {
+                const raw = String(dt?.getData?.('application/x-tm-whiteboard-pool') || '').trim();
+                const p = raw ? tryJson(raw) : null;
+                if (p && typeof p === 'object') {
+                    taskId = String(p.taskId || '').trim() || String(Array.isArray(p.taskIds) ? p.taskIds[0] : '').trim();
+                }
+            } catch (e) {}
+        }
+        if (!taskId) {
+            try {
+                const raw = String(dt?.getData?.('application/x-tm-whiteboard-task') || '').trim();
+                const p = raw ? tryJson(raw) : null;
+                if (p && typeof p === 'object') taskId = String(p.taskId || '').trim();
+            } catch (e) {}
+        }
+        if (!taskId) {
+            try {
+                const raw = String(dt?.getData?.('text/plain') || '').trim();
+                if (raw) {
+                    const p = tryJson(raw);
+                    if (p && typeof p === 'object') {
+                        taskId = String(p.taskId || '').trim() || String(Array.isArray(p.taskIds) ? p.taskIds[0] : '').trim();
+                    } else {
+                        taskId = raw;
+                    }
+                }
+            } catch (e) {}
+        }
+        taskId = String(taskId || '').trim();
+        if (!taskId) return null;
+        const resolver = typeof resolveTask === 'function' ? resolveTask : null;
+        const task = resolver ? resolver(taskId) : null;
+        let title = String(task?.content || task?.title || '').trim() || taskId;
+        let durationMin = parseTaskDurationMinutes(task?.duration);
+        if (titleFromPayload) title = titleFromPayload;
+        if (Number.isFinite(durationFromPayload) && durationFromPayload > 0) durationMin = durationFromPayload;
+        if (!calendarId) {
+            try {
+                const meta = (typeof window.tmCalendarGetTaskDragMeta === 'function')
+                    ? window.tmCalendarGetTaskDragMeta(taskId)
+                    : null;
+                if (meta && typeof meta === 'object') {
+                    calendarId = String(meta.calendarId || '').trim() || calendarId;
+                    const m = Number(meta.durationMin);
+                    if (Number.isFinite(m) && m > 0) durationMin = Math.max(15, Math.round(m));
+                    const mt = String(meta.title || '').trim();
+                    if (mt) title = mt;
+                }
+            } catch (e) {}
+        }
+        return { taskId, title, durationMin, calendarId: String(calendarId || '').trim() };
+    }
+
+    function applyTaskDoneVisual(wrapEl, titleEl, done) {
+        const v = !!done;
+        try { wrapEl?.classList?.toggle?.('tm-cal-task-event--done', v); } catch (e) {}
+        if (titleEl instanceof HTMLElement) {
+            try {
+                if (v) {
+                    titleEl.style.textDecoration = 'line-through';
+                    titleEl.style.opacity = '0.9';
+                    titleEl.style.color = 'var(--tm-secondary-text, #8a8a8a)';
+                } else {
+                    titleEl.style.removeProperty('text-decoration');
+                    titleEl.style.removeProperty('opacity');
+                    titleEl.style.removeProperty('color');
+                }
+            } catch (e) {}
+        }
+    }
+
+    function unmountSideDayTimeline() {
+        try { state.sideDay.draggable?.destroy?.(); } catch (e) {}
+        state.sideDay.draggable = null;
+        state.sideDay.dragHost = null;
+        try { state.sideDay.nativeDropAbort?.abort?.(); } catch (e) {}
+        state.sideDay.nativeDropAbort = null;
+        try { state.sideDay.calendar?.destroy?.(); } catch (e) {}
+        state.sideDay.calendar = null;
+        state.sideDay.rootEl = null;
+        state.sideDay.resolveTask = null;
+    }
+
+    function bindSideDayNativeDrop(rootEl, resolveTask) {
+        try { state.sideDay.nativeDropAbort?.abort?.(); } catch (e) {}
+        state.sideDay.nativeDropAbort = null;
+        if (!(rootEl instanceof HTMLElement)) return;
+        const abort = new AbortController();
+        state.sideDay.nativeDropAbort = abort;
+        const getDropInfo = (target, x, y) => {
+            const pickCurrentSideDay = () => {
+                try {
+                    const d = state.sideDay?.calendar?.getDate?.();
+                    if (d instanceof Date && !Number.isNaN(d.getTime())) {
+                        const c = new Date(d.getTime());
+                        c.setHours(0, 0, 0, 0);
+                        return c;
+                    }
+                } catch (e) {}
+                return null;
+            };
+            const resolveFrom = (el) => {
+                if (!(el instanceof Element)) return null;
+                const slot = el.closest?.('.fc-timegrid-slot');
+                const col = el.closest?.('.fc-timegrid-col');
+                const allDayWrap = el.closest?.('.fc-timegrid-all-day, .fc-timegrid-allday');
+                const day = el.closest?.('.fc-daygrid-day');
+                if (allDayWrap) {
+                    const dateStr0 = String(el.closest?.('[data-date]')?.getAttribute?.('data-date') || '').trim();
+                    if (dateStr0) {
+                        const dt0 = new Date(`${dateStr0}T00:00:00`);
+                        if (!Number.isNaN(dt0.getTime())) return { start: dt0, allDay: true };
+                    }
+                    const cur = pickCurrentSideDay();
+                    if (cur) return { start: cur, allDay: true };
+                }
+                if (slot && col && !allDayWrap) {
+                    const dateStr = String(col.getAttribute('data-date') || '').trim();
+                    const timeStr = String(slot.getAttribute('data-time') || '').trim();
+                    if (dateStr && timeStr) {
+                        const hhmm = timeStr.slice(0, 5);
+                        const dt = new Date(`${dateStr}T${hhmm}:00`);
+                        if (!Number.isNaN(dt.getTime())) return { start: dt, allDay: false };
+                    }
+                }
+                const dayEl = day || el.closest?.('[data-date]');
+                const dateStr = String(dayEl?.getAttribute?.('data-date') || '').trim();
+                if (dateStr) {
+                    const dt = new Date(`${dateStr}T00:00:00`);
+                    if (!Number.isNaN(dt.getTime())) return { start: dt, allDay: true };
+                }
+                return null;
+            };
+            const hit = resolveFrom((target instanceof Element) ? target : null) || resolveFrom(document.elementFromPoint(x, y));
+            if (hit) return hit;
+            const cur = pickCurrentSideDay();
+            if (cur) return { start: cur, allDay: true };
+            return null;
+        };
+
+        rootEl.addEventListener('dragover', (e) => {
+            const ok = e.dataTransfer && (
+                Array.from(e.dataTransfer.types || []).includes('application/x-tm-task')
+                || Array.from(e.dataTransfer.types || []).includes('application/x-tm-task-id')
+                || Array.from(e.dataTransfer.types || []).includes('text/plain')
+            );
+            if (ok) e.preventDefault();
+        }, { signal: abort.signal });
+
+        rootEl.addEventListener('drop', async (e) => {
+            try {
+                const payload = parseTaskDropPayload(e, null, resolveTask);
+                if (!payload?.taskId) return;
+                e.preventDefault();
+                const hit = getDropInfo(e.target, e.clientX, e.clientY);
+                if (!hit?.start) return;
+                const start = hit.start;
+                const allDay = hit.allDay === true;
+                const safeMin = (Number.isFinite(Number(payload.durationMin)) && Number(payload.durationMin) > 0)
+                    ? Math.round(Number(payload.durationMin))
+                    : 60;
+                const end = allDay
+                    ? new Date(start.getTime() + 24 * 60 * 60000)
+                    : new Date(start.getTime() + safeMin * 60000);
+                const calendarId = String(payload.calendarId || '').trim() || pickDefaultCalendarId(getSettings());
+                await addTaskSchedule({
+                    taskId: String(payload.taskId || '').trim(),
+                    title: String(payload.title || '').trim() || '任务',
+                    start,
+                    end,
+                    calendarId,
+                    durationMin: safeMin,
+                    allDay,
+                });
+                toast('✅ 已加入日程', 'success');
+            } catch (e2) {}
+        }, { signal: abort.signal });
+    }
+
+    function bindSideDayExternalDraggable(host, settings, resolveTask) {
+        const Draggable = globalThis.FullCalendar?.Draggable;
+        try { state.sideDay.draggable?.destroy?.(); } catch (e) {}
+        state.sideDay.draggable = null;
+        state.sideDay.dragHost = null;
+        if (!(host instanceof HTMLElement)) return;
+        if (typeof Draggable !== 'function') return;
+        const itemSelector = 'tr[data-id], .tm-kanban-card[data-id], .tm-whiteboard-pool-item[data-task-id], .tm-whiteboard-node[data-task-id]';
+        const resolver = typeof resolveTask === 'function' ? resolveTask : null;
+        try {
+            state.sideDay.draggable = new Draggable(host, {
+                itemSelector,
+                eventData: (el) => {
+                    const id = String(
+                        el?.getAttribute?.('data-id')
+                        || el?.getAttribute?.('data-task-id')
+                        || ''
+                    ).trim();
+                    const task = resolver ? resolver(id) : null;
+                    let title = String(task?.content || task?.title || '').trim() || id || '任务';
+                    let safeMin = parseTaskDurationMinutes(task?.duration);
+                    let calendarId = String(el?.getAttribute?.('data-calendar-id') || '').trim();
+                    try {
+                        const meta = (typeof window.tmCalendarGetTaskDragMeta === 'function')
+                            ? window.tmCalendarGetTaskDragMeta(id)
+                            : null;
+                        if (meta && typeof meta === 'object') {
+                            title = String(meta.title || title).trim() || title;
+                            const m = Number(meta.durationMin);
+                            if (Number.isFinite(m) && m > 0) safeMin = Math.max(15, Math.round(m));
+                            if (!calendarId) calendarId = String(meta.calendarId || '').trim();
+                        }
+                    } catch (e) {}
+                    if (!calendarId) calendarId = pickDefaultCalendarId(settings || getSettings());
+                    return {
+                        title,
+                        duration: toDurationStr(safeMin),
+                        extendedProps: {
+                            __tmTaskId: id,
+                            __tmDurationMin: safeMin,
+                            calendarId,
+                        },
+                    };
+                },
+            });
+            state.sideDay.dragHost = host;
+        } catch (e) {
+            state.sideDay.draggable = null;
+            state.sideDay.dragHost = null;
+        }
+    }
+
+    function mountSideDayTimeline(rootEl, opts) {
+        if (!(rootEl instanceof HTMLElement)) return false;
+        if (!window.FullCalendar) return false;
+        if (state.sideDay.rootEl && state.sideDay.rootEl !== rootEl) {
+            unmountSideDayTimeline();
+        }
+        const inOpts = (opts && typeof opts === 'object') ? opts : {};
+        state.sideDay.settingsStore = inOpts.settingsStore || state.settingsStore || null;
+        if (!state.settingsStore && state.sideDay.settingsStore) {
+            state.settingsStore = state.sideDay.settingsStore;
+        }
+        state.sideDay.resolveTask = (typeof inOpts.resolveTask === 'function') ? inOpts.resolveTask : null;
+        bindSideDayNativeDrop(rootEl, state.sideDay.resolveTask);
+        const dragHost = (inOpts.dragHost instanceof HTMLElement) ? inOpts.dragHost : null;
+        if (dragHost && dragHost !== state.sideDay.dragHost) {
+            bindSideDayExternalDraggable(dragHost, getSettings(), state.sideDay.resolveTask);
+        }
+        if (state.sideDay.calendar) {
+            state.sideDay.rootEl = rootEl;
+            if (String(inOpts.date || '').trim()) {
+                try { state.sideDay.calendar.gotoDate(String(inOpts.date || '').trim()); } catch (e) {}
+            }
+            return true;
+        }
+
+        state.sideDay.rootEl = rootEl;
+        const settings = getSettings();
+        const initialDate = String(inOpts.date || '').trim() || undefined;
+        const cal = new window.FullCalendar.Calendar(rootEl, {
+            locale: 'zh-cn',
+            timeZone: 'local',
+            initialView: 'timeGridDay',
+            initialDate,
+            firstDay: Number(settings.firstDay) === 0 ? 0 : 1,
+            headerToolbar: false,
+            nowIndicator: true,
+            editable: true,
+            eventStartEditable: true,
+            eventDurationEditable: true,
+            eventResizableFromStart: true,
+            selectable: true,
+            selectMirror: true,
+            droppable: true,
+            dropAccept: 'tr[data-id], .tm-cal-task, .tm-kanban-card[data-id], .tm-whiteboard-pool-item[data-task-id], .tm-whiteboard-node[data-task-id]',
+            allDaySlot: true,
+            slotDuration: '00:30:00',
+            slotLabelInterval: '01:00',
+            slotLabelContent: (arg) => {
+                const d = arg?.date;
+                if (!(d instanceof Date) || Number.isNaN(d.getTime())) return '';
+                return `${pad2(d.getHours())}:${pad2(d.getMinutes())}`;
+            },
+            eventOrder: '__tmRank,title',
+            eventOrderStrict: true,
+            eventContent: (arg) => {
+                const ext = arg?.event?.extendedProps || {};
+                const source = String(ext.__tmSource || '').trim();
+                if (source === 'taskdate' || (source === 'schedule' && String(ext.__tmTaskId || '').trim())) {
+                    const tid = String(ext.__tmTaskId || '').trim();
+                    const done = (() => {
+                        if (!tid) return false;
+                        if (typeof window.tmIsTaskDone !== 'function') return false;
+                        try { return !!window.tmIsTaskDone(tid); } catch (e) { return false; }
+                    })();
+                    const wrapEl = document.createElement('span');
+                    wrapEl.className = 'tm-cal-task-event';
+                    wrapEl.oncontextmenu = (ev) => {
+                        try { ev.stopPropagation(); } catch (e) {}
+                        try { ev.preventDefault(); } catch (e) {}
+                        if (tid && typeof window.tmShowTaskContextMenu === 'function') {
+                            try { window.tmShowTaskContextMenu(ev, tid); } catch (e2) {}
+                        }
+                        return false;
+                    };
+                    const cb = document.createElement('input');
+                    cb.type = 'checkbox';
+                    cb.className = 'tm-cal-task-event-check';
+                    cb.checked = done;
+                    cb.onchange = async (ev) => {
+                        try { ev.stopPropagation(); } catch (e) {}
+                        try { ev.preventDefault(); } catch (e) {}
+                        if (!tid || typeof window.tmSetDone !== 'function') return;
+                        const nextDone = cb.checked === true;
+                        applyTaskDoneVisual(wrapEl, title, nextDone);
+                        try {
+                            const r = window.tmSetDone(tid, nextDone, ev);
+                            if (r && typeof r.then === 'function') await r;
+                        } catch (e) {}
+                        refetchAllCalendars();
+                    };
+                    const title = document.createElement('span');
+                    title.className = 'tm-cal-task-event-title';
+                    title.textContent = String(arg?.event?.title || '').trim() || '任务';
+                    applyTaskDoneVisual(wrapEl, title, done);
+                    title.onclick = (ev) => {
+                        try { ev.stopPropagation(); } catch (e) {}
+                        if (!tid || typeof window.tmJumpToTask !== 'function') return;
+                        try { window.tmJumpToTask(tid, ev); } catch (e) {}
+                    };
+                    wrapEl.appendChild(cb);
+                    wrapEl.appendChild(title);
+                    return { domNodes: [wrapEl] };
+                }
+                return true;
+            },
+            eventDidMount: (arg) => {
+                try {
+                    const ext = arg?.event?.extendedProps || {};
+                    const source = String(ext.__tmSource || '').trim();
+                    const el = arg?.el;
+                    if (el && el instanceof Element) {
+                        const eid = String(arg?.event?.id || '').trim();
+                        if (eid) el.setAttribute('data-tm-cal-event-id', eid);
+                        if (source) el.setAttribute('data-tm-cal-source', source);
+                        const tid = String(ext.__tmTaskId || '').trim();
+                        if (tid) el.setAttribute('data-tm-cal-task-id', tid);
+                        const sid = String(ext.__tmScheduleId || '').trim();
+                        if (sid) el.setAttribute('data-tm-cal-schedule-id', sid);
+                    }
+                    if (source === 'taskdate' || (source === 'schedule' && String(ext.__tmTaskId || '').trim())) {
+                        const tid = String(ext.__tmTaskId || '').trim();
+                        if (tid && el && !el.__tmTaskCtxBound) {
+                            el.__tmTaskCtxBound = true;
+                            el.addEventListener('contextmenu', (ev) => {
+                                try { ev.stopPropagation(); } catch (e) {}
+                                try { ev.preventDefault(); } catch (e) {}
+                                if (typeof window.tmShowTaskContextMenu === 'function') {
+                                    try { window.tmShowTaskContextMenu(ev, tid); } catch (e) {}
+                                }
+                            });
+                        }
+                    }
+                } catch (e) {}
+            },
+            drop: () => {},
+            eventReceive: async (info) => {
+                try {
+                    const ext = info?.event?.extendedProps || {};
+                    const payload = parseTaskDropPayload(info?.jsEvent, info?.draggedEl, state.sideDay.resolveTask);
+                    const taskId = String(ext.__tmTaskId || payload?.taskId || '').trim();
+                    const start = info?.event?.start;
+                    let end = info?.event?.end;
+                    const durMin = Number(ext.__tmDurationMin || payload?.durationMin);
+                    if (!taskId || !(start instanceof Date) || Number.isNaN(start.getTime())) {
+                        try { info?.event?.remove?.(); } catch (e2) {}
+                        return;
+                    }
+                    if (!(end instanceof Date) || Number.isNaN(end.getTime()) || end.getTime() <= start.getTime()) {
+                        const safeMin = (Number.isFinite(durMin) && durMin > 0) ? Math.round(durMin) : 60;
+                        end = new Date(start.getTime() + safeMin * 60000);
+                    }
+                    const title = String(payload?.title || info?.event?.title || '').trim() || '任务';
+                    const calendarId = String(ext.calendarId || payload?.calendarId || '').trim() || pickDefaultCalendarId(getSettings());
+                    const dropAllDayHint = (() => {
+                        const t = info?.jsEvent?.target;
+                        if (!(t instanceof Element)) return false;
+                        return !!t.closest('.fc-timegrid-all-day, .fc-timegrid-allday, .fc-daygrid-day');
+                    })();
+                    const allDay = (info?.event?.allDay === true) || dropAllDayHint;
+                    await addTaskSchedule({ taskId, title, start, end, calendarId, durationMin: durMin, allDay });
+                    try { info?.event?.remove?.(); } catch (e2) {}
+                    refetchAllCalendars();
+                    toast('✅ 已加入日程', 'success');
+                } catch (e) {
+                    try { info?.event?.remove?.(); } catch (e2) {}
+                    toast(`❌ 加入日程失败：${String(e?.message || e || '')}`, 'error');
+                }
+            },
+            events: async (info, success, failure) => {
+                try {
+                    const curSettings = getSettings();
+                    const [schedules, taskDates] = await Promise.all([
+                        loadScheduleForRange(info.start || '', info.end || ''),
+                        (curSettings.showTaskDates && typeof window.tmQueryCalendarTaskDateEvents === 'function')
+                            ? Promise.resolve().then(() => window.tmQueryCalendarTaskDateEvents(info.start || '', info.end || '')).catch(() => [])
+                            : Promise.resolve([]),
+                    ]);
+                    const b = buildEventsFromSchedule(schedules, curSettings);
+                    const c = buildEventsFromTaskDates(taskDates, curSettings);
+                    success((b || []).concat(c || []));
+                } catch (e) {
+                    failure(e);
+                }
+            },
+            eventClick: (arg) => {
+                const target = arg?.jsEvent?.target;
+                try {
+                    if (target instanceof Element) {
+                        if (target.closest('.tm-cal-task-event-check')) return;
+                        if (target.closest('.tm-cal-task-event-title')) return;
+                    }
+                } catch (e0) {}
+                const ext = arg?.event?.extendedProps || {};
+                const source = String(ext.__tmSource || '').trim();
+                if (source === 'taskdate') {
+                    const tid = String(ext.__tmTaskId || '').trim();
+                    try {
+                        if (tid && typeof window.tmJumpToTask === 'function') window.tmJumpToTask(tid, arg?.jsEvent);
+                    } catch (e) {}
+                    return;
+                }
+                if (source === 'schedule') {
+                    try {
+                        openScheduleModal({
+                            id: String(ext.__tmScheduleId || arg?.event?.id || ''),
+                            title: String(arg?.event?.title || ''),
+                            start: arg?.event?.start,
+                            end: arg?.event?.end,
+                            allDay: arg?.event?.allDay === true,
+                            color: String(arg?.event?.backgroundColor || arg?.event?.borderColor || '#0078d4'),
+                            calendarId: String(ext.calendarId || 'default'),
+                            taskId: String(ext.__tmTaskId || ''),
+                        });
+                    } catch (e2) {
+                        toast(`❌ 打开编辑窗失败：${String(e2?.message || e2 || '')}`, 'error');
+                    }
+                }
+            },
+            eventDrop: async (arg) => {
+                const ext = arg?.event?.extendedProps || {};
+                const source = String(ext.__tmSource || '').trim();
+                if (source === 'schedule') {
+                    const id = String(ext.__tmScheduleId || arg?.event?.id || '').trim();
+                    const start = arg?.event?.start;
+                    const end0 = arg?.event?.end;
+                    if (!id || !(start instanceof Date) || Number.isNaN(start.getTime())) {
+                        try { arg.revert(); } catch (e) {}
+                        return;
+                    }
+                    const isAllDay = arg?.event?.allDay === true;
+                    const end = (end0 instanceof Date && !Number.isNaN(end0.getTime()) && end0.getTime() > start.getTime())
+                        ? end0
+                        : new Date(start.getTime() + (isAllDay ? 24 * 60 : 60) * 60000);
+                    const list = await loadScheduleAll();
+                    const idx = list.findIndex((x) => String(x?.id || '') === id);
+                    if (idx < 0) {
+                        try { arg.revert(); } catch (e) {}
+                        return;
+                    }
+                    const allDay = (arg?.event?.allDay === true) || isAllDayRange(start, end);
+                    list[idx] = { ...list[idx], start: safeISO(start), end: safeISO(end), allDay };
+                    await saveScheduleAll(list);
+                    toast('✅ 已更新日程', 'success');
+                    return;
+                }
+                if (source === 'taskdate') {
+                    const taskId = String(ext.__tmTaskId || '').trim();
+                    const start = arg?.event?.start;
+                    const end0 = arg?.event?.end;
+                    const calendarId = String(ext.calendarId || 'default').trim() || pickDefaultCalendarId(getSettings());
+                    if (!taskId || !(start instanceof Date) || Number.isNaN(start.getTime())) {
+                        try { arg.revert(); } catch (e) {}
+                        return;
+                    }
+                    const isAllDay = arg?.event?.allDay === true;
+                    const safeEnd = (end0 instanceof Date && !Number.isNaN(end0.getTime()) && end0.getTime() > start.getTime())
+                        ? end0
+                        : new Date(start.getTime() + (isAllDay ? 24 * 60 : 60) * 60000);
+                    try {
+                        const list = await loadScheduleAll();
+                        list.push({
+                            id: uuid(),
+                            title: String(arg?.event?.title || '').trim() || '任务',
+                            start: safeISO(start),
+                            end: safeISO(safeEnd),
+                            allDay: isAllDayRange(start, safeEnd),
+                            color: '',
+                            calendarId,
+                            taskId,
+                        });
+                        await saveScheduleAll(list);
+                        toast('✅ 已加入日程', 'success');
+                    } catch (e) {}
+                    try { arg.revert(); } catch (e) {}
+                    refetchAllCalendars();
+                    return;
+                }
+                try { arg.revert(); } catch (e) {}
+            },
+            eventResize: async (arg) => {
+                const ext = arg?.event?.extendedProps || {};
+                const source = String(ext.__tmSource || '').trim();
+                if (source !== 'schedule') {
+                    try { arg.revert(); } catch (e) {}
+                    return;
+                }
+                const id = String(ext.__tmScheduleId || arg?.event?.id || '').trim();
+                const start = arg?.event?.start;
+                const end = arg?.event?.end;
+                if (!id || !(start instanceof Date) || !(end instanceof Date) || Number.isNaN(start.getTime()) || Number.isNaN(end.getTime()) || end.getTime() <= start.getTime()) {
+                    try { arg.revert(); } catch (e) {}
+                    return;
+                }
+                const list = await loadScheduleAll();
+                const idx = list.findIndex((x) => String(x?.id || '') === id);
+                if (idx < 0) {
+                    try { arg.revert(); } catch (e) {}
+                    return;
+                }
+                const allDay = (arg?.event?.allDay === true) || isAllDayRange(start, end);
+                list[idx] = { ...list[idx], start: safeISO(start), end: safeISO(end), allDay };
+                await saveScheduleAll(list);
+                toast('✅ 已更新日程', 'success');
+            },
+        });
+        cal.render();
+        state.sideDay.calendar = cal;
+        return true;
+    }
+
+    function setSideDayDate(dateKey) {
+        const v = String(dateKey || '').trim();
+        const cal = state.sideDay.calendar;
+        if (!cal || !v) return false;
+        try {
+            cal.gotoDate(v);
+            state.sideDay.dateKey = v;
+            return true;
+        } catch (e) {
+            return false;
+        }
+    }
+
+    function shiftSideDay(delta) {
+        const cal = state.sideDay.calendar;
+        if (!cal) return false;
+        try {
+            const d = cal.getDate();
+            const n = new Date(d.getTime());
+            n.setDate(n.getDate() + (Number(delta) || 0));
+            cal.gotoDate(n);
+            state.sideDay.dateKey = formatDateKey(n);
+            return true;
+        } catch (e) {
+            return false;
+        }
+    }
+
+    function getSideDayDate() {
+        const cal = state.sideDay.calendar;
+        if (!cal) return '';
+        try {
+            return formatDateKey(cal.getDate());
+        } catch (e) {
+            return '';
+        }
+    }
+
+    async function listTaskSchedulesByDay(dayKey) {
+        const d = parseDateOnly(dayKey);
+        if (!(d instanceof Date) || Number.isNaN(d.getTime())) return [];
+        const start = new Date(d.getFullYear(), d.getMonth(), d.getDate(), 0, 0, 0, 0);
+        const end = new Date(start.getTime() + 86400000);
+        const s2 = start.getTime();
+        const e2 = end.getTime();
+        const list = await loadScheduleAll();
+        return (Array.isArray(list) ? list : []).filter((it) => {
+            const tid = String(it?.taskId || it?.task_id || it?.linkedTaskId || it?.linked_task_id || '').trim();
+            if (!tid) return false;
+            const s1 = toMs(it?.start);
+            const e1 = toMs(it?.end);
+            return overlap(s1, e1, s2, e2);
+        }).sort((a, b) => {
+            const sa = toMs(a?.start);
+            const sb = toMs(b?.start);
+            if (sa !== sb) return sa - sb;
+            return String(a?.title || '').localeCompare(String(b?.title || ''), 'zh-Hans-CN');
+        });
     }
 
     async function loadScheduleForRange(rangeStart, rangeEnd) {
@@ -959,7 +1781,7 @@
             const calColor = defMap.get(calendarId)?.color || '#0078d4';
             const rawColor = String(it?.color || '').trim();
             const color = rawColor || settings.scheduleColor || calColor;
-            const taskId = String(it?.taskId || '').trim();
+            const taskId = String(it?.taskId || it?.task_id || it?.linkedTaskId || it?.linked_task_id || '').trim();
             const allDay = (it?.allDay === true) || isAllDayRange(start, end);
             return {
                 id: String(it?.id || uuid()),
@@ -1672,6 +2494,7 @@
         const settings = getSettings();
         const calDefs = getCalendarDefs(settings);
         const scheduleId = String(init.id || '');
+        const taskId0 = String(init.taskId || '').trim();
         const isEdit = !!scheduleId;
         const initAllDay = init.allDay === true;
         const start = init.start instanceof Date ? init.start : null;
@@ -1751,7 +2574,7 @@
                 const next = list.filter((x) => String(x?.id || '') !== scheduleId);
                 await saveScheduleAll(next);
                 closeModal();
-                try { state.calendar?.refetchEvents?.(); } catch (e2) {}
+                refetchAllCalendars();
                 try {
                     const cal = state.calendar;
                     const vt = String(cal?.view?.type || '');
@@ -1760,7 +2583,7 @@
                         if (d) requestAnimationFrame(() => { try { cal.changeView('dayGridMonth', d); } catch (e3) {} });
                     }
                 } catch (e2) {}
-                try { setTimeout(() => { try { state.calendar?.refetchEvents?.(); } catch (e3) {} }, 380); } catch (e2) {}
+                try { setTimeout(() => { try { refetchAllCalendars(); } catch (e3) {} }, 380); } catch (e2) {}
                 toast('✅ 已删除', 'success');
                 return;
             }
@@ -1782,7 +2605,13 @@
                 }
                 const allDay = isAllDayRange(nextStart, nextEnd) || (initAllDay && isAllDayRange(nextStart, nextEnd));
                 const id = scheduleId || uuid();
+                const list = await loadScheduleAll();
+                const idx = list.findIndex((x) => String(x?.id || '') === id);
+                const prevItem = idx >= 0 ? list[idx] : null;
+                const taskIdKeep = String(taskId0 || prevItem?.taskId || prevItem?.task_id || prevItem?.linkedTaskId || prevItem?.linked_task_id || '').trim();
+                const base = (prevItem && typeof prevItem === 'object') ? prevItem : {};
                 const item = {
+                    ...base,
                     id,
                     title: title || '日程',
                     start: safeISO(nextStart),
@@ -1790,9 +2619,8 @@
                     allDay,
                     color,
                     calendarId,
+                    taskId: taskIdKeep,
                 };
-                const list = await loadScheduleAll();
-                const idx = list.findIndex((x) => String(x?.id || '') === id);
                 if (idx >= 0) list[idx] = item;
                 else list.push(item);
                 await saveScheduleAll(list);
@@ -1805,7 +2633,7 @@
                     }
                 } catch (e2) {}
                 closeModal();
-                try { state.calendar?.refetchEvents?.(); } catch (e2) {}
+                refetchAllCalendars();
                 try {
                     const cal = state.calendar;
                     const vt = String(cal?.view?.type || '');
@@ -1814,7 +2642,7 @@
                         if (d) requestAnimationFrame(() => { try { cal.changeView('dayGridMonth', d); } catch (e3) {} });
                     }
                 } catch (e2) {}
-                try { setTimeout(() => { try { state.calendar?.refetchEvents?.(); } catch (e3) {} }, 380); } catch (e2) {}
+                try { setTimeout(() => { try { refetchAllCalendars(); } catch (e3) {} }, 380); } catch (e2) {}
                 toast('✅ 已保存', 'success');
             }
         }, { signal: abort.signal });
@@ -1827,6 +2655,33 @@
             state.tomatoRefetchTimer = null;
             try { state.calendar?.refetchEvents?.(); } catch (e) {}
         }, 120);
+    }
+
+    function stabilizeCalendarLayout(cal, wrap, opt) {
+        const hard = !!opt?.hard;
+        const run = () => {
+            try { cal.updateSize(); } catch (e3) {}
+            try { applyCnHolidayDots(wrap); } catch (e3) {}
+            try { applyCnLunarLabels(wrap); } catch (e3) {}
+        };
+        try { requestAnimationFrame(run); } catch (e2) {}
+        if (hard) {
+            try { setTimeout(run, 120); } catch (e2) {}
+            try { setTimeout(run, 320); } catch (e2) {}
+        }
+    }
+
+    function refreshInPlace(options) {
+        const opt = (options && typeof options === 'object') ? options : {};
+        const wrap = state.wrapEl;
+        const cal = state.calendar;
+        if (!wrap || !cal) return false;
+        if (opt.layoutOnly !== true) {
+            try { renderTaskPage(wrap, getSettings()); } catch (e2) {}
+            try { cal.refetchEvents(); } catch (e2) {}
+        }
+        stabilizeCalendarLayout(cal, wrap, opt);
+        return true;
     }
 
     function mount(rootEl, opts) {
@@ -1889,12 +2744,6 @@
                             <div class="tm-calendar-task-table-wrap" style="flex:1; overflow:hidden; display:flex; flex-direction:column; min-height:0;">
                                 <div class="tm-calendar-task-table" data-tm-cal-role="task-table" style="flex:1; overflow:auto; min-height:0;"></div>
                             </div>
-                        </div>
-                        <div class="tm-calendar-sidebar-footer">
-                            <button class="tm-btn tm-btn-secondary" data-tm-cal-action="today">今天</button>
-                            <div style="flex:1;"></div>
-                            <button class="tm-btn tm-btn-secondary" data-tm-cal-action="refresh">刷新</button>
-                            <button class="tm-btn tm-btn-primary" data-tm-cal-action="new">新建</button>
                         </div>
                     </div>
                 </div>
@@ -1977,7 +2826,6 @@
                     })();
                     const wrapEl = document.createElement('span');
                     wrapEl.className = 'tm-cal-task-event';
-                    if (done) wrapEl.classList.add('tm-cal-task-event--done');
                     wrapEl.oncontextmenu = (ev) => {
                         try { ev.stopPropagation(); } catch (e) {}
                         try { ev.preventDefault(); } catch (e) {}
@@ -1990,16 +2838,22 @@
                     cb.type = 'checkbox';
                     cb.className = 'tm-cal-task-event-check';
                     cb.checked = done;
-                    cb.onchange = (ev) => {
+                    cb.onchange = async (ev) => {
                         try { ev.stopPropagation(); } catch (e) {}
                         try { ev.preventDefault(); } catch (e) {}
                         if (!tid || typeof window.tmSetDone !== 'function') return;
-                        try { window.tmSetDone(tid, cb.checked === true, ev); } catch (e) {}
+                        const nextDone = cb.checked === true;
+                        applyTaskDoneVisual(wrapEl, title, nextDone);
+                        try {
+                            const r = window.tmSetDone(tid, nextDone, ev);
+                            if (r && typeof r.then === 'function') await r;
+                        } catch (e) {}
                         try { state.calendar?.refetchEvents?.(); } catch (e) {}
                     };
                     const title = document.createElement('span');
                     title.className = 'tm-cal-task-event-title';
                     title.textContent = String(arg?.event?.title || '').trim() || '任务';
+                    applyTaskDoneVisual(wrapEl, title, done);
                     title.onclick = (ev) => {
                         if (_tmClickTracker && _tmClickTracker.ts > 0) {
                             const dur = Date.now() - _tmClickTracker.ts;
@@ -2177,7 +3031,7 @@
                         loadRecordsForRange(info.start, info.end),
                         loadScheduleForRange(info.start, info.end),
                         (settings.showTaskDates && typeof window.tmQueryCalendarTaskDateEvents === 'function')
-                            ? Promise.resolve().then(() => window.tmQueryCalendarTaskDateEvents(info.start?.toISOString?.() || '', info.end?.toISOString?.() || '')).catch(() => [])
+                            ? Promise.resolve().then(() => window.tmQueryCalendarTaskDateEvents(info.start || '', info.end || '')).catch(() => [])
                             : Promise.resolve([]),
                         (settings.showCnHoliday || settings.showLunar) ? Promise.all(years.map((y) => loadCnHolidayYear(y))).then((arr) => arr.flat()) : Promise.resolve([]),
                     ]);
@@ -2261,6 +3115,7 @@
                             allDay: arg?.event?.allDay === true,
                             color: String(arg?.event?.backgroundColor || arg?.event?.borderColor || '#0078d4'),
                             calendarId: String(ext.calendarId || 'default'),
+                            taskId: String(ext.__tmTaskId || ''),
                         });
                     } catch (e2) {
                         try { toast(`❌ 打开编辑窗失败：${String(e2?.message || e2 || '')}`, 'error'); } catch (e3) {}
@@ -2284,7 +3139,7 @@
                 if (!d || Number.isNaN(d.getTime())) return;
                 const start = new Date(d.getTime());
                 start.setSeconds(0, 0);
-                const end = new Date(start.getTime() + (info?.allDay === true ? 24 * 60 : 60) * 60000);
+                const end = new Date(start.getTime() + (info?.allDay === true ? 24 * 60 : 30) * 60000);
                 openScheduleModal({ start, end, allDay: info?.allDay === true, calendarId: pickDefaultCalendarId(getSettings()) });
             },
             eventDrop: async (arg) => {
@@ -2558,31 +3413,12 @@
                     }
                 } catch (e2) {}
                 try {
-                    if (typeof window.tmRefresh === 'function') {
+                    if (typeof window.tmRefreshCalendarInPlace === 'function') {
+                        window.tmRefreshCalendarInPlace({ silent: false }).catch(() => null);
+                    } else if (typeof window.tmRefresh === 'function') {
                         window.tmRefresh().catch(() => null);
-                    }
-                } catch (e2) {}
-                try {
-                    setTimeout(() => {
-                        try {
-                            const s2 = getSettings();
-                            renderTaskPage(wrap, s2);
-                        } catch (e3) {}
-                    }, 650);
-                } catch (e2) {}
-                try { calendar.refetchEvents(); } catch (e2) {}
-                try {
-                    requestAnimationFrame(() => { try { calendar.updateSize(); } catch (e3) {} });
-                } catch (e2) {}
-                try {
-                    const vt = String(calendar?.view?.type || '');
-                    if (vt === 'dayGridMonth') {
-                        const d = calendar?.getDate?.();
-                        if (d) {
-                            requestAnimationFrame(() => {
-                                try { calendar.changeView('dayGridMonth', d); } catch (e4) {}
-                            });
-                        }
+                    } else {
+                        refreshInPlace({ hard: true });
                     }
                 } catch (e2) {}
                 try {
@@ -2593,7 +3429,10 @@
                                 if (nowType !== prevType) calendar.changeView(prevType, prevDate);
                                 else calendar.gotoDate(prevDate);
                             } catch (e3) {}
+                            try { refreshInPlace({ hard: true }); } catch (e3) {}
                         });
+                    } else {
+                        refreshInPlace({ hard: true });
                     }
                 } catch (e2) {}
             }
@@ -2759,6 +3598,7 @@
                             allDay: api?.allDay === true,
                             color: String(api?.backgroundColor || api?.borderColor || '#0078d4'),
                             calendarId: String(ext.calendarId || 'default'),
+                            taskId: String(ext.__tmTaskId || ''),
                         });
                     } catch (e2) {
                         try { toast(`❌ 打开编辑窗失败：${String(e2?.message || e2 || '')}`, 'error'); } catch (e3) {}
@@ -3087,6 +3927,10 @@
             try { clearTimeout(state._persistTimer); } catch (e) {}
             state._persistTimer = null;
         }
+        if (state.sidebarResizeCleanup) {
+            try { state.sidebarResizeCleanup(); } catch (e) {}
+            state.sidebarResizeCleanup = null;
+        }
         if (state.sidebarColorMenuBindTimer) {
             try { clearTimeout(state.sidebarColorMenuBindTimer); } catch (e) {}
             state.sidebarColorMenuBindTimer = null;
@@ -3243,6 +4087,7 @@
     }
 
     function cleanup() {
+        unmountSideDayTimeline();
         unmount();
         state.settingsAbort?.abort();
         state.settingsAbort = null;
@@ -3268,5 +4113,13 @@
             if (!wrap) return false;
             return setMobileSidebarOpen(wrap, false);
         },
+        mountSideDayTimeline,
+        unmountSideDayTimeline,
+        setSideDayDate,
+        shiftSideDay,
+        getSideDayDate,
+        addTaskSchedule,
+        listTaskSchedulesByDay,
+        refreshInPlace,
     };
 })();

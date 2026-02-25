@@ -100,6 +100,14 @@
     min-height: 0;
 }
 
+.tm-calendar-wrap.tm-calendar-wrap--tasks-page .tm-calendar-sidebar-inner {
+    gap: 0;
+}
+
+.tm-calendar-wrap.tm-calendar-wrap--tasks-page .tm-calendar-side-page[data-tm-cal-side-page="tasks"] {
+    margin-top: -10px;
+}
+
 .tm-calendar-side-tabs {
     display: flex;
     gap: 6px;
@@ -293,6 +301,18 @@
     flex-direction: column;
 }
 
+.tm-calendar-side-page[data-tm-cal-side-page="tasks"] {
+    gap: 0;
+    margin: -10px -10px -10px;
+}
+
+.tm-calendar-side-page[data-tm-cal-side-page="tasks"] .tm-calendar-task-table-wrap {
+    border-left: none;
+    border-right: none;
+    border-bottom: none;
+    border-radius: 0;
+}
+
 .tm-calendar-task-table {
     flex: 1;
     height: 100%;
@@ -309,7 +329,12 @@
 .tm-calendar-task-table #tmTaskTable thead th {
     position: sticky;
     top: 0;
-    z-index: 2;
+    z-index: 6;
+    background: var(--tm-header-bg);
+}
+
+.tm-calendar-task-table .tm-group-sticky {
+    z-index: 1;
 }
 
 .tm-cal-task-caret {
@@ -644,11 +669,6 @@
     transform: rotate(-45deg);
 }
 
-.tm-calendar-sidebar-footer {
-    display: flex;
-    gap: 8px;
-}
-
 .tm-calendar-wrap .fc td.fc-timegrid-slot-label,
 .tm-calendar-wrap .fc td.fc-timegrid-slot-lane {
     position: relative;
@@ -913,6 +933,22 @@
 
 [data-theme-mode="dark"] .tm-calendar-wrap {
     --fc-border-color: rgba(255,255,255,0.14);
+}
+
+#tmCalendarSideDockTimeline {
+    --fc-page-bg-color: var(--tm-bg-color);
+    --fc-border-color: rgba(0,0,0,0.14);
+    --fc-today-bg-color: rgba(0,120,212,0.08);
+    --fc-now-indicator-color: #0078d4;
+}
+
+[data-theme-mode="dark"] #tmCalendarSideDockTimeline {
+    --fc-border-color: rgba(255,255,255,0.14);
+}
+
+#tmCalendarSideDockTimeline .fc .fc-timegrid-col.fc-day-today,
+#tmCalendarSideDockTimeline .fc .fc-daygrid-day.fc-day-today {
+    background: var(--fc-today-bg-color);
 }
 
 .tm-calendar-host .fc {
@@ -1247,6 +1283,35 @@
 }
 
 .tm-calendar-wrap .fc .tm-cal-task-event.tm-cal-task-event--done .tm-cal-task-event-title {
+    color: var(--tm-secondary-text, #8a8a8a) !important;
+    text-decoration: line-through !important;
+    opacity: 0.9;
+}
+
+#tmCalendarSideDockTimeline .fc .tm-cal-task-event {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    max-width: 100%;
+    min-width: 0;
+}
+
+#tmCalendarSideDockTimeline .fc .tm-cal-task-event-check {
+    width: 12px;
+    height: 12px;
+    flex: 0 0 auto;
+    cursor: pointer;
+}
+
+#tmCalendarSideDockTimeline .fc .tm-cal-task-event-title {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    cursor: pointer;
+}
+
+#tmCalendarSideDockTimeline .fc .tm-cal-task-event.tm-cal-task-event--done .tm-cal-task-event-title {
     color: var(--tm-secondary-text, #8a8a8a) !important;
     text-decoration: line-through !important;
     opacity: 0.9;
