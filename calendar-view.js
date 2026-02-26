@@ -869,7 +869,12 @@
         };
 
         host.addEventListener('dragover', (e) => {
-            const ok = e.dataTransfer && (Array.from(e.dataTransfer.types || []).includes('application/x-tm-task') || Array.from(e.dataTransfer.types || []).includes('text/plain'));
+            // 检查是否为白板连线操作，如果是则不阻止默认行为
+            const types = Array.from(e.dataTransfer?.types || []);
+            const isWhiteboardLink = types.includes('application/x-tm-task-link');
+            if (isWhiteboardLink) return;
+
+            const ok = e.dataTransfer && (types.includes('application/x-tm-task') || types.includes('text/plain'));
             if (ok) e.preventDefault();
         });
         host.addEventListener('drop', async (e) => {
@@ -1155,22 +1160,6 @@
         try { if (!taskId) taskId = String(dt?.getData?.('application/x-tm-task-id') || '').trim(); } catch (e) {}
         if (!taskId) {
             try {
-                const raw = String(dt?.getData?.('application/x-tm-whiteboard-pool') || '').trim();
-                const p = raw ? tryJson(raw) : null;
-                if (p && typeof p === 'object') {
-                    taskId = String(p.taskId || '').trim() || String(Array.isArray(p.taskIds) ? p.taskIds[0] : '').trim();
-                }
-            } catch (e) {}
-        }
-        if (!taskId) {
-            try {
-                const raw = String(dt?.getData?.('application/x-tm-whiteboard-task') || '').trim();
-                const p = raw ? tryJson(raw) : null;
-                if (p && typeof p === 'object') taskId = String(p.taskId || '').trim();
-            } catch (e) {}
-        }
-        if (!taskId) {
-            try {
                 const raw = String(dt?.getData?.('text/plain') || '').trim();
                 if (raw) {
                     const p = tryJson(raw);
@@ -1295,10 +1284,15 @@
         };
 
         rootEl.addEventListener('dragover', (e) => {
+            // 检查是否为白板连线操作，如果是则不阻止默认行为
+            const types = Array.from(e.dataTransfer?.types || []);
+            const isWhiteboardLink = types.includes('application/x-tm-task-link');
+            if (isWhiteboardLink) return;
+
             const ok = e.dataTransfer && (
-                Array.from(e.dataTransfer.types || []).includes('application/x-tm-task')
-                || Array.from(e.dataTransfer.types || []).includes('application/x-tm-task-id')
-                || Array.from(e.dataTransfer.types || []).includes('text/plain')
+                types.includes('application/x-tm-task')
+                || types.includes('application/x-tm-task-id')
+                || types.includes('text/plain')
             );
             if (ok) e.preventDefault();
         }, { signal: abort.signal });
@@ -1340,7 +1334,7 @@
         state.sideDay.dragHost = null;
         if (!(host instanceof HTMLElement)) return;
         if (typeof Draggable !== 'function') return;
-        const itemSelector = 'tr[data-id], .tm-kanban-card[data-id], .tm-whiteboard-pool-item[data-task-id], .tm-whiteboard-node[data-task-id]';
+        const itemSelector = 'tr[data-id], .tm-kanban-card[data-id]';
         const resolver = typeof resolveTask === 'function' ? resolveTask : null;
         try {
             state.sideDay.draggable = new Draggable(host, {
@@ -1428,7 +1422,7 @@
             selectable: true,
             selectMirror: true,
             droppable: true,
-            dropAccept: 'tr[data-id], .tm-cal-task, .tm-kanban-card[data-id], .tm-whiteboard-pool-item[data-task-id], .tm-whiteboard-node[data-task-id]',
+            dropAccept: 'tr[data-id], .tm-cal-task, .tm-kanban-card[data-id]',
             allDaySlot: true,
             slotDuration: '00:30:00',
             slotLabelInterval: '01:00',
@@ -1688,6 +1682,27 @@
                 list[idx] = { ...list[idx], start: safeISO(start), end: safeISO(end), allDay };
                 await saveScheduleAll(list);
                 toast('✅ 已更新日程', 'success');
+            },
+            dateClick: (info) => {
+                try {
+                    if (info?.jsEvent) {
+                        info.jsEvent.__tmCalHandled = true;
+                        info.jsEvent.preventDefault?.();
+                    }
+                } catch (e0) {}
+                const d = info?.date instanceof Date ? info.date : null;
+                if (!d || Number.isNaN(d.getTime())) return;
+                const start = new Date(d.getTime());
+                start.setSeconds(0, 0);
+                const end = new Date(start.getTime() + (info?.allDay === true ? 24 * 60 : 30) * 60000);
+                openScheduleModal({ start, end, allDay: info?.allDay === true, calendarId: pickDefaultCalendarId(getSettings()) });
+            },
+            select: (info) => {
+                try { cal.unselect(); } catch (e) {}
+                const start = info?.start instanceof Date ? info.start : null;
+                const end = info?.end instanceof Date ? info.end : null;
+                if (!start || !end) return;
+                openScheduleModal({ start, end, allDay: info?.allDay === true, calendarId: pickDefaultCalendarId(getSettings()) });
             },
         });
         cal.render();
