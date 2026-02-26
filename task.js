@@ -1,5 +1,5 @@
 // @name         思源笔记任务管理器
-// @version      1.5.3
+// @version      1.5.4
 // @description  任务管理器，支持自定义筛选规则分组和排序
 // @author       5KYFKR
 
@@ -6570,20 +6570,12 @@ async function __tmRefreshAfterWake(reason) {
                     state.wasHidden = true;
                     return;
                 }
-                const gap = Date.now() - (__tmWasHiddenAt || 0);
-				// 只有管理器已打开时才刷新，且不再自动打开
-				if (__tmWasHiddenAt && gap > 10000 && state.modal && document.body.contains(state.modal)) {
-					__tmScheduleWakeReload('visibility');
-				}
+                // 不再在页面切换前台时刷新日历视图，完全不操作，避免闪烁
 			} catch (e) {}
 		};
 		__tmFocusHandler = () => {
 			try {
-				const gap = Date.now() - (__tmWasHiddenAt || 0);
-				// 只有管理器已打开时才刷新
-				if (__tmWasHiddenAt && gap > 10000 && state.modal && document.body.contains(state.modal)) {
-					__tmScheduleWakeReload('focus');
-				}
+				// 不再在获得焦点时刷新日历视图
             } catch (e) {}
         };
         try { document.addEventListener('visibilitychange', __tmVisibilityHandler); } catch (e) {}
