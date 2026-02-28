@@ -17,24 +17,24 @@
         // 第一行显示的属性
         firstRow: [
             {
-                name: '重要性',
-                attrKey: 'custom-priority',
-                type: 'select',
-                options: [
-                    { value: 'high', label: '高', color: '#ea4335' },
-                    { value: 'medium', label: '中', color: '#f9ab00' },
-                    { value: 'low', label: '低', color: '#4285f4' },
-                    { value: 'none', label: '无', color: '#9e9e9e' }
-                ],
-                defaultValue: 'none'
-            },
-            {
                 name: '状态',
                 attrKey: 'custom-status',
                 type: 'select',
                 // 状态选项会从 SettingsStore 动态读取
                 options: [],  // 运行时动态获取
                 defaultValue: 'todo'
+            },
+            {
+                name: '重要性',
+                attrKey: 'custom-priority',
+                type: 'select',
+                options: [
+                    { value: 'high', label: '高', color: '#de350b' },
+                    { value: 'medium', label: '中', color: '#ff991f' },
+                    { value: 'low', label: '低', color: '#1d7afc' },
+                    { value: 'none', label: '无', color: '#9e9e9e' }
+                ],
+                defaultValue: 'none'
             },
             {
                 name: '完成日期',
@@ -126,12 +126,33 @@
         return block;
     }
 
-    function getTaskTitleFromBlockEl(blockEl) {
-        if (!blockEl) return '';
-        const p = blockEl.querySelector?.(':scope > .p') || blockEl.querySelector?.('.p') || null;
-        const text = p ? p.textContent : blockEl.textContent;
-        return String(text || '').replace(/\s+/g, ' ').trim();
-    }
+        function getTaskTitleFromBlockEl(blockEl) {
+            if (!blockEl) return '';
+            const p = blockEl.querySelector?.(':scope > .p') || blockEl.querySelector?.('.p') || null;
+            const text = p ? p.textContent : blockEl.textContent;
+            return String(text || '').replace(/\s+/g, ' ').trim();
+        }
+
+        function resolveTaskNodeIdForDetail() {
+            const readId = (el) => String(el?.dataset?.nodeId || el?.getAttribute?.('data-node-id') || '').trim();
+            const pickTaskLi = (root) => {
+                if (!root || !(root instanceof Element)) return null;
+                const li = root.matches?.('.li,[data-type="NodeListItem"]')
+                    ? root
+                    : root.closest?.('.li,[data-type="NodeListItem"]');
+                if (li && readId(li) && isTaskBlockElement(li)) return li;
+                const inner = root.querySelector?.('.li[data-node-id],[data-type="NodeListItem"][data-node-id]');
+                if (inner && readId(inner) && isTaskBlockElement(inner)) return inner;
+                return null;
+            };
+            if (!currentBlockEl) return '';
+            const id0 = readId(currentBlockEl);
+            if (id0 && isTaskBlockElement(currentBlockEl)) return id0;
+            const li = pickTaskLi(currentBlockEl);
+            if (li) return readId(li);
+            const p = currentBlockEl.closest?.('[data-node-id]');
+            return readId(p) || id0;
+        }
 
     function getSelectedBlockElementForMenu() {
         const direct = document.querySelector('.protyle-wysiwyg--select, .protyle-content--select');
@@ -164,182 +185,7 @@
     };
     document.addEventListener('pointerdown', __tmQBOnPointerdownCapture, true);
 
-    // 块菜单配置
-    const menus = [
-        {
-            name: "📝优先🔝",
-            toAvBlockId: "20240509083740-nl2p9lf",
-            isBindBlock: true,
-            otherCols: [
-                {
-                    colName: '优先',
-                    getColValue: () => true
-                }
-            ]
-        },
-        {
-            name: "📝高🟥",
-            toAvBlockId: "20240509083740-nl2p9lf",
-            isBindBlock: true,
-            customAttrs: { "custom-st-event": "高" },
-            otherCols: [
-                {
-                    colName: '状态',
-                    getColValue: () => ({ mSelect: [{ content: "高" }] })
-                }
-            ]
-        },
-        {
-            name: "📝中🟧",
-            toAvBlockId: "20240509083740-nl2p9lf",
-            isBindBlock: true,
-            customAttrs: { "custom-st-event": "中" },
-            otherCols: [
-                {
-                    colName: '状态',
-                    getColValue: () => ({ mSelect: [{ content: "中" }] })
-                }
-            ]
-        },
-        {
-            name: "📝低🟦",
-            toAvBlockId: "20240509083740-nl2p9lf",
-            isBindBlock: true,
-            customAttrs: { "custom-st-event": "低" },
-            otherCols: [
-                {
-                    colName: '状态',
-                    getColValue: () => ({ mSelect: [{ content: "低" }] })
-                }
-            ]
-        },
-        {
-            name: "📝备忘🟨",
-            toAvBlockId: "20240509083740-nl2p9lf",
-            isBindBlock: true,
-            customAttrs: { "custom-st-event": "备忘" },
-            otherCols: [
-                {
-                    colName: '状态',
-                    getColValue: () => ({ mSelect: [{ content: "备忘" }] })
-                }
-            ]
-        },
-        {
-            name: "📝待定🟪",
-            toAvBlockId: "20240509083740-nl2p9lf",
-            isBindBlock: true,
-            customAttrs: { "custom-st-event": "待定" },
-            otherCols: [
-                {
-                    colName: '状态',
-                    getColValue: () => ({ mSelect: [{ content: "待定" }] })
-                }
-            ]
-        },
-        {
-            name: "📝推迟🔜",
-            toAvBlockId: "20240509083740-nl2p9lf",
-            isBindBlock: true,
-            customAttrs: { "custom-st-event": "推迟" },
-            otherCols: [
-                {
-                    colName: '状态',
-                    getColValue: () => ({ mSelect: [{ content: "推迟" }] })
-                }
-            ]
-        },
-        {
-            name: "📋work-优先🔝",
-            toAvBlockId: "20240405181344-g8fz3qs",
-            isBindBlock: true,
-            otherCols: [
-                {
-                    colName: '优先',
-                    getColValue: () => true
-                }
-            ]
-        },
-        {
-            name: "📋work-高🟥",
-            toAvBlockId: "20240405181344-g8fz3qs",
-            isBindBlock: true,
-            customAttrs: { "custom-st-event": "高" },
-            otherCols: [
-                {
-                    colName: '状态',
-                    getColValue: () => ({ mSelect: [{ content: "高" }] })
-                }
-            ]
-        },
-        {
-            name: "📋work-中🟧",
-            toAvBlockId: "20240405181344-g8fz3qs",
-            isBindBlock: true,
-            customAttrs: { "custom-st-event": "中" },
-            otherCols: [
-                {
-                    colName: '状态',
-                    getColValue: () => ({ mSelect: [{ content: "中" }] })
-                }
-            ]
-        },
-        {
-            name: "📋work-低🟦",
-            toAvBlockId: "20240405181344-g8fz3qs",
-            isBindBlock: true,
-            customAttrs: { "custom-st-event": "低" },
-            otherCols: [
-                {
-                    colName: '状态',
-                    getColValue: () => ({ mSelect: [{ content: "低" }] })
-                }
-            ]
-        },
-        {
-            name: "📋work-备忘🟨",
-            toAvBlockId: "20240405181344-g8fz3qs",
-            isBindBlock: true,
-            customAttrs: { "custom-st-event": "备忘" },
-            otherCols: [
-                {
-                    colName: '状态',
-                    getColValue: () => ({ mSelect: [{ content: "备忘" }] })
-                }
-            ]
-        },
-        {
-            name: "📋work-待定🟪",
-            toAvBlockId: "20240405181344-g8fz3qs",
-            isBindBlock: true,
-            customAttrs: { "custom-st-event": "待定" },
-            otherCols: [
-                {
-                    colName: '状态',
-                    getColValue: () => ({ mSelect: [{ content: "待定" }] })
-                }
-            ]
-        },
-        {
-            name: "📋work-推迟🔜",
-            toAvBlockId: "20240405181344-g8fz3qs",
-            isBindBlock: true,
-            customAttrs: { "custom-st-event": "推迟" },
-            otherCols: [
-                {
-                    colName: '状态',
-                    getColValue: () => ({ mSelect: [{ content: "推迟" }] })
-                }
-            ]
-        },
-        {
-            name: "💡添加到卡片库",
-            toAvBlockId: "20240310163827-jbdqou9",
-            isBindBlock: true
-        }
-    ];
-
-    // 初始化系统版本
+    // ==================== 自定义属性悬浮条核心逻辑 ====================
     async function initSystemVersion() {
         if (!systemVersion) {
             const versionData = await requestApi('/api/system/version');
@@ -364,26 +210,40 @@
                 position: absolute;
                 z-index: 3005;
                 display: none;
-                flex-direction: column;
-                align-items: flex-start;
+                flex-direction: row;
+                align-items: center;
                 gap: 6px;
-                padding: 8px;
+                padding: 6px;
                 border-radius: 8px;
                 background: var(--b3-theme-background);
                 border: 1px solid var(--b3-border-color);
                 box-shadow: var(--b3-dialog-shadow);
+                white-space: nowrap;
+                overflow-x: auto;
+                max-width: min(92vw, 980px);
             }
             .sy-custom-props-floatbar__row {
                 display: flex;
                 align-items: center;
                 gap: 6px;
-                flex-wrap: wrap;
+                flex-wrap: nowrap;
+            }
+            .sy-custom-props-floatbar__head {
+                display: flex;
+                align-items: center;
+                justify-content: flex-end;
+                width: 100%;
+            }
+            .sy-custom-props-floatbar__head-actions {
+                display: inline-flex;
+                align-items: center;
+                gap: 6px;
             }
             .sy-custom-props-floatbar__prop {
                 display: inline-flex;
                 align-items: center;
                 height: 26px;
-                padding: 0 10px;
+                padding: 0 6px;
                 border-radius: 6px;
                 border: 1px solid var(--b3-border-color);
                 background: var(--b3-theme-surface);
@@ -398,13 +258,21 @@
                 background: var(--b3-theme-background);
                 border-color: var(--b3-theme-primary);
             }
+            .sy-custom-props-floatbar__prop.is-priority-prop {
+                border: 0;
+                background: transparent;
+                padding: 0 2px;
+            }
+            .sy-custom-props-floatbar__prop.is-priority-prop:hover {
+                border: 0;
+                background: transparent;
+            }
             .sy-custom-props-floatbar__prop.is-active {
                 background: var(--b3-theme-primary);
                 border-color: var(--b3-theme-primary);
                 color: var(--b3-theme-on-primary);
             }
             .sy-custom-props-floatbar__prop-value {
-                margin-left: 4px;
                 font-weight: 500;
             }
             .sy-custom-props-floatbar__select {
@@ -422,7 +290,7 @@
             .sy-custom-props-floatbar__select.is-visible {
                 display: flex;
                 flex-direction: column;
-                gap: 4px;
+                gap: 2px;
             }
             .sy-custom-props-floatbar__option {
                 width: 100%;
@@ -441,11 +309,99 @@
                 text-overflow: ellipsis;
             }
             .sy-custom-props-floatbar__option:hover {
-                background: var(--b3-theme-surface);
+                background: var(--b3-theme-surface-light);
             }
             .sy-custom-props-floatbar__option.is-active {
                 background: var(--b3-theme-primary);
                 color: var(--b3-theme-on-primary);
+            }
+            .sy-custom-props-floatbar__option-label {
+                display: inline-flex;
+                align-items: center;
+                max-width: 100%;
+                overflow: hidden;
+                text-overflow: ellipsis;
+                white-space: nowrap;
+            }
+            .sy-custom-props-floatbar__option-label--status {
+                padding: 2px 4px;
+                border-radius: 5px;
+                border: 1px solid var(--qb-status-border, rgba(117,117,117,0.35));
+                background: var(--qb-status-bg, rgba(117,117,117,0.16));
+                color: var(--qb-status-fg, #5f6368);
+                line-height: 1.25;
+                font-size: 14px;
+                font-weight: 400;
+                transition: filter 0.16s ease, opacity 0.16s ease;
+            }
+            .sy-custom-props-floatbar__option.is-status {
+                height: 30px;
+                line-height: normal;
+                display: flex;
+                align-items: center;
+            }
+            .sy-custom-props-floatbar__option.is-status:hover .sy-custom-props-floatbar__option-label--status {
+                filter: saturate(1.08);
+                opacity: 0.96;
+            }
+            .sy-custom-props-floatbar__option.is-status.is-active {
+                background: var(--b3-theme-surface-light);
+                color: inherit;
+            }
+            .sy-custom-props-floatbar__priority-chip,
+            .sy-custom-props-floatbar__option-label--priority {
+                display: inline-flex;
+                align-items: center;
+                gap: 4px;
+                border: 1px solid var(--qb-priority-border, rgba(117,117,117,0.35));
+                background: var(--qb-priority-bg, rgba(117,117,117,0.16));
+                color: var(--qb-priority-fg, #5f6368);
+                line-height: 1.2;
+                font-size: 14px;
+                font-weight: 600;
+                max-width: 100%;
+                transition: filter 0.16s ease, opacity 0.16s ease;
+            }
+            .sy-custom-props-floatbar__priority-chip {
+                height: 26px;
+                line-height: 26px;
+                padding: 0 8px;
+                border-radius: 6px;
+                box-sizing: content-box;
+            }
+            .sy-custom-props-floatbar__option-label--priority {
+                padding: 2px 6px;
+                border-radius: 5px;
+            }
+            .sy-custom-props-floatbar__priority-icon {
+                width: 18px;
+                height: 100%;
+                display: inline-flex;
+                align-items: center;
+                justify-content: center;
+                line-height: 1;
+            }
+            .sy-custom-props-floatbar__priority-icon svg {
+                width: 18px;
+                height: 18px;
+                display: block;
+            }
+            .sy-custom-props-floatbar__priority-text {
+                line-height: 1;
+            }
+            .sy-custom-props-floatbar__option.is-priority {
+                height: 30px;
+                line-height: normal;
+                display: flex;
+                align-items: center;
+            }
+            .sy-custom-props-floatbar__option.is-priority:hover .sy-custom-props-floatbar__option-label--priority {
+                filter: saturate(1.08);
+                opacity: 0.96;
+            }
+            .sy-custom-props-floatbar__option.is-priority.is-active {
+                background: var(--b3-theme-surface-light);
+                color: inherit;
             }
             .sy-custom-props-floatbar__input-editor {
                 position: absolute;
@@ -661,37 +617,42 @@
             return `${m[1]}-${m[2]}-${m[3]}`;
         }
 
-        // 获取优先级的显示文本
-        function getPriorityDisplay(value) {
-            const priorityMap = {
-                'high': '高',
-                'medium': '中',
-                'low': '低',
-                'none': '无'
-            };
-            return priorityMap[value] || value;
+        function getPriorityJiraInfo(value) {
+            const p = String(value || '').trim().toLowerCase();
+            if (p === 'high') return { key: 'high', label: '高', iconType: 'high', color: '#de350b', bg: 'rgba(222,53,11,0.14)', border: 'rgba(222,53,11,0.34)' };
+            if (p === 'medium') return { key: 'medium', label: '中', iconType: 'medium', color: '#ff991f', bg: 'rgba(255,153,31,0.14)', border: 'rgba(255,153,31,0.34)' };
+            if (p === 'low') return { key: 'low', label: '低', iconType: 'low', color: '#1d7afc', bg: 'rgba(29,122,252,0.14)', border: 'rgba(29,122,252,0.32)' };
+            return { key: 'none', label: '无', iconType: 'none', color: '#9e9e9e', bg: 'rgba(158,158,158,0.12)', border: 'rgba(158,158,158,0.3)' };
         }
 
-        // 获取优先级的颜色
-        function getPriorityColor(value) {
-            const colorMap = {
-                'high': '#ea4335',
-                'medium': '#f9ab00',
-                'low': '#4285f4',
-                'none': '#9e9e9e'
-            };
-            return colorMap[value] || '#757575';
+        function getPriorityJiraIconSvg(iconType) {
+            const t = String(iconType || '').trim();
+            if (t === 'high') {
+                return `<svg viewBox="0 0 18 18" aria-hidden="true"><polyline points="2.5,10.1 9,6.1 15.5,10.1" fill="none" stroke="currentColor" stroke-width="2.8" stroke-linecap="round" stroke-linejoin="round"/></svg>`;
+            }
+            if (t === 'medium') {
+                return `<svg viewBox="0 0 18 18" aria-hidden="true"><line x1="2.5" y1="6.2" x2="15.5" y2="6.2" stroke="currentColor" stroke-width="2.8" stroke-linecap="round"/><line x1="2.5" y1="11.2" x2="15.5" y2="11.2" stroke="currentColor" stroke-width="2.8" stroke-linecap="round"/></svg>`;
+            }
+            if (t === 'low') {
+                return `<svg viewBox="0 0 18 18" aria-hidden="true"><polyline points="2.5,7.1 9,11.1 15.5,7.1" fill="none" stroke="currentColor" stroke-width="2.8" stroke-linecap="round" stroke-linejoin="round"/></svg>`;
+            }
+            return `<svg viewBox="0 0 18 18" aria-hidden="true"><circle cx="9" cy="9" r="5.2" fill="none" stroke="currentColor" stroke-width="2.6"/></svg>`;
         }
 
-        // 获取优先级的背景色（带透明度）
-        function getPriorityBgColor(value) {
-            const colorMap = {
-                'high': 'rgba(234, 67, 53, 0.15)',
-                'medium': 'rgba(249, 171, 0, 0.15)',
-                'low': 'rgba(66, 133, 244, 0.15)',
-                'none': 'rgba(158, 158, 158, 0.12)'
-            };
-            return colorMap[value] || 'rgba(117, 117, 117, 0.1)';
+        function buildPriorityChipStyle(value) {
+            const info = getPriorityJiraInfo(value);
+            return `--qb-priority-bg:${info.bg};--qb-priority-fg:${info.color};--qb-priority-border:${info.border};`;
+        }
+
+        function renderPriorityChip(value, mode) {
+            const info = getPriorityJiraInfo(value);
+            const cls = mode === 'option'
+                ? 'sy-custom-props-floatbar__option-label sy-custom-props-floatbar__option-label--priority'
+                : 'sy-custom-props-floatbar__prop-value sy-custom-props-floatbar__priority-chip';
+            const text = mode === 'option'
+                ? `<span class="sy-custom-props-floatbar__priority-text">${info.label}</span>`
+                : '';
+            return `<span class="${cls}" style="${buildPriorityChipStyle(value)}"><span class="sy-custom-props-floatbar__priority-icon">${getPriorityJiraIconSvg(info.iconType)}</span>${text}</span>`;
         }
 
         // 获取状态选项的显示文本和颜色
@@ -701,6 +662,35 @@
                 name: option ? option.name : value,
                 color: option ? option.color : '#757575'
             };
+        }
+
+        function hexToRgba(hex, alpha) {
+            const s = String(hex || '').trim();
+            const a = Math.max(0, Math.min(1, Number(alpha) || 0));
+            const m3 = /^#([0-9a-fA-F]{3})$/.exec(s);
+            const m6 = /^#([0-9a-fA-F]{6})$/.exec(s);
+            if (m3) {
+                const h = m3[1];
+                const r = parseInt(h[0] + h[0], 16);
+                const g = parseInt(h[1] + h[1], 16);
+                const b = parseInt(h[2] + h[2], 16);
+                return `rgba(${r}, ${g}, ${b}, ${a})`;
+            }
+            if (m6) {
+                const h = m6[1];
+                const r = parseInt(h.slice(0, 2), 16);
+                const g = parseInt(h.slice(2, 4), 16);
+                const b = parseInt(h.slice(4, 6), 16);
+                return `rgba(${r}, ${g}, ${b}, ${a})`;
+            }
+            return '';
+        }
+
+        function buildStatusChipStyle(color) {
+            const c = String(color || '#757575').trim() || '#757575';
+            const bg = hexToRgba(c, 0.16) || 'rgba(117,117,117,0.16)';
+            const border = hexToRgba(c, 0.35) || 'rgba(117,117,117,0.35)';
+            return `--qb-status-bg:${bg};--qb-status-fg:${c};--qb-status-border:${border};`;
         }
 
         // 获取或更新当前块的所有自定义属性
@@ -722,22 +712,11 @@
         // 渲染悬浮条
         function renderFloatBar() {
             const rows = [];
-
-            // 第一行属性
-            const firstRowProps = customPropsConfig.firstRow.map(config => {
-                return renderPropElement(config, currentProps[config.attrKey]);
-            });
-            rows.push(`<div class="sy-custom-props-floatbar__row">${firstRowProps.join('')}</div>`);
-
-            // 第二行属性
-            const secondRowProps = customPropsConfig.secondRow.map(config => {
-                return renderPropElement(config, currentProps[config.attrKey]);
-            });
-            const pinnedRaw = String(currentProps['custom-pinned'] || '').trim().toLowerCase();
-            const pinned = pinnedRaw === 'true' || pinnedRaw === '1';
-            secondRowProps.unshift(`<button class="sy-custom-props-floatbar__action is-wide" data-action="pin" title="置顶">🔝${pinned ? '✅' : '⬜'}</button>`);
-            secondRowProps.push(`<button class="sy-custom-props-floatbar__action" data-action="reminder" title="添加提醒">⏰</button>`);
-            rows.push(`<div class="sy-custom-props-floatbar__row">${secondRowProps.join('')}</div>`);
+            const allProps = [...customPropsConfig.firstRow, ...customPropsConfig.secondRow]
+                .map(config => renderPropElement(config, currentProps[config.attrKey]));
+            allProps.push(`<button class="sy-custom-props-floatbar__action" data-action="reminder" title="添加提醒">⏰</button>`);
+            allProps.push(`<button class="sy-custom-props-floatbar__action" data-action="more" title="更多">⋯</button>`);
+            rows.push(`<div class="sy-custom-props-floatbar__row">${allProps.join('')}</div>`);
 
             floatBar.innerHTML = rows.join('');
 
@@ -751,33 +730,38 @@
             const escapedValue = String(value ?? '').replace(/"/g, '&quot;');
 
             if (config.type === 'select') {
-                // 选择类型属性（优先级、状态）
-                let displayText, bgColor, color;
-
                 if (config.attrKey === 'custom-priority') {
-                    displayText = getPriorityDisplay(value);
-                    bgColor = getPriorityBgColor(value);
-                    color = getPriorityColor(value);
-                } else {
-                    const statusInfo = getStatusDisplay(value);
-                    displayText = statusInfo.name;
-                    bgColor = `${statusInfo.color}20`;  // 带透明度
-                    color = statusInfo.color;
+                    return `
+                        <span class="sy-custom-props-floatbar__prop is-priority-prop"
+                              data-attr="${config.attrKey}"
+                              data-type="${config.type}"
+                              data-name="${escapedName}"
+                              data-value="${escapedValue}"
+                              title="${escapedName}">
+                            ${renderPriorityChip(value, 'prop')}
+                        </span>
+                    `;
                 }
 
+                // 状态选择器保持原样
+                const statusInfo = getStatusDisplay(value);
+                const displayText = statusInfo.name;
+                const bgColor = `${statusInfo.color}20`;  // 带透明度
+                const color = statusInfo.color;
                 return `
                     <span class="sy-custom-props-floatbar__prop"
                           data-attr="${config.attrKey}"
                           data-type="${config.type}"
                           data-name="${escapedName}"
                           data-value="${escapedValue}"
+                          title="${escapedName}"
                           style="background: ${bgColor}; border-color: ${color}; color: ${color};">
-                        ${escapedName}: <span class="sy-custom-props-floatbar__prop-value">${displayText}</span>
+                        <span class="sy-custom-props-floatbar__prop-value">${displayText}</span>
                     </span>
                 `;
             } else if (config.type === 'date') {
                 // 日期类型属性
-                const displayText = value ? formatDate(value) : '未设置';
+                const displayText = value ? formatDate(value) : '🗓️日期';
                 const isEmpty = !value;
                 const style = isEmpty ? 'opacity: 0.6;' : '';
 
@@ -787,13 +771,14 @@
                           data-type="${config.type}"
                           data-name="${escapedName}"
                           data-value="${escapedValue}"
+                          title="${escapedName}"
                           style="${style}">
-                        ${escapedName}: <span class="sy-custom-props-floatbar__prop-value">${displayText}</span>
+                        <span class="sy-custom-props-floatbar__prop-value">${displayText}</span>
                     </span>
                 `;
             } else {
                 // 文本类型属性（时长、备注）
-                const displayText = value || '未设置';
+                const displayText = value || escapedName;
                 const isEmpty = !value;
                 const style = isEmpty ? 'opacity: 0.6;' : '';
                 const truncatedValue = String(displayText).length > 15
@@ -806,8 +791,9 @@
                           data-type="${config.type}"
                           data-name="${escapedName}"
                           data-value="${escapedValue}"
+                          title="${escapedName}"
                           style="${style}">
-                        ${escapedName}: <span class="sy-custom-props-floatbar__prop-value">${truncatedValue}</span>
+                        <span class="sy-custom-props-floatbar__prop-value">${truncatedValue}</span>
                     </span>
                 `;
             }
@@ -819,31 +805,6 @@
                 const actionEl = e.target.closest('.sy-custom-props-floatbar__action');
                 if (actionEl) {
                     const action = String(actionEl.dataset.action || '');
-                    if (action === 'pin') {
-                        const raw = String(currentProps['custom-pinned'] || '').trim().toLowerCase();
-                        const pinned = raw === 'true' || raw === '1';
-                        const next = pinned ? '' : 'true';
-                        
-                        // 1. 立即更新UI，不等后端返回
-                        currentProps['custom-pinned'] = next;
-                        renderFloatBar();
-                        
-                        // 2. 异步更新后端
-                        setBlockCustomAttrs(currentBlockId, { 'custom-pinned': next }).then(success => {
-                            if (success) {
-                                try { globalThis.__taskHorizonOnPinnedChanged?.(currentBlockId, !pinned); } catch (e) {}
-                                try { globalThis.__taskHorizonRefresh?.(); } catch (e) {}
-                                showMessage(pinned ? '已取消置顶' : '已置顶', false, 1500);
-                            } else {
-                                // 如果失败，回滚UI
-                                console.warn('置顶更新失败，回滚状态');
-                                currentProps['custom-pinned'] = raw;
-                                renderFloatBar();
-                                showMessage('更新置顶失败', true, 1500);
-                            }
-                        });
-                        return;
-                    }
                     if (action === 'reminder') {
                         const showDialog = globalThis.__tomatoReminder?.showDialog;
                         if (typeof showDialog === 'function') {
@@ -852,6 +813,37 @@
                         } else {
                             showMessage('未检测到提醒功能，请确认番茄插件已启用', true, 2000);
                         }
+                        return;
+                    }
+                    if (action === 'more') {
+                        const openTaskDetail = globalThis.tmOpenTaskDetail;
+                        // 优先使用 currentBlockId，这是从 showFloatBar 中设置的块ID
+                        let detailId = String(currentBlockId || '').trim();
+                        // 如果 currentBlockId 为空，尝试使用 resolveTaskNodeIdForDetail
+                        if (!detailId) {
+                            detailId = resolveTaskNodeIdForDetail();
+                        }
+                        // 确保 ID 有效
+                        if (!detailId) {
+                            showMessage('无法获取任务ID', true, 1800);
+                            return;
+                        }
+                        if (typeof openTaskDetail === 'function') {
+                            try {
+                                // 确保传递正确的事件对象
+                                const eventObj = e || (typeof event !== 'undefined' ? event : undefined);
+                                const opened = await openTaskDetail(detailId, eventObj);
+                                if (opened) {
+                                    hideFloatBar();
+                                    return;
+                                }
+                            } catch (err) {
+                                console.error('打开任务详情出错:', err);
+                            }
+                        } else {
+                            console.warn('[Quickbar] tmOpenTaskDetail函数未找到，请确保任务管理器插件已加载');
+                        }
+                        showMessage('打开任务详情失败', true, 1800);
                     }
                     return;
                 }
@@ -890,17 +882,28 @@
         function showSelectMenu(anchorEl, config, currentValue) {
             const options = config.options;
             if (!Array.isArray(options) || options.length === 0) return;
+            const isStatusSelect = String(config?.attrKey || '').trim() === 'custom-status';
+            const isPrioritySelect = String(config?.attrKey || '').trim() === 'custom-priority';
 
             // 更新菜单内容
             selectMenu.innerHTML = options.map(opt => {
                 const isActive = opt.value === currentValue ? 'is-active' : '';
                 const escapedValue = String(opt.label).replace(/"/g, '&quot;');
+                const optionCls = isPrioritySelect
+                    ? `sy-custom-props-floatbar__option is-priority ${isActive}`
+                    : (isStatusSelect
+                    ? `sy-custom-props-floatbar__option is-status ${isActive}`
+                    : `sy-custom-props-floatbar__option ${isActive}`);
+                const labelHtml = isPrioritySelect
+                    ? renderPriorityChip(opt.value, 'option')
+                    : (isStatusSelect
+                    ? `<span class="sy-custom-props-floatbar__option-label sy-custom-props-floatbar__option-label--status" style="${buildStatusChipStyle(opt.color)}">${opt.label}</span>`
+                    : `<span class="sy-custom-props-floatbar__option-label">${opt.label}</span>`);
                 return `
-                    <button class="sy-custom-props-floatbar__option ${isActive}"
+                    <button class="${optionCls}"
                             data-value="${opt.value}"
-                            data-label="${escapedValue}"
-                            style="${config.attrKey === 'custom-priority' ? `color: ${opt.color};` : ''}">
-                        ${opt.label}
+                            data-label="${escapedValue}">
+                        ${labelHtml}
                     </button>
                 `.trim();
             }).join('');
@@ -1081,7 +1084,7 @@
             const rect = currentBlockEl.getBoundingClientRect();
             const barHeight = floatBar.getBoundingClientRect().height || 40;
             const barWidth = floatBar.getBoundingClientRect().width || 240;
-            const gap = 8;
+            const gap = 0;
 
             let top = window.scrollY + rect.top - gap - barHeight;
             if (top < window.scrollY + 4) {
@@ -1133,6 +1136,22 @@
 
             const target = e.target;
 
+            // ========== 新增：检测是否选中了文字 ==========
+            const selection = window.getSelection();
+            const hasTextSelection = selection && 
+                selection.toString().length > 0 && 
+                selection.anchorNode &&
+                document.querySelector('.protyle-wysiwyg, .protyle-content')?.contains(selection.anchorNode);
+
+            // 如果选中了文字，隐藏自定义悬浮条，让思源笔记原生悬浮条正常工作
+            if (hasTextSelection) {
+                if (floatBar.style.display !== 'none') {
+                    hideFloatBar();
+                }
+                return;
+            }
+            // ========== 新增结束 ==========
+
             // 如果点击在悬浮条或其弹出层内，不处理
             if (floatBar.contains(target) || selectMenu.contains(target) || inputEditor.contains(target)) return;
 
@@ -1166,15 +1185,30 @@
         }
 
         let quickbarStarted = false;
-        let statusIntervalId = null;
         let storageHandler = null;
         let closePopupsHandler = null;
+        let selectionChangeHandler = null;  // 新增：文字选择变化监听器
 
         function startQuickbar() {
             if (quickbarStarted) return;
             quickbarStarted = true;
 
             initStatusOptionsListener();
+
+            // ========== 新增：监听文字选择变化 ==========
+            selectionChangeHandler = () => {
+                const selection = window.getSelection();
+                const hasSelection = selection && selection.toString().length > 0;
+                
+                // 检查选择是否在编辑器内
+                const inEditor = document.querySelector('.protyle-wysiwyg, .protyle-content')?.contains(selection?.anchorNode);
+                
+                if (hasSelection && inEditor && floatBar.style.display !== 'none') {
+                    hideFloatBar();
+                }
+            };
+            document.addEventListener('selectionchange', selectionChangeHandler);
+            // ========== 新增结束 ==========
 
             document.addEventListener('pointerup', handleTrigger, true);
             document.addEventListener('click', handleTrigger, true);
@@ -1199,10 +1233,13 @@
             try { if (closePopupsHandler) document.removeEventListener('pointerdown', closePopupsHandler, true); } catch (e) {}
             closePopupsHandler = null;
 
+            // ========== 新增：移除文字选择变化监听 ==========
+            try { if (selectionChangeHandler) document.removeEventListener('selectionchange', selectionChangeHandler); } catch (e) {}
+            selectionChangeHandler = null;
+            // ========== 新增结束 ==========
+
             try { if (storageHandler) window.removeEventListener('storage', storageHandler); } catch (e) {}
             storageHandler = null;
-            try { if (statusIntervalId) clearInterval(statusIntervalId); } catch (e) {}
-            statusIntervalId = null;
 
             hideFloatBar();
             try { document.querySelectorAll('.sy-custom-props-floatbar, .sy-custom-props-floatbar__select, .sy-custom-props-floatbar__input-editor').forEach(el => el.remove()); } catch (e) {}
@@ -1230,11 +1267,6 @@
                 }
             };
             window.addEventListener('storage', storageHandler);
-
-            // 定期检查更新（每2秒）
-            statusIntervalId = setInterval(() => {
-                loadStatusOptions();
-            }, 2000);
         }
 
         globalThis.__taskHorizonQuickbarToggle = (enabled) => {
@@ -1262,596 +1294,7 @@
         else stopQuickbar();
     }
 
-    // ==================== 原有块菜单逻辑（保留） ====================
-    let blockMenuObserver = null;
-    if (isEnableBlockContextMenu) {
-        whenElementExist('#commonMenu .b3-menu__items').then((menuItems) => {
-            if (!menuItems) return;
-            blockMenuObserver = observeBlockMenu(menuItems, async (isTitleMenu) => {
-                const isTaskContextMenu = !isTitleMenu && (
-                    (lastBlockMenuTrigger.isTask && Date.now() - lastBlockMenuTrigger.ts < 1500) ||
-                    isTaskBlockElement(getSelectedBlockElementForMenu())
-                );
-
-                if (isEnableTaskBlockFloatBar && isTaskContextMenu) return;
-                if (menuItems.querySelector('.add-to-my-av')) return;
-                const addAv = menuItems.querySelector('button[data-id="addToDatabase"]');
-                if (!addAv) return;
-
-                let blockMenus = menus.filter(m => m && m.showInBlockMenu !== false);
-                if (!isTaskContextMenu) {
-                    blockMenus = blockMenus.filter(m => typeof m?.name === 'string' && !m.name.startsWith('📝') && !m.name.startsWith('📋'));
-                }
-                if (blockMenus.length === 0) return;
-
-                const menusReverse = [...blockMenus].reverse();
-                const menuCount = menusReverse.length;
-
-                menusReverse.forEach((menu, index) => {
-                    const menuText = menu.name + (menu.isBindBlock ? '' : '（不绑定块）');
-                    const menuIcon = '#iconDatabase';
-                    const menuClass = `add-to-my-av-${menu.toAvBlockId}-${menuCount - index - 1}`;
-
-                    if (!menuItems.querySelector(`.${menuClass}`)) {
-                        const menuButtonHtml = `<button class="b3-menu__item ${menuClass}"><svg class="b3-menu__icon"><use xlink:href="${menuIcon}"></use></svg><span class="b3-menu__label">${menuText}</span></button>`;
-                        addAv.insertAdjacentHTML('afterend', menuButtonHtml);
-                        const menuBtn = menuItems.querySelector(`.${menuClass}`);
-
-                        menuBtn.onclick = async () => {
-                            window.siyuan.menus.menu.remove();
-                            await menuItemClick(menu.toAvBlockId, menu.toAvColName, menu.isBindBlock, menu.otherCols, menu.customAttrs, isTitleMenu);
-                        };
-                    }
-                });
-            });
-        });
-    }
-
-    // 菜单点击事件
-    async function menuItemClick(toAvBlockId, toAvColName, isBindBlock, otherCols, customAttrs, isTitleMenu, blocksOverride) {
-        await initSystemVersion();
-
-        const avId = await getAvIdByAvBlockId(toAvBlockId);
-        if (!avId) {
-            showMessage('未找到块ID' + toAvBlockId + '所在的数据库，请检查数据库块ID配置是否正确', true);
-            return;
-        }
-
-        let blocks = [];
-        const protyle = document.querySelector('[data-type="wnd"].layout__wnd--active .protyle:not(.fn__none)') || document.querySelector('[data-type="wnd"] .protyle:not(.fn__none)');
-
-        if (Array.isArray(blocksOverride) && blocksOverride.length > 0) {
-            blocks = blocksOverride;
-        } else if (isTitleMenu) {
-            const docTitleEl = (protyle || document)?.querySelector('.protyle-title');
-            const docId = docTitleEl?.dataset?.nodeId;
-            const docTitle = docTitleEl?.querySelector('.protyle-title__input')?.textContent;
-            blocks = [{
-                dataset: { nodeId: docId },
-                textContent: docTitle
-            }];
-        } else {
-            blocks = (protyle || document)?.querySelectorAll('.protyle-wysiwyg--select');
-            blocks = [...blocks].map(block => block.matches('.list') ? block.firstElementChild : block);
-        }
-
-        if (blocks.length === 0) {
-            showMessage('未选中任何块', true);
-            return;
-        }
-
-        const blockIds = blocks.map(block => block.dataset.nodeId);
-
-        // 批量检查块是否在数据库中
-        const existingBlocks = await checkBlocksInDatabase(blockIds, avId);
-        const newBlocks = blocks.filter(block => !existingBlocks.includes(block.dataset.nodeId));
-        const newBlockIds = newBlocks.map(block => block.dataset.nodeId);
-
-        await showMessage(`开始处理 ${blockIds.length} 个块...`, false, 2000);
-
-        const finalOtherCols = ensureCompletedCheckboxCol(otherCols);
-
-        if (isBindBlock) {
-            await processBindBlocks(newBlockIds, blockIds, avId, toAvBlockId, finalOtherCols, customAttrs);
-        } else {
-            await processNonBindBlocks(newBlocks, avId, toAvColName, finalOtherCols, customAttrs, blockIds);
-        }
-    }
-
-    function ensureCompletedCheckboxCol(otherCols) {
-        if (!isEnableCompletedCheckboxCol) return otherCols;
-        const colName = (completedCheckboxColName || '').trim();
-        if (!colName) return otherCols;
-
-        const cols = Array.isArray(otherCols) ? [...otherCols] : [];
-        const exists = cols.some(col => (col?.colName || '').trim() === colName);
-        if (!exists) {
-            cols.push({
-                colName,
-                getColValue: () => completedCheckboxCheckedValue
-            });
-        }
-        return cols;
-    }
-
-    // 处理绑定块
-    async function processBindBlocks(newBlockIds, allBlockIds, avId, avBlockId, otherCols, customAttrs) {
-        const startTime = Date.now();
-
-        try {
-            const [addResult, colResult, attrResult] = await Promise.all([
-                newBlockIds.length > 0 ? addBlocksToAv(newBlockIds, avId, avBlockId) : Promise.resolve(0),
-                (isEnableMoreCols && otherCols && otherCols.length > 0) ?
-                    addColsToAvOptimized(allBlockIds, otherCols, avId) : Promise.resolve(0),
-                isEnableCustomAttrsInSelectedBlock ?
-                    setBlocksAttrsBatch(allBlockIds, customAttrs) : Promise.resolve(0)
-            ]);
-
-            const endTime = Date.now();
-            const duration = (endTime - startTime) / 1000;
-
-            let finalMessage = `处理完成 (${duration.toFixed(1)}秒): `;
-            const parts = [];
-
-            if (addResult > 0) parts.push(`${addResult}个块`);
-            if (colResult > 0) parts.push(`${colResult}个状态列`);
-
-            if (parts.length === 0) {
-                finalMessage = '所有选中块已在数据库中';
-            } else {
-                finalMessage += parts.join(', ');
-            }
-
-            await showMessage(finalMessage, false, 4000);
-
-        } catch (error) {
-            console.error('处理绑定块时出错:', error);
-            await showMessage('处理过程中出现错误，请查看控制台', true);
-        }
-    }
-
-    // 处理非绑定块
-    async function processNonBindBlocks(newBlocks, avId, toAvColName, otherCols, customAttrs, allBlockIds) {
-        const startTime = Date.now();
-
-        try {
-            const [addResult, attrResult] = await Promise.all([
-                newBlocks.length > 0 ? addBlocksToAvNoBind(newBlocks, avId, toAvColName, otherCols) : Promise.resolve(0),
-                isEnableCustomAttrsInSelectedBlock ? setBlocksAttrsBatch(allBlockIds, customAttrs) : Promise.resolve(0)
-            ]);
-
-            const endTime = Date.now();
-            const duration = (endTime - startTime) / 1000;
-
-            let finalMessage = `非绑定块处理完成 (${duration.toFixed(1)}秒)`;
-            if (addResult > 0) {
-                finalMessage += `: 添加${addResult}个块`;
-            }
-
-            await showMessage(finalMessage, false, 3000);
-        } catch (error) {
-            console.error('处理非绑定块时出错:', error);
-            await showMessage('处理过程中出现错误', true);
-        }
-    }
-
-    // 批量检查块是否在数据库中
-    async function checkBlocksInDatabase(blockIds, avId) {
-        const attrsPromises = blockIds.map(blockId => getBlockAttrs(blockId));
-        const attrsResults = await Promise.all(attrsPromises);
-
-        const existingBlocks = [];
-        attrsResults.forEach((attrs, index) => {
-            if (attrs && attrs['custom-avs'] && attrs['custom-avs'].includes(avId)) {
-                existingBlocks.push(blockIds[index]);
-            }
-        });
-
-        return existingBlocks;
-    }
-
-    async function getBlockAttrs(blockId) {
-        try {
-            const result = await requestApi('/api/attr/getBlockAttrs', { id: blockId });
-            return result?.code === 0 ? result.data : {};
-        } catch (error) {
-            console.error('获取块属性失败:', error);
-            return {};
-        }
-    }
-
-    async function getAvIdByAvBlockId(blockId) {
-        if (avCache.has(blockId)) {
-            return avCache.get(blockId);
-        }
-
-        const av = await getAvBySql(`SELECT * FROM blocks WHERE type ='av' AND id='${blockId}'`);
-        if (av.length === 0) {
-            avCache.set(blockId, '');
-            return '';
-        }
-
-        const avId = getDataAvIdFromHtml(av[0].markdown);
-        avCache.set(blockId, avId);
-        return avId;
-    }
-
-    function getDataAvIdFromHtml(htmlString) {
-        const match = htmlString.match(/data-av-id="([^"]+)"/);
-        return match && match[1] ? match[1] : "";
-    }
-
-    async function getAvBySql(sql) {
-        try {
-            const result = await requestApi('/api/query/sql', { "stmt": sql });
-            return result?.code === 0 ? result.data : [];
-        } catch (error) {
-            console.error('SQL查询失败:', error);
-            return [];
-        }
-    }
-
-    function getRowIdByBlockId(blockId) {
-        if (compareVersions(systemVersion, '3.3.0') < 0) return blockId;
-
-        const dashIndex = blockId.indexOf('-');
-        if (dashIndex === -1) return blockId;
-
-        const prefix = blockId.slice(0, dashIndex + 1);
-        const suffix = blockId.slice(dashIndex + 1);
-        const reversedSuffix = suffix.split('').reverse().join('');
-
-        return prefix + reversedSuffix;
-    }
-
-    async function addBlocksToAv(blockIds, avId, avBlockID) {
-        if (!blockIds.length) return 0;
-
-        const srcs = blockIds.map(blockId => ({
-            "id": blockId,
-            "itemID": getRowIdByBlockId(blockId),
-            "isDetached": false
-        }));
-
-        const input = {
-            "avID": avId,
-            "blockID": avBlockID,
-            'srcs': srcs
-        };
-
-        try {
-            const result = await requestApi('/api/av/addAttributeViewBlocks', input);
-            if (result?.code === 0) {
-                await Promise.all(blockIds.map(blockId => setBlockAvsAttr(blockId, avId)));
-                return blockIds.length;
-            } else {
-                console.error('添加块到数据库失败:', result);
-                return 0;
-            }
-        } catch (error) {
-            console.error('添加块到数据库异常:', error);
-            return 0;
-        }
-    }
-
-    async function setBlockAvsAttr(blockId, avId) {
-        const attrs = await getBlockAttrs(blockId);
-        let avsValue = attrs['custom-avs'] || '';
-
-        if (avsValue) {
-            const avsList = avsValue.split(',');
-            if (!avsList.includes(avId)) {
-                avsValue += ',' + avId;
-            }
-        } else {
-            avsValue = avId;
-        }
-
-        await setBlockAttrs(blockId, { 'custom-avs': avsValue });
-    }
-
-    async function setBlockAttrs(blockId, attrs) {
-        if (!blockId) return false;
-
-        try {
-            const result = await requestApi('/api/attr/setBlockAttrs', {
-                "id": blockId,
-                "attrs": attrs
-            });
-            return result?.code === 0;
-        } catch (error) {
-            console.error(`设置块 ${blockId} 属性失败:`, error);
-            return false;
-        }
-    }
-
-    function isCheckboxKeyType(keyType) {
-        if (!keyType) return false;
-        const t = String(keyType).toLowerCase();
-        return t === 'checkbox' || t.includes('checkbox');
-    }
-
-    function normalizeCheckboxValue(raw) {
-        if (typeof raw === 'boolean') return { checkbox: { checked: raw } };
-
-        if (typeof raw === 'string') {
-            const v = raw.trim().toLowerCase();
-            if (['checked', 'true', '1', 'yes', 'y', 'on'].includes(v)) return { checkbox: { checked: true } };
-            if (['unchecked', 'false', '0', 'no', 'n', 'off', ''].includes(v)) return { checkbox: { checked: false } };
-        }
-
-        if (raw && typeof raw === 'object') {
-            if (raw.checkbox && typeof raw.checkbox === 'object') return raw;
-            if (Object.prototype.hasOwnProperty.call(raw, 'checked')) return { checkbox: { checked: !!raw.checked } };
-            if (Object.prototype.hasOwnProperty.call(raw, 'content')) return { checkbox: { checked: !!raw.content } };
-        }
-
-        return null;
-    }
-
-    function normalizeAvValue(raw, keyType) {
-        if (raw && typeof raw === 'object') return raw;
-        if (isCheckboxKeyType(keyType)) return normalizeCheckboxValue(raw);
-        return null;
-    }
-
-    function buildValueCandidatesForKeyType(value, keyType) {
-        if (!value || typeof value !== 'object') return [value];
-        const t = String(keyType || '').toLowerCase();
-
-        if (isCheckboxKeyType(keyType)) {
-            const checked = value.checkbox && typeof value.checkbox === 'object'
-                ? (Object.prototype.hasOwnProperty.call(value.checkbox, 'checked')
-                    ? !!value.checkbox.checked
-                    : Object.prototype.hasOwnProperty.call(value.checkbox, 'content')
-                        ? !!value.checkbox.content
-                        : !!value.checkbox)
-                : !!value.checked;
-
-            return [
-                { checkbox: { checked } },
-                { checkbox: { checked, isNotEmpty: true } },
-                { checkbox: { content: checked } },
-                { checkbox: { content: checked, isNotEmpty: true } },
-            ];
-        }
-
-        if (t.includes('date') && value.date && typeof value.date === 'object' && Object.prototype.hasOwnProperty.call(value.date, 'content')) {
-            const c = value.date.content;
-            return [
-                value,
-                { date: { content: c, isNotEmpty: true } },
-                typeof c === 'number' ? { date: { content: String(c) } } : null,
-                typeof c === 'number' ? { date: { content: String(c), isNotEmpty: true } } : null,
-            ].filter(Boolean);
-        }
-
-        if (t.includes('number') && value.number && typeof value.number === 'object' && Object.prototype.hasOwnProperty.call(value.number, 'content')) {
-            const c = value.number.content;
-            return [
-                value,
-                { number: { content: c, isNotEmpty: true } },
-            ];
-        }
-
-        if ((t.includes('text') || t.includes('string')) && value.text && typeof value.text === 'object' && Object.prototype.hasOwnProperty.call(value.text, 'content')) {
-            const c = value.text.content;
-            return [
-                value,
-                { text: { content: c, isNotEmpty: true } },
-            ];
-        }
-
-        if ((t.includes('select') || t.includes('mselect') || t.includes('multi')) && Object.prototype.hasOwnProperty.call(value, 'mSelect')) {
-            const ms = value.mSelect;
-            const contents = Array.isArray(ms) ? ms.map(x => x?.content).filter(Boolean) : [];
-            return [
-                value,
-                { mSelect: ms, isNotEmpty: true },
-                contents.length > 0 ? { mSelect: { contents } } : null,
-                contents.length > 0 ? { mSelect: { contents, isNotEmpty: true } } : null,
-            ].filter(Boolean);
-        }
-
-        return [value];
-    }
-
-    async function setAttributeViewBlockAttrWithFallback({ avID, keyID, rowID, cellID, value, keyType }) {
-        const candidates = buildValueCandidatesForKeyType(value, keyType);
-        for (const candidate of candidates) {
-            const result = await requestApi("/api/av/setAttributeViewBlockAttr", {
-                avID,
-                keyID,
-                rowID,
-                cellID,
-                value: candidate
-            });
-            if (result?.code === 0) return true;
-        }
-        return false;
-    }
-
-    async function addColsToAvOptimized(blockIds, cols, avID) {
-        if (!blockIds.length || !cols.length) return 0;
-
-        let keys;
-        if (keysCache.has(avID)) {
-            keys = keysCache.get(avID);
-        } else {
-            const keysResult = await requestApi("/api/av/getAttributeViewKeysByAvID", { avID });
-            keys = keysResult?.data || [];
-            keysCache.set(avID, keys);
-        }
-
-        if (!keys.length) return 0;
-
-        const processedCols = [];
-        for (const col of cols) {
-            if (!col.colName) continue;
-            const keyInfo = keys.find(item => item.name === col.colName.trim());
-            if (keyInfo) {
-                processedCols.push({
-                    ...col,
-                    keyID: keyInfo.id,
-                    keyType: keyInfo.type
-                });
-            }
-        }
-
-        if (processedCols.length === 0) return 0;
-
-        const processPromises = blockIds.map(blockId =>
-            processBlockColumns(blockId, processedCols, avID)
-        );
-
-        const results = await Promise.all(processPromises);
-        return results.reduce((sum, count) => sum + count, 0);
-    }
-
-    async function processBlockColumns(blockId, cols, avID) {
-        const rowID = getRowIdByBlockId(blockId);
-        let processedCount = 0;
-
-        const colPromises = cols.map(async col => {
-            if (!col.keyID || typeof col.getColValue !== 'function') return 0;
-
-            try {
-                const cellID = await getCellId(blockId, col.keyID, avID);
-                if (!cellID) {
-                    console.warn(`未找到块 ${blockId} 的cellID，跳过`);
-                    return 0;
-                }
-
-                const rawColValue = col.getColValue(col.keyID, blockId, rowID, cellID, avID);
-                const colValue = normalizeAvValue(rawColValue, col.keyType);
-                if (!colValue) return 0;
-
-                const ok = await setAttributeViewBlockAttrWithFallback({
-                    avID,
-                    keyID: col.keyID,
-                    rowID,
-                    cellID,
-                    value: colValue,
-                    keyType: col.keyType
-                });
-                return ok ? 1 : 0;
-            } catch (error) {
-                console.error(`处理块 ${blockId} 的列失败:`, error);
-                return 0;
-            }
-        });
-
-        const results = await Promise.all(colPromises);
-        return results.reduce((sum, count) => sum + count, 0);
-    }
-
-    async function getCellId(blockId, keyID, avID) {
-        try {
-            const res = await requestApi("/api/av/getAttributeViewKeys", { id: blockId });
-            if (!res?.data) return null;
-
-            const foundItem = res.data.find(item => item.avID === avID);
-            if (!foundItem || !foundItem.keyValues) return null;
-
-            const specificKey = foundItem.keyValues.find(kv => kv.key.id === keyID);
-            if (!specificKey || !specificKey.values || specificKey.values.length === 0) return null;
-
-            return specificKey.values[0].id;
-        } catch (error) {
-            console.error('获取cellID失败:', error);
-            return null;
-        }
-    }
-
-    async function addBlocksToAvNoBind(blocks, avId, toAvColName, otherCols) {
-        if (!blocks.length) return 0;
-
-        let keys;
-        if (keysCache.has(avId)) {
-            keys = keysCache.get(avId);
-        } else {
-            const keysResult = await requestApi("/api/av/getAttributeViewKeysByAvID", { avID: avId });
-            keys = keysResult?.data || [];
-            keysCache.set(avId, keys);
-        }
-
-        if (!keys.length) return 0;
-
-        let pkKeyID = keys[0]?.id || '';
-        if (!pkKeyID) {
-            pkKeyID = keys.find(item => item.type === 'block')?.id;
-        }
-
-        let keyID = '';
-        if (toAvColName) {
-            keyID = keys.find(item => item.name === toAvColName.trim())?.id;
-        }
-
-        if (isEnableMoreCols && otherCols) {
-            otherCols.forEach(col => {
-                if (!col.colName) return;
-                const foundKey = keys.find(item => item.name === col.colName.trim());
-                if (foundKey) {
-                    col.keyID = foundKey.id;
-                    col.keyType = foundKey.type;
-                }
-            });
-        }
-
-        const values = blocks.map(block => {
-            const rowValues = [{
-                "keyID": pkKeyID,
-                "block": { "content": keyID ? "" : block.textContent }
-            }];
-
-            if (keyID) {
-                rowValues.push({
-                    "keyID": keyID,
-                    "text": { "content": block.textContent }
-                });
-            }
-
-            if (isEnableMoreCols && otherCols) {
-                for (const col of otherCols) {
-                    if (!col.keyID || typeof col.getColValue !== 'function') continue;
-
-                    try {
-                        const rawColValue = col.getColValue(col.keyID);
-                        const colValue = normalizeAvValue(rawColValue, col.keyType);
-                        if (colValue) rowValues.push({ ...colValue, keyID: col.keyID });
-                    } catch (error) {
-                        console.error('处理列值失败:', error);
-                    }
-                }
-            }
-
-            return rowValues;
-        });
-
-        const input = { "avID": avId, "blocksValues": values };
-
-        try {
-            const result = await requestApi('/api/av/appendAttributeViewDetachedBlocksWithValues', input);
-            if (result?.code === 0) {
-                const blockIds = blocks.map(block => block.dataset.nodeId);
-                await Promise.all(blockIds.map(blockId => setBlockAvsAttr(blockId, avId)));
-                return blocks.length;
-            }
-        } catch (error) {
-            console.error('添加非绑定块失败:', error);
-        }
-
-        return 0;
-    }
-
-    async function setBlocksAttrsBatch(blockIds, attrs) {
-        if (!attrs || typeof attrs !== 'object' || !blockIds.length) return 0;
-
-        const promises = blockIds.map(blockId => setBlockAttrs(blockId, attrs));
-        const results = await Promise.all(promises);
-        return results.filter(result => result).length;
-    }
-
+    // 思源笔记 API 请求封装
     async function requestApi(url, data, method = 'POST') {
         try {
             const response = await fetch(url, {
@@ -1869,74 +1312,11 @@
         }
     }
 
-    function observeBlockMenu(selector, callback) {
-        let hasFlag1 = false;
-        let hasFlag2 = false;
-        let isTitleMenu = false;
-
-        const observer = new MutationObserver((mutationsList) => {
-            for (const mutation of mutationsList) {
-                if (mutation.type === 'childList' && mutation.addedNodes.length > 0) {
-                    mutation.addedNodes.forEach((node) => {
-                        if ((hasFlag1 && hasFlag2) || isTitleMenu) return;
-
-                        if (node.nodeType === 1) {
-                            const cutLabel = node.querySelector('.b3-menu__label')?.textContent?.trim();
-                            if (cutLabel === window.siyuan.languages.cut) hasFlag1 = true;
-                            if (cutLabel === window.siyuan.languages.move) hasFlag2 = true;
-                            if (node.closest('[data-name="titleMenu"]')) isTitleMenu = true;
-                        }
-
-                        if ((hasFlag1 && hasFlag2) || isTitleMenu) {
-                            callback(isTitleMenu);
-                            setTimeout(() => {
-                                hasFlag1 = false;
-                                hasFlag2 = false;
-                                isFlag3 = false;
-                            }, 200);
-                        }
-                    });
-                }
-            }
-        });
-
-        observer.observe(selector || document.body, {
-            childList: true,
-            subtree: false
-        });
-
-        return observer;
-    }
-
-    function whenElementExist(selector, node) {
-        return new Promise(resolve => {
-            const check = () => {
-                if (quickbarDisposed) return;
-                const el = typeof selector === 'function' ? selector() : (node || document).querySelector(selector);
-                el ? resolve(el) : requestAnimationFrame(check);
-            };
-            check();
-        });
-    }
-
+    // 思源笔记 API 封装
     function showMessage(message, isError = false, delay = 7000) {
         return fetch('/api/notification/' + (isError ? 'pushErrMsg' : 'pushMsg'), {
             method: "POST",
             body: JSON.stringify({ "msg": message, "timeout": delay })
         });
-    }
-
-    function compareVersions(version1, version2) {
-        const v1 = version1.split('.');
-        const v2 = version2.split('.');
-        const len = Math.max(v1.length, v2.length);
-
-        for (let i = 0; i < len; i++) {
-            const num1 = i < v1.length ? parseInt(v1[i], 10) : 0;
-            const num2 = i < v2.length ? parseInt(v2[i], 10) : 0;
-            if (num1 > num2) return 1;
-            if (num1 < num2) return -1;
-        }
-        return 0;
     }
 })();

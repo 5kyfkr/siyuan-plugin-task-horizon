@@ -36,7 +36,14 @@
         sidebarColorMenuCloseHandler: null,
         sidebarColorMenuBindTimer: null,
         sidebarResizeCleanup: null,
+        onVisibilityChange: null,
+        calendarResizeObserver: null,
         scheduleCache: {
+            list: null,
+            loadedAt: 0,
+            inflight: null,
+        },
+        reminderCache: {
             list: null,
             loadedAt: 0,
             inflight: null,
@@ -50,6 +57,8 @@
             dragHost: null,
             draggable: null,
             nativeDropAbort: null,
+            popoverObserver: null,
+            popoverClickCapture: null,
         },
     };
 
@@ -838,26 +847,132 @@
     function bindCalendarDrop(wrap) {
         const host = state.calendarEl;
         if (!host) return;
-        const getDropStart = (target, x, y) => {
+        const PREVIEW_EVENT_ID = '__tm-cal-drag-preview-main__';
+        let previewKey = '';
+        const clearDropPreview = () => {
+            previewKey = '';
+            try { state.calendar?.getEventById?.(PREVIEW_EVENT_ID)?.remove?.(); } catch (e) {}
+        };
+        const renderDropPreview = (payload, hit) => {
+            const start = hit?.start;
+            if (!payload?.taskId || !(start instanceof Date) || Number.isNaN(start.getTime())) {
+                clearDropPreview();
+                return;
+            }
+            const allDay = hit?.allDay === true;
+            const safeMin = (Number.isFinite(Number(payload.durationMin)) && Number(payload.durationMin) > 0)
+                ? Math.round(Number(payload.durationMin))
+                : 60;
+            const end = allDay
+                ? new Date(start.getTime() + 24 * 60 * 60000)
+                : new Date(start.getTime() + safeMin * 60000);
+            const title = String(payload.title || '').trim() || '任务';
+            const settings = getSettings();
+            const calId = String(payload.calendarId || '').trim() || pickDefaultCalendarId(settings);
+            const defs = getCalendarDefs(settings);
+            const color = String(defs.find((d) => String(d?.id || '').trim() === calId)?.color || '#1a73e8').trim() || '#1a73e8';
+            const nextKey = `${start.getTime()}|${end.getTime()}|${allDay ? 1 : 0}|${title}|${color}`;
+            if (nextKey === previewKey) return;
+            previewKey = nextKey;
+            const cal = state.calendar;
+            if (!cal) return;
+            let ev = null;
+            try { ev = cal.getEventById?.(PREVIEW_EVENT_ID) || null; } catch (e) { ev = null; }
+            if (!ev) {
+                try {
+                    ev = cal.addEvent?.({
+                        id: PREVIEW_EVENT_ID,
+                        title,
+                        start: safeISO(start),
+                        end: safeISO(end),
+                        allDay,
+                        editable: false,
+                        durationEditable: false,
+                        startEditable: false,
+                        overlap: true,
+                        classNames: ['tm-cal-drag-preview'],
+                    }) || null;
+                } catch (e) { ev = null; }
+            }
+            try { ev?.setProp?.('title', title); } catch (e) {}
+            try { ev?.setDates?.(start, end, { allDay }); } catch (e) {}
+            try { ev?.setProp?.('backgroundColor', color); } catch (e) {}
+            try { ev?.setProp?.('borderColor', color); } catch (e) {}
+        };
+        const getDropInfo = (target, x, y) => {
+            const findColByX = (xPos) => {
+                const xp = Number(xPos);
+                if (!Number.isFinite(xp)) return null;
+                const cols = Array.from(host.querySelectorAll('.fc-timegrid-col[data-date]'));
+                for (const colEl of cols) {
+                    try {
+                        const r = colEl.getBoundingClientRect();
+                        if (xp >= r.left && xp < r.right) return colEl;
+                    } catch (e) {}
+                }
+                return cols[0] || null;
+            };
+            const pickSlotByXY = (xPos, yPos) => {
+                const xp = Number(xPos);
+                const yp = Number(yPos);
+                if (!Number.isFinite(yp)) return null;
+                const slots = Array.from(host.querySelectorAll('.fc-timegrid-slot[data-time]'));
+                if (slots.length === 0) return null;
+                let best = null;
+                let bestDist = Number.POSITIVE_INFINITY;
+                for (const s of slots) {
+                    try {
+                        const r = s.getBoundingClientRect();
+                        const containsY = yp >= r.top && yp < r.bottom;
+                        const containsX = !Number.isFinite(xp) || (xp >= r.left && xp < r.right);
+                        if (containsY && containsX) return s;
+                        const centerY = (r.top + r.bottom) / 2;
+                        const d = Math.abs(centerY - yp);
+                        if (d < bestDist) {
+                            bestDist = d;
+                            best = s;
+                        }
+                    } catch (e) {}
+                }
+                return best;
+            };
             const resolveFrom = (el) => {
-                if (!el) return null;
-                const slot = el.closest?.('.fc-timegrid-slot');
-                const col = el.closest?.('.fc-timegrid-col');
+                if (!(el instanceof Element)) return null;
+                const slot = el.closest?.('.fc-timegrid-slot,[data-time].fc-timegrid-slot');
+                const col = el.closest?.('.fc-timegrid-col') || findColByX(x);
+                const allDayWrap = el.closest?.('.fc-timegrid-all-day, .fc-timegrid-allday');
                 const day = el.closest?.('.fc-daygrid-day');
-                if (slot && col) {
+                if (allDayWrap) {
+                    const dateStr0 = String(el.closest?.('[data-date]')?.getAttribute?.('data-date') || '').trim();
+                    if (dateStr0) {
+                        const dt0 = new Date(`${dateStr0}T00:00:00`);
+                        if (!Number.isNaN(dt0.getTime())) return { start: dt0, allDay: true };
+                    }
+                }
+                if (slot && col && !allDayWrap) {
                     const dateStr = String(col.getAttribute('data-date') || '').trim();
                     const timeStr = String(slot.getAttribute('data-time') || '').trim();
                     if (dateStr && timeStr) {
                         const hhmm = timeStr.slice(0, 5);
                         const dt = new Date(`${dateStr}T${hhmm}:00`);
-                        return Number.isNaN(dt.getTime()) ? null : dt;
+                        if (!Number.isNaN(dt.getTime())) return { start: dt, allDay: false };
+                    }
+                }
+                if (col && !allDayWrap) {
+                    const dateStr = String(col.getAttribute('data-date') || '').trim();
+                    const slotByPoint = pickSlotByXY(x, y);
+                    const timeStr = String(slotByPoint?.getAttribute?.('data-time') || '').trim();
+                    if (dateStr && timeStr) {
+                        const hhmm = timeStr.slice(0, 5);
+                        const dt = new Date(`${dateStr}T${hhmm}:00`);
+                        if (!Number.isNaN(dt.getTime())) return { start: dt, allDay: false };
                     }
                 }
                 if (day) {
                     const dateStr = String(day.getAttribute('data-date') || '').trim();
                     if (dateStr) {
                         const dt = new Date(`${dateStr}T09:00:00`);
-                        return Number.isNaN(dt.getTime()) ? null : dt;
+                        if (!Number.isNaN(dt.getTime())) return { start: dt, allDay: true };
                     }
                 }
                 return null;
@@ -865,6 +980,18 @@
             const el0 = (target instanceof Element) ? target : null;
             const r0 = resolveFrom(el0);
             if (r0) return r0;
+            const layered = (() => {
+                try {
+                    if (typeof document.elementsFromPoint === 'function') {
+                        return document.elementsFromPoint(Number(x) || 0, Number(y) || 0);
+                    }
+                } catch (e) {}
+                return [];
+            })();
+            for (const el of layered) {
+                const r = resolveFrom(el);
+                if (r) return r;
+            }
             return resolveFrom(document.elementFromPoint(x, y));
         };
 
@@ -874,22 +1001,46 @@
             const isWhiteboardLink = types.includes('application/x-tm-task-link');
             if (isWhiteboardLink) return;
 
-            const ok = e.dataTransfer && (types.includes('application/x-tm-task') || types.includes('text/plain'));
-            if (ok) e.preventDefault();
+            const ok = e.dataTransfer && (
+                types.includes('application/x-tm-task')
+                || types.includes('application/x-tm-task-id')
+                || types.includes('text/plain')
+            );
+            if (!ok) {
+                clearDropPreview();
+                return;
+            }
+            e.preventDefault();
+            const payload = parseTaskDropPayload(e, null, null);
+            const hit = getDropInfo(e.target, e.clientX, e.clientY);
+            renderDropPreview(payload, hit);
+        });
+        host.addEventListener('dragleave', (e) => {
+            try {
+                const r = host.getBoundingClientRect();
+                const x = Number(e.clientX);
+                const y = Number(e.clientY);
+                const out = !Number.isFinite(x) || !Number.isFinite(y) || x < r.left || x > r.right || y < r.top || y > r.bottom;
+                if (out) clearDropPreview();
+            } catch (e2) {}
         });
         host.addEventListener('drop', async (e) => {
             try {
                 e.preventDefault();
-                const raw = String(e.dataTransfer?.getData?.('application/x-tm-task') || e.dataTransfer?.getData?.('text/plain') || '');
-                const data = JSON.parse(raw);
-                const taskId = String(data?.id || '').trim();
-                const title = String(data?.title || '').trim();
-                const durationMin = Number(data?.durationMin);
-                const calendarId = String(data?.calendarId || '').trim();
+                clearDropPreview();
+                const payload = parseTaskDropPayload(e, null, null);
+                const taskId = String(payload?.taskId || '').trim();
+                const title = String(payload?.title || '').trim();
+                const durationMin = Number(payload?.durationMin);
+                const calendarId = String(payload?.calendarId || '').trim();
                 if (!taskId) return;
-                const start = getDropStart(e.target, e.clientX, e.clientY) || new Date();
+                const hit = getDropInfo(e.target, e.clientX, e.clientY);
+                const start = (hit?.start instanceof Date) ? hit.start : new Date();
+                const allDay = hit?.allDay === true;
                 const safeMin = (Number.isFinite(durationMin) && durationMin > 0) ? Math.round(durationMin) : 60;
-                const end = new Date(start.getTime() + safeMin * 60000);
+                const end = allDay
+                    ? new Date(start.getTime() + 24 * 60 * 60000)
+                    : new Date(start.getTime() + safeMin * 60000);
                 const settings = getSettings();
                 const calId = calendarId || pickDefaultCalendarId(settings);
                 const item = {
@@ -900,6 +1051,7 @@
                     color: '',
                     calendarId: calId,
                     taskId,
+                    allDay,
                 };
                 const list = await loadScheduleAll();
                 list.push(item);
@@ -907,6 +1059,9 @@
                 try { state.calendar?.refetchEvents?.(); } catch (e2) {}
                 toast('✅ 已加入日程', 'success');
             } catch (e2) {}
+            finally {
+                clearDropPreview();
+            }
         });
     }
 
@@ -1160,6 +1315,13 @@
         try { if (!taskId) taskId = String(dt?.getData?.('application/x-tm-task-id') || '').trim(); } catch (e) {}
         if (!taskId) {
             try {
+                if (typeof window.tmCalendarGetDraggingTaskId === 'function') {
+                    taskId = String(window.tmCalendarGetDraggingTaskId() || '').trim();
+                }
+            } catch (e) {}
+        }
+        if (!taskId) {
+            try {
                 const raw = String(dt?.getData?.('text/plain') || '').trim();
                 if (raw) {
                     const p = tryJson(raw);
@@ -1179,20 +1341,22 @@
         let durationMin = parseTaskDurationMinutes(task?.duration);
         if (titleFromPayload) title = titleFromPayload;
         if (Number.isFinite(durationFromPayload) && durationFromPayload > 0) durationMin = durationFromPayload;
-        if (!calendarId) {
-            try {
-                const meta = (typeof window.tmCalendarGetTaskDragMeta === 'function')
-                    ? window.tmCalendarGetTaskDragMeta(taskId)
-                    : null;
-                if (meta && typeof meta === 'object') {
-                    calendarId = String(meta.calendarId || '').trim() || calendarId;
+        try {
+            const meta = (typeof window.tmCalendarGetTaskDragMeta === 'function')
+                ? window.tmCalendarGetTaskDragMeta(taskId)
+                : null;
+            if (meta && typeof meta === 'object') {
+                if (!calendarId) calendarId = String(meta.calendarId || '').trim() || calendarId;
+                if (!(Number.isFinite(durationFromPayload) && durationFromPayload > 0)) {
                     const m = Number(meta.durationMin);
                     if (Number.isFinite(m) && m > 0) durationMin = Math.max(15, Math.round(m));
+                }
+                if (!titleFromPayload) {
                     const mt = String(meta.title || '').trim();
                     if (mt) title = mt;
                 }
-            } catch (e) {}
-        }
+            }
+        } catch (e) {}
         return { taskId, title, durationMin, calendarId: String(calendarId || '').trim() };
     }
 
@@ -1214,7 +1378,113 @@
         }
     }
 
+    function applyTaskEventTitleClamp(wrapEl, titleEl) {
+        try {
+            if (wrapEl instanceof HTMLElement) {
+                wrapEl.style.display = 'flex';
+                wrapEl.style.alignItems = 'center';
+                wrapEl.style.width = '100%';
+                wrapEl.style.maxWidth = '100%';
+                wrapEl.style.minWidth = '0';
+                wrapEl.style.overflow = 'hidden';
+                wrapEl.style.flex = '1 1 0';
+            }
+            if (titleEl instanceof HTMLElement) {
+                titleEl.style.display = 'block';
+                titleEl.style.flex = '1 1 0';
+                titleEl.style.minWidth = '0';
+                titleEl.style.maxWidth = '100%';
+                titleEl.style.overflow = 'hidden';
+                titleEl.style.textOverflow = 'ellipsis';
+                titleEl.style.whiteSpace = 'nowrap';
+            }
+        } catch (e) {}
+    }
+
+    function applyCalendarEventClampFromRoot(rootEl) {
+        if (!(rootEl instanceof Element)) return;
+        try {
+            if (rootEl instanceof HTMLElement) {
+                rootEl.style.maxWidth = '100%';
+                rootEl.style.overflow = 'hidden';
+            }
+            const mainNodes = rootEl.querySelectorAll?.('.fc-event-main, .fc-event-main-frame, .fc-event-title-container');
+            if (mainNodes && mainNodes.length) {
+                mainNodes.forEach((n) => {
+                    if (!(n instanceof HTMLElement)) return;
+                    n.style.minWidth = '0';
+                    n.style.maxWidth = '100%';
+                    n.style.overflow = 'hidden';
+                });
+            }
+            const wraps = rootEl.querySelectorAll?.('.tm-cal-task-event');
+            if (wraps && wraps.length) {
+                wraps.forEach((w) => applyTaskEventTitleClamp(w, w.querySelector?.('.tm-cal-task-event-title') || null));
+            }
+            const titleNodes = rootEl.querySelectorAll?.('.tm-cal-task-event-title, .fc-event-title');
+            if (titleNodes && titleNodes.length) {
+                titleNodes.forEach((t) => {
+                    if (!(t instanceof HTMLElement)) return;
+                    t.style.display = 'block';
+                    t.style.minWidth = '0';
+                    t.style.maxWidth = '100%';
+                    t.style.overflow = 'hidden';
+                    t.style.textOverflow = 'ellipsis';
+                    t.style.whiteSpace = 'nowrap';
+                });
+            }
+        } catch (e) {}
+    }
+
+    function clampSideDayPopover(rootEl) {
+        if (!(rootEl instanceof HTMLElement)) return;
+        const popovers = rootEl.querySelectorAll('.fc-popover');
+        if (!popovers || !popovers.length) return;
+        const rootRect = rootEl.getBoundingClientRect();
+        const safePad = 4;
+        const maxW = Math.max(160, Math.floor(rootRect.width - safePad * 2));
+        popovers.forEach((pop) => {
+            if (!(pop instanceof HTMLElement)) return;
+            try {
+                pop.style.left = `${safePad}px`;
+                pop.style.right = 'auto';
+                pop.style.maxWidth = `${maxW}px`;
+                pop.style.width = `${maxW}px`;
+                pop.style.minWidth = '0px';
+                pop.style.boxSizing = 'border-box';
+                const body = pop.querySelector('.fc-popover-body');
+                if (body instanceof HTMLElement) {
+                    body.style.maxWidth = '100%';
+                    body.style.overflowX = 'hidden';
+                }
+                applyCalendarEventClampFromRoot(pop);
+            } catch (e) {}
+        });
+    }
+
+    function scheduleClampSideDayPopover(rootEl) {
+        requestAnimationFrame(() => requestAnimationFrame(() => clampSideDayPopover(rootEl)));
+    }
+
     function unmountSideDayTimeline() {
+        if (state.sideDay.popoverClickCapture && state.sideDay.rootEl) {
+            try { state.sideDay.rootEl.removeEventListener('click', state.sideDay.popoverClickCapture, true); } catch (e) {}
+            state.sideDay.popoverClickCapture = null;
+        }
+        if (state.sideDay.popoverObserver) {
+            try { state.sideDay.popoverObserver.disconnect(); } catch (e) {}
+            state.sideDay.popoverObserver = null;
+        }
+        // 清理页面可见性变化监听器
+        if (state.sideDay.onVisibilityChange) {
+            try { document.removeEventListener('visibilitychange', state.sideDay.onVisibilityChange); } catch (e) {}
+            state.sideDay.onVisibilityChange = null;
+        }
+        // 清理 ResizeObserver
+        if (state.sideDay.resizeObserver) {
+            try { state.sideDay.resizeObserver.disconnect(); } catch (e) {}
+            state.sideDay.resizeObserver = null;
+        }
         try { state.sideDay.draggable?.destroy?.(); } catch (e) {}
         state.sideDay.draggable = null;
         state.sideDay.dragHost = null;
@@ -1232,6 +1502,58 @@
         if (!(rootEl instanceof HTMLElement)) return;
         const abort = new AbortController();
         state.sideDay.nativeDropAbort = abort;
+        const PREVIEW_EVENT_ID = '__tm-cal-drag-preview-side__';
+        let previewKey = '';
+        const clearDropPreview = () => {
+            previewKey = '';
+            try { state.sideDay?.calendar?.getEventById?.(PREVIEW_EVENT_ID)?.remove?.(); } catch (e) {}
+        };
+        const renderDropPreview = (payload, hit) => {
+            const start = hit?.start;
+            if (!payload?.taskId || !(start instanceof Date) || Number.isNaN(start.getTime())) {
+                clearDropPreview();
+                return;
+            }
+            const allDay = hit?.allDay === true;
+            const safeMin = (Number.isFinite(Number(payload.durationMin)) && Number(payload.durationMin) > 0)
+                ? Math.round(Number(payload.durationMin))
+                : 60;
+            const end = allDay
+                ? new Date(start.getTime() + 24 * 60 * 60000)
+                : new Date(start.getTime() + safeMin * 60000);
+            const title = String(payload.title || '').trim() || '任务';
+            const settings = getSettings();
+            const calId = String(payload.calendarId || '').trim() || pickDefaultCalendarId(settings);
+            const defs = getCalendarDefs(settings);
+            const color = String(defs.find((d) => String(d?.id || '').trim() === calId)?.color || '#1a73e8').trim() || '#1a73e8';
+            const nextKey = `${start.getTime()}|${end.getTime()}|${allDay ? 1 : 0}|${title}|${color}`;
+            if (nextKey === previewKey) return;
+            previewKey = nextKey;
+            const cal = state.sideDay?.calendar;
+            if (!cal) return;
+            let ev = null;
+            try { ev = cal.getEventById?.(PREVIEW_EVENT_ID) || null; } catch (e) { ev = null; }
+            if (!ev) {
+                try {
+                    ev = cal.addEvent?.({
+                        id: PREVIEW_EVENT_ID,
+                        title,
+                        start: safeISO(start),
+                        end: safeISO(end),
+                        allDay,
+                        editable: false,
+                        durationEditable: false,
+                        startEditable: false,
+                        overlap: true,
+                        classNames: ['tm-cal-drag-preview'],
+                    }) || null;
+                } catch (e) { ev = null; }
+            }
+            try { ev?.setProp?.('title', title); } catch (e) {}
+            try { ev?.setDates?.(start, end, { allDay }); } catch (e) {}
+            try { ev?.setProp?.('backgroundColor', color); } catch (e) {}
+            try { ev?.setProp?.('borderColor', color); } catch (e) {}
+        };
         const getDropInfo = (target, x, y) => {
             const pickCurrentSideDay = () => {
                 try {
@@ -1244,10 +1566,46 @@
                 } catch (e) {}
                 return null;
             };
+            const findColByX = (xPos) => {
+                const xp = Number(xPos);
+                if (!Number.isFinite(xp)) return null;
+                const cols = Array.from(rootEl.querySelectorAll('.fc-timegrid-col[data-date]'));
+                for (const colEl of cols) {
+                    try {
+                        const r = colEl.getBoundingClientRect();
+                        if (xp >= r.left && xp < r.right) return colEl;
+                    } catch (e) {}
+                }
+                return cols[0] || null;
+            };
+            const pickSlotByXY = (xPos, yPos) => {
+                const xp = Number(xPos);
+                const yp = Number(yPos);
+                if (!Number.isFinite(yp)) return null;
+                const slots = Array.from(rootEl.querySelectorAll('.fc-timegrid-slot[data-time]'));
+                if (slots.length === 0) return null;
+                let best = null;
+                let bestDist = Number.POSITIVE_INFINITY;
+                for (const s of slots) {
+                    try {
+                        const r = s.getBoundingClientRect();
+                        const containsY = yp >= r.top && yp < r.bottom;
+                        const containsX = !Number.isFinite(xp) || (xp >= r.left && xp < r.right);
+                        if (containsY && containsX) return s;
+                        const centerY = (r.top + r.bottom) / 2;
+                        const d = Math.abs(centerY - yp);
+                        if (d < bestDist) {
+                            bestDist = d;
+                            best = s;
+                        }
+                    } catch (e) {}
+                }
+                return best;
+            };
             const resolveFrom = (el) => {
                 if (!(el instanceof Element)) return null;
-                const slot = el.closest?.('.fc-timegrid-slot');
-                const col = el.closest?.('.fc-timegrid-col');
+                const slot = el.closest?.('.fc-timegrid-slot,[data-time].fc-timegrid-slot');
+                const col = el.closest?.('.fc-timegrid-col') || findColByX(x);
                 const allDayWrap = el.closest?.('.fc-timegrid-all-day, .fc-timegrid-allday');
                 const day = el.closest?.('.fc-daygrid-day');
                 if (allDayWrap) {
@@ -1268,6 +1626,39 @@
                         if (!Number.isNaN(dt.getTime())) return { start: dt, allDay: false };
                     }
                 }
+                if (col && !allDayWrap) {
+                    const dateStr = String(col.getAttribute('data-date') || '').trim();
+                    const slotByPoint = pickSlotByXY(x, y);
+                    const timeStr = String(slotByPoint?.getAttribute?.('data-time') || '').trim();
+                    if (dateStr && timeStr) {
+                        const hhmm = timeStr.slice(0, 5);
+                        const dt = new Date(`${dateStr}T${hhmm}:00`);
+                        if (!Number.isNaN(dt.getTime())) return { start: dt, allDay: false };
+                    }
+                }
+                if (col && !allDayWrap) {
+                    const dateStr = String(col.getAttribute('data-date') || '').trim();
+                    if (dateStr) {
+                        const slotEls = Array.from(rootEl.querySelectorAll('.fc-timegrid-slot[data-time]'));
+                        if (slotEls.length > 0) {
+                            const y0 = Number(y);
+                            const picked = slotEls.find((s) => {
+                                try {
+                                    const r = s.getBoundingClientRect();
+                                    return y0 >= r.top && y0 < r.bottom;
+                                } catch (e) {
+                                    return false;
+                                }
+                            }) || slotEls[0];
+                            const timeStr = String(picked?.getAttribute?.('data-time') || '').trim();
+                            if (timeStr) {
+                                const hhmm = timeStr.slice(0, 5);
+                                const dt = new Date(`${dateStr}T${hhmm}:00`);
+                                if (!Number.isNaN(dt.getTime())) return { start: dt, allDay: false };
+                            }
+                        }
+                    }
+                }
                 const dayEl = day || el.closest?.('[data-date]');
                 const dateStr = String(dayEl?.getAttribute?.('data-date') || '').trim();
                 if (dateStr) {
@@ -1276,7 +1667,22 @@
                 }
                 return null;
             };
-            const hit = resolveFrom((target instanceof Element) ? target : null) || resolveFrom(document.elementFromPoint(x, y));
+            const layered = (() => {
+                try {
+                    if (typeof document.elementsFromPoint === 'function') {
+                        return document.elementsFromPoint(Number(x) || 0, Number(y) || 0);
+                    }
+                } catch (e) {}
+                return [];
+            })();
+            let hit = resolveFrom((target instanceof Element) ? target : null);
+            if (!hit) {
+                for (const el of layered) {
+                    hit = resolveFrom(el);
+                    if (hit) break;
+                }
+            }
+            if (!hit) hit = resolveFrom(document.elementFromPoint(x, y));
             if (hit) return hit;
             const cur = pickCurrentSideDay();
             if (cur) return { start: cur, allDay: true };
@@ -1294,14 +1700,63 @@
                 || types.includes('application/x-tm-task-id')
                 || types.includes('text/plain')
             );
-            if (ok) e.preventDefault();
+            if (!ok) {
+                clearDropPreview();
+                return;
+            }
+            e.preventDefault();
+            const payload = parseTaskDropPayload(e, null, resolveTask);
+            const hit = getDropInfo(e.target, e.clientX, e.clientY);
+            renderDropPreview(payload, hit);
         }, { signal: abort.signal });
+        document.addEventListener('dragover', (e) => {
+            const types = Array.from(e.dataTransfer?.types || []);
+            const isWhiteboardLink = types.includes('application/x-tm-task-link');
+            if (isWhiteboardLink) return;
+            const ok = e.dataTransfer && (
+                types.includes('application/x-tm-task')
+                || types.includes('application/x-tm-task-id')
+                || types.includes('text/plain')
+            );
+            if (!ok) {
+                clearDropPreview();
+                return;
+            }
+            const x = Number(e.clientX);
+            const y = Number(e.clientY);
+            if (!Number.isFinite(x) || !Number.isFinite(y)) {
+                clearDropPreview();
+                return;
+            }
+            const r = rootEl.getBoundingClientRect();
+            const inside = x >= r.left && x <= r.right && y >= r.top && y <= r.bottom;
+            if (!inside) {
+                clearDropPreview();
+                return;
+            }
+            e.preventDefault();
+            const payload = parseTaskDropPayload(e, null, resolveTask);
+            const hit = getDropInfo(document.elementFromPoint(x, y), x, y);
+            renderDropPreview(payload, hit);
+        }, { signal: abort.signal, capture: true });
+        rootEl.addEventListener('dragleave', (e) => {
+            try {
+                const r = rootEl.getBoundingClientRect();
+                const x = Number(e.clientX);
+                const y = Number(e.clientY);
+                const out = !Number.isFinite(x) || !Number.isFinite(y) || x < r.left || x > r.right || y < r.top || y > r.bottom;
+                if (out) clearDropPreview();
+            } catch (e2) {}
+        }, { signal: abort.signal });
+        window.addEventListener('dragend', clearDropPreview, { signal: abort.signal });
+        document.addEventListener('drop', clearDropPreview, { signal: abort.signal, capture: true });
 
         rootEl.addEventListener('drop', async (e) => {
             try {
                 const payload = parseTaskDropPayload(e, null, resolveTask);
                 if (!payload?.taskId) return;
                 e.preventDefault();
+                clearDropPreview();
                 const hit = getDropInfo(e.target, e.clientX, e.clientY);
                 if (!hit?.start) return;
                 const start = hit.start;
@@ -1324,6 +1779,9 @@
                 });
                 toast('✅ 已加入日程', 'success');
             } catch (e2) {}
+            finally {
+                clearDropPreview();
+            }
         }, { signal: abort.signal });
     }
 
@@ -1391,10 +1849,19 @@
             state.settingsStore = state.sideDay.settingsStore;
         }
         state.sideDay.resolveTask = (typeof inOpts.resolveTask === 'function') ? inOpts.resolveTask : null;
-        bindSideDayNativeDrop(rootEl, state.sideDay.resolveTask);
+        const enableExternalDrag = inOpts.enableExternalDrag !== false;
         const dragHost = (inOpts.dragHost instanceof HTMLElement) ? inOpts.dragHost : null;
-        if (dragHost && dragHost !== state.sideDay.dragHost) {
-            bindSideDayExternalDraggable(dragHost, getSettings(), state.sideDay.resolveTask);
+        if (enableExternalDrag) {
+            try { state.sideDay.nativeDropAbort?.abort?.(); } catch (e) {}
+            state.sideDay.nativeDropAbort = null;
+            if (dragHost && dragHost !== state.sideDay.dragHost) {
+                bindSideDayExternalDraggable(dragHost, getSettings(), state.sideDay.resolveTask);
+            }
+        } else {
+            bindSideDayNativeDrop(rootEl, state.sideDay.resolveTask);
+            try { state.sideDay.draggable?.destroy?.(); } catch (e) {}
+            state.sideDay.draggable = null;
+            state.sideDay.dragHost = null;
         }
         if (state.sideDay.calendar) {
             state.sideDay.rootEl = rootEl;
@@ -1421,9 +1888,13 @@
             eventResizableFromStart: true,
             selectable: true,
             selectMirror: true,
+            scrollTimeReset: false,
             droppable: true,
             dropAccept: 'tr[data-id], .tm-cal-task, .tm-kanban-card[data-id]',
             allDaySlot: true,
+            dayMaxEvents: true,
+            moreLinkClick: 'popover',
+            handleWindowResize: true,
             slotDuration: '00:30:00',
             slotLabelInterval: '01:00',
             slotLabelContent: (arg) => {
@@ -1472,6 +1943,7 @@
                     const title = document.createElement('span');
                     title.className = 'tm-cal-task-event-title';
                     title.textContent = String(arg?.event?.title || '').trim() || '任务';
+                    applyTaskEventTitleClamp(wrapEl, title);
                     applyTaskDoneVisual(wrapEl, title, done);
                     title.onclick = (ev) => {
                         try { ev.stopPropagation(); } catch (e) {}
@@ -1482,6 +1954,39 @@
                     wrapEl.appendChild(title);
                     return { domNodes: [wrapEl] };
                 }
+                if (source === 'reminder') {
+                    const wrapEl = document.createElement('span');
+                    wrapEl.className = 'tm-cal-task-event';
+                    const title = document.createElement('span');
+                    title.className = 'tm-cal-task-event-title';
+                    title.textContent = String(arg?.event?.title || '').trim() || '任务提醒';
+                    applyTaskEventTitleClamp(wrapEl, title);
+                    applyTaskDoneVisual(wrapEl, title, !!ext.__tmReminderDone);
+                    wrapEl.appendChild(title);
+                    return { domNodes: [wrapEl] };
+                }
+                if (source === 'cnHoliday') {
+                    const type = Number(ext.__tmCnHolidayType);
+                    const name = normalizeCnHolidayName(String(ext.__tmCnHolidayName || '').trim());
+                    if (!name) return true;
+                    if (type === 0) return true;
+                    if (type !== 2 && type !== 3 && type !== 4) return true;
+                    const isWork = type === 4;
+                    const pill = document.createElement('span');
+                    pill.className = `tm-cn-holiday-pill ${isWork ? 'tm-cn-holiday-pill--work' : 'tm-cn-holiday-pill--rest'}`;
+                    const badge = document.createElement('span');
+                    badge.className = 'tm-cn-holiday-badge';
+                    badge.textContent = isWork ? '班' : '休';
+                    pill.appendChild(badge);
+                    if (name) {
+                        const label = document.createElement('span');
+                        label.className = 'tm-cn-holiday-label';
+                        label.textContent = name;
+                        pill.appendChild(label);
+                    }
+                    pill.title = `${isWork ? '上班' : '休息'}${name ? `：${name}` : ''}`;
+                    return { domNodes: [pill] };
+                }
                 return true;
             },
             eventDidMount: (arg) => {
@@ -1490,6 +1995,7 @@
                     const source = String(ext.__tmSource || '').trim();
                     const el = arg?.el;
                     if (el && el instanceof Element) {
+                        applyCalendarEventClampFromRoot(el);
                         const eid = String(arg?.event?.id || '').trim();
                         if (eid) el.setAttribute('data-tm-cal-event-id', eid);
                         if (source) el.setAttribute('data-tm-cal-source', source);
@@ -1550,15 +2056,35 @@
             events: async (info, success, failure) => {
                 try {
                     const curSettings = getSettings();
-                    const [schedules, taskDates] = await Promise.all([
+                    const years = (() => {
+                        const y1 = info?.start instanceof Date ? info.start.getFullYear() : null;
+                        const y2 = info?.end instanceof Date ? info.end.getFullYear() : null;
+                        const set = new Set();
+                        if (Number.isFinite(y1)) set.add(y1);
+                        if (Number.isFinite(y2)) set.add(y2);
+                        return Array.from(set.values()).filter((x) => Number.isFinite(Number(x)));
+                    })();
+                    const [schedules, taskDates, cnHolidayDays, reminders] = await Promise.all([
                         loadScheduleForRange(info.start || '', info.end || ''),
                         (curSettings.showTaskDates && typeof window.tmQueryCalendarTaskDateEvents === 'function')
                             ? Promise.resolve().then(() => window.tmQueryCalendarTaskDateEvents(info.start || '', info.end || '')).catch(() => [])
                             : Promise.resolve([]),
+                        (curSettings.showCnHoliday || curSettings.showLunar)
+                            ? Promise.all(years.map((y) => loadCnHolidayYear(y))).then((arr) => arr.flat())
+                            : Promise.resolve([]),
+                        curSettings.linkDockTomato ? loadReminderBlocks().catch(() => []) : Promise.resolve([]),
                     ]);
+                    try {
+                        const wantMap = !!(curSettings.showCnHoliday || curSettings.showLunar);
+                        state.cnHolidayMap = wantMap ? buildCnHolidayMap(cnHolidayDays, info.start, info.end, !!curSettings.showLunar) : new Map();
+                        applyCnHolidayDots(rootEl);
+                        applyCnLunarLabels(rootEl);
+                    } catch (e0) {}
                     const b = buildEventsFromSchedule(schedules, curSettings);
                     const c = buildEventsFromTaskDates(taskDates, curSettings);
-                    success((b || []).concat(c || []));
+                    const d = curSettings.showCnHoliday ? buildCnHolidayEvents(cnHolidayDays, info.start, info.end, 'timeGridDay', curSettings) : [];
+                    const e = buildEventsFromReminders(reminders, info.start, info.end, curSettings);
+                    success((b || []).concat(c || [], d || [], e || []));
                 } catch (e) {
                     failure(e);
                 }
@@ -1575,6 +2101,13 @@
                 const source = String(ext.__tmSource || '').trim();
                 if (source === 'taskdate') {
                     const tid = String(ext.__tmTaskId || '').trim();
+                    try {
+                        if (tid && typeof window.tmJumpToTask === 'function') window.tmJumpToTask(tid, arg?.jsEvent);
+                    } catch (e) {}
+                    return;
+                }
+                if (source === 'reminder') {
+                    const tid = String(ext.__tmReminderBlockId || '').trim();
                     try {
                         if (tid && typeof window.tmJumpToTask === 'function') window.tmJumpToTask(tid, arg?.jsEvent);
                     } catch (e) {}
@@ -1707,6 +2240,64 @@
         });
         cal.render();
         state.sideDay.calendar = cal;
+        scheduleClampSideDayPopover(rootEl);
+
+        // 修复：使用 ResizeObserver 监听侧边栏日历容器尺寸变化
+        if (rootEl && typeof ResizeObserver === 'function') {
+            const sideDayResizeObserver = new ResizeObserver(() => {
+                requestAnimationFrame(() => {
+                    try { cal.updateSize(); } catch (e2) {}
+                    try { clampSideDayPopover(rootEl); } catch (e2) {}
+                });
+            });
+            sideDayResizeObserver.observe(rootEl);
+            state.sideDay.resizeObserver = sideDayResizeObserver;
+        }
+
+        const onSideDayPopoverClickCapture = (ev) => {
+            const target = ev?.target;
+            if (!(target instanceof Element)) return;
+            if (!target.closest('.fc-more-link, .fc-more')) return;
+            scheduleClampSideDayPopover(rootEl);
+        };
+        rootEl.addEventListener('click', onSideDayPopoverClickCapture, true);
+        state.sideDay.popoverClickCapture = onSideDayPopoverClickCapture;
+
+        if (typeof MutationObserver === 'function') {
+            const obs = new MutationObserver((mutations) => {
+                for (const m of mutations || []) {
+                    const nodes = m?.addedNodes || [];
+                    for (const n of nodes) {
+                        if (!(n instanceof Element)) continue;
+                        if (n.matches?.('.fc-popover') || n.querySelector?.('.fc-popover')) {
+                            scheduleClampSideDayPopover(rootEl);
+                            return;
+                        }
+                    }
+                }
+            });
+            try {
+                obs.observe(rootEl, { childList: true, subtree: true });
+                state.sideDay.popoverObserver = obs;
+            } catch (e) {
+                try { obs.disconnect(); } catch (e2) {}
+            }
+        }
+
+        // 修复：页面从后台恢复时重新计算侧边栏日历尺寸
+        // 使用 resize 事件来触发
+        let lastSideDayVisibilityState = document.visibilityState;
+        
+        const onSideDayVisibilityChange = () => {
+            if (document.visibilityState === 'visible' && lastSideDayVisibilityState === 'hidden') {
+                // 页面从后台恢复到前台，触发 resize 事件让日历重新布局
+                window.dispatchEvent(new Event('resize'));
+            }
+            lastSideDayVisibilityState = document.visibilityState;
+        };
+        document.addEventListener('visibilitychange', onSideDayVisibilityChange);
+        state.sideDay.onVisibilityChange = onSideDayVisibilityChange;
+
         return true;
     }
 
@@ -1854,6 +2445,224 @@
         }).filter(Boolean);
     }
 
+    function reminderOccurrenceKey(dateKey, timeKey) {
+        return `${String(dateKey || '').trim()} ${String(timeKey || '').trim()}`.trim();
+    }
+
+    function parseReminderTime(raw) {
+        const s = String(raw || '').trim();
+        const m = s.match(/^(\d{1,2}):(\d{1,2})$/);
+        if (!m) return null;
+        const hh = Number(m[1]);
+        const mm = Number(m[2]);
+        if (!Number.isFinite(hh) || !Number.isFinite(mm)) return null;
+        if (hh < 0 || hh > 23 || mm < 0 || mm > 59) return null;
+        const key = `${pad2(hh)}:${pad2(mm)}`;
+        return { hh, mm, key };
+    }
+
+    function getReminderTimes(reminder) {
+        const set = new Set();
+        const out = [];
+        const arr = Array.isArray(reminder?.times) ? reminder.times : [];
+        for (const it of arr) {
+            const p = parseReminderTime(it);
+            if (!p) continue;
+            if (set.has(p.key)) continue;
+            set.add(p.key);
+            out.push(p.key);
+        }
+        return out.sort();
+    }
+
+    function getReminderCompletedSet(reminder) {
+        const set = new Set();
+        const arr = reminder?.completedOccurrences || reminder?.completed || reminder?.done || [];
+        if (!Array.isArray(arr)) return set;
+        for (const it of arr) {
+            if (!it) continue;
+            if (typeof it === 'string') {
+                const k = it.trim();
+                if (k) set.add(k);
+                continue;
+            }
+            const k = reminderOccurrenceKey(it.date || it.dateKey || it.day, it.time || it.timeKey);
+            if (k) set.add(k);
+        }
+        return set;
+    }
+
+    function getReminderEvery(reminder) {
+        const raw = reminder?.every ?? reminder?.intervalEvery ?? reminder?.repeatEvery;
+        const n = parseInt(raw, 10);
+        if (!Number.isFinite(n) || n <= 0) return 1;
+        return Math.min(3650, Math.max(1, n));
+    }
+
+    function getReminderStartDateKey(reminder) {
+        const v = String(reminder?.startDate || reminder?.startDateKey || '').trim();
+        if (/^\d{4}-\d{2}-\d{2}$/.test(v)) return v;
+        return formatDateKey(reminder?.createdAt ? new Date(reminder.createdAt) : new Date());
+    }
+
+    function doesReminderOccurOnDate(reminder, dateKey) {
+        const dk = String(dateKey || '').trim();
+        if (!/^\d{4}-\d{2}-\d{2}$/.test(dk)) return false;
+        if (reminder?.enabled === false) return false;
+        const startKey = getReminderStartDateKey(reminder);
+        if (!startKey || dk < startKey) return false;
+        const endDateKey = String(reminder?.endDate || '').trim();
+        if (endDateKey && /^\d{4}-\d{2}-\d{2}$/.test(endDateKey) && dk > endDateKey) return false;
+
+        const interval = String(reminder?.interval || 'once').trim() || 'once';
+        const every = interval === 'once' ? 1 : getReminderEvery(reminder);
+        const target = new Date(`${dk}T00:00:00`);
+        const created = new Date(`${startKey}T00:00:00`);
+        if (Number.isNaN(target.getTime()) || Number.isNaN(created.getTime())) return false;
+        const dayMs = 86400000;
+
+        if (interval === 'once') return dk === startKey;
+        if (interval === 'daily') {
+            const diffDays = Math.floor((target.getTime() - created.getTime()) / dayMs);
+            return diffDays >= 0 && diffDays % every === 0;
+        }
+        if (interval === 'weekly') {
+            if (target.getDay() !== created.getDay()) return false;
+            const diffWeeks = Math.floor((target.getTime() - created.getTime()) / (dayMs * 7));
+            return diffWeeks >= 0 && diffWeeks % every === 0;
+        }
+        if (interval === 'monthly') {
+            const diffMonths = (target.getFullYear() - created.getFullYear()) * 12 + (target.getMonth() - created.getMonth());
+            if (diffMonths < 0 || diffMonths % every !== 0) return false;
+            const lastDay = new Date(target.getFullYear(), target.getMonth() + 1, 0).getDate();
+            const day = Math.min(created.getDate(), lastDay);
+            return target.getDate() === day;
+        }
+        if (interval === 'yearly') {
+            const diffYears = target.getFullYear() - created.getFullYear();
+            if (diffYears < 0 || diffYears % every !== 0) return false;
+            if (target.getMonth() !== created.getMonth()) return false;
+            const lastDay = new Date(target.getFullYear(), created.getMonth() + 1, 0).getDate();
+            const day = Math.min(created.getDate(), lastDay);
+            return target.getDate() === day;
+        }
+        return false;
+    }
+
+    function isReminderDateCompleted(reminder, dateKey, times, completedSet) {
+        const arr = Array.isArray(times) ? times : [];
+        if (arr.length === 0) return false;
+        const set = completedSet instanceof Set ? completedSet : getReminderCompletedSet(reminder);
+        return arr.every((t) => set.has(reminderOccurrenceKey(dateKey, t)));
+    }
+
+    async function loadReminderBlocks() {
+        const now = Date.now();
+        const cache = state.reminderCache || {};
+        if (Array.isArray(cache.list) && (now - (cache.loadedAt || 0) < 60000)) return cache.list;
+        if (cache.inflight && typeof cache.inflight.then === 'function') return await cache.inflight;
+        const loader = (async () => {
+            let blocks = [];
+            try {
+                const getter = globalThis.__tomatoReminder?.getBlocks;
+                if (typeof getter === 'function') {
+                    blocks = await getter();
+                }
+            } catch (e) {
+                blocks = [];
+            }
+            if (!Array.isArray(blocks) || blocks.length === 0) {
+                try {
+                    const sql = `
+                        SELECT b.id, b.content, b.type, b.root_id, a.value as reminder_data
+                        FROM blocks b
+                        JOIN attributes a ON b.id = a.block_id
+                        WHERE a.name = 'custom-tomato-reminder'
+                        AND a.value != ''
+                        AND b.type IN ('p', 'h', 'i', 'l', 'c')
+                        ORDER BY b.updated DESC
+                        LIMIT 500
+                    `;
+                    const res = await postJSON('/api/query/sql', { stmt: sql });
+                    const json = await res.json();
+                    const rows = (res.ok && json?.code === 0 && Array.isArray(json?.data)) ? json.data : [];
+                    blocks = rows.map((row) => {
+                        try {
+                            const reminderData = JSON.parse(String(row?.reminder_data || '{}'));
+                            return {
+                                blockId: String(row?.id || '').trim(),
+                                blockContent: String(row?.content || '').trim(),
+                                blockType: String(row?.type || '').trim(),
+                                rootId: String(row?.root_id || '').trim(),
+                                ...reminderData,
+                            };
+                        } catch (e) {
+                            return null;
+                        }
+                    }).filter(Boolean);
+                } catch (e) {
+                    blocks = [];
+                }
+            }
+            const safe = Array.isArray(blocks) ? blocks : [];
+            state.reminderCache = { list: safe, loadedAt: Date.now(), inflight: null };
+            return safe;
+        })();
+        state.reminderCache = { ...cache, inflight: loader };
+        try {
+            return await loader;
+        } finally {
+            if (state.reminderCache?.inflight === loader) state.reminderCache.inflight = null;
+        }
+    }
+
+    function buildEventsFromReminders(reminders, rangeStart, rangeEnd, settings) {
+        if (!settings.linkDockTomato) return [];
+        const start = parseDateOnly(rangeStart instanceof Date ? formatDateKey(rangeStart) : String(rangeStart || ''));
+        const end = parseDateOnly(rangeEnd instanceof Date ? formatDateKey(rangeEnd) : String(rangeEnd || ''));
+        if (!(start instanceof Date) || !(end instanceof Date)) return [];
+        if (Number.isNaN(start.getTime()) || Number.isNaN(end.getTime()) || end.getTime() <= start.getTime()) return [];
+        const out = [];
+        const dayMs = 86400000;
+        const colorTodo = '#f2994a';
+        const colorDone = '#9aa0a6';
+        for (const r of Array.isArray(reminders) ? reminders : []) {
+            if (!r || r.enabled === false) continue;
+            const blockId = String(r.blockId || r.id || '').trim();
+            const titleBase = String(r.blockName || r.blockContent || r.title || '').trim() || '任务提醒';
+            const times = getReminderTimes(r);
+            const completedSet = getReminderCompletedSet(r);
+            for (let ts = start.getTime(); ts < end.getTime(); ts += dayMs) {
+                const day = new Date(ts);
+                const dateKey = formatDateKey(day);
+                if (!doesReminderOccurOnDate(r, dateKey)) continue;
+                const done = isReminderDateCompleted(r, dateKey, times, completedSet);
+                const timeLabel = times.length > 0 ? ` (${times.join(',')})` : '';
+                out.push({
+                    id: `reminder:${blockId || titleBase}:${dateKey}`,
+                    title: `${done ? '✓ ' : '⏰ '}${titleBase}${timeLabel}`,
+                    start: dateKey,
+                    end: formatDateKey(new Date(ts + dayMs)),
+                    allDay: true,
+                    editable: false,
+                    backgroundColor: done ? colorDone : colorTodo,
+                    borderColor: done ? colorDone : colorTodo,
+                    textColor: '#fff',
+                    classNames: done ? ['tm-cal-reminder-event', 'tm-cal-reminder-event--done'] : ['tm-cal-reminder-event'],
+                    __tmRank: 3,
+                    extendedProps: {
+                        __tmSource: 'reminder',
+                        __tmReminderBlockId: blockId,
+                        __tmReminderDone: done,
+                        __tmReminderDate: dateKey,
+                        __tmRank: 3,
+                    },
+                });
+            }
+        }
+        return out;
+    }
+
     async function loadCnHolidayYear(year) {
         const y = Number(year);
         if (!Number.isFinite(y) || y < 1900 || y > 2100) return [];
@@ -1889,16 +2698,11 @@
     }
 
     function buildCnHolidayMap(days, rangeStart, rangeEnd, includeAllDays) {
-        const startMs = toMs(rangeStart);
-        const endMs = toMs(rangeEnd);
-        if (!Number.isFinite(startMs) || !Number.isFinite(endMs) || endMs <= startMs) return new Map();
         const map = new Map();
         const all = !!includeAllDays;
         for (const it of Array.isArray(days) ? days : []) {
             const dateKey = String(it?.date || '').trim();
             if (!dateKey) continue;
-            const ds = toMs(dateKey);
-            if (!Number.isFinite(ds) || ds < startMs || ds >= endMs) continue;
             const type = Number(it?.type);
             if (!all && (type !== 2 && type !== 3 && type !== 4)) continue;
             const name = String(it?.name || '').trim();
@@ -2410,7 +3214,6 @@
                     <input class="tm-calendar-edit-input" type="datetime-local" value="${esc(endLocal)}" data-tm-cal-field="end">
                 </div>
                 <div class="tm-calendar-edit-actions">
-                    <button class="tm-btn tm-btn-secondary" data-tm-cal-action="openDockHistory">在番茄钟里打开</button>
                     ${taskBlockId ? `<button class="tm-btn tm-btn-secondary" data-tm-cal-action="jumpTask">跳转任务</button>` : ''}
                     <div style="flex:1;"></div>
                     <button class="tm-btn tm-btn-danger" data-tm-cal-action="delete">删除</button>
@@ -2435,6 +3238,21 @@
             const el = modal.querySelector(`[data-tm-cal-field="${field}"]`);
             return el ? String(el.value || '').trim() : '';
         };
+        const syncColorToCalendar = () => {
+            const calendarId = getInputValue('calendarId') || calendarId0 || 'default';
+            const colorEl = modal.querySelector('[data-tm-cal-field="color"]');
+            if (!(colorEl instanceof HTMLInputElement)) return;
+            const defs = getCalendarDefs(getSettings());
+            const def = defs.find((d) => String(d?.id || '').trim() === calendarId);
+            const nextColor = String(def?.color || '#0078d4').trim() || '#0078d4';
+            colorEl.value = nextColor;
+        };
+        const calendarSelEl = modal.querySelector('[data-tm-cal-field="calendarId"]');
+        if (calendarSelEl) {
+            calendarSelEl.addEventListener('change', () => {
+                syncColorToCalendar();
+            }, { signal: abort.signal });
+        }
 
         modal.addEventListener('click', async (e) => {
             const btn = e.target?.closest?.('[data-tm-cal-action]');
@@ -2575,6 +3393,21 @@
             const el = modal.querySelector(`[data-tm-cal-field="${field}"]`);
             return el ? String(el.value || '').trim() : '';
         };
+        const syncColorToCalendar = () => {
+            const calendarId = getInputValue('calendarId') || calendarId0 || 'default';
+            const colorEl = modal.querySelector('[data-tm-cal-field="color"]');
+            if (!(colorEl instanceof HTMLInputElement)) return;
+            const defs = getCalendarDefs(getSettings());
+            const def = defs.find((d) => String(d?.id || '').trim() === calendarId);
+            const nextColor = String(def?.color || '#0078d4').trim() || '#0078d4';
+            colorEl.value = nextColor;
+        };
+        const calendarSelEl = modal.querySelector('[data-tm-cal-field="calendarId"]');
+        if (calendarSelEl) {
+            calendarSelEl.addEventListener('change', () => {
+                syncColorToCalendar();
+            }, { signal: abort.signal });
+        }
 
         modal.addEventListener('click', async (e) => {
             const btn = e.target?.closest?.('[data-tm-cal-action]');
@@ -2792,6 +3625,7 @@
         bindSidebarResize(wrap);
         let calendar = null;
         const preferredInitialView = (() => {
+            if (isMobileDevice) return 'timeGridDay';
             const allow = new Set(['timeGridDay', 'timeGridWeek', 'dayGridMonth']);
             const v = String(s.lastViewType || '').trim();
             if (v && allow.has(v)) return v;
@@ -2822,6 +3656,7 @@
             },
             nowIndicator: true,
             dayMaxEvents: true,
+            moreLinkClick: 'popover',
             stickyHeaderDates: true,
             lazyFetching: false,
             headerToolbar: {
@@ -2869,6 +3704,7 @@
                     const title = document.createElement('span');
                     title.className = 'tm-cal-task-event-title';
                     title.textContent = String(arg?.event?.title || '').trim() || '任务';
+                    applyTaskEventTitleClamp(wrapEl, title);
                     applyTaskDoneVisual(wrapEl, title, done);
                     title.onclick = (ev) => {
                         if (_tmClickTracker && _tmClickTracker.ts > 0) {
@@ -2886,6 +3722,17 @@
                         try { window.tmJumpToTask(tid, ev); } catch (e) {}
                     };
                     wrapEl.appendChild(cb);
+                    wrapEl.appendChild(title);
+                    return { domNodes: [wrapEl] };
+                }
+                if (source === 'reminder') {
+                    const wrapEl = document.createElement('span');
+                    wrapEl.className = 'tm-cal-task-event';
+                    const title = document.createElement('span');
+                    title.className = 'tm-cal-task-event-title';
+                    title.textContent = String(arg?.event?.title || '').trim() || '任务提醒';
+                    applyTaskEventTitleClamp(wrapEl, title);
+                    applyTaskDoneVisual(wrapEl, title, !!ext.__tmReminderDone);
                     wrapEl.appendChild(title);
                     return { domNodes: [wrapEl] };
                 }
@@ -2918,6 +3765,7 @@
                     try {
                         const el = arg?.el;
                         if (el && el instanceof Element) {
+                            applyCalendarEventClampFromRoot(el);
                             const eid = String(arg?.event?.id || '').trim();
                             if (eid) el.setAttribute('data-tm-cal-event-id', eid);
                             if (source) el.setAttribute('data-tm-cal-source', source);
@@ -2967,6 +3815,7 @@
             eventDragMinDistance: isMobileDevice ? 0 : undefined,
             selectable: true,
             selectMirror: true,
+            scrollTimeReset: false,
             slotDuration: '00:30:00',
             slotLabelInterval: '01:00',
             slotLabelContent: (arg) => {
@@ -2975,7 +3824,7 @@
                 return `${pad2(d.getHours())}:${pad2(d.getMinutes())}`;
             },
             droppable: true,
-            dropAccept: '.tm-cal-task, tr[data-id]',
+            dropAccept: '.tm-cal-task, tr[data-id], .tm-kanban-card[data-id]',
             eventReceive: async (info) => {
                 try {
                     const ext = info?.event?.extendedProps || {};
@@ -3043,16 +3892,17 @@
                         if (Number.isFinite(y2)) set.add(y2);
                         return Array.from(set.values()).filter((x) => Number.isFinite(Number(x)));
                     })();
-                    const [records, schedules, taskDates, cnHolidayDays] = await Promise.all([
+                    const [records, schedules, taskDates, cnHolidayDays, reminders] = await Promise.all([
                         loadRecordsForRange(info.start, info.end),
                         loadScheduleForRange(info.start, info.end),
                         (settings.showTaskDates && typeof window.tmQueryCalendarTaskDateEvents === 'function')
                             ? Promise.resolve().then(() => window.tmQueryCalendarTaskDateEvents(info.start || '', info.end || '')).catch(() => [])
                             : Promise.resolve([]),
                         (settings.showCnHoliday || settings.showLunar) ? Promise.all(years.map((y) => loadCnHolidayYear(y))).then((arr) => arr.flat()) : Promise.resolve([]),
+                        settings.linkDockTomato ? loadReminderBlocks().catch(() => []) : Promise.resolve([]),
                     ]);
                     try {
-                        const wantMap = (settings.showCnHoliday && (String(viewType || '').trim() === 'dayGridMonth' || String(viewType || '').trim() === 'timeGridWeek')) || !!settings.showLunar;
+                        const wantMap = !!(settings.showCnHoliday || settings.showLunar);
                         state.cnHolidayMap = wantMap ? buildCnHolidayMap(cnHolidayDays, info.start, info.end, !!settings.showLunar) : new Map();
                         applyCnHolidayDots(wrap);
                         applyCnLunarLabels(wrap);
@@ -3071,13 +3921,14 @@
                     const b = buildEventsFromSchedule(schedules, settings);
                     const c = buildEventsFromTaskDates(taskDates, settings);
                     const d = settings.showCnHoliday ? buildCnHolidayEvents(cnHolidayDays, info.start, info.end, viewType, settings) : [];
-                    const events = a.concat(b, c, d);
+                    const e = buildEventsFromReminders(reminders, info.start, info.end, settings);
+                    const events = a.concat(b, c, d, e);
                     const statusEl = wrap.querySelector('[data-tm-cal-role="status"]');
                     if (statusEl) {
                         const sum = summarizeRange(records);
                         const minTxt = sum.minMs ? formatDateKey(new Date(sum.minMs)) : '-';
                         const maxTxt = sum.maxMs ? formatDateKey(new Date(sum.maxMs)) : '-';
-                        statusEl.textContent = `事件: ${events.length}（番茄:${a.length} 文档:${b.length} 跨天:${c.length} 节假:${d.length} 原始:${sum.total} 异常:${sum.bad} 范围:${minTxt}~${maxTxt}）`;
+                        statusEl.textContent = `事件: ${events.length}（番茄:${a.length} 文档:${b.length} 跨天:${c.length} 节假:${d.length} 提醒:${e.length} 原始:${sum.total} 异常:${sum.bad} 范围:${minTxt}~${maxTxt}）`;
                     }
                     success(events);
                 } catch (e) {
@@ -3116,6 +3967,13 @@
                 }
                 if (source === 'taskdate') {
                     const tid = String(ext.__tmTaskId || '').trim();
+                    try {
+                        if (tid && typeof window.tmJumpToTask === 'function') window.tmJumpToTask(tid, arg?.jsEvent);
+                    } catch (e) {}
+                    return;
+                }
+                if (source === 'reminder') {
+                    const tid = String(ext.__tmReminderBlockId || '').trim();
                     try {
                         if (tid && typeof window.tmJumpToTask === 'function') window.tmJumpToTask(tid, arg?.jsEvent);
                     } catch (e) {}
@@ -3309,7 +4167,6 @@
                     const store = state.settingsStore;
                     if (store && store.data && calendar?.view?.type) {
                         const vt = String(calendar.view.type || '').trim();
-                        const prevVt = String(state._lastViewType || '').trim();
                         if (vt) state._lastViewType = vt;
                         const dt = calendar.getDate?.();
                         const key = (dt instanceof Date && !Number.isNaN(dt.getTime())) ? `${dt.getFullYear()}-${pad2(dt.getMonth() + 1)}-${pad2(dt.getDate())}` : '';
@@ -3317,11 +4174,6 @@
                         if (key) store.data.calendarLastDate = key;
                         if (state._persistTimer) clearTimeout(state._persistTimer);
                         state._persistTimer = setTimeout(() => { try { store.save(); } catch (e2) {} }, 250);
-                        if (prevVt && vt && prevVt !== vt) {
-                            setTimeout(() => {
-                                try { calendar.refetchEvents(); } catch (e2) {}
-                            }, 0);
-                        }
                     }
                 } catch (e) {}
                 try {
@@ -3358,6 +4210,33 @@
             });
         } catch (e) {}
         try { renderMiniCalendar(wrap); } catch (e) {}
+
+        // 修复：页面从后台恢复时重新计算日历尺寸
+        // 使用 resize 事件来触发
+        let lastVisibilityState = document.visibilityState;
+        
+        const onVisibilityChange = () => {
+            if (document.visibilityState === 'visible' && lastVisibilityState === 'hidden') {
+                // 页面从后台恢复到前台，触发 resize 事件让日历重新布局
+                window.dispatchEvent(new Event('resize'));
+            }
+            lastVisibilityState = document.visibilityState;
+        };
+        document.addEventListener('visibilitychange', onVisibilityChange);
+        state.onVisibilityChange = onVisibilityChange;
+
+        // 修复：使用 ResizeObserver 监听日历容器尺寸变化，更可靠地处理布局问题
+        const calendarHost = wrap?.querySelector?.('.tm-calendar-host');
+        if (calendarHost && typeof ResizeObserver === 'function') {
+            const calendarResizeObserver = new ResizeObserver(() => {
+                // 使用 requestAnimationFrame 确保在渲染周期中执行
+                requestAnimationFrame(() => {
+                    try { calendar.updateSize(); } catch (e2) {}
+                });
+            });
+            calendarResizeObserver.observe(calendarHost);
+            state.calendarResizeObserver = calendarResizeObserver;
+        }
 
         const onToolbarClick = (e) => {
             const tabEl = e.target?.closest?.('[data-tm-cal-side-tab]');
@@ -3488,6 +4367,15 @@
                 const hostEl = target.closest('.tm-calendar-host');
                 if (!hostEl) return;
                 if (target.closest('.fc-header-toolbar')) return;
+                // 修复：点击"更多"链接时不拦截，让 FullCalendar 默认处理
+                // 检查多种可能的更多链接类名
+                if (target.closest('.fc-more')) return;
+                if (target.closest('.fc-more-link')) return;
+                if (target.closest('.fc-popover-close')) return;
+                // 检查是否是点击在更多链接内部的文本或图标
+                if (target.classList.contains('fc-more-link')) return;
+                if (target.classList.contains('fc-more')) return;
+                // 注意：不拦截 .fc-popover，因为弹出窗口内部的事件需要支持点击跳转
                 let eventEl = target.closest('[data-tm-cal-event-id]') || target.closest('.fc-event');
                 if (!eventEl) {
                     const x = Number(e?.clientX);
@@ -3918,6 +4806,16 @@
         if (state.filteredTasksListener) {
             try { window.removeEventListener('tm:filtered-tasks-updated', state.filteredTasksListener); } catch (e) {}
             state.filteredTasksListener = null;
+        }
+        // 清理页面可见性变化监听器
+        if (state.onVisibilityChange) {
+            try { document.removeEventListener('visibilitychange', state.onVisibilityChange); } catch (e) {}
+            state.onVisibilityChange = null;
+        }
+        // 清理 ResizeObserver
+        if (state.calendarResizeObserver) {
+            try { state.calendarResizeObserver.disconnect(); } catch (e) {}
+            state.calendarResizeObserver = null;
         }
         if (state.tomatoRefetchTimer) {
             try { clearTimeout(state.tomatoRefetchTimer); } catch (e) {}

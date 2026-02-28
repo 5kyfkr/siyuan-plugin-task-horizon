@@ -951,12 +951,25 @@
     background: var(--fc-today-bg-color);
 }
 
+#tmCalendarSideDockTimeline .fc .fc-col-header-cell-cushion {
+    display: flex !important;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 0;
+    line-height: 1.1;
+    padding: 2px 4px;
+    font-size: 12px;
+    color: var(--tm-secondary-text);
+}
+
 .tm-calendar-host .fc {
     font-family: var(--b3-font-family);
     color: var(--tm-text-color);
 }
 
-.tm-calendar-wrap .tm-cn-holiday-dot {
+.tm-calendar-wrap .tm-cn-holiday-dot,
+#tmCalendarSideDockTimeline .tm-cn-holiday-dot {
     display: inline-flex;
     align-items: center;
     justify-content: center;
@@ -972,12 +985,14 @@
     transform: translateY(-1px);
 }
 
-.tm-calendar-wrap .tm-cn-holiday-dot--rest {
+.tm-calendar-wrap .tm-cn-holiday-dot--rest,
+#tmCalendarSideDockTimeline .tm-cn-holiday-dot--rest {
     background: rgba(52, 168, 83, 0.92);
     color: #fff;
 }
 
-.tm-calendar-wrap .tm-cn-holiday-dot--work {
+.tm-calendar-wrap .tm-cn-holiday-dot--work,
+#tmCalendarSideDockTimeline .tm-cn-holiday-dot--work {
     background: rgba(234, 67, 53, 0.92);
     color: #fff;
 }
@@ -1064,6 +1079,113 @@
     font-weight: 600;
 }
 
+.tm-calendar-host .fc .fc-daygrid-event,
+#tmCalendarSideDockTimeline .fc .fc-daygrid-event,
+.tm-calendar-host .fc .fc-timegrid-event,
+#tmCalendarSideDockTimeline .fc .fc-timegrid-event {
+    max-width: 100% !important;
+    overflow: hidden !important;
+}
+
+.tm-calendar-host .fc .fc-event-main,
+#tmCalendarSideDockTimeline .fc .fc-event-main,
+.tm-calendar-host .fc .fc-event-main-frame,
+#tmCalendarSideDockTimeline .fc .fc-event-main-frame,
+.tm-calendar-host .fc .fc-event-title-container,
+#tmCalendarSideDockTimeline .fc .fc-event-title-container {
+    min-width: 0 !important;
+    max-width: 100% !important;
+    overflow: hidden !important;
+}
+
+.tm-calendar-host .fc .fc-event-title,
+#tmCalendarSideDockTimeline .fc .fc-event-title {
+    display: block !important;
+    max-width: 100% !important;
+    overflow: hidden !important;
+    text-overflow: ellipsis !important;
+    white-space: nowrap !important;
+}
+
+.tm-calendar-host .fc .fc-timegrid-all-day-events .fc-timegrid-event-harness,
+#tmCalendarSideDockTimeline .fc .fc-timegrid-all-day-events .fc-timegrid-event-harness {
+    width: 100% !important;
+    min-width: 0 !important;
+    max-width: 100% !important;
+    overflow: hidden !important;
+}
+
+.tm-calendar-host .fc .fc-timegrid-all-day-events .fc-h-event,
+#tmCalendarSideDockTimeline .fc .fc-timegrid-all-day-events .fc-h-event {
+    max-width: 100% !important;
+    overflow: hidden !important;
+}
+
+/* 侧栏日历：点击“更多”后弹层内显示完整事件名（可换行） */
+#tmCalendarSideDockTimeline .fc .fc-popover {
+    left: 4px !important;
+    right: auto !important;
+    width: calc(100% - 8px) !important;
+    max-width: calc(100% - 8px) !important;
+    min-width: 0 !important;
+    box-sizing: border-box;
+}
+
+#tmCalendarSideDockTimeline .fc .fc-popover .fc-daygrid-event,
+#tmCalendarSideDockTimeline .fc .fc-popover .fc-timegrid-event,
+#tmCalendarSideDockTimeline .fc .fc-popover .fc-h-event {
+    display: block !important;
+    width: 100% !important;
+    min-width: 0 !important;
+    max-width: 100% !important;
+    overflow: hidden !important;
+    white-space: nowrap !important;
+}
+
+#tmCalendarSideDockTimeline .fc .fc-popover .fc-daygrid-event-harness,
+#tmCalendarSideDockTimeline .fc .fc-popover .fc-timegrid-event-harness {
+    width: 100% !important;
+    min-width: 0 !important;
+    max-width: 100% !important;
+    overflow: hidden !important;
+}
+
+#tmCalendarSideDockTimeline .fc .fc-popover .fc-event-main,
+#tmCalendarSideDockTimeline .fc .fc-popover .fc-event-main-frame,
+#tmCalendarSideDockTimeline .fc .fc-popover .fc-event-title-container {
+    display: block !important;
+    width: 100% !important;
+    overflow: hidden !important;
+    max-width: 100% !important;
+    min-width: 0 !important;
+}
+
+#tmCalendarSideDockTimeline .fc .fc-popover .fc-popover-body {
+    max-width: 100% !important;
+    overflow-x: hidden !important;
+}
+
+#tmCalendarSideDockTimeline .fc .fc-popover .tm-cal-task-event {
+    width: 100% !important;
+    max-width: 100% !important;
+    min-width: 0 !important;
+    overflow: hidden !important;
+    align-items: center;
+}
+
+#tmCalendarSideDockTimeline .fc .fc-popover .tm-cal-task-event-title,
+#tmCalendarSideDockTimeline .fc .fc-popover .fc-event-title {
+    display: block !important;
+    max-width: 100% !important;
+    min-width: 0 !important;
+    white-space: nowrap !important;
+    overflow: hidden !important;
+    text-overflow: ellipsis !important;
+    word-break: normal !important;
+    overflow-wrap: normal !important;
+    line-height: 1.25 !important;
+}
+
 .tm-calendar-nav-item-row {
     display: flex;
     align-items: center;
@@ -1083,13 +1205,15 @@
     background: transparent;
 }
 
-.tm-calendar-host .fc .tm-cn-holiday-event:not(.tm-cn-holiday-event--festival) {
+.tm-calendar-host .fc .tm-cn-holiday-event:not(.tm-cn-holiday-event--festival),
+#tmCalendarSideDockTimeline .fc .tm-cn-holiday-event:not(.tm-cn-holiday-event--festival) {
     background: transparent !important;
     border-color: transparent !important;
     padding: 0 !important;
 }
 
-.tm-calendar-host .fc .tm-cn-holiday-pill {
+.tm-calendar-host .fc .tm-cn-holiday-pill,
+#tmCalendarSideDockTimeline .fc .tm-cn-holiday-pill {
     display: inline-flex;
     align-items: center;
     gap: 4px;
@@ -1097,7 +1221,8 @@
     min-width: 0;
 }
 
-.tm-calendar-host .fc .tm-cn-holiday-badge {
+.tm-calendar-host .fc .tm-cn-holiday-badge,
+#tmCalendarSideDockTimeline .fc .tm-cn-holiday-badge {
     display: inline-flex;
     align-items: center;
     justify-content: center;
@@ -1110,7 +1235,8 @@
     flex: 0 0 auto;
 }
 
-.tm-calendar-host .fc .tm-cn-holiday-label {
+.tm-calendar-host .fc .tm-cn-holiday-label,
+#tmCalendarSideDockTimeline .fc .tm-cn-holiday-label {
     font-size: 11px;
     line-height: 1.1;
     color: var(--tm-secondary-text);
@@ -1120,12 +1246,14 @@
     min-width: 0;
 }
 
-.tm-calendar-host .fc .tm-cn-holiday-pill--rest .tm-cn-holiday-badge {
+.tm-calendar-host .fc .tm-cn-holiday-pill--rest .tm-cn-holiday-badge,
+#tmCalendarSideDockTimeline .fc .tm-cn-holiday-pill--rest .tm-cn-holiday-badge {
     background: rgba(234, 67, 53, 0.92);
     color: #fff;
 }
 
-.tm-calendar-host .fc .tm-cn-holiday-pill--work .tm-cn-holiday-badge {
+.tm-calendar-host .fc .tm-cn-holiday-pill--work .tm-cn-holiday-badge,
+#tmCalendarSideDockTimeline .fc .tm-cn-holiday-pill--work .tm-cn-holiday-badge {
     background: rgba(249, 171, 0, 0.95);
     color: #1f2937;
 }
@@ -1220,7 +1348,8 @@
     height: 0 !important;
 }
 
-.tm-calendar-host .fc .tm-cn-holiday-dot {
+.tm-calendar-host .fc .tm-cn-holiday-dot,
+#tmCalendarSideDockTimeline .fc .tm-cn-holiday-dot {
     display: inline-flex;
     align-items: center;
     justify-content: center;
@@ -1233,14 +1362,37 @@
     vertical-align: middle;
 }
 
-.tm-calendar-host .fc .fc-col-header-cell-cushion .tm-cn-holiday-dot {
+.tm-calendar-host .fc .fc-col-header-cell-cushion .tm-cn-holiday-dot,
+#tmCalendarSideDockTimeline .fc .fc-col-header-cell-cushion .tm-cn-holiday-dot {
     margin-right: 4px;
 }
 
-.tm-calendar-host .fc .tm-cn-week-head {
-    display: inline-flex;
+.tm-calendar-host .fc .tm-cn-week-head,
+#tmCalendarSideDockTimeline .fc .tm-cn-week-head {
+    display: inline-flex !important;
     align-items: center;
     gap: 4px;
+    line-height: 1;
+}
+
+#tmCalendarSideDockTimeline .fc .fc-col-header-cell-cushion .tm-cn-holiday-dot {
+    display: inline-flex !important;
+    width: 16px;
+    height: 16px;
+    flex: 0 0 16px;
+    border-radius: 999px;
+    margin: 0 4px 0 0 !important;
+    transform: none;
+}
+
+#tmCalendarSideDockTimeline .fc .tm-cn-holiday-dot--rest {
+    background: rgba(52, 168, 83, 0.92) !important;
+    color: #fff !important;
+}
+
+#tmCalendarSideDockTimeline .fc .tm-cn-holiday-dot--work {
+    background: rgba(234, 67, 53, 0.92) !important;
+    color: #fff !important;
 }
 
 .tm-calendar-host .fc .fc-col-header-cell-cushion .tm-cn-lunar--week {
@@ -1260,11 +1412,14 @@
 }
 
 .tm-calendar-host .fc .tm-cal-task-event {
-    display: inline-flex;
+    display: flex;
     align-items: center;
     gap: 6px;
+    width: 100%;
+    flex: 1 1 0;
     max-width: 100%;
     min-width: 0;
+    overflow: hidden;
 }
 
 .tm-calendar-host .fc .tm-cal-task-event-check {
@@ -1275,10 +1430,13 @@
 }
 
 .tm-calendar-host .fc .tm-cal-task-event-title {
+    display: block;
+    flex: 1 1 0;
     min-width: 0;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
+    max-width: 100%;
+    overflow: hidden !important;
+    text-overflow: ellipsis !important;
+    white-space: nowrap !important;
     cursor: pointer;
 }
 
@@ -1288,12 +1446,23 @@
     opacity: 0.9;
 }
 
+.tm-calendar-host .fc .fc-event.tm-cal-drag-preview,
+#tmCalendarSideDockTimeline .fc .fc-event.tm-cal-drag-preview {
+    opacity: 0.55;
+    border-style: dashed !important;
+    box-shadow: none !important;
+    pointer-events: none !important;
+}
+
 #tmCalendarSideDockTimeline .fc .tm-cal-task-event {
-    display: inline-flex;
+    display: flex;
     align-items: center;
     gap: 6px;
+    width: 100%;
+    flex: 1 1 0;
     max-width: 100%;
     min-width: 0;
+    overflow: hidden;
 }
 
 #tmCalendarSideDockTimeline .fc .tm-cal-task-event-check {
@@ -1304,10 +1473,13 @@
 }
 
 #tmCalendarSideDockTimeline .fc .tm-cal-task-event-title {
+    display: block;
+    flex: 1 1 0;
     min-width: 0;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
+    max-width: 100%;
+    overflow: hidden !important;
+    text-overflow: ellipsis !important;
+    white-space: nowrap !important;
     cursor: pointer;
 }
 
