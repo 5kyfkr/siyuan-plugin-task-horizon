@@ -1957,11 +1957,17 @@
                 if (source === 'reminder') {
                     const wrapEl = document.createElement('span');
                     wrapEl.className = 'tm-cal-task-event';
+                    const tid = String(ext.__tmReminderBlockId || '').trim();
                     const title = document.createElement('span');
                     title.className = 'tm-cal-task-event-title';
                     title.textContent = String(arg?.event?.title || '').trim() || '任务提醒';
                     applyTaskEventTitleClamp(wrapEl, title);
                     applyTaskDoneVisual(wrapEl, title, !!ext.__tmReminderDone);
+                    title.onclick = (ev) => {
+                        try { ev.stopPropagation(); } catch (e) {}
+                        if (!tid || typeof window.tmJumpToTask !== 'function') return;
+                        try { window.tmJumpToTask(tid, ev); } catch (e) {}
+                    };
                     wrapEl.appendChild(title);
                     return { domNodes: [wrapEl] };
                 }
@@ -2001,6 +2007,8 @@
                         if (source) el.setAttribute('data-tm-cal-source', source);
                         const tid = String(ext.__tmTaskId || '').trim();
                         if (tid) el.setAttribute('data-tm-cal-task-id', tid);
+                        const rid = String(ext.__tmReminderBlockId || '').trim();
+                        if (rid) el.setAttribute('data-tm-cal-reminder-id', rid);
                         const sid = String(ext.__tmScheduleId || '').trim();
                         if (sid) el.setAttribute('data-tm-cal-schedule-id', sid);
                     }
@@ -2094,7 +2102,6 @@
                 try {
                     if (target instanceof Element) {
                         if (target.closest('.tm-cal-task-event-check')) return;
-                        if (target.closest('.tm-cal-task-event-title')) return;
                     }
                 } catch (e0) {}
                 const ext = arg?.event?.extendedProps || {};
@@ -2628,7 +2635,9 @@
         const colorDone = '#9aa0a6';
         for (const r of Array.isArray(reminders) ? reminders : []) {
             if (!r || r.enabled === false) continue;
-            const blockId = String(r.blockId || r.id || '').trim();
+            const blockId = String(
+                r.blockId || r.block_id || r.taskBlockId || r.task_block_id || r.targetBlockId || r.target_block_id || r.id || ''
+            ).trim();
             const titleBase = String(r.blockName || r.blockContent || r.title || '').trim() || '任务提醒';
             const times = getReminderTimes(r);
             const completedSet = getReminderCompletedSet(r);
@@ -3728,11 +3737,27 @@
                 if (source === 'reminder') {
                     const wrapEl = document.createElement('span');
                     wrapEl.className = 'tm-cal-task-event';
+                    const tid = String(ext.__tmReminderBlockId || '').trim();
                     const title = document.createElement('span');
                     title.className = 'tm-cal-task-event-title';
                     title.textContent = String(arg?.event?.title || '').trim() || '任务提醒';
                     applyTaskEventTitleClamp(wrapEl, title);
                     applyTaskDoneVisual(wrapEl, title, !!ext.__tmReminderDone);
+                    title.onclick = (ev) => {
+                        if (_tmClickTracker && _tmClickTracker.ts > 0) {
+                            const dur = Date.now() - _tmClickTracker.ts;
+                            const x = Number(ev.clientX);
+                            const y = Number(ev.clientY);
+                            if (Number.isFinite(x) && Number.isFinite(y)) {
+                                const dx = Math.abs(x - _tmClickTracker.x);
+                                const dy = Math.abs(y - _tmClickTracker.y);
+                                const dist = Math.sqrt(dx * dx + dy * dy);
+                                if (dur > 500 || dist > 5) return;
+                            }
+                        }
+                        if (!tid || typeof window.tmJumpToTask !== 'function') return;
+                        try { window.tmJumpToTask(tid, ev); } catch (e) {}
+                    };
                     wrapEl.appendChild(title);
                     return { domNodes: [wrapEl] };
                 }
@@ -3773,6 +3798,8 @@
                             if (aggDay) el.setAttribute('data-tm-cal-agg-day', aggDay);
                             const tid = String(ext.__tmTaskId || '').trim();
                             if (tid) el.setAttribute('data-tm-cal-task-id', tid);
+                            const rid = String(ext.__tmReminderBlockId || '').trim();
+                            if (rid) el.setAttribute('data-tm-cal-reminder-id', rid);
                             const sid = String(ext.__tmScheduleId || '').trim();
                             if (sid) el.setAttribute('data-tm-cal-schedule-id', sid);
                             const calId = String(ext.calendarId || '').trim();
@@ -4365,7 +4392,8 @@
                 const target = e?.target;
                 if (!(target instanceof Element)) return;
                 const hostEl = target.closest('.tm-calendar-host');
-                if (!hostEl) return;
+                const inPopover = !!target.closest('.fc-popover');
+                if (!hostEl && !inPopover) return;
                 if (target.closest('.fc-header-toolbar')) return;
                 // 修复：点击"更多"链接时不拦截，让 FullCalendar 默认处理
                 // 检查多种可能的更多链接类名
@@ -4410,7 +4438,7 @@
                     if (dateEl) {
                         const candidates = Array.from(dateEl.querySelectorAll('[data-tm-cal-event-id].fc-event, .fc-event')).filter((el) => {
                             if (!(el instanceof Element)) return false;
-                            return !!el.closest('.tm-calendar-host');
+                            return !!el.closest('.tm-calendar-host') || !!el.closest('.fc-popover');
                         });
                         if (candidates.length) {
                             const hit = (el) => {
@@ -4454,6 +4482,7 @@
                 const source = String(eventEl.getAttribute('data-tm-cal-source') || ext.__tmSource || '').trim();
                 if (source === 'cnHoliday') return;
                 const tid = String(eventEl.getAttribute('data-tm-cal-task-id') || ext.__tmTaskId || '').trim();
+                const rid = String(eventEl.getAttribute('data-tm-cal-reminder-id') || ext.__tmReminderBlockId || '').trim();
                 if (tid) {
                     const x = Number(e?.clientX);
                     const y = Number(e?.clientY);
@@ -4489,6 +4518,12 @@
                 if (source === 'taskdate') {
                     if (tid && typeof window.tmJumpToTask === 'function') {
                         try { window.tmJumpToTask(tid, e); } catch (e2) {}
+                    }
+                    return;
+                }
+                if (source === 'reminder') {
+                    if (rid && typeof window.tmJumpToTask === 'function') {
+                        try { window.tmJumpToTask(rid, e); } catch (e2) {}
                     }
                     return;
                 }

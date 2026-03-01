@@ -163,6 +163,14 @@
         return el.closest?.('.li,[data-type="NodeListItem"],[data-node-id]') || el;
     }
 
+    function isMobileDevice() {
+        try {
+            if (window.siyuan?.config?.isMobile !== undefined) return !!window.siyuan.config.isMobile;
+        } catch (e) {}
+        const ua = navigator.userAgent || '';
+        return /Mobile|Android|iPhone|iPad|iPod/i.test(ua) || (window.innerWidth || 0) <= 768;
+    }
+
     function markBlockMenuTrigger(target, source) {
         const blockEl = getBlockElementFromTarget(target);
         lastBlockMenuTrigger = {
@@ -911,8 +919,22 @@
             // 计算位置
             const anchorRect = anchorEl.getBoundingClientRect();
             const maxLen = options.reduce((m, o) => Math.max(m, String(o?.label || '').length), 0);
-            const menuWidth = Math.min(200, Math.max(120, maxLen * 14 + 32));
+            const menuWidth = isPrioritySelect
+                ? Math.min(140, Math.max(84, maxLen * 10 + 18))
+                : (isStatusSelect
+                ? Math.min(170, Math.max(96, maxLen * 12 + 24))
+                : Math.min(200, Math.max(120, maxLen * 14 + 32)));
 
+            if (isPrioritySelect) {
+                selectMenu.style.minWidth = '84px';
+                selectMenu.style.maxWidth = '140px';
+            } else if (isStatusSelect) {
+                selectMenu.style.minWidth = '96px';
+                selectMenu.style.maxWidth = '170px';
+            } else {
+                selectMenu.style.minWidth = '120px';
+                selectMenu.style.maxWidth = '200px';
+            }
             selectMenu.style.width = `${menuWidth}px`;
             selectMenu.style.left = `${window.scrollX + anchorRect.left}px`;
             selectMenu.style.top = `${window.scrollY + anchorRect.bottom + 4}px`;
@@ -949,12 +971,81 @@
 
         // 显示日期编辑器
         function showDateEditor(anchorEl, config, currentValue) {
+            const blockIdAtOpen = String(currentBlockId || '').trim();
+            if (!blockIdAtOpen) {
+                showMessage('无法获取任务ID', true, 1800);
+                return;
+            }
+            const saveDateValue = async (rawDateValue) => {
+                const newValue = rawDateValue ? parseDate(rawDateValue) : '';
+                const success = await setBlockCustomAttrs(blockIdAtOpen, {
+                    [config.attrKey]: newValue
+                });
+                if (success) {
+                    if (String(currentBlockId || '').trim() === blockIdAtOpen) {
+                        currentProps[config.attrKey] = newValue;
+                        renderFloatBar();
+                    }
+                    try { globalThis.__taskHorizonRefresh?.(); } catch (e) {}
+                    showMessage(`已更新${config.name}`, false, 1500);
+                } else {
+                    showMessage('更新失败', true, 2000);
+                }
+            };
+            const isTouchLike = isMobileDevice();
+            if (isTouchLike) {
+                // 移动端/触屏：直接系统日期选择器，避免中间输入框导致第一次交互丢失
+                inputEditor.classList.remove('is-visible');
+                const anchorRect = anchorEl.getBoundingClientRect();
+                const tempInput = document.createElement('input');
+                tempInput.type = 'date';
+                tempInput.value = currentValue ? formatDate(currentValue) : '';
+                tempInput.setAttribute('aria-hidden', 'true');
+                tempInput.style.cssText = `position:fixed;left:${Math.max(0, Math.round(anchorRect.left))}px;top:${Math.max(0, Math.round(anchorRect.bottom))}px;width:1px;height:1px;opacity:0;pointer-events:none;`;
+                document.body.appendChild(tempInput);
+
+                let cleaned = false;
+                let committed = false;
+                const cleanup = () => {
+                    if (cleaned) return;
+                    cleaned = true;
+                    try { tempInput.oninput = null; } catch (e) {}
+                    try { tempInput.onchange = null; } catch (e) {}
+                    try { tempInput.remove(); } catch (e) {}
+                };
+                const commitIfAny = async () => {
+                    if (committed) return;
+                    const picked = String(tempInput.value || '').trim();
+                    const oldDate = currentValue ? formatDate(currentValue) : '';
+                    if (!picked && !oldDate) return;
+                    if (picked === oldDate) return;
+                    committed = true;
+                    await saveDateValue(picked);
+                    cleanup();
+                };
+
+                tempInput.oninput = () => { commitIfAny(); };
+                tempInput.onchange = () => { commitIfAny(); };
+
+                // 只做超时清理，不用 blur 结束，避免选择器未完成就被提前清理
+                setTimeout(() => cleanup(), 20000);
+
+                try { tempInput.focus({ preventScroll: true }); } catch (e) {}
+                // 延迟一帧再弹起，规避首次点击事件竞争
+                setTimeout(() => {
+                    try { tempInput.showPicker?.(); } catch (e) {
+                        try { tempInput.click(); } catch (e2) {}
+                    }
+                }, 60);
+                return;
+            }
+
+            // 桌面端：保留输入框弹层，并支持“清除日期”
             const input = inputEditor.querySelector('.sy-custom-props-floatbar__input');
             const oldValue = currentValue ? formatDate(currentValue) : '';
             input.type = 'date';
             input.value = oldValue;
 
-            // 计算位置
             const anchorRect = anchorEl.getBoundingClientRect();
             inputEditor.style.left = `${window.scrollX + anchorRect.left}px`;
             inputEditor.style.top = `${window.scrollY + anchorRect.bottom + 4}px`;
@@ -962,35 +1053,12 @@
 
             input.focus();
             try { input.showPicker?.(); } catch (e) {}
-            setTimeout(() => {
-                try { input.showPicker?.(); } catch (e) {}
-            }, 0);
-            try {
-                if (input.value && typeof input.setSelectionRange === 'function') {
-                    input.setSelectionRange(0, 0);
-                }
-            } catch (e) {}
             input.onclick = () => {
                 try { input.showPicker?.(); } catch (e) {}
             };
 
-            // 绑定事件
             const saveDate = async () => {
-                const newValue = input.value ? parseDate(input.value) : '';
-
-                const success = await setBlockCustomAttrs(currentBlockId, {
-                    [config.attrKey]: newValue
-                });
-
-                if (success) {
-                    currentProps[config.attrKey] = newValue;
-                    renderFloatBar();
-                    try { globalThis.__taskHorizonRefresh?.(); } catch (e) {}
-                    showMessage(`已更新${config.name}`, false, 1500);
-                } else {
-                    showMessage('更新失败', true, 2000);
-                }
-
+                await saveDateValue(input.value);
                 inputEditor.classList.remove('is-visible');
             };
 
@@ -1009,6 +1077,7 @@
             inputEditor.querySelector('[data-action="cancel"]').onclick = () => {
                 inputEditor.classList.remove('is-visible');
             };
+            return;
         }
 
         // 显示文本编辑器

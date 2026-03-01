@@ -1,5 +1,5 @@
 // @name         思源笔记任务管理器
-// @version      1.5.5
+// @version      1.5.7
 // @description  任务管理器，支持自定义筛选规则分组和排序
 // @author       5KYFKR
 
@@ -3400,28 +3400,245 @@
 
         .tm-settings-box {
             background: var(--tm-bg-color);
-            width: 600px;
-            max-width: 90vw;
-            max-height: 80vh;
+            width: min(1000px, 94vw);
+            max-width: 94vw;
+            max-height: 88vh;
             border-radius: 12px;
             box-shadow: var(--tm-shadow);
-            padding: 24px;
             display: flex;
             flex-direction: column;
             color: var(--tm-text-color);
+            overflow: hidden;
         }
 
         .tm-settings-header {
             display: flex;
             justify-content: space-between;
             align-items: center;
-            margin-bottom: 20px;
+            padding: 12px 16px;
+            border-bottom: 1px solid var(--tm-border-color);
         }
 
         .tm-settings-title {
-            font-size: 20px;
+            font-size: 18px;
             font-weight: 600;
             color: var(--tm-text-color);
+        }
+
+        .tm-settings-layout {
+            flex: 1;
+            min-height: 0;
+            display: grid;
+            grid-template-columns: 200px 1fr;
+        }
+
+        .tm-settings-sidebar {
+            padding: 12px 10px;
+            border-right: 1px solid var(--tm-border-color);
+            background: var(--tm-section-bg);
+            overflow-y: auto;
+            min-height: 0;
+        }
+
+        .tm-settings-tabs {
+            display: flex;
+            flex-direction: column;
+        }
+
+        .tm-settings-nav-btn {
+            width: 100%;
+            display: flex;
+            align-items: center;
+            justify-content: flex-start;
+            gap: 8px;
+            border: 1px solid transparent;
+            border-radius: 10px;
+            padding: 10px 12px;
+            margin-bottom: 6px;
+            background: transparent;
+            color: var(--tm-text-color);
+            font-size: 14px;
+            font-weight: 600;
+            text-align: left;
+            cursor: pointer;
+            transition: all 0.15s ease;
+        }
+
+        .tm-settings-nav-btn:hover {
+            background: var(--tm-hover-bg);
+            border-color: var(--tm-border-color);
+        }
+
+        .tm-settings-nav-btn.is-active {
+            background: var(--tm-input-bg);
+            border-color: var(--tm-input-border);
+            color: var(--tm-primary-color);
+        }
+
+        .tm-settings-main {
+            padding: 12px 14px;
+            display: flex;
+            flex-direction: column;
+            min-height: 0;
+        }
+
+        .tm-settings-content {
+            flex: 1;
+            min-height: 0;
+            overflow-y: auto;
+            overflow-x: hidden;
+            padding-right: 2px;
+            margin-bottom: 12px;
+        }
+
+        .tm-settings-panel {
+            background: var(--tm-section-bg);
+            border: 1px solid var(--tm-border-color);
+            border-radius: 10px;
+            padding: 12px;
+            margin-bottom: 12px;
+        }
+
+        @media (max-width: 900px) {
+            .tm-settings-box {
+                width: min(100vw, 100vw);
+                max-width: 100vw;
+                max-height: 100vh;
+                border-radius: 0;
+            }
+            .tm-settings-layout {
+                grid-template-columns: 1fr;
+                grid-template-rows: auto 1fr;
+            }
+            .tm-settings-sidebar {
+                border-right: none;
+                border-bottom: 1px solid var(--tm-border-color);
+                display: flex;
+                flex-wrap: nowrap;
+                gap: 8px;
+                overflow-x: auto;
+                overflow-y: hidden;
+            }
+            .tm-settings-nav-btn {
+                width: auto;
+                margin-bottom: 0;
+                white-space: nowrap;
+            }
+            .tm-settings-tabs {
+                flex-direction: row;
+                gap: 8px;
+            }
+            .tm-settings-main {
+                padding: 10px;
+            }
+        }
+
+        @media (max-width: 768px) {
+            .tm-settings-title {
+                font-size: 16px;
+            }
+
+            .tm-settings-header {
+                padding: 10px 12px;
+            }
+
+            .tm-settings-content {
+                padding-right: 0;
+            }
+
+            .tm-settings-content > * {
+                max-width: 100%;
+                box-sizing: border-box;
+            }
+
+            .tm-settings-panel {
+                padding: 10px;
+                margin-bottom: 10px;
+            }
+
+            .tm-settings-nav-btn {
+                padding: 8px 10px;
+                font-size: 13px;
+            }
+
+            .tm-settings-content label {
+                min-width: 0 !important;
+                flex: 1 1 100% !important;
+            }
+
+            .tm-settings-content input[type="text"],
+            .tm-settings-content input[type="number"],
+            .tm-settings-content input[type="date"],
+            .tm-settings-content select {
+                max-width: 100% !important;
+            }
+
+            .tm-settings-content [style*="min-width:220px"],
+            .tm-settings-content [style*="min-width:200px"],
+            .tm-settings-content [style*="min-width:180px"],
+            .tm-settings-content [style*="min-width:160px"] {
+                min-width: 0 !important;
+            }
+
+            .tm-settings-content [style*="grid-template-columns:repeat(2,minmax(0,1fr))"] {
+                grid-template-columns: 1fr !important;
+            }
+
+            .tm-settings-content .tm-rule-condition,
+            .tm-settings-content .tm-rule-sort-item,
+            .tm-settings-content .tm-time-range {
+                flex-wrap: wrap !important;
+                gap: 6px !important;
+            }
+
+            .tm-settings-content .tm-rule-condition-field,
+            .tm-settings-content .tm-rule-condition-operator,
+            .tm-settings-content .tm-rule-condition-value,
+            .tm-settings-content .tm-rule-sort-field,
+            .tm-settings-content .tm-rule-sort-order,
+            .tm-settings-content .tm-time-input,
+            .tm-settings-content .tm-input {
+                width: 100% !important;
+                max-width: 100% !important;
+                min-width: 0 !important;
+            }
+
+            .tm-settings-content .tm-priority-status-row {
+                width: 100%;
+                align-items: flex-start !important;
+            }
+
+            .tm-settings-content .tm-priority-status-name {
+                flex: 1 1 auto;
+                min-width: 0;
+                max-width: none !important;
+                overflow: visible !important;
+                text-overflow: clip !important;
+                white-space: normal !important;
+                overflow-wrap: anywhere;
+                line-height: 1.25;
+            }
+
+            .tm-settings-content .tm-priority-status-row .tm-priority-status-input {
+                width: 96px !important;
+                max-width: 96px !important;
+                min-width: 96px !important;
+                flex: 0 0 96px !important;
+            }
+
+            .tm-settings-footer {
+                gap: 8px;
+                flex-wrap: wrap;
+            }
+
+            .tm-settings-footer .tm-btn {
+                flex: 1 1 calc(50% - 4px);
+                min-height: 34px;
+                padding: 0 10px;
+                display: inline-flex;
+                align-items: center;
+                justify-content: center;
+            }
         }
 
         .tm-doc-list {
@@ -3486,9 +3703,8 @@
             display: flex;
             justify-content: flex-end;
             gap: 10px;
-            padding-top: 16px;
+            padding: 10px 14px 12px;
             border-top: 1px solid var(--tm-border-color);
-            margin-top: auto;
             flex-shrink: 0;
         }
     `;
@@ -9178,9 +9394,9 @@ async function __tmRefreshAfterWake(reason) {
                             <div style="font-weight: 700; margin-bottom: 10px;">状态加减分</div>
                             <div style="display:flex;flex-wrap:wrap;gap:10px;">
                                 ${statuses.map(s => `
-                                    <label style="display:flex;align-items:center;gap:8px; padding: 6px 8px; border: 1px solid var(--tm-border-color); border-radius: 8px; background: var(--tm-bg-color);">
-                                        <span style="max-width: 140px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">${esc(s.name || s.id)}</span>
-                                        <input class="tm-input" style="width:110px;" type="number" value="${Number(cfg.statusDelta[s.id]) || 0}" data-tm-call="tmSetPriorityStatus" data-tm-args='["${esc(String(s.id))}"]'>
+                                    <label class="tm-priority-status-row" style="display:flex;align-items:center;gap:8px; padding: 6px 8px; border: 1px solid var(--tm-border-color); border-radius: 8px; background: var(--tm-bg-color);">
+                                        <span class="tm-priority-status-name" style="max-width: 140px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">${esc(s.name || s.id)}</span>
+                                        <input class="tm-input tm-priority-status-input" style="width:110px;" type="number" value="${Number(cfg.statusDelta[s.id]) || 0}" data-tm-call="tmSetPriorityStatus" data-tm-args='["${esc(String(s.id))}"]'>
                                     </label>
                                 `).join('')}
                             </div>
@@ -22619,7 +22835,8 @@ async function __tmRefreshAfterWake(reason) {
         const task = state.flatTasks[id];
         if (!task) return;
         __tmOpenInlineEditor(el, ({ editor, close }) => {
-            editor.style.minWidth = '120px';
+            editor.style.minWidth = '60px';
+            editor.style.width = '60px';
             editor.style.padding = '8px';
             const wrap = document.createElement('div');
             wrap.style.display = 'flex';
@@ -22628,9 +22845,12 @@ async function __tmRefreshAfterWake(reason) {
             const mk = (value, label, color) => {
                 const b = document.createElement('button');
                 b.className = 'tm-btn tm-btn-secondary';
-                b.style.padding = '4px 8px';
+                b.style.padding = '4px 6px';
                 b.style.fontSize = '12px';
-                b.style.textAlign = 'left';
+                b.style.display = 'flex';
+                b.style.alignItems = 'center';
+                b.style.justifyContent = 'center';
+                b.style.textAlign = 'center';
                 b.style.background = 'transparent';
                 b.style.border = `1px solid ${color}55`;
                 b.style.color = color;
@@ -22668,7 +22888,7 @@ async function __tmRefreshAfterWake(reason) {
         __tmOpenInlineEditor(el, ({ editor, close }) => {
             const options = SettingsStore.data.customStatusOptions || [];
             const maxLen = options.reduce((m, o) => Math.max(m, String(o?.name || '').length), 0);
-            const w = Math.min(260, Math.max(110, maxLen * 14 + 38));
+            const w = Math.min(220, Math.max(92, maxLen * 12 + 22));
             editor.style.minWidth = '0';
             editor.style.width = `${w}px`;
             editor.style.padding = '8px';
@@ -22715,7 +22935,7 @@ async function __tmRefreshAfterWake(reason) {
         __tmOpenInlineEditor(el, ({ editor, close }) => {
             const options = SettingsStore.data.customStatusOptions || [];
             const maxLen = options.reduce((m, o) => Math.max(m, String(o?.name || '').length), 0);
-            const w = Math.min(260, Math.max(110, maxLen * 14 + 38));
+            const w = Math.min(220, Math.max(92, maxLen * 12 + 22));
             editor.style.minWidth = '0';
             editor.style.width = `${w}px`;
             editor.style.padding = '8px';
@@ -23418,7 +23638,7 @@ async function __tmRefreshAfterWake(reason) {
                                 🗓 <span id="tmQuickAddDateLabel">完成日期</span>
                             </button>
                             <input type="date" id="tmQuickAddDateInput" onchange="tmQuickAddDateChanged(this.value)" 
-                                   style="position:fixed; opacity:0; width:1px; height:1px; left:0; top:0; pointer-events:none;">
+                                   style="position:absolute; opacity:0; width:1px; height:1px; left:0; bottom:0; pointer-events:none; border:0; padding:0; margin:0; overflow:hidden; z-index:-1;">
                         </div>
                     </div>
 
@@ -23544,7 +23764,7 @@ async function __tmRefreshAfterWake(reason) {
         if (!Array.isArray(options) || options.length === 0) return;
         __tmOpenInlineEditor(btn, ({ editor, close }) => {
             const maxLen = options.reduce((m, o) => Math.max(m, String(o?.name || o?.id || '').length), 0);
-            const w = Math.min(260, Math.max(130, maxLen * 14 + 38));
+            const w = Math.min(220, Math.max(98, maxLen * 12 + 24));
             // 快速添加弹窗 z-index 为 100010，内联编辑器需要更高层级避免被遮挡
             editor.style.zIndex = '100020';
             editor.style.minWidth = '0';
@@ -24452,40 +24672,43 @@ async function __tmRefreshAfterWake(reason) {
                     <button class="tm-btn tm-btn-gray" data-tm-action="closeSettings">关闭</button>
                 </div>
 
-                <div class="tm-settings-tabs" style="display: flex; gap: 8px; margin-bottom: 16px; border-bottom: 1px solid var(--tm-border-color); padding-bottom: 8px;">
-                    ${activeTab !== 'rule_editor' ? `
-                    <button class="tm-btn ${activeTab === 'main' ? 'tm-btn-primary' : 'tm-btn-secondary'}" data-tm-action="tmSwitchSettingsTab" data-tab="main" style="padding: 6px 10px; font-size: 12px;">常规设置</button>
-                    <button class="tm-btn ${activeTab === 'appearance' ? 'tm-btn-primary' : 'tm-btn-secondary'}" data-tm-action="tmSwitchSettingsTab" data-tab="appearance" style="padding: 6px 10px; font-size: 12px;">外观</button>
-                    <button class="tm-btn ${activeTab === 'calendar' ? 'tm-btn-primary' : 'tm-btn-secondary'}" data-tm-action="tmSwitchSettingsTab" data-tab="calendar" style="padding: 6px 10px; font-size: 12px;">日历</button>
-                    <button class="tm-btn ${activeTab === 'rules' ? 'tm-btn-primary' : 'tm-btn-secondary'}" data-tm-action="tmSwitchSettingsTab" data-tab="rules" style="padding: 6px 10px; font-size: 12px;">规则管理</button>
-                    <button class="tm-btn ${activeTab === 'quadrant' ? 'tm-btn-primary' : 'tm-btn-secondary'}" data-tm-action="tmSwitchSettingsTab" data-tab="quadrant" style="padding: 6px 10px; font-size: 12px;">四象限</button>
-                    <button class="tm-btn ${activeTab === 'priority' ? 'tm-btn-primary' : 'tm-btn-secondary'}" data-tm-action="tmSwitchSettingsTab" data-tab="priority" style="padding: 6px 10px; font-size: 12px;">优先级算法</button>
-                    ` : `
-                    <button class="tm-btn tm-btn-primary" style="padding: 6px 10px; font-size: 12px;">${state.editingRule ? '编辑规则' : '新建规则'}</button>
-                    `}
-                </div>
-
-                <div style="flex: 1; overflow-y: auto; min-height: 0; padding-right: 4px; margin-bottom: 16px;">
+                <div class="tm-settings-layout">
+                    <div class="tm-settings-sidebar">
+                        <div class="tm-settings-tabs">
+                            ${activeTab !== 'rule_editor' ? `
+                            <button class="tm-settings-nav-btn ${activeTab === 'main' ? 'is-active' : ''}" data-tm-action="tmSwitchSettingsTab" data-tab="main">🧩 常规设置</button>
+                            <button class="tm-settings-nav-btn ${activeTab === 'appearance' ? 'is-active' : ''}" data-tm-action="tmSwitchSettingsTab" data-tab="appearance">🎨 外观</button>
+                            <button class="tm-settings-nav-btn ${activeTab === 'calendar' ? 'is-active' : ''}" data-tm-action="tmSwitchSettingsTab" data-tab="calendar">🗓️ 日历</button>
+                            <button class="tm-settings-nav-btn ${activeTab === 'rules' ? 'is-active' : ''}" data-tm-action="tmSwitchSettingsTab" data-tab="rules">📋 规则管理</button>
+                            <button class="tm-settings-nav-btn ${activeTab === 'quadrant' ? 'is-active' : ''}" data-tm-action="tmSwitchSettingsTab" data-tab="quadrant">📊 四象限</button>
+                            <button class="tm-settings-nav-btn ${activeTab === 'priority' ? 'is-active' : ''}" data-tm-action="tmSwitchSettingsTab" data-tab="priority">⚙️ 优先级算法</button>
+                            ` : `
+                            <button class="tm-settings-nav-btn is-active">${state.editingRule ? '✏️ 编辑规则' : '🆕 新建规则'}</button>
+                            `}
+                        </div>
+                    </div>
+                    <div class="tm-settings-main">
+                        <div class="tm-settings-content">
                     ${activeTab === 'appearance' ? `
-                        <div style="margin-bottom: 16px; padding: 12px; background: var(--tm-section-bg); border-radius: 8px;" class="tm-width-settings">
+                        <div class="tm-settings-panel tm-width-settings">
                             <div style="font-weight: 600; margin-bottom: 12px;">📏 列设置 (显示/排序/宽度)</div>
                             ${renderColumnWidthSettings()}
                         </div>
-                        <div style="margin-bottom: 0; padding: 12px; background: var(--tm-section-bg); border-radius: 8px;">
+                        <div class="tm-settings-panel" style="margin-bottom:0;">
                             <div style="font-weight: 600; margin-bottom: 12px;">🎨 配色</div>
                             ${renderAppearanceColorSettings()}
                         </div>
                     ` : ''}
 
                     ${activeTab === 'calendar' ? `
-                        <div style="margin-bottom: 0; padding: 12px; background: var(--tm-section-bg); border-radius: 8px;">
+                        <div class="tm-settings-panel" style="margin-bottom:0;">
                             <div style="font-weight: 600; margin-bottom: 12px;">🗓️ 日历</div>
                             <div id="tm-calendar-settings-root"></div>
                         </div>
                     ` : ''}
 
                     ${activeTab === 'rules' ? `
-                        <div style="margin-bottom: 16px; padding: 12px; background: var(--tm-section-bg); border-radius: 8px;">
+                        <div class="tm-settings-panel">
                             <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px;">
                                 <div style="font-weight: 600;">📋 筛选规则管理</div>
                                 <div style="display:flex;gap:8px;align-items:center;">
@@ -24507,7 +24730,7 @@ async function __tmRefreshAfterWake(reason) {
                     ` : ''}
 
                     ${activeTab === 'priority' ? `
-                        <div style="margin-bottom: 16px; padding: 12px; background: var(--tm-section-bg); border-radius: 8px;">
+                        <div class="tm-settings-panel">
                             <div id="tm-priority-settings">
                                 ${__tmRenderPriorityScoreSettings(true)}
                             </div>
@@ -24515,7 +24738,7 @@ async function __tmRefreshAfterWake(reason) {
                     ` : ''}
                     
                     ${activeTab === 'quadrant' ? `
-                        <div style="margin-bottom: 16px; padding: 12px; background: var(--tm-section-bg); border-radius: 8px;">
+                        <div class="tm-settings-panel">
                             <div style="font-weight: 600; margin-bottom: 12px;">📊 四象限分组规则</div>
                             <div style="font-size: 12px; color: var(--tm-secondary-text); margin-bottom: 12px;">
                                 根据任务的「重要性」和「完成日期」自动将任务分配到四个象限。
@@ -24531,16 +24754,22 @@ async function __tmRefreshAfterWake(reason) {
                     ` : ''}
 
                     ${activeTab === 'main' ? `
-                    <div style="margin-bottom: 16px; display: flex; gap: 12px; flex-wrap: wrap; align-items: flex-start;">
-                        <label style="display: flex; flex-wrap: wrap; align-items: center; gap: 8px; row-gap: 6px; cursor: pointer; flex: 1 1 260px; min-width: 220px;">
+                    <div style="margin-bottom: 16px; display: flex; flex-direction: column; gap: 10px;">
+                        <div style="display:flex; gap:12px; flex-wrap:wrap; align-items:center;">
+                        <label style="display: inline-flex; flex-wrap: nowrap; align-items: center; gap: 8px; cursor: pointer; flex: 0 1 auto; min-width: 0;">
                             <span>查询限制: </span>
                             <input type="number" value="${state.queryLimit}"
                                    onchange="updateQueryLimit(this.value)"
                                    style="width: 80px; padding: 4px 8px; border: 1px solid var(--tm-input-border); background: var(--tm-input-bg); color: var(--tm-text-color); border-radius: 4px;">
-                            <span>条任务/文档</span>
+                            <span style="white-space:nowrap;">条任务/文档</span>
                         </label>
+                        <div style="flex:1 1 100%; font-size:12px; color:var(--tm-secondary-text); line-height:1.5;">
+                            此设置无法超出思源笔记的搜索数量限制，遇到任务未查找到的情况请前往：思源笔记「设置 -> 搜索 -> 搜索结果显示数」，调大至超过所有任务的数量。
+                        </div>
+                        </div>
                         
-                        <label style="display: flex; flex-wrap: wrap; align-items: center; gap: 8px; row-gap: 6px; cursor: pointer; flex: 1 1 220px; min-width: 180px;">
+                        <div style="display:flex; gap:12px; flex-wrap:wrap; align-items:center;">
+                        <label style="display: inline-flex; flex-wrap: nowrap; align-items: center; gap: 8px; cursor: pointer; flex: 0 1 auto; min-width: 0;">
                             <span>字体大小: </span>
                             <input type="number" value="${SettingsStore.data.fontSize}" min="10" max="30"
                                    onchange="updateFontSize(this.value)"
@@ -24548,13 +24777,16 @@ async function __tmRefreshAfterWake(reason) {
                             <span>px</span>
                         </label>
 
-                        <label style="display: flex; flex-wrap: wrap; align-items: center; gap: 8px; row-gap: 6px; cursor: pointer; flex: 1 1 240px; min-width: 200px;">
+                        <label style="display: inline-flex; flex-wrap: nowrap; align-items: center; gap: 8px; cursor: pointer; flex: 0 1 auto; min-width: 0;">
                             <span>移动端字体: </span>
                             <input type="number" value="${SettingsStore.data.fontSizeMobile || SettingsStore.data.fontSize}" min="10" max="30"
                                    onchange="updateFontSizeMobile(this.value)"
                                    style="width: 60px; padding: 4px 8px; border: 1px solid var(--tm-input-border); background: var(--tm-input-bg); color: var(--tm-text-color); border-radius: 4px;">
                             <span>px</span>
                         </label>
+                        </div>
+
+                        <div style="display: flex; gap: 12px; flex-wrap: wrap; align-items: flex-start;">
 
                         <label style="display: flex; flex-wrap: wrap; align-items: center; gap: 8px; row-gap: 6px; cursor: pointer; flex: 1 1 240px; min-width: 200px;">
                             <span>行高: </span>
@@ -24610,6 +24842,7 @@ async function __tmRefreshAfterWake(reason) {
                                 <option value="h6" ${SettingsStore.data.taskHeadingLevel === 'h6' ? 'selected' : ''}>H6 六级标题</option>
                             </select>
                         </label>
+                        </div>
                     </div>
 
                     <div style="margin-bottom: 16px; padding: 12px; background: var(--tm-section-bg); border-radius: 8px;">
@@ -24814,6 +25047,8 @@ async function __tmRefreshAfterWake(reason) {
                         ` : '<div style="color: var(--tm-secondary-text); font-size: 13px; padding: 10px; background: var(--tm-rule-group-bg); border-radius: 8px;">暂无文档，请添加</div>'}
                     </div>
                     ` : ''}
+                </div>
+                    </div>
                 </div>
 
                 ${activeTab === 'priority' ? `
