@@ -1,5 +1,5 @@
 // @name         思源笔记任务管理器
-// @version      1.5.5
+// @version      1.5.6
 // @description  任务管理器，支持自定义筛选规则分组和排序
 // @author       5KYFKR
 
@@ -23418,7 +23418,7 @@ async function __tmRefreshAfterWake(reason) {
                                 🗓 <span id="tmQuickAddDateLabel">完成日期</span>
                             </button>
                             <input type="date" id="tmQuickAddDateInput" onchange="tmQuickAddDateChanged(this.value)" 
-                                   style="position:fixed; opacity:0; width:1px; height:1px; left:0; top:0; pointer-events:none;">
+                                   style="position:absolute; opacity:0; width:1px; height:1px; left:0; bottom:0; pointer-events:none; border:0; padding:0; margin:0; overflow:hidden; z-index:-1;">
                         </div>
                     </div>
 
