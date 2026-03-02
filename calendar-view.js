@@ -1458,6 +1458,7 @@
         }
         sr.enabled = true;
         const now = Date.now();
+        const todayKey = formatDateKey(new Date(now));
         const windowEnd = now + 36 * 60 * 60000;
         const list = await loadScheduleAll();
         const desired = new Map();
@@ -1500,8 +1501,9 @@
                     const dt = new Date(dayMs);
                     dt.setHours(allDayTime.hh, allDayTime.mm, 0, 0);
                     const atMs = dt.getTime();
-                    if (atMs > now && atMs < windowEnd) {
-                        const dateKey = formatDateKey(dt);
+                    const dateKey = formatDateKey(dt);
+                    const inWindow = (atMs < windowEnd) && (atMs > now || dateKey === todayKey);
+                    if (inWindow) {
                         const fired = loadScheduleReminderFiredSet(dateKey);
                         const key = buildScheduleReminderKey(id, atMs);
                         if (!fired.has(key)) {
@@ -1553,8 +1555,9 @@
                         const dt = new Date(dayMs);
                         dt.setHours(allDayTime.hh, allDayTime.mm, 0, 0);
                         const atMs = dt.getTime();
-                        if (atMs > now && atMs < windowEnd) {
-                            const dateKey = formatDateKey(dt);
+                        const dateKey = formatDateKey(dt);
+                        const inWindow = (atMs < windowEnd) && (atMs > now || dateKey === todayKey);
+                        if (inWindow) {
                             const fired = loadScheduleReminderFiredSet(dateKey);
                             const key = buildTaskDateReminderKey(tid, atMs);
                             if (!fired.has(key)) {
@@ -1579,10 +1582,9 @@
                         const dt = new Date(dayMs);
                         dt.setHours(allDayTime.hh, allDayTime.mm, 0, 0);
                         const atMs = dt.getTime();
-                        if (atMs > now && atMs < windowEnd) {
-                            const dateKey = formatDateKey(dt);
-                            dayKeys.push({ dateKey, atMs });
-                        }
+                        const dateKey = formatDateKey(dt);
+                        const inWindow = (atMs < windowEnd) && (atMs > now || dateKey === todayKey);
+                        if (inWindow) dayKeys.push({ dateKey, atMs });
                     }
                     for (const d0 of dayKeys) {
                         const dateKey = String(d0?.dateKey || '').trim();
@@ -1620,7 +1622,8 @@
                         const dt = new Date(d.getTime());
                         dt.setHours(allDayTime.hh, allDayTime.mm, 0, 0);
                         const atMs = dt.getTime();
-                        if (!(atMs > now && atMs < windowEnd)) continue;
+                        const inWindow = (atMs < windowEnd) && (atMs > now || dateKey === todayKey);
+                        if (!inWindow) continue;
                         const fired = loadScheduleReminderFiredSet(dateKey);
                         const key = `cnHoliday:${dateKey}:${title}:${String(atMs)}`;
                         if (fired.has(key)) continue;

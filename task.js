@@ -1,5 +1,5 @@
 // @name         思源笔记任务管理器
-// @version      1.5.8
+// @version      1.5.9
 // @description  任务管理器，支持自定义筛选规则分组和排序
 // @author       5KYFKR
 
@@ -5454,16 +5454,164 @@
         }
     };
 
+    const __tmTasksQueryCache = new Map();
+    const __tmSqlInFlight = new Map();
+    const __tmSqlQueue = { max: 3, active: 0, q: [] };
+    const __tmAuxQueryCache = new Map();
+    let __tmSqlCacheInvalidationBound = false;
+    let __tmSqlCacheInvalidationHandler = null;
+    let __tmSqlCacheEventBusHandler = null;
+
+    function __tmRunSqlQueued(fn) {
+        const run = () => Promise.resolve().then(fn);
+        return new Promise((resolve, reject) => {
+            const start = () => {
+                __tmSqlQueue.active += 1;
+                run().then(resolve, reject).finally(() => {
+                    __tmSqlQueue.active = Math.max(0, (__tmSqlQueue.active || 0) - 1);
+                    const next = __tmSqlQueue.q.shift();
+                    if (typeof next === 'function') next();
+                });
+            };
+            if ((__tmSqlQueue.active || 0) < (__tmSqlQueue.max || 1)) start();
+            else __tmSqlQueue.q.push(start);
+        });
+    }
+
+    function __tmInvalidateTasksQueryCacheByDocId(docId) {
+        const did = String(docId || '').trim();
+        if (!did) {
+            try { __tmTasksQueryCache.clear(); } catch (e) {}
+            try { __tmAuxQueryCache.clear(); } catch (e) {}
+            return;
+        }
+        try {
+            for (const [k, ent] of __tmTasksQueryCache.entries()) {
+                const set = ent?.docIdSet;
+                if (set instanceof Set && set.has(did)) {
+                    __tmTasksQueryCache.delete(k);
+                }
+            }
+        } catch (e) {}
+        try { __tmAuxQueryCache.clear(); } catch (e) {}
+    }
+
+    function __tmInvalidateAllSqlCaches() {
+        try { __tmTasksQueryCache.clear(); } catch (e) {}
+        try { __tmSqlInFlight.clear(); } catch (e) {}
+        try { __tmAuxQueryCache.clear(); } catch (e) {}
+    }
+
+    function __tmHashIds(ids) {
+        let h = 2166136261;
+        const list = Array.isArray(ids) ? ids : [];
+        for (let i = 0; i < list.length; i += 1) {
+            const s = String(list[i] || '');
+            for (let j = 0; j < s.length; j += 1) {
+                h ^= s.charCodeAt(j);
+                h = Math.imul(h, 16777619);
+            }
+            h ^= 10;
+            h = Math.imul(h, 16777619);
+        }
+        return (h >>> 0).toString(16);
+    }
+
+    function __tmGetAuxCache(key, ttlMs) {
+        const ent = __tmAuxQueryCache.get(key);
+        if (!ent || !ent.t) return null;
+        if ((Date.now() - ent.t) > (Number(ttlMs) || 0)) return null;
+        return ent.v;
+    }
+
+    function __tmSetAuxCache(key, value) {
+        __tmAuxQueryCache.set(key, { t: Date.now(), v: value });
+    }
+
+    function __tmExtractDocIdsFromTx(payload) {
+        const out = new Set();
+        const walk = (v, depth) => {
+            if (depth > 5 || !v) return;
+            if (Array.isArray(v)) {
+                v.forEach((x) => walk(x, depth + 1));
+                return;
+            }
+            if (typeof v !== 'object') return;
+            const candidates = [v.root_id, v.rootId, v.rootID, v.root];
+            candidates.forEach((x) => {
+                const s = String(x || '').trim();
+                if (/^[0-9]+-[a-zA-Z0-9]+$/.test(s)) out.add(s);
+            });
+            const next = [v.data, v.detail, v.tx, v.payload, v.rows, v.ops, v.operations];
+            next.forEach((x) => walk(x, depth + 1));
+        };
+        walk(payload, 0);
+        return out;
+    }
+
+    function __tmBindSqlCacheInvalidation() {
+        if (__tmSqlCacheInvalidationBound) return;
+        __tmSqlCacheInvalidationBound = true;
+        __tmSqlCacheInvalidationHandler = (ev) => {
+            const docId = String(ev?.detail?.docId || '').trim();
+            if (docId) __tmInvalidateTasksQueryCacheByDocId(docId);
+            else __tmInvalidateAllSqlCaches();
+        };
+        try { window.addEventListener('tm:sql-cache-invalidate', __tmSqlCacheInvalidationHandler); } catch (e) {}
+        try {
+            const eb = window.siyuan?.eventBus;
+            if (eb && typeof eb.on === 'function') {
+                __tmSqlCacheEventBusHandler = (msg) => {
+                    const docIds = __tmExtractDocIdsFromTx(msg);
+                    if (docIds && docIds.size > 0) docIds.forEach((d) => __tmInvalidateTasksQueryCacheByDocId(d));
+                    else __tmInvalidateAllSqlCaches();
+                };
+                eb.on('ws-main', __tmSqlCacheEventBusHandler);
+            }
+        } catch (e) {}
+    }
+
     const API = {
         // ... 原有的API方法保持不变 ...
         async call(url, body) {
             try {
-                const res = await fetch(url, { 
-                    method: 'POST', 
-                    headers: { 'Content-Type': 'application/json' }, 
-                    body: JSON.stringify(body) 
-                });
-                return await res.json();
+                const isSql = String(url || '').trim() === '/api/query/sql';
+                if (isSql && __tmSqlQueue && typeof __tmIsMobileDevice === 'function') {
+                    __tmSqlQueue.max = __tmIsMobileDevice() ? 2 : 3;
+                }
+                const stmtKey = isSql ? String(body?.stmt || '').trim() : '';
+                const inFlightKey = isSql ? (stmtKey || '') : '';
+                if (inFlightKey && __tmSqlInFlight.has(inFlightKey)) {
+                    return await __tmSqlInFlight.get(inFlightKey);
+                }
+                const doFetch = async () => {
+                    const res = await fetch(url, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify(body)
+                    });
+                    const text = await res.text();
+                    let data;
+                    try {
+                        data = text ? JSON.parse(text) : {};
+                    } catch (e) {
+                        return { code: -1, msg: `HTTP ${res.status}` };
+                    }
+                    if (!res.ok && (data == null || typeof data !== 'object' || typeof data.code === 'undefined')) {
+                        return { code: -1, msg: `HTTP ${res.status}` };
+                    }
+                    return data;
+                };
+                if (isSql) {
+                    const p = __tmRunSqlQueued(doFetch);
+                    if (inFlightKey) __tmSqlInFlight.set(inFlightKey, p);
+                    try {
+                        return await p;
+                    } finally {
+                        if (inFlightKey) __tmSqlInFlight.delete(inFlightKey);
+                    }
+                }
+                return await doFetch();
             } catch (err) { 
                 return { code: -1, msg: err.message }; 
             }
@@ -5497,8 +5645,8 @@
 
         async getDocNotebook(docId) {
             const id = String(docId || '').trim();
-            if (!id) return '';
-            const sql = `SELECT box FROM blocks WHERE id = '${id}' AND type = 'd'`;
+            if (!/^[0-9]+-[a-zA-Z0-9]+$/.test(id)) return '';
+            const sql = `SELECT box FROM blocks WHERE id = '${id.replace(/'/g, "''")}' AND type = 'd'`;
             const res = await this.call('/api/query/sql', { stmt: sql });
             if (res.code === 0 && Array.isArray(res.data) && res.data.length > 0) {
                 return String(res.data[0]?.box || '').trim();
@@ -5508,15 +5656,17 @@
 
         async getSubDocIds(docId) {
             try {
+                const did = String(docId || '').trim();
+                if (!/^[0-9]+-[a-zA-Z0-9]+$/.test(did)) return [];
                 // 先获取根文档的 path
-                const pathSql = `SELECT hpath FROM blocks WHERE id = '${docId}' AND type = 'd'`;
+                const pathSql = `SELECT hpath FROM blocks WHERE id = '${did.replace(/'/g, "''")}' AND type = 'd'`;
                 const pathRes = await this.call('/api/query/sql', { stmt: pathSql });
                 if (pathRes.code !== 0 || !pathRes.data || pathRes.data.length === 0) return [];
                 
-                const hpath = pathRes.data[0].hpath;
+                const hpath = String(pathRes.data[0].hpath || '');
                 
                 // 查询子文档
-                const sql = `SELECT id FROM blocks WHERE hpath LIKE '${hpath}/%' AND type = 'd'`;
+                const sql = `SELECT id FROM blocks WHERE hpath LIKE '${hpath.replace(/'/g, "''")}/%' AND type = 'd'`;
                 const res = await this.call('/api/query/sql', { stmt: sql });
                 if (res.code === 0 && res.data) {
                     return res.data.map(d => d.id);
@@ -5569,6 +5719,7 @@
                     out.set(`${docId}::${hid}`, rank++);
                 }
             }
+            __tmSetAuxCache(cacheKey, Array.from(out.entries()));
             return out;
         },
 
@@ -5638,6 +5789,10 @@
         },
 
         async getTasksByDocument(docId, limit = 500, options = null) {
+            const did = String(docId || '').trim();
+            if (!/^[0-9]+-[a-zA-Z0-9]+$/.test(did)) return { tasks: [], queryTime: 0 };
+            const lim0 = Number(limit);
+            const lim = Number.isFinite(lim0) ? Math.max(1, Math.min(5000, Math.round(lim0))) : 500;
             const tomatoEnabled = !!SettingsStore.data.enableTomatoIntegration;
             const tomatoMinutesKey = __tmSafeAttrName(SettingsStore.data.tomatoSpentAttrKeyMinutes, 'custom-tomato-minutes');
             const tomatoHoursKey = __tmSafeAttrName(SettingsStore.data.tomatoSpentAttrKeyHours, 'custom-tomato-time');
@@ -5720,7 +5875,7 @@
                     WHERE 
                         t.type = 'i'
                         AND t.subtype = 't'
-                        AND t.root_id = '${docId}'
+                        AND t.root_id = '${did}'
                         AND a.name IN (
                             ${attrNamesSql}
                         )
@@ -5730,12 +5885,12 @@
                 WHERE 
                     task.type = 'i' 
                     AND task.subtype = 't'
-                    AND task.root_id = '${docId}'
+                    AND task.root_id = '${did}'
                     AND task.markdown IS NOT NULL
                     AND task.markdown != ''${excludeCompletedCondition}${doneOnlyCondition}
                 
                 ORDER BY task.path, task.sort, task.created
-                LIMIT ${limit}
+                LIMIT ${lim}
             `;
             
             const startTime = Date.now();
@@ -5743,17 +5898,23 @@
             const queryTime = Date.now() - startTime;
             
             if (res.code !== 0) {
-                console.error(`[查询] 文档 ${docId.slice(0, 8)} 查询失败:`, res.msg);
+                console.error(`[查询] 文档 ${did.slice(0, 8)} 查询失败:`, res.msg);
                 return { tasks: [], queryTime };
             }
             return { tasks: res.data || [], queryTime };
         },
 
         async getTasksByDocuments(docIds, limitPerDoc = 500, options = null) {
-            const safeDocIds = Array.isArray(docIds) ? docIds.filter(id => /^[0-9]+-[a-zA-Z0-9]+$/.test(String(id || ''))) : [];
+            const safeDocIds0 = Array.isArray(docIds) ? docIds.filter(id => /^[0-9]+-[a-zA-Z0-9]+$/.test(String(id || ''))) : [];
+            const safeDocIds = Array.from(new Set(safeDocIds0.map((x) => String(x || '').trim()).filter(Boolean))).sort();
             if (safeDocIds.length === 0) return { tasks: [], queryTime: 0 };
             const idList = safeDocIds.map(id => `'${id}'`).join(',');
             const perDocLimit = Number.isFinite(limitPerDoc) ? Math.max(1, Math.min(5000, limitPerDoc)) : 500;
+            const doneOnly = !!(options && options.doneOnly === true);
+            const cacheKey = `getTasksByDocuments:${idList}:${perDocLimit}:${doneOnly ? 1 : 0}:${SettingsStore.data.enableTomatoIntegration ? 1 : 0}`;
+            const cached = __tmTasksQueryCache.get(cacheKey);
+            if (cached && cached.t && (Date.now() - cached.t) < 1200 && cached.v) return cached.v;
+            const docIdSet = new Set(safeDocIds);
 
             const tomatoEnabled = !!SettingsStore.data.enableTomatoIntegration;
             const tomatoMinutesKey = __tmSafeAttrName(SettingsStore.data.tomatoSpentAttrKeyMinutes, 'custom-tomato-minutes');
@@ -5775,7 +5936,7 @@
             // 不查找已完成任务的过滤条件
             // 不查找已完成任务的过滤条件（数据库层面暂不过滤，全部在JavaScript中过滤）
             const excludeCompletedCondition = '';
-            const doneOnlyCondition = (options && options.doneOnly === true)
+            const doneOnlyCondition = doneOnly
                 ? ` AND (task.markdown LIKE '%[x]%' OR task.markdown LIKE '%[X]%')`
                 : '';
 
@@ -5872,16 +6033,21 @@
                     const tasks = [];
                     results.forEach(r => tasks.push(...(r?.tasks || [])));
                     const fallbackTime = Date.now() - fallbackStart;
-                    return { tasks, queryTime: queryTime + fallbackTime };
+                    const out = { tasks, queryTime: queryTime + fallbackTime };
+                    __tmTasksQueryCache.set(cacheKey, { t: Date.now(), v: out, docIdSet });
+                    return out;
                 } catch (e) {
                     return { tasks: [], queryTime };
                 }
             }
-            return { tasks: res.data || [], queryTime };
+            const out = { tasks: res.data || [], queryTime };
+            __tmTasksQueryCache.set(cacheKey, { t: Date.now(), v: out, docIdSet });
+            return out;
         },
 
         async getTaskById(id) {
-            if (!id) return null;
+            const tid = String(id || '').trim();
+            if (!/^[0-9]+-[a-zA-Z0-9]+$/.test(tid)) return null;
             const sql = `
                 SELECT 
                     task.id,
@@ -5920,10 +6086,10 @@
                         MAX(CASE WHEN name = 'custom-status' THEN value ELSE NULL END) as custom_status,
                         MAX(CASE WHEN name = 'custom-pinned' THEN value ELSE NULL END) as pinned
                     FROM attributes
-                    WHERE block_id = '${id}'
+                    WHERE block_id = '${tid}'
                     GROUP BY block_id
                 ) AS attr ON attr.block_id = task.id
-                WHERE task.id = '${id}'
+                WHERE task.id = '${tid}'
                 LIMIT 1
             `;
             const res = await this.call('/api/query/sql', { stmt: sql });
@@ -5981,11 +6147,16 @@
         },
 
         async fetchH2Contexts(taskIds) {
-            if (!taskIds || taskIds.length === 0) return new Map();
+            const ids = Array.from(new Set((taskIds || []).map(x => String(x || '').trim()).filter(Boolean))).sort();
+            if (ids.length === 0) return new Map();
+            const cacheKey = `h2ctx:${ids.length}:${__tmHashIds(ids)}:${String(SettingsStore.data.taskHeadingLevel || 'h2')}`;
+            const cached = __tmGetAuxCache(cacheKey, 8000);
+            if (cached) return new Map(cached);
             const batchSize = 100;
             const contextMap = new Map();
-            for (let i = 0; i < taskIds.length; i += batchSize) {
-                const batch = taskIds.slice(i, i + batchSize);
+            for (let i = 0; i < ids.length; i += batchSize) {
+                const batch = ids.slice(i, i + batchSize);
+                if (batch.length === 0) continue;
                 const idList = batch.map(id => `'${id}'`).join(',');
                 const taskRootMap = new Map();
                 try {
@@ -6209,12 +6380,16 @@
                     }
                 } catch (e) {}
             }
+            __tmSetAuxCache(cacheKey, Array.from(contextMap.entries()));
             return contextMap;
         },
 
         async fetchTaskFlowRanks(taskIds) {
-            const ids = Array.from(new Set((taskIds || []).map(x => String(x || '').trim()).filter(Boolean)));
+            const ids = Array.from(new Set((taskIds || []).map(x => String(x || '').trim()).filter(Boolean))).sort();
             if (ids.length === 0) return new Map();
+            const cacheKey = `flowrank:${ids.length}:${__tmHashIds(ids)}`;
+            const cached = __tmGetAuxCache(cacheKey, 5000);
+            if (cached) return new Map(cached);
             const out = new Map();
             const escId = (s) => String(s || '').replace(/'/g, "''");
             const batchSize = 200;
@@ -7349,8 +7524,8 @@ async function __tmRefreshAfterWake(reason) {
 
     function esc(s) {
         const d = document.createElement('div');
-        d.textContent = s;
-        return d.innerHTML;
+        d.textContent = String(s ?? '');
+        return d.innerHTML.replace(/"/g, '&quot;').replace(/'/g, '&#39;');
     }
 
     function __tmCompareTasksByDocFlow(a, b) {
@@ -8728,38 +8903,56 @@ async function __tmRefreshAfterWake(reason) {
         return new Promise((resolve) => {
             const existing = document.querySelector('.tm-prompt-modal');
             if (existing) existing.remove();
-            
+
             const modal = document.createElement('div');
             modal.className = 'tm-prompt-modal';
-            
-            modal.innerHTML = `
-                <div class="tm-prompt-box">
-                    <div class="tm-prompt-title">${title}</div>
-                    <input type="text" class="tm-prompt-input" placeholder="${placeholder}" value="${defaultValue}" autofocus>
-                    <div class="tm-prompt-buttons">
-                        <button class="tm-prompt-btn tm-prompt-btn-secondary" id="tm-prompt-cancel">取消</button>
-                        <button class="tm-prompt-btn tm-prompt-btn-primary" id="tm-prompt-ok">确定</button>
-                    </div>
-                </div>
-            `;
-            
+
+            const box = document.createElement('div');
+            box.className = 'tm-prompt-box';
+
+            const titleEl = document.createElement('div');
+            titleEl.className = 'tm-prompt-title';
+            titleEl.textContent = String(title ?? '');
+
+            const input = document.createElement('input');
+            input.type = 'text';
+            input.className = 'tm-prompt-input';
+            input.placeholder = String(placeholder ?? '');
+            input.value = String(defaultValue ?? '');
+            try { input.autofocus = true; } catch (e) {}
+
+            const buttons = document.createElement('div');
+            buttons.className = 'tm-prompt-buttons';
+
+            const cancelBtn = document.createElement('button');
+            cancelBtn.className = 'tm-prompt-btn tm-prompt-btn-secondary';
+            cancelBtn.id = 'tm-prompt-cancel';
+            cancelBtn.textContent = '取消';
+
+            const okBtn = document.createElement('button');
+            okBtn.className = 'tm-prompt-btn tm-prompt-btn-primary';
+            okBtn.id = 'tm-prompt-ok';
+            okBtn.textContent = '确定';
+
+            buttons.appendChild(cancelBtn);
+            buttons.appendChild(okBtn);
+            box.appendChild(titleEl);
+            box.appendChild(input);
+            box.appendChild(buttons);
+            modal.appendChild(box);
             document.body.appendChild(modal);
-            
-            const input = modal.querySelector('.tm-prompt-input');
-            const okBtn = modal.querySelector('#tm-prompt-ok');
-            const cancelBtn = modal.querySelector('#tm-prompt-cancel');
-            
+
             okBtn.onclick = () => {
-                const value = input.value.trim();
+                const value = String(input.value || '').trim();
                 modal.remove();
                 resolve(value);
             };
-            
+
             cancelBtn.onclick = () => {
                 modal.remove();
                 resolve(null);
             };
-            
+
             input.onkeydown = (e) => {
                 if (e.key === 'Enter') {
                     okBtn.click();
@@ -8767,7 +8960,7 @@ async function __tmRefreshAfterWake(reason) {
                     cancelBtn.click();
                 }
             };
-            
+
             modal.onclick = (e) => {
                 if (e.target === modal) {
                     cancelBtn.click();
@@ -9364,15 +9557,15 @@ async function __tmRefreshAfterWake(reason) {
                 <div class="tm-rule-condition">
                     <select class="tm-rule-condition-field" data-tm-change="updateConditionField" data-index="${index}">
                         ${availableFields.map(f => 
-                            `<option value="${f.value}" ${condition.field === f.value ? 'selected' : ''}>
-                                ${f.label}
+                            `<option value="${esc(f.value)}" ${condition.field === f.value ? 'selected' : ''}>
+                                ${esc(f.label)}
                             </option>`
                         ).join('')}
                     </select>
                     <select class="tm-rule-condition-operator" data-tm-change="updateConditionOperator" data-index="${index}">
                         ${operators.map(op => 
-                            `<option value="${op.value}" ${condition.operator === op.value ? 'selected' : ''}>
-                                ${op.label}
+                            `<option value="${esc(op.value)}" ${condition.operator === op.value ? 'selected' : ''}>
+                                ${esc(op.label)}
                             </option>`
                         ).join('')}
                     </select>
@@ -9433,7 +9626,7 @@ async function __tmRefreshAfterWake(reason) {
                                        data-tm-change="toggleConditionMultiValue"
                                        data-index="${index}"
                                        data-option-value="${esc(String(opt))}">
-                                <span>${optionLabels[opt] || opt}</span>
+                                <span>${esc(optionLabels[opt] || opt)}</span>
                             </label>
                         `).join('')}
                     </div>
@@ -9447,8 +9640,8 @@ async function __tmRefreshAfterWake(reason) {
                 <select class="tm-rule-condition-value" data-tm-change="updateConditionValue" data-index="${index}">
                     <option value="">-- 请选择 --</option>
                     ${allOptions.map(opt =>
-                        `<option value="${opt}" ${singleValue === opt ? 'selected' : ''}>
-                            ${optionLabels[opt] || opt}
+                        `<option value="${esc(String(opt))}" ${singleValue === opt ? 'selected' : ''}>
+                            ${esc(optionLabels[opt] || opt)}
                         </option>`
                     ).join('')}
                 </select>
@@ -9462,7 +9655,7 @@ async function __tmRefreshAfterWake(reason) {
                     <input type="${inputType}" 
                            class="tm-time-input" 
                            placeholder="开始值"
-                           value="${condition.value?.from || ''}"
+                           value="${esc(String(condition.value?.from || ''))}"
                            data-tm-change="updateConditionValueRange"
                            data-index="${index}"
                            data-range-key="from">
@@ -9470,7 +9663,7 @@ async function __tmRefreshAfterWake(reason) {
                     <input type="${inputType}" 
                            class="tm-time-input" 
                            placeholder="结束值"
-                           value="${condition.value?.to || ''}"
+                           value="${esc(String(condition.value?.to || ''))}"
                            data-tm-change="updateConditionValueRange"
                            data-index="${index}"
                            data-range-key="to">
@@ -10603,8 +10796,7 @@ async function __tmRefreshAfterWake(reason) {
             state.currentRule = ruleId;
             SettingsStore.data.currentRule = ruleId;
             await SettingsStore.save();
-            applyFilters();
-            render();
+            __tmScheduleRender({ withFilters: true });
             closeRulesManager();
             hint(`✅ 已应用规则: ${rule.name}`, 'success');
         }
@@ -11162,8 +11354,7 @@ async function __tmRefreshAfterWake(reason) {
     window.tmSwitchDoc = function(docId) {
         if (Number(state.suppressDocTabClickUntil || 0) > Date.now()) return;
         state.activeDocId = docId;
-        applyFilters();
-        render();
+        __tmScheduleRender({ withFilters: true });
         if (state.viewMode === 'whiteboard') {
             try {
                 requestAnimationFrame(() => {
@@ -11416,7 +11607,7 @@ async function __tmRefreshAfterWake(reason) {
                 <div style="padding: 20px;">
                     <input type="text" id="tmPopupSearchInput" class="tm-input" 
                            placeholder="输入关键词搜索..." 
-                           value="${state.searchKeyword}" 
+                           value="${esc(String(state.searchKeyword || ''))}" 
                            style="width: 100%; margin-bottom: 15px; font-size: 16px; padding: 8px;">
                     <div style="display: flex; justify-content: flex-end; gap: 10px;">
                          <button class="tm-btn tm-btn-secondary" onclick="tmSearch(''); this.closest('.tm-modal').remove()">清除搜索</button>
@@ -11442,8 +11633,7 @@ async function __tmRefreshAfterWake(reason) {
     window.tmSearch = function(keyword) {
         const next = String(keyword || '').trim();
         state.searchKeyword = next;
-        applyFilters();
-        render();
+        __tmScheduleRender({ withFilters: true });
     };
 
     window.tmSwitchDocGroup = async function(groupId) {
@@ -14027,8 +14217,7 @@ async function __tmRefreshAfterWake(reason) {
             }
             return;
         }
-        applyFilters();
-        render();
+        __tmScheduleRender({ withFilters: true });
 
         if (ruleId) {
             const rule = state.filterRules.find(r => r.id === ruleId);
@@ -14049,8 +14238,7 @@ async function __tmRefreshAfterWake(reason) {
             hint('✅ 已清除筛选规则', 'success');
             return;
         }
-        applyFilters();
-        render();
+        __tmScheduleRender({ withFilters: true });
         hint('✅ 已清除筛选规则', 'success');
     };
 
@@ -14113,8 +14301,7 @@ async function __tmRefreshAfterWake(reason) {
         state.viewMode = next;
         state.uiAnimKind = '';
         state.uiAnimTs = 0;
-        try { applyFilters(); } catch (e) {}
-        render();
+        __tmScheduleRender({ withFilters: true });
     };
 
     window.tmToggleKanbanMode = function() {
@@ -14123,8 +14310,7 @@ async function __tmRefreshAfterWake(reason) {
         state.uiAnimKind = '';
         state.uiAnimTs = 0;
         try { __tmHideMobileMenu(); } catch (e) {}
-        try { applyFilters(); } catch (e) {}
-        render();
+        __tmScheduleRender({ withFilters: true });
     };
 
     window.tmToggleCalendarMode = function() {
@@ -14133,8 +14319,7 @@ async function __tmRefreshAfterWake(reason) {
         state.uiAnimKind = '';
         state.uiAnimTs = 0;
         try { __tmHideMobileMenu(); } catch (e) {}
-        try { applyFilters(); } catch (e) {}
-        render();
+        __tmScheduleRender({ withFilters: true });
     };
 
     window.tmToggleWhiteboardMode = function() {
@@ -21621,7 +21806,7 @@ async function __tmRefreshAfterWake(reason) {
                         <td class="tm-status-cell" style="width: ${widths.status || 96}px; min-width: ${widths.status || 96}px; max-width: ${widths.status || 96}px; text-align: center;" onclick="tmOpenStatusSelect('${task.id}', event)">
                             <span class="tm-status-cell-inner">
                                 <span class="tm-status-tag" style="${chipStyle}">
-                                    ${statusOption.name}
+                                    ${esc(statusOption.name)}
                                 </span>
                             </span>
                         </td>
@@ -22466,8 +22651,13 @@ async function __tmRefreshAfterWake(reason) {
             // Update MetaStore (fast cache)
             __tmPersistMetaAndAttrs(id, { pinned: val });
 
-            applyFilters();
-            render();
+            try {
+                const docId = String(task?.root_id || '').trim();
+                if (docId) __tmInvalidateTasksQueryCacheByDocId(docId);
+                else __tmInvalidateAllSqlCaches();
+            } catch (e) {}
+
+            __tmScheduleRender({ withFilters: true });
             hint(`✅ ${val ? '已置顶' : '已取消置顶'}`, 'success');
         } catch (e) {
             hint(`❌ 操作失败: ${e.message}`, 'error');
@@ -22492,6 +22682,7 @@ async function __tmRefreshAfterWake(reason) {
                     if (!state.doneOverrides || typeof state.doneOverrides !== 'object') state.doneOverrides = {};
                     state.doneOverrides[String(id)] = !!done;
                 } catch (e) {}
+                try { __tmInvalidateAllSqlCaches(); } catch (e) {}
                 try { hint(done ? '✅ 任务已完成' : '✅ 已取消完成', 'success'); } catch (e) {}
                 try { globalThis.__tmCalendar?.refreshInPlace?.({ hard: false }); } catch (e) {}
                 return;
@@ -22750,6 +22941,12 @@ async function __tmRefreshAfterWake(reason) {
                     render();
                 });
             });
+
+            try {
+                const did = String(docId || '').trim();
+                if (did) __tmInvalidateTasksQueryCacheByDocId(did);
+                else __tmInvalidateAllSqlCaches();
+            } catch (e) {}
 
             hint(actualDone ? '✅ 任务已完成' : '✅ 已取消完成', 'success');
 
@@ -24573,6 +24770,7 @@ async function __tmRefreshAfterWake(reason) {
         try { state.doneOverrides = {}; } catch (e) {}
         // 加载设置（包括文档ID列表）
         await SettingsStore.load();
+        try { __tmBindSqlCacheInvalidation(); } catch (e) {}
         try {
             if (globalThis.__tmCalendar && typeof globalThis.__tmCalendar.setSettingsStore === 'function') {
                 globalThis.__tmCalendar.setSettingsStore(SettingsStore);
@@ -24667,17 +24865,26 @@ async function __tmRefreshAfterWake(reason) {
             const nextFlatTasks = {};
 
             if (res.tasks) {
+                const rule0 = state.currentRule ? state.filterRules.find(r => r.id === state.currentRule) : null;
+                const needFlowRank = !!state.groupByDocName && !__tmRuleHasExplicitSort(rule0);
+                const colOrder0 = Array.isArray(SettingsStore.data.columnOrder) ? SettingsStore.data.columnOrder : [];
+                const needH2 = colOrder0.includes('h2') || (Array.isArray(rule0?.sort) && rule0.sort.some(s => String(s?.field || '').trim() === 'h2'));
+                const taskIds0 = res.tasks.map(t => String(t?.id || '').trim()).filter(Boolean);
                 let h2ContextMap = new Map();
-                try {
-                    h2ContextMap = await API.fetchH2Contexts(res.tasks.map(t => t.id));
-                } catch (e) {
-                    h2ContextMap = new Map();
+                if (needH2) {
+                    try {
+                        h2ContextMap = await API.fetchH2Contexts(taskIds0);
+                    } catch (e) {
+                        h2ContextMap = new Map();
+                    }
                 }
                 let taskFlowRankMap = new Map();
-                try {
-                    taskFlowRankMap = await API.fetchTaskFlowRanks(res.tasks.map(t => t.id));
-                } catch (e) {
-                    taskFlowRankMap = new Map();
+                if (needFlowRank) {
+                    try {
+                        taskFlowRankMap = await API.fetchTaskFlowRanks(taskIds0);
+                    } catch (e) {
+                        taskFlowRankMap = new Map();
+                    }
                 }
                 const missingPriorityIds = [];
 
@@ -25799,9 +26006,9 @@ async function __tmRefreshAfterWake(reason) {
         const options = SettingsStore.data.customStatusOptions || [];
         return options.map((opt, index) => `
             <div style="display: flex; align-items: center; gap: 6px; margin-bottom: 6px; flex-wrap: wrap;">
-                <input type="color" value="${opt.color}" onchange="updateStatusOption(${index}, 'color', this.value)" style="width: 24px; height: 24px; border: none; padding: 0; background: none; cursor: pointer;" title="点击修改颜色">
-                <input type="text" value="${opt.name}" onchange="updateStatusOption(${index}, 'name', this.value)" style="width: 100px; padding: 4px; border: 1px solid var(--tm-input-border); background: var(--tm-input-bg); color: var(--tm-text-color); border-radius: 4px; font-size: 13px;" title="修改名称">
-                <input type="text" value="${opt.id}" onchange="updateStatusOption(${index}, 'id', this.value)" style="width: 120px; padding: 4px; border: 1px solid var(--tm-input-border); background: var(--tm-input-bg); color: var(--tm-text-color); border-radius: 4px; font-size: 12px; font-family: monospace;" title="修改ID（将同步更新任务状态）">
+                <input type="color" value="${esc(opt.color)}" onchange="updateStatusOption(${index}, 'color', this.value)" style="width: 24px; height: 24px; border: none; padding: 0; background: none; cursor: pointer;" title="点击修改颜色">
+                <input type="text" value="${esc(opt.name)}" onchange="updateStatusOption(${index}, 'name', this.value)" style="width: 100px; padding: 4px; border: 1px solid var(--tm-input-border); background: var(--tm-input-bg); color: var(--tm-text-color); border-radius: 4px; font-size: 13px;" title="修改名称">
+                <input type="text" value="${esc(opt.id)}" onchange="updateStatusOption(${index}, 'id', this.value)" style="width: 120px; padding: 4px; border: 1px solid var(--tm-input-border); background: var(--tm-input-bg); color: var(--tm-text-color); border-radius: 4px; font-size: 12px; font-family: monospace;" title="修改ID（将同步更新任务状态）">
                 <div style="display: flex; gap: 2px;">
                     <button class="tm-btn" onclick="moveStatusOption(${index}, -1)" ${index === 0 ? 'disabled' : ''} style="padding: 2px 6px; font-size: 11px;">↑</button>
                     <button class="tm-btn" onclick="moveStatusOption(${index}, 1)" ${index === options.length - 1 ? 'disabled' : ''} style="padding: 2px 6px; font-size: 11px;">↓</button>
@@ -28564,6 +28771,20 @@ async function __tmRefreshAfterWake(reason) {
                 window.removeEventListener('tm-task-attr-updated', __tmQuickbarTaskUpdateHandler);
                 __tmQuickbarTaskUpdateHandler = null;
             }
+        } catch (e) {}
+        try {
+            if (__tmSqlCacheInvalidationHandler) {
+                window.removeEventListener('tm:sql-cache-invalidate', __tmSqlCacheInvalidationHandler);
+                __tmSqlCacheInvalidationHandler = null;
+            }
+            if (__tmSqlCacheEventBusHandler) {
+                const eb = window.siyuan?.eventBus;
+                if (eb && typeof eb.off === 'function') {
+                    eb.off('ws-main', __tmSqlCacheEventBusHandler);
+                }
+                __tmSqlCacheEventBusHandler = null;
+            }
+            __tmSqlCacheInvalidationBound = false;
         } catch (e) {}
         try {
             const centerLayout = window.siyuan?.layout?.centerLayout;
