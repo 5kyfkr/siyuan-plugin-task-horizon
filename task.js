@@ -5033,6 +5033,8 @@
             if (!changed) return false;
             cards[id] = next;
             this.data.cards = cards;
+            // 清除白板快照缓存
+            try { __tmClearWhiteboardCardSnapshotCache(); } catch (e) {}
             if (opts && opts.persist === false) return true;
             this.scheduleSave();
             return true;
@@ -5046,6 +5048,8 @@
                 if (this.upsertTask(t, { persist: false })) changed = true;
             });
             if (!changed) return false;
+            // 清除白板快照缓存
+            try { __tmClearWhiteboardCardSnapshotCache(); } catch (e) {}
             if (opts && opts.persist === false) return true;
             this.scheduleSave();
             return true;
@@ -5577,7 +5581,7 @@
             try {
                 const isSql = String(url || '').trim() === '/api/query/sql';
                 if (isSql && __tmSqlQueue && typeof __tmIsMobileDevice === 'function') {
-                    __tmSqlQueue.max = __tmIsMobileDevice() ? 2 : 3;
+                    __tmSqlQueue.max = 3; // 统一使用3并发
                 }
                 const stmtKey = isSql ? String(body?.stmt || '').trim() : '';
                 const inFlightKey = isSql ? (stmtKey || '') : '';
@@ -11532,6 +11536,8 @@ async function __tmRefreshAfterWake(reason) {
 
     window.tmDocTabTouchStart = function(event, docId) {
         if (!__tmIsMobileDevice()) return;
+        // 如果正在打开插件页面，则不触发文档页签长按菜单
+        try { if (state.__tmPluginIconLongPressing) return; } catch (e) {}
         try { state.docTabTouchMoved = false; } catch (e) {}
         try { if (state.docTabLongPressTimer) clearTimeout(state.docTabLongPressTimer); } catch (e) {}
         const t = event?.touches?.[0];
@@ -12363,7 +12369,7 @@ async function __tmRefreshAfterWake(reason) {
                     : pr === 'medium'
                         ? { label: '中', color: '#f9ab00' }
                         : pr === 'low'
-                            ? { label: '低', color: '#34a853' }
+                            ? { label: '低', color: '#1d7afc' }
                             : { label: '无', color: '#9aa0a6' };
                 const timeTxt = String(task?.completionTime || '').trim() || String(task?.startDate || '').trim();
                 const dateTxt = timeTxt ? __tmFormatTaskTime(timeTxt) : '';
@@ -12992,7 +12998,7 @@ async function __tmRefreshAfterWake(reason) {
                         : pr === 'medium'
                             ? { label: '中', color: '#f9ab00' }
                             : pr === 'low'
-                                ? { label: '低', color: '#34a853' }
+                                ? { label: '低', color: '#1d7afc' }
                                 : { label: '无', color: '#9aa0a6' };
                     const editableMeta = !isGhost;
                     const statusChip = task?.done
@@ -19721,11 +19727,32 @@ async function __tmRefreshAfterWake(reason) {
         return String(snap?.docId || '').trim();
     }
 
+    // 白板快照缓存（避免每次调用都进行归一化处理）
+    let __tmWhiteboardCardSnapshotCache = null;
+    let __tmWhiteboardCardSnapshotCacheTime = 0;
+    const __tmWhiteboardCardSnapshotCacheTTL = 5000; // 缓存5秒
+
     function __tmGetWhiteboardCardSnapshotMap() {
+        const now = Date.now();
+        // 使用缓存避免频繁归一化
+        if (__tmWhiteboardCardSnapshotCache && (now - __tmWhiteboardCardSnapshotCacheTime) < __tmWhiteboardCardSnapshotCacheTTL) {
+            return __tmWhiteboardCardSnapshotCache;
+        }
         try { WhiteboardStore.normalize(); } catch (e) {}
         const raw = WhiteboardStore.data?.cards;
-        if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return {};
-        return raw;
+        if (!raw || typeof raw !== 'object' || Array.isArray(raw)) {
+            __tmWhiteboardCardSnapshotCache = {};
+        } else {
+            __tmWhiteboardCardSnapshotCache = raw;
+        }
+        __tmWhiteboardCardSnapshotCacheTime = now;
+        return __tmWhiteboardCardSnapshotCache;
+    }
+
+    // 清除白板快照缓存（当数据更新时调用）
+    function __tmClearWhiteboardCardSnapshotCache() {
+        __tmWhiteboardCardSnapshotCache = null;
+        __tmWhiteboardCardSnapshotCacheTime = 0;
     }
 
     function __tmGetWhiteboardCardSnapshot(taskId) {
@@ -28098,6 +28125,8 @@ async function __tmRefreshAfterWake(reason) {
                     let pressTimer = null;
                     const startHandler = (e) => {
                         tmBtn.__tmLongPressFired = false;
+                        // 标记正在长按插件图标，防止触发文档页签菜单
+                        try { state.__tmPluginIconLongPressing = true; } catch (e) {}
                         if (pressTimer) clearTimeout(pressTimer);
                         pressTimer = setTimeout(() => {
                             tmBtn.__tmLongPressFired = true;
@@ -28107,10 +28136,14 @@ async function __tmRefreshAfterWake(reason) {
                     const cancelHandler = () => {
                         if (pressTimer) clearTimeout(pressTimer);
                         pressTimer = null;
+                        // 清除长按标记
+                        try { state.__tmPluginIconLongPressing = false; } catch (e) {}
                     };
                     const endHandler = (e) => {
                         if (pressTimer) clearTimeout(pressTimer);
                         pressTimer = null;
+                        // 清除长按标记
+                        try { state.__tmPluginIconLongPressing = false; } catch (e) {}
                         if (tmBtn.__tmLongPressFired) {
                             try { e.preventDefault(); } catch (e2) {}
                             try { e.stopPropagation(); } catch (e2) {}
