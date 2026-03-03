@@ -43,6 +43,12 @@ try {
         try { Remove-Item -LiteralPath $_.FullName -Force } catch {}
     }
 
+    # 重置所有文件的时间戳为当前时间，解决 GitHub 时区问题
+    Get-ChildItem -Path $tempDir -Recurse -File | ForEach-Object {
+        $_.LastWriteTime = Get-Date
+        $_.CreationTime = Get-Date
+    }
+
     if (Test-Path -LiteralPath $output) {
         Remove-Item -LiteralPath $output -Force
     }
