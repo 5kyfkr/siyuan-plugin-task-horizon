@@ -46,16 +46,25 @@ try {
     # 重置所有文件的时间戳为中国时间 (UTC+8)
     $chinaTime = [DateTime]::UtcNow.AddHours(8)
     Get-ChildItem -Path $tempDir -Recurse -File | ForEach-Object {
-        $_.LastWriteTime = $chinaTime
-        $_.CreationTime = $chinaTime
+        try { $_.LastWriteTime = $chinaTime } catch {}
+        try { $_.CreationTime = $chinaTime } catch {}
     }
 
     if (Test-Path -LiteralPath $output) {
         Remove-Item -LiteralPath $output -Force
     }
 
-    Add-Type -AssemblyName System.IO.Compression.FileSystem
-    [System.IO.Compression.ZipFile]::CreateFromDirectory($tempDir, $output, [System.IO.Compression.CompressionLevel]::Optimal, $false)
+    $zipped = $false
+    try {
+        Add-Type -AssemblyName System.IO.Compression.FileSystem -ErrorAction Stop
+        [System.IO.Compression.ZipFile]::CreateFromDirectory($tempDir, $output, [System.IO.Compression.CompressionLevel]::Optimal, $false)
+        $zipped = $true
+    } catch {
+        $zipped = $false
+    }
+    if (-not $zipped) {
+        Compress-Archive -Path (Join-Path $tempDir '*') -DestinationPath $output -Force -CompressionLevel Optimal
+    }
 
     Write-Host ("Pack success: {0}" -f $output)
 } finally {
