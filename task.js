@@ -12600,6 +12600,12 @@ async function __tmRefreshAfterWake(reason) {
             const filteredIdList = filtered.map(t => String(t?.id || '').trim()).filter(Boolean);
             const filteredIdSet = new Set(filteredIdList);
             const indexById = new Map(filteredIdList.map((id, i) => [id, i]));
+            const ruleForKanban = state.currentRule
+                ? ((Array.isArray(state.filterRules) ? state.filterRules : []).find(r => r.id === state.currentRule) || null)
+                : null;
+            const allowDocFlowForKanban = !__tmRuleHasExplicitSort(ruleForKanban);
+            const isUngroupForKanban = !state.groupByDocName && !state.groupByTaskName && !state.groupByTime && !state.quadrantEnabled;
+            const needDocFlowForKanban = allowDocFlowForKanban && (!!state.groupByDocName || isUngroupForKanban || !!state.groupByTaskName || !!state.groupByTime || !!state.quadrantEnabled);
             const escSq = (s) => String(s || '').replace(/\\/g, '\\\\').replace(/'/g, "\\'");
             const isDark = __tmIsDarkMode();
             const timeBaseColor = isDark
@@ -12871,8 +12877,30 @@ async function __tmRefreshAfterWake(reason) {
                 });
                 const getIdx = (t) => indexById.get(String(t?.id || '').trim()) ?? 999999;
                 const sortByIdx = (a, b) => getIdx(a) - getIdx(b);
-                roots.sort(sortByIdx);
-                childrenByParent.forEach(arr => arr.sort(sortByIdx));
+                const getDocId = (t) => String(t?.root_id || t?.docId || '').trim();
+                const compareRootByDocFlow = (a, b) => {
+                    const ad = getDocId(a);
+                    const bd = getDocId(b);
+                    if (ad && bd && ad !== bd) {
+                        const ar = docRank.has(ad) ? docRank.get(ad) : 999999;
+                        const br = docRank.has(bd) ? docRank.get(bd) : 999999;
+                        if (ar !== br) return ar - br;
+                        return sortByIdx(a, b);
+                    }
+                    const flow = __tmCompareTasksByDocFlow(a, b);
+                    if (flow !== 0) return flow;
+                    return sortByIdx(a, b);
+                };
+                const compareChildByDocFlow = (a, b) => {
+                    const ad = getDocId(a);
+                    const bd = getDocId(b);
+                    if (ad && bd && ad !== bd) return compareRootByDocFlow(a, b);
+                    const flow = __tmCompareTasksByDocFlow(a, b);
+                    if (flow !== 0) return flow;
+                    return sortByIdx(a, b);
+                };
+                roots.sort(needDocFlowForKanban ? compareRootByDocFlow : sortByIdx);
+                childrenByParent.forEach(arr => arr.sort(needDocFlowForKanban ? compareChildByDocFlow : sortByIdx));
 
                 const renderTree = (task, depthInCol) => {
                     const id = String(task?.id || '').trim();
@@ -13045,8 +13073,10 @@ async function __tmRefreshAfterWake(reason) {
                         const isCollapsed = state.collapsedGroups?.has(groupKey);
                         const color = getTimeGroupLabelColor(g);
                         const title = `<span style="color:${color};">${esc(g.label || '')}</span>`;
-                        const body = isCollapsed ? '' : `<div class="tm-kanban-group-items">${g.items.map(t => renderTree(t, 0)).join('')}</div>`;
-                        return `<div class="tm-kanban-group">${renderGroupTitle(groupKey, title, g.items.length, color)}${body}</div>`;
+                        const items = (Array.isArray(g.items) ? g.items : []).slice();
+                        items.sort(needDocFlowForKanban ? compareRootByDocFlow : sortByIdx);
+                        const body = isCollapsed ? '' : `<div class="tm-kanban-group-items">${items.map(t => renderTree(t, 0)).join('')}</div>`;
+                        return `<div class="tm-kanban-group">${renderGroupTitle(groupKey, title, items.length, color)}${body}</div>`;
                     }).join('');
                 };
 
@@ -13075,8 +13105,10 @@ async function __tmRefreshAfterWake(reason) {
                             const isCollapsed = state.collapsedGroups?.has(groupKey);
                             const color = quadrantColorMap[String(rule.color || '')] || 'var(--tm-text-color)';
                             const title = `<span style="color:${color};">${esc(String(rule.name || k))}</span>`;
-                            const body = isCollapsed ? '' : `<div class="tm-kanban-group-items">${(g.items || []).map(t => renderTree(t, 0)).join('')}</div>`;
-                            return `<div class="tm-kanban-group">${renderGroupTitle(groupKey, title, (g.items || []).length, color)}${body}</div>`;
+                            const items = (Array.isArray(g.items) ? g.items : []).slice();
+                            items.sort(needDocFlowForKanban ? compareRootByDocFlow : sortByIdx);
+                            const body = isCollapsed ? '' : `<div class="tm-kanban-group-items">${items.map(t => renderTree(t, 0)).join('')}</div>`;
+                            return `<div class="tm-kanban-group">${renderGroupTitle(groupKey, title, items.length, color)}${body}</div>`;
                         })
                         .join('');
                 };
@@ -13103,7 +13135,9 @@ async function __tmRefreshAfterWake(reason) {
                         }
                         const color = groupDocColor || 'var(--tm-primary-color)';
                         const title = `<span style="color:${color};">📝 ${esc(g.content || '')}</span>`;
-                        const body = isCollapsed ? '' : `<div class="tm-kanban-group-items">${g.items.map(t => renderTree(t, 0)).join('')}</div>`;
+                        const items = (Array.isArray(g.items) ? g.items : []).slice();
+                        items.sort(sortByIdx);
+                        const body = isCollapsed ? '' : `<div class="tm-kanban-group-items">${items.map(t => renderTree(t, 0)).join('')}</div>`;
                         return `<div class="tm-kanban-group">${renderGroupTitle(groupKey, title, g.items.length, color)}${body}</div>`;
                     }).join('');
                 };
@@ -22107,6 +22141,10 @@ async function __tmRefreshAfterWake(reason) {
             if (!t.parentTaskId) return true;
             return !filteredIdSet.has(t.parentTaskId);
         });
+        const ruleForRowModel = state.currentRule ? state.filterRules.find(r => r.id === state.currentRule) : null;
+        const allowDocFlowForRowModel = !__tmRuleHasExplicitSort(ruleForRowModel);
+        const isUngroupForRowModel = !state.groupByDocName && !state.groupByTaskName && !state.groupByTime && !state.quadrantEnabled;
+        const needDocFlowForRowModel = allowDocFlowForRowModel && (!!state.groupByDocName || isUngroupForRowModel || !!state.groupByTaskName || !!state.groupByTime || !!state.quadrantEnabled);
         const timelineKeepH2Order = (state.viewMode === 'timeline')
             && !!state.groupByDocName
             && (SettingsStore.data.docH2SubgroupEnabled !== false);
@@ -22142,7 +22180,13 @@ async function __tmRefreshAfterWake(reason) {
 
         const walkTaskTree = (task, depth) => {
             const childTasks = (task.children || []).filter(c => filteredIdSet.has(c.id));
-            childTasks.sort((a, b) => getTaskOrder(a.id) - getTaskOrder(b.id));
+            childTasks.sort((a, b) => {
+                if (needDocFlowForRowModel) {
+                    const flow = __tmCompareTasksByDocFlow(a, b);
+                    if (flow !== 0) return flow;
+                }
+                return getTaskOrder(a.id) - getTaskOrder(b.id);
+            });
             const hasChildren = childTasks.length > 0;
             const collapsed = state.collapsedTaskIds.has(String(task.id));
             const showChildren = hasChildren;
@@ -22252,7 +22296,8 @@ async function __tmRefreshAfterWake(reason) {
                 });
                 if (!isCollapsed) {
                     const prefer = !!SettingsStore.data.groupSortByBestSubtaskTimeInTimeQuadrant;
-                    if (prefer) group.items.sort(compareByTimePriority);
+                    if (allowDocFlowForRowModel) group.items.sort(compareRootByDocFlowUngroup);
+                    else if (prefer) group.items.sort(compareByTimePriority);
                     else group.items.sort((a, b) => getTaskOrder(a.id) - getTaskOrder(b.id));
                     group.items.forEach(task => walkTaskTree(task, 0));
                 }
@@ -22446,7 +22491,8 @@ async function __tmRefreshAfterWake(reason) {
                 });
                 if (!isCollapsed) {
                     const prefer = !!SettingsStore.data.groupSortByBestSubtaskTimeInTimeQuadrant;
-                    if (prefer) group.items.sort(compareByTimePriority);
+                    if (allowDocFlowForRowModel) group.items.sort(compareRootByDocFlowUngroup);
+                    else if (prefer) group.items.sort(compareByTimePriority);
                     else group.items.sort((a, b) => getTaskOrder(a.id) - getTaskOrder(b.id));
                     group.items.forEach(task => walkTaskTree(task, 0));
                 }
@@ -22511,6 +22557,10 @@ async function __tmRefreshAfterWake(reason) {
             if (ats !== bts) return ats - bts;
             return getTaskOrder(String(a?.id || '')) - getTaskOrder(String(b?.id || ''));
         };
+        const ruleForRender = state.currentRule ? state.filterRules.find(r => r.id === state.currentRule) : null;
+        const allowDocFlowForRender = !__tmRuleHasExplicitSort(ruleForRender);
+        const isUngroupForRender = !state.groupByDocName && !state.groupByTaskName && !state.groupByTime && !state.quadrantEnabled;
+        const needDocFlowForRender = allowDocFlowForRender && (!!state.groupByDocName || isUngroupForRender || !!state.groupByTaskName || !!state.groupByTime || !!state.quadrantEnabled);
 
         // 识别全局根任务：父任务不在 filtered 集合中，或本身就是顶层
         const rootTasks = state.filteredTasks.filter(t => {
@@ -22659,8 +22709,13 @@ async function __tmRefreshAfterWake(reason) {
             // 获取该任务在 filtered 中的子任务
             const childTasks = (task.children || []).filter(c => filteredIdSet.has(c.id));
 
-            // 按照全局排序顺序对子任务排序
-            childTasks.sort((a, b) => getTaskOrder(a.id) - getTaskOrder(b.id));
+            childTasks.sort((a, b) => {
+                if (needDocFlowForRender) {
+                    const flow = __tmCompareTasksByDocFlow(a, b);
+                    if (flow !== 0) return flow;
+                }
+                return getTaskOrder(a.id) - getTaskOrder(b.id);
+            });
 
             const hasChildren = childTasks.length > 0;
             const collapsed = state.collapsedTaskIds.has(String(task.id));
@@ -22830,7 +22885,8 @@ async function __tmRefreshAfterWake(reason) {
                 if (!isCollapsed) {
                     currentGroupBg = enableGroupBg ? __tmGroupBgFromLabelColor(color, isDark) : '';
                     const prefer = !!SettingsStore.data.groupSortByBestSubtaskTimeInTimeQuadrant;
-                    if (prefer) group.items.sort(compareByTimePriority);
+                    if (allowDocFlowForRender) group.items.sort(compareRootByDocFlowUngroup);
+                    else if (prefer) group.items.sort(compareByTimePriority);
                     else group.items.sort((a, b) => getTaskOrder(a.id) - getTaskOrder(b.id));
                     group.items.forEach(task => {
                         allRows.push(...renderTaskTree(task, 0));
@@ -23009,7 +23065,8 @@ async function __tmRefreshAfterWake(reason) {
                     currentGroupBg = enableGroupBg ? __tmGroupBgFromLabelColor(labelColor, isDark) : '';
                     // 组内任务按照全局顺序排列
                     const prefer = !!SettingsStore.data.groupSortByBestSubtaskTimeInTimeQuadrant;
-                    if (prefer) group.items.sort(compareByTimePriority);
+                    if (allowDocFlowForRender) group.items.sort(compareRootByDocFlowUngroup);
+                    else if (prefer) group.items.sort(compareByTimePriority);
                     else group.items.sort((a, b) => getTaskOrder(a.id) - getTaskOrder(b.id));
                     group.items.forEach(task => {
                         allRows.push(...renderTaskTree(task, 0));
@@ -25705,7 +25762,8 @@ async function __tmRefreshAfterWake(reason) {
 
             if (res.tasks) {
                 const rule0 = state.currentRule ? state.filterRules.find(r => r.id === state.currentRule) : null;
-                const needFlowRank = !!state.groupByDocName && !__tmRuleHasExplicitSort(rule0);
+                const isUngroup = !state.groupByDocName && !state.groupByTaskName && !state.groupByTime && !state.quadrantEnabled;
+                const needFlowRank = !__tmRuleHasExplicitSort(rule0) && (!!state.groupByDocName || isUngroup || !!state.groupByTaskName || !!state.groupByTime || !!state.quadrantEnabled);
                 const colOrder0 = Array.isArray(SettingsStore.data.columnOrder) ? SettingsStore.data.columnOrder : [];
                 const needH2 = colOrder0.includes('h2') || (Array.isArray(rule0?.sort) && rule0.sort.some(s => String(s?.field || '').trim() === 'h2'));
                 const taskIds0 = res.tasks.map(t => String(t?.id || '').trim()).filter(Boolean);
