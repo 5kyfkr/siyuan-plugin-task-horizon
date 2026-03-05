@@ -5344,6 +5344,7 @@
                 { value: 'priorityScore', label: '优先级数值' },
                 { value: 'priority', label: '优先级' },
                 { value: 'customStatus', label: '状态' },
+                { value: 'docSeq', label: '文档出现顺序' },
                 { value: 'startDate', label: '开始日期' },
                 { value: 'completionTime', label: '完成日期' },
                 { value: 'created', label: '创建时间' },
@@ -5552,6 +5553,13 @@
                 const va = Number.isFinite(na) ? na : 0;
                 const vb = Number.isFinite(nb) ? nb : 0;
                 return va - vb;
+            }
+            if (field === 'docSeq') {
+                const na = Number(a);
+                const nb = Number(b);
+                const va = Number.isFinite(na) ? na : Number.POSITIVE_INFINITY;
+                const vb = Number.isFinite(nb) ? nb : Number.POSITIVE_INFINITY;
+                return vb - va;
             }
 
             // 处理状态排序
@@ -25763,7 +25771,8 @@ async function __tmRefreshAfterWake(reason) {
             if (res.tasks) {
                 const rule0 = state.currentRule ? state.filterRules.find(r => r.id === state.currentRule) : null;
                 const isUngroup = !state.groupByDocName && !state.groupByTaskName && !state.groupByTime && !state.quadrantEnabled;
-                const needFlowRank = !__tmRuleHasExplicitSort(rule0) && (!!state.groupByDocName || isUngroup || !!state.groupByTaskName || !!state.groupByTime || !!state.quadrantEnabled);
+                const ruleNeedsFlowRank = Array.isArray(rule0?.sort) && rule0.sort.some(s => String(s?.field || '').trim() === 'docSeq');
+                const needFlowRank = !!ruleNeedsFlowRank || (!__tmRuleHasExplicitSort(rule0) && (!!state.groupByDocName || isUngroup || !!state.groupByTaskName || !!state.groupByTime || !!state.quadrantEnabled));
                 const colOrder0 = Array.isArray(SettingsStore.data.columnOrder) ? SettingsStore.data.columnOrder : [];
                 const needH2 = colOrder0.includes('h2') || (Array.isArray(rule0?.sort) && rule0.sort.some(s => String(s?.field || '').trim() === 'h2'));
                 const taskIds0 = res.tasks.map(t => String(t?.id || '').trim()).filter(Boolean);
