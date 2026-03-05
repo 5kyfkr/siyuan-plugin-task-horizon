@@ -1231,7 +1231,9 @@
                 const anchorNode = selection.anchorNode;
                 
                 // 向上遍历 DOM 树，检查是否在任何可见的编辑器区域内
-                let current = anchorNode;
+                let current = (anchorNode && anchorNode.nodeType === Node.ELEMENT_NODE)
+                    ? anchorNode
+                    : anchorNode?.parentElement;
                 while (current && current !== document.body) {
                     const style = window.getComputedStyle(current);
                     const isVisible = style.display !== 'none' && style.visibility !== 'hidden';

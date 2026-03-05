@@ -2448,6 +2448,7 @@
             droppable: true,
             dropAccept: 'tr[data-id], .tm-cal-task, .tm-kanban-card[data-id]',
             allDaySlot: true,
+            slotEventOverlap: false,
             dayMaxEvents: true,
             moreLinkClick: 'popover',
             handleWindowResize: true,
@@ -2660,7 +2661,8 @@
                         applyCnHolidayDots(rootEl);
                         applyCnLunarLabels(rootEl);
                     } catch (e0) {}
-                    const b = buildEventsFromSchedule(schedules, curSettings);
+                    const scheduleTaskTitleMap = await __tmBuildScheduleLinkedTaskTitleMap(schedules).catch(() => new Map());
+                    const b = buildEventsFromSchedule(schedules, curSettings, scheduleTaskTitleMap);
                     const c = buildEventsFromTaskDates(taskDates, curSettings);
                     const d = curSettings.showCnHoliday ? buildCnHolidayEvents(cnHolidayDays, info.start, info.end, 'timeGridDay', curSettings) : [];
                     const e = buildEventsFromReminders(reminders, info.start, info.end, curSettings);
@@ -2955,7 +2957,90 @@
         });
     }
 
-    function buildEventsFromSchedule(items, settings) {
+    function __tmNormalizeTaskTitleFromRow(row) {
+        const raw = String(row?.content || row?.raw_content || '').trim();
+        if (raw) return raw;
+        const md = String(row?.markdown || '').trim();
+        if (!md) return '';
+        return md.replace(/^\s*[-*]\s*\[[ xX]\]\s*/g, '').trim();
+    }
+
+    function __tmBuildTaskTitleIndexFromCalendarCache() {
+        const prev = window.__tmCalendarAllTasksCache;
+        const out = new Map();
+        const tasks = prev && Array.isArray(prev.tasks) ? prev.tasks : [];
+        for (const t of tasks) {
+            const id = String(t?.id || '').trim();
+            const title = String(t?.content || t?.raw_content || '').trim();
+            if (id && title && !out.has(id)) out.set(id, title);
+        }
+        return out;
+    }
+
+    async function __tmLoadTaskTitlesByIds(ids) {
+        const list = Array.isArray(ids) ? ids : [];
+        const uniq = [];
+        const seen = new Set();
+        for (const x of list) {
+            const id = String(x || '').trim();
+            if (!/^[0-9]+-[a-zA-Z0-9]+$/.test(id)) continue;
+            if (seen.has(id)) continue;
+            seen.add(id);
+            uniq.push(id);
+        }
+        const out = new Map();
+        if (uniq.length === 0) return out;
+        const chunkSize = 200;
+        for (let i = 0; i < uniq.length; i += chunkSize) {
+            const chunk = uniq.slice(i, i + chunkSize);
+            const inList = chunk.map((id) => `'${id.replace(/'/g, "''")}'`).join(',');
+            const sql = `SELECT id, content, markdown FROM blocks WHERE id IN (${inList})`;
+            const res = await postJSON('/api/query/sql', { stmt: sql });
+            const json = await res.json().catch(() => ({}));
+            const rows = (res.ok && json?.code === 0 && Array.isArray(json?.data)) ? json.data : [];
+            for (const r of rows) {
+                const id = String(r?.id || '').trim();
+                if (!id) continue;
+                const title = __tmNormalizeTaskTitleFromRow(r);
+                if (title && !out.has(id)) out.set(id, title);
+            }
+        }
+        return out;
+    }
+
+    async function __tmBuildScheduleLinkedTaskTitleMap(items) {
+        const schedules = Array.isArray(items) ? items : [];
+        const needIds = [];
+        const seen = new Set();
+        for (const it of schedules) {
+            const tid = String(it?.taskId || it?.task_id || it?.linkedTaskId || it?.linked_task_id || '').trim();
+            if (!/^[0-9]+-[a-zA-Z0-9]+$/.test(tid)) continue;
+            if (seen.has(tid)) continue;
+            seen.add(tid);
+            needIds.push(tid);
+        }
+        if (needIds.length === 0) return new Map();
+        const out = new Map();
+        try {
+            const cached = __tmBuildTaskTitleIndexFromCalendarCache();
+            for (const id of needIds) {
+                const v = cached.get(id);
+                if (v && !out.has(id)) out.set(id, v);
+            }
+        } catch (e) {}
+        const missing = needIds.filter((id) => !out.has(id));
+        if (missing.length > 0) {
+            try {
+                const fetched = await __tmLoadTaskTitlesByIds(missing);
+                for (const [k, v] of fetched.entries()) {
+                    if (v && !out.has(k)) out.set(k, v);
+                }
+            } catch (e) {}
+        }
+        return out;
+    }
+
+    function buildEventsFromSchedule(items, settings, linkedTaskTitleMap) {
         if (!settings.showSchedule) return [];
         const defs = getCalendarDefs(settings);
         const defMap = new Map(defs.map((d) => [d.id, d]));
@@ -2964,13 +3049,14 @@
             const re = toMs(it?.end);
             const start = new Date(rs);
             const end = new Date(re);
-            const titleBase = String(it?.title || '').trim() || '日程';
+            const taskId = String(it?.taskId || it?.task_id || it?.linkedTaskId || it?.linked_task_id || '').trim();
+            const linkedTitle = (linkedTaskTitleMap instanceof Map && taskId) ? String(linkedTaskTitleMap.get(taskId) || '').trim() : '';
+            const titleBase = linkedTitle || (String(it?.title || '').trim() || '日程');
             const calendarId = String(it?.calendarId || 'default');
             if (!isCalendarEnabled(calendarId, settings)) return null;
             const calColor = defMap.get(calendarId)?.color || '#0078d4';
             const rawColor = String(it?.color || '').trim();
             const color = rawColor || settings.scheduleColor || calColor;
-            const taskId = String(it?.taskId || it?.task_id || it?.linkedTaskId || it?.linked_task_id || '').trim();
             const allDay = (it?.allDay === true) || isAllDayRange(start, end);
             const reminderMode = String(it?.reminderMode || '').trim() === 'custom' ? 'custom' : 'inherit';
             const reminderEnabled = reminderMode === 'custom' ? (it?.reminderEnabled === true) : null;
@@ -4308,6 +4394,7 @@
                 list: '列表',
             },
             nowIndicator: true,
+            slotEventOverlap: false,
             dayMaxEvents: true,
             moreLinkClick: 'popover',
             stickyHeaderDates: true,
@@ -4605,7 +4692,8 @@
                             state._tomatoEventCache = { key: tomatoKey, ts: Date.now(), events: a };
                         }
                     }
-                    const b = buildEventsFromSchedule(schedules, settings);
+                    const scheduleTaskTitleMap = await __tmBuildScheduleLinkedTaskTitleMap(schedules).catch(() => new Map());
+                    const b = buildEventsFromSchedule(schedules, settings, scheduleTaskTitleMap);
                     const c = buildEventsFromTaskDates(taskDates, settings);
                     const d = settings.showCnHoliday ? buildCnHolidayEvents(cnHolidayDays, info.start, info.end, viewType, settings) : [];
                     const e = buildEventsFromReminders(reminders, info.start, info.end, settings);

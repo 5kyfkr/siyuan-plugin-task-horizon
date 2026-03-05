@@ -1132,8 +1132,7 @@
 }
 
 #tmCalendarSideDockTimeline .fc .fc-popover .fc-daygrid-event,
-#tmCalendarSideDockTimeline .fc .fc-popover .fc-timegrid-event,
-#tmCalendarSideDockTimeline .fc .fc-popover .fc-h-event {
+#tmCalendarSideDockTimeline .fc .fc-popover .fc-daygrid-event.fc-h-event {
     display: block !important;
     width: 100% !important;
     min-width: 0 !important;
@@ -1142,8 +1141,7 @@
     white-space: nowrap !important;
 }
 
-#tmCalendarSideDockTimeline .fc .fc-popover .fc-daygrid-event-harness,
-#tmCalendarSideDockTimeline .fc .fc-popover .fc-timegrid-event-harness {
+#tmCalendarSideDockTimeline .fc .fc-popover .fc-daygrid-event-harness {
     width: 100% !important;
     min-width: 0 !important;
     max-width: 100% !important;

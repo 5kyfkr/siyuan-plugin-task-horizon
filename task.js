@@ -1,5 +1,5 @@
 // @name         思源笔记任务管理器
-// @version      1.6.0
+// @version      1.6.3
 // @description  任务管理器，支持自定义筛选规则分组和排序
 // @author       5KYFKR
 
@@ -1202,6 +1202,18 @@
             background: var(--tm-topbar-seg-item-active-hover);
         }
 
+        .tm-kanban-mode-segmented {
+            border-radius: 6px;
+            height: 28px;
+            overflow: hidden;
+        }
+
+        .tm-kanban-mode-segmented .tm-view-seg-item {
+            min-width: 48px;
+            padding: 0 5px;
+            line-height: 28px;
+        }
+
         .tm-search-input {
             padding: 6px 12px;
             border: 1px solid var(--tm-topbar-search-border);
@@ -1889,7 +1901,7 @@
         .tm-whiteboard-card-title {
             flex: 1 1 auto;
             min-width: 0;
-            font-size: 13px;
+            font-size: 14px;
             line-height: 1.25;
             word-break: break-word;
         }
@@ -2194,15 +2206,21 @@
             background: var(--tm-table-header-bg);
             border: 1px solid var(--tm-border-color);
             border-radius: 10px;
+            box-shadow: 0 1px 2px rgba(0,0,0,0.05), 0 0 0 1px rgba(0,0,0,0.03);
+            transition: box-shadow 0.18s ease, border-color 0.18s ease;
             display: flex;
             flex-direction: column;
             height: 100%;
             max-height: 100%;
         }
 
+        .tm-kanban-col:hover {
+            box-shadow: 0 2px 6px rgba(0,0,0,0.08), 0 0 0 1px rgba(0,0,0,0.05);
+        }
+
         .tm-kanban-col.tm-kanban-col--dragover {
             border-color: var(--tm-primary-color);
-            box-shadow: 0 0 0 2px rgba(0,0,0,0.04);
+            box-shadow: 0 0 0 2px rgba(0,0,0,0.05), 0 2px 8px rgba(0,0,0,0.10);
         }
 
         .tm-kanban-col-header {
@@ -2291,6 +2309,21 @@
             font-size: 11px;
         }
 
+        .tm-kanban--compact .tm-status-tag {
+            padding: 0 2px;
+            font-size: 9px;
+        }
+
+        .tm-kanban--compact .tm-kanban-priority-chip .tm-priority-jira {
+            font-size: 10px;
+        }
+
+        .tm-kanban--compact .tm-kanban-card-meta .tm-status-tag,
+        .tm-kanban--compact .tm-kanban-card-meta .tm-kanban-priority-chip,
+        .tm-kanban--compact .tm-kanban-card-meta .tm-kanban-chip.tm-kanban-chip--muted {
+            height: 18px;
+        }
+
         .tm-kanban--compact .tm-kanban-more {
             height: 22px;
             min-width: 26px;
@@ -2336,6 +2369,11 @@
             user-select: none;
         }
 
+        .tm-kanban-group-title.tm-kanban-group-title--dragover {
+            outline: 2px dashed var(--tm-primary-color);
+            outline-offset: 2px;
+        }
+
         .tm-kanban-group-items {
             display: flex;
             flex-direction: column;
@@ -2348,11 +2386,17 @@
             border-radius: 10px;
             padding: 10px;
             color: var(--tm-text-color);
-            box-shadow: 0 1px 0 rgba(0,0,0,0.03);
+            box-shadow: 0 1px 2px rgba(0,0,0,0.06), 0 0 0 1px rgba(0,0,0,0.03);
+            transition: box-shadow 0.16s ease, border-color 0.16s ease;
+        }
+
+        .tm-kanban-card:hover {
+            box-shadow: 0 2px 6px rgba(0,0,0,0.08), 0 0 0 1px rgba(0,0,0,0.04);
         }
 
         .tm-kanban-card.tm-kanban-card--dragging {
             opacity: 0.65;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.10), 0 0 0 1px rgba(0,0,0,0.06);
         }
 
         .tm-kanban-subtasks {
@@ -2402,7 +2446,7 @@
         }
 
         .tm-kanban-card-title {
-            font-size: 13px;
+            font-size: 14px;
             line-height: 1.35;
             margin-bottom: 8px;
             word-break: break-word;
@@ -2413,7 +2457,7 @@
         }
 
         .tm-kanban-card-title-inline {
-            font-size: 13px;
+            font-size: 14px;
             line-height: 1.25;
             word-break: break-word;
             overflow: hidden;
@@ -2463,6 +2507,33 @@
             margin-bottom: 6px;
         }
 
+        .tm-kanban-card-meta .tm-status-tag,
+        .tm-kanban-card-meta .tm-kanban-priority-chip,
+        .tm-kanban-card-meta .tm-kanban-chip.tm-kanban-chip--muted {
+            height: 20px;
+            box-sizing: border-box;
+            border-radius: 3px;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            line-height: 1.25;
+        }
+
+        .tm-kanban-card-meta .tm-status-tag {
+            padding: 0 4px;
+            font-size: 12px;
+        }
+
+        .tm-kanban-card-meta .tm-kanban-priority-chip {
+            padding: 0 4px;
+        }
+
+        .tm-kanban-card-meta .tm-kanban-chip.tm-kanban-chip--muted {
+            padding: 0 6px;
+            border: 1px solid var(--tm-status-border, rgba(117,117,117,0.24));
+            font-size: 12px;
+        }
+
         .tm-kanban-chip {
             display: inline-flex;
             align-items: center;
@@ -2479,6 +2550,29 @@
         .tm-kanban-chip--muted {
             background: var(--tm-doc-count-bg);
             color: var(--tm-secondary-text);
+        }
+
+        .tm-kanban-priority-chip {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            padding: 0 2px;
+            border-radius: 3px;
+            user-select: none;
+            border: 1px solid var(--tm-priority-border, rgba(117,117,117,0.3));
+            background: var(--tm-priority-bg, rgba(117,117,117,0.16));
+            color: var(--tm-priority-fg, #5f6368);
+            transition: opacity 0.18s, filter 0.18s;
+        }
+
+        .tm-kanban-priority-chip .tm-priority-jira {
+            color: var(--tm-priority-fg, currentColor);
+            font-size: 12px;
+        }
+
+        .tm-kanban-priority-chip:hover {
+            filter: saturate(1.08);
+            opacity: 0.96;
         }
 
         .tm-kanban-more {
@@ -3285,6 +3379,28 @@
             }
         }
 
+        @keyframes slideDownLeft {
+            from {
+                opacity: 0;
+                transform: translateY(-20px);
+            }
+            to {
+                opacity: 1;
+                transform: translateY(0);
+            }
+        }
+
+        @media (pointer: coarse), (max-width: 768px) {
+            .tm-hint {
+                left: 50%;
+                right: auto;
+                top: calc(env(safe-area-inset-top, 0px) + 97px);
+                transform: translateX(-50%);
+                max-width: calc(100vw - 20px);
+                animation: slideDown 0.3s ease;
+            }
+        }
+
         @keyframes tmBodyFadeSlide {
             from { opacity: 1; transform: translateY(6px); }
             to { opacity: 1; transform: translateY(0); }
@@ -3900,6 +4016,7 @@
             kanbanColumnWidth: 320,
             kanbanShowDoneColumn: false,
             kanbanDragSyncSubtasks: false,
+            kanbanHeadingGroupMode: false,
             docH2SubgroupEnabled: true,
             groupByTaskName: false,
             groupMode: 'doc',
@@ -4142,6 +4259,7 @@
                                 if (typeof cloudData.kanbanColumnWidth === 'number') this.data.kanbanColumnWidth = cloudData.kanbanColumnWidth;
                                 if (typeof cloudData.kanbanShowDoneColumn === 'boolean') this.data.kanbanShowDoneColumn = cloudData.kanbanShowDoneColumn;
                                 if (typeof cloudData.kanbanDragSyncSubtasks === 'boolean') this.data.kanbanDragSyncSubtasks = cloudData.kanbanDragSyncSubtasks;
+                                if (typeof cloudData.kanbanHeadingGroupMode === 'boolean') this.data.kanbanHeadingGroupMode = cloudData.kanbanHeadingGroupMode;
                                 if (typeof cloudData.docH2SubgroupEnabled === 'boolean') this.data.docH2SubgroupEnabled = cloudData.docH2SubgroupEnabled;
                                 if (typeof cloudData.groupByTaskName === 'boolean') this.data.groupByTaskName = cloudData.groupByTaskName;
                                 if (typeof cloudData.groupMode === 'string') this.data.groupMode = cloudData.groupMode;
@@ -4337,6 +4455,7 @@
             this.data.kanbanColumnWidth = Storage.get('tm_kanban_column_width', this.data.kanbanColumnWidth);
             this.data.kanbanShowDoneColumn = !!Storage.get('tm_kanban_show_done_column', this.data.kanbanShowDoneColumn);
             this.data.kanbanDragSyncSubtasks = !!Storage.get('tm_kanban_drag_sync_subtasks', this.data.kanbanDragSyncSubtasks);
+            this.data.kanbanHeadingGroupMode = !!Storage.get('tm_kanban_heading_group_mode', this.data.kanbanHeadingGroupMode);
             this.data.docH2SubgroupEnabled = !!Storage.get('tm_doc_h2_subgroup_enabled', this.data.docH2SubgroupEnabled);
             this.data.groupByTaskName = !!Storage.get('tm_group_by_taskname', this.data.groupByTaskName);
             this.data.groupMode = Storage.get('tm_group_mode', this.data.groupMode);
@@ -4509,13 +4628,13 @@
             Storage.set('tm_selected_doc_ids', this.data.selectedDocIds);
             Storage.set('tm_query_limit', this.data.queryLimit);
             Storage.set('tm_group_by_docname', this.data.groupByDocName);
-            Storage.set('tm_group_by_taskname', this.data.groupByTaskName);
             Storage.set('tm_group_by_time', this.data.groupByTime);
             Storage.set('tm_default_view_mode', String(this.data.defaultViewMode || 'list').trim() || 'list');
             Storage.set('tm_kanban_compact_mode', !!this.data.kanbanCompactMode);
             Storage.set('tm_kanban_column_width', Number(this.data.kanbanColumnWidth) || 320);
             Storage.set('tm_kanban_show_done_column', !!this.data.kanbanShowDoneColumn);
             Storage.set('tm_kanban_drag_sync_subtasks', !!this.data.kanbanDragSyncSubtasks);
+            Storage.set('tm_kanban_heading_group_mode', !!this.data.kanbanHeadingGroupMode);
             Storage.set('tm_doc_h2_subgroup_enabled', !!this.data.docH2SubgroupEnabled);
             Storage.set('tm_group_by_taskname', !!this.data.groupByTaskName);
             Storage.set('tm_group_mode', String(this.data.groupMode || '').trim() || 'none');
@@ -5465,6 +5584,7 @@
     let __tmSqlCacheInvalidationBound = false;
     let __tmSqlCacheInvalidationHandler = null;
     let __tmSqlCacheEventBusHandler = null;
+    let __tmCalendarTxRefreshTimer = null;
 
     function __tmRunSqlQueued(fn) {
         const run = () => Promise.resolve().then(fn);
@@ -5553,6 +5673,17 @@
         return out;
     }
 
+    function __tmScheduleCalendarRefetchFromTx() {
+        try { window.__tmCalendarAllTasksCache = null; } catch (e) {}
+        const calApi = globalThis.__tmCalendar;
+        if (!calApi || typeof calApi.refreshInPlace !== 'function') return;
+        try { if (__tmCalendarTxRefreshTimer) clearTimeout(__tmCalendarTxRefreshTimer); } catch (e) {}
+        __tmCalendarTxRefreshTimer = setTimeout(() => {
+            __tmCalendarTxRefreshTimer = null;
+            try { calApi.refreshInPlace({ hard: false }); } catch (e) {}
+        }, 250);
+    }
+
     function __tmBindSqlCacheInvalidation() {
         if (__tmSqlCacheInvalidationBound) return;
         __tmSqlCacheInvalidationBound = true;
@@ -5569,6 +5700,7 @@
                     const docIds = __tmExtractDocIdsFromTx(msg);
                     if (docIds && docIds.size > 0) docIds.forEach((d) => __tmInvalidateTasksQueryCacheByDocId(d));
                     else __tmInvalidateAllSqlCaches();
+                    __tmScheduleCalendarRefetchFromTx();
                 };
                 eb.on('ws-main', __tmSqlCacheEventBusHandler);
             }
@@ -6228,13 +6360,59 @@
                           AND b.subtype = '${SettingsStore.data.taskHeadingLevel || 'h2'}'
                           AND b.root_id IN (SELECT DISTINCT root_id FROM task_roots)
                     ),
-                    task_orders AS (
-                        SELECT
+                    -- 获取任务的父块信息（包括类型）
+                    task_parents AS (
+                        SELECT 
                             tr.task_id,
                             tr.root_id,
-                            COALESCE(dt.order_key, '') AS task_order_key
+                            b.parent_id AS immediate_parent_id,
+                            b.type AS task_type,
+                            b.subtype AS task_subtype
                         FROM task_roots tr
-                        LEFT JOIN doc_tree dt ON dt.id = tr.task_id
+                        LEFT JOIN blocks b ON b.id = tr.task_id
+                    ),
+                    -- 递归查找最外层的列表块或文档块的order_key
+                    task_order_keys AS (
+                        -- 基础情况：直接父块
+                        SELECT
+                            tp.task_id,
+                            tp.root_id,
+                            tp.immediate_parent_id AS current_parent_id,
+                            dt_parent.order_key AS parent_order_key,
+                            0 AS depth
+                        FROM task_parents tp
+                        LEFT JOIN doc_tree dt_parent ON dt_parent.id = tp.immediate_parent_id
+                        
+                        UNION ALL
+                        
+                        -- 递归情况：父块是任务块，继续向上查找
+                        SELECT
+                            tok.task_id,
+                            tok.root_id,
+                            b.parent_id AS current_parent_id,
+                            dt_parent.order_key AS parent_order_key,
+                            tok.depth + 1 AS depth
+                        FROM task_order_keys tok
+                        LEFT JOIN blocks b ON b.id = tok.current_parent_id
+                        LEFT JOIN doc_tree dt_parent ON dt_parent.id = b.parent_id
+                        WHERE tok.depth < 10
+                          AND b.type IN ('i', 't') -- 继续向上查找
+                    ),
+                    -- 获取最终的order_key（最外层非任务块的order_key）
+                    task_orders AS (
+                        SELECT
+                            task_id,
+                            root_id,
+                            COALESCE(
+                                (SELECT parent_order_key FROM task_order_keys tok2 
+                                 WHERE tok2.task_id = tok.task_id AND tok2.parent_order_key != '' 
+                                 ORDER BY tok2.depth DESC LIMIT 1),
+                                dt_task.order_key, 
+                                ''
+                            ) AS task_order_key
+                        FROM task_order_keys tok
+                        LEFT JOIN doc_tree dt_task ON dt_task.id = tok.task_id
+                        GROUP BY task_id, root_id
                     ),
                     matched AS (
                         SELECT
@@ -6647,13 +6825,15 @@
             return id;
         },
 
-        async moveBlock(id, { previousID, parentID } = {}) {
+        async moveBlock(id, { previousID, parentID, nextID } = {}) {
             const pid = String(previousID || '');
             const par = String(parentID || '');
-            if (!pid && !par) throw new Error('移动失败：缺少目标位置');
+            const nid = String(nextID || '');
+            if (!pid && !par && !nid) throw new Error('移动失败：缺少目标位置');
             const payload = { id };
             if (pid) payload.previousID = pid;
             if (par) payload.parentID = par;
+            if (nid) payload.nextID = nid;
             const res = await this.call('/api/block/moveBlock', payload);
             if (res.code !== 0) throw new Error(res.msg || '移动块失败');
             return true;
@@ -6674,7 +6854,7 @@
         async getFirstDirectChildIdOfDoc(docId) {
             const id = String(docId || '').trim();
             if (!id) return null;
-            const sql = `SELECT id FROM blocks WHERE parent_id = '${id}' ORDER BY created ASC LIMIT 1`;
+            const sql = `SELECT id FROM blocks WHERE parent_id = '${id}' ORDER BY sort ASC, created ASC, id ASC LIMIT 1`;
             const res = await this.call('/api/query/sql', { stmt: sql });
             if (res.code === 0 && res.data && res.data.length > 0) {
                 const firstId = String(res.data[0]?.id || '').trim();
@@ -6839,6 +7019,7 @@
         quickAdd: null,
         quickAddSubmitting: false,
         viewMode: 'list',
+        viewModeInitialized: false,
         calendarDockDate: '',
         docTabsHidden: false,
         ganttView: {
@@ -6919,6 +7100,10 @@
         todayScheduledTaskIdsDay: '',
         todayScheduledTaskIdsLoading: null,
         todayScheduledSourceReady: false,
+        kanbanDocHeadingsByDocId: {},
+        kanbanDocHeadingsLevel: '',
+        kanbanDocHeadingsLoadedAt: 0,
+        __tmLoadedDocIdsForTasks: [],
     };
 
     function __tmGetTodayDateKey() {
@@ -7577,48 +7762,18 @@ async function __tmRefreshAfterWake(reason) {
         const list = Array.isArray(tasks) ? tasks : [];
         const buckets = [];
         const seen = new Set();
-        const cmpHeadingPos = (a, b) => {
-            const ra = Number(a?.h2Rank);
-            const rb = Number(b?.h2Rank);
-            const raOk = Number.isFinite(ra);
-            const rbOk = Number.isFinite(rb);
-            if (raOk && rbOk && ra !== rb) return ra - rb;
-            if (raOk && !rbOk) return -1;
-            if (!raOk && rbOk) return 1;
-            const aHas = !!String(a?.h2Id || '').trim();
-            const bHas = !!String(b?.h2Id || '').trim();
-            if (aHas && !bHas) return -1;
-            if (!aHas && bHas) return 1;
-            if (aHas && bHas) {
-                const pa = String(a?.h2Path || '').trim();
-                const pb = String(b?.h2Path || '').trim();
-                if (pa && pb && pa !== pb) return pa.localeCompare(pb);
-                const sa = Number(a?.h2Sort);
-                const sb = Number(b?.h2Sort);
-                if (Number.isFinite(sa) && Number.isFinite(sb) && sa !== sb) return sa - sb;
-                const ca = String(a?.h2Created || '').trim();
-                const cb = String(b?.h2Created || '').trim();
-                if (ca !== cb) return ca.localeCompare(cb);
-                const ia = String(a?.h2Id || '').trim();
-                const ib = String(b?.h2Id || '').trim();
-                if (ia !== ib) return ia.localeCompare(ib);
-            }
-            return __tmCompareTasksByDocFlow(a, b);
-        };
-        list
-            .slice()
-            .sort(cmpHeadingPos)
-            .forEach((task) => {
-                const b = __tmGetDocHeadingBucket(task, noHeadingLabel);
-                if (!b || seen.has(b.key)) return;
-                seen.add(b.key);
-                buckets.push(b);
-            });
+        // 修复排序逻辑：严格按照任务在文档中的顺序来生成 buckets
+        // 首先按照文档内顺序对任务进行排序
+        const sortedList = list.slice().sort(__tmCompareTasksByDocFlow);
+        // 然后提取每个任务对应的 bucket，按出现顺序依次添加
+        // 这样可以确保 buckets 的顺序与任务在文档中的顺序一致
+        sortedList.forEach((task) => {
+            const b = __tmGetDocHeadingBucket(task, noHeadingLabel);
+            if (!b || seen.has(b.key)) return;
+            seen.add(b.key);
+            buckets.push(b);
+        });
         return buckets;
-    }
-
-    function __tmBuildDocHeadingOrder(tasks, noHeadingLabel) {
-        return __tmBuildDocHeadingBuckets(tasks, noHeadingLabel).map((b) => String(b?.label || ''));
     }
 
     function __tmSafeAttrName(name, fallback) {
@@ -7907,6 +8062,25 @@ async function __tmRefreshAfterWake(reason) {
         const bg = __tmWithAlpha(base, darkMode ? 0.24 : 0.16);
         const border = __tmWithAlpha(base, darkMode ? 0.58 : 0.34);
         return `--tm-status-bg:${bg};--tm-status-fg:${fg};--tm-status-border:${border};`;
+    }
+
+    function __tmBuildPriorityChipStyle(value) {
+        const info = __tmGetPriorityJiraInfo(value);
+        const baseByKey = {
+            high: '#de350b',
+            medium: '#ff991f',
+            low: '#1d7afc',
+            none: 'var(--tm-task-done-color)'
+        };
+        const baseRaw = baseByKey[info.key] || '#9aa0a6';
+        const rgba = __tmParseCssColorToRgba(baseRaw) || { r: 154, g: 160, b: 166, a: 1 };
+        const darkMode = __tmIsDarkMode();
+        const bgA = darkMode ? 0.24 : 0.16;
+        const borderA = darkMode ? 0.58 : 0.34;
+        const fg = `rgb(${Math.round(rgba.r)}, ${Math.round(rgba.g)}, ${Math.round(rgba.b)})`;
+        const bg = `rgba(${Math.round(rgba.r)}, ${Math.round(rgba.g)}, ${Math.round(rgba.b)}, ${bgA})`;
+        const border = `rgba(${Math.round(rgba.r)}, ${Math.round(rgba.g)}, ${Math.round(rgba.b)}, ${borderA})`;
+        return `--tm-priority-bg:${bg};--tm-priority-fg:${fg};--tm-priority-border:${border};`;
     }
 
     function __tmRemoveElementsById(...ids) {
@@ -11531,6 +11705,7 @@ async function __tmRefreshAfterWake(reason) {
     window.tmShowDocTabContextMenu = function(event, docId) {
         try { event?.preventDefault?.(); } catch (e) {}
         try { event?.stopPropagation?.(); } catch (e) {}
+        try { if (state.__tmPluginIconLongPressing) return; } catch (e) {}
         __tmShowDocTabMenuAt(docId, event?.clientX, event?.clientY);
     };
 
@@ -11758,10 +11933,178 @@ async function __tmRefreshAfterWake(reason) {
                     t.doc_name = name;
                     t.docName = name;
                 }
+                
+                // 递归更新所有子任务的文档属性
+                const updateChildTasks = (parentTask) => {
+                    const children = Array.isArray(parentTask?.children) ? parentTask.children : [];
+                    children.forEach(child => {
+                        if (child && child.id) {
+                            const childTask = state.flatTasks[child.id];
+                            if (childTask) {
+                                childTask.root_id = did;
+                                childTask.docId = did;
+                                childTask.doc_name = name || childTask.doc_name;
+                                childTask.docName = name || childTask.docName;
+                                // 继续递归更新子任务的子任务
+                                updateChildTasks(child);
+                            }
+                        }
+                    });
+                };
+                updateChildTasks(t);
             }
         } catch (e) {}
         if (!o.silentHint) {
             try { hint('✅ 任务已移动', 'success'); } catch (e) {}
+        }
+        return true;
+    }
+
+    async function __tmMoveTaskToDocTop(taskId, targetDocId, opts = {}) {
+        const id = String(taskId || '').trim();
+        const did = String(targetDocId || '').trim();
+        if (!id || !did) return false;
+        const o = (opts && typeof opts === 'object') ? opts : {};
+        const t = state.flatTasks?.[id];
+        const fromDocId = String(t?.docId || t?.root_id || '').trim();
+        
+        // 像新建任务到顶部一样，将任务移动到文档最顶部
+        try {
+            // 获取文档的第一个子块ID
+            let firstChildId = '';
+            try { firstChildId = String(await API.getFirstDirectChildIdOfDoc(did) || '').trim(); } catch (e) { firstChildId = ''; }
+            
+            if (firstChildId) {
+                // 如果文档有内容，移动到第一个子块之前（成为新的第一个）
+                await API.moveBlock(id, { previousID: '', nextID: firstChildId, parentID: did });
+            } else {
+                // 如果文档为空，直接设置为文档的第一个子块
+                await API.moveBlock(id, { parentID: did });
+            }
+        } catch (e) {
+            console.error('移动任务到文档顶部失败:', e);
+            // 尝试备用方案：直接设置父
+            try {
+                await API.moveBlock(id, { parentID: did });
+            } catch (e2) {
+                console.error('备用方案也失败:', e2);
+                return false;
+            }
+        }
+        
+        try { await API.call('/api/sqlite/flushTransaction', {}); } catch (e) {}
+        try {
+            if (t) {
+                t.root_id = did;
+                t.docId = did;
+                const name = state.allDocuments.find(d => d.id === did)?.name || '';
+                if (name) {
+                    t.doc_name = name;
+                    t.docName = name;
+                }
+                if (o.clearHeading === true || (fromDocId && fromDocId !== did)) {
+                    t.h2 = '';
+                    t.h2Id = '';
+                    t.h2Path = '';
+                    t.h2Sort = Number.NaN;
+                    t.h2Created = '';
+                    t.h2Rank = Number.NaN;
+                    
+                    // 递归更新所有子任务的属性（清除 h2 信息，同时更新文档ID）
+                    const updateChildTasks = (parentTask) => {
+                        const children = Array.isArray(parentTask?.children) ? parentTask.children : [];
+                        children.forEach(child => {
+                            if (child && child.id) {
+                                const childTask = state.flatTasks[child.id];
+                                if (childTask) {
+                                    childTask.h2Id = '';
+                                    childTask.h2 = '';
+                                    childTask.h2Rank = Number.NaN;
+                                    // 同步更新子任务的文档ID
+                                    childTask.root_id = did;
+                                    childTask.docId = did;
+                                    const name = state.allDocuments.find(d => d.id === did)?.name || '';
+                                    if (name) {
+                                        childTask.doc_name = name;
+                                        childTask.docName = name;
+                                    }
+                                    // 递归更新子任务的子任务
+                                    updateChildTasks(childTask);
+                                }
+                            }
+                        });
+                    };
+                    updateChildTasks(t);
+                }
+            }
+        } catch (e) {}
+        if (!o.silentHint) {
+            try { hint('✅ 任务已移动', 'success'); } catch (e) {}
+        }
+        return true;
+    }
+
+    async function __tmMoveTaskToHeading(taskId, targetDocId, headingId, opts = {}) {
+        const id = String(taskId || '').trim();
+        const did = String(targetDocId || '').trim();
+        const hid = String(headingId || '').trim();
+        if (!id || !did || !hid) return false;
+        const o = (opts && typeof opts === 'object') ? opts : {};
+        const t = state.flatTasks?.[id];
+        const fromDocId = String(t?.docId || t?.root_id || '').trim();
+        
+        // 使用 previousID 方式将任务移动到标题块的后面
+        try {
+            // 直接使用 previousID 将任务移动到标题后面
+            await API.moveBlock(id, { previousID: hid, parentID: did });
+        } catch (e) {
+            console.error('移动任务到标题后面失败:', e);
+            return false;
+        }
+        
+        try { await API.call('/api/sqlite/flushTransaction', {}); } catch (e) {}
+        try {
+            if (t) {
+                t.root_id = did;
+                t.docId = did;
+                const name = state.allDocuments.find(d => d.id === did)?.name || '';
+                if (name) {
+                    t.doc_name = name;
+                    t.docName = name;
+                }
+                const headings = state.kanbanDocHeadingsByDocId?.[did];
+                const h = Array.isArray(headings) ? headings.find((x) => String(x?.id || '').trim() === hid) : null;
+                t.h2 = String(h?.content || '').trim();
+                t.h2Id = hid;
+                t.h2Rank = Number(h?.rank);
+                t.h2Path = '';
+                t.h2Sort = Number.NaN;
+                t.h2Created = '';
+                if (fromDocId && fromDocId !== did) {
+                    t.parentTaskId = '';
+                }
+                
+                // 递归更新所有子任务的属性
+                const updateChildTasks = (parentTask, h2Id, h2Content, h2RankVal) => {
+                    const children = Array.isArray(parentTask?.children) ? parentTask.children : [];
+                    children.forEach(child => {
+                        if (child && child.id) {
+                            const childTask = state.flatTasks[child.id];
+                            if (childTask) {
+                                childTask.h2Id = h2Id;
+                                childTask.h2 = h2Content;
+                                childTask.h2Rank = h2RankVal;
+                                // 递归更新子任务的子任务
+                                updateChildTasks(childTask, h2Id, h2Content, h2RankVal);
+                            }
+                        }
+                    });
+                };
+                updateChildTasks(t, hid, String(h?.content || '').trim(), Number(h?.rank));
+            }
+        } catch (e) {}
+        if (!o.silentHint) {
+            try { hint('✅ 任务已移动到标题后面', 'success'); } catch (e) {}
         }
         return true;
     }
@@ -11871,6 +12214,17 @@ async function __tmRefreshAfterWake(reason) {
         const prevWasCalendar = !!(prevModalSnapshot && prevModalSnapshot.querySelector && prevModalSnapshot.querySelector('#tmCalendarRoot'));
         const prevWasKanban = !!(prevModalSnapshot && prevModalSnapshot.querySelector && prevModalSnapshot.querySelector('.tm-body.tm-body--kanban'));
         const prevWasWhiteboard = !!(prevModalSnapshot && prevModalSnapshot.querySelector && prevModalSnapshot.querySelector('.tm-body.tm-body--whiteboard'));
+        const __tmGetKanbanColScrollKey = (colEl) => {
+            if (!(colEl instanceof Element)) return '';
+            const status = String(colEl.getAttribute('data-status') || '').trim();
+            if (status) return `status:${status}`;
+            const kind = String(colEl.getAttribute('data-kind') || '').trim();
+            const doc = String(colEl.getAttribute('data-doc') || '').trim();
+            const heading = String(colEl.getAttribute('data-heading') || '').trim();
+            if (kind || doc || heading) return `kind:${kind}|doc:${doc}|heading:${heading}`;
+            return '';
+        };
+
         // 保存滚动位置
         let savedScrollTop = 0;
         let savedScrollLeft = 0;
@@ -11893,11 +12247,11 @@ async function __tmRefreshAfterWake(reason) {
                 if (kbBody) savedKanbanScrollLeft = Number(kbBody.scrollLeft) || 0;
                 const map = {};
                 try {
-                    prevModalSnapshot.querySelectorAll('.tm-kanban-col[data-status]').forEach((col) => {
-                        const status = String(col?.getAttribute?.('data-status') || '').trim();
-                        if (!status) return;
+                    prevModalSnapshot.querySelectorAll('.tm-kanban-col').forEach((col) => {
+                        const colKey = __tmGetKanbanColScrollKey(col);
+                        if (!colKey) return;
                         const body = col.querySelector('.tm-kanban-col-body');
-                        map[status] = Number(body?.scrollTop) || 0;
+                        map[colKey] = Number(body?.scrollTop) || 0;
                     });
                 } catch (e) {}
                 savedKanbanColScrollTopByStatus = map;
@@ -12221,13 +12575,14 @@ async function __tmRefreshAfterWake(reason) {
             const baseKanbanW = Number.isFinite(baseKanbanW0) ? Math.max(220, Math.min(520, Math.round(baseKanbanW0))) : 320;
             const kanbanColW = isCompact ? Math.max(220, baseKanbanW - 40) : baseKanbanW;
             const showDoneCol = !!SettingsStore.data.kanbanShowDoneColumn;
+            const headingMode = SettingsStore.data.kanbanHeadingGroupMode === true;
             const currentGroupId = String(SettingsStore.data.currentGroupId || 'all').trim() || 'all';
             const statusOptionsRaw = Array.isArray(SettingsStore.data.customStatusOptions) ? SettingsStore.data.customStatusOptions : [];
             const statusOptions = statusOptionsRaw
                 .map(o => ({ id: String(o?.id || '').trim(), name: String(o?.name || '').trim(), color: String(o?.color || '').trim() }))
                 .filter(o => o.id);
             const todoOpt = statusOptions.find(o => o.id === 'todo') || { id: 'todo', name: '待办', color: '#757575' };
-            const cols = showDoneCol
+            const colsStatus = showDoneCol
                 ? [todoOpt, ...statusOptions.filter(o => o.id !== 'todo'), { id: '__done__', name: '已完成', color: '#9e9e9e' }]
                 : [todoOpt, ...statusOptions.filter(o => o.id !== 'todo')];
 
@@ -12348,10 +12703,102 @@ async function __tmRefreshAfterWake(reason) {
             const docsInOrder = __tmSortDocEntriesByPinned(state.taskTree || [], currentGroupId).map(d => String(d?.id || '').trim()).filter(Boolean);
             const docRank = new Map(docsInOrder.map((id, idx) => [id, idx]));
 
-            const tasksByStatus = new Map(cols.map(c => [c.id, []]));
+            const headingLevel = __tmNormalizeHeadingLevel(SettingsStore.data.taskHeadingLevel || 'h2');
+            const headingLabelMap = { h1: '一级标题', h2: '二级标题', h3: '三级标题', h4: '四级标题', h5: '五级标题', h6: '六级标题' };
+            const noHeadingLabel = `无${headingLabelMap[headingLevel] || '标题'}`;
+            const pickDocColor = (docId) => {
+                const did = String(docId || '').trim();
+                if (!did || did === '__unknown__') return '#757575';
+                return __tmGetDocColorHex(did, isDark) || '#4f46e5';
+            };
+            const cols = (() => {
+                if (!headingMode) return colsStatus;
+                if (isAllTabsView) {
+                    const docIdSet = new Set(filtered.map(t => String(t?.root_id || '').trim()).filter(Boolean));
+                    const ordered = docsInOrder.filter(id => docIdSet.has(id));
+                    Array.from(docIdSet).forEach((id) => {
+                        if (!ordered.includes(id)) ordered.push(id);
+                    });
+                    return ordered.map((docId) => ({
+                        id: docId,
+                        name: docNameById.get(docId) || '未知文档',
+                        color: pickDocColor(docId),
+                        kind: 'doc',
+                        docId: docId,
+                    }));
+                }
+                const docId = String(state.activeDocId || '').trim();
+                const headings = Array.isArray(state.kanbanDocHeadingsByDocId?.[docId]) ? state.kanbanDocHeadingsByDocId[docId] : [];
+                
+                // 获取当前文档的任务
+                const docTasks = filtered.filter(t => String(t?.root_id || '').trim() === docId);
+                
+                // 使用 __tmBuildDocHeadingBuckets 来获取正确的标题顺序（基于任务在文档中的实际位置）
+                const headingLevel = __tmNormalizeHeadingLevel(SettingsStore.data.taskHeadingLevel || 'h2');
+                const headingLabelMap = { h1: '一级标题', h2: '二级标题', h3: '三级标题', h4: '四级标题', h5: '五级标题', h6: '六级标题' };
+                const noHeadingLabel = `无${headingLabelMap[headingLevel] || '标题'}`;
+                
+                // 按文档顺序排序任务，然后提取唯一的标题 bucket
+                const sortedDocTasks = docTasks.slice().sort(__tmCompareTasksByDocFlow);
+                const bucketMap = new Map(); // 用于去重和保持顺序
+                sortedDocTasks.forEach(t => {
+                    const hid = String(t?.h2Id || '').trim();
+                    if (hid && !bucketMap.has(hid)) {
+                        bucketMap.set(hid, {
+                            id: hid,
+                            content: String(t?.h2 || '').trim() || '(空标题)',
+                            sort: Number(t?.h2Sort) || Number(t?.h2Rank) || 0
+                        });
+                    }
+                });
+                
+                // 添加不在任何任务中的原始标题
+                headings.forEach(h => {
+                    const hid = String(h?.id || '').trim();
+                    if (hid && !bucketMap.has(hid)) {
+                        bucketMap.set(hid, {
+                            id: hid,
+                            content: String(h?.content || '').trim() || '(空标题)',
+                            sort: Number(h?.sort) || 0
+                        });
+                    }
+                });
+                
+                // 转换为数组并按 sort 排序
+                const allHeadings = Array.from(bucketMap.values()).sort((a, b) => {
+                    const sa = Number(a?.sort ?? 0);
+                    const sb = Number(b?.sort ?? 0);
+                    if (sa !== sb) return sa - sb;
+                    return String(a?.id || '').localeCompare(String(b?.id || ''));
+                });
+                
+                const cols0 = allHeadings.map((h) => ({
+                    id: String(h?.id || '').trim(),
+                    name: String(h?.content || '').trim() || '(空标题)',
+                    color: pickDocColor(docId),
+                    kind: 'heading',
+                    docId,
+                }));
+                
+                // 添加"无标题"列
+                cols0.push({ id: '__none__', name: noHeadingLabel, color: pickDocColor(docId), kind: 'heading', docId });
+                return cols0;
+            })();
+
+            const tasksByStatus = new Map(cols.map(c => [String(c?.id || '').trim(), []]));
             filtered.forEach(task => {
-                const key = task?.done ? '__done__' : (String(task?.customStatus || '').trim() || 'todo');
-                if (!showDoneCol && key === '__done__') return;
+                if (!showDoneCol && !!task?.done) return;
+                let key = '';
+                if (!headingMode) {
+                    key = task?.done ? '__done__' : (String(task?.customStatus || '').trim() || 'todo');
+                    if (!showDoneCol && key === '__done__') return;
+                } else if (isAllTabsView) {
+                    key = String(task?.root_id || '').trim() || '__unknown__';
+                } else {
+                    const did = String(task?.root_id || '').trim();
+                    if (did !== String(state.activeDocId || '').trim()) return;
+                    key = String(task?.h2Id || '').trim() || '__none__';
+                }
                 if (!tasksByStatus.has(key)) tasksByStatus.set(key, []);
                 tasksByStatus.get(key).push(task);
             });
@@ -12363,14 +12810,6 @@ async function __tmRefreshAfterWake(reason) {
                 const docName = docNameById.get(String(task?.root_id || '').trim()) || '';
                 const st = String(task?.customStatus || '').trim() || 'todo';
                 const opt = statusOptions.find(o => o.id === st) || (st === 'todo' ? todoOpt : { id: st, name: st, color: '#757575' });
-                const pr = String(task?.priority || '').toLowerCase();
-                const prMeta = pr === 'high'
-                    ? { label: '高', color: '#ea4335' }
-                    : pr === 'medium'
-                        ? { label: '中', color: '#f9ab00' }
-                        : pr === 'low'
-                            ? { label: '低', color: '#1d7afc' }
-                            : { label: '无', color: '#9aa0a6' };
                 const timeTxt = String(task?.completionTime || '').trim() || String(task?.startDate || '').trim();
                 const dateTxt = timeTxt ? __tmFormatTaskTime(timeTxt) : '';
                 const allChildren = Array.isArray(task?.children) ? task.children : [];
@@ -12378,9 +12817,12 @@ async function __tmRefreshAfterWake(reason) {
                 const completedChildren = totalChildren > 0 ? allChildren.filter(c => c && c.done).length : 0;
                 const remainingChildren = Math.max(0, totalChildren - completedChildren);
                 const childTxt = totalChildren > 0 ? `${remainingChildren}/${totalChildren}` : '';
+                const statusChipStyle = __tmBuildStatusChipStyle(opt.color || '#757575');
                 const statusChip = task?.done
-                    ? `<span class="tm-kanban-chip tm-kanban-chip--muted" style="cursor:default;">完成</span>`
-                    : `<span class="tm-kanban-chip" style="background-color:${esc(opt.color || '#757575')};color:#fff;" onclick="tmKanbanOpenStatusSelect('${id}', this, event)">${esc(opt.name || '')}</span>`;
+                    ? `<span class="tm-status-tag" style="${__tmBuildStatusChipStyle('#9e9e9e')};cursor:default;">完成</span>`
+                    : `<span class="tm-status-tag" style="${statusChipStyle}" onclick="tmKanbanOpenStatusSelect('${id}', this, event)">${esc(opt.name || '')}</span>`;
+                const priorityChipStyle = __tmBuildPriorityChipStyle(task?.priority);
+                const priorityChip = `<span class="tm-kanban-priority-chip" style="${priorityChipStyle}" onclick="tmPickPriority('${id}', this, event)">${__tmRenderPriorityJira(task?.priority, false)}</span>`;
 
                 return `
                     <div class="tm-kanban-card${isSub ? ' tm-kanban-card--sub' : ''}${isChildRoot ? ' tm-kanban-card--childroot' : ''}${isParent ? ' tm-kanban-card--parent' : ''}" data-id="${id}" draggable="true" ondragstart="tmKanbanDragStart(event, '${id}')" ondragend="tmKanbanDragEnd(event, '${id}')" oncontextmenu="tmShowTaskContextMenu(event, '${id}')" style="${isSub ? '' : ''}">
@@ -12398,8 +12840,8 @@ async function __tmRefreshAfterWake(reason) {
                         ${parentTxt ? `<div class="tm-kanban-parent-line" style="font-size:12px;color:var(--tm-secondary-text);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;margin-bottom:6px;" title="${esc(parentTxt)}"><span>父任务：</span><span style="font-weight:800;color:var(--tm-text-color);">${esc(parentTxt)}</span></div>` : ''}
                         <div class="tm-kanban-card-meta">
                             ${statusChip}
-                            <span class="tm-kanban-chip" style="background-color:${esc(prMeta.color)};color:#fff;" onclick="tmPickPriority('${id}', this, event)">${esc(prMeta.label)}</span>
-                            <span class="tm-kanban-chip tm-kanban-chip--muted" onclick="tmKanbanPickDate('${id}', event)" title="点击选择日期">🗓️ ${esc(dateTxt || '日期')}</span>
+                            ${priorityChip}
+                            <span class="tm-kanban-chip tm-kanban-chip--muted" onclick="tmKanbanPickDate('${id}', event)" title="点击选择日期">${esc(dateTxt || '日期')}</span>
                         </div>
                         ${(isAllTabsView && docName) ? `<div style="font-size:12px;color:var(--tm-secondary-text);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">📄 ${esc(docName)}</div>` : ''}
                         ${childrenHtml ? `<div class="tm-kanban-subtasks">${childrenHtml}</div>` : ''}
@@ -12437,7 +12879,24 @@ async function __tmRefreshAfterWake(reason) {
                     const pid = String(task?.parentTaskId || '').trim();
                     const parentInCol = !!(pid && map.has(pid));
                     const parent = pid ? state.flatTasks[pid] : null;
-                    const parentTxt = (!parentInCol && parent) ? String(parent.content || '').trim() : '';
+                    
+                    // 在标题看板模式下，如果子任务的 h2Id 与父任务的 h2Id 不同，说明子任务已经被拖到不同的标题下独立显示了
+                    // 在文档分组模式下，如果子任务的 docId 与父任务的 docId 不同，说明子任务已经被拖到不同的文档下独立显示了
+                    // 这两种情况下都不再显示父任务信息
+                    let parentTxt = '';
+                    if (!parentInCol && parent) {
+                        const taskH2Id = String(task?.h2Id || '').trim();
+                        const parentH2Id = String(parent?.h2Id || '').trim();
+                        const taskDocId = String(task?.docId || task?.root_id || '').trim();
+                        const parentDocId = String(parent?.docId || parent?.root_id || '').trim();
+                        // 如果 h2Id 不同，说明已经被拖到不同标题，不显示父任务信息
+                        // 如果 docId 不同，说明已经被拖到不同文档，不显示父任务信息
+                        if ((taskH2Id && parentH2Id && taskH2Id !== parentH2Id) || (taskDocId && parentDocId && taskDocId !== parentDocId)) {
+                            parentTxt = ''; // 已独立，不显示父任务
+                        } else {
+                            parentTxt = String(parent.content || '').trim();
+                        }
+                    }
                     const childList = childrenByParent.get(id) || [];
                     const collapsed = childList.length ? __tmKanbanGetCollapsedSet().has(id) : false;
                     const toggleHtml = childList.length
@@ -12460,8 +12919,19 @@ async function __tmRefreshAfterWake(reason) {
                     const isCollapsed = state.collapsedGroups?.has(groupKey);
                     const indentCh = Number(opt?.indentCh);
                     const leftIndent = Number.isFinite(indentCh) && indentCh > 0 ? `${indentCh}ch` : '0';
+                    const titleColor = String(color || '').trim();
+                    const groupBg = titleColor ? __tmGroupBgFromLabelColor(titleColor, isDark) : '';
+                    const dropKind = String(opt?.dropKind || '').trim();
+                    const dropDocId = String(opt?.dropDocId || '').trim();
+                    const dropHeadingId = String(opt?.dropHeadingId || '').trim();
+                    const dropAttrs = dropKind
+                        ? ` data-tm-kb-drop-kind="${esc(dropKind)}"${dropDocId ? ` data-tm-kb-drop-doc="${esc(dropDocId)}"` : ''}${dropHeadingId ? ` data-tm-kb-drop-heading="${esc(dropHeadingId)}"` : ''}`
+                        : '';
+                    const dropHandlers = dropKind
+                        ? ` ondragover="tmKanbanGroupDragOver(event)" ondragleave="tmKanbanGroupDragLeave(event)" ondrop="tmKanbanGroupDrop(event)"`
+                        : '';
                     return `
-                        <div class="tm-kanban-group-title" onclick="tmToggleGroupCollapse('${escSq(groupKey)}', event)" style="${color ? `color:${color};` : ''}">
+                        <div class="tm-kanban-group-title${dropKind ? ' tm-kanban-group-title--droppable' : ''}" onclick="tmToggleGroupCollapse('${escSq(groupKey)}', event)" style="${titleColor ? `color:${titleColor};` : ''}${groupBg ? `background:${groupBg};` : ''}"${dropAttrs}${dropHandlers}>
                             <span style="display:inline-flex;align-items:center;min-width:0;padding-left:${leftIndent};">
                                 <span class="tm-group-toggle" style="cursor:pointer;display:inline-block;width:12px;">${isCollapsed ? '▸' : '▾'}</span>
                                 <span>${titleHtml}</span>
@@ -12471,7 +12941,10 @@ async function __tmRefreshAfterWake(reason) {
                     `;
                 };
 
-                const renderGroupedByDoc = () => {
+                const renderGroupedByDoc = (opt = {}) => {
+                    const o = (opt && typeof opt === 'object') ? opt : {};
+                    const showDocTitle = !o.hideDocTitle; // 是否显示文档标题行
+                    const headingIndent = o.headingMode ? 0 : 2; // 标题模式下二级标题不缩进，非标题模式下缩进2字符
                     const rootByDoc = new Map();
                     const countByDoc = new Map();
                     list0.forEach(t => {
@@ -12501,9 +12974,12 @@ async function __tmRefreshAfterWake(reason) {
                         const title = `<span style="color:${labelColor};">📄 ${esc(docName)}</span>`;
                         let body = '';
                         if (!isCollapsed) {
-                            const enableH2 = !!SettingsStore.data.docH2SubgroupEnabled;
+                            // 在标题看板模式下，即使设置中没有启用 docH2SubgroupEnabled，也启用二级标题分组
+                            const enableH2 = (!!SettingsStore.data.docH2SubgroupEnabled || headingMode) && !o.forceNoHeading;
                             if (!enableH2) {
-                                body = `<div class="tm-kanban-group-items">${items.map(t => renderTree(t, 0)).join('')}</div>`;
+                                // 按文档内的顺序排序任务，使用 __tmCompareTasksByDocFlow
+                                const sortedItems = items.slice().sort(__tmCompareTasksByDocFlow);
+                                body = `<div class="tm-kanban-group-items">${sortedItems.map(t => renderTree(t, 0)).join('')}</div>`;
                             } else {
                                 const headingLevel = String(SettingsStore.data.taskHeadingLevel || 'h2').trim() || 'h2';
                                 const headingLabelMap = { h1: '一级标题', h2: '二级标题', h3: '三级标题', h4: '四级标题', h5: '五级标题', h6: '六级标题' };
@@ -12515,19 +12991,39 @@ async function __tmRefreshAfterWake(reason) {
                                     if (!grouped.has(b.key)) grouped.set(b.key, []);
                                     grouped.get(b.key).push(task);
                                 });
-                                const h2Html = buckets.map((bucket) => {
-                                    const bucketItems = grouped.get(bucket.key) || [];
+                                // 重新排序 buckets：将"无二级标题"的 bucket 提取出来，其余保持文档内的原始顺序
+                                // 先过滤掉没有任务的 bucket
+                                const filteredBuckets = buckets.filter(b => (grouped.get(b.key) || []).length > 0);
+                                // 将"无二级标题"的 bucket 和其他 bucket 分开
+                                const noneBucket = filteredBuckets.find(b => b.label === noHeadingLabel);
+                                const otherBuckets = filteredBuckets.filter(b => b.label !== noHeadingLabel);
+                                // 其他 bucket 保持文档内的原始顺序，"无二级标题"的放最后
+                                const sortedBuckets = noneBucket ? [...otherBuckets, noneBucket] : otherBuckets;
+                                const h2Html = sortedBuckets.map((bucket) => {
+                                    let bucketItems = grouped.get(bucket.key) || [];
                                     if (!bucketItems.length) return '';
+                                    // 按文档内的顺序排序任务，使用 __tmCompareTasksByDocFlow
+                                    bucketItems = bucketItems.slice().sort(__tmCompareTasksByDocFlow);
                                     const h2Key = `kanban_${c.id}_doc_${docId}__h2_${encodeURIComponent(String(bucket.key || 'label:__none__'))}`;
                                     const h2Collapsed = state.collapsedGroups?.has(h2Key);
                                     const h2Title = `<span style="color:var(--tm-secondary-text);">🧩 ${esc(String(bucket.label || ''))}</span>`;
                                     const h2Body = h2Collapsed ? '' : `<div class="tm-kanban-group-items">${bucketItems.map(t => renderTree(t, 0)).join('')}</div>`;
-                                    return `<div class="tm-kanban-group">${renderGroupTitle(h2Key, h2Title, bucketItems.length, '', { indentCh: 2 })}${h2Body}</div>`;
+                                    return `<div class="tm-kanban-group">${renderGroupTitle(h2Key, h2Title, bucketItems.length, '', { indentCh: headingIndent })}${h2Body}</div>`;
                                 }).join('');
                                 body = `<div class="tm-kanban-group-items">${h2Html}</div>`;
                             }
                         }
-                        return `<div class="tm-kanban-group">${renderGroupTitle(groupKey, title, countByDoc.get(docId) || items.length)}${body}</div>`;
+                        const dropOpt = (SettingsStore.data.kanbanHeadingGroupMode && isAllTabsView && o.dropDoc && docId !== '__unknown__')
+                            ? { dropKind: 'doc', dropDocId: docId }
+                            : {};
+                        const wrapDrop = dropOpt.dropKind
+                            ? ` data-tm-kb-drop-kind="${esc(dropOpt.dropKind)}" data-tm-kb-drop-doc="${esc(docId)}" ondragover="tmKanbanGroupDragOver(event)" ondragleave="tmKanbanGroupDragLeave(event)" ondrop="tmKanbanGroupDrop(event)"`
+                            : '';
+                        // 如果不显示文档标题，则只返回body部分（二级标题分组）
+                        if (!showDocTitle) {
+                            return body;
+                        }
+                        return `<div class="tm-kanban-group"${wrapDrop}>${renderGroupTitle(groupKey, title, countByDoc.get(docId) || items.length, labelColor, dropOpt)}${body}</div>`;
                     }).join('');
                 };
 
@@ -12539,14 +13035,18 @@ async function __tmRefreshAfterWake(reason) {
                         if (!gm.has(key)) gm.set(key, { ...info, items: [] });
                         gm.get(key).items.push(t);
                     });
-                    const groups = Array.from(gm.values()).sort((a, b) => (Number(a.sortValue) || Infinity) - (Number(b.sortValue) || Infinity));
+                    const groups = Array.from(gm.values()).sort((a, b) => {
+                        const av = Number(a?.sortValue);
+                        const bv = Number(b?.sortValue);
+                        return (Number.isFinite(av) ? av : Infinity) - (Number.isFinite(bv) ? bv : Infinity);
+                    });
                     return groups.map((g) => {
                         const groupKey = `kanban_${c.id}_time_${g.key}`;
                         const isCollapsed = state.collapsedGroups?.has(groupKey);
                         const color = getTimeGroupLabelColor(g);
                         const title = `<span style="color:${color};">${esc(g.label || '')}</span>`;
                         const body = isCollapsed ? '' : `<div class="tm-kanban-group-items">${g.items.map(t => renderTree(t, 0)).join('')}</div>`;
-                        return `<div class="tm-kanban-group">${renderGroupTitle(groupKey, title, g.items.length)}${body}</div>`;
+                        return `<div class="tm-kanban-group">${renderGroupTitle(groupKey, title, g.items.length, color)}${body}</div>`;
                     }).join('');
                 };
 
@@ -12581,13 +13081,8 @@ async function __tmRefreshAfterWake(reason) {
                         .join('');
                 };
 
-                let listHtml = '';
-                if (state.quadrantEnabled) {
-                    listHtml = renderGroupedByQuadrant();
-                } else if (state.groupByDocName) {
-                    listHtml = renderGroupedByDoc();
-                } else if (state.groupByTaskName) {
-                    // 按任务名分组
+                const renderGroupedByTaskName = () => {
+                    // 按任务名分组：只对顶级任务分组，子任务跟随父任务
                     const gm = new Map();
                     roots.forEach(t => {
                         const content = String(t?.content || '').trim();
@@ -12596,7 +13091,7 @@ async function __tmRefreshAfterWake(reason) {
                         gm.get(content).items.push(t);
                     });
                     const groups = Array.from(gm.values()).sort((a, b) => String(a.content || '').localeCompare(String(b.content || ''), 'zh-CN'));
-                    listHtml = groups.map((g) => {
+                    return groups.map((g) => {
                         const safeContent = String(g.content || '').replace(/[^a-zA-Z0-9\u4e00-\u9fa5]/g, '_');
                         const groupKey = `kanban_${c.id}_task_${safeContent}`;
                         const isCollapsed = state.collapsedGroups?.has(groupKey);
@@ -12611,17 +13106,61 @@ async function __tmRefreshAfterWake(reason) {
                         const body = isCollapsed ? '' : `<div class="tm-kanban-group-items">${g.items.map(t => renderTree(t, 0)).join('')}</div>`;
                         return `<div class="tm-kanban-group">${renderGroupTitle(groupKey, title, g.items.length, color)}${body}</div>`;
                     }).join('');
+                };
+
+                let listHtml = '';
+                // 标题看板模式下，也支持按文档/时间/四象限/任务名分组
+                if (headingMode && state.groupByDocName && isAllTabsView) {
+                    // 标题看板模式 + 按文档分组 + 全部视图：每个文档内按二级标题分组，不显示文档标题行
+                    listHtml = renderGroupedByDoc({ dropDoc: true, forceNoHeading: false, hideDocTitle: true, headingMode: true });
+                } else if (headingMode && state.groupByDocName) {
+                    // 标题看板模式 + 按文档分组 + 单个文档：不启用二级标题分组，因为看板本身已经是按二级标题分组的
+                    listHtml = renderGroupedByDoc({ dropDoc: false, forceNoHeading: true, hideDocTitle: true, headingMode: false });
+                } else if (headingMode && state.groupByTime) {
+                    // 标题看板模式 + 按时间分组
+                    listHtml = renderGroupedByTime();
+                } else if (headingMode && state.quadrantEnabled) {
+                    // 标题看板模式 + 四象限分组
+                    listHtml = renderGroupedByQuadrant();
+                } else if (headingMode && state.groupByTaskName) {
+                    // 标题看板模式 + 按任务名分组
+                    listHtml = renderGroupedByTaskName();
+                } else if (headingMode) {
+                    // 标题看板模式 + 不分组
+                    listHtml = roots.length ? roots.map(t => renderTree(t, 0)).join('') : '';
+                } else if (state.quadrantEnabled) {
+                    listHtml = renderGroupedByQuadrant();
+                } else if (state.groupByDocName) {
+                    listHtml = renderGroupedByDoc();
+                } else if (state.groupByTaskName) {
+                    // 按任务名分组
+                    listHtml = renderGroupedByTaskName();
                 } else if (state.groupByTime) {
                     listHtml = renderGroupedByTime();
                 } else {
                     listHtml = roots.length ? roots.map(t => renderTree(t, 0)).join('') : '';
                 }
                 const count = list0.length;
-                const title = c.id === '__done__' ? '✅ 已完成' : c.id === 'todo' ? `🗂️ ${c.name}` : c.name;
+                const kind = headingMode ? (String(c?.kind || '').trim() || (isAllTabsView ? 'doc' : 'heading')) : 'status';
+                const title = headingMode
+                    ? (kind === 'doc' ? `📄 ${c.name}` : `🧩 ${c.name}`)
+                    : (c.id === '__done__' ? '✅ 已完成' : c.id === 'todo' ? `🗂️ ${c.name}` : c.name);
+                const dataAttrs = headingMode
+                    ? (kind === 'doc'
+                        ? `data-kind="doc" data-doc="${esc(String(c?.id || '').trim())}"`
+                        : `data-kind="heading" data-doc="${esc(String(c?.docId || '').trim())}" data-heading="${esc(String(c?.id || '').trim())}"`)
+                    : `data-kind="status" data-status="${esc(c.id)}"`;
+                const colHeaderBg = (() => {
+                    const rgba = __tmParseCssColorToRgba(String(c?.color || '').trim());
+                    if (!rgba) return '';
+                    const a = isDark ? 0.30 : 0.20;
+                    return `rgba(${Math.round(rgba.r)}, ${Math.round(rgba.g)}, ${Math.round(rgba.b)}, ${a})`;
+                })();
+                const colTitleColor = String(c?.color || '').trim() || 'var(--tm-text-color)';
                 return `
-                    <div class="tm-kanban-col" data-status="${esc(c.id)}" style="width:${kanbanColW}px;min-width:${kanbanColW}px;max-width:${kanbanColW}px;">
-                        <div class="tm-kanban-col-header">
-                            <div class="tm-kanban-col-title tm-kanban-col-title--pill" style="background-color:${esc(c.color || '#757575')};color:#fff;" title="${esc(c.name)}">${esc(title)}</div>
+                    <div class="tm-kanban-col" ${dataAttrs} style="width:${kanbanColW}px;min-width:${kanbanColW}px;max-width:${kanbanColW}px;">
+                        <div class="tm-kanban-col-header" style="${colHeaderBg ? `background:${colHeaderBg};` : ''}">
+                            <div class="tm-kanban-col-title" style="color:${esc(colTitleColor)};" title="${esc(c.name)}">${esc(title)}</div>
                             <span class="tm-badge tm-badge--count">${count}</span>
                         </div>
                         <div class="tm-kanban-col-body" ondragover="tmKanbanDragOver(event)" ondragleave="tmKanbanDragLeave(event)" ondrop="tmKanbanDrop(event)">
@@ -12992,18 +13531,13 @@ async function __tmRefreshAfterWake(reason) {
                     const ghostTip = isGhost ? `<span class="tm-kanban-chip tm-kanban-chip--muted" style="cursor:default;">快照</span>` : '';
                     const st = String(task?.customStatus || '').trim() || 'todo';
                     const opt = statusOptions.find(o => o.id === st) || (st === 'todo' ? todoOpt : { id: st, name: st, color: '#757575' });
-                    const pr = String(task?.priority || '').toLowerCase();
-                    const prMeta = pr === 'high'
-                        ? { label: '高', color: '#ea4335' }
-                        : pr === 'medium'
-                            ? { label: '中', color: '#f9ab00' }
-                            : pr === 'low'
-                                ? { label: '低', color: '#1d7afc' }
-                                : { label: '无', color: '#9aa0a6' };
                     const editableMeta = !isGhost;
+                    const statusChipStyle = __tmBuildStatusChipStyle(opt.color || '#757575');
                     const statusChip = task?.done
-                        ? `<span class="tm-kanban-chip tm-kanban-chip--muted" style="cursor:default;">完成</span>`
-                        : `<span class="tm-kanban-chip" style="background-color:${esc(opt.color || '#757575')};color:#fff;cursor:${editableMeta ? 'pointer' : 'default'};" ${editableMeta ? `onclick="tmWhiteboardEditStatus('${escSq(tid)}', this, event)"` : ''}>${esc(opt.name || '')}</span>`;
+                        ? `<span class="tm-status-tag" style="${__tmBuildStatusChipStyle('#9e9e9e')};cursor:default;">完成</span>`
+                        : `<span class="tm-status-tag" style="${statusChipStyle};cursor:${editableMeta ? 'pointer' : 'default'};" ${editableMeta ? `onclick="tmWhiteboardEditStatus('${escSq(tid)}', this, event)"` : ''}>${esc(opt.name || '')}</span>`;
+                    const priorityChipStyle = __tmBuildPriorityChipStyle(task?.priority);
+                    const priorityChip = `<span class="tm-kanban-priority-chip" style="${priorityChipStyle};cursor:${editableMeta ? 'pointer' : 'default'};" ${editableMeta ? `onclick="tmWhiteboardEditPriority('${escSq(tid)}', this, event)"` : ''}>${__tmRenderPriorityJira(task?.priority, false)}</span>`;
                     return `
                         <div class="${cls}" data-task-id="${esc(tid)}" data-doc-id="${esc(docId)}"${rootStyle}${nodeMouse}${selectClick} oncontextmenu="tmShowTaskContextMenu(event, '${escSq(tid)}')">
                             ${toolsHtml}
@@ -13021,8 +13555,8 @@ async function __tmRefreshAfterWake(reason) {
                             ${(detachedOrDetachedLike && parentText) ? `<div style="font-size:12px;color:var(--tm-secondary-text);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;margin-bottom:4px;" title="${esc(parentText)}"><span>父任务：</span><span style="font-weight:800;color:var(--tm-text-color);">${esc(parentText)}</span></div>` : ''}
                             <div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap;">
                                 ${statusChip}
-                                <span class="tm-kanban-chip" style="background-color:${esc(prMeta.color)};color:#fff;cursor:${editableMeta ? 'pointer' : 'default'};" ${editableMeta ? `onclick="tmWhiteboardEditPriority('${escSq(tid)}', this, event)"` : ''}>${esc(prMeta.label)}</span>
-                                <span class="tm-kanban-chip tm-kanban-chip--muted" style="cursor:${editableMeta ? 'pointer' : 'default'};" ${editableMeta ? `onclick="tmWhiteboardEditDate('${escSq(tid)}', event)"` : ''} title="${editableMeta ? '点击选择日期' : ''}">🗓️ ${esc(dateTxt || '日期')}</span>
+                                ${priorityChip}
+                                <span class="tm-kanban-chip tm-kanban-chip--muted" style="cursor:${editableMeta ? 'pointer' : 'default'};" ${editableMeta ? `onclick="tmWhiteboardEditDate('${escSq(tid)}', event)"` : ''} title="${editableMeta ? '点击选择日期' : ''}">${esc(dateTxt || '日期')}</span>
                                 ${ghostTip}
                             </div>
                             ${childrenHtml}
@@ -13461,6 +13995,12 @@ async function __tmRefreshAfterWake(reason) {
                             <button class="tm-view-seg-item ${state.viewMode === 'kanban' ? 'tm-view-seg-item--active' : ''}" onclick="tmSwitchViewMode('kanban')" role="tab" aria-selected="${state.viewMode === 'kanban' ? 'true' : 'false'}" title="看板">看板</button>
                             <button class="tm-view-seg-item ${state.viewMode === 'calendar' ? 'tm-view-seg-item--active' : ''}" onclick="tmSwitchViewMode('calendar')" role="tab" aria-selected="${state.viewMode === 'calendar' ? 'true' : 'false'}" title="日历">日历</button>
                         </div>
+                        ${state.viewMode === 'kanban' ? `
+                            <div class="tm-view-segmented tm-kanban-mode-segmented" role="tablist" aria-label="看板模式">
+                                <button class="tm-view-seg-item ${!SettingsStore.data.kanbanHeadingGroupMode ? 'tm-view-seg-item--active' : ''}" onclick="tmSetKanbanHeadingGroupMode('status', event)" role="tab" aria-selected="${!SettingsStore.data.kanbanHeadingGroupMode ? 'true' : 'false'}" title="状态看板">状态</button>
+                                <button class="tm-view-seg-item ${SettingsStore.data.kanbanHeadingGroupMode ? 'tm-view-seg-item--active' : ''}" onclick="tmSetKanbanHeadingGroupMode('heading', event)" role="tab" aria-selected="${SettingsStore.data.kanbanHeadingGroupMode ? 'true' : 'false'}" title="标题看板">标题</button>
+                            </div>
+                        ` : ''}
                         ${state.viewMode === 'timeline' ? `
                             <button class="tm-btn tm-btn-info" onclick="tmGanttZoomOut()" style="padding: 4px 10px;" title="缩小">－</button>
                             <button class="tm-btn tm-btn-info" onclick="tmGanttZoomIn()" style="padding: 4px 10px;" title="放大">＋</button>
@@ -13490,6 +14030,14 @@ async function __tmRefreshAfterWake(reason) {
                                             <button class="tm-view-seg-item ${state.viewMode === 'calendar' ? 'tm-view-seg-item--active' : ''}" onclick="tmSwitchViewMode('calendar')" role="tab" aria-selected="${state.viewMode === 'calendar' ? 'true' : 'false'}" style="line-height:28px; padding:0 10px;">日历</button>
                                         </div>
                                     </div>
+                                    ${state.viewMode === 'kanban' ? `
+                                        <div style="margin-top:6px;">
+                                            <div class="tm-view-segmented tm-kanban-mode-segmented" role="tablist" aria-label="看板模式" style="width:100%;">
+                                                <button class="tm-view-seg-item ${!SettingsStore.data.kanbanHeadingGroupMode ? 'tm-view-seg-item--active' : ''}" onclick="tmSetKanbanHeadingGroupMode('status', event)" role="tab" aria-selected="${!SettingsStore.data.kanbanHeadingGroupMode ? 'true' : 'false'}" style="flex:1;line-height:30px;">状态</button>
+                                                <button class="tm-view-seg-item ${SettingsStore.data.kanbanHeadingGroupMode ? 'tm-view-seg-item--active' : ''}" onclick="tmSetKanbanHeadingGroupMode('heading', event)" role="tab" aria-selected="${SettingsStore.data.kanbanHeadingGroupMode ? 'true' : 'false'}" style="flex:1;line-height:30px;">标题</button>
+                                            </div>
+                                        </div>
+                                    ` : ''}
                                 </div>
                                 <div class="tm-mobile-only-item" style="display:flex; gap:10px; align-items:center;">
                                     <span style="color:var(--tm-text-color);width:60px;">文档:</span>
@@ -14123,12 +14671,14 @@ async function __tmRefreshAfterWake(reason) {
                     const apply = () => {
                         try { if (kbBody) kbBody.scrollLeft = kanbanLeft; } catch (e) {}
                         try {
-                            state.modal.querySelectorAll('.tm-kanban-col[data-status]').forEach((col) => {
-                                const status = String(col?.getAttribute?.('data-status') || '').trim();
-                                if (!status) return;
+                            state.modal.querySelectorAll('.tm-kanban-col').forEach((col) => {
+                                const colKey = __tmGetKanbanColScrollKey(col);
+                                if (!colKey) return;
                                 const colBody = col.querySelector('.tm-kanban-col-body');
                                 if (!(colBody instanceof HTMLElement)) return;
-                                const top = pickNum(kanbanCols[status], 0);
+                                const status = String(col.getAttribute('data-status') || '').trim();
+                                const legacyKey = status || '';
+                                const top = pickNum(kanbanCols[colKey], pickNum(kanbanCols[legacyKey], 0));
                                 colBody.scrollTop = top;
                             });
                         } catch (e) {}
@@ -14993,7 +15543,7 @@ async function __tmRefreshAfterWake(reason) {
         const viewport = state.modal?.querySelector?.('#tmWhiteboardViewport');
         if (!(viewport instanceof HTMLElement)) return;
         const target = ev?.target;
-        if (target && target.closest && target.closest('.tm-whiteboard-sidebar,.tm-whiteboard-bottom-toolbar,.tm-btn,input,button,select,textarea,label,a,.tm-whiteboard-doc-resize,.tm-task-link-dot,.tm-task-content-clickable,.tm-task-checkbox,.tm-kanban-chip,.tm-whiteboard-card-tools,.tm-whiteboard-note-tools,.tm-whiteboard-link-tools,.tm-whiteboard-edge')) return;
+        if (target && target.closest && target.closest('.tm-whiteboard-sidebar,.tm-whiteboard-bottom-toolbar,.tm-btn,input,button,select,textarea,label,a,.tm-whiteboard-doc-resize,.tm-task-link-dot,.tm-task-content-clickable,.tm-task-checkbox,.tm-kanban-chip,.tm-status-tag,.tm-priority-jira,.tm-kanban-priority-chip,.tm-whiteboard-card-tools,.tm-whiteboard-note-tools,.tm-whiteboard-link-tools,.tm-whiteboard-edge')) return;
         const touches = ev?.touches;
         const n = Number(touches?.length) || 0;
         if (n <= 0) return;
@@ -15089,7 +15639,7 @@ async function __tmRefreshAfterWake(reason) {
         if (!(viewport instanceof HTMLElement)) return;
         if (target && target.closest) {
             if (panMode) {
-                if (target.closest('.tm-whiteboard-sidebar,.tm-whiteboard-bottom-toolbar,.tm-btn,input,button,select,textarea,label,a,.tm-whiteboard-doc-resize,.tm-task-link-dot,.tm-task-content-clickable,.tm-task-checkbox,.tm-kanban-chip,.tm-whiteboard-card-tools,.tm-whiteboard-note-tools,.tm-whiteboard-link-tools,.tm-whiteboard-edge,.tm-whiteboard-node,.tm-whiteboard-note,.tm-whiteboard-note-editor,.tm-whiteboard-doc-head')) return;
+                if (target.closest('.tm-whiteboard-sidebar,.tm-whiteboard-bottom-toolbar,.tm-btn,input,button,select,textarea,label,a,.tm-whiteboard-doc-resize,.tm-task-link-dot,.tm-task-content-clickable,.tm-task-checkbox,.tm-kanban-chip,.tm-status-tag,.tm-priority-jira,.tm-kanban-priority-chip,.tm-whiteboard-card-tools,.tm-whiteboard-note-tools,.tm-whiteboard-link-tools,.tm-whiteboard-edge,.tm-whiteboard-node,.tm-whiteboard-note,.tm-whiteboard-note-editor,.tm-whiteboard-doc-head')) return;
             } else if (selectMode) {
                 if (target.closest('.tm-whiteboard-node,.tm-task-link-dot,.tm-task-checkbox,.tm-btn,.tm-task-content-clickable,.tm-whiteboard-note,.tm-whiteboard-note-editor,.tm-whiteboard-edge,.tm-whiteboard-link-tools,.tm-whiteboard-pool-item,.tm-whiteboard-doc-resize,.tm-whiteboard-doc-head,input,button,select,textarea,label,a')) return;
             } else {
@@ -15319,7 +15869,7 @@ async function __tmRefreshAfterWake(reason) {
             : [];
         const inMulti = multiTaskIds0.includes(id);
         const multiCount = multiTaskIds0.length + multiNoteIds0.length;
-        const hitContent = !!(target && target.closest && target.closest('.tm-task-content-clickable,.tm-kanban-chip'));
+        const hitContent = !!(target && target.closest && target.closest('.tm-task-content-clickable,.tm-kanban-chip,.tm-status-tag,.tm-priority-jira,.tm-kanban-priority-chip'));
         if (target && target.closest && target.closest('.tm-task-link-dot,.tm-task-checkbox,.tm-btn,input,button,select,textarea,label,a')) return;
         if (hitContent && !(multiCount > 1 && inMulti)) return;
         const multiTaskIds = Array.isArray(state.whiteboardMultiSelectedTaskIds)
@@ -18423,6 +18973,99 @@ async function __tmRefreshAfterWake(reason) {
         return true;
     }
 
+    function __tmNormalizeHeadingLevel(v) {
+        const s = String(v || 'h2').trim().toLowerCase();
+        return /^h[1-6]$/.test(s) ? s : 'h2';
+    }
+
+    async function __tmFetchDocHeadingsByDocs(docIds, headingLevel) {
+        const ids = Array.from(new Set((docIds || []).map(x => String(x || '').trim()).filter(Boolean)));
+        const out = {};
+        if (ids.length === 0) return out;
+        const lv = __tmNormalizeHeadingLevel(headingLevel);
+        const batchSize = 60;
+        for (let i = 0; i < ids.length; i += batchSize) {
+            const batch = ids.slice(i, i + batchSize);
+            if (!batch.length) continue;
+            const inList = batch.map((id) => `'${id.replace(/'/g, "''")}'`).join(',');
+            const sql = `
+                SELECT id, root_id, content, sort, created
+                FROM blocks
+                WHERE type = 'h'
+                  AND subtype = '${lv}'
+                  AND root_id IN (${inList})
+                ORDER BY root_id, sort, created, id
+            `;
+            const res = await API.call('/api/query/sql', { stmt: sql }).catch(() => ({ code: -1, data: [] }));
+            const rows = (res && res.code === 0 && Array.isArray(res.data)) ? res.data : [];
+            rows.forEach((r) => {
+                const did = String(r?.root_id || '').trim();
+                const hid = String(r?.id || '').trim();
+                if (!did || !hid) return;
+                if (!out[did]) out[did] = [];
+                out[did].push({
+                    id: hid,
+                    content: String(r?.content || '').trim(),
+                    sort: Number(r?.sort),
+                    created: String(r?.created || '').trim(),
+                });
+            });
+        }
+        Object.keys(out).forEach((did) => {
+            const list = Array.isArray(out[did]) ? out[did] : [];
+            list.forEach((h, idx) => {
+                h.rank = idx;
+            });
+        });
+        return out;
+    }
+
+    async function __tmWarmKanbanDocHeadings(docIds) {
+        const ids = Array.from(new Set((docIds || []).map(x => String(x || '').trim()).filter(Boolean)));
+        const lv = __tmNormalizeHeadingLevel(SettingsStore.data.taskHeadingLevel || 'h2');
+        if (state.kanbanDocHeadingsLevel !== lv) {
+            state.kanbanDocHeadingsByDocId = {};
+            state.kanbanDocHeadingsLevel = lv;
+            state.kanbanDocHeadingsLoadedAt = 0;
+        }
+        const fresh = (Date.now() - (Number(state.kanbanDocHeadingsLoadedAt) || 0)) < 15000;
+        const hasAll = ids.length > 0 && ids.every((id) => Array.isArray(state.kanbanDocHeadingsByDocId?.[id]));
+        if (fresh && hasAll) return;
+        const map = await __tmFetchDocHeadingsByDocs(ids, lv);
+        state.kanbanDocHeadingsByDocId = { ...(state.kanbanDocHeadingsByDocId || {}), ...(map || {}) };
+        state.kanbanDocHeadingsLevel = lv;
+        state.kanbanDocHeadingsLoadedAt = Date.now();
+    }
+
+    async function __tmCleanupPlaceholderTasks(docIds) {
+        const ids = Array.from(new Set((docIds || []).map(x => String(x || '').trim()).filter(Boolean)));
+        if (!ids.length) return;
+        const batchSize = 80;
+        for (let i = 0; i < ids.length; i += batchSize) {
+            const batch = ids.slice(i, i + batchSize);
+            const inList = batch.map((id) => `'${id.replace(/'/g, "''")}'`).join(',');
+            const sql = `
+                SELECT id
+                FROM blocks
+                WHERE type = 'i'
+                  AND subtype = 't'
+                  AND root_id IN (${inList})
+                  AND (
+                    markdown LIKE '%TM_TMP_DO_NOT_EDIT%'
+                    OR markdown LIKE '%__tm_tmp__%'
+                  )
+                LIMIT 200
+            `;
+            const res = await API.call('/api/query/sql', { stmt: sql }).catch(() => ({ code: -1, data: [] }));
+            const rows = (res && res.code === 0 && Array.isArray(res.data)) ? res.data : [];
+            for (const r of rows) {
+                const bid = String(r?.id || '').trim();
+                if (!bid) continue;
+                try { await API.deleteBlock(bid); } catch (e) {}
+            }
+        }
+    }
+
     window.tmKanbanDragStart = function(ev, id) {
         try { ev.stopPropagation(); } catch (e) {}
         const taskId = String(id || '').trim();
@@ -18499,6 +19142,48 @@ async function __tmRefreshAfterWake(reason) {
         try { col.classList.remove('tm-kanban-col--dragover'); } catch (e) {}
     };
 
+    window.tmKanbanGroupDragOver = function(ev) {
+        try { ev.preventDefault(); } catch (e) {}
+        try { ev.stopPropagation(); } catch (e) {}
+        try { ev.dataTransfer.dropEffect = 'move'; } catch (e) {}
+        const ct = ev?.currentTarget instanceof Element ? ev.currentTarget : null;
+        const el0 = ct || (ev?.target instanceof Element ? ev.target.closest('.tm-kanban-group-title, .tm-kanban-group') : null);
+        if (!el0) return;
+        const el = el0.classList?.contains?.('tm-kanban-group-title')
+            ? el0
+            : (el0.querySelector?.('.tm-kanban-group-title') || null);
+        if (!el) return;
+        try { el.classList.add('tm-kanban-group-title--dragover'); } catch (e) {}
+    };
+
+    window.tmKanbanGroupDragLeave = function(ev) {
+        try { ev.stopPropagation(); } catch (e) {}
+        const ct = ev?.currentTarget instanceof Element ? ev.currentTarget : null;
+        const el0 = ct || (ev?.target instanceof Element ? ev.target.closest('.tm-kanban-group-title, .tm-kanban-group') : null);
+        if (!el0) return;
+        const el = el0.classList?.contains?.('tm-kanban-group-title')
+            ? el0
+            : (el0.querySelector?.('.tm-kanban-group-title') || null);
+        if (!el) return;
+        const rel = ev?.relatedTarget instanceof Element ? ev.relatedTarget : null;
+        if (rel && el.contains(rel)) return;
+        try { el.classList.remove('tm-kanban-group-title--dragover'); } catch (e) {}
+    };
+
+    window.tmKanbanGroupDrop = function(ev) {
+        try { ev.preventDefault(); } catch (e) {}
+        try { ev.stopPropagation(); } catch (e) {}
+        try {
+            const ct = ev?.currentTarget instanceof Element ? ev.currentTarget : null;
+            const el0 = ct || (ev?.target instanceof Element ? ev.target.closest('.tm-kanban-group-title, .tm-kanban-group') : null);
+            const el = el0 && el0.classList?.contains?.('tm-kanban-group-title')
+                ? el0
+                : (el0?.querySelector?.('.tm-kanban-group-title') || null);
+            el?.classList?.remove?.('tm-kanban-group-title--dragover');
+        } catch (e) {}
+        try { window.tmKanbanDrop(ev); } catch (e) {}
+    };
+
     window.tmKanbanAutoScroll = function(ev) {
         try { ev.preventDefault(); } catch (e) {}
         const modal = state.modal;
@@ -18544,7 +19229,7 @@ async function __tmRefreshAfterWake(reason) {
             if (!(target instanceof Element)) return;
             if (e && typeof e.button === 'number' && e.button !== 0) return;
             if (target.closest('input,button,select,textarea,a')) return;
-            if (target.closest('.tm-kanban-card,.tm-kanban-chip,.tm-kanban-more,.tm-kanban-toggle,.tm-task-checkbox,.tm-task-content-clickable')) return;
+            if (target.closest('.tm-kanban-card,.tm-kanban-chip,.tm-status-tag,.tm-priority-jira,.tm-kanban-priority-chip,.tm-kanban-more,.tm-kanban-toggle,.tm-task-checkbox,.tm-task-content-clickable')) return;
             if ((bodyEl.scrollWidth - bodyEl.clientWidth) <= 2) return;
 
             const startX = e.clientX;
@@ -18597,7 +19282,8 @@ async function __tmRefreshAfterWake(reason) {
         bodyEl.addEventListener('pointerdown', onPanPointerDown, { passive: false });
     }
 
-    async function __tmKanbanMoveIdsToStatus(taskIds, targetStatus) {
+    async function __tmKanbanMoveIdsToStatus(taskIds, targetStatus, options) {
+        const opt = (options && typeof options === 'object') ? options : {};
         const st = String(targetStatus || '').trim();
         const ids0 = Array.isArray(taskIds) ? taskIds : [];
         const ids = Array.from(new Set(ids0.map(x => String(x || '').trim()).filter(Boolean)));
@@ -18642,33 +19328,111 @@ async function __tmRefreshAfterWake(reason) {
             }
         }
 
-        applyFilters();
-        render();
+        if (opt.skipRender !== true) {
+            applyFilters();
+            render();
+        }
     }
 
-    window.tmKanbanDrop = function(ev) {
+    window.tmKanbanDrop = async function(ev) {
         try { ev.preventDefault(); } catch (e) {}
-        const col = ev?.target instanceof Element ? ev.target.closest('.tm-kanban-col') : null;
-        const st = String(col?.dataset?.status || '').trim();
+        try { ev.stopPropagation(); } catch (e) {}
+        
+        // 首先检查是否拖放到组标题（文档标题或标题分组）
+        const dropTarget = ev?.target instanceof Element ? ev.target.closest('[data-tm-kb-drop-kind]') : null;
+        let kind = '';
+        let targetDocId = '';
+        let targetHeadingId = '';
+        
+        if (dropTarget) {
+            // 从组标题元素读取拖放数据
+            kind = String(dropTarget.dataset?.tmKbDropKind || '').trim();
+            targetDocId = String(dropTarget.dataset?.tmKbDropDoc || '').trim();
+            targetHeadingId = String(dropTarget.dataset?.tmKbDropHeading || '').trim();
+        }
+        
+        // 如果没有从组标题获取到数据，则从列元素读取
+        if (!kind) {
+            const col = ev?.target instanceof Element ? ev.target.closest('.tm-kanban-col') : null;
+            kind = String(col?.dataset?.kind || 'status').trim() || 'status';
+            targetDocId = String(col?.dataset?.doc || '').trim();
+            targetHeadingId = String(col?.dataset?.heading || '').trim();
+        }
+        
         __tmKanbanClearDragOver();
         let id = '';
         try { id = String(ev.dataTransfer.getData('text/plain') || '').trim(); } catch (e) {}
         if (!id) id = String(state.__tmKanbanDragId || '').trim();
-        if (!id || !st) return;
-        let ids = Array.isArray(state.__tmKanbanDragIds) && state.__tmKanbanDragIds.length ? state.__tmKanbanDragIds : [id];
-        
-        if (SettingsStore.data.kanbanDragSyncSubtasks) {
-            const allIds = new Set(ids);
-            ids.forEach(rootId => {
-                const descendants = __tmKanbanCollectDescendantIds(rootId);
-                descendants.forEach(did => allIds.add(did));
-            });
-            ids = Array.from(allIds);
+        if (!id) return;
+        const baseIds = Array.isArray(state.__tmKanbanDragIds) && state.__tmKanbanDragIds.length ? state.__tmKanbanDragIds : [id];
+        if (kind === 'status') {
+            if (!st) return;
+            let ids = baseIds.slice();
+            if (SettingsStore.data.kanbanDragSyncSubtasks) {
+                const allIds = new Set(ids);
+                ids.forEach(rootId => {
+                    const descendants = __tmKanbanCollectDescendantIds(rootId);
+                    descendants.forEach(did => allIds.add(did));
+                });
+                ids = Array.from(allIds);
+            }
+            try {
+                await __tmKanbanMoveIdsToStatus(ids, st);
+            } catch (e) {
+                hint(`❌ 操作失败: ${e.message}`, 'error');
+            }
+            return;
         }
-
-        __tmKanbanMoveIdsToStatus(ids, st).catch(e => {
-            hint(`❌ 操作失败: ${e.message}`, 'error');
-        });
+        if (kind === 'doc') {
+            if (!targetDocId || targetDocId === '__unknown__') return;
+            try {
+                for (const tid of baseIds.slice().reverse()) {
+                    await __tmMoveTaskToDocTop(tid, targetDocId, { silentHint: true, clearHeading: true });
+                }
+            } catch (e) {
+                hint(`❌ 操作失败: ${e.message}`, 'error');
+            }
+            applyFilters();
+            render();
+            return;
+        }
+        // 处理 doc-top 情况：移动到文档顶部（无二级标题）
+        if (kind === 'doc-top') {
+            if (!targetDocId || targetDocId === '__unknown__') return;
+            try {
+                for (const tid of baseIds.slice().reverse()) {
+                    await __tmMoveTaskToDocTop(tid, targetDocId, { silentHint: true, clearHeading: true });
+                }
+            } catch (e) {
+                hint(`❌ 操作失败: ${e.message}`, 'error');
+            }
+            applyFilters();
+            render();
+            return;
+        }
+        if (kind === 'heading') {
+            if (!targetDocId) return;
+            
+            // 只移动最顶层的任务（父任务），子任务会自动跟随父任务移动
+            // 不需要单独移动子任务，否则会破坏父子关系
+            
+            try {
+                for (const tid of baseIds.reverse()) {
+                    if (targetHeadingId && targetHeadingId !== '__none__') {
+                        await __tmMoveTaskToHeading(tid, targetDocId, targetHeadingId, { silentHint: true });
+                    } else {
+                        await __tmMoveTaskToDocTop(tid, targetDocId, { silentHint: true, clearHeading: true });
+                    }
+                }
+            } catch (e) {
+                hint(`❌ 操作失败: ${e.message}`, 'error');
+            }
+            
+            // 移动后刷新数据
+            applyFilters();
+            render();
+            return;
+        }
     };
 
     window.tmKanbanPickDate = async function(id, ev) {
@@ -21017,10 +21781,11 @@ async function __tmRefreshAfterWake(reason) {
     };
 
     window.updateTaskHeadingLevel = async function(value) {
-        const level = String(value || 'h2').trim();
+        const level = __tmNormalizeHeadingLevel(value || 'h2');
         SettingsStore.data.taskHeadingLevel = level;
+        try { SettingsStore.syncToLocal(); } catch (e) {}
         await SettingsStore.save();
-        render();
+        await loadSelectedDocuments();
     };
 
     // 导航功能
@@ -21349,6 +22114,21 @@ async function __tmRefreshAfterWake(reason) {
         const normalRoots = timelineKeepH2Order ? rootTasks.slice() : rootTasks.filter(t => !t.pinned);
         pinnedRoots.sort((a, b) => getTaskOrder(a.id) - getTaskOrder(b.id));
         normalRoots.sort((a, b) => getTaskOrder(a.id) - getTaskOrder(b.id));
+        const docsInOrderForUngroup = __tmSortDocEntriesByPinned(
+            state.taskTree || [],
+            String(SettingsStore.data.currentGroupId || 'all').trim() || 'all'
+        ).map(d => String(d?.id || '').trim()).filter(Boolean);
+        const docRankForUngroup = new Map(docsInOrderForUngroup.map((id, idx) => [id, idx]));
+        const compareRootByDocFlowUngroup = (a, b) => {
+            const ad = String(a?.root_id || '').trim();
+            const bd = String(b?.root_id || '').trim();
+            const ar = docRankForUngroup.has(ad) ? docRankForUngroup.get(ad) : 999999;
+            const br = docRankForUngroup.has(bd) ? docRankForUngroup.get(bd) : 999999;
+            if (ar !== br) return ar - br;
+            const flow = __tmCompareTasksByDocFlow(a, b);
+            if (flow !== 0) return flow;
+            return getTaskOrder(String(a?.id || '')) - getTaskOrder(String(b?.id || ''));
+        };
 
         const emitTask = (task, depth, hasChildren, collapsed) => {
             rows.push({
@@ -21499,7 +22279,7 @@ async function __tmRefreshAfterWake(reason) {
                     return !filteredIdSet.has(t.parentTaskId);
                 });
                 const docNormal = timelineKeepH2Order ? docRootTasks.slice() : docRootTasks.filter(t => !t.pinned);
-                docNormal.sort((a, b) => getTaskOrder(a.id) - getTaskOrder(b.id));
+                docNormal.sort(__tmCompareTasksByDocFlow);
                 const docName = docEntry.name || '未知文档';
                 const groupKey = `doc_${docId}`;
                 const isCollapsed = state.collapsedGroups?.has(groupKey);
@@ -21519,13 +22299,19 @@ async function __tmRefreshAfterWake(reason) {
                         return;
                     }
                     const h2Groups = new Map();
-                    const h2Buckets = __tmBuildDocHeadingBuckets(docNormal, noHeadingLabel);
+                    const h2OrderSource = docTasks.slice().sort(__tmCompareTasksByDocFlow);
+                    const h2Buckets = __tmBuildDocHeadingBuckets(h2OrderSource, noHeadingLabel);
                     docNormal.forEach(task => {
                         const b = __tmGetDocHeadingBucket(task, noHeadingLabel);
                         if (!h2Groups.has(b.key)) h2Groups.set(b.key, { label: b.label, items: [] });
                         h2Groups.get(b.key).items.push(task);
                     });
-                    h2Buckets.forEach((bucket) => {
+                    const orderedH2Buckets = h2Buckets
+                        .filter((bucket) => (h2Groups.get(bucket.key)?.items || []).length > 0)
+                        .concat(Array.from(h2Groups.keys())
+                            .filter((k) => !h2Buckets.some((b) => b.key === k))
+                            .map((k) => ({ key: k, label: String(h2Groups.get(k)?.label || '') })));
+                    orderedH2Buckets.forEach((bucket) => {
                         const g = h2Groups.get(bucket.key) || { label: String(bucket.label || ''), items: [] };
                         const items = Array.isArray(g.items) ? g.items : [];
                         const h2Key = `doc_${docId}__h2_${encodeURIComponent(String(bucket.key || 'label:__none__'))}`;
@@ -21668,7 +22454,7 @@ async function __tmRefreshAfterWake(reason) {
             return rows;
         }
 
-        normalRoots.forEach(task => walkTaskTree(task, 0));
+        normalRoots.slice().sort(compareRootByDocFlowUngroup).forEach(task => walkTaskTree(task, 0));
         return rows;
     }
 
@@ -21739,6 +22525,21 @@ async function __tmRefreshAfterWake(reason) {
         // 对根任务按照在 filteredTasks 中的顺序排序（确保全局排序生效）
         pinnedRoots.sort((a, b) => getTaskOrder(a.id) - getTaskOrder(b.id));
         normalRoots.sort((a, b) => getTaskOrder(a.id) - getTaskOrder(b.id));
+        const docsInOrderForUngroup = __tmSortDocEntriesByPinned(
+            state.taskTree || [],
+            String(SettingsStore.data.currentGroupId || 'all').trim() || 'all'
+        ).map(d => String(d?.id || '').trim()).filter(Boolean);
+        const docRankForUngroup = new Map(docsInOrderForUngroup.map((id, idx) => [id, idx]));
+        const compareRootByDocFlowUngroup = (a, b) => {
+            const ad = String(a?.root_id || '').trim();
+            const bd = String(b?.root_id || '').trim();
+            const ar = docRankForUngroup.has(ad) ? docRankForUngroup.get(ad) : 999999;
+            const br = docRankForUngroup.has(bd) ? docRankForUngroup.get(bd) : 999999;
+            if (ar !== br) return ar - br;
+            const flow = __tmCompareTasksByDocFlow(a, b);
+            if (flow !== 0) return flow;
+            return getTaskOrder(String(a?.id || '')) - getTaskOrder(String(b?.id || ''));
+        };
 
         // 渲染单行（保持原有 emitRow 逻辑）
         const emitRow = (task, depth, hasChildren, collapsed) => {
@@ -22063,7 +22864,7 @@ async function __tmRefreshAfterWake(reason) {
 
                 // 分离置顶和非置顶
                 const docNormal = docRootTasks.filter(t => !t.pinned);
-                docNormal.sort((a, b) => getTaskOrder(a.id) - getTaskOrder(b.id));
+                docNormal.sort(__tmCompareTasksByDocFlow);
 
                 // 渲染文档标题（支持折叠）
                 const docName = docEntry.name || '未知文档';
@@ -22083,14 +22884,20 @@ async function __tmRefreshAfterWake(reason) {
                         });
                     } else {
                         const h2Groups = new Map();
-                        const h2Buckets = __tmBuildDocHeadingBuckets(docNormal, noHeadingLabel);
+                        const h2OrderSource = docTasks.slice().sort(__tmCompareTasksByDocFlow);
+                        const h2Buckets = __tmBuildDocHeadingBuckets(h2OrderSource, noHeadingLabel);
                         docNormal.forEach(task => {
                                 const b = __tmGetDocHeadingBucket(task, noHeadingLabel);
                                 if (!h2Groups.has(b.key)) h2Groups.set(b.key, { label: b.label, items: [] });
                                 h2Groups.get(b.key).items.push(task);
                             });
 
-                        h2Buckets.forEach((bucket) => {
+                        const orderedH2Buckets = h2Buckets
+                            .filter((bucket) => (h2Groups.get(bucket.key)?.items || []).length > 0)
+                            .concat(Array.from(h2Groups.keys())
+                                .filter((k) => !h2Buckets.some((b) => b.key === k))
+                                .map((k) => ({ key: k, label: String(h2Groups.get(k)?.label || '') })));
+                        orderedH2Buckets.forEach((bucket) => {
                             const g = h2Groups.get(bucket.key) || { label: String(bucket.label || ''), items: [] };
                             const items = Array.isArray(g.items) ? g.items : [];
                             const h2Key = `doc_${docId}__h2_${encodeURIComponent(String(bucket.key || 'label:__none__'))}`;
@@ -22259,7 +23066,7 @@ async function __tmRefreshAfterWake(reason) {
         } else {
             // 普通全局混排（不按时间分组，不按文档分组，不按任务名分组）
             currentGroupBg = '';
-            normalRoots.forEach(task => {
+            normalRoots.slice().sort(compareRootByDocFlowUngroup).forEach(task => {
                 allRows.push(...renderTaskTree(task, 0));
             });
         }
@@ -24860,6 +25667,11 @@ async function __tmRefreshAfterWake(reason) {
 
         // 1. 解析所有需要查询的文档ID
         const allDocIds = await resolveDocIdsFromGroups();
+        state.__tmLoadedDocIdsForTasks = Array.isArray(allDocIds) ? allDocIds.slice() : [];
+        if (SettingsStore.data.kanbanHeadingGroupMode) {
+            try { await __tmCleanupPlaceholderTasks(allDocIds); } catch (e) {}
+            try { await __tmWarmKanbanDocHeadings(allDocIds); } catch (e) {}
+        }
         try {
             if (typeof window.tmCalendarWarmDocsToGroupCache === 'function') {
                 await window.tmCalendarWarmDocsToGroupCache();
@@ -27857,6 +28669,41 @@ async function __tmRefreshAfterWake(reason) {
         render();
     };
 
+    window.tmToggleKanbanHeadingGroupMode = async function(ev) {
+        try { ev?.stopPropagation?.(); } catch (e) {}
+        try { ev?.preventDefault?.(); } catch (e) {}
+        const next = !(SettingsStore.data.kanbanHeadingGroupMode === true);
+        SettingsStore.data.kanbanHeadingGroupMode = next;
+        try { SettingsStore.syncToLocal(); } catch (e) {}
+        await SettingsStore.save();
+        if (next) {
+            try { await __tmCleanupPlaceholderTasks(state.__tmLoadedDocIdsForTasks || []); } catch (e) {}
+            try { await __tmWarmKanbanDocHeadings(state.__tmLoadedDocIdsForTasks || []); } catch (e) {}
+        }
+        applyFilters();
+        render();
+        try { hint(next ? '✅ 已切换到标题看板' : '✅ 已切换到状态看板', 'success'); } catch (e) {}
+    };
+
+    window.tmSetKanbanHeadingGroupMode = async function(mode, ev) {
+        try { ev?.stopPropagation?.(); } catch (e) {}
+        try { ev?.preventDefault?.(); } catch (e) {}
+        const m = String(mode || '').trim().toLowerCase();
+        const next = m === 'heading';
+        const prev = SettingsStore.data.kanbanHeadingGroupMode === true;
+        if (next === prev) return;
+        SettingsStore.data.kanbanHeadingGroupMode = next;
+        try { SettingsStore.syncToLocal(); } catch (e) {}
+        await SettingsStore.save();
+        if (next) {
+            try { await __tmCleanupPlaceholderTasks(state.__tmLoadedDocIdsForTasks || []); } catch (e) {}
+            try { await __tmWarmKanbanDocHeadings(state.__tmLoadedDocIdsForTasks || []); } catch (e) {}
+        }
+        applyFilters();
+        render();
+        try { hint(next ? '✅ 已切换到标题看板' : '✅ 已切换到状态看板', 'success'); } catch (e) {}
+    };
+
     window.tmToggleGroupCollapse = async function(groupKey, ev) {
         try {
             ev?.stopPropagation?.();
@@ -28707,15 +29554,17 @@ async function __tmRefreshAfterWake(reason) {
             const isMobileDevice = __tmIsMobileDevice();
             const preserve = !!(options && options.preserveViewMode);
             const current = String(state.viewMode || '').trim();
-            if (preserve && allow.has(current)) {
+            if (preserve && state.viewModeInitialized === true && allow.has(current)) {
                 state.viewMode = (isMobileDevice && current === 'timeline') ? 'list' : current;
             } else {
                 const m0 = String(SettingsStore.data.defaultViewMode || 'list').trim();
                 const m1 = (isMobileDevice && m0 === 'timeline') ? 'list' : m0;
                 state.viewMode = allow.has(m1) ? m1 : 'list';
             }
+            state.viewModeInitialized = true;
         } catch (e) {
             state.viewMode = 'list';
+            state.viewModeInitialized = true;
         }
         try {
             const ids = Array.isArray(SettingsStore.data.kanbanCollapsedTaskIds) ? SettingsStore.data.kanbanCollapsedTaskIds : [];
@@ -28862,6 +29711,10 @@ async function __tmRefreshAfterWake(reason) {
             if (__tmCalendarScheduleUpdatedHandler) {
                 window.removeEventListener('tm:calendar-schedule-updated', __tmCalendarScheduleUpdatedHandler);
                 __tmCalendarScheduleUpdatedHandler = null;
+            }
+            if (__tmCalendarTxRefreshTimer) {
+                clearTimeout(__tmCalendarTxRefreshTimer);
+                __tmCalendarTxRefreshTimer = null;
             }
             if (__tmTodayScheduleRefreshTimer) {
                 clearTimeout(__tmTodayScheduleRefreshTimer);
@@ -29068,6 +29921,12 @@ async function __tmRefreshAfterWake(reason) {
             if (MetaStore.saveTimer) {
                 clearTimeout(MetaStore.saveTimer);
                 MetaStore.saveTimer = null;
+            }
+        } catch (e) {}
+        try {
+            if (__tmWhiteboardViewSaveTimer) {
+                clearTimeout(__tmWhiteboardViewSaveTimer);
+                __tmWhiteboardViewSaveTimer = null;
             }
         } catch (e) {}
         try {
