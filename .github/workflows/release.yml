@@ -4,6 +4,8 @@ on:
   push:
     tags:
       - "v*.*.*"
+  release:
+    types: [published]
 
 permissions:
   contents: write
@@ -11,6 +13,9 @@ permissions:
 jobs:
   build-and-release:
     runs-on: ubuntu-latest
+    if: |
+      (github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')) ||
+      (github.event_name == 'release' && startsWith(github.event.release.tag_name, 'v'))
     steps:
       - uses: actions/checkout@v4
       - name: Package
