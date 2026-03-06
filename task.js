@@ -1,5 +1,5 @@
 // @name         思源笔记任务管理器
-// @version      1.6.8
+// @version      1.6.9
 // @description  任务管理器，支持自定义筛选规则分组和排序
 // @author       5KYFKR
 
@@ -2281,13 +2281,13 @@
         }
 
         .tm-kanban--compact .tm-kanban-col-body {
-            padding: 8px;
-            gap: 6px;
+            padding: 6px;
+            gap: 4px;
         }
 
         .tm-kanban--compact .tm-kanban-card {
-            padding: 8px;
-            border-radius: 9px;
+            padding: 4px 6px;
+            border-radius: 8px;
         }
 
         .tm-kanban--compact .tm-kanban-card-top {
@@ -2332,9 +2332,17 @@
         }
 
         .tm-kanban--compact .tm-kanban-subtasks {
-            margin-top: 6px;
+            margin-top: 4px;
             padding-left: 8px;
-            gap: 6px;
+            gap: 4px;
+        }
+
+        .tm-kanban--compact .tm-kanban-group-items {
+            gap: 4px;
+        }
+
+        .tm-kanban--compact .tm-kanban-group {
+            gap: 8px;
         }
 
         .tm-kanban-col-body {
@@ -12857,7 +12865,7 @@ async function __tmRefreshAfterWake(reason) {
                             ${priorityChip}
                             <span class="tm-kanban-chip tm-kanban-chip--muted" onclick="tmKanbanPickDate('${id}', event)" title="点击选择日期">${esc(dateTxt || '日期')}</span>
                         </div>
-                        ${(isAllTabsView && docName) ? `<div style="font-size:12px;color:var(--tm-secondary-text);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">📄 ${esc(docName)}</div>` : ''}
+                        ${(isAllTabsView && docName && !headingMode) ? `<div style="font-size:12px;color:var(--tm-secondary-text);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">📄 ${esc(docName)}</div>` : ''}
                         ${childrenHtml ? `<div class="tm-kanban-subtasks">${childrenHtml}</div>` : ''}
                     </div>
                 `;
