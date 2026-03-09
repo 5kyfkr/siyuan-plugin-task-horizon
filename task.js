@@ -1,5 +1,5 @@
 // @name         思源笔记任务管理器
-// @version      1.6.10
+// @version      1.6.11
 // @description  任务管理器，支持自定义筛选规则分组和排序
 // @author       5KYFKR
 
@@ -7400,6 +7400,29 @@
         try { window.addEventListener('tm:calendar-schedule-updated', __tmCalendarScheduleUpdatedHandler); } catch (e) {}
     }
 
+    function __tmBootstrapCalendarBackgroundRefresh(tryCount = 0) {
+        try {
+            if (__tmCalendarBootstrapRetryTimer) {
+                clearTimeout(__tmCalendarBootstrapRetryTimer);
+                __tmCalendarBootstrapRetryTimer = null;
+            }
+        } catch (e) {}
+        Promise.resolve().then(async () => {
+            try { await SettingsStore.load(); } catch (e) {}
+            try {
+                if (globalThis.__tmCalendar && typeof globalThis.__tmCalendar.setSettingsStore === 'function') {
+                    globalThis.__tmCalendar.setSettingsStore(SettingsStore);
+                    return;
+                }
+            } catch (e) {}
+            if (tryCount >= 20) return;
+            __tmCalendarBootstrapRetryTimer = setTimeout(() => {
+                __tmCalendarBootstrapRetryTimer = null;
+                __tmBootstrapCalendarBackgroundRefresh(tryCount + 1);
+            }, 1000);
+        }).catch(() => null);
+    }
+
     let __tmMountEl = null;
     let __tmWakeReloadBound = false;
     let __tmWasHiddenAt = 0;
@@ -7486,6 +7509,7 @@
     let __tmQuickAddGlobalClickHandler = null;
     let __tmCalendarScheduleUpdatedHandler = null;
     let __tmTodayScheduleRefreshTimer = null;
+    let __tmCalendarBootstrapRetryTimer = null;
     let __tmQuickbarTaskUpdateHandler = null;
 
     async function __tmSafeOpenManager(reason) {
@@ -12055,7 +12079,11 @@ async function __tmRefreshAfterWake(reason) {
             ev.stopPropagation?.();
             ev.dataTransfer.dropEffect = 'move';
         } catch (e) {}
-        try { ev.currentTarget?.classList?.add('is-drop-target'); } catch (e) {}
+        // 查找最近的文档页签元素
+        const tabEl = ev.target instanceof Element ? ev.target.closest('.tm-doc-tab') : null;
+        if (tabEl) {
+            try { tabEl.classList?.add('is-drop-target'); } catch (e) {}
+        }
     };
 
     window.tmDocTabDragEnter = function(ev) {
@@ -12064,7 +12092,11 @@ async function __tmRefreshAfterWake(reason) {
             ev.stopPropagation?.();
             ev.dataTransfer.dropEffect = 'move';
         } catch (e) {}
-        try { ev.currentTarget?.classList?.add('is-drop-target'); } catch (e) {}
+        // 查找最近的文档页签元素
+        const tabEl = ev.target instanceof Element ? ev.target.closest('.tm-doc-tab') : null;
+        if (tabEl) {
+            try { tabEl.classList?.add('is-drop-target'); } catch (e) {}
+        }
     };
 
     window.tmDocTabDragLeave = function(ev) {
@@ -12073,24 +12105,33 @@ async function __tmRefreshAfterWake(reason) {
             const rel = ev?.relatedTarget;
             if (cur instanceof Element && rel instanceof Element && cur.contains(rel)) return;
         } catch (e) {}
+        // 查找最近的文档页签元素并移除样式
+        const tabEl = ev.target instanceof Element ? ev.target.closest('.tm-doc-tab') : null;
+        if (tabEl) {
+            try { tabEl.classList?.remove('is-drop-target'); } catch (e) {}
+        }
         try { ev.currentTarget?.classList?.remove('is-drop-target'); } catch (e) {}
     };
 
     function __tmGetDraggedTaskId(ev) {
         let taskId = '';
+        // 尝试从 dataTransfer 获取任务ID
         try {
             taskId = String(ev?.dataTransfer?.getData?.('application/x-tm-task-id') || '').trim();
             if (taskId) return taskId;
         } catch (e) {}
+        // 尝试从 text/plain 获取
         try {
             const raw = String(ev?.dataTransfer?.getData?.('text/plain') || '').trim();
             if (raw && !raw.startsWith('{') && !raw.startsWith('[')) {
                 taskId = raw;
             }
         } catch (e) {}
+        // 最后尝试从全局状态获取
         if (!taskId) taskId = String(state.draggingTaskId || '').trim();
+        // 如果任务不在flatTasks中，仍然返回taskId，让后续处理来验证任务有效性
         if (!taskId) return '';
-        return state.flatTasks?.[taskId] ? taskId : '';
+        return taskId;
     }
 
     function __tmClearDocTabDropTarget() {
@@ -12307,9 +12348,20 @@ async function __tmRefreshAfterWake(reason) {
             ev.stopPropagation?.();
         } catch (e) {}
         state.suppressDocTabClickUntil = Date.now() + 300;
-        try { ev.currentTarget?.classList?.remove('is-drop-target'); } catch (e) {}
+        // 移除所有文档页签的drop目标样式
+        try {
+            const tabEls = document.querySelectorAll('.tm-doc-tab.is-drop-target');
+            tabEls.forEach(el => el.classList.remove('is-drop-target'));
+        } catch (e) {}
         try { __tmClearDocTabDropTarget(); } catch (e) {}
-        const targetDocId = String(docId || '').trim();
+        // 如果docId为空，尝试从事件目标获取
+        let targetDocId = String(docId || '').trim();
+        if (!targetDocId) {
+            const tabEl = ev.target instanceof Element ? ev.target.closest('.tm-doc-tab') : null;
+            if (tabEl) {
+                targetDocId = String(tabEl.getAttribute('data-tm-doc-id') || '').trim();
+            }
+        }
         if (!targetDocId || targetDocId === 'all') return;
         const taskId = __tmGetDraggedTaskId(ev);
         if (!taskId) return;
@@ -12943,61 +12995,109 @@ async function __tmRefreshAfterWake(reason) {
                     }));
                 }
                 const docId = String(state.activeDocId || '').trim();
-                const headings = Array.isArray(state.kanbanDocHeadingsByDocId?.[docId]) ? state.kanbanDocHeadingsByDocId[docId] : [];
                 
                 // 获取当前文档的任务
                 const docTasks = filtered.filter(t => String(t?.root_id || '').trim() === docId);
                 
-                // 使用 __tmBuildDocHeadingBuckets 来获取正确的标题顺序（基于任务在文档中的实际位置）
                 const headingLevel = __tmNormalizeHeadingLevel(SettingsStore.data.taskHeadingLevel || 'h2');
                 const headingLabelMap = { h1: '一级标题', h2: '二级标题', h3: '三级标题', h4: '四级标题', h5: '五级标题', h6: '六级标题' };
                 const noHeadingLabel = `无${headingLabelMap[headingLevel] || '标题'}`;
                 
-                // 按文档顺序排序任务，然后提取唯一的标题 bucket
+                // 获取当前文档的原始标题列表（这个顺序是稳定的）
+                const headings = Array.isArray(state.kanbanDocHeadingsByDocId?.[docId]) ? state.kanbanDocHeadingsByDocId[docId] : [];
+                
+                // 构建原始标题的顺序映射（用于稳定性，避免跳变）
+                const headingOrderMap = new Map();
+                headings.forEach((h, idx) => {
+                    const hid = String(h?.id || '').trim();
+                    if (hid) headingOrderMap.set(`id:${hid}`, idx);
+                });
+                
+                // 构建 grouped：按标题分组任务
+                const grouped = new Map();
+                docTasks.forEach((task) => {
+                    const b = __tmGetDocHeadingBucket(task, noHeadingLabel);
+                    if (!grouped.has(b.key)) grouped.set(b.key, { label: b.label, id: b.id, items: [] });
+                    grouped.get(b.key).items.push(task);
+                });
+                
+                // 使用动态 buckets 获取正确的标题顺序（与表格视图一致）
                 const sortedDocTasks = docTasks.slice().sort(__tmCompareTasksByDocFlow);
-                const bucketMap = new Map(); // 用于去重和保持顺序
-                sortedDocTasks.forEach(t => {
-                    const hid = String(t?.h2Id || '').trim();
-                    if (hid && !bucketMap.has(hid)) {
-                        bucketMap.set(hid, {
-                            id: hid,
-                            content: String(t?.h2 || '').trim() || '(空标题)',
-                            sort: Number(t?.h2Sort) || Number(t?.h2Rank) || 0
+                const buckets = __tmBuildDocHeadingBuckets(sortedDocTasks, noHeadingLabel);
+                
+                // 构建最终的列：有任务的按动态顺序，无任务的按原始标题顺序
+                const cols0 = [];
+                const usedKeys = new Set();
+                
+                // 第一批：有任务的标题（按动态 buckets 顺序）
+                buckets.forEach(b => {
+                    const group = grouped.get(b.key);
+                    if (group?.items?.length > 0) {
+                        cols0.push({
+                            id: String(b?.id || '').trim(),
+                            name: String(b?.label || '').trim() || '(空标题)',
+                            color: pickDocColor(docId),
+                            kind: 'heading',
+                            docId,
+                            hasItems: true,
+                            orderIdx: cols0.length, // 保持动态顺序
+                        });
+                        usedKeys.add(b.key);
+                    }
+                });
+                
+                // 第二批：有任务但不在动态 buckets 中的（添加额外分组）
+                Array.from(grouped.keys()).forEach(key => {
+                    if (!usedKeys.has(key) && (grouped.get(key)?.items?.length > 0)) {
+                        cols0.push({
+                            id: grouped.get(key)?.id || '',
+                            name: String(grouped.get(key)?.label || '').trim() || '(空标题)',
+                            color: pickDocColor(docId),
+                            kind: 'heading',
+                            docId,
+                            hasItems: true,
+                            orderIdx: 9999,
                         });
                     }
                 });
                 
-                // 添加不在任何任务中的原始标题
+                // 第三批：没有任务的原始标题（按原始文档顺序，显示但置灰）
                 headings.forEach(h => {
                     const hid = String(h?.id || '').trim();
-                    if (hid && !bucketMap.has(hid)) {
-                        bucketMap.set(hid, {
+                    if (!hid) return;
+                    const key = `id:${hid}`;
+                    if (!usedKeys.has(key) && !grouped.has(key)) {
+                        cols0.push({
                             id: hid,
-                            content: String(h?.content || '').trim() || '(空标题)',
-                            sort: Number(h?.sort) || 0
+                            name: String(h?.content || '').trim() || '(空标题)',
+                            color: pickDocColor(docId),
+                            kind: 'heading',
+                            docId,
+                            hasItems: false,
+                            orderIdx: headingOrderMap.get(key) ?? 999,
                         });
                     }
                 });
                 
-                // 转换为数组并按 sort 排序
-                const allHeadings = Array.from(bucketMap.values()).sort((a, b) => {
-                    const sa = Number(a?.sort ?? 0);
-                    const sb = Number(b?.sort ?? 0);
-                    if (sa !== sb) return sa - sb;
-                    return String(a?.id || '').localeCompare(String(b?.id || ''));
+                // 按原始标题顺序排序：有任务的在前，无任务的按原始顺序在后
+                cols0.sort((a, b) => {
+                    if (a.hasItems !== b.hasItems) return a.hasItems ? -1 : 1;
+                    return a.orderIdx - b.orderIdx;
                 });
                 
-                const cols0 = allHeadings.map((h) => ({
-                    id: String(h?.id || '').trim(),
-                    name: String(h?.content || '').trim() || '(空标题)',
-                    color: pickDocColor(docId),
-                    kind: 'heading',
-                    docId,
-                }));
+                // 确保"无标题"列在最后
+                const noneCol = cols0.find(c => c.name === noHeadingLabel);
+                if (!noneCol) {
+                    cols0.push({ id: '__none__', name: noHeadingLabel, color: pickDocColor(docId), kind: 'heading', docId, hasItems: false, orderIdx: 99999 });
+                }
                 
-                // 添加"无标题"列
-                cols0.push({ id: '__none__', name: noHeadingLabel, color: pickDocColor(docId), kind: 'heading', docId });
-                return cols0;
+                return cols0.map(c => ({
+                    id: c.id,
+                    name: c.name,
+                    color: c.color,
+                    kind: c.kind,
+                    docId: c.docId,
+                }));
             })();
 
             const tasksByStatus = new Map(cols.map(c => [String(c?.id || '').trim(), []]));
@@ -13182,13 +13282,51 @@ async function __tmRefreshAfterWake(reason) {
                     const o = (opt && typeof opt === 'object') ? opt : {};
                     const showDocTitle = !o.hideDocTitle; // 是否显示文档标题行
                     const headingIndent = o.headingMode ? 0 : 2; // 标题模式下二级标题不缩进，非标题模式下缩进2字符
+                    // 辅助函数：检查任务是否被置顶
+                    const isPinned = (t) => {
+                        const p = t.pinned;
+                        return p === true || p === 'true' || p === '1';
+                    };
+                    // 分离置顶和非置顶任务
+                    const allPinned = roots.filter(isPinned);
+                    const allNormal = roots.filter(t => !isPinned(t));
+                    // 分别排序
+                    allPinned.sort(allowDocFlowForKanban ? __tmCompareTasksByDocFlow : sortByIdx);
+                    // 构建置顶分组 HTML
+                    let resultHtml = '';
+                    if (allPinned.length > 0) {
+                        const pinnedGroupKey = `kanban_${c.id}_doc_pinned`;
+                        const pinnedIsCollapsed = state.collapsedGroups?.has(pinnedGroupKey);
+                        // 渲染置顶任务卡片，添加红色左边框
+                        const renderPinnedTree = (t) => {
+                            const html = renderTree(t, 0);
+                            // 使用正则精确替换最外层的 tm-kanban-card class，添加红色左边框样式
+                            return html.replace(/class="tm-kanban-card([^"]*)"/, (match, extras) => {
+                                return `class="tm-kanban-card${extras}" style="border-left:3px solid var(--tm-danger-color,#d32f2f);"`;
+                            });
+                        };
+                        const pinnedBody = pinnedIsCollapsed ? '' : `<div class="tm-kanban-group-items">${allPinned.map(renderPinnedTree).join('')}</div>`;
+                        // 自定义渲染置顶分组标题：淡粉色背景 + 黑色文字 + 黑色折叠指示器
+                        const pinnedTitle = `
+                            <div class="tm-kanban-group-title" onclick="tmToggleGroupCollapse('${escSq(pinnedGroupKey)}', event)" style="background:#ffebee;">
+                                <span style="display:inline-flex;align-items:center;min-width:0;">
+                                    <span class="tm-group-toggle" style="cursor:pointer;display:inline-block;width:12px;color:var(--tm-text-color);">${pinnedIsCollapsed ? '▸' : '▾'}</span>
+                                    <span style="color:var(--tm-text-color);">📌 置顶</span>
+                                </span>
+                                <span class="tm-badge tm-badge--count">${allPinned.length}</span>
+                            </div>
+                        `;
+                        resultHtml += `<div class="tm-kanban-group">${pinnedTitle}${pinnedBody}</div>`;
+                    }
+                    // 对非置顶任务按文档分组
                     const rootByDoc = new Map();
                     const countByDoc = new Map();
                     list0.forEach(t => {
+                        if (isPinned(t)) return; // 跳过置顶任务
                         const did = String(t?.root_id || '').trim() || '__unknown__';
                         countByDoc.set(did, (countByDoc.get(did) || 0) + 1);
                     });
-                    roots.forEach(t => {
+                    allNormal.forEach(t => {
                         const did = String(t?.root_id || '').trim() || '__unknown__';
                         if (!rootByDoc.has(did)) rootByDoc.set(did, []);
                         rootByDoc.get(did).push(t);
@@ -13202,7 +13340,7 @@ async function __tmRefreshAfterWake(reason) {
                         const b0 = rootByDoc.get(b)?.[0];
                         return getIdx(a0) - getIdx(b0);
                     });
-                    return docIds.map((docId) => {
+                    const docGroupsHtml = docIds.map((docId) => {
                         const items = rootByDoc.get(docId) || [];
                         const groupKey = `kanban_${c.id}_doc_${docId}`;
                         const isCollapsed = state.collapsedGroups?.has(groupKey);
@@ -13214,11 +13352,29 @@ async function __tmRefreshAfterWake(reason) {
                             // 在标题看板模式下，即使设置中没有启用 docH2SubgroupEnabled，也启用二级标题分组
                             const enableH2 = (!!SettingsStore.data.docH2SubgroupEnabled || headingMode) && !o.forceNoHeading;
                             if (!enableH2) {
-                                // 按文档内的顺序排序任务，使用 __tmCompareTasksByDocFlow
-                                const sortedItems = items.slice().sort(
-                                    allowDocFlowForKanban ? __tmCompareTasksByDocFlow : sortByIdx
-                                );
-                                body = `<div class="tm-kanban-group-items">${sortedItems.map(t => renderTree(t, 0)).join('')}</div>`;
+                                // 辅助函数：检查任务是否被置顶
+                                const isPinned = (t) => {
+                                    const p = t.pinned;
+                                    return p === true || p === 'true' || p === '1';
+                                };
+                                // 分离置顶和非置顶任务
+                                const pinnedItems = items.filter(isPinned);
+                                const normalItems = items.filter(t => !isPinned(t));
+                                // 分别排序
+                                pinnedItems.sort(allowDocFlowForKanban ? __tmCompareTasksByDocFlow : sortByIdx);
+                                normalItems.sort(allowDocFlowForKanban ? __tmCompareTasksByDocFlow : sortByIdx);
+                                // 构建看板内容
+                                let bodyContent = '';
+                                if (pinnedItems.length > 0) {
+                                    // 添加置顶分组
+                                    const pinnedBody = `<div class="tm-kanban-group-items">${pinnedItems.map(t => renderTree(t, 0)).join('')}</div>`;
+                                    bodyContent += `<div class="tm-kanban-group"><div class="tm-kanban-group-title" style="color:var(--tm-primary-color);">📌 置顶</div>${pinnedBody}</div>`;
+                                }
+                                if (normalItems.length > 0) {
+                                    const normalBody = `<div class="tm-kanban-group-items">${normalItems.map(t => renderTree(t, 0)).join('')}</div>`;
+                                    bodyContent += `<div class="tm-kanban-group-items">${normalBody}</div>`;
+                                }
+                                body = bodyContent;
                             } else {
                                 const headingLevel = String(SettingsStore.data.taskHeadingLevel || 'h2').trim() || 'h2';
                                 const headingLabelMap = { h1: '一级标题', h2: '二级标题', h3: '三级标题', h4: '四级标题', h5: '五级标题', h6: '六级标题' };
@@ -13241,10 +13397,19 @@ async function __tmRefreshAfterWake(reason) {
                                 const h2Html = sortedBuckets.map((bucket) => {
                                     let bucketItems = grouped.get(bucket.key) || [];
                                     if (!bucketItems.length) return '';
-                                    // 按文档内的顺序排序任务，使用 __tmCompareTasksByDocFlow
-                                    bucketItems = bucketItems.slice().sort(
-                                        allowDocFlowForKanban ? __tmCompareTasksByDocFlow : sortByIdx
-                                    );
+                                    // 辅助函数：检查任务是否被置顶
+                                    const isPinned = (t) => {
+                                        const p = t.pinned;
+                                        return p === true || p === 'true' || p === '1';
+                                    };
+                                    // 分离置顶和非置顶任务
+                                    const pinnedItems = bucketItems.filter(isPinned);
+                                    const normalItems = bucketItems.filter(t => !isPinned(t));
+                                    // 分别排序
+                                    pinnedItems.sort(allowDocFlowForKanban ? __tmCompareTasksByDocFlow : sortByIdx);
+                                    normalItems.sort(allowDocFlowForKanban ? __tmCompareTasksByDocFlow : sortByIdx);
+                                    // 置顶任务排在前面
+                                    bucketItems = [...pinnedItems, ...normalItems];
                                     const h2Key = `kanban_${c.id}_doc_${docId}__h2_${encodeURIComponent(String(bucket.key || 'label:__none__'))}`;
                                     const h2Collapsed = state.collapsedGroups?.has(h2Key);
                                     const h2Title = `<span style="color:var(--tm-secondary-text);">🧩 ${esc(String(bucket.label || ''))}</span>`;
@@ -13266,11 +13431,52 @@ async function __tmRefreshAfterWake(reason) {
                         }
                         return `<div class="tm-kanban-group"${wrapDrop}>${renderGroupTitle(groupKey, title, countByDoc.get(docId) || items.length, labelColor, dropOpt)}${body}</div>`;
                     }).join('');
+                    resultHtml += docGroupsHtml;
+                    return resultHtml;
                 };
 
                 const renderGroupedByTime = () => {
+                    // 辅助函数：检查任务是否被置顶
+                    const isPinned = (t) => {
+                        const p = t.pinned;
+                        return p === true || p === 'true' || p === '1';
+                    };
+                    // 分离置顶和非置顶任务
+                    const allPinned = roots.filter(isPinned);
+                    const allNormal = roots.filter(t => !isPinned(t));
+                    // 分别排序
+                    allPinned.sort(needDocFlowForKanban ? compareRootByDocFlow : sortByIdx);
+                    allNormal.sort(needDocFlowForKanban ? compareRootByDocFlow : sortByIdx);
+                    // 构建结果
+                    let resultHtml = '';
+                    // 如果有置顶任务，先渲染置顶分组
+                    if (allPinned.length > 0) {
+                        const pinnedGroupKey = `kanban_${c.id}_time_pinned`;
+                        const pinnedIsCollapsed = state.collapsedGroups?.has(pinnedGroupKey);
+                        // 渲染置顶任务卡片，添加红色左边框
+                        const renderPinnedTree = (t) => {
+                            const html = renderTree(t, 0);
+                            // 使用正则精确替换最外层的 tm-kanban-card class，添加红色左边框样式
+                            return html.replace(/class="tm-kanban-card([^"]*)"/, (match, extras) => {
+                                return `class="tm-kanban-card${extras}" style="border-left:3px solid var(--tm-danger-color,#d32f2f);"`;
+                            });
+                        };
+                        const pinnedBody = pinnedIsCollapsed ? '' : `<div class="tm-kanban-group-items">${allPinned.map(renderPinnedTree).join('')}</div>`;
+                        // 自定义渲染置顶分组标题：淡粉色背景 + 黑色文字 + 黑色折叠指示器
+                        const pinnedTitle = `
+                            <div class="tm-kanban-group-title" onclick="tmToggleGroupCollapse('${escSq(pinnedGroupKey)}', event)" style="background:#ffebee;">
+                                <span style="display:inline-flex;align-items:center;min-width:0;">
+                                    <span class="tm-group-toggle" style="cursor:pointer;display:inline-block;width:12px;color:var(--tm-text-color);">${pinnedIsCollapsed ? '▸' : '▾'}</span>
+                                    <span style="color:var(--tm-text-color);">📌 置顶</span>
+                                </span>
+                                <span class="tm-badge tm-badge--count">${allPinned.length}</span>
+                            </div>
+                        `;
+                        resultHtml += `<div class="tm-kanban-group">${pinnedTitle}${pinnedBody}</div>`;
+                    }
+                    // 对非置顶任务按时间分组
                     const gm = new Map();
-                    roots.forEach(t => {
+                    allNormal.forEach(t => {
                         const info = getTimeGroup(t);
                         const key = String(info.key || 'pending');
                         if (!gm.has(key)) gm.set(key, { ...info, items: [] });
@@ -13281,7 +13487,7 @@ async function __tmRefreshAfterWake(reason) {
                         const bv = Number(b?.sortValue);
                         return (Number.isFinite(av) ? av : Infinity) - (Number.isFinite(bv) ? bv : Infinity);
                     });
-                    return groups.map((g) => {
+                    const timeGroupsHtml = groups.map((g) => {
                         const groupKey = `kanban_${c.id}_time_${g.key}`;
                         const isCollapsed = state.collapsedGroups?.has(groupKey);
                         const color = getTimeGroupLabelColor(g);
@@ -13291,9 +13497,49 @@ async function __tmRefreshAfterWake(reason) {
                         const body = isCollapsed ? '' : `<div class="tm-kanban-group-items">${items.map(t => renderTree(t, 0)).join('')}</div>`;
                         return `<div class="tm-kanban-group">${renderGroupTitle(groupKey, title, items.length, color)}${body}</div>`;
                     }).join('');
+                    resultHtml += timeGroupsHtml;
+                    return resultHtml;
                 };
 
                 const renderGroupedByQuadrant = () => {
+                    // 辅助函数：检查任务是否被置顶
+                    const isPinned = (t) => {
+                        const p = t.pinned;
+                        return p === true || p === 'true' || p === '1';
+                    };
+                    // 分离置顶和非置顶任务
+                    const allPinned = roots.filter(isPinned);
+                    const allNormal = roots.filter(t => !isPinned(t));
+                    // 分别排序
+                    allPinned.sort(needDocFlowForKanban ? compareRootByDocFlow : sortByIdx);
+                    // 构建结果
+                    let resultHtml = '';
+                    // 如果有置顶任务，先渲染置顶分组
+                    if (allPinned.length > 0) {
+                        const pinnedGroupKey = `kanban_${c.id}_quadrant_pinned`;
+                        const pinnedIsCollapsed = state.collapsedGroups?.has(pinnedGroupKey);
+                        // 渲染置顶任务卡片，添加红色左边框
+                        const renderPinnedTree = (t) => {
+                            const html = renderTree(t, 0);
+                            // 使用正则精确替换最外层的 tm-kanban-card class，添加红色左边框样式
+                            return html.replace(/class="tm-kanban-card([^"]*)"/, (match, extras) => {
+                                return `class="tm-kanban-card${extras}" style="border-left:3px solid var(--tm-danger-color,#d32f2f);"`;
+                            });
+                        };
+                        const pinnedBody = pinnedIsCollapsed ? '' : `<div class="tm-kanban-group-items">${allPinned.map(renderPinnedTree).join('')}</div>`;
+                        // 自定义渲染置顶分组标题：淡粉色背景 + 黑色文字 + 黑色折叠指示器
+                        const pinnedTitle = `
+                            <div class="tm-kanban-group-title" onclick="tmToggleGroupCollapse('${escSq(pinnedGroupKey)}', event)" style="background:#ffebee;">
+                                <span style="display:inline-flex;align-items:center;min-width:0;">
+                                    <span class="tm-group-toggle" style="cursor:pointer;display:inline-block;width:12px;color:var(--tm-text-color);">${pinnedIsCollapsed ? '▸' : '▾'}</span>
+                                    <span style="color:var(--tm-text-color);">📌 置顶</span>
+                                </span>
+                                <span class="tm-badge tm-badge--count">${allPinned.length}</span>
+                            </div>
+                        `;
+                        resultHtml += `<div class="tm-kanban-group">${pinnedTitle}${pinnedBody}</div>`;
+                    }
+                    // 对非置顶任务按四象限分组
                     const gm = new Map();
                     quadrantRules.forEach(r => {
                         const id = String(r?.id || '').trim();
@@ -13302,14 +13548,14 @@ async function __tmRefreshAfterWake(reason) {
                     });
                     const unmatchedKey = '__unmatched__';
                     gm.set(unmatchedKey, { rule: { id: unmatchedKey, name: '未匹配四象限', color: '' }, items: [] });
-                    roots.forEach(t => {
+                    allNormal.forEach(t => {
                         const rule = resolveQuadrantRule(t);
                         const key = String(rule?.id || unmatchedKey);
                         if (!gm.has(key)) gm.set(key, { rule: rule || { id: key, name: key, color: '' }, items: [] });
                         gm.get(key).items.push(t);
                     });
                     const orderKeys = [...quadrantOrder, ...Array.from(gm.keys()).filter(k => !quadrantOrder.includes(k) && k !== unmatchedKey), unmatchedKey];
-                    return orderKeys
+                    const quadrantGroupsHtml = orderKeys
                         .filter(k => gm.has(k) && (gm.get(k).items || []).length > 0)
                         .map((k) => {
                             const g = gm.get(k);
@@ -13324,19 +13570,58 @@ async function __tmRefreshAfterWake(reason) {
                             return `<div class="tm-kanban-group">${renderGroupTitle(groupKey, title, items.length, color)}${body}</div>`;
                         })
                         .join('');
+                    resultHtml += quadrantGroupsHtml;
+                    return resultHtml;
                 };
 
                 const renderGroupedByTaskName = () => {
-                    // 按任务名分组：只对顶级任务分组，子任务跟随父任务
+                    // 辅助函数：检查任务是否被置顶
+                    const isPinned = (t) => {
+                        const p = t.pinned;
+                        return p === true || p === 'true' || p === '1';
+                    };
+                    // 分离置顶和非置顶任务
+                    const allPinned = roots.filter(isPinned);
+                    const allNormal = roots.filter(t => !isPinned(t));
+                    // 分别排序
+                    allPinned.sort(sortByIdx);
+                    // 构建结果
+                    let resultHtml = '';
+                    // 如果有置顶任务，先渲染置顶分组
+                    if (allPinned.length > 0) {
+                        const pinnedGroupKey = `kanban_${c.id}_task_pinned`;
+                        const pinnedIsCollapsed = state.collapsedGroups?.has(pinnedGroupKey);
+                        // 渲染置顶任务卡片，添加红色左边框
+                        const renderPinnedTree = (t) => {
+                            const html = renderTree(t, 0);
+                            // 使用正则精确替换最外层的 tm-kanban-card class，添加红色左边框样式
+                            return html.replace(/class="tm-kanban-card([^"]*)"/, (match, extras) => {
+                                return `class="tm-kanban-card${extras}" style="border-left:3px solid var(--tm-danger-color,#d32f2f);"`;
+                            });
+                        };
+                        const pinnedBody = pinnedIsCollapsed ? '' : `<div class="tm-kanban-group-items">${allPinned.map(renderPinnedTree).join('')}</div>`;
+                        // 自定义渲染置顶分组标题：淡粉色背景 + 黑色文字 + 黑色折叠指示器
+                        const pinnedTitle = `
+                            <div class="tm-kanban-group-title" onclick="tmToggleGroupCollapse('${escSq(pinnedGroupKey)}', event)" style="background:#ffebee;">
+                                <span style="display:inline-flex;align-items:center;min-width:0;">
+                                    <span class="tm-group-toggle" style="cursor:pointer;display:inline-block;width:12px;color:var(--tm-text-color);">${pinnedIsCollapsed ? '▸' : '▾'}</span>
+                                    <span style="color:var(--tm-text-color);">📌 置顶</span>
+                                </span>
+                                <span class="tm-badge tm-badge--count">${allPinned.length}</span>
+                            </div>
+                        `;
+                        resultHtml += `<div class="tm-kanban-group">${pinnedTitle}${pinnedBody}</div>`;
+                    }
+                    // 对非置顶任务按任务名分组
                     const gm = new Map();
-                    roots.forEach(t => {
+                    allNormal.forEach(t => {
                         const content = String(t?.content || '').trim();
                         if (!content) return;
                         if (!gm.has(content)) gm.set(content, { content, items: [] });
                         gm.get(content).items.push(t);
                     });
                     const groups = Array.from(gm.values()).sort((a, b) => String(a.content || '').localeCompare(String(b.content || ''), 'zh-CN'));
-                    return groups.map((g) => {
+                    const taskNameGroupsHtml = groups.map((g) => {
                         const safeContent = String(g.content || '').replace(/[^a-zA-Z0-9\u4e00-\u9fa5]/g, '_');
                         const groupKey = `kanban_${c.id}_task_${safeContent}`;
                         const isCollapsed = state.collapsedGroups?.has(groupKey);
@@ -13353,9 +13638,57 @@ async function __tmRefreshAfterWake(reason) {
                         const body = isCollapsed ? '' : `<div class="tm-kanban-group-items">${items.map(t => renderTree(t, 0)).join('')}</div>`;
                         return `<div class="tm-kanban-group">${renderGroupTitle(groupKey, title, g.items.length, color)}${body}</div>`;
                     }).join('');
+                    resultHtml += taskNameGroupsHtml;
+                    return resultHtml;
                 };
 
                 let listHtml = '';
+                // 辅助函数：检查任务是否被置顶
+                const isPinned = (t) => {
+                    const p = t.pinned;
+                    return p === true || p === 'true' || p === '1';
+                };
+                // 辅助函数：渲染不分组模式下的看板内容（带置顶分组）
+                const renderUngroupedWithPinned = () => {
+                    // 分离置顶和非置顶任务
+                    const allPinned = roots.filter(isPinned);
+                    const allNormal = roots.filter(t => !isPinned(t));
+                    // 分别排序
+                    allPinned.sort(needDocFlowForKanban ? compareRootByDocFlow : sortByIdx);
+                    allNormal.sort(needDocFlowForKanban ? compareRootByDocFlow : sortByIdx);
+                    // 构建结果
+                    let result = '';
+                    // 如果有置顶任务，先渲染置顶分组
+                    if (allPinned.length > 0) {
+                        const pinnedGroupKey = `kanban_${c.id}_ungrouped_pinned`;
+                        const pinnedIsCollapsed = state.collapsedGroups?.has(pinnedGroupKey);
+                        // 渲染置顶任务卡片，添加红色左边框
+                        const renderPinnedTree = (t) => {
+                            const html = renderTree(t, 0);
+                            // 使用正则精确替换最外层的 tm-kanban-card class，添加红色左边框样式
+                            return html.replace(/class="tm-kanban-card([^"]*)"/, (match, extras) => {
+                                return `class="tm-kanban-card${extras}" style="border-left:3px solid var(--tm-danger-color,#d32f2f);"`;
+                            });
+                        };
+                        const pinnedBody = pinnedIsCollapsed ? '' : `<div class="tm-kanban-group-items">${allPinned.map(renderPinnedTree).join('')}</div>`;
+                        // 自定义渲染置顶分组标题：淡粉色背景 + 黑色文字 + 黑色折叠指示器
+                        const pinnedTitle = `
+                            <div class="tm-kanban-group-title" onclick="tmToggleGroupCollapse('${escSq(pinnedGroupKey)}', event)" style="background:#ffebee;">
+                                <span style="display:inline-flex;align-items:center;min-width:0;">
+                                    <span class="tm-group-toggle" style="cursor:pointer;display:inline-block;width:12px;color:var(--tm-text-color);">${pinnedIsCollapsed ? '▸' : '▾'}</span>
+                                    <span style="color:var(--tm-text-color);">📌 置顶</span>
+                                </span>
+                                <span class="tm-badge tm-badge--count">${allPinned.length}</span>
+                            </div>
+                        `;
+                        result += `<div class="tm-kanban-group">${pinnedTitle}${pinnedBody}</div>`;
+                    }
+                    // 渲染普通任务
+                    if (allNormal.length > 0) {
+                        result += allNormal.map(t => renderTree(t, 0)).join('');
+                    }
+                    return result;
+                };
                 // 标题看板模式下，也支持按文档/时间/四象限/任务名分组
                 if (headingMode && state.groupByDocName && isAllTabsView) {
                     // 标题看板模式 + 按文档分组 + 全部视图：每个文档内按二级标题分组，不显示文档标题行
@@ -13374,7 +13707,7 @@ async function __tmRefreshAfterWake(reason) {
                     listHtml = renderGroupedByTaskName();
                 } else if (headingMode) {
                     // 标题看板模式 + 不分组
-                    listHtml = roots.length ? roots.map(t => renderTree(t, 0)).join('') : '';
+                    listHtml = roots.length ? renderUngroupedWithPinned() : '';
                 } else if (state.quadrantEnabled) {
                     listHtml = renderGroupedByQuadrant();
                 } else if (state.groupByDocName) {
@@ -13385,7 +13718,8 @@ async function __tmRefreshAfterWake(reason) {
                 } else if (state.groupByTime) {
                     listHtml = renderGroupedByTime();
                 } else {
-                    listHtml = roots.length ? roots.map(t => renderTree(t, 0)).join('') : '';
+                    // 不分组模式
+                    listHtml = roots.length ? renderUngroupedWithPinned() : '';
                 }
                 const count = list0.length;
                 const kind = headingMode ? (String(c?.kind || '').trim() || (isAllTabsView ? 'doc' : 'heading')) : 'status';
@@ -14374,8 +14708,12 @@ async function __tmRefreshAfterWake(reason) {
                         }
                     </style>
 
-                <div class="tm-doc-tabs ${state.docTabsHidden ? 'tm-doc-tabs--hidden' : ''}">
-                    <div style="display:flex; gap:8px; overflow-x:auto; flex:1; align-items:center; padding: ${isMobile ? '4px 0 4px 0' : '4px 0 4px 0'};">
+                <div class="tm-doc-tabs ${state.docTabsHidden ? 'tm-doc-tabs--hidden' : ''}" 
+                     ondragenter="tmDocTabDragEnter(event)" 
+                     ondragleave="tmDocTabDragLeave(event)" 
+                     ondragover="tmDocTabDragOver(event)" 
+                     ondrop="tmDocTabDrop(event, '')">
+                    <div style="display:flex; gap:8px; overflow-x:auto; flex:1; align-items:center; padding: ${isMobile ? '4px 0 4px 0' : '4px 0 4px 0'};" ondragover="tmDocTabDragOver(event)" ondrop="tmDocTabDrop(event, '')">
                         <div class="tm-doc-tab ${state.activeDocId === 'all' ? 'active' : ''}" onclick="tmSwitchDoc('all')">全部</div>
                         ${(() => {
                             const id = String(SettingsStore.data.newTaskDocId || '').trim();
@@ -14427,14 +14765,18 @@ async function __tmRefreshAfterWake(reason) {
                         border-bottom: 1px solid var(--tm-border-color);
                         background: var(--tm-header-bg);
                         max-height: 56px;
-                        overflow: hidden;
+                        overflow: visible;
                         transition: max-height 0.18s ease, opacity 0.18s ease, border-color 0.18s ease, padding-top 0.18s ease, padding-bottom 0.18s ease;
                         opacity: 1;
+                        position: relative;
+                        z-index: 5;
                     }
                     .tm-box--with-cal-dock .tm-doc-tabs {
                         flex: 0 0 auto;
                         max-height: 56px;
-                        overflow: hidden;
+                        overflow: visible;
+                        position: relative;
+                        z-index: 5;
                     }
                     .tm-doc-tabs.tm-doc-tabs--hidden {
                         max-height: 0;
@@ -14519,8 +14861,9 @@ async function __tmRefreshAfterWake(reason) {
                         transform: scale(1.06);
                         border-color: var(--tm-primary-color);
                         box-shadow: 0 6px 16px rgba(0,0,0,0.15);
-                        z-index: 10;
+                        z-index: 200;
                         transform-origin: center;
+                        background: var(--tm-hover-bg);
                     }
                     
                     @media (max-width: 768px) {
@@ -15217,7 +15560,7 @@ async function __tmRefreshAfterWake(reason) {
             date: __tmCalendarDockGetDateKey(),
             resolveTask: (taskId) => state.flatTasks?.[String(taskId || '').trim()] || null,
             dragHost: state.modal,
-            enableExternalDrag: true,
+            enableExternalDrag: false,
         });
         if (!ok) {
             timelineRoot.innerHTML = `<div style="padding:12px;color:var(--tm-secondary-text);">日历初始化失败。</div>`;
@@ -19250,6 +19593,12 @@ async function __tmRefreshAfterWake(reason) {
         const out = {};
         if (ids.length === 0) return out;
         const lv = __tmNormalizeHeadingLevel(headingLevel);
+        let headingOrderMap = new Map();
+        try {
+            headingOrderMap = await API.fetchHeadingOrderByDocs(ids, lv);
+        } catch (e) {
+            headingOrderMap = new Map();
+        }
         const batchSize = 60;
         for (let i = 0; i < ids.length; i += batchSize) {
             const batch = ids.slice(i, i + batchSize);
@@ -19270,16 +19619,46 @@ async function __tmRefreshAfterWake(reason) {
                 const hid = String(r?.id || '').trim();
                 if (!did || !hid) return;
                 if (!out[did]) out[did] = [];
+                const rankByDocText = headingOrderMap.get(`${did}::${hid}`);
                 out[did].push({
                     id: hid,
                     content: String(r?.content || '').trim(),
                     sort: Number(r?.sort),
                     created: String(r?.created || '').trim(),
+                    rank: Number.isFinite(Number(rankByDocText)) ? Number(rankByDocText) : Number.NaN,
                 });
             });
         }
         Object.keys(out).forEach((did) => {
             const list = Array.isArray(out[did]) ? out[did] : [];
+            // 优先使用 SQL 查询的自然顺序（已经按 root_id, sort, created, id 排序）
+            // 只有在 headingOrderMap 有效时才使用 rank，否则保持 SQL 顺序
+            list.forEach((h, idx) => {
+                const rankByDocText = headingOrderMap.get(`${did}::${h.id}`);
+                // 如果有 headingOrderMap 的值就用它，否则使用 SQL 查询的自然顺序作为 rank
+                if (Number.isFinite(Number(rankByDocText))) {
+                    h.rank = Number(rankByDocText);
+                } else {
+                    h.rank = idx;
+                }
+            });
+            // 然后按 rank 排序
+            list.sort((a, b) => {
+                const ar = Number(a?.rank);
+                const br = Number(b?.rank);
+                const aHasRank = Number.isFinite(ar);
+                const bHasRank = Number.isFinite(br);
+                if (aHasRank && bHasRank && ar !== br) return ar - br;
+                if (aHasRank !== bHasRank) return aHasRank ? -1 : 1;
+                const as = Number(a?.sort);
+                const bs = Number(b?.sort);
+                if (Number.isFinite(as) && Number.isFinite(bs) && as !== bs) return as - bs;
+                const ac = String(a?.created || '').trim();
+                const bc = String(b?.created || '').trim();
+                if (ac !== bc) return ac.localeCompare(bc);
+                return String(a?.id || '').localeCompare(String(b?.id || ''));
+            });
+            // 排序后重新设置 rank 为索引（这样可以保持原始的 SQL 顺序）
             list.forEach((h, idx) => {
                 h.rank = idx;
             });
@@ -19610,6 +19989,7 @@ async function __tmRefreshAfterWake(reason) {
         let kind = '';
         let targetDocId = '';
         let targetHeadingId = '';
+        let st = '';
         
         if (dropTarget) {
             // 从组标题元素读取拖放数据
@@ -19624,6 +20004,7 @@ async function __tmRefreshAfterWake(reason) {
             kind = String(col?.dataset?.kind || 'status').trim() || 'status';
             targetDocId = String(col?.dataset?.doc || '').trim();
             targetHeadingId = String(col?.dataset?.heading || '').trim();
+            st = String(col?.dataset?.status || '').trim();
         }
         
         __tmKanbanClearDragOver();
@@ -21930,6 +22311,143 @@ async function __tmRefreshAfterWake(reason) {
         });
     };
 
+    window.tmPickHeadingInline = async function(id, el, ev) {
+        try {
+            ev?.stopPropagation?.();
+            ev?.preventDefault?.();
+        } catch (e) {}
+        const tid = String(id || '').trim();
+        if (!tid) return;
+        const task = state.flatTasks[tid];
+        if (!task) return;
+        const docId = String(task.docId || task.root_id || '').trim();
+        if (!docId) {
+            hint('⚠ 未找到任务所在文档', 'warning');
+            return;
+        }
+        try { await __tmWarmKanbanDocHeadings([docId]); } catch (e) {}
+        const headingLevel = __tmNormalizeHeadingLevel(SettingsStore.data.taskHeadingLevel || 'h2');
+        const headingLabelMap = { h1: '一级标题', h2: '二级标题', h3: '三级标题', h4: '四级标题', h5: '五级标题', h6: '六级标题' };
+        const headingLabel = headingLabelMap[headingLevel] || '标题';
+        const headingsRaw = Array.isArray(state.kanbanDocHeadingsByDocId?.[docId]) ? state.kanbanDocHeadingsByDocId[docId] : [];
+        const docTasks = (Array.isArray(state.filteredTasks) ? state.filteredTasks : [])
+            .filter(t => String(t?.root_id || t?.docId || '').trim() === docId);
+        if (!docTasks.some(t => String(t?.id || '').trim() === tid)) {
+            docTasks.push(task);
+        }
+        const sortedDocTasks = docTasks.slice().sort(__tmCompareTasksByDocFlow);
+        // 使用 Map 保持标题在文档中出现的顺序
+        const headingOrder = [];
+        const headingMap = new Map();
+        sortedDocTasks.forEach((t) => {
+            const hid = String(t?.h2Id || '').trim();
+            if (hid && !headingMap.has(hid)) {
+                headingMap.set(hid, {
+                    id: hid,
+                    content: String(t?.h2 || '').trim() || '(空标题)',
+                    sort: Number(t?.h2Sort) || Number(t?.h2Rank) || 0
+                });
+                headingOrder.push(hid);
+            }
+        });
+        headingsRaw.forEach((h) => {
+            const hid = String(h?.id || '').trim();
+            if (hid && !headingMap.has(hid)) {
+                headingMap.set(hid, {
+                    id: hid,
+                    content: String(h?.content || '').trim() || '(空标题)',
+                    sort: Number(h?.sort) || Number(h?.rank) || 0
+                });
+                headingOrder.push(hid);
+            }
+        });
+        // 按照文档中出现的顺序排列标题
+        const headings = headingOrder.map(hid => headingMap.get(hid)).filter(Boolean);
+        if (!headings.length) {
+            hint(`⚠ 当前文档没有可切换的${headingLabel}`, 'warning');
+            return;
+        }
+        const currentHeadingId = String(task.h2Id || '').trim();
+        const anchorEl = (el instanceof Element)
+            ? el
+            : (ev?.currentTarget instanceof Element ? ev.currentTarget : null);
+
+        const saveHeading = async (nextHeadingId, close) => {
+            const nextId = String(nextHeadingId || '').trim();
+            if (nextId === currentHeadingId) {
+                close?.();
+                return;
+            }
+            try {
+                if (nextId) {
+                    await __tmMoveTaskToHeading(tid, docId, nextId, { silentHint: true });
+                } else {
+                    await __tmMoveTaskToDocTop(tid, docId, { silentHint: true, clearHeading: true });
+                }
+                close?.();
+                applyFilters();
+                render();
+                hint(nextId ? '✅ 任务已移动到目标标题下' : '✅ 任务已移出标题分组', 'success');
+            } catch (e) {
+                hint(`❌ 切换失败: ${e.message}`, 'error');
+            }
+        };
+
+        if (!(anchorEl instanceof Element)) {
+            const options = [
+                { value: '', label: `无${headingLabel}` },
+                ...headings.map(h => ({
+                    value: String(h?.id || '').trim(),
+                    label: String(h?.content || '').trim() || '(空标题)'
+                }))
+            ];
+            const next = await showSelectPrompt(`选择${headingLabel}`, options, currentHeadingId);
+            if (next == null) return;
+            await saveHeading(next, null);
+            return;
+        }
+
+        __tmOpenInlineEditor(anchorEl, ({ editor, close }) => {
+            const maxLen = headings.reduce((m, h) => Math.max(m, String(h?.content || '').trim().length), (`无${headingLabel}`).length);
+            const w = Math.min(320, Math.max(140, maxLen * 12 + 36));
+            editor.style.minWidth = '0';
+            editor.style.width = `${w}px`;
+            editor.style.padding = '8px';
+            const wrap = document.createElement('div');
+            wrap.style.display = 'flex';
+            wrap.style.flexDirection = 'column';
+            wrap.style.gap = '4px';
+
+            const makeBtn = (value, label, active) => {
+                const b = document.createElement('button');
+                b.className = 'tm-btn tm-btn-secondary';
+                b.style.padding = '6px 8px';
+                b.style.fontSize = '12px';
+                b.style.textAlign = 'left';
+                b.style.justifyContent = 'flex-start';
+                b.style.display = 'block';
+                b.style.width = '100%';
+                if (active) {
+                    b.style.borderColor = 'var(--tm-primary-color)';
+                    b.style.background = 'var(--tm-selected-bg, rgba(64, 158, 255, 0.12))';
+                }
+                b.textContent = label;
+                b.onclick = async () => {
+                    await saveHeading(value, close);
+                };
+                return b;
+            };
+
+            wrap.appendChild(makeBtn('', `无${headingLabel}`, !currentHeadingId));
+            headings.forEach((h) => {
+                const hid = String(h?.id || '').trim();
+                const text = String(h?.content || '').trim() || '(空标题)';
+                wrap.appendChild(makeBtn(hid, text, hid === currentHeadingId));
+            });
+            editor.appendChild(wrap);
+        });
+    };
+
     window.tmEditPriority = async function(id) {
         const task = state.flatTasks[id];
         if (!task) return;
@@ -22897,7 +23415,7 @@ async function __tmRefreshAfterWake(reason) {
                 doc: () => `
                     <td style="width: ${widths.doc || 180}px; min-width: ${widths.doc || 180}px; max-width: ${widths.doc || 180}px;" title="${esc(docName || '')}">${esc(docName || '')}</td>`,
                 h2: () => `
-                    <td style="width: ${widths.h2 || 180}px; min-width: ${widths.h2 || 180}px; max-width: ${widths.h2 || 180}px;" title="${esc(task.h2 || '无')}">${esc(task.h2 || '无')}</td>`,
+                    <td class="tm-cell-editable" style="width: ${widths.h2 || 180}px; min-width: ${widths.h2 || 180}px; max-width: ${widths.h2 || 180}px;" title="点击切换标题" onclick="tmPickHeadingInline('${task.id}', this, event)">${esc(task.h2 || '无')}</td>`,
                 score: () => {
                     const v = Number.isFinite(Number(task.priorityScore)) ? Math.round(Number(task.priorityScore)) : 0;
                     return `<td style="width: ${widths.score || 96}px; min-width: ${widths.score || 96}px; max-width: ${widths.score || 96}px; text-align: center; font-variant-numeric: tabular-nums;">${v}</td>`;
@@ -25085,29 +25603,8 @@ async function __tmRefreshAfterWake(reason) {
             try { nextID = String(await API.getFirstDirectChildIdOfDoc(parentDocId) || '').trim(); } catch (e) { nextID = ''; }
         }
         const insertedId = await API.insertBlock(parentDocId, md, nextID || undefined);
-        let taskId = insertedId;
-        try {
-            const rows = await API.getBlocksByIds([insertedId]);
-            const row = Array.isArray(rows) && rows.length > 0 ? rows[0] : null;
-            const t = String(row?.type || '').trim();
-            const st = String(row?.subtype || '').trim();
-            if (!(t === 'i' && st === 't')) {
-                // 尝试多次获取子任务ID，应对索引延迟
-                // 优化：使用短间隔高频重试，减少用户等待时间
-                let childTaskId = null;
-                for (let i = 0; i < 30; i++) {
-                    childTaskId = await API.getFirstTaskIdUnderBlock(insertedId);
-                    if (childTaskId) break;
-                    await new Promise(r => setTimeout(r, 50));
-                }
-
-                if (childTaskId) taskId = childTaskId;
-                else {
-                    const deepTaskId = await API.getFirstTaskDescendantId(insertedId, 8);
-                    if (deepTaskId) taskId = deepTaskId;
-                }
-            }
-        } catch (e) {}
+        // 直接使用插入的块ID作为任务ID，无需重试查询
+        const taskId = insertedId;
 
         const patch = {};
         const pin = pinned !== undefined ? !!pinned : !!SettingsStore.data.pinNewTasksByDefault;
@@ -25265,7 +25762,7 @@ async function __tmRefreshAfterWake(reason) {
             <div class="tm-prompt-box" style="width: min(92vw, 520px);">
                 <div style="display:flex;align-items:center;justify-content:space-between;gap:10px;">
                     <div class="tm-prompt-title" style="margin:0;">添加待办</div>
-                    <button class="tm-btn tm-btn-primary" onclick="tmQuickAddSubmit()" style="padding: 6px 14px; font-size: 13px;">提交</button>
+                    <button class="tm-btn tm-btn-primary" id="tmQuickAddSubmitBtn" onclick="tmQuickAddSubmit()" style="padding: 6px 14px; font-size: 13px;">提交</button>
                 </div>
                 
                 <input type="text" id="tmQuickAddInput" class="tm-prompt-input" placeholder="输入事项…" style="margin-top:16px; font-size: 16px; padding: 12px;">
@@ -25343,7 +25840,16 @@ async function __tmRefreshAfterWake(reason) {
         window.tmQuickAddEventsBound = true;
         __tmQuickAddGlobalClickHandler = (e) => {
             const target = e.target;
-            if (target.id === 'tmQuickAddCloseBtn' || (target.matches('.tm-btn-gray') && target.textContent.trim() === '关闭')) {
+            // 检查是否点击了文档选择器的关闭按钮（只关闭选择器，不关闭整个弹窗）
+            if (target.id === 'tmQuickAddDocPickerCloseBtn' || (target.matches('.tm-btn-gray') && target.textContent.trim() === '关闭' && target.closest('#tmQuickAddDocList'))) {
+                if (state.quickAddDocPicker) {
+                    tmQuickAddCloseDocPicker();
+                }
+                e.stopPropagation();
+                return;
+            }
+            // 检查是否点击了主弹窗的关闭按钮（关闭整个弹窗）
+            if (target.id === 'tmQuickAddCloseBtn' || (target.matches('.tm-btn-gray') && target.textContent.trim() === '关闭' && !target.closest('#tmQuickAddDocList'))) {
                 if (state.quickAddModal) {
                     tmQuickAddClose();
                 }
@@ -25538,7 +26044,7 @@ async function __tmRefreshAfterWake(reason) {
                 </div>
                 <div id="tmQuickAddDocList"></div>
                 <div style="display:flex;gap:8px;margin-top:10px;">
-                    <button class="tm-btn tm-btn-gray" onclick="tmQuickAddCloseDocPicker()" style="padding: 6px 10px; font-size: 12px;">关闭</button>
+                    <button class="tm-btn tm-btn-gray" id="tmQuickAddDocPickerCloseBtn" onclick="tmQuickAddCloseDocPicker()" style="padding: 6px 10px; font-size: 12px;">关闭</button>
                 </div>
             </div>
         `;
@@ -25761,9 +26267,19 @@ async function __tmRefreshAfterWake(reason) {
         if (!qa) return;
         if (state.quickAddSubmitting) return;
         const input = document.getElementById('tmQuickAddInput');
+        const submitBtn = document.getElementById('tmQuickAddSubmitBtn');
         const content = String(input?.value || '').trim();
         if (!content) return;
         state.quickAddSubmitting = true;
+        // 显示提交中状态
+        if (submitBtn) {
+            submitBtn.textContent = '提交中...';
+            submitBtn.disabled = true;
+            submitBtn.style.opacity = '0.7';
+        }
+        if (input) {
+            input.disabled = true;
+        }
         try {
             let targetDocId = qa.docId;
             if (qa.docMode === 'dailyNote') {
@@ -25783,6 +26299,15 @@ async function __tmRefreshAfterWake(reason) {
             window.tmQuickAddClose?.();
         } catch (e) {
             hint(`❌ 创建失败: ${e.message}`, 'error');
+            // 恢复按钮状态
+            if (submitBtn) {
+                submitBtn.textContent = '提交';
+                submitBtn.disabled = false;
+                submitBtn.style.opacity = '1';
+            }
+            if (input) {
+                input.disabled = false;
+            }
         } finally {
             state.quickAddSubmitting = false;
         }
@@ -29250,7 +29775,7 @@ async function __tmRefreshAfterWake(reason) {
                 // 创建任务管理按钮
                 const tmBtn = document.createElement('button');
                 tmBtn.className = 'tm-breadcrumb-btn'; // 使用 class 标识
-                tmBtn.innerHTML = '<span style="display:flex;align-items:center;justify-content:center;width:100%;height:100%;line-height:0"><svg viewBox="0 0 24 24" width="14" height="14" style="display:block;fill:none;flex:0 0 auto;transform:translateY(1px)"><use xlink:href="#iconTaskHorizon"></use></svg></span>';
+                tmBtn.innerHTML = '<span style="display:flex;align-items:center;justify-content:center;width:100%;height:100%;line-height:0"><svg viewBox="0 0 24 24" width="14" height="14" style="display:block;fill:none;flex:0 0 auto;transform:translateY(1px)"><use xlink:href="#iconTaskHorizon"></use></svg><span class="tm-breadcrumb-btn-fallback" style="display:none;font-size:14px;line-height:1;transform:translateY(1px)">📋</span></span>';
                 tmBtn.title = '打开任务管理器';
                 tmBtn.style.cssText = `
                     width: 28px;
@@ -29272,6 +29797,16 @@ async function __tmRefreshAfterWake(reason) {
                     transition: all 0.2s;
                     z-index: 10;
                 `;
+                try {
+                    const useEl = tmBtn.querySelector('use');
+                    const fallbackEl = tmBtn.querySelector('.tm-breadcrumb-btn-fallback');
+                    const iconMissing = !document.getElementById('iconTaskHorizon');
+                    if ((useEl && iconMissing) || !useEl) {
+                        if (fallbackEl) fallbackEl.style.display = 'inline-block';
+                        const svgEl = tmBtn.querySelector('svg');
+                        if (svgEl) svgEl.style.display = 'none';
+                    }
+                } catch (e) {}
 
                 tmBtn.onclick = (e) => {
                     e.preventDefault();
@@ -29673,6 +30208,7 @@ async function __tmRefreshAfterWake(reason) {
 
         // 启动面包屑按钮观察者
         observeBreadcrumb();
+        try { __tmBootstrapCalendarBackgroundRefresh(0); } catch (e) {}
     }
 
     async function __tmEnsureTabOpened(maxWaitMs = 1500) {
@@ -30048,6 +30584,10 @@ async function __tmRefreshAfterWake(reason) {
             if (__tmTodayScheduleRefreshTimer) {
                 clearTimeout(__tmTodayScheduleRefreshTimer);
                 __tmTodayScheduleRefreshTimer = null;
+            }
+            if (__tmCalendarBootstrapRetryTimer) {
+                clearTimeout(__tmCalendarBootstrapRetryTimer);
+                __tmCalendarBootstrapRetryTimer = null;
             }
         } catch (e) {}
         try {
