@@ -1,5 +1,5 @@
 // @name         思源笔记任务管理器
-// @version      1.6.12
+// @version      1.7.0
 // @description  任务管理器，支持自定义筛选规则分组和排序
 // @author       5KYFKR
 
@@ -7510,6 +7510,7 @@
     let __tmTomatoOriginalTimerFns = null;
     let __tmTomatoAssociationListenerAdded = false;
     let __tmTomatoAssociationHandler = null;
+    let __tmTomatoFocusModeChangedHandler = null;
     let __tmPinnedListenerAdded = false;
     let __tmQuickAddGlobalClickHandler = null;
     let __tmCalendarScheduleUpdatedHandler = null;
@@ -7900,7 +7901,17 @@ async function __tmRefreshAfterWake(reason) {
                 if (state.modal && document.body.contains(state.modal)) render();
             } catch (e) {}
         };
+        __tmTomatoFocusModeChangedHandler = (event) => {
+            try {
+                const enabled = event?.detail?.enabled !== false;
+                if (enabled) return;
+                state.timerFocusTaskId = '';
+                __tmClearTomatoFocusRowClasses();
+                if (state.modal && document.body.contains(state.modal)) render();
+            } catch (e) {}
+        };
         try { window.addEventListener('tomato:association-cleared', __tmTomatoAssociationHandler); } catch (e) {}
+        try { window.addEventListener('tomato:focus-mode-changed', __tmTomatoFocusModeChangedHandler); } catch (e) {}
         globalThis.__taskHorizonOnTomatoAssociationCleared = () => {
             try {
                 state.timerFocusTaskId = '';
@@ -7908,6 +7919,31 @@ async function __tmRefreshAfterWake(reason) {
             } catch (e) {}
         };
         __tmTomatoAssociationListenerAdded = true;
+    }
+
+    function __tmClearTomatoFocusRowClasses() {
+        try {
+            const root = (state.modal && document.body.contains(state.modal)) ? state.modal : document;
+            root.querySelectorAll?.('.tm-timer-dim, .tm-timer-focus')?.forEach?.((el) => {
+                try {
+                    el.classList.remove('tm-timer-dim', 'tm-timer-focus');
+                } catch (e) {}
+            });
+        } catch (e) {}
+    }
+
+    function __tmIsTomatoFocusModeEnabled() {
+        try {
+            if (typeof globalThis.__dockTomatoFocusModeEnabled === 'boolean') {
+                return globalThis.__dockTomatoFocusModeEnabled !== false;
+            }
+            const raw = String(localStorage.getItem('tomato-user-settings') || '').trim();
+            if (!raw) return true;
+            const parsed = JSON.parse(raw);
+            return parsed?.main?.enableFocusMode !== false;
+        } catch (e) {
+            return true;
+        }
     }
 
     function __tmListenPinnedChanged() {
@@ -8913,8 +8949,13 @@ async function __tmRefreshAfterWake(reason) {
             const toggle = row.hasChildren
                 ? `<span class="tm-tree-toggle" onclick="tmToggleCollapse('${task.id}', event)">${row.collapsed ? '▸' : '▾'}</span>`
                 : `<span class="tm-tree-spacer"></span>`;
-            const focusId = SettingsStore.data.enableTomatoIntegration ? String(state.timerFocusTaskId || '').trim() : '';
-            const rowClass = focusId ? (focusId === String(task.id) ? 'tm-timer-focus' : 'tm-timer-dim') : '';
+            const tomatoFocusTaskId = SettingsStore.data.enableTomatoIntegration ? String(state.timerFocusTaskId || '').trim() : '';
+            const tomatoFocusModeEnabled = __tmIsTomatoFocusModeEnabled();
+            const rowClass = tomatoFocusTaskId
+                ? (tomatoFocusTaskId === String(task.id)
+                    ? 'tm-timer-focus'
+                    : (tomatoFocusModeEnabled ? 'tm-timer-dim' : ''))
+                : '';
 
             const allChildren = task.children || [];
             const totalChildren = allChildren.length;
@@ -12483,6 +12524,9 @@ async function __tmRefreshAfterWake(reason) {
     // 修改渲染函数以显示规则信息
     function render() {
         try { __tmEnsureDocTabTouchDelegation(); } catch (e) {}
+        if (!__tmIsTomatoFocusModeEnabled()) {
+            __tmClearTomatoFocusRowClasses();
+        }
         const kind0 = String(state.uiAnimKind || '').trim();
         const isViewSwitchAnim = (kind0 === 'from-right' || kind0 === 'from-left')
             && (Date.now() - (Number(state.uiAnimTs) || 0) < 380);
@@ -12732,8 +12776,13 @@ async function __tmRefreshAfterWake(reason) {
                 const toggle = row.hasChildren
                     ? `<span class="tm-tree-toggle" onclick="tmToggleCollapse('${task.id}', event)">${row.collapsed ? '▸' : '▾'}</span>`
                     : `<span class="tm-tree-spacer"></span>`;
-                const focusId = SettingsStore.data.enableTomatoIntegration ? String(state.timerFocusTaskId || '').trim() : '';
-                const rowClass = focusId ? (focusId === String(task.id) ? 'tm-timer-focus' : 'tm-timer-dim') : '';
+                const tomatoFocusTaskId = SettingsStore.data.enableTomatoIntegration ? String(state.timerFocusTaskId || '').trim() : '';
+                const tomatoFocusModeEnabled = __tmIsTomatoFocusModeEnabled();
+                const rowClass = tomatoFocusTaskId
+                    ? (tomatoFocusTaskId === String(task.id)
+                        ? 'tm-timer-focus'
+                        : (tomatoFocusModeEnabled ? 'tm-timer-dim' : ''))
+                    : '';
 
                 const allChildren = task.children || [];
                 const totalChildren = allChildren.length;
@@ -13025,6 +13074,10 @@ async function __tmRefreshAfterWake(reason) {
                 const headingLevel = __tmNormalizeHeadingLevel(SettingsStore.data.taskHeadingLevel || 'h2');
                 const headingLabelMap = { h1: '一级标题', h2: '二级标题', h3: '三级标题', h4: '四级标题', h5: '五级标题', h6: '六级标题' };
                 const noHeadingLabel = `无${headingLabelMap[headingLevel] || '标题'}`;
+                const hasNoHeadingTasks = docTasks.some((task) => {
+                    const bucket = __tmGetDocHeadingBucket(task, noHeadingLabel);
+                    return String(bucket?.label || '').trim() === noHeadingLabel || String(bucket?.id || '').trim() === '__none__';
+                });
                 
                 // 获取当前文档的原始标题列表（这个顺序是稳定的）
                 const headings = Array.isArray(state.kanbanDocHeadingsByDocId?.[docId]) ? state.kanbanDocHeadingsByDocId[docId] : [];
@@ -13114,9 +13167,9 @@ async function __tmRefreshAfterWake(reason) {
                     return a.orderIdx - b.orderIdx;
                 });
                 
-                // 确保"无标题"列始终存在且位于最左
+                // 只有存在未归属标题的任务时才显示"无标题"列
                 const noneCol = cols0.find(c => c.name === noHeadingLabel);
-                if (!noneCol) {
+                if (hasNoHeadingTasks && !noneCol) {
                     cols0.unshift({
                         bucketKey: `label:${noHeadingLabel}`,
                         headingId: '__none__',
@@ -15023,16 +15076,36 @@ async function __tmRefreshAfterWake(reason) {
                         overflow: auto;
                     }
                     #tmCalendarSideDockTimeline .fc {
-                        height: auto !important;
+                        height: auto;
                         min-height: 100%;
                     }
                     #tmCalendarSideDockTimeline .fc-view-harness {
+                        min-height: 0 !important;
+                        height: auto !important;
+                    }
+                    #tmCalendarSideDockTimeline .fc-view-harness-active > .fc-view {
+                        position: relative !important;
+                        inset: auto !important;
+                    }
+                    #tmCalendarSideDockTimeline .fc-scrollgrid,
+                    #tmCalendarSideDockTimeline .fc-scrollgrid-liquid,
+                    #tmCalendarSideDockTimeline .fc-scrollgrid-section,
+                    #tmCalendarSideDockTimeline .fc-scrollgrid-section > td,
+                    #tmCalendarSideDockTimeline .fc-scroller-harness,
+                    #tmCalendarSideDockTimeline .fc-scroller-harness-liquid,
+                    #tmCalendarSideDockTimeline .fc-scroller,
+                    #tmCalendarSideDockTimeline .fc-scroller-liquid,
+                    #tmCalendarSideDockTimeline .fc-scroller-liquid-absolute,
+                    #tmCalendarSideDockTimeline .fc-timegrid-body,
+                    #tmCalendarSideDockTimeline .fc-timegrid-cols,
+                    #tmCalendarSideDockTimeline .fc-timegrid-slots,
+                    #tmCalendarSideDockTimeline .fc-timegrid-slots table {
                         height: auto !important;
                         min-height: 0 !important;
                     }
-                    #tmCalendarSideDockTimeline .fc-scroller,
                     #tmCalendarSideDockTimeline .fc-scroller-liquid-absolute {
-                        overflow: visible !important;
+                        position: static !important;
+                        inset: auto !important;
                     }
                     #tmCalendarSideDockPanel {
                         height: 100%;
@@ -15626,7 +15699,20 @@ async function __tmRefreshAfterWake(reason) {
         });
         if (!ok) {
             timelineRoot.innerHTML = `<div style="padding:12px;color:var(--tm-secondary-text);">日历初始化失败。</div>`;
+            return;
         }
+        try {
+            requestAnimationFrame(() => {
+                try { globalThis.__tmCalendar?.refreshSideDayLayout?.(); } catch (e) {}
+                try { globalThis.__tmCalendar?.relayoutSideDayDate?.(); } catch (e) {}
+                try {
+                    requestAnimationFrame(() => {
+                        try { globalThis.__tmCalendar?.refreshSideDayLayout?.(); } catch (e2) {}
+                        try { globalThis.__tmCalendar?.relayoutSideDayDate?.(); } catch (e2) {}
+                    });
+                } catch (e) {}
+            });
+        } catch (e) {}
     }
 
     window.tmCalendarDockShiftDay = function(delta) {
@@ -15706,6 +15792,16 @@ async function __tmRefreshAfterWake(reason) {
         try { __tmHideMobileMenu(); } catch (e) {}
         try { applyFilters(); } catch (e) {}
         render();
+        if (next !== 'calendar') {
+            const refreshDock = () => {
+                try { globalThis.__tmCalendar?.refreshSideDayLayout?.(); } catch (e) {}
+                try { globalThis.__tmCalendar?.relayoutSideDayDate?.(); } catch (e) {}
+            };
+            try { requestAnimationFrame(refreshDock); } catch (e) {}
+            try { requestAnimationFrame(() => requestAnimationFrame(refreshDock)); } catch (e) {}
+            try { setTimeout(refreshDock, 0); } catch (e) {}
+            try { setTimeout(refreshDock, 80); } catch (e) {}
+        }
         if (next === 'whiteboard') {
             try {
                 requestAnimationFrame(() => {
@@ -23576,8 +23672,13 @@ async function __tmRefreshAfterWake(reason) {
                 }
             };
 
-            const focusId = SettingsStore.data.enableTomatoIntegration ? String(state.timerFocusTaskId || '').trim() : '';
-            const rowClass = focusId ? (focusId === String(task.id) ? 'tm-timer-focus' : 'tm-timer-dim') : '';
+            const tomatoFocusTaskId = SettingsStore.data.enableTomatoIntegration ? String(state.timerFocusTaskId || '').trim() : '';
+            const tomatoFocusModeEnabled = __tmIsTomatoFocusModeEnabled();
+            const rowClass = tomatoFocusTaskId
+                ? (tomatoFocusTaskId === String(task.id)
+                    ? 'tm-timer-focus'
+                    : (tomatoFocusModeEnabled ? 'tm-timer-dim' : ''))
+                : '';
             let rowHtml = `<tr data-id="${task.id}" data-depth="${depth}" class="${rowClass}" ${groupBg ? `style="background-color:${groupBg};"` : ''} draggable="true" ondragstart="tmDragTaskStart(event, '${task.id}')" ondragend="tmDragTaskEnd(event)" onclick="tmRowClick(event, '${task.id}')" oncontextmenu="tmShowTaskContextMenu(event, '${task.id}')">`;
             colOrder.forEach(col => {
                 if (cells[col]) rowHtml += cells[col]();
@@ -25883,7 +25984,7 @@ async function __tmRefreshAfterWake(reason) {
             <div class="tm-prompt-box" style="width: min(92vw, 520px);">
                 <div style="display:flex;align-items:center;justify-content:space-between;gap:10px;">
                     <div class="tm-prompt-title" style="margin:0;">添加待办</div>
-                    <button class="tm-btn tm-btn-primary" id="tmQuickAddSubmitBtn" onclick="tmQuickAddSubmit()" style="padding: 6px 14px; font-size: 13px;">提交</button>
+                    <button class="tm-btn tm-btn-gray" id="tmQuickAddCloseBtn" onclick="tmQuickAddClose()" style="padding: 6px 12px; font-size: 13px;">关闭</button>
                 </div>
                 
                 <input type="text" id="tmQuickAddInput" class="tm-prompt-input" placeholder="输入事项…" style="margin-top:16px; font-size: 16px; padding: 12px;">
@@ -25915,7 +26016,7 @@ async function __tmRefreshAfterWake(reason) {
                     </div>
 
                     <div style="flex:1;"></div>
-                    <button class="tm-btn tm-btn-gray" id="tmQuickAddCloseBtn" onclick="tmQuickAddClose()" style="padding: 6px 12px; font-size: 13px;">关闭</button>
+                    <button class="tm-btn tm-btn-primary" id="tmQuickAddSubmitBtn" onclick="tmQuickAddSubmit()" style="padding: 6px 14px; font-size: 13px;">提交</button>
                 </div>
             </div>
         `;
@@ -27259,7 +27360,7 @@ async function __tmRefreshAfterWake(reason) {
                         <div style="font-weight: 600; margin-bottom: 8px;">🍅 番茄钟联动</div>
                         <label style="display:flex;align-items:center;gap:8px;cursor:pointer;">
                             <input type="checkbox" ${SettingsStore.data.enableTomatoIntegration ? 'checked' : ''} onchange="updateEnableTomatoIntegration(this.checked)">
-                            启用 tomato.js 相关功能（计时/提醒/耗时列）
+                            启用底栏番茄钟相关功能（计时/提醒/耗时列）
                         </label>
                         <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-top:10px;opacity:${SettingsStore.data.enableTomatoIntegration ? 1 : 0.6};">
                             <div style="display:flex;align-items:center;gap:8px;">
@@ -30716,6 +30817,10 @@ async function __tmRefreshAfterWake(reason) {
             if (__tmTomatoAssociationHandler) {
                 window.removeEventListener('tomato:association-cleared', __tmTomatoAssociationHandler);
                 __tmTomatoAssociationHandler = null;
+            }
+            if (__tmTomatoFocusModeChangedHandler) {
+                window.removeEventListener('tomato:focus-mode-changed', __tmTomatoFocusModeChangedHandler);
+                __tmTomatoFocusModeChangedHandler = null;
             }
         } catch (e) {}
         try {

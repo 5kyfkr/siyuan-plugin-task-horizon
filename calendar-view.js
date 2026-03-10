@@ -6,6 +6,38 @@
         }
     } catch (e) {}
 
+    function ensureTmSiyuanSdk() {
+        if (__tmSiyuanSdk && typeof __tmSiyuanSdk === 'object') return __tmSiyuanSdk;
+        try {
+            if (typeof require === 'function') {
+                const sdk = require('siyuan');
+                if (sdk && typeof sdk === 'object') {
+                    __tmSiyuanSdk = sdk;
+                    return __tmSiyuanSdk;
+                }
+            }
+        } catch (e) {}
+        try {
+            if (typeof globalThis?.require === 'function') {
+                const sdk = globalThis.require('siyuan');
+                if (sdk && typeof sdk === 'object') {
+                    __tmSiyuanSdk = sdk;
+                    return __tmSiyuanSdk;
+                }
+            }
+        } catch (e) {}
+        try {
+            if (typeof window?.require === 'function') {
+                const sdk = window.require('siyuan');
+                if (sdk && typeof sdk === 'object') {
+                    __tmSiyuanSdk = sdk;
+                    return __tmSiyuanSdk;
+                }
+            }
+        } catch (e) {}
+        return null;
+    }
+
     const STORAGE = {
         DOCK_TOMATO_FILE_NEW: '/data/storage/petal/siyuan-plugin-docktomato/tomato-history.json',
         DOCK_TOMATO_FILE_LEGACY: '/data/storage/tomato-history.json',
@@ -14,6 +46,8 @@
         SCHEDULE_LS_KEY: 'tm-calendar-events',
         SCHEDULE_MOBILE_REGISTRY_LS_KEY: 'tm-calendar-mobile-notification-registry',
     };
+    const SIDE_DAY_HALF_HOUR_SLOT_HEIGHT = 29;
+    const DEVICE_NOTIFICATION_CHANNEL = 'siyuan-plugin-task-horizon';
 
     const state = {
         mounted: false,
@@ -434,46 +468,89 @@
             ? (maxMinutes - minMinutes)
             : 24 * 60;
         const slotCount = Math.max(1, Math.round(totalMinutes / 30));
-        return slotCount * 29;
+        return slotCount * SIDE_DAY_HALF_HOUR_SLOT_HEIGHT;
     }
 
-    function applySideDaySlotHeight(rootEl) {
-        if (!(rootEl instanceof HTMLElement)) return false;
-        const value = '29px';
+    function getTimeGridSlotHeight(rootEl, fallback = SIDE_DAY_HALF_HOUR_SLOT_HEIGHT) {
+        if (!(rootEl instanceof HTMLElement)) return fallback;
         const selectors = [
+            '.fc-timegrid-slots tr',
+            '.fc-timegrid-slot-frame',
             '.fc-timegrid-slot-lane',
             '.fc-timegrid-slot-label',
             '.fc-timegrid-slot',
-            '.fc-timegrid-slot-frame',
+        ];
+        for (const selector of selectors) {
+            const el = rootEl.querySelector(selector);
+            if (!(el instanceof HTMLElement)) continue;
+            try {
+                const rect = el.getBoundingClientRect();
+                if (Number.isFinite(rect.height) && rect.height > 0) return rect.height;
+            } catch (e) {}
+            try {
+                const raw = window.getComputedStyle(el).height;
+                const parsed = Number.parseFloat(raw);
+                if (Number.isFinite(parsed) && parsed > 0) return parsed;
+            } catch (e) {}
+        }
+        return fallback;
+    }
+
+    function forceSideDaySlotHeight(rootEl, settings) {
+        if (!(rootEl instanceof HTMLElement)) return false;
+        const slotHeight = SIDE_DAY_HALF_HOUR_SLOT_HEIGHT;
+        const contentHeight = getSideDayContentHeight(settings || getSettings());
+        try { rootEl.style.setProperty('--tm-calendar-half-hour-slot-height', `${slotHeight}px`); } catch (e) {}
+        const slotSelectors = [
             '.fc-timegrid-slots tr',
             '.fc-timegrid-slots td',
+            '.fc-timegrid-slot',
+            '.fc-timegrid-slot-lane',
+            '.fc-timegrid-slot-label',
+            '.fc-timegrid-slot-frame',
         ];
-        selectors.forEach((selector) => {
-            rootEl.querySelectorAll(selector).forEach((el) => {
-                if (!(el instanceof HTMLElement)) return;
-                try { el.style.setProperty('height', value, 'important'); } catch (e) {}
-                try { el.style.setProperty('min-height', value, 'important'); } catch (e) {}
-            });
-        });
+        for (const selector of slotSelectors) {
+            const nodes = rootEl.querySelectorAll(selector);
+            for (const node of nodes) {
+                if (!(node instanceof HTMLElement)) continue;
+                try { node.style.height = `${slotHeight}px`; } catch (e) {}
+                try { node.style.minHeight = `${slotHeight}px`; } catch (e) {}
+                try { node.style.maxHeight = `${slotHeight}px`; } catch (e) {}
+                try { node.style.boxSizing = 'border-box'; } catch (e) {}
+            }
+        }
+        const slotsTable = rootEl.querySelector('.fc-timegrid-slots table');
+        if (slotsTable instanceof HTMLElement) {
+            try { slotsTable.style.height = `${contentHeight}px`; } catch (e) {}
+            try { slotsTable.style.minHeight = `${contentHeight}px`; } catch (e) {}
+        }
+        const body = rootEl.querySelector('.fc-timegrid-body');
+        if (body instanceof HTMLElement) {
+            try { body.style.height = `${contentHeight}px`; } catch (e) {}
+            try { body.style.minHeight = `${contentHeight}px`; } catch (e) {}
+        }
+        const cols = rootEl.querySelector('.fc-timegrid-cols');
+        if (cols instanceof HTMLElement) {
+            try { cols.style.height = `${contentHeight}px`; } catch (e) {}
+            try { cols.style.minHeight = `${contentHeight}px`; } catch (e) {}
+        }
         return true;
     }
 
     function syncSideDayLayout(rootEl, calendar, settings) {
         if (!(rootEl instanceof HTMLElement)) return false;
-        const contentHeight = getSideDayContentHeight(settings || getSettings());
-        try { rootEl.style.setProperty('--tm-calendar-half-hour-slot-height', '29px'); } catch (e) {}
-        try { rootEl.style.setProperty('--fc-slot-min-height', '29px'); } catch (e) {}
-        try { rootEl.style.setProperty('--fc-timegrid-slot-min-height', '29px'); } catch (e) {}
+        const nextSettings = settings || getSettings();
+        const contentHeight = getSideDayContentHeight(nextSettings);
+        try { calendar?.setOption?.('height', 'auto'); } catch (e) {}
+        try { calendar?.setOption?.('contentHeight', contentHeight); } catch (e) {}
+        try { forceSideDaySlotHeight(rootEl, nextSettings); } catch (e) {}
+        try { calendar?.updateSize?.(); } catch (e) {}
         try {
-            rootEl.querySelectorAll('.fc, .fc-media-screen, .fc-scrollgrid, .fc-scrollgrid-sync-table, .fc-timegrid-body, .fc-timegrid-slots table').forEach((el) => {
-                if (!(el instanceof HTMLElement)) return;
-                el.style.setProperty('height', 'auto', 'important');
-                el.style.setProperty('min-height', '0', 'important');
+            requestAnimationFrame(() => {
+                try { forceSideDaySlotHeight(rootEl, nextSettings); } catch (e2) {}
+                try { calendar?.updateSize?.(); } catch (e2) {}
             });
         } catch (e) {}
-        try { calendar?.setOption?.('contentHeight', contentHeight); } catch (e) {}
-        try { applySideDaySlotHeight(rootEl); } catch (e) {}
-        try { calendar?.updateSize?.(); } catch (e) {}
         return true;
     }
 
@@ -1574,14 +1651,15 @@
         }
     }
 
-    async function saveScheduleAll(items) {
+    async function saveScheduleAll(items, options) {
         const list = Array.isArray(items) ? items : [];
+        const opts = (options && typeof options === 'object') ? options : {};
         const serialized = JSON.stringify(list, null, 2);
         setScheduleCache(list, computeScheduleSourceSignature(serialized));
         try { localStorage.setItem(STORAGE.SCHEDULE_LS_KEY, serialized); } catch (e) {}
         try { await putFileText(STORAGE.SCHEDULE_FILE, serialized); } catch (e) {}
         try { window.dispatchEvent(new CustomEvent('tm:calendar-schedule-updated', { detail: { ts: Date.now() } })); } catch (e) {}
-        if (shouldPreferDeviceNotificationBackend()) {
+        if (!opts.skipDeviceSync && shouldPreferDeviceNotificationBackend()) {
             try { scheduleScheduleMobileSync('save-schedule-all'); } catch (e) {}
         }
         return true;
@@ -1668,9 +1746,19 @@
         return false;
     }
 
-    function shouldPreferDeviceNotificationBackend() {
+    function shouldUseOfficialMobileNotificationBackend() {
         const backend = getRuntimeBackendType();
-        return !!state.isMobileDevice || backend === 'android' || backend === 'harmony' || isLikelyMobileRuntime() || hasDeviceNotificationBridge();
+        return !!state.isMobileDevice
+            || backend === 'android'
+            || backend === 'harmony'
+            || backend === 'ios'
+            || isLikelyMobileRuntime()
+            || hasDeviceNotificationBridge();
+    }
+
+    function shouldPreferDeviceNotificationBackend() {
+        return shouldUseOfficialMobileNotificationBackend()
+            || !!getPlatformUtilsCompat();
     }
 
     function normalizeNotificationId(value) {
@@ -1729,6 +1817,19 @@
         ];
     }
 
+    function getPlatformUtilsCompat() {
+        const globalPlatformUtils = globalThis.__taskHorizonPlatformUtils || globalThis.__tomatoPlatformUtils || null;
+        if (globalPlatformUtils && (typeof globalPlatformUtils.sendNotification === 'function' || typeof globalPlatformUtils.cancelNotification === 'function')) {
+            return globalPlatformUtils;
+        }
+        const sdk0 = ensureTmSiyuanSdk();
+        const direct = sdk0?.platformUtils;
+        if (direct && (typeof direct.sendNotification === 'function' || typeof direct.cancelNotification === 'function')) {
+            return direct;
+        }
+        return null;
+    }
+
     async function invokeNotificationBridge(owner, methodName, args) {
         const fn = owner?.[methodName];
         if (typeof fn !== 'function') return { called: false, value: null };
@@ -1744,42 +1845,50 @@
         const opts = (options && typeof options === 'object') ? options : {};
         const safeTitle = String(title || '').trim();
         const safeBody = String(body || '').trim();
-        const safeChannel = String(opts.channel || '').trim();
+        const safeChannel = String(opts.channel || DEVICE_NOTIFICATION_CHANNEL).trim();
         const delayInSeconds = Math.max(0, Math.round(Number(opts.delayInSeconds) || 0));
+        const timeoutType = String(
+            opts.timeoutType || (opts.requireInteraction === true ? 'never' : (shouldUseOfficialMobileNotificationBackend() ? 'default' : 'never'))
+        ).trim() || 'default';
         if (!safeTitle && !safeBody) return -1;
         sendDeviceNotificationCompat._lastFailureReason = '';
-        const bridgeCandidates = getNotificationBridgeCandidates();
-        for (const candidate of bridgeCandidates) {
-            const attempt = await invokeNotificationBridge(candidate.owner, candidate.send, [safeChannel, safeTitle, safeBody, delayInSeconds]);
-            if (!attempt.called) continue;
-            const id = extractNotificationIdFromUnknownPayload(attempt.value);
-            if (id !== null) {
-                if (id === -1) sendDeviceNotificationCompat._lastFailureReason = 'send-returned-minus-one';
-                return id;
-            }
-            sendDeviceNotificationCompat._lastFailureReason = 'send-no-numeric-return';
-        }
-        try {
-            const msgHandler = globalThis?.webkit?.messageHandlers?.sendNotification;
-            if (msgHandler && typeof msgHandler.postMessage === 'function') {
-                msgHandler.postMessage({ channel: safeChannel, title: safeTitle, body: safeBody, delayInSeconds });
-                sendDeviceNotificationCompat._lastFailureReason = 'webkit-no-numeric-return';
+        const platformUtils = getPlatformUtilsCompat();
+        if (platformUtils && typeof platformUtils.sendNotification === 'function') {
+            try {
+                const value = await platformUtils.sendNotification({
+                    channel: safeChannel,
+                    title: safeTitle,
+                    body: safeBody,
+                    delayInSeconds,
+                    timeoutType,
+                });
+                const id = extractNotificationIdFromUnknownPayload(value);
+                if (id !== null) {
+                    if (id === -1) sendDeviceNotificationCompat._lastFailureReason = 'send-returned-minus-one';
+                    return id;
+                }
+                sendDeviceNotificationCompat._lastFailureReason = 'send-no-numeric-return';
+                return -1;
+            } catch (e) {
+                sendDeviceNotificationCompat._lastFailureReason = 'platform-utils-send-error';
                 return -1;
             }
-        } catch (e) {}
-        if (!sendDeviceNotificationCompat._lastFailureReason) {
-            sendDeviceNotificationCompat._lastFailureReason = 'no-bridge-failure';
         }
+        sendDeviceNotificationCompat._lastFailureReason = 'platform-utils-unavailable';
         return -1;
     }
 
     async function cancelDeviceNotificationCompat(id) {
         const safeId = normalizeNotificationId(id);
         if (safeId === null || safeId < 0) return false;
-        const bridgeCandidates = getNotificationBridgeCandidates();
-        for (const candidate of bridgeCandidates) {
-            const attempt = await invokeNotificationBridge(candidate.owner, candidate.cancel, [safeId]);
-            if (attempt.called) return true;
+        const platformUtils = getPlatformUtilsCompat();
+        if (platformUtils && typeof platformUtils.cancelNotification === 'function') {
+            try {
+                await platformUtils.cancelNotification(safeId);
+                return true;
+            } catch (e) {
+                return false;
+            }
         }
         return false;
     }
@@ -1894,6 +2003,27 @@
             entries: sanitizeScheduleNotificationEntries(current.entries),
         };
         return map;
+    }
+
+    function getScheduleNotificationClientLabel(deviceId, schedule) {
+        const safeDeviceId = String(deviceId || '').trim();
+        const clientKind = String(
+            schedule?.clientKind
+            || schedule?.sourceKind
+            || schedule?.platformKind
+            || schedule?.deviceType
+            || ''
+        ).trim().toLowerCase();
+        if (clientKind === 'mobile' || clientKind === 'android' || clientKind === 'ios' || clientKind === 'harmony') {
+            return '移动端';
+        }
+        if (clientKind === 'desktop' || clientKind === 'pc') {
+            return '桌面端';
+        }
+        if (safeDeviceId && safeDeviceId === String(SCHEDULE_SYNC_DEVICE_ID || '').trim()) {
+            return shouldUseOfficialMobileNotificationBackend() ? '移动端' : '桌面端';
+        }
+        return '未知端';
     }
 
     function getScheduleDeviceScheduleMap(item) {
@@ -2123,18 +2253,17 @@
             const delayInSeconds = Math.max(1, Math.ceil((Number(target.atMs) - Date.now()) / 1000));
             const title = `全天日程提醒 ${String(target.timeKey || '')}`.trim();
             const body = (target.titles || []).map((t) => `• ${t}`).join('\n');
-            const notificationId = await sendDeviceNotificationCompat(title, body, { channel: '', delayInSeconds });
+            const notificationId = await sendDeviceNotificationCompat(title, body, { channel: DEVICE_NOTIFICATION_CHANNEL, delayInSeconds });
             const id = normalizeNotificationId(notificationId);
-            const failureReason = String(sendDeviceNotificationCompat._lastFailureReason || '').trim();
-            if ((id === null || id < 0) && failureReason === 'no-bridge-failure') continue;
+            if (id === null || id < 0) continue;
             nextEntries.push({
                 notificationKey: target.notificationKey,
                 dateKey: target.dateKey,
                 timeKey: target.timeKey,
                 atMs: target.atMs,
-                id: (id === null || id < 0) ? -1 : id,
+                id,
                 delayInSeconds,
-                status: (id === null || id < 0) ? 'scheduled-no-id' : 'scheduled',
+                status: 'scheduled',
             });
         }
         registry[registryKey] = {
@@ -2197,19 +2326,18 @@
             const notificationId = await sendDeviceNotificationCompat(
                 getScheduleMobileNotificationTitle(item, target),
                 getScheduleMobileNotificationBody(item, target),
-                { channel: '', delayInSeconds }
+                { channel: DEVICE_NOTIFICATION_CHANNEL, delayInSeconds }
             );
             const id = normalizeNotificationId(notificationId);
-            const failureReason = String(sendDeviceNotificationCompat._lastFailureReason || '').trim();
-            if ((id === null || id < 0) && failureReason === 'no-bridge-failure') continue;
+            if (id === null || id < 0) continue;
             nextEntries.push({
                 notificationKey: target.notificationKey,
                 dateKey: target.dateKey,
                 timeKey: target.timeKey,
                 atMs: target.atMs,
-                id: (id === null || id < 0) ? -1 : id,
+                id,
                 delayInSeconds,
-                status: (id === null || id < 0) ? 'scheduled-no-id' : 'scheduled',
+                status: 'scheduled',
             });
         }
         const nextSchedule = {
@@ -2389,8 +2517,34 @@
         const registry = loadScheduleMobileRegistry();
         delete registry[id];
         saveScheduleMobileRegistry(registry);
-        persistScheduleLocalShadow(nextList);
+        await saveScheduleAll(nextList, { skipDeviceSync: true });
         return item;
+    }
+
+    async function clearScheduleAllDeviceNotificationEntriesById(scheduleId) {
+        const id = String(scheduleId || '').trim();
+        if (!id) return null;
+        const list = await loadScheduleAll();
+        const nextList = cloneScheduleList(list);
+        const idx = nextList.findIndex((it) => String(it?.id || '').trim() === id);
+        if (idx < 0) return null;
+        const item = nextList[idx];
+        const map = buildScheduleNotificationSchedulesView(item);
+        for (const schedule of Object.values(map || {})) {
+            const entries = sanitizeScheduleNotificationEntries(schedule?.entries);
+            if (entries.length > 0) {
+                await cancelScheduleMobileNotificationEntries(entries);
+            }
+        }
+        nextList[idx] = {
+            ...item,
+            notificationSchedules: {},
+        };
+        const registry = loadScheduleMobileRegistry();
+        delete registry[id];
+        saveScheduleMobileRegistry(registry);
+        await saveScheduleAll(nextList, { skipDeviceSync: true });
+        return nextList[idx] || null;
     }
 
     function ensureScheduleReminderToastHost() {
@@ -2451,20 +2605,37 @@
         } catch (e) {}
     }
 
+    function describeDeviceNotificationFailureReason(reason) {
+        const key = String(reason || '').trim();
+        if (!key) return '未知原因';
+        if (key === 'platform-utils-unavailable') return '未获取到思源通知接口';
+        if (key === 'send-returned-minus-one') return '思源通知接口返回了 -1';
+        if (key === 'send-no-numeric-return') return '思源通知接口未返回有效通知 ID';
+        if (key === 'platform-utils-send-error') return '调用思源通知接口时抛错';
+        return key;
+    }
+
     function showScheduleSystemNotification(title, body) {
-        try {
-            if (typeof Notification === 'undefined' || !Notification) return false;
-            if (String(Notification.permission || '') !== 'granted') return false;
-            const n = new Notification(String(title || '日程提醒'), { body: String(body || ''), requireInteraction: true, silent: false });
-            try {
-                n.onclick = () => {
-                    try { n.close(); } catch (e) {}
-                };
-            } catch (e) {}
-            return true;
-        } catch (e) {
-            return false;
-        }
+        const safeTitle = String(title || '日程提醒');
+        const safeBody = String(body || '');
+        sendDeviceNotificationCompat(safeTitle, safeBody, { timeoutType: 'never' })
+            .then((value) => {
+                const id = normalizeNotificationId(value);
+                if (id !== null && id >= 0) return;
+                const reason = describeDeviceNotificationFailureReason(sendDeviceNotificationCompat._lastFailureReason);
+                showScheduleReminderToast(safeTitle, `${safeBody}\n\n系统提醒失败：${reason}`);
+            })
+            .catch(() => {
+                const reason = describeDeviceNotificationFailureReason(sendDeviceNotificationCompat._lastFailureReason);
+                showScheduleReminderToast(safeTitle, `${safeBody}\n\n系统提醒失败：${reason}`);
+            });
+        return true;
+    }
+
+    function shouldShowImmediateScheduleSystemNotification() {
+        const settings = getSettings();
+        if (!settings?.scheduleReminderSystemEnabled) return false;
+        return !shouldPreferDeviceNotificationBackend();
     }
 
     function clearScheduleReminderTimers() {
@@ -2747,7 +2918,7 @@
                         const title = `全天提醒 ${timeText}`;
                         const body = titles.map((x) => `• ${x}`).join('\n');
                         showScheduleReminderToast(title, body);
-                        if (getSettings().scheduleReminderSystemEnabled) {
+                        if (shouldShowImmediateScheduleSystemNotification()) {
                             showScheduleSystemNotification(title, titles.join('\n'));
                         }
                         return;
@@ -2778,7 +2949,7 @@
                     })();
                     const bodyInApp = (meta.allDay === true) ? `${startText}` : (afterText ? `${startText}（${afterText}）` : `${startText}`);
                     showScheduleReminderToast(meta.title, bodyInApp);
-                    if (getSettings().scheduleReminderSystemEnabled) {
+                    if (shouldShowImmediateScheduleSystemNotification()) {
                         showScheduleSystemNotification(meta.title, bodyInApp);
                     }
                 } catch (e) {} finally {
@@ -2973,7 +3144,6 @@
         };
         list.push(item);
         await saveScheduleAll(list);
-        try { await refreshScheduleCurrentDeviceNotificationById(item.id); } catch (e) {}
         refetchAllCalendars();
         return item;
     }
@@ -3348,7 +3518,7 @@
             })();
             const eventStartMinutes = start.getHours() * 60 + start.getMinutes();
             const previewDurationMin = Math.max(30, Math.round((end.getTime() - start.getTime()) / 60000));
-            const slotHeight = 29;
+            const slotHeight = getTimeGridSlotHeight(rootEl);
             const top = allDay
                 ? 0
                 : Math.max(0, (slotsRect.top - layerRect.top) - scrollTop + ((eventStartMinutes - startMinutesBase) / 30) * slotHeight);
@@ -3419,7 +3589,7 @@
                 if (yp < wrapRect.top || yp > wrapRect.bottom) return null;
                 const scrollTop = (scroller instanceof HTMLElement) ? scroller.scrollTop : 0;
                 const offsetY = (yp - wrapRect.top) + scrollTop;
-                const slotHeight = 29;
+                const slotHeight = getTimeGridSlotHeight(rootEl);
                 const slotIndex = Math.max(0, Math.floor(offsetY / slotHeight));
                 const startMinutes = getVisibleStartMinutes() + slotIndex * 30;
                 const hh = Math.floor(startMinutes / 60);
@@ -4181,6 +4351,21 @@
         try {
             cal.gotoDate(v);
             state.sideDay.dateKey = v;
+            try { syncSideDayLayout(state.sideDay.rootEl, cal, getSettings()); } catch (e2) {}
+            return true;
+        } catch (e) {
+            return false;
+        }
+    }
+
+    function relayoutSideDayDate() {
+        const cal = state.sideDay.calendar;
+        if (!cal) return false;
+        try {
+            const d = cal.getDate();
+            cal.gotoDate(d);
+            state.sideDay.dateKey = formatDateKey(d);
+            try { syncSideDayLayout(state.sideDay.rootEl, cal, getSettings()); } catch (e2) {}
             return true;
         } catch (e) {
             return false;
@@ -5076,12 +5261,15 @@
         state.deviceScheduleAbort?.abort();
         state.deviceScheduleAbort = abort;
         const close = () => { closeDeviceScheduleDialog(); };
+        let actionStatusText = '';
+        let actionStatusKind = '';
         const render = () => {
             const groups = getScheduleAllDeviceNotificationEntries(currentItem);
             const currentSummary = getScheduleCurrentDeviceNotificationSummary(currentItem);
             const lines = [];
             for (const group of groups.sort((a, b) => String(a.deviceId || '').localeCompare(String(b.deviceId || '')))) {
-                lines.push(`设备: ${String(group.deviceId || '').trim() || 'unknown'}`);
+                const clientLabel = getScheduleNotificationClientLabel(group?.deviceId, group?.schedule);
+                lines.push(`设备: ${String(group.deviceId || '').trim() || 'unknown'}（${clientLabel}）`);
                 const entries = group.entries.slice().sort((a, b) => Number(a?.atMs || 0) - Number(b?.atMs || 0));
                 for (const entry of entries) {
                     const dt = new Date(Number(entry?.atMs) || 0);
@@ -5089,15 +5277,20 @@
                         ? `${String(entry?.dateKey || '')} ${String(entry?.timeKey || '')}`.trim()
                         : `${formatDateKey(dt)} ${pad2(dt.getHours())}:${pad2(dt.getMinutes())}`;
                     const idLabel = Number(entry?.id) >= 0 ? String(entry?.id ?? '') : '未返回';
-                    const extra = String(entry?.status || '') === 'scheduled-no-id' ? '\n状态: 已尝试预约，但桥接未返回通知ID' : '';
+                    const extra = String(entry?.status || '') === 'scheduled-no-id' ? '\n状态: 已尝试预约，但接口未返回通知ID' : '';
                     lines.push(`${label}\nid: ${idLabel}${extra}`);
                 }
                 lines.push('');
             }
             const detailText = lines.length > 0 ? lines.join('\n') : '当前设备暂无已预约提醒';
+            const statusStyle = actionStatusKind === 'error'
+                ? 'color:#d23f31;'
+                : (actionStatusKind === 'success'
+                    ? 'color:#2e7d32;'
+                    : 'color:var(--b3-theme-primary);');
             modal.innerHTML = `
                 <div class="tm-calendar-edit-box">
-                    <div class="tm-calendar-edit-title">移动端预约</div>
+                    <div class="tm-calendar-edit-title">当前设备预约</div>
                     <div class="tm-calendar-edit-row" style="display:block;">
                         <div class="tm-calendar-edit-label" style="margin-bottom:8px;white-space:nowrap;">当前设备</div>
                         <div class="tm-calendar-edit-value" style="line-height:1.5;">${esc(currentSummary)}</div>
@@ -5106,6 +5299,11 @@
                         <div class="tm-calendar-edit-label" style="margin-bottom:8px;white-space:nowrap;">已下发通知</div>
                         <div class="tm-calendar-edit-value" style="white-space:pre-line;line-height:1.5;max-height:50vh;overflow:auto;">${esc(detailText)}</div>
                     </div>
+                    ${actionStatusText ? `
+                    <div class="tm-calendar-edit-row" style="display:block;">
+                        <div class="tm-calendar-edit-value" style="line-height:1.5;${statusStyle}">${esc(actionStatusText)}</div>
+                    </div>
+                    ` : ''}
                     <div class="tm-calendar-edit-actions">
                         ${scheduleId ? `<button class="tm-btn tm-btn-secondary" data-tm-cal-action="refreshDeviceSchedule">更新预约</button>` : ''}
                         ${scheduleId ? `<button class="tm-btn tm-btn-danger" data-tm-cal-action="clearDeviceSchedule">清除当前设备预约</button>` : ''}
@@ -5127,28 +5325,78 @@
             }
             if (!action) return;
             if (action === 'refreshDeviceSchedule') {
-                const nextItem = (typeof opts.resolveLatestItem === 'function')
-                    ? await opts.resolveLatestItem(currentItem)
-                    : await refreshScheduleCurrentDeviceNotificationById(scheduleId);
-                if (nextItem) {
-                    currentItem = { ...nextItem };
+                actionStatusKind = 'pending';
+                actionStatusText = '正在更新当前设备预约...';
+                render();
+                try {
+                    const nextItem = (typeof opts.resolveLatestItem === 'function')
+                        ? await opts.resolveLatestItem(currentItem)
+                        : await refreshScheduleCurrentDeviceNotificationById(scheduleId);
+                    if (nextItem) {
+                        currentItem = { ...nextItem };
+                        const settingsNow = getSettings();
+                        const currentTargets = collectScheduleMobileNotificationTargets(currentItem, settingsNow);
+                        const currentEntries = getScheduleAllDeviceNotificationEntries(currentItem)
+                            .filter((group) => String(group?.deviceId || '').trim() === String(SCHEDULE_SYNC_DEVICE_ID || '').trim())
+                            .flatMap((group) => Array.isArray(group?.entries) ? group.entries : []);
+                        if (currentEntries.length > 0) {
+                            actionStatusKind = 'success';
+                            actionStatusText = `已更新当前设备预约，共 ${currentEntries.length} 条`;
+                        } else if (currentTargets.length > 0) {
+                            actionStatusKind = 'error';
+                            actionStatusText = `已保存当前修改，但通知发送失败：${describeDeviceNotificationFailureReason(sendDeviceNotificationCompat._lastFailureReason)}`;
+                        } else {
+                            actionStatusKind = 'pending';
+                            actionStatusText = '已保存当前修改，但当前条件下没有可预约提醒';
+                        }
+                        render();
+                        try { refetchAllCalendars(); } catch (e2) {}
+                        if (currentEntries.length > 0) {
+                            toast('✅ 已更新当前设备预约', 'success');
+                        } else if (currentTargets.length > 0) {
+                            toast('❌ 当前设备预约发送失败', 'error');
+                        } else {
+                            toast('ℹ 当前没有可预约提醒', 'warning');
+                        }
+                    } else {
+                        actionStatusKind = 'error';
+                        actionStatusText = '更新失败：未返回最新预约结果';
+                        render();
+                        toast('❌ 更新失败', 'error');
+                    }
+                } catch (err) {
+                    actionStatusKind = 'error';
+                    actionStatusText = `更新失败：${String(err?.message || err || '未知错误')}`;
                     render();
-                    try { refetchAllCalendars(); } catch (e2) {}
-                    toast('✅ 已更新当前设备预约', 'success');
-                } else {
                     toast('❌ 更新失败', 'error');
                 }
                 return;
             }
             if (action === 'clearDeviceSchedule') {
-                const nextItem = await clearScheduleCurrentDeviceNotificationById(scheduleId);
-                if (nextItem) {
-                    currentItem = { ...nextItem };
+                actionStatusKind = 'pending';
+                actionStatusText = '正在清除当前设备预约...';
+                render();
+                try {
+                    const nextItem = await clearScheduleCurrentDeviceNotificationById(scheduleId);
+                    if (nextItem) {
+                        currentItem = { ...nextItem };
+                        actionStatusKind = 'success';
+                        actionStatusText = '已清除当前设备预约';
+                        render();
+                        toast('✅ 已清除当前设备预约', 'success');
+                    } else {
+                        actionStatusKind = 'error';
+                        actionStatusText = '清除失败：未找到可更新的预约状态';
+                        render();
+                        toast('❌ 清除失败', 'error');
+                    }
+                } catch (err) {
+                    actionStatusKind = 'error';
+                    actionStatusText = `清除失败：${String(err?.message || err || '未知错误')}`;
                     render();
-                    toast('✅ 已清除当前设备预约', 'success');
-                } else {
                     toast('❌ 清除失败', 'error');
                 }
+                return;
             }
         }, { signal: abort.signal });
         window.addEventListener('keydown', (e) => {
@@ -5538,7 +5786,7 @@
         const calDef0 = calDefs.find((d) => d.id === calendarId0) || calDefs[0] || { id: 'default', name: '时间轴', color: '#0078d4' };
         const color0 = String(init.color || '').trim() || String(calDef0.color || '#0078d4');
         const calendarOptions = calDefs.map((d) => `<option value="${esc(d.id)}" ${d.id === calendarId0 ? 'selected' : ''}>${esc(d.name)}</option>`).join('');
-        const deviceSummary0 = isEdit ? getScheduleCurrentDeviceNotificationSummary(init) : '保存后会自动同步移动端预约';
+        const deviceSummary0 = isEdit ? getScheduleCurrentDeviceNotificationSummary(init) : '保存后会自动同步当前设备预约';
 
         const startLocal = start ? `${formatDateKey(start)}T${pad2(start.getHours())}:${pad2(start.getMinutes())}` : '';
         const endLocal = end ? `${formatDateKey(end)}T${pad2(end.getHours())}:${pad2(end.getMinutes())}` : '';
@@ -5585,7 +5833,7 @@
                     </select>
                 </div>
                 <div class="tm-calendar-edit-row">
-                    <div class="tm-calendar-edit-label">移动端预约</div>
+                    <div class="tm-calendar-edit-label">当前设备预约</div>
                     <div class="tm-calendar-edit-value" data-tm-cal-field="deviceScheduleSummary" style="flex:1;line-height:1.4;opacity:.85;">${esc(deviceSummary0)}</div>
                     ${isEdit ? `<button class="tm-btn tm-btn-secondary" type="button" data-tm-cal-action="viewDeviceSchedule" style="margin-left:8px;">查看</button>` : ''}
                 </div>
@@ -5676,9 +5924,63 @@
                 try {
                     showScheduleDeviceScheduleDialog(currentViewItem, {
                         resolveLatestItem: async () => {
-                            const latestSaved = await saveDraftScheduleItemFromModal();
-                            if (!latestSaved) return null;
-                            return await refreshScheduleCurrentDeviceNotificationById(scheduleId);
+                            const titleNow = getInputValue('title');
+                            const calendarIdNow = getInputValue('calendarId') || calendarId0 || 'default';
+                            const startRaw = getInputValue('start');
+                            const endRaw = getInputValue('end');
+                            const colorNow = getInputValue('color') || '#0078d4';
+                            const reminderSelectNow = String(getInputValue('reminderSelect') || '').trim() || 'inherit';
+                            const reminderModeNow = reminderSelectNow === 'inherit' ? 'inherit' : 'custom';
+                            const reminderEnabledNow = (() => {
+                                if (reminderSelectNow === 'inherit') return null;
+                                if (reminderSelectNow === 'off') return false;
+                                return true;
+                            })();
+                            const reminderOffsetMinNow = (() => {
+                                if (reminderSelectNow === 'inherit' || reminderSelectNow === 'off') return null;
+                                if (initAllDay) return null;
+                                const n = Number(reminderSelectNow);
+                                const allowed = new Set([0, 5, 10, 15, 30, 60]);
+                                return (Number.isFinite(n) && allowed.has(n)) ? n : 0;
+                            })();
+                            if (!startRaw || !endRaw) {
+                                throw new Error('开始/结束不能为空');
+                            }
+                            const nextStart2 = new Date(startRaw);
+                            const nextEnd2 = new Date(endRaw);
+                            if (Number.isNaN(nextStart2.getTime()) || Number.isNaN(nextEnd2.getTime()) || nextEnd2.getTime() <= nextStart2.getTime()) {
+                                throw new Error('时间不合法');
+                            }
+                            const list = await loadScheduleAll();
+                            const nextList = cloneScheduleList(list);
+                            const idx = nextList.findIndex((x) => String(x?.id || '') === scheduleId);
+                            if (idx < 0) return null;
+                            const prevItem = nextList[idx] || {};
+                            const taskIdKeep = String(taskId0 || prevItem?.taskId || prevItem?.task_id || prevItem?.linkedTaskId || prevItem?.linked_task_id || '').trim();
+                            const draftItem = {
+                                ...prevItem,
+                                id: scheduleId,
+                                title: titleNow || '日程',
+                                start: safeISO(nextStart2),
+                                end: safeISO(nextEnd2),
+                                allDay: isAllDayRange(nextStart2, nextEnd2) || (initAllDay && isAllDayRange(nextStart2, nextEnd2)),
+                                color: colorNow,
+                                calendarId: calendarIdNow,
+                                taskId: taskIdKeep,
+                                reminderMode: reminderModeNow,
+                                reminderEnabled: reminderEnabledNow,
+                                reminderOffsetMin: (isAllDayRange(nextStart2, nextEnd2) || (initAllDay && isAllDayRange(nextStart2, nextEnd2))) ? null : reminderOffsetMinNow,
+                                notificationSchedules: sanitizeScheduleNotificationSchedules(prevItem?.notificationSchedules),
+                            };
+                            nextList[idx] = {
+                                ...nextList[idx],
+                                ...draftItem,
+                                notificationSchedules: sanitizeScheduleNotificationSchedules(
+                                    draftItem.notificationSchedules || nextList[idx]?.notificationSchedules
+                                ),
+                            };
+                            await saveScheduleAll(nextList);
+                            return await refreshScheduleCurrentDeviceNotificationDraft(nextList[idx]);
                         },
                     });
                 } catch (err) {
@@ -5760,7 +6062,6 @@
                 if (idx >= 0) list[idx] = item;
                 else list.push(item);
                 await saveScheduleAll(list);
-                try { await refreshScheduleCurrentDeviceNotificationById(id); } catch (e2) {}
                 try {
                     const store = state.settingsStore;
                     if (store && store.data) {
@@ -5828,6 +6129,20 @@
             try { cal.refetchEvents(); } catch (e2) {}
         }
         stabilizeCalendarLayout(cal, wrap, opt);
+        return true;
+    }
+
+    function refreshSideDayLayout() {
+        const rootEl = state.sideDay?.rootEl;
+        const cal = state.sideDay?.calendar;
+        if (!(rootEl instanceof HTMLElement) || !cal) return false;
+        try { syncSideDayLayout(rootEl, cal, getSettings()); } catch (e) {}
+        try {
+            requestAnimationFrame(() => {
+                try { syncSideDayLayout(rootEl, cal, getSettings()); } catch (e2) {}
+            });
+        } catch (e) {}
+        try { setTimeout(() => { try { syncSideDayLayout(rootEl, cal, getSettings()); } catch (e2) {} }, 0); } catch (e) {}
         return true;
     }
 
@@ -7583,11 +7898,13 @@
         setSideDayDate,
         shiftSideDay,
         getSideDayDate,
+        relayoutSideDayDate,
         addTaskSchedule,
         listTaskSchedulesByDay,
         openScheduleEditorById,
         openScheduleEditorByTaskId,
         setSettingsStore,
         refreshInPlace,
+        refreshSideDayLayout,
     };
 })();

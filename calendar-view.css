@@ -20,7 +20,8 @@
     overflow-y: hidden;
 }
 
-.tm-calendar-host .fc {
+.tm-calendar-host .fc,
+.tm-calendar-host.fc {
     height: 100%;
 }
 
@@ -941,8 +942,7 @@
     padding: 2px 4px;
 }
 
-.tm-calendar-wrap,
-#tmCalendarSideDockTimeline {
+.tm-calendar-wrap {
     --tm-calendar-half-hour-slot-height: 29px;
     --fc-slot-min-height: 29px;
     --fc-timegrid-slot-min-height: 29px;
@@ -964,6 +964,9 @@
 }
 
 #tmCalendarSideDockTimeline {
+    --tm-calendar-half-hour-slot-height: 29px;
+    --fc-slot-min-height: 29px;
+    --fc-timegrid-slot-min-height: 29px;
     --fc-page-bg-color: var(--tm-bg-color);
     --fc-border-color: rgba(0,0,0,0.14);
     --fc-today-bg-color: rgba(0,120,212,0.08);
@@ -992,7 +995,8 @@
     color: var(--tm-secondary-text);
 }
 
-.tm-calendar-host .fc {
+.tm-calendar-host .fc,
+.tm-calendar-host.fc {
     font-family: var(--b3-font-family);
     color: var(--tm-text-color);
 }
@@ -1026,19 +1030,57 @@
     color: #fff;
 }
 
-.tm-calendar-host .fc .fc-toolbar-title {
+.tm-calendar-host .fc .fc-toolbar-title,
+.tm-calendar-host.fc .fc-toolbar-title {
     font-size: 14px;
     font-weight: 600;
 }
 
-.tm-calendar-host .fc .fc-button {
+.tm-calendar-host .fc .fc-button,
+.tm-calendar-host.fc .fc-button {
     border-radius: 6px;
     box-shadow: none;
 }
 
+.tm-calendar-wrap .fc .fc-button-primary,
+.tm-calendar-host.fc .fc-button-primary {
+    color: #323130 !important;
+    background-color: #f3f2f1 !important;
+    border-color: rgba(0,0,0,0.12) !important;
+}
+
+.tm-calendar-wrap .fc .fc-button-primary:hover:not(:disabled),
+.tm-calendar-host.fc .fc-button-primary:hover:not(:disabled) {
+    color: #323130 !important;
+    background-color: #edebe9 !important;
+    border-color: rgba(0,0,0,0.18) !important;
+}
+
+.tm-calendar-wrap .fc .fc-button-primary:disabled,
+.tm-calendar-host.fc .fc-button-primary:disabled {
+    color: #323130 !important;
+    background-color: #f3f2f1 !important;
+    border-color: rgba(0,0,0,0.12) !important;
+    opacity: .65 !important;
+}
+
 .tm-calendar-host .fc .fc-button-primary:not(:disabled).fc-button-active,
-.tm-calendar-host .fc .fc-button-primary:not(:disabled):active {
+.tm-calendar-host .fc .fc-button-primary:not(:disabled):active,
+.tm-calendar-host.fc .fc-button-primary:not(:disabled).fc-button-active,
+.tm-calendar-host.fc .fc-button-primary:not(:disabled):active {
+    color: #323130 !important;
+    background-color: #e1dfdd !important;
+    border-color: rgba(0,0,0,0.22) !important;
     box-shadow: none;
+}
+
+.tm-calendar-wrap .fc .fc-button-primary:focus,
+.tm-calendar-wrap .fc .fc-button-primary:not(:disabled).fc-button-active:focus,
+.tm-calendar-wrap .fc .fc-button-primary:not(:disabled):active:focus,
+.tm-calendar-host.fc .fc-button-primary:focus,
+.tm-calendar-host.fc .fc-button-primary:not(:disabled).fc-button-active:focus,
+.tm-calendar-host.fc .fc-button-primary:not(:disabled):active:focus {
+    box-shadow: 0 0 0 .2rem rgba(76, 91, 106, .5) !important;
 }
 
 .tm-calendar-mini .fc .fc-daygrid-day-number {

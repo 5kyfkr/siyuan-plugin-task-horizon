@@ -1,4 +1,4 @@
-const { Plugin, openTab, openMobileFileById } = require("siyuan");
+const { Plugin, openTab, openMobileFileById, platformUtils } = require("siyuan");
 
 const PLUGIN_ID = "siyuan-plugin-task-horizon";
 const TASK_SCRIPT_PATH = `/data/plugins/${PLUGIN_ID}/task.js`;
@@ -112,6 +112,7 @@ module.exports = class TaskHorizonPlugin extends Plugin {
         globalThis.__taskHorizonPluginIsMobile = !!this.isMobile;
         globalThis.__taskHorizonOpenTab = typeof openTab === "function" ? openTab : null;
         globalThis.__taskHorizonOpenMobileFileById = typeof openMobileFileById === "function" ? openMobileFileById : null;
+        globalThis.__taskHorizonPlatformUtils = platformUtils || null;
         globalThis.__taskHorizonOpenTabView = this.openTaskHorizonTab.bind(this);
         globalThis.__taskHorizonCustomTabId = CUSTOM_TAB_ID;
         globalThis.__taskHorizonTabType = TAB_TYPE;
@@ -226,6 +227,7 @@ module.exports = class TaskHorizonPlugin extends Plugin {
         try { delete globalThis.__taskHorizonPluginIsMobile; } catch (e) {}
         try { delete globalThis.__taskHorizonOpenTab; } catch (e) {}
         try { delete globalThis.__taskHorizonOpenMobileFileById; } catch (e) {}
+        try { delete globalThis.__taskHorizonPlatformUtils; } catch (e) {}
         try { delete globalThis.__taskHorizonOpenTabView; } catch (e) {}
         try { delete globalThis.__taskHorizonCustomTabId; } catch (e) {}
         try { delete globalThis.__taskHorizonTabElement; } catch (e) {}
