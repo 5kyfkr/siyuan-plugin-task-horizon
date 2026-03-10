@@ -1,10 +1,10 @@
 {
-    "name": "siyuan-plugin-task-horizon",
+    "name": "siyuan-plugin-docktomato",
     "author": "5kyfkr",
-    "url": "https://github.com/5kyfkr/siyuan-plugin-task-horizon",
-    "version": "1.7.0",
+    "url": "https://github.com/5kyfkr/siyuan-plugin-docktomato",
+    "version": "1.8.0",
     "minAppVersion": "3.5.10",
-    "disabledInPublish": true,
+    "disabledInPublish": false,
     "backends": [
         "all"
     ],
@@ -12,20 +12,21 @@
         "all"
     ],
     "displayName": {
-        "default": "Task Horizon",
-        "zh_CN": "任务管理器"
+        "default": "Dock Tomato",
+        "zh_CN": "底栏番茄钟"
     },
     "description": {
-        "default": "Aggregate tasks across documents with rule-based filters, grouping/sorting, configurable columns, and a quickbar editor for SiYuan.",
-        "zh_CN": "思源笔记任务管理器：汇总多文档任务，支持白板/时间轴/日历/看板/表格视图/四象限分组/悬浮条快速编辑/自定义加权排序。支持与底栏番茄钟联动"
+        "default": "A dock Tomato Timer for SiYuan.",
+        "zh_CN": "思源底栏番茄钟：支持时间轴视图/任务提醒/日常事务记录/多端状态同步/移动端/数据库联动/块绑定/历史记录/任务管理器联动"
     },
     "readme": {
-        "default": "README.md"
+        "default": "README.md",
+        "zh_CN": "README_zh_CN.md"
     },
 	"funding": {
     "custom": [
       "https://free.picui.cn/free/2026/02/25/699f05ad97ce4.png"
     ]
   },
-    "keywords": ["task", "manager", "filter"]
+    "keywords": ["tomato", "timer", "pomodoro", "dock"]
 }
