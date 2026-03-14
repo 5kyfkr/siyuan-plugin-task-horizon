@@ -6,9 +6,20 @@
 视图介绍：
 [任务管理器插件 V1.5发布：支持白板视图，附时间轴、看板、日历、表格 视图使用介绍](https://ld246.com/article/1771900014059)
 
-赞助者名单：[bigyelloworange](https://ld246.com/member/bigyelloworange) / [Floria233](https://ld246.com/member/Floria233) / [nj90hou](https://ld246.com/member/nj90hou) / [sky90038528](https://ld246.com/member/sky90038528) / [Lu9693](https://ld246.com/member/Lu9693)
+赞助者名单：[bigyelloworange](https://ld246.com/member/bigyelloworange) / [Floria233](https://ld246.com/member/Floria233) / [nj90hou](https://ld246.com/member/nj90hou) / [sky90038528](https://ld246.com/member/sky90038528) / [Lu9693](https://ld246.com/member/Lu9693) / [ggltxj](https://ld246.com/member/ggltxj) 
 
 # 更新记录
+
+## 1.7.6更新内容
+- **新增：清单视图紧凑模式，默认开启，可设置中关闭**
+- 优化：表格视图层级线颜色深浅
+- 优化：看板视图全局收集箱文档为空的时候不显示对应看板
+- 修复：优化带双链及超链接的任务名称显示问题
+- 修复：清单视图按文档分组时无任务背景色
+- 修复：移动端日顶栏图标丢失
+- 修复：清单视图使用优先级数值排序规则失效
+- 修复：移动端快速添加中日期选择器失效
+- 修复：清单视图移动端拉到最底部抽屉页误触发
 
 ## 1.7.5更新内容
 - **新增：清单视图，比表格视图更加聚焦于任务展示，更适用于移动端场景**

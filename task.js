@@ -1,5 +1,5 @@
 // @name         思源笔记任务管理器
-// @version      1.7.5
+// @version      1.7.6
 // @description  任务管理器，支持自定义筛选规则分组和排序
 // @author       5KYFKR
 
@@ -1477,6 +1477,13 @@
             overflow-y: auto;
         }
 
+        .tm-body.tm-body--checklist {
+            overflow: hidden;
+            overflow-x: hidden;
+            overflow-y: hidden;
+            overscroll-behavior: none;
+        }
+
         .tm-body.tm-body--timeline {
             overflow: hidden;
             overflow-x: hidden;
@@ -2853,8 +2860,8 @@
         .tm-task-detail-row {
             display: flex;
             align-items: center;
-            justify-content: space-between;
-            gap: 12px;
+            justify-content: flex-start;
+            gap: 0;
             padding: 8px 0;
             border-bottom: 1px solid var(--tm-border-color);
         }
@@ -2867,7 +2874,7 @@
             font-size: 12px;
             color: var(--tm-secondary-text);
             flex: 0 0 auto;
-            width: 92px;
+            width: 60px;
         }
 
         .tm-task-detail-value {
@@ -2937,38 +2944,104 @@
             height: 100%;
             width: 100%;
             background: var(--tm-bg-color);
+            position: relative;
+            overflow: hidden;
         }
 
         .tm-checklist-pane {
+            --tm-checklist-pane-pad-right: 10px;
+            --tm-checklist-pane-pad-left: 15px;
+            --tm-checklist-scroll-gutter-fill: 0px;
             flex: 1 1 auto;
             min-width: 320px;
             min-height: 0;
-            overflow: auto;
-            padding: 14px 14px 14px 24px;
+            overflow: hidden;
+            padding: 0;
+            position: relative;
             font-size: var(--tm-font-size);
             background:
                 linear-gradient(180deg, color-mix(in srgb, var(--tm-section-bg) 55%, transparent), transparent 120px),
                 var(--tm-bg-color);
         }
 
+        .tm-checklist-scroll {
+            height: 100%;
+            min-height: 0;
+            overflow: auto;
+            padding: 14px var(--tm-checklist-pane-pad-right) 14px var(--tm-checklist-pane-pad-left);
+            box-sizing: border-box;
+            scrollbar-width: none;
+            -ms-overflow-style: none;
+            overscroll-behavior: contain;
+            -webkit-overflow-scrolling: touch;
+        }
+
+        .tm-checklist-scroll::-webkit-scrollbar {
+            width: 0;
+            height: 0;
+        }
+
+        .tm-checklist-scroll::-webkit-scrollbar-track {
+            background: transparent;
+        }
+
+        .tm-checklist-scroll::-webkit-scrollbar-thumb {
+            background: transparent;
+            border-radius: 999px;
+            transition: background-color 0.18s ease;
+        }
+
+        .tm-checklist-scroll::-webkit-scrollbar-corner {
+            background: transparent;
+        }
+
+        .tm-checklist-scrollbar {
+            position: absolute;
+            top: 10px;
+            bottom: 10px;
+            right: 2px;
+            width: 8px;
+            pointer-events: none;
+            opacity: 0;
+            transition: opacity 0.18s ease;
+            z-index: 4;
+        }
+
+        .tm-checklist-scrollbar.tm-checklist-scrollbar--visible {
+            opacity: 1;
+        }
+
+        .tm-checklist-scrollbar-thumb {
+            position: absolute;
+            left: 1px;
+            width: 6px;
+            min-height: 24px;
+            border-radius: 999px;
+            background: color-mix(in srgb, var(--tm-secondary-text) 28%, transparent);
+        }
+
         .tm-checklist-items {
-            --tm-checklist-list-gutter: 8px;
+            --tm-checklist-list-gutter: 0px;
             display: flex;
             flex-direction: column;
             gap: 8px;
-            padding-left: var(--tm-checklist-list-gutter);
+            padding-left: 0;
         }
 
         .tm-checklist-group {
             display: flex;
             align-items: center;
             gap: 8px;
-            min-height: 38px;
-            width: 100%;
-            padding: 0 14px;
+            min-height: 44px;
+            width: auto;
+            margin: 0 calc(-1 * var(--tm-checklist-pane-pad-right)) 0 calc(-1 * var(--tm-checklist-pane-pad-left));
+            padding: 0 18px 0 calc(var(--tm-checklist-pane-pad-left) + 18px);
             box-sizing: border-box;
-            border: 1px solid var(--tm-border-color);
-            border-radius: 12px;
+            border-top: 1px solid var(--tm-border-color);
+            border-bottom: 1px solid var(--tm-border-color);
+            border-left: none;
+            border-right: none;
+            border-radius: 0;
             background: var(--tm-header-bg);
             color: var(--tm-text-color);
             font-size: 1em;
@@ -2976,8 +3049,19 @@
             cursor: pointer;
         }
 
+        .tm-checklist-group.tm-checklist-group--doc {
+            padding-left: 8px;
+        }
+
+        .tm-checklist-group.tm-checklist-group--time,
+        .tm-checklist-group.tm-checklist-group--quadrant {
+            padding-left: 8px;
+        }
+
         .tm-checklist-group.tm-checklist-group--h2 {
-            margin-left: 12px;
+            margin-left: calc(-1 * var(--tm-checklist-pane-pad-left));
+            margin-right: calc(-1 * var(--tm-checklist-pane-pad-right));
+            padding-left: calc(var(--tm-checklist-pane-pad-left) + 8px);
             background: var(--tm-subgroup-bg);
             color: var(--tm-secondary-text);
         }
@@ -2991,12 +3075,13 @@
         }
 
         .tm-checklist-item {
+            --tm-checklist-item-border-color: var(--tm-border-color);
             position: relative;
             display: flex;
             align-items: flex-start;
             gap: 2px;
             padding: 8px 12px 8px 14px;
-            border: 1px solid var(--tm-border-color);
+            border: 1px solid var(--tm-checklist-item-border-color);
             border-radius: 12px;
             background: color-mix(in srgb, var(--tm-bg-color) 92%, var(--tm-section-bg));
             color: var(--tm-text-color);
@@ -3006,12 +3091,14 @@
         }
 
         .tm-checklist-item:hover {
+            --tm-checklist-item-border-color: color-mix(in srgb, var(--tm-border-color) 72%, var(--tm-text-color) 28%);
             border-color: color-mix(in srgb, var(--tm-border-color) 72%, var(--tm-text-color) 28%);
             box-shadow: 0 10px 22px rgba(0, 0, 0, 0.08);
             transform: translateY(-1px);
         }
 
         .tm-checklist-item--active {
+            --tm-checklist-item-border-color: #2f6fed;
             border-color: #2f6fed;
             box-shadow: 0 0 0 1px #2f6fed inset, 0 12px 24px rgba(47, 111, 237, 0.14);
             background: color-mix(in srgb, var(--tm-bg-color) 88%, #2f6fed 12%);
@@ -3052,7 +3139,7 @@
             width: 20px;
             min-width: 20px;
             height: 20px;
-            color: #8a8f98;
+            color: var(--tm-secondary-text);
         }
 
         .tm-checklist-leading.tm-checklist-leading--branch .tm-tree-toggle {
@@ -3074,13 +3161,25 @@
             min-width: 0;
         }
 
+        .tm-checklist-title-main {
+            flex: 1 1 auto;
+            min-width: 0;
+            display: flex;
+            align-items: center;
+            gap: 4px;
+        }
+
         .tm-checklist-title {
             flex: 1 1 auto;
             min-width: 0;
             font-size: 1em;
-            font-weight: 600;
+            font-weight: 400;
             line-height: 1.3;
             word-break: break-word;
+        }
+
+        .tm-checklist-item[data-depth="0"] .tm-checklist-title {
+            font-weight: 600;
         }
 
         .tm-checklist-title-button {
@@ -3113,6 +3212,237 @@
             line-height: 1.2;
         }
 
+        .tm-checklist-meta-compact {
+            display: none;
+            flex: 0 0 auto;
+            align-items: center;
+            gap: 10px;
+            margin-left: 12px;
+            color: var(--tm-secondary-text);
+            font-size: calc(var(--tm-font-size) * 0.82);
+            white-space: nowrap;
+        }
+
+        .tm-checklist-meta-compact-doc,
+        .tm-checklist-meta-compact-time {
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+        }
+
+        .tm-checklist-meta-compact-time {
+            flex: 0 0 auto;
+            overflow: visible;
+            text-overflow: clip;
+        }
+
+        .tm-checklist-pane--compact .tm-checklist-items {
+            gap: 0;
+        }
+
+        .tm-checklist-pane--compact .tm-checklist-item {
+            align-items: center;
+            min-height: 38px;
+            padding: 4px 10px 4px calc(10px + var(--tm-checklist-compact-indent, 0px));
+            border: 0;
+            border-bottom: 1px solid color-mix(in srgb, var(--tm-border-color) 92%, transparent);
+            border-radius: 0;
+            box-shadow: none;
+            background: transparent;
+        }
+
+        .tm-checklist-pane--compact .tm-checklist-item::before {
+            content: '';
+            position: absolute;
+            left: 0;
+            top: -1px;
+            bottom: -1px;
+            width: 3px;
+            border-radius: 0;
+            background: var(--tm-checklist-accent-color, transparent);
+        }
+
+        .tm-checklist-pane--compact .tm-checklist-leading {
+            --tm-checklist-checkbox-left: 22px;
+            width: 40px;
+            min-width: 40px;
+            flex: 0 0 40px;
+            position: relative;
+            padding-top: 0;
+            align-items: center;
+            justify-content: flex-start;
+        }
+
+        .tm-checklist-pane--compact .tm-checklist-leading .tm-tree-toggle,
+        .tm-checklist-pane--compact .tm-checklist-leading .tm-task-checkbox {
+            position: absolute;
+            top: 50%;
+            transform: translateY(-50%);
+        }
+
+        .tm-checklist-pane--compact .tm-checklist-leading .tm-tree-toggle {
+            left: 0;
+        }
+
+        .tm-checklist-pane--compact .tm-checklist-leading .tm-task-checkbox {
+            left: var(--tm-checklist-checkbox-left);
+        }
+
+        .tm-checklist-pane--compact .tm-checklist-leading .tm-task-leading-ring {
+            position: absolute;
+            left: calc(var(--tm-checklist-checkbox-left) + 8px);
+            top: 50%;
+            width: 22px;
+            height: 22px;
+            transform: translate(-50%, -50%);
+            border-radius: 999px;
+            background: rgba(226, 232, 240, 0.95);
+            box-shadow: inset 0 0 0 1px rgba(148, 163, 184, 0.2);
+            z-index: 0;
+            pointer-events: none;
+        }
+
+        .tm-checklist-pane--compact .tm-checklist-item-main {
+            min-width: 0;
+        }
+
+        .tm-checklist-pane--compact .tm-checklist-title-row {
+            gap: 8px;
+        }
+
+        .tm-checklist-mobile-toggle {
+            display: none;
+        }
+
+        .tm-checklist-pane--compact .tm-checklist-item:hover {
+            transform: none;
+            box-shadow: none;
+            background: transparent;
+        }
+
+        .tm-checklist-pane--compact .tm-checklist-item--active {
+            border: 0;
+            border-bottom: 1px solid color-mix(in srgb, var(--tm-border-color) 92%, transparent);
+            border-radius: 12px;
+            box-shadow: inset 0 0 0 1px color-mix(in srgb, #2f6fed 36%, var(--tm-border-color));
+            background: color-mix(in srgb, var(--tm-bg-color) 88%, #2f6fed 8%) !important;
+            z-index: 1;
+        }
+
+        .tm-checklist-pane--compact .tm-checklist-item::after {
+            display: none;
+        }
+
+        .tm-checklist-pane--compact .tm-checklist-title-main {
+            min-width: 0;
+        }
+
+        .tm-checklist-pane--compact .tm-checklist-title {
+            font-size: calc(var(--tm-font-size) * 0.96);
+            line-height: 1.2;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+
+        .tm-checklist-pane--compact.tm-checklist-pane--wrap .tm-checklist-title {
+            white-space: normal;
+            word-break: break-word;
+            overflow-wrap: anywhere;
+            display: -webkit-box;
+            -webkit-box-orient: vertical;
+            -webkit-line-clamp: var(--tm-task-content-wrap-lines, 3);
+            line-clamp: var(--tm-task-content-wrap-lines, 3);
+            text-overflow: ellipsis;
+        }
+
+        .tm-checklist-pane--compact .tm-checklist-title-button {
+            display: inline-block;
+            max-width: 100%;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+            vertical-align: middle;
+        }
+
+        .tm-checklist-pane--compact.tm-checklist-pane--wrap .tm-checklist-title-button {
+            display: -webkit-box;
+            white-space: normal;
+            -webkit-box-orient: vertical;
+            -webkit-line-clamp: inherit;
+            line-clamp: inherit;
+        }
+
+        .tm-checklist-pane--compact .tm-tree-toggle {
+            width: 16px;
+            min-width: 16px;
+            height: 16px;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            color: var(--tm-secondary-text);
+        }
+
+        .tm-checklist-pane--compact .tm-tree-toggle .tm-tree-toggle-icon {
+            width: 16px;
+            height: 16px;
+        }
+
+        .tm-checklist-pane--compact .tm-tree-toggle--placeholder {
+            display: inline-flex;
+            width: 16px;
+            min-width: 16px;
+            height: 16px;
+            visibility: hidden;
+            pointer-events: none;
+        }
+
+        .tm-checklist-pane--compact .tm-task-checkbox {
+            appearance: none;
+            -webkit-appearance: none;
+            width: 16px;
+            height: 16px;
+            border-radius: 4px;
+            border: 2px solid var(--tm-checklist-checkbox-color, #a9afb8);
+            background: var(--tm-bg-color);
+            position: relative;
+            cursor: pointer;
+        }
+
+        .tm-checklist-pane--compact .tm-task-checkbox:checked {
+            background: color-mix(in srgb, var(--tm-checklist-checkbox-color, var(--tm-primary-color)) 18%, var(--tm-bg-color));
+        }
+
+        .tm-checklist-pane--compact .tm-task-checkbox:checked::after {
+            content: '';
+            position: absolute;
+            left: 4px;
+            top: 0px;
+            width: 3px;
+            height: 7px;
+            border-right: 2px solid var(--tm-checklist-checkbox-color, var(--tm-primary-color));
+            border-bottom: 2px solid var(--tm-checklist-checkbox-color, var(--tm-primary-color));
+            transform: rotate(42deg);
+        }
+
+        .tm-checklist-pane--compact .tm-checklist-meta {
+            display: none;
+        }
+
+        .tm-checklist-pane--compact .tm-checklist-title-row > .tm-checklist-meta-chip {
+            display: none;
+        }
+
+        .tm-checklist-pane--compact .tm-checklist-meta-compact {
+            display: inline-flex;
+            max-width: 42%;
+        }
+
+        .tm-checklist-pane--compact .tm-status-tag {
+            flex: 0 0 auto;
+            margin-left: 8px;
+        }
+
         .tm-checklist-side {
             flex: 0 0 360px;
             width: 360px;
@@ -3126,11 +3456,12 @@
         }
 
         .tm-checklist-resizer {
-            flex: 0 0 6px;
-            width: 6px;
+            flex: 0 0 0;
+            width: 0;
             cursor: col-resize;
             background: transparent;
             position: relative;
+            overflow: visible;
         }
 
         .tm-checklist-resizer::after {
@@ -3138,13 +3469,25 @@
             position: absolute;
             top: 0;
             bottom: 0;
-            left: 2px;
+            left: -3px;
+            cursor: col-resize;
+            width: 6px;
+            pointer-events: auto;
+        }
+
+        .tm-checklist-resizer::before {
+            content: '';
+            position: absolute;
+            top: 0;
+            bottom: 0;
+            left: 0;
             width: 1px;
             background: var(--tm-border-color);
             opacity: .72;
+            pointer-events: none;
         }
 
-        .tm-checklist-resizer:hover::after {
+        .tm-checklist-resizer:hover::before {
             background: var(--tm-primary-color);
             opacity: 1;
         }
@@ -3283,9 +3626,26 @@
             padding: 0 12px 14px;
         }
 
+        .tm-checklist-sheet .tm-task-detail-actions {
+            position: sticky;
+            bottom: 0;
+            z-index: 2;
+            margin-top: 12px;
+            padding-top: 10px;
+            padding-bottom: env(safe-area-inset-bottom, 0px);
+            border-top: 1px solid var(--tm-border-color);
+            background: var(--tm-section-bg);
+        }
+
         .tm-box--with-cal-dock .tm-checklist-pane {
             min-width: 240px;
-            padding: 10px 10px 10px 18px;
+            --tm-checklist-pane-pad-right: 10px;
+            --tm-checklist-pane-pad-left: 18px;
+            --tm-checklist-scroll-gutter-fill: 0px;
+        }
+
+        .tm-box--with-cal-dock .tm-checklist-scroll {
+            padding: 10px var(--tm-checklist-pane-pad-right) 10px var(--tm-checklist-pane-pad-left);
         }
 
         .tm-box--with-cal-dock .tm-checklist-side {
@@ -3296,6 +3656,15 @@
         }
 
         @media (max-width: 960px) {
+            .tm-checklist-sheet .tm-task-detail-row {
+                justify-content: flex-start;
+                gap: 0;
+            }
+
+            .tm-checklist-sheet .tm-task-detail-label {
+                width: 60px;
+            }
+
             .tm-checklist-layout {
                 flex-direction: column;
             }
@@ -3309,17 +3678,71 @@
             }
 
             .tm-checklist-pane {
-                padding: 10px 10px 10px 22px;
+                --tm-checklist-pane-pad-right: 10px;
+                --tm-checklist-pane-pad-left: 5px;
+                --tm-checklist-scroll-gutter-fill: 0px;
+            }
+
+            .tm-checklist-scroll {
+                padding: 10px var(--tm-checklist-pane-pad-right) 10px var(--tm-checklist-pane-pad-left);
             }
 
             .tm-checklist-items {
-                --tm-checklist-list-gutter: 6px;
+                --tm-checklist-list-gutter: 0px;
             }
 
             .tm-checklist-leading.tm-checklist-leading--branch .tm-tree-toggle {
                 left: -20px;
                 top: 50%;
                 transform: translateY(-50%);
+            }
+
+            .tm-checklist-pane--compact .tm-checklist-item {
+                padding-left: calc(10px + var(--tm-checklist-compact-indent, 0px));
+                padding-right: 8px;
+            }
+
+            .tm-checklist-pane--compact .tm-checklist-leading {
+                --tm-checklist-checkbox-left: 0px;
+                width: 18px;
+                min-width: 18px;
+                flex-basis: 18px;
+            }
+
+            .tm-checklist-pane--compact .tm-checklist-leading .tm-tree-toggle,
+            .tm-checklist-pane--compact .tm-checklist-leading .tm-tree-toggle--placeholder {
+                display: none;
+            }
+
+            .tm-checklist-pane--compact .tm-checklist-leading .tm-task-checkbox {
+                left: 0;
+            }
+
+            .tm-checklist-pane--compact .tm-checklist-meta-compact-doc {
+                display: none;
+            }
+
+            .tm-checklist-pane--compact .tm-checklist-meta-compact {
+                margin-left: 6px;
+                max-width: 34%;
+            }
+
+            .tm-checklist-mobile-toggle {
+                display: inline-flex;
+                align-items: center;
+                justify-content: center;
+                width: 18px;
+                min-width: 18px;
+                height: 18px;
+                color: var(--tm-text-color);
+                margin-left: 0;
+                margin-right: -10px;
+                flex: 0 0 18px;
+            }
+
+            .tm-checklist-mobile-toggle .tm-tree-toggle-icon {
+                width: 18px;
+                height: 18px;
             }
         }
 
@@ -3823,7 +4246,7 @@
             left: 0;
             top: 1px;
             bottom: 1px;
-            border-left: 1.5px solid color-mix(in srgb, var(--tm-secondary-text) 78%, #000 22%);
+            border-left: 1.5px solid #999999;
             opacity: 1;
         }
 
@@ -3884,6 +4307,12 @@
         .tm-task-content-clickable {
             cursor: pointer;
             transition: color 0.2s;
+        }
+
+        .tm-linked-text {
+            text-decoration: underline;
+            text-decoration-thickness: 1px;
+            text-underline-offset: 2px;
         }
 
         .tm-task-reminder-emoji {
@@ -4115,6 +4544,10 @@
             margin-left: -0.5px;
         }
 
+        [data-theme-mode="dark"] .tm-tree-guide-line::before {
+            border-left-color: #666666;
+        }
+
         .tm-task-leading.tm-task-leading--branch.tm-task-leading--collapsed .tm-tree-toggle {
             opacity: 1 !important;
             pointer-events: auto !important;
@@ -4250,7 +4683,8 @@
         }
 
         /* 提示框样式 */
-        .tm-prompt-modal {
+        .tm-prompt-modal,
+        .tm-quick-add-modal {
             position: fixed;
             top: 0;
             left: 0;
@@ -4845,6 +5279,7 @@
             defaultViewModeMobile: 'list',
             enabledViews: ['list', 'checklist', 'timeline', 'kanban', 'calendar', 'whiteboard'],
             kanbanCompactMode: false,
+            checklistCompactMode: true,
             kanbanColumnWidth: 320,
             kanbanShowDoneColumn: false,
             kanbanDragSyncSubtasks: false,
@@ -5096,6 +5531,7 @@
                                 if (typeof cloudData.defaultViewModeMobile === 'string') this.data.defaultViewModeMobile = cloudData.defaultViewModeMobile;
                                 if (Array.isArray(cloudData.enabledViews)) this.data.enabledViews = __tmNormalizeEnabledViews(cloudData.enabledViews);
                                 if (typeof cloudData.kanbanCompactMode === 'boolean') this.data.kanbanCompactMode = cloudData.kanbanCompactMode;
+                                if (typeof cloudData.checklistCompactMode === 'boolean') this.data.checklistCompactMode = cloudData.checklistCompactMode;
                                 if (typeof cloudData.kanbanColumnWidth === 'number') this.data.kanbanColumnWidth = cloudData.kanbanColumnWidth;
                                 if (typeof cloudData.kanbanShowDoneColumn === 'boolean') this.data.kanbanShowDoneColumn = cloudData.kanbanShowDoneColumn;
                                 if (typeof cloudData.kanbanDragSyncSubtasks === 'boolean') this.data.kanbanDragSyncSubtasks = cloudData.kanbanDragSyncSubtasks;
@@ -5299,6 +5735,7 @@
             this.data.defaultViewModeMobile = Storage.get('tm_default_view_mode_mobile', this.data.defaultViewModeMobile || this.data.defaultViewMode);
             this.data.enabledViews = __tmNormalizeEnabledViews(Storage.get('tm_enabled_views', this.data.enabledViews));
             this.data.kanbanCompactMode = !!Storage.get('tm_kanban_compact_mode', this.data.kanbanCompactMode);
+            this.data.checklistCompactMode = !!Storage.get('tm_checklist_compact_mode', this.data.checklistCompactMode);
             this.data.kanbanColumnWidth = Storage.get('tm_kanban_column_width', this.data.kanbanColumnWidth);
             this.data.kanbanShowDoneColumn = !!Storage.get('tm_kanban_show_done_column', this.data.kanbanShowDoneColumn);
             this.data.kanbanDragSyncSubtasks = !!Storage.get('tm_kanban_drag_sync_subtasks', this.data.kanbanDragSyncSubtasks);
@@ -5487,6 +5924,7 @@
             Storage.set('tm_default_view_mode_mobile', String(this.data.defaultViewModeMobile || this.data.defaultViewMode || 'list').trim() || 'list');
             Storage.set('tm_enabled_views', this.data.enabledViews);
             Storage.set('tm_kanban_compact_mode', !!this.data.kanbanCompactMode);
+            Storage.set('tm_checklist_compact_mode', !!this.data.checklistCompactMode);
             Storage.set('tm_kanban_column_width', Number(this.data.kanbanColumnWidth) || 320);
             Storage.set('tm_kanban_show_done_column', !!this.data.kanbanShowDoneColumn);
             Storage.set('tm_kanban_drag_sync_subtasks', !!this.data.kanbanDragSyncSubtasks);
@@ -6765,6 +7203,67 @@
             return null;
         },
 
+        extractTaskContentLine(markdown) {
+            const firstLine = String(markdown || '').split('\n')[0].trim();
+            return firstLine.replace(/^[\s\*\-]*\[[xX ]\]\s*/, '').trim();
+        },
+
+        getTaskContentSegments(content) {
+            let text = String(content || '').trim();
+            if (!text) return [];
+            text = text.replace(/<span[^>]*>[\s\S]*?<\/span>/gi, '');
+            text = text.replace(/\{\:\s*[^}]*\}/g, '');
+            text = text.replace(/<[^>]+>/g, '');
+            const pattern = /\(\(([0-9]{14}-[A-Za-z0-9]+)(?:\s+(['"])([\s\S]*?)\2)?\)\)|\[\[([^\]]+)\]\]|\[([^\]]+)\]\((?:[^)(]+|\([^)]*\))*\)/g;
+            const segments = [];
+            let lastIndex = 0;
+            let match;
+            while ((match = pattern.exec(text)) !== null) {
+                if (match.index > lastIndex) {
+                    segments.push({ text: text.slice(lastIndex, match.index), linked: false });
+                }
+                const label = String(match[3] || match[4] || match[5] || '').trim();
+                if (label) segments.push({ text: label, linked: true });
+                lastIndex = pattern.lastIndex;
+            }
+            if (lastIndex < text.length) {
+                segments.push({ text: text.slice(lastIndex), linked: false });
+            }
+            const normalized = [];
+            for (const seg of segments) {
+                const segText = String(seg?.text || '').replace(/\s+/g, ' ');
+                if (!segText) continue;
+                const prev = normalized[normalized.length - 1];
+                if (prev && prev.linked === !!seg.linked) {
+                    prev.text += segText;
+                } else {
+                    normalized.push({ text: segText, linked: !!seg.linked });
+                }
+            }
+            return normalized;
+        },
+
+        normalizeTaskContent(content) {
+            return this.getTaskContentSegments(content).map(seg => seg.text).join('').replace(/\s{2,}/g, ' ').trim();
+        },
+
+        hasLinkedTaskContent(content) {
+            return this.getTaskContentSegments(content).some(seg => seg.linked);
+        },
+
+        renderTaskContentHtml(markdown, fallback = '') {
+            const source = this.extractTaskContentLine(markdown || fallback);
+            const segments = this.getTaskContentSegments(source);
+            if (!segments.length) {
+                const plain = this.normalizeTaskContent(source || fallback) || '(无内容)';
+                return esc(plain);
+            }
+            return segments.map((seg) => {
+                const text = esc(seg.text);
+                return seg.linked ? `<span class="tm-linked-text">${text}</span>` : text;
+            }).join('');
+        },
+
         parseTaskStatus(markdown) {
             if (!markdown) return { done: false, firstLine: '', content: '' };
 
@@ -6773,11 +7272,7 @@
 
             const done = /^\s*[\*\-]\s*\[[xX]\]/.test(firstLine);
 
-            let content = firstLine.replace(/^[\s\*\-]*\[[xX ]\]\s*/, '').trim();
-            content = content.replace(/<span[^>]*>[\s\S]*?<\/span>/gi, '');
-            content = content.replace(/\{\:\s*[^}]*\}/g, '');
-            content = content.replace(/<[^>]+>/g, '');
-            content = content.replace(/\s{2,}/g, ' ').trim();
+            const content = this.normalizeTaskContent(this.extractTaskContentLine(firstLine));
 
             return { done, firstLine, content };
         },
@@ -9922,7 +10417,7 @@ async function __tmRefreshAfterWake(reason) {
                                     ${toggle}
                                 </span>
                             <span class="tm-task-text ${task.done ? 'tm-task-done' : ''}" data-level="${row.depth}" title="${esc(task.content || '')}">
-                                <span class="tm-task-content-clickable" onclick="tmJumpToTask('${task.id}', event)" title="${esc(task.content || '')}">${esc(task.content || '')}</span>
+                                <span class="tm-task-content-clickable" onclick="tmJumpToTask('${task.id}', event)" title="${esc(task.content || '')}">${API.renderTaskContentHtml(task.markdown, task.content || '')}</span>
                             </span>
                         </div>
                     </td>
@@ -10359,23 +10854,111 @@ async function __tmRefreshAfterWake(reason) {
 
     function __tmRenderChecklistPreserveScroll() {
         const modal = state.modal instanceof Element ? state.modal : null;
-        const pane = modal?.querySelector?.('.tm-checklist-pane');
+        const pane = modal?.querySelector?.('.tm-checklist-scroll');
         const top = Number(pane?.scrollTop || 0);
         const left = Number(pane?.scrollLeft || 0);
         render();
         try {
             requestAnimationFrame(() => {
-                const nextPane = state.modal?.querySelector?.('.tm-checklist-pane');
+                const nextPane = state.modal?.querySelector?.('.tm-checklist-scroll');
                 if (!(nextPane instanceof HTMLElement)) return;
                 nextPane.scrollTop = top;
                 nextPane.scrollLeft = left;
+                try { nextPane.__tmChecklistScrollUpdateThumb?.(); } catch (e3) {}
                 try {
                     requestAnimationFrame(() => {
                         try { nextPane.scrollTop = top; } catch (e2) {}
                         try { nextPane.scrollLeft = left; } catch (e2) {}
+                        try { nextPane.__tmChecklistScrollUpdateThumb?.(); } catch (e4) {}
                     });
                 } catch (e) {}
             });
+        } catch (e) {}
+    }
+
+    function __tmBindChecklistScrollVisibility(modalEl) {
+        const modal = modalEl instanceof Element ? modalEl : state.modal;
+        const pane = modal?.querySelector?.('.tm-checklist-scroll');
+        const track = modal?.querySelector?.('.tm-checklist-scrollbar');
+        const thumb = track?.querySelector?.('.tm-checklist-scrollbar-thumb');
+        if (!(pane instanceof HTMLElement)) return;
+        if (pane.__tmChecklistScrollFxBound) return;
+        pane.__tmChecklistScrollFxBound = true;
+        if (__tmIsMobileDevice() && !pane.__tmChecklistTapGuardBound) {
+            pane.__tmChecklistTapGuardBound = true;
+            let touchStartX = 0;
+            let touchStartY = 0;
+            let touchActive = false;
+            const suppressTap = (ms = 280) => {
+                try {
+                    pane.__tmChecklistSuppressTapUntil = Math.max(
+                        Number(pane.__tmChecklistSuppressTapUntil || 0),
+                        Date.now() + ms
+                    );
+                } catch (e) {}
+            };
+            const readTouchPoint = (ev) => ev?.touches?.[0] || ev?.changedTouches?.[0] || null;
+            pane.addEventListener('touchstart', (ev) => {
+                const point = readTouchPoint(ev);
+                touchActive = true;
+                touchStartX = Number(point?.clientX || 0);
+                touchStartY = Number(point?.clientY || 0);
+            }, { passive: true });
+            pane.addEventListener('touchmove', (ev) => {
+                if (!touchActive) return;
+                const point = readTouchPoint(ev);
+                const dx = Math.abs(Number(point?.clientX || 0) - touchStartX);
+                const dy = Math.abs(Number(point?.clientY || 0) - touchStartY);
+                if ((dx + dy) > 10) suppressTap(320);
+            }, { passive: true });
+            const onTouchEnd = () => {
+                touchActive = false;
+            };
+            pane.addEventListener('touchend', onTouchEnd, { passive: true });
+            pane.addEventListener('touchcancel', onTouchEnd, { passive: true });
+        }
+        const updateThumb = () => {
+            if (!(track instanceof HTMLElement) || !(thumb instanceof HTMLElement)) return;
+            const viewport = Number(pane.clientHeight || 0);
+            const total = Number(pane.scrollHeight || 0);
+            const trackHeight = Number(track.clientHeight || 0);
+            if (!viewport || !total || total <= viewport + 1 || !trackHeight) {
+                track.classList.remove('tm-checklist-scrollbar--visible');
+                thumb.style.height = '0px';
+                thumb.style.transform = 'translateY(0)';
+                return;
+            }
+            const ratio = Math.min(1, viewport / total);
+            const thumbHeight = Math.max(24, Math.round(trackHeight * ratio));
+            const maxTop = Math.max(0, trackHeight - thumbHeight);
+            const progress = Math.min(1, Math.max(0, Number(pane.scrollTop || 0) / Math.max(1, total - viewport)));
+            const top = Math.round(maxTop * progress);
+            thumb.style.height = `${thumbHeight}px`;
+            thumb.style.transform = `translateY(${top}px)`;
+        };
+        pane.__tmChecklistScrollUpdateThumb = updateThumb;
+        const show = () => {
+            if (__tmIsMobileDevice()) {
+                try { pane.__tmChecklistSuppressTapUntil = Date.now() + 260; } catch (e) {}
+            }
+            updateThumb();
+            track?.classList?.add('tm-checklist-scrollbar--visible');
+            try { clearTimeout(pane.__tmChecklistScrollFxTimer); } catch (e) {}
+            pane.__tmChecklistScrollFxTimer = setTimeout(() => {
+                try { track?.classList?.remove('tm-checklist-scrollbar--visible'); } catch (e2) {}
+            }, 600);
+        };
+        pane.addEventListener('scroll', show, { passive: true });
+        pane.addEventListener('scroll', updateThumb, { passive: true });
+        try {
+            const ro = new ResizeObserver(() => updateThumb());
+            ro.observe(pane);
+            const items = pane.querySelector('.tm-checklist-items');
+            if (items instanceof HTMLElement) ro.observe(items);
+            pane.__tmChecklistScrollResizeObserver = ro;
+        } catch (e) {}
+        try {
+            requestAnimationFrame(() => updateThumb());
         } catch (e) {}
     }
 
@@ -10811,21 +11394,32 @@ async function __tmRefreshAfterWake(reason) {
             const okBtn = modal.querySelector('#tm-prompt-ok');
             const cancelBtn = modal.querySelector('#tm-prompt-cancel');
             const clearBtn = modal.querySelector('#tm-prompt-clear');
+            let settled = false;
+            const finish = (value) => {
+                if (settled) return;
+                settled = true;
+                try { modal.remove(); } catch (e) {}
+                resolve(value);
+            };
 
             okBtn.onclick = () => {
                 const raw = String(input.value || '').trim();
-                modal.remove();
-                resolve(raw ? __tmNormalizeDateOnly(raw) : '');
+                finish(raw ? __tmNormalizeDateOnly(raw) : '');
             };
             clearBtn.onclick = () => {
-                modal.remove();
-                resolve('');
+                finish('');
             };
             cancelBtn.onclick = () => {
-                modal.remove();
-                resolve(null);
+                finish(null);
             };
             input.onclick = () => { try { input.showPicker?.(); } catch (e) {} };
+            if (__tmIsMobileDevice()) {
+                input.onchange = () => {
+                    const raw = String(input.value || '').trim();
+                    if (!raw) return;
+                    setTimeout(() => finish(__tmNormalizeDateOnly(raw)), 0);
+                };
+            }
             input.onkeydown = (e) => {
                 if (e.key === 'Enter') okBtn.click();
                 else if (e.key === 'Escape') cancelBtn.click();
@@ -11784,7 +12378,7 @@ async function __tmRefreshAfterWake(reason) {
         `).join('');
         
         const modal = document.createElement('div');
-        modal.className = 'tm-prompt-modal';
+        modal.className = 'tm-quick-add-modal';
         modal.innerHTML = `
             <div class="tm-prompt-box" style="width: 90%; max-width: 400px; max-height: 90vh; overflow-y: auto; box-sizing: border-box;">
                 <div class="tm-prompt-title">编辑四象限规则 - ${esc(rule.name)}</div>
@@ -12006,7 +12600,7 @@ async function __tmRefreshAfterWake(reason) {
         state.priorityDocDeltaMode = selected ? 'replace' : 'add';
 
         const picker = document.createElement('div');
-        picker.className = 'tm-prompt-modal';
+        picker.className = 'tm-quick-add-modal';
         picker.style.zIndex = '100011';
         picker.innerHTML = `
             <div class="tm-prompt-box" style="width:min(92vw,520px);max-height:70vh;overflow:auto;">
@@ -13691,6 +14285,14 @@ async function __tmRefreshAfterWake(reason) {
         if (!id) return;
         const target = ev?.target;
         if (target?.closest?.('input,button,select,textarea,a,.tm-tree-toggle')) return;
+        if (__tmIsMobileDevice()) {
+            const pane = state.modal?.querySelector?.('.tm-checklist-scroll');
+            if (Number(pane?.__tmChecklistSuppressTapUntil || 0) > Date.now()) {
+                try { ev?.preventDefault?.(); } catch (e) {}
+                try { ev?.stopPropagation?.(); } catch (e) {}
+                return;
+            }
+        }
         state.detailTaskId = id;
         if (__tmChecklistUseSheetMode(state.modal)) state.checklistDetailSheetOpen = true;
         if (!__tmRefreshChecklistSelectionInPlace(state.modal)) render();
@@ -13953,7 +14555,7 @@ async function __tmRefreshAfterWake(reason) {
         const isMobile = __tmIsMobileDevice();
         const isSplitPane = false; // 使用CSS容器查询处理分屏模式
         const isLandscape = !!(isMobile && (() => { try { return !!window.matchMedia?.('(orientation: landscape)')?.matches; } catch (e) { return false; } })());
-        const isDesktopNarrow = false; // 使用CSS容器查询处理窄屏模式
+        const isDesktopNarrow = !!(!isMobile && (() => { try { return !!window.matchMedia?.('(max-width: 768px)')?.matches; } catch (e) { return false; } })());
         const kind = String(state.uiAnimKind || '').trim();
         const bodyAnimClass = (Date.now() - (Number(state.uiAnimTs) || 0) < 300)
             ? (kind === 'from-right' ? ' tm-body-anim--from-right' : kind === 'from-left' ? ' tm-body-anim--from-left' : ' tm-body-anim')
@@ -14021,6 +14623,8 @@ async function __tmRefreshAfterWake(reason) {
             const rowModel = __tmBuildTaskRowModel();
             const isDark = __tmIsDarkMode();
             const enableGroupBg = !!SettingsStore.data.enableGroupTaskBgByGroupColor;
+            const checklistCompact = !!SettingsStore.data.checklistCompactMode;
+            const wrapCfg = __tmGetWrapConfig();
             const escSq = (s) => String(s || '').replace(/\\/g, '\\\\').replace(/'/g, "\\'");
             const sheetMode = __tmChecklistUseSheetMode();
             const detailWidth = Math.max(260, Math.min(520, Math.round(Number(SettingsStore.data.checklistDetailWidth) || 320)));
@@ -14035,6 +14639,7 @@ async function __tmRefreshAfterWake(reason) {
             if (activeId !== selectedId) state.detailTaskId = activeId;
             if (!sheetMode) state.checklistDetailSheetOpen = false;
             let currentGroupBg = '';
+            let currentGroupAccent = '';
 
             const resolvePinnedTaskGroupBg = (task) => {
                 if (!enableGroupBg || !task) return '';
@@ -14098,6 +14703,54 @@ async function __tmRefreshAfterWake(reason) {
                 return '';
             };
 
+            const resolvePinnedTaskGroupAccentColor = (task) => {
+                if (!enableGroupBg || !task) return '';
+                if (state.groupByDocName || state.groupByTaskName || (!state.groupByDocName && !state.groupByTime && !state.quadrantEnabled)) {
+                    return __tmGetDocColorHex(task.root_id, isDark) || '';
+                }
+                if (state.groupByTime) {
+                    const diffDays = Number(__tmGetTaskTimePriorityInfo(task)?.diffDays);
+                    const timeBaseColor = isDark
+                        ? __tmNormalizeHexColor(SettingsStore.data.timeGroupBaseColorDark, '#6ba5ff')
+                        : __tmNormalizeHexColor(SettingsStore.data.timeGroupBaseColorLight, '#1a73e8');
+                    const timeOverdueColor = isDark
+                        ? __tmNormalizeHexColor(SettingsStore.data.timeGroupOverdueColorDark, '#ff6b6b')
+                        : __tmNormalizeHexColor(SettingsStore.data.timeGroupOverdueColorLight, '#d93025');
+                    if (!Number.isFinite(diffDays)) return 'var(--tm-secondary-text)';
+                    if (diffDays < 0) return timeOverdueColor || 'var(--tm-danger-color)';
+                    return __tmWithAlpha(timeBaseColor || 'var(--tm-primary-color)', __tmClamp(1 - diffDays * (isDark ? 0.085 : 0.11), isDark ? 0.52 : 0.42, 1));
+                }
+                if (state.quadrantEnabled) {
+                    const quadrantRules = (SettingsStore.data.quadrantConfig && SettingsStore.data.quadrantConfig.rules) || [];
+                    const priority = String(task.priority || '').toLowerCase();
+                    const importance = (priority === 'a' || priority === '高' || priority === 'high')
+                        ? 'high'
+                        : ((priority === 'b' || priority === '中' || priority === 'medium')
+                            ? 'medium'
+                            : ((priority === 'c' || priority === '低' || priority === 'low') ? 'low' : 'none'));
+                    const diffDays = Number(__tmGetTaskTimePriorityInfo(task)?.diffDays);
+                    const timeRange = !Number.isFinite(diffDays)
+                        ? 'nodate'
+                        : (diffDays < 0 ? 'overdue' : (diffDays <= 7 ? 'within7days' : (diffDays <= 15 ? 'within15days' : (diffDays <= 30 ? 'within30days' : 'beyond30days'))));
+                    for (const rule of quadrantRules) {
+                        const importanceMatch = Array.isArray(rule?.importance) && rule.importance.includes(importance);
+                        let timeRangeMatch = Array.isArray(rule?.timeRanges) && rule.timeRanges.includes(timeRange);
+                        if (!timeRangeMatch && Array.isArray(rule?.timeRanges)) {
+                            for (const range of rule.timeRanges) {
+                                if (!String(range || '').startsWith('beyond') || range === 'beyond30days') continue;
+                                const days = parseInt(String(range).replace('beyond', '').replace('days', ''), 10);
+                                if (!Number.isNaN(days) && diffDays > days) { timeRangeMatch = true; break; }
+                            }
+                        }
+                        if (importanceMatch && timeRangeMatch) {
+                            const colorMap = { red: 'var(--tm-quadrant-red)', yellow: 'var(--tm-quadrant-yellow)', blue: 'var(--tm-quadrant-blue)', green: 'var(--tm-quadrant-green)' };
+                            return colorMap[String(rule?.color || '')] || 'var(--tm-text-color)';
+                        }
+                    }
+                }
+                return '';
+            };
+
             const renderGroup = (row) => {
                 const isCollapsed = !!row?.collapsed;
                 const toggle = `<span class="tm-group-toggle" style="cursor:pointer;display:inline-flex;align-items:center;justify-content:center;width:16px;color:var(--tm-text-color);"><svg class="tm-group-toggle-icon" viewBox="0 0 16 16" width="16" height="16" style="transform:${isCollapsed ? 'rotate(0deg)' : 'rotate(90deg)'};"><path d="M6 4l4 4-4 4" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg></span>`;
@@ -14117,11 +14770,15 @@ async function __tmRefreshAfterWake(reason) {
                 }
                 if (row.kind === 'task' && row.groupDocColor) {
                     currentGroupBg = enableGroupBg ? (__tmGroupBgFromLabelColor(row.groupDocColor, isDark) || '') : '';
+                    currentGroupAccent = enableGroupBg ? String(row.groupDocColor || '') : '';
+                } else if (row.kind === 'h2' && state.groupByDocName) {
+                    // 文档分组下的标题子分组沿用文档组背景，不要被标题标签颜色覆盖。
                 } else {
                     currentGroupBg = enableGroupBg ? (__tmGroupBgFromLabelColor(labelColor, isDark) || '') : '';
+                    currentGroupAccent = enableGroupBg ? String(labelColor || '') : '';
                 }
                 return `
-                    <div class="tm-checklist-group ${row.kind === 'h2' ? 'tm-checklist-group--h2' : ''}" data-group-key="${esc(String(row.key || ''))}" onclick="tmToggleGroupCollapse('${escSq(String(row.key || ''))}', event)">
+                    <div class="tm-checklist-group ${row.kind === 'doc' ? 'tm-checklist-group--doc' : ''} ${row.kind === 'h2' ? 'tm-checklist-group--h2' : ''} ${row.kind === 'time' ? 'tm-checklist-group--time' : ''} ${row.kind === 'quadrant' ? 'tm-checklist-group--quadrant' : ''}" data-group-key="${esc(String(row.key || ''))}" onclick="tmToggleGroupCollapse('${escSq(String(row.key || ''))}', event)">
                         ${toggle}
                         <span class="tm-checklist-group-label" style="color:${labelColor};">${esc(String(row.label || ''))}</span>
                         ${countHtml}
@@ -14136,6 +14793,7 @@ async function __tmRefreshAfterWake(reason) {
                 if ((state.groupByTaskName || (!state.groupByDocName && !state.groupByTime && !state.quadrantEnabled)) && task.root_id) {
                     const taskDocColor = __tmGetDocColorHex(task.root_id, isDark) || '';
                     currentGroupBg = (enableGroupBg && taskDocColor) ? (__tmGroupBgFromLabelColor(taskDocColor, isDark) || '') : '';
+                    currentGroupAccent = (enableGroupBg && taskDocColor) ? taskDocColor : '';
                 }
                 const depth = Math.max(0, Number(row?.depth) || 0);
                 const hasChildren = !!row?.hasChildren;
@@ -14145,8 +14803,14 @@ async function __tmRefreshAfterWake(reason) {
                 const completedChildren = allChildren.filter((child) => child?.done).length;
                 const progressPercent = totalChildren > 0 ? Math.round((completedChildren / totalChildren) * 100) : 0;
                 const resolvedGroupBg = currentGroupBg || resolvePinnedTaskGroupBg(task);
-                const baseBg = resolvedGroupBg ? `background-color:${resolvedGroupBg};` : '';
-                const progressBg = progressPercent > 0
+                const resolvedGroupAccent = currentGroupAccent || resolvePinnedTaskGroupAccentColor(task);
+                const baseBg = checklistCompact
+                    ? ''
+                    : (resolvedGroupBg ? `background-color:${resolvedGroupBg};` : '');
+                const accentStyle = checklistCompact && resolvedGroupAccent
+                    ? `--tm-checklist-accent-color:${resolvedGroupAccent};`
+                    : '';
+                const progressBg = (!checklistCompact && progressPercent > 0)
                     ? `background-image:linear-gradient(90deg, ${progressBarColor} ${progressPercent}%, transparent ${progressPercent}%);background-repeat:no-repeat;background-size:100% 3px;background-position:left bottom;`
                     : '';
                 const activeCls = String(task.id) === activeId ? ' tm-checklist-item--active' : '';
@@ -14156,25 +14820,37 @@ async function __tmRefreshAfterWake(reason) {
                 const currentStatus = String(task.customStatus || '').trim() || 'todo';
                 const statusOption = statusOptions.find((o) => String(o?.id || '').trim() === currentStatus) || { name: currentStatus, color: '#757575' };
                 const statusChipStyle = __tmBuildStatusChipStyle(statusOption.color);
-                const indent = depth * 22;
+                const checkboxAccentColor = __tmGetPriorityAccentColor(task.priority);
+                const checkboxStyle = checkboxAccentColor ? ` style="--tm-checklist-checkbox-color:${checkboxAccentColor};"` : '';
+                const indent = checklistCompact ? depth * 14 : depth * 22;
                 const meta = [];
+                const priorityIcon = __tmRenderPriorityJira(task.priority, false);
                 if (task.docName) meta.push(`<span class="tm-checklist-meta-chip">📄 ${esc(String(task.docName || ''))}</span>`);
                 if (task.h2) meta.push(`<span class="tm-checklist-meta-chip">🧩 ${esc(String(task.h2 || ''))}</span>`);
-                if (task.completionTime) meta.push(`<span class="tm-checklist-meta-chip">📅 ${esc(__tmFormatTaskTime(task.completionTime))}</span>`);
+                if (String(task.priority || '').trim() && String(task.priority || '').trim() !== 'none') meta.push(`<span class="tm-checklist-meta-chip">${priorityIcon}</span>`);
+                if (task.completionTime) meta.push(`<span class="tm-checklist-meta-chip">${esc(__tmFormatTaskTime(task.completionTime))}</span>`);
                 if (task.duration) meta.push(`<span class="tm-checklist-meta-chip">⏱ ${esc(String(task.duration || ''))}</span>`);
                 if (totalChildren > 0) meta.push(`<span class="tm-checklist-meta-chip">子任务 ${completedChildren}/${totalChildren}</span>`);
+                const compactMeta = checklistCompact
+                    ? `<div class="tm-checklist-meta-compact">${task.docName ? `<span class="tm-checklist-meta-compact-doc">${esc(String(task.docName || ''))}</span>` : ''}${task.completionTime ? `<span class="tm-checklist-meta-compact-time">${esc(__tmFormatTaskTimeCompact(task.completionTime))}</span>` : ''}</div>`
+                    : '';
+                const itemIndentStyle = checklistCompact
+                    ? `--tm-checklist-compact-indent:${indent}px;`
+                    : `margin-left:${indent}px;`;
                 return `
-                    <div class="tm-checklist-item${activeCls}${doneCls}" data-id="${esc(String(task.id || ''))}" draggable="true" ondragstart="tmDragTaskStart(event, '${escSq(String(task.id || ''))}')" ondragend="tmDragTaskEnd(event)" style="margin-left:${indent}px;${baseBg}${progressBg}" onclick="tmChecklistSelectTask('${escSq(String(task.id || ''))}', event)" oncontextmenu="tmShowTaskContextMenu(event, '${escSq(String(task.id || ''))}')">
-                        <div class="tm-checklist-leading${hasChildren ? ' tm-checklist-leading--branch' : ''}">
-                            <input class="tm-task-checkbox ${GlobalLock.isLocked() ? 'tm-operating' : ''}" type="checkbox" ${task.done ? 'checked' : ''} ${GlobalLock.isLocked() ? 'disabled' : ''} onchange="tmSetDone('${escSq(String(task.id || ''))}', this.checked, event)">
-                            ${hasChildren ? `<span class="tm-tree-toggle" onclick="tmToggleCollapse('${escSq(String(task.id || ''))}', event)" style="opacity:1;pointer-events:auto;color:var(--tm-text-color);"><svg class="tm-tree-toggle-icon" viewBox="0 0 16 16" width="14" height="14" style="transform:${collapsed ? 'rotate(0deg)' : 'rotate(90deg)'};"><path d="M6 4l4 4-4 4" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg></span>` : ''}
+                    <div class="tm-checklist-item${activeCls}${doneCls}" data-id="${esc(String(task.id || ''))}" data-depth="${depth}" draggable="true" ondragstart="tmDragTaskStart(event, '${escSq(String(task.id || ''))}')" ondragend="tmDragTaskEnd(event)" style="${itemIndentStyle}${accentStyle}${baseBg}${progressBg}" onclick="tmChecklistSelectTask('${escSq(String(task.id || ''))}', event)" oncontextmenu="tmShowTaskContextMenu(event, '${escSq(String(task.id || ''))}')">
+                        <div class="tm-checklist-leading${hasChildren ? ' tm-checklist-leading--branch' : ''}${hasChildren && collapsed ? ' tm-checklist-leading--collapsed' : ''}">
+                            ${hasChildren ? `<span class="tm-tree-toggle" onclick="tmToggleCollapse('${escSq(String(task.id || ''))}', event)" style="opacity:1;pointer-events:auto;color:var(--tm-text-color);"><svg class="tm-tree-toggle-icon" viewBox="0 0 16 16" width="16" height="16" style="transform:${collapsed ? 'rotate(0deg)' : 'rotate(90deg)'};"><path d="M6 4l4 4-4 4" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg></span>` : '<span class="tm-tree-toggle tm-tree-toggle--placeholder" aria-hidden="true"></span>'}
+                            ${hasChildren && collapsed ? '<span class="tm-task-leading-ring" aria-hidden="true"></span>' : ''}
+                            <input class="tm-task-checkbox ${GlobalLock.isLocked() ? 'tm-operating' : ''}" type="checkbox" ${task.done ? 'checked' : ''} ${GlobalLock.isLocked() ? 'disabled' : ''}${checkboxStyle} onchange="tmSetDone('${escSq(String(task.id || ''))}', this.checked, event)">
                         </div>
                         <div class="tm-checklist-item-main">
                             <div class="tm-checklist-title-row">
-                                <div class="tm-checklist-title"><span class="tm-checklist-title-button" onclick="event.stopPropagation();tmJumpToTask('${escSq(String(task.id || ''))}', event)" title="跳转到任务">${esc(String(task.content || '').trim() || '(无内容)')}</span>${reminderHtml}</div>
+                                <div class="tm-checklist-title-main"><div class="tm-checklist-title"><span class="tm-checklist-title-button" onclick="if(__tmIsMobileDevice()) { tmChecklistSelectTask('${escSq(String(task.id || ''))}', event); } else { event.stopPropagation(); tmJumpToTask('${escSq(String(task.id || ''))}', event); }" title="跳转到任务">${API.renderTaskContentHtml(task.markdown, String(task.content || '').trim() || '(无内容)')}</span>${reminderHtml}</div></div>
+                                ${compactMeta}
                                 <span class="tm-status-tag" style="${statusChipStyle}">${esc(String(statusOption?.name || currentStatus || ''))}</span>
+                                ${hasChildren ? `<span class="tm-checklist-mobile-toggle" onclick="tmToggleCollapse('${escSq(String(task.id || ''))}', event)" style="opacity:1;pointer-events:auto;"><svg class="tm-tree-toggle-icon" viewBox="0 0 16 16" width="16" height="16" style="transform:${collapsed ? 'rotate(0deg)' : 'rotate(90deg)'};"><path d="M6 4l4 4-4 4" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg></span>` : ''}
                                 ${task.pinned ? '<span class="tm-checklist-meta-chip">📌</span>' : ''}
-                                ${hasChildren && collapsed ? '<span class="tm-checklist-meta-chip">已折叠</span>' : ''}
                             </div>
                             ${meta.length ? `<div class="tm-checklist-meta">${meta.join('')}</div>` : ''}
                         </div>
@@ -14188,20 +14864,24 @@ async function __tmRefreshAfterWake(reason) {
                 ? __tmBuildTaskDetailInnerHtml(detailTask, { embedded: true })
                 : `<div class="tm-checklist-empty-detail">选择左侧任务后，这里会显示可编辑的详情。</div>`;
             return `
-                <div class="tm-body${bodyAnimClass}">
+                <div class="tm-body${bodyAnimClass} tm-body--checklist">
                     <div class="tm-checklist-layout">
-                        <div class="tm-checklist-pane">
-                            <div class="tm-checklist-items">${itemsHtml || `<div class="tm-checklist-empty-detail">暂无任务</div>`}</div>
+                        <div class="tm-checklist-pane${checklistCompact ? ' tm-checklist-pane--compact' : ''}${wrapCfg.enabled ? ' tm-checklist-pane--wrap' : ''}">
+                            <div class="tm-checklist-scroll">
+                                <div class="tm-checklist-items">${itemsHtml || `<div class="tm-checklist-empty-detail">暂无任务</div>`}</div>
+                            </div>
+                            <div class="tm-checklist-scrollbar"><div class="tm-checklist-scrollbar-thumb"></div></div>
                         </div>
-                        <div class="tm-checklist-resizer" ${sheetMode ? 'style="display:none;"' : 'onmousedown="tmStartChecklistDetailResize(event)"'} title="拖拽调整详情宽度"></div>
-                        <aside class="tm-checklist-side" ${sheetMode ? 'style="display:none;"' : `style="width:${detailWidth}px;min-width:${detailWidth}px;flex-basis:${detailWidth}px;"`}>
-                            <div class="tm-checklist-detail-wrap" id="tmChecklistDetailPanel">${detailHtml}</div>
-                        </aside>
-                        <div id="tmChecklistSheetBackdrop" class="tm-checklist-sheet-backdrop ${sheetMode && state.checklistDetailSheetOpen && detailTask ? 'tm-checklist-sheet-backdrop--open' : ''}" ${sheetMode ? '' : 'style="display:none;"'} onclick="tmChecklistCloseSheet(event)"></div>
-                        <div id="tmChecklistSheet" class="tm-checklist-sheet ${sheetMode && state.checklistDetailSheetOpen && detailTask ? 'tm-checklist-sheet--open' : ''}" ${sheetMode ? '' : 'style="display:none;"'} onpointerdown="tmChecklistSheetDragStart(event)">
+                        ${sheetMode
+                            ? `<div id="tmChecklistSheetBackdrop" class="tm-checklist-sheet-backdrop ${state.checklistDetailSheetOpen && detailTask ? 'tm-checklist-sheet-backdrop--open' : ''}" onclick="tmChecklistCloseSheet(event)"></div>
+                        <div id="tmChecklistSheet" class="tm-checklist-sheet ${state.checklistDetailSheetOpen && detailTask ? 'tm-checklist-sheet--open' : ''}" onpointerdown="tmChecklistSheetDragStart(event)">
                             <div class="tm-checklist-sheet-handle"></div>
-                            <div class="tm-checklist-sheet-body" id="tmChecklistSheetPanel">${sheetMode ? detailHtml : ''}</div>
-                        </div>
+                            <div class="tm-checklist-sheet-body" id="tmChecklistSheetPanel">${detailHtml}</div>
+                        </div>`
+                            : `<div class="tm-checklist-resizer" onmousedown="tmStartChecklistDetailResize(event)" title="拖拽调整详情宽度"></div>
+                        <aside class="tm-checklist-side" style="width:${detailWidth}px;min-width:${detailWidth}px;flex-basis:${detailWidth}px;">
+                            <div class="tm-checklist-detail-wrap" id="tmChecklistDetailPanel">${detailHtml}</div>
+                        </aside>`}
                     </div>
                 </div>
             `;
@@ -14315,7 +14995,7 @@ async function __tmRefreshAfterWake(reason) {
                                     ${toggle}
                                 </span>
                                 <span class="tm-task-text ${task.done ? 'tm-task-done' : ''}" data-level="${row.depth}" title="${esc(task.content || '')}">
-                                    <span class="tm-task-content-clickable" onclick="tmJumpToTask('${task.id}', event)" title="${esc(task.content || '')}">${esc(task.content || '')}</span>
+                                    <span class="tm-task-content-clickable" onclick="tmJumpToTask('${task.id}', event)" title="${esc(task.content || '')}">${API.renderTaskContentHtml(task.markdown, task.content || '')}</span>
                                 </span>
                             </div>
                         </td>
@@ -14745,7 +15425,7 @@ async function __tmRefreshAfterWake(reason) {
                                        type="checkbox" ${task?.done ? 'checked' : ''}
                                        ${isGloballyLocked ? 'disabled' : ''}
                                        onchange="tmSetDone('${id}', this.checked, event)">
-                                <span class="tm-kanban-card-title-inline tm-task-content-clickable" onclick="tmJumpToTask('${id}', event)" title="${esc((content || '(无内容)'))}">${esc((content || '(无内容)'))}</span>
+                                <span class="tm-kanban-card-title-inline tm-task-content-clickable" onclick="tmJumpToTask('${id}', event)" title="${esc((content || '(无内容)'))}">${API.renderTaskContentHtml(task.markdown, content || '(无内容)')}</span>
                             </div>
                             <button class="tm-kanban-more" onclick="tmOpenTaskDetail('${id}', event)">⋯</button>
                         </div>
@@ -15323,6 +16003,9 @@ async function __tmRefreshAfterWake(reason) {
                 }
                 const count = list0.length;
                 const kind = headingMode ? (String(c?.kind || '').trim() || (isAllTabsView ? 'doc' : 'heading')) : 'status';
+                if (headingMode && kind === 'doc' && !String(listHtml || '').trim()) {
+                    return '';
+                }
                 const title = headingMode
                     ? (kind === 'doc' ? `📄 ${c.name}` : `🧩 ${c.name}`)
                     : (c.id === '__done__' ? '✅ 已完成' : c.id === 'todo' ? `🗂️ ${c.name}` : c.name);
@@ -15729,7 +16412,7 @@ async function __tmRefreshAfterWake(reason) {
                                 ${toggleHtml}
                                 <input class="tm-task-checkbox ${GlobalLock.isLocked() ? 'tm-operating' : ''}" type="checkbox" ${task?.done ? 'checked' : ''} ${(GlobalLock.isLocked() || isGhost) ? 'disabled' : ''} ${isGhost ? 'title="快照任务，当前不可直接勾选"' : ''} onmousedown="event.stopPropagation()" onclick="event.stopPropagation()" onchange="tmSetDone('${escSq(tid)}', this.checked, event)">
                                 <div class="tm-whiteboard-card-title ${task?.done ? 'tm-task-done' : ''}">
-                                    <span class="tm-task-content-clickable" onclick="tmJumpToTask('${escSq(tid)}', event)" title="${esc(String(task?.content || '').trim() || '(无内容)')}">${esc(String(task?.content || '').trim() || '(无内容)')}</span>
+                                    <span class="tm-task-content-clickable" onclick="tmJumpToTask('${escSq(tid)}', event)" title="${esc(String(task?.content || '').trim() || '(无内容)')}">${API.renderTaskContentHtml(task?.markdown, String(task?.content || '').trim() || '(无内容)')}</span>
                                 </div>
                                 ${opBtn}
                             </div>
@@ -16025,7 +16708,7 @@ async function __tmRefreshAfterWake(reason) {
                                             <div class="tm-whiteboard-pool-item${doneCls}${parentCls}${topCls}${lockedCls}${selectedCls}" data-task-id="${esc(tid)}" draggable="${draggableAttr}"${mouseDownAttr}${dragStartAttr}${dragEndAttr} title="${itemTitle}">
                                                 ${toggleHtml}
                                                 <input class="tm-task-checkbox" type="checkbox" ${t?.done ? 'checked' : ''} onchange="tmSetDone('${escSq(tid)}', this.checked, event)" onmousedown="event.stopPropagation()" title="完成状态">
-                                                <span class="tm-whiteboard-pool-item-title"><span class="tm-task-content-clickable" onclick="tmJumpToTask('${escSq(tid)}', event)" title="${esc(String(t?.content || '').trim() || '(无内容)')}">${esc(String(t?.content || '').trim() || '(无内容)')}</span></span>
+                                                <span class="tm-whiteboard-pool-item-title"><span class="tm-task-content-clickable" onclick="tmJumpToTask('${escSq(tid)}', event)" title="${esc(String(t?.content || '').trim() || '(无内容)')}">${API.renderTaskContentHtml(t?.markdown, String(t?.content || '').trim() || '(无内容)')}</span></span>
                                             </div>
                                             ${kidsHtml}
                                         </div>
@@ -16133,12 +16816,12 @@ async function __tmRefreshAfterWake(reason) {
                     <div style="display:flex;align-items:center;gap:10px;flex-wrap:nowrap;justify-content:space-between;min-width:0;">
                         <div style="display:flex;align-items:center;gap:10px;">
                             <div class="tm-title" style="font-size: 16px; font-weight: 700; white-space: nowrap; display:inline-flex; align-items:center; gap:4px;">
-                                <span onclick="tmHandleManagerIconClick(event)" style="cursor:${false};">📋</span>
+                                <span onclick="tmHandleManagerIconClick(event)" style="cursor:${isMobile ? 'default' : 'pointer'};">📋</span>
                                 <span onclick="tmHandleManagerTitleClick(event)" style="cursor:pointer;">任务管理器</span>
                             </div>
                             <button class="tm-btn tm-btn-success" onclick="tmAdd()" style="padding: 0 10px; height: 30px; display: inline-flex; align-items: center; justify-content: center;">+</button>
-                            ${false ? `<button class="tm-btn tm-btn-info" onclick="tmRefresh()" style="padding: 0 10px; height: 30px; display: inline-flex; align-items: center; justify-content: center;">🔄️</button>` : ''}
-                            ${false && state.viewMode === 'calendar' ? `<button class="tm-btn tm-btn-info" onclick="tmCalendarToggleSidebar()" style="padding: 0 10px; height: 30px; display: inline-flex; align-items: center; justify-content: center;" title="侧边栏">📅</button>` : ''}
+                            ${isMobile ? `<button class="tm-btn tm-btn-info" onclick="tmRefresh()" style="padding: 0 10px; height: 30px; display: inline-flex; align-items: center; justify-content: center;">🔄️</button>` : ''}
+                            ${isMobile && state.viewMode === 'calendar' ? `<button class="tm-btn tm-btn-info" onclick="tmCalendarToggleSidebar()" style="padding: 0 10px; height: 30px; display: inline-flex; align-items: center; justify-content: center;" title="侧边栏">📅</button>` : ''}
                             ${(state.viewMode === 'timeline' && ((isMobile && isLandscape) || isDesktopNarrow)) ? `
                                 <button class="tm-btn tm-btn-info" onclick="tmGanttZoomOut()" style="padding: 0 8px; height: 30px; display: inline-flex; align-items: center; justify-content: center;" title="缩小">－</button>
                                 <button class="tm-btn tm-btn-info" onclick="tmGanttZoomIn()" style="padding: 0 8px; height: 30px; display: inline-flex; align-items: center; justify-content: center;" title="放大">＋</button>
@@ -16148,7 +16831,7 @@ async function __tmRefreshAfterWake(reason) {
                         </div>
 
                         <!-- 桌面端工具栏 -->
-                        <div class="tm-desktop-toolbar tm-header-selectors" style="display:${false ? 'none' : 'flex'};align-items:center;gap:8px;flex:1;min-width:0;">
+                        <div class="tm-desktop-toolbar tm-header-selectors" style="display:${isMobile ? 'none' : 'flex'};align-items:center;gap:8px;flex:1;min-width:0;">
                             <div class="tm-rule-selector" style="margin-left: 6px;">
                                 <span class="tm-rule-label">文档:</span>
                                 <select class="tm-rule-select" onchange="tmSwitchDocGroup(this.value)" aria-label="文档" title="文档">
@@ -16197,7 +16880,7 @@ async function __tmRefreshAfterWake(reason) {
                     </div>
                     
                     <!-- 桌面端搜索栏 -->
-                    <div class="tm-search-box tm-desktop-toolbar" style="display:${false ? 'none' : 'flex'}; flex-wrap: wrap;">
+                    <div class="tm-search-box tm-desktop-toolbar" style="display:${isMobile ? 'none' : 'flex'}; flex-wrap: wrap;">
                         <div class="tm-view-segmented" role="tablist" aria-label="视图">
                             ${__tmRenderViewSwitcherButtons()}
                         </div>
@@ -16625,6 +17308,7 @@ async function __tmRefreshAfterWake(reason) {
         
         try { if (state.viewMode === 'kanban') __tmBindKanbanPan(state.modal); } catch (e) {}
         __tmGetMountRoot().appendChild(state.modal);
+        try { if (state.viewMode === 'checklist') __tmBindChecklistScrollVisibility(state.modal); } catch (e) {}
         try {
             if (state.viewMode === 'checklist') {
                 __tmRefreshChecklistSelectionInPlace(state.modal);
@@ -20882,18 +21566,20 @@ async function __tmRefreshAfterWake(reason) {
             if (prev && prev.key === key && Array.isArray(prev.tasks) && (Date.now() - (Number(prev.ts) || 0) < 8000)) return prev.tasks;
             try { await MetaStore.load?.(); } catch (e) {}
             const res = await API.getTasksByDocuments(allDocIds, limit, { doneOnly: false });
-            const tasks = Array.isArray(res?.tasks) ? res.tasks : [];
-            const out = [];
-            for (const task of tasks) {
-                if (!task || typeof task !== 'object') continue;
-                let parsedDone = !!task.done;
-                try {
-                    const parsed = API.parseTaskStatus(task.markdown);
-                    parsedDone = !!parsed.done;
-                    task.done = parsedDone;
-                    task.content = parsed.content;
-                } catch (e) {}
+                const tasks = Array.isArray(res?.tasks) ? res.tasks : [];
+                const out = [];
+                for (const task of tasks) {
+                    if (!task || typeof task !== 'object') continue;
+                    const prevTask = state.flatTasks?.[String(task.id || '').trim()];
+                    let parsedDone = !!task.done;
+                    try {
+                        const parsed = API.parseTaskStatus(task.markdown);
+                        parsedDone = !!parsed.done;
+                        task.done = parsedDone;
+                        task.content = parsed.content;
+                    } catch (e) {}
                 try { MetaStore.applyToTask?.(task); } catch (e) {}
+                try { __tmMergeVisibleDateFieldsFromPrevTask(task, prevTask); } catch (e) {}
                 task.done = parsedDone; // 以文档中的真实复选框状态为准
                 try { normalizeTaskFields(task, task.docName || '未命名文档'); } catch (e) {}
                 out.push(task);
@@ -22564,6 +23250,21 @@ async function __tmRefreshAfterWake(reason) {
         return task;
     }
 
+    function __tmMergeVisibleDateFieldsFromPrevTask(task, prevTask) {
+        if (!task || typeof task !== 'object' || !prevTask || typeof prevTask !== 'object') return task;
+        const isValidValue = (val) => val !== undefined && val !== null && val !== '' && val !== 'null';
+        if (!isValidValue(task.completionTime) && isValidValue(prevTask.completionTime)) {
+            task.completionTime = String(prevTask.completionTime);
+        }
+        if (!isValidValue(task.startDate) && isValidValue(prevTask.startDate)) {
+            task.startDate = String(prevTask.startDate);
+        }
+        if (!isValidValue(task.customTime) && isValidValue(prevTask.customTime)) {
+            task.customTime = String(prevTask.customTime);
+        }
+        return task;
+    }
+
     function __tmFormatDate(value) {
         if (!value) return '';
         const d = new Date(value);
@@ -22593,6 +23294,12 @@ async function __tmRefreshAfterWake(reason) {
         if (Number.isNaN(d.getTime())) return s;
         const pad = (n) => String(n).padStart(2, '0');
         return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+    }
+
+    function __tmFormatTaskTimeCompact(value) {
+        const full = __tmFormatTaskTime(value);
+        if (/^\d{4}-\d{2}-\d{2}$/.test(full)) return full.slice(5);
+        return full;
     }
 
     function __tmGetTaskSpentMinutes(task) {
@@ -22660,6 +23367,14 @@ async function __tmRefreshAfterWake(reason) {
         const info = __tmGetPriorityJiraInfo(value);
         const label = withLabel ? `<span class="tm-priority-jira__label">${esc(info.label)}</span>` : '';
         return `<span class="tm-priority-jira tm-priority-jira--${info.key}"><span class="tm-priority-jira__icon">${__tmRenderPriorityJiraIcon(info.iconType)}</span>${label}</span>`;
+    }
+
+    function __tmGetPriorityAccentColor(value) {
+        const key = String(__tmGetPriorityJiraInfo(value)?.key || 'none').trim();
+        if (key === 'high') return '#de350b';
+        if (key === 'medium') return '#ff991f';
+        if (key === 'low') return '#1d7afc';
+        return '';
     }
 
     function __tmParseTimeToTs(value) {
@@ -24597,7 +25312,7 @@ async function __tmRefreshAfterWake(reason) {
 
         const filteredIdSet = new Set(state.filteredTasks.map(t => t.id));
         let orderMap = new Map(state.filteredTasks.map((t, i) => [t.id, i]));
-        if (SettingsStore.data.timelineForceSortByCompletionNearToday) {
+        if (state.viewMode === 'timeline' && SettingsStore.data.timelineForceSortByCompletionNearToday) {
             const now = new Date();
             const todayTs = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 12, 0, 0, 0).getTime();
             const docsInOrder = __tmSortDocEntriesByPinned(
@@ -25117,8 +25832,8 @@ async function __tmRefreshAfterWake(reason) {
                 <div class="tm-task-detail-row">
                     <div class="tm-task-detail-label">置顶</div>
                     <div class="tm-task-detail-value">
-                        <label style="display:inline-flex;align-items:center;gap:8px;">
-                            <input type="checkbox" data-tm-detail="pinned" ${curPinned ? 'checked' : ''}>
+                        <label style="display:inline-flex;align-items:center;gap:0;">
+                            <input type="checkbox" data-tm-detail="pinned" ${curPinned ? 'checked' : ''} style="margin:0;">
                             <span style="color:var(--tm-secondary-text);font-size:12px;">在列表/看板中置顶</span>
                         </label>
                     </div>
@@ -25169,6 +25884,27 @@ async function __tmRefreshAfterWake(reason) {
         let autoSaveTimer = null;
         let saving = false;
         let lastSerialized = '';
+        const rerenderChecklistPreserveScroll = () => {
+            const modal = state.modal instanceof Element ? state.modal : null;
+            const scroller = modal?.querySelector?.('.tm-checklist-scroll');
+            const top = Number(scroller?.scrollTop || 0);
+            const left = Number(scroller?.scrollLeft || 0);
+            if (!state.viewScroll || typeof state.viewScroll !== 'object') state.viewScroll = {};
+            state.viewScroll.list = { top, left };
+            try { render(); } catch (e) { return; }
+            const restore = () => {
+                try {
+                    const nextScroller = state.modal?.querySelector?.('.tm-checklist-scroll');
+                    if (nextScroller) {
+                        nextScroller.scrollTop = top;
+                        nextScroller.scrollLeft = left;
+                    }
+                } catch (e) {}
+            };
+            try { restore(); } catch (e) {}
+            try { requestAnimationFrame(restore); } catch (e) {}
+            try { setTimeout(restore, 30); } catch (e) {}
+        };
         const bindDatePickers = () => {
             try {
                 const dateInputs = root.querySelectorAll('input[type="date"][data-tm-detail]');
@@ -25278,12 +26014,11 @@ async function __tmRefreshAfterWake(reason) {
                 task.duration = nextDuration;
                 task.remark = nextRemark;
                 await __tmPersistMetaAndAttrsAsync(task.id, patch);
+                try { __tmInvalidateTasksQueryCacheByDocId(task.root_id || task.docId); } catch (e) {}
                 lastSerialized = serialized;
                 try { applyFilters(); } catch (e) {}
                 if (String(state.viewMode || '').trim() === 'checklist' && embedded) {
-                    if (showHint) {
-                        try { __tmRefreshChecklistSelectionInPlace(state.modal); } catch (e) {}
-                    }
+                    rerenderChecklistPreserveScroll();
                 } else {
                     render();
                 }
@@ -25579,7 +26314,7 @@ async function __tmRefreshAfterWake(reason) {
                             <span class="tm-task-text ${done ? 'tm-task-done' : ''}"
                                   data-level="${depth}"
                                   title="${esc(content)}">
-                                <span class="tm-task-content-clickable" onclick="tmJumpToTask('${task.id}', event)" title="${esc(content)}">${esc(content)}${__tmHasReminderMark(task) ? '<span class="tm-task-reminder-emoji" title="已添加提醒">⏰</span>' : ''}</span>
+                                <span class="tm-task-content-clickable" onclick="tmJumpToTask('${task.id}', event)" title="${esc(content)}">${API.renderTaskContentHtml(task.markdown, content)}${__tmHasReminderMark(task) ? '<span class="tm-task-reminder-emoji" title="已添加提醒">⏰</span>' : ''}</span>
                             </span>
                             ${childStatsHtml}
                         </div>
@@ -26959,9 +27694,13 @@ async function __tmRefreshAfterWake(reason) {
                 remark: Object.prototype.hasOwnProperty.call(meta, 'remark')
                     ? String(meta.remark ?? '')
                     : String(t.remark ?? ''),
-                completionTime: Object.prototype.hasOwnProperty.call(meta, 'completionTime')
-                    ? String(meta.completionTime ?? '')
-                    : String(t.completion_time ?? ''),
+                completionTime: (() => {
+                    const mv = Object.prototype.hasOwnProperty.call(meta, 'completionTime')
+                        ? String(meta.completionTime ?? '')
+                        : '';
+                    if (mv && mv !== 'null') return mv;
+                    return String(t.completion_time ?? '');
+                })(),
                 customTime: Object.prototype.hasOwnProperty.call(meta, 'customTime')
                     ? String(meta.customTime ?? '')
                     : String(t.custom_time ?? ''),
@@ -27623,6 +28362,34 @@ async function __tmRefreshAfterWake(reason) {
         return __tmResolveDefaultDocId();
     }
 
+    async function __tmResolveInsertedTaskBlockId(insertedId) {
+        const seedId = String(insertedId || '').trim();
+        if (!seedId) return '';
+        const isTaskBlock = async (id) => {
+            try {
+                const rows = await API.getBlocksByIds([id]);
+                const row = Array.isArray(rows) ? rows[0] : null;
+                return String(row?.id || '').trim() === id
+                    && String(row?.type || '').trim() === 'i'
+                    && String(row?.subtype || '').trim() === 't';
+            } catch (e) {
+                return false;
+            }
+        };
+        if (await isTaskBlock(seedId)) return seedId;
+        const retryDelays = [40, 120, 240];
+        for (let i = 0; i <= retryDelays.length; i++) {
+            try {
+                const resolvedId = String(await API.getFirstTaskDescendantId(seedId, 6) || '').trim();
+                if (resolvedId) return resolvedId;
+            } catch (e) {}
+            if (i < retryDelays.length) {
+                await new Promise((resolve) => setTimeout(resolve, retryDelays[i]));
+            }
+        }
+        return seedId;
+    }
+
     async function __tmCreateTaskInDoc({ docId, content, priority, completionTime, pinned, customStatus, atTop } = {}) {
         const parentDocId = String(docId || '').trim();
         const text = String(content || '').trim();
@@ -27635,8 +28402,8 @@ async function __tmRefreshAfterWake(reason) {
             try { nextID = String(await API.getFirstDirectChildIdOfDoc(parentDocId) || '').trim(); } catch (e) { nextID = ''; }
         }
         const insertedId = await API.insertBlock(parentDocId, md, nextID || undefined);
-        // 直接使用插入的块ID作为任务ID，无需重试查询
-        const taskId = insertedId;
+        // 某些端会返回外层列表块 ID，需要继续解析到真正的任务块。
+        const taskId = await __tmResolveInsertedTaskBlockId(insertedId);
 
         const patch = {};
         const pin = pinned !== undefined ? !!pinned : !!SettingsStore.data.pinNewTasksByDefault;
@@ -27660,11 +28427,9 @@ async function __tmRefreshAfterWake(reason) {
             if (ok) patch.customStatus = st0;
         }
         if (Object.keys(patch).length > 0) {
-            // 异步保存属性，不阻塞UI，只要Meta写入成功即可先返回
-            __tmPersistMetaAndAttrsAsync(taskId, patch).catch(e => {
-                hint('⚠ 属性同步失败，但已保存到本地数据', 'warning');
-            });
+            await __tmPersistMetaAndAttrsAsync(taskId, patch);
         }
+        try { __tmInvalidateTasksQueryCacheByDocId(parentDocId); } catch (e) {}
 
         const docName = state.allDocuments.find(d => d.id === parentDocId)?.name || '未知文档';
         const newTask = {
@@ -27779,7 +28544,7 @@ async function __tmRefreshAfterWake(reason) {
         };
 
         const modal = document.createElement('div');
-        modal.className = 'tm-prompt-modal';
+        modal.className = 'tm-quick-add-modal';
         modal.style.zIndex = '100010';
         
         // 优先级配置
@@ -27817,7 +28582,7 @@ async function __tmRefreshAfterWake(reason) {
                     <div style="position:relative; display:inline-block;">
                         <!-- 桌面端/移动端通用的日期选择器 -->
                         <div style="position:relative; display:inline-block;">
-                            <button class="tm-btn tm-btn-secondary" onclick="document.getElementById('tmQuickAddDateInput').showPicker ? document.getElementById('tmQuickAddDateInput').showPicker() : document.getElementById('tmQuickAddDateInput').click()" style="padding: 6px 12px; font-size: 13px; display:flex; align-items:center; gap:4px;">
+                            <button class="tm-btn tm-btn-secondary" onclick="tmQuickAddOpenDatePicker()" style="padding: 6px 12px; font-size: 13px; display:flex; align-items:center; gap:4px;">
                                 🗓 <span id="tmQuickAddDateLabel">完成日期</span>
                             </button>
                             <input type="date" id="tmQuickAddDateInput" onchange="tmQuickAddDateChanged(this.value)" 
@@ -27929,12 +28694,15 @@ async function __tmRefreshAfterWake(reason) {
                 const ct = qa.completionTime ? __tmFormatTaskTime(qa.completionTime) : '完成日期';
                 dateLabel.textContent = ct;
                 dateInput.value = qa.completionTime ? __tmNormalizeDateOnly(qa.completionTime) : '';
-                
-                if (qa.completionTime) {
-                    const btn = document.getElementById('tmQuickAddDateLabel')?.parentElement;
-                    if (btn) {
+
+                const btn = document.getElementById('tmQuickAddDateLabel')?.parentElement;
+                if (btn) {
+                    if (qa.completionTime) {
                         btn.style.color = 'var(--tm-primary-color)';
                         btn.style.borderColor = 'var(--tm-primary-color)';
+                    } else {
+                        btn.style.color = '';
+                        btn.style.borderColor = '';
                     }
                 }
             }
@@ -28010,6 +28778,26 @@ async function __tmRefreshAfterWake(reason) {
     // 确保该函数在全局可见
     window.tmQuickAddDateChanged = window.tmQuickAddDateChanged;
 
+    window.tmQuickAddOpenDatePicker = async function() {
+        const qa = state.quickAdd;
+        if (!qa) return;
+        const input = document.getElementById('tmQuickAddDateInput');
+        if (__tmIsMobileDevice()) {
+            const next = await showDatePrompt('设置完成日期', __tmNormalizeDateOnly(String(qa.completionTime || '')));
+            if (next === null) return;
+            qa.completionTime = String(next || '').trim();
+            window.tmQuickAddRenderMeta?.();
+            return;
+        }
+        if (!(input instanceof HTMLInputElement)) return;
+        try {
+            if (typeof input.showPicker === 'function') input.showPicker();
+            else input.click();
+        } catch (e) {
+            try { input.click(); } catch (e2) {}
+        }
+    };
+
     window.tmQuickAddCyclePriority = function() {
         const qa = state.quickAdd;
         if (!qa) return;
@@ -28056,7 +28844,7 @@ async function __tmRefreshAfterWake(reason) {
         const defaultDocReady = defaultDocIsDailyNote || !!defaultDocId;
 
         const picker = document.createElement('div');
-        picker.className = 'tm-prompt-modal';
+        picker.className = 'tm-quick-add-modal';
         picker.style.zIndex = '100011';
         picker.innerHTML = `
             <div class="tm-prompt-box" style="width:min(92vw,520px);max-height:70vh;overflow:auto;">
@@ -28561,6 +29349,7 @@ async function __tmRefreshAfterWake(reason) {
                 res.tasks.forEach(task => {
                     // 确保任务有root_id
                     if (!task.root_id) return;
+                    const prevTask = state.flatTasks?.[String(task.id || '').trim()];
                     const flowRank = Number(taskFlowRankMap.get(String(task.id || '').trim()));
                     if (Number.isFinite(flowRank)) task.docSeq = flowRank;
                     
@@ -28572,6 +29361,7 @@ async function __tmRefreshAfterWake(reason) {
 
                     // 应用 MetaStore
                     MetaStore.applyToTask(task);
+                    __tmMergeVisibleDateFieldsFromPrevTask(task, prevTask);
                     task.done = correctDone; // 恢复正确状态
                     
                     // 标准化字段
@@ -28830,6 +29620,8 @@ async function __tmRefreshAfterWake(reason) {
             const rowModel = __tmBuildTaskRowModel();
             const isDark = __tmIsDarkMode();
             const enableGroupBg = !!SettingsStore.data.enableGroupTaskBgByGroupColor;
+            const checklistCompact = !!SettingsStore.data.checklistCompactMode;
+            const wrapCfg = __tmGetWrapConfig();
             const escSq = (s) => String(s || '').replace(/\\/g, '\\\\').replace(/'/g, "\\'");
             const progressBarColor = isDark
                 ? __tmNormalizeHexColor(SettingsStore.data.progressBarColorDark, '#81c784')
@@ -28839,6 +29631,55 @@ async function __tmRefreshAfterWake(reason) {
             const activeId = state.flatTasks?.[selectedId] ? selectedId : fallbackId;
             if (activeId !== selectedId) state.detailTaskId = activeId;
             let currentGroupBg = '';
+            let currentGroupAccent = '';
+
+            const resolvePinnedTaskGroupAccentColor = (task) => {
+                if (!enableGroupBg || !task) return '';
+                if (state.groupByDocName || state.groupByTaskName || (!state.groupByDocName && !state.groupByTime && !state.quadrantEnabled)) {
+                    return __tmGetDocColorHex(task.root_id, isDark) || '';
+                }
+                if (state.groupByTime) {
+                    const diffDays = Number(__tmGetTaskTimePriorityInfo(task)?.diffDays);
+                    const timeBaseColor = isDark
+                        ? __tmNormalizeHexColor(SettingsStore.data.timeGroupBaseColorDark, '#6ba5ff')
+                        : __tmNormalizeHexColor(SettingsStore.data.timeGroupBaseColorLight, '#1a73e8');
+                    const timeOverdueColor = isDark
+                        ? __tmNormalizeHexColor(SettingsStore.data.timeGroupOverdueColorDark, '#ff6b6b')
+                        : __tmNormalizeHexColor(SettingsStore.data.timeGroupOverdueColorLight, '#d93025');
+                    if (!Number.isFinite(diffDays)) return 'var(--tm-secondary-text)';
+                    if (diffDays < 0) return timeOverdueColor || 'var(--tm-danger-color)';
+                    return __tmWithAlpha(timeBaseColor || 'var(--tm-primary-color)', __tmClamp(1 - diffDays * (isDark ? 0.085 : 0.11), isDark ? 0.52 : 0.42, 1));
+                }
+                if (state.quadrantEnabled) {
+                    const quadrantRules = (SettingsStore.data.quadrantConfig && SettingsStore.data.quadrantConfig.rules) || [];
+                    const priority = String(task.priority || '').toLowerCase();
+                    const importance = (priority === 'a' || priority === '高' || priority === 'high')
+                        ? 'high'
+                        : ((priority === 'b' || priority === '中' || priority === 'medium')
+                            ? 'medium'
+                            : ((priority === 'c' || priority === '低' || priority === 'low') ? 'low' : 'none'));
+                    const diffDays = Number(__tmGetTaskTimePriorityInfo(task)?.diffDays);
+                    const timeRange = !Number.isFinite(diffDays)
+                        ? 'nodate'
+                        : (diffDays < 0 ? 'overdue' : (diffDays <= 7 ? 'within7days' : (diffDays <= 15 ? 'within15days' : (diffDays <= 30 ? 'within30days' : 'beyond30days'))));
+                    for (const rule of quadrantRules) {
+                        const importanceMatch = Array.isArray(rule?.importance) && rule.importance.includes(importance);
+                        let timeRangeMatch = Array.isArray(rule?.timeRanges) && rule.timeRanges.includes(timeRange);
+                        if (!timeRangeMatch && Array.isArray(rule?.timeRanges)) {
+                            for (const range of rule.timeRanges) {
+                                if (!String(range || '').startsWith('beyond') || range === 'beyond30days') continue;
+                                const days = parseInt(String(range).replace('beyond', '').replace('days', ''), 10);
+                                if (!Number.isNaN(days) && diffDays > days) { timeRangeMatch = true; break; }
+                            }
+                        }
+                        if (importanceMatch && timeRangeMatch) {
+                            const colorMap = { red: 'var(--tm-quadrant-red)', yellow: 'var(--tm-quadrant-yellow)', blue: 'var(--tm-quadrant-blue)', green: 'var(--tm-quadrant-green)' };
+                            return colorMap[String(rule?.color || '')] || 'var(--tm-text-color)';
+                        }
+                    }
+                }
+                return '';
+            };
 
             const renderGroup = (row) => {
                 const isCollapsed = !!row?.collapsed;
@@ -28859,11 +29700,15 @@ async function __tmRefreshAfterWake(reason) {
                 }
                 if (row.kind === 'task' && row.groupDocColor) {
                     currentGroupBg = enableGroupBg ? (__tmGroupBgFromLabelColor(row.groupDocColor, isDark) || '') : '';
+                    currentGroupAccent = enableGroupBg ? String(row.groupDocColor || '') : '';
+                } else if (row.kind === 'h2' && state.groupByDocName) {
+                    // 文档分组下的标题子分组沿用文档组背景，不要被标题标签颜色覆盖。
                 } else {
                     currentGroupBg = enableGroupBg ? (__tmGroupBgFromLabelColor(labelColor, isDark) || '') : '';
+                    currentGroupAccent = enableGroupBg ? String(labelColor || '') : '';
                 }
                 return `
-                    <div class="tm-checklist-group ${row.kind === 'h2' ? 'tm-checklist-group--h2' : ''}" data-group-key="${esc(String(row.key || ''))}" onclick="tmToggleGroupCollapse('${escSq(String(row.key || ''))}', event)">
+                    <div class="tm-checklist-group ${row.kind === 'doc' ? 'tm-checklist-group--doc' : ''} ${row.kind === 'h2' ? 'tm-checklist-group--h2' : ''} ${row.kind === 'time' ? 'tm-checklist-group--time' : ''} ${row.kind === 'quadrant' ? 'tm-checklist-group--quadrant' : ''}" data-group-key="${esc(String(row.key || ''))}" onclick="tmToggleGroupCollapse('${escSq(String(row.key || ''))}', event)">
                         ${toggle}
                         <span class="tm-checklist-group-label" style="color:${labelColor};">${esc(String(row.label || ''))}</span>
                         ${countHtml}
@@ -28878,6 +29723,7 @@ async function __tmRefreshAfterWake(reason) {
                 if ((state.groupByTaskName || (!state.groupByDocName && !state.groupByTime && !state.quadrantEnabled)) && task.root_id) {
                     const taskDocColor = __tmGetDocColorHex(task.root_id, isDark) || '';
                     currentGroupBg = (enableGroupBg && taskDocColor) ? (__tmGroupBgFromLabelColor(taskDocColor, isDark) || '') : '';
+                    currentGroupAccent = (enableGroupBg && taskDocColor) ? taskDocColor : '';
                 }
                 const depth = Math.max(0, Number(row?.depth) || 0);
                 const hasChildren = !!row?.hasChildren;
@@ -28886,8 +29732,15 @@ async function __tmRefreshAfterWake(reason) {
                 const totalChildren = allChildren.length;
                 const completedChildren = allChildren.filter((child) => child?.done).length;
                 const progressPercent = totalChildren > 0 ? Math.round((completedChildren / totalChildren) * 100) : 0;
-                const baseBg = currentGroupBg ? `background-color:${currentGroupBg};` : '';
-                const progressBg = progressPercent > 0
+                const resolvedGroupBg = currentGroupBg || resolvePinnedTaskGroupBg(task);
+                const resolvedGroupAccent = currentGroupAccent || resolvePinnedTaskGroupAccentColor(task);
+                const baseBg = checklistCompact
+                    ? ''
+                    : (resolvedGroupBg ? `background-color:${resolvedGroupBg};` : '');
+                const accentStyle = checklistCompact && resolvedGroupAccent
+                    ? `--tm-checklist-accent-color:${resolvedGroupAccent};`
+                    : '';
+                const progressBg = (!checklistCompact && progressPercent > 0)
                     ? `background-image:linear-gradient(90deg, ${progressBarColor} ${progressPercent}%, transparent ${progressPercent}%);background-repeat:no-repeat;background-size:100% 3px;background-position:left bottom;`
                     : '';
                 const activeCls = String(task.id) === activeId ? ' tm-checklist-item--active' : '';
@@ -28897,25 +29750,35 @@ async function __tmRefreshAfterWake(reason) {
                 const currentStatus = String(task.customStatus || '').trim() || 'todo';
                 const statusOption = statusOptions.find((o) => String(o?.id || '').trim() === currentStatus) || { name: currentStatus, color: '#757575' };
                 const statusChipStyle = __tmBuildStatusChipStyle(statusOption.color);
-                const indent = depth * 22;
+                const checkboxAccentColor = __tmGetPriorityAccentColor(task.priority);
+                const checkboxStyle = checkboxAccentColor ? ` style="--tm-checklist-checkbox-color:${checkboxAccentColor};"` : '';
+                const indent = checklistCompact ? depth * 14 : depth * 22;
                 const meta = [];
                 if (task.docName) meta.push(`<span class="tm-checklist-meta-chip">📄 ${esc(String(task.docName || ''))}</span>`);
                 if (task.h2) meta.push(`<span class="tm-checklist-meta-chip">🧩 ${esc(String(task.h2 || ''))}</span>`);
-                if (task.completionTime) meta.push(`<span class="tm-checklist-meta-chip">📅 ${esc(__tmFormatTaskTime(task.completionTime))}</span>`);
+                if (task.completionTime) meta.push(`<span class="tm-checklist-meta-chip">${esc(__tmFormatTaskTime(task.completionTime))}</span>`);
                 if (task.duration) meta.push(`<span class="tm-checklist-meta-chip">⏱ ${esc(String(task.duration || ''))}</span>`);
                 if (totalChildren > 0) meta.push(`<span class="tm-checklist-meta-chip">子任务 ${completedChildren}/${totalChildren}</span>`);
+                const compactMeta = checklistCompact
+                    ? `<div class="tm-checklist-meta-compact">${task.docName ? `<span class="tm-checklist-meta-compact-doc">${esc(String(task.docName || ''))}</span>` : ''}${task.completionTime ? `<span class="tm-checklist-meta-compact-time">${esc(__tmFormatTaskTimeCompact(task.completionTime))}</span>` : ''}</div>`
+                    : '';
+                const itemIndentStyle = checklistCompact
+                    ? `--tm-checklist-compact-indent:${indent}px;`
+                    : `margin-left:${indent}px;`;
                 return `
-                    <div class="tm-checklist-item${activeCls}${doneCls}" data-id="${esc(String(task.id || ''))}" style="margin-left:${indent}px;${baseBg}${progressBg}" onclick="tmChecklistSelectTask('${escSq(String(task.id || ''))}', event)" oncontextmenu="tmShowTaskContextMenu(event, '${escSq(String(task.id || ''))}')">
-                        <div style="display:flex;align-items:center;gap:8px;padding-top:2px;">
-                            <input class="tm-task-checkbox ${GlobalLock.isLocked() ? 'tm-operating' : ''}" type="checkbox" ${task.done ? 'checked' : ''} ${GlobalLock.isLocked() ? 'disabled' : ''} onchange="tmSetDone('${escSq(String(task.id || ''))}', this.checked, event)">
-                            ${hasChildren ? `<span class="tm-tree-toggle" onclick="tmToggleCollapse('${escSq(String(task.id || ''))}', event)" style="opacity:1;pointer-events:auto;color:var(--tm-text-color);"><svg class="tm-tree-toggle-icon" viewBox="0 0 16 16" width="16" height="16" style="transform:${collapsed ? 'rotate(0deg)' : 'rotate(90deg)'};"><path d="M6 4l4 4-4 4" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg></span>` : '<span style="width:16px;display:inline-flex;"></span>'}
+                    <div class="tm-checklist-item${activeCls}${doneCls}" data-id="${esc(String(task.id || ''))}" data-depth="${depth}" style="${itemIndentStyle}${accentStyle}${baseBg}${progressBg}" onclick="tmChecklistSelectTask('${escSq(String(task.id || ''))}', event)" oncontextmenu="tmShowTaskContextMenu(event, '${escSq(String(task.id || ''))}')">
+                        <div class="tm-checklist-leading${hasChildren ? ' tm-checklist-leading--branch' : ''}${hasChildren && collapsed ? ' tm-checklist-leading--collapsed' : ''}">
+                            ${hasChildren ? `<span class="tm-tree-toggle" onclick="tmToggleCollapse('${escSq(String(task.id || ''))}', event)" style="opacity:1;pointer-events:auto;color:var(--tm-text-color);"><svg class="tm-tree-toggle-icon" viewBox="0 0 16 16" width="16" height="16" style="transform:${collapsed ? 'rotate(0deg)' : 'rotate(90deg)'};"><path d="M6 4l4 4-4 4" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg></span>` : '<span class="tm-tree-toggle tm-tree-toggle--placeholder" aria-hidden="true"></span>'}
+                            ${hasChildren && collapsed ? '<span class="tm-task-leading-ring" aria-hidden="true"></span>' : ''}
+                            <input class="tm-task-checkbox ${GlobalLock.isLocked() ? 'tm-operating' : ''}" type="checkbox" ${task.done ? 'checked' : ''} ${GlobalLock.isLocked() ? 'disabled' : ''}${checkboxStyle} onchange="tmSetDone('${escSq(String(task.id || ''))}', this.checked, event)">
                         </div>
                         <div class="tm-checklist-item-main">
                             <div class="tm-checklist-title-row">
-                                <div class="tm-checklist-title">${esc(String(task.content || '').trim() || '(无内容)')}${reminderHtml}</div>
+                                <div class="tm-checklist-title-main"><div class="tm-checklist-title"><span class="tm-checklist-title-button" onclick="if(__tmIsMobileDevice()) { tmChecklistSelectTask('${escSq(String(task.id || ''))}', event); } else { event.stopPropagation(); tmJumpToTask('${escSq(String(task.id || ''))}', event); }" title="跳转到任务">${esc(String(task.content || '').trim() || '(无内容)')}</span>${reminderHtml}</div></div>
+                                ${compactMeta}
                                 <span class="tm-status-tag" style="${statusChipStyle}">${esc(String(statusOption?.name || currentStatus || ''))}</span>
+                                ${hasChildren ? `<span class="tm-checklist-mobile-toggle" onclick="tmToggleCollapse('${escSq(String(task.id || ''))}', event)" style="opacity:1;pointer-events:auto;"><svg class="tm-tree-toggle-icon" viewBox="0 0 16 16" width="16" height="16" style="transform:${collapsed ? 'rotate(0deg)' : 'rotate(90deg)'};"><path d="M6 4l4 4-4 4" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg></span>` : ''}
                                 ${task.pinned ? '<span class="tm-checklist-meta-chip">📌</span>' : ''}
-                                ${hasChildren && collapsed ? '<span class="tm-checklist-meta-chip">已折叠</span>' : ''}
                             </div>
                             ${meta.length ? `<div class="tm-checklist-meta">${meta.join('')}</div>` : ''}
                         </div>
@@ -28929,14 +29792,22 @@ async function __tmRefreshAfterWake(reason) {
                 ? __tmBuildTaskDetailInnerHtml(detailTask, { embedded: true })
                 : `<div class="tm-checklist-empty-detail">选择左侧任务后，这里会显示可编辑的详情。</div>`;
             return `
-                <div class="tm-body${bodyAnimClass}">
+                <div class="tm-body${bodyAnimClass} tm-body--checklist">
                     <div class="tm-checklist-layout">
-                        <div class="tm-checklist-pane">
-                            <div class="tm-checklist-items">${itemsHtml || `<div class="tm-checklist-empty-detail">暂无任务</div>`}</div>
+                        <div class="tm-checklist-pane${checklistCompact ? ' tm-checklist-pane--compact' : ''}${wrapCfg.enabled ? ' tm-checklist-pane--wrap' : ''}">
+                            <div class="tm-checklist-scroll">
+                                <div class="tm-checklist-items">${itemsHtml || `<div class="tm-checklist-empty-detail">暂无任务</div>`}</div>
+                            </div>
+                            <div class="tm-checklist-scrollbar"><div class="tm-checklist-scrollbar-thumb"></div></div>
                         </div>
-                        <aside class="tm-checklist-side">
+                        ${sheetMode ? `
+                        <div id="tmChecklistSheetBackdrop" class="tm-checklist-sheet-backdrop ${state.checklistDetailSheetOpen && detailTask ? 'tm-checklist-sheet-backdrop--open' : ''}" onclick="tmChecklistCloseSheet(event)"></div>
+                        <div id="tmChecklistSheet" class="tm-checklist-sheet ${state.checklistDetailSheetOpen && detailTask ? 'tm-checklist-sheet--open' : ''}" onpointerdown="tmChecklistSheetDragStart(event)">
+                            <div class="tm-checklist-sheet-handle"></div>
+                            <div class="tm-checklist-sheet-body" id="tmChecklistSheetPanel">${detailHtml}</div>
+                        </div>` : `<aside class="tm-checklist-side">
                             <div class="tm-checklist-detail-wrap" id="tmChecklistDetailPanel">${detailHtml}</div>
-                        </aside>
+                        </aside>`}
                     </div>
                 </div>
             `;
@@ -29270,6 +30141,10 @@ async function __tmRefreshAfterWake(reason) {
                         <label style="display:flex;align-items:center;gap:8px;cursor:pointer;margin-bottom:10px;">
                             <input class="b3-switch fn__flex-center" type="checkbox" ${SettingsStore.data.kanbanCompactMode ? 'checked' : ''} onchange="updateKanbanCompactMode(this.checked)">
                             看板紧凑模式（更窄更矮，显示更多卡片）
+                        </label>
+                        <label style="display:flex;align-items:center;gap:8px;cursor:pointer;margin-bottom:10px;">
+                            <input class="b3-switch fn__flex-center" type="checkbox" ${SettingsStore.data.checklistCompactMode ? 'checked' : ''} onchange="updateChecklistCompactMode(this.checked)">
+                            清单紧凑模式（单行任务，右侧显示文档和完成时间）
                         </label>
                         <div style="display:flex;align-items:center;gap:8px;margin-bottom:10px;flex-wrap:wrap;">
                             <span style="font-size:12px;color:var(--tm-secondary-text);">看板宽度:</span>
@@ -31720,6 +32595,15 @@ async function __tmRefreshAfterWake(reason) {
 
     window.updateKanbanCompactMode = async function(enabled) {
         SettingsStore.data.kanbanCompactMode = !!enabled;
+        await SettingsStore.save();
+        showSettings();
+        if (state.modal && document.body.contains(state.modal)) {
+            render();
+        }
+    };
+
+    window.updateChecklistCompactMode = async function(enabled) {
+        SettingsStore.data.checklistCompactMode = !!enabled;
         await SettingsStore.save();
         showSettings();
         if (state.modal && document.body.contains(state.modal)) {
