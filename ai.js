@@ -43,7 +43,6 @@
         mounted: false,
         busy: false,
         activeConversationId: '',
-        historyOpen: false,
         currentViewTasks: [],
         labelCache: {
             doc: new Map(),
@@ -1093,9 +1092,6 @@
  .tm-ai-sidebar__panel{padding:8px 12px;display:flex;flex-direction:column;gap:8px;overflow:auto;min-height:0;flex:1 1 auto;}
  .tm-ai-sidebar__grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px;}
  .tm-ai-sidebar__grid label{display:flex;flex-direction:column;gap:4px;font-size:12px;min-width:0;}
- .tm-ai-sidebar__grid input.tm-input,.tm-ai-sidebar__grid select.tm-rule-select{height:32px;padding:0 10px;border-radius:8px;border:1px solid var(--b3-theme-surface-light);background:var(--b3-theme-background);}
- .tm-ai-sidebar__title-input{height:34px !important;border:1px solid var(--b3-theme-primary-light, var(--b3-theme-surface-light)) !important;background:var(--b3-theme-surface) !important;box-shadow:inset 0 1px 0 rgba(127,127,127,.05);}
- .tm-ai-sidebar__title-input:focus{border-color:var(--b3-theme-primary) !important;box-shadow:0 0 0 2px color-mix(in srgb, var(--b3-theme-primary) 18%, transparent);}
  .tm-ai-sidebar__grid--planner{grid-template-columns:repeat(2,minmax(0,1fr));}
  .tm-ai-sidebar__context,.tm-ai-sidebar__result{border:1px solid var(--b3-theme-surface-light);border-radius:12px;padding:10px;background:var(--b3-theme-surface);}
  .tm-ai-sidebar__section-title,.tm-ai-sidebar__result-title{font-size:13px;font-weight:700;margin-bottom:8px;}
@@ -1104,19 +1100,13 @@
  .tm-ai-sidebar__chips{display:flex;flex-wrap:wrap;gap:6px;}
  .tm-ai-sidebar__chip{display:inline-flex;align-items:center;gap:6px;padding:4px 8px;border-radius:999px;background:rgba(127,127,127,.1);font-size:12px;}
  .tm-ai-sidebar__chip button{border:none;background:transparent;color:inherit;cursor:pointer;padding:0;}
- .tm-ai-sidebar__messages{display:flex;flex-direction:column;gap:8px;min-height:96px;max-height:180px;overflow:auto;}
+ .tm-ai-sidebar__messages{display:flex;flex-direction:column;gap:8px;min-height:120px;max-height:240px;overflow:auto;}
  .tm-ai-sidebar__message{border:1px solid var(--b3-theme-surface-light);border-radius:10px;padding:8px 10px;background:var(--b3-theme-surface);}
  .tm-ai-sidebar__message--user{border-color:color-mix(in srgb, var(--b3-theme-primary) 25%, var(--b3-theme-surface-light));}
  .tm-ai-sidebar__message--context{opacity:.88;background:rgba(127,127,127,.05);}
  .tm-ai-sidebar__message-role{font-size:12px;font-weight:700;margin-bottom:4px;opacity:.72;}
  .tm-ai-sidebar__message-body{white-space:pre-wrap;word-break:break-word;font-size:13px;line-height:1.6;}
- .tm-ai-sidebar__composer{display:flex;flex-direction:column;gap:8px;padding:8px 0 2px;border-top:1px solid var(--b3-theme-surface-light);margin-top:2px;background:var(--b3-theme-background);position:sticky;bottom:0;z-index:1;}
- .tm-ai-sidebar .tm-ai-textarea{min-height:72px;}
- .tm-ai-sidebar__composer-row{display:grid;grid-template-columns:minmax(0,1fr) auto;align-items:end;gap:8px;}
- .tm-ai-sidebar__composer-row .tm-ai-textarea{width:100%;min-height:44px;max-height:88px;resize:vertical;}
- .tm-ai-sidebar__send{min-width:76px;height:44px;white-space:nowrap;}
- .tm-ai-sidebar__hint{font-size:12px;opacity:.72;}
- [onclick*="tmAiShowHistory"]{display:none !important;}
+ .tm-ai-sidebar__composer{display:flex;flex-direction:column;gap:8px;padding:10px 0 2px;border-top:1px solid var(--b3-theme-surface-light);margin-top:2px;background:var(--b3-theme-background);position:sticky;bottom:0;z-index:1;}
  .tm-ai-sidebar__actions--left{justify-content:flex-start;}
  .tm-ai-sidebar__result-score{font-size:24px;font-weight:800;}
  .tm-ai-sidebar__result-body{white-space:pre-wrap;word-break:break-word;line-height:1.6;font-size:13px;}
@@ -2539,11 +2529,9 @@
                     </div>
                     <div class="tm-ai-sidebar__actions">
                         <button class="tm-btn tm-btn-info" data-ai-sidebar-action="new-conversation">新建</button>
-                        <button class="tm-btn tm-btn-secondary" data-ai-sidebar-action="toggle-history">${aiRuntime.historyOpen ? '隐藏记录' : '会话记录'}</button>
                         <button class="tm-btn tm-btn-gray" data-ai-sidebar-action="close-panel">${aiRuntime.mobile ? '关闭' : '收起'}</button>
                     </div>
                 </div>
-                ${aiRuntime.historyOpen ? `
                 <div class="tm-ai-sidebar__history">
                         ${(Array.isArray(conversations) ? conversations : []).map((item) => `
                             <button class="tm-ai-sidebar__history-item${item.id === session.id ? ' is-active' : ''}" data-ai-sidebar-action="select-conversation" data-ai-id="${esc(item.id)}">
@@ -2553,7 +2541,6 @@
                             </button>
                         `).join('')}
                     </div>
-                ` : ''}
                 <div class="tm-ai-sidebar__panel">
                     <div class="tm-ai-sidebar__grid">
                         <label><span>标题</span><input class="tm-input tm-ai-sidebar__title-input" data-ai-sidebar-field="title" value="${esc(session.title)}"></label>
@@ -2661,18 +2648,11 @@
                 const current = await getConversation(aiRuntime.activeConversationId || ConversationStore.data?.activeId);
                 if (action === 'new-conversation') {
                     const created = await createConversation({ type: current?.type || 'chat', contextScope: current?.contextScope || 'current_doc' });
-                    aiRuntime.historyOpen = false;
                     await refreshSidebar({ activeConversationId: created.id });
-                    return;
-                }
-                if (action === 'toggle-history') {
-                    aiRuntime.historyOpen = !aiRuntime.historyOpen;
-                    await refreshSidebar();
                     return;
                 }
                 if (action === 'select-conversation') {
                     await setActiveConversation(id);
-                    aiRuntime.historyOpen = false;
                     await refreshSidebar({ activeConversationId: id });
                     return;
                 }
