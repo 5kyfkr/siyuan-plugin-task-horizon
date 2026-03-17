@@ -3319,6 +3319,10 @@
             border-radius: 0;
             box-shadow: none;
             background: transparent;
+            background-image: linear-gradient(90deg, var(--tm-checklist-progress-color, transparent) var(--tm-checklist-progress-percent, 0%), transparent var(--tm-checklist-progress-percent, 0%));
+            background-repeat: no-repeat;
+            background-size: 100% 2px;
+            background-position: left bottom;
         }
 
         .tm-checklist-pane--compact .tm-checklist-item::before {
@@ -3390,7 +3394,7 @@
         .tm-checklist-pane--compact .tm-checklist-item:hover {
             transform: none;
             box-shadow: none;
-            background: transparent;
+            background-color: transparent;
         }
 
         .tm-checklist-pane--compact .tm-checklist-item--active {
@@ -3398,7 +3402,7 @@
             border-bottom: 1px solid color-mix(in srgb, var(--tm-border-color) 92%, transparent);
             border-radius: 12px;
             box-shadow: inset 0 0 0 1px color-mix(in srgb, #2f6fed 36%, var(--tm-border-color));
-            background: color-mix(in srgb, var(--tm-bg-color) 88%, #2f6fed 8%) !important;
+            background-color: color-mix(in srgb, var(--tm-bg-color) 88%, #2f6fed 8%) !important;
             z-index: 1;
         }
 
@@ -4240,7 +4244,35 @@
         .tm-table tr.tm-timer-focus {
             opacity: 1;
             background: rgba(66, 133, 244, 0.12);
-            box-shadow: inset 0 0 0 2px var(--tm-primary-color);
+            box-shadow: none;
+        }
+
+        .tm-table tr.tm-timer-focus > td {
+            border-right-color: transparent;
+            box-shadow:
+                inset -1px 0 0 var(--tm-table-border-color),
+                inset 0 2px 0 var(--tm-primary-color),
+                inset 0 -2px 0 var(--tm-primary-color),
+                inset 0 -1px 0 var(--tm-table-border-color);
+        }
+
+        .tm-table tr.tm-timer-focus > td:first-child {
+            border-right-color: transparent;
+            box-shadow:
+                inset 2px 0 0 var(--tm-primary-color),
+                inset -1px 0 0 var(--tm-table-border-color),
+                inset 0 2px 0 var(--tm-primary-color),
+                inset 0 -2px 0 var(--tm-primary-color),
+                inset 0 -1px 0 var(--tm-table-border-color);
+        }
+
+        .tm-table tr.tm-timer-focus > td:last-child {
+            border-right-color: transparent;
+            box-shadow:
+                inset -2px 0 0 var(--tm-primary-color),
+                inset 0 2px 0 var(--tm-primary-color),
+                inset 0 -2px 0 var(--tm-primary-color),
+                inset 0 -1px 0 var(--tm-table-border-color);
         }
 
         .tm-table tr.tm-timer-focus:hover {
@@ -5704,6 +5736,19 @@
             taskContentWrapMaxLines: 3,
             taskRemarkWrapMaxLines: 2,
             enableQuickbar: true,
+            aiEnabled: false,
+            aiProvider: 'minimax',
+            aiMiniMaxApiKey: '',
+            aiMiniMaxBaseUrl: 'https://api.minimaxi.com/anthropic',
+            aiMiniMaxModel: 'MiniMax-M2.5',
+            aiDeepSeekApiKey: '',
+            aiDeepSeekBaseUrl: 'https://api.deepseek.com',
+            aiDeepSeekModel: 'deepseek-chat',
+            aiMiniMaxTemperature: 0.2,
+            aiMiniMaxMaxTokens: 1600,
+            aiMiniMaxTimeoutMs: 30000,
+            aiDefaultContextMode: 'nearby',
+            aiScheduleWindows: ['09:00-18:00'],
             pinNewTasksByDefault: false,
             newTaskDocId: '',
             enableTomatoIntegration: true,
@@ -6069,6 +6114,20 @@
                                 if (typeof cloudData.whiteboardSequenceMode === 'boolean') this.data.whiteboardSequenceMode = cloudData.whiteboardSequenceMode;
                                 if (cloudData.docColorMap && typeof cloudData.docColorMap === 'object') this.data.docColorMap = cloudData.docColorMap;
                                 if (typeof cloudData.docColorSeed === 'number') this.data.docColorSeed = cloudData.docColorSeed;
+                                if (typeof cloudData.aiEnabled === 'boolean') this.data.aiEnabled = cloudData.aiEnabled;
+                                if (typeof cloudData.aiProvider === 'string') this.data.aiProvider = cloudData.aiProvider;
+                                if (typeof cloudData.aiMiniMaxApiKey === 'string') this.data.aiMiniMaxApiKey = cloudData.aiMiniMaxApiKey;
+                                if (typeof cloudData.aiMiniMaxBaseUrl === 'string') this.data.aiMiniMaxBaseUrl = cloudData.aiMiniMaxBaseUrl;
+                                if (typeof cloudData.aiMiniMaxModel === 'string') this.data.aiMiniMaxModel = cloudData.aiMiniMaxModel;
+                                if (typeof cloudData.aiDeepSeekApiKey === 'string') this.data.aiDeepSeekApiKey = cloudData.aiDeepSeekApiKey;
+                                if (typeof cloudData.aiDeepSeekBaseUrl === 'string') this.data.aiDeepSeekBaseUrl = cloudData.aiDeepSeekBaseUrl;
+                                if (typeof cloudData.aiDeepSeekModel === 'string') this.data.aiDeepSeekModel = cloudData.aiDeepSeekModel;
+                                if (typeof cloudData.aiMiniMaxTemperature === 'number') this.data.aiMiniMaxTemperature = cloudData.aiMiniMaxTemperature;
+                                if (typeof cloudData.aiMiniMaxMaxTokens === 'number') this.data.aiMiniMaxMaxTokens = cloudData.aiMiniMaxMaxTokens;
+                                if (typeof cloudData.aiMiniMaxTimeoutMs === 'number') this.data.aiMiniMaxTimeoutMs = cloudData.aiMiniMaxTimeoutMs;
+                                if (typeof cloudData.aiDefaultContextMode === 'string') this.data.aiDefaultContextMode = cloudData.aiDefaultContextMode;
+                                if (Array.isArray(cloudData.aiScheduleWindows)) this.data.aiScheduleWindows = cloudData.aiScheduleWindows;
+                                else if (typeof cloudData.aiScheduleWindows === 'string') this.data.aiScheduleWindows = String(cloudData.aiScheduleWindows).split(/\r?\n/);
 
                                 const validModes = new Set(['none', 'doc', 'time', 'quadrant', 'task']);
                                 if (!validModes.has(String(this.data.groupMode || ''))) {
@@ -6262,6 +6321,25 @@
             this.data.whiteboardSequenceMode = Storage.get('tm_whiteboard_sequence_mode', this.data.whiteboardSequenceMode);
             this.data.docColorMap = Storage.get('tm_doc_color_map', this.data.docColorMap) || {};
             this.data.docColorSeed = Storage.get('tm_doc_color_seed', this.data.docColorSeed);
+            this.data.aiEnabled = !!Storage.get('tm_ai_enabled', this.data.aiEnabled);
+            this.data.aiProvider = String(Storage.get('tm_ai_provider', this.data.aiProvider) || this.data.aiProvider).trim() === 'deepseek' ? 'deepseek' : 'minimax';
+            this.data.aiMiniMaxApiKey = String(Storage.get('tm_ai_minimax_api_key', this.data.aiMiniMaxApiKey) || '');
+            this.data.aiMiniMaxBaseUrl = String(Storage.get('tm_ai_minimax_base_url', this.data.aiMiniMaxBaseUrl) || this.data.aiMiniMaxBaseUrl).trim() || 'https://api.minimaxi.com/anthropic';
+            this.data.aiMiniMaxModel = String(Storage.get('tm_ai_minimax_model', this.data.aiMiniMaxModel) || this.data.aiMiniMaxModel).trim() || 'MiniMax-M2.5';
+            this.data.aiDeepSeekApiKey = String(Storage.get('tm_ai_deepseek_api_key', this.data.aiDeepSeekApiKey) || '');
+            this.data.aiDeepSeekBaseUrl = String(Storage.get('tm_ai_deepseek_base_url', this.data.aiDeepSeekBaseUrl) || this.data.aiDeepSeekBaseUrl).trim() || 'https://api.deepseek.com';
+            this.data.aiDeepSeekModel = String(Storage.get('tm_ai_deepseek_model', this.data.aiDeepSeekModel) || this.data.aiDeepSeekModel).trim() || 'deepseek-chat';
+            this.data.aiMiniMaxTemperature = Number(Storage.get('tm_ai_minimax_temperature', this.data.aiMiniMaxTemperature));
+            this.data.aiMiniMaxMaxTokens = Number(Storage.get('tm_ai_minimax_max_tokens', this.data.aiMiniMaxMaxTokens));
+            this.data.aiMiniMaxTimeoutMs = Number(Storage.get('tm_ai_minimax_timeout_ms', this.data.aiMiniMaxTimeoutMs));
+            this.data.aiDefaultContextMode = String(Storage.get('tm_ai_default_context_mode', this.data.aiDefaultContextMode) || this.data.aiDefaultContextMode).trim() === 'fulltext' ? 'fulltext' : 'nearby';
+            this.data.aiScheduleWindows = Storage.get('tm_ai_schedule_windows', this.data.aiScheduleWindows) || this.data.aiScheduleWindows;
+            if (!Number.isFinite(this.data.aiMiniMaxTemperature)) this.data.aiMiniMaxTemperature = 0.2;
+            if (!Number.isFinite(this.data.aiMiniMaxMaxTokens)) this.data.aiMiniMaxMaxTokens = 1600;
+            if (!Number.isFinite(this.data.aiMiniMaxTimeoutMs)) this.data.aiMiniMaxTimeoutMs = 30000;
+            if (!Array.isArray(this.data.aiScheduleWindows)) this.data.aiScheduleWindows = String(this.data.aiScheduleWindows || '').split(/\r?\n/);
+            this.data.aiScheduleWindows = this.data.aiScheduleWindows.map(v => String(v || '').trim()).filter(Boolean);
+            if (!this.data.aiScheduleWindows.length) this.data.aiScheduleWindows = ['09:00-18:00'];
             const savedWidths = Storage.get('tm_column_widths', null);
             if (savedWidths && typeof savedWidths === 'object') {
                 if (savedWidths.customTime && !savedWidths.completionTime) {
@@ -6449,6 +6527,19 @@
             Storage.set('tm_whiteboard_sequence_mode', !!this.data.whiteboardSequenceMode);
             Storage.set('tm_doc_color_map', this.data.docColorMap || {});
             Storage.set('tm_doc_color_seed', Number(this.data.docColorSeed) || 1);
+            Storage.set('tm_ai_enabled', !!this.data.aiEnabled);
+            Storage.set('tm_ai_provider', String(this.data.aiProvider || '').trim() === 'deepseek' ? 'deepseek' : 'minimax');
+            Storage.set('tm_ai_minimax_api_key', String(this.data.aiMiniMaxApiKey || ''));
+            Storage.set('tm_ai_minimax_base_url', String(this.data.aiMiniMaxBaseUrl || '').trim() || 'https://api.minimaxi.com/anthropic');
+            Storage.set('tm_ai_minimax_model', String(this.data.aiMiniMaxModel || '').trim() || 'MiniMax-M2.5');
+            Storage.set('tm_ai_deepseek_api_key', String(this.data.aiDeepSeekApiKey || ''));
+            Storage.set('tm_ai_deepseek_base_url', String(this.data.aiDeepSeekBaseUrl || '').trim() || 'https://api.deepseek.com');
+            Storage.set('tm_ai_deepseek_model', String(this.data.aiDeepSeekModel || '').trim() || 'deepseek-chat');
+            Storage.set('tm_ai_minimax_temperature', Number.isFinite(Number(this.data.aiMiniMaxTemperature)) ? Number(this.data.aiMiniMaxTemperature) : 0.2);
+            Storage.set('tm_ai_minimax_max_tokens', Number.isFinite(Number(this.data.aiMiniMaxMaxTokens)) ? Math.round(Number(this.data.aiMiniMaxMaxTokens)) : 1600);
+            Storage.set('tm_ai_minimax_timeout_ms', Number.isFinite(Number(this.data.aiMiniMaxTimeoutMs)) ? Math.round(Number(this.data.aiMiniMaxTimeoutMs)) : 30000);
+            Storage.set('tm_ai_default_context_mode', String(this.data.aiDefaultContextMode || '').trim() === 'fulltext' ? 'fulltext' : 'nearby');
+            Storage.set('tm_ai_schedule_windows', Array.isArray(this.data.aiScheduleWindows) ? this.data.aiScheduleWindows.map(v => String(v || '').trim()).filter(Boolean) : ['09:00-18:00']);
         },
 
         normalizeColumns() {
@@ -8193,7 +8284,7 @@
                         LEFT JOIN blocks b ON b.id = tok.current_parent_id
                         LEFT JOIN doc_tree dt_parent ON dt_parent.id = b.parent_id
                         WHERE tok.depth < 10
-                          AND b.type IN ('i', 't') -- 继续向上查找
+                          AND b.type IN ('i', 't', 's') -- 继续向上查找（包含超级块's'）
                     ),
                     -- 获取最终的order_key（最外层非任务块的order_key）
                     task_orders AS (
@@ -8302,57 +8393,72 @@
                         s = s.replace(/\s*\{\:\s*[^}]*\}\s*$/, '').trim();
                         return s;
                     };
+                    const applyHeadingToStack = (stack, heading) => {
+                        const level = Number(heading?.level);
+                        if (!Number.isFinite(level) || level < 1 || level > 6) return;
+                        for (let i = level; i <= 6; i++) stack[i] = null;
+                        stack[level] = heading;
+                    };
                     for (const [docId, tidSet] of tasksByDoc.entries()) {
                         let km = '';
                         try { km = await this.getBlockKramdown(docId); } catch (e) { km = ''; }
                         if (!km) continue;
                         const lines = String(km).split(/\r?\n/);
                         let headingRank = -1;
-                        let currentHeading = null;
+                        const headingStack = Array(7).fill(null);
                         let pendingHeading = null;
                         for (let ln = 0; ln < lines.length; ln++) {
                             const line = String(lines[ln] || '');
                             const hm = line.match(/^(#{1,6})\s+(.*)$/);
-                            if (hm && hm[1].length === lvNum) {
+                            if (hm) {
+                                const lineLevel = Number(hm[1].length);
                                 pendingHeading = {
+                                    level: lineLevel,
                                     text: stripHeadingText(line),
                                     expires: ln + 4,
                                 };
                                 const idsInline = parseIds(line);
                                 if (idsInline.length > 0) {
+                                    const headingLevel = Number(pendingHeading.level);
                                     headingRank += 1;
-                                    currentHeading = {
+                                    const resolvedHeading = {
                                         id: String(idsInline[0] || '').trim(),
                                         content: String(pendingHeading.text || '').trim(),
+                                        level: headingLevel,
                                         rank: headingRank,
                                     };
+                                    applyHeadingToStack(headingStack, resolvedHeading);
                                     pendingHeading = null;
                                 }
                             }
                             const ids = parseIds(line);
                             if (pendingHeading && ids.length > 0) {
+                                const headingLevel = Number(pendingHeading.level);
                                 headingRank += 1;
-                                currentHeading = {
+                                const resolvedHeading = {
                                     id: String(ids[0] || '').trim(),
                                     content: String(pendingHeading.text || '').trim(),
+                                    level: headingLevel,
                                     rank: headingRank,
                                 };
+                                applyHeadingToStack(headingStack, resolvedHeading);
                                 pendingHeading = null;
                             }
                             if (pendingHeading && ln > Number(pendingHeading.expires || 0)) {
                                 pendingHeading = null;
                             }
-                            if (!ids.length || !currentHeading || !currentHeading.id) continue;
+                            if (!ids.length) continue;
                             ids.forEach((bid) => {
                                 const tid = String(bid || '').trim();
                                 if (!tid || !tidSet.has(tid)) return;
+                                const currentHeading = headingStack[lvNum];
                                 contextMap.set(tid, {
-                                    id: String(currentHeading.id || '').trim(),
-                                    content: String(currentHeading.content || '').trim(),
+                                    id: String(currentHeading?.id || '').trim(),
+                                    content: String(currentHeading?.content || '').trim(),
                                     path: '',
                                     sort: Number.NaN,
                                     created: '',
-                                    rank: Number(currentHeading.rank),
+                                    rank: Number(currentHeading?.rank),
                                 });
                             });
                         }
@@ -8811,6 +8917,9 @@
         summaryModal: null,
         rulesModal: null,
         priorityModal: null,
+        aiSidebarOpen: !!Storage.get('tm_ai_sidebar_open', false),
+        aiSidebarWidth: Math.max(320, Math.min(720, Math.round(Number(Storage.get('tm_ai_sidebar_width', 380)) || 380))),
+        aiMobilePanelOpen: false,
         quickAddModal: null,
         quickAddDocPicker: null,
         quickAdd: null,
@@ -10955,14 +11064,23 @@ async function __tmRefreshAfterWake(reason) {
         const syncRowHeights = () => {
             if (Date.now() - (Number(state.__tmFlipTs) || 0) < 320) return;
             const leftRowsNow = leftBody.querySelectorAll('tbody tr');
-            const rightRowsNow = ganttBody.querySelectorAll('.tm-gantt-row');
+            const rightRowsNow = ganttBody.querySelectorAll('.tm-gantt-row,.tm-gantt-row--group');
             const n = Math.min(leftRowsNow.length, rightRowsNow.length);
             if (n <= 0) return;
             for (let i = 0; i < n; i++) {
+                const lr = leftRowsNow[i];
                 const rr = rightRowsNow[i];
+                if (!(lr instanceof Element) || !(rr instanceof Element)) continue;
                 rr.style.height = '';
                 rr.style.minHeight = '';
                 rr.style.maxHeight = '';
+                if ((lr.style.display || '') === 'none') continue;
+                const h = lr.getBoundingClientRect?.().height;
+                if (Number.isFinite(h) && h > 0) {
+                    rr.style.height = `${h}px`;
+                    rr.style.minHeight = `${h}px`;
+                    rr.style.maxHeight = `${h}px`;
+                }
                 const bar = rr.querySelector?.('.tm-gantt-bar');
                 if (bar) {
                     bar.style.top = '50%';
@@ -11129,18 +11247,18 @@ async function __tmRefreshAfterWake(reason) {
         const lightInk = topbarText || '#ffffff';
         const controlText = lightInk;
         const controlBg = __tmWithAlpha('#ffffff', 0.12);
-        const controlBorder = __tmWithAlpha('#ffffff', 0.34);
+        const controlBorder = __tmWithAlpha(topbarText, 0.34);
         const controlHover = __tmWithAlpha('#000000', 0.12);
         const segBg = __tmWithAlpha('#ffffff', 0.18);
-        const segBorder = __tmWithAlpha('#ffffff', 0.26);
-        const segText = __tmWithAlpha('#ffffff', 0.86);
-        const segSep = __tmWithAlpha('#ffffff', 0.22);
+        const segBorder = __tmWithAlpha(topbarText, 0.26);
+        const segText = __tmWithAlpha(topbarText, 0.86);
+        const segSep = __tmWithAlpha(topbarText, 0.22);
         const segHover = __tmWithAlpha('#000000', 0.12);
         const segActive = __tmWithAlpha('#000000', 0.26);
         const segActiveHover = __tmWithAlpha('#000000', 0.32);
         const searchBg = __tmWithAlpha('#ffffff', 0.9);
         const searchText = '#333333';
-        const searchBorder = __tmWithAlpha('#ffffff', 0.3);
+        const searchBorder = __tmWithAlpha(topbarText, 0.3);
         const thumb = __tmWithAlpha('#ffffff', 0.25);
 
         try { if (start) root.style.setProperty('--tm-topbar-grad-start', start); } catch (e) {}
@@ -11685,7 +11803,6 @@ async function __tmRefreshAfterWake(reason) {
                 protyle?.querySelector?.('.protyle-title')?.getAttribute?.('data-node-id'),
                 protyle?.querySelector?.('.protyle-title__input')?.getAttribute?.('data-node-id'),
                 protyle?.querySelector?.('.protyle-background')?.getAttribute?.('data-node-id'),
-                protyle?.querySelector?.('[data-node-id]')?.getAttribute?.('data-node-id'),
                 protyle?.dataset?.nodeId,
                 protyle?.dataset?.id
             ];
@@ -15309,8 +15426,10 @@ async function __tmRefreshAfterWake(reason) {
                 const accentStyle = checklistCompact && resolvedGroupAccent
                     ? `--tm-checklist-accent-color:${resolvedGroupAccent};`
                     : '';
-                const progressBg = (!checklistCompact && progressPercent > 0)
-                    ? `background-image:linear-gradient(90deg, ${progressBarColor} ${progressPercent}%, transparent ${progressPercent}%);background-repeat:no-repeat;background-size:100% 3px;background-position:left bottom;`
+                const progressBg = progressPercent > 0
+                    ? (checklistCompact
+                        ? `--tm-checklist-progress-color:${progressBarColor};--tm-checklist-progress-percent:${progressPercent}%;`
+                        : `background-image:linear-gradient(90deg, ${progressBarColor} ${progressPercent}%, transparent ${progressPercent}%);background-repeat:no-repeat;background-size:100% 3px;background-position:left bottom;`)
                     : '';
                 const activeCls = String(task.id) === activeId ? ' tm-checklist-item--active' : '';
                 const doneCls = task.done ? ' tm-checklist-item--done' : '';
@@ -17350,21 +17469,31 @@ async function __tmRefreshAfterWake(reason) {
                     ? __tmRenderKanbanBodyHtml()
                     : __tmRenderListBodyHtml();
         const showCalendarSideDock = __tmShouldShowCalendarSideDock() && !isMobile;
+        const showAiSideDock = __tmShouldShowAiSidebar() && !!state.aiSidebarOpen && !isMobile;
         const calendarSideDockWidth = Math.max(260, Math.min(760, Math.round(Number(SettingsStore.data.calendarSideDockWidth) || 340)));
-        const bodyWithSideDockHtml = showCalendarSideDock
+        const aiSideDockWidth = Math.max(320, Math.min(720, Math.round(Number(state.aiSidebarWidth) || 380)));
+        const bodyWithSideDockHtml = (showCalendarSideDock || showAiSideDock)
             ? `
                 <div class="tm-main-body-with-cal-dock">
                     ${mainBodyHtml}
-                    <div class="tm-calendar-side-dock-resizer" onmousedown="tmStartCalendarSideDockResize(event)" title="拖拽调整侧栏宽度"></div>
-                    <aside class="tm-calendar-side-dock" style="width:${calendarSideDockWidth}px;min-width:${calendarSideDockWidth}px;">
-                        <div id="tmCalendarSideDockPanel"></div>
-                    </aside>
+                    ${showAiSideDock ? `
+                        <div class="tm-ai-side-dock-resizer" onmousedown="tmStartAiSideDockResize(event)" title="拖拽调整 AI 侧栏宽度"></div>
+                        <aside class="tm-ai-side-dock" style="width:${aiSideDockWidth}px;min-width:${aiSideDockWidth}px;">
+                            <div id="tmAiSidebarPanel" style="height:100%;min-height:0;"></div>
+                        </aside>
+                    ` : ''}
+                    ${showCalendarSideDock ? `
+                        <div class="tm-calendar-side-dock-resizer" onmousedown="tmStartCalendarSideDockResize(event)" title="拖拽调整侧栏宽度"></div>
+                        <aside class="tm-calendar-side-dock" style="width:${calendarSideDockWidth}px;min-width:${calendarSideDockWidth}px;">
+                            <div id="tmCalendarSideDockPanel"></div>
+                        </aside>
+                    ` : ''}
                 </div>
             `
             : mainBodyHtml;
         
         state.modal.innerHTML = `
-            <div class="tm-box${showCalendarSideDock ? ' tm-box--with-cal-dock' : ''}">
+            <div class="tm-box${showCalendarSideDock || showAiSideDock ? ' tm-box--with-cal-dock' : ''}">
                 <div class="tm-filter-rule-bar" style="padding: 8px 12px;">
                     <div style="display:flex;align-items:center;gap:10px;flex-wrap:nowrap;justify-content:space-between;min-width:0;">
                         <div style="display:flex;align-items:center;gap:10px;">
@@ -17511,6 +17640,23 @@ async function __tmRefreshAfterWake(reason) {
                                         📝 摘要
                                     </button>
                                 </div>
+                                <div class="tm-mobile-only-item" style="display:flex; gap:10px; align-items:center;">
+                                    <button class="tm-btn tm-btn-info" onclick="window.tmAiSemanticCompletionPreview?.(); tmHideMobileMenu();" style="flex:1; padding: 6px;">
+                                        📅 语义日期
+                                    </button>
+                                </div>
+                                ${__tmIsAiFeatureEnabled() ? `
+                                <div class="tm-mobile-only-item" style="display:flex; gap:10px; align-items:center;">
+                                    <button class="tm-btn tm-btn-info" onclick="window.tmAiOpenChat?.(); tmHideMobileMenu();" style="flex:1; padding: 6px;">
+                                        🤖 AI 对话
+                                    </button>
+                                </div>
+                                <div class="tm-mobile-only-item" style="display:flex; gap:10px; align-items:center;">
+                                    <button class="tm-btn tm-btn-info" onclick="window.tmAiShowHistory?.(); tmHideMobileMenu();" style="flex:1; padding: 6px;">
+                                        🕘 AI 记录
+                                    </button>
+                                </div>
+                                ` : ''}
                                 <div class="tm-mobile-only-item" style="display:flex; gap:10px; align-items:center;">
                                     <div class="tm-btn tm-btn-info" style="flex:1; padding: 6px 10px; display:flex; align-items:center; justify-content:space-between; gap:10px; opacity:.6; cursor:not-allowed;" title="移动端不启用日历侧边栏" aria-disabled="true">
                                         <span>日历侧边栏（移动端关闭）</span>
@@ -17763,6 +17909,34 @@ async function __tmRefreshAfterWake(reason) {
                         display: flex;
                         flex-direction: column;
                     }
+                    .tm-ai-side-dock {
+                        border-left: 1px solid var(--tm-border-color);
+                        background: var(--tm-bg-color);
+                        overflow: hidden;
+                        display: flex;
+                        flex-direction: column;
+                    }
+                    .tm-ai-side-dock-resizer {
+                        width: 6px;
+                        cursor: col-resize;
+                        background: transparent;
+                        position: relative;
+                        flex: 0 0 6px;
+                    }
+                    .tm-ai-side-dock-resizer::after {
+                        content: '';
+                        position: absolute;
+                        top: 0;
+                        bottom: 0;
+                        left: 2px;
+                        width: 1px;
+                        background: var(--tm-border-color);
+                        opacity: .65;
+                    }
+                    .tm-ai-side-dock-resizer:hover::after {
+                        background: var(--tm-primary-color);
+                        opacity: 1;
+                    }
                     .tm-calendar-side-dock-resizer {
                         width: 6px;
                         cursor: col-resize;
@@ -17853,9 +18027,41 @@ async function __tmRefreshAfterWake(reason) {
                         display: flex;
                         flex-direction: column;
                     }
+                    .tm-ai-mobile-shell {
+                        position: absolute;
+                        inset: 0;
+                        z-index: 10020;
+                        display: flex;
+                        align-items: stretch;
+                        justify-content: stretch;
+                    }
+                    .tm-ai-mobile-mask {
+                        position: absolute;
+                        inset: 0;
+                        background: rgba(0,0,0,.32);
+                    }
+                    .tm-ai-mobile-panel {
+                        position: relative;
+                        margin-left: auto;
+                        width: min(100vw, 100%);
+                        height: 100%;
+                        background: var(--tm-bg-color);
+                        border-left: 1px solid var(--tm-border-color);
+                        display: flex;
+                        flex-direction: column;
+                        min-height: 0;
+                    }
                 </style>
                 
                 ${bodyWithSideDockHtml}
+                ${isMobile && state.aiMobilePanelOpen && __tmIsAiFeatureEnabled() ? `
+                    <div class="tm-ai-mobile-shell">
+                        <div class="tm-ai-mobile-mask" onclick="tmCloseAiSidebar()"></div>
+                        <div class="tm-ai-mobile-panel">
+                            <div id="tmAiMobileSidebarPanel" style="height:100%;min-height:0;"></div>
+                        </div>
+                    </div>
+                ` : ''}
             </div>
         `;
         
@@ -17895,6 +18101,9 @@ async function __tmRefreshAfterWake(reason) {
                 __tmCalendarDockMount();
             } else if (globalThis.__tmCalendar && typeof globalThis.__tmCalendar.unmountSideDayTimeline === 'function') {
                 try { globalThis.__tmCalendar.unmountSideDayTimeline(); } catch (e) {}
+            }
+            if ((showAiSideDock || (isMobile && state.aiMobilePanelOpen && __tmIsAiFeatureEnabled()))) {
+                try { __tmMountAiSidebarHost(); } catch (e) {}
             }
         } catch (e) {}
 
@@ -18017,14 +18226,23 @@ async function __tmRefreshAfterWake(reason) {
                     if (!leftBody || !ganttBody) return;
                     if (Date.now() - (Number(state.__tmFlipTs) || 0) < 320) return;
                     const leftRows = leftBody.querySelectorAll('tbody tr');
-                    const rightRows = ganttBody.querySelectorAll('.tm-gantt-row');
+                    const rightRows = ganttBody.querySelectorAll('.tm-gantt-row,.tm-gantt-row--group');
                     const n = Math.min(leftRows.length, rightRows.length);
                     if (n <= 0) return;
                     for (let i = 0; i < n; i++) {
+                        const lr = leftRows[i];
                         const rr = rightRows[i];
+                        if (!(lr instanceof Element) || !(rr instanceof Element)) continue;
                         rr.style.height = '';
                         rr.style.minHeight = '';
                         rr.style.maxHeight = '';
+                        if ((lr.style.display || '') === 'none') continue;
+                        const h = lr.getBoundingClientRect?.().height;
+                        if (Number.isFinite(h) && h > 0) {
+                            rr.style.height = `${h}px`;
+                            rr.style.minHeight = `${h}px`;
+                            rr.style.maxHeight = `${h}px`;
+                        }
                         const bar = rr.querySelector?.('.tm-gantt-bar');
                         if (bar) {
                             bar.style.top = '50%';
@@ -18545,6 +18763,71 @@ async function __tmRefreshAfterWake(reason) {
         SettingsStore.data.calendarSideDockEnabled = !!next;
         try { await SettingsStore.save(); } catch (e) {}
         render();
+    };
+
+    function __tmShouldShowAiSidebar() {
+        if (!__tmIsAiFeatureEnabled()) return false;
+        const mode = String(state.viewMode || '').trim();
+        return mode === 'list' || mode === 'checklist' || mode === 'timeline' || mode === 'kanban' || mode === 'whiteboard' || mode === 'calendar';
+    }
+
+    async function __tmMountAiSidebarHost(payload) {
+        const isMobile = __tmIsMobileDevice();
+        const host = state.modal?.querySelector?.(isMobile ? '#tmAiMobileSidebarPanel' : '#tmAiSidebarPanel');
+        if (!(host instanceof HTMLElement)) return false;
+        if (globalThis.__tmAI?.mountSidebar) {
+            try { await globalThis.__tmAI.mountSidebar(host, { mobile: isMobile }); } catch (e) {}
+        }
+        if (payload && !payload.__tmAiPendingOpen && globalThis.__tmAI?.openSidebar) {
+            try { await globalThis.__tmAI.openSidebar(payload); } catch (e) {}
+        }
+        return true;
+    }
+
+    window.tmStartAiSideDockResize = function(ev) {
+        try { ev?.preventDefault?.(); } catch (e) {}
+        const aside = state.modal?.querySelector?.('.tm-ai-side-dock');
+        if (!(aside instanceof HTMLElement)) return;
+        const startX = Number(ev?.clientX) || 0;
+        const startW = Math.max(320, Math.min(720, Math.round(aside.getBoundingClientRect().width || Number(state.aiSidebarWidth) || 380)));
+        const onMove = (e2) => {
+            const x = Number(e2?.clientX) || 0;
+            const delta = startX - x;
+            const nextW = Math.max(320, Math.min(720, Math.round(startW + delta)));
+            state.aiSidebarWidth = nextW;
+            aside.style.width = `${nextW}px`;
+            aside.style.minWidth = `${nextW}px`;
+        };
+        const onUp = () => {
+            try { document.removeEventListener('mousemove', onMove, true); } catch (e2) {}
+            try { document.removeEventListener('mouseup', onUp, true); } catch (e2) {}
+            try { Storage.set('tm_ai_sidebar_width', Number(state.aiSidebarWidth) || 380); } catch (e2) {}
+        };
+        try { document.addEventListener('mousemove', onMove, true); } catch (e2) {}
+        try { document.addEventListener('mouseup', onUp, true); } catch (e2) {}
+    };
+
+    window.tmCloseAiSidebar = function() {
+        if (__tmIsMobileDevice()) {
+            state.aiMobilePanelOpen = false;
+        } else {
+            state.aiSidebarOpen = false;
+            try { Storage.set('tm_ai_sidebar_open', false); } catch (e) {}
+        }
+        render();
+    };
+
+    window.tmOpenAiSidebar = async function(payload) {
+        if (__tmIsMobileDevice()) {
+            state.aiMobilePanelOpen = true;
+        } else {
+            state.aiSidebarOpen = true;
+            try { Storage.set('tm_ai_sidebar_open', true); } catch (e) {}
+        }
+        await openManager({ preserveViewMode: true, skipLoadingHint: true });
+        try { render(); } catch (e) {}
+        try { await __tmMountAiSidebarHost(payload); } catch (e) {}
+        return true;
     };
 
     window.tmHandleCalendarViewButtonContextMenu = async function(ev) {
@@ -23246,6 +23529,9 @@ async function __tmRefreshAfterWake(reason) {
         menu.innerHTML = `
             <button class="tm-btn tm-btn-info" onclick="tmShowSearchModal(); document.getElementById('tmDesktopMenu').remove()" style="text-align:left; padding: 6px 12px;">🔍 搜索${state.searchKeyword ? ` (${String(state.searchKeyword || '').trim()})` : ''}</button>
             <button class="tm-btn tm-btn-info" onclick="tmShowSummaryModal(); document.getElementById('tmDesktopMenu').remove()" style="text-align:left; padding: 6px 12px;">📝 摘要</button>
+            <button class="tm-btn tm-btn-info" onclick="window.tmAiSemanticCompletionPreview?.(); document.getElementById('tmDesktopMenu').remove()" style="text-align:left; padding: 6px 12px;">📅 语义日期</button>
+            ${__tmIsAiFeatureEnabled() ? `<button class="tm-btn tm-btn-info" onclick="window.tmAiOpenChat?.(); document.getElementById('tmDesktopMenu').remove()" style="text-align:left; padding: 6px 12px;">🤖 AI 对话</button>` : ''}
+            ${__tmIsAiFeatureEnabled() ? `<button class="tm-btn tm-btn-info" onclick="window.tmAiShowHistory?.(); document.getElementById('tmDesktopMenu').remove()" style="text-align:left; padding: 6px 12px;">🕘 AI 记录</button>` : ''}
             <div class="tm-btn tm-btn-info" style="text-align:left; padding: 6px 12px; display:flex; align-items:center; justify-content:space-between; gap:10px;">
                 <span>日历侧边栏</span>
                 <input class="b3-switch fn__flex-center" type="checkbox" ${SettingsStore.data.calendarSideDockEnabled ? 'checked' : ''} onchange="tmToggleCalendarSideDock(this.checked); document.getElementById('tmDesktopMenu').remove()">
@@ -25738,11 +26024,31 @@ async function __tmRefreshAfterWake(reason) {
                globalThis.__tomatoOpenMobileFileById;
     };
 
+    let __tmLastFocusedProtyle = null;
+
+    const __tmRememberFocusedProtyle = (target) => {
+        try {
+            const protyle = target?.closest?.('.protyle');
+            if (!protyle || !protyle.isConnected) return;
+            const docId = String(
+                protyle.querySelector?.('.protyle-title')?.getAttribute?.('data-node-id')
+                || protyle.querySelector?.('.protyle-title__input')?.getAttribute?.('data-node-id')
+                || protyle.querySelector?.('.protyle-background')?.getAttribute?.('data-node-id')
+                || ''
+            ).trim();
+            if (!docId) return;
+            __tmLastFocusedProtyle = protyle;
+        } catch (e) {}
+    };
+    try { document.addEventListener('pointerdown', (e) => __tmRememberFocusedProtyle(e.target), true); } catch (e) {}
+    try { document.addEventListener('focusin', (e) => __tmRememberFocusedProtyle(e.target), true); } catch (e) {}
+
     const __tmFindActiveProtyle = () => {
         const isVisible = (el) => {
             try { return !!el && el.offsetParent !== null; } catch (e) { return false; }
         };
         return (
+            (__tmLastFocusedProtyle && isVisible(__tmLastFocusedProtyle) ? __tmLastFocusedProtyle : null) ||
             document.querySelector('.layout__wnd--active .protyle') ||
             Array.from(document.querySelectorAll('.protyle')).find(isVisible) ||
             null
@@ -28987,6 +29293,17 @@ async function __tmRefreshAfterWake(reason) {
                 }
             }));
         }
+        if (__tmIsAiFeatureEnabled()) {
+            menu.appendChild(createItem('🤖 AI 优化任务名称', () => {
+                try { globalThis.tmAiOptimizeTaskName?.(taskId); } catch (e) {}
+            }));
+            menu.appendChild(createItem('🤖 AI 编辑字段', () => {
+                try { globalThis.tmAiEditTask?.(taskId); } catch (e) {}
+            }));
+            menu.appendChild(createItem('🤖 AI 安排日程', () => {
+                try { globalThis.tmAiPlanTaskSchedule?.(taskId); } catch (e) {}
+            }));
+        }
         menu.appendChild(createItem('✏️ 修改内容', () => tmEdit(taskId)));
         if (tomatoEnabled) {
             menu.appendChild(createItem('⏰ 设置提醒', () => tmReminder(taskId)));
@@ -30870,6 +31187,7 @@ async function __tmRefreshAfterWake(reason) {
         if (state.settingsActiveTab === 'docs') activeTab = 'docs';
         if (state.settingsActiveTab === 'appearance') activeTab = 'appearance';
         if (state.settingsActiveTab === 'calendar') activeTab = 'calendar';
+        if (state.settingsActiveTab === 'ai') activeTab = 'ai';
         if (state.settingsActiveTab === 'rules') activeTab = 'rules';
         if (state.settingsActiveTab === 'quadrant') activeTab = 'quadrant';
         if (state.settingsActiveTab === 'priority') activeTab = 'priority';
@@ -30912,6 +31230,101 @@ async function __tmRefreshAfterWake(reason) {
                 </div>
             `;
         };
+        const renderAiSettingsPanel = () => {
+            const contextMode = String(SettingsStore.data.aiDefaultContextMode || 'nearby').trim() === 'fulltext' ? 'fulltext' : 'nearby';
+            const provider = String(SettingsStore.data.aiProvider || '').trim() === 'deepseek' ? 'deepseek' : 'minimax';
+            const providerLabel = provider === 'deepseek' ? 'DeepSeek' : 'MiniMax';
+            const model = provider === 'deepseek'
+                ? (String(SettingsStore.data.aiDeepSeekModel || 'deepseek-chat').trim() || 'deepseek-chat')
+                : (String(SettingsStore.data.aiMiniMaxModel || 'MiniMax-M2.5').trim() || 'MiniMax-M2.5');
+            const temperature = Number.isFinite(Number(SettingsStore.data.aiMiniMaxTemperature)) ? Number(SettingsStore.data.aiMiniMaxTemperature) : 0.2;
+            const maxTokens = Number.isFinite(Number(SettingsStore.data.aiMiniMaxMaxTokens)) ? Math.max(256, Math.min(8192, Math.round(Number(SettingsStore.data.aiMiniMaxMaxTokens)))) : 1600;
+            const timeoutMs = Number.isFinite(Number(SettingsStore.data.aiMiniMaxTimeoutMs)) ? Math.max(5000, Math.min(180000, Math.round(Number(SettingsStore.data.aiMiniMaxTimeoutMs)))) : 30000;
+            const scheduleWindows = Array.isArray(SettingsStore.data.aiScheduleWindows) && SettingsStore.data.aiScheduleWindows.length
+                ? SettingsStore.data.aiScheduleWindows.map(v => String(v || '').trim()).filter(Boolean).join('\n')
+                : '09:00-18:00';
+            const baseUrl = esc(provider === 'deepseek'
+                ? (String(SettingsStore.data.aiDeepSeekBaseUrl || 'https://api.deepseek.com').trim() || 'https://api.deepseek.com')
+                : (String(SettingsStore.data.aiMiniMaxBaseUrl || 'https://api.minimaxi.com/anthropic').trim() || 'https://api.minimaxi.com/anthropic'));
+            const apiKey = esc(provider === 'deepseek'
+                ? String(SettingsStore.data.aiDeepSeekApiKey || '')
+                : String(SettingsStore.data.aiMiniMaxApiKey || ''));
+            return `
+                <div class="tm-settings-panel">
+                    <div class="tm-settings-section-title">🤖 AI 接入</div>
+                    <div class="tm-settings-section-desc">可在 MiniMax 和 DeepSeek 之间切换，用于任务命名优化、自然语言字段编辑和 SMART 分析。</div>
+                    ${renderSingleSwitchSetting(
+                        '启用 AI 功能',
+                        '关闭后会隐藏所有 AI 相关入口、菜单和 quickbar 图标。',
+                        `<input class="b3-switch fn__flex-center" type="checkbox" ${SettingsStore.data.aiEnabled ? 'checked' : ''} onchange="tmUpdateAiEnabled(this.checked)">`
+                    )}
+                    ${renderSingleFieldSetting(
+                        '供应商',
+                        '切换当前使用的 AI 供应商，分别记忆各自的 API Key / Base URL / 模型。',
+                        `<select class="b3-select" onchange="tmUpdateAiProvider(this.value)" style="width:220px;">
+                            <option value="minimax" ${provider === 'minimax' ? 'selected' : ''}>MiniMax</option>
+                            <option value="deepseek" ${provider === 'deepseek' ? 'selected' : ''}>DeepSeek</option>
+                        </select>`,
+                        { style: 'margin-top:10px;' }
+                    )}
+                    ${renderSingleFieldSetting(
+                        'API Key',
+                        provider === 'deepseek' ? 'DeepSeek 控制台创建的 API Key，仅本地保存。' : 'MiniMax 控制台创建的 API Key，仅本地保存。',
+                        `<input class="b3-text-field" type="password" value="${apiKey}" placeholder="请输入 ${providerLabel} API Key" onchange="tmUpdateAiApiKey(this.value)" style="width:100%;">`
+                    )}
+                    ${renderSingleFieldSetting(
+                        'Base URL',
+                        provider === 'deepseek' ? '默认走 DeepSeek OpenAI 兼容接口。' : '默认走 MiniMax Anthropic 兼容接口。',
+                        `<input class="b3-text-field" type="text" value="${baseUrl}" onchange="tmUpdateAiBaseUrl(this.value)" style="width:100%;">`
+                    )}
+                    ${renderSingleFieldSetting(
+                        '模型',
+                        provider === 'deepseek' ? '默认使用 deepseek-chat，可切到 deepseek-reasoner。' : '默认使用 MiniMax-M2.5。',
+                        provider === 'deepseek'
+                            ? `<select class="b3-select" onchange="tmUpdateAiModel(this.value)" style="width:220px;">
+                                <option value="deepseek-chat" ${model === 'deepseek-chat' ? 'selected' : ''}>deepseek-chat</option>
+                                <option value="deepseek-reasoner" ${model === 'deepseek-reasoner' ? 'selected' : ''}>deepseek-reasoner</option>
+                            </select>`
+                            : `<select class="b3-select" onchange="tmUpdateAiModel(this.value)" style="width:220px;">
+                                <option value="MiniMax-M2.5" ${model === 'MiniMax-M2.5' ? 'selected' : ''}>MiniMax-M2.5</option>
+                                <option value="MiniMax-M2.5-highspeed" ${model === 'MiniMax-M2.5-highspeed' ? 'selected' : ''}>MiniMax-M2.5-highspeed</option>
+                            </select>`
+                    )}
+                    ${renderSingleFieldSetting(
+                        '温度',
+                        '数值越低越稳定，越高越发散。',
+                        `<input class="b3-text-field" type="number" step="0.1" min="0" max="1.5" value="${temperature}" onchange="tmUpdateAiTemperature(this.value)" style="width:88px;">`
+                    )}
+                    ${renderSingleFieldSetting(
+                        '最大输出 tokens',
+                        '控制模型最大返回长度。',
+                        `<input class="b3-text-field" type="number" min="256" max="8192" value="${maxTokens}" onchange="tmUpdateAiMaxTokens(this.value)" style="width:100px;">`
+                    )}
+                    ${renderSingleFieldSetting(
+                        '超时时间',
+                        'AI 请求超时时间，单位毫秒。',
+                        `<input class="b3-text-field" type="number" min="5000" max="180000" value="${timeoutMs}" onchange="tmUpdateAiTimeoutMs(this.value)" style="width:100px;">
+                         <span class="tm-setting-field-unit">ms</span>`
+                    )}
+                    ${renderSingleFieldSetting(
+                        '默认上下文模式',
+                        '邻近上下文更省 token，带全文更适合 SMART 分析。',
+                        `<select class="b3-select" onchange="tmUpdateAiDefaultContextMode(this.value)" style="width:180px;">
+                            <option value="nearby" ${contextMode === 'nearby' ? 'selected' : ''}>邻近上下文</option>
+                            <option value="fulltext" ${contextMode === 'fulltext' ? 'selected' : ''}>带全文</option>
+                        </select>`
+                    )}
+                    ${renderSingleFieldSetting(
+                        '排期时间段',
+                        '支持多段时间。每行一个时间段，例如 09:00-12:00 和 14:00-18:00，AI 排期只能落在这些时间段内。',
+                        `<textarea class="b3-text-field" onchange="tmUpdateAiScheduleWindows(this.value)" style="width:260px;min-height:88px;resize:vertical;">${esc(scheduleWindows)}</textarea>`
+                    )}
+                    <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:12px;">
+                        <button class="tm-btn tm-btn-secondary" onclick="tmAiTestConnection()">测试连接</button>
+                    </div>
+                </div>
+            `;
+        };
 
         state.settingsModal.innerHTML = `
             <div class="tm-settings-box" style="overflow: hidden;">
@@ -30928,6 +31341,7 @@ async function __tmRefreshAfterWake(reason) {
                             <button class="tm-settings-nav-btn ${activeTab === 'main' ? 'is-active' : ''}" data-tm-action="tmSwitchSettingsTab" data-tab="main">🧩 常规设置</button>
                             <button class="tm-settings-nav-btn ${activeTab === 'appearance' ? 'is-active' : ''}" data-tm-action="tmSwitchSettingsTab" data-tab="appearance">🎨 外观</button>
                             <button class="tm-settings-nav-btn ${activeTab === 'calendar' ? 'is-active' : ''}" data-tm-action="tmSwitchSettingsTab" data-tab="calendar">🗓️ 日历</button>
+                            <button class="tm-settings-nav-btn ${activeTab === 'ai' ? 'is-active' : ''}" data-tm-action="tmSwitchSettingsTab" data-tab="ai">🤖 AI</button>
                             <button class="tm-settings-nav-btn ${activeTab === 'rules' ? 'is-active' : ''}" data-tm-action="tmSwitchSettingsTab" data-tab="rules">📋 规则管理</button>
                             <button class="tm-settings-nav-btn ${activeTab === 'quadrant' ? 'is-active' : ''}" data-tm-action="tmSwitchSettingsTab" data-tab="quadrant">📊 四象限</button>
                             <button class="tm-settings-nav-btn ${activeTab === 'priority' ? 'is-active' : ''}" data-tm-action="tmSwitchSettingsTab" data-tab="priority">⚙️ 优先级算法</button>
@@ -30955,6 +31369,8 @@ async function __tmRefreshAfterWake(reason) {
                             <div id="tm-calendar-settings-root"></div>
                         </div>
                     ` : ''}
+
+                    ${activeTab === 'ai' ? renderAiSettingsPanel() : ''}
 
                     ${activeTab === 'rules' ? `
                         <div class="tm-settings-panel">
@@ -31437,6 +31853,8 @@ async function __tmRefreshAfterWake(reason) {
             state.settingsActiveTab = 'appearance';
         } else if (tab === 'calendar') {
             state.settingsActiveTab = 'calendar';
+        } else if (tab === 'ai') {
+            state.settingsActiveTab = 'ai';
         } else if (tab === 'quadrant') {
             state.settingsActiveTab = 'quadrant';
         } else if (tab === 'priority') {
@@ -32153,14 +32571,21 @@ async function __tmRefreshAfterWake(reason) {
         const p = String(preset || '').trim();
         const now = new Date();
         const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
-        if (p === 'today') {
+        if (p === 'today' || p === 'today_report') {
             const s = __tmSummaryDateFmt(today);
             return { start: s, end: s };
         }
-        if (p === 'this_week') {
+        if (p === 'this_week' || p === 'this_week_report') {
             const day = (today.getDay() + 6) % 7;
             const s = new Date(today.getTime() - day * 86400000);
             const e = new Date(s.getTime() + 6 * 86400000);
+            return { start: __tmSummaryDateFmt(s), end: __tmSummaryDateFmt(e) };
+        }
+        if (p === 'last_week' || p === 'last_week_report') {
+            const day = (today.getDay() + 6) % 7;
+            const thisWeekStart = new Date(today.getTime() - day * 86400000);
+            const s = new Date(thisWeekStart.getTime() - 7 * 86400000);
+            const e = new Date(thisWeekStart.getTime() - 86400000);
             return { start: __tmSummaryDateFmt(s), end: __tmSummaryDateFmt(e) };
         }
         if (p === 'this_month') {
@@ -32461,6 +32886,7 @@ async function __tmRefreshAfterWake(reason) {
                 customStatus: String(task.customStatus || '').trim() || 'todo',
                 priority: p,
                 dateKey,
+                dueDate: String(task.completionTime || '').trim(),
                 docId,
                 docName: String(docNameMap[docId] || task.docName || '未命名文档'),
                 h2Id: String(task.h2Id || '').trim(),
@@ -32482,6 +32908,9 @@ async function __tmRefreshAfterWake(reason) {
         const lines = [];
         const now = new Date().toISOString().replace('T', ' ').slice(0, 19);
         const statusMap = ctx.statusMap || new Map();
+        const preset = String(filter.preset || 'all').trim();
+        const isDailyReport = preset === 'today_report';
+        const isWeeklyReport = preset === 'this_week_report' || preset === 'last_week_report';
         const groupName = ctx.groupNameMap?.[String(filter.groupId || '__all__')] || '全部分组';
         const docName = filter.docId === '__all__'
             ? (filter.groupId && filter.groupId !== '__all__' ? '当前分区全部文档' : '全部分区内文档')
@@ -32504,7 +32933,7 @@ async function __tmRefreshAfterWake(reason) {
             ? `${filter.start || '最早'} ~ ${filter.end || '最晚'}`
             : '全部时间';
 
-        lines.push('# 任务摘要');
+        lines.push(isDailyReport ? '# 今日日报' : (preset === 'this_week_report' ? '# 本周周报' : (preset === 'last_week_report' ? '# 上周周报' : '# 任务摘要')));
         lines.push('');
         lines.push(`> 生成时间：${now}`);
         lines.push(`> 筛选：${rangeLabel} | ${groupName} | ${docName} | ${statusName} | ${priorityName} | ${groupByName}`);
@@ -32513,6 +32942,28 @@ async function __tmRefreshAfterWake(reason) {
         if (!tasks.length) {
             lines.push('> 没有匹配到任务。');
             return lines.join('\n');
+        }
+
+        const todayKey = __tmSummaryDateFmt(new Date());
+        const doneTasks = tasks.filter(t => t.done);
+        const todoTasks = tasks.filter(t => !t.done);
+        const overdueTasks = tasks.filter((t) => !t.done && String(t.dueDate || '').trim() && String(t.dueDate || '').trim() < todayKey);
+        if (isDailyReport || isWeeklyReport) {
+            const renderTaskLines = (arr) => arr.length
+                ? arr.map((t) => `- [${t.done ? 'x' : ' '}] ${t.content}${t.docName ? `（${t.docName}）` : ''}`).join('\n')
+                : '- 无';
+            lines.push('## 完成情况');
+            lines.push('');
+            lines.push(renderTaskLines(doneTasks));
+            lines.push('');
+            lines.push('## 计划项');
+            lines.push('');
+            lines.push(renderTaskLines(todoTasks.slice(0, 30)));
+            lines.push('');
+            lines.push('## 逾期项');
+            lines.push('');
+            lines.push(renderTaskLines(overdueTasks));
+            lines.push('');
         }
 
         const sectionMap = new Map();
@@ -32766,8 +33217,12 @@ async function __tmRefreshAfterWake(reason) {
                 <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;">
                     <select class="tm-rule-select" data-tm-summary="preset" style="min-width:110px;">
                         <option value="all">全部时间</option>
+                        <option value="today_report">今日日报</option>
+                        <option value="this_week_report">本周周报</option>
+                        <option value="last_week_report">上周周报</option>
                         <option value="today">今天</option>
                         <option value="this_week" selected>本周</option>
+                        <option value="last_week">上周</option>
                         <option value="this_month">本月</option>
                         <option value="last_month">上月</option>
                         <option value="custom">自定义</option>
@@ -32809,6 +33264,7 @@ async function __tmRefreshAfterWake(reason) {
             <div class="tm-header" style="padding:12px 16px;border-top:1px solid var(--tm-border-color);justify-content:flex-end;gap:10px;">
                 <button class="tm-btn tm-btn-secondary" data-tm-summary-action="refresh" style="padding:8px 16px;">生成</button>
                 <button class="tm-btn tm-btn-primary" data-tm-summary-action="copy" style="padding:8px 16px;">复制</button>
+                <button class="tm-btn tm-btn-primary" data-tm-summary-action="export" style="padding:8px 16px;">导出</button>
             </div>
         `;
         state.summaryModal.appendChild(box);
@@ -32867,6 +33323,32 @@ async function __tmRefreshAfterWake(reason) {
                     } catch (e2) {}
                 }
                 hint(ok ? '✅ 已复制摘要 Markdown' : '❌ 复制失败', ok ? 'success' : 'error');
+                return;
+            }
+            if (action === 'export') {
+                const text = String(root.querySelector('[data-tm-summary="preview"]')?.value || '');
+                if (!text.trim()) {
+                    hint('⚠️ 没有可导出的内容', 'warning');
+                    return;
+                }
+                const filter = __tmSummaryReadFilter(root);
+                const preset = String(filter.preset || 'summary').trim();
+                const map = {
+                    today_report: 'today-report',
+                    this_week_report: 'this-week-report',
+                    last_week_report: 'last-week-report',
+                };
+                const name = `${map[preset] || 'task-summary'}-${__tmSummaryDateFmt(new Date())}.md`;
+                const a = document.createElement('a');
+                a.href = URL.createObjectURL(new Blob([text], { type: 'text/markdown;charset=utf-8' }));
+                a.download = name;
+                document.body.appendChild(a);
+                a.click();
+                setTimeout(() => {
+                    try { URL.revokeObjectURL(a.href); } catch (e2) {}
+                    try { a.remove(); } catch (e2) {}
+                }, 0);
+                hint('✅ 已导出 Markdown', 'success');
             }
         });
     };
@@ -34134,6 +34616,70 @@ async function __tmRefreshAfterWake(reason) {
         }
     };
 
+    window.tmUpdateAiEnabled = async function(enabled) {
+        SettingsStore.data.aiEnabled = !!enabled;
+        await SettingsStore.save();
+        showSettings();
+    };
+    window.tmUpdateAiProvider = async function(value) {
+        SettingsStore.data.aiProvider = String(value || '').trim() === 'deepseek' ? 'deepseek' : 'minimax';
+        await SettingsStore.save();
+        showSettings();
+    };
+    window.tmUpdateAiApiKey = async function(value) {
+        const provider = String(SettingsStore.data.aiProvider || '').trim() === 'deepseek' ? 'deepseek' : 'minimax';
+        if (provider === 'deepseek') SettingsStore.data.aiDeepSeekApiKey = String(value || '').trim();
+        else SettingsStore.data.aiMiniMaxApiKey = String(value || '').trim();
+        await SettingsStore.save();
+    };
+    window.tmUpdateAiBaseUrl = async function(value) {
+        const provider = String(SettingsStore.data.aiProvider || '').trim() === 'deepseek' ? 'deepseek' : 'minimax';
+        const next = String(value || '').trim() || (provider === 'deepseek' ? 'https://api.deepseek.com' : 'https://api.minimaxi.com/anthropic');
+        if (provider === 'deepseek') SettingsStore.data.aiDeepSeekBaseUrl = next.replace(/\/+$/, '');
+        else SettingsStore.data.aiMiniMaxBaseUrl = next.replace(/\/+$/, '');
+        await SettingsStore.save();
+    };
+    window.tmUpdateAiModel = async function(value) {
+        const provider = String(SettingsStore.data.aiProvider || '').trim() === 'deepseek' ? 'deepseek' : 'minimax';
+        if (provider === 'deepseek') SettingsStore.data.aiDeepSeekModel = String(value || '').trim() || 'deepseek-chat';
+        else SettingsStore.data.aiMiniMaxModel = String(value || '').trim() || 'MiniMax-M2.5';
+        await SettingsStore.save();
+    };
+    window.tmUpdateAiTemperature = async function(value) {
+        const n = Number(value);
+        SettingsStore.data.aiMiniMaxTemperature = Number.isFinite(n) ? Math.max(0, Math.min(1.5, n)) : 0.2;
+        await SettingsStore.save();
+    };
+    window.tmUpdateAiMaxTokens = async function(value) {
+        const n = Number(value);
+        SettingsStore.data.aiMiniMaxMaxTokens = Number.isFinite(n) ? Math.max(256, Math.min(8192, Math.round(n))) : 1600;
+        await SettingsStore.save();
+    };
+    window.tmUpdateAiTimeoutMs = async function(value) {
+        const n = Number(value);
+        SettingsStore.data.aiMiniMaxTimeoutMs = Number.isFinite(n) ? Math.max(5000, Math.min(180000, Math.round(n))) : 30000;
+        await SettingsStore.save();
+    };
+    window.tmUpdateAiDefaultContextMode = async function(value) {
+        SettingsStore.data.aiDefaultContextMode = String(value || '').trim() === 'fulltext' ? 'fulltext' : 'nearby';
+        await SettingsStore.save();
+    };
+    window.tmUpdateAiScheduleWindows = async function(value) {
+        const list = String(value || '').split(/\r?\n/).map(v => String(v || '').trim()).filter(Boolean);
+        SettingsStore.data.aiScheduleWindows = list.length ? list : ['09:00-18:00'];
+        await SettingsStore.save();
+    };
+    window.tmAiTestConnection = async function() {
+        const fn = globalThis.__tmAI?.testConnection;
+        if (typeof fn !== 'function') {
+            hint('⚠ AI 模块尚未加载完成', 'warning');
+            return;
+        }
+        try {
+            await fn();
+        } catch (e) {}
+    };
+
     window.saveSettings = async function() {
         // 同步到 SettingsStore 并保存到本地插件存储
         SettingsStore.data.selectedDocIds = state.selectedDocIds;
@@ -34518,6 +35064,29 @@ async function __tmRefreshAfterWake(reason) {
                     try { window.tmOpenAddDocToGroupDialog?.(docId); } catch (e) {}
                 }
             });
+            if (__tmIsAiFeatureEnabled()) {
+                menu.addItem({
+                    icon: 'iconTaskHorizon',
+                    label: 'AI SMART 分析',
+                    click: () => {
+                        try { window.tmAiAnalyzeDocumentSmart?.(docId); } catch (e) {}
+                    }
+                });
+                menu.addItem({
+                    icon: 'iconTaskHorizon',
+                    label: 'AI 日程排期',
+                    click: () => {
+                        try { window.tmAiPlanDocumentSchedule?.(docId); } catch (e) {}
+                    }
+                });
+            }
+            menu.addItem({
+                icon: 'iconTaskHorizon',
+                label: '语义识别完成日期',
+                click: () => {
+                    try { window.tmAiSemanticCompletionPreview?.(docId); } catch (e) {}
+                }
+            });
         };
 
         __tmDocTreeMenuHandler = (event) => {
@@ -34535,6 +35104,32 @@ async function __tmRefreshAfterWake(reason) {
                     try { window.tmOpenAddDocToGroupDialog?.(docIds); } catch (e) {}
                 }
             });
+            if (__tmIsAiFeatureEnabled() && docIds.length === 1) {
+                const docId = String(docIds[0] || '').trim();
+                if (docId) {
+                    menu.addItem({
+                        icon: 'iconTaskHorizon',
+                        label: 'AI SMART 分析',
+                        click: () => {
+                            try { window.tmAiAnalyzeDocumentSmart?.(docId); } catch (e) {}
+                        }
+                    });
+                    menu.addItem({
+                        icon: 'iconTaskHorizon',
+                        label: 'AI 日程排期',
+                        click: () => {
+                            try { window.tmAiPlanDocumentSchedule?.(docId); } catch (e) {}
+                        }
+                    });
+                    menu.addItem({
+                        icon: 'iconTaskHorizon',
+                        label: '语义识别完成日期',
+                        click: () => {
+                            try { window.tmAiSemanticCompletionPreview?.(docId); } catch (e) {}
+                        }
+                    });
+                }
+            }
         };
 
         eb.on('click-editortitleicon', __tmEditorTitleIconMenuHandler);
@@ -34572,6 +35167,20 @@ async function __tmRefreshAfterWake(reason) {
                     await window.tmOpenAddDocToGroupDialog?.(docId);
                 });
                 __tmInsertMenuItem(menuItems, menuItem);
+                if (__tmIsAiFeatureEnabled()) {
+                    const smartItem = __tmCreateNativeMenuItem('AI SMART 分析', async () => {
+                        await window.tmAiAnalyzeDocumentSmart?.(docId);
+                    });
+                    __tmInsertMenuItem(menuItems, smartItem);
+                    const scheduleItem = __tmCreateNativeMenuItem('AI 日程排期', async () => {
+                        await window.tmAiPlanDocumentSchedule?.(docId);
+                    });
+                    __tmInsertMenuItem(menuItems, scheduleItem);
+                }
+                const semanticItem = __tmCreateNativeMenuItem('语义识别完成日期', async () => {
+                    await window.tmAiSemanticCompletionPreview?.(docId);
+                });
+                __tmInsertMenuItem(menuItems, semanticItem);
             } catch (e) {}
         });
         try {
@@ -35421,6 +36030,298 @@ async function __tmRefreshAfterWake(reason) {
                 }, 900);
             } catch (e4) {}
         });
+    };
+
+    const __tmAiClone = (value) => {
+        try { return JSON.parse(JSON.stringify(value)); } catch (e) { return value; }
+    };
+
+    function __tmIsAiFeatureEnabled() {
+        try {
+            return !!SettingsStore?.data?.aiEnabled;
+        } catch (e) {
+            return false;
+        }
+    }
+
+    async function __tmAiGetTaskSnapshot(taskId) {
+        const tid = String(taskId || '').trim();
+        if (!tid) return null;
+        let task = state.flatTasks?.[tid] ? { ...state.flatTasks[tid] } : null;
+        if (!task) {
+            try {
+                const filtered = Array.isArray(state.filteredTasks) ? state.filteredTasks : [];
+                const found = filtered.find((it) => String(it?.id || '').trim() === tid);
+                if (found) task = { ...found };
+            } catch (e) {}
+        }
+        if (!task) {
+            try {
+                const flatList = Object.values(state.flatTasks || {});
+                const found = flatList.find((it) => {
+                    const id = String(it?.id || '').trim();
+                    const rootId = String(it?.root_id || it?.docId || '').trim();
+                    const parentId = String(it?.parent_id || it?.parentTaskId || '').trim();
+                    return tid && (id === tid || rootId === tid || parentId === tid);
+                });
+                if (found) task = { ...found };
+            } catch (e) {}
+        }
+        if (!task) {
+            try { task = await API.getTaskById(tid); } catch (e) { task = null; }
+            if (!task) return null;
+            try {
+                const parsed = API.parseTaskStatus(task.markdown);
+                task.done = !!parsed?.done;
+                task.content = String(parsed?.content || task.content || task.raw_content || '').trim();
+            } catch (e) {}
+            try { normalizeTaskFields(task, String(task.doc_name || task.docName || '').trim()); } catch (e) {}
+        }
+        try {
+            const h2Map = await API.fetchH2Contexts([tid]);
+            const h2 = h2Map.get(tid);
+            if (h2) {
+                task.h2 = String(h2.content || '').trim();
+                task.h2Id = String(h2.id || '').trim();
+            }
+        } catch (e) {}
+        return __tmAiClone(task);
+    }
+
+    async function __tmAiResolveDocumentId(docId) {
+        const rawId = String(docId || '').trim();
+        if (!rawId) return '';
+        try {
+            const sql = `SELECT id, type, root_id FROM blocks WHERE id = '${rawId}' LIMIT 1`;
+            const res = await API.call('/api/query/sql', { stmt: sql });
+            const row = (res && res.code === 0 && Array.isArray(res.data)) ? res.data[0] : null;
+            if (!row) return rawId;
+            if (String(row.type || '').trim() === 'd') return String(row.id || rawId).trim() || rawId;
+            return String(row.root_id || rawId).trim() || rawId;
+        } catch (e) {
+            return rawId;
+        }
+    }
+
+    async function __tmAiGetDocumentSnapshot(docId, options = {}) {
+        const did = await __tmAiResolveDocumentId(docId);
+        if (!did) return null;
+        let tasks = [];
+        try {
+            const res = await API.getTasksByDocument(did, Math.max(50, Math.min(2000, Number(options.limit) || state.queryLimit || 500)), { doneOnly: false });
+            tasks = Array.isArray(res?.tasks) ? res.tasks.map((task) => {
+                const next = { ...task };
+                try {
+                    const parsed = API.parseTaskStatus(next.markdown);
+                    next.done = !!parsed?.done;
+                    next.content = String(parsed?.content || next.content || next.raw_content || '').trim();
+                } catch (e) {}
+                try { normalizeTaskFields(next, String(next.doc_name || next.docName || '').trim()); } catch (e) {}
+                return next;
+            }) : [];
+        } catch (e) {
+            tasks = [];
+        }
+        if (!tasks.length) {
+            try {
+                tasks = Object.values(state.flatTasks || {}).filter((task) => {
+                    const rootId = String(task?.root_id || task?.docId || '').trim();
+                    return rootId && rootId === did;
+                }).map((task) => ({ ...task }));
+            } catch (e) {
+                tasks = tasks || [];
+            }
+        }
+        try {
+            const h2Map = await API.fetchH2Contexts(tasks.map((task) => String(task?.id || '').trim()).filter(Boolean));
+            tasks.forEach((task) => {
+                const h2 = h2Map.get(String(task?.id || '').trim());
+                if (h2) {
+                    task.h2 = String(h2.content || '').trim();
+                    task.h2Id = String(h2.id || '').trim();
+                }
+            });
+        } catch (e) {}
+        let kramdown = '';
+        try { kramdown = await API.getBlockKramdown(did); } catch (e) { kramdown = ''; }
+        const doc = state.allDocuments?.find((item) => String(item?.id || '').trim() === did)
+            || state.taskTree?.find((item) => String(item?.id || '').trim() === did)
+            || null;
+        return __tmAiClone({
+            id: did,
+            name: String(doc?.name || tasks?.[0]?.doc_name || tasks?.[0]?.docName || '未命名文档').trim() || '未命名文档',
+            path: String(tasks?.[0]?.doc_path || '').trim(),
+            kramdown,
+            tasks,
+        });
+    }
+
+    async function __tmAiApplyTaskPatch(taskId, patch = {}) {
+        const tid = String(taskId || '').trim();
+        if (!tid) throw new Error('缺少任务 ID');
+        const sourceTask = await __tmAiGetTaskSnapshot(tid);
+        if (!sourceTask) throw new Error('未找到任务');
+        const nextPatch = (patch && typeof patch === 'object') ? patch : {};
+        const attrPatch = {};
+        ['priority', 'customStatus', 'startDate', 'completionTime', 'duration', 'remark', 'pinned', 'milestone'].forEach((key) => {
+            if (Object.prototype.hasOwnProperty.call(nextPatch, key)) attrPatch[key] = nextPatch[key];
+        });
+
+        let nextMarkdown = String(sourceTask.markdown || '').trim();
+        if (!nextMarkdown) nextMarkdown = `- [${sourceTask.done ? 'x' : ' '}] ${String(sourceTask.content || '').trim()}`;
+        const hasTitle = Object.prototype.hasOwnProperty.call(nextPatch, 'title');
+        const hasDone = Object.prototype.hasOwnProperty.call(nextPatch, 'done');
+        if (hasTitle || hasDone) {
+            const nextTitle = hasTitle ? String(nextPatch.title || '').trim() : String(sourceTask.content || '').trim();
+            const nextDone = hasDone ? !!nextPatch.done : !!sourceTask.done;
+            const lines = String(nextMarkdown || '').split(/\r?\n/);
+            const firstLine = String(lines[0] || '');
+            const replaced = firstLine.replace(/^(\s*[\*\-]\s*)\[[ xX]\](\s*)/, `$1[${nextDone ? 'x' : ' '}]$2`);
+            if (replaced !== firstLine) {
+                lines[0] = replaced.replace(/^(\s*[\*\-]\s*\[[ xX]\]\s*).*/, `$1${nextTitle}`);
+            } else {
+                lines[0] = `- [${nextDone ? 'x' : ' '}] ${nextTitle}`;
+            }
+            nextMarkdown = lines.join('\n');
+            await API.updateBlock(tid, nextMarkdown);
+            if (state.flatTasks?.[tid]) {
+                state.flatTasks[tid].markdown = nextMarkdown;
+                state.flatTasks[tid].content = nextTitle;
+                state.flatTasks[tid].done = nextDone;
+            }
+        }
+
+        if (Object.keys(attrPatch).length > 0) {
+            await __tmPersistMetaAndAttrsAsync(tid, attrPatch);
+            if (state.flatTasks?.[tid]) Object.assign(state.flatTasks[tid], attrPatch);
+        }
+
+        try { __tmInvalidateTasksQueryCacheByDocId(String(sourceTask.docId || sourceTask.root_id || '').trim()); } catch (e) {}
+        try { if (typeof window.tmRefresh === 'function') await window.tmRefresh(); else render(); } catch (e) { try { render(); } catch (e2) {} }
+        return await __tmAiGetTaskSnapshot(tid);
+    }
+
+    async function __tmAiCreateTaskSuggestion(docId, content) {
+        const did = String(docId || '').trim();
+        const text = String(content || '').trim();
+        if (!did) throw new Error('缺少文档');
+        if (!text) throw new Error('任务建议为空');
+        const taskId = await __tmCreateTaskInDoc({ docId: did, content: text, atTop: true, pinned: false, localInsert: false });
+        const pendingTask = state.pendingInsertedTasks?.[String(taskId || '').trim()];
+        if (pendingTask) __tmUpsertLocalTask(pendingTask);
+        try { await __tmRefreshMainViewInPlace({ withFilters: true }); } catch (e) { try { if (typeof window.tmRefresh === 'function') await window.tmRefresh(); } catch (e2) {} }
+        return await __tmAiGetTaskSnapshot(taskId);
+    }
+
+    async function __tmAiGetCurrentViewTasks(limit = 5) {
+        const max = Math.max(1, Math.min(100, Number(limit) || 5));
+        const filtered = Array.isArray(state.filteredTasks) ? state.filteredTasks : [];
+        if (filtered.length) {
+            return filtered
+                .slice(0, max)
+                .map((task) => __tmAiClone(task))
+                .filter(Boolean);
+        }
+        const list = [];
+        const walk = (items) => {
+            (Array.isArray(items) ? items : []).forEach((task) => {
+                if (list.length >= max) return;
+                if (task && typeof task === 'object') list.push(__tmAiClone(task));
+                if (list.length < max) walk(task?.children || []);
+            });
+        };
+        try {
+            (Array.isArray(state.taskTree) ? state.taskTree : []).forEach((doc) => {
+                if (list.length >= max) return;
+                walk(doc?.tasks || []);
+            });
+        } catch (e) {}
+        return list.slice(0, max).filter(Boolean);
+    }
+
+    __tmNs.aiBridge = {
+        getSettings() {
+            return __tmAiClone({
+                aiEnabled: !!SettingsStore.data.aiEnabled,
+                aiProvider: String(SettingsStore.data.aiProvider || '').trim() === 'deepseek' ? 'deepseek' : 'minimax',
+                aiMiniMaxApiKey: String(SettingsStore.data.aiMiniMaxApiKey || ''),
+                aiMiniMaxBaseUrl: String(SettingsStore.data.aiMiniMaxBaseUrl || 'https://api.minimaxi.com/anthropic').trim() || 'https://api.minimaxi.com/anthropic',
+                aiMiniMaxModel: String(SettingsStore.data.aiMiniMaxModel || 'MiniMax-M2.5').trim() || 'MiniMax-M2.5',
+                aiDeepSeekApiKey: String(SettingsStore.data.aiDeepSeekApiKey || ''),
+                aiDeepSeekBaseUrl: String(SettingsStore.data.aiDeepSeekBaseUrl || 'https://api.deepseek.com').trim() || 'https://api.deepseek.com',
+                aiDeepSeekModel: String(SettingsStore.data.aiDeepSeekModel || 'deepseek-chat').trim() || 'deepseek-chat',
+                aiMiniMaxTemperature: Number(SettingsStore.data.aiMiniMaxTemperature),
+                aiMiniMaxMaxTokens: Number(SettingsStore.data.aiMiniMaxMaxTokens),
+                aiMiniMaxTimeoutMs: Number(SettingsStore.data.aiMiniMaxTimeoutMs),
+                aiDefaultContextMode: String(SettingsStore.data.aiDefaultContextMode || 'nearby').trim() === 'fulltext' ? 'fulltext' : 'nearby',
+                aiScheduleWindows: Array.isArray(SettingsStore.data.aiScheduleWindows) ? SettingsStore.data.aiScheduleWindows.map(v => String(v || '').trim()).filter(Boolean) : ['09:00-18:00'],
+            });
+        },
+        async saveAiSettings(patch = {}) {
+            if (!patch || typeof patch !== 'object') return this.getSettings();
+            Object.entries(patch).forEach(([key, value]) => {
+                if (!(key in SettingsStore.data)) return;
+                SettingsStore.data[key] = value;
+            });
+            await SettingsStore.save();
+            return this.getSettings();
+        },
+        async getTaskSnapshot(taskId) {
+            return await __tmAiGetTaskSnapshot(taskId);
+        },
+        async getDocumentSnapshot(docId, options) {
+            return await __tmAiGetDocumentSnapshot(docId, options);
+        },
+        async applyTaskPatch(taskId, patch) {
+            return await __tmAiApplyTaskPatch(taskId, patch);
+        },
+        async createTaskSuggestion(docId, content) {
+            return await __tmAiCreateTaskSuggestion(docId, content);
+        },
+        async getCurrentViewTasks(limit) {
+            return await __tmAiGetCurrentViewTasks(limit);
+        },
+        hint,
+        esc,
+        API,
+        getCurrentTaskId() {
+            return String(state.detailTaskId || state.draggingTaskId || '').trim();
+        },
+        getCurrentDocId() {
+            try {
+                const candidates = [];
+                try {
+                    if (__tmLastRightClickedTitleProtyle && __tmLastRightClickedTitleProtyle.isConnected) {
+                        candidates.push(__tmLastRightClickedTitleProtyle);
+                    }
+                } catch (e) {}
+                try {
+                    if (__tmLastFocusedProtyle && __tmLastFocusedProtyle.isConnected) {
+                        candidates.push(__tmLastFocusedProtyle);
+                    }
+                } catch (e) {}
+                try {
+                    const p = typeof __tmFindActiveProtyle === 'function' ? __tmFindActiveProtyle() : null;
+                    if (p) candidates.push(p);
+                } catch (e) {}
+                for (const p of candidates) {
+                    const id = String(__tmGetDocIdFromProtyle?.(p) || '').trim();
+                    if (id) return id;
+                }
+                return '';
+            } catch (e) {
+                return '';
+            }
+        },
+        getCurrentGroupId() {
+            return String(SettingsStore.data.currentGroupId || 'all').trim() || 'all';
+        },
+        async openAiPanel(payload = {}) {
+            return await window.tmOpenAiSidebar(payload);
+        },
+        async closeAiPanel() {
+            return await window.tmCloseAiSidebar();
+        }
     };
 
     try {

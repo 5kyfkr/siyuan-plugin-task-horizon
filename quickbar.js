@@ -133,7 +133,7 @@
             return String(text || '').replace(/\s+/g, ' ').trim();
         }
 
-        function resolveTaskNodeIdForDetail() {
+        function resolveTaskNodeIdForDetail(blockEl) {
             const readId = (el) => String(el?.dataset?.nodeId || el?.getAttribute?.('data-node-id') || '').trim();
             const pickTaskLi = (root) => {
                 if (!root || !(root instanceof Element)) return null;
@@ -145,12 +145,12 @@
                 if (inner && readId(inner) && isTaskBlockElement(inner)) return inner;
                 return null;
             };
-            if (!currentBlockEl) return '';
-            const id0 = readId(currentBlockEl);
-            if (id0 && isTaskBlockElement(currentBlockEl)) return id0;
-            const li = pickTaskLi(currentBlockEl);
+            if (!blockEl) return '';
+            const id0 = readId(blockEl);
+            if (id0 && isTaskBlockElement(blockEl)) return id0;
+            const li = pickTaskLi(blockEl);
             if (li) return readId(li);
-            const p = currentBlockEl.closest?.('[data-node-id]');
+            const p = blockEl.closest?.('[data-node-id]');
             return readId(p) || id0;
         }
 
@@ -169,6 +169,16 @@
         } catch (e) {}
         const ua = navigator.userAgent || '';
         return /Mobile|Android|iPhone|iPad|iPod/i.test(ua) || (window.innerWidth || 0) <= 768;
+    }
+
+    function isAiFeatureEnabled() {
+        try {
+            const raw = localStorage.getItem('tm_ai_enabled');
+            if (raw === null) return false;
+            return raw === 'true' || raw === '1';
+        } catch (e) {
+            return false;
+        }
     }
 
     function markBlockMenuTrigger(target, source) {
@@ -478,6 +488,13 @@
                 transition: all 0.2s;
                 padding: 0;
             }
+            .sy-custom-props-floatbar__action .qb-icon {
+                font-size: 13px;
+                line-height: 1;
+                display: inline-flex;
+                align-items: center;
+                justify-content: center;
+            }
             .sy-custom-props-floatbar__action.is-wide {
                 width: auto;
                 padding: 0 6px;
@@ -518,6 +535,24 @@
         let currentProps = {};  // 当前块的所有自定义属性值
         let activePropConfig = null;  // 当前编辑的属性配置
         let inputResolve = null;  // 输入框Promise解析器
+
+        function getBlockElById(blockId) {
+            const id = String(blockId || '').trim();
+            if (!id) return null;
+            return document.querySelector(`.li[data-node-id="${id}"],[data-type="NodeListItem"][data-node-id="${id}"],[data-node-id="${id}"]`);
+        }
+
+        function resolveCurrentTaskId() {
+            const directId = String(currentBlockId || '').trim();
+            if (directId) return directId;
+            const blockEl = currentBlockEl || getBlockElById(currentBlockId) || null;
+            return String(resolveTaskNodeIdForDetail(blockEl) || '').trim();
+        }
+
+        function resolveCurrentTaskName() {
+            const blockEl = currentBlockEl || getBlockElById(currentBlockId) || null;
+            return getTaskTitleFromBlockEl(blockEl);
+        }
 
         // ==================== 核心功能函数 ====================
 
@@ -722,6 +757,9 @@
             const rows = [];
             const allProps = [...customPropsConfig.firstRow, ...customPropsConfig.secondRow]
                 .map(config => renderPropElement(config, currentProps[config.attrKey]));
+            if (isAiFeatureEnabled()) {
+                allProps.push(`<button class="sy-custom-props-floatbar__action" data-action="ai-title" title="AI 优化任务名称"><span class="qb-icon">✨</span></button>`);
+            }
             allProps.push(`<button class="sy-custom-props-floatbar__action" data-action="reminder" title="添加提醒">⏰</button>`);
             allProps.push(`<button class="sy-custom-props-floatbar__action" data-action="more" title="更多">⋯</button>`);
             rows.push(`<div class="sy-custom-props-floatbar__row">${allProps.join('')}</div>`);
@@ -816,21 +854,42 @@
                     if (action === 'reminder') {
                         const showDialog = globalThis.__tomatoReminder?.showDialog;
                         if (typeof showDialog === 'function') {
-                            const name = getTaskTitleFromBlockEl(currentBlockEl);
-                            showDialog(currentBlockId, name || '任务');
+                            const taskId = resolveCurrentTaskId();
+                            if (!taskId) {
+                                showMessage('未找到任务', true, 1800);
+                                return;
+                            }
+                            const name = resolveCurrentTaskName();
+                            showDialog(taskId, name || '任务');
                         } else {
                             showMessage('未检测到提醒功能，请确认番茄插件已启用', true, 2000);
                         }
                         return;
                     }
+                    if (action === 'ai-title') {
+                        try {
+                            if (!isAiFeatureEnabled()) {
+                                showMessage('AI 功能已关闭', true, 1800);
+                                return;
+                            }
+                            const taskIdForAi = resolveCurrentTaskId();
+                            if (!taskIdForAi) {
+                                showMessage('未找到任务', true, 1800);
+                                return;
+                            }
+                            if (typeof globalThis.tmAiOptimizeTaskName === 'function') {
+                                await globalThis.tmAiOptimizeTaskName(taskIdForAi);
+                            } else {
+                                showMessage('AI 模块尚未加载', true, 1800);
+                            }
+                        } catch (err) {
+                            showMessage(String(err?.message || err || 'AI 执行失败'), true, 2200);
+                        }
+                        return;
+                    }
                     if (action === 'more') {
                         const openTaskDetail = globalThis.tmOpenTaskDetail;
-                        // 优先使用 currentBlockId，这是从 showFloatBar 中设置的块ID
-                        let detailId = String(currentBlockId || '').trim();
-                        // 如果 currentBlockId 为空，尝试使用 resolveTaskNodeIdForDetail
-                        if (!detailId) {
-                            detailId = resolveTaskNodeIdForDetail();
-                        }
+                        const detailId = resolveCurrentTaskId();
                         // 确保 ID 有效
                         if (!detailId) {
                             showMessage('无法获取任务ID', true, 1800);
