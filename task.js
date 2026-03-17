@@ -7608,18 +7608,50 @@
             try {
                 const did = String(docId || '').trim();
                 if (!/^[0-9]+-[a-zA-Z0-9]+$/.test(did)) return [];
-                // 先获取根文档的 path
-                const pathSql = `SELECT hpath FROM blocks WHERE id = '${did.replace(/'/g, "''")}' AND type = 'd'`;
-                const pathRes = await this.call('/api/query/sql', { stmt: pathSql });
-                if (pathRes.code !== 0 || !pathRes.data || pathRes.data.length === 0) return [];
-                
-                const hpath = String(pathRes.data[0].hpath || '');
-                
-                // 查询子文档
-                const sql = `SELECT id FROM blocks WHERE hpath LIKE '${hpath.replace(/'/g, "''")}/%' AND type = 'd'`;
+
+                // 优先尝试 parent_id 递归；若环境不支持再回退到 hpath 前缀匹配
+                const escapedId = did.replace(/'/g, "''");
+                const sql = `
+                    WITH RECURSIVE doc_tree(id) AS (
+                        SELECT id
+                        FROM blocks
+                        WHERE id = '${escapedId}' AND type = 'd'
+                        UNION ALL
+                        SELECT b.id
+                        FROM blocks b
+                        INNER JOIN doc_tree t ON b.parent_id = t.id
+                        WHERE b.type = 'd'
+                    )
+                    SELECT id
+                    FROM doc_tree
+                    WHERE id != '${escapedId}'
+                `;
                 const res = await this.call('/api/query/sql', { stmt: sql });
-                if (res.code === 0 && res.data) {
-                    return res.data.map(d => d.id);
+                if (res.code === 0 && Array.isArray(res.data)) {
+                    return res.data.map((d) => String(d?.id || '').trim()).filter(Boolean);
+                }
+
+                const pathSql = `SELECT hpath, box FROM blocks WHERE id = '${escapedId}' AND type = 'd'`;
+                const pathRes = await this.call('/api/query/sql', { stmt: pathSql });
+                if (pathRes.code !== 0 || !Array.isArray(pathRes.data) || pathRes.data.length === 0) return [];
+                const hpath = String(pathRes.data[0]?.hpath || '').trim();
+                const box = String(pathRes.data[0]?.box || '').trim();
+                if (!hpath || !box) return [];
+                const escapedHpath = hpath
+                    .replace(/\\/g, '\\\\')
+                    .replace(/%/g, '\\%')
+                    .replace(/_/g, '\\_')
+                    .replace(/'/g, "''");
+                const fallbackSql = `
+                    SELECT id
+                    FROM blocks
+                    WHERE box = '${box.replace(/'/g, "''")}'
+                      AND type = 'd'
+                      AND hpath LIKE '${escapedHpath}/%' ESCAPE '\\'
+                `;
+                const fallbackRes = await this.call('/api/query/sql', { stmt: fallbackSql });
+                if (fallbackRes.code === 0 && Array.isArray(fallbackRes.data)) {
+                    return fallbackRes.data.map((d) => String(d?.id || '').trim()).filter(Boolean);
                 }
             } catch (e) {
             }
