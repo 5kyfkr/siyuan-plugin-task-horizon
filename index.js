@@ -2,6 +2,7 @@ const { Plugin, openTab, openMobileFileById, platformUtils } = require("siyuan")
 
 const PLUGIN_ID = "siyuan-plugin-task-horizon";
 const TASK_SCRIPT_PATH = `/data/plugins/${PLUGIN_ID}/task.js`;
+const AI_SCRIPT_PATH = `/data/plugins/${PLUGIN_ID}/ai.js`;
 const QUICKBAR_SCRIPT_PATH = `/data/plugins/${PLUGIN_ID}/quickbar.js`;
 const FULLCALENDAR_MIN_SCRIPT_PATH = `/data/plugins/${PLUGIN_ID}/src/fullcalendar/index.global.min.js`;
 const FULLCALENDAR_ZH_LOCALE_SCRIPT_PATH = `/data/plugins/${PLUGIN_ID}/src/fullcalendar/locales/zh-cn.global.min.js`;
@@ -129,6 +130,7 @@ module.exports = class TaskHorizonPlugin extends Plugin {
             delete globalThis.__tmCalendar;
         } catch (e) {}
         await loadScriptText(TASK_SCRIPT_PATH, "task.js");
+        await loadScriptText(AI_SCRIPT_PATH, "ai.js");
         await loadScriptText(QUICKBAR_SCRIPT_PATH, "quickbar.js");
         await loadScriptText(FULLCALENDAR_MIN_SCRIPT_PATH, "fullcalendar/index.global.min.js");
         await loadScriptText(FULLCALENDAR_ZH_LOCALE_SCRIPT_PATH, "fullcalendar/locales/zh-cn.global.min.js");
@@ -209,6 +211,7 @@ module.exports = class TaskHorizonPlugin extends Plugin {
             }
         } catch (e) {}
         try { globalThis.__TaskManagerCleanup?.(); } catch (e) {}
+        try { globalThis.__taskHorizonAiCleanup?.(); } catch (e) {}
         try { globalThis.__taskHorizonQuickbarCleanup?.(); } catch (e) {}
         try { globalThis.tmClose?.(); } catch (e) {}
 
@@ -234,6 +237,7 @@ module.exports = class TaskHorizonPlugin extends Plugin {
         try { delete globalThis.__taskHorizonQuickbarLoaded; } catch (e) {}
         try { delete globalThis.__taskHorizonQuickbarToggle; } catch (e) {}
         try { delete globalThis.__taskHorizonQuickbarCleanup; } catch (e) {}
+        try { delete globalThis.__taskHorizonAiCleanup; } catch (e) {}
         try { delete globalThis.__taskHorizonMount; } catch (e) {}
         try { delete globalThis.__TaskManagerCleanup; } catch (e) {}
         try { delete globalThis.__taskHorizonMountToken; } catch (e) {}
@@ -242,6 +246,7 @@ module.exports = class TaskHorizonPlugin extends Plugin {
 
     async uninstall() {
         try { globalThis.__TaskManagerCleanup?.(); } catch (e) {}
+        try { globalThis.__taskHorizonAiCleanup?.(); } catch (e) {}
         try { globalThis.__taskHorizonQuickbarCleanup?.(); } catch (e) {}
 
         try {

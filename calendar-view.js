@@ -2796,7 +2796,7 @@
                     dt.setHours(allDayTime.hh, allDayTime.mm, 0, 0);
                     const atMs = dt.getTime();
                     const dateKey = formatDateKey(dt);
-                    const inWindow = (atMs < windowEnd) && (atMs > now || dateKey === todayKey);
+                    const inWindow = (atMs < windowEnd) && (atMs > now);
                     if (inWindow) {
                         const fired = loadScheduleReminderFiredSet(dateKey);
                         const key = buildScheduleReminderKey(id, atMs);
@@ -2850,7 +2850,7 @@
                         dt.setHours(allDayTime.hh, allDayTime.mm, 0, 0);
                         const atMs = dt.getTime();
                         const dateKey = formatDateKey(dt);
-                        const inWindow = (atMs < windowEnd) && (atMs > now || dateKey === todayKey);
+                        const inWindow = (atMs < windowEnd) && (atMs > now);
                         if (inWindow) {
                             const fired = loadScheduleReminderFiredSet(dateKey);
                             const key = buildTaskDateReminderKey(tid, atMs);
@@ -2877,7 +2877,7 @@
                         dt.setHours(allDayTime.hh, allDayTime.mm, 0, 0);
                         const atMs = dt.getTime();
                         const dateKey = formatDateKey(dt);
-                        const inWindow = (atMs < windowEnd) && (atMs > now || dateKey === todayKey);
+                        const inWindow = (atMs < windowEnd) && (atMs > now);
                         if (inWindow) dayKeys.push({ dateKey, atMs });
                     }
                     for (const d0 of dayKeys) {
@@ -2916,7 +2916,7 @@
                         const dt = new Date(d.getTime());
                         dt.setHours(allDayTime.hh, allDayTime.mm, 0, 0);
                         const atMs = dt.getTime();
-                        const inWindow = (atMs < windowEnd) && (atMs > now || dateKey === todayKey);
+                        const inWindow = (atMs < windowEnd) && (atMs > now);
                         if (!inWindow) continue;
                         const fired = loadScheduleReminderFiredSet(dateKey);
                         const key = `cnHoliday:${dateKey}:${title}:${String(atMs)}`;
@@ -3992,7 +3992,7 @@
                         if (tid && typeof window.tmShowTaskContextMenu === 'function') {
                             const sid0 = String(ext.__tmScheduleId || '').trim();
                             try {
-                                if (source === 'schedule' && sid0) window.tmShowTaskContextMenu(ev, tid, { scheduleId: sid0 });
+                                if (source === 'schedule' && sid0) window.tmShowTaskContextMenu(ev, tid, { scheduleId: sid0, title: String(arg?.event?.title || '').trim(), start: arg?.event?.start, end: arg?.event?.end });
                                 else if (source === 'taskdate') window.tmShowTaskContextMenu(ev, tid, { taskDateStartKey: String(ext.__tmTaskDateStartKey || '').trim(), taskDateEndExclusiveKey: String(ext.__tmTaskDateEndExclusiveKey || '').trim(), calendarId: String(ext.calendarId || 'default').trim(), title: String(arg?.event?.title || '').trim() });
                                 else window.tmShowTaskContextMenu(ev, tid);
                             } catch (e2) {}
@@ -4093,7 +4093,36 @@
                         const sid = String(ext.__tmScheduleId || '').trim();
                         if (sid) el.setAttribute('data-tm-cal-schedule-id', sid);
                     }
-                    if (source === 'taskdate' || (source === 'schedule' && String(ext.__tmTaskId || '').trim())) {
+                    if (source === 'schedule') {
+                        const sid = String(ext.__tmScheduleId || '').trim();
+                        const tid = String(ext.__tmTaskId || '').trim();
+                        if (sid && el && !el.__tmScheduleCtxBound) {
+                            el.__tmScheduleCtxBound = true;
+                            el.addEventListener('contextmenu', (ev) => {
+                                try {
+                                    try { ev.stopPropagation(); } catch (e2) {}
+                                    try { ev.preventDefault(); } catch (e2) {}
+                                    if (tid && typeof window.tmShowTaskContextMenu === 'function') {
+                                        window.tmShowTaskContextMenu(ev, tid, {
+                                            scheduleId: sid,
+                                            title: String(arg?.event?.title || '').trim(),
+                                            start: arg?.event?.start,
+                                            end: arg?.event?.end,
+                                        });
+                                        return;
+                                    }
+                                    showScheduleEventContextMenu(ev, {
+                                        scheduleId: sid,
+                                        taskId: tid,
+                                        title: String(arg?.event?.title || '').trim(),
+                                        start: arg?.event?.start,
+                                        end: arg?.event?.end,
+                                    });
+                                } catch (e) {}
+                            });
+                        }
+                    }
+                    if (source === 'taskdate') {
                         const tid = String(ext.__tmTaskId || '').trim();
                         if (tid && el && !el.__tmTaskCtxBound) {
                             el.__tmTaskCtxBound = true;
@@ -4103,7 +4132,7 @@
                                 if (typeof window.tmShowTaskContextMenu === 'function') {
                                     const sid0 = String(ext.__tmScheduleId || '').trim();
                                     try {
-                                        if (source === 'schedule' && sid0) window.tmShowTaskContextMenu(ev, tid, { scheduleId: sid0 });
+                                        if (source === 'schedule' && sid0) window.tmShowTaskContextMenu(ev, tid, { scheduleId: sid0, title: String(arg?.event?.title || '').trim(), start: arg?.event?.start, end: arg?.event?.end });
                                         else if (source === 'taskdate') window.tmShowTaskContextMenu(ev, tid, { taskDateStartKey: String(ext.__tmTaskDateStartKey || '').trim(), taskDateEndExclusiveKey: String(ext.__tmTaskDateEndExclusiveKey || '').trim(), calendarId: String(ext.calendarId || 'default').trim(), title: String(arg?.event?.title || '').trim() });
                                         else window.tmShowTaskContextMenu(ev, tid);
                                     } catch (e) {}
@@ -6058,20 +6087,7 @@
             }
             if (action === 'delete') {
                 if (!scheduleId) return;
-                const list = await loadScheduleAll();
-                const next = list.filter((x) => String(x?.id || '') !== scheduleId);
-                await saveScheduleAll(next);
-                closeModal();
-                refetchAllCalendars();
-                try {
-                    const cal = state.calendar;
-                    const vt = String(cal?.view?.type || '');
-                    if (cal && vt === 'dayGridMonth') {
-                        const d = cal.getDate?.();
-                        if (d) requestAnimationFrame(() => { try { cal.changeView('dayGridMonth', d); } catch (e3) {} });
-                    }
-                } catch (e2) {}
-                try { setTimeout(() => { try { refetchAllCalendars(); } catch (e3) {} }, 380); } catch (e2) {}
+                await deleteScheduleById(scheduleId, { closeModal: true });
                 toast('✅ 已删除', 'success');
                 return;
             }
@@ -6367,7 +6383,7 @@
                         if (tid && typeof window.tmShowTaskContextMenu === 'function') {
                             const sid0 = String(ext.__tmScheduleId || '').trim();
                             try {
-                                if (source === 'schedule' && sid0) window.tmShowTaskContextMenu(ev, tid, { scheduleId: sid0 });
+                                if (source === 'schedule' && sid0) window.tmShowTaskContextMenu(ev, tid, { scheduleId: sid0, title: String(arg?.event?.title || '').trim(), start: arg?.event?.start, end: arg?.event?.end });
                                 else if (source === 'taskdate') window.tmShowTaskContextMenu(ev, tid, { taskDateStartKey: String(ext.__tmTaskDateStartKey || '').trim(), taskDateEndExclusiveKey: String(ext.__tmTaskDateEndExclusiveKey || '').trim(), calendarId: String(ext.calendarId || 'default').trim(), title: String(arg?.event?.title || '').trim() });
                                 else window.tmShowTaskContextMenu(ev, tid);
                             } catch (e) {}
@@ -6494,7 +6510,37 @@
                             if (recordKey) el.setAttribute('data-tm-cal-record-key', recordKey);
                         }
                     } catch (e0) {}
-                    if (source === 'taskdate' || (source === 'schedule' && String(ext.__tmTaskId || '').trim())) {
+                    if (source === 'schedule') {
+                        const sid = String(ext.__tmScheduleId || '').trim();
+                        const tid = String(ext.__tmTaskId || '').trim();
+                        const el = arg?.el;
+                        if (sid && el && !el.__tmScheduleCtxBound) {
+                            el.__tmScheduleCtxBound = true;
+                            el.addEventListener('contextmenu', (ev) => {
+                                try {
+                                    try { ev.stopPropagation(); } catch (e2) {}
+                                    try { ev.preventDefault(); } catch (e2) {}
+                                    if (tid && typeof window.tmShowTaskContextMenu === 'function') {
+                                        window.tmShowTaskContextMenu(ev, tid, {
+                                            scheduleId: sid,
+                                            title: String(arg?.event?.title || '').trim(),
+                                            start: arg?.event?.start,
+                                            end: arg?.event?.end,
+                                        });
+                                        return;
+                                    }
+                                    showScheduleEventContextMenu(ev, {
+                                        scheduleId: sid,
+                                        taskId: tid,
+                                        title: String(arg?.event?.title || '').trim(),
+                                        start: arg?.event?.start,
+                                        end: arg?.event?.end,
+                                    });
+                                } catch (e) {}
+                            });
+                        }
+                    }
+                    if (source === 'taskdate') {
                         const tid = String(ext.__tmTaskId || '').trim();
                         const el = arg?.el;
                         if (tid && el && !el.__tmTaskCtxBound) {
@@ -6505,7 +6551,7 @@
                                 if (typeof window.tmShowTaskContextMenu === 'function') {
                                     const sid0 = String(ext.__tmScheduleId || '').trim();
                                     try {
-                                        if (source === 'schedule' && sid0) window.tmShowTaskContextMenu(ev, tid, { scheduleId: sid0 });
+                                        if (source === 'schedule' && sid0) window.tmShowTaskContextMenu(ev, tid, { scheduleId: sid0, title: String(arg?.event?.title || '').trim(), start: arg?.event?.start, end: arg?.event?.end });
                                         else if (source === 'taskdate') window.tmShowTaskContextMenu(ev, tid, { taskDateStartKey: String(ext.__tmTaskDateStartKey || '').trim(), taskDateEndExclusiveKey: String(ext.__tmTaskDateEndExclusiveKey || '').trim(), calendarId: String(ext.calendarId || 'default').trim(), title: String(arg?.event?.title || '').trim() });
                                         else window.tmShowTaskContextMenu(ev, tid);
                                     } catch (e) {}
@@ -7904,6 +7950,137 @@
         }
     }
 
+    async function deleteScheduleById(scheduleId, options = {}) {
+        const id = String(scheduleId || '').trim();
+        if (!id) return false;
+        const opts = (options && typeof options === 'object') ? options : {};
+        const list = await loadScheduleAll();
+        const next = list.filter((x) => String(x?.id || '').trim() !== id);
+        if (next.length === list.length) return false;
+        await saveScheduleAll(next);
+        if (opts.closeModal !== false) {
+            try { closeModal(); } catch (e) {}
+        }
+        try { refetchAllCalendars(); } catch (e) {}
+        try {
+            const cal = state.calendar;
+            const vt = String(cal?.view?.type || '');
+            if (cal && vt === 'dayGridMonth') {
+                const d = cal.getDate?.();
+                if (d) requestAnimationFrame(() => { try { cal.changeView('dayGridMonth', d); } catch (e) {} });
+            }
+        } catch (e) {}
+        try { setTimeout(() => { try { refetchAllCalendars(); } catch (e) {} }, 380); } catch (e) {}
+        return true;
+    }
+
+    function showScheduleEventContextMenu(event, meta = {}) {
+        const scheduleId = String(meta?.scheduleId || '').trim();
+        if (!scheduleId) return false;
+        try { event?.preventDefault?.(); } catch (e) {}
+        try { event?.stopPropagation?.(); } catch (e) {}
+        const existing = document.getElementById('tm-calendar-schedule-context-menu');
+        if (existing) {
+            try { existing.remove(); } catch (e) {}
+        }
+        const menu = document.createElement('div');
+        menu.id = 'tm-calendar-schedule-context-menu';
+        menu.style.cssText = `
+            position: fixed;
+            left: 0;
+            top: 0;
+            min-width: 180px;
+            background: var(--b3-theme-background, #fff);
+            color: var(--b3-theme-on-background, #222);
+            border: 1px solid var(--b3-theme-surface-lighter, rgba(0,0,0,0.1));
+            border-radius: 8px;
+            box-shadow: 0 8px 24px rgba(0,0,0,0.16);
+            z-index: 100020;
+            padding: 6px 0;
+        `;
+        const close = () => {
+            try { menu.remove(); } catch (e) {}
+            try { document.removeEventListener('click', close, true); } catch (e) {}
+            try { document.removeEventListener('contextmenu', close, true); } catch (e) {}
+        };
+        const createItem = (label, onClick, danger = false) => {
+            const item = document.createElement('button');
+            item.type = 'button';
+            item.textContent = label;
+            item.style.cssText = `
+                display:block;
+                width:100%;
+                border:none;
+                background:transparent;
+                text-align:left;
+                padding:8px 12px;
+                cursor:pointer;
+                color:${danger ? 'var(--b3-theme-error, #d32f2f)' : 'inherit'};
+            `;
+            item.onmouseenter = () => { item.style.background = 'var(--b3-theme-surface-light, rgba(0,0,0,0.05))'; };
+            item.onmouseleave = () => { item.style.background = 'transparent'; };
+            item.onclick = async (ev) => {
+                try { ev.preventDefault(); } catch (e) {}
+                try { ev.stopPropagation(); } catch (e) {}
+                close();
+                await onClick();
+            };
+            return item;
+        };
+        menu.appendChild(createItem('编辑日程', async () => {
+            try { await openScheduleEditorById(scheduleId); } catch (e) { try { toast(`❌ ${String(e?.message || e)}`, 'error'); } catch (e2) {} }
+        }));
+        const taskId = String(meta?.taskId || '').trim();
+        const taskName = String(meta?.title || '').trim() || '任务';
+        const startMs = toMs(meta?.start);
+        const endMs = toMs(meta?.end);
+        const durationMin = (Number.isFinite(startMs) && Number.isFinite(endMs) && endMs > startMs)
+            ? Math.max(1, Math.round((endMs - startMs) / 60000))
+            : 25;
+        if (taskId) {
+            menu.appendChild(createItem(`按 ${durationMin} 分钟开始番茄`, async () => {
+                const timer = globalThis.__tomatoTimer;
+                const startFromTaskBlock = timer?.startFromTaskBlock;
+                const startCountdown = timer?.startCountdown;
+                if (typeof startFromTaskBlock === 'function') {
+                    await startFromTaskBlock(taskId, taskName, durationMin, 'countdown');
+                    try { timer?.refreshUI?.(); } catch (e) {}
+                    return;
+                }
+                if (typeof startCountdown === 'function') {
+                    await startCountdown(taskId, taskName, durationMin);
+                    try { timer?.refreshUI?.(); } catch (e) {}
+                    return;
+                }
+                toast('⚠ 未检测到番茄计时功能', 'warning');
+            }));
+            menu.appendChild(createItem('跳转关联任务', async () => {
+                try { window.tmJumpToTask?.(taskId, event); } catch (e) {}
+            }));
+        }
+        menu.appendChild(createItem('删除日程', async () => {
+            const ok = await deleteScheduleById(scheduleId, { closeModal: false });
+            if (ok) toast('✅ 已删除', 'success');
+            else toast('⚠ 未找到日程', 'warning');
+        }, true));
+        document.body.appendChild(menu);
+        const rect = menu.getBoundingClientRect();
+        const vw = Math.max(0, window.innerWidth || document.documentElement.clientWidth || 0);
+        const vh = Math.max(0, window.innerHeight || document.documentElement.clientHeight || 0);
+        const margin = 8;
+        let x = Number(event?.clientX) || 0;
+        let y = Number(event?.clientY) || 0;
+        if (x + rect.width > vw - margin) x = Math.max(margin, vw - rect.width - margin);
+        if (y + rect.height > vh - margin) y = Math.max(margin, vh - rect.height - margin);
+        menu.style.left = `${Math.max(margin, x)}px`;
+        menu.style.top = `${Math.max(margin, y)}px`;
+        setTimeout(() => {
+            try { document.addEventListener('click', close, true); } catch (e) {}
+            try { document.addEventListener('contextmenu', close, true); } catch (e) {}
+        }, 0);
+        return true;
+    }
+
     globalThis.__tmCalendar = {
         mount,
         unmount,
@@ -7934,6 +8111,7 @@
         listTaskSchedulesByDay,
         openScheduleEditorById,
         openScheduleEditorByTaskId,
+        deleteScheduleById,
         setSettingsStore,
         refreshInPlace,
         refreshSideDayLayout,
