@@ -52,6 +52,7 @@
         drafts: new Map(),
         pendingOpen: null,
         lastRenderedAt: 0,
+        historyOpen: true,
     };
 
     const esc = (s) => String(s ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#39;');
@@ -1085,7 +1086,9 @@
  .tm-ai-sidebar{height:100%;display:flex;flex-direction:column;background:var(--b3-theme-background);color:var(--b3-theme-on-background);}
  .tm-ai-sidebar__head{display:flex;justify-content:space-between;gap:10px;padding:10px 12px;border-bottom:1px solid var(--b3-theme-surface-light);}
  .tm-ai-sidebar__title{font-size:15px;font-weight:700;}
+ .tm-ai-sidebar__head-actions{display:flex;gap:8px;align-items:center;flex-wrap:wrap;justify-content:flex-end;}
   .tm-ai-sidebar__history{padding:8px 10px;border-bottom:1px solid var(--b3-theme-surface-light);display:flex;flex-direction:column;gap:8px;max-height:170px;overflow:auto;}
+ .tm-ai-sidebar__history.is-hidden{display:none;}
  .tm-ai-sidebar__history-item{border:1px solid var(--b3-theme-surface-light);background:var(--b3-theme-surface);border-radius:10px;padding:8px 10px;display:flex;flex-direction:column;gap:4px;text-align:left;cursor:pointer;color:inherit;}
  .tm-ai-sidebar__history-item.is-active{border-color:var(--b3-theme-primary);box-shadow:0 0 0 1px color-mix(in srgb, var(--b3-theme-primary) 18%, transparent);}
  .tm-ai-sidebar__history-item small{opacity:.68;}
@@ -1107,7 +1110,13 @@
  .tm-ai-sidebar__message--context{opacity:.88;background:rgba(127,127,127,.05);}
  .tm-ai-sidebar__message-role{font-size:12px;font-weight:700;margin-bottom:4px;opacity:.72;}
  .tm-ai-sidebar__message-body{white-space:pre-wrap;word-break:break-word;font-size:13px;line-height:1.6;}
+ .tm-ai-sidebar__title-input{width:100%;max-width:100%;box-sizing:border-box;min-height:36px;padding:8px 12px;border:1px solid color-mix(in srgb, var(--b3-theme-surface-light) 82%, var(--b3-theme-on-background) 18%);border-radius:10px;background:color-mix(in srgb, var(--b3-theme-surface) 94%, var(--b3-theme-background));color:var(--b3-theme-on-background);box-shadow:inset 0 1px 0 rgba(255,255,255,.03);transition:border-color .16s ease, box-shadow .16s ease, background .16s ease;outline:none;appearance:none;-webkit-appearance:none;font-size:13px;}
+ .tm-ai-sidebar__title-input:focus{border-color:color-mix(in srgb, var(--b3-theme-primary) 72%, var(--b3-theme-surface-light));box-shadow:0 0 0 3px color-mix(in srgb, var(--b3-theme-primary) 18%, transparent);background:color-mix(in srgb, var(--b3-theme-surface) 98%, var(--b3-theme-background));}
  .tm-ai-sidebar__composer{display:flex;flex-direction:column;gap:8px;padding:10px 0 2px;border-top:1px solid var(--b3-theme-surface-light);margin-top:2px;background:var(--b3-theme-background);position:sticky;bottom:0;z-index:1;}
+ .tm-ai-sidebar__composer .tm-ai-textarea{min-height:72px;}
+ .tm-ai-sidebar__composer-row{display:flex;align-items:flex-end;gap:8px;}
+ .tm-ai-sidebar__composer-row .tm-ai-textarea{flex:1 1 auto;margin:0;min-height:64px;}
+ .tm-ai-sidebar__send{align-self:flex-end;white-space:nowrap;}
  .tm-ai-sidebar__actions--left{justify-content:flex-start;}
  .tm-ai-sidebar__result-score{font-size:24px;font-weight:800;}
  .tm-ai-sidebar__result-body{white-space:pre-wrap;word-break:break-word;line-height:1.6;font-size:13px;}
@@ -2528,12 +2537,13 @@
                     <div>
                         <div class="tm-ai-sidebar__title">AI 工作台</div>
                     </div>
-                    <div class="tm-ai-sidebar__actions">
+                    <div class="tm-ai-sidebar__head-actions">
+                        <button class="tm-btn tm-btn-info" data-ai-sidebar-action="toggle-history">${aiRuntime.historyOpen ? '隐藏会话' : '会话记录'}</button>
                         <button class="tm-btn tm-btn-info" data-ai-sidebar-action="new-conversation">新建</button>
                         <button class="tm-btn tm-btn-gray" data-ai-sidebar-action="close-panel">${aiRuntime.mobile ? '关闭' : '收起'}</button>
                     </div>
                 </div>
-                <div class="tm-ai-sidebar__history">
+                <div class="tm-ai-sidebar__history${aiRuntime.historyOpen ? "" : " is-hidden"}">
                         ${(Array.isArray(conversations) ? conversations : []).map((item) => `
                             <button class="tm-ai-sidebar__history-item${item.id === session.id ? ' is-active' : ''}" data-ai-sidebar-action="select-conversation" data-ai-id="${esc(item.id)}">
                                 <span>${esc(item.title || AI_SCENE_LABELS[item.type] || 'AI 会话')}</span>
@@ -2544,7 +2554,7 @@
                     </div>
                 <div class="tm-ai-sidebar__panel">
                     <div class="tm-ai-sidebar__grid">
-                        <label><span>标题</span><input class="tm-input tm-ai-sidebar__title-input" data-ai-sidebar-field="title" value="${esc(session.title)}"></label>
+                        <label><span>标题</span><input class="tm-ai-sidebar__title-input" data-ai-sidebar-field="title" value="${esc(session.title)}"></label>
                         <label><span>场景</span><select class="tm-rule-select" data-ai-sidebar-field="type"><option value="chat" ${session.type === 'chat' ? 'selected' : ''}>AI 对话</option><option value="smart" ${session.type === 'smart' ? 'selected' : ''}>SMART 分析</option><option value="schedule" ${session.type === 'schedule' ? 'selected' : ''}>日程排期</option></select></label>
                         <label><span>范围</span><select class="tm-rule-select" data-ai-sidebar-field="contextScope"><option value="current_doc" ${session.contextScope === 'current_doc' ? 'selected' : ''}>当前文档</option><option value="current_task" ${session.contextScope === 'current_task' ? 'selected' : ''}>当前任务</option><option value="current_view" ${session.contextScope === 'current_view' ? 'selected' : ''}>当前视图</option><option value="manual" ${session.contextScope === 'manual' ? 'selected' : ''}>手动任务</option></select></label>
                         <label><span>上下文</span><select class="tm-rule-select" data-ai-sidebar-field="contextMode"><option value="nearby" ${session.contextMode === 'nearby' ? 'selected' : ''}>附近上下文</option><option value="fulltext" ${session.contextMode === 'fulltext' ? 'selected' : ''}>全文上下文</option></select></label>
@@ -2660,6 +2670,11 @@
                 if (action === 'delete-conversation') {
                     await deleteConversation(id);
                     await refreshSidebar();
+                    return;
+                }
+                if (action === 'toggle-history') {
+                    aiRuntime.historyOpen = !aiRuntime.historyOpen;
+                    await refreshSidebar({ activeConversationId: current?.id || aiRuntime.activeConversationId });
                     return;
                 }
                 if (action === 'close-panel') {
@@ -2849,7 +2864,7 @@
     async function openSidebar(options = {}) {
         await ConversationStore.ensureLoaded();
         const payload = (options && typeof options === 'object') ? clone(options) : {};
-        aiRuntime.historyOpen = !!payload.showHistory;
+        if (Object.prototype.hasOwnProperty.call(payload, 'showHistory')) aiRuntime.historyOpen = !!payload.showHistory;
         let conversation = payload.conversationId ? await getConversation(payload.conversationId) : null;
         if (!conversation) {
             const current = await getConversation(aiRuntime.activeConversationId || ConversationStore.data?.activeId);
