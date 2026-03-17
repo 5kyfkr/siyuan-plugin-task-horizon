@@ -43,7 +43,6 @@
         mounted: false,
         busy: false,
         activeConversationId: '',
-        historyOpen: false,
         currentViewTasks: [],
         labelCache: {
             doc: new Map(),
@@ -773,6 +772,7 @@
                     headers: {
                         'Content-Type': 'application/json',
                         'x-api-key': cfg.apiKey,
+                        Authorization: `Bearer ${cfg.apiKey}`,
                         'anthropic-version': '2023-06-01',
                     },
                     body: JSON.stringify({
@@ -1084,13 +1084,12 @@
  .tm-ai-sidebar{height:100%;display:flex;flex-direction:column;background:var(--b3-theme-background);color:var(--b3-theme-on-background);}
  .tm-ai-sidebar__head{display:flex;justify-content:space-between;gap:10px;padding:10px 12px;border-bottom:1px solid var(--b3-theme-surface-light);}
  .tm-ai-sidebar__title{font-size:15px;font-weight:700;}
- .tm-ai-sidebar__subtitle{font-size:12px;opacity:.72;line-height:1.5;}
- .tm-ai-sidebar__history{padding:8px 10px;border-bottom:1px solid var(--b3-theme-surface-light);display:flex;flex-direction:column;gap:8px;max-height:220px;overflow:auto;}
+  .tm-ai-sidebar__history{padding:8px 10px;border-bottom:1px solid var(--b3-theme-surface-light);display:flex;flex-direction:column;gap:8px;max-height:170px;overflow:auto;}
  .tm-ai-sidebar__history-item{border:1px solid var(--b3-theme-surface-light);background:var(--b3-theme-surface);border-radius:10px;padding:8px 10px;display:flex;flex-direction:column;gap:4px;text-align:left;cursor:pointer;color:inherit;}
  .tm-ai-sidebar__history-item.is-active{border-color:var(--b3-theme-primary);box-shadow:0 0 0 1px color-mix(in srgb, var(--b3-theme-primary) 18%, transparent);}
  .tm-ai-sidebar__history-item small{opacity:.68;}
  .tm-ai-sidebar__history-delete{font-size:12px;opacity:.7;}
- .tm-ai-sidebar__panel{padding:10px 12px;display:flex;flex-direction:column;gap:10px;overflow:auto;min-height:0;flex:1 1 auto;}
+ .tm-ai-sidebar__panel{padding:8px 12px;display:flex;flex-direction:column;gap:8px;overflow:auto;min-height:0;flex:1 1 auto;}
  .tm-ai-sidebar__grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px;}
  .tm-ai-sidebar__grid label{display:flex;flex-direction:column;gap:4px;font-size:12px;min-width:0;}
  .tm-ai-sidebar__grid--planner{grid-template-columns:repeat(2,minmax(0,1fr));}
@@ -1248,6 +1247,46 @@
         };
     }
 
+
+
+    function normalizeTaskFieldPatch(rawPatch) {
+        const src = (rawPatch && typeof rawPatch === 'object') ? rawPatch : {};
+        const patch = {};
+        const has = (k) => Object.prototype.hasOwnProperty.call(src, k);
+        const cleanDate = (v) => normalizeDateKey(v);
+        const cleanPriority = (v) => {
+            const t = String(v || '').trim().toLowerCase();
+            if (!t) return '';
+            if (['high', 'h', 'a', '高', '高优先级', '紧急'].includes(t)) return 'high';
+            if (['medium', 'm', 'b', '中', '中优先级', '普通'].includes(t)) return 'medium';
+            if (['low', 'l', 'c', '低', '低优先级'].includes(t)) return 'low';
+            if (['none', '无', '未设置'].includes(t)) return 'none';
+            return String(v || '').trim();
+        };
+        if (has('title')) patch.title = String(src.title || '').trim();
+        if (has('done')) patch.done = !!src.done;
+        if (has('priority')) patch.priority = cleanPriority(src.priority);
+        if (has('customStatus')) patch.customStatus = String(src.customStatus || '').trim();
+        if (has('startDate')) patch.startDate = cleanDate(src.startDate);
+        if (has('completionTime')) patch.completionTime = cleanDate(src.completionTime);
+        if (has('duration')) patch.duration = String(src.duration || '').trim();
+        if (has('remark')) patch.remark = String(src.remark || '').trim();
+        if (has('pinned')) patch.pinned = !!src.pinned;
+        if (has('milestone')) patch.milestone = !!src.milestone;
+        return patch;
+    }
+
+    function verifyTaskPatchApplied(task, patch) {
+        if (!task || !patch || typeof patch !== 'object') return false;
+        const keys = Object.keys(patch);
+        if (!keys.length) return false;
+        return keys.every((key) => {
+            if (key === 'done' || key === 'pinned' || key === 'milestone') return !!task[key] === !!patch[key];
+            if (key === 'startDate' || key === 'completionTime') return normalizeDateKey(task[key]) === normalizeDateKey(patch[key]);
+            return String(task[key] ?? '').trim() === String(patch[key] ?? '').trim();
+        });
+    }
+
     function extractTasksFromKramdown(docSnapshot) {
         const lines = String(docSnapshot?.kramdown || '').split(/\r?\n/);
         const tasks = [];
@@ -1384,7 +1423,7 @@
             },
             { history, contextMode: input.mode, expectedSchema: 'edit_task_fields' }
         );
-        const patch = clone(result?.patch || {});
+        const patch = normalizeTaskFieldPatch(clone(result?.patch || {}));
         if (!patch || typeof patch !== 'object' || !Object.keys(patch).length) throw new Error('AI 没有生成可应用 patch');
         const warnings = Array.isArray(result?.warnings) ? result.warnings.map((it) => String(it || '').trim()).filter(Boolean) : [];
         const reason = String(result?.reason || '').trim();
@@ -1420,7 +1459,8 @@
             } else if (action === 'continue') {
                 await editTask(taskId);
             } else if (action === 'apply') {
-                await b.applyTaskPatch(taskId, patch);
+                const nextTask = await b.applyTaskPatch(taskId, patch);
+                if (!verifyTaskPatchApplied(nextTask, patch)) throw new Error('字段保存未完全生效，请检查字段格式后重试');
                 toast('✅ 已应用字段 patch', 'success');
                 closeModal();
             }
@@ -2319,6 +2359,7 @@
             assumptions: Array.isArray(result?.assumptions) ? result.assumptions.map((it) => String(it || '').trim()).filter(Boolean) : [],
             allowedWindows,
             selectedTaskIds,
+            existingSchedules: await loadExistingSchedulesByDate(dayKey),
         };
         session = await updateConversation(session.id, { selectedTaskIds, plannerOptions: planner });
         session = await appendConversationMessage(session.id, 'user', userInstruction || '请生成排期', { scene: 'schedule' });
@@ -2329,6 +2370,20 @@
             lastResult: plan,
         });
         return await getConversation(session.id);
+    }
+
+    async function loadExistingSchedulesByDate(planDate) {
+        const cal = globalThis.__tmCalendar;
+        if (!cal?.listTaskSchedulesByDay) return [];
+        const dayKey = normalizeDateKey(planDate || todayKey()) || todayKey();
+        const list = await cal.listTaskSchedulesByDay(dayKey);
+        return (Array.isArray(list) ? list : []).map((item) => ({
+            id: String(item?.id || '').trim(),
+            taskId: String(item?.taskId || item?.task_id || '').trim(),
+            title: String(item?.title || '').trim(),
+            start: String(item?.start || '').trim(),
+            end: String(item?.end || '').trim(),
+        }));
     }
 
     async function applyConversationSchedule(conversationId) {
@@ -2353,6 +2408,8 @@
             });
         }
         try { await cal.refreshInPlace?.({ silent: false }); } catch (e) {}
+        const refreshed = await loadExistingSchedulesByDate(plan?.planDate || todayKey());
+        await updateConversation(session.id, { lastResult: { ...(session.lastResult || {}), existingSchedules: refreshed } });
         toast('✅ 已写入日历', 'success');
         return true;
     }
@@ -2429,6 +2486,7 @@
         }
         if (conversation.type === 'schedule') {
             const blocks = Array.isArray(result?.timeBlocks) ? result.timeBlocks : [];
+            const existing = Array.isArray(result?.existingSchedules) ? result.existingSchedules : [];
             return `
                 <div class="tm-ai-sidebar__result">
                     <div class="tm-ai-sidebar__result-title">排期结果</div>
@@ -2440,11 +2498,14 @@
                                 <span>${esc(`${item.start} ~ ${item.end}`)}</span>
                             </div>
                             ${item.reason ? `<div class="tm-ai-sidebar__meta">${esc(item.reason)}</div>` : ''}
+                            ${item.taskId ? `<div class="tm-ai-sidebar__actions"><button class="tm-btn tm-btn-secondary" data-ai-sidebar-action="edit-task-schedule" data-ai-task-id="${esc(item.taskId)}">调整/删除该任务日程</button></div>` : ''}
                         </div>
                     `).join('')}</div>
+                    ${existing.length ? `<div class="tm-ai-sidebar__meta" style="margin-top:8px;">当日已有日程（可调整/删除）：</div><div class="tm-ai-sidebar__smart-list">${existing.map((item) => `<div class="tm-ai-sidebar__smart-item"><div class="tm-ai-sidebar__smart-head"><div>${esc(item.title || item.taskId || '日程')}</div><span>${esc(`${item.start} ~ ${item.end}`)}</span></div><div class="tm-ai-sidebar__actions"><button class="tm-btn tm-btn-secondary" data-ai-sidebar-action="edit-schedule" data-ai-id="${esc(item.id || '')}" ${item.id ? '' : 'disabled'}>调整/删除</button></div></div>`).join('')}</div>` : ''}
                     ${Array.isArray(result?.conflicts) && result.conflicts.length ? `<div class="tm-ai-sidebar__meta">冲突：${esc(result.conflicts.join('；'))}</div>` : ''}
                     <div class="tm-ai-sidebar__actions">
                         <button class="tm-btn tm-btn-success" data-ai-sidebar-action="apply-schedule">写入日历</button>
+                        <button class="tm-btn tm-btn-secondary" data-ai-sidebar-action="reload-existing-schedules">刷新当日日程</button>
                     </div>
                 </div>
             `;
@@ -2465,16 +2526,13 @@
                 <div class="tm-ai-sidebar__head">
                     <div>
                         <div class="tm-ai-sidebar__title">AI 工作台</div>
-                        <div class="tm-ai-sidebar__subtitle">插件页内会话、SMART 和排期都从这里继续</div>
                     </div>
                     <div class="tm-ai-sidebar__actions">
                         <button class="tm-btn tm-btn-info" data-ai-sidebar-action="new-conversation">新建</button>
-                        <button class="tm-btn tm-btn-secondary" data-ai-sidebar-action="toggle-history">${aiRuntime.historyOpen ? '隐藏记录' : '会话记录'}</button>
                         <button class="tm-btn tm-btn-gray" data-ai-sidebar-action="close-panel">${aiRuntime.mobile ? '关闭' : '收起'}</button>
                     </div>
                 </div>
-                ${aiRuntime.historyOpen ? `
-                    <div class="tm-ai-sidebar__history">
+                <div class="tm-ai-sidebar__history">
                         ${(Array.isArray(conversations) ? conversations : []).map((item) => `
                             <button class="tm-ai-sidebar__history-item${item.id === session.id ? ' is-active' : ''}" data-ai-sidebar-action="select-conversation" data-ai-id="${esc(item.id)}">
                                 <span>${esc(item.title || AI_SCENE_LABELS[item.type] || 'AI 会话')}</span>
@@ -2483,7 +2541,6 @@
                             </button>
                         `).join('')}
                     </div>
-                ` : ''}
                 <div class="tm-ai-sidebar__panel">
                     <div class="tm-ai-sidebar__grid">
                         <label><span>标题</span><input class="tm-input" data-ai-sidebar-field="title" value="${esc(session.title)}"></label>
@@ -2529,17 +2586,22 @@
                                 <label><span>最大任务数</span><input class="tm-input" type="number" min="1" max="30" step="1" data-ai-sidebar-field="maxTasks" value="${esc(planner.maxTasks)}"></label>
                             </div>
                             <textarea class="tm-ai-textarea" data-ai-sidebar-draft="schedule" placeholder="补充约束，例如优先上午安排高能量任务">${esc(draft.schedule || planner.note || '')}</textarea>
-                            <div class="tm-ai-sidebar__actions"><button class="tm-btn tm-btn-primary" data-ai-sidebar-action="run-scene">生成排期</button></div>
+                            <div class="tm-ai-sidebar__actions"><button class="tm-btn tm-btn-primary" data-ai-sidebar-action="run-scene" ${aiRuntime.busy ? 'disabled' : ''}>${aiRuntime.busy ? '处理中...' : '生成排期'}</button></div>
+                            ${aiRuntime.busy ? "<div class=\"tm-ai-sidebar__hint\">AI 正在处理，请稍候...</div>" : ""}
                         </div>
                     ` : session.type === 'smart' ? `
                         <div class="tm-ai-sidebar__composer">
                             <textarea class="tm-ai-textarea" data-ai-sidebar-draft="smart" placeholder="补充关注点，例如重点看可量化目标和时间约束">${esc(draft.smart || '')}</textarea>
-                            <div class="tm-ai-sidebar__actions"><button class="tm-btn tm-btn-primary" data-ai-sidebar-action="run-scene">开始分析</button></div>
+                            <div class="tm-ai-sidebar__actions"><button class="tm-btn tm-btn-primary" data-ai-sidebar-action="run-scene" ${aiRuntime.busy ? 'disabled' : ''}>${aiRuntime.busy ? '处理中...' : '开始分析'}</button></div>
+                            ${aiRuntime.busy ? "<div class=\"tm-ai-sidebar__hint\">AI 正在处理，请稍候...</div>" : ""}
                         </div>
                     ` : `
                         <div class="tm-ai-sidebar__composer">
-                            <textarea class="tm-ai-textarea" data-ai-sidebar-draft="chat" placeholder="例如：根据当前文档给我下一步建议">${esc(draft.chat || '')}</textarea>
-                            <div class="tm-ai-sidebar__actions"><button class="tm-btn tm-btn-primary" data-ai-sidebar-action="run-scene">发送</button></div>
+                            <div class="tm-ai-sidebar__composer-row">
+                                <textarea class="tm-ai-textarea" data-ai-sidebar-draft="chat" placeholder="例如：根据当前文档给我下一步建议（Enter 发送，Shift+Enter 换行）">${esc(draft.chat || '')}</textarea>
+                                <button class="tm-btn tm-btn-primary tm-ai-sidebar__send" data-ai-sidebar-action="run-scene" ${aiRuntime.busy ? 'disabled' : ''}>${aiRuntime.busy ? '处理中...' : '发送'}</button>
+                            </div>
+                            ${aiRuntime.busy ? "<div class=\"tm-ai-sidebar__hint\">AI 正在处理，请稍候...</div>" : ""}
                         </div>
                     `}
                 </div>
@@ -2586,18 +2648,11 @@
                 const current = await getConversation(aiRuntime.activeConversationId || ConversationStore.data?.activeId);
                 if (action === 'new-conversation') {
                     const created = await createConversation({ type: current?.type || 'chat', contextScope: current?.contextScope || 'current_doc' });
-                    aiRuntime.historyOpen = false;
                     await refreshSidebar({ activeConversationId: created.id });
-                    return;
-                }
-                if (action === 'toggle-history') {
-                    aiRuntime.historyOpen = !aiRuntime.historyOpen;
-                    await refreshSidebar();
                     return;
                 }
                 if (action === 'select-conversation') {
                     await setActiveConversation(id);
-                    aiRuntime.historyOpen = false;
                     await refreshSidebar({ activeConversationId: id });
                     return;
                 }
@@ -2643,6 +2698,9 @@
                     return;
                 }
                 if (action === 'run-scene') {
+                    if (aiRuntime.busy) return;
+                    aiRuntime.busy = true;
+                    await refreshSidebar({ activeConversationId: current.id });
                     try {
                         if (current.type === 'smart') await runSmartConversation(current.id);
                         else if (current.type === 'schedule') await runScheduleConversation(current.id);
@@ -2650,8 +2708,39 @@
                         toast('✅ 已更新 AI 结果', 'success');
                     } catch (e) {
                         toast(`❌ ${String(e?.message || e)}`, 'error');
+                    } finally {
+                        aiRuntime.busy = false;
                     }
                     await refreshSidebar({ activeConversationId: current.id });
+                    return;
+                }
+                if (action === 'reload-existing-schedules') {
+                    const planDate = normalizeDateKey(current?.lastResult?.planDate || current?.plannerOptions?.planDate || todayKey()) || todayKey();
+                    const existing = await loadExistingSchedulesByDate(planDate);
+                    await updateConversation(current.id, { lastResult: { ...(current.lastResult || {}), planDate, existingSchedules: existing } });
+                    await refreshSidebar({ activeConversationId: current.id });
+                    return;
+                }
+                if (action === 'edit-schedule') {
+                    try {
+                        const sid = String(id || '').trim();
+                        if (!sid) throw new Error('缺少日程 ID');
+                        const ok = await globalThis.__tmCalendar?.openScheduleEditorById?.(sid);
+                        if (!ok) throw new Error('未能打开日程编辑器');
+                    } catch (e) {
+                        toast(`❌ ${String(e?.message || e)}`, 'error');
+                    }
+                    return;
+                }
+                if (action === 'edit-task-schedule') {
+                    try {
+                        const tid = String(actionEl.getAttribute('data-ai-task-id') || '').trim();
+                        if (!tid) throw new Error('缺少任务 ID');
+                        const ok = await globalThis.__tmCalendar?.openScheduleEditorByTaskId?.(tid);
+                        if (!ok) throw new Error('该任务暂无可调整日程');
+                    } catch (e) {
+                        toast(`❌ ${String(e?.message || e)}`, 'error');
+                    }
                     return;
                 }
                 if (action === 'apply-schedule') {
@@ -2723,6 +2812,17 @@
                 const draft = getConversationDraft(current.id);
                 draft[draftKey] = String(target.value || '');
             });
+            host.addEventListener('keydown', async (event) => {
+                const target = event.target;
+                if (!(target instanceof HTMLElement)) return;
+                const draftKey = String(target.getAttribute('data-ai-sidebar-draft') || '').trim();
+                if (draftKey !== 'chat') return;
+                if (event.key !== 'Enter' || event.shiftKey) return;
+                try { event.preventDefault(); } catch (e) {}
+                if (aiRuntime.busy) return;
+                const runBtn = host.querySelector('[data-ai-sidebar-action="run-scene"]');
+                if (runBtn instanceof HTMLElement) runBtn.click();
+            });
             host.addEventListener('dragover', (event) => { try { event.preventDefault(); } catch (e) {} });
             host.addEventListener('drop', async (event) => {
                 try { event.preventDefault(); } catch (e) {}
@@ -2774,7 +2874,6 @@
             if (Object.keys(patch).length) conversation = await updateConversation(conversation.id, patch);
         }
         aiRuntime.activeConversationId = conversation?.id || '';
-        aiRuntime.historyOpen = !!payload.showHistory;
         if (!hasLiveSidebarHost()) {
             aiRuntime.host = null;
             aiRuntime.pendingOpen = payload;
