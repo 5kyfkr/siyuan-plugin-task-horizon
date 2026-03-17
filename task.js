@@ -17651,11 +17651,6 @@ async function __tmRefreshAfterWake(reason) {
                                         🤖 AI 对话
                                     </button>
                                 </div>
-                                <div class="tm-mobile-only-item" style="display:flex; gap:10px; align-items:center;">
-                                    <button class="tm-btn tm-btn-info" onclick="window.tmAiShowHistory?.(); tmHideMobileMenu();" style="flex:1; padding: 6px;">
-                                        🕘 AI 记录
-                                    </button>
-                                </div>
                                 ` : ''}
                                 <div class="tm-mobile-only-item" style="display:flex; gap:10px; align-items:center;">
                                     <div class="tm-btn tm-btn-info" style="flex:1; padding: 6px 10px; display:flex; align-items:center; justify-content:space-between; gap:10px; opacity:.6; cursor:not-allowed;" title="移动端不启用日历侧边栏" aria-disabled="true">
@@ -23531,7 +23526,6 @@ async function __tmRefreshAfterWake(reason) {
             <button class="tm-btn tm-btn-info" onclick="tmShowSummaryModal(); document.getElementById('tmDesktopMenu').remove()" style="text-align:left; padding: 6px 12px;">📝 摘要</button>
             <button class="tm-btn tm-btn-info" onclick="window.tmAiSemanticCompletionPreview?.(); document.getElementById('tmDesktopMenu').remove()" style="text-align:left; padding: 6px 12px;">📅 语义日期</button>
             ${__tmIsAiFeatureEnabled() ? `<button class="tm-btn tm-btn-info" onclick="window.tmAiOpenChat?.(); document.getElementById('tmDesktopMenu').remove()" style="text-align:left; padding: 6px 12px;">🤖 AI 对话</button>` : ''}
-            ${__tmIsAiFeatureEnabled() ? `<button class="tm-btn tm-btn-info" onclick="window.tmAiShowHistory?.(); document.getElementById('tmDesktopMenu').remove()" style="text-align:left; padding: 6px 12px;">🕘 AI 记录</button>` : ''}
             <div class="tm-btn tm-btn-info" style="text-align:left; padding: 6px 12px; display:flex; align-items:center; justify-content:space-between; gap:10px;">
                 <span>日历侧边栏</span>
                 <input class="b3-switch fn__flex-center" type="checkbox" ${SettingsStore.data.calendarSideDockEnabled ? 'checked' : ''} onchange="tmToggleCalendarSideDock(this.checked); document.getElementById('tmDesktopMenu').remove()">
