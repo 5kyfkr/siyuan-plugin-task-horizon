@@ -10,6 +10,7 @@
     const DEFAULT_MODEL = 'MiniMax-M2.5';
     const DEFAULT_DEEPSEEK_BASE_URL = 'https://api.deepseek.com';
     const DEFAULT_DEEPSEEK_MODEL = 'deepseek-chat';
+    const AI_UI_REV = 'ui-rev-2026-03-17-3';
     const AI_SCENE_LABELS = {
         chat: 'AI 对话',
         smart: 'SMART 分析',
