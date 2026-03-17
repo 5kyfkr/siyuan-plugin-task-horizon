@@ -2543,7 +2543,7 @@
                     </div>
                 <div class="tm-ai-sidebar__panel">
                     <div class="tm-ai-sidebar__grid">
-                        <label><span>标题</span><input class="tm-input" data-ai-sidebar-field="title" value="${esc(session.title)}"></label>
+                        <label><span>标题</span><input class="tm-input tm-ai-sidebar__title-input" data-ai-sidebar-field="title" value="${esc(session.title)}"></label>
                         <label><span>场景</span><select class="tm-rule-select" data-ai-sidebar-field="type"><option value="chat" ${session.type === 'chat' ? 'selected' : ''}>AI 对话</option><option value="smart" ${session.type === 'smart' ? 'selected' : ''}>SMART 分析</option><option value="schedule" ${session.type === 'schedule' ? 'selected' : ''}>日程排期</option></select></label>
                         <label><span>范围</span><select class="tm-rule-select" data-ai-sidebar-field="contextScope"><option value="current_doc" ${session.contextScope === 'current_doc' ? 'selected' : ''}>当前文档</option><option value="current_task" ${session.contextScope === 'current_task' ? 'selected' : ''}>当前任务</option><option value="current_view" ${session.contextScope === 'current_view' ? 'selected' : ''}>当前视图</option><option value="manual" ${session.contextScope === 'manual' ? 'selected' : ''}>手动任务</option></select></label>
                         <label><span>上下文</span><select class="tm-rule-select" data-ai-sidebar-field="contextMode"><option value="nearby" ${session.contextMode === 'nearby' ? 'selected' : ''}>附近上下文</option><option value="fulltext" ${session.contextMode === 'fulltext' ? 'selected' : ''}>全文上下文</option></select></label>
@@ -2848,6 +2848,7 @@
     async function openSidebar(options = {}) {
         await ConversationStore.ensureLoaded();
         const payload = (options && typeof options === 'object') ? clone(options) : {};
+        aiRuntime.historyOpen = !!payload.showHistory;
         let conversation = payload.conversationId ? await getConversation(payload.conversationId) : null;
         if (!conversation) {
             const current = await getConversation(aiRuntime.activeConversationId || ConversationStore.data?.activeId);
