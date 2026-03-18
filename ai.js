@@ -19,12 +19,15 @@
         summary: '摘要总结',
     };
     const AI_CONTEXT_SCOPE_LABELS = {
+        none: '纯对话',
         current_doc: '当前文档',
         current_task: '当前任务',
+        current_group: '当前分区',
         current_view: '当前视图前5',
         manual: '手动任务',
     };
     const AI_CONTEXT_MODE_LABELS = {
+        none: '无上下文',
         nearby: '附近上下文',
         fulltext: '全文上下文',
     };
@@ -42,8 +45,8 @@
         maxTasks: 60,
     };
     const AI_ALLOWED_TYPES = new Set(['chat', 'smart', 'schedule', 'summary']);
-    const AI_ALLOWED_SCOPES = new Set(['current_doc', 'current_task', 'current_view', 'manual']);
-    const AI_ALLOWED_CONTEXT_MODES = new Set(['nearby', 'fulltext']);
+    const AI_ALLOWED_SCOPES = new Set(['none', 'current_doc', 'current_task', 'current_group', 'current_view', 'manual']);
+    const AI_ALLOWED_CONTEXT_MODES = new Set(['none', 'nearby', 'fulltext']);
     const smartRenameCache = new Map();
     let modalEl = null;
     const aiRuntime = {
@@ -54,6 +57,8 @@
         activeConversationId: '',
         currentViewTasks: [],
         currentViewTopTasks: [],
+        currentGroupTasks: [],
+        currentGroupTaskKey: '',
         setupCollapsed: false,
         taskPickerCollapsed: false,
         labelCache: {
@@ -114,6 +119,7 @@
         .replace(/^\s*[-*]\s+\[[ xX]\]\s*/, '')
         .replace(/^\s*[-*]\s+/, '')
         .trim();
+    const normalizeLooseLabel = (value) => String(value || '').trim().toLowerCase().replace(/[\s_\-]+/g, '');
     const parseDateTimeLoose = (value) => {
         const s = String(value || '').trim();
         if (!s) return null;
@@ -330,7 +336,9 @@
             : (type === 'schedule' ? 'current_view' : 'current_doc');
         const contextMode = AI_ALLOWED_CONTEXT_MODES.has(String(conversation?.contextMode || '').trim())
             ? String(conversation.contextMode).trim()
-            : (String(cfg.contextMode || 'nearby').trim() === 'fulltext' ? 'fulltext' : 'nearby');
+            : (String(cfg.contextMode || 'nearby').trim() === 'fulltext'
+                ? 'fulltext'
+                : (String(cfg.contextMode || 'nearby').trim() === 'none' ? 'none' : 'nearby'));
         const createdAt = Number(conversation?.createdAt || Date.now());
         const updatedAt = Number(conversation?.updatedAt || createdAt || Date.now());
         return {
@@ -850,6 +858,13 @@
     function getConfig() {
         const s = bridge()?.getSettings?.() || {};
         const provider = String(s.aiProvider || '').trim() === 'deepseek' ? 'deepseek' : 'minimax';
+        const statusOptions = Array.isArray(s.customStatusOptions)
+            ? s.customStatusOptions.map((it) => ({
+                id: String(it?.id || '').trim(),
+                name: String(it?.name || '').trim(),
+                color: String(it?.color || '').trim(),
+            })).filter((it) => it.id || it.name)
+            : [];
         return {
             provider,
             enabled: !!s.aiEnabled,
@@ -865,9 +880,40 @@
             temperature: Number.isFinite(Number(s.aiMiniMaxTemperature)) ? Number(s.aiMiniMaxTemperature) : 0.2,
             maxTokens: Number.isFinite(Number(s.aiMiniMaxMaxTokens)) ? Number(s.aiMiniMaxMaxTokens) : 1600,
             timeoutMs: Number.isFinite(Number(s.aiMiniMaxTimeoutMs)) ? Number(s.aiMiniMaxTimeoutMs) : 30000,
-            contextMode: String(s.aiDefaultContextMode || 'nearby').trim() === 'fulltext' ? 'fulltext' : 'nearby',
+            contextMode: String(s.aiDefaultContextMode || 'nearby').trim() === 'fulltext'
+                ? 'fulltext'
+                : (String(s.aiDefaultContextMode || 'nearby').trim() === 'none' ? 'none' : 'nearby'),
             scheduleWindows: parseScheduleWindows(s.aiScheduleWindows || ['09:00-18:00']),
+            statusOptions,
         };
+    }
+
+    function resolveConfiguredStatusOption(value, options) {
+        const list = Array.isArray(options) ? options : [];
+        const raw = String(value || '').trim();
+        if (!raw) return null;
+        const rawNorm = normalizeLooseLabel(raw);
+        if (!rawNorm) return null;
+        const exactId = list.find((it) => String(it?.id || '').trim() === raw);
+        if (exactId) return exactId;
+        const exactName = list.find((it) => String(it?.name || '').trim() === raw);
+        if (exactName) return exactName;
+        const looseName = list.find((it) => normalizeLooseLabel(it?.name) === rawNorm);
+        if (looseName) return looseName;
+        const looseId = list.find((it) => normalizeLooseLabel(it?.id) === rawNorm);
+        if (looseId) return looseId;
+        return null;
+    }
+
+    function resolveConfiguredStatusId(value, options) {
+        const matched = resolveConfiguredStatusOption(value, options);
+        return matched ? String(matched.id || '').trim() : String(value || '').trim();
+    }
+
+    function formatConfiguredStatusPrompt(options) {
+        const list = Array.isArray(options) ? options.filter((it) => it.id || it.name) : [];
+        if (!list.length) return '当前没有可用的状态配置。';
+        return list.map((it) => `${String(it.name || it.id || '').trim()} -> ${String(it.id || '').trim()}`).join('；');
     }
 
     function assertReady(allowDisabled) {
@@ -1466,9 +1512,9 @@
 .tm-ai-sidebar__promptbar .tm-btn{height:30px;min-height:30px;padding:0 10px;border-radius:8px;font-size:12px;line-height:1;white-space:nowrap;}
 .tm-ai-sidebar__promptbar-meta{font-size:12px;line-height:1.5;opacity:.72;}
 .tm-ai-sidebar__composer .tm-btn.tm-btn-primary{height:42px;min-height:42px;padding:0 18px;border-radius:10px;font-size:13px;font-weight:700;line-height:1;}
-.tm-ai-sidebar__composer-row{display:flex;align-items:flex-end;gap:8px;}
- .tm-ai-sidebar__composer-row .tm-ai-textarea{flex:1 1 auto;margin:0;min-height:64px;}
- .tm-ai-sidebar__send{align-self:flex-end;white-space:nowrap;}
+.tm-ai-sidebar__composer-row{display:flex;align-items:stretch;gap:8px;}
+ .tm-ai-sidebar__composer-row .tm-ai-textarea{flex:1 1 auto;margin:0;min-height:64px;height:64px;}
+ .tm-ai-sidebar__send{align-self:stretch;min-height:64px;height:auto;white-space:nowrap;}
  .tm-ai-sidebar__actions--left{justify-content:flex-start;}
  .tm-ai-sidebar__result-score{font-size:24px;font-weight:800;}
  .tm-ai-sidebar__result-body{white-space:pre-wrap;word-break:break-word;line-height:1.6;font-size:13px;}
@@ -1598,6 +1644,9 @@
     }
 
     function taskLite(task) {
+        const statusOptions = getConfig().statusOptions;
+        const statusId = String(task?.customStatus || '').trim();
+        const statusOption = resolveConfiguredStatusOption(statusId, statusOptions);
         return {
             id: String(task?.id || '').trim(),
             content: String(task?.content || '').trim(),
@@ -1606,7 +1655,8 @@
             parentTaskId: String(task?.parentTaskId || task?.parent_task_id || '').trim(),
             done: !!task?.done,
             priority: String(task?.priority || '').trim(),
-            customStatus: String(task?.customStatus || '').trim(),
+            customStatus: statusId,
+            customStatusName: String(statusOption?.name || statusId).trim(),
             startDate: String(task?.startDate || '').trim(),
             completionTime: String(task?.completionTime || '').trim(),
             duration: String(task?.duration || '').trim(),
@@ -1655,7 +1705,7 @@
         if (title.hit) patch.title = String(title.value || '').trim();
         if (done.hit) patch.done = !!done.value;
         if (priority.hit) patch.priority = cleanPriority(priority.value);
-        if (customStatus.hit) patch.customStatus = String(customStatus.value || '').trim();
+        if (customStatus.hit) patch.customStatus = resolveConfiguredStatusId(customStatus.value, getConfig().statusOptions);
         if (startDate.hit) patch.startDate = cleanDate(startDate.value);
         if (completionTime.hit) patch.completionTime = cleanDate(completionTime.value);
         if (duration.hit) patch.duration = String(duration.value || '').trim();
@@ -1706,7 +1756,10 @@
             const label = p === 'high' ? '高' : (p === 'medium' ? '中' : (p === 'low' ? '低' : (p === 'none' ? '无' : p || '空')));
             parts.push(`优先级设为${label}`);
         }
-        if (Object.prototype.hasOwnProperty.call(patch, 'customStatus')) parts.push(`状态设为${String(patch.customStatus || '').trim() || '空'}`);
+        if (Object.prototype.hasOwnProperty.call(patch, 'customStatus')) {
+            const matched = resolveConfiguredStatusOption(patch.customStatus, getConfig().statusOptions);
+            parts.push(`状态设为${String(matched?.name || patch.customStatus || '').trim() || '空'}`);
+        }
         if (Object.prototype.hasOwnProperty.call(patch, 'startDate')) parts.push(`开始日期设为${String(patch.startDate || '').trim() || '空'}`);
         if (Object.prototype.hasOwnProperty.call(patch, 'completionTime')) parts.push(`完成日期设为${String(patch.completionTime || '').trim() || '空'}`);
         if (Object.prototype.hasOwnProperty.call(patch, 'duration')) parts.push(`时长设为${String(patch.duration || '').trim() || '空'}`);
@@ -1723,7 +1776,9 @@
     }
 
     function buildChatSystemPrompt() {
-        return '你是任务与项目管理助手。请只输出 JSON：{"answer":"","highlights":[],"nextActions":[],"warnings":[],"taskOperations":[{"taskId":"","patch":{},"reason":""}],"createOperations":[{"content":"","docId":"","parentTaskId":"","patch":{},"reason":""}]}。taskOperations 仅在用户明确要求修改已有任务时返回；patch 只能包含 title、done、priority、customStatus、startDate、completionTime、duration、remark、pinned、milestone。createOperations 仅在用户明确要求新建任务/子任务时返回；创建顶级任务时填写 docId，创建子任务时填写 parentTaskId；docId 必须来自 document.id 或 tasks[].docId，parentTaskId 必须来自输入 tasks；一次可以返回多个 createOperations。状态请写入 customStatus；开始时间写入 startDate；备注写入 remark。重要：不要在 answer 中声称“已经修改成功/已经创建完成”，真实执行结果由系统完成并反馈。';
+        const cfg = getConfig();
+        const statusGuide = formatConfiguredStatusPrompt(cfg.statusOptions);
+        return `你是任务与项目管理助手。请只输出 JSON：{"answer":"","highlights":[],"nextActions":[],"warnings":[],"taskOperations":[{"taskId":"","patch":{},"reason":""}],"createOperations":[{"content":"","docId":"","parentTaskId":"","patch":{},"reason":""}]}。taskOperations 仅在用户明确要求修改已有任务时返回；patch 只能包含 title、done、priority、customStatus、startDate、completionTime、duration、remark、pinned、milestone。createOperations 仅在用户明确要求新建任务/子任务时返回；创建顶级任务时填写 docId，创建子任务时填写 parentTaskId；docId 必须来自 document.id 或 tasks[].docId，parentTaskId 必须来自输入 tasks；一次可以返回多个 createOperations。状态请写入 customStatus，但要优先使用“状态设置第一列的中文名称”而不是英文 id；系统会自动把中文名称映射为真实状态 id。当前可用状态：${statusGuide}。开始时间写入 startDate；备注写入 remark。重要：不要在 answer 中声称“已经修改成功/已经创建完成”，真实执行结果由系统完成并反馈。`;
     }
 
     async function applyChatTaskOperations(operations, taskPool = []) {
@@ -2005,6 +2060,15 @@
     }
 
     function buildDocExcerpt(docSnapshot, taskId, mode) {
+        if (String(mode || '').trim() === 'none') {
+            return {
+                mode: 'none',
+                intro: '',
+                nearby: '',
+                fulltext: '',
+                contextChars: 0,
+            };
+        }
         const lines = String(docSnapshot?.kramdown || '').split(/\r?\n/);
         const index = taskId ? lines.findIndex((line) => line.includes(`id="${taskId}"`) || line.includes(`id='${taskId}'`)) : -1;
         const intro = lines.slice(0, Math.max(40, index > 0 ? Math.min(index, 70) : 40)).filter((line) => !/id=/.test(line) && !/^\s*[-*]\s+\[[ xX]\]/.test(line));
@@ -2716,6 +2780,15 @@
         return aiRuntime.currentViewTasks;
     }
 
+    async function ensureCurrentGroupTasks(force) {
+        const groupKey = String(bridge()?.getCurrentGroupId?.() || 'all').trim() || 'all';
+        if (!force && aiRuntime.currentGroupTaskKey === groupKey && Array.isArray(aiRuntime.currentGroupTasks) && aiRuntime.currentGroupTasks.length) return aiRuntime.currentGroupTasks;
+        const list = await bridge()?.getCurrentGroupTasks?.(0);
+        aiRuntime.currentGroupTasks = Array.isArray(list) ? list.filter(Boolean) : [];
+        aiRuntime.currentGroupTaskKey = groupKey;
+        return aiRuntime.currentGroupTasks;
+    }
+
     async function ensureCurrentViewTopTasks(force) {
         if (!force && Array.isArray(aiRuntime.currentViewTopTasks) && aiRuntime.currentViewTopTasks.length) return aiRuntime.currentViewTopTasks;
         const tasks = await ensureCurrentViewTasks(force);
@@ -2810,6 +2883,10 @@
         const b = bridge();
         const patch = {};
         const force = !!options.force;
+        if (current.contextScope === 'none') {
+            if (current.selectedDocIds.length > 0) patch.selectedDocIds = [];
+            if (current.selectedTaskIds.length > 0) patch.selectedTaskIds = [];
+        }
         if (current.contextScope === 'current_doc') {
             const docId = String(options.docId || b?.getCurrentDocId?.() || '').trim();
             const currentDocIds = current.selectedDocIds.map((it) => String(it || '').trim()).filter(Boolean);
@@ -2836,6 +2913,18 @@
             if (!keepCurrentSelection) patch.selectedTaskIds = nextIds;
             if (current.selectedDocIds.length > 0) patch.selectedDocIds = [];
         }
+        if (current.contextScope === 'current_group') {
+            const groupTasks = await ensureCurrentGroupTasks(force || !!options.refreshView);
+            const nextIds = groupTasks
+                .filter((task) => !task?.done)
+                .map((task) => String(task?.id || '').trim())
+                .filter(Boolean);
+            const currentIds = current.selectedTaskIds.map((it) => String(it || '').trim()).filter(Boolean);
+            const validSet = new Set(nextIds);
+            const keepCurrentSelection = !force && currentIds.length > 0 && currentIds.every((id) => validSet.has(id));
+            if (!keepCurrentSelection) patch.selectedTaskIds = nextIds;
+            if (current.selectedDocIds.length > 0) patch.selectedDocIds = [];
+        }
         if (current.type === 'schedule') {
             patch.plannerOptions = {
                 ...normalizePlannerOptions(current.plannerOptions),
@@ -2848,6 +2937,7 @@
 
     async function inferDocIdsFromConversation(conversation) {
         const session = normalizeConversation(conversation || {});
+        if (session.contextScope === 'none') return [];
         const out = Array.from(new Set(session.selectedDocIds.map((it) => String(it || '').trim()).filter(Boolean)));
         if (out.length) return out;
         if (session.contextScope === 'current_doc') {
@@ -2868,10 +2958,18 @@
 
     async function inferTaskIdsFromConversation(conversation) {
         const session = normalizeConversation(conversation || {});
+        if (session.contextScope === 'none') return [];
         if (session.selectedTaskIds.length) return Array.from(new Set(session.selectedTaskIds));
         if (session.contextScope === 'current_task') {
             const taskId = String(bridge()?.getCurrentTaskId?.() || '').trim();
             return taskId ? [taskId] : [];
+        }
+        if (session.contextScope === 'current_group') {
+            const groupTasks = await ensureCurrentGroupTasks(false);
+            return groupTasks
+                .filter((task) => !task?.done)
+                .map((task) => String(task?.id || '').trim())
+                .filter(Boolean);
         }
         if (session.contextScope === 'current_view' || session.type === 'schedule') {
             const viewTasks = await ensureCurrentViewTopTasks(false);
@@ -2899,6 +2997,8 @@
     }
 
     async function getPrimaryDocumentSnapshot(conversation, options = {}) {
+        const session = normalizeConversation(conversation || {});
+        if (session.contextScope === 'none') return null;
         let docIds = await inferDocIdsFromConversation(conversation);
         if (!docIds.length && options.taskId) {
             const task = await bridge()?.getTaskSnapshot?.(options.taskId);
@@ -3483,13 +3583,16 @@
         const session = normalizeConversation(conversation || {});
         const draft = getConversationDraft(session.id);
         const hasContextSelection = session.selectedDocIds.length > 0 || session.selectedTaskIds.length > 0;
-        const canRefreshContext = session.contextScope !== 'manual';
-        const orderedTasks = Array.isArray(aiRuntime.currentViewTopTasks) && aiRuntime.currentViewTopTasks.length
-            ? aiRuntime.currentViewTopTasks
-            : (Array.isArray(aiRuntime.currentViewTasks) ? aiRuntime.currentViewTasks : []);
+        const isCurrentGroupScope = session.contextScope === 'current_group';
+        const canRefreshContext = session.contextScope !== 'manual' && session.contextScope !== 'none';
+        const orderedTasks = session.contextScope === 'current_group'
+            ? (Array.isArray(aiRuntime.currentGroupTasks) ? aiRuntime.currentGroupTasks : [])
+            : (Array.isArray(aiRuntime.currentViewTopTasks) && aiRuntime.currentViewTopTasks.length
+                ? aiRuntime.currentViewTopTasks
+                : (Array.isArray(aiRuntime.currentViewTasks) ? aiRuntime.currentViewTasks : []));
         const planner = normalizePlannerOptions(session.plannerOptions);
         const summary = resolveSummaryRange(session.summaryOptions);
-        const showTaskPicker = session.type === 'schedule' || session.contextScope === 'manual' || session.contextScope === 'current_view';
+        const showTaskPicker = session.contextScope !== 'none' && (session.type === 'schedule' || session.contextScope === 'manual' || session.contextScope === 'current_view');
         const root = aiRuntime.host;
         if (!(root instanceof HTMLElement)) return;
         root.innerHTML = `
@@ -3526,8 +3629,8 @@
                             <div class="tm-ai-sidebar__grid">
                                 <label><span>标题</span><input class="tm-ai-sidebar__title-input" data-ai-sidebar-field="title" value="${esc(session.title)}"></label>
                                 <label><span>场景</span><select class="tm-rule-select" data-ai-sidebar-field="type"><option value="chat" ${session.type === 'chat' ? 'selected' : ''}>AI 对话</option><option value="smart" ${session.type === 'smart' ? 'selected' : ''}>SMART 分析</option><option value="schedule" ${session.type === 'schedule' ? 'selected' : ''}>日程排期</option><option value="summary" ${session.type === 'summary' ? 'selected' : ''}>摘要总结</option></select></label>
-                                <label><span>范围</span><select class="tm-rule-select" data-ai-sidebar-field="contextScope"><option value="current_doc" ${session.contextScope === 'current_doc' ? 'selected' : ''}>当前文档</option><option value="current_task" ${session.contextScope === 'current_task' ? 'selected' : ''}>当前任务</option><option value="current_view" ${session.contextScope === 'current_view' ? 'selected' : ''}>当前视图前5</option><option value="manual" ${session.contextScope === 'manual' ? 'selected' : ''}>手动任务</option></select></label>
-                                <label><span>上下文</span><select class="tm-rule-select" data-ai-sidebar-field="contextMode"><option value="nearby" ${session.contextMode === 'nearby' ? 'selected' : ''}>附近上下文</option><option value="fulltext" ${session.contextMode === 'fulltext' ? 'selected' : ''}>全文上下文</option></select></label>
+                                <label><span>范围</span><select class="tm-rule-select" data-ai-sidebar-field="contextScope"><option value="none" ${session.contextScope === 'none' ? 'selected' : ''}>纯对话</option><option value="current_doc" ${session.contextScope === 'current_doc' ? 'selected' : ''}>当前文档</option><option value="current_task" ${session.contextScope === 'current_task' ? 'selected' : ''}>当前任务</option><option value="current_group" ${session.contextScope === 'current_group' ? 'selected' : ''}>当前分区</option><option value="current_view" ${session.contextScope === 'current_view' ? 'selected' : ''}>当前视图前5</option><option value="manual" ${session.contextScope === 'manual' ? 'selected' : ''}>手动任务</option></select></label>
+                                <label><span>上下文</span><select class="tm-rule-select" data-ai-sidebar-field="contextMode"><option value="none" ${session.contextMode === 'none' ? 'selected' : ''}>无上下文</option><option value="nearby" ${session.contextMode === 'nearby' ? 'selected' : ''}>附近上下文</option><option value="fulltext" ${session.contextMode === 'fulltext' ? 'selected' : ''}>全文上下文</option></select></label>
                             </div>
                             <div class="tm-ai-sidebar__context">
                                 <div class="tm-ai-sidebar__section-head">
@@ -3540,7 +3643,9 @@
                                 <div class="tm-ai-sidebar__meta">文档</div>
                                 ${renderSelectionChips(session.selectedDocIds, aiRuntime.labelCache.doc, 'remove-doc')}
                                 <div class="tm-ai-sidebar__meta" style="margin-top:8px;">任务</div>
-                                ${renderSelectionChips(session.selectedTaskIds, aiRuntime.labelCache.task, 'remove-task', '当前还没有手动附加上下文。可拖拽任务添加')}
+                                ${isCurrentGroupScope
+                                    ? `<div class="tm-ai-sidebar__empty">当前分区模式将自动包含本分区内全部未完成任务。</div>`
+                                    : renderSelectionChips(session.selectedTaskIds, aiRuntime.labelCache.task, 'remove-task', '当前还没有手动附加上下文。可拖拽任务添加')}
                             </div>
                             ${showTaskPicker ? `
                                 <div class="tm-ai-sidebar__context">
@@ -3559,7 +3664,7 @@
                                                 if (!tid) return '';
                                                 const checked = session.selectedTaskIds.includes(tid) ? 'checked' : '';
                                                 return `<label class="tm-ai-sidebar__task-row"><input type="checkbox" data-ai-sidebar-field="pickedTask" value="${esc(tid)}" ${checked}> <span>${esc(String(task?.content || tid).trim() || tid)}</span></label>`;
-                                            }).join('') || `<div class="tm-ai-sidebar__empty">当前视图没有可选任务。</div>`}
+                                            }).join('') || `<div class="tm-ai-sidebar__empty">${session.contextScope === 'current_group' ? '当前分区没有可选任务。' : '当前视图没有可选任务。'}</div>`}
                                         </div>
                                     `}
                                 </div>
@@ -3763,8 +3868,8 @@
                     return;
                 }
                 if (action === 'refresh-context') {
-                    if (current.contextScope === 'manual') {
-                        toast('⚠ 手动任务范围没有可刷新的自动上下文', 'warning');
+                    if (current.contextScope === 'manual' || current.contextScope === 'none') {
+                        toast(current.contextScope === 'none' ? '⚠ 纯对话范围没有可刷新的自动上下文' : '⚠ 手动任务范围没有可刷新的自动上下文', 'warning');
                         return;
                     }
                     const next = await ensureConversationDefaults(current, { force: true, refreshView: true });
@@ -3884,7 +3989,13 @@
                     return;
                 }
                 if (field === 'contextScope') {
-                    await updateConversation(current.id, { contextScope: target.value });
+                    const nextScope = String(target.value || '').trim();
+                    const patch = { contextScope: nextScope };
+                    if (nextScope === 'none') {
+                        patch.selectedDocIds = [];
+                        patch.selectedTaskIds = [];
+                    }
+                    await updateConversation(current.id, patch);
                     await refreshSidebar();
                     return;
                 }
@@ -3973,6 +4084,7 @@
             });
         }
         await ensureCurrentViewTopTasks(false);
+        await ensureCurrentGroupTasks(false);
         if (aiRuntime.pendingOpen) {
             const pending = aiRuntime.pendingOpen;
             aiRuntime.pendingOpen = null;

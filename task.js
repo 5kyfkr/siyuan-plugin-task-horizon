@@ -36508,6 +36508,56 @@ async function __tmRefreshAfterWake(reason) {
         return list.slice(0, max).filter(Boolean);
     }
 
+    async function __tmAiGetCurrentGroupTasks(limit = 0) {
+        const hasLimit = Number.isFinite(Number(limit)) && Number(limit) > 0;
+        const max = hasLimit ? Math.max(1, Math.min(2000, Number(limit) || 20)) : Infinity;
+        const groups = Array.isArray(SettingsStore.data.docGroups) ? SettingsStore.data.docGroups : [];
+        const currentGroupId = String(SettingsStore.data.currentGroupId || 'all').trim() || 'all';
+        let targetDocs = [];
+        if (currentGroupId === 'all') {
+            const legacyIds = Array.isArray(SettingsStore.data.selectedDocIds) ? SettingsStore.data.selectedDocIds : [];
+            legacyIds.forEach((id) => targetDocs.push({ id, kind: 'doc', recursive: false }));
+            groups.forEach((group) => {
+                targetDocs.push(...__tmGetGroupSourceEntries(group));
+            });
+        } else {
+            const group = groups.find((it) => String(it?.id || '').trim() === currentGroupId);
+            if (group) targetDocs = __tmGetGroupSourceEntries(group);
+        }
+        const docIds = [];
+        const seenDocIds = new Set();
+        const pushDocId = (id0) => {
+            const id = String(id0 || '').trim();
+            if (!id || seenDocIds.has(id)) return;
+            seenDocIds.add(id);
+            docIds.push(id);
+        };
+        await Promise.all((Array.isArray(targetDocs) ? targetDocs : []).map((entry) => __tmExpandSourceEntryDocIds(entry, pushDocId)));
+        const docIdSet = new Set(docIds);
+        if (!docIdSet.size) return [];
+        const out = [];
+        const seenTaskIds = new Set();
+        const walk = (tasks) => {
+            (Array.isArray(tasks) ? tasks : []).forEach((task) => {
+                if (out.length >= max || !task || typeof task !== 'object') return;
+                const taskId = String(task.id || '').trim();
+                const docId = String(task.docId || task.root_id || '').trim();
+                if (taskId && !task.done && docIdSet.has(docId) && !seenTaskIds.has(taskId)) {
+                    seenTaskIds.add(taskId);
+                    out.push(__tmAiClone(task));
+                }
+                if (out.length < max) walk(task.children || []);
+            });
+        };
+        try {
+            (Array.isArray(state.taskTree) ? state.taskTree : []).forEach((doc) => {
+                if (out.length >= max) return;
+                walk(doc?.tasks || []);
+            });
+        } catch (e) {}
+        return (hasLimit ? out.slice(0, max) : out).filter(Boolean);
+    }
+
     __tmNs.aiBridge = {
         getSettings() {
             return __tmAiClone({
@@ -36524,6 +36574,13 @@ async function __tmRefreshAfterWake(reason) {
                 aiMiniMaxTimeoutMs: Number(SettingsStore.data.aiMiniMaxTimeoutMs),
                 aiDefaultContextMode: String(SettingsStore.data.aiDefaultContextMode || 'nearby').trim() === 'fulltext' ? 'fulltext' : 'nearby',
                 aiScheduleWindows: Array.isArray(SettingsStore.data.aiScheduleWindows) ? SettingsStore.data.aiScheduleWindows.map(v => String(v || '').trim()).filter(Boolean) : ['09:00-18:00'],
+                customStatusOptions: Array.isArray(SettingsStore.data.customStatusOptions)
+                    ? SettingsStore.data.customStatusOptions.map((it) => ({
+                        id: String(it?.id || '').trim(),
+                        name: String(it?.name || '').trim(),
+                        color: String(it?.color || '').trim(),
+                    }))
+                    : [],
             });
         },
         async saveAiSettings(patch = {}) {
@@ -36562,6 +36619,9 @@ async function __tmRefreshAfterWake(reason) {
         },
         async getCurrentViewTasks(limit) {
             return await __tmAiGetCurrentViewTasks(limit);
+        },
+        async getCurrentGroupTasks(limit) {
+            return await __tmAiGetCurrentGroupTasks(limit);
         },
         hint,
         esc,
