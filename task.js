@@ -11009,7 +11009,7 @@ async function __tmRefreshAfterWake(reason) {
             const groupBg = enableGroupBg ? (currentGroupBg || resolvePinnedTaskGroupBg(task)) : '';
             const doneSubtaskBg = (!enableGroupBg && isDoneSubtask) ? __tmWithAlpha(progressBarColor, isDark ? 0.22 : 0.14) : '';
             const baseBg = groupBg || doneSubtaskBg;
-            const progressBgStyle = (totalChildren > 0 && progressPercent > 0)
+            const progressBgStyle = (row.hasChildren && progressPercent > 0)
                 ? (enableGroupBg && groupBg
                     ? `background-image:linear-gradient(90deg, ${progressBarColor} ${progressPercent}%, transparent ${progressPercent}%);background-repeat:no-repeat;background-size:100% 3px;background-position:left bottom;`
                     : `background-image:linear-gradient(90deg, ${progressBarColor} ${progressPercent}%, transparent ${progressPercent}%);background-repeat:no-repeat;`)
@@ -15952,7 +15952,7 @@ async function __tmRefreshAfterWake(reason) {
                 const groupBg = enableGroupBg ? (currentGroupBg || resolvePinnedTaskGroupBg(task)) : '';
                 const doneSubtaskBg = (!enableGroupBg && isDoneSubtask) ? __tmWithAlpha(progressBarColor, isDark ? 0.22 : 0.14) : '';
                 const baseBg = groupBg || doneSubtaskBg;
-                const progressBgStyle = (totalChildren > 0 && progressPercent > 0)
+                const progressBgStyle = (row.hasChildren && progressPercent > 0)
                     ? (enableGroupBg && groupBg
                         ? `background-image:linear-gradient(90deg, ${progressBarColor} ${progressPercent}%, transparent ${progressPercent}%);background-repeat:no-repeat;background-size:100% 3px;background-position:left bottom;`
                         : `background-image:linear-gradient(90deg, ${progressBarColor} ${progressPercent}%, transparent ${progressPercent}%);background-repeat:no-repeat;`)
@@ -27558,7 +27558,7 @@ async function __tmRefreshAfterWake(reason) {
                 ? __tmNormalizeHexColor(SettingsStore.data.progressBarColorDark, '#81c784')
                 : __tmNormalizeHexColor(SettingsStore.data.progressBarColorLight, '#4caf50');
             const groupBg = enableGroupBg ? (currentGroupBg || resolvePinnedTaskGroupBg(task)) : '';
-            const progressBgStyle = (totalChildren > 0 && progressPercent > 0)
+            const progressBgStyle = (hasChildren && progressPercent > 0)
                 ? (enableGroupBg && groupBg
                     ? `background-image: linear-gradient(90deg, ${progressBarColor} ${progressPercent}%, transparent ${progressPercent}%);background-repeat:no-repeat;background-size:100% 3px;background-position:left bottom;`
                     : `background-image: linear-gradient(90deg, ${progressBarColor} ${progressPercent}%, transparent ${progressPercent}%);background-repeat:no-repeat;`)
@@ -31510,10 +31510,8 @@ async function __tmRefreshAfterWake(reason) {
                 const accentStyle = checklistCompact && resolvedGroupAccent
                     ? `--tm-checklist-accent-color:${resolvedGroupAccent};`
                     : '';
-                const progressBg = progressPercent > 0
-                    ? (checklistCompact
-                        ? `--tm-checklist-progress-color:${progressBarColor};--tm-checklist-progress-percent:${progressPercent}%;`
-                        : `background-image:linear-gradient(90deg, ${progressBarColor} ${progressPercent}%, transparent ${progressPercent}%);background-repeat:no-repeat;background-size:100% 3px;background-position:left bottom;`)
+                const progressBg = (!checklistCompact && progressPercent > 0)
+                    ? `background-image:linear-gradient(90deg, ${progressBarColor} ${progressPercent}%, transparent ${progressPercent}%);background-repeat:no-repeat;background-size:100% 3px;background-position:left bottom;`
                     : '';
                 const activeCls = String(task.id) === activeId ? ' tm-checklist-item--active' : '';
                 const doneCls = task.done ? ' tm-checklist-item--done' : '';
