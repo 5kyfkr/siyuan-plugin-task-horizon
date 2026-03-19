@@ -3814,7 +3814,7 @@
                         <input class="tm-ai-sidebar__title-input" data-ai-sidebar-field="title" value="${esc(session.title)}" placeholder="会话标题">
                     </div>
                     <div class="tm-ai-sidebar__head-actions">
-                        <button class="tm-btn tm-btn-info" data-ai-sidebar-action="toggle-history">${aiRuntime.historyOpen ? '隐藏会话' : '会话记录'}</button>
+                        <button class="tm-btn tm-btn-info" data-ai-sidebar-action="toggle-history">${aiRuntime.historyOpen ? '隐藏' : '会话'}</button>
                         <button class="tm-btn tm-btn-info" data-ai-sidebar-action="new-conversation">新建</button>
                         <button class="tm-btn tm-btn-gray" data-ai-sidebar-action="close-panel">${aiRuntime.mobile ? '关闭' : '收起'}</button>
                     </div>

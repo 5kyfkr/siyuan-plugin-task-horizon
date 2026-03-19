@@ -1,5 +1,5 @@
 // @name         思源笔记任务管理器
-// @version      1.8.2
+// @version      1.8.3
 // @description  任务管理器，支持自定义筛选规则分组和排序
 // @author       5KYFKR
 
@@ -10298,17 +10298,6 @@ async function __tmRefreshAfterWake(reason) {
         return `rgba(${rgb.r}, ${rgb.g}, ${rgb.b}, ${a})`;
     }
 
-    function __tmBuildTaskProgressBgStyle(progressColor, progressPercent, options = {}) {
-        const percent = __tmClamp(Number(progressPercent) || 0, 0, 100);
-        const color = String(progressColor || '').trim();
-        if (!color || percent <= 0) return '';
-        const barOnly = !!options.barOnly;
-        // 非条形模式时预留底部 1px 给表格 inset 边框，避免连续父任务行出现视觉上高 1px 的错位。
-        const size = barOnly ? '100% 3px' : '100% calc(100% - 1px)';
-        const position = barOnly ? 'left bottom' : 'left top';
-        return `background-image:linear-gradient(90deg, ${color} ${percent}%, transparent ${percent}%);background-repeat:no-repeat;background-size:${size};background-position:${position};`;
-    }
-
     function __tmBuildStatusChipStyle(color) {
         const base = __tmNormalizeHexColor(color, '#757575') || '#757575';
         const darkMode = __tmIsDarkMode();
@@ -11007,7 +10996,9 @@ async function __tmRefreshAfterWake(reason) {
             const doneSubtaskBg = (!enableGroupBg && isDoneSubtask) ? __tmWithAlpha(progressBarColor, isDark ? 0.22 : 0.14) : '';
             const baseBg = groupBg || doneSubtaskBg;
             const progressBgStyle = (row.hasChildren && progressPercent > 0)
-                ? __tmBuildTaskProgressBgStyle(progressBarColor, progressPercent, { barOnly: enableGroupBg && !!groupBg })
+                ? (enableGroupBg && groupBg
+                    ? `background-image:linear-gradient(90deg, ${progressBarColor} ${progressPercent}%, transparent ${progressPercent}%);background-repeat:no-repeat;background-size:100% 3px;background-position:left bottom;`
+                    : `background-image:linear-gradient(90deg, ${progressBarColor} ${progressPercent}%, transparent ${progressPercent}%);background-repeat:no-repeat;`)
                 : '';
             const contentCellBgStyle = `${baseBg ? `background-color:${baseBg};` : ''}${progressBgStyle ? `${progressBgStyle};` : ''}`;
             const otherCellBgStyle = groupBg ? `background-color:${groupBg};` : '';
@@ -15948,7 +15939,9 @@ async function __tmRefreshAfterWake(reason) {
                 const doneSubtaskBg = (!enableGroupBg && isDoneSubtask) ? __tmWithAlpha(progressBarColor, isDark ? 0.22 : 0.14) : '';
                 const baseBg = groupBg || doneSubtaskBg;
                 const progressBgStyle = (row.hasChildren && progressPercent > 0)
-                    ? __tmBuildTaskProgressBgStyle(progressBarColor, progressPercent, { barOnly: enableGroupBg && !!groupBg })
+                    ? (enableGroupBg && groupBg
+                        ? `background-image:linear-gradient(90deg, ${progressBarColor} ${progressPercent}%, transparent ${progressPercent}%);background-repeat:no-repeat;background-size:100% 3px;background-position:left bottom;`
+                        : `background-image:linear-gradient(90deg, ${progressBarColor} ${progressPercent}%, transparent ${progressPercent}%);background-repeat:no-repeat;`)
                     : '';
                 const contentCellBgStyle = `${baseBg ? `background-color:${baseBg};` : ''}${progressBgStyle ? `${progressBgStyle};` : ''}`;
                 const otherCellBgStyle = groupBg ? `background-color:${groupBg};` : '';
@@ -27552,7 +27545,9 @@ async function __tmRefreshAfterWake(reason) {
                 : __tmNormalizeHexColor(SettingsStore.data.progressBarColorLight, '#4caf50');
             const groupBg = enableGroupBg ? (currentGroupBg || resolvePinnedTaskGroupBg(task)) : '';
             const progressBgStyle = (hasChildren && progressPercent > 0)
-                ? __tmBuildTaskProgressBgStyle(progressBarColor, progressPercent, { barOnly: enableGroupBg && !!groupBg })
+                ? (enableGroupBg && groupBg
+                    ? `background-image: linear-gradient(90deg, ${progressBarColor} ${progressPercent}%, transparent ${progressPercent}%);background-repeat:no-repeat;background-size:100% 3px;background-position:left bottom;`
+                    : `background-image: linear-gradient(90deg, ${progressBarColor} ${progressPercent}%, transparent ${progressPercent}%);background-repeat:no-repeat;`)
                 : '';
             
             const contentIndent = 12 + depth * 16;
