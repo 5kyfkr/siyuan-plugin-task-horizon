@@ -31510,8 +31510,10 @@ async function __tmRefreshAfterWake(reason) {
                 const accentStyle = checklistCompact && resolvedGroupAccent
                     ? `--tm-checklist-accent-color:${resolvedGroupAccent};`
                     : '';
-                const progressBg = (!checklistCompact && progressPercent > 0)
-                    ? `background-image:linear-gradient(90deg, ${progressBarColor} ${progressPercent}%, transparent ${progressPercent}%);background-repeat:no-repeat;background-size:100% 3px;background-position:left bottom;`
+                const progressBg = progressPercent > 0
+                    ? (checklistCompact
+                        ? `--tm-checklist-progress-color:${progressBarColor};--tm-checklist-progress-percent:${progressPercent}%;`
+                        : `background-image:linear-gradient(90deg, ${progressBarColor} ${progressPercent}%, transparent ${progressPercent}%);background-repeat:no-repeat;background-size:100% 3px;background-position:left bottom;`)
                     : '';
                 const activeCls = String(task.id) === activeId ? ' tm-checklist-item--active' : '';
                 const doneCls = task.done ? ' tm-checklist-item--done' : '';
