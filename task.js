@@ -4338,6 +4338,30 @@
             --tm-checkbox-center: 7px;
         }
 
+        .tm-subtask-progress-track {
+            position: absolute;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            height: 3px;
+            border-radius: 999px;
+            overflow: hidden;
+            pointer-events: none;
+            z-index: 0;
+        }
+
+        .tm-subtask-progress-track--compact {
+            height: 2px;
+        }
+
+        .tm-subtask-progress-fill {
+            display: block;
+            height: 100%;
+            width: var(--tm-subtask-progress-percent, 0%);
+            border-radius: inherit;
+            background: var(--tm-subtask-progress-color, #4caf50);
+        }
+
         .tm-tree-guides {
             position: absolute;
             inset: -1px auto -1px 0;
@@ -11009,10 +11033,13 @@ async function __tmRefreshAfterWake(reason) {
             const groupBg = enableGroupBg ? (currentGroupBg || resolvePinnedTaskGroupBg(task)) : '';
             const doneSubtaskBg = (!enableGroupBg && isDoneSubtask) ? __tmWithAlpha(progressBarColor, isDark ? 0.22 : 0.14) : '';
             const baseBg = groupBg || doneSubtaskBg;
-            const progressBgStyle = (row.hasChildren && progressPercent > 0)
+            const progressBgStyle = (totalChildren > 0 && progressPercent > 0)
                 ? (enableGroupBg && groupBg
                     ? `background-image:linear-gradient(90deg, ${progressBarColor} ${progressPercent}%, transparent ${progressPercent}%);background-repeat:no-repeat;background-size:100% 3px;background-position:left bottom;`
                     : `background-image:linear-gradient(90deg, ${progressBarColor} ${progressPercent}%, transparent ${progressPercent}%);background-repeat:no-repeat;`)
+                : '';
+            const progressBarHtml = (totalChildren > 0 && progressPercent > 0)
+                ? `<span class="tm-subtask-progress-track" style="--tm-subtask-progress-color:${progressBarColor};--tm-subtask-progress-percent:${progressPercent}%"><span class="tm-subtask-progress-fill"></span></span>`
                 : '';
             const contentCellBgStyle = `${baseBg ? `background-color:${baseBg};` : ''}${progressBgStyle ? `${progressBgStyle};` : ''}`;
             const otherCellBgStyle = groupBg ? `background-color:${groupBg};` : '';
@@ -11030,6 +11057,7 @@ async function __tmRefreshAfterWake(reason) {
                             <span class="tm-task-text ${task.done ? 'tm-task-done' : ''}" data-level="${row.depth}" title="${esc(task.content || '')}">
                                 <span class="tm-task-content-clickable" onclick="tmJumpToTask('${task.id}', event)" title="${esc(task.content || '')}">${API.renderTaskContentHtml(task.markdown, task.content || '')}</span>
                             </span>
+                            ${progressBarHtml}
                         </div>
                     </td>
                     <td class="tm-cell-editable" style="width:${timelineStartW}px; min-width:${timelineStartW}px; max-width:${timelineStartW}px; ${otherCellBgStyle}" onclick="tmBeginCellEdit('${task.id}','startDate',this,event)">${__tmFormatTaskTime(task.startDate)}</td>
@@ -15729,6 +15757,9 @@ async function __tmRefreshAfterWake(reason) {
                         ? `--tm-checklist-progress-color:${progressBarColor};--tm-checklist-progress-percent:${progressPercent}%;`
                         : `background-image:linear-gradient(90deg, ${progressBarColor} ${progressPercent}%, transparent ${progressPercent}%);background-repeat:no-repeat;background-size:100% 3px;background-position:left bottom;`)
                     : '';
+                const progressBarHtml = (totalChildren > 0 && progressPercent > 0)
+                    ? `<span class="tm-subtask-progress-track${checklistCompact ? ' tm-subtask-progress-track--compact' : ''}" style="--tm-subtask-progress-color:${progressBarColor};--tm-subtask-progress-percent:${progressPercent}%"><span class="tm-subtask-progress-fill"></span></span>`
+                    : '';
                 const activeCls = String(task.id) === activeId ? ' tm-checklist-item--active' : '';
                 const doneCls = task.done ? ' tm-checklist-item--done' : '';
                 const reminderHtml = __tmHasReminderMark(task) ? '<span class="tm-task-reminder-emoji" title="已添加提醒">⏰</span>' : '';
@@ -15768,6 +15799,7 @@ async function __tmRefreshAfterWake(reason) {
                             </div>
                             ${meta.length ? `<div class="tm-checklist-meta">${meta.join('')}</div>` : ''}
                         </div>
+                        ${progressBarHtml}
                     </div>
                 `;
             };
@@ -15952,10 +15984,13 @@ async function __tmRefreshAfterWake(reason) {
                 const groupBg = enableGroupBg ? (currentGroupBg || resolvePinnedTaskGroupBg(task)) : '';
                 const doneSubtaskBg = (!enableGroupBg && isDoneSubtask) ? __tmWithAlpha(progressBarColor, isDark ? 0.22 : 0.14) : '';
                 const baseBg = groupBg || doneSubtaskBg;
-                const progressBgStyle = (row.hasChildren && progressPercent > 0)
+                const progressBgStyle = (totalChildren > 0 && progressPercent > 0)
                     ? (enableGroupBg && groupBg
                         ? `background-image:linear-gradient(90deg, ${progressBarColor} ${progressPercent}%, transparent ${progressPercent}%);background-repeat:no-repeat;background-size:100% 3px;background-position:left bottom;`
                         : `background-image:linear-gradient(90deg, ${progressBarColor} ${progressPercent}%, transparent ${progressPercent}%);background-repeat:no-repeat;`)
+                    : '';
+                const progressBarHtml = (totalChildren > 0 && progressPercent > 0)
+                    ? `<span class="tm-subtask-progress-track" style="--tm-subtask-progress-color:${progressBarColor};--tm-subtask-progress-percent:${progressPercent}%"><span class="tm-subtask-progress-fill"></span></span>`
                     : '';
                 const contentCellBgStyle = `${baseBg ? `background-color:${baseBg};` : ''}${progressBgStyle ? `${progressBgStyle};` : ''}`;
                 const otherCellBgStyle = groupBg ? `background-color:${groupBg};` : '';
@@ -15973,6 +16008,7 @@ async function __tmRefreshAfterWake(reason) {
                                 <span class="tm-task-text ${task.done ? 'tm-task-done' : ''}" data-level="${row.depth}" title="${esc(task.content || '')}">
                                     <span class="tm-task-content-clickable" onclick="tmJumpToTask('${task.id}', event)" title="${esc(task.content || '')}">${API.renderTaskContentHtml(task.markdown, task.content || '')}</span>
                                 </span>
+                                ${progressBarHtml}
                             </div>
                         </td>
                     <td class="tm-cell-editable tm-task-meta-cell" style="width:${timelineStartW}px; min-width:${timelineStartW}px; max-width:${timelineStartW}px; ${otherCellBgStyle}" onclick="tmBeginCellEdit('${task.id}','startDate',this,event)">${__tmFormatTaskTime(task.startDate)}</td>
@@ -27558,10 +27594,13 @@ async function __tmRefreshAfterWake(reason) {
                 ? __tmNormalizeHexColor(SettingsStore.data.progressBarColorDark, '#81c784')
                 : __tmNormalizeHexColor(SettingsStore.data.progressBarColorLight, '#4caf50');
             const groupBg = enableGroupBg ? (currentGroupBg || resolvePinnedTaskGroupBg(task)) : '';
-            const progressBgStyle = (hasChildren && progressPercent > 0)
+            const progressBgStyle = (totalChildren > 0 && progressPercent > 0)
                 ? (enableGroupBg && groupBg
                     ? `background-image: linear-gradient(90deg, ${progressBarColor} ${progressPercent}%, transparent ${progressPercent}%);background-repeat:no-repeat;background-size:100% 3px;background-position:left bottom;`
                     : `background-image: linear-gradient(90deg, ${progressBarColor} ${progressPercent}%, transparent ${progressPercent}%);background-repeat:no-repeat;`)
+                : '';
+            const progressBarHtml = (totalChildren > 0 && progressPercent > 0)
+                ? `<span class="tm-subtask-progress-track" style="--tm-subtask-progress-color:${progressBarColor};--tm-subtask-progress-percent:${progressPercent}%"><span class="tm-subtask-progress-fill"></span></span>`
                 : '';
             
             const contentIndent = 12 + depth * 16;
@@ -27616,6 +27655,7 @@ async function __tmRefreshAfterWake(reason) {
                                 </svg>
                             </button>
                             ${childStatsHtml}
+                            ${progressBarHtml}
                         </div>
                     </td>`,
                 doc: () => `
@@ -31510,8 +31550,13 @@ async function __tmRefreshAfterWake(reason) {
                 const accentStyle = checklistCompact && resolvedGroupAccent
                     ? `--tm-checklist-accent-color:${resolvedGroupAccent};`
                     : '';
-                const progressBg = (!checklistCompact && progressPercent > 0)
-                    ? `background-image:linear-gradient(90deg, ${progressBarColor} ${progressPercent}%, transparent ${progressPercent}%);background-repeat:no-repeat;background-size:100% 3px;background-position:left bottom;`
+                const progressBg = progressPercent > 0
+                    ? (checklistCompact
+                        ? `--tm-checklist-progress-color:${progressBarColor};--tm-checklist-progress-percent:${progressPercent}%;`
+                        : `background-image:linear-gradient(90deg, ${progressBarColor} ${progressPercent}%, transparent ${progressPercent}%);background-repeat:no-repeat;background-size:100% 3px;background-position:left bottom;`)
+                    : '';
+                const progressBarHtml = (totalChildren > 0 && progressPercent > 0)
+                    ? `<span class="tm-subtask-progress-track${checklistCompact ? ' tm-subtask-progress-track--compact' : ''}" style="--tm-subtask-progress-color:${progressBarColor};--tm-subtask-progress-percent:${progressPercent}%"><span class="tm-subtask-progress-fill"></span></span>`
                     : '';
                 const activeCls = String(task.id) === activeId ? ' tm-checklist-item--active' : '';
                 const doneCls = task.done ? ' tm-checklist-item--done' : '';
@@ -31550,6 +31595,7 @@ async function __tmRefreshAfterWake(reason) {
                             </div>
                             ${meta.length ? `<div class="tm-checklist-meta">${meta.join('')}</div>` : ''}
                         </div>
+                        ${progressBarHtml}
                     </div>
                 `;
             };

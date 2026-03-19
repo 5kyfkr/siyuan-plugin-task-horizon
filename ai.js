@@ -1632,9 +1632,6 @@
  .tm-ai-sidebar__task-row span{flex:1;min-width:0;word-break:break-word;}
  .tm-ai-sidebar__empty{padding:14px 10px;border:1px dashed var(--b3-theme-surface-light);border-radius:10px;font-size:12px;opacity:.72;}
 .tm-ai-sidebar--mobile .tm-ai-sidebar__head{padding-top:8px;}
-.tm-ai-sidebar--mobile .tm-ai-sidebar__head{flex-wrap:wrap;align-items:flex-start;}
-.tm-ai-sidebar--mobile .tm-ai-sidebar__head-title{order:3;flex:1 1 100%;max-width:none;}
-.tm-ai-sidebar--mobile .tm-ai-sidebar__head-actions{width:100%;justify-content:flex-end;}
 .tm-ai-sidebar--mobile .tm-ai-sidebar__grid,
 .tm-ai-sidebar--mobile .tm-ai-sidebar__grid--planner{grid-template-columns:repeat(2,minmax(0,1fr));}
 @media (max-width: 360px){
