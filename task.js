@@ -7958,17 +7958,10 @@
                 console.error(`[查询] 文档 ${did.slice(0, 8)} 查询失败:`, res.msg);
                 return { tasks: [], queryTime };
             }
-            let tasks = Array.isArray(res.data) ? res.data : [];
-            if (!ignoreExcludeCompleted && SettingsStore.data.excludeCompletedTasks && !(options && options.doneOnly === true)) {
-                tasks = tasks.filter((task) => {
-                    try {
-                        const parsed = API.parseTaskStatus(task?.markdown);
-                        return !parsed?.done;
-                    } catch (e) {
-                        return !task?.done;
-                    }
-                });
-            }
+            const tasks = Array.isArray(res.data) ? res.data : [];
+            // 注意：这里不能提前过滤已完成任务。
+            // 子任务进度条、父子层级和“父任务未完成时显示已完成子任务”的规则，都依赖完整树结构。
+            // 真正的显隐交给 applyFilters/filterVisibleTasks 统一处理。
             return { tasks, queryTime };
         },
 
@@ -8111,17 +8104,10 @@
                     return { tasks: [], queryTime };
                 }
             }
-            let tasks = Array.isArray(res.data) ? res.data : [];
-            if (!ignoreExcludeCompleted && SettingsStore.data.excludeCompletedTasks && !doneOnly) {
-                tasks = tasks.filter((task) => {
-                    try {
-                        const parsed = API.parseTaskStatus(task?.markdown);
-                        return !parsed?.done;
-                    } catch (e) {
-                        return !task?.done;
-                    }
-                });
-            }
+            const tasks = Array.isArray(res.data) ? res.data : [];
+            // 注意：这里不能提前过滤已完成任务。
+            // 子任务进度条、父子层级和“父任务未完成时显示已完成子任务”的规则，都依赖完整树结构。
+            // 真正的显隐交给 applyFilters/filterVisibleTasks 统一处理。
             const out = { tasks, queryTime };
             __tmTasksQueryCache.set(cacheKey, { t: Date.now(), v: out, docIdSet });
             return out;
