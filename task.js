@@ -7958,10 +7958,17 @@
                 console.error(`[查询] 文档 ${did.slice(0, 8)} 查询失败:`, res.msg);
                 return { tasks: [], queryTime };
             }
-            const tasks = Array.isArray(res.data) ? res.data : [];
-            // 注意：这里不能提前过滤已完成任务。
-            // 子任务进度条、父子层级和“父任务未完成时显示已完成子任务”的规则，都依赖完整树结构。
-            // 真正的显隐交给 applyFilters/filterVisibleTasks 统一处理。
+            let tasks = Array.isArray(res.data) ? res.data : [];
+            if (!ignoreExcludeCompleted && SettingsStore.data.excludeCompletedTasks && !(options && options.doneOnly === true)) {
+                tasks = tasks.filter((task) => {
+                    try {
+                        const parsed = API.parseTaskStatus(task?.markdown);
+                        return !parsed?.done;
+                    } catch (e) {
+                        return !task?.done;
+                    }
+                });
+            }
             return { tasks, queryTime };
         },
 
@@ -8104,10 +8111,17 @@
                     return { tasks: [], queryTime };
                 }
             }
-            const tasks = Array.isArray(res.data) ? res.data : [];
-            // 注意：这里不能提前过滤已完成任务。
-            // 子任务进度条、父子层级和“父任务未完成时显示已完成子任务”的规则，都依赖完整树结构。
-            // 真正的显隐交给 applyFilters/filterVisibleTasks 统一处理。
+            let tasks = Array.isArray(res.data) ? res.data : [];
+            if (!ignoreExcludeCompleted && SettingsStore.data.excludeCompletedTasks && !doneOnly) {
+                tasks = tasks.filter((task) => {
+                    try {
+                        const parsed = API.parseTaskStatus(task?.markdown);
+                        return !parsed?.done;
+                    } catch (e) {
+                        return !task?.done;
+                    }
+                });
+            }
             const out = { tasks, queryTime };
             __tmTasksQueryCache.set(cacheKey, { t: Date.now(), v: out, docIdSet });
             return out;
@@ -10996,7 +11010,9 @@ async function __tmRefreshAfterWake(reason) {
             const doneSubtaskBg = (!enableGroupBg && isDoneSubtask) ? __tmWithAlpha(progressBarColor, isDark ? 0.22 : 0.14) : '';
             const baseBg = groupBg || doneSubtaskBg;
             const progressBgStyle = (row.hasChildren && progressPercent > 0)
-                ? `background-image:linear-gradient(90deg, ${progressBarColor} ${progressPercent}%, transparent ${progressPercent}%);background-repeat:no-repeat;background-size:100% 3px;background-position:left bottom;`
+                ? (enableGroupBg && groupBg
+                    ? `background-image:linear-gradient(90deg, ${progressBarColor} ${progressPercent}%, transparent ${progressPercent}%);background-repeat:no-repeat;background-size:100% 3px;background-position:left bottom;`
+                    : `background-image:linear-gradient(90deg, ${progressBarColor} ${progressPercent}%, transparent ${progressPercent}%);background-repeat:no-repeat;`)
                 : '';
             const contentCellBgStyle = `${baseBg ? `background-color:${baseBg};` : ''}${progressBgStyle ? `${progressBgStyle};` : ''}`;
             const otherCellBgStyle = groupBg ? `background-color:${groupBg};` : '';
@@ -15937,7 +15953,9 @@ async function __tmRefreshAfterWake(reason) {
                 const doneSubtaskBg = (!enableGroupBg && isDoneSubtask) ? __tmWithAlpha(progressBarColor, isDark ? 0.22 : 0.14) : '';
                 const baseBg = groupBg || doneSubtaskBg;
                 const progressBgStyle = (row.hasChildren && progressPercent > 0)
-                    ? `background-image:linear-gradient(90deg, ${progressBarColor} ${progressPercent}%, transparent ${progressPercent}%);background-repeat:no-repeat;background-size:100% 3px;background-position:left bottom;`
+                    ? (enableGroupBg && groupBg
+                        ? `background-image:linear-gradient(90deg, ${progressBarColor} ${progressPercent}%, transparent ${progressPercent}%);background-repeat:no-repeat;background-size:100% 3px;background-position:left bottom;`
+                        : `background-image:linear-gradient(90deg, ${progressBarColor} ${progressPercent}%, transparent ${progressPercent}%);background-repeat:no-repeat;`)
                     : '';
                 const contentCellBgStyle = `${baseBg ? `background-color:${baseBg};` : ''}${progressBgStyle ? `${progressBgStyle};` : ''}`;
                 const otherCellBgStyle = groupBg ? `background-color:${groupBg};` : '';
@@ -27541,10 +27559,12 @@ async function __tmRefreshAfterWake(reason) {
                 : __tmNormalizeHexColor(SettingsStore.data.progressBarColorLight, '#4caf50');
             const groupBg = enableGroupBg ? (currentGroupBg || resolvePinnedTaskGroupBg(task)) : '';
             const progressBgStyle = (hasChildren && progressPercent > 0)
-                ? `background-image: linear-gradient(90deg, ${progressBarColor} ${progressPercent}%, transparent ${progressPercent}%);background-repeat:no-repeat;background-size:100% 3px;background-position:left bottom;`
+                ? (enableGroupBg && groupBg
+                    ? `background-image: linear-gradient(90deg, ${progressBarColor} ${progressPercent}%, transparent ${progressPercent}%);background-repeat:no-repeat;background-size:100% 3px;background-position:left bottom;`
+                    : `background-image: linear-gradient(90deg, ${progressBarColor} ${progressPercent}%, transparent ${progressPercent}%);background-repeat:no-repeat;`)
                 : '';
+            
             const contentIndent = 12 + depth * 16;
-            const contentCellStyle = `padding-left:${contentIndent}px;${progressBgStyle}`;
             const treeGuides = depth > 0
                 ? `<span class="tm-tree-guides" aria-hidden="true">${Array.from({ length: depth }, (_, i) => `<span class="tm-tree-guide-line" style="left:${18 + i * 16}px"></span>`).join('')}</span>`
                 : '';
@@ -27572,8 +27592,8 @@ async function __tmRefreshAfterWake(reason) {
                                title="置顶">
                     </td>`,
                 content: () => `
-                    <td class="tm-task-content-cell" style="width: ${widths.content || 360}px; min-width: ${widths.content || 360}px; max-width: ${widths.content || 360}px;">
-                        <div class="tm-task-cell" style="${contentCellStyle}">
+                    <td class="tm-task-content-cell" style="width: ${widths.content || 360}px; min-width: ${widths.content || 360}px; max-width: ${widths.content || 360}px; ${progressBgStyle}">
+                        <div class="tm-task-cell" style="padding-left:${contentIndent}px">
                             ${treeGuides}
                             <span class="${leadingClass}">
                                 ${leadingRing}
