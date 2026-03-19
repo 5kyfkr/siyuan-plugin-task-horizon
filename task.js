@@ -27543,8 +27543,8 @@ async function __tmRefreshAfterWake(reason) {
             const progressBgStyle = (hasChildren && progressPercent > 0)
                 ? `background-image: linear-gradient(90deg, ${progressBarColor} ${progressPercent}%, transparent ${progressPercent}%);background-repeat:no-repeat;background-size:100% 3px;background-position:left bottom;`
                 : '';
-            
             const contentIndent = 12 + depth * 16;
+            const contentCellStyle = `padding-left:${contentIndent}px;${progressBgStyle}`;
             const treeGuides = depth > 0
                 ? `<span class="tm-tree-guides" aria-hidden="true">${Array.from({ length: depth }, (_, i) => `<span class="tm-tree-guide-line" style="left:${18 + i * 16}px"></span>`).join('')}</span>`
                 : '';
@@ -27572,8 +27572,8 @@ async function __tmRefreshAfterWake(reason) {
                                title="置顶">
                     </td>`,
                 content: () => `
-                    <td class="tm-task-content-cell" style="width: ${widths.content || 360}px; min-width: ${widths.content || 360}px; max-width: ${widths.content || 360}px; ${progressBgStyle}">
-                        <div class="tm-task-cell" style="padding-left:${contentIndent}px">
+                    <td class="tm-task-content-cell" style="width: ${widths.content || 360}px; min-width: ${widths.content || 360}px; max-width: ${widths.content || 360}px;">
+                        <div class="tm-task-cell" style="${contentCellStyle}">
                             ${treeGuides}
                             <span class="${leadingClass}">
                                 ${leadingRing}
