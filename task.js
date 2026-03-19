@@ -4405,6 +4405,16 @@
         .tm-table td.tm-task-content-cell,
         .tm-timeline-row td.tm-task-content-cell {
             overflow: visible;
+            position: relative;
+        }
+
+        .tm-table-progress-bar {
+            position: absolute;
+            left: 0;
+            bottom: 0;
+            height: 3px;
+            pointer-events: none;
+            z-index: 0;
         }
 
         .tm-task-meta-cell .tm-task-remark-text {
@@ -27540,10 +27550,9 @@ async function __tmRefreshAfterWake(reason) {
                 ? __tmNormalizeHexColor(SettingsStore.data.progressBarColorDark, '#81c784')
                 : __tmNormalizeHexColor(SettingsStore.data.progressBarColorLight, '#4caf50');
             const groupBg = enableGroupBg ? (currentGroupBg || resolvePinnedTaskGroupBg(task)) : '';
-            const progressBgStyle = (hasChildren && progressPercent > 0)
-                ? `background-image: linear-gradient(90deg, ${progressBarColor} ${progressPercent}%, transparent ${progressPercent}%);background-repeat:no-repeat;background-size:100% 3px;background-position:left bottom;`
+            const progressBarHtml = (hasChildren && progressPercent > 0)
+                ? `<span class="tm-table-progress-bar" style="width:${progressPercent}%;background:${progressBarColor};"></span>`
                 : '';
-            
             const contentIndent = 12 + depth * 16;
             const treeGuides = depth > 0
                 ? `<span class="tm-tree-guides" aria-hidden="true">${Array.from({ length: depth }, (_, i) => `<span class="tm-tree-guide-line" style="left:${18 + i * 16}px"></span>`).join('')}</span>`
@@ -27572,7 +27581,8 @@ async function __tmRefreshAfterWake(reason) {
                                title="置顶">
                     </td>`,
                 content: () => `
-                    <td class="tm-task-content-cell" style="width: ${widths.content || 360}px; min-width: ${widths.content || 360}px; max-width: ${widths.content || 360}px; ${progressBgStyle}">
+                    <td class="tm-task-content-cell" style="width: ${widths.content || 360}px; min-width: ${widths.content || 360}px; max-width: ${widths.content || 360}px;">
+                        ${progressBarHtml}
                         <div class="tm-task-cell" style="padding-left:${contentIndent}px">
                             ${treeGuides}
                             <span class="${leadingClass}">
