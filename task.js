@@ -1,5 +1,5 @@
 // @name         思源笔记任务管理器
-// @version      1.8.5
+// @version      1.8.6
 // @description  任务管理器，支持自定义筛选规则分组和排序
 // @author       5KYFKR
 
@@ -7741,12 +7741,15 @@
             return '';
         },
 
-        async getSubDocIds(docId) {
+        async getSubDocIds(docId, options = null) {
             try {
                 const did = String(docId || '').trim();
                 if (!/^[0-9]+-[a-zA-Z0-9]+$/.test(did)) return [];
                 const recursiveDocLimit = Number.isFinite(Number(SettingsStore.data?.recursiveDocLimit)) ? Math.max(1, Math.min(500000, Math.round(Number(SettingsStore.data.recursiveDocLimit)))) : 2000;
-                const totalLimit = recursiveDocLimit;
+                const limitRaw = Number(options?.limit);
+                const totalLimit = Number.isFinite(limitRaw)
+                    ? Math.max(0, Math.min(500000, Math.round(limitRaw)))
+                    : recursiveDocLimit;
                 // 先获取根文档的 path
                 const pathSql = `SELECT hpath FROM blocks WHERE id = '${did.replace(/'/g, "''")}' AND type = 'd' LIMIT 1`;
                 const pathRes = await this.call('/api/query/sql', { stmt: pathSql });
@@ -7755,7 +7758,8 @@
                 const hpath = String(pathRes.data[0].hpath || '');
                 
                 // 查询子文档
-                const sql = `SELECT id FROM blocks WHERE hpath LIKE '${hpath.replace(/'/g, "''")}/%' AND type = 'd' LIMIT ${totalLimit}`;
+                const limitSql = totalLimit > 0 ? ` LIMIT ${totalLimit}` : '';
+                const sql = `SELECT id FROM blocks WHERE hpath LIKE '${hpath.replace(/'/g, "''")}/%' AND type = 'd' ORDER BY created DESC, hpath DESC${limitSql}`;
                 const res = await this.call('/api/query/sql', { stmt: sql });
                 if (res.code === 0 && res.data) {
                     return res.data.map(d => d.id);
@@ -7765,13 +7769,17 @@
             return [];
         },
 
-        async getNotebookDocuments(notebookId) {
+        async getNotebookDocuments(notebookId, options = null) {
             const box = String(notebookId || '').trim();
             if (!box) return [];
             try {
                 const recursiveDocLimit = Number.isFinite(Number(SettingsStore.data?.recursiveDocLimit)) ? Math.max(1, Math.min(500000, Math.round(Number(SettingsStore.data.recursiveDocLimit)))) : 2000;
-                const totalLimit = recursiveDocLimit;
-                const sql = `SELECT id, content, hpath FROM blocks WHERE box = '${box.replace(/'/g, "''")}' AND type = 'd' ORDER BY hpath ASC LIMIT ${totalLimit}`;
+                const limitRaw = Number(options?.limit);
+                const totalLimit = Number.isFinite(limitRaw)
+                    ? Math.max(0, Math.min(500000, Math.round(limitRaw)))
+                    : recursiveDocLimit;
+                const limitSql = totalLimit > 0 ? ` LIMIT ${totalLimit}` : '';
+                const sql = `SELECT id, content, hpath FROM blocks WHERE box = '${box.replace(/'/g, "''")}' AND type = 'd' ORDER BY created DESC, hpath DESC${limitSql}`;
                 const res = await this.call('/api/query/sql', { stmt: sql });
                 if (res.code === 0 && Array.isArray(res.data)) {
                     return res.data.map((row) => ({
@@ -12069,8 +12077,9 @@ async function __tmRefreshAfterWake(reason) {
     function __tmGetGroupSourceEntries(group) {
         const out = __tmNormalizeGroupDocEntries(group);
         const notebookId = String(group?.notebookId || '').trim();
+        const calendarOptimization = __tmGetGroupCalendarSearchOptimization(group);
         if (notebookId) {
-            out.push({ id: notebookId, kind: 'notebook', recursive: true });
+            out.push({ id: notebookId, kind: 'notebook', recursive: true, calendarOptimization });
         }
         return out;
     }
@@ -12080,10 +12089,11 @@ async function __tmRefreshAfterWake(reason) {
         const kind = String(entry.kind || 'doc').trim();
         const id = String(entry.id || '').trim();
         if (!id) return;
+        const entryCalendarOptimization = __tmNormalizeCalendarSearchOptimization(entry?.calendarOptimization);
         const recursiveDocLimit = Number.isFinite(Number(SettingsStore.data?.recursiveDocLimit))
             ? Math.max(1, Math.min(500000, Math.round(Number(SettingsStore.data.recursiveDocLimit))))
             : 2000;
-        const cacheKey = `${kind}:${id}:${entry.recursive ? 1 : 0}:${recursiveDocLimit}`;
+        const cacheKey = `${kind}:${id}:${entry.recursive ? 1 : 0}:${recursiveDocLimit}:${entryCalendarOptimization.enabled ? 1 : 0}:${Number(entryCalendarOptimization.days) || 0}`;
         const now = Date.now();
         const cacheTtlMs = kind === 'notebook' ? 15000 : 10000;
         const cacheEnt = __tmDocExpandCache.get(cacheKey);
@@ -12100,8 +12110,17 @@ async function __tmRefreshAfterWake(reason) {
         };
         if (kind === 'notebook') {
             try {
-                const docs = await API.getNotebookDocuments(id);
-                (Array.isArray(docs) ? docs : []).forEach((doc) => pushLocal(doc?.id));
+                const docs = await API.getNotebookDocuments(id, entryCalendarOptimization.enabled ? { limit: 0 } : null);
+                let notebookDocIds = (Array.isArray(docs) ? docs : []).map((doc) => String(doc?.id || '').trim()).filter(Boolean);
+                if (entryCalendarOptimization.enabled && notebookDocIds.length > 0) {
+                    const optimized = await __tmApplyCalendarSearchOptimizationToDocIds(notebookDocIds, {
+                        id: `__tm-notebook-${id}`,
+                        calendarSearchOptimization: entryCalendarOptimization,
+                    });
+                    notebookDocIds = Array.isArray(optimized) ? optimized : notebookDocIds;
+                }
+                if (notebookDocIds.length > recursiveDocLimit) notebookDocIds = notebookDocIds.slice(0, recursiveDocLimit);
+                notebookDocIds.forEach((docId) => pushLocal(docId));
             } catch (e) {}
             __tmDocExpandCache.set(cacheKey, { t: Date.now(), ids: nextIds });
             return;
@@ -12109,8 +12128,17 @@ async function __tmRefreshAfterWake(reason) {
         pushLocal(id);
         if (entry.recursive && API && typeof API.getSubDocIds === 'function') {
             try {
-                const subIds = await API.getSubDocIds(id);
-                (Array.isArray(subIds) ? subIds : []).forEach((sid) => pushLocal(sid));
+                let subIds = await API.getSubDocIds(id, entryCalendarOptimization.enabled ? { limit: 0 } : null);
+                subIds = Array.isArray(subIds) ? subIds.map((sid) => String(sid || '').trim()).filter(Boolean) : [];
+                if (entryCalendarOptimization.enabled && subIds.length > 0) {
+                    const optimized = await __tmApplyCalendarSearchOptimizationToDocIds(subIds, {
+                        id: `__tm-doc-${id}`,
+                        calendarSearchOptimization: entryCalendarOptimization,
+                    });
+                    subIds = Array.isArray(optimized) ? optimized : subIds;
+                }
+                if (subIds.length > recursiveDocLimit) subIds = subIds.slice(0, recursiveDocLimit);
+                subIds.forEach((sid) => pushLocal(sid));
             } catch (e) {}
         }
         __tmDocExpandCache.set(cacheKey, { t: Date.now(), ids: nextIds });
