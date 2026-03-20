@@ -4508,11 +4508,11 @@
                 confidence: String(suggestion?.confidence || '').trim(),
                 reason: String(suggestion?.reason || '未识别到明确日期').trim(),
             };
-        }).filter((it) => it.taskId);
+        }).filter((it) => it.taskId && it.suggestedDate);
         const modal = setModal(title, `
             <div class="tm-ai-box">
                 <h4>批量预览</h4>
-                <div class="tm-ai-hint">只会写入勾选任务的 completionTime；未识别项默认不勾选。</div>
+                <div class="tm-ai-hint">这里只展示识别到明确日期的任务；只会写入勾选任务的 completionTime。</div>
             </div>
             <div class="tm-ai-box">
                 <div class="tm-ai-list">
@@ -4525,7 +4525,7 @@
                                 <div class="tm-ai-hint">置信：${esc(item.confidence || '无')}；${esc(item.reason)}</div>
                             </div>
                         </label>
-                    `).join('') || `<div class="tm-ai-hint">没有可预览的任务。</div>`}
+                    `).join('') || `<div class="tm-ai-hint">没有识别到明确日期的任务。</div>`}
                 </div>
             </div>
             <div class="tm-ai-actions">

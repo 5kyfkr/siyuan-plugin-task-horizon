@@ -1,5 +1,5 @@
 // @name         思源笔记任务管理器
-// @version      1.8.3
+// @version      1.8.4
 // @description  任务管理器，支持自定义筛选规则分组和排序
 // @author       5KYFKR
 
@@ -3327,7 +3327,7 @@
         .tm-checklist-pane--compact .tm-checklist-item {
             align-items: center;
             min-height: 38px;
-            padding: 4px 10px 4px calc(10px + var(--tm-checklist-compact-indent, 0px));
+            padding: 4px 10px 4px calc(6px + var(--tm-checklist-compact-indent, 0px));
             border: 0;
             border-bottom: 1px solid color-mix(in srgb, var(--tm-border-color) 92%, transparent);
             border-radius: 0;
@@ -4291,6 +4291,45 @@
 
         .tm-table tr.tm-timer-focus:hover {
             background: rgba(66, 133, 244, 0.16);
+        }
+
+        .tm-checklist-item.tm-timer-dim {
+            opacity: 0.28;
+        }
+
+        .tm-checklist-item.tm-timer-focus {
+            opacity: 1;
+            --tm-checklist-item-border-color: var(--tm-primary-color);
+            border-color: var(--tm-primary-color);
+            background: color-mix(in srgb, var(--tm-bg-color) 88%, var(--tm-primary-color) 12%);
+            box-shadow: inset 0 0 0 1px var(--tm-primary-color), 0 12px 24px rgba(66, 133, 244, 0.16);
+        }
+
+        .tm-checklist-item.tm-timer-focus:hover {
+            background: color-mix(in srgb, var(--tm-bg-color) 84%, var(--tm-primary-color) 16%);
+            box-shadow: inset 0 0 0 1px var(--tm-primary-color), 0 14px 28px rgba(66, 133, 244, 0.2);
+        }
+
+        .tm-checklist-pane--compact .tm-checklist-item.tm-timer-focus {
+            border: 0;
+            border-bottom: 1px solid color-mix(in srgb, var(--tm-border-color) 92%, transparent);
+            border-radius: 12px;
+            background-color: color-mix(in srgb, var(--tm-bg-color) 88%, #2f6fed 8%) !important;
+            box-shadow:
+                inset 2px 0 0 var(--tm-primary-color),
+                inset -2px 0 0 var(--tm-primary-color),
+                inset 0 2px 0 var(--tm-primary-color),
+                inset 0 -2px 0 var(--tm-primary-color);
+            z-index: 1;
+        }
+
+        .tm-checklist-pane--compact .tm-checklist-item.tm-timer-focus:hover {
+            background-color: color-mix(in srgb, var(--tm-bg-color) 84%, #2f6fed 12%) !important;
+            box-shadow:
+                inset 2px 0 0 var(--tm-primary-color),
+                inset -2px 0 0 var(--tm-primary-color),
+                inset 0 2px 0 var(--tm-primary-color),
+                inset 0 -2px 0 var(--tm-primary-color);
         }
 
         /* 列宽调整手柄 */
@@ -5764,8 +5803,10 @@
             aiMiniMaxTimeoutMs: 30000,
             aiDefaultContextMode: 'nearby',
             aiScheduleWindows: ['09:00-18:00'],
+            aiSideDockEnabled: true,
             pinNewTasksByDefault: false,
             newTaskDocId: '',
+            newTaskDailyNoteAppendToBottom: false,
             enableTomatoIntegration: true,
             tomatoSpentAttrMode: 'minutes',
             tomatoSpentAttrKeyMinutes: 'custom-tomato-minutes',
@@ -5815,6 +5856,10 @@
             calendarSideDockEnabled: false,
             calendarSideDockWidth: 340,
             checklistDetailWidth: 320,
+            docTopbarButtonDesktop: true,
+            docTopbarButtonMobile: true,
+            windowTopbarIconDesktop: true,
+            windowTopbarIconMobile: true,
             defaultDocId: '',
             defaultDocIdByGroup: {},
             // 默认状态选项
@@ -6021,8 +6066,10 @@
                                 if (typeof cloudData.taskContentWrapMaxLines === 'number') this.data.taskContentWrapMaxLines = cloudData.taskContentWrapMaxLines;
                                 if (typeof cloudData.taskRemarkWrapMaxLines === 'number') this.data.taskRemarkWrapMaxLines = cloudData.taskRemarkWrapMaxLines;
                                 if (typeof cloudData.enableQuickbar === 'boolean') this.data.enableQuickbar = cloudData.enableQuickbar;
+                                if (typeof cloudData.aiSideDockEnabled === 'boolean') this.data.aiSideDockEnabled = cloudData.aiSideDockEnabled;
                                 if (typeof cloudData.pinNewTasksByDefault === 'boolean') this.data.pinNewTasksByDefault = cloudData.pinNewTasksByDefault;
                                 if (typeof cloudData.newTaskDocId === 'string') this.data.newTaskDocId = cloudData.newTaskDocId;
+                                if (typeof cloudData.newTaskDailyNoteAppendToBottom === 'boolean') this.data.newTaskDailyNoteAppendToBottom = cloudData.newTaskDailyNoteAppendToBottom;
                                 if (typeof cloudData.enableTomatoIntegration === 'boolean') this.data.enableTomatoIntegration = cloudData.enableTomatoIntegration;
                                 if (typeof cloudData.tomatoSpentAttrMode === 'string') this.data.tomatoSpentAttrMode = cloudData.tomatoSpentAttrMode;
                                 if (typeof cloudData.tomatoSpentAttrKeyMinutes === 'string') this.data.tomatoSpentAttrKeyMinutes = cloudData.tomatoSpentAttrKeyMinutes;
@@ -6071,6 +6118,10 @@
                                 if (typeof cloudData.calendarShowLunar === 'boolean') this.data.calendarShowLunar = cloudData.calendarShowLunar;
                                 if (typeof cloudData.calendarSideDockEnabled === 'boolean') this.data.calendarSideDockEnabled = cloudData.calendarSideDockEnabled;
                                 if (typeof cloudData.calendarSideDockWidth === 'number') this.data.calendarSideDockWidth = cloudData.calendarSideDockWidth;
+                                if (typeof cloudData.docTopbarButtonDesktop === 'boolean') this.data.docTopbarButtonDesktop = cloudData.docTopbarButtonDesktop;
+                                if (typeof cloudData.docTopbarButtonMobile === 'boolean') this.data.docTopbarButtonMobile = cloudData.docTopbarButtonMobile;
+                                if (typeof cloudData.windowTopbarIconDesktop === 'boolean') this.data.windowTopbarIconDesktop = cloudData.windowTopbarIconDesktop;
+                                if (typeof cloudData.windowTopbarIconMobile === 'boolean') this.data.windowTopbarIconMobile = cloudData.windowTopbarIconMobile;
                                 if (typeof cloudData.defaultDocId === 'string') this.data.defaultDocId = cloudData.defaultDocId;
                                 if (cloudData.defaultDocIdByGroup && typeof cloudData.defaultDocIdByGroup === 'object') this.data.defaultDocIdByGroup = cloudData.defaultDocIdByGroup;
                                 if (cloudData.priorityScoreConfig && typeof cloudData.priorityScoreConfig === 'object') this.data.priorityScoreConfig = cloudData.priorityScoreConfig;
@@ -6296,6 +6347,10 @@
             this.data.calendarSideDockEnabled = Storage.get('tm_calendar_side_dock_enabled', this.data.calendarSideDockEnabled);
             this.data.calendarSideDockWidth = Storage.get('tm_calendar_side_dock_width', this.data.calendarSideDockWidth);
             this.data.checklistDetailWidth = Storage.get('tm_checklist_detail_width', this.data.checklistDetailWidth);
+            this.data.docTopbarButtonDesktop = !!Storage.get('tm_doc_topbar_button_desktop', this.data.docTopbarButtonDesktop);
+            this.data.docTopbarButtonMobile = !!Storage.get('tm_doc_topbar_button_mobile', this.data.docTopbarButtonMobile);
+            this.data.windowTopbarIconDesktop = !!Storage.get('tm_window_topbar_icon_desktop', this.data.windowTopbarIconDesktop);
+            this.data.windowTopbarIconMobile = !!Storage.get('tm_window_topbar_icon_mobile', this.data.windowTopbarIconMobile);
             this.data.calendarColorFocus = Storage.get('tm_calendar_color_focus', this.data.calendarColorFocus);
             this.data.calendarColorBreak = Storage.get('tm_calendar_color_break', this.data.calendarColorBreak);
             this.data.calendarColorStopwatch = Storage.get('tm_calendar_color_stopwatch', this.data.calendarColorStopwatch);
@@ -6344,6 +6399,7 @@
             this.data.docColorMap = Storage.get('tm_doc_color_map', this.data.docColorMap) || {};
             this.data.docColorSeed = Storage.get('tm_doc_color_seed', this.data.docColorSeed);
             this.data.aiEnabled = !!Storage.get('tm_ai_enabled', this.data.aiEnabled);
+            this.data.aiSideDockEnabled = !!Storage.get('tm_ai_side_dock_enabled', this.data.aiSideDockEnabled);
             this.data.aiProvider = String(Storage.get('tm_ai_provider', this.data.aiProvider) || this.data.aiProvider).trim() === 'deepseek' ? 'deepseek' : 'minimax';
             this.data.aiMiniMaxApiKey = String(Storage.get('tm_ai_minimax_api_key', this.data.aiMiniMaxApiKey) || '');
             this.data.aiMiniMaxBaseUrl = String(Storage.get('tm_ai_minimax_base_url', this.data.aiMiniMaxBaseUrl) || this.data.aiMiniMaxBaseUrl).trim() || 'https://api.minimaxi.com/anthropic';
@@ -6362,6 +6418,7 @@
             if (!Array.isArray(this.data.aiScheduleWindows)) this.data.aiScheduleWindows = String(this.data.aiScheduleWindows || '').split(/\r?\n/);
             this.data.aiScheduleWindows = this.data.aiScheduleWindows.map(v => String(v || '').trim()).filter(Boolean);
             if (!this.data.aiScheduleWindows.length) this.data.aiScheduleWindows = ['09:00-18:00'];
+            this.data.newTaskDailyNoteAppendToBottom = !!Storage.get('tm_new_task_daily_note_append_to_bottom', this.data.newTaskDailyNoteAppendToBottom);
             const savedWidths = Storage.get('tm_column_widths', null);
             if (savedWidths && typeof savedWidths === 'object') {
                 if (savedWidths.customTime && !savedWidths.completionTime) {
@@ -6470,6 +6527,7 @@
             Storage.set('tm_enable_quickbar', !!this.data.enableQuickbar);
             Storage.set('tm_pin_new_tasks_by_default', !!this.data.pinNewTasksByDefault);
             Storage.set('tm_new_task_doc_id', String(this.data.newTaskDocId || '').trim());
+            Storage.set('tm_new_task_daily_note_append_to_bottom', !!this.data.newTaskDailyNoteAppendToBottom);
             Storage.set('tm_doc_tab_sort_mode', String(this.data.docTabSortMode || 'created_desc').trim() || 'created_desc');
             Storage.set('tm_task_auto_wrap_enabled', !!this.data.taskAutoWrapEnabled);
             Storage.set('tm_task_content_wrap_max_lines', Number(this.data.taskContentWrapMaxLines) || 3);
@@ -6507,6 +6565,10 @@
             Storage.set('tm_calendar_side_dock_enabled', !!this.data.calendarSideDockEnabled);
             Storage.set('tm_calendar_side_dock_width', Number(this.data.calendarSideDockWidth) || 340);
             Storage.set('tm_checklist_detail_width', Number(this.data.checklistDetailWidth) || 320);
+            Storage.set('tm_doc_topbar_button_desktop', !!this.data.docTopbarButtonDesktop);
+            Storage.set('tm_doc_topbar_button_mobile', !!this.data.docTopbarButtonMobile);
+            Storage.set('tm_window_topbar_icon_desktop', !!this.data.windowTopbarIconDesktop);
+            Storage.set('tm_window_topbar_icon_mobile', !!this.data.windowTopbarIconMobile);
             Storage.set('tm_calendar_color_focus', String(this.data.calendarColorFocus || '').trim());
             Storage.set('tm_calendar_color_break', String(this.data.calendarColorBreak || '').trim());
             Storage.set('tm_calendar_color_stopwatch', String(this.data.calendarColorStopwatch || '').trim());
@@ -6553,6 +6615,7 @@
             Storage.set('tm_doc_color_map', this.data.docColorMap || {});
             Storage.set('tm_doc_color_seed', Number(this.data.docColorSeed) || 1);
             Storage.set('tm_ai_enabled', !!this.data.aiEnabled);
+            Storage.set('tm_ai_side_dock_enabled', !!this.data.aiSideDockEnabled);
             Storage.set('tm_ai_provider', String(this.data.aiProvider || '').trim() === 'deepseek' ? 'deepseek' : 'minimax');
             Storage.set('tm_ai_minimax_api_key', String(this.data.aiMiniMaxApiKey || ''));
             Storage.set('tm_ai_minimax_base_url', String(this.data.aiMiniMaxBaseUrl || '').trim() || 'https://api.minimaxi.com/anthropic');
@@ -6622,10 +6685,16 @@
             this.data.kanbanColumnWidth = Number.isFinite(kw) ? Math.max(220, Math.min(520, Math.round(kw))) : 320;
             this.data.docH2SubgroupEnabled = this.data.docH2SubgroupEnabled !== false;
             this.data.taskAutoWrapEnabled = this.data.taskAutoWrapEnabled !== false;
+            this.data.aiSideDockEnabled = this.data.aiSideDockEnabled !== false;
             const wrapContentLines = Number(this.data.taskContentWrapMaxLines);
             this.data.taskContentWrapMaxLines = Number.isFinite(wrapContentLines) ? Math.max(1, Math.min(10, Math.round(wrapContentLines))) : 3;
             const wrapRemarkLines = Number(this.data.taskRemarkWrapMaxLines);
             this.data.taskRemarkWrapMaxLines = Number.isFinite(wrapRemarkLines) ? Math.max(1, Math.min(10, Math.round(wrapRemarkLines))) : 2;
+            this.data.newTaskDailyNoteAppendToBottom = !!this.data.newTaskDailyNoteAppendToBottom;
+            this.data.docTopbarButtonDesktop = this.data.docTopbarButtonDesktop !== false;
+            this.data.docTopbarButtonMobile = this.data.docTopbarButtonMobile !== false;
+            this.data.windowTopbarIconDesktop = this.data.windowTopbarIconDesktop !== false;
+            this.data.windowTopbarIconMobile = this.data.windowTopbarIconMobile !== false;
             this.data.timelineForceSortByCompletionNearToday = !!this.data.timelineForceSortByCompletionNearToday;
             this.data.groupSortByBestSubtaskTimeInTimeQuadrant = !!this.data.groupSortByBestSubtaskTimeInTimeQuadrant;
             this.data.whiteboardLinks = Array.isArray(this.data.whiteboardLinks) ? this.data.whiteboardLinks : [];
@@ -9990,6 +10059,14 @@ async function __tmRefreshAfterWake(reason) {
         const ua = navigator.userAgent || '';
         return /Mobile|Android|iPhone|iPad|iPod/i.test(ua) || (window.innerWidth || 0) <= 768;
     };
+
+    const __tmShouldShowDocTopbarButton = () => (__tmIsMobileDevice()
+        ? (SettingsStore.data.docTopbarButtonMobile !== false)
+        : (SettingsStore.data.docTopbarButtonDesktop !== false));
+
+    const __tmShouldShowWindowTopbarIcon = () => (__tmIsMobileDevice()
+        ? (SettingsStore.data.windowTopbarIconMobile !== false)
+        : (SettingsStore.data.windowTopbarIconDesktop !== false));
 
     const __tmGetFontSize = () => {
         const base = SettingsStore.data.fontSize || 14;
@@ -15715,6 +15792,13 @@ async function __tmRefreshAfterWake(reason) {
                         ? `--tm-checklist-progress-color:${progressBarColor};--tm-checklist-progress-percent:${progressPercent}%;`
                         : `background-image:linear-gradient(90deg, ${progressBarColor} ${progressPercent}%, transparent ${progressPercent}%);background-repeat:no-repeat;background-size:100% 3px;background-position:left bottom;`)
                     : '';
+                const tomatoFocusTaskId = SettingsStore.data.enableTomatoIntegration ? String(state.timerFocusTaskId || '').trim() : '';
+                const tomatoFocusModeEnabled = __tmIsTomatoFocusModeEnabled();
+                const timerCls = tomatoFocusTaskId
+                    ? (tomatoFocusTaskId === String(task.id)
+                        ? ' tm-timer-focus'
+                        : (tomatoFocusModeEnabled ? ' tm-timer-dim' : ''))
+                    : '';
                 const activeCls = String(task.id) === activeId ? ' tm-checklist-item--active' : '';
                 const doneCls = task.done ? ' tm-checklist-item--done' : '';
                 const reminderHtml = __tmHasReminderMark(task) ? '<span class="tm-task-reminder-emoji" title="已添加提醒">⏰</span>' : '';
@@ -15738,7 +15822,7 @@ async function __tmRefreshAfterWake(reason) {
                     ? `--tm-checklist-compact-indent:${indent}px;`
                     : `margin-left:${indent}px;`;
                 return `
-                    <div class="tm-checklist-item${activeCls}${doneCls}" data-id="${esc(String(task.id || ''))}" data-depth="${depth}" draggable="true" ondragstart="tmDragTaskStart(event, '${escSq(String(task.id || ''))}')" ondragend="tmDragTaskEnd(event)" style="${itemIndentStyle}${accentStyle}${baseBg}${progressBg}" onclick="tmChecklistSelectTask('${escSq(String(task.id || ''))}', event)" oncontextmenu="tmShowTaskContextMenu(event, '${escSq(String(task.id || ''))}')">
+                    <div class="tm-checklist-item${activeCls}${doneCls}${timerCls}" data-id="${esc(String(task.id || ''))}" data-depth="${depth}" draggable="true" ondragstart="tmDragTaskStart(event, '${escSq(String(task.id || ''))}')" ondragend="tmDragTaskEnd(event)" style="${itemIndentStyle}${accentStyle}${baseBg}${progressBg}" onclick="tmChecklistSelectTask('${escSq(String(task.id || ''))}', event)" oncontextmenu="tmShowTaskContextMenu(event, '${escSq(String(task.id || ''))}')">
                         <div class="tm-checklist-leading${hasChildren ? ' tm-checklist-leading--branch' : ''}${hasChildren && collapsed ? ' tm-checklist-leading--collapsed' : ''}">
                             ${hasChildren ? `<span class="tm-tree-toggle" onclick="tmToggleCollapse('${escSq(String(task.id || ''))}', event)" style="opacity:1;pointer-events:auto;color:var(--tm-text-color);"><svg class="tm-tree-toggle-icon" viewBox="0 0 16 16" width="16" height="16" style="transform:${collapsed ? 'rotate(0deg)' : 'rotate(90deg)'};"><path d="M6 4l4 4-4 4" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg></span>` : '<span class="tm-tree-toggle tm-tree-toggle--placeholder" aria-hidden="true"></span>'}
                             ${hasChildren && collapsed ? '<span class="tm-task-leading-ring" aria-hidden="true"></span>' : ''}
@@ -17935,9 +18019,10 @@ async function __tmRefreshAfterWake(reason) {
                                 </div>
                                 ${__tmIsAiFeatureEnabled() ? `
                                 <div class="tm-mobile-only-item" style="display:flex; gap:10px; align-items:center;">
-                                    <button class="tm-btn tm-btn-info" onclick="window.tmAiOpenChat?.(); tmHideMobileMenu();" style="flex:1; padding: 6px;">
-                                        🤖 AI 对话
-                                    </button>
+                                    <div class="tm-btn tm-btn-info" style="flex:1; padding: 6px 10px; display:flex; align-items:center; justify-content:space-between; gap:10px;">
+                                        <span>AI 对话</span>
+                                        <input class="b3-switch fn__flex-center" type="checkbox" ${SettingsStore.data.aiSideDockEnabled ? 'checked' : ''} onchange="tmToggleAiSideDock(this.checked); tmHideMobileMenu();">
+                                    </div>
                                 </div>
                                 ` : ''}
                                 <div class="tm-mobile-only-item" style="display:flex; gap:10px; align-items:center;">
@@ -19050,6 +19135,7 @@ async function __tmRefreshAfterWake(reason) {
 
     function __tmShouldShowAiSidebar() {
         if (!__tmIsAiFeatureEnabled()) return false;
+        if (!SettingsStore.data.aiSideDockEnabled) return false;
         const mode = String(state.viewMode || '').trim();
         return mode === 'list' || mode === 'checklist' || mode === 'timeline' || mode === 'kanban' || mode === 'whiteboard' || mode === 'calendar';
     }
@@ -19100,6 +19186,23 @@ async function __tmRefreshAfterWake(reason) {
         render();
     };
 
+    window.tmToggleAiSideDock = async function(enabled) {
+        const next = (typeof enabled === 'boolean') ? enabled : !SettingsStore.data.aiSideDockEnabled;
+        SettingsStore.data.aiSideDockEnabled = !!next;
+        try { await SettingsStore.save(); } catch (e) {}
+        if (!next) {
+            if (__tmIsMobileDevice()) {
+                state.aiMobilePanelOpen = false;
+            } else {
+                state.aiSidebarOpen = false;
+                try { Storage.set('tm_ai_sidebar_open', false); } catch (e) {}
+            }
+            render();
+            return false;
+        }
+        return await window.tmOpenAiSidebar({ __tmAiPendingOpen: true });
+    };
+
     window.tmToggleAiSidebar = async function(payload) {
         if (__tmIsMobileDevice()) {
             if (state.aiMobilePanelOpen) return window.tmCloseAiSidebar();
@@ -19110,6 +19213,10 @@ async function __tmRefreshAfterWake(reason) {
     };
 
     window.tmOpenAiSidebar = async function(payload) {
+        if (SettingsStore.data.aiSideDockEnabled !== true) {
+            SettingsStore.data.aiSideDockEnabled = true;
+            try { await SettingsStore.save(); } catch (e) {}
+        }
         if (__tmIsMobileDevice()) {
             state.aiMobilePanelOpen = true;
         } else {
@@ -23827,7 +23934,12 @@ async function __tmRefreshAfterWake(reason) {
             <button class="tm-btn tm-btn-info" onclick="tmShowSearchModal(); document.getElementById('tmDesktopMenu').remove()" style="text-align:left; padding: 6px 12px;">🔍 搜索${state.searchKeyword ? ` (${String(state.searchKeyword || '').trim()})` : ''}</button>
             <button class="tm-btn tm-btn-info" onclick="tmShowSummaryModal(); document.getElementById('tmDesktopMenu').remove()" style="text-align:left; padding: 6px 12px;">📝 摘要</button>
             <button class="tm-btn tm-btn-info" onclick="window.tmAiSemanticCompletionPreview?.(); document.getElementById('tmDesktopMenu').remove()" style="text-align:left; padding: 6px 12px;">📅 语义日期</button>
-            ${__tmIsAiFeatureEnabled() ? `<button class="tm-btn tm-btn-info" onclick="window.tmAiOpenChat?.(); document.getElementById('tmDesktopMenu').remove()" style="text-align:left; padding: 6px 12px;">🤖 AI 对话</button>` : ''}
+            ${__tmIsAiFeatureEnabled() ? `
+            <div class="tm-btn tm-btn-info" style="text-align:left; padding: 6px 12px; display:flex; align-items:center; justify-content:space-between; gap:10px;">
+                <span>AI 对话</span>
+                <input class="b3-switch fn__flex-center" type="checkbox" ${SettingsStore.data.aiSideDockEnabled ? 'checked' : ''} onchange="tmToggleAiSideDock(this.checked); document.getElementById('tmDesktopMenu').remove()">
+            </div>
+            ` : ''}
             <div class="tm-btn tm-btn-info" style="text-align:left; padding: 6px 12px; display:flex; align-items:center; justify-content:space-between; gap:10px;">
                 <span>日历侧边栏</span>
                 <input class="b3-switch fn__flex-center" type="checkbox" ${SettingsStore.data.calendarSideDockEnabled ? 'checked' : ''} onchange="tmToggleCalendarSideDock(this.checked); document.getElementById('tmDesktopMenu').remove()">
@@ -24891,6 +25003,7 @@ async function __tmRefreshAfterWake(reason) {
                 const snap = snapMap?.[id];
                 const docId = String(snap?.docId || __tmGetTaskDocIdById(id) || '').trim();
                 if (!docId) return false;
+                if (snap?.done !== true) return false;
                 // 仅清理“当前加载文档范围”内的冻结任务，避免跨分组误删
                 return scopeDocSet.has(docId);
             });
@@ -29741,7 +29854,7 @@ async function __tmRefreshAfterWake(reason) {
         }
         menu.appendChild(createItem('✏️ 修改内容', () => tmEdit(taskId)));
         if (tomatoEnabled) {
-            menu.appendChild(createItem('⏰ 设置提醒', () => tmReminder(taskId)));
+            menu.appendChild(createItem('⏰ 提醒', () => tmReminder(taskId)));
         }
         menu.appendChild(createItem('🗑️ 删除任务', () => tmDelete(taskId), true));
 
@@ -29867,7 +29980,7 @@ async function __tmRefreshAfterWake(reason) {
         }
     }
 
-    async function __tmCreateTaskInDoc({ docId, content, priority, completionTime, pinned, customStatus, atTop, localInsert = true } = {}) {
+    async function __tmCreateTaskInDoc({ docId, content, priority, completionTime, pinned, customStatus, atTop, appendToBottom, localInsert = true } = {}) {
         const parentDocId = String(docId || '').trim();
         const text = String(content || '').trim();
         if (!parentDocId) throw new Error('未设置文档');
@@ -29878,7 +29991,9 @@ async function __tmRefreshAfterWake(reason) {
         if (atTop) {
             try { nextID = String(await API.getFirstDirectChildIdOfDoc(parentDocId) || '').trim(); } catch (e) { nextID = ''; }
         }
-        const insertedId = await API.insertBlock(parentDocId, md, nextID || undefined);
+        const insertedId = appendToBottom && !atTop
+            ? await API.appendBlock(parentDocId, md)
+            : await API.insertBlock(parentDocId, md, nextID || undefined);
         // 某些端会返回外层列表块 ID，需要继续解析到真正的任务块。
         let taskId = await __tmResolveInsertedTaskBlockId(insertedId);
 
@@ -30209,38 +30324,41 @@ async function __tmRefreshAfterWake(reason) {
                 
                 <input type="text" id="tmQuickAddInput" class="tm-prompt-input" placeholder="输入事项…" style="margin-top:16px; font-size: 16px; padding: 12px;">
                 
-                <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-top:16px;">
-                    <button class="tm-btn tm-btn-secondary" onclick="tmQuickAddOpenDocPicker()" style="padding: 6px 12px; font-size: 13px; display:flex; align-items:center; gap:4px;">
-                        📁 <span id="tmQuickAddDocName">文档</span>
-                    </button>
-                    
-                    <button id="tmQuickAddPriorityBtn" class="tm-btn tm-btn-secondary" onclick="tmQuickAddCyclePriority()" style="padding: 6px 12px; font-size: 13px; display:flex; align-items:center; gap:4px;">
-                        ${__tmRenderPriorityJira('none', false)}
-                    </button>
+                <div style="display:flex;gap:10px;align-items:flex-start;flex-wrap:wrap;margin-top:16px;">
+                    <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;flex:1 1 280px;min-width:0;">
+                        <button class="tm-btn tm-btn-secondary" onclick="tmQuickAddOpenDocPicker()" style="padding: 6px 12px; font-size: 13px; display:flex; align-items:center; gap:4px; max-width:100%;">
+                            📁 <span id="tmQuickAddDocName">文档</span>
+                        </button>
+                        
+                        <button id="tmQuickAddPriorityBtn" class="tm-btn tm-btn-secondary" onclick="tmQuickAddCyclePriority()" style="padding: 6px 12px; font-size: 13px; display:flex; align-items:center; gap:4px;">
+                            ${__tmRenderPriorityJira('none', false)}
+                        </button>
 
-                    <div style="display:flex;align-items:center;gap:6px;">
-                        <button id="tmQuickAddStatusBtn" class="tm-btn tm-btn-secondary" onclick="tmQuickAddOpenStatusPicker()" style="padding: 6px 10px; font-size: 13px; height: 32px; display:flex; align-items:center; gap:6px;">
-                            🏷 状态
+                        <div style="display:flex;align-items:center;gap:6px;">
+                            <button id="tmQuickAddStatusBtn" class="tm-btn tm-btn-secondary" onclick="tmQuickAddOpenStatusPicker()" style="padding: 6px 10px; font-size: 13px; height: 32px; display:flex; align-items:center; gap:6px;">
+                                🏷 状态
+                            </button>
+                        </div>
+                        
+                        <div style="position:relative; display:inline-block; max-width:100%;">
+                            <!-- 桌面端/移动端通用的日期选择器 -->
+                            <div style="position:relative; display:inline-block; max-width:100%;">
+                                <button class="tm-btn tm-btn-secondary" onclick="tmQuickAddOpenDatePicker()" style="padding: 6px 12px; font-size: 13px; display:flex; align-items:center; gap:4px; max-width:100%;">
+                                    🗓 <span id="tmQuickAddDateLabel" style="display:inline-block; max-width:120px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">完成日期</span>
+                                </button>
+                                <input type="date" id="tmQuickAddDateInput" onchange="tmQuickAddDateChanged(this.value)" 
+                                       style="position:absolute; opacity:0; width:1px; height:1px; left:0; bottom:0; pointer-events:none; border:0; padding:0; margin:0; overflow:hidden; z-index:-1;">
+                            </div>
+                        </div>
+
+                        <button id="tmQuickAddReminderBtn" class="tm-btn tm-btn-secondary" onclick="tmQuickAddToggleReminder()" style="padding: 6px 12px; font-size: 13px; display:flex; align-items:center; gap:4px;">
+                            ⏰ <span>提醒</span>
                         </button>
                     </div>
-                    
-                    <div style="position:relative; display:inline-block;">
-                        <!-- 桌面端/移动端通用的日期选择器 -->
-                        <div style="position:relative; display:inline-block;">
-                            <button class="tm-btn tm-btn-secondary" onclick="tmQuickAddOpenDatePicker()" style="padding: 6px 12px; font-size: 13px; display:flex; align-items:center; gap:4px;">
-                                🗓 <span id="tmQuickAddDateLabel">完成日期</span>
-                            </button>
-                            <input type="date" id="tmQuickAddDateInput" onchange="tmQuickAddDateChanged(this.value)" 
-                                   style="position:absolute; opacity:0; width:1px; height:1px; left:0; bottom:0; pointer-events:none; border:0; padding:0; margin:0; overflow:hidden; z-index:-1;">
-                        </div>
+
+                    <div style="display:flex; justify-content:flex-end; flex:0 0 auto; margin-left:auto; min-width:max-content;">
+                        <button class="tm-btn tm-btn-primary" id="tmQuickAddSubmitBtn" onclick="tmQuickAddSubmit()" style="padding: 6px 14px; font-size: 13px; min-width: 96px; text-align:center; white-space:nowrap;">提交</button>
                     </div>
-
-                    <button id="tmQuickAddReminderBtn" class="tm-btn tm-btn-secondary" onclick="tmQuickAddToggleReminder()" style="padding: 6px 12px; font-size: 13px; display:flex; align-items:center; gap:4px;">
-                        ⏰ <span>设置提醒</span>
-                    </button>
-
-                    <div style="flex:1;"></div>
-                    <button class="tm-btn tm-btn-primary" id="tmQuickAddSubmitBtn" onclick="tmQuickAddSubmit()" style="padding: 6px 14px; font-size: 13px;">提交</button>
                 </div>
             </div>
         `;
@@ -30366,7 +30484,7 @@ async function __tmRefreshAfterWake(reason) {
                 reminderBtn.style.borderColor = active ? 'var(--tm-primary-color)' : '';
                 reminderBtn.style.background = active ? 'color-mix(in srgb, var(--tm-bg-color) 82%, var(--tm-primary-color) 18%)' : '';
                 reminderBtn.title = enabled ? (active ? '提交后打开提醒设置' : '点击后提交时会打开提醒设置') : '番茄钟联动未启用';
-                reminderBtn.innerHTML = `⏰ <span>${active ? '设置提醒: 开' : '设置提醒'}</span>`;
+                reminderBtn.innerHTML = `⏰ <span>${active ? '提醒: 开' : '提醒'}</span>`;
                 reminderBtn.disabled = !enabled;
             }
         } catch (e) {}
@@ -30781,6 +30899,7 @@ async function __tmRefreshAfterWake(reason) {
                 priority: qa.priority,
                 customStatus: qa.customStatus,
                 completionTime: qa.completionTime,
+                appendToBottom: qa.docMode === 'dailyNote' && SettingsStore.data.newTaskDailyNoteAppendToBottom === true,
             });
             hint('✅ 任务已创建', 'success');
             window.tmQuickAddClose?.();
@@ -31520,7 +31639,7 @@ async function __tmRefreshAfterWake(reason) {
                     ? `--tm-checklist-compact-indent:${indent}px;`
                     : `margin-left:${indent}px;`;
                 return `
-                    <div class="tm-checklist-item${activeCls}${doneCls}" data-id="${esc(String(task.id || ''))}" data-depth="${depth}" style="${itemIndentStyle}${accentStyle}${baseBg}${progressBg}" onclick="tmChecklistSelectTask('${escSq(String(task.id || ''))}', event)" oncontextmenu="tmShowTaskContextMenu(event, '${escSq(String(task.id || ''))}')">
+                    <div class="tm-checklist-item${activeCls}${doneCls}${timerCls}" data-id="${esc(String(task.id || ''))}" data-depth="${depth}" style="${itemIndentStyle}${accentStyle}${baseBg}${progressBg}" onclick="tmChecklistSelectTask('${escSq(String(task.id || ''))}', event)" oncontextmenu="tmShowTaskContextMenu(event, '${escSq(String(task.id || ''))}')">
                         <div class="tm-checklist-leading${hasChildren ? ' tm-checklist-leading--branch' : ''}${hasChildren && collapsed ? ' tm-checklist-leading--collapsed' : ''}">
                             ${hasChildren ? `<span class="tm-tree-toggle" onclick="tmToggleCollapse('${escSq(String(task.id || ''))}', event)" style="opacity:1;pointer-events:auto;color:var(--tm-text-color);"><svg class="tm-tree-toggle-icon" viewBox="0 0 16 16" width="16" height="16" style="transform:${collapsed ? 'rotate(0deg)' : 'rotate(90deg)'};"><path d="M6 4l4 4-4 4" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg></span>` : '<span class="tm-tree-toggle tm-tree-toggle--placeholder" aria-hidden="true"></span>'}
                             ${hasChildren && collapsed ? '<span class="tm-task-leading-ring" aria-hidden="true"></span>' : ''}
@@ -31986,6 +32105,13 @@ async function __tmRefreshAfterWake(reason) {
                         <div style="font-size: 12px; color: var(--tm-secondary-text); margin-top: 6px;">
                             也可以直接输入文档 ID，适合当前列表里没有加载出来的文档。
                         </div>
+                        <div style="margin-top:10px;">
+                            ${renderSingleSwitchSetting(
+                                '日记追加到底部',
+                                '当新建目标为“今天日记”时，任务追加到日记文档底部，而不是插入顶部。',
+                                `<input class="b3-switch fn__flex-center" type="checkbox" ${SettingsStore.data.newTaskDailyNoteAppendToBottom ? 'checked' : ''} onchange="updateNewTaskDailyNoteAppendToBottom(this.checked)">`
+                            )}
+                        </div>
                     </div>
 
                     <div class="tm-settings-panel" style="margin-bottom: 16px;">
@@ -32131,6 +32257,31 @@ async function __tmRefreshAfterWake(reason) {
                             '开启后，顶部和右上角菜单里的“全部折叠/展开”会连同当前视图里的分组一起处理。',
                             `<input class="b3-switch fn__flex-center" type="checkbox" ${SettingsStore.data.collapseAllIncludesGroups ? 'checked' : ''} onchange="updateCollapseAllIncludesGroups(this.checked)">`,
                             { style: 'margin-top:10px;' }
+                        )}
+                    </div>
+
+                    <div class="tm-settings-panel">
+                        <div class="tm-settings-section-title">🔘 顶栏入口</div>
+                        <div class="tm-settings-section-desc">分别控制文档顶栏按钮与思源窗口顶栏图标在桌面端、移动端的显示。</div>
+                        ${renderSingleSwitchSetting(
+                            '文档顶栏按钮(桌面)',
+                            '控制桌面端文档顶栏中的任务管理按钮。',
+                            `<input class="b3-switch fn__flex-center" type="checkbox" ${SettingsStore.data.docTopbarButtonDesktop !== false ? 'checked' : ''} onchange="updateDocTopbarButtonDesktop(this.checked)">`
+                        )}
+                        ${renderSingleSwitchSetting(
+                            '文档顶栏按钮(移动)',
+                            '控制移动端文档顶栏中的任务管理按钮。',
+                            `<input class="b3-switch fn__flex-center" type="checkbox" ${SettingsStore.data.docTopbarButtonMobile !== false ? 'checked' : ''} onchange="updateDocTopbarButtonMobile(this.checked)">`
+                        )}
+                        ${renderSingleSwitchSetting(
+                            '思源窗口顶栏图标(桌面)',
+                            '控制桌面端思源窗口顶栏中的任务管理入口。',
+                            `<input class="b3-switch fn__flex-center" type="checkbox" ${SettingsStore.data.windowTopbarIconDesktop !== false ? 'checked' : ''} onchange="updateWindowTopbarIconDesktop(this.checked)">`
+                        )}
+                        ${renderSingleSwitchSetting(
+                            '思源窗口顶栏图标(移动)',
+                            '控制移动端思源窗口顶栏中的任务管理入口；在移动端会出现在右侧抽屉菜单中。',
+                            `<input class="b3-switch fn__flex-center" type="checkbox" ${SettingsStore.data.windowTopbarIconMobile !== false ? 'checked' : ''} onchange="updateWindowTopbarIconMobile(this.checked)">`
                         )}
                     </div>
 
@@ -34683,6 +34834,12 @@ async function __tmRefreshAfterWake(reason) {
         showSettings();
     };
 
+    window.updateNewTaskDailyNoteAppendToBottom = async function(enabled) {
+        SettingsStore.data.newTaskDailyNoteAppendToBottom = !!enabled;
+        await SettingsStore.save();
+        showSettings();
+    };
+
     window.updateNewTaskDocId = async function(value, options) {
         const v = String(value || '').trim();
         SettingsStore.data.newTaskDocId = v;
@@ -34726,6 +34883,34 @@ async function __tmRefreshAfterWake(reason) {
 
     window.tmClearNewTaskDocIdInput = async function() {
         await updateNewTaskDocId('');
+        showSettings();
+    };
+
+    window.updateDocTopbarButtonDesktop = async function(enabled) {
+        SettingsStore.data.docTopbarButtonDesktop = !!enabled;
+        await SettingsStore.save();
+        __tmRefreshShellEntrances();
+        showSettings();
+    };
+
+    window.updateDocTopbarButtonMobile = async function(enabled) {
+        SettingsStore.data.docTopbarButtonMobile = !!enabled;
+        await SettingsStore.save();
+        __tmRefreshShellEntrances();
+        showSettings();
+    };
+
+    window.updateWindowTopbarIconDesktop = async function(enabled) {
+        SettingsStore.data.windowTopbarIconDesktop = !!enabled;
+        await SettingsStore.save();
+        __tmRefreshShellEntrances();
+        showSettings();
+    };
+
+    window.updateWindowTopbarIconMobile = async function(enabled) {
+        SettingsStore.data.windowTopbarIconMobile = !!enabled;
+        await SettingsStore.save();
+        __tmRefreshShellEntrances();
         showSettings();
     };
 
@@ -35053,22 +35238,14 @@ async function __tmRefreshAfterWake(reason) {
     window.tmCollapseAllTasks = async function() {
         if (state.viewMode === 'kanban' || state.viewMode === 'whiteboard') {
             const filtered = Array.isArray(state.filteredTasks) ? state.filteredTasks : [];
-            const filteredIdSet = new Set(filtered.map(t => String(t?.id || '').trim()).filter(Boolean));
-            const colKey = (t) => (t?.done ? '__done__' : (String(t?.customStatus || '').trim() || 'todo'));
             const collapsed = __tmKanbanGetCollapsedSet();
             filtered.forEach(t => {
                 const id = String(t?.id || '').trim();
                 if (!id) return;
                 const kids = Array.isArray(t?.children) ? t.children : [];
                 if (!kids.length) return;
-                const k0 = colKey(t);
-                const hasSameColChild = kids.some(c => {
-                    const cid = String(c?.id || '').trim();
-                    if (!cid || !filteredIdSet.has(cid)) return false;
-                    const ct = state.flatTasks[cid] || c;
-                    return colKey(ct) === k0;
-                });
-                if (hasSameColChild) collapsed.add(id);
+                // 子任务可能因为已完成列等原因不在同列显示，但父任务仍应纳入“全部折叠”。
+                collapsed.add(id);
             });
             __tmKanbanPersistCollapsed();
             render();
@@ -35247,6 +35424,11 @@ async function __tmRefreshAfterWake(reason) {
     let breadcrumbTimer = null;
     let breadcrumbTries = 0;
     function addBreadcrumbButton() {
+        if (!__tmShouldShowDocTopbarButton()) {
+            try { document.querySelectorAll('.tm-breadcrumb-btn').forEach((btn) => btn.remove()); } catch (e) {}
+            breadcrumbTries = 0;
+            return;
+        }
         if (breadcrumbTimer != null) return;
 
         const scheduleTry = (delayMs) => {
@@ -35450,7 +35632,25 @@ async function __tmRefreshAfterWake(reason) {
         try { el.addEventListener('click', __tmTopBarClickCaptureHandler, true); } catch (e) {}
     }
 
+    function __tmRemoveTopBarIcon() {
+        try {
+            if (__tmTopBarEl && __tmTopBarClickCaptureHandler) {
+                try { __tmTopBarEl.removeEventListener('click', __tmTopBarClickCaptureHandler, true); } catch (e) {}
+            }
+        } catch (e) {}
+        try {
+            const exists = __tmTopBarEl || document.querySelector('[aria-label="任务管理器"], [aria-label="任务管理"]');
+            if (exists?.remove) exists.remove();
+        } catch (e) {}
+        __tmTopBarEl = null;
+        __tmTopBarAdded = false;
+    }
+
     function addTopBarIcon() {
+        if (!__tmShouldShowWindowTopbarIcon()) {
+            __tmRemoveTopBarIcon();
+            return;
+        }
         if (__tmTopBarAdded) {
             try {
                 const exists = document.querySelector('[aria-label="任务管理器"], [aria-label="任务管理"]');
@@ -35458,7 +35658,6 @@ async function __tmRefreshAfterWake(reason) {
             } catch (e) {}
             return;
         }
-        if (__tmIsMobileDevice()) return;
         // 尝试通过全局插件实例添加
         const pluginInstance = globalThis.__taskHorizonPluginInstance || globalThis.__tomatoPluginInstance;
         if (pluginInstance && typeof pluginInstance.addTopBar === 'function') {
@@ -35486,6 +35685,17 @@ async function __tmRefreshAfterWake(reason) {
             setTimeout(() => { try { __tmSetUseIcon(document.querySelector('[aria-label="任务管理器"], [aria-label="任务管理"]'), 'iconTaskHorizon'); } catch (e) {} }, 0);
         } else {
         }
+    }
+
+    function __tmRefreshShellEntrances() {
+        try {
+            if (__tmShouldShowDocTopbarButton()) addBreadcrumbButton();
+            else document.querySelectorAll('.tm-breadcrumb-btn').forEach((btn) => { try { btn.remove(); } catch (e) {} });
+        } catch (e) {}
+        try {
+            if (__tmShouldShowWindowTopbarIcon()) addTopBarIcon();
+            else __tmRemoveTopBarIcon();
+        } catch (e) {}
     }
 
     function __tmFindExistingTaskHorizonCustomModel() {
@@ -35531,10 +35741,7 @@ async function __tmRefreshAfterWake(reason) {
      */
     function observeBreadcrumb() {
         // 先尝试添加一次
-        addBreadcrumbButton();
-        if (!__tmIsMobileDevice()) {
-            addTopBarIcon();
-        }
+        __tmRefreshShellEntrances();
 
         // 使用 MutationObserver 监听面包屑栏变化
         if (__tmBreadcrumbObserver) {
@@ -35542,7 +35749,7 @@ async function __tmRefreshAfterWake(reason) {
             __tmBreadcrumbObserver = null;
         }
         const observer = new MutationObserver(() => {
-            addBreadcrumbButton();
+            __tmRefreshShellEntrances();
         });
 
         // 监听整个文档的子节点变化
@@ -35553,7 +35760,7 @@ async function __tmRefreshAfterWake(reason) {
         __tmBreadcrumbObserver = observer;
         
         // 额外监听顶栏图标注入（如果插件实例加载较晚）
-        if (!__tmIsMobileDevice()) __tmTopBarTimer = setTimeout(addTopBarIcon, 1000);
+        if (__tmShouldShowWindowTopbarIcon()) __tmTopBarTimer = setTimeout(addTopBarIcon, 1000);
     }
 
     function __tmBindDocGroupMenuEntry() {
