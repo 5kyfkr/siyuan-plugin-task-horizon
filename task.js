@@ -10665,22 +10665,54 @@ async function __tmRefreshAfterWake(reason) {
         return Math.min(max, Math.max(min, v));
     }
 
-    function __tmNormalizeHexColor(input, fallback) {
+    function __tmNormalizeLiteralHexColor(input) {
         const s = String(input || '').trim();
-        if (/^#[0-9a-fA-F]{6}$/.test(s)) return s.toLowerCase();
-        const f = String(fallback || '').trim();
-        if (/^#[0-9a-fA-F]{6}$/.test(f)) return f.toLowerCase();
-        return '';
+        const m = /^#([0-9a-fA-F]{3,4}|[0-9a-fA-F]{6}|[0-9a-fA-F]{8})$/.exec(s);
+        if (!m) return '';
+        let body = String(m[1] || '').toLowerCase();
+        if (body.length === 3 || body.length === 4) body = body.split('').map((ch) => ch + ch).join('');
+        return `#${body}`;
+    }
+
+    function __tmNormalizeHexColor(input, fallback) {
+        const normalize = (value) => {
+            const s = String(value || '').trim();
+            if (!s) return '';
+            const hex = __tmNormalizeLiteralHexColor(s);
+            if (hex) return hex;
+            if (/^var\(\s*--[a-zA-Z0-9\-_]+(?:\s*,[\s\S]+)?\)$/.test(s)) return s;
+            try {
+                if (typeof CSS !== 'undefined' && CSS && typeof CSS.supports === 'function' && CSS.supports('color', s)) return s;
+            } catch (e) {}
+            try {
+                if (typeof document !== 'undefined' && document?.createElement) {
+                    const probe = document.createElement('span');
+                    probe.style.color = '';
+                    probe.style.color = s;
+                    if (probe.style.color) return s;
+                }
+            } catch (e) {}
+            return '';
+        };
+        return normalize(input) || normalize(fallback) || '';
+    }
+
+    function __tmFormatColorDisplayValue(input) {
+        const s = String(input || '').trim();
+        if (!s) return '';
+        const hex = __tmNormalizeLiteralHexColor(s);
+        return hex ? hex.toUpperCase() : s;
     }
 
     function __tmHexToRgb(hex) {
-        const h = __tmNormalizeHexColor(hex, '');
+        const h = __tmNormalizeLiteralHexColor(hex);
         if (!h) return null;
         const r = parseInt(h.slice(1, 3), 16);
         const g = parseInt(h.slice(3, 5), 16);
         const b = parseInt(h.slice(5, 7), 16);
-        if (![r, g, b].every((x) => Number.isFinite(x))) return null;
-        return { r, g, b };
+        const a = h.length >= 9 ? parseInt(h.slice(7, 9), 16) / 255 : 1;
+        if (![r, g, b, a].every((x) => Number.isFinite(x))) return null;
+        return h.length >= 9 ? { r, g, b, a } : { r, g, b };
     }
 
     function __tmRgbToHex(rgb) {
@@ -10688,15 +10720,22 @@ async function __tmRefreshAfterWake(reason) {
         const g = __tmClamp(rgb?.g, 0, 255);
         const b = __tmClamp(rgb?.b, 0, 255);
         const to2 = (n) => Math.round(n).toString(16).padStart(2, '0');
-        return `#${to2(r)}${to2(g)}${to2(b)}`.toLowerCase();
+        const a = Number(rgb?.a);
+        return Number.isFinite(a)
+            ? `#${to2(r)}${to2(g)}${to2(b)}${to2(__tmClamp(a, 0, 1) * 255)}`.toLowerCase()
+            : `#${to2(r)}${to2(g)}${to2(b)}`.toLowerCase();
     }
 
     function __tmMixRgb(a, b, t) {
         const x = __tmClamp(t, 0, 1);
+        const aAlpha = Number(a?.a);
+        const bAlpha = Number(b?.a);
+        const hasAlpha = Number.isFinite(aAlpha) || Number.isFinite(bAlpha);
         return {
             r: Math.round((a.r || 0) + ((b.r || 0) - (a.r || 0)) * x),
             g: Math.round((a.g || 0) + ((b.g || 0) - (a.g || 0)) * x),
             b: Math.round((a.b || 0) + ((b.b || 0) - (a.b || 0)) * x),
+            ...(hasAlpha ? { a: __tmClamp((Number.isFinite(aAlpha) ? aAlpha : 1) + ((Number.isFinite(bAlpha) ? bAlpha : 1) - (Number.isFinite(aAlpha) ? aAlpha : 1)) * x, 0, 1) } : {}),
         };
     }
 
@@ -10820,17 +10859,10 @@ async function __tmRefreshAfterWake(reason) {
     function __tmParseCssColorToRgba(input) {
         const s0 = String(input || '').trim();
         if (!s0) return null;
-        if (s0.startsWith('var(')) {
-            const m = /^var\(\s*(--[a-zA-Z0-9\-_]+)\s*\)$/.exec(s0);
-            if (!m) return null;
-            const varName = m[1];
-            const v = String(getComputedStyle(document.documentElement).getPropertyValue(varName) || '').trim();
-            return __tmParseCssColorToRgba(v);
-        }
-        const hex = __tmNormalizeHexColor(s0, '');
+        const hex = __tmNormalizeLiteralHexColor(s0);
         if (hex) {
             const rgb = __tmHexToRgb(hex);
-            return rgb ? { ...rgb, a: 1 } : null;
+            return rgb ? { r: rgb.r, g: rgb.g, b: rgb.b, a: __tmClamp(Number(rgb.a ?? 1), 0, 1) } : null;
         }
         const rgbm = /^rgba?\(\s*([0-9.]+)\s*,\s*([0-9.]+)\s*,\s*([0-9.]+)(?:\s*,\s*([0-9.]+)\s*)?\)$/.exec(s0);
         if (rgbm) {
@@ -10840,6 +10872,25 @@ async function __tmRefreshAfterWake(reason) {
             const a = rgbm[4] === undefined ? 1 : __tmClamp(Number(rgbm[4]), 0, 1);
             return { r, g, b, a };
         }
+        try {
+            const host = document.body || document.documentElement;
+            if (!host || !document.createElement) return null;
+            const probe = document.createElement('span');
+            probe.style.cssText = 'position:fixed;left:-9999px;top:-9999px;visibility:hidden;pointer-events:none;';
+            probe.style.color = '';
+            probe.style.color = s0;
+            if (!probe.style.color) return null;
+            host.appendChild(probe);
+            const resolved = String(getComputedStyle(probe).color || '').trim();
+            try { probe.remove(); } catch (e) {}
+            const resolvedMatch = /^rgba?\(\s*([0-9.]+)\s*,\s*([0-9.]+)\s*,\s*([0-9.]+)(?:\s*,\s*([0-9.]+)\s*)?\)$/.exec(resolved);
+            if (!resolvedMatch) return null;
+            const r = __tmClamp(Number(resolvedMatch[1]), 0, 255);
+            const g = __tmClamp(Number(resolvedMatch[2]), 0, 255);
+            const b = __tmClamp(Number(resolvedMatch[3]), 0, 255);
+            const a = resolvedMatch[4] === undefined ? 1 : __tmClamp(Number(resolvedMatch[4]), 0, 1);
+            return { r, g, b, a };
+        } catch (e) {}
         return null;
     }
 
@@ -10858,10 +10909,10 @@ async function __tmRefreshAfterWake(reason) {
     }
 
     function __tmWithAlpha(hex, alpha) {
-        const rgb = __tmHexToRgb(hex);
-        if (!rgb) return String(hex || '').trim();
-        const a = __tmClamp(alpha, 0, 1);
-        return `rgba(${rgb.r}, ${rgb.g}, ${rgb.b}, ${a})`;
+        const rgba = __tmParseCssColorToRgba(hex);
+        if (!rgba) return String(hex || '').trim();
+        const a = __tmClamp(alpha, 0, 1) * __tmClamp(Number(rgba.a ?? 1), 0, 1);
+        return `rgba(${Math.round(rgba.r)}, ${Math.round(rgba.g)}, ${Math.round(rgba.b)}, ${a})`;
     }
 
     function __tmBuildStatusChipStyle(color) {
@@ -11772,8 +11823,8 @@ async function __tmRefreshAfterWake(reason) {
         previewBox.style.cssText = `width:44px;height:28px;border-radius:8px;border:1px solid var(--tm-border-color);background:${current};flex:0 0 auto;`;
         const hexInput = document.createElement('input');
         hexInput.type = 'text';
-        hexInput.value = String(current || '').toUpperCase();
-        hexInput.placeholder = '#RRGGBB';
+        hexInput.value = __tmFormatColorDisplayValue(current);
+        hexInput.placeholder = '#RRGGBB / #RRGGBBAA / rgba() / var(--token)';
         hexInput.style.cssText = 'flex:1;padding:8px 10px;border:1px solid var(--tm-input-border);border-radius:8px;background:var(--tm-input-bg);color:var(--tm-text-color);';
         hexInput.oninput = () => {
             const norm = __tmNormalizeHexColor(hexInput.value, '');
@@ -11791,7 +11842,19 @@ async function __tmRefreshAfterWake(reason) {
 
         const grid = document.createElement('div');
         grid.className = 'tm-color-grid-10';
-        swatches.forEach((c) => {
+        const pickColorInput = document.createElement('input');
+        pickColorInput.type = 'color';
+        pickColorInput.value = __tmNormalizeLiteralHexColor(current) || __tmNormalizeLiteralHexColor(defaultColor) || '#f44336';
+        pickColorInput.style.cssText = 'position:absolute;inset:0;opacity:0;cursor:pointer;border:none;padding:0;';
+        pickColorInput.oninput = () => {
+            const norm = __tmNormalizeHexColor(pickColorInput.value, '');
+            if (!norm) return;
+            current = norm;
+            hexInput.value = __tmFormatColorDisplayValue(current);
+            hexInput.style.borderColor = 'var(--tm-input-border)';
+            previewBox.style.background = current;
+        };
+        swatches.forEach((c, index) => {
             const norm = __tmNormalizeHexColor(c, '');
             if (!norm) return;
             const btn = document.createElement('button');
@@ -11799,10 +11862,19 @@ async function __tmRefreshAfterWake(reason) {
             btn.style.background = norm;
             btn.onclick = () => {
                 current = norm;
-                hexInput.value = String(current || '').toUpperCase();
+                pickColorInput.value = __tmNormalizeLiteralHexColor(current) || pickColorInput.value;
+                hexInput.value = __tmFormatColorDisplayValue(current);
                 hexInput.style.borderColor = 'var(--tm-input-border)';
                 previewBox.style.background = current;
             };
+            if (index === swatches.length - 1) {
+                btn.style.cssText = 'position:relative;display:flex;align-items:center;justify-content:center;background:conic-gradient(from 180deg,#ff4d4f,#ffa940,#fadb14,#73d13d,#36cfc9,#40a9ff,#9254de,#ff4d4f);overflow:hidden;';
+                const inner = document.createElement('span');
+                inner.textContent = 'pick';
+                inner.style.cssText = 'padding:2px 5px;border-radius:999px;background:rgba(255,255,255,0.92);color:#111827;font-size:10px;font-weight:700;line-height:1;text-transform:uppercase;pointer-events:none;box-shadow:0 1px 2px rgba(0,0,0,0.12);';
+                btn.appendChild(inner);
+                btn.appendChild(pickColorInput);
+            }
             grid.appendChild(btn);
         });
         dialog.appendChild(grid);
@@ -34253,22 +34325,14 @@ async function __tmRefreshAfterWake(reason) {
 
         const renderRow = (row) => {
             const raw = __tmNormalizeHexColor(row.value, '#000000') || '#000000';
-            if (isMobile) {
-                const upper = String(raw || '').toUpperCase();
-                return `
-                    <label style="display:flex;align-items:center;justify-content:space-between;gap:10px;padding:6px 8px;border:1px solid var(--tm-border-color);border-radius:8px;background:var(--tm-bg-color);">
-                        <span style="font-size:12px;color:var(--tm-secondary-text);">${esc(row.label)}</span>
-                        <button type="button" class="tm-color-btn" data-tm-color-key="${esc(row.key)}" data-tm-color-label="${esc(row.label)}" onclick="tmOpenAppearanceColorPicker(this)">
-                            <span class="tm-color-swatch" style="background:${esc(raw)}"></span>
-                            <span class="tm-color-text">${esc(upper)}</span>
-                        </button>
-                    </label>
-                `;
-            }
+            const displayValue = __tmFormatColorDisplayValue(raw);
             return `
                 <label style="display:flex;align-items:center;justify-content:space-between;gap:10px;padding:6px 8px;border:1px solid var(--tm-border-color);border-radius:8px;background:var(--tm-bg-color);">
                     <span style="font-size:12px;color:var(--tm-secondary-text);">${esc(row.label)}</span>
-                    <input type="color" value="${esc(raw)}" onchange="tmUpdateAppearanceColor('${esc(row.key)}', this.value)" style="width:44px;height:28px;padding:0;border:none;background:transparent;">
+                    <button type="button" class="tm-color-btn" data-tm-color-key="${esc(row.key)}" data-tm-color-label="${esc(row.label)}" onclick="tmOpenAppearanceColorPicker(this)">
+                        <span class="tm-color-swatch" style="background:${esc(raw)}"></span>
+                        <span class="tm-color-text">${esc(displayValue)}</span>
+                    </button>
                 </label>
             `;
         };
@@ -34369,7 +34433,7 @@ async function __tmRefreshAfterWake(reason) {
                 const sw = b.querySelector?.('.tm-color-swatch');
                 const tx = b.querySelector?.('.tm-color-text');
                 try { if (sw) sw.style.background = v; } catch (e) {}
-                try { if (tx) tx.textContent = String(v || '').toUpperCase(); } catch (e) {}
+                try { if (tx) tx.textContent = __tmFormatColorDisplayValue(v); } catch (e) {}
             });
         } catch (e) {}
         try {
