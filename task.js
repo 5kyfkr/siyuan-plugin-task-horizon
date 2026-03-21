@@ -1,5 +1,5 @@
 // @name         思源笔记任务管理器
-// @version      1.8.5
+// @version      1.8.7
 // @description  任务管理器，支持自定义筛选规则分组和排序
 // @author       5KYFKR
 
@@ -7523,6 +7523,10 @@
 
     const __tmTasksQueryCache = new Map();
     const __tmDocExpandCache = new Map();
+    const __tmDocHasTaskQueryCache = new Map();
+    const __tmDocEnhanceSnapshotCache = new Map();
+    const __tmTaskDocMapCache = new Map();
+    const __tmDocEnhanceWarmQueue = { items: [], set: new Set(), running: 0, timer: null };
     const __tmSqlInFlight = new Map();
     const __tmSqlQueue = { max: 3, active: 0, q: [] };
     const __tmAuxQueryCache = new Map();
@@ -7553,6 +7557,10 @@
         const did = String(docId || '').trim();
         if (!did) {
             try { __tmTasksQueryCache.clear(); } catch (e) {}
+            try { __tmDocHasTaskQueryCache.clear(); } catch (e) {}
+            try { __tmDocEnhanceSnapshotCache.clear(); } catch (e) {}
+            try { __tmTaskDocMapCache.clear(); } catch (e) {}
+            try { __tmDocEnhanceWarmQueue.items.length = 0; __tmDocEnhanceWarmQueue.set.clear(); } catch (e) {}
             try { __tmAuxQueryCache.clear(); } catch (e) {}
             return;
         }
@@ -7564,6 +7572,12 @@
                 }
             }
         } catch (e) {}
+        try { __tmDocHasTaskQueryCache.delete(did); } catch (e) {}
+        try {
+            for (const [k] of __tmDocEnhanceSnapshotCache.entries()) {
+                if (String(k || '').startsWith(`${did}:`)) __tmDocEnhanceSnapshotCache.delete(k);
+            }
+        } catch (e) {}
         try { __tmAuxQueryCache.clear(); } catch (e) {}
         try { __tmDocExpandCache.clear(); } catch (e) {}
         try { __tmResolvedDocIdsCache = null; } catch (e) {}
@@ -7571,10 +7585,192 @@
 
     function __tmInvalidateAllSqlCaches() {
         try { __tmTasksQueryCache.clear(); } catch (e) {}
+        try { __tmDocHasTaskQueryCache.clear(); } catch (e) {}
+        try { __tmDocEnhanceSnapshotCache.clear(); } catch (e) {}
+        try { __tmTaskDocMapCache.clear(); } catch (e) {}
+        try { __tmDocEnhanceWarmQueue.items.length = 0; __tmDocEnhanceWarmQueue.set.clear(); } catch (e) {}
         try { __tmSqlInFlight.clear(); } catch (e) {}
         try { __tmAuxQueryCache.clear(); } catch (e) {}
         try { __tmDocExpandCache.clear(); } catch (e) {}
         try { __tmResolvedDocIdsCache = null; } catch (e) {}
+    }
+
+    async function __tmFillDocHasTasksMap(docIds, tasksMap) {
+        const ids = Array.from(new Set((docIds || []).map((id) => String(id || '').trim()).filter(Boolean)));
+        if (!ids.length || !(tasksMap instanceof Map)) return tasksMap;
+        const now = Date.now();
+        const ttlMs = 20000;
+        const uncheckedIds = [];
+        ids.forEach((id) => {
+            if (tasksMap.has(id)) return;
+            const cached = __tmDocHasTaskQueryCache.get(id);
+            if (cached && (now - Number(cached.t || 0)) < ttlMs) {
+                if (cached.hasTasks) tasksMap.set(id, true);
+                return;
+            }
+            uncheckedIds.push(id);
+        });
+        if (!uncheckedIds.length) return tasksMap;
+        const found = new Set();
+        const CHUNK_SIZE = 50;
+        for (let i = 0; i < uncheckedIds.length; i += CHUNK_SIZE) {
+            const chunk = uncheckedIds.slice(i, i + CHUNK_SIZE);
+            if (!chunk.length) continue;
+            const idsStr = chunk.map((id) => `'${id.replace(/'/g, "''")}'`).join(',');
+            const sql = `SELECT DISTINCT root_id FROM blocks WHERE type='i' AND subtype='t' AND root_id IN (${idsStr}) LIMIT ${Math.max(1, Math.min(5000, chunk.length))}`;
+            try {
+                const res = await API.call('/api/query/sql', { stmt: sql });
+                if (res.code === 0 && Array.isArray(res.data)) {
+                    res.data.forEach((row) => {
+                        const rid = String(row?.root_id || '').trim();
+                        if (!rid) return;
+                        found.add(rid);
+                        tasksMap.set(rid, true);
+                    });
+                }
+            } catch (e) {}
+        }
+        uncheckedIds.forEach((id) => {
+            const hasTasks = found.has(id);
+            __tmDocHasTaskQueryCache.set(id, { t: Date.now(), hasTasks });
+        });
+        return tasksMap;
+    }
+
+    async function __tmBuildTaskDocMap(taskIds) {
+        const ids = Array.from(new Set((taskIds || []).map((id) => String(id || '').trim()).filter(Boolean)));
+        const out = new Map();
+        if (!ids.length) return out;
+        const now = Date.now();
+        const ttlMs = 15000;
+        const misses = [];
+        ids.forEach((tid) => {
+            const cached = __tmTaskDocMapCache.get(tid);
+            if (cached && (now - Number(cached.t || 0)) < ttlMs) {
+                const did = String(cached.docId || '').trim();
+                if (did) out.set(tid, did);
+                return;
+            }
+            misses.push(tid);
+        });
+        const chunkSize = 200;
+        for (let i = 0; i < misses.length; i += chunkSize) {
+            const chunk = misses.slice(i, i + chunkSize);
+            if (!chunk.length) continue;
+            const idList = chunk.map((id) => `'${id.replace(/'/g, "''")}'`).join(',');
+            const batchLimit = Math.max(1, Math.min(5000, chunk.length));
+            const sql = `SELECT id AS task_id, root_id FROM blocks WHERE id IN (${idList}) LIMIT ${batchLimit}`;
+            const foundSet = new Set();
+            try {
+                const res = await API.call('/api/query/sql', { stmt: sql });
+                if (res.code === 0 && Array.isArray(res.data)) {
+                    res.data.forEach((row) => {
+                        const tid = String(row?.task_id || '').trim();
+                        const did = String(row?.root_id || '').trim();
+                        if (!tid) return;
+                        foundSet.add(tid);
+                        __tmTaskDocMapCache.set(tid, { t: Date.now(), docId: did });
+                        if (did) out.set(tid, did);
+                    });
+                }
+            } catch (e) {}
+            chunk.forEach((tid) => {
+                if (!foundSet.has(tid)) __tmTaskDocMapCache.set(tid, { t: Date.now(), docId: '' });
+            });
+        }
+        return out;
+    }
+
+    function __tmGetPerfTuningOptions() {
+        const cfg = (typeof window !== 'undefined' && window && typeof window.tmTaskHorizonPerf === 'object' && window.tmTaskHorizonPerf)
+            ? window.tmTaskHorizonPerf
+            : {};
+        const deferThreshold0 = Number(cfg.deferEnhanceThreshold);
+        const warmLimit0 = Number(cfg.docEnhanceWarmLimit);
+        const prefetchLimit0 = Number(cfg.prefetchGroupDocsLimit);
+        const warmConcurrency0 = Number(cfg.docEnhanceWarmConcurrency);
+        return {
+            asyncEnhance: cfg.asyncEnhance !== false,
+            deferEnhanceThreshold: Number.isFinite(deferThreshold0) ? Math.max(50, Math.floor(deferThreshold0)) : 180,
+            warmEnhance: cfg.warmEnhance !== false,
+            warmEnhanceLimit: Number.isFinite(warmLimit0) ? Math.max(0, Math.floor(warmLimit0)) : 80,
+            prefetchGroupDocsLimit: Number.isFinite(prefetchLimit0) ? Math.max(0, Math.floor(prefetchLimit0)) : 30,
+            warmEnhanceConcurrency: Number.isFinite(warmConcurrency0) ? Math.max(1, Math.min(4, Math.floor(warmConcurrency0))) : 2
+        };
+    }
+
+    function __tmDrainDocEnhanceWarmQueue() {
+        const cfg = __tmGetPerfTuningOptions();
+        if (!cfg.warmEnhance) return;
+        while (__tmDocEnhanceWarmQueue.running < cfg.warmEnhanceConcurrency && __tmDocEnhanceWarmQueue.items.length > 0) {
+            const next = __tmDocEnhanceWarmQueue.items.shift();
+            if (!next) continue;
+            __tmDocEnhanceWarmQueue.set.delete(next.key);
+            __tmDocEnhanceWarmQueue.running += 1;
+            Promise.resolve().then(async () => {
+                try {
+                    if (API && typeof API.getDocEnhanceSnapshot === 'function') {
+                        await API.getDocEnhanceSnapshot(next.docId, next.headingLevel);
+                    }
+                } catch (e) {}
+            }).finally(() => {
+                __tmDocEnhanceWarmQueue.running = Math.max(0, Number(__tmDocEnhanceWarmQueue.running || 0) - 1);
+                if (__tmDocEnhanceWarmQueue.items.length > 0) {
+                    try { if (__tmDocEnhanceWarmQueue.timer) clearTimeout(__tmDocEnhanceWarmQueue.timer); } catch (e) {}
+                    __tmDocEnhanceWarmQueue.timer = setTimeout(() => {
+                        __tmDocEnhanceWarmQueue.timer = null;
+                        __tmDrainDocEnhanceWarmQueue();
+                    }, 0);
+                }
+            });
+        }
+    }
+
+    function __tmEnqueueDocEnhanceWarm(docIds, headingLevel) {
+        const cfg = __tmGetPerfTuningOptions();
+        if (!cfg.warmEnhance) return;
+        const ids = Array.from(new Set((docIds || []).map((id) => String(id || '').trim()).filter(Boolean)));
+        if (!ids.length) return;
+        ids.forEach((docId) => {
+            const key = `${docId}:${String(headingLevel || 'h2').trim().toLowerCase()}`;
+            if (__tmDocEnhanceWarmQueue.set.has(key)) return;
+            __tmDocEnhanceWarmQueue.set.add(key);
+            __tmDocEnhanceWarmQueue.items.push({ key, docId, headingLevel });
+        });
+        __tmDrainDocEnhanceWarmQueue();
+    }
+
+    function __tmCollectPrefetchDocIdsByGroups(currentGroupId, limit) {
+        const out = [];
+        const seen = new Set();
+        const push = (id0) => {
+            const id = String(id0 || '').trim();
+            if (!id || seen.has(id)) return;
+            seen.add(id);
+            out.push(id);
+        };
+        const groups = Array.isArray(SettingsStore?.data?.docGroups) ? SettingsStore.data.docGroups : [];
+        groups.forEach((group) => {
+            const gid = String(group?.id || '').trim();
+            if (!gid || gid === String(currentGroupId || '').trim()) return;
+            const entries = __tmGetGroupSourceEntries(group);
+            entries.forEach((entry) => {
+                if (String(entry?.kind || 'doc').trim() !== 'doc') return;
+                push(entry?.id);
+            });
+        });
+        const max = Math.max(0, Number(limit) || 0);
+        return max > 0 ? out.slice(0, max) : [];
+    }
+
+    function __tmScheduleEnhanceWarmup(currentDocIds, currentGroupId) {
+        const cfg = __tmGetPerfTuningOptions();
+        if (!cfg.warmEnhance) return;
+        const headingLevel = String(SettingsStore?.data?.taskHeadingLevel || 'h2').trim().toLowerCase();
+        const warmIds = (Array.isArray(currentDocIds) ? currentDocIds : []).slice(0, cfg.warmEnhanceLimit);
+        __tmEnqueueDocEnhanceWarm(warmIds, headingLevel);
+        const prefetchIds = __tmCollectPrefetchDocIdsByGroups(currentGroupId, cfg.prefetchGroupDocsLimit);
+        __tmEnqueueDocEnhanceWarm(prefetchIds, headingLevel);
     }
 
     function __tmHashIds(ids) {
@@ -7741,12 +7937,15 @@
             return '';
         },
 
-        async getSubDocIds(docId) {
+        async getSubDocIds(docId, options = null) {
             try {
                 const did = String(docId || '').trim();
                 if (!/^[0-9]+-[a-zA-Z0-9]+$/.test(did)) return [];
                 const recursiveDocLimit = Number.isFinite(Number(SettingsStore.data?.recursiveDocLimit)) ? Math.max(1, Math.min(500000, Math.round(Number(SettingsStore.data.recursiveDocLimit)))) : 2000;
-                const totalLimit = recursiveDocLimit;
+                const limitRaw = Number(options?.limit);
+                const totalLimit = Number.isFinite(limitRaw)
+                    ? Math.max(0, Math.min(500000, Math.round(limitRaw)))
+                    : recursiveDocLimit;
                 // 先获取根文档的 path
                 const pathSql = `SELECT hpath FROM blocks WHERE id = '${did.replace(/'/g, "''")}' AND type = 'd' LIMIT 1`;
                 const pathRes = await this.call('/api/query/sql', { stmt: pathSql });
@@ -7755,7 +7954,8 @@
                 const hpath = String(pathRes.data[0].hpath || '');
                 
                 // 查询子文档
-                const sql = `SELECT id FROM blocks WHERE hpath LIKE '${hpath.replace(/'/g, "''")}/%' AND type = 'd' LIMIT ${totalLimit}`;
+                const limitSql = totalLimit > 0 ? ` LIMIT ${totalLimit}` : '';
+                const sql = `SELECT id FROM blocks WHERE hpath LIKE '${hpath.replace(/'/g, "''")}/%' AND type = 'd' ORDER BY created DESC, hpath DESC${limitSql}`;
                 const res = await this.call('/api/query/sql', { stmt: sql });
                 if (res.code === 0 && res.data) {
                     return res.data.map(d => d.id);
@@ -7765,13 +7965,17 @@
             return [];
         },
 
-        async getNotebookDocuments(notebookId) {
+        async getNotebookDocuments(notebookId, options = null) {
             const box = String(notebookId || '').trim();
             if (!box) return [];
             try {
                 const recursiveDocLimit = Number.isFinite(Number(SettingsStore.data?.recursiveDocLimit)) ? Math.max(1, Math.min(500000, Math.round(Number(SettingsStore.data.recursiveDocLimit)))) : 2000;
-                const totalLimit = recursiveDocLimit;
-                const sql = `SELECT id, content, hpath FROM blocks WHERE box = '${box.replace(/'/g, "''")}' AND type = 'd' ORDER BY hpath ASC LIMIT ${totalLimit}`;
+                const limitRaw = Number(options?.limit);
+                const totalLimit = Number.isFinite(limitRaw)
+                    ? Math.max(0, Math.min(500000, Math.round(limitRaw)))
+                    : recursiveDocLimit;
+                const limitSql = totalLimit > 0 ? ` LIMIT ${totalLimit}` : '';
+                const sql = `SELECT id, content, hpath FROM blocks WHERE box = '${box.replace(/'/g, "''")}' AND type = 'd' ORDER BY created DESC, hpath DESC${limitSql}`;
                 const res = await this.call('/api/query/sql', { stmt: sql });
                 if (res.code === 0 && Array.isArray(res.data)) {
                     return res.data.map((row) => ({
@@ -7790,6 +7994,205 @@
             const data = res.data;
             if (typeof data === 'string') return data;
             return data?.kramdown || data?.content || '';
+        },
+
+        async getDocEnhanceSnapshot(docId, headingLevel = 'h2') {
+            const did = String(docId || '').trim();
+            if (!did) return { flowRankMap: new Map(), headingContextMap: new Map() };
+            const lvRaw = String(headingLevel || 'h2').trim().toLowerCase();
+            const lvNum0 = Number((lvRaw.match(/^h([1-6])$/) || [])[1]);
+            const lvNum = Number.isFinite(lvNum0) ? lvNum0 : 2;
+            const cacheKey = `${did}:${lvRaw}`;
+            const now = Date.now();
+            const ttlMs = 30000;
+            const cached = __tmDocEnhanceSnapshotCache.get(cacheKey);
+            if (cached && cached.snapshot && (now - Number(cached.t || 0)) < ttlMs) {
+                return cached.snapshot;
+            }
+            if (cached && cached.promise) {
+                try { return await cached.promise; } catch (e) {}
+            }
+            const promise = Promise.resolve().then(async () => {
+                let km = '';
+                try { km = await this.getBlockKramdown(did); } catch (e) { km = ''; }
+                const flowRankMap = new Map();
+                const headingContextMap = new Map();
+                if (!km) {
+                    const emptySnapshot = { flowRankMap, headingContextMap };
+                    __tmDocEnhanceSnapshotCache.set(cacheKey, { t: Date.now(), snapshot: emptySnapshot });
+                    return emptySnapshot;
+                }
+                const lines = String(km).split(/\r?\n/);
+                const parseIds = (line) => {
+                    const out = [];
+                    const s = String(line || '');
+                    const re = /\bid=(?:"([^"]+)"|'([^']+)')/g;
+                    let m;
+                    while ((m = re.exec(s)) !== null) {
+                        const id = String(m[1] || m[2] || '').trim();
+                        if (id) out.push(id);
+                    }
+                    return out;
+                };
+                const stripHeadingText = (line) => {
+                    let s = String(line || '').replace(/^#{1,6}\s+/, '').trim();
+                    s = s.replace(/\s*\{\:\s*[^}]*\}\s*$/, '').trim();
+                    return s;
+                };
+                const applyHeadingToStack = (stack, heading) => {
+                    const level = Number(heading?.level);
+                    if (!Number.isFinite(level) || level < 1 || level > 6) return;
+                    for (let i = level; i <= 6; i += 1) stack[i] = null;
+                    stack[level] = heading;
+                };
+                let flowRank = 0;
+                let headingRank = -1;
+                const headingStack = Array(7).fill(null);
+                let pendingHeading = null;
+                for (let ln = 0; ln < lines.length; ln += 1) {
+                    const line = String(lines[ln] || '');
+                    const hm = line.match(/^(#{1,6})\s+(.*)$/);
+                    if (hm) {
+                        pendingHeading = {
+                            level: Number(hm[1].length),
+                            text: stripHeadingText(line),
+                            expires: ln + 4,
+                        };
+                        const idsInline = parseIds(line);
+                        if (idsInline.length > 0) {
+                            headingRank += 1;
+                            const resolvedHeading = {
+                                id: String(idsInline[0] || '').trim(),
+                                content: String(pendingHeading.text || '').trim(),
+                                level: Number(pendingHeading.level),
+                                rank: headingRank,
+                            };
+                            applyHeadingToStack(headingStack, resolvedHeading);
+                            pendingHeading = null;
+                        }
+                    }
+                    const ids = parseIds(line);
+                    if (pendingHeading && ids.length > 0) {
+                        headingRank += 1;
+                        const resolvedHeading = {
+                            id: String(ids[0] || '').trim(),
+                            content: String(pendingHeading.text || '').trim(),
+                            level: Number(pendingHeading.level),
+                            rank: headingRank,
+                        };
+                        applyHeadingToStack(headingStack, resolvedHeading);
+                        pendingHeading = null;
+                    }
+                    if (pendingHeading && ln > Number(pendingHeading.expires || 0)) {
+                        pendingHeading = null;
+                    }
+                    if (!ids.length) continue;
+                    ids.forEach((bid) => {
+                        const tid = String(bid || '').trim();
+                        if (!tid) return;
+                        if (!flowRankMap.has(tid)) {
+                            flowRank += 1;
+                            flowRankMap.set(tid, flowRank);
+                        }
+                        const currentHeading = headingStack[lvNum];
+                        if (!currentHeading) return;
+                        headingContextMap.set(tid, {
+                            id: String(currentHeading.id || '').trim(),
+                            content: String(currentHeading.content || '').trim(),
+                            path: '',
+                            sort: Number.NaN,
+                            created: '',
+                            rank: Number(currentHeading.rank),
+                        });
+                    });
+                }
+                const snapshot = { flowRankMap, headingContextMap };
+                __tmDocEnhanceSnapshotCache.set(cacheKey, { t: Date.now(), snapshot });
+                return snapshot;
+            });
+            __tmDocEnhanceSnapshotCache.set(cacheKey, { t: now, promise });
+            try {
+                return await promise;
+            } catch (e) {
+                __tmDocEnhanceSnapshotCache.delete(cacheKey);
+                return { flowRankMap: new Map(), headingContextMap: new Map() };
+            }
+        },
+
+        async fetchTaskEnhanceBundle(taskIds, options = {}) {
+            const ids = Array.from(new Set((taskIds || []).map(x => String(x || '').trim()).filter(Boolean))).sort();
+            const needH2 = options?.needH2 !== false;
+            const needFlow = options?.needFlow !== false;
+            if (!ids.length || (!needH2 && !needFlow)) {
+                return { h2ContextMap: new Map(), taskFlowRankMap: new Map() };
+            }
+            const headingLevel = String(SettingsStore.data.taskHeadingLevel || 'h2');
+            const cacheKey = `enhance_bundle:${ids.length}:${__tmHashIds(ids)}:${headingLevel}:${needH2 ? 1 : 0}:${needFlow ? 1 : 0}`;
+            const cached = __tmGetAuxCache(cacheKey, 5000);
+            if (cached && cached.h2 && cached.flow) {
+                return {
+                    h2ContextMap: new Map(cached.h2),
+                    taskFlowRankMap: new Map(cached.flow),
+                };
+            }
+            const h2ContextMap = new Map();
+            const taskFlowRankMap = new Map();
+            const tasksByDoc = new Map();
+            const taskDocMap = await __tmBuildTaskDocMap(ids);
+            taskDocMap.forEach((docId, tid) => {
+                const did = String(docId || '').trim();
+                const taskId = String(tid || '').trim();
+                if (!did || !taskId) return;
+                if (!tasksByDoc.has(did)) tasksByDoc.set(did, new Set());
+                tasksByDoc.get(did).add(taskId);
+            });
+            for (const [docId, tidSet] of tasksByDoc.entries()) {
+                let snapshot = null;
+                try { snapshot = await this.getDocEnhanceSnapshot(docId, headingLevel); } catch (e) { snapshot = null; }
+                if (!snapshot) continue;
+                tidSet.forEach((tid) => {
+                    if (needFlow) {
+                        const rk = Number(snapshot.flowRankMap?.get(tid));
+                        if (Number.isFinite(rk)) taskFlowRankMap.set(tid, rk);
+                    }
+                    if (needH2) {
+                        const ctx = snapshot.headingContextMap?.get(tid);
+                        if (ctx && typeof ctx === 'object') h2ContextMap.set(tid, ctx);
+                    }
+                });
+            }
+            if (needFlow) {
+                const missingFlowIds = ids.filter((id) => !taskFlowRankMap.has(id));
+                if (missingFlowIds.length > 0) {
+                    try {
+                        const fallbackFlow = await this.fetchTaskFlowRanksLegacy(missingFlowIds);
+                        fallbackFlow.forEach((rank, taskId) => {
+                            const tid = String(taskId || '').trim();
+                            const rk = Number(rank);
+                            if (!tid || !Number.isFinite(rk) || taskFlowRankMap.has(tid)) return;
+                            taskFlowRankMap.set(tid, rk);
+                        });
+                    } catch (e) {}
+                }
+            }
+            if (needH2) {
+                const missingH2Ids = ids.filter((id) => !h2ContextMap.has(id));
+                if (missingH2Ids.length > 0) {
+                    try {
+                        const fallbackH2 = await this.fetchH2ContextsLegacy(missingH2Ids);
+                        fallbackH2.forEach((ctx, taskId) => {
+                            const tid = String(taskId || '').trim();
+                            if (!tid || h2ContextMap.has(tid)) return;
+                            h2ContextMap.set(tid, ctx);
+                        });
+                    } catch (e) {}
+                }
+            }
+            __tmSetAuxCache(cacheKey, {
+                h2: Array.from(h2ContextMap.entries()),
+                flow: Array.from(taskFlowRankMap.entries())
+            });
+            return { h2ContextMap, taskFlowRankMap };
         },
 
         async fetchHeadingOrderByDocs(docIds, headingLevel = 'h2') {
@@ -8341,6 +8744,38 @@
             const cacheKey = `h2ctx:${ids.length}:${__tmHashIds(ids)}:${String(SettingsStore.data.taskHeadingLevel || 'h2')}`;
             const cached = __tmGetAuxCache(cacheKey, 8000);
             if (cached) return new Map(cached);
+            try {
+                const bundle = await this.fetchTaskEnhanceBundle(ids, { needH2: true, needFlow: false });
+                const out = bundle?.h2ContextMap instanceof Map ? bundle.h2ContextMap : new Map();
+                __tmSetAuxCache(cacheKey, Array.from(out.entries()));
+                return out;
+            } catch (e) {
+                return this.fetchH2ContextsLegacy(ids);
+            }
+        },
+
+        async fetchTaskFlowRanks(taskIds) {
+            const ids = Array.from(new Set((taskIds || []).map(x => String(x || '').trim()).filter(Boolean))).sort();
+            if (ids.length === 0) return new Map();
+            const cacheKey = `flowrank:${ids.length}:${__tmHashIds(ids)}`;
+            const cached = __tmGetAuxCache(cacheKey, 5000);
+            if (cached) return new Map(cached);
+            try {
+                const bundle = await this.fetchTaskEnhanceBundle(ids, { needH2: false, needFlow: true });
+                const out = bundle?.taskFlowRankMap instanceof Map ? bundle.taskFlowRankMap : new Map();
+                __tmSetAuxCache(cacheKey, Array.from(out.entries()));
+                return out;
+            } catch (e) {
+                return this.fetchTaskFlowRanksLegacy(ids);
+            }
+        },
+
+        async fetchH2ContextsLegacy(taskIds) {
+            const ids = Array.from(new Set((taskIds || []).map(x => String(x || '').trim()).filter(Boolean))).sort();
+            if (ids.length === 0) return new Map();
+            const cacheKey = `h2ctx:${ids.length}:${__tmHashIds(ids)}:${String(SettingsStore.data.taskHeadingLevel || 'h2')}`;
+            const cached = __tmGetAuxCache(cacheKey, 8000);
+            if (cached) return new Map(cached);
             const batchSize = 100;
             const contextMap = new Map();
             for (let i = 0; i < ids.length; i += batchSize) {
@@ -8455,8 +8890,8 @@
                     -- 获取最终的order_key（最外层非任务块的order_key）
                     task_orders AS (
                         SELECT
-                            task_id,
-                            root_id,
+                            tok.task_id AS task_id,
+                            tok.root_id AS root_id,
                             COALESCE(
                                 (SELECT parent_order_key FROM task_order_keys tok2 
                                  WHERE tok2.task_id = tok.task_id AND tok2.parent_order_key != '' 
@@ -8466,7 +8901,7 @@
                             ) AS task_order_key
                         FROM task_order_keys tok
                         LEFT JOIN doc_tree dt_task ON dt_task.id = tok.task_id
-                        GROUP BY task_id, root_id
+                        GROUP BY tok.task_id, tok.root_id
                     ),
                     matched AS (
                         SELECT
@@ -8636,7 +9071,7 @@
             return contextMap;
         },
 
-        async fetchTaskFlowRanks(taskIds) {
+        async fetchTaskFlowRanksLegacy(taskIds) {
             const ids = Array.from(new Set((taskIds || []).map(x => String(x || '').trim()).filter(Boolean))).sort();
             if (ids.length === 0) return new Map();
             const cacheKey = `flowrank:${ids.length}:${__tmHashIds(ids)}`;
@@ -12069,8 +12504,9 @@ async function __tmRefreshAfterWake(reason) {
     function __tmGetGroupSourceEntries(group) {
         const out = __tmNormalizeGroupDocEntries(group);
         const notebookId = String(group?.notebookId || '').trim();
+        const calendarOptimization = __tmGetGroupCalendarSearchOptimization(group);
         if (notebookId) {
-            out.push({ id: notebookId, kind: 'notebook', recursive: true });
+            out.push({ id: notebookId, kind: 'notebook', recursive: true, calendarOptimization });
         }
         return out;
     }
@@ -12080,10 +12516,11 @@ async function __tmRefreshAfterWake(reason) {
         const kind = String(entry.kind || 'doc').trim();
         const id = String(entry.id || '').trim();
         if (!id) return;
+        const entryCalendarOptimization = __tmNormalizeCalendarSearchOptimization(entry?.calendarOptimization);
         const recursiveDocLimit = Number.isFinite(Number(SettingsStore.data?.recursiveDocLimit))
             ? Math.max(1, Math.min(500000, Math.round(Number(SettingsStore.data.recursiveDocLimit))))
             : 2000;
-        const cacheKey = `${kind}:${id}:${entry.recursive ? 1 : 0}:${recursiveDocLimit}`;
+        const cacheKey = `${kind}:${id}:${entry.recursive ? 1 : 0}:${recursiveDocLimit}:${entryCalendarOptimization.enabled ? 1 : 0}:${Number(entryCalendarOptimization.days) || 0}`;
         const now = Date.now();
         const cacheTtlMs = kind === 'notebook' ? 15000 : 10000;
         const cacheEnt = __tmDocExpandCache.get(cacheKey);
@@ -12100,8 +12537,17 @@ async function __tmRefreshAfterWake(reason) {
         };
         if (kind === 'notebook') {
             try {
-                const docs = await API.getNotebookDocuments(id);
-                (Array.isArray(docs) ? docs : []).forEach((doc) => pushLocal(doc?.id));
+                const docs = await API.getNotebookDocuments(id, entryCalendarOptimization.enabled ? { limit: 0 } : null);
+                let notebookDocIds = (Array.isArray(docs) ? docs : []).map((doc) => String(doc?.id || '').trim()).filter(Boolean);
+                if (entryCalendarOptimization.enabled && notebookDocIds.length > 0) {
+                    const optimized = await __tmApplyCalendarSearchOptimizationToDocIds(notebookDocIds, {
+                        id: `__tm-notebook-${id}`,
+                        calendarSearchOptimization: entryCalendarOptimization,
+                    });
+                    notebookDocIds = Array.isArray(optimized) ? optimized : notebookDocIds;
+                }
+                if (notebookDocIds.length > recursiveDocLimit) notebookDocIds = notebookDocIds.slice(0, recursiveDocLimit);
+                notebookDocIds.forEach((docId) => pushLocal(docId));
             } catch (e) {}
             __tmDocExpandCache.set(cacheKey, { t: Date.now(), ids: nextIds });
             return;
@@ -12109,8 +12555,17 @@ async function __tmRefreshAfterWake(reason) {
         pushLocal(id);
         if (entry.recursive && API && typeof API.getSubDocIds === 'function') {
             try {
-                const subIds = await API.getSubDocIds(id);
-                (Array.isArray(subIds) ? subIds : []).forEach((sid) => pushLocal(sid));
+                let subIds = await API.getSubDocIds(id, entryCalendarOptimization.enabled ? { limit: 0 } : null);
+                subIds = Array.isArray(subIds) ? subIds.map((sid) => String(sid || '').trim()).filter(Boolean) : [];
+                if (entryCalendarOptimization.enabled && subIds.length > 0) {
+                    const optimized = await __tmApplyCalendarSearchOptimizationToDocIds(subIds, {
+                        id: `__tm-doc-${id}`,
+                        calendarSearchOptimization: entryCalendarOptimization,
+                    });
+                    subIds = Array.isArray(optimized) ? optimized : subIds;
+                }
+                if (subIds.length > recursiveDocLimit) subIds = subIds.slice(0, recursiveDocLimit);
+                subIds.forEach((sid) => pushLocal(sid));
             } catch (e) {}
         }
         __tmDocExpandCache.set(cacheKey, { t: Date.now(), ids: nextIds });
@@ -13976,24 +14431,13 @@ async function __tmRefreshAfterWake(reason) {
                             const allIds = Array.from(allSet);
 
                             const tasksMap = new Map();
+                            const taskTreeDocMap = new Map((Array.isArray(state.taskTree) ? state.taskTree : []).map((doc) => [String(doc?.id || '').trim(), doc]));
                             allIds.forEach(id => {
-                                const treeDoc = state.taskTree.find(d => d.id === id);
+                                const treeDoc = taskTreeDocMap.get(String(id || '').trim());
                                 if (treeDoc && treeDoc.tasks && treeDoc.tasks.length > 0) tasksMap.set(id, true);
                             });
 
-                            const uncheckedIds = allIds.filter(id => !tasksMap.has(id));
-                            if (uncheckedIds.length > 0) {
-                                const CHUNK_SIZE = 50;
-                                for (let i = 0; i < uncheckedIds.length; i += CHUNK_SIZE) {
-                                    const chunk = uncheckedIds.slice(i, i + CHUNK_SIZE);
-                                    const idsStr = chunk.map(id => `'${id}'`).join(',');
-                                    const sql = `SELECT DISTINCT root_id FROM blocks WHERE type='i' AND subtype='t' AND root_id IN (${idsStr}) LIMIT ${Math.max(1, Math.min(5000, chunk.length))}`;
-                                    try {
-                                        const res = await API.call('/api/query/sql', { stmt: sql });
-                                        if (res.code === 0 && res.data) res.data.forEach(row => tasksMap.set(row.root_id, true));
-                                    } catch (e) {}
-                                }
-                            }
+                            await __tmFillDocHasTasksMap(allIds, tasksMap);
 
                             const docList = allIds.map(id => ({ id, hasTasks: tasksMap.has(id) })).filter(item => item.hasTasks);
                             docList.sort((a, b) => resolveDocName(a.id).localeCompare(resolveDocName(b.id)));
@@ -31755,31 +32199,15 @@ async function __tmRefreshAfterWake(reason) {
                             const allIds = Array.from(finalIds);
                             // 1. 先从 taskTree 中检查
                             const tasksMap = new Map();
+                            const taskTreeDocMap = new Map((Array.isArray(state.taskTree) ? state.taskTree : []).map((doc) => [String(doc?.id || '').trim(), doc]));
                             allIds.forEach(id => {
-                                const treeDoc = state.taskTree.find(d => d.id === id);
+                                const treeDoc = taskTreeDocMap.get(String(id || '').trim());
                                 if (treeDoc && treeDoc.tasks && treeDoc.tasks.length > 0) {
                                     tasksMap.set(id, true);
                                 }
                             });
                             
-                            // 2. 对于不在 taskTree 中或者 taskTree 显示无任务的文档，使用 SQL 查询
-                            const uncheckedIds = allIds.filter(id => !tasksMap.has(id));
-                            if (uncheckedIds.length > 0) {
-                                // 批量查询：检查每个文档下是否有任务
-                                // SELECT root_id FROM blocks WHERE type='i' AND subtype='t' AND root_id IN (...) GROUP BY root_id
-                                const CHUNK_SIZE = 50; // 分批查询以避免 SQL 过长
-                                for (let i = 0; i < uncheckedIds.length; i += CHUNK_SIZE) {
-                                    const chunk = uncheckedIds.slice(i, i + CHUNK_SIZE);
-                                    const idsStr = chunk.map(id => `'${id}'`).join(',');
-                                    const sql = `SELECT DISTINCT root_id FROM blocks WHERE type='i' AND subtype='t' AND root_id IN (${idsStr}) LIMIT ${Math.max(1, Math.min(5000, chunk.length))}`;
-                                    try {
-                                        const res = await API.call('/api/query/sql', { stmt: sql });
-                                        if (res.code === 0 && res.data) {
-                                            res.data.forEach(row => tasksMap.set(row.root_id, true));
-                                        }
-                                    } catch(e) { console.error('SQL Query Error', e); }
-                                }
-                            }
+                            await __tmFillDocHasTasksMap(allIds, tasksMap);
 
                             // 过滤：只展示有任务的文档
                             const docList = allIds.map(id => {
@@ -31952,7 +32380,6 @@ async function __tmRefreshAfterWake(reason) {
         const groups = SettingsStore.data.docGroups || [];
         const currentGroupId = SettingsStore.data.currentGroupId || 'all';
         const quickAddDocId = String(SettingsStore.data.newTaskDocId || '').trim();
-        const nowBucket = Math.floor(Date.now() / 5000);
         
         let targetDocs = [];
         
@@ -31989,11 +32416,14 @@ async function __tmRefreshAfterWake(reason) {
         const resolveCacheKey = [
             currentGroupId,
             quickAddDocId,
-            nowBucket,
             ...normalizedDocs.map((doc) => `${doc.kind}:${doc.id}:${doc.recursive ? 1 : 0}`)
         ].join('|');
         const resolveCacheEnt = __tmResolvedDocIdsCache;
-        if (resolveCacheEnt && resolveCacheEnt.key === resolveCacheKey && Array.isArray(resolveCacheEnt.ids)) {
+        const resolveCacheTtlMs = 30000;
+        if (resolveCacheEnt
+            && resolveCacheEnt.key === resolveCacheKey
+            && Array.isArray(resolveCacheEnt.ids)
+            && (Date.now() - Number(resolveCacheEnt.t || 0)) < resolveCacheTtlMs) {
             return resolveCacheEnt.ids.slice();
         }
         if (__tmResolvedDocIdsPromise && __tmResolvedDocIdsPromise.key === resolveCacheKey && __tmResolvedDocIdsPromise.promise) {
@@ -32113,13 +32543,19 @@ async function __tmRefreshAfterWake(reason) {
         // 1. 解析所有需要查询的文档ID
         const allDocIds = await resolveDocIdsFromGroups();
         state.__tmLoadedDocIdsForTasks = Array.isArray(allDocIds) ? allDocIds.slice() : [];
+        try { __tmScheduleEnhanceWarmup(allDocIds, SettingsStore.data.currentGroupId || 'all'); } catch (e) {}
         if (SettingsStore.data.kanbanHeadingGroupMode) {
-            try { await __tmCleanupPlaceholderTasks(allDocIds); } catch (e) {}
-            try { await __tmWarmKanbanDocHeadings(allDocIds); } catch (e) {}
+            try {
+                const warmDocIds = Array.isArray(allDocIds) ? allDocIds.slice() : [];
+                Promise.resolve().then(async () => {
+                    try { await __tmCleanupPlaceholderTasks(warmDocIds); } catch (e) {}
+                    try { await __tmWarmKanbanDocHeadings(warmDocIds); } catch (e) {}
+                }).catch(() => null);
+            } catch (e) {}
         }
         try {
             if (typeof window.tmCalendarWarmDocsToGroupCache === 'function') {
-                await window.tmCalendarWarmDocsToGroupCache();
+                Promise.resolve().then(() => window.tmCalendarWarmDocsToGroupCache()).catch(() => null);
             }
         } catch (e) {}
         
@@ -32183,20 +32619,25 @@ async function __tmRefreshAfterWake(reason) {
                 const needFlowRank = !!ruleNeedsFlowRank || (!__tmRuleHasExplicitSort(rule0) && (!!state.groupByDocName || isUngroup || !!state.groupByTaskName || !!state.groupByTime || !!state.quadrantEnabled));
                 const colOrder0 = Array.isArray(SettingsStore.data.columnOrder) ? SettingsStore.data.columnOrder : [];
                 const needH2 = colOrder0.includes('h2') || (Array.isArray(rule0?.sort) && rule0.sort.some(s => String(s?.field || '').trim() === 'h2'));
+                const ruleNeedsH2Sort = Array.isArray(rule0?.sort) && rule0.sort.some(s => String(s?.field || '').trim() === 'h2');
                 const taskIds0 = res.tasks.map(t => String(t?.id || '').trim()).filter(Boolean);
+                const perfTuning = __tmGetPerfTuningOptions();
+                const deferEnhance = !!perfTuning.asyncEnhance && taskIds0.length >= Number(perfTuning.deferEnhanceThreshold || 180);
+                const h2StrictNeeded = !!ruleNeedsH2Sort || !!SettingsStore.data.docH2SubgroupEnabled || !!SettingsStore.data.kanbanHeadingGroupMode;
+                const deferH2Enhance = !!needH2 && !h2StrictNeeded && deferEnhance;
+                const deferFlowEnhance = !!needFlowRank && !ruleNeedsFlowRank && deferEnhance;
                 let h2ContextMap = new Map();
-                if (needH2) {
+                let taskFlowRankMap = new Map();
+                if ((needH2 && !deferH2Enhance) || (needFlowRank && !deferFlowEnhance)) {
                     try {
-                        h2ContextMap = await API.fetchH2Contexts(taskIds0);
+                        const bundle = await API.fetchTaskEnhanceBundle(taskIds0, {
+                            needH2: needH2 && !deferH2Enhance,
+                            needFlow: needFlowRank && !deferFlowEnhance
+                        });
+                        h2ContextMap = bundle?.h2ContextMap instanceof Map ? bundle.h2ContextMap : new Map();
+                        taskFlowRankMap = bundle?.taskFlowRankMap instanceof Map ? bundle.taskFlowRankMap : new Map();
                     } catch (e) {
                         h2ContextMap = new Map();
-                    }
-                }
-                let taskFlowRankMap = new Map();
-                if (needFlowRank) {
-                    try {
-                        taskFlowRankMap = await API.fetchTaskFlowRanks(taskIds0);
-                    } catch (e) {
                         taskFlowRankMap = new Map();
                     }
                 }
@@ -32433,6 +32874,67 @@ async function __tmRefreshAfterWake(reason) {
                 const currentRule = state.currentRule ? state.filterRules?.find(r => r.id === state.currentRule) : null;
                 
                 if (!skipRender && state.modal && token === (Number(state.openToken) || 0)) render();
+                if ((deferH2Enhance || deferFlowEnhance) && taskIds0.length > 0) {
+                    const deferredToken = token;
+                    const deferredTaskIds = taskIds0.slice();
+                    Promise.resolve().then(async () => {
+                        if (deferredToken !== (Number(state.openToken) || 0)) return;
+                        let h2Map = new Map();
+                        let flowMap = new Map();
+                        try {
+                            const bundle = await API.fetchTaskEnhanceBundle(deferredTaskIds, {
+                                needH2: deferH2Enhance,
+                                needFlow: deferFlowEnhance
+                            });
+                            h2Map = bundle?.h2ContextMap instanceof Map ? bundle.h2ContextMap : new Map();
+                            flowMap = bundle?.taskFlowRankMap instanceof Map ? bundle.taskFlowRankMap : new Map();
+                        } catch (e) {
+                            h2Map = new Map();
+                            flowMap = new Map();
+                        }
+                        if (deferredToken !== (Number(state.openToken) || 0)) return;
+                        let changed = false;
+                        deferredTaskIds.forEach((id) => {
+                            const tid = String(id || '').trim();
+                            if (!tid) return;
+                            const task = state.flatTasks?.[tid];
+                            if (!task) return;
+                            if (deferFlowEnhance) {
+                                const flowRank = Number(flowMap.get(tid));
+                                if (Number.isFinite(flowRank) && Number(task.docSeq) !== flowRank) {
+                                    task.docSeq = flowRank;
+                                    changed = true;
+                                }
+                            }
+                            if (deferH2Enhance) {
+                                const h2ctx = h2Map.get(tid);
+                                const nextH2 = h2ctx && typeof h2ctx === 'object' ? String(h2ctx.content || '').trim() : String(h2ctx || '').trim();
+                                const nextH2Id = h2ctx && typeof h2ctx === 'object' ? String(h2ctx.id || '').trim() : '';
+                                const nextH2Path = h2ctx && typeof h2ctx === 'object' ? String(h2ctx.path || '').trim() : '';
+                                const nextH2Sort = h2ctx && typeof h2ctx === 'object' ? Number(h2ctx.sort) : Number.NaN;
+                                const nextH2Created = h2ctx && typeof h2ctx === 'object' ? String(h2ctx.created || '').trim() : '';
+                                const nextH2Rank = h2ctx && typeof h2ctx === 'object' ? Number(h2ctx.rank) : Number.NaN;
+                                if (String(task.h2 || '').trim() !== nextH2
+                                    || String(task.h2Id || '').trim() !== nextH2Id
+                                    || String(task.h2Path || '').trim() !== nextH2Path
+                                    || Number(task.h2Sort) !== nextH2Sort
+                                    || String(task.h2Created || '').trim() !== nextH2Created
+                                    || Number(task.h2Rank) !== nextH2Rank) {
+                                    task.h2 = nextH2;
+                                    task.h2Id = nextH2Id;
+                                    task.h2Path = nextH2Path;
+                                    task.h2Sort = nextH2Sort;
+                                    task.h2Created = nextH2Created;
+                                    task.h2Rank = nextH2Rank;
+                                    changed = true;
+                                }
+                            }
+                        });
+                        if (!changed || deferredToken !== (Number(state.openToken) || 0)) return;
+                        applyFilters();
+                        if (!skipRender && state.modal && deferredToken === (Number(state.openToken) || 0)) render();
+                    }).catch(() => null);
+                }
             }
         } catch (e) {
             console.error('[加载] 获取任务失败:', e);
