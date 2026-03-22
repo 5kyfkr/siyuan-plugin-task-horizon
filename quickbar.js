@@ -122,6 +122,9 @@
     let inlineMetaPropsInflight = new Map();
     let inlineMetaScrollDirection = 0;
     let inlineMetaLastScrollPos = 0;
+    let inlineMetaScopeDocIds = null;
+    let inlineMetaScopeDocIdsTs = 0;
+    let inlineMetaScopeDocIdsPromise = null;
 
     // ==================== 辅助函数 ====================
     function getQuickbarInlineSettings() {
@@ -141,6 +144,102 @@
         } catch (e) {
             return { enabled: false, showOnMobile: false, fields: fallbackFields.slice() };
         }
+    }
+
+    function isInlineMetaScopeStorageKey(key) {
+        return key === 'tm_doc_groups'
+            || key === 'tm_selected_doc_ids';
+    }
+
+    function clearInlineMetaScopeDocCache() {
+        inlineMetaScopeDocIds = null;
+        inlineMetaScopeDocIdsTs = 0;
+        inlineMetaScopeDocIdsPromise = null;
+    }
+
+    function getDocIdFromProtyleEl(protyleEl) {
+        if (!protyleEl) return '';
+        try {
+            const direct = [
+                protyleEl.querySelector?.('.protyle-title')?.getAttribute?.('data-node-id'),
+                protyleEl.querySelector?.('.protyle-title__input')?.getAttribute?.('data-node-id'),
+                protyleEl.querySelector?.('.protyle-background')?.getAttribute?.('data-node-id'),
+                protyleEl.dataset?.nodeId,
+                protyleEl.dataset?.id
+            ];
+            return direct.map((v) => String(v || '').trim()).find(Boolean) || '';
+        } catch (e) {
+            return '';
+        }
+    }
+
+    function resolveDocIdFromTaskBlock(blockEl) {
+        if (!blockEl) return '';
+        const protyle = blockEl.closest?.('.protyle');
+        const fromProtyle = getDocIdFromProtyleEl(protyle);
+        if (fromProtyle) return fromProtyle;
+        try {
+            const holders = blockEl.closest?.('[data-doc-id],[data-root-id]');
+            const fromHolder = String(holders?.getAttribute?.('data-doc-id') || holders?.getAttribute?.('data-root-id') || '').trim();
+            if (fromHolder) return fromHolder;
+        } catch (e) {}
+        return '';
+    }
+
+    async function ensureInlineMetaScopeDocIds(forceRefresh = false) {
+        const ttlMs = 5000;
+        const now = Date.now();
+        if (!forceRefresh && inlineMetaScopeDocIds && (now - inlineMetaScopeDocIdsTs) < ttlMs) return inlineMetaScopeDocIds;
+        if (!forceRefresh && inlineMetaScopeDocIdsPromise) return inlineMetaScopeDocIdsPromise;
+        const bridge = globalThis?.['siyuan-plugin-task-horizon']?.aiBridge;
+        if (typeof bridge?.getConfiguredDocIds !== 'function') {
+            inlineMetaScopeDocIds = null;
+            inlineMetaScopeDocIdsTs = now;
+            return null;
+        }
+        const p = Promise.resolve(bridge.getConfiguredDocIds({ forceRefresh: !!forceRefresh }))
+            .then((docIds) => {
+                const next = new Set((Array.isArray(docIds) ? docIds : []).map((id) => String(id || '').trim()).filter(Boolean));
+                inlineMetaScopeDocIds = next;
+                inlineMetaScopeDocIdsTs = Date.now();
+                return next;
+            })
+            .catch(() => {
+                inlineMetaScopeDocIds = null;
+                inlineMetaScopeDocIdsTs = Date.now();
+                return null;
+            })
+            .finally(() => {
+                if (inlineMetaScopeDocIdsPromise === p) inlineMetaScopeDocIdsPromise = null;
+            });
+        inlineMetaScopeDocIdsPromise = p;
+        return p;
+    }
+
+    async function isInlineMetaScopeAllowedForBlock(blockEl) {
+        const docId = resolveDocIdFromTaskBlock(blockEl);
+        if (!docId) return true;
+        const scopeDocIds = await ensureInlineMetaScopeDocIds(false);
+        if (!(scopeDocIds instanceof Set)) return true;
+        if (!scopeDocIds.size) return false;
+        return scopeDocIds.has(docId);
+    }
+
+    function removeInlineMetaHostByTaskId(taskId) {
+        const id = String(taskId || '').trim();
+        if (!id) return;
+        const layer = inlineMetaLayer && inlineMetaLayer.isConnected
+            ? inlineMetaLayer
+            : document.querySelector('.sy-custom-props-inline-layer');
+        if (!layer) return;
+        let host = null;
+        try {
+            host = layer.querySelector(`.sy-custom-props-inline-host[data-block-id="${CSS.escape(id)}"]`);
+        } catch (e) {
+            host = Array.from(layer.querySelectorAll('.sy-custom-props-inline-host[data-block-id]')).find((el) => String(el?.dataset?.blockId || '').trim() === id) || null;
+        }
+        if (!host) return;
+        try { host.remove(); } catch (e) {}
     }
 
     function esc(value) {
@@ -792,6 +891,11 @@
                 return;
             }
             if (e.key === 'tm_enable_quickbar_inline_meta' || e.key === 'tm_quickbar_inline_fields' || e.key === 'tm_quickbar_inline_show_on_mobile') {
+                try { refreshInlineMetaMode(true); } catch (e) {}
+                return;
+            }
+            if (isInlineMetaScopeStorageKey(e.key)) {
+                clearInlineMetaScopeDocCache();
                 try { refreshInlineMetaMode(true); } catch (e) {}
             }
         };
@@ -2163,10 +2267,16 @@
             });
         }
 
-        function renderInlineMetaForBlock(blockEl, forceRefresh = false, visibilityBuffer = 0) {
+        async function renderInlineMetaForBlock(blockEl, forceRefresh = false, visibilityBuffer = 0) {
             if (!isInlineMetaEnabled()) return;
             const taskId = String(resolveTaskNodeIdForDetail(blockEl) || blockEl?.dataset?.nodeId || '').trim();
             if (!taskId) return;
+            const isInScope = await isInlineMetaScopeAllowedForBlock(blockEl);
+            if (!isInScope) {
+                removeInlineMetaHostByTaskId(taskId);
+                inlineMetaLayoutCache.delete(taskId);
+                return;
+            }
             const hostParent = getInlineHostParent(blockEl);
             if (!hostParent) return;
             const textAnchor = getInlineTextAnchor(blockEl);
@@ -2314,6 +2424,7 @@
         }
 
         function refreshInlineMetaMode(forceRefresh = true) {
+            if (forceRefresh) clearInlineMetaScopeDocCache();
             if (isInlineMetaEnabled()) {
                 startInlineMeta();
                 scheduleInlineMetaRender(!!forceRefresh);
@@ -2526,6 +2637,9 @@
                         console.warn('解析状态选项失败:', err);
                     }
                 } else if (e.key === 'tm_enable_quickbar_inline_meta' || e.key === 'tm_quickbar_inline_fields' || e.key === 'tm_quickbar_inline_show_on_mobile') {
+                    refreshInlineMetaMode(true);
+                } else if (isInlineMetaScopeStorageKey(e.key)) {
+                    clearInlineMetaScopeDocCache();
                     refreshInlineMetaMode(true);
                 }
             };

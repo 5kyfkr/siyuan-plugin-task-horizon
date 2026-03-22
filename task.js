@@ -1,5 +1,5 @@
 // @name         思源笔记任务管理器
-// @version      1.8.7
+// @version      1.8.8
 // @description  任务管理器，支持自定义筛选规则分组和排序
 // @author       5KYFKR
 
@@ -8802,7 +8802,7 @@
                         WHERE id IN (${idList})
                     ),
                     doc_roots AS (
-                        SELECT DISTINCT root_id
+                        SELECT DISTINCT task_roots.root_id AS doc_root_id
                         FROM task_roots
                     ),
                     doc_tree AS (
@@ -8812,7 +8812,7 @@
                             0 AS depth,
                             '' AS order_key
                         FROM blocks d
-                        WHERE d.id IN (SELECT root_id FROM doc_roots)
+                        WHERE d.id IN (SELECT doc_root_id FROM doc_roots)
 
                         UNION ALL
 
@@ -8847,7 +8847,7 @@
                         LEFT JOIN doc_tree dt ON dt.id = b.id
                         WHERE b.type = 'h'
                           AND b.subtype = '${SettingsStore.data.taskHeadingLevel || 'h2'}'
-                          AND b.root_id IN (SELECT DISTINCT root_id FROM task_roots)
+                          AND b.root_id IN (SELECT DISTINCT task_roots.root_id FROM task_roots)
                     ),
                     -- 获取任务的父块信息（包括类型）
                     task_parents AS (
@@ -8891,7 +8891,7 @@
                     task_orders AS (
                         SELECT
                             tok.task_id AS task_id,
-                            tok.root_id AS root_id,
+                            tok.root_id AS task_root_id,
                             COALESCE(
                                 (SELECT parent_order_key FROM task_order_keys tok2 
                                  WHERE tok2.task_id = tok.task_id AND tok2.parent_order_key != '' 
@@ -8906,7 +8906,7 @@
                     matched AS (
                         SELECT
                             t.task_id,
-                            t.root_id,
+                            t.task_root_id,
                             h.id AS heading_id,
                             h.path AS heading_path,
                             h.sort AS heading_sort,
@@ -8918,12 +8918,12 @@
                             ) AS rn
                         FROM task_orders t
                         LEFT JOIN headings h
-                            ON h.root_id = t.root_id
+                            ON h.root_id = t.task_root_id
                            AND h.heading_order_key <= t.task_order_key
                     )
                     SELECT
                         m.task_id,
-                        m.root_id,
+                        m.task_root_id AS root_id,
                         m.heading_id,
                         hb.content,
                         m.heading_path,
@@ -9137,7 +9137,7 @@
                         WHERE id IN (${idList})
                     ),
                     doc_roots AS (
-                        SELECT DISTINCT root_id
+                        SELECT DISTINCT task_roots.root_id AS doc_root_id
                         FROM task_roots
                     ),
                     doc_tree AS (
@@ -9147,7 +9147,7 @@
                             0 AS depth,
                             '' AS order_key
                         FROM blocks d
-                        WHERE d.id IN (SELECT root_id FROM doc_roots)
+                        WHERE d.id IN (SELECT doc_root_id FROM doc_roots)
                         UNION ALL
                         SELECT
                             b.id,
@@ -9175,7 +9175,7 @@
                     SELECT
                         task_id,
                         ROW_NUMBER() OVER (
-                            PARTITION BY root_id
+                            PARTITION BY task_pos.root_id
                             ORDER BY task_order_key, task_id
                         ) AS task_rank
                     FROM task_pos
@@ -9808,6 +9808,41 @@
         });
     }
 
+    async function __tmFetchReminderMarksByTaskIds(taskIds) {
+        const ids = Array.from(new Set((Array.isArray(taskIds) ? taskIds : [])
+            .map((id) => String(id || '').trim())
+            .filter((id) => /^[0-9]+-[a-zA-Z0-9]+$/.test(id))));
+        const out = new Map();
+        ids.forEach((id) => out.set(id, false));
+        if (!ids.length) return out;
+        const chunkSize = 180;
+        for (let i = 0; i < ids.length; i += chunkSize) {
+            const chunk = ids.slice(i, i + chunkSize);
+            if (!chunk.length) continue;
+            const idSql = chunk.map((id) => `'${id.replace(/'/g, "''")}'`).join(',');
+            const sql = `
+                SELECT block_id, value
+                FROM attributes
+                WHERE name = 'bookmark'
+                    AND block_id IN (${idSql})
+            `;
+            let rows = [];
+            try {
+                const res = await API.call('/api/query/sql', { stmt: sql });
+                rows = (res && res.code === 0 && Array.isArray(res.data)) ? res.data : [];
+            } catch (e) {
+                rows = [];
+            }
+            rows.forEach((row) => {
+                const taskId = String(row?.block_id || '').trim();
+                if (!taskId || !out.has(taskId)) return;
+                const val = String(row?.value || '').trim();
+                out.set(taskId, val.includes('⏰'));
+            });
+        }
+        return out;
+    }
+
     function __tmScheduleReminderTaskNameMarksRefresh(modalEl, force = false) {
         const modal = modalEl instanceof Element ? modalEl : state.modal;
         if (!(modal instanceof Element)) return;
@@ -9819,20 +9854,25 @@
                 .filter(Boolean)));
             const pendingIds = ids.filter((tid) => force || !__tmReminderMarkCache.has(tid));
             if (!pendingIds.length) return;
-            await Promise.all(pendingIds.map(async (tid) => {
+            const queryIds = [];
+            pendingIds.forEach((tid) => {
                 if (__tmReminderMarkLoading.has(tid)) return;
                 __tmReminderMarkLoading.add(tid);
-                try {
-                    const res = await API.call('/api/attr/getBlockAttrs', { id: tid });
-                    const attrs = (res && res.code === 0 && res.data && typeof res.data === 'object') ? res.data : {};
-                    const raw = String(attrs?.bookmark ?? attrs?.['bookmark'] ?? '').trim();
-                    __tmSetTaskReminderMark(tid, raw.includes('⏰'));
-                } catch (e) {
+                queryIds.push(tid);
+            });
+            if (!queryIds.length) return;
+            try {
+                const markMap = await __tmFetchReminderMarksByTaskIds(queryIds);
+                queryIds.forEach((tid) => {
+                    __tmSetTaskReminderMark(tid, markMap.get(tid) === true);
+                });
+            } catch (e) {
+                queryIds.forEach((tid) => {
                     if (!__tmReminderMarkCache.has(tid)) __tmReminderMarkCache.set(tid, false);
-                } finally {
-                    __tmReminderMarkLoading.delete(tid);
-                }
-            }));
+                });
+            } finally {
+                queryIds.forEach((tid) => __tmReminderMarkLoading.delete(tid));
+            }
             if (!modal.isConnected) return;
             __tmApplyReminderTaskNameMarks(modal);
         }).catch(() => null);
@@ -9965,6 +10005,7 @@
 
     // ===== 全局清理句柄 =====
     let __tmGlobalClickHandler = null;
+    let __tmSettingsEscHandler = null;
     let __tmDomReadyHandler = null;
     let __tmBreadcrumbObserver = null;
     let __tmThemeModeObserver = null;
@@ -30946,13 +30987,23 @@ async function __tmRefreshAfterWake(reason) {
 
         overlay.innerHTML = __tmBuildTaskDetailInnerHtml(task, { embedded: false });
 
-        const close = () => { try { overlay.remove(); } catch (e) {} };
+        const onKeydown = (e) => {
+            if (e.key !== 'Escape') return;
+            try { e.preventDefault(); } catch (err) {}
+            try { e.stopPropagation(); } catch (err) {}
+            close();
+        };
+        const close = () => {
+            try { document.removeEventListener('keydown', onKeydown, true); } catch (e) {}
+            try { overlay.remove(); } catch (e) {}
+        };
         overlay.addEventListener('click', (e) => {
             if (e.target === overlay) close();
         });
         __tmBindTaskDetailEditor(overlay, tid, { embedded: false, onClose: close });
 
         document.body.appendChild(overlay);
+        try { document.addEventListener('keydown', onKeydown, true); } catch (e) {}
         return true;
     };
 
@@ -33054,6 +33105,12 @@ async function __tmRefreshAfterWake(reason) {
         let savedSettingsContentScrollTop = Number(state.settingsContentScrollTop) || 0;
         if (state.settingsModal) {
             try {
+                if (__tmSettingsEscHandler) {
+                    document.removeEventListener('keydown', __tmSettingsEscHandler, true);
+                    __tmSettingsEscHandler = null;
+                }
+            } catch (e) {}
+            try {
                 const prevSidebar = state.settingsModal.querySelector('.tm-settings-sidebar');
                 const prevTabs = state.settingsModal.querySelector('.tm-settings-tabs');
                 const prevContent = state.settingsModal.querySelector('.tm-settings-content');
@@ -34123,6 +34180,16 @@ async function __tmRefreshAfterWake(reason) {
         `;
 
         document.body.appendChild(state.settingsModal);
+        try {
+            __tmSettingsEscHandler = (e) => {
+                if (e.key !== 'Escape') return;
+                if (!state.settingsModal || !document.body.contains(state.settingsModal)) return;
+                try { e.preventDefault(); } catch (err) {}
+                try { e.stopPropagation(); } catch (err) {}
+                closeSettings();
+            };
+            document.addEventListener('keydown', __tmSettingsEscHandler, true);
+        } catch (e) {}
         try {
             const settingsSidebar = state.settingsModal.querySelector('.tm-settings-sidebar');
             const settingsTabs = state.settingsModal.querySelector('.tm-settings-tabs');
@@ -37070,6 +37137,12 @@ async function __tmRefreshAfterWake(reason) {
     };
 
     window.closeSettings = function() {
+        try {
+            if (__tmSettingsEscHandler) {
+                document.removeEventListener('keydown', __tmSettingsEscHandler, true);
+                __tmSettingsEscHandler = null;
+            }
+        } catch (e) {}
         if (state.settingsModal) {
             state.settingsModal.remove();
             state.settingsModal = null;
@@ -38139,6 +38212,12 @@ async function __tmRefreshAfterWake(reason) {
             }
         } catch (e) {}
         try {
+            if (__tmSettingsEscHandler) {
+                document.removeEventListener('keydown', __tmSettingsEscHandler, true);
+                __tmSettingsEscHandler = null;
+            }
+        } catch (e) {}
+        try {
             document.removeEventListener('pointerdown', __tmRememberFocusedProtyleOnPointerDown, true);
             document.removeEventListener('focusin', __tmRememberFocusedProtyleOnFocusIn, true);
             __tmLastFocusedProtyle = null;
@@ -38951,6 +39030,68 @@ async function __tmRefreshAfterWake(reason) {
         return docIds.filter(Boolean);
     }
 
+    async function __tmQuickbarResolveConfiguredDocIds(forceRefresh = false) {
+        const groups = Array.isArray(SettingsStore.data.docGroups) ? SettingsStore.data.docGroups : [];
+        const legacyIds = Array.isArray(SettingsStore.data.selectedDocIds) ? SettingsStore.data.selectedDocIds : [];
+        const targetDocs = [];
+        legacyIds.forEach((id) => {
+            const did = String(id || '').trim();
+            if (did) targetDocs.push({ id: did, kind: 'doc', recursive: false });
+        });
+        groups.forEach((group) => {
+            targetDocs.push(...__tmGetGroupSourceEntries(group));
+        });
+        const normalizedDocs = targetDocs
+            .map((entry) => {
+                const id = String((typeof entry === 'object' ? entry?.id : entry) || '').trim();
+                if (!id) return null;
+                return {
+                    id,
+                    kind: String((typeof entry === 'object' ? entry?.kind : '') || 'doc').trim() || 'doc',
+                    recursive: !!(typeof entry === 'object' ? entry?.recursive : false)
+                };
+            })
+            .filter(Boolean);
+        const cacheKey = normalizedDocs.map((entry) => `${entry.kind}:${entry.id}:${entry.recursive ? 1 : 0}`).join('|');
+        const now = Date.now();
+        const cacheEnt = __tmQuickbarResolveConfiguredDocIds.__cache;
+        if (!forceRefresh
+            && cacheEnt
+            && cacheEnt.key === cacheKey
+            && Array.isArray(cacheEnt.ids)
+            && (now - Number(cacheEnt.t || 0)) < 30000) {
+            return cacheEnt.ids.slice();
+        }
+        const inflight = __tmQuickbarResolveConfiguredDocIds.__inflight;
+        if (!forceRefresh && inflight && inflight.key === cacheKey && inflight.promise) {
+            const ids = await inflight.promise;
+            return Array.isArray(ids) ? ids.slice() : [];
+        }
+        const seen = new Set();
+        const finalIds = [];
+        const pushDocId = (id0) => {
+            const id = String(id0 || '').trim();
+            if (!id || seen.has(id)) return;
+            seen.add(id);
+            finalIds.push(id);
+        };
+        const resolvePromise = Promise.resolve().then(async () => {
+            await Promise.all(normalizedDocs.map((entry) => __tmExpandSourceEntryDocIds(entry, pushDocId)));
+            const out = finalIds.slice();
+            __tmQuickbarResolveConfiguredDocIds.__cache = { key: cacheKey, ids: out, t: Date.now() };
+            return out;
+        });
+        __tmQuickbarResolveConfiguredDocIds.__inflight = { key: cacheKey, promise: resolvePromise };
+        try {
+            const ids = await resolvePromise;
+            return Array.isArray(ids) ? ids.slice() : [];
+        } finally {
+            if (__tmQuickbarResolveConfiguredDocIds.__inflight?.key === cacheKey) {
+                __tmQuickbarResolveConfiguredDocIds.__inflight = null;
+            }
+        }
+    }
+
     async function __tmAiGetSummaryTasksByDocIds(docIds, options = {}) {
         return await __tmSummaryLoadTasksByDocs(docIds, { ignoreExcludeCompleted: options?.ignoreExcludeCompleted === true });
     }
@@ -39028,6 +39169,15 @@ async function __tmRefreshAfterWake(reason) {
         },
         async getSummaryTasksByDocIds(docIds, options) {
             return await __tmAiGetSummaryTasksByDocIds(docIds, options);
+        },
+        async getConfiguredDocIds(options = {}) {
+            return await __tmQuickbarResolveConfiguredDocIds(options?.forceRefresh === true);
+        },
+        async isDocIdConfigured(docId, options = {}) {
+            const id = String(docId || '').trim();
+            if (!id) return false;
+            const ids = await __tmQuickbarResolveConfiguredDocIds(options?.forceRefresh === true);
+            return ids.includes(id);
         },
         hint,
         esc,
