@@ -403,7 +403,7 @@
 .tm-cal-task-spent {
     flex: none;
     color: var(--tm-secondary-text);
-    font-variant-numeric: tabular-nums;
+    font-variant-numeric: inherit;
     max-width: 56px;
     overflow: hidden;
     text-overflow: ellipsis;
@@ -997,7 +997,7 @@
 
 .tm-calendar-host .fc,
 .tm-calendar-host.fc {
-    font-family: var(--b3-font-family);
+    font-family: var(--b3-font-family-protyle, var(--b3-font-family));
     color: var(--tm-text-color);
 }
 

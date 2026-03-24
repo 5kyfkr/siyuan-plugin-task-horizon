@@ -47,6 +47,12 @@
         SCHEDULE_MOBILE_REGISTRY_LS_KEY: 'tm-calendar-mobile-notification-registry',
     };
     const SIDE_DAY_HALF_HOUR_SLOT_HEIGHT = 29;
+    const CALENDAR_HOUR_SLOT_HEIGHT_DELTA_MAP = Object.freeze({
+        normal: 0,
+        high: 10,
+        higher: 20,
+        ultra: 30,
+    });
     const DEVICE_NOTIFICATION_CHANNEL = 'siyuan-plugin-task-horizon';
 
     const state = {
@@ -454,6 +460,24 @@
         };
     }
 
+    function normalizeCalendarHourSlotHeightMode(value) {
+        const mode = String(value || '').trim();
+        return Object.prototype.hasOwnProperty.call(CALENDAR_HOUR_SLOT_HEIGHT_DELTA_MAP, mode) ? mode : 'normal';
+    }
+
+    function getCalendarHalfHourSlotHeight(settings) {
+        const source = (settings && typeof settings === 'object') ? settings : getSettings();
+        const mode = normalizeCalendarHourSlotHeightMode(source?.hourSlotHeightMode || source?.calendarHourSlotHeightMode);
+        return SIDE_DAY_HALF_HOUR_SLOT_HEIGHT + (CALENDAR_HOUR_SLOT_HEIGHT_DELTA_MAP[mode] / 2);
+    }
+
+    function applyCalendarSlotHeightStyle(rootEl, settings) {
+        if (!(rootEl instanceof HTMLElement)) return false;
+        const slotHeight = getCalendarHalfHourSlotHeight(settings);
+        try { rootEl.style.setProperty('--tm-calendar-half-hour-slot-height', `${slotHeight}px`); } catch (e) {}
+        return true;
+    }
+
     function getSideDayContentHeight(settings) {
         const range = getCalendarVisibleSlotRange(settings || getSettings());
         const toMinutes = (value) => {
@@ -468,11 +492,12 @@
             ? (maxMinutes - minMinutes)
             : 24 * 60;
         const slotCount = Math.max(1, Math.round(totalMinutes / 30));
-        return slotCount * SIDE_DAY_HALF_HOUR_SLOT_HEIGHT;
+        return slotCount * getCalendarHalfHourSlotHeight(settings);
     }
 
-    function getTimeGridSlotHeight(rootEl, fallback = SIDE_DAY_HALF_HOUR_SLOT_HEIGHT) {
-        if (!(rootEl instanceof HTMLElement)) return fallback;
+    function getTimeGridSlotHeight(rootEl, fallback) {
+        const safeFallback = Number.isFinite(Number(fallback)) ? Number(fallback) : getCalendarHalfHourSlotHeight();
+        if (!(rootEl instanceof HTMLElement)) return safeFallback;
         const selectors = [
             '.fc-timegrid-slots tr',
             '.fc-timegrid-slot-frame',
@@ -493,14 +518,15 @@
                 if (Number.isFinite(parsed) && parsed > 0) return parsed;
             } catch (e) {}
         }
-        return fallback;
+        return safeFallback;
     }
 
     function forceSideDaySlotHeight(rootEl, settings) {
         if (!(rootEl instanceof HTMLElement)) return false;
-        const slotHeight = SIDE_DAY_HALF_HOUR_SLOT_HEIGHT;
-        const contentHeight = getSideDayContentHeight(settings || getSettings());
-        try { rootEl.style.setProperty('--tm-calendar-half-hour-slot-height', `${slotHeight}px`); } catch (e) {}
+        const nextSettings = settings || getSettings();
+        const slotHeight = getCalendarHalfHourSlotHeight(nextSettings);
+        const contentHeight = getSideDayContentHeight(nextSettings);
+        try { applyCalendarSlotHeightStyle(rootEl, nextSettings); } catch (e) {}
         const slotSelectors = [
             '.fc-timegrid-slots tr',
             '.fc-timegrid-slots td',
@@ -554,6 +580,21 @@
         return true;
     }
 
+    function refreshCalendarSlotHeight(settings) {
+        const nextSettings = settings || getSettings();
+        try { applyCalendarSlotHeightStyle(state.wrapEl, nextSettings); } catch (e) {}
+        try { state.calendar?.updateSize?.(); } catch (e) {}
+        try { syncSideDayLayout(state.sideDay?.rootEl, state.sideDay?.calendar, nextSettings); } catch (e) {}
+        try {
+            requestAnimationFrame(() => {
+                try { applyCalendarSlotHeightStyle(state.wrapEl, nextSettings); } catch (e2) {}
+                try { state.calendar?.updateSize?.(); } catch (e2) {}
+                try { syncSideDayLayout(state.sideDay?.rootEl, state.sideDay?.calendar, nextSettings); } catch (e2) {}
+            });
+        } catch (e) {}
+        return true;
+    }
+
     function getSettings() {
         const liveStore = state.settingsStore || state.sideDay?.settingsStore || null;
         const s = liveStore?.data || {};
@@ -591,6 +632,7 @@
         const tomatoMaster = s.calendarShowTomatoMaster !== false;
         const allDayTime0 = readStoredString('tm_calendar_all_day_reminder_time', s.calendarAllDayReminderTime).trim() || '09:00';
         const defaultMode0 = readStoredString('tm_calendar_schedule_reminder_default_mode', s.calendarScheduleReminderDefaultMode).trim() || '0';
+        const hourSlotHeightMode0 = normalizeCalendarHourSlotHeightMode(readStoredString('tm_calendar_hour_slot_height_mode', s.calendarHourSlotHeightMode).trim() || 'normal');
         const visibleStartTime0 = normalizeCalendarVisibleTime(readStoredString('tm_calendar_visible_start_time', s.calendarVisibleStartTime).trim() || '00:00', '00:00', false);
         const visibleEndTime0 = normalizeCalendarVisibleTime(readStoredString('tm_calendar_visible_end_time', s.calendarVisibleEndTime).trim() || '24:00', '24:00', true);
         return {
@@ -606,6 +648,7 @@
             allDayReminderTime: allDayTime0 || '09:00',
             showTaskDates: s.calendarShowTaskDates !== false,
             newScheduleMaxDurationMin: normalizeNewScheduleMaxDuration(s.calendarNewScheduleMaxDurationMin),
+            hourSlotHeightMode: hourSlotHeightMode0,
             taskDateAllDayReminderEnabled: readStoredBool('tm_calendar_taskdate_all_day_reminder_enabled', typeof s.calendarTaskDateAllDayReminderEnabled === 'boolean' ? !!s.calendarTaskDateAllDayReminderEnabled : undefined),
             allDaySummaryIncludeExtras: s.calendarAllDaySummaryIncludeExtras !== false,
             taskDateColorMode: String(s.calendarTaskDateColorMode || 'group').trim() || 'group',
@@ -1243,6 +1286,12 @@
         if (!host) return;
         const PREVIEW_EVENT_ID = '__tm-cal-drag-preview-main__';
         let previewKey = '';
+        const isFullCalendarManagedDrag = () => {
+            try {
+                return !!document.querySelector('.fc-event-mirror, .fc-event-dragging');
+            } catch (e) {}
+            return false;
+        };
         const clearDropPreview = () => {
             previewKey = '';
             try { state.calendar?.getEventById?.(PREVIEW_EVENT_ID)?.remove?.(); } catch (e) {}
@@ -1394,6 +1443,10 @@
             const types = Array.from(e.dataTransfer?.types || []);
             const isWhiteboardLink = types.includes('application/x-tm-task-link');
             if (isWhiteboardLink) return;
+            if (isFullCalendarManagedDrag()) {
+                clearDropPreview();
+                return;
+            }
 
             const ok = e.dataTransfer && (
                 types.includes('application/x-tm-task')
@@ -1401,11 +1454,18 @@
                 || types.includes('text/plain')
             );
             if (!ok) {
-                clearDropPreview();
+                const payload = buildDraggingTaskPayload(null);
+                if (!payload?.taskId) {
+                    clearDropPreview();
+                    return;
+                }
+                e.preventDefault();
+                const hit = getDropInfo(e.target, e.clientX, e.clientY);
+                renderDropPreview(payload, hit);
                 return;
             }
             e.preventDefault();
-            const payload = parseTaskDropPayload(e, null, null);
+            const payload = parseTaskDropPayload(e, null, null) || buildDraggingTaskPayload(null);
             const hit = getDropInfo(e.target, e.clientX, e.clientY);
             renderDropPreview(payload, hit);
         });
@@ -1420,9 +1480,13 @@
         });
         host.addEventListener('drop', async (e) => {
             try {
+                if (isFullCalendarManagedDrag()) {
+                    clearDropPreview();
+                    return;
+                }
                 e.preventDefault();
                 clearDropPreview();
-                const payload = parseTaskDropPayload(e, null, null);
+                const payload = parseTaskDropPayload(e, null, null) || buildDraggingTaskPayload(null);
                 const taskId = String(payload?.taskId || '').trim();
                 const title = String(payload?.title || '').trim();
                 const durationMin = Number(payload?.durationMin);
@@ -1437,20 +1501,15 @@
                     : new Date(start.getTime() + safeMin * 60000);
                 const settings = getSettings();
                 const calId = calendarId || pickDefaultCalendarId(settings);
-                const item = {
-                    id: uuid(),
-                    title: title || '任务',
-                    start: safeISO(start),
-                    end: safeISO(end),
-                    color: '',
-                    calendarId: calId,
+                await addTaskSchedule({
                     taskId,
+                    title: title || '任务',
+                    start,
+                    end,
+                    calendarId: calId,
+                    durationMin: safeMin,
                     allDay,
-                };
-                const list = await loadScheduleAll();
-                list.push(item);
-                await saveScheduleAll(list);
-                try { state.calendar?.refetchEvents?.(); } catch (e2) {}
+                });
                 toast('✅ 已加入日程', 'success');
             } catch (e2) {}
             finally {
@@ -3562,6 +3621,26 @@
         const calendarId = String(base.calendarId || '').trim() || pickDefaultCalendarId(settings);
         const title = String(base.title || '').trim() || '任务';
         const color = String(base.color || '').trim();
+        try {
+            const store = state.settingsStore || state.sideDay?.settingsStore || null;
+            const calendarDefs = getCalendarDefs(settings);
+            if (store && store.data && calendarDefs.some((d) => String(d?.id || '').trim() === calendarId)) {
+                let dirty = false;
+                if (store.data.calendarShowSchedule === false) {
+                    store.data.calendarShowSchedule = true;
+                    dirty = true;
+                }
+                const prev = (store.data.calendarCalendarsConfig && typeof store.data.calendarCalendarsConfig === 'object' && !Array.isArray(store.data.calendarCalendarsConfig))
+                    ? store.data.calendarCalendarsConfig
+                    : {};
+                const entry = (prev[calendarId] && typeof prev[calendarId] === 'object') ? prev[calendarId] : {};
+                if (entry.enabled === false) {
+                    store.data.calendarCalendarsConfig = { ...prev, [calendarId]: { ...entry, enabled: true } };
+                    dirty = true;
+                }
+                if (dirty) await store.save();
+            }
+        } catch (e) {}
         const list = await loadScheduleAll();
         const item = {
             id: uuid(),
@@ -4112,7 +4191,15 @@
                 || types.includes('text/plain')
             );
             if (!ok) {
-                clearDropPreview();
+                const payload = buildDraggingTaskPayload(resolveTask);
+                if (!payload?.taskId) {
+                    clearDropPreview();
+                    return;
+                }
+                e.preventDefault();
+                rememberLiveDrag(payload, e.clientX, e.clientY);
+                const hit = getDropInfo(e.target, e.clientX, e.clientY);
+                renderDropPreview(payload, hit);
                 return;
             }
             e.preventDefault();
@@ -4125,17 +4212,25 @@
             const types = Array.from(e.dataTransfer?.types || []);
             const isWhiteboardLink = types.includes('application/x-tm-task-link');
             if (isWhiteboardLink) return;
+            const x = Number(e.clientX);
+            const y = Number(e.clientY);
             const ok = e.dataTransfer && (
                 types.includes('application/x-tm-task')
                 || types.includes('application/x-tm-task-id')
                 || types.includes('text/plain')
             );
             if (!ok) {
-                clearDropPreview();
+                const payload = buildDraggingTaskPayload(resolveTask);
+                if (!payload?.taskId) {
+                    clearDropPreview();
+                    return;
+                }
+                e.preventDefault();
+                rememberLiveDrag(payload, x, y);
+                const hit = getDropInfo(document.elementFromPoint(x, y), x, y);
+                renderDropPreview(payload, hit);
                 return;
             }
-            const x = Number(e.clientX);
-            const y = Number(e.clientY);
             if (!Number.isFinite(x) || !Number.isFinite(y)) {
                 clearDropPreview();
                 return;
@@ -4191,7 +4286,7 @@
 
         rootEl.addEventListener('drop', async (e) => {
             try {
-                const payload = parseTaskDropPayload(e, null, resolveTask);
+                const payload = parseTaskDropPayload(e, null, resolveTask) || buildDraggingTaskPayload(resolveTask);
                 if (!payload?.taskId) return;
                 e.preventDefault();
                 clearDropPreview();
@@ -6754,6 +6849,7 @@
             try { renderTaskPage(wrap, getSettings()); } catch (e2) {}
             try { cal.refetchEvents(); } catch (e2) {}
         }
+        try { applyCalendarSlotHeightStyle(wrap, getSettings()); } catch (e) {}
         stabilizeCalendarLayout(cal, wrap, opt);
         return true;
     }
@@ -6782,7 +6878,23 @@
         state.rootEl = rootEl;
         state.opts = opts || {};
         state.settingsStore = state.opts.settingsStore || null;
-        const isMobileDevice = !!globalThis.__taskHorizonPluginIsMobile || (() => {
+        const hostForcesMobileUi = (() => {
+            try { if (globalThis.__taskHorizonForceMobileUI === true) return true; } catch (e) {}
+            try {
+                const local = String(rootEl?.dataset?.tmUiMode || '').trim();
+                if (local === 'mobile') return true;
+            } catch (e) {}
+            try {
+                const bodyMode = String(document.body?.dataset?.tmUiMode || '').trim();
+                if (bodyMode === 'mobile') return true;
+            } catch (e) {}
+            try {
+                const frameMode = String(window.frameElement?.dataset?.tmUiMode || '').trim();
+                if (frameMode === 'mobile') return true;
+            } catch (e) {}
+            return false;
+        })();
+        const isMobileDevice = hostForcesMobileUi || !!globalThis.__taskHorizonPluginIsMobile || (() => {
             try { return !!window.matchMedia?.('(pointer: coarse)')?.matches; } catch (e) { return false; }
         })();
         state.isMobileDevice = !!isMobileDevice;
@@ -6853,6 +6965,7 @@
         const miniHost = wrap.querySelector('.tm-calendar-mini');
         state.miniCalendarEl = miniHost;
         const s = getSettings();
+        try { applyCalendarSlotHeightStyle(wrap, s); } catch (e) {}
         try {
             const sidebar = wrap.querySelector('.tm-calendar-sidebar');
             const w = Number(s.sidebarWidth) || 280;
@@ -8255,6 +8368,15 @@
                     <select class="tm-calendar-settings-select" data-tm-cal-setting="calendarVisibleEndTime">${visibleEndOptions}</select>
                 </div>
                 <div class="tm-calendar-settings-row">
+                    <div class="tm-calendar-settings-label">每小时格子高度</div>
+                    <select class="tm-calendar-settings-select" data-tm-cal-setting="calendarHourSlotHeightMode">
+                        <option value="normal" ${s.hourSlotHeightMode === 'normal' ? 'selected' : ''}>标准</option>
+                        <option value="high" ${s.hourSlotHeightMode === 'high' ? 'selected' : ''}>高（+10px）</option>
+                        <option value="higher" ${s.hourSlotHeightMode === 'higher' ? 'selected' : ''}>更高（+20px）</option>
+                        <option value="ultra" ${s.hourSlotHeightMode === 'ultra' ? 'selected' : ''}>超高（+30px）</option>
+                    </select>
+                </div>
+                <div class="tm-calendar-settings-row">
                     <div class="tm-calendar-settings-label">日程默认最大新建时长</div>
                     <select class="tm-calendar-settings-select" data-tm-cal-setting="calendarNewScheduleMaxDurationMin">
                         <option value="60" ${Number(s.newScheduleMaxDurationMin) === 60 ? 'selected' : ''}>1 小时</option>
@@ -8338,6 +8460,8 @@
                 const allowed = new Set([60, 120, 180, 240]);
                 const num = Number(el.value);
                 store.data[key] = allowed.has(num) ? num : 60;
+            } else if (key === 'calendarHourSlotHeightMode') {
+                store.data[key] = normalizeCalendarHourSlotHeightMode(el.value);
             } else if (el.type === 'checkbox') {
                 store.data[key] = !!el.checked;
             } else {
@@ -8377,6 +8501,9 @@
                     try { applyCalendarVisibleSlotRange(state.sideDay?.calendar, settings); } catch (e2) {}
                     try { state.calendar?.updateSize?.(); } catch (e2) {}
                     try { syncSideDayLayout(state.sideDay?.rootEl, state.sideDay?.calendar, settings); } catch (e2) {}
+                } else if (key === 'calendarHourSlotHeightMode') {
+                    const settings = getSettings();
+                    try { refreshCalendarSlotHeight(settings); } catch (e2) {}
                 } else if (key === 'calendarScheduleReminderEnabled' || key === 'calendarScheduleReminderSystemEnabled' || key === 'calendarScheduleReminderDefaultMode' || key === 'calendarAllDayReminderEnabled' || key === 'calendarAllDayReminderTime' || key === 'calendarTaskDateAllDayReminderEnabled' || key === 'calendarAllDaySummaryIncludeExtras') {
                     try { renderSettings(containerEl, store); } catch (e2) {}
                     try { scheduleScheduleReminderRefresh('settings'); } catch (e2) {}

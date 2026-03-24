@@ -1993,6 +1993,32 @@
             } catch (e) {}
         }
 
+        function updateInlineMetaSelectionVisibility() {
+            let shouldHide = false;
+            try {
+                const selection = window.getSelection?.();
+                const selectedText = String(selection?.toString?.() || '');
+                if (selectedText.trim()) {
+                    const anchorNode = selection?.anchorNode || null;
+                    const focusNode = selection?.focusNode || null;
+                    const anchorEl = anchorNode?.nodeType === Node.ELEMENT_NODE ? anchorNode : anchorNode?.parentElement;
+                    const focusEl = focusNode?.nodeType === Node.ELEMENT_NODE ? focusNode : focusNode?.parentElement;
+                    shouldHide = !!(
+                        anchorEl?.closest?.('.protyle,.protyle-content,.protyle-wysiwyg')
+                        || focusEl?.closest?.('.protyle,.protyle-content,.protyle-wysiwyg')
+                    );
+                }
+            } catch (e) {
+                shouldHide = false;
+            }
+            try {
+                document.querySelectorAll('.sy-custom-props-inline-layer').forEach((layer) => {
+                    if (shouldHide) layer.classList.add('is-selection-active');
+                    else layer.classList.remove('is-selection-active');
+                });
+            } catch (e) {}
+        }
+
         function shouldHandleInlineMetaViewportEvent(target) {
             const el = target instanceof Element
                 ? target
@@ -2568,13 +2594,17 @@
             // 监听多种事件
             selectionChangeHandler = () => {
                 checkAndHideForTextSelection();
+                updateInlineMetaSelectionVisibility();
             };
             document.addEventListener('selectionchange', selectionChangeHandler, { passive: true });
             
             // mouseup 事件 - 当用户释放鼠标时检测（选择文字后）
             mouseUpHandler = (e) => {
                 // 延迟一点执行，确保 selection 已经更新
-                setTimeout(checkAndHideForTextSelection, 10);
+                setTimeout(() => {
+                    checkAndHideForTextSelection();
+                    updateInlineMetaSelectionVisibility();
+                }, 10);
             };
             document.addEventListener('mouseup', mouseUpHandler, true);
             // ========== 新增结束 ==========
@@ -2609,6 +2639,11 @@
             selectionChangeHandler = null;
             try { if (mouseUpHandler) document.removeEventListener('mouseup', mouseUpHandler, true); } catch (e) {}
             mouseUpHandler = null;
+            try {
+                document.querySelectorAll('.sy-custom-props-inline-layer').forEach((layer) => {
+                    layer.classList.remove('is-selection-active');
+                });
+            } catch (e) {}
             // ========== 新增结束 ==========
 
             try { if (storageHandler) window.removeEventListener('storage', storageHandler); } catch (e) {}
