@@ -2149,7 +2149,19 @@
             try { inlineMetaObserver?.disconnect?.(); } catch (e) {}
             inlineMetaObservedRoots = [];
             if (!inlineMetaStarted) return;
-            inlineMetaObserver = new MutationObserver(() => {
+            inlineMetaObserver = new MutationObserver((mutations) => {
+                // Ignore mutations originating from the inline meta layer itself
+                // to prevent a feedback loop where our own DOM writes trigger re-renders.
+                const hasRelevantMutation = mutations.some((m) => {
+                    const t = m.target;
+                    if (t instanceof Element) {
+                        if (t.closest('.sy-custom-props-inline-layer')) return false;
+                    } else if (t?.parentElement?.closest('.sy-custom-props-inline-layer')) {
+                        return false;
+                    }
+                    return true;
+                });
+                if (!hasRelevantMutation) return;
                 inlineMetaNeedSyncBlocks = true;
                 if (inlineMetaMutationTimer) clearTimeout(inlineMetaMutationTimer);
                 inlineMetaMutationTimer = setTimeout(() => {
@@ -2178,13 +2190,29 @@
 
         function layoutInlineMetaHost(blockEl, host, taskId, textAnchor, html, forceRefresh = false, visibilityBuffer = 0) {
             if (!blockEl || !host || !taskId || !textAnchor) return false;
+            // --- FAST PATH: skip expensive geometry reads when content is unchanged ---
+            const textSig = getInlineTextFastSignature(textAnchor);
+            const prevLayout = inlineMetaLayoutCache.get(taskId);
+            const layoutHtml = String(html ?? prevLayout?.html ?? host.innerHTML ?? '');
+            if (!forceRefresh && prevLayout && prevLayout.textSig === textSig && prevLayout.html === layoutHtml && !inlineMetaScrolling) {
+                host.classList.toggle('is-wrap', !!prevLayout.wrapMode);
+                host.style.left = prevLayout.left;
+                host.style.top = prevLayout.top;
+                host.style.maxWidth = prevLayout.maxWidth;
+                host.classList.add('is-ready');
+                inlineMetaOccupiedRects.push({
+                    left: Number.parseInt(prevLayout.left, 10) || 0,
+                    top: Number.parseInt(prevLayout.top, 10) || 0,
+                    right: (Number.parseInt(prevLayout.left, 10) || 0) + Math.max(prevLayout.hostWidth || 72, 72),
+                    bottom: (Number.parseInt(prevLayout.top, 10) || 0) + Math.max(prevLayout.hostHeight || 20, 20)
+                });
+                return true;
+            }
             // --- READ PHASE: batch all geometry reads before any writes ---
             const layer = host.parentElement;
             const layerRect = layer?.getBoundingClientRect?.();
             const blockRect = blockEl.getBoundingClientRect();
             const widthSig = Math.round(Number(blockRect?.width) || 0);
-            const textSig = getInlineTextFastSignature(textAnchor);
-            const prevLayout = inlineMetaLayoutCache.get(taskId);
             const plainText = getInlinePlainText(textAnchor);
             const textRect = getInlineTextTailRect(textAnchor);
             const bounds = getInlineViewportBounds(blockEl);
@@ -2198,7 +2226,6 @@
                 inlineMetaLayoutCache.delete(taskId);
                 return false;
             }
-            const layoutHtml = String(html ?? prevLayout?.html ?? host.innerHTML ?? '');
             const localTextRect = {
                 left: Math.round(textRect.left - layerRect.left),
                 top: Math.round(textRect.top - layerRect.top),
