@@ -1673,30 +1673,36 @@
         }
 
         // 更新悬浮条位置
+        let updatePositionRafId = 0;
         function updatePosition() {
-            if (!currentBlockEl || floatBar.style.display === 'none') return;
-            if (!currentBlockEl.isConnected) {
-                hideFloatBar();
-                return;
-            }
+            if (updatePositionRafId) return;
+            updatePositionRafId = requestAnimationFrame(() => {
+                updatePositionRafId = 0;
+                if (!currentBlockEl || floatBar.style.display === 'none') return;
+                if (!currentBlockEl.isConnected) {
+                    hideFloatBar();
+                    return;
+                }
 
-            const rect = currentBlockEl.getBoundingClientRect();
-            const barHeight = floatBar.getBoundingClientRect().height || 40;
-            const barWidth = floatBar.getBoundingClientRect().width || 240;
-            const gap = 0;
+                const rect = currentBlockEl.getBoundingClientRect();
+                const barRect = floatBar.getBoundingClientRect();
+                const barHeight = barRect.height || 40;
+                const barWidth = barRect.width || 240;
+                const gap = 0;
 
-            let top = window.scrollY + rect.top - gap - barHeight;
-            if (top < window.scrollY + 4) {
-                top = window.scrollY + rect.bottom + gap;
-            }
+                let top = window.scrollY + rect.top - gap - barHeight;
+                if (top < window.scrollY + 4) {
+                    top = window.scrollY + rect.bottom + gap;
+                }
 
-            const desiredLeft = window.scrollX + rect.left + 30;
-            const viewportW = document.documentElement?.clientWidth || window.innerWidth || 0;
-            const minLeft = window.scrollX + 4;
-            const maxLeft = window.scrollX + Math.max(0, viewportW - barWidth - 4);
-            const left = Math.max(minLeft, Math.min(desiredLeft, maxLeft));
-            floatBar.style.top = `${Math.max(0, top)}px`;
-            floatBar.style.left = `${Math.max(0, left)}px`;
+                const desiredLeft = window.scrollX + rect.left + 30;
+                const viewportW = document.documentElement?.clientWidth || window.innerWidth || 0;
+                const minLeft = window.scrollX + 4;
+                const maxLeft = window.scrollX + Math.max(0, viewportW - barWidth - 4);
+                const left = Math.max(minLeft, Math.min(desiredLeft, maxLeft));
+                floatBar.style.top = `${Math.max(0, top)}px`;
+                floatBar.style.left = `${Math.max(0, left)}px`;
+            });
         }
 
         // 显示悬浮条
@@ -2149,7 +2155,19 @@
             try { inlineMetaObserver?.disconnect?.(); } catch (e) {}
             inlineMetaObservedRoots = [];
             if (!inlineMetaStarted) return;
-            inlineMetaObserver = new MutationObserver(() => {
+            inlineMetaObserver = new MutationObserver((mutations) => {
+                // Ignore mutations originating from the inline meta layer itself
+                // to prevent a feedback loop where our own DOM writes trigger re-renders.
+                const hasRelevantMutation = mutations.some((m) => {
+                    const target = m.target;
+                    if (target instanceof Element) {
+                        if (target.closest('.sy-custom-props-inline-layer')) return false;
+                    } else if (target?.parentElement?.closest('.sy-custom-props-inline-layer')) {
+                        return false;
+                    }
+                    return true;
+                });
+                if (!hasRelevantMutation) return;
                 inlineMetaNeedSyncBlocks = true;
                 if (inlineMetaMutationTimer) clearTimeout(inlineMetaMutationTimer);
                 inlineMetaMutationTimer = setTimeout(() => {
@@ -2178,27 +2196,46 @@
 
         function layoutInlineMetaHost(blockEl, host, taskId, textAnchor, html, forceRefresh = false, visibilityBuffer = 0) {
             if (!blockEl || !host || !taskId || !textAnchor) return false;
+            // --- FAST PATH: skip expensive geometry reads when content is unchanged ---
+            const textSig = getInlineTextFastSignature(textAnchor);
+            const prevLayout = inlineMetaLayoutCache.get(taskId);
+            const layoutHtml = String(html ?? prevLayout?.html ?? host.innerHTML ?? '');
+            if (!forceRefresh && prevLayout && prevLayout.textSig === textSig && prevLayout.html === layoutHtml) {
+                host.classList.toggle('is-wrap', !!prevLayout.wrapMode);
+                host.style.left = prevLayout.left;
+                host.style.top = prevLayout.top;
+                host.style.maxWidth = prevLayout.maxWidth;
+                host.classList.add('is-ready');
+                inlineMetaOccupiedRects.push({
+                    left: Number.parseInt(prevLayout.left, 10) || 0,
+                    top: Number.parseInt(prevLayout.top, 10) || 0,
+                    right: (Number.parseInt(prevLayout.left, 10) || 0) + Math.max(prevLayout.hostWidth || 72, 72),
+                    bottom: (Number.parseInt(prevLayout.top, 10) || 0) + Math.max(prevLayout.hostHeight || 20, 20)
+                });
+                return true;
+            }
             // --- READ PHASE: batch all geometry reads before any writes ---
             const layer = host.parentElement;
             const layerRect = layer?.getBoundingClientRect?.();
             const blockRect = blockEl.getBoundingClientRect();
             const widthSig = Math.round(Number(blockRect?.width) || 0);
-            const textSig = getInlineTextFastSignature(textAnchor);
-            const prevLayout = inlineMetaLayoutCache.get(taskId);
             const plainText = getInlinePlainText(textAnchor);
             const textRect = getInlineTextTailRect(textAnchor);
             const bounds = getInlineViewportBounds(blockEl);
             if (!layerRect || !blockRect || (!blockRect.width && !blockRect.height) || !plainText || !textRect) {
-                host.classList.remove('is-ready');
-                inlineMetaLayoutCache.delete(taskId);
+                if (!inlineMetaScrolling) {
+                    host.classList.remove('is-ready');
+                    inlineMetaLayoutCache.delete(taskId);
+                }
                 return false;
             }
             if (!isInlineRectVisibleInBounds(textRect, bounds, visibilityBuffer)) {
-                host.classList.remove('is-ready');
-                inlineMetaLayoutCache.delete(taskId);
+                if (!inlineMetaScrolling) {
+                    host.classList.remove('is-ready');
+                    inlineMetaLayoutCache.delete(taskId);
+                }
                 return false;
             }
-            const layoutHtml = String(html ?? prevLayout?.html ?? host.innerHTML ?? '');
             const localTextRect = {
                 left: Math.round(textRect.left - layerRect.left),
                 top: Math.round(textRect.top - layerRect.top),
@@ -2262,6 +2299,19 @@
                 bottom: Math.round(localTextRect.bottom + 2)
             };
             if (rectsOverlap(candidateRect, expandedTextRect, 2) || inlineMetaOccupiedRects.some((rect) => rectsOverlap(candidateRect, rect, 4))) {
+                if (inlineMetaScrolling && prevLayout) {
+                    host.classList.toggle('is-wrap', !!prevLayout.wrapMode);
+                    host.style.left = prevLayout.left;
+                    host.style.top = prevLayout.top;
+                    host.style.maxWidth = prevLayout.maxWidth;
+                    inlineMetaOccupiedRects.push({
+                        left: Number.parseInt(prevLayout.left, 10) || 0,
+                        top: Number.parseInt(prevLayout.top, 10) || 0,
+                        right: (Number.parseInt(prevLayout.left, 10) || 0) + Math.max(prevLayout.hostWidth || 72, 72),
+                        bottom: (Number.parseInt(prevLayout.top, 10) || 0) + Math.max(prevLayout.hostHeight || 20, 20)
+                    });
+                    return true;
+                }
                 host.classList.remove('is-ready');
                 inlineMetaLayoutCache.delete(taskId);
                 return false;
@@ -2306,8 +2356,10 @@
             for (let i = 0; i < entries.length; i++) {
                 const e = entries[i];
                 if (e.skip) {
-                    e.host.classList.remove('is-ready');
-                    inlineMetaLayoutCache.delete(e.taskId);
+                    if (!inlineMetaScrolling) {
+                        e.host.classList.remove('is-ready');
+                        inlineMetaLayoutCache.delete(e.taskId);
+                    }
                     continue;
                 }
                 layoutInlineMetaHost(e.blockEl, e.host, e.taskId, e.textAnchor, e.html, false);
@@ -2367,27 +2419,39 @@
                     removeInlineMetaNodes();
                     return;
                 }
-                syncInlineMetaObserveRoots();
-                syncInlineMetaTaskBlocks(false);
+                if (!inlineMetaScrolling) {
+                    syncInlineMetaObserveRoots();
+                    syncInlineMetaTaskBlocks(false);
+                }
                 inlineMetaOccupiedRects = [];
                 const dir = inlineMetaScrollDirection;
-                const preUp = dir > 0 ? 900 : (dir < 0 ? 3200 : 2200);
-                const preDown = dir > 0 ? 3200 : (dir < 0 ? 900 : 2200);
                 const coreUp = dir > 0 ? 320 : (dir < 0 ? 900 : 520);
                 const coreDown = dir > 0 ? 900 : (dir < 0 ? 320 : 520);
-                const keepUp = dir > 0 ? 1400 : (dir < 0 ? 4200 : 3200);
-                const keepDown = dir > 0 ? 4200 : (dir < 0 ? 1400 : 3200);
-                const preRenderBlocks = getInlineDirectionalTaskBlocks(preUp, preDown, 620);
                 const blocks = getInlineDirectionalTaskBlocks(coreUp, coreDown, 320);
-                const keepBlocks = getInlineDirectionalTaskBlocks(keepUp, keepDown, 900);
-                pruneInlineMetaOutsideViewport(keepBlocks);
-                prefetchInlineMetaProps(preRenderBlocks, 680);
-                const coreSet = new Set(blocks.map((el) => String(el?.dataset?.nodeId || '').trim()).filter(Boolean));
-                preRenderBlocks.forEach((blockEl) => {
-                    const blockId = String(blockEl?.dataset?.nodeId || '').trim();
-                    const buffer = coreSet.has(blockId) ? 420 : 1800;
-                    Promise.resolve(renderInlineMetaForBlock(blockEl, forceRefresh, buffer)).catch(() => null);
-                });
+                if (inlineMetaScrolling) {
+                    const keepUp = dir > 0 ? 1400 : (dir < 0 ? 4200 : 3200);
+                    const keepDown = dir > 0 ? 4200 : (dir < 0 ? 1400 : 3200);
+                    const keepBlocks = getInlineDirectionalTaskBlocks(keepUp, keepDown, 900);
+                    pruneInlineMetaOutsideViewport(keepBlocks);
+                    blocks.forEach((blockEl) => {
+                        Promise.resolve(renderInlineMetaForBlock(blockEl, false, 420)).catch(() => null);
+                    });
+                } else {
+                    const preUp = dir > 0 ? 900 : (dir < 0 ? 3200 : 2200);
+                    const preDown = dir > 0 ? 3200 : (dir < 0 ? 900 : 2200);
+                    const keepUp = dir > 0 ? 1400 : (dir < 0 ? 4200 : 3200);
+                    const keepDown = dir > 0 ? 4200 : (dir < 0 ? 1400 : 3200);
+                    const preRenderBlocks = getInlineDirectionalTaskBlocks(preUp, preDown, 620);
+                    const keepBlocks = getInlineDirectionalTaskBlocks(keepUp, keepDown, 900);
+                    pruneInlineMetaOutsideViewport(keepBlocks);
+                    prefetchInlineMetaProps(preRenderBlocks, 680);
+                    const coreSet = new Set(blocks.map((el) => String(el?.dataset?.nodeId || '').trim()).filter(Boolean));
+                    preRenderBlocks.forEach((blockEl) => {
+                        const blockId = String(blockEl?.dataset?.nodeId || '').trim();
+                        const buffer = coreSet.has(blockId) ? 420 : 1800;
+                        Promise.resolve(renderInlineMetaForBlock(blockEl, forceRefresh, buffer)).catch(() => null);
+                    });
+                }
             };
             if (inlineMetaRenderTimer) clearTimeout(inlineMetaRenderTimer);
             if (immediate) {
@@ -2425,28 +2489,22 @@
                     }
                 }
                 const now = Date.now();
-                if (e?.type !== 'resize' && !inlineMetaPositionRafId) {
+                if (!inlineMetaPositionRafId) {
                     inlineMetaPositionRafId = requestAnimationFrame(() => {
                         inlineMetaPositionRafId = 0;
                         try { refreshInlineMetaPositions(); } catch (e2) {}
                     });
                 }
-                if (e?.type !== 'resize' && (now - inlineMetaLastScrollRenderTs) > 24) {
+                if (e?.type !== 'resize' && (now - inlineMetaLastScrollRenderTs) > 120) {
                     inlineMetaLastScrollRenderTs = now;
                     requestInlineMetaRender(false);
-                }
-                if (e?.type === 'resize' && !inlineMetaPositionRafId) {
-                    inlineMetaPositionRafId = requestAnimationFrame(() => {
-                        inlineMetaPositionRafId = 0;
-                        try { refreshInlineMetaPositions(); } catch (e2) {}
-                    });
                 }
                 if (inlineMetaScrollIdleTimer) clearTimeout(inlineMetaScrollIdleTimer);
                 inlineMetaScrollIdleTimer = setTimeout(() => {
                     inlineMetaScrollIdleTimer = null;
                     setInlineMetaScrolling(false);
                     requestInlineMetaRender(e?.type === 'resize');
-                }, e?.type === 'resize' ? 70 : 28);
+                }, e?.type === 'resize' ? 70 : 150);
             };
             try { document.addEventListener('scroll', inlineMetaScrollHandler, { capture: true, passive: true }); } catch (e) {}
             try { window.addEventListener('resize', inlineMetaScrollHandler, true); } catch (e) {}
