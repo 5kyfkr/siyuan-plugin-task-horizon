@@ -2178,7 +2178,7 @@
 
         function layoutInlineMetaHost(blockEl, host, taskId, textAnchor, html, forceRefresh = false, visibilityBuffer = 0) {
             if (!blockEl || !host || !taskId || !textAnchor) return false;
-            host.classList.remove('is-wrap');
+            // --- READ PHASE: batch all geometry reads before any writes ---
             const layer = host.parentElement;
             const layerRect = layer?.getBoundingClientRect?.();
             const blockRect = blockEl.getBoundingClientRect();
@@ -2207,6 +2207,7 @@
                 height: Math.round(textRect.height)
             };
             const viewportSig = `${localTextRect.right}:${localTextRect.top}:${localTextRect.height}`;
+            // --- CACHE HIT: reuse cached layout, use cached dimensions to avoid forced reflow ---
             if (!forceRefresh && prevLayout && prevLayout.textSig === textSig && prevLayout.widthSig === widthSig && prevLayout.viewportSig === viewportSig && prevLayout.html === layoutHtml) {
                 host.classList.toggle('is-wrap', !!prevLayout.wrapMode);
                 host.style.left = prevLayout.left;
@@ -2216,14 +2217,18 @@
                 inlineMetaOccupiedRects.push({
                     left: Number.parseInt(prevLayout.left, 10) || 0,
                     top: Number.parseInt(prevLayout.top, 10) || 0,
-                    right: (Number.parseInt(prevLayout.left, 10) || 0) + Math.max(host.offsetWidth || 0, 72),
-                    bottom: (Number.parseInt(prevLayout.top, 10) || 0) + Math.max(host.offsetHeight || 0, 20)
+                    right: (Number.parseInt(prevLayout.left, 10) || 0) + Math.max(prevLayout.hostWidth || 72, 72),
+                    bottom: (Number.parseInt(prevLayout.top, 10) || 0) + Math.max(prevLayout.hostHeight || 20, 20)
                 });
                 return true;
             }
-            const hostWidth = Math.ceil(host.getBoundingClientRect().width || host.offsetWidth || 0);
-            const hostHeight = Math.ceil(host.getBoundingClientRect().height || host.offsetHeight || 20);
+            // --- READ host dimensions: remove is-wrap only here to measure natural size ---
+            host.classList.remove('is-wrap');
+            const hostRect = host.getBoundingClientRect();
+            const hostWidth = Math.ceil(hostRect.width || host.offsetWidth || 0);
+            const hostHeight = Math.ceil(hostRect.height || host.offsetHeight || 20);
             const layerWidth = Math.max(0, Math.round(layer.clientWidth || bounds?.width || layerRect.width || 0));
+            // --- COMPUTE PHASE: pure calculations, no DOM access ---
             const minLeft = 8;
             const maxLeft = Math.max(minLeft, layerWidth - hostWidth - 8);
             const left = Math.max(minLeft, Math.min(maxLeft, Math.round(localTextRect.right + 6)));
@@ -2238,21 +2243,17 @@
                 finalLeft = Math.max(minLeft, Math.min(Math.max(minLeft, layerWidth - 180), Math.round(localTextRect.left)));
                 finalTop = Math.max(2, Math.round(localTextRect.bottom + 4));
                 finalMaxWidth = Math.max(180, Math.min(Math.max(180, layerWidth - finalLeft - 8), Math.max(220, Math.min(560, Math.round(layerWidth * 0.76)))));
-                host.classList.add('is-wrap');
             }
-            const leftPx = `${finalLeft}px`;
-            const topPx = `${finalTop}px`;
-            const maxWidthPx = `${finalMaxWidth}px`;
-            host.style.left = leftPx;
-            host.style.top = topPx;
-            host.style.maxWidth = maxWidthPx;
-            const actualHostWidth = Math.ceil(host.getBoundingClientRect().width || host.offsetWidth || 0);
-            const actualHostHeight = Math.ceil(host.getBoundingClientRect().height || host.offsetHeight || 20);
+            // Estimate actual dimensions from calculated values (avoid forced reflow from reading after writes)
+            const estHostWidth = Math.min(hostWidth, finalMaxWidth);
+            // In wrap mode, estimate rows from how much content overflows finalMaxWidth (row-gap: 4px)
+            const estWrapRows = wrapMode ? Math.max(1, Math.ceil(hostWidth / Math.max(finalMaxWidth, 1))) : 1;
+            const estHostHeight = hostHeight * estWrapRows + Math.max(0, estWrapRows - 1) * 4;
             const candidateRect = {
                 left: finalLeft,
                 top: finalTop,
-                right: finalLeft + Math.max(actualHostWidth, 72),
-                bottom: finalTop + Math.max(actualHostHeight, 20)
+                right: finalLeft + Math.max(estHostWidth, 72),
+                bottom: finalTop + Math.max(estHostHeight, 20)
             };
             const expandedTextRect = {
                 left: Math.max(0, Math.round(localTextRect.left - 2)),
@@ -2261,14 +2262,21 @@
                 bottom: Math.round(localTextRect.bottom + 2)
             };
             if (rectsOverlap(candidateRect, expandedTextRect, 2) || inlineMetaOccupiedRects.some((rect) => rectsOverlap(candidateRect, rect, 4))) {
-                host.classList.remove('is-wrap');
                 host.classList.remove('is-ready');
                 inlineMetaLayoutCache.delete(taskId);
                 return false;
             }
-            inlineMetaLayoutCache.set(taskId, { textSig, widthSig, viewportSig, html: layoutHtml, left: leftPx, top: topPx, maxWidth: maxWidthPx, wrapMode });
-            inlineMetaOccupiedRects.push(candidateRect);
+            // --- WRITE PHASE: batch all DOM writes together ---
+            const leftPx = `${finalLeft}px`;
+            const topPx = `${finalTop}px`;
+            const maxWidthPx = `${finalMaxWidth}px`;
+            if (wrapMode) host.classList.add('is-wrap'); else host.classList.remove('is-wrap');
+            host.style.left = leftPx;
+            host.style.top = topPx;
+            host.style.maxWidth = maxWidthPx;
             host.classList.add('is-ready');
+            inlineMetaLayoutCache.set(taskId, { textSig, widthSig, viewportSig, html: layoutHtml, left: leftPx, top: topPx, maxWidth: maxWidthPx, wrapMode, hostWidth: estHostWidth, hostHeight: estHostHeight });
+            inlineMetaOccupiedRects.push(candidateRect);
             return true;
         }
 
@@ -2279,18 +2287,31 @@
                 : document.querySelector('.sy-custom-props-inline-layer');
             if (!layer) return;
             inlineMetaOccupiedRects = [];
-            Array.from(layer.querySelectorAll('.sy-custom-props-inline-host[data-block-id]')).forEach((host) => {
+            const hosts = Array.from(layer.querySelectorAll('.sy-custom-props-inline-host[data-block-id]'));
+            // --- READ PHASE: gather all block/text anchors before any writes ---
+            const entries = [];
+            for (let i = 0; i < hosts.length; i++) {
+                const host = hosts[i];
                 const taskId = String(host?.dataset?.blockId || '').trim();
-                if (!taskId) return;
+                if (!taskId) continue;
                 const blockEl = getBlockElById(taskId);
                 const textAnchor = getInlineTextAnchor(blockEl);
                 if (!blockEl || !textAnchor) {
-                    host.classList.remove('is-ready');
-                    inlineMetaLayoutCache.delete(taskId);
-                    return;
+                    entries.push({ host, taskId, skip: true });
+                    continue;
                 }
-                layoutInlineMetaHost(blockEl, host, taskId, textAnchor, inlineMetaLayoutCache.get(taskId)?.html || host.innerHTML || '', false);
-            });
+                entries.push({ host, taskId, blockEl, textAnchor, html: inlineMetaLayoutCache.get(taskId)?.html || host.innerHTML || '', skip: false });
+            }
+            // --- WRITE PHASE: apply layouts using gathered data ---
+            for (let i = 0; i < entries.length; i++) {
+                const e = entries[i];
+                if (e.skip) {
+                    e.host.classList.remove('is-ready');
+                    inlineMetaLayoutCache.delete(e.taskId);
+                    continue;
+                }
+                layoutInlineMetaHost(e.blockEl, e.host, e.taskId, e.textAnchor, e.html, false);
+            }
         }
 
         async function renderInlineMetaForBlock(blockEl, forceRefresh = false, visibilityBuffer = 0) {
@@ -2330,8 +2351,12 @@
                     inlineMetaLayoutCache.delete(taskId);
                     return;
                 }
-                if (host.innerHTML !== freshHtml) host.innerHTML = freshHtml;
-                layoutInlineMetaHost(hostParent, host, taskId, textAnchor, freshHtml, true, visibilityBuffer);
+                requestAnimationFrame(() => {
+                    if (!host.isConnected) return;
+                    if (String(host.dataset.blockId || '').trim() !== taskId) return;
+                    if (host.innerHTML !== freshHtml) host.innerHTML = freshHtml;
+                    layoutInlineMetaHost(hostParent, host, taskId, textAnchor, freshHtml, true, visibilityBuffer);
+                });
             }).catch(() => null);
         }
 
