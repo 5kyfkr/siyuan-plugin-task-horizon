@@ -101,10 +101,6 @@
     const quickbarInlineFieldAllowSet = new Set(quickbarInlineFieldDefs.map(item => item.attrKey));
     let inlineMetaCache = new Map();
     let inlineMetaLayoutCache = new Map();
-    const _origClear = inlineMetaLayoutCache.clear.bind(inlineMetaLayoutCache);
-    const _origDelete = inlineMetaLayoutCache.delete.bind(inlineMetaLayoutCache);
-    inlineMetaLayoutCache.clear = function() { console.log('[layoutCache] CLEAR', new Error().stack?.split('\n')[2]?.trim()); return _origClear(); };
-    inlineMetaLayoutCache.delete = function(k) { console.log(`[layoutCache] DELETE key=${String(k).slice(-6)}`, new Error().stack?.split('\n')[2]?.trim()); return _origDelete(k); };
     let inlineMetaObserver = null;
     let inlineMetaObservedRoots = [];
     let inlineMetaStarted = false;
@@ -2213,7 +2209,7 @@
             rebindInlineMetaObservers();
         }
 
-        function layoutInlineMetaHost(blockEl, host, taskId, textAnchor, html, forceRefresh = false, visibilityBuffer = 0, _caller = '') {
+        function layoutInlineMetaHost(blockEl, host, taskId, textAnchor, html, forceRefresh = false, visibilityBuffer = 0) {
             if (!blockEl || !host || !taskId || !textAnchor) return false;
             // --- FAST PATH: skip expensive geometry reads when content is unchanged ---
             const textSig = getInlineTextFastSignature(textAnchor);
@@ -2233,7 +2229,6 @@
                 });
                 return true;
             }
-            if (isInlineMetaEditingBlock(blockEl)) console.log(`[editing:${taskId.slice(-4)}] NO_FAST caller=${_caller} forceRefresh=${forceRefresh} scroll=${inlineMetaScrolling} hasPrev=${!!prevLayout} textSigMatch=${prevLayout?.textSig === textSig} htmlMatch=${prevLayout?.html === layoutHtml}`);
             // --- READ PHASE: batch all geometry reads before any writes ---
             const layer = host.parentElement;
             const layerRect = layer?.getBoundingClientRect?.();
@@ -2244,14 +2239,12 @@
             const bounds = getInlineViewportBounds(blockEl);
             const editing = isInlineMetaEditingBlock(blockEl);
             if (!layerRect || !blockRect || (!blockRect.width && !blockRect.height) || !plainText || !textRect) {
-                if (editing) console.log(`[editing:${taskId.slice(-4)}] GEOM_FAIL caller=${_caller} forceRefresh=${forceRefresh} scroll=${inlineMetaScrolling} hasPrev=${!!prevLayout} layerRect=${!!layerRect} blockW=${blockRect?.width} plainText=${!!plainText} textRect=${!!textRect}`);
                 if (editing && prevLayout) return true;
                 host.classList.remove('is-ready');
                 inlineMetaLayoutCache.delete(taskId);
                 return false;
             }
             if (!isInlineRectVisibleInBounds(textRect, bounds, visibilityBuffer)) {
-                if (editing) console.log(`[editing:${taskId.slice(-4)}] VIS_FAIL caller=${_caller} forceRefresh=${forceRefresh} scroll=${inlineMetaScrolling} textRect=${JSON.stringify({t:Math.round(textRect.top),b:Math.round(textRect.bottom)})} bounds=${JSON.stringify({t:Math.round(bounds?.top),b:Math.round(bounds?.bottom)})} buffer=${visibilityBuffer}`);
                 host.classList.remove('is-ready');
                 inlineMetaLayoutCache.delete(taskId);
                 return false;
@@ -2266,7 +2259,6 @@
             const viewportSig = `${localTextRect.right}:${localTextRect.top}:${localTextRect.height}`;
             // --- CACHE HIT: reuse cached layout, use cached dimensions to avoid forced reflow ---
             if (!forceRefresh && prevLayout && prevLayout.textSig === textSig && prevLayout.widthSig === widthSig && prevLayout.viewportSig === viewportSig && prevLayout.html === layoutHtml) {
-                if (editing) console.log(`[editing:${taskId.slice(-4)}] CACHE_HIT caller=${_caller} scroll=${inlineMetaScrolling}`);
                 host.classList.toggle('is-wrap', !!prevLayout.wrapMode);
                 host.style.left = prevLayout.left;
                 host.style.top = prevLayout.top;
@@ -2321,7 +2313,6 @@
             };
             const textCollision = rectsOverlap(candidateRect, expandedTextRect, 2);
             const occupiedCollision = inlineMetaOccupiedRects.some((rect) => rectsOverlap(candidateRect, rect, 4));
-            if (editing) console.log(`[editing:${taskId.slice(-4)}] COLLISION caller=${_caller} scroll=${inlineMetaScrolling} textCol=${textCollision} occCol=${occupiedCollision} candidate=${JSON.stringify({l:candidateRect.left,t:candidateRect.top,r:candidateRect.right,b:candidateRect.bottom})} expText=${JSON.stringify({l:expandedTextRect.left,t:expandedTextRect.top,r:expandedTextRect.right,b:expandedTextRect.bottom})} isReady=${host.classList.contains('is-ready')}`);
             if ((textCollision && !editing) || occupiedCollision) {
                 if (editing) {
                     inlineMetaOccupiedRects.push(candidateRect);
@@ -2341,7 +2332,6 @@
                 return false;
             }
             // --- WRITE PHASE: batch all DOM writes together ---
-            if (editing) console.log(`[editing:${taskId.slice(-4)}] WRITE caller=${_caller} scroll=${inlineMetaScrolling} left=${finalLeft} top=${finalTop} wrap=${wrapMode}`);
             const leftPx = `${finalLeft}px`;
             const topPx = `${finalTop}px`;
             const maxWidthPx = `${finalMaxWidth}px`;
@@ -2386,7 +2376,7 @@
                     continue;
                 }
                 const prevLayout = inlineMetaScrolling ? inlineMetaLayoutCache.get(e.taskId) : null;
-                const ok = layoutInlineMetaHost(e.blockEl, e.host, e.taskId, e.textAnchor, e.html, false, 0, 'refreshPos');
+                const ok = layoutInlineMetaHost(e.blockEl, e.host, e.taskId, e.textAnchor, e.html, false);
                 if (!ok && prevLayout) {
                     e.host.classList.toggle('is-wrap', !!prevLayout.wrapMode);
                     e.host.style.left = prevLayout.left;
@@ -2423,7 +2413,7 @@
                 return;
             }
             if (host.innerHTML !== html) host.innerHTML = html;
-            layoutInlineMetaHost(hostParent, host, taskId, textAnchor, html, forceRefresh, visibilityBuffer, 'renderBlock');
+            layoutInlineMetaHost(hostParent, host, taskId, textAnchor, html, forceRefresh, visibilityBuffer);
             if (hasCached) return;
             Promise.resolve(ensureTaskPropsReady(taskId, forceRefresh)).then((freshProps) => {
                 if (!host.isConnected) return;
