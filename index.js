@@ -23,14 +23,11 @@ const TASK_DOCK_THEME_STYLE_ID = "tm-task-horizon-dock-theme";
 const TASK_DOCK_MIRROR_ATTR = "data-task-horizon-dock-mirror";
 const DOCK_VIEW_IDS = new Set(["list", "checklist", "timeline", "kanban", "calendar", "whiteboard"]);
 
-const ICON_SYMBOL = `<symbol id="${ICON_ID}" viewBox="0 0 24 24">
-  <g transform="translate(12 12) scale(1.25) translate(-12 -12)" fill="none" stroke="currentColor">
-    <path d="M7.25 3.75h9.5c1.105 0 2 .895 2 2v12.5c0 1.105-.895 2-2 2h-9.5c-1.105 0-2-.895-2-2V5.75c0-1.105.895-2 2-2Z" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/>
-    <path d="M8.75 7h6.5" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/>
-    <path d="M8.75 10.5h6.5" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/>
-    <path d="M8.75 14h4" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/>
-    <path d="M12.1 17.6l1.55 1.55 3.2-3.5" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/>
-  </g>
+const ICON_SYMBOL = `<symbol id="${ICON_ID}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+  <rect x="9" y="2" width="6" height="4" rx="1" ry="1"></rect>
+  <path d="M4 7a2 2 0 0 1 2-2h2"></path>
+  <path d="M18 5h2a2 2 0 0 1 2 2v13a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2"></path>
+  <path d="m9 14 2 2 4-4"></path>
 </symbol>`;
 
 const readLocalJson = (key, fallback) => {
