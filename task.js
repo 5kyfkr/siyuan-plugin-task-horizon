@@ -871,7 +871,7 @@
             display: flex;
             justify-content: space-between;
             align-items: center;
-            min-height: 48px;
+            min-height: 38px;
             overflow-x: auto;
             overflow-y: visible;
             box-sizing: border-box;
@@ -1266,7 +1266,7 @@
         @media (max-width: 900px) {
             .tm-modal:not(.tm-modal--dock) .tm-filter-rule-bar {
                 flex-wrap: wrap !important;
-                padding: 10px 16px !important;
+                padding: 5px 16px !important;
                 gap: 8px !important;
             }
             
@@ -1325,7 +1325,7 @@
 
         .tm-modal.tm-modal--split-pane .tm-filter-rule-bar {
             flex-wrap: wrap;
-            padding: 10px 16px;
+            padding: 5px 16px;
             gap: 8px;
         }
 
@@ -1404,7 +1404,7 @@
             /* 筛选规则栏换行 */
             .tm-modal:not(.tm-modal--dock) .tm-filter-rule-bar {
                 flex-wrap: wrap;
-                padding: 10px 16px;
+                padding: 5px 16px;
                 gap: 8px;
             }
             
@@ -1697,7 +1697,7 @@
         }
 
         .tm-filter-rule-bar {
-            min-height: 52px;
+            min-height: 42px;
             box-sizing: border-box;
             overflow: visible;
         }
