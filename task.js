@@ -88,6 +88,7 @@
             --tm-topbar-search-text: #333333;
             --tm-topbar-search-border: rgba(255,255,255,0.3);
             --tm-topbar-scrollbar-thumb: rgba(255,255,255,0.25);
+            --tm-topbar-menu-text-light: #1f2937;
             --tm-ui-background: var(--tm-bg-color);
             --tm-ui-foreground: var(--tm-text-color);
             --tm-ui-card: var(--tm-card-bg);
@@ -172,6 +173,7 @@
             --tm-topbar-text-color: #ffffff;
             --tm-ui-primary-foreground: #ffffff;
             --tm-ui-ring: rgba(255,255,255,0.34);
+            --tm-topbar-menu-text-light: #e5e7eb;
             --tm-task-content-color: var(--tm-text-color);
             --tm-task-meta-color: var(--tm-secondary-text);
             --tm-group-doc-label-color: var(--tm-text-color);
@@ -888,6 +890,15 @@
             opacity: 1;
         }
 
+        .tm-filter-rule-bar .tm-btn,
+        .tm-filter-rule-bar .bc-btn,
+        .tm-filter-rule-bar .bc-select-trigger,
+        .tm-filter-rule-bar .bc-tabs-trigger,
+        .tm-filter-rule-bar .tm-view-seg-item {
+            font-size: 13px !important;
+            font-weight: 400 !important;
+        }
+
         .tm-filter-rule-bar .tm-rule-select {
             background: var(--tm-topbar-control-bg);
             color: var(--tm-topbar-control-text);
@@ -901,6 +912,12 @@
         .tm-filter-rule-bar .tm-rule-select option {
             color: #111827;
             background: #ffffff;
+        }
+
+        .tm-filter-rule-bar .bc-select-menu,
+        .tm-filter-rule-bar .bc-select-option,
+        .tm-filter-rule-bar .bc-select-option > span {
+            color: var(--tm-topbar-menu-text-light) !important;
         }
 
         .tm-filter-rule-bar .tm-popup-menu .tm-btn-info,
@@ -924,14 +941,26 @@
         .tm-filter-rule-bar #tmMobileMenu .tm-view-segmented {
             background: var(--tm-input-bg);
             border: 1px solid var(--tm-input-border);
+            width: 100%;
+            min-width: 0;
+            flex-wrap: wrap;
+            height: auto;
+            min-height: 26px;
+            gap: 0;
         }
 
         .tm-filter-rule-bar #tmMobileMenu .tm-view-seg-item {
             color: var(--tm-text-color);
+            flex: 1 1 30%;
+            min-width: 0;
+            padding: 0 6px;
+            min-height: 24px;
+            line-height: 24px;
+            font-size: 12px !important;
         }
 
         .tm-filter-rule-bar #tmMobileMenu .tm-view-seg-item + .tm-view-seg-item {
-            border-left-color: var(--tm-input-border);
+            border-left-color: transparent;
         }
 
         .tm-filter-rule-bar #tmMobileMenu .tm-view-seg-item:hover {
@@ -964,7 +993,7 @@
             min-width: 0;
             flex-wrap: nowrap;
             overflow-x: auto;
-            overflow-y: visible;
+            overflow-y: hidden;
             -webkit-overflow-scrolling: touch;
         }
 
@@ -1576,7 +1605,7 @@
             gap: 8px;
             flex-wrap: nowrap;
             overflow-x: auto;
-            overflow-y: visible;
+            overflow-y: hidden;
             -webkit-overflow-scrolling: touch;
         }
 
@@ -1610,7 +1639,7 @@
             color: var(--tm-topbar-seg-item-text);
             padding: 0 12px;
             font-size: 13px;
-            font-weight: 600;
+            font-weight: 400;
             cursor: pointer;
             line-height: 28px;
             white-space: nowrap;
@@ -1651,6 +1680,7 @@
         .tm-filter-rule-bar .tm-topbar-row {
             min-width: max-content;
             flex-wrap: nowrap !important;
+            overflow-y: hidden;
         }
 
         .tm-filter-rule-bar .tm-rule-selector {
@@ -11450,7 +11480,7 @@ async function __tmRefreshAfterWake(reason) {
 
     const __tmRenderViewSwitcherButtons = (opts = {}) => {
         const activeMode = __tmGetSafeViewMode(state.viewMode || SettingsStore.data.defaultViewMode || 'checklist');
-        const buttonStyle = opts.compact ? ' style="line-height:28px; padding:0 10px;"' : '';
+        const buttonStyle = opts.compact ? ' style="line-height:24px; min-height:24px; padding:0 6px; font-size:12px;"' : '';
         const buttons = __tmGetEnabledViews().map((viewId) => {
             const view = __TM_ALL_VIEWS.find(v => v.id === viewId);
             if (!view) return '';
@@ -20637,7 +20667,9 @@ async function __tmRefreshAfterWake(reason) {
                     <div class="tm-topbar-row" style="display:flex;align-items:center;gap:10px;flex-wrap:nowrap;justify-content:space-between;min-width:0;">
                         <div class="tm-topbar-row" style="display:flex;align-items:center;gap:10px;">
                             <div class="tm-title" style="font-size: 16px; font-weight: 700; white-space: nowrap; display:inline-flex; align-items:center; gap:4px;">
-                                <span onclick="tmHandleManagerIconClick(event)" style="cursor:${isMobile ? 'default' : 'pointer'};">📋</span>
+                                <span onclick="tmHandleManagerIconClick(event)" style="cursor:${isMobile ? 'default' : 'pointer'};display:inline-flex;align-items:center;">
+                                    <svg viewBox="0 0 24 24" width="16" height="16" style="display:block;fill:none;"><use xlink:href="#iconTaskHorizon"></use></svg>
+                                </span>
                                 <span onclick="tmHandleManagerTitleClick(event)" style="cursor:pointer;">任务管理器</span>
                             </div>
                             <button class="tm-btn tm-btn-success bc-btn bc-btn--sm bc-btn--primary" onclick="tmAdd()" style="padding: 0; width: 30px; height: 30px; min-width: 30px; min-height: 30px; display: inline-flex; align-items: center; justify-content: center;" title="新建任务" data-tooltip="新建任务">+</button>
@@ -20716,8 +20748,8 @@ async function __tmRefreshAfterWake(reason) {
                             <div style="display:flex; flex-direction:column; gap:10px;">
                                 <div class="tm-mobile-only-item" style="display:flex; flex-direction:column; gap:6px; align-items:stretch;">
                                     <span style="color:var(--tm-text-color);">视图:</span>
-                                    <div style="overflow-x:auto; -webkit-overflow-scrolling:touch;">
-                                        <div class="tm-view-segmented bc-tabs-list" role="tablist" aria-label="视图" style="height:28px; min-width:max-content;">
+                                    <div style="overflow:visible;">
+                                        <div class="tm-view-segmented bc-tabs-list" role="tablist" aria-label="视图" style="width:100%;">
                                             ${__tmRenderViewSwitcherButtons({ compact: true })}
                                         </div>
                                     </div>
