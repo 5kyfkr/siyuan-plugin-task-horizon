@@ -7,9 +7,16 @@
 [任务管理器插件 V1.5发布：支持白板视图，附时间轴、看板、日历、表格 视图使用介绍](https://ld246.com/article/1771900014059)
 
 PR贡献名单：[bytemain](https://github.com/bytemain)
+
 赞助者名单：[bigyelloworange](https://ld246.com/member/bigyelloworange) / [Floria233](https://ld246.com/member/Floria233) / [nj90hou](https://ld246.com/member/nj90hou) / [sky90038528](https://ld246.com/member/sky90038528) / [Lu9693](https://ld246.com/member/Lu9693) / [ggltxj](https://ld246.com/member/ggltxj) / [mozhu](https://ld246.com/member/mozhu) / [ppt68298100](https://ld246.com/member/ppt68298100) 
 
 # 更新记录
+
+## 1.9.2更新内容
+- 优化：顶栏元素字体大小统一，缩减顶栏高度
+- 修复：移动端菜单内视图选择器超出界面宽度
+- 修复：日间模式顶栏菜单字体颜色浅色下看不见问题
+- 修复：切换日历视图后顶栏高度跳变
 
 ## 1.9.1更新内容
 - 新增：常规设置->新建任务位置 新增“今天日记默认笔记本”设置，可选择新建任务至日记的默认笔记本
@@ -506,6 +513,7 @@ PR贡献名单：[bytemain](https://github.com/bytemain)
 - 首次使用必须先在「⚙️ 设置 → 文档分组与管理」添加至少一个文档或笔记本；否则会提示“请先选择要显示的文档”。
 
 ## 致谢
+- Codex：插件开发
 - dhtmlxGantt：时间轴视图开发
 - FullCalendar：日历视图开发
 - holiday.ailcc.com：日历节假日api
