@@ -938,8 +938,12 @@
         [data-theme-mode="light"] .tm-filter-rule-bar #tmDesktopMenu,
         [data-theme-mode="light"] .tm-filter-rule-bar #tmDesktopMenu .tm-btn,
         [data-theme-mode="light"] .tm-filter-rule-bar #tmDesktopMenu .tm-btn span,
-        [data-theme-mode="light"] .tm-filter-rule-bar #tmDesktopMenu .tm-tree-toggle-icon {
-            color: #1f2329 !important;
+        [data-theme-mode="light"] .tm-filter-rule-bar #tmDesktopMenu .tm-tree-toggle-icon,
+        [data-theme-mode="light"] .tm-filter-rule-bar .tm-topbar-select .bc-select-trigger,
+        [data-theme-mode="light"] .tm-filter-rule-bar .tm-topbar-select .bc-select-option,
+        [data-theme-mode="light"] #tmTopbarFloatingMenu,
+        [data-theme-mode="light"] #tmTopbarFloatingMenu .bc-select-option {
+            color: #000000 !important;
         }
 
         .tm-filter-rule-bar #tmMobileMenu .tm-view-segmented {
@@ -1713,7 +1717,7 @@
         }
 
         .tm-filter-rule-bar #tmMobileMenu .tm-mobile-view-switcher {
-            width: max-content;
+            width: 100%;
             max-width: 100%;
             min-width: 0;
             display: flex;
@@ -26938,6 +26942,17 @@ async function __tmRefreshAfterWake(reason) {
         const open = menu.style.display !== 'none';
         if (!open) {
             menu.style.display = 'block';
+            try {
+                menu.style.width = 'max-content';
+                menu.style.maxWidth = 'calc(100vw - 20px)';
+                const switcher = menu.querySelector('.tm-mobile-view-switcher');
+                const switcherWidth = Math.ceil(Number(switcher?.scrollWidth) || 0);
+                const viewportLimit = Math.max(220, (window.innerWidth || document.documentElement?.clientWidth || 0) - 20);
+                if (switcherWidth > 0) {
+                    const nextWidth = Math.min(viewportLimit, switcherWidth + 20);
+                    menu.style.width = `${nextWidth}px`;
+                }
+            } catch (e2) {}
             
             if (state.mobileMenuCloseHandler) {
                 try { document.removeEventListener('click', state.mobileMenuCloseHandler); } catch (e2) {}
