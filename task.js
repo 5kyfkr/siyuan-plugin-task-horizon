@@ -935,11 +935,25 @@
             color: #ffffff !important;
         }
 
-        [data-theme-mode="light"] .tm-filter-rule-bar #tmDesktopMenu,
-        [data-theme-mode="light"] .tm-filter-rule-bar #tmDesktopMenu .tm-btn,
-        [data-theme-mode="light"] .tm-filter-rule-bar #tmDesktopMenu .tm-btn span,
-        [data-theme-mode="light"] .tm-filter-rule-bar #tmDesktopMenu .tm-tree-toggle-icon {
+        [data-theme-mode="light"] #tmDesktopMenu,
+        [data-theme-mode="light"] #tmDesktopMenu .tm-btn,
+        [data-theme-mode="light"] #tmDesktopMenu .tm-btn span,
+        [data-theme-mode="light"] #tmDesktopMenu .tm-tree-toggle-icon,
+        [data-theme-mode="light"] #tmDesktopMenu .tm-btn-info,
+        [data-theme-mode="light"] #tmDesktopMenu .tm-btn-secondary,
+        [data-theme-mode="light"] #tmDesktopMenu > div > span,
+        #tmDesktopMenu.tm-desktop-menu--light,
+        #tmDesktopMenu.tm-desktop-menu--light .tm-btn,
+        #tmDesktopMenu.tm-desktop-menu--light .tm-btn span,
+        #tmDesktopMenu.tm-desktop-menu--light .tm-tree-toggle-icon,
+        #tmDesktopMenu.tm-desktop-menu--light .tm-btn-info,
+        #tmDesktopMenu.tm-desktop-menu--light .tm-btn-secondary,
+        #tmDesktopMenu.tm-desktop-menu--light > div > span {
             color: #1f2329 !important;
+        }
+        [data-theme-mode="light"] #tmDesktopMenu .tm-tree-toggle-icon path,
+        #tmDesktopMenu.tm-desktop-menu--light .tm-tree-toggle-icon path {
+            stroke: #1f2329 !important;
         }
 
         .tm-filter-rule-bar #tmMobileMenu .tm-view-segmented {
@@ -970,10 +984,32 @@
 
         .tm-filter-rule-bar #tmMobileMenu .tm-mobile-only-item {
             min-width: 0;
+            max-width: 100%;
         }
 
         .tm-filter-rule-bar #tmMobileMenu .tm-mobile-only-item .tm-btn {
             min-width: 0;
+            max-width: 100%;
+        }
+
+        .tm-filter-rule-bar #tmMobileMenu .tm-mobile-menu-row {
+            min-width: 0;
+            max-width: 100%;
+            flex-wrap: nowrap;
+        }
+
+        .tm-filter-rule-bar #tmMobileMenu .tm-mobile-menu-row > :not(.tm-mobile-menu-label) {
+            flex: 1 1 auto;
+            min-width: 0;
+            max-width: 100%;
+        }
+
+        .tm-filter-rule-bar #tmMobileMenu .tm-mobile-menu-row .tm-topbar-select,
+        .tm-filter-rule-bar #tmMobileMenu .tm-mobile-menu-row .bc-select-trigger,
+        .tm-filter-rule-bar #tmMobileMenu .tm-mobile-menu-row .tm-btn {
+            min-width: 0;
+            max-width: 100%;
+            overflow: hidden;
         }
 
         .tm-filter-rule-bar #tmMobileMenu .tm-rule-select option {
@@ -26822,6 +26858,7 @@ async function __tmRefreshAfterWake(reason) {
         const menu = document.createElement('div');
         menu.id = 'tmDesktopMenu';
         menu.className = 'tm-popup-menu bc-dropdown-menu';
+        if (!__tmIsDarkMode()) menu.classList.add('tm-desktop-menu--light');
         menu.style.cssText = `
             position: fixed;
             background: var(--tm-ui-popover);
@@ -26858,6 +26895,16 @@ async function __tmRefreshAfterWake(reason) {
             <button class="tm-btn tm-btn-info bc-btn bc-btn--sm" onclick="tmCollapseAllTasks(); document.getElementById('tmDesktopMenu').remove()" style="text-align:left; justify-content:flex-start; padding: 6px 12px;"><svg class="tm-tree-toggle-icon" viewBox="0 0 16 16" width="16" height="16" style="transform:rotate(0deg);margin-right:6px;vertical-align:middle;"><path d="M6 4l4 4-4 4" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>全部折叠</button>
             <button class="tm-btn tm-btn-info bc-btn bc-btn--sm" onclick="tmExpandAllTasks(); document.getElementById('tmDesktopMenu').remove()" style="text-align:left; justify-content:flex-start; padding: 6px 12px;"><svg class="tm-tree-toggle-icon" viewBox="0 0 16 16" width="16" height="16" style="transform:rotate(90deg);margin-right:6px;vertical-align:middle;"><path d="M6 4l4 4-4 4" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>全部展开</button>
         `;
+        if (!__tmIsDarkMode()) {
+            try {
+                menu.querySelectorAll('.tm-btn, .tm-btn span, .tm-tree-toggle-icon').forEach((el) => {
+                    try { el.style.setProperty('color', '#1f2329', 'important'); } catch (e2) {}
+                });
+                menu.querySelectorAll('.tm-tree-toggle-icon path').forEach((el) => {
+                    try { el.style.setProperty('stroke', '#1f2329', 'important'); } catch (e2) {}
+                });
+            } catch (e2) {}
+        }
         
         // 点击外部关闭
         const closeHandler = (ev) => {
@@ -26938,6 +26985,25 @@ async function __tmRefreshAfterWake(reason) {
         const open = menu.style.display !== 'none';
         if (!open) {
             menu.style.display = 'block';
+            try {
+                const switcher = menu.querySelector('.tm-mobile-view-switcher');
+                if (switcher instanceof HTMLElement) {
+                    const switcherRect = switcher.getBoundingClientRect();
+                    const sidePadding = 20; // 菜单左右各 10px 内边距
+                    const maxWidth = Math.max(0, window.innerWidth - 20);
+                    const nextWidth = Math.round(Math.min(maxWidth, Math.max(180, switcherRect.width + sidePadding)));
+                    if (nextWidth > 0) {
+                        menu.style.setProperty('width', `${nextWidth}px`, 'important');
+                        menu.style.setProperty('max-width', `${nextWidth}px`, 'important');
+                        const contentMax = Math.max(120, nextWidth - sidePadding);
+                        menu.querySelectorAll('.tm-mobile-only-item, .tm-mobile-menu-row').forEach((el) => {
+                            if (!(el instanceof HTMLElement)) return;
+                            try { el.style.setProperty('max-width', `${contentMax}px`, 'important'); } catch (e3) {}
+                            try { el.style.setProperty('min-width', '0', 'important'); } catch (e3) {}
+                        });
+                    }
+                }
+            } catch (e2) {}
             
             if (state.mobileMenuCloseHandler) {
                 try { document.removeEventListener('click', state.mobileMenuCloseHandler); } catch (e2) {}
