@@ -1702,6 +1702,21 @@
             overflow: visible;
         }
 
+        .tm-lucide-emoji {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            vertical-align: -2px;
+            line-height: 0;
+            margin-right: 4px;
+        }
+
+        .tm-lucide-emoji__svg {
+            display: block;
+            width: 14px;
+            height: 14px;
+        }
+
         .tm-filter-rule-bar .bc-tabs-list {
             height: 30px;
             min-height: 30px;
@@ -18086,6 +18101,46 @@ async function __tmRefreshAfterWake(reason) {
         render();
     };
 
+    function __tmLucideIconSvg(iconName) {
+        const body = (() => {
+            switch (String(iconName || '').trim()) {
+                case 'clipboard-list': return '<rect x="9" y="3" width="6" height="4" rx="1"></rect><path d="M9 5H7a2 2 0 0 0-2 2v11a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V7a2 2 0 0 0-2-2h-2"></path><path d="M9 12h6"></path><path d="M9 16h6"></path>';
+                case 'calendar-days': return '<path d="M8 2v4"></path><path d="M16 2v4"></path><rect x="3" y="4" width="18" height="18" rx="2"></rect><path d="M3 10h18"></path><path d="M8 14h.01"></path><path d="M12 14h.01"></path><path d="M16 14h.01"></path><path d="M8 18h.01"></path><path d="M12 18h.01"></path><path d="M16 18h.01"></path>';
+                case 'refresh-cw': return '<path d="M21 12a9 9 0 0 0-15.5-6.4L3 8"></path><path d="M3 3v5h5"></path><path d="M3 12a9 9 0 0 0 15.5 6.4L21 16"></path><path d="M16 16h5v5"></path>';
+                case 'map': return '<polygon points="3 6 9 3 15 6 21 3 21 18 15 21 9 18 3 21"></polygon><line x1="9" y1="3" x2="9" y2="18"></line><line x1="15" y1="6" x2="15" y2="21"></line>';
+                case 'bot': return '<rect x="3" y="11" width="18" height="10" rx="2"></rect><circle cx="12" cy="5" r="2"></circle><path d="M12 7v4"></path><line x1="8" y1="16" x2="8" y2="16"></line><line x1="16" y1="16" x2="16" y2="16"></line>';
+                case 'settings': return '<path d="M12 15.5a3.5 3.5 0 1 0 0-7 3.5 3.5 0 0 0 0 7Z"></path><path d="M19.4 15a1.7 1.7 0 0 0 .34 1.87l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.7 1.7 0 0 0-1.87-.34 1.7 1.7 0 0 0-1 1.55V21a2 2 0 1 1-4 0v-.09a1.7 1.7 0 0 0-1-1.55 1.7 1.7 0 0 0-1.87.34l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06A1.7 1.7 0 0 0 4.6 15a1.7 1.7 0 0 0-1.55-1H3a2 2 0 1 1 0-4h.09a1.7 1.7 0 0 0 1.55-1 1.7 1.7 0 0 0-.34-1.87l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06A1.7 1.7 0 0 0 9 4.6a1.7 1.7 0 0 0 1-1.55V3a2 2 0 1 1 4 0v.09a1.7 1.7 0 0 0 1 1.55 1.7 1.7 0 0 0 1.87-.34l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06A1.7 1.7 0 0 0 19.4 9c.65.26 1.35.41 2.05.41H21a2 2 0 1 1 0 4h-.09c-.7 0-1.4.15-2.05.59Z"></path>';
+                case 'menu': return '<line x1="4" y1="6" x2="20" y2="6"></line><line x1="4" y1="12" x2="20" y2="12"></line><line x1="4" y1="18" x2="20" y2="18"></line>';
+                case 'x': return '<path d="M18 6 6 18"></path><path d="m6 6 12 12"></path>';
+                case 'search': return '<circle cx="11" cy="11" r="8"></circle><path d="m21 21-4.3-4.3"></path>';
+                case 'puzzle': return '<path d="M19.43 12.98V17a2 2 0 0 1-2 2h-4.02a2 2 0 0 1-3.84 0H5.55a2 2 0 0 1-2-2v-4.02a2 2 0 0 1 0-3.84V5.12a2 2 0 0 1 2-2h4.02a2 2 0 0 1 3.84 0h4.02a2 2 0 0 1 2 2v4.02a2 2 0 0 1 0 3.84Z"></path>';
+                case 'pin': return '<path d="M12 17v5"></path><path d="M7 3h10l-2 6 3 3H6l3-3Z"></path>';
+                case 'file-text': return '<path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8Z"></path><path d="M14 2v6h6"></path><path d="M16 13H8"></path><path d="M16 17H8"></path><path d="M10 9H8"></path>';
+                case 'chart-column': return '<path d="M3 3v18h18"></path><rect x="7" y="13" width="3" height="5"></rect><rect x="12" y="9" width="3" height="9"></rect><rect x="17" y="6" width="3" height="12"></rect>';
+                case 'alarm-clock': return '<circle cx="12" cy="13" r="8"></circle><path d="M12 9v4l2.5 2"></path><path d="M5 3 2 6"></path><path d="m22 6-3-3"></path>';
+                case 'flag': return '<path d="M4 4h11l-1.5 3L15 10H4z"></path><path d="M4 22V4"></path>';
+                case 'brush-cleaning': return '<path d="m16 22-1-4"></path><path d="M19 8c.2 2-1 3.5-2.5 4.5"></path><path d="m15 2 7 7-4 4-7-7Z"></path><path d="M2 14c4 0 5.5 2 6 4 .5 2 2 4 6 4"></path>';
+                case 'undo-2': return '<path d="M9 14 4 9l5-5"></path><path d="M20 20a8 8 0 0 0-8-8H4"></path>';
+                case 'check-circle-2': return '<circle cx="12" cy="12" r="10"></circle><path d="m9 12 2 2 4-4"></path>';
+                case 'x-circle': return '<circle cx="12" cy="12" r="10"></circle><path d="m15 9-6 6"></path><path d="m9 9 6 6"></path>';
+                case 'triangle-alert': return '<path d="m10.29 3.86-8.53 14.8A2 2 0 0 0 3.48 22h17.04a2 2 0 0 0 1.72-3.01l-8.53-14.8a2 2 0 0 0-3.42 0Z"></path><path d="M12 9v4"></path><path d="M12 17h.01"></path>';
+                case 'timer': return '<circle cx="12" cy="13" r="8"></circle><path d="M12 13V9"></path><path d="M9 2h6"></path><path d="M12 2v3"></path>';
+                case 'tag': return '<path d="M20 13 11 22l-9-9V4h9Z"></path><path d="M7 7h.01"></path>';
+                case 'square-pen': return '<path d="M3 3h14v14H3z"></path><path d="m14 14 6-6"></path><path d="m16 6 2 2"></path>';
+                case 'panel-left': return '<rect x="3" y="3" width="18" height="18" rx="2"></rect><path d="M9 3v18"></path>';
+                case 'map-pin': return '<path d="M20 10c0 4.42-8 12-8 12s-8-7.58-8-12a8 8 0 1 1 16 0Z"></path><circle cx="12" cy="10" r="3"></circle>';
+                case 'circle-dot': return '<circle cx="12" cy="12" r="10"></circle><circle cx="12" cy="12" r="2"></circle>';
+                default: return '<circle cx="12" cy="12" r="9"></circle>';
+            }
+        })();
+        return `<svg class="tm-lucide-emoji__svg" viewBox="0 0 24 24" width="14" height="14" aria-hidden="true"><g fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">${body}</g></svg>`;
+    }
+
+    function __tmRenderLucideIcon(iconName, extraClass = '') {
+        const cls = `tm-lucide-emoji${extraClass ? ` ${extraClass}` : ''}`;
+        return `<span class="${cls}" data-tm-lucide="${iconName}">${__tmLucideIconSvg(iconName)}</span>`;
+    }
+
     window.tmHandleManagerTitleClick = function(ev) {
         try { ev?.stopPropagation?.(); } catch (e) {}
         try { ev?.preventDefault?.(); } catch (e) {}
@@ -20721,7 +20776,8 @@ async function __tmRefreshAfterWake(reason) {
         const showAiSideDock = __tmShouldShowAiSidebar() && !!state.aiSidebarOpen && !isMobile;
         const calendarSideDockWidth = Math.max(260, Math.min(760, Math.round(Number(SettingsStore.data.calendarSideDockWidth) || 340)));
         const aiSideDockWidth = Math.max(320, Math.min(720, Math.round(Number(state.aiSidebarWidth) || 380)));
-        const topbarPadding = (isDockHost && !isMobile) ? '5px 10px' : '10px 10px';
+        const topbarPadding = isMobile ? '10px 10px' : '5px 10px';
+        const topbarHeightStyle = isMobile ? '' : 'min-height:42px;max-height:42px;height:42px;';
         const bodyWithSideDockHtml = (showCalendarSideDock || showAiSideDock)
             ? `
                 <div class="tm-main-body-with-cal-dock">
@@ -20744,21 +20800,21 @@ async function __tmRefreshAfterWake(reason) {
 
         state.modal.innerHTML = `
             <div class="tm-box${showCalendarSideDock || showAiSideDock ? ' tm-box--with-cal-dock' : ''}">
-                <div class="tm-filter-rule-bar" style="padding: ${topbarPadding};">
+                <div class="tm-filter-rule-bar" style="padding: ${topbarPadding};${topbarHeightStyle}">
                     <div class="tm-topbar-row" style="display:flex;align-items:center;gap:10px;flex-wrap:nowrap;justify-content:space-between;min-width:0;">
                         <div class="tm-topbar-row" style="display:flex;align-items:center;gap:10px;">
                             <div class="tm-title" style="font-size: 16px; font-weight: 700; white-space: nowrap; display:inline-flex; align-items:center; gap:4px;">
-                                <span onclick="tmHandleManagerIconClick(event)" style="cursor:${isMobile ? 'default' : 'pointer'};">📋</span>
+                                <span onclick="tmHandleManagerIconClick(event)" style="cursor:${isMobile ? 'default' : 'pointer'};display:inline-flex;align-items:center;justify-content:center;width:18px;height:18px;line-height:0;">${__tmRenderLucideIcon('clipboard-list')}</span>
                                 <span onclick="tmHandleManagerTitleClick(event)" style="cursor:pointer;">任务管理器</span>
                             </div>
                             <button class="tm-btn tm-btn-success bc-btn bc-btn--sm bc-btn--primary" onclick="tmAdd()" style="padding: 0; width: 30px; height: 30px; min-width: 30px; min-height: 30px; display: inline-flex; align-items: center; justify-content: center;" title="新建任务" data-tooltip="新建任务">+</button>
-                            ${isMobile ? `<button class="tm-btn tm-btn-info bc-btn bc-btn--sm" onclick="tmRefresh()" style="padding: 0 10px; height: 30px; display: inline-flex; align-items: center; justify-content: center;" title="刷新" data-tooltip="刷新">🔄️</button>` : ''}
-                            ${isMobile && state.viewMode === 'calendar' ? `<button class="tm-btn tm-btn-info bc-btn bc-btn--sm" onclick="tmCalendarToggleSidebar()" style="padding: 0 10px; height: 30px; display: inline-flex; align-items: center; justify-content: center;" title="侧边栏" data-tooltip="日历侧边栏">📅</button>` : ''}
+                            ${isMobile ? `<button class="tm-btn tm-btn-info bc-btn bc-btn--sm" onclick="tmRefresh()" style="padding: 0 10px; height: 30px; display: inline-flex; align-items: center; justify-content: center;" title="刷新" data-tooltip="刷新">${__tmRenderLucideIcon('refresh-cw')}</button>` : ''}
+                            ${isMobile && state.viewMode === 'calendar' ? `<button class="tm-btn tm-btn-info bc-btn bc-btn--sm" onclick="tmCalendarToggleSidebar()" style="padding: 0 10px; height: 30px; display: inline-flex; align-items: center; justify-content: center;" title="侧边栏" data-tooltip="日历侧边栏">${__tmRenderLucideIcon('calendar-days')}</button>` : ''}
                             ${(state.viewMode === 'timeline' && ((isMobile && isLandscape) || isDesktopNarrow)) ? `
                                 <button class="tm-btn tm-btn-info bc-btn bc-btn--sm" onclick="tmGanttZoomOut()" style="padding: 0 8px; height: 30px; display: inline-flex; align-items: center; justify-content: center;" title="缩小" data-tooltip="缩小">－</button>
                                 <button class="tm-btn tm-btn-info bc-btn bc-btn--sm" onclick="tmGanttZoomIn()" style="padding: 0 8px; height: 30px; display: inline-flex; align-items: center; justify-content: center;" title="放大" data-tooltip="放大">＋</button>
-                                <button class="tm-btn tm-btn-info bc-btn bc-btn--sm" onclick="tmGanttFit()" style="padding: 0 8px; height: 30px; display: inline-flex; align-items: center; justify-content: center;" title="适配范围" data-tooltip="适配范围">🗺️</button>
-                                <button class="tm-btn tm-btn-info bc-btn bc-btn--sm" onclick="tmGanttToday()" style="padding: 0 8px; height: 30px; display: inline-flex; align-items: center; justify-content: center;" title="定位今天" data-tooltip="定位今天">📅</button>
+                                <button class="tm-btn tm-btn-info bc-btn bc-btn--sm" onclick="tmGanttFit()" style="padding: 0 8px; height: 30px; display: inline-flex; align-items: center; justify-content: center;" title="适配范围" data-tooltip="适配范围">${__tmRenderLucideIcon('map')}</button>
+                                <button class="tm-btn tm-btn-info bc-btn bc-btn--sm" onclick="tmGanttToday()" style="padding: 0 8px; height: 30px; display: inline-flex; align-items: center; justify-content: center;" title="定位今天" data-tooltip="定位今天">${__tmRenderLucideIcon('calendar-days')}</button>
                             ` : ''}
                         </div>
 
@@ -20787,10 +20843,10 @@ async function __tmRefreshAfterWake(reason) {
                             <div class="tm-mobile-menu-btn" style="display:${isMobile ? 'flex' : 'none'};margin-left:auto;">
                             <div style="display:flex;align-items:center;gap:10px;">
                                 <button class="tm-btn tm-btn-info bc-btn bc-btn--sm" onclick="tmToggleMobileMenu(event)" ontouchend="tmToggleMobileMenu(event)" style="padding: 0 10px; height: 30px; display: inline-flex; align-items: center; justify-content: center;" title="菜单" data-tooltip="菜单">
-                                    <span style="font-size: 16px; transform: translateY(1px); line-height: 1;">☰</span>
+                                    ${__tmRenderLucideIcon('menu')}
                                     <span style="margin-left: 4px;">菜单</span>
                                 </button>
-                                ${isMobile && !isDockHost ? `<button class="tm-btn tm-btn-gray bc-btn bc-btn--sm bc-btn--ghost" onclick="tmClose(event)" ontouchend="tmClose(event)" style="padding: 0 10px; height: 30px; display: inline-flex; align-items: center; justify-content: center;" title="关闭" data-tooltip="关闭"><span style="transform: translateY(1px); line-height: 1;">✖</span></button>` : ''}
+                                ${isMobile && !isDockHost ? `<button class="tm-btn tm-btn-gray bc-btn bc-btn--sm bc-btn--ghost" onclick="tmClose(event)" ontouchend="tmClose(event)" style="padding: 0 10px; height: 30px; display: inline-flex; align-items: center; justify-content: center;" title="关闭" data-tooltip="关闭">${__tmRenderLucideIcon('x')}</button>` : ''}
                             </div>
                         </div>
                     </div>
@@ -20809,15 +20865,15 @@ async function __tmRefreshAfterWake(reason) {
                         ${state.viewMode === 'timeline' ? `
                             <button class="tm-btn tm-btn-info bc-btn bc-btn--sm" onclick="tmGanttZoomOut()" style="padding: 4px 10px;" title="缩小" data-tooltip="缩小">－</button>
                             <button class="tm-btn tm-btn-info bc-btn bc-btn--sm" onclick="tmGanttZoomIn()" style="padding: 4px 10px;" title="放大" data-tooltip="放大">＋</button>
-                            <button class="tm-btn tm-btn-info bc-btn bc-btn--sm" onclick="tmGanttFit()" style="padding: 4px 10px;" title="适配范围" data-tooltip="适配范围">🗺️</button>
-                            <button class="tm-btn tm-btn-info bc-btn bc-btn--sm" onclick="tmGanttToday()" style="padding: 4px 10px;" title="定位今天" data-tooltip="定位今天">📅</button>
+                            <button class="tm-btn tm-btn-info bc-btn bc-btn--sm" onclick="tmGanttFit()" style="padding: 4px 10px;" title="适配范围" data-tooltip="适配范围">${__tmRenderLucideIcon('map')}</button>
+                            <button class="tm-btn tm-btn-info bc-btn bc-btn--sm" onclick="tmGanttToday()" style="padding: 4px 10px;" title="定位今天" data-tooltip="定位今天">${__tmRenderLucideIcon('calendar-days')}</button>
                         ` : ''}
-                        <button class="tm-btn tm-btn-info bc-btn bc-btn--sm" onclick="tmRefresh()" style="padding: 4px 10px;" title="刷新" data-tooltip="刷新">🔄️</button>
-                        ${__tmIsAiFeatureEnabled() ? `<button class="tm-btn tm-btn-info bc-btn bc-btn--sm" onclick="tmToggleAiSidebar()" style="padding: 4px 10px;" title="${__tmEscAttr(state.aiSidebarOpen ? '收起 AI 工作台' : '展开 AI 工作台')}" data-tooltip="${__tmEscAttr(state.aiSidebarOpen ? '收起 AI 工作台' : '展开 AI 工作台')}">🤖</button>` : ''}
-                        <button class="tm-btn tm-btn-info bc-btn bc-btn--sm" onclick="showSettings()" style="padding: 4px 10px;" title="设置" data-tooltip="设置">⚙️ 设置</button>
+                        <button class="tm-btn tm-btn-info bc-btn bc-btn--sm" onclick="tmRefresh()" style="padding: 4px 10px;" title="刷新" data-tooltip="刷新">${__tmRenderLucideIcon('refresh-cw')}</button>
+                        ${__tmIsAiFeatureEnabled() ? `<button class="tm-btn tm-btn-info bc-btn bc-btn--sm" onclick="tmToggleAiSidebar()" style="padding: 4px 10px;" title="${__tmEscAttr(state.aiSidebarOpen ? '收起 AI 工作台' : '展开 AI 工作台')}" data-tooltip="${__tmEscAttr(state.aiSidebarOpen ? '收起 AI 工作台' : '展开 AI 工作台')}">${__tmRenderLucideIcon('bot')}</button>` : ''}
+                        <button class="tm-btn tm-btn-info bc-btn bc-btn--sm" onclick="showSettings()" style="padding: 4px 10px;" title="设置" data-tooltip="设置">${__tmRenderLucideIcon('settings')}设置</button>
                         ${!false ? `
                             <button class="tm-btn tm-btn-info tm-desktop-menu-btn bc-btn bc-btn--sm" onclick="tmToggleDesktopMenu(event)" style="padding: 4px 10px; display: flex; align-items: center; gap: 4px;" title="菜单" data-tooltip="菜单">
-                                <span>☰</span> 菜单
+                                ${__tmRenderLucideIcon('menu')}菜单
                             </button>
                         ` : ''}
                     </div>
@@ -21298,7 +21354,6 @@ async function __tmRefreshAfterWake(reason) {
                 ` : ''}
             </div>
         `;
-
         try { if (state.viewMode === 'kanban') __tmBindKanbanPan(state.modal); } catch (e) {}
         try { if (state.viewMode === 'whiteboard') __tmBindWhiteboardViewportInput(state.modal); } catch (e) {}
         (nextMountRoot || __tmGetMountRoot()).appendChild(state.modal);
@@ -36446,7 +36501,6 @@ async function __tmRefreshAfterWake(reason) {
                 `}
             </div>
         `;
-
         document.body.appendChild(state.settingsModal);
         try {
             __tmSettingsEscHandler = (e) => {
