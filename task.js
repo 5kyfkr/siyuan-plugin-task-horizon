@@ -1708,7 +1708,7 @@
             justify-content: center;
             vertical-align: -2px;
             line-height: 0;
-            margin-right: 4px;
+            margin-right: 0;
         }
 
         .tm-lucide-emoji__svg {
@@ -20853,9 +20853,6 @@ async function __tmRefreshAfterWake(reason) {
                     
                     <!-- 桌面端搜索栏 -->
                     <div class="tm-search-box tm-desktop-toolbar" style="display:${isMobile ? 'none' : 'flex'}; flex-wrap: nowrap;">
-                        <div class="tm-view-segmented bc-tabs-list" role="tablist" aria-label="视图">
-                            ${__tmRenderViewSwitcherButtons()}
-                        </div>
                         ${state.viewMode === 'kanban' ? `
                             <div class="tm-view-segmented tm-kanban-mode-segmented bc-tabs-list" role="tablist" aria-label="看板模式">
                                 <button class="tm-view-seg-item bc-tabs-trigger ${!SettingsStore.data.kanbanHeadingGroupMode ? 'tm-view-seg-item--active' : ''}" data-state="${!SettingsStore.data.kanbanHeadingGroupMode ? 'active' : 'inactive'}" onclick="tmSetKanbanHeadingGroupMode('status', event)" role="tab" aria-selected="${!SettingsStore.data.kanbanHeadingGroupMode ? 'true' : 'false'}" title="状态看板" data-tooltip="状态看板">状态</button>
@@ -20863,14 +20860,17 @@ async function __tmRefreshAfterWake(reason) {
                             </div>
                         ` : ''}
                         ${state.viewMode === 'timeline' ? `
-                            <button class="tm-btn tm-btn-info bc-btn bc-btn--sm" onclick="tmGanttZoomOut()" style="padding: 4px 10px;" title="缩小" data-tooltip="缩小">－</button>
-                            <button class="tm-btn tm-btn-info bc-btn bc-btn--sm" onclick="tmGanttZoomIn()" style="padding: 4px 10px;" title="放大" data-tooltip="放大">＋</button>
-                            <button class="tm-btn tm-btn-info bc-btn bc-btn--sm" onclick="tmGanttFit()" style="padding: 4px 10px;" title="适配范围" data-tooltip="适配范围">${__tmRenderLucideIcon('map')}</button>
-                            <button class="tm-btn tm-btn-info bc-btn bc-btn--sm" onclick="tmGanttToday()" style="padding: 4px 10px;" title="定位今天" data-tooltip="定位今天">${__tmRenderLucideIcon('calendar-days')}</button>
+                            <button class="tm-btn tm-btn-info bc-btn bc-btn--sm" onclick="tmGanttZoomOut()" style="padding: 0; width: 30px; min-width: 30px; height: 30px; display: inline-flex; align-items: center; justify-content: center;" title="缩小" data-tooltip="缩小">－</button>
+                            <button class="tm-btn tm-btn-info bc-btn bc-btn--sm" onclick="tmGanttZoomIn()" style="padding: 0; width: 30px; min-width: 30px; height: 30px; display: inline-flex; align-items: center; justify-content: center;" title="放大" data-tooltip="放大">＋</button>
+                            <button class="tm-btn tm-btn-info bc-btn bc-btn--sm" onclick="tmGanttFit()" style="padding: 0; width: 30px; min-width: 30px; height: 30px; display: inline-flex; align-items: center; justify-content: center;" title="适配范围" data-tooltip="适配范围">${__tmRenderLucideIcon('map')}</button>
+                            <button class="tm-btn tm-btn-info bc-btn bc-btn--sm" onclick="tmGanttToday()" style="padding: 0; width: 30px; min-width: 30px; height: 30px; display: inline-flex; align-items: center; justify-content: center;" title="定位今天" data-tooltip="定位今天">${__tmRenderLucideIcon('calendar-days')}</button>
                         ` : ''}
-                        <button class="tm-btn tm-btn-info bc-btn bc-btn--sm" onclick="tmRefresh()" style="padding: 4px 10px;" title="刷新" data-tooltip="刷新">${__tmRenderLucideIcon('refresh-cw')}</button>
-                        ${__tmIsAiFeatureEnabled() ? `<button class="tm-btn tm-btn-info bc-btn bc-btn--sm" onclick="tmToggleAiSidebar()" style="padding: 4px 10px;" title="${__tmEscAttr(state.aiSidebarOpen ? '收起 AI 工作台' : '展开 AI 工作台')}" data-tooltip="${__tmEscAttr(state.aiSidebarOpen ? '收起 AI 工作台' : '展开 AI 工作台')}">${__tmRenderLucideIcon('bot')}</button>` : ''}
-                        <button class="tm-btn tm-btn-info bc-btn bc-btn--sm" onclick="showSettings()" style="padding: 4px 10px;" title="设置" data-tooltip="设置">${__tmRenderLucideIcon('settings')}设置</button>
+                        <div class="tm-view-segmented bc-tabs-list" role="tablist" aria-label="视图">
+                            ${__tmRenderViewSwitcherButtons()}
+                        </div>
+                        <button class="tm-btn tm-btn-info bc-btn bc-btn--sm" onclick="tmRefresh()" style="padding: 0; width: 30px; min-width: 30px; height: 30px; display: inline-flex; align-items: center; justify-content: center;" title="刷新" data-tooltip="刷新">${__tmRenderLucideIcon('refresh-cw')}</button>
+                        ${__tmIsAiFeatureEnabled() ? `<button class="tm-btn tm-btn-info bc-btn bc-btn--sm" onclick="tmToggleAiSidebar()" style="padding: 0; width: 30px; min-width: 30px; height: 30px; display: inline-flex; align-items: center; justify-content: center;" title="${__tmEscAttr(state.aiSidebarOpen ? '收起 AI 工作台' : '展开 AI 工作台')}" data-tooltip="${__tmEscAttr(state.aiSidebarOpen ? '收起 AI 工作台' : '展开 AI 工作台')}">${__tmRenderLucideIcon('bot')}</button>` : ''}
+                        <button class="tm-btn tm-btn-info bc-btn bc-btn--sm" onclick="showSettings()" style="padding: 0; width: 30px; min-width: 30px; height: 30px; display: inline-flex; align-items: center; justify-content: center;" title="设置" data-tooltip="设置">${__tmRenderLucideIcon('settings')}</button>
                         ${!false ? `
                             <button class="tm-btn tm-btn-info tm-desktop-menu-btn bc-btn bc-btn--sm" onclick="tmToggleDesktopMenu(event)" style="padding: 4px 10px; display: flex; align-items: center; gap: 4px;" title="菜单" data-tooltip="菜单">
                                 ${__tmRenderLucideIcon('menu')}菜单
@@ -20911,17 +20911,17 @@ async function __tmRefreshAfterWake(reason) {
                                 </div>
                                 <div style="display:flex; gap:10px; align-items:center;">
                                     <button class="tm-btn tm-btn-info bc-btn bc-btn--sm" onclick="tmShowSearchModal()" style="flex:1; padding: 6px;">
-                                        🔍 搜索 ${state.searchKeyword ? `(${state.searchKeyword})` : ''}
+                                        <span style="display:inline-flex;align-items:center;gap:6px;">${__tmRenderLucideIcon('search')}<span>搜索 ${state.searchKeyword ? `(${state.searchKeyword})` : ''}</span></span>
                                     </button>
                                 </div>
                                 <div class="tm-mobile-only-item" style="display:flex; gap:10px; align-items:center;">
                                     <button class="tm-btn tm-btn-info bc-btn bc-btn--sm" onclick="tmShowSummaryModal(); tmHideMobileMenu();" style="flex:1; padding: 6px;">
-                                        📝 摘要
+                                        <span style="display:inline-flex;align-items:center;gap:6px;">${__tmRenderLucideIcon('file-text')}<span>摘要</span></span>
                                     </button>
                                 </div>
                                 <div class="tm-mobile-only-item" style="display:flex; gap:10px; align-items:center;">
                                     <button class="tm-btn tm-btn-info bc-btn bc-btn--sm" onclick="window.tmAiSemanticCompletionPreview?.(); tmHideMobileMenu();" style="flex:1; padding: 6px;">
-                                        📅 语义日期
+                                        <span style="display:inline-flex;align-items:center;gap:6px;">${__tmRenderLucideIcon('calendar-days')}<span>语义日期</span></span>
                                     </button>
                                 </div>
                                 ${__tmIsAiFeatureEnabled() ? `
@@ -26944,9 +26944,9 @@ async function __tmRefreshAfterWake(reason) {
         `;
         
         menu.innerHTML = `
-            <button class="tm-btn tm-btn-info bc-btn bc-btn--sm" onclick="tmShowSearchModal(); document.getElementById('tmDesktopMenu').remove()" style="text-align:left; justify-content:flex-start; padding: 6px 12px;">🔍 搜索${state.searchKeyword ? ` (${String(state.searchKeyword || '').trim()})` : ''}</button>
-            <button class="tm-btn tm-btn-info bc-btn bc-btn--sm" onclick="tmShowSummaryModal(); document.getElementById('tmDesktopMenu').remove()" style="text-align:left; justify-content:flex-start; padding: 6px 12px;">📝 摘要</button>
-            <button class="tm-btn tm-btn-info bc-btn bc-btn--sm" onclick="window.tmAiSemanticCompletionPreview?.(); document.getElementById('tmDesktopMenu').remove()" style="text-align:left; justify-content:flex-start; padding: 6px 12px;">📅 语义日期</button>
+            <button class="tm-btn tm-btn-info bc-btn bc-btn--sm" onclick="tmShowSearchModal(); document.getElementById('tmDesktopMenu').remove()" style="text-align:left; justify-content:flex-start; padding: 6px 12px;"><span style="display:inline-flex;align-items:center;gap:6px;">${__tmRenderLucideIcon('search')}<span>搜索${state.searchKeyword ? ` (${String(state.searchKeyword || '').trim()})` : ''}</span></span></button>
+            <button class="tm-btn tm-btn-info bc-btn bc-btn--sm" onclick="tmShowSummaryModal(); document.getElementById('tmDesktopMenu').remove()" style="text-align:left; justify-content:flex-start; padding: 6px 12px;"><span style="display:inline-flex;align-items:center;gap:6px;">${__tmRenderLucideIcon('file-text')}<span>摘要</span></span></button>
+            <button class="tm-btn tm-btn-info bc-btn bc-btn--sm" onclick="window.tmAiSemanticCompletionPreview?.(); document.getElementById('tmDesktopMenu').remove()" style="text-align:left; justify-content:flex-start; padding: 6px 12px;"><span style="display:inline-flex;align-items:center;gap:6px;">${__tmRenderLucideIcon('calendar-days')}<span>语义日期</span></span></button>
             ${__tmIsAiFeatureEnabled() ? `
             <div class="tm-btn tm-btn-info bc-btn bc-btn--sm" style="text-align:left; padding: 6px 12px; display:flex; align-items:center; justify-content:space-between; gap:10px;">
                 <span>AI 对话</span>
