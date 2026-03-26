@@ -284,10 +284,98 @@
     opacity: 0.65;
 }
 
+[data-tooltip] {
+    position: relative;
+}
+
 [data-tooltip]::before,
 [data-tooltip]::after {
-    content: none !important;
-    display: none !important;
+    position: absolute;
+    left: 50%;
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity 120ms ease, transform 120ms ease;
+    z-index: 200060;
+}
+
+[data-tooltip]::before {
+    content: attr(data-tooltip);
+    min-width: max-content;
+    max-width: min(240px, calc(100vw - 24px));
+    padding: 6px 8px;
+    border: 1px solid var(--border);
+    border-radius: calc(var(--radius) - 2px);
+    background: var(--popover);
+    color: var(--popover-foreground);
+    box-shadow: var(--shadow-sm);
+    font-size: 12px;
+    font-weight: 600;
+    line-height: 1.35;
+    white-space: nowrap;
+}
+
+[data-tooltip]::after {
+    content: "";
+    width: 8px;
+    height: 8px;
+    background: var(--popover);
+}
+
+[data-tooltip]:not([data-side])::before,
+[data-tooltip][data-side="top"]::before {
+    bottom: calc(100% + 10px);
+    transform: translate(-50%, 4px);
+}
+
+[data-tooltip]:not([data-side])::after,
+[data-tooltip][data-side="top"]::after {
+    bottom: calc(100% + 4px);
+    border-left: 1px solid var(--border);
+    border-top: 1px solid var(--border);
+    transform: translate(-50%, 4px) rotate(225deg);
+}
+
+[data-tooltip][data-side="bottom"]::before {
+    top: calc(100% + 10px);
+    transform: translate(-50%, -4px);
+}
+
+[data-tooltip][data-side="bottom"]::after {
+    top: calc(100% + 4px);
+    border-left: 1px solid var(--border);
+    border-top: 1px solid var(--border);
+    transform: translate(-50%, -4px) rotate(45deg);
+}
+
+[data-tooltip]:hover::before,
+[data-tooltip]:hover::after,
+[data-tooltip]:focus-visible::before,
+[data-tooltip]:focus-visible::after {
+    opacity: 1;
+}
+
+[data-tooltip]:not([data-side]):hover::before,
+[data-tooltip]:not([data-side]):focus-visible::before,
+[data-tooltip][data-side="top"]:hover::before,
+[data-tooltip][data-side="top"]:focus-visible::before {
+    transform: translate(-50%, 0);
+}
+
+[data-tooltip]:not([data-side]):hover::after,
+[data-tooltip]:not([data-side]):focus-visible::after,
+[data-tooltip][data-side="top"]:hover::after,
+[data-tooltip][data-side="top"]:focus-visible::after {
+    transform: translate(-50%, 0) rotate(225deg);
+}
+
+[data-tooltip][data-side="bottom"]:hover::before,
+[data-tooltip][data-side="bottom"]:focus-visible::before {
+    transform: translate(-50%, 0);
+}
+
+[data-tooltip][data-side="bottom"]:hover::after,
+[data-tooltip][data-side="bottom"]:focus-visible::after {
+    transform: translate(-50%, 0) rotate(45deg);
 }
 
 .bc-toast-viewport {

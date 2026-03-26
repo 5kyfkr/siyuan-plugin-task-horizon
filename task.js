@@ -1,5 +1,5 @@
 // @name         思源笔记任务管理器
-// @version      1.9.1
+// @version      1.9.3
 // @description  任务管理器，支持自定义筛选规则分组和排序
 // @author       5KYFKR
 
@@ -77,6 +77,9 @@
             --tm-topbar-control-text: #ffffff;
             --tm-topbar-control-border: rgba(255,255,255,0.34);
             --tm-topbar-control-hover: rgba(0,0,0,0.12);
+            --tm-topbar-control-radius: 10px;
+            --tm-topbar-control-border-width: 1px;
+            --tm-topbar-control-shadow: none;
             --tm-topbar-seg-bg: rgba(255,255,255,0.18);
             --tm-topbar-seg-border: rgba(255,255,255,0.26);
             --tm-topbar-seg-item-text: rgba(255,255,255,0.86);
@@ -301,10 +304,10 @@
         }
 
         .protyle-toolbar,
-        .protyle-util,
-        .protyle-wysiwyg--select,
-        .protyle-content--select {
-            z-index: 100010 !important;
+        .protyle-util {
+            /* Keep SiYuan's text editing tool overlays above the dock/tab host.
+               Avoid touching selection highlight layers, which caused issue #49. */
+            z-index: 100020 !important;
         }
 
         .tm-cell-editor-input,
@@ -777,6 +780,9 @@
             .tm-header-selectors .tm-rule-label {
                 display: none;
             }
+            .tm-header-selectors .tm-rule-display {
+                display: none;
+            }
             .tm-header-selectors .tm-rule-select {
                 max-width: 120px;
             }
@@ -868,10 +874,11 @@
             padding: 12px 24px;
             background: linear-gradient(135deg, var(--tm-topbar-grad-start) 0%, var(--tm-topbar-grad-end) 100%);
             color: var(--tm-topbar-text-color);
+            --radius: var(--tm-topbar-control-radius);
             display: flex;
             justify-content: space-between;
             align-items: center;
-            min-height: 48px;
+            min-height: 38px;
             overflow-x: auto;
             overflow-y: visible;
             box-sizing: border-box;
@@ -880,7 +887,9 @@
         .tm-filter-rule-bar .tm-btn-info {
             background: var(--tm-topbar-control-bg);
             color: var(--tm-topbar-control-text);
-            border: 1px solid var(--tm-topbar-control-border);
+            border: var(--tm-topbar-control-border-width) solid var(--tm-topbar-control-border);
+            border-radius: var(--tm-topbar-control-radius);
+            box-shadow: var(--tm-topbar-control-shadow);
         }
 
         .tm-filter-rule-bar .tm-btn-info:hover {
@@ -891,7 +900,9 @@
         .tm-filter-rule-bar .tm-rule-select {
             background: var(--tm-topbar-control-bg);
             color: var(--tm-topbar-control-text);
-            border: 1px solid var(--tm-topbar-control-border);
+            border: var(--tm-topbar-control-border-width) solid var(--tm-topbar-control-border);
+            border-radius: var(--tm-topbar-control-radius);
+            box-shadow: var(--tm-topbar-control-shadow);
         }
 
         .tm-filter-rule-bar .tm-rule-select:focus {
@@ -919,6 +930,49 @@
             background: var(--tm-input-bg);
             color: var(--tm-text-color);
             border: 1px solid var(--tm-input-border);
+        }
+
+        [data-theme-mode="light"] .tm-filter-rule-bar #tmMobileMenu,
+        [data-theme-mode="light"] .tm-filter-rule-bar #tmMobileMenu .tm-mobile-menu-label,
+        [data-theme-mode="light"] .tm-filter-rule-bar #tmMobileMenu .bc-select-trigger,
+        [data-theme-mode="light"] .tm-filter-rule-bar #tmMobileMenu .bc-select-option,
+        [data-theme-mode="light"] .tm-filter-rule-bar #tmMobileMenu .tm-view-seg-item,
+        [data-theme-mode="light"] .tm-filter-rule-bar #tmMobileMenu .tm-btn {
+            color: #1f2329 !important;
+        }
+
+        [data-theme-mode="light"] .tm-filter-rule-bar #tmMobileMenu .tm-view-seg-item--active,
+        [data-theme-mode="light"] .tm-filter-rule-bar #tmMobileMenu .tm-btn.tm-btn-primary {
+            color: #ffffff !important;
+        }
+
+        [data-theme-mode="light"] #tmDesktopMenu,
+        [data-theme-mode="light"] #tmDesktopMenu .tm-btn,
+        [data-theme-mode="light"] #tmDesktopMenu .tm-btn span,
+        [data-theme-mode="light"] #tmDesktopMenu .tm-tree-toggle-icon,
+        [data-theme-mode="light"] #tmDesktopMenu .tm-btn-info,
+        [data-theme-mode="light"] #tmDesktopMenu .tm-btn-secondary,
+        [data-theme-mode="light"] #tmDesktopMenu > div > span,
+        #tmDesktopMenu.tm-desktop-menu--light,
+        #tmDesktopMenu.tm-desktop-menu--light .tm-btn,
+        #tmDesktopMenu.tm-desktop-menu--light .tm-btn span,
+        #tmDesktopMenu.tm-desktop-menu--light .tm-tree-toggle-icon,
+        #tmDesktopMenu.tm-desktop-menu--light .tm-btn-info,
+        #tmDesktopMenu.tm-desktop-menu--light .tm-btn-secondary,
+        #tmDesktopMenu.tm-desktop-menu--light > div > span {
+            color: #1f2329 !important;
+        }
+        [data-theme-mode="light"] #tmDesktopMenu .tm-btn,
+        [data-theme-mode="light"] #tmDesktopMenu .tm-btn-info,
+        [data-theme-mode="light"] #tmDesktopMenu .tm-btn-secondary,
+        #tmDesktopMenu.tm-desktop-menu--light .tm-btn,
+        #tmDesktopMenu.tm-desktop-menu--light .tm-btn-info,
+        #tmDesktopMenu.tm-desktop-menu--light .tm-btn-secondary {
+            border-color: #1f2329 !important;
+        }
+        [data-theme-mode="light"] #tmDesktopMenu .tm-tree-toggle-icon path,
+        #tmDesktopMenu.tm-desktop-menu--light .tm-tree-toggle-icon path {
+            stroke: #1f2329 !important;
         }
 
         .tm-filter-rule-bar #tmMobileMenu .tm-view-segmented {
@@ -949,10 +1003,32 @@
 
         .tm-filter-rule-bar #tmMobileMenu .tm-mobile-only-item {
             min-width: 0;
+            max-width: 100%;
         }
 
         .tm-filter-rule-bar #tmMobileMenu .tm-mobile-only-item .tm-btn {
             min-width: 0;
+            max-width: 100%;
+        }
+
+        .tm-filter-rule-bar #tmMobileMenu .tm-mobile-menu-row {
+            min-width: 0;
+            max-width: 100%;
+            flex-wrap: nowrap;
+        }
+
+        .tm-filter-rule-bar #tmMobileMenu .tm-mobile-menu-row > :not(.tm-mobile-menu-label) {
+            flex: 1 1 auto;
+            min-width: 0;
+            max-width: 100%;
+        }
+
+        .tm-filter-rule-bar #tmMobileMenu .tm-mobile-menu-row .tm-topbar-select,
+        .tm-filter-rule-bar #tmMobileMenu .tm-mobile-menu-row .bc-select-trigger,
+        .tm-filter-rule-bar #tmMobileMenu .tm-mobile-menu-row .tm-btn {
+            min-width: 0;
+            max-width: 100%;
+            overflow: hidden;
         }
 
         .tm-filter-rule-bar #tmMobileMenu .tm-rule-select option {
@@ -963,18 +1039,17 @@
         .tm-header-selectors {
             min-width: 0;
             flex-wrap: nowrap;
-            overflow-x: auto;
-            overflow-y: visible;
-            -webkit-overflow-scrolling: touch;
+            overflow: hidden;
         }
 
-        .tm-header-selectors::-webkit-scrollbar {
-            height: 4px;
+        .tm-filter-rule-bar .tm-search-box,
+        .tm-filter-rule-bar .tm-header-selectors {
+            scrollbar-width: none;
         }
 
-        .tm-header-selectors::-webkit-scrollbar-thumb {
-            background: var(--tm-topbar-scrollbar-thumb);
-            border-radius: 999px;
+        .tm-filter-rule-bar .tm-search-box::-webkit-scrollbar,
+        .tm-filter-rule-bar .tm-header-selectors::-webkit-scrollbar {
+            display: none;
         }
         
         .tm-rule-display {
@@ -1201,8 +1276,11 @@
         /* 分屏模式样式 - 通过容器宽度检测 */
         @media (max-width: 900px) {
             .tm-modal:not(.tm-modal--dock) .tm-filter-rule-bar {
-                flex-wrap: wrap !important;
-                padding: 10px 16px !important;
+                flex-wrap: nowrap !important;
+                min-height: 42px !important;
+                max-height: 42px !important;
+                height: 42px !important;
+                padding: 5px 16px !important;
                 gap: 8px !important;
             }
             
@@ -1239,6 +1317,10 @@
             .tm-modal:not(.tm-modal--dock) .tm-desktop-toolbar.tm-header-selectors {
                 display: none !important;
             }
+
+            .tm-modal:not(.tm-modal--dock) .tm-search-box.tm-desktop-toolbar {
+                display: none !important;
+            }
             
             .tm-modal:not(.tm-modal--dock) .tm-mobile-menu-btn,
             .tm-modal:not(.tm-modal--dock) .tm-mobile-menu-btn[style*="display: none"] {
@@ -1261,7 +1343,7 @@
 
         .tm-modal.tm-modal--split-pane .tm-filter-rule-bar {
             flex-wrap: wrap;
-            padding: 10px 16px;
+            padding: 5px 16px;
             gap: 8px;
         }
 
@@ -1320,6 +1402,10 @@
             .tm-modal:not(.tm-modal--dock) .tm-desktop-toolbar.tm-header-selectors {
                 display: none !important;
             }
+
+            .tm-modal:not(.tm-modal--dock) .tm-search-box.tm-desktop-toolbar {
+                display: none !important;
+            }
             
             /* 显示移动端菜单按钮 */
             .tm-modal:not(.tm-modal--dock) .tm-mobile-menu-btn,
@@ -1339,8 +1425,11 @@
             
             /* 筛选规则栏换行 */
             .tm-modal:not(.tm-modal--dock) .tm-filter-rule-bar {
-                flex-wrap: wrap;
-                padding: 10px 16px;
+                flex-wrap: nowrap;
+                min-height: 42px;
+                max-height: 42px;
+                height: 42px;
+                padding: 5px 16px;
                 gap: 8px;
             }
             
@@ -1575,32 +1664,22 @@
             align-items: center;
             gap: 8px;
             flex-wrap: nowrap;
-            overflow-x: auto;
-            overflow-y: visible;
-            -webkit-overflow-scrolling: touch;
-        }
-
-        .tm-search-box::-webkit-scrollbar {
-            height: 4px;
-        }
-
-        .tm-search-box::-webkit-scrollbar-thumb {
-            background: var(--tm-topbar-scrollbar-thumb);
-            border-radius: 999px;
+            overflow: hidden;
         }
 
         .tm-view-segmented {
             display: inline-flex;
             align-items: center;
             min-height: 32px;
-            border-radius: var(--tm-ui-radius);
+            border-radius: var(--tm-topbar-control-radius);
             overflow: visible;
             background: var(--tm-topbar-seg-bg);
-            border: 1px solid var(--tm-topbar-seg-border);
+            border: var(--tm-topbar-control-border-width) solid var(--tm-topbar-seg-border);
             gap: 2px;
             padding: 1px;
             flex: none;
             box-sizing: border-box;
+            box-shadow: var(--tm-topbar-control-shadow);
         }
 
         .tm-view-seg-item {
@@ -1617,7 +1696,8 @@
             user-select: none;
             min-height: 28px;
             box-sizing: border-box;
-            border-radius: calc(var(--tm-ui-radius) - 3px);
+            border-radius: max(0px, calc(var(--tm-topbar-control-radius) - 3px));
+            border-width: var(--tm-topbar-control-border-width);
         }
 
         .tm-filter-rule-bar .bc-btn--sm,
@@ -1626,14 +1706,66 @@
         .tm-filter-rule-bar .bc-tabs-trigger {
             height: 30px !important;
             min-height: 30px !important;
+            font-size: 13px !important;
+            font-weight: 500 !important;
+        }
+
+        .tm-filter-rule-bar .bc-btn,
+        .tm-filter-rule-bar .bc-select-trigger,
+        .tm-filter-rule-bar .bc-tabs-list {
+            border-width: var(--tm-topbar-control-border-width);
+            box-shadow: var(--tm-topbar-control-shadow);
+        }
+
+        .tm-filter-rule-bar .bc-btn,
+        .tm-filter-rule-bar .bc-btn--sm,
+        .tm-filter-rule-bar .bc-select-trigger,
+        .tm-filter-rule-bar .tm-view-seg-item,
+        .tm-filter-rule-bar .tm-mobile-menu-btn button {
+            font-weight: 500 !important;
+            font-size: 13px !important;
+        }
+
+        .tm-filter-rule-bar .tm-view-segmented .tm-view-seg-item {
+            font-weight: 600 !important;
+        }
+
+        .tm-filter-rule-bar {
+            min-height: 42px;
+            box-sizing: border-box;
+            overflow: visible;
+        }
+
+        .tm-modal.tm-modal--dock .tm-filter-rule-bar {
+            height: 42px;
+            min-height: 42px;
+            max-height: 42px;
+            padding: 5px 10px !important;
+        }
+
+        .tm-lucide-emoji {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            vertical-align: -2px;
+            line-height: 0;
+            margin-right: 0;
+        }
+
+        .tm-lucide-emoji__svg {
+            display: block;
+            width: 14px;
+            height: 14px;
         }
 
         .tm-filter-rule-bar .bc-tabs-list {
             height: 30px;
             min-height: 30px;
-            border-radius: calc(var(--tm-ui-radius) - 2px);
+            border-radius: max(0px, calc(var(--tm-topbar-control-radius) - 2px));
             padding: 1px;
             align-items: center;
+            border-width: var(--tm-topbar-control-border-width);
+            box-shadow: var(--tm-topbar-control-shadow);
         }
 
         .tm-filter-rule-bar .tm-view-segmented {
@@ -1674,6 +1806,50 @@
             min-width: 0;
         }
 
+        .tm-filter-rule-bar .tm-search-box,
+        .tm-filter-rule-bar .tm-header-selectors,
+        .tm-filter-rule-bar .tm-topbar-row,
+        .tm-filter-rule-bar .tm-mobile-menu-btn,
+        .tm-filter-rule-bar .tm-view-segmented {
+            overflow: visible;
+        }
+
+        .tm-filter-rule-bar #tmMobileMenu {
+            color: var(--tm-text-color);
+        }
+
+        .tm-filter-rule-bar #tmMobileMenu .tm-mobile-view-switcher-wrap {
+            overflow: hidden;
+        }
+
+        .tm-filter-rule-bar #tmMobileMenu .tm-mobile-view-switcher {
+            width: max-content;
+            max-width: 100%;
+            min-width: 0;
+            display: flex;
+            flex-wrap: nowrap;
+            justify-content: flex-start;
+            height: auto !important;
+            min-height: 0 !important;
+            gap: 4px;
+            padding: 4px 0 4px 4px;
+            overflow: hidden;
+        }
+
+        .tm-filter-rule-bar #tmMobileMenu .tm-mobile-view-switcher .tm-view-seg-item {
+            min-height: 24px !important;
+            height: 24px !important;
+            line-height: 24px !important;
+            font-size: 12px !important;
+            padding: 0 6px !important;
+            border-radius: 6px;
+            flex: 1 1 0;
+            min-width: 0;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+
         .tm-view-seg-item:hover {
             background: var(--tm-topbar-seg-item-hover);
             border-color: var(--tm-topbar-seg-border);
@@ -1703,12 +1879,13 @@
 
         .tm-search-input {
             padding: 6px 12px;
-            border: 1px solid var(--tm-topbar-search-border);
-            border-radius: 4px;
+            border: var(--tm-topbar-control-border-width) solid var(--tm-topbar-search-border);
+            border-radius: var(--tm-topbar-control-radius);
             font-size: 13px;
             background: var(--tm-topbar-search-bg);
             width: 200px;
             color: var(--tm-topbar-search-text);
+            box-shadow: var(--tm-topbar-control-shadow);
         }
 
         .tm-search-input:focus {
@@ -2418,6 +2595,19 @@
             cursor: pointer;
         }
 
+        .tm-task-card-remark {
+            margin-top: 4px;
+            font-size: 12px;
+            line-height: 1.35;
+            color: var(--tm-secondary-text);
+            overflow: hidden;
+            text-overflow: ellipsis;
+            display: -webkit-box;
+            -webkit-line-clamp: var(--tm-task-remark-wrap-lines, 2);
+            -webkit-box-orient: vertical;
+            word-break: break-word;
+        }
+
         .tm-whiteboard-subtasks {
             margin-top: 6px;
             padding-left: 10px;
@@ -2766,6 +2956,10 @@
             gap: 8px;
         }
 
+        .tm-kanban--fill {
+            width: 100%;
+        }
+
         .tm-kanban--compact .tm-kanban-col {
             width: 270px;
             min-width: 240px;
@@ -2836,6 +3030,11 @@
             margin-top: 6px;
             padding-left: 8px;
             gap: 6px;
+        }
+
+        .tm-kanban--compact .tm-task-card-remark {
+            font-size: 11px;
+            margin-top: 2px;
         }
 
         .tm-kanban-col-body {
@@ -6061,8 +6260,10 @@
             kanbanCompactMode: false,
             checklistCompactMode: true,
             kanbanColumnWidth: 320,
+            kanbanFillColumns: false,
             kanbanShowDoneColumn: false,
             kanbanDragSyncSubtasks: true,
+            kanbanCardFields: ['priority', 'status', 'date'],
             kanbanHeadingGroupMode: false,
             docH2SubgroupEnabled: true,
             groupByTaskName: false,
@@ -6204,6 +6405,7 @@
             whiteboardSidebarCollapsed: false,
             whiteboardSidebarWidth: 300,
             whiteboardShowDone: false,
+            whiteboardCardFields: ['priority', 'status', 'date'],
             whiteboardView: { x: 64, y: 40, zoom: 1 },
             whiteboardNodePos: {},
             whiteboardAutoLayout: false,
@@ -6220,6 +6422,25 @@
             topbarGradientDarkEnd: '#5b2d7a',
             topbarTextColorLight: '#ffffff',
             topbarTextColorDark: '#ffffff',
+            topbarControlBgLight: '',
+            topbarControlBgDark: '',
+            topbarControlTextLight: '',
+            topbarControlTextDark: '',
+            topbarControlBorderLight: '',
+            topbarControlBorderDark: '',
+            topbarControlHoverLight: '',
+            topbarControlHoverDark: '',
+            topbarControlSegmentBgLight: '',
+            topbarControlSegmentBgDark: '',
+            topbarControlSegmentActiveBgLight: '',
+            topbarControlSegmentActiveBgDark: '',
+            topbarControlShadowColorLight: '',
+            topbarControlShadowColorDark: '',
+            topbarControlRadiusPx: 10,
+            topbarControlBorderWidthPx: 1,
+            topbarControlShadowYOffsetPx: 0,
+            topbarControlShadowBlurPx: 0,
+            topbarControlShadowStrengthPct: 100,
             taskContentColorLight: '#333333',
             taskContentColorDark: '#e0e0e0',
             taskMetaColorLight: '#5f6368',
@@ -6355,8 +6576,10 @@
                                 if (typeof cloudData.kanbanCompactMode === 'boolean') this.data.kanbanCompactMode = cloudData.kanbanCompactMode;
                                 if (typeof cloudData.checklistCompactMode === 'boolean') this.data.checklistCompactMode = cloudData.checklistCompactMode;
                                 if (typeof cloudData.kanbanColumnWidth === 'number') this.data.kanbanColumnWidth = cloudData.kanbanColumnWidth;
+                                if (typeof cloudData.kanbanFillColumns === 'boolean') this.data.kanbanFillColumns = cloudData.kanbanFillColumns;
                                 if (typeof cloudData.kanbanShowDoneColumn === 'boolean') this.data.kanbanShowDoneColumn = cloudData.kanbanShowDoneColumn;
                                 if (typeof cloudData.kanbanDragSyncSubtasks === 'boolean') this.data.kanbanDragSyncSubtasks = cloudData.kanbanDragSyncSubtasks;
+                                if (Array.isArray(cloudData.kanbanCardFields)) this.data.kanbanCardFields = cloudData.kanbanCardFields;
                                 if (typeof cloudData.kanbanHeadingGroupMode === 'boolean') this.data.kanbanHeadingGroupMode = cloudData.kanbanHeadingGroupMode;
                                 if (typeof cloudData.docH2SubgroupEnabled === 'boolean') this.data.docH2SubgroupEnabled = cloudData.docH2SubgroupEnabled;
                                 if (typeof cloudData.groupByTaskName === 'boolean') this.data.groupByTaskName = cloudData.groupByTaskName;
@@ -6453,6 +6676,25 @@
                                 if (typeof cloudData.topbarGradientDarkEnd === 'string') this.data.topbarGradientDarkEnd = cloudData.topbarGradientDarkEnd;
                                 if (typeof cloudData.topbarTextColorLight === 'string') this.data.topbarTextColorLight = cloudData.topbarTextColorLight;
                                 if (typeof cloudData.topbarTextColorDark === 'string') this.data.topbarTextColorDark = cloudData.topbarTextColorDark;
+                                if (typeof cloudData.topbarControlBgLight === 'string') this.data.topbarControlBgLight = cloudData.topbarControlBgLight;
+                                if (typeof cloudData.topbarControlBgDark === 'string') this.data.topbarControlBgDark = cloudData.topbarControlBgDark;
+                                if (typeof cloudData.topbarControlTextLight === 'string') this.data.topbarControlTextLight = cloudData.topbarControlTextLight;
+                                if (typeof cloudData.topbarControlTextDark === 'string') this.data.topbarControlTextDark = cloudData.topbarControlTextDark;
+                                if (typeof cloudData.topbarControlBorderLight === 'string') this.data.topbarControlBorderLight = cloudData.topbarControlBorderLight;
+                                if (typeof cloudData.topbarControlBorderDark === 'string') this.data.topbarControlBorderDark = cloudData.topbarControlBorderDark;
+                                if (typeof cloudData.topbarControlHoverLight === 'string') this.data.topbarControlHoverLight = cloudData.topbarControlHoverLight;
+                                if (typeof cloudData.topbarControlHoverDark === 'string') this.data.topbarControlHoverDark = cloudData.topbarControlHoverDark;
+                                if (typeof cloudData.topbarControlSegmentBgLight === 'string') this.data.topbarControlSegmentBgLight = cloudData.topbarControlSegmentBgLight;
+                                if (typeof cloudData.topbarControlSegmentBgDark === 'string') this.data.topbarControlSegmentBgDark = cloudData.topbarControlSegmentBgDark;
+                                if (typeof cloudData.topbarControlSegmentActiveBgLight === 'string') this.data.topbarControlSegmentActiveBgLight = cloudData.topbarControlSegmentActiveBgLight;
+                                if (typeof cloudData.topbarControlSegmentActiveBgDark === 'string') this.data.topbarControlSegmentActiveBgDark = cloudData.topbarControlSegmentActiveBgDark;
+                                if (typeof cloudData.topbarControlShadowColorLight === 'string') this.data.topbarControlShadowColorLight = cloudData.topbarControlShadowColorLight;
+                                if (typeof cloudData.topbarControlShadowColorDark === 'string') this.data.topbarControlShadowColorDark = cloudData.topbarControlShadowColorDark;
+                                if (typeof cloudData.topbarControlRadiusPx === 'number') this.data.topbarControlRadiusPx = cloudData.topbarControlRadiusPx;
+                                if (typeof cloudData.topbarControlBorderWidthPx === 'number') this.data.topbarControlBorderWidthPx = cloudData.topbarControlBorderWidthPx;
+                                if (typeof cloudData.topbarControlShadowYOffsetPx === 'number') this.data.topbarControlShadowYOffsetPx = cloudData.topbarControlShadowYOffsetPx;
+                                if (typeof cloudData.topbarControlShadowBlurPx === 'number') this.data.topbarControlShadowBlurPx = cloudData.topbarControlShadowBlurPx;
+                                if (typeof cloudData.topbarControlShadowStrengthPct === 'number') this.data.topbarControlShadowStrengthPct = cloudData.topbarControlShadowStrengthPct;
                                 if (typeof cloudData.taskContentColorLight === 'string') this.data.taskContentColorLight = cloudData.taskContentColorLight;
                                 if (typeof cloudData.taskContentColorDark === 'string') this.data.taskContentColorDark = cloudData.taskContentColorDark;
                                 if (typeof cloudData.taskMetaColorLight === 'string') this.data.taskMetaColorLight = cloudData.taskMetaColorLight;
@@ -6495,6 +6737,7 @@
                                 if (typeof cloudData.whiteboardSidebarCollapsed === 'boolean') this.data.whiteboardSidebarCollapsed = cloudData.whiteboardSidebarCollapsed;
                                 if (typeof cloudData.whiteboardSidebarWidth === 'number') this.data.whiteboardSidebarWidth = cloudData.whiteboardSidebarWidth;
                                 if (typeof cloudData.whiteboardShowDone === 'boolean') this.data.whiteboardShowDone = cloudData.whiteboardShowDone;
+                                if (Array.isArray(cloudData.whiteboardCardFields)) this.data.whiteboardCardFields = cloudData.whiteboardCardFields;
                                 if (cloudData.whiteboardView && typeof cloudData.whiteboardView === 'object') this.data.whiteboardView = cloudData.whiteboardView;
                                 if (cloudData.whiteboardNodePos && typeof cloudData.whiteboardNodePos === 'object') this.data.whiteboardNodePos = cloudData.whiteboardNodePos;
                                 if (typeof cloudData.whiteboardAutoLayout === 'boolean') this.data.whiteboardAutoLayout = cloudData.whiteboardAutoLayout;
@@ -6594,8 +6837,10 @@
             this.data.kanbanCompactMode = !!Storage.get('tm_kanban_compact_mode', this.data.kanbanCompactMode);
             this.data.checklistCompactMode = !!Storage.get('tm_checklist_compact_mode', this.data.checklistCompactMode);
             this.data.kanbanColumnWidth = Storage.get('tm_kanban_column_width', this.data.kanbanColumnWidth);
+            this.data.kanbanFillColumns = !!Storage.get('tm_kanban_fill_columns', this.data.kanbanFillColumns);
             this.data.kanbanShowDoneColumn = !!Storage.get('tm_kanban_show_done_column', this.data.kanbanShowDoneColumn);
             this.data.kanbanDragSyncSubtasks = !!Storage.get('tm_kanban_drag_sync_subtasks', this.data.kanbanDragSyncSubtasks);
+            this.data.kanbanCardFields = Storage.get('tm_kanban_card_fields', this.data.kanbanCardFields) || this.data.kanbanCardFields;
             this.data.kanbanHeadingGroupMode = !!Storage.get('tm_kanban_heading_group_mode', this.data.kanbanHeadingGroupMode);
             this.data.docH2SubgroupEnabled = !!Storage.get('tm_doc_h2_subgroup_enabled', this.data.docH2SubgroupEnabled);
             this.data.groupByTaskName = !!Storage.get('tm_group_by_taskname', this.data.groupByTaskName);
@@ -6616,6 +6861,30 @@
             this.data.topbarGradientDarkEnd = Storage.get('tm_topbar_gradient_dark_end', this.data.topbarGradientDarkEnd);
             this.data.topbarTextColorLight = Storage.get('tm_topbar_text_color_light', this.data.topbarTextColorLight);
             this.data.topbarTextColorDark = Storage.get('tm_topbar_text_color_dark', this.data.topbarTextColorDark);
+            this.data.topbarControlBgLight = Storage.get('tm_topbar_control_bg_light', this.data.topbarControlBgLight);
+            this.data.topbarControlBgDark = Storage.get('tm_topbar_control_bg_dark', this.data.topbarControlBgDark);
+            this.data.topbarControlTextLight = Storage.get('tm_topbar_control_text_light', this.data.topbarControlTextLight);
+            this.data.topbarControlTextDark = Storage.get('tm_topbar_control_text_dark', this.data.topbarControlTextDark);
+            this.data.topbarControlBorderLight = Storage.get('tm_topbar_control_border_light', this.data.topbarControlBorderLight);
+            this.data.topbarControlBorderDark = Storage.get('tm_topbar_control_border_dark', this.data.topbarControlBorderDark);
+            this.data.topbarControlHoverLight = Storage.get('tm_topbar_control_hover_light', this.data.topbarControlHoverLight);
+            this.data.topbarControlHoverDark = Storage.get('tm_topbar_control_hover_dark', this.data.topbarControlHoverDark);
+            this.data.topbarControlSegmentBgLight = Storage.get('tm_topbar_control_segment_bg_light', this.data.topbarControlSegmentBgLight);
+            this.data.topbarControlSegmentBgDark = Storage.get('tm_topbar_control_segment_bg_dark', this.data.topbarControlSegmentBgDark);
+            this.data.topbarControlSegmentActiveBgLight = Storage.get('tm_topbar_control_segment_active_bg_light', this.data.topbarControlSegmentActiveBgLight);
+            this.data.topbarControlSegmentActiveBgDark = Storage.get('tm_topbar_control_segment_active_bg_dark', this.data.topbarControlSegmentActiveBgDark);
+            this.data.topbarControlShadowColorLight = Storage.get('tm_topbar_control_shadow_color_light', this.data.topbarControlShadowColorLight);
+            this.data.topbarControlShadowColorDark = Storage.get('tm_topbar_control_shadow_color_dark', this.data.topbarControlShadowColorDark);
+            this.data.topbarControlRadiusPx = Number(Storage.get('tm_topbar_control_radius_px', this.data.topbarControlRadiusPx));
+            this.data.topbarControlBorderWidthPx = Number(Storage.get('tm_topbar_control_border_width_px', this.data.topbarControlBorderWidthPx));
+            this.data.topbarControlShadowYOffsetPx = Number(Storage.get('tm_topbar_control_shadow_y_offset_px', this.data.topbarControlShadowYOffsetPx));
+            this.data.topbarControlShadowBlurPx = Number(Storage.get('tm_topbar_control_shadow_blur_px', this.data.topbarControlShadowBlurPx));
+            this.data.topbarControlShadowStrengthPct = Number(Storage.get('tm_topbar_control_shadow_strength_pct', this.data.topbarControlShadowStrengthPct));
+            if (!Number.isFinite(this.data.topbarControlRadiusPx)) this.data.topbarControlRadiusPx = 10;
+            if (!Number.isFinite(this.data.topbarControlBorderWidthPx)) this.data.topbarControlBorderWidthPx = 1;
+            if (!Number.isFinite(this.data.topbarControlShadowYOffsetPx)) this.data.topbarControlShadowYOffsetPx = 0;
+            if (!Number.isFinite(this.data.topbarControlShadowBlurPx)) this.data.topbarControlShadowBlurPx = 0;
+            if (!Number.isFinite(this.data.topbarControlShadowStrengthPct)) this.data.topbarControlShadowStrengthPct = 100;
             this.data.taskContentColorLight = Storage.get('tm_task_content_color_light', this.data.taskContentColorLight);
             this.data.taskContentColorDark = Storage.get('tm_task_content_color_dark', this.data.taskContentColorDark);
             this.data.taskMetaColorLight = Storage.get('tm_task_meta_color_light', this.data.taskMetaColorLight);
@@ -6723,6 +6992,7 @@
             this.data.whiteboardSidebarCollapsed = Storage.get('tm_whiteboard_sidebar_collapsed', this.data.whiteboardSidebarCollapsed);
             this.data.whiteboardSidebarWidth = Storage.get('tm_whiteboard_sidebar_width', this.data.whiteboardSidebarWidth);
             this.data.whiteboardShowDone = Storage.get('tm_whiteboard_show_done', this.data.whiteboardShowDone);
+            this.data.whiteboardCardFields = Storage.get('tm_whiteboard_card_fields', this.data.whiteboardCardFields) || this.data.whiteboardCardFields;
             this.data.whiteboardView = Storage.get('tm_whiteboard_view', this.data.whiteboardView) || this.data.whiteboardView;
             this.data.collapseAllIncludesGroups = !!Storage.get('tm_collapse_all_includes_groups', this.data.collapseAllIncludesGroups);
             this.data.whiteboardNodePos = Storage.get('tm_whiteboard_node_pos', this.data.whiteboardNodePos) || {};
@@ -6839,8 +7109,10 @@
             Storage.set('tm_kanban_compact_mode', !!this.data.kanbanCompactMode);
             Storage.set('tm_checklist_compact_mode', !!this.data.checklistCompactMode);
             Storage.set('tm_kanban_column_width', Number(this.data.kanbanColumnWidth) || 320);
+            Storage.set('tm_kanban_fill_columns', !!this.data.kanbanFillColumns);
             Storage.set('tm_kanban_show_done_column', !!this.data.kanbanShowDoneColumn);
             Storage.set('tm_kanban_drag_sync_subtasks', !!this.data.kanbanDragSyncSubtasks);
+            Storage.set('tm_kanban_card_fields', this.data.kanbanCardFields || []);
             Storage.set('tm_kanban_heading_group_mode', !!this.data.kanbanHeadingGroupMode);
             Storage.set('tm_doc_h2_subgroup_enabled', !!this.data.docH2SubgroupEnabled);
             Storage.set('tm_group_by_taskname', !!this.data.groupByTaskName);
@@ -6864,6 +7136,25 @@
             Storage.set('tm_topbar_gradient_dark_end', String(this.data.topbarGradientDarkEnd || '').trim());
             Storage.set('tm_topbar_text_color_light', String(this.data.topbarTextColorLight || '').trim());
             Storage.set('tm_topbar_text_color_dark', String(this.data.topbarTextColorDark || '').trim());
+            Storage.set('tm_topbar_control_bg_light', String(this.data.topbarControlBgLight || '').trim());
+            Storage.set('tm_topbar_control_bg_dark', String(this.data.topbarControlBgDark || '').trim());
+            Storage.set('tm_topbar_control_text_light', String(this.data.topbarControlTextLight || '').trim());
+            Storage.set('tm_topbar_control_text_dark', String(this.data.topbarControlTextDark || '').trim());
+            Storage.set('tm_topbar_control_border_light', String(this.data.topbarControlBorderLight || '').trim());
+            Storage.set('tm_topbar_control_border_dark', String(this.data.topbarControlBorderDark || '').trim());
+            Storage.set('tm_topbar_control_hover_light', String(this.data.topbarControlHoverLight || '').trim());
+            Storage.set('tm_topbar_control_hover_dark', String(this.data.topbarControlHoverDark || '').trim());
+            Storage.set('tm_topbar_control_segment_bg_light', String(this.data.topbarControlSegmentBgLight || '').trim());
+            Storage.set('tm_topbar_control_segment_bg_dark', String(this.data.topbarControlSegmentBgDark || '').trim());
+            Storage.set('tm_topbar_control_segment_active_bg_light', String(this.data.topbarControlSegmentActiveBgLight || '').trim());
+            Storage.set('tm_topbar_control_segment_active_bg_dark', String(this.data.topbarControlSegmentActiveBgDark || '').trim());
+            Storage.set('tm_topbar_control_shadow_color_light', String(this.data.topbarControlShadowColorLight || '').trim());
+            Storage.set('tm_topbar_control_shadow_color_dark', String(this.data.topbarControlShadowColorDark || '').trim());
+            Storage.set('tm_topbar_control_radius_px', Number.isFinite(Number(this.data.topbarControlRadiusPx)) ? Number(this.data.topbarControlRadiusPx) : 10);
+            Storage.set('tm_topbar_control_border_width_px', Number.isFinite(Number(this.data.topbarControlBorderWidthPx)) ? Number(this.data.topbarControlBorderWidthPx) : 1);
+            Storage.set('tm_topbar_control_shadow_y_offset_px', Number.isFinite(Number(this.data.topbarControlShadowYOffsetPx)) ? Number(this.data.topbarControlShadowYOffsetPx) : 0);
+            Storage.set('tm_topbar_control_shadow_blur_px', Number.isFinite(Number(this.data.topbarControlShadowBlurPx)) ? Number(this.data.topbarControlShadowBlurPx) : 0);
+            Storage.set('tm_topbar_control_shadow_strength_pct', Number.isFinite(Number(this.data.topbarControlShadowStrengthPct)) ? Number(this.data.topbarControlShadowStrengthPct) : 100);
             Storage.set('tm_task_content_color_light', String(this.data.taskContentColorLight || '').trim());
             Storage.set('tm_task_content_color_dark', String(this.data.taskContentColorDark || '').trim());
             Storage.set('tm_task_meta_color_light', String(this.data.taskMetaColorLight || '').trim());
@@ -6976,6 +7267,7 @@
             Storage.set('tm_whiteboard_sidebar_collapsed', !!this.data.whiteboardSidebarCollapsed);
             Storage.set('tm_whiteboard_sidebar_width', Number(this.data.whiteboardSidebarWidth) || 300);
             Storage.set('tm_whiteboard_show_done', !!this.data.whiteboardShowDone);
+            Storage.set('tm_whiteboard_card_fields', this.data.whiteboardCardFields || []);
             Storage.set('tm_whiteboard_view', this.data.whiteboardView || { x: 64, y: 40, zoom: 1 });
             Storage.set('tm_collapse_all_includes_groups', !!this.data.collapseAllIncludesGroups);
             Storage.set('tm_whiteboard_node_pos', this.data.whiteboardNodePos || {});
@@ -7057,6 +7349,8 @@
             this.data.docColorSeed = (Number.isFinite(seed) && seed > 0) ? Math.floor(seed) : 1;
             const kw = Number(this.data.kanbanColumnWidth);
             this.data.kanbanColumnWidth = Number.isFinite(kw) ? Math.max(220, Math.min(520, Math.round(kw))) : 320;
+            this.data.kanbanFillColumns = !!this.data.kanbanFillColumns;
+            this.data.kanbanCardFields = __tmNormalizeTaskCardFieldList(this.data.kanbanCardFields, ['priority', 'status', 'date']);
             this.data.docH2SubgroupEnabled = this.data.docH2SubgroupEnabled !== false;
             this.data.taskAutoWrapEnabled = this.data.taskAutoWrapEnabled !== false;
             this.data.aiSideDockEnabled = this.data.aiSideDockEnabled !== false;
@@ -7089,6 +7383,7 @@
             const wbSidebarWidth = Number(this.data.whiteboardSidebarWidth);
             this.data.whiteboardSidebarWidth = Number.isFinite(wbSidebarWidth) ? Math.max(220, Math.min(520, Math.round(wbSidebarWidth))) : 300;
             this.data.whiteboardShowDone = !!this.data.whiteboardShowDone;
+            this.data.whiteboardCardFields = __tmNormalizeTaskCardFieldList(this.data.whiteboardCardFields, ['priority', 'status', 'date']);
             const wv0 = (this.data.whiteboardView && typeof this.data.whiteboardView === 'object') ? this.data.whiteboardView : {};
             const x0 = Number(wv0.x);
             const y0 = Number(wv0.y);
@@ -11235,6 +11530,7 @@ async function __tmRefreshAfterWake(reason) {
         feed(options.isAllTabsView ? 1 : 0);
         feed(options.isCompact ? 1 : 0);
         feed(options.kanbanColW);
+        feed(options.kanbanFillColumns ? 1 : 0);
         feed(options.showDoneCol ? 1 : 0);
         feed(options.headingMode ? 1 : 0);
         feed(options.currentGroupId);
@@ -11245,6 +11541,7 @@ async function __tmRefreshAfterWake(reason) {
         feed(options.groupByTaskName ? 1 : 0);
         feed(options.groupByTime ? 1 : 0);
         feed(options.quadrantEnabled ? 1 : 0);
+        feed(options.kanbanCardFields || '');
         feed(SettingsStore.data.taskHeadingLevel || 'h2');
         feed(SettingsStore.data.newTaskDocId || '');
         feed(SettingsStore.data.timeGroupBaseColorLight || '');
@@ -11296,6 +11593,7 @@ async function __tmRefreshAfterWake(reason) {
             feed(task?.priority);
             feed(task?.startDate);
             feed(task?.completionTime);
+            feed(task?.remark);
             feed(task?.root_id);
             feed(task?.parentTaskId);
             feed(task?.h2);
@@ -11448,6 +11746,280 @@ async function __tmRefreshAfterWake(reason) {
         } catch (e) {}
     };
 
+    const __tmBuildTooltipAttrs = (label, opts = {}) => {
+        const text = String(label || '').trim();
+        if (!text) return '';
+        const side = String(opts.side || 'top').trim() || 'top';
+        const align = String(opts.align || 'center').trim() || 'center';
+        const ariaLabelRaw = opts.ariaLabel === false
+            ? ''
+            : (opts.ariaLabel == null ? text : String(opts.ariaLabel || ''));
+        const ariaLabel = String(ariaLabelRaw || '').trim();
+        const attrs = [
+            `data-tooltip="${__tmEscAttr(text)}"`,
+            `data-side="${__tmEscAttr(side)}"`,
+            `data-align="${__tmEscAttr(align)}"`,
+        ];
+        if (ariaLabel) attrs.push(`aria-label="${__tmEscAttr(ariaLabel)}"`);
+        return ` ${attrs.join(' ')}`;
+    };
+
+    const __tmApplyTooltipAttrsToElement = (el, label, opts = {}) => {
+        if (!(el instanceof HTMLElement)) return;
+        const text = String(label || '').trim();
+        const side = String(opts.side || 'top').trim() || 'top';
+        const align = String(opts.align || 'center').trim() || 'center';
+        if (!text) {
+            try { el.removeAttribute('data-tm-floating-tooltip-label'); } catch (e) {}
+            try { el.removeAttribute('data-tm-tooltip-side'); } catch (e) {}
+            try { el.removeAttribute('data-tm-tooltip-align'); } catch (e) {}
+            return;
+        }
+        try { el.setAttribute('data-tm-floating-tooltip-label', text); } catch (e) {}
+        try { el.setAttribute('data-tm-tooltip-side', side); } catch (e) {}
+        try { el.setAttribute('data-tm-tooltip-align', align); } catch (e) {}
+    };
+
+    function __tmHideFloatingTooltip() {
+        try {
+            if (state.floatingTooltipHideTimer) {
+                clearTimeout(state.floatingTooltipHideTimer);
+                state.floatingTooltipHideTimer = null;
+            }
+        } catch (e) {}
+        try { state.floatingTooltipTarget = null; } catch (e) {}
+        try { state.floatingTooltipEl?.remove?.(); } catch (e) {}
+        state.floatingTooltipEl = null;
+    }
+
+    function __tmPositionFloatingTooltip(target, tooltipEl, opts = {}) {
+        if (!(target instanceof HTMLElement) || !(tooltipEl instanceof HTMLElement)) return;
+        const side = String(opts.side || target.getAttribute('data-tm-tooltip-side') || 'bottom').trim() || 'bottom';
+        const gap = 8;
+        const margin = 8;
+        const rect = target.getBoundingClientRect();
+        const tipRect = tooltipEl.getBoundingClientRect();
+        let left = rect.left + (rect.width - tipRect.width) / 2;
+        left = Math.max(margin, Math.min(left, window.innerWidth - tipRect.width - margin));
+        let top = side === 'top'
+            ? rect.top - tipRect.height - gap
+            : rect.bottom + gap;
+        if (side === 'top' && top < margin) top = Math.min(rect.bottom + gap, window.innerHeight - tipRect.height - margin);
+        if (side !== 'top' && top + tipRect.height > window.innerHeight - margin) {
+            top = Math.max(margin, rect.top - tipRect.height - gap);
+        }
+        tooltipEl.style.left = `${Math.round(left)}px`;
+        tooltipEl.style.top = `${Math.round(top)}px`;
+    }
+
+    function __tmResolveFloatingTooltipZIndex(target, fallback = 2) {
+        let maxZ = Number(fallback) || 2;
+        let node = target instanceof Element ? target : null;
+        while (node && node !== document.body && node !== document.documentElement) {
+            try {
+                const raw = window.getComputedStyle(node).zIndex;
+                const z = Number.parseInt(String(raw || '').trim(), 10);
+                if (Number.isFinite(z)) maxZ = Math.max(maxZ, z + 1);
+            } catch (e) {}
+            node = node.parentElement;
+        }
+        return maxZ;
+    }
+
+    function __tmShowFloatingTooltip(target, label, opts = {}) {
+        if (!(target instanceof HTMLElement)) return;
+        const text = String(label || '').trim();
+        if (!text) {
+            __tmHideFloatingTooltip();
+            return;
+        }
+        try {
+            if (state.floatingTooltipHideTimer) {
+                clearTimeout(state.floatingTooltipHideTimer);
+                state.floatingTooltipHideTimer = null;
+            }
+        } catch (e) {}
+        let tooltipEl = state.floatingTooltipEl;
+        if (!(tooltipEl instanceof HTMLElement)) {
+            tooltipEl = document.createElement('div');
+            tooltipEl.className = 'tm-floating-tooltip';
+            tooltipEl.style.position = 'fixed';
+            tooltipEl.style.left = '0';
+            tooltipEl.style.top = '0';
+            tooltipEl.style.maxWidth = 'min(240px, calc(100vw - 24px))';
+            tooltipEl.style.padding = '6px 8px';
+            tooltipEl.style.border = '1px solid var(--border)';
+            tooltipEl.style.borderRadius = 'calc(var(--radius) - 2px)';
+            tooltipEl.style.background = 'var(--popover)';
+            tooltipEl.style.color = 'var(--popover-foreground)';
+            tooltipEl.style.boxShadow = 'var(--shadow-sm)';
+            tooltipEl.style.fontSize = '12px';
+            tooltipEl.style.fontWeight = '600';
+            tooltipEl.style.lineHeight = '1.35';
+            tooltipEl.style.whiteSpace = 'nowrap';
+            tooltipEl.style.pointerEvents = 'none';
+            tooltipEl.style.opacity = '0';
+            tooltipEl.style.transition = 'opacity 120ms ease';
+            document.body.appendChild(tooltipEl);
+            state.floatingTooltipEl = tooltipEl;
+        }
+        tooltipEl.textContent = text;
+        tooltipEl.style.zIndex = String(__tmResolveFloatingTooltipZIndex(target));
+        tooltipEl.style.opacity = '0';
+        state.floatingTooltipTarget = target;
+        __tmPositionFloatingTooltip(target, tooltipEl, opts);
+        requestAnimationFrame(() => {
+            if (state.floatingTooltipEl === tooltipEl && state.floatingTooltipTarget === target) {
+                tooltipEl.style.opacity = '1';
+            }
+        });
+    }
+
+    function __tmBindFloatingTooltips(modalEl) {
+        const modal = modalEl instanceof Element ? modalEl : state.modal;
+        if (!(modal instanceof Element)) return;
+        modal.querySelectorAll('[data-tm-floating-tooltip-label]').forEach((el) => {
+            if (!(el instanceof HTMLElement) || el.__tmFloatingTooltipBound) return;
+            const show = () => {
+                try {
+                    const text = String(el.getAttribute('data-tm-floating-tooltip-label') || '').trim();
+                    const side = String(el.getAttribute('data-tm-tooltip-side') || 'bottom').trim() || 'bottom';
+                    const align = String(el.getAttribute('data-tm-tooltip-align') || 'center').trim() || 'center';
+                    __tmShowFloatingTooltip(el, text, { side, align });
+                } catch (e) {}
+            };
+            const hide = () => {
+                try {
+                    if (state.floatingTooltipHideTimer) clearTimeout(state.floatingTooltipHideTimer);
+                } catch (e) {}
+                state.floatingTooltipHideTimer = setTimeout(() => {
+                    if (state.floatingTooltipTarget === el) __tmHideFloatingTooltip();
+                }, 40);
+            };
+            el.addEventListener('mouseenter', show);
+            el.addEventListener('focus', show, true);
+            el.addEventListener('mouseleave', hide);
+            el.addEventListener('blur', hide, true);
+            el.addEventListener('mousedown', () => __tmHideFloatingTooltip(), true);
+            el.addEventListener('click', () => __tmHideFloatingTooltip(), true);
+            el.__tmFloatingTooltipBound = true;
+        });
+    }
+
+    function __tmSyncTopbarOverflowTooltips(modalEl) {
+        const modal = modalEl instanceof Element ? modalEl : state.modal;
+        if (!(modal instanceof Element)) return;
+        modal.querySelectorAll('.tm-topbar-select .bc-select-trigger').forEach((trigger) => {
+            if (!(trigger instanceof HTMLElement)) return;
+            const valueEl = trigger.querySelector('.bc-select-trigger__value');
+            const labelText = String(trigger.getAttribute('data-tm-tooltip-label') || '').trim();
+            const valueText = String(valueEl?.textContent || '').trim();
+            const side = String(trigger.getAttribute('data-tm-tooltip-side') || 'bottom').trim() || 'bottom';
+            const align = String(trigger.getAttribute('data-tm-tooltip-align') || 'center').trim() || 'center';
+            const overflow = valueEl instanceof HTMLElement
+                && (Math.ceil(valueEl.scrollWidth) - Math.floor(valueEl.clientWidth) > 1);
+            const selector = trigger.closest('.tm-rule-selector');
+            const labelEl = selector?.querySelector('.tm-rule-label');
+            const labelHidden = labelEl instanceof HTMLElement
+                && window.getComputedStyle(labelEl).display === 'none';
+            let tooltipText = '';
+            if (labelHidden && overflow) tooltipText = `${labelText}：${valueText}`;
+            else if (labelHidden) tooltipText = labelText || valueText;
+            else if (overflow) tooltipText = valueText || labelText;
+            __tmApplyTooltipAttrsToElement(trigger, tooltipText, { side, align });
+        });
+    }
+
+    function __tmBindTopbarOverflowTooltips(modalEl) {
+        try {
+            if (state.topbarOverflowTooltipResizeObserver) {
+                state.topbarOverflowTooltipResizeObserver.disconnect();
+                state.topbarOverflowTooltipResizeObserver = null;
+            }
+        } catch (e) {}
+        const modal = modalEl instanceof Element ? modalEl : state.modal;
+        if (!(modal instanceof Element)) return;
+        const sync = () => {
+            try { __tmSyncTopbarOverflowTooltips(modal); } catch (e) {}
+        };
+        sync();
+        try { requestAnimationFrame(sync); } catch (e) {}
+        try { requestAnimationFrame(() => requestAnimationFrame(sync)); } catch (e) {}
+        if (typeof ResizeObserver === 'function') {
+            try {
+                const ro = new ResizeObserver(() => sync());
+                modal.querySelectorAll('.tm-topbar-select, .tm-topbar-select .bc-select-trigger__value').forEach((el) => {
+                    if (el instanceof Element) ro.observe(el);
+                });
+                state.topbarOverflowTooltipResizeObserver = ro;
+            } catch (e) {
+                state.topbarOverflowTooltipResizeObserver = null;
+            }
+        }
+    }
+
+    if (!window.__tmTopbarOverflowTooltipWindowBound) {
+        window.__tmTopbarOverflowTooltipWindowBound = true;
+        window.addEventListener('resize', () => {
+            try { __tmSyncTopbarOverflowTooltips(state.modal); } catch (e) {}
+        }, { passive: true });
+    }
+
+    function __tmBindResponsiveTableResize(modalEl) {
+        try {
+            if (state.tableResponsiveResizeObserver) {
+                state.tableResponsiveResizeObserver.disconnect();
+                state.tableResponsiveResizeObserver = null;
+            }
+        } catch (e) {}
+        try {
+            if (state.tableResponsiveResizeRaf) {
+                cancelAnimationFrame(state.tableResponsiveResizeRaf);
+                state.tableResponsiveResizeRaf = 0;
+            }
+        } catch (e) {}
+        const modal = modalEl instanceof Element ? modalEl : state.modal;
+        if (!(modal instanceof Element)) return;
+        if (state.viewMode !== 'list' && state.viewMode !== 'calendar') return;
+        const body = modal.querySelector(state.viewMode === 'calendar' ? '.tm-body.tm-body--calendar' : '.tm-body');
+        if (!(body instanceof HTMLElement)) return;
+        let lastWidth = Math.round(Number(body.clientWidth) || 0);
+        state.tableResponsiveLastWidth = lastWidth;
+        if (typeof ResizeObserver !== 'function') return;
+        try {
+            const ro = new ResizeObserver(() => {
+                const nextWidth = Math.round(Number(body.clientWidth) || 0);
+                if (!Number.isFinite(nextWidth) || nextWidth <= 0) return;
+                if (Math.abs(nextWidth - lastWidth) < 2) return;
+                lastWidth = nextWidth;
+                state.tableResponsiveLastWidth = nextWidth;
+                try {
+                    if (state.tableResponsiveResizeRaf) cancelAnimationFrame(state.tableResponsiveResizeRaf);
+                } catch (e) {}
+                state.tableResponsiveResizeRaf = requestAnimationFrame(() => {
+                    state.tableResponsiveResizeRaf = 0;
+                    if (!state.modal || !document.body.contains(state.modal)) return;
+                    if (state.viewMode !== 'list' && state.viewMode !== 'calendar') return;
+                    try { render(); } catch (e) {}
+                });
+            });
+            ro.observe(body);
+            state.tableResponsiveResizeObserver = ro;
+        } catch (e) {
+            state.tableResponsiveResizeObserver = null;
+        }
+    }
+
+    if (!window.__tmFloatingTooltipWindowBound) {
+        window.__tmFloatingTooltipWindowBound = true;
+        window.addEventListener('resize', () => {
+            try { __tmHideFloatingTooltip(); } catch (e) {}
+        }, { passive: true });
+        window.addEventListener('scroll', () => {
+            try { __tmHideFloatingTooltip(); } catch (e) {}
+        }, { passive: true, capture: true });
+    }
+
     const __tmRenderViewSwitcherButtons = (opts = {}) => {
         const activeMode = __tmGetSafeViewMode(state.viewMode || SettingsStore.data.defaultViewMode || 'checklist');
         const buttonStyle = opts.compact ? ' style="line-height:28px; padding:0 10px;"' : '';
@@ -11458,7 +12030,7 @@ async function __tmRefreshAfterWake(reason) {
                 ? ' oncontextmenu="return tmHandleCalendarViewButtonContextMenu(event)"'
                 : '';
             const active = activeMode === view.id;
-            return `<button class="tm-view-seg-item bc-tabs-trigger ${active ? 'tm-view-seg-item--active' : ''}" data-state="${active ? 'active' : 'inactive'}" onclick="tmSwitchViewMode('${view.id}')"${extra} role="tab" aria-selected="${active ? 'true' : 'false'}"${buttonStyle} title="${view.label}" data-tooltip="${view.label}">${view.label}</button>`;
+            return `<button class="tm-view-seg-item bc-tabs-trigger ${active ? 'tm-view-seg-item--active' : ''}" data-state="${active ? 'active' : 'inactive'}" onclick="tmSwitchViewMode('${view.id}')"${extra} role="tab" aria-selected="${active ? 'true' : 'false'}"${buttonStyle}>${view.label}</button>`;
         }).join('');
         return buttons;
     };
@@ -11478,9 +12050,10 @@ async function __tmRefreshAfterWake(reason) {
         if (opts.style) styleParts.push(String(opts.style));
         styleParts.push(`width:${widthPx}px;`);
         const styleAttr = styleParts.length ? ` style="${__tmEscAttr(styleParts.join(' '))}"` : '';
+        const tooltipLabel = String(opts.tooltip || current.label || label || '').trim();
         return `
             <div class="tm-topbar-select ${extraClass}" id="${__tmEscAttr(id)}" data-open="false"${styleAttr}>
-                <button class="bc-select-trigger" type="button" onclick="tmToggleTopbarSelect('${escSq(id)}', event)" aria-haspopup="listbox" aria-expanded="false" title="${__tmEscAttr(label || current.label || '')}">
+                <button class="bc-select-trigger" type="button" onclick="tmToggleTopbarSelect('${escSq(id)}', event)" aria-haspopup="listbox" aria-expanded="false" data-tm-tooltip-label="${__tmEscAttr(tooltipLabel)}" data-tm-tooltip-side="bottom" data-tm-tooltip-align="center">
                     <span class="bc-select-trigger__value">${esc(String(current?.label || ''))}</span>
                     <span class="bc-select-trigger__chevron" aria-hidden="true">
                         <svg viewBox="0 0 16 16" width="14" height="14"><path d="M4 6l4 4 4-4" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>
@@ -11881,6 +12454,13 @@ async function __tmRefreshAfterWake(reason) {
         const rgba = __tmParseCssColorToRgba(hex);
         if (!rgba) return String(hex || '').trim();
         const a = __tmClamp(alpha, 0, 1) * __tmClamp(Number(rgba.a ?? 1), 0, 1);
+        return `rgba(${Math.round(rgba.r)}, ${Math.round(rgba.g)}, ${Math.round(rgba.b)}, ${a})`;
+    }
+
+    function __tmScaleColorAlpha(color, factor) {
+        const rgba = __tmParseCssColorToRgba(color);
+        if (!rgba) return String(color || '').trim();
+        const a = __tmClamp(Number(rgba.a ?? 1) * __tmClamp(Number(factor), 0, 3), 0, 1);
         return `rgba(${Math.round(rgba.r)}, ${Math.round(rgba.g)}, ${Math.round(rgba.b)}, ${a})`;
     }
 
@@ -12888,6 +13468,78 @@ async function __tmRefreshAfterWake(reason) {
         document.body.appendChild(backdrop);
     }
 
+    function __tmNormalizeAppearanceMetric(input, fallback, min, max) {
+        const n = Number(input);
+        if (!Number.isFinite(n)) return fallback;
+        return Math.round(__tmClamp(n, min, max));
+    }
+
+    function __tmGetTopbarControlAppearance(isDark) {
+        const d = SettingsStore.data || {};
+        const topbarText = isDark
+            ? __tmNormalizeHexColor(d.topbarTextColorDark, '#ffffff')
+            : __tmNormalizeHexColor(d.topbarTextColorLight, '#ffffff');
+        const controlTextFallback = topbarText || '#ffffff';
+        const controlBgFallback = __tmWithAlpha('#ffffff', 0.12);
+        const controlHoverFallback = __tmWithAlpha('#000000', 0.12);
+        const segBgFallback = __tmWithAlpha('#ffffff', 0.18);
+        const segActiveFallback = __tmWithAlpha('#000000', 0.26);
+        const shadowColorFallback = isDark ? 'rgba(0, 0, 0, 0.34)' : 'rgba(15, 23, 42, 0.16)';
+        const controlText = __tmNormalizeHexColor(
+            isDark ? d.topbarControlTextDark : d.topbarControlTextLight,
+            controlTextFallback
+        ) || controlTextFallback;
+        const controlBg = __tmNormalizeHexColor(
+            isDark ? d.topbarControlBgDark : d.topbarControlBgLight,
+            controlBgFallback
+        ) || controlBgFallback;
+        const controlBorder = __tmNormalizeHexColor(
+            isDark ? d.topbarControlBorderDark : d.topbarControlBorderLight,
+            __tmWithAlpha(controlText || controlTextFallback, 0.34)
+        ) || __tmWithAlpha(controlText || controlTextFallback, 0.34);
+        const controlHover = __tmNormalizeHexColor(
+            isDark ? d.topbarControlHoverDark : d.topbarControlHoverLight,
+            controlHoverFallback
+        ) || controlHoverFallback;
+        const segBg = __tmNormalizeHexColor(
+            isDark ? d.topbarControlSegmentBgDark : d.topbarControlSegmentBgLight,
+            segBgFallback
+        ) || segBgFallback;
+        const segActive = __tmNormalizeHexColor(
+            isDark ? d.topbarControlSegmentActiveBgDark : d.topbarControlSegmentActiveBgLight,
+            segActiveFallback
+        ) || segActiveFallback;
+        const shadowColor = __tmNormalizeHexColor(
+            isDark ? d.topbarControlShadowColorDark : d.topbarControlShadowColorLight,
+            shadowColorFallback
+        ) || shadowColorFallback;
+        const radiusPx = __tmNormalizeAppearanceMetric(d.topbarControlRadiusPx, 10, 0, 24);
+        const borderWidthPx = __tmNormalizeAppearanceMetric(d.topbarControlBorderWidthPx, 1, 0, 4);
+        const shadowYOffsetPx = __tmNormalizeAppearanceMetric(d.topbarControlShadowYOffsetPx, 0, 0, 24);
+        const shadowBlurPx = __tmNormalizeAppearanceMetric(d.topbarControlShadowBlurPx, 0, 0, 48);
+        const shadowStrengthPct = __tmNormalizeAppearanceMetric(d.topbarControlShadowStrengthPct, 100, 0, 200);
+        const shadowTint = __tmScaleColorAlpha(shadowColor, shadowStrengthPct / 100);
+        const shadow = (shadowYOffsetPx > 0 || shadowBlurPx > 0)
+            ? `0 ${shadowYOffsetPx}px ${shadowBlurPx}px ${shadowTint}`
+            : 'none';
+        return {
+            topbarText,
+            controlText,
+            controlBg,
+            controlBorder,
+            controlHover,
+            segBg,
+            segActive,
+            shadowColor,
+            radiusPx,
+            borderWidthPx,
+            shadowYOffsetPx,
+            shadowBlurPx,
+            shadowStrengthPct,
+            shadow,
+        };
+    }
+
     function __tmApplyAppearanceThemeVars() {
         const isDark = __tmIsDarkMode();
         const root = document.documentElement;
@@ -12898,9 +13550,8 @@ async function __tmRefreshAfterWake(reason) {
         const end = isDark
             ? __tmNormalizeHexColor(SettingsStore.data.topbarGradientDarkEnd, '#5b2d7a')
             : __tmNormalizeHexColor(SettingsStore.data.topbarGradientLightEnd, '#764ba2');
-        const topbarText = isDark
-            ? __tmNormalizeHexColor(SettingsStore.data.topbarTextColorDark, '#ffffff')
-            : __tmNormalizeHexColor(SettingsStore.data.topbarTextColorLight, '#ffffff');
+        const topbarAppearance = __tmGetTopbarControlAppearance(isDark);
+        const topbarText = topbarAppearance.topbarText;
         const taskColor = isDark
             ? __tmNormalizeHexColor(SettingsStore.data.taskContentColorDark, '#e0e0e0')
             : __tmNormalizeHexColor(SettingsStore.data.taskContentColorLight, '#333333');
@@ -12919,22 +13570,21 @@ async function __tmRefreshAfterWake(reason) {
         const tableBorder = isDark
             ? __tmNormalizeHexColor(SettingsStore.data.tableBorderColorDark, '#333333')
             : __tmNormalizeHexColor(SettingsStore.data.tableBorderColorLight, '#e9ecef');
-        const lightInk = topbarText || '#ffffff';
-        const controlText = lightInk;
-        const controlBg = __tmWithAlpha('#ffffff', 0.12);
-        const controlBorder = __tmWithAlpha(topbarText, 0.34);
-        const controlHover = __tmWithAlpha('#000000', 0.12);
-        const segBg = __tmWithAlpha('#ffffff', 0.18);
-        const segBorder = __tmWithAlpha(topbarText, 0.26);
-        const segText = __tmWithAlpha(topbarText, 0.86);
-        const segSep = __tmWithAlpha(topbarText, 0.22);
-        const segHover = __tmWithAlpha('#000000', 0.12);
-        const segActive = __tmWithAlpha('#000000', 0.26);
-        const segActiveHover = __tmWithAlpha('#000000', 0.32);
+        const controlText = topbarAppearance.controlText;
+        const controlBg = topbarAppearance.controlBg;
+        const controlBorder = topbarAppearance.controlBorder;
+        const controlHover = topbarAppearance.controlHover;
+        const segBg = topbarAppearance.segBg;
+        const segBorder = __tmWithAlpha(controlText || topbarText || '#ffffff', 0.26);
+        const segText = __tmWithAlpha(controlText || topbarText || '#ffffff', 0.86);
+        const segSep = __tmWithAlpha(controlText || topbarText || '#ffffff', 0.22);
+        const segHover = controlHover;
+        const segActive = topbarAppearance.segActive;
+        const segActiveHover = topbarAppearance.segActive;
         const searchBg = __tmWithAlpha('#ffffff', 0.9);
         const searchText = '#333333';
-        const searchBorder = __tmWithAlpha(topbarText, 0.3);
-        const thumb = __tmWithAlpha('#ffffff', 0.25);
+        const searchBorder = __tmWithAlpha(controlText || topbarText || '#ffffff', 0.3);
+        const thumb = __tmWithAlpha(controlText || topbarText || '#ffffff', 0.25);
 
         try { if (start) root.style.setProperty('--tm-topbar-grad-start', start); } catch (e) {}
         try { if (end) root.style.setProperty('--tm-topbar-grad-end', end); } catch (e) {}
@@ -12943,6 +13593,9 @@ async function __tmRefreshAfterWake(reason) {
         try { root.style.setProperty('--tm-topbar-control-text', controlText); } catch (e) {}
         try { root.style.setProperty('--tm-topbar-control-border', controlBorder); } catch (e) {}
         try { root.style.setProperty('--tm-topbar-control-hover', controlHover); } catch (e) {}
+        try { root.style.setProperty('--tm-topbar-control-radius', `${topbarAppearance.radiusPx}px`); } catch (e) {}
+        try { root.style.setProperty('--tm-topbar-control-border-width', `${topbarAppearance.borderWidthPx}px`); } catch (e) {}
+        try { root.style.setProperty('--tm-topbar-control-shadow', topbarAppearance.shadow); } catch (e) {}
         try { root.style.setProperty('--tm-topbar-seg-bg', segBg); } catch (e) {}
         try { root.style.setProperty('--tm-topbar-seg-border', segBorder); } catch (e) {}
         try { root.style.setProperty('--tm-topbar-seg-item-text', segText); } catch (e) {}
@@ -17976,6 +18629,46 @@ async function __tmRefreshAfterWake(reason) {
         render();
     };
 
+    function __tmLucideIconSvg(iconName) {
+        const body = (() => {
+            switch (String(iconName || '').trim()) {
+                case 'clipboard-list': return '<rect x="9" y="3" width="6" height="4" rx="1"></rect><path d="M9 5H7a2 2 0 0 0-2 2v11a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V7a2 2 0 0 0-2-2h-2"></path><path d="M9 12h6"></path><path d="M9 16h6"></path>';
+                case 'calendar-days': return '<path d="M8 2v4"></path><path d="M16 2v4"></path><rect x="3" y="4" width="18" height="18" rx="2"></rect><path d="M3 10h18"></path><path d="M8 14h.01"></path><path d="M12 14h.01"></path><path d="M16 14h.01"></path><path d="M8 18h.01"></path><path d="M12 18h.01"></path><path d="M16 18h.01"></path>';
+                case 'refresh-cw': return '<path d="M21 12a9 9 0 0 0-15.5-6.4L3 8"></path><path d="M3 3v5h5"></path><path d="M3 12a9 9 0 0 0 15.5 6.4L21 16"></path><path d="M16 16h5v5"></path>';
+                case 'map': return '<polygon points="3 6 9 3 15 6 21 3 21 18 15 21 9 18 3 21"></polygon><line x1="9" y1="3" x2="9" y2="18"></line><line x1="15" y1="6" x2="15" y2="21"></line>';
+                case 'bot': return '<rect x="3" y="11" width="18" height="10" rx="2"></rect><circle cx="12" cy="5" r="2"></circle><path d="M12 7v4"></path><line x1="8" y1="16" x2="8" y2="16"></line><line x1="16" y1="16" x2="16" y2="16"></line>';
+                case 'settings': return '<path d="M12 15.5a3.5 3.5 0 1 0 0-7 3.5 3.5 0 0 0 0 7Z"></path><path d="M19.4 15a1.7 1.7 0 0 0 .34 1.87l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.7 1.7 0 0 0-1.87-.34 1.7 1.7 0 0 0-1 1.55V21a2 2 0 1 1-4 0v-.09a1.7 1.7 0 0 0-1-1.55 1.7 1.7 0 0 0-1.87.34l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06A1.7 1.7 0 0 0 4.6 15a1.7 1.7 0 0 0-1.55-1H3a2 2 0 1 1 0-4h.09a1.7 1.7 0 0 0 1.55-1 1.7 1.7 0 0 0-.34-1.87l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06A1.7 1.7 0 0 0 9 4.6a1.7 1.7 0 0 0 1-1.55V3a2 2 0 1 1 4 0v.09a1.7 1.7 0 0 0 1 1.55 1.7 1.7 0 0 0 1.87-.34l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06A1.7 1.7 0 0 0 19.4 9c.65.26 1.35.41 2.05.41H21a2 2 0 1 1 0 4h-.09c-.7 0-1.4.15-2.05.59Z"></path>';
+                case 'menu': return '<line x1="4" y1="6" x2="20" y2="6"></line><line x1="4" y1="12" x2="20" y2="12"></line><line x1="4" y1="18" x2="20" y2="18"></line>';
+                case 'x': return '<path d="M18 6 6 18"></path><path d="m6 6 12 12"></path>';
+                case 'search': return '<circle cx="11" cy="11" r="8"></circle><path d="m21 21-4.3-4.3"></path>';
+                case 'puzzle': return '<path d="M19.43 12.98V17a2 2 0 0 1-2 2h-4.02a2 2 0 0 1-3.84 0H5.55a2 2 0 0 1-2-2v-4.02a2 2 0 0 1 0-3.84V5.12a2 2 0 0 1 2-2h4.02a2 2 0 0 1 3.84 0h4.02a2 2 0 0 1 2 2v4.02a2 2 0 0 1 0 3.84Z"></path>';
+                case 'pin': return '<path d="M12 17v5"></path><path d="M7 3h10l-2 6 3 3H6l3-3Z"></path>';
+                case 'file-text': return '<path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8Z"></path><path d="M14 2v6h6"></path><path d="M16 13H8"></path><path d="M16 17H8"></path><path d="M10 9H8"></path>';
+                case 'chart-column': return '<path d="M3 3v18h18"></path><rect x="7" y="13" width="3" height="5"></rect><rect x="12" y="9" width="3" height="9"></rect><rect x="17" y="6" width="3" height="12"></rect>';
+                case 'alarm-clock': return '<circle cx="12" cy="13" r="8"></circle><path d="M12 9v4l2.5 2"></path><path d="M5 3 2 6"></path><path d="m22 6-3-3"></path>';
+                case 'flag': return '<path d="M4 4h11l-1.5 3L15 10H4z"></path><path d="M4 22V4"></path>';
+                case 'brush-cleaning': return '<path d="m16 22-1-4"></path><path d="M19 8c.2 2-1 3.5-2.5 4.5"></path><path d="m15 2 7 7-4 4-7-7Z"></path><path d="M2 14c4 0 5.5 2 6 4 .5 2 2 4 6 4"></path>';
+                case 'undo-2': return '<path d="M9 14 4 9l5-5"></path><path d="M20 20a8 8 0 0 0-8-8H4"></path>';
+                case 'check-circle-2': return '<circle cx="12" cy="12" r="10"></circle><path d="m9 12 2 2 4-4"></path>';
+                case 'x-circle': return '<circle cx="12" cy="12" r="10"></circle><path d="m15 9-6 6"></path><path d="m9 9 6 6"></path>';
+                case 'triangle-alert': return '<path d="m10.29 3.86-8.53 14.8A2 2 0 0 0 3.48 22h17.04a2 2 0 0 0 1.72-3.01l-8.53-14.8a2 2 0 0 0-3.42 0Z"></path><path d="M12 9v4"></path><path d="M12 17h.01"></path>';
+                case 'timer': return '<circle cx="12" cy="13" r="8"></circle><path d="M12 13V9"></path><path d="M9 2h6"></path><path d="M12 2v3"></path>';
+                case 'tag': return '<path d="M20 13 11 22l-9-9V4h9Z"></path><path d="M7 7h.01"></path>';
+                case 'square-pen': return '<path d="M3 3h14v14H3z"></path><path d="m14 14 6-6"></path><path d="m16 6 2 2"></path>';
+                case 'panel-left': return '<rect x="3" y="3" width="18" height="18" rx="2"></rect><path d="M9 3v18"></path>';
+                case 'map-pin': return '<path d="M20 10c0 4.42-8 12-8 12s-8-7.58-8-12a8 8 0 1 1 16 0Z"></path><circle cx="12" cy="10" r="3"></circle>';
+                case 'circle-dot': return '<circle cx="12" cy="12" r="10"></circle><circle cx="12" cy="12" r="2"></circle>';
+                default: return '<circle cx="12" cy="12" r="9"></circle>';
+            }
+        })();
+        return `<svg class="tm-lucide-emoji__svg" viewBox="0 0 24 24" width="14" height="14" aria-hidden="true"><g fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">${body}</g></svg>`;
+    }
+
+    function __tmRenderLucideIcon(iconName, extraClass = '') {
+        const cls = `tm-lucide-emoji${extraClass ? ` ${extraClass}` : ''}`;
+        return `<span class="${cls}" data-tm-lucide="${iconName}">${__tmLucideIconSvg(iconName)}</span>`;
+    }
+
     window.tmHandleManagerTitleClick = function(ev) {
         try { ev?.stopPropagation?.(); } catch (e) {}
         try { ev?.preventDefault?.(); } catch (e) {}
@@ -18164,6 +18857,24 @@ async function __tmRefreshAfterWake(reason) {
         const bodyAnimClass = (Date.now() - (Number(state.uiAnimTs) || 0) < 300)
             ? (kind === 'from-right' ? ' tm-body-anim--from-right' : kind === 'from-left' ? ' tm-body-anim--from-left' : ' tm-body-anim')
             : '';
+        const tableAvailableWidth = (() => {
+            const values = [];
+            try {
+                const prevBody = prevModalSnapshot?.querySelector?.('.tm-body:not(.tm-body--timeline)');
+                if (prevBody) values.push(Number(prevBody.clientWidth) || 0);
+            } catch (e) {}
+            try {
+                if (nextMountRoot instanceof Element && nextMountRoot !== document.body && nextMountRoot !== document.documentElement) {
+                    values.push(Number(nextMountRoot.clientWidth) || 0);
+                }
+            } catch (e) {}
+            try {
+                const vw = Number(window.innerWidth || document.documentElement?.clientWidth || 0);
+                if (vw > 0) values.push(Math.max(0, vw - (isMobile ? 24 : 48)));
+            } catch (e) {}
+            return values.find((n) => Number.isFinite(n) && n > 0) || 0;
+        })();
+        state.tableAvailableWidth = tableAvailableWidth;
         
         state.modal = document.createElement('div');
         state.modal.className = 'tm-modal'
@@ -18253,30 +18964,35 @@ async function __tmRefreshAfterWake(reason) {
 
         const __tmRenderListBodyHtml = () => `
                 <div class="tm-body${bodyAnimClass}">
-                    <table class="tm-table" id="tmTaskTable">
+                    <table class="tm-table" id="tmTaskTable" style="${(() => {
+                        const colOrder = SettingsStore.data.columnOrder || ['pinned', 'content', 'status', 'score', 'doc', 'h2', 'priority', 'startDate', 'completionTime', 'duration', 'spent', 'remark'];
+                        const widths = SettingsStore.data.columnWidths || {};
+                        return __tmGetTableWidthLayout(colOrder, widths, tableAvailableWidth).tableStyle;
+                    })()}">
                         <thead>
                             <tr>
                                 ${(() => {
                                     const colOrder = SettingsStore.data.columnOrder || ['pinned', 'content', 'status', 'score', 'doc', 'h2', 'priority', 'startDate', 'completionTime', 'duration', 'spent', 'remark'];
                                     const widths = SettingsStore.data.columnWidths || {};
+                                    const tableLayout = __tmGetTableWidthLayout(colOrder, widths, tableAvailableWidth);
                                     const headers = {
-                                        pinned: `<th data-col="pinned" style="width: ${widths.pinned || 48}px; min-width: ${widths.pinned || 48}px; max-width: ${widths.pinned || 48}px; text-align: center; white-space: nowrap; overflow: hidden;">📌<span class="tm-col-resize" onmousedown="startColResize(event, 'pinned')"></span></th>`,
-                                        content: `<th data-col="content" style="width: ${widths.content || 360}px; min-width: ${widths.content || 360}px; max-width: ${widths.content || 360}px; white-space: nowrap; overflow: hidden;">任务内容<span class="tm-col-resize" onmousedown="startColResize(event, 'content')"></span></th>`,
-                                        score: `<th data-col="score" style="width: ${widths.score || 96}px; min-width: ${widths.score || 96}px; max-width: ${widths.score || 96}px; text-align: center; white-space: nowrap; overflow: hidden;">优先级<span class="tm-col-resize" onmousedown="startColResize(event, 'score')"></span></th>`,
-                                        doc: `<th data-col="doc" style="width: ${widths.doc || 180}px; min-width: ${widths.doc || 180}px; max-width: ${widths.doc || 180}px; white-space: nowrap; overflow: hidden;">文档<span class="tm-col-resize" onmousedown="startColResize(event, 'doc')"></span></th>`,
+                                        pinned: `<th data-col="pinned" style="${tableLayout.cellStyle('pinned', 'text-align: center; white-space: nowrap; overflow: hidden;')}">📌<span class="tm-col-resize" onmousedown="startColResize(event, 'pinned')"></span></th>`,
+                                        content: `<th data-col="content" style="${tableLayout.cellStyle('content', 'white-space: nowrap; overflow: hidden;')}">任务内容<span class="tm-col-resize" onmousedown="startColResize(event, 'content')"></span></th>`,
+                                        score: `<th data-col="score" style="${tableLayout.cellStyle('score', 'text-align: center; white-space: nowrap; overflow: hidden;')}">优先级<span class="tm-col-resize" onmousedown="startColResize(event, 'score')"></span></th>`,
+                                        doc: `<th data-col="doc" style="${tableLayout.cellStyle('doc', 'white-space: nowrap; overflow: hidden;')}">文档<span class="tm-col-resize" onmousedown="startColResize(event, 'doc')"></span></th>`,
                                         h2: (() => {
                                             const level = SettingsStore.data.taskHeadingLevel || 'h2';
                                             const labels = { h1: '一级标题', h2: '二级标题', h3: '三级标题', h4: '四级标题', h5: '五级标题', h6: '六级标题' };
                                             const label = labels[level] || '标题';
-                                            return `<th data-col="h2" style="width: ${widths.h2 || 180}px; min-width: ${widths.h2 || 180}px; max-width: ${widths.h2 || 180}px; white-space: nowrap; overflow: hidden;">${label}<span class="tm-col-resize" onmousedown="startColResize(event, 'h2')"></span></th>`;
+                                            return `<th data-col="h2" style="${tableLayout.cellStyle('h2', 'white-space: nowrap; overflow: hidden;')}">${label}<span class="tm-col-resize" onmousedown="startColResize(event, 'h2')"></span></th>`;
                                         })(),
-                                        priority: `<th data-col="priority" style="width: ${widths.priority || 96}px; min-width: ${widths.priority || 96}px; max-width: ${widths.priority || 96}px; text-align: center; white-space: nowrap; overflow: hidden;">重要性<span class="tm-col-resize" onmousedown="startColResize(event, 'priority')"></span></th>`,
-                                        startDate: `<th data-col="startDate" style="width: ${widths.startDate || 90}px; min-width: ${widths.startDate || 90}px; max-width: ${widths.startDate || 90}px; white-space: nowrap; overflow: hidden;">开始日期<span class="tm-col-resize" onmousedown="startColResize(event, 'startDate')"></span></th>`,
-                                        completionTime: `<th data-col="completionTime" style="width: ${widths.completionTime || 170}px; min-width: ${widths.completionTime || 170}px; max-width: ${widths.completionTime || 170}px; white-space: nowrap; overflow: hidden;">完成日期<span class="tm-col-resize" onmousedown="startColResize(event, 'completionTime')"></span></th>`,
-                                        duration: `<th data-col="duration" style="width: ${widths.duration || 96}px; min-width: ${widths.duration || 96}px; max-width: ${widths.duration || 96}px; white-space: nowrap; overflow: hidden;">时长<span class="tm-col-resize" onmousedown="startColResize(event, 'duration')"></span></th>`,
-                                        spent: `<th data-col="spent" style="width: ${widths.spent || 96}px; min-width: ${widths.spent || 96}px; max-width: ${widths.spent || 96}px; white-space: nowrap; overflow: hidden;">耗时<span class="tm-col-resize" onmousedown="startColResize(event, 'spent')"></span></th>`,
-                                        remark: `<th data-col="remark" style="width: ${widths.remark || 240}px; min-width: ${widths.remark || 240}px; max-width: ${widths.remark || 240}px; white-space: nowrap; overflow: hidden;">备注<span class="tm-col-resize" onmousedown="startColResize(event, 'remark')"></span></th>`,
-                                        status: `<th data-col="status" style="width: ${widths.status || 96}px; min-width: ${widths.status || 96}px; max-width: ${widths.status || 96}px; text-align: center; white-space: nowrap; overflow: hidden;">状态<span class="tm-col-resize" onmousedown="startColResize(event, 'status')"></span></th>`
+                                        priority: `<th data-col="priority" style="${tableLayout.cellStyle('priority', 'text-align: center; white-space: nowrap; overflow: hidden;')}">重要性<span class="tm-col-resize" onmousedown="startColResize(event, 'priority')"></span></th>`,
+                                        startDate: `<th data-col="startDate" style="${tableLayout.cellStyle('startDate', 'white-space: nowrap; overflow: hidden;')}">开始日期<span class="tm-col-resize" onmousedown="startColResize(event, 'startDate')"></span></th>`,
+                                        completionTime: `<th data-col="completionTime" style="${tableLayout.cellStyle('completionTime', 'white-space: nowrap; overflow: hidden;')}">完成日期<span class="tm-col-resize" onmousedown="startColResize(event, 'completionTime')"></span></th>`,
+                                        duration: `<th data-col="duration" style="${tableLayout.cellStyle('duration', 'white-space: nowrap; overflow: hidden;')}">时长<span class="tm-col-resize" onmousedown="startColResize(event, 'duration')"></span></th>`,
+                                        spent: `<th data-col="spent" style="${tableLayout.cellStyle('spent', 'white-space: nowrap; overflow: hidden;')}">耗时<span class="tm-col-resize" onmousedown="startColResize(event, 'spent')"></span></th>`,
+                                        remark: `<th data-col="remark" style="${tableLayout.cellStyle('remark', 'white-space: nowrap; overflow: hidden;')}">备注<span class="tm-col-resize" onmousedown="startColResize(event, 'remark')"></span></th>`,
+                                        status: `<th data-col="status" style="${tableLayout.cellStyle('status', 'text-align: center; white-space: nowrap; overflow: hidden;')}">状态<span class="tm-col-resize" onmousedown="startColResize(event, 'status')"></span></th>`
                                     };
                                     return colOrder.map(col => headers[col] || '').join('');
                                 })()}
@@ -18866,6 +19582,8 @@ async function __tmRefreshAfterWake(reason) {
             const baseKanbanW0 = Number(SettingsStore.data.kanbanColumnWidth);
             const baseKanbanW = Number.isFinite(baseKanbanW0) ? Math.max(220, Math.min(520, Math.round(baseKanbanW0))) : 320;
             const kanbanColW = isCompact ? Math.max(220, baseKanbanW - 40) : baseKanbanW;
+            const kanbanFillColumns = !!SettingsStore.data.kanbanFillColumns;
+            const kanbanCardFields = new Set(__tmGetTaskCardFieldList('kanban'));
             const showDoneCol = !!SettingsStore.data.kanbanShowDoneColumn;
             const headingMode = SettingsStore.data.kanbanHeadingGroupMode === true;
             const currentGroupId = String(SettingsStore.data.currentGroupId || 'all').trim() || 'all';
@@ -19027,6 +19745,7 @@ async function __tmRefreshAfterWake(reason) {
                 isAllTabsView,
                 isCompact,
                 kanbanColW,
+                kanbanFillColumns,
                 showDoneCol,
                 headingMode,
                 currentGroupId,
@@ -19037,11 +19756,12 @@ async function __tmRefreshAfterWake(reason) {
                 groupByTaskName: !!state.groupByTaskName,
                 groupByTime: !!state.groupByTime,
                 quadrantEnabled: !!state.quadrantEnabled,
+                kanbanCardFields: Array.from(kanbanCardFields).join('|'),
             });
             if (__tmKanbanColsHtmlCache && __tmKanbanColsHtmlCache.key === kanbanColsCacheKey) {
                 return `
                     <div class="tm-body tm-body--kanban${bodyAnimClass}${isCompact ? ' tm-body--kanban-compact' : ''}" ondragover="tmKanbanAutoScroll(event)">
-                        <div class="tm-kanban${isCompact ? ' tm-kanban--compact' : ''}">
+                        <div class="tm-kanban${isCompact ? ' tm-kanban--compact' : ''}${kanbanFillColumns ? ' tm-kanban--fill' : ''}">
                             ${__tmKanbanColsHtmlCache.html}
                         </div>
                     </div>
@@ -19210,7 +19930,7 @@ async function __tmRefreshAfterWake(reason) {
                 tasksByStatus.get(key).push(task);
             });
 
-            const renderCard = (task, depthInCol, isSub, isChildRoot, parentTxt, childrenHtml, toggleHtml, isParent) => {
+                const renderCard = (task, depthInCol, isSub, isChildRoot, parentTxt, childrenHtml, toggleHtml, isParent) => {
                 const id = String(task?.id || '').trim();
                 if (!id) return '';
                 const content = String(task?.content || '').trim();
@@ -19227,6 +19947,11 @@ async function __tmRefreshAfterWake(reason) {
                     : `<span class="tm-status-tag" style="${statusChipStyle}" onclick="tmKanbanOpenStatusSelect('${id}', this, event)">${esc(opt.name || '')}</span>`;
                 const priorityChipStyle = __tmBuildPriorityChipStyle(task?.priority);
                 const priorityChip = `<span class="tm-kanban-priority-chip" style="${priorityChipStyle}" onclick="tmPickPriority('${id}', this, event)">${__tmRenderPriorityJira(task?.priority, false)}</span>`;
+                const metaParts = [];
+                if (kanbanCardFields.has('priority')) metaParts.push(priorityChip);
+                if (kanbanCardFields.has('status')) metaParts.push(statusChip);
+                if (kanbanCardFields.has('date')) metaParts.push(`<span class="tm-kanban-chip tm-kanban-chip--muted" onclick="tmKanbanPickDate('${id}', event)" title="点击选择日期">${esc(dateTxt || '日期')}</span>`);
+                const remarkHtml = kanbanCardFields.has('remark') ? __tmRenderTaskCardRemark(task) : '';
 
                 return `
                     <div class="tm-kanban-card${isSub ? ' tm-kanban-card--sub' : ''}${isChildRoot ? ' tm-kanban-card--childroot' : ''}${isParent ? ' tm-kanban-card--parent' : ''}${task?.done ? ' tm-kanban-card--done' : ''}" data-id="${id}" draggable="true" ondragstart="tmKanbanDragStart(event, '${id}')" ondragend="tmKanbanDragEnd(event, '${id}')" ondblclick="tmKanbanCardDblClick('${id}', event)" oncontextmenu="tmShowTaskContextMenu(event, '${id}')" style="${isSub ? '' : ''}">
@@ -19239,11 +19964,8 @@ async function __tmRefreshAfterWake(reason) {
                             <button class="tm-kanban-more" onclick="tmOpenTaskDetail('${id}', event)">⋯</button>
                         </div>
                         ${parentTxt ? `<div class="tm-kanban-parent-line" style="font-size:12px;color:var(--tm-secondary-text);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;margin-bottom:6px;" title="${esc(parentTxt)}"><span>父任务：</span><span style="font-weight:800;color:var(--tm-text-color);">${esc(parentTxt)}</span></div>` : ''}
-                        <div class="tm-kanban-card-meta">
-                            ${priorityChip}
-                            ${statusChip}
-                            <span class="tm-kanban-chip tm-kanban-chip--muted" onclick="tmKanbanPickDate('${id}', event)" title="点击选择日期">${esc(dateTxt || '日期')}</span>
-                        </div>
+                        ${metaParts.length ? `<div class="tm-kanban-card-meta">${metaParts.join('')}</div>` : ''}
+                        ${remarkHtml}
                         ${(isAllTabsView && docName) ? `<div style="font-size:12px;color:var(--tm-secondary-text);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">📄 ${esc(docName)}</div>` : ''}
                         ${childrenHtml ? `<div class="tm-kanban-subtasks">${childrenHtml}</div>` : ''}
                     </div>
@@ -19831,8 +20553,11 @@ async function __tmRefreshAfterWake(reason) {
                     return `rgba(${Math.round(rgba.r)}, ${Math.round(rgba.g)}, ${Math.round(rgba.b)}, ${a})`;
                 })();
                 const colTitleColor = String(c?.color || '').trim() || 'var(--tm-text-color)';
+                const colStyle = kanbanFillColumns
+                    ? `flex:1 0 ${kanbanColW}px;min-width:${kanbanColW}px;max-width:none;`
+                    : `width:${kanbanColW}px;min-width:${kanbanColW}px;max-width:${kanbanColW}px;`;
                 return `
-                    <div class="tm-kanban-col" ${dataAttrs} style="width:${kanbanColW}px;min-width:${kanbanColW}px;max-width:${kanbanColW}px;">
+                    <div class="tm-kanban-col" ${dataAttrs} style="${colStyle}">
                         <div class="tm-kanban-col-header" style="${colHeaderBg ? `background:${colHeaderBg};` : ''}">
                             <div class="tm-kanban-col-title" style="color:${esc(colTitleColor)};" title="${esc(c.name)}">${esc(title)}</div>
                             <span class="tm-badge tm-badge--count">${count}</span>
@@ -19847,7 +20572,7 @@ async function __tmRefreshAfterWake(reason) {
 
             return `
                 <div class="tm-body tm-body--kanban${bodyAnimClass}${isCompact ? ' tm-body--kanban-compact' : ''}" ondragover="tmKanbanAutoScroll(event)">
-                    <div class="tm-kanban${isCompact ? ' tm-kanban--compact' : ''}">
+                    <div class="tm-kanban${isCompact ? ' tm-kanban--compact' : ''}${kanbanFillColumns ? ' tm-kanban--fill' : ''}">
                         ${colsHtml}
                     </div>
                 </div>
@@ -19868,6 +20593,7 @@ async function __tmRefreshAfterWake(reason) {
             const orderMap = new Map(filtered.map((t, i) => [String(t?.id || '').trim(), i]));
             const getOrder = (taskId) => orderMap.get(String(taskId || '').trim()) ?? 999999;
             const escSq = (s) => String(s || '').replace(/\\/g, '\\\\').replace(/'/g, "\\'");
+            const whiteboardCardFields = new Set(__tmGetTaskCardFieldList('whiteboard'));
             const showDoneTasks = !!SettingsStore.data.whiteboardShowDone;
             const statusOptionsRaw = Array.isArray(SettingsStore.data.customStatusOptions) ? SettingsStore.data.customStatusOptions : [];
             const statusOptions = statusOptionsRaw
@@ -20213,6 +20939,14 @@ async function __tmRefreshAfterWake(reason) {
                         : `<span class="tm-status-tag" style="${statusChipStyle};cursor:${editableMeta ? 'pointer' : 'default'};" ${editableMeta ? `onclick="tmWhiteboardEditStatus('${escSq(tid)}', this, event)"` : ''}>${esc(opt.name || '')}</span>`;
                     const priorityChipStyle = __tmBuildPriorityChipStyle(task?.priority);
                     const priorityChip = `<span class="tm-kanban-priority-chip" style="${priorityChipStyle};cursor:${editableMeta ? 'pointer' : 'default'};" ${editableMeta ? `onclick="tmWhiteboardEditPriority('${escSq(tid)}', this, event)"` : ''}>${__tmRenderPriorityJira(task?.priority, false)}</span>`;
+                    const metaParts = [];
+                    if (whiteboardCardFields.has('priority')) metaParts.push(priorityChip);
+                    if (whiteboardCardFields.has('status')) metaParts.push(statusChip);
+                    if (whiteboardCardFields.has('date')) {
+                        metaParts.push(`<span class="tm-kanban-chip tm-kanban-chip--muted" style="cursor:${editableMeta ? 'pointer' : 'default'};" ${editableMeta ? `onclick="tmWhiteboardEditDate('${escSq(tid)}', event)"` : ''} title="${editableMeta ? '点击选择日期' : ''}">${esc(dateTxt || '日期')}</span>`);
+                    }
+                    if (isGhost) metaParts.push(ghostTip);
+                    const remarkHtml = whiteboardCardFields.has('remark') ? __tmRenderTaskCardRemark(task) : '';
                     return `
                         <div class="${cls}" data-task-id="${esc(tid)}" data-doc-id="${esc(docId)}"${rootStyle}${nodeMouse}${selectClick} oncontextmenu="tmShowTaskContextMenu(event, '${escSq(tid)}')">
                             ${toolsHtml}
@@ -20228,12 +20962,8 @@ async function __tmRefreshAfterWake(reason) {
                                 ${opBtn}
                             </div>
                             ${(detachedOrDetachedLike && parentText) ? `<div style="font-size:12px;color:var(--tm-secondary-text);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;margin-bottom:4px;" title="${esc(parentText)}"><span>父任务：</span><span style="font-weight:800;color:var(--tm-text-color);">${esc(parentText)}</span></div>` : ''}
-                            <div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap;">
-                                ${priorityChip}
-                                ${statusChip}
-                                <span class="tm-kanban-chip tm-kanban-chip--muted" style="cursor:${editableMeta ? 'pointer' : 'default'};" ${editableMeta ? `onclick="tmWhiteboardEditDate('${escSq(tid)}', event)"` : ''} title="${editableMeta ? '点击选择日期' : ''}">${esc(dateTxt || '日期')}</span>
-                                ${ghostTip}
-                            </div>
+                            ${metaParts.length ? `<div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap;">${metaParts.join('')}</div>` : ''}
+                            ${remarkHtml}
                             ${childrenHtml}
                         </div>
                     `;
@@ -20611,6 +21341,9 @@ async function __tmRefreshAfterWake(reason) {
         const showAiSideDock = __tmShouldShowAiSidebar() && !!state.aiSidebarOpen && !isMobile;
         const calendarSideDockWidth = Math.max(260, Math.min(760, Math.round(Number(SettingsStore.data.calendarSideDockWidth) || 340)));
         const aiSideDockWidth = Math.max(320, Math.min(720, Math.round(Number(state.aiSidebarWidth) || 380)));
+        const useCompactTopbar = !isMobile || isDockHost;
+        const topbarPadding = useCompactTopbar ? '5px 10px' : '10px 10px';
+        const topbarHeightStyle = useCompactTopbar ? 'min-height:42px;max-height:42px;height:42px;' : '';
         const bodyWithSideDockHtml = (showCalendarSideDock || showAiSideDock)
             ? `
                 <div class="tm-main-body-with-cal-dock">
@@ -20633,21 +21366,21 @@ async function __tmRefreshAfterWake(reason) {
 
         state.modal.innerHTML = `
             <div class="tm-box${showCalendarSideDock || showAiSideDock ? ' tm-box--with-cal-dock' : ''}">
-                <div class="tm-filter-rule-bar" style="padding: 10px 10px;">
+                <div class="tm-filter-rule-bar" style="padding: ${topbarPadding};${topbarHeightStyle}">
                     <div class="tm-topbar-row" style="display:flex;align-items:center;gap:10px;flex-wrap:nowrap;justify-content:space-between;min-width:0;">
                         <div class="tm-topbar-row" style="display:flex;align-items:center;gap:10px;">
                             <div class="tm-title" style="font-size: 16px; font-weight: 700; white-space: nowrap; display:inline-flex; align-items:center; gap:4px;">
-                                <span onclick="tmHandleManagerIconClick(event)" style="cursor:${isMobile ? 'default' : 'pointer'};">📋</span>
+                                <span onclick="tmHandleManagerIconClick(event)" style="cursor:${isMobile ? 'default' : 'pointer'};display:inline-flex;align-items:center;justify-content:center;width:18px;height:18px;line-height:0;">${__tmRenderLucideIcon('clipboard-list')}</span>
                                 <span onclick="tmHandleManagerTitleClick(event)" style="cursor:pointer;">任务管理器</span>
                             </div>
-                            <button class="tm-btn tm-btn-success bc-btn bc-btn--sm bc-btn--primary" onclick="tmAdd()" style="padding: 0; width: 30px; height: 30px; min-width: 30px; min-height: 30px; display: inline-flex; align-items: center; justify-content: center;" title="新建任务" data-tooltip="新建任务">+</button>
-                            ${isMobile ? `<button class="tm-btn tm-btn-info bc-btn bc-btn--sm" onclick="tmRefresh()" style="padding: 0 10px; height: 30px; display: inline-flex; align-items: center; justify-content: center;" title="刷新" data-tooltip="刷新">🔄️</button>` : ''}
-                            ${isMobile && state.viewMode === 'calendar' ? `<button class="tm-btn tm-btn-info bc-btn bc-btn--sm" onclick="tmCalendarToggleSidebar()" style="padding: 0 10px; height: 30px; display: inline-flex; align-items: center; justify-content: center;" title="侧边栏" data-tooltip="日历侧边栏">📅</button>` : ''}
+                            <button class="tm-btn tm-btn-success bc-btn bc-btn--sm bc-btn--primary" onclick="tmAdd()" aria-label="新建任务" data-tm-floating-tooltip-label="新建任务" data-tm-tooltip-side="bottom" data-tm-tooltip-align="center" style="padding: 0; width: 30px; height: 30px; min-width: 30px; min-height: 30px; display: inline-flex; align-items: center; justify-content: center;">+</button>
+                            ${isMobile ? `<button class="tm-btn tm-btn-info bc-btn bc-btn--sm" onclick="tmRefresh()" style="padding: 0 10px; height: 30px; display: inline-flex; align-items: center; justify-content: center;"${__tmBuildTooltipAttrs('刷新', { side: 'bottom' })}>${__tmRenderLucideIcon('refresh-cw')}</button>` : ''}
+                            ${isMobile && state.viewMode === 'calendar' ? `<button class="tm-btn tm-btn-info bc-btn bc-btn--sm" onclick="tmCalendarToggleSidebar()" style="padding: 0 10px; height: 30px; display: inline-flex; align-items: center; justify-content: center;"${__tmBuildTooltipAttrs('日历侧边栏', { side: 'bottom' })}>${__tmRenderLucideIcon('calendar-days')}</button>` : ''}
                             ${(state.viewMode === 'timeline' && ((isMobile && isLandscape) || isDesktopNarrow)) ? `
-                                <button class="tm-btn tm-btn-info bc-btn bc-btn--sm" onclick="tmGanttZoomOut()" style="padding: 0 8px; height: 30px; display: inline-flex; align-items: center; justify-content: center;" title="缩小" data-tooltip="缩小">－</button>
-                                <button class="tm-btn tm-btn-info bc-btn bc-btn--sm" onclick="tmGanttZoomIn()" style="padding: 0 8px; height: 30px; display: inline-flex; align-items: center; justify-content: center;" title="放大" data-tooltip="放大">＋</button>
-                                <button class="tm-btn tm-btn-info bc-btn bc-btn--sm" onclick="tmGanttFit()" style="padding: 0 8px; height: 30px; display: inline-flex; align-items: center; justify-content: center;" title="适配范围" data-tooltip="适配范围">🗺️</button>
-                                <button class="tm-btn tm-btn-info bc-btn bc-btn--sm" onclick="tmGanttToday()" style="padding: 0 8px; height: 30px; display: inline-flex; align-items: center; justify-content: center;" title="定位今天" data-tooltip="定位今天">📅</button>
+                                <button class="tm-btn tm-btn-info bc-btn bc-btn--sm" onclick="tmGanttZoomOut()" style="padding: 0 8px; height: 30px; display: inline-flex; align-items: center; justify-content: center;"${__tmBuildTooltipAttrs('缩小', { side: 'bottom' })}>－</button>
+                                <button class="tm-btn tm-btn-info bc-btn bc-btn--sm" onclick="tmGanttZoomIn()" style="padding: 0 8px; height: 30px; display: inline-flex; align-items: center; justify-content: center;"${__tmBuildTooltipAttrs('放大', { side: 'bottom' })}>＋</button>
+                                <button class="tm-btn tm-btn-info bc-btn bc-btn--sm" onclick="tmGanttFit()" style="padding: 0 8px; height: 30px; display: inline-flex; align-items: center; justify-content: center;"${__tmBuildTooltipAttrs('适配范围', { side: 'bottom' })}>${__tmRenderLucideIcon('map')}</button>
+                                <button class="tm-btn tm-btn-info bc-btn bc-btn--sm" onclick="tmGanttToday()" style="padding: 0 8px; height: 30px; display: inline-flex; align-items: center; justify-content: center;"${__tmBuildTooltipAttrs('定位今天', { side: 'bottom' })}>${__tmRenderLucideIcon('calendar-days')}</button>
                             ` : ''}
                         </div>
 
@@ -20675,38 +21408,38 @@ async function __tmRefreshAfterWake(reason) {
                         <!-- 移动端菜单按钮 -->
                             <div class="tm-mobile-menu-btn" style="display:${isMobile ? 'flex' : 'none'};margin-left:auto;">
                             <div style="display:flex;align-items:center;gap:10px;">
-                                <button class="tm-btn tm-btn-info bc-btn bc-btn--sm" onclick="tmToggleMobileMenu(event)" ontouchend="tmToggleMobileMenu(event)" style="padding: 0 10px; height: 30px; display: inline-flex; align-items: center; justify-content: center;" title="菜单" data-tooltip="菜单">
-                                    <span style="font-size: 16px; transform: translateY(1px); line-height: 1;">☰</span>
+                                <button class="tm-btn tm-btn-info bc-btn bc-btn--sm" onclick="tmToggleMobileMenu(event)" ontouchend="tmToggleMobileMenu(event)" style="padding: 0 10px; height: 30px; display: inline-flex; align-items: center; justify-content: center;"${__tmBuildTooltipAttrs('菜单', { side: 'bottom' })}>
+                                    ${__tmRenderLucideIcon('menu')}
                                     <span style="margin-left: 4px;">菜单</span>
                                 </button>
-                                ${isMobile && !isDockHost ? `<button class="tm-btn tm-btn-gray bc-btn bc-btn--sm bc-btn--ghost" onclick="tmClose(event)" ontouchend="tmClose(event)" style="padding: 0 10px; height: 30px; display: inline-flex; align-items: center; justify-content: center;" title="关闭" data-tooltip="关闭"><span style="transform: translateY(1px); line-height: 1;">✖</span></button>` : ''}
+                                ${isMobile && !isDockHost ? `<button class="tm-btn tm-btn-gray bc-btn bc-btn--sm bc-btn--ghost" onclick="tmClose(event)" ontouchend="tmClose(event)" style="padding: 0 10px; height: 30px; display: inline-flex; align-items: center; justify-content: center;"${__tmBuildTooltipAttrs('关闭', { side: 'bottom' })}>${__tmRenderLucideIcon('x')}</button>` : ''}
                             </div>
                         </div>
                     </div>
                     
                     <!-- 桌面端搜索栏 -->
                     <div class="tm-search-box tm-desktop-toolbar" style="display:${isMobile ? 'none' : 'flex'}; flex-wrap: nowrap;">
-                        <div class="tm-view-segmented bc-tabs-list" role="tablist" aria-label="视图">
-                            ${__tmRenderViewSwitcherButtons()}
-                        </div>
                         ${state.viewMode === 'kanban' ? `
                             <div class="tm-view-segmented tm-kanban-mode-segmented bc-tabs-list" role="tablist" aria-label="看板模式">
-                                <button class="tm-view-seg-item bc-tabs-trigger ${!SettingsStore.data.kanbanHeadingGroupMode ? 'tm-view-seg-item--active' : ''}" data-state="${!SettingsStore.data.kanbanHeadingGroupMode ? 'active' : 'inactive'}" onclick="tmSetKanbanHeadingGroupMode('status', event)" role="tab" aria-selected="${!SettingsStore.data.kanbanHeadingGroupMode ? 'true' : 'false'}" title="状态看板" data-tooltip="状态看板">状态</button>
-                                <button class="tm-view-seg-item bc-tabs-trigger ${SettingsStore.data.kanbanHeadingGroupMode ? 'tm-view-seg-item--active' : ''}" data-state="${SettingsStore.data.kanbanHeadingGroupMode ? 'active' : 'inactive'}" onclick="tmSetKanbanHeadingGroupMode('heading', event)" role="tab" aria-selected="${SettingsStore.data.kanbanHeadingGroupMode ? 'true' : 'false'}" title="标题看板" data-tooltip="标题看板">标题</button>
+                                <button class="tm-view-seg-item bc-tabs-trigger ${!SettingsStore.data.kanbanHeadingGroupMode ? 'tm-view-seg-item--active' : ''}" data-state="${!SettingsStore.data.kanbanHeadingGroupMode ? 'active' : 'inactive'}" onclick="tmSetKanbanHeadingGroupMode('status', event)" role="tab" aria-selected="${!SettingsStore.data.kanbanHeadingGroupMode ? 'true' : 'false'}"${__tmBuildTooltipAttrs('状态看板', { side: 'bottom', ariaLabel: false })}>状态</button>
+                                <button class="tm-view-seg-item bc-tabs-trigger ${SettingsStore.data.kanbanHeadingGroupMode ? 'tm-view-seg-item--active' : ''}" data-state="${SettingsStore.data.kanbanHeadingGroupMode ? 'active' : 'inactive'}" onclick="tmSetKanbanHeadingGroupMode('heading', event)" role="tab" aria-selected="${SettingsStore.data.kanbanHeadingGroupMode ? 'true' : 'false'}"${__tmBuildTooltipAttrs('标题看板', { side: 'bottom', ariaLabel: false })}>标题</button>
                             </div>
                         ` : ''}
                         ${state.viewMode === 'timeline' ? `
-                            <button class="tm-btn tm-btn-info bc-btn bc-btn--sm" onclick="tmGanttZoomOut()" style="padding: 4px 10px;" title="缩小" data-tooltip="缩小">－</button>
-                            <button class="tm-btn tm-btn-info bc-btn bc-btn--sm" onclick="tmGanttZoomIn()" style="padding: 4px 10px;" title="放大" data-tooltip="放大">＋</button>
-                            <button class="tm-btn tm-btn-info bc-btn bc-btn--sm" onclick="tmGanttFit()" style="padding: 4px 10px;" title="适配范围" data-tooltip="适配范围">🗺️</button>
-                            <button class="tm-btn tm-btn-info bc-btn bc-btn--sm" onclick="tmGanttToday()" style="padding: 4px 10px;" title="定位今天" data-tooltip="定位今天">📅</button>
+                            <button class="tm-btn tm-btn-info bc-btn bc-btn--sm" onclick="tmGanttZoomOut()" style="padding: 0; width: 30px; min-width: 30px; height: 30px; display: inline-flex; align-items: center; justify-content: center;"${__tmBuildTooltipAttrs('缩小', { side: 'bottom' })}>－</button>
+                            <button class="tm-btn tm-btn-info bc-btn bc-btn--sm" onclick="tmGanttZoomIn()" style="padding: 0; width: 30px; min-width: 30px; height: 30px; display: inline-flex; align-items: center; justify-content: center;"${__tmBuildTooltipAttrs('放大', { side: 'bottom' })}>＋</button>
+                            <button class="tm-btn tm-btn-info bc-btn bc-btn--sm" onclick="tmGanttFit()" style="padding: 0; width: 30px; min-width: 30px; height: 30px; display: inline-flex; align-items: center; justify-content: center;"${__tmBuildTooltipAttrs('适配范围', { side: 'bottom' })}>${__tmRenderLucideIcon('map')}</button>
+                            <button class="tm-btn tm-btn-info bc-btn bc-btn--sm" onclick="tmGanttToday()" style="padding: 0; width: 30px; min-width: 30px; height: 30px; display: inline-flex; align-items: center; justify-content: center;"${__tmBuildTooltipAttrs('定位今天', { side: 'bottom' })}>${__tmRenderLucideIcon('calendar-days')}</button>
                         ` : ''}
-                        <button class="tm-btn tm-btn-info bc-btn bc-btn--sm" onclick="tmRefresh()" style="padding: 4px 10px;" title="刷新" data-tooltip="刷新">🔄️</button>
-                        ${__tmIsAiFeatureEnabled() ? `<button class="tm-btn tm-btn-info bc-btn bc-btn--sm" onclick="tmToggleAiSidebar()" style="padding: 4px 10px;" title="${__tmEscAttr(state.aiSidebarOpen ? '收起 AI 工作台' : '展开 AI 工作台')}" data-tooltip="${__tmEscAttr(state.aiSidebarOpen ? '收起 AI 工作台' : '展开 AI 工作台')}">🤖</button>` : ''}
-                        <button class="tm-btn tm-btn-info bc-btn bc-btn--sm" onclick="showSettings()" style="padding: 4px 10px;" title="设置" data-tooltip="设置">⚙️ 设置</button>
+                        <div class="tm-view-segmented bc-tabs-list" role="tablist" aria-label="视图">
+                            ${__tmRenderViewSwitcherButtons()}
+                        </div>
+                        <button class="tm-btn tm-btn-info bc-btn bc-btn--sm" onclick="tmRefresh()" style="padding: 0; width: 30px; min-width: 30px; height: 30px; display: inline-flex; align-items: center; justify-content: center;"${__tmBuildTooltipAttrs('刷新', { side: 'bottom' })}>${__tmRenderLucideIcon('refresh-cw')}</button>
+                        ${__tmIsAiFeatureEnabled() ? `<button class="tm-btn tm-btn-info bc-btn bc-btn--sm" onclick="tmToggleAiSidebar()" style="padding: 0; width: 30px; min-width: 30px; height: 30px; display: inline-flex; align-items: center; justify-content: center;"${__tmBuildTooltipAttrs(state.aiSidebarOpen ? '收起 AI 工作台' : '展开 AI 工作台', { side: 'bottom' })}>${__tmRenderLucideIcon('bot')}</button>` : ''}
+                        <button class="tm-btn tm-btn-info bc-btn bc-btn--sm" onclick="showSettings()" style="padding: 0; width: 30px; min-width: 30px; height: 30px; display: inline-flex; align-items: center; justify-content: center;"${__tmBuildTooltipAttrs('设置', { side: 'bottom' })}>${__tmRenderLucideIcon('settings')}</button>
                         ${!false ? `
-                            <button class="tm-btn tm-btn-info tm-desktop-menu-btn bc-btn bc-btn--sm" onclick="tmToggleDesktopMenu(event)" style="padding: 4px 10px; display: flex; align-items: center; gap: 4px;" title="菜单" data-tooltip="菜单">
-                                <span>☰</span> 菜单
+                            <button class="tm-btn tm-btn-info tm-desktop-menu-btn bc-btn bc-btn--sm" onclick="tmToggleDesktopMenu(event)" style="padding: 0; width: 30px; min-width: 30px; height: 30px; display: inline-flex; align-items: center; justify-content: center;"${__tmBuildTooltipAttrs('菜单', { side: 'bottom' })}>
+                                ${__tmRenderLucideIcon('menu')}
                             </button>
                         ` : ''}
                     </div>
@@ -20716,8 +21449,8 @@ async function __tmRefreshAfterWake(reason) {
                             <div style="display:flex; flex-direction:column; gap:10px;">
                                 <div class="tm-mobile-only-item" style="display:flex; flex-direction:column; gap:6px; align-items:stretch;">
                                     <span style="color:var(--tm-text-color);">视图:</span>
-                                    <div style="overflow-x:auto; -webkit-overflow-scrolling:touch;">
-                                        <div class="tm-view-segmented bc-tabs-list" role="tablist" aria-label="视图" style="height:28px; min-width:max-content;">
+                                    <div class="tm-mobile-view-switcher-wrap">
+                                        <div class="tm-view-segmented bc-tabs-list tm-mobile-view-switcher" role="tablist" aria-label="视图">
                                             ${__tmRenderViewSwitcherButtons({ compact: true })}
                                         </div>
                                     </div>
@@ -20744,17 +21477,17 @@ async function __tmRefreshAfterWake(reason) {
                                 </div>
                                 <div style="display:flex; gap:10px; align-items:center;">
                                     <button class="tm-btn tm-btn-info bc-btn bc-btn--sm" onclick="tmShowSearchModal()" style="flex:1; padding: 6px;">
-                                        🔍 搜索 ${state.searchKeyword ? `(${state.searchKeyword})` : ''}
+                                        <span style="display:inline-flex;align-items:center;gap:6px;">${__tmRenderLucideIcon('search')}<span>搜索 ${state.searchKeyword ? `(${state.searchKeyword})` : ''}</span></span>
                                     </button>
                                 </div>
                                 <div class="tm-mobile-only-item" style="display:flex; gap:10px; align-items:center;">
                                     <button class="tm-btn tm-btn-info bc-btn bc-btn--sm" onclick="tmShowSummaryModal(); tmHideMobileMenu();" style="flex:1; padding: 6px;">
-                                        📝 摘要
+                                        <span style="display:inline-flex;align-items:center;gap:6px;">${__tmRenderLucideIcon('file-text')}<span>摘要</span></span>
                                     </button>
                                 </div>
                                 <div class="tm-mobile-only-item" style="display:flex; gap:10px; align-items:center;">
                                     <button class="tm-btn tm-btn-info bc-btn bc-btn--sm" onclick="window.tmAiSemanticCompletionPreview?.(); tmHideMobileMenu();" style="flex:1; padding: 6px;">
-                                        📅 语义日期
+                                        <span style="display:inline-flex;align-items:center;gap:6px;">${__tmRenderLucideIcon('calendar-days')}<span>语义日期</span></span>
                                     </button>
                                 </div>
                                 ${__tmIsAiFeatureEnabled() ? `
@@ -20879,14 +21612,14 @@ async function __tmRefreshAfterWake(reason) {
                         transition: max-height 0.18s ease, opacity 0.18s ease, border-color 0.18s ease, padding-top 0.18s ease, padding-bottom 0.18s ease;
                         opacity: 1;
                         position: relative;
-                        z-index: 5;
+                        z-index: 1;
                     }
                     .tm-box--with-cal-dock .tm-doc-tabs {
                         flex: 0 0 auto;
                         max-height: 56px;
                         overflow: visible;
                         position: relative;
-                        z-index: 5;
+                        z-index: 1;
                     }
                     .tm-doc-tabs.tm-doc-tabs--hidden {
                         max-height: 0;
@@ -20987,7 +21720,7 @@ async function __tmRefreshAfterWake(reason) {
                             flex-wrap: wrap;
                         }
                         .tm-doc-tabs {
-                            padding: 8px 15px 8px 8px;
+                            padding: 0 15px 0 8px;
                             width: 100%;
                             box-sizing: border-box;
                         }
@@ -21187,10 +21920,12 @@ async function __tmRefreshAfterWake(reason) {
                 ` : ''}
             </div>
         `;
-
         try { if (state.viewMode === 'kanban') __tmBindKanbanPan(state.modal); } catch (e) {}
         try { if (state.viewMode === 'whiteboard') __tmBindWhiteboardViewportInput(state.modal); } catch (e) {}
         (nextMountRoot || __tmGetMountRoot()).appendChild(state.modal);
+        try { __tmBindTopbarOverflowTooltips(state.modal); } catch (e) {}
+        try { __tmBindResponsiveTableResize(state.modal); } catch (e) {}
+        try { __tmBindFloatingTooltips(state.modal); } catch (e) {}
         try { __tmBindDocTabWheelScroll(state.modal); } catch (e) {}
         try { __tmBindDocTabScrollMemory(state.modal); } catch (e) {}
         try { __tmRestoreDocTabScroll(state.modal, savedDocTabsScrollLeft); } catch (e) {}
@@ -25685,6 +26420,7 @@ async function __tmRefreshAfterWake(reason) {
     window.tmRenderCalendarTaskTableHtml = function() {
         const originalOrder = SettingsStore.data.columnOrder;
         const originalWidths = SettingsStore.data.columnWidths;
+        const originalTableAvailableWidth = state.tableAvailableWidth;
         try {
             // Ensure calendarColumnWidths is initialized with defaults if missing or empty
             if (!SettingsStore.data.calendarColumnWidths || Object.keys(SettingsStore.data.calendarColumnWidths).length === 0) {
@@ -25696,29 +26432,49 @@ async function __tmRefreshAfterWake(reason) {
 
             const colOrder = SettingsStore.data.columnOrder;
             const widths = SettingsStore.data.columnWidths || {};
+            const tableAvailableWidth = (() => {
+                const values = [];
+                try {
+                    const el = state.modal?.querySelector?.('.tm-body.tm-body--calendar');
+                    if (el) values.push(Number(el.clientWidth) || 0);
+                } catch (e) {}
+                try {
+                    const root = __tmGetMountRoot?.();
+                    if (root instanceof Element && root !== document.body && root !== document.documentElement) {
+                        values.push(Number(root.clientWidth) || 0);
+                    }
+                } catch (e) {}
+                try {
+                    const vw = Number(window.innerWidth || document.documentElement?.clientWidth || 0);
+                    if (vw > 0) values.push(Math.max(0, vw - 48));
+                } catch (e) {}
+                return values.find((n) => Number.isFinite(n) && n > 0) || 0;
+            })();
+            state.tableAvailableWidth = tableAvailableWidth;
+            const tableLayout = __tmGetTableWidthLayout(colOrder, widths, tableAvailableWidth);
             const headers = {
-                pinned: `<th data-col="pinned" style="width: ${widths.pinned || 48}px; min-width: ${widths.pinned || 48}px; max-width: ${widths.pinned || 48}px; text-align: center; white-space: nowrap; overflow: hidden;">📌<span class="tm-col-resize" onmousedown="startColResize(event, 'pinned')"></span></th>`,
-                content: `<th data-col="content" style="width: ${widths.content || 360}px; min-width: ${widths.content || 360}px; max-width: ${widths.content || 360}px; white-space: nowrap; overflow: hidden;">任务内容<span class="tm-col-resize" onmousedown="startColResize(event, 'content')"></span></th>`,
-                score: `<th data-col="score" style="width: ${widths.score || 96}px; min-width: ${widths.score || 96}px; max-width: ${widths.score || 96}px; text-align: center; white-space: nowrap; overflow: hidden;">优先级<span class="tm-col-resize" onmousedown="startColResize(event, 'score')"></span></th>`,
-                doc: `<th data-col="doc" style="width: ${widths.doc || 180}px; min-width: ${widths.doc || 180}px; max-width: ${widths.doc || 180}px; white-space: nowrap; overflow: hidden;">文档<span class="tm-col-resize" onmousedown="startColResize(event, 'doc')"></span></th>`,
+                pinned: `<th data-col="pinned" style="${tableLayout.cellStyle('pinned', 'text-align: center; white-space: nowrap; overflow: hidden;')}">📌<span class="tm-col-resize" onmousedown="startColResize(event, 'pinned')"></span></th>`,
+                content: `<th data-col="content" style="${tableLayout.cellStyle('content', 'white-space: nowrap; overflow: hidden;')}">任务内容<span class="tm-col-resize" onmousedown="startColResize(event, 'content')"></span></th>`,
+                score: `<th data-col="score" style="${tableLayout.cellStyle('score', 'text-align: center; white-space: nowrap; overflow: hidden;')}">优先级<span class="tm-col-resize" onmousedown="startColResize(event, 'score')"></span></th>`,
+                doc: `<th data-col="doc" style="${tableLayout.cellStyle('doc', 'white-space: nowrap; overflow: hidden;')}">文档<span class="tm-col-resize" onmousedown="startColResize(event, 'doc')"></span></th>`,
                 h2: (() => {
                     const level = SettingsStore.data.taskHeadingLevel || 'h2';
                     const labels = { h1: '一级标题', h2: '二级标题', h3: '三级标题', h4: '四级标题', h5: '五级标题', h6: '六级标题' };
                     const label = labels[level] || '标题';
-                    return `<th data-col="h2" style="width: ${widths.h2 || 180}px; min-width: ${widths.h2 || 180}px; max-width: ${widths.h2 || 180}px; white-space: nowrap; overflow: hidden;">${label}<span class="tm-col-resize" onmousedown="startColResize(event, 'h2')"></span></th>`;
+                    return `<th data-col="h2" style="${tableLayout.cellStyle('h2', 'white-space: nowrap; overflow: hidden;')}">${label}<span class="tm-col-resize" onmousedown="startColResize(event, 'h2')"></span></th>`;
                 })(),
-                priority: `<th data-col="priority" style="width: ${widths.priority || 96}px; min-width: ${widths.priority || 96}px; max-width: ${widths.priority || 96}px; text-align: center; white-space: nowrap; overflow: hidden;">重要性<span class="tm-col-resize" onmousedown="startColResize(event, 'priority')"></span></th>`,
-                startDate: `<th data-col="startDate" style="width: ${widths.startDate || 90}px; min-width: ${widths.startDate || 90}px; max-width: ${widths.startDate || 90}px; white-space: nowrap; overflow: hidden;">开始日期<span class="tm-col-resize" onmousedown="startColResize(event, 'startDate')"></span></th>`,
-                completionTime: `<th data-col="completionTime" style="width: ${widths.completionTime || 170}px; min-width: ${widths.completionTime || 170}px; max-width: ${widths.completionTime || 170}px; white-space: nowrap; overflow: hidden;">完成日期<span class="tm-col-resize" onmousedown="startColResize(event, 'completionTime')"></span></th>`,
-                duration: `<th data-col="duration" style="width: ${widths.duration || 96}px; min-width: ${widths.duration || 96}px; max-width: ${widths.duration || 96}px; white-space: nowrap; overflow: hidden;">时长<span class="tm-col-resize" onmousedown="startColResize(event, 'duration')"></span></th>`,
-                spent: `<th data-col="spent" style="width: ${widths.spent || 96}px; min-width: ${widths.spent || 96}px; max-width: ${widths.spent || 96}px; white-space: nowrap; overflow: hidden;">耗时<span class="tm-col-resize" onmousedown="startColResize(event, 'spent')"></span></th>`,
-                remark: `<th data-col="remark" style="width: ${widths.remark || 240}px; min-width: ${widths.remark || 240}px; max-width: ${widths.remark || 240}px; white-space: nowrap; overflow: hidden;">备注<span class="tm-col-resize" onmousedown="startColResize(event, 'remark')"></span></th>`,
-                status: `<th data-col="status" style="width: ${widths.status || 96}px; min-width: ${widths.status || 96}px; max-width: ${widths.status || 96}px; text-align: center; white-space: nowrap; overflow: hidden;">状态<span class="tm-col-resize" onmousedown="startColResize(event, 'status')"></span></th>`
+                priority: `<th data-col="priority" style="${tableLayout.cellStyle('priority', 'text-align: center; white-space: nowrap; overflow: hidden;')}">重要性<span class="tm-col-resize" onmousedown="startColResize(event, 'priority')"></span></th>`,
+                startDate: `<th data-col="startDate" style="${tableLayout.cellStyle('startDate', 'white-space: nowrap; overflow: hidden;')}">开始日期<span class="tm-col-resize" onmousedown="startColResize(event, 'startDate')"></span></th>`,
+                completionTime: `<th data-col="completionTime" style="${tableLayout.cellStyle('completionTime', 'white-space: nowrap; overflow: hidden;')}">完成日期<span class="tm-col-resize" onmousedown="startColResize(event, 'completionTime')"></span></th>`,
+                duration: `<th data-col="duration" style="${tableLayout.cellStyle('duration', 'white-space: nowrap; overflow: hidden;')}">时长<span class="tm-col-resize" onmousedown="startColResize(event, 'duration')"></span></th>`,
+                spent: `<th data-col="spent" style="${tableLayout.cellStyle('spent', 'white-space: nowrap; overflow: hidden;')}">耗时<span class="tm-col-resize" onmousedown="startColResize(event, 'spent')"></span></th>`,
+                remark: `<th data-col="remark" style="${tableLayout.cellStyle('remark', 'white-space: nowrap; overflow: hidden;')}">备注<span class="tm-col-resize" onmousedown="startColResize(event, 'remark')"></span></th>`,
+                status: `<th data-col="status" style="${tableLayout.cellStyle('status', 'text-align: center; white-space: nowrap; overflow: hidden;')}">状态<span class="tm-col-resize" onmousedown="startColResize(event, 'status')"></span></th>`
             };
             const thead = colOrder.map(col => headers[col] || '').join('');
             return `
                 <div class="tm-calendar-task-list" style="height:100%; display:flex; flex-direction:column;">
-                    <table class="tm-table" id="tmTaskTable" data-tm-table="calendar">
+                    <table class="tm-table" id="tmTaskTable" data-tm-table="calendar" style="${tableLayout.tableStyle}">
                         <thead><tr>${thead}</tr></thead>
                         <tbody>${renderTaskList()}</tbody>
                     </table>
@@ -25727,6 +26483,7 @@ async function __tmRefreshAfterWake(reason) {
         } catch (e) {
             return '';
         } finally {
+            state.tableAvailableWidth = originalTableAvailableWidth;
             SettingsStore.data.columnOrder = originalOrder;
             SettingsStore.data.columnWidths = originalWidths;
         }
@@ -26762,6 +27519,7 @@ async function __tmRefreshAfterWake(reason) {
         const menu = document.createElement('div');
         menu.id = 'tmDesktopMenu';
         menu.className = 'tm-popup-menu bc-dropdown-menu';
+        if (!__tmIsDarkMode()) menu.classList.add('tm-desktop-menu--light');
         menu.style.cssText = `
             position: fixed;
             background: var(--tm-ui-popover);
@@ -26777,9 +27535,9 @@ async function __tmRefreshAfterWake(reason) {
         `;
         
         menu.innerHTML = `
-            <button class="tm-btn tm-btn-info bc-btn bc-btn--sm" onclick="tmShowSearchModal(); document.getElementById('tmDesktopMenu').remove()" style="text-align:left; justify-content:flex-start; padding: 6px 12px;">🔍 搜索${state.searchKeyword ? ` (${String(state.searchKeyword || '').trim()})` : ''}</button>
-            <button class="tm-btn tm-btn-info bc-btn bc-btn--sm" onclick="tmShowSummaryModal(); document.getElementById('tmDesktopMenu').remove()" style="text-align:left; justify-content:flex-start; padding: 6px 12px;">📝 摘要</button>
-            <button class="tm-btn tm-btn-info bc-btn bc-btn--sm" onclick="window.tmAiSemanticCompletionPreview?.(); document.getElementById('tmDesktopMenu').remove()" style="text-align:left; justify-content:flex-start; padding: 6px 12px;">📅 语义日期</button>
+            <button class="tm-btn tm-btn-info bc-btn bc-btn--sm" onclick="tmShowSearchModal(); document.getElementById('tmDesktopMenu').remove()" style="text-align:left; justify-content:flex-start; padding: 6px 12px;"><span style="display:inline-flex;align-items:center;gap:6px;">${__tmRenderLucideIcon('search')}<span>搜索${state.searchKeyword ? ` (${String(state.searchKeyword || '').trim()})` : ''}</span></span></button>
+            <button class="tm-btn tm-btn-info bc-btn bc-btn--sm" onclick="tmShowSummaryModal(); document.getElementById('tmDesktopMenu').remove()" style="text-align:left; justify-content:flex-start; padding: 6px 12px;"><span style="display:inline-flex;align-items:center;gap:6px;">${__tmRenderLucideIcon('file-text')}<span>摘要</span></span></button>
+            <button class="tm-btn tm-btn-info bc-btn bc-btn--sm" onclick="window.tmAiSemanticCompletionPreview?.(); document.getElementById('tmDesktopMenu').remove()" style="text-align:left; justify-content:flex-start; padding: 6px 12px;"><span style="display:inline-flex;align-items:center;gap:6px;">${__tmRenderLucideIcon('calendar-days')}<span>语义日期</span></span></button>
             ${__tmIsAiFeatureEnabled() ? `
             <div class="tm-btn tm-btn-info bc-btn bc-btn--sm" style="text-align:left; padding: 6px 12px; display:flex; align-items:center; justify-content:space-between; gap:10px;">
                 <span>AI 对话</span>
@@ -26798,6 +27556,19 @@ async function __tmRefreshAfterWake(reason) {
             <button class="tm-btn tm-btn-info bc-btn bc-btn--sm" onclick="tmCollapseAllTasks(); document.getElementById('tmDesktopMenu').remove()" style="text-align:left; justify-content:flex-start; padding: 6px 12px;"><svg class="tm-tree-toggle-icon" viewBox="0 0 16 16" width="16" height="16" style="transform:rotate(0deg);margin-right:6px;vertical-align:middle;"><path d="M6 4l4 4-4 4" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>全部折叠</button>
             <button class="tm-btn tm-btn-info bc-btn bc-btn--sm" onclick="tmExpandAllTasks(); document.getElementById('tmDesktopMenu').remove()" style="text-align:left; justify-content:flex-start; padding: 6px 12px;"><svg class="tm-tree-toggle-icon" viewBox="0 0 16 16" width="16" height="16" style="transform:rotate(90deg);margin-right:6px;vertical-align:middle;"><path d="M6 4l4 4-4 4" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>全部展开</button>
         `;
+        if (!__tmIsDarkMode()) {
+            try {
+                menu.querySelectorAll('.tm-btn, .tm-btn span, .tm-tree-toggle-icon').forEach((el) => {
+                    try { el.style.setProperty('color', '#1f2329', 'important'); } catch (e2) {}
+                });
+                menu.querySelectorAll('.tm-btn, .tm-btn-info, .tm-btn-secondary').forEach((el) => {
+                    try { el.style.setProperty('border-color', '#1f2329', 'important'); } catch (e2) {}
+                });
+                menu.querySelectorAll('.tm-tree-toggle-icon path').forEach((el) => {
+                    try { el.style.setProperty('stroke', '#1f2329', 'important'); } catch (e2) {}
+                });
+            } catch (e2) {}
+        }
         
         // 点击外部关闭
         const closeHandler = (ev) => {
@@ -26878,6 +27649,30 @@ async function __tmRefreshAfterWake(reason) {
         const open = menu.style.display !== 'none';
         if (!open) {
             menu.style.display = 'block';
+            try {
+                const switcher = menu.querySelector('.tm-mobile-view-switcher');
+                if (switcher instanceof HTMLElement) {
+                    const switcherWidth = switcher.getBoundingClientRect().width;
+                    const sidePadding = 20; // 菜单左右各 10px 内边距
+                    const maxWidth = Math.max(0, window.innerWidth - 20);
+                    const nextWidth = Math.round(Math.min(maxWidth, Math.max(180, switcherWidth + sidePadding)));
+                    if (nextWidth > 0) {
+                        menu.style.setProperty('width', `${nextWidth}px`, 'important');
+                        menu.style.setProperty('max-width', `${nextWidth}px`, 'important');
+                        const contentMax = Math.max(120, nextWidth - sidePadding);
+                        menu.querySelectorAll('.tm-mobile-only-item, .tm-mobile-menu-row').forEach((el) => {
+                            if (!(el instanceof HTMLElement)) return;
+                            try { el.style.setProperty('max-width', `${contentMax}px`, 'important'); } catch (e3) {}
+                            try { el.style.setProperty('min-width', '0', 'important'); } catch (e3) {}
+                        });
+                    }
+                }
+            } catch (e2) {}
+            try {
+                requestAnimationFrame(() => {
+                    try { __tmSyncTopbarOverflowTooltips(state.modal); } catch (e3) {}
+                });
+            } catch (e2) {}
             
             if (state.mobileMenuCloseHandler) {
                 try { document.removeEventListener('click', state.mobileMenuCloseHandler); } catch (e2) {}
@@ -28066,6 +28861,86 @@ async function __tmRefreshAfterWake(reason) {
         const full = __tmFormatTaskTime(value);
         if (/^\d{4}-\d{2}-\d{2}$/.test(full)) return full.slice(5);
         return full;
+    }
+
+    const __TM_TASK_CARD_FIELD_OPTIONS = [
+        { key: 'priority', label: '重要性' },
+        { key: 'status', label: '状态' },
+        { key: 'date', label: '日期' },
+        { key: 'remark', label: '备注' },
+    ];
+
+    function __tmNormalizeTaskCardFieldList(input, fallback = ['priority', 'status', 'date']) {
+        const allow = new Set(__TM_TASK_CARD_FIELD_OPTIONS.map((item) => item.key));
+        const source = Array.isArray(input) ? input : fallback;
+        const seen = new Set();
+        const out = [];
+        source.forEach((item) => {
+            const key = String(item || '').trim();
+            if (!allow.has(key) || seen.has(key)) return;
+            seen.add(key);
+            out.push(key);
+        });
+        return out;
+    }
+
+    function __tmGetTaskCardFieldList(view) {
+        const key = String(view || '').trim() === 'whiteboard' ? 'whiteboardCardFields' : 'kanbanCardFields';
+        return __tmNormalizeTaskCardFieldList(SettingsStore.data?.[key], ['priority', 'status', 'date']);
+    }
+
+    function __tmTaskCardFieldEnabled(view, field) {
+        return __tmGetTaskCardFieldList(view).includes(String(field || '').trim());
+    }
+
+    function __tmRenderTaskCardRemark(task) {
+        const text = String(task?.remark || '').trim();
+        if (!text) return '';
+        return `<div class="tm-task-card-remark" title="${esc(text)}">${esc(text)}</div>`;
+    }
+
+    function __tmGetTableWidthLayout(columnOrder, widthMap, availableWidth = 0) {
+        const defaultOrder = ['pinned', 'content', 'status', 'score', 'doc', 'h2', 'priority', 'startDate', 'completionTime', 'duration', 'spent', 'remark'];
+        const defaultWidths = { pinned: 48, content: 360, status: 96, score: 96, doc: 180, h2: 180, priority: 96, startDate: 90, completionTime: 170, duration: 96, spent: 96, remark: 240 };
+        const order = Array.isArray(columnOrder) ? columnOrder.filter((col) => Object.prototype.hasOwnProperty.call(defaultWidths, col)) : defaultOrder;
+        const baseWidths = {};
+        let total = 0;
+        order.forEach((col) => {
+            const raw = Number(widthMap?.[col]);
+            const width = Number.isFinite(raw) ? Math.max(10, Math.min(800, Math.round(raw))) : (defaultWidths[col] || 120);
+            baseWidths[col] = width;
+            total += width;
+        });
+        const safeTotal = Math.max(1, total);
+        const usableWidthRaw = Number(availableWidth);
+        const usableWidth = Number.isFinite(usableWidthRaw) ? Math.max(0, Math.round(usableWidthRaw)) : 0;
+        const shouldStretch = usableWidth > safeTotal;
+        const scale = shouldStretch ? (usableWidth / safeTotal) : 1;
+        const widths = {};
+        let resolvedTotal = 0;
+        order.forEach((col, index) => {
+            const base = baseWidths[col] || defaultWidths[col] || 120;
+            let width = shouldStretch ? Math.max(base, Math.round(base * scale)) : base;
+            if (shouldStretch && index === order.length - 1) {
+                width = Math.max(base, usableWidth - resolvedTotal);
+            }
+            widths[col] = width;
+            resolvedTotal += width;
+        });
+        const finalTableWidth = shouldStretch ? Math.max(usableWidth, resolvedTotal) : safeTotal;
+        return {
+            order,
+            baseWidths,
+            widths,
+            total: safeTotal,
+            resolvedTotal: finalTableWidth,
+            shouldStretch,
+            tableStyle: `width:${finalTableWidth}px;min-width:${finalTableWidth}px;`,
+            cellStyle: (col, extra = '') => {
+                const width = widths[col] || defaultWidths[col] || 120;
+                return `width:${width}px; min-width:${width}px; max-width:${width}px;${extra ? ` ${extra}` : ''}`;
+            },
+        };
     }
 
     function __tmGetTaskSpentMinutes(task) {
@@ -29323,6 +30198,20 @@ async function __tmRefreshAfterWake(reason) {
         __tmInlineEditorState = null;
     }
 
+    function __tmResolveInlineEditorZIndex(anchorEl, fallback = 100003) {
+        let maxZ = Number(fallback) || 100003;
+        let node = anchorEl instanceof Element ? anchorEl : null;
+        while (node && node !== document.body && node !== document.documentElement) {
+            try {
+                const raw = window.getComputedStyle(node).zIndex;
+                const z = Number.parseInt(String(raw || '').trim(), 10);
+                if (Number.isFinite(z)) maxZ = Math.max(maxZ, z + 1);
+            } catch (e) {}
+            node = node.parentElement;
+        }
+        return maxZ;
+    }
+
     function __tmOpenInlineEditor(anchorEl, build) {
         if (!anchorEl) return null;
         __tmCloseInlineEditor();
@@ -29331,6 +30220,11 @@ async function __tmRefreshAfterWake(reason) {
         editor.className = 'tm-inline-editor';
         editor.tabIndex = -1;
         document.body.appendChild(editor);
+        try {
+            // Keep the inline editor above the plugin modal that owns the anchor
+            // without globally raising SiYuan's protyle layers.
+            editor.style.zIndex = String(__tmResolveInlineEditorZIndex(anchorEl));
+        } catch (e) {}
 
         const cleanupFns = [];
         const cleanup = () => {
@@ -31185,18 +32079,19 @@ async function __tmRefreshAfterWake(reason) {
                 ? `<span class="tm-tree-toggle" onclick="tmToggleCollapse('${task.id}', event)"><svg class="tm-tree-toggle-icon" viewBox="0 0 16 16" width="16" height="16"><path d="M6 4l4 4-4 4" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg></span>`
                 : '';
 
-            const widths = SettingsStore.data.columnWidths || {};
             const colOrder = SettingsStore.data.columnOrder || ['pinned', 'content', 'status', 'score', 'doc', 'h2', 'priority', 'startDate', 'completionTime', 'duration', 'spent', 'remark'];
+            const tableLayout = __tmGetTableWidthLayout(colOrder, SettingsStore.data.columnWidths || {}, Number(state.tableAvailableWidth) || 0);
+            const widths = tableLayout.widths;
 
             const cells = {
                 pinned: () => `
-                    <td style="text-align: center; width: ${widths.pinned || 48}px; min-width: ${widths.pinned || 48}px; max-width: ${widths.pinned || 48}px;">
+                    <td style="${tableLayout.cellStyle('pinned', 'text-align: center;')}">
                         <input type="checkbox" ${pinned ? 'checked' : ''}
                                onchange="tmSetPinned('${task.id}', this.checked, event)"
                                title="置顶">
                     </td>`,
                 content: () => `
-                    <td class="tm-task-content-cell" style="width: ${widths.content || 360}px; min-width: ${widths.content || 360}px; max-width: ${widths.content || 360}px; ${progressBgStyle}">
+                    <td class="tm-task-content-cell" style="${tableLayout.cellStyle('content', progressBgStyle)}">
                         <div class="tm-task-cell" style="padding-left:${contentIndent}px">
                             ${treeGuides}
                             <span class="${leadingClass}">
@@ -31223,38 +32118,38 @@ async function __tmRefreshAfterWake(reason) {
                         </div>
                     </td>`,
                 doc: () => `
-                    <td class="tm-cell-editable tm-task-meta-cell" style="width: ${widths.doc || 180}px; min-width: ${widths.doc || 180}px; max-width: ${widths.doc || 180}px;" title="点击移动到当前分组其他文档" onclick="tmPickTaskDocInline('${task.id}', this, event)">${esc(docName || '')}</td>`,
+                    <td class="tm-cell-editable tm-task-meta-cell" style="${tableLayout.cellStyle('doc')}" title="点击移动到当前分组其他文档" onclick="tmPickTaskDocInline('${task.id}', this, event)">${esc(docName || '')}</td>`,
                 h2: () => `
-                    <td class="tm-cell-editable tm-task-meta-cell" style="width: ${widths.h2 || 180}px; min-width: ${widths.h2 || 180}px; max-width: ${widths.h2 || 180}px;" title="点击切换标题" onclick="tmPickHeadingInline('${task.id}', this, event)">${esc(task.h2 || '无')}</td>`,
+                    <td class="tm-cell-editable tm-task-meta-cell" style="${tableLayout.cellStyle('h2')}" title="点击切换标题" onclick="tmPickHeadingInline('${task.id}', this, event)">${esc(task.h2 || '无')}</td>`,
                 score: () => {
                     const v = Number.isFinite(Number(task.priorityScore)) ? Math.round(Number(task.priorityScore)) : 0;
-                    return `<td class="tm-task-meta-cell" style="width: ${widths.score || 96}px; min-width: ${widths.score || 96}px; max-width: ${widths.score || 96}px; text-align: center; font-variant-numeric: inherit;">${v}</td>`;
+                    return `<td class="tm-task-meta-cell" style="${tableLayout.cellStyle('score', 'text-align: center; font-variant-numeric: inherit;')}">${v}</td>`;
                 },
                 priority: () => {
-                    return `<td class="tm-cell-editable tm-task-meta-cell" style="width: ${widths.priority || 96}px; min-width: ${widths.priority || 96}px; max-width: ${widths.priority || 96}px; text-align: center;" onclick="tmPickPriority('${task.id}', this, event)">${__tmRenderPriorityJira(priority, false)}</td>`;
+                    return `<td class="tm-cell-editable tm-task-meta-cell" style="${tableLayout.cellStyle('priority', 'text-align: center;')}" onclick="tmPickPriority('${task.id}', this, event)">${__tmRenderPriorityJira(priority, false)}</td>`;
                 },
                 startDate: () => `
-                    <td class="tm-cell-editable tm-task-meta-cell" style="width: ${widths.startDate || 90}px; min-width: ${widths.startDate || 90}px; max-width: ${widths.startDate || 90}px;" onclick="tmBeginCellEdit('${task.id}','startDate',this,event)">${__tmFormatTaskTime(startDate)}</td>`,
+                    <td class="tm-cell-editable tm-task-meta-cell" style="${tableLayout.cellStyle('startDate')}" onclick="tmBeginCellEdit('${task.id}','startDate',this,event)">${__tmFormatTaskTime(startDate)}</td>`,
                 completionTime: () => `
-                    <td class="tm-cell-editable tm-task-meta-cell" style="width: ${widths.completionTime || 170}px; min-width: ${widths.completionTime || 170}px; max-width: ${widths.completionTime || 170}px;" onclick="tmBeginCellEdit('${task.id}','completionTime',this,event)">${__tmFormatTaskTime(completionTime)}</td>`,
+                    <td class="tm-cell-editable tm-task-meta-cell" style="${tableLayout.cellStyle('completionTime')}" onclick="tmBeginCellEdit('${task.id}','completionTime',this,event)">${__tmFormatTaskTime(completionTime)}</td>`,
                 duration: () => `
-                    <td class="tm-cell-editable tm-task-meta-cell" style="width: ${widths.duration || 96}px; min-width: ${widths.duration || 96}px; max-width: ${widths.duration || 96}px;" onclick="tmBeginCellEdit('${task.id}','duration',this,event)">${esc(duration || '')}</td>`,
+                    <td class="tm-cell-editable tm-task-meta-cell" style="${tableLayout.cellStyle('duration')}" onclick="tmBeginCellEdit('${task.id}','duration',this,event)">${esc(duration || '')}</td>`,
                 spent: () => {
                     const mode = String(SettingsStore.data.tomatoSpentAttrMode || 'minutes').trim() || 'minutes';
                     const txt = (SettingsStore.data.enableTomatoIntegration && mode === 'hours')
                         ? __tmFormatSpentHours(__tmParseNumber(task?.tomatoHours))
                         : __tmFormatSpentMinutes(__tmGetTaskSpentMinutes(task));
-                    return `<td class="tm-task-meta-cell" style="width: ${widths.spent || 96}px; min-width: ${widths.spent || 96}px; max-width: ${widths.spent || 96}px; text-align:center; font-variant-numeric: inherit;">${esc(txt)}</td>`;
+                    return `<td class="tm-task-meta-cell" style="${tableLayout.cellStyle('spent', 'text-align:center; font-variant-numeric: inherit;')}">${esc(txt)}</td>`;
                 },
                 remark: () => `
-                    <td class="tm-cell-editable tm-task-meta-cell" style="width: ${widths.remark || 240}px; min-width: ${widths.remark || 240}px; max-width: ${widths.remark || 240}px;" title="${esc(remark || '')}" onclick="tmBeginCellEdit('${task.id}','remark',this,event)"><span class="tm-task-remark-text">${esc(remark || '')}</span></td>`,
+                    <td class="tm-cell-editable tm-task-meta-cell" style="${tableLayout.cellStyle('remark')}" title="${esc(remark || '')}" onclick="tmBeginCellEdit('${task.id}','remark',this,event)"><span class="tm-task-remark-text">${esc(remark || '')}</span></td>`,
                 status: () => {
                      const statusOptions = SettingsStore.data.customStatusOptions || [];
                      const currentStatus = task.customStatus || 'todo';
                      const statusOption = statusOptions.find(o => o.id === currentStatus) || { name: currentStatus, color: '#757575' };
                      const chipStyle = __tmBuildStatusChipStyle(statusOption.color);
                      return `
-                        <td class="tm-status-cell tm-task-meta-cell" style="width: ${widths.status || 96}px; min-width: ${widths.status || 96}px; max-width: ${widths.status || 96}px; text-align: center;" onclick="tmOpenStatusSelect('${task.id}', event)">
+                        <td class="tm-status-cell tm-task-meta-cell" style="${tableLayout.cellStyle('status', 'text-align: center;')}" onclick="tmOpenStatusSelect('${task.id}', event)">
                             <span class="tm-status-cell-inner">
                                 <span class="tm-status-tag" style="${chipStyle}">
                                     ${esc(statusOption.name)}
@@ -34476,61 +35371,53 @@ async function __tmRefreshAfterWake(reason) {
         if (!qa) return;
         if (state.quickAddSubmitting) return;
         const input = document.getElementById('tmQuickAddInput');
-        const submitBtn = document.getElementById('tmQuickAddSubmitBtn');
         const content = String(input?.value || '').trim();
         if (!content) return;
         state.quickAddSubmitting = true;
-        // 显示提交中状态
-        if (submitBtn) {
-            submitBtn.textContent = '提交中...';
-            submitBtn.disabled = true;
-            submitBtn.style.opacity = '0.7';
-        }
-        if (input) {
-            input.disabled = true;
-        }
-        try {
-            let targetDocId = qa.docId;
-            if (qa.docMode === 'dailyNote') {
-                let notebook = __tmResolveConfiguredDailyNoteNotebookId();
-                if (!notebook) {
-                    try { await __tmRefreshNotebookCache(); } catch (e) {}
-                    notebook = __tmResolveConfiguredDailyNoteNotebookId();
+        const payload = {
+            docId: qa.docId,
+            docMode: qa.docMode,
+            priority: qa.priority,
+            customStatus: qa.customStatus,
+            completionTime: qa.completionTime,
+            openReminderAfterCreate: !!qa.openReminderAfterCreate,
+            content,
+        };
+        window.tmQuickAddClose?.();
+        (async () => {
+            try {
+                let targetDocId = payload.docId;
+                if (payload.docMode === 'dailyNote') {
+                    let notebook = __tmResolveConfiguredDailyNoteNotebookId();
+                    if (!notebook) {
+                        try { await __tmRefreshNotebookCache(); } catch (e) {}
+                        notebook = __tmResolveConfiguredDailyNoteNotebookId();
+                    }
+                    if (!notebook) notebook = await API.getDocNotebook(payload.docId);
+                    if (!notebook) throw new Error('无法确定日记所属笔记本');
+                    targetDocId = await API.createDailyNote(notebook);
+                    if (!String(targetDocId || '').trim()) throw new Error('获取日记文档失败');
                 }
-                if (!notebook) notebook = await API.getDocNotebook(qa.docId);
-                if (!notebook) throw new Error('无法确定日记所属笔记本');
-                targetDocId = await API.createDailyNote(notebook);
-                if (!String(targetDocId || '').trim()) throw new Error('获取日记文档失败');
+                const createdTaskId = await __tmCreateTaskInDoc({
+                    docId: targetDocId,
+                    content: payload.content,
+                    priority: payload.priority,
+                    customStatus: payload.customStatus,
+                    completionTime: payload.completionTime,
+                    appendToBottom: payload.docMode === 'dailyNote' && SettingsStore.data.newTaskDailyNoteAppendToBottom === true,
+                });
+                hint('✅ 任务已创建', 'success');
+                if (payload.openReminderAfterCreate && createdTaskId) {
+                    setTimeout(() => {
+                        try { window.tmReminder?.(createdTaskId); } catch (e) {}
+                    }, 80);
+                }
+            } catch (e) {
+                hint(`❌ 创建失败: ${e.message}`, 'error');
+            } finally {
+                state.quickAddSubmitting = false;
             }
-            const createdTaskId = await __tmCreateTaskInDoc({
-                docId: targetDocId,
-                content,
-                priority: qa.priority,
-                customStatus: qa.customStatus,
-                completionTime: qa.completionTime,
-                appendToBottom: qa.docMode === 'dailyNote' && SettingsStore.data.newTaskDailyNoteAppendToBottom === true,
-            });
-            hint('✅ 任务已创建', 'success');
-            window.tmQuickAddClose?.();
-            if (qa.openReminderAfterCreate && createdTaskId) {
-                setTimeout(() => {
-                    try { window.tmReminder?.(createdTaskId); } catch (e) {}
-                }, 80);
-            }
-        } catch (e) {
-            hint(`❌ 创建失败: ${e.message}`, 'error');
-            // 恢复按钮状态
-            if (submitBtn) {
-                submitBtn.textContent = '提交';
-                submitBtn.disabled = false;
-                submitBtn.style.opacity = '1';
-            }
-            if (input) {
-                input.disabled = false;
-            }
-        } finally {
-            state.quickAddSubmitting = false;
-        }
+        })();
     };
 
     window.tmAdd = async function() {
@@ -35993,6 +36880,40 @@ async function __tmRefreshAfterWake(reason) {
                             { style: 'margin-bottom:10px;' }
                         )}
                         ${renderSingleSwitchSetting(
+                            '表格和看板宽度填满窗口',
+                            '窗口宽于所有表格列或看板列总宽时，按当前列宽比例自动拉伸填满；窗口较窄时仍保持固定列宽横向滚动。',
+                            `<input class="b3-switch fn__flex-center" type="checkbox" ${SettingsStore.data.kanbanFillColumns ? 'checked' : ''} onchange="updateKanbanFillColumns(this.checked)">`,
+                            { style: 'margin-bottom:10px;' }
+                        )}
+                        ${renderSingleFieldSetting(
+                            '看板卡片字段',
+                            '控制看板卡片中显示哪些任务字段。',
+                            (() => {
+                                const selected = new Set(__tmGetTaskCardFieldList('kanban'));
+                                return `<div style="display:flex;gap:8px;flex-wrap:wrap;">${__TM_TASK_CARD_FIELD_OPTIONS.map((item) => `
+                                    <label style="display:inline-flex;align-items:center;gap:6px;padding:6px 10px;border:1px solid var(--tm-border-color);border-radius:999px;background:var(--tm-card-bg);cursor:pointer;">
+                                        <input class="b3-switch fn__flex-center" type="checkbox" ${selected.has(item.key) ? 'checked' : ''} onchange="updateTaskCardFieldVisibility('kanban', '${item.key}', this.checked)">
+                                        <span>${item.label}</span>
+                                    </label>
+                                `).join('')}</div>`;
+                            })(),
+                            { style: 'margin-bottom:10px;' }
+                        )}
+                        ${renderSingleFieldSetting(
+                            '白板卡片字段',
+                            '控制白板卡片中显示哪些任务字段。',
+                            (() => {
+                                const selected = new Set(__tmGetTaskCardFieldList('whiteboard'));
+                                return `<div style="display:flex;gap:8px;flex-wrap:wrap;">${__TM_TASK_CARD_FIELD_OPTIONS.map((item) => `
+                                    <label style="display:inline-flex;align-items:center;gap:6px;padding:6px 10px;border:1px solid var(--tm-border-color);border-radius:999px;background:var(--tm-card-bg);cursor:pointer;">
+                                        <input class="b3-switch fn__flex-center" type="checkbox" ${selected.has(item.key) ? 'checked' : ''} onchange="updateTaskCardFieldVisibility('whiteboard', '${item.key}', this.checked)">
+                                        <span>${item.label}</span>
+                                    </label>
+                                `).join('')}</div>`;
+                            })(),
+                            { style: 'margin-bottom:10px;' }
+                        )}
+                        ${renderSingleSwitchSetting(
                             '看板显示“已完成”任务',
                             '在看板中显示已完成任务。',
                             `<input class="b3-switch fn__flex-center" type="checkbox" ${SettingsStore.data.kanbanShowDoneColumn ? 'checked' : ''} onchange="updateKanbanShowDoneColumn(this.checked)">`,
@@ -36302,7 +37223,6 @@ async function __tmRefreshAfterWake(reason) {
                 `}
             </div>
         `;
-
         document.body.appendChild(state.settingsModal);
         try {
             __tmSettingsEscHandler = (e) => {
@@ -36455,7 +37375,8 @@ async function __tmRefreshAfterWake(reason) {
 
     function renderAppearanceColorSettings() {
         const d = SettingsStore.data || {};
-        const isMobile = __tmIsMobileDevice();
+        const topbarLight = __tmGetTopbarControlAppearance(false);
+        const topbarDark = __tmGetTopbarControlAppearance(true);
         const items = [
             {
                 title: '插件顶栏渐变',
@@ -36466,6 +37387,25 @@ async function __tmRefreshAfterWake(reason) {
                     { label: '夜间 结束', key: 'topbarGradientDarkEnd', value: d.topbarGradientDarkEnd || '#5b2d7a' },
                     { label: '顶栏文字 亮色', key: 'topbarTextColorLight', value: d.topbarTextColorLight || '#ffffff' },
                     { label: '顶栏文字 夜间', key: 'topbarTextColorDark', value: d.topbarTextColorDark || '#ffffff' }
+                ]
+            },
+            {
+                title: '顶栏 Basecoat 控件',
+                rows: [
+                    { label: '背景 亮色', key: 'topbarControlBgLight', value: topbarLight.controlBg },
+                    { label: '背景 夜间', key: 'topbarControlBgDark', value: topbarDark.controlBg },
+                    { label: '文字 亮色', key: 'topbarControlTextLight', value: topbarLight.controlText },
+                    { label: '文字 夜间', key: 'topbarControlTextDark', value: topbarDark.controlText },
+                    { label: '边框 亮色', key: 'topbarControlBorderLight', value: topbarLight.controlBorder },
+                    { label: '边框 夜间', key: 'topbarControlBorderDark', value: topbarDark.controlBorder },
+                    { label: '悬停 亮色', key: 'topbarControlHoverLight', value: topbarLight.controlHover },
+                    { label: '悬停 夜间', key: 'topbarControlHoverDark', value: topbarDark.controlHover },
+                    { label: '分段背景 亮色', key: 'topbarControlSegmentBgLight', value: topbarLight.segBg },
+                    { label: '分段背景 夜间', key: 'topbarControlSegmentBgDark', value: topbarDark.segBg },
+                    { label: '分段激活 亮色', key: 'topbarControlSegmentActiveBgLight', value: topbarLight.segActive },
+                    { label: '分段激活 夜间', key: 'topbarControlSegmentActiveBgDark', value: topbarDark.segActive },
+                    { label: '阴影 亮色', key: 'topbarControlShadowColorLight', value: topbarLight.shadowColor },
+                    { label: '阴影 夜间', key: 'topbarControlShadowColorDark', value: topbarDark.shadowColor }
                 ]
             },
             {
@@ -36535,6 +37475,32 @@ async function __tmRefreshAfterWake(reason) {
             `;
         };
 
+        const metrics = [
+            { label: '控件圆角', key: 'topbarControlRadiusPx', value: topbarLight.radiusPx, min: 0, max: 24 },
+            { label: '边框宽度', key: 'topbarControlBorderWidthPx', value: topbarLight.borderWidthPx, min: 0, max: 4 },
+            { label: '阴影偏移Y', key: 'topbarControlShadowYOffsetPx', value: topbarLight.shadowYOffsetPx, min: 0, max: 24 },
+            { label: '阴影模糊', key: 'topbarControlShadowBlurPx', value: topbarLight.shadowBlurPx, min: 0, max: 48 },
+            { label: '阴影强度', key: 'topbarControlShadowStrengthPct', value: topbarLight.shadowStrengthPct, min: 0, max: 200, unit: '%' }
+        ];
+
+        const renderMetric = (item) => `
+            <label style="display:flex;align-items:center;justify-content:space-between;gap:10px;padding:8px 10px;border:1px solid var(--tm-border-color);border-radius:8px;background:var(--tm-bg-color);">
+                <span style="font-size:12px;color:var(--tm-secondary-text);">${esc(item.label)}</span>
+                <span style="display:inline-flex;align-items:center;gap:8px;">
+                    <input
+                        type="number"
+                        min="${item.min}"
+                        max="${item.max}"
+                        step="1"
+                        value="${Number(item.value) || 0}"
+                        onchange="tmUpdateAppearanceMetric('${esc(item.key)}', this.value)"
+                        style="width:84px;padding:6px 8px;border:1px solid var(--tm-input-border);border-radius:8px;background:var(--tm-input-bg);color:var(--tm-text-color);font-size:12px;box-sizing:border-box;"
+                    >
+                    <span style="font-size:12px;color:var(--tm-secondary-text);min-width:28px;text-align:right;">${esc(item.unit || 'px')}</span>
+                </span>
+            </label>
+        `;
+
         const cards = items.map((it) => `
             <div style="padding:10px;border:1px solid var(--tm-border-color);border-radius:10px;background:var(--tm-card-bg);">
                 <div style="font-weight:600;margin-bottom:10px;">${esc(it.title)}</div>
@@ -36560,6 +37526,15 @@ async function __tmRefreshAfterWake(reason) {
                 <div style="flex:1;"></div>
                 <button class="tm-btn tm-btn-gray" onclick="tmResetAppearanceColors()" style="padding: 4px 10px; font-size: 12px;">恢复默认</button>
             </div>
+            <div style="padding:10px;border:1px solid var(--tm-border-color);border-radius:10px;background:var(--tm-card-bg);margin-bottom:12px;">
+                <div style="display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;margin-bottom:10px;">
+                    <div style="font-weight:600;">顶栏控件形态</div>
+                    <div style="font-size:12px;color:var(--tm-secondary-text);">参考 theme switcher 的做法，将颜色与形态拆开设置。</div>
+                </div>
+                <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:8px;">
+                    ${metrics.map(renderMetric).join('')}
+                </div>
+            </div>
             <label style="display:flex;align-items:center;justify-content:space-between;gap:10px;padding:8px 10px;border:1px solid var(--tm-border-color);border-radius:10px;background:var(--tm-card-bg);margin-bottom:12px;">
                 <span style="font-size:12px;color:var(--tm-secondary-text);">分组内任务行背景使用分组色</span>
                 <input class="b3-switch fn__flex-center" type="checkbox" ${d.enableGroupTaskBgByGroupColor ? 'checked' : ''} onchange="tmToggleGroupTaskBgByGroupColor(this.checked)">
@@ -36568,7 +37543,7 @@ async function __tmRefreshAfterWake(reason) {
                 ${cards}
             </div>
             <div style="margin-top:10px;font-size:12px;color:var(--tm-secondary-text);line-height:1.5;">
-                按时间分组的分组名称会根据“距离今天的天数”自动变淡，已过期固定使用“已过期颜色”，以保证可读性并适配夜间模式。
+                顶栏控件颜色默认会自动跟随当前顶栏主题，恢复默认即可回到自动推导；按时间分组的分组名称会根据“距离今天的天数”自动变淡，已过期固定使用“已过期颜色”，以保证可读性并适配夜间模式。
             </div>
         `;
     }
@@ -36578,6 +37553,8 @@ async function __tmRefreshAfterWake(reason) {
         const k = String(btn?.dataset?.tmColorKey || '').trim();
         const label = String(btn?.dataset?.tmColorLabel || '选择颜色').trim() || '选择颜色';
         if (!k) return;
+        const topbarLight = __tmGetTopbarControlAppearance(false);
+        const topbarDark = __tmGetTopbarControlAppearance(true);
         const defaults = {
             topbarGradientLightStart: '#667eea',
             topbarGradientLightEnd: '#764ba2',
@@ -36585,6 +37562,20 @@ async function __tmRefreshAfterWake(reason) {
             topbarGradientDarkEnd: '#5b2d7a',
             topbarTextColorLight: '#ffffff',
             topbarTextColorDark: '#ffffff',
+            topbarControlBgLight: topbarLight.controlBg,
+            topbarControlBgDark: topbarDark.controlBg,
+            topbarControlTextLight: topbarLight.controlText,
+            topbarControlTextDark: topbarDark.controlText,
+            topbarControlBorderLight: topbarLight.controlBorder,
+            topbarControlBorderDark: topbarDark.controlBorder,
+            topbarControlHoverLight: topbarLight.controlHover,
+            topbarControlHoverDark: topbarDark.controlHover,
+            topbarControlSegmentBgLight: topbarLight.segBg,
+            topbarControlSegmentBgDark: topbarDark.segBg,
+            topbarControlSegmentActiveBgLight: topbarLight.segActive,
+            topbarControlSegmentActiveBgDark: topbarDark.segActive,
+            topbarControlShadowColorLight: topbarLight.shadowColor,
+            topbarControlShadowColorDark: topbarDark.shadowColor,
             taskContentColorLight: '#333333',
             taskContentColorDark: '#e0e0e0',
             taskMetaColorLight: '#5f6368',
@@ -36612,6 +37603,13 @@ async function __tmRefreshAfterWake(reason) {
         const allowed = new Set([
             'topbarGradientLightStart', 'topbarGradientLightEnd', 'topbarGradientDarkStart', 'topbarGradientDarkEnd',
             'topbarTextColorLight', 'topbarTextColorDark',
+            'topbarControlBgLight', 'topbarControlBgDark',
+            'topbarControlTextLight', 'topbarControlTextDark',
+            'topbarControlBorderLight', 'topbarControlBorderDark',
+            'topbarControlHoverLight', 'topbarControlHoverDark',
+            'topbarControlSegmentBgLight', 'topbarControlSegmentBgDark',
+            'topbarControlSegmentActiveBgLight', 'topbarControlSegmentActiveBgDark',
+            'topbarControlShadowColorLight', 'topbarControlShadowColorDark',
             'taskContentColorLight', 'taskContentColorDark',
             'taskMetaColorLight', 'taskMetaColorDark',
             'groupDocLabelColorLight', 'groupDocLabelColorDark',
@@ -36646,6 +37644,24 @@ async function __tmRefreshAfterWake(reason) {
             if (p1) p1.style.background = previewLight;
             if (p2) p2.style.background = previewDark;
         } catch (e) {}
+        render();
+    };
+
+    window.tmUpdateAppearanceMetric = async function(key, value) {
+        const configs = {
+            topbarControlRadiusPx: { min: 0, max: 24, fallback: 10 },
+            topbarControlBorderWidthPx: { min: 0, max: 4, fallback: 1 },
+            topbarControlShadowYOffsetPx: { min: 0, max: 24, fallback: 0 },
+            topbarControlShadowBlurPx: { min: 0, max: 48, fallback: 0 },
+            topbarControlShadowStrengthPct: { min: 0, max: 200, fallback: 100 },
+        };
+        const k = String(key || '').trim();
+        const conf = configs[k];
+        if (!conf) return;
+        SettingsStore.data[k] = __tmNormalizeAppearanceMetric(value, conf.fallback, conf.min, conf.max);
+        await SettingsStore.save();
+        try { __tmApplyAppearanceThemeVars(); } catch (e) {}
+        showSettings();
         render();
     };
 
@@ -36686,6 +37702,25 @@ async function __tmRefreshAfterWake(reason) {
         SettingsStore.data.topbarGradientDarkEnd = '#5b2d7a';
         SettingsStore.data.topbarTextColorLight = '#ffffff';
         SettingsStore.data.topbarTextColorDark = '#ffffff';
+        SettingsStore.data.topbarControlBgLight = '';
+        SettingsStore.data.topbarControlBgDark = '';
+        SettingsStore.data.topbarControlTextLight = '';
+        SettingsStore.data.topbarControlTextDark = '';
+        SettingsStore.data.topbarControlBorderLight = '';
+        SettingsStore.data.topbarControlBorderDark = '';
+        SettingsStore.data.topbarControlHoverLight = '';
+        SettingsStore.data.topbarControlHoverDark = '';
+        SettingsStore.data.topbarControlSegmentBgLight = '';
+        SettingsStore.data.topbarControlSegmentBgDark = '';
+        SettingsStore.data.topbarControlSegmentActiveBgLight = '';
+        SettingsStore.data.topbarControlSegmentActiveBgDark = '';
+        SettingsStore.data.topbarControlShadowColorLight = '';
+        SettingsStore.data.topbarControlShadowColorDark = '';
+        SettingsStore.data.topbarControlRadiusPx = 10;
+        SettingsStore.data.topbarControlBorderWidthPx = 1;
+        SettingsStore.data.topbarControlShadowYOffsetPx = 0;
+        SettingsStore.data.topbarControlShadowBlurPx = 0;
+        SettingsStore.data.topbarControlShadowStrengthPct = 100;
         SettingsStore.data.taskContentColorLight = '#333333';
         SettingsStore.data.taskContentColorDark = '#e0e0e0';
         SettingsStore.data.taskMetaColorLight = '#5f6368';
@@ -38805,8 +39840,32 @@ async function __tmRefreshAfterWake(reason) {
         }
     };
 
+    window.updateKanbanFillColumns = async function(enabled) {
+        SettingsStore.data.kanbanFillColumns = !!enabled;
+        await SettingsStore.save();
+        showSettings();
+        if (state.modal && document.body.contains(state.modal)) {
+            render();
+        }
+    };
+
     window.updateKanbanShowDoneColumn = async function(enabled) {
         SettingsStore.data.kanbanShowDoneColumn = !!enabled;
+        await SettingsStore.save();
+        showSettings();
+        if (state.modal && document.body.contains(state.modal)) {
+            render();
+        }
+    };
+
+    window.updateTaskCardFieldVisibility = async function(view, field, enabled) {
+        const viewKey = String(view || '').trim() === 'whiteboard' ? 'whiteboardCardFields' : 'kanbanCardFields';
+        const current = new Set(__tmNormalizeTaskCardFieldList(SettingsStore.data[viewKey], ['priority', 'status', 'date']));
+        const key = String(field || '').trim();
+        if (!key) return;
+        if (enabled) current.add(key);
+        else current.delete(key);
+        SettingsStore.data[viewKey] = __tmNormalizeTaskCardFieldList(Array.from(current), ['priority', 'status', 'date']);
         await SettingsStore.save();
         showSettings();
         if (state.modal && document.body.contains(state.modal)) {

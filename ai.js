@@ -4512,13 +4512,13 @@
         const modal = setModal(title, `
             <div class="tm-ai-box">
                 <h4>批量预览</h4>
-                <div class="tm-ai-hint">这里只展示识别到明确日期的任务；只会写入勾选任务的 completionTime。</div>
+                <div class="tm-ai-hint">这里只展示识别到明确日期的任务；默认不勾选任何任务，只会写入你手动勾选项的 completionTime。</div>
             </div>
             <div class="tm-ai-box">
                 <div class="tm-ai-list">
                     ${preview.map((item, index) => `
                         <label class="tm-ai-item" style="display:flex;gap:10px;align-items:flex-start;">
-                            <input type="checkbox" data-ai-semantic-apply="${index}" ${item.suggestedDate ? 'checked' : ''}>
+                            <input type="checkbox" data-ai-semantic-apply="${index}">
                             <div style="flex:1;min-width:0;">
                                 <div style="font-weight:600;">${esc(item.content)}</div>
                                 <div class="tm-ai-hint">当前：${esc(item.currentDate || '未设置')} → 识别：${esc(item.suggestedDate || '未识别')}</div>

@@ -133,6 +133,19 @@
         },
     };
 
+    const MAIN_CALENDAR_CUSTOM_VIEWS = {
+        timeGrid3Day: { type: 'timeGrid', duration: { days: 3 }, buttonText: '3日' },
+        timeGridWorkdays: { type: 'timeGridWeek', hiddenDays: [0, 6], buttonText: '工作日' },
+    };
+
+    const MAIN_CALENDAR_ALLOWED_VIEWS = new Set([
+        'timeGridDay',
+        'timeGrid3Day',
+        'timeGridWorkdays',
+        'timeGridWeek',
+        'dayGridMonth',
+    ]);
+
     function esc(s) {
         return String(s ?? '').replace(/[&<>"']/g, (ch) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[ch] || ch));
     }
@@ -330,7 +343,7 @@
         try { el.style.setProperty('box-shadow', 'none', 'important'); } catch (e) {}
         try { el.style.setProperty('color', textColor, 'important'); } catch (e) {}
         try {
-            const nodes = el.querySelectorAll('.fc-event-main, .fc-event-main-frame, .fc-event-time, .fc-event-title, .tm-cal-task-event, .tm-cal-task-event-title, .tm-cal-task-event-title-text');
+            const nodes = el.querySelectorAll('.fc-event-main, .fc-event-main-frame, .fc-event-time, .fc-event-title, .tm-cal-task-event, .tm-cal-task-event-title, .tm-cal-task-event-title-text, .tm-cal-task-event-time, .tm-cal-schedule-stack');
             nodes.forEach((node) => {
                 try { node.style.setProperty('color', textColor, 'important'); } catch (e2) {}
             });
@@ -359,7 +372,7 @@
         try { el.style.setProperty('box-shadow', 'none', 'important'); } catch (e) {}
         try { el.style.setProperty('color', textColor, 'important'); } catch (e) {}
         try {
-            const nodes = el.querySelectorAll('.fc-event-main, .fc-event-main-frame, .fc-event-time, .fc-event-title, .tm-cal-task-event, .tm-cal-task-event-title, .tm-cal-task-event-title-text');
+            const nodes = el.querySelectorAll('.fc-event-main, .fc-event-main-frame, .fc-event-time, .fc-event-title, .tm-cal-task-event, .tm-cal-task-event-title, .tm-cal-task-event-title-text, .tm-cal-task-event-time, .tm-cal-schedule-stack');
             nodes.forEach((node) => {
                 try { node.style.setProperty('color', textColor, 'important'); } catch (e2) {}
             });
@@ -374,6 +387,72 @@
         if (end.getHours() !== 0 || end.getMinutes() !== 0 || end.getSeconds() !== 0 || end.getMilliseconds() !== 0) return false;
         const days = (end.getTime() - start.getTime()) / 86400000;
         return Number.isInteger(days) && days >= 1;
+    }
+
+    function formatCalendarClockText(date) {
+        if (!(date instanceof Date) || Number.isNaN(date.getTime())) return '';
+        return `${pad2(date.getHours())}:${pad2(date.getMinutes())}`;
+    }
+
+    function formatCalendarShortDateText(date, includeYear = false) {
+        if (!(date instanceof Date) || Number.isNaN(date.getTime())) return '';
+        return includeYear
+            ? formatDateKey(date)
+            : `${pad2(date.getMonth() + 1)}-${pad2(date.getDate())}`;
+    }
+
+    function formatCalendarDateTimeText(date, includeYear = false) {
+        const dateText = formatCalendarShortDateText(date, includeYear);
+        const timeText = formatCalendarClockText(date);
+        if (!dateText) return timeText;
+        if (!timeText) return dateText;
+        return `${dateText} ${timeText}`;
+    }
+
+    function formatScheduleEventRangeText(start, end, allDay) {
+        const startDate = (start instanceof Date && !Number.isNaN(start.getTime())) ? start : null;
+        if (!startDate) return '';
+        const endDate = (end instanceof Date && !Number.isNaN(end.getTime()) && end.getTime() > startDate.getTime()) ? end : null;
+        const isAllDayEvent = allDay === true || (endDate ? isAllDayRange(startDate, endDate) : false);
+        if (isAllDayEvent) {
+            if (!endDate) return '全天';
+            const endShown = new Date(endDate.getTime() - 86400000);
+            if (formatDateKey(startDate) === formatDateKey(endShown)) return '全天';
+            const includeYear = startDate.getFullYear() !== endShown.getFullYear();
+            return `${formatCalendarShortDateText(startDate, includeYear)} - ${formatCalendarShortDateText(endShown, includeYear)} 全天`;
+        }
+        if (!endDate) return formatCalendarClockText(startDate);
+        if (formatDateKey(startDate) === formatDateKey(endDate)) {
+            return `${formatCalendarClockText(startDate)} - ${formatCalendarClockText(endDate)}`;
+        }
+        const includeYear = startDate.getFullYear() !== endDate.getFullYear();
+        return `${formatCalendarDateTimeText(startDate, includeYear)} - ${formatCalendarDateTimeText(endDate, includeYear)}`;
+    }
+
+    function buildTaskEventTitleNode(text, rangeText = '') {
+        const title = document.createElement('span');
+        title.className = 'tm-cal-task-event-title';
+        const titleText = document.createElement('span');
+        titleText.className = 'tm-cal-task-event-title-text';
+        titleText.textContent = String(text || '').trim() || '任务';
+        title.appendChild(titleText);
+        const range = String(rangeText || '').trim();
+        if (!range) return { title, titleText, timeText: null };
+        title.classList.add('tm-cal-task-event-title--stack');
+        const timeText = document.createElement('span');
+        timeText.className = 'tm-cal-task-event-time';
+        timeText.textContent = range;
+        title.appendChild(timeText);
+        return { title, titleText, timeText };
+    }
+
+    function applyTaskEventCheckboxOffset(inputEl) {
+        if (!(inputEl instanceof HTMLElement)) return;
+        try { inputEl.style.alignSelf = 'start'; } catch (e) {}
+        try { inputEl.style.margin = '0'; } catch (e) {}
+        try { inputEl.style.position = 'relative'; } catch (e) {}
+        try { inputEl.style.top = '3px'; } catch (e) {}
+        try { inputEl.style.transform = 'none'; } catch (e) {}
     }
 
     function overlap(s1, e1, s2, e2) {
@@ -3955,9 +4034,22 @@
 
     function applyTaskEventTitleClamp(wrapEl, titleEl) {
         try {
+            const stacked = !!titleEl?.classList?.contains?.('tm-cal-task-event-title--stack');
+            const scheduleTask = !!wrapEl?.classList?.contains?.('tm-cal-task-event--schedule');
             if (wrapEl instanceof HTMLElement) {
-                wrapEl.style.display = 'flex';
-                wrapEl.style.alignItems = 'center';
+                if (scheduleTask && stacked) {
+                    wrapEl.style.display = 'grid';
+                    wrapEl.style.gridTemplateColumns = '12px minmax(0, 1fr)';
+                    wrapEl.style.columnGap = '6px';
+                    wrapEl.style.rowGap = '0';
+                    wrapEl.style.alignItems = 'start';
+                } else {
+                    wrapEl.style.display = 'flex';
+                    wrapEl.style.removeProperty('grid-template-columns');
+                    wrapEl.style.removeProperty('column-gap');
+                    wrapEl.style.removeProperty('row-gap');
+                    wrapEl.style.alignItems = stacked ? 'stretch' : 'center';
+                }
                 wrapEl.style.width = '100%';
                 wrapEl.style.maxWidth = '100%';
                 wrapEl.style.minWidth = '0';
@@ -3965,13 +4057,26 @@
                 wrapEl.style.flex = '1 1 0';
             }
             if (titleEl instanceof HTMLElement) {
-                titleEl.style.display = 'block';
+                titleEl.style.display = stacked ? 'flex' : 'block';
+                if (stacked) {
+                    titleEl.style.flexDirection = 'column';
+                    titleEl.style.alignItems = 'flex-start';
+                    titleEl.style.justifyContent = 'flex-start';
+                    titleEl.style.gap = '1px';
+                    titleEl.style.whiteSpace = 'normal';
+                    titleEl.style.textOverflow = 'clip';
+                } else {
+                    titleEl.style.removeProperty('flex-direction');
+                    titleEl.style.removeProperty('align-items');
+                    titleEl.style.removeProperty('justify-content');
+                    titleEl.style.removeProperty('gap');
+                    titleEl.style.whiteSpace = 'nowrap';
+                    titleEl.style.textOverflow = 'ellipsis';
+                }
                 titleEl.style.flex = '1 1 0';
                 titleEl.style.minWidth = '0';
                 titleEl.style.maxWidth = '100%';
                 titleEl.style.overflow = 'hidden';
-                titleEl.style.textOverflow = 'ellipsis';
-                titleEl.style.whiteSpace = 'nowrap';
             }
         } catch (e) {}
     }
@@ -3992,13 +4097,39 @@
                     n.style.overflow = 'hidden';
                 });
             }
-            const wraps = rootEl.querySelectorAll?.('.tm-cal-task-event');
+            const wraps = rootEl.querySelectorAll?.('.tm-cal-task-event, .tm-cal-schedule-stack');
             if (wraps && wraps.length) {
                 wraps.forEach((w) => applyTaskEventTitleClamp(w, w.querySelector?.('.tm-cal-task-event-title') || null));
             }
             const titleNodes = rootEl.querySelectorAll?.('.tm-cal-task-event-title, .fc-event-title');
             if (titleNodes && titleNodes.length) {
                 titleNodes.forEach((t) => {
+                    if (!(t instanceof HTMLElement)) return;
+                    const stacked = t.classList.contains('tm-cal-task-event-title--stack');
+                    t.style.display = stacked ? 'flex' : 'block';
+                    if (stacked) {
+                        t.style.flexDirection = 'column';
+                        t.style.alignItems = 'flex-start';
+                        t.style.justifyContent = 'flex-start';
+                        t.style.gap = '1px';
+                        t.style.whiteSpace = 'normal';
+                        t.style.textOverflow = 'clip';
+                    } else {
+                        t.style.removeProperty('flex-direction');
+                        t.style.removeProperty('align-items');
+                        t.style.removeProperty('justify-content');
+                        t.style.removeProperty('gap');
+                        t.style.whiteSpace = 'nowrap';
+                        t.style.textOverflow = 'ellipsis';
+                    }
+                    t.style.minWidth = '0';
+                    t.style.maxWidth = '100%';
+                    t.style.overflow = 'hidden';
+                });
+            }
+            const textNodes = rootEl.querySelectorAll?.('.tm-cal-task-event-title-text, .tm-cal-task-event-time');
+            if (textNodes && textNodes.length) {
+                textNodes.forEach((t) => {
                     if (!(t instanceof HTMLElement)) return;
                     t.style.display = 'block';
                     t.style.minWidth = '0';
@@ -4627,23 +4758,23 @@
                     cb.type = 'checkbox';
                     cb.className = 'tm-cal-task-event-check';
                     cb.checked = done;
+                    applyTaskEventCheckboxOffset(cb);
                     cb.onchange = async (ev) => {
                         try { ev.stopPropagation(); } catch (e) {}
                         try { ev.preventDefault(); } catch (e) {}
                         if (!tid || typeof window.tmSetDone !== 'function') return;
                         const nextDone = cb.checked === true;
-                        applyTaskDoneVisual(wrapEl, title, nextDone);
+                        applyTaskDoneVisual(wrapEl, titleText, nextDone);
                         try {
                             const r = window.tmSetDone(tid, nextDone, ev);
                             if (r && typeof r.then === 'function') await r;
                         } catch (e) {}
                         refetchAllCalendars();
                     };
-                    const title = document.createElement('span');
-                    title.className = 'tm-cal-task-event-title';
-                    const titleText = document.createElement('span');
-                    titleText.className = 'tm-cal-task-event-title-text';
-                    titleText.textContent = String(arg?.event?.title || '').trim() || '任务';
+                    const rangeText = source === 'schedule'
+                        ? formatScheduleEventRangeText(arg?.event?.start, arg?.event?.end, arg?.event?.allDay === true)
+                        : '';
+                    const { title, titleText } = buildTaskEventTitleNode(String(arg?.event?.title || '').trim() || '任务', rangeText);
                     applyTaskEventTitleClamp(wrapEl, title);
                     applyTaskDoneVisual(wrapEl, titleText, done);
                     titleText.onclick = (ev) => {
@@ -4652,7 +4783,17 @@
                         try { window.tmJumpToTask(tid, ev); } catch (e) {}
                     };
                     wrapEl.appendChild(cb);
-                    title.appendChild(titleText);
+                    wrapEl.appendChild(title);
+                    return { domNodes: [wrapEl] };
+                }
+                if (source === 'schedule') {
+                    const wrapEl = document.createElement('span');
+                    wrapEl.className = 'tm-cal-schedule-stack';
+                    const { title } = buildTaskEventTitleNode(
+                        String(arg?.event?.title || '').trim() || '日程',
+                        formatScheduleEventRangeText(arg?.event?.start, arg?.event?.end, arg?.event?.allDay === true)
+                    );
+                    applyTaskEventTitleClamp(wrapEl, title);
                     wrapEl.appendChild(title);
                     return { domNodes: [wrapEl] };
                 }
@@ -4660,11 +4801,7 @@
                     const wrapEl = document.createElement('span');
                     wrapEl.className = source === 'schedule' ? 'tm-cal-task-event tm-cal-task-event--schedule' : 'tm-cal-task-event';
                     const tid = String(ext.__tmReminderBlockId || '').trim();
-                    const title = document.createElement('span');
-                    title.className = 'tm-cal-task-event-title';
-                    const titleText = document.createElement('span');
-                    titleText.className = 'tm-cal-task-event-title-text';
-                    titleText.textContent = String(arg?.event?.title || '').trim() || '任务提醒';
+                    const { title, titleText } = buildTaskEventTitleNode(String(arg?.event?.title || '').trim() || '任务提醒');
                     applyTaskEventTitleClamp(wrapEl, title);
                     applyTaskDoneVisual(wrapEl, titleText, !!ext.__tmReminderDone);
                     titleText.onclick = (ev) => {
@@ -4672,7 +4809,6 @@
                         if (!tid || typeof window.tmJumpToTask !== 'function') return;
                         try { window.tmJumpToTask(tid, ev); } catch (e) {}
                     };
-                    title.appendChild(titleText);
                     wrapEl.appendChild(title);
                     return { domNodes: [wrapEl] };
                 }
@@ -7144,9 +7280,8 @@
         let calendar = null;
         const preferredInitialView = (() => {
             if (isMobileDevice) return 'timeGridDay';
-            const allow = new Set(['timeGridDay', 'timeGridWeek', 'dayGridMonth']);
             const v = String(s.lastViewType || '').trim();
-            if (v && allow.has(v)) return v;
+            if (v && MAIN_CALENDAR_ALLOWED_VIEWS.has(v)) return v;
             return 'timeGridWeek';
         })();
         const preferredInitialDate = (() => {
@@ -7157,6 +7292,7 @@
         calendar = new FullCalendar.Calendar(host, {
             initialView: preferredInitialView,
             initialDate: preferredInitialDate,
+            views: MAIN_CALENDAR_CUSTOM_VIEWS,
             height: 'parent',
             expandRows: true,
             handleWindowResize: true,
@@ -7171,6 +7307,8 @@
                 month: '月',
                 week: '周',
                 day: '日',
+                timeGrid3Day: '3日',
+                timeGridWorkdays: '工作日',
                 list: '列表',
             },
             nowIndicator: true,
@@ -7183,7 +7321,7 @@
             headerToolbar: {
                 left: 'today prev,next',
                 center: 'title',
-                right: 'timeGridDay,timeGridWeek,dayGridMonth',
+                right: 'timeGridDay,timeGrid3Day,timeGridWorkdays,timeGridWeek,dayGridMonth',
             },
             eventDisplay: 'block',
             eventContent: (arg) => {
@@ -7215,23 +7353,23 @@
                     cb.type = 'checkbox';
                     cb.className = 'tm-cal-task-event-check';
                     cb.checked = done;
+                    applyTaskEventCheckboxOffset(cb);
                     cb.onchange = async (ev) => {
                         try { ev.stopPropagation(); } catch (e) {}
                         try { ev.preventDefault(); } catch (e) {}
                         if (!tid || typeof window.tmSetDone !== 'function') return;
                         const nextDone = cb.checked === true;
-                        applyTaskDoneVisual(wrapEl, title, nextDone);
+                        applyTaskDoneVisual(wrapEl, titleText, nextDone);
                         try {
                             const r = window.tmSetDone(tid, nextDone, ev);
                             if (r && typeof r.then === 'function') await r;
                         } catch (e) {}
                         try { state.calendar?.refetchEvents?.(); } catch (e) {}
                     };
-                    const title = document.createElement('span');
-                    title.className = 'tm-cal-task-event-title';
-                    const titleText = document.createElement('span');
-                    titleText.className = 'tm-cal-task-event-title-text';
-                    titleText.textContent = String(arg?.event?.title || '').trim() || '任务';
+                    const rangeText = source === 'schedule'
+                        ? formatScheduleEventRangeText(arg?.event?.start, arg?.event?.end, arg?.event?.allDay === true)
+                        : '';
+                    const { title, titleText } = buildTaskEventTitleNode(String(arg?.event?.title || '').trim() || '任务', rangeText);
                     applyTaskEventTitleClamp(wrapEl, title);
                     applyTaskDoneVisual(wrapEl, titleText, done);
                     titleText.onclick = (ev) => {
@@ -7250,7 +7388,17 @@
                         try { window.tmJumpToTask(tid, ev); } catch (e) {}
                     };
                     wrapEl.appendChild(cb);
-                    title.appendChild(titleText);
+                    wrapEl.appendChild(title);
+                    return { domNodes: [wrapEl] };
+                }
+                if (source === 'schedule') {
+                    const wrapEl = document.createElement('span');
+                    wrapEl.className = 'tm-cal-schedule-stack';
+                    const { title } = buildTaskEventTitleNode(
+                        String(arg?.event?.title || '').trim() || '日程',
+                        formatScheduleEventRangeText(arg?.event?.start, arg?.event?.end, arg?.event?.allDay === true)
+                    );
+                    applyTaskEventTitleClamp(wrapEl, title);
                     wrapEl.appendChild(title);
                     return { domNodes: [wrapEl] };
                 }
@@ -7258,11 +7406,7 @@
                     const wrapEl = document.createElement('span');
                     wrapEl.className = source === 'schedule' ? 'tm-cal-task-event tm-cal-task-event--schedule' : 'tm-cal-task-event';
                     const tid = String(ext.__tmReminderBlockId || '').trim();
-                    const title = document.createElement('span');
-                    title.className = 'tm-cal-task-event-title';
-                    const titleText = document.createElement('span');
-                    titleText.className = 'tm-cal-task-event-title-text';
-                    titleText.textContent = String(arg?.event?.title || '').trim() || '任务提醒';
+                    const { title, titleText } = buildTaskEventTitleNode(String(arg?.event?.title || '').trim() || '任务提醒');
                     applyTaskEventTitleClamp(wrapEl, title);
                     applyTaskDoneVisual(wrapEl, titleText, !!ext.__tmReminderDone);
                     titleText.onclick = (ev) => {
@@ -7280,7 +7424,6 @@
                         if (!tid || typeof window.tmJumpToTask !== 'function') return;
                         try { window.tmJumpToTask(tid, ev); } catch (e) {}
                     };
-                    title.appendChild(titleText);
                     wrapEl.appendChild(title);
                     return { domNodes: [wrapEl] };
                 }
