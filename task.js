@@ -935,14 +935,6 @@
             color: #ffffff !important;
         }
 
-        [data-theme-mode="light"] .tm-filter-rule-bar #tmDesktopMenu,
-        [data-theme-mode="light"] .tm-filter-rule-bar #tmDesktopMenu .tm-btn,
-        [data-theme-mode="light"] .tm-filter-rule-bar #tmDesktopMenu .tm-popup-menu-item,
-        [data-theme-mode="light"] .tm-filter-rule-bar #tmDesktopMenu label,
-        [data-theme-mode="light"] .tm-filter-rule-bar #tmDesktopMenu .bc-btn {
-            color: #1f2329 !important;
-        }
-
         .tm-filter-rule-bar #tmMobileMenu .tm-view-segmented {
             background: var(--tm-input-bg);
             border: 1px solid var(--tm-input-border);
@@ -1643,13 +1635,9 @@
         .tm-filter-rule-bar .bc-btn,
         .tm-filter-rule-bar .bc-btn--sm,
         .tm-filter-rule-bar .bc-select-trigger,
+        .tm-filter-rule-bar .tm-view-seg-item,
         .tm-filter-rule-bar .tm-mobile-menu-btn button {
             font-weight: 500 !important;
-            font-size: 13px !important;
-        }
-
-        .tm-filter-rule-bar .tm-view-seg-item {
-            font-weight: 600 !important;
             font-size: 13px !important;
         }
 
@@ -1714,16 +1702,15 @@
         }
 
         .tm-filter-rule-bar #tmMobileMenu .tm-mobile-view-switcher {
-            width: max-content;
-            max-width: 100%;
-            min-width: auto;
+            width: 100%;
+            min-width: 0;
             display: flex;
             flex-wrap: wrap;
             justify-content: flex-start;
             height: auto !important;
             min-height: 0 !important;
-            gap: 2px;
-            padding: 3px 0 3px 3px;
+            gap: 4px;
+            padding: 4px;
         }
 
         .tm-filter-rule-bar #tmMobileMenu .tm-mobile-view-switcher .tm-view-seg-item {
