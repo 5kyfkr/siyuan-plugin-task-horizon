@@ -1343,30 +1343,6 @@
     color: var(--tm-cal-schedule-text) !important;
 }
 
-
-.tm-calendar-host .fc .fc-timegrid-event[data-tm-cal-source="schedule"] .fc-event-main-frame,
-#tmCalendarSideDockTimeline .fc .fc-timegrid-event[data-tm-cal-source="schedule"] .fc-event-main-frame,
-.tm-calendar-host .fc .fc-timegrid-event.tm-cal-schedule-event .fc-event-main-frame,
-#tmCalendarSideDockTimeline .fc .fc-timegrid-event.tm-cal-schedule-event .fc-event-main-frame {
-    display: flex !important;
-    align-items: center !important;
-    gap: 4px !important;
-}
-
-.tm-calendar-host .fc .fc-timegrid-event[data-tm-cal-source="schedule"] .fc-event-title-container,
-#tmCalendarSideDockTimeline .fc .fc-timegrid-event[data-tm-cal-source="schedule"] .fc-event-title-container,
-.tm-calendar-host .fc .fc-timegrid-event.tm-cal-schedule-event .fc-event-title-container,
-#tmCalendarSideDockTimeline .fc .fc-timegrid-event.tm-cal-schedule-event .fc-event-title-container {
-    order: 1;
-}
-
-.tm-calendar-host .fc .fc-timegrid-event[data-tm-cal-source="schedule"] .fc-event-time,
-#tmCalendarSideDockTimeline .fc .fc-timegrid-event[data-tm-cal-source="schedule"] .fc-event-time,
-.tm-calendar-host .fc .fc-timegrid-event.tm-cal-schedule-event .fc-event-time,
-#tmCalendarSideDockTimeline .fc .fc-timegrid-event.tm-cal-schedule-event .fc-event-time {
-    order: 2;
-    margin-left: 4px;
-}
 .tm-calendar-host .fc .fc-event[data-tm-cal-source="schedule"] .fc-event-time,
 #tmCalendarSideDockTimeline .fc .fc-event[data-tm-cal-source="schedule"] .fc-event-time,
 .tm-calendar-host .fc .fc-event.tm-cal-schedule-event .fc-event-time,
