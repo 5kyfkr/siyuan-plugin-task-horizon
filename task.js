@@ -938,14 +938,8 @@
         [data-theme-mode="light"] .tm-filter-rule-bar #tmDesktopMenu,
         [data-theme-mode="light"] .tm-filter-rule-bar #tmDesktopMenu .tm-btn,
         [data-theme-mode="light"] .tm-filter-rule-bar #tmDesktopMenu .tm-btn span,
-        [data-theme-mode="light"] .tm-filter-rule-bar #tmDesktopMenu .tm-tree-toggle-icon,
-        [data-theme-mode="light"] .tm-filter-rule-bar #tmDesktopMenu .tm-btn-info,
-        [data-theme-mode="light"] .tm-filter-rule-bar #tmDesktopMenu .tm-btn-secondary,
-        [data-theme-mode="light"] .tm-filter-rule-bar #tmDesktopMenu > div > span {
+        [data-theme-mode="light"] .tm-filter-rule-bar #tmDesktopMenu .tm-tree-toggle-icon {
             color: #1f2329 !important;
-        }
-        [data-theme-mode="light"] .tm-filter-rule-bar #tmDesktopMenu .tm-tree-toggle-icon path {
-            stroke: #1f2329 !important;
         }
 
         .tm-filter-rule-bar #tmMobileMenu .tm-view-segmented {
@@ -26944,19 +26938,6 @@ async function __tmRefreshAfterWake(reason) {
         const open = menu.style.display !== 'none';
         if (!open) {
             menu.style.display = 'block';
-            try {
-                const switcher = menu.querySelector('.tm-mobile-view-switcher');
-                if (switcher instanceof HTMLElement) {
-                    const switcherRect = switcher.getBoundingClientRect();
-                    const sidePadding = 20; // 菜单左右各 10px 内边距
-                    const maxWidth = Math.max(0, window.innerWidth - 20);
-                    const nextWidth = Math.round(Math.min(maxWidth, Math.max(180, switcherRect.width + sidePadding)));
-                    if (nextWidth > 0) {
-                        menu.style.width = `${nextWidth}px`;
-                        menu.style.maxWidth = `${nextWidth}px`;
-                    }
-                }
-            } catch (e2) {}
             
             if (state.mobileMenuCloseHandler) {
                 try { document.removeEventListener('click', state.mobileMenuCloseHandler); } catch (e2) {}
