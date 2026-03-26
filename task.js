@@ -20721,6 +20721,7 @@ async function __tmRefreshAfterWake(reason) {
         const showAiSideDock = __tmShouldShowAiSidebar() && !!state.aiSidebarOpen && !isMobile;
         const calendarSideDockWidth = Math.max(260, Math.min(760, Math.round(Number(SettingsStore.data.calendarSideDockWidth) || 340)));
         const aiSideDockWidth = Math.max(320, Math.min(720, Math.round(Number(state.aiSidebarWidth) || 380)));
+        const topbarPadding = (isDockHost && !isMobile) ? '5px 10px' : '10px 10px';
         const bodyWithSideDockHtml = (showCalendarSideDock || showAiSideDock)
             ? `
                 <div class="tm-main-body-with-cal-dock">
@@ -20743,7 +20744,7 @@ async function __tmRefreshAfterWake(reason) {
 
         state.modal.innerHTML = `
             <div class="tm-box${showCalendarSideDock || showAiSideDock ? ' tm-box--with-cal-dock' : ''}">
-                <div class="tm-filter-rule-bar" style="padding: 10px 10px;">
+                <div class="tm-filter-rule-bar" style="padding: ${topbarPadding};">
                     <div class="tm-topbar-row" style="display:flex;align-items:center;gap:10px;flex-wrap:nowrap;justify-content:space-between;min-width:0;">
                         <div class="tm-topbar-row" style="display:flex;align-items:center;gap:10px;">
                             <div class="tm-title" style="font-size: 16px; font-weight: 700; white-space: nowrap; display:inline-flex; align-items:center; gap:4px;">
