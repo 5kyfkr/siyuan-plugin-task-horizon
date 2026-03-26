@@ -1,5 +1,5 @@
 // @name         思源笔记任务管理器
-// @version      1.9.3
+// @version      1.9.4
 // @description  任务管理器，支持自定义筛选规则分组和排序
 // @author       5KYFKR
 
@@ -11981,6 +11981,7 @@ async function __tmRefreshAfterWake(reason) {
         const modal = modalEl instanceof Element ? modalEl : state.modal;
         if (!(modal instanceof Element)) return;
         if (state.viewMode !== 'list' && state.viewMode !== 'calendar') return;
+        if (SettingsStore.data.kanbanFillColumns !== true) return;
         const body = modal.querySelector(state.viewMode === 'calendar' ? '.tm-body.tm-body--calendar' : '.tm-body');
         if (!(body instanceof HTMLElement)) return;
         let lastWidth = Math.round(Number(body.clientWidth) || 0);
@@ -18857,7 +18858,8 @@ async function __tmRefreshAfterWake(reason) {
         const bodyAnimClass = (Date.now() - (Number(state.uiAnimTs) || 0) < 300)
             ? (kind === 'from-right' ? ' tm-body-anim--from-right' : kind === 'from-left' ? ' tm-body-anim--from-left' : ' tm-body-anim')
             : '';
-        const tableAvailableWidth = (() => {
+        const tableFillColumns = SettingsStore.data.kanbanFillColumns === true;
+        const tableAvailableWidth = tableFillColumns ? (() => {
             const values = [];
             try {
                 const prevBody = prevModalSnapshot?.querySelector?.('.tm-body:not(.tm-body--timeline)');
@@ -18873,7 +18875,7 @@ async function __tmRefreshAfterWake(reason) {
                 if (vw > 0) values.push(Math.max(0, vw - (isMobile ? 24 : 48)));
             } catch (e) {}
             return values.find((n) => Number.isFinite(n) && n > 0) || 0;
-        })();
+        })() : 0;
         state.tableAvailableWidth = tableAvailableWidth;
         
         state.modal = document.createElement('div');
@@ -26432,7 +26434,8 @@ async function __tmRefreshAfterWake(reason) {
 
             const colOrder = SettingsStore.data.columnOrder;
             const widths = SettingsStore.data.columnWidths || {};
-            const tableAvailableWidth = (() => {
+            const tableFillColumns = SettingsStore.data.kanbanFillColumns === true;
+            const tableAvailableWidth = tableFillColumns ? (() => {
                 const values = [];
                 try {
                     const el = state.modal?.querySelector?.('.tm-body.tm-body--calendar');
@@ -26449,7 +26452,7 @@ async function __tmRefreshAfterWake(reason) {
                     if (vw > 0) values.push(Math.max(0, vw - 48));
                 } catch (e) {}
                 return values.find((n) => Number.isFinite(n) && n > 0) || 0;
-            })();
+            })() : 0;
             state.tableAvailableWidth = tableAvailableWidth;
             const tableLayout = __tmGetTableWidthLayout(colOrder, widths, tableAvailableWidth);
             const headers = {
