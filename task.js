@@ -921,6 +921,20 @@
             border: 1px solid var(--tm-input-border);
         }
 
+        [data-theme-mode="light"] .tm-filter-rule-bar #tmMobileMenu,
+        [data-theme-mode="light"] .tm-filter-rule-bar #tmMobileMenu .tm-mobile-menu-label,
+        [data-theme-mode="light"] .tm-filter-rule-bar #tmMobileMenu .bc-select-trigger,
+        [data-theme-mode="light"] .tm-filter-rule-bar #tmMobileMenu .bc-select-option,
+        [data-theme-mode="light"] .tm-filter-rule-bar #tmMobileMenu .tm-view-seg-item,
+        [data-theme-mode="light"] .tm-filter-rule-bar #tmMobileMenu .tm-btn {
+            color: #1f2329 !important;
+        }
+
+        [data-theme-mode="light"] .tm-filter-rule-bar #tmMobileMenu .tm-view-seg-item--active,
+        [data-theme-mode="light"] .tm-filter-rule-bar #tmMobileMenu .tm-btn.tm-btn-primary {
+            color: #ffffff !important;
+        }
+
         .tm-filter-rule-bar #tmMobileMenu .tm-view-segmented {
             background: var(--tm-input-bg);
             border: 1px solid var(--tm-input-border);
@@ -963,18 +977,17 @@
         .tm-header-selectors {
             min-width: 0;
             flex-wrap: nowrap;
-            overflow-x: auto;
-            overflow-y: visible;
-            -webkit-overflow-scrolling: touch;
+            overflow: hidden;
         }
 
-        .tm-header-selectors::-webkit-scrollbar {
-            height: 4px;
+        .tm-filter-rule-bar .tm-search-box,
+        .tm-filter-rule-bar .tm-header-selectors {
+            scrollbar-width: none;
         }
 
-        .tm-header-selectors::-webkit-scrollbar-thumb {
-            background: var(--tm-topbar-scrollbar-thumb);
-            border-radius: 999px;
+        .tm-filter-rule-bar .tm-search-box::-webkit-scrollbar,
+        .tm-filter-rule-bar .tm-header-selectors::-webkit-scrollbar {
+            display: none;
         }
         
         .tm-rule-display {
@@ -1575,18 +1588,7 @@
             align-items: center;
             gap: 8px;
             flex-wrap: nowrap;
-            overflow-x: auto;
-            overflow-y: visible;
-            -webkit-overflow-scrolling: touch;
-        }
-
-        .tm-search-box::-webkit-scrollbar {
-            height: 4px;
-        }
-
-        .tm-search-box::-webkit-scrollbar-thumb {
-            background: var(--tm-topbar-scrollbar-thumb);
-            border-radius: 999px;
+            overflow: hidden;
         }
 
         .tm-view-segmented {
@@ -1626,6 +1628,23 @@
         .tm-filter-rule-bar .bc-tabs-trigger {
             height: 30px !important;
             min-height: 30px !important;
+            font-size: 13px !important;
+            font-weight: 500 !important;
+        }
+
+        .tm-filter-rule-bar .bc-btn,
+        .tm-filter-rule-bar .bc-btn--sm,
+        .tm-filter-rule-bar .bc-select-trigger,
+        .tm-filter-rule-bar .tm-view-seg-item,
+        .tm-filter-rule-bar .tm-mobile-menu-btn button {
+            font-weight: 500 !important;
+            font-size: 13px !important;
+        }
+
+        .tm-filter-rule-bar {
+            min-height: 52px;
+            box-sizing: border-box;
+            overflow: visible;
         }
 
         .tm-filter-rule-bar .bc-tabs-list {
@@ -1672,6 +1691,35 @@
 
         .tm-filter-rule-bar .tm-topbar-select--wide {
             min-width: 0;
+        }
+
+        .tm-filter-rule-bar #tmMobileMenu {
+            color: var(--tm-text-color);
+        }
+
+        .tm-filter-rule-bar #tmMobileMenu .tm-mobile-view-switcher-wrap {
+            overflow: hidden;
+        }
+
+        .tm-filter-rule-bar #tmMobileMenu .tm-mobile-view-switcher {
+            width: 100%;
+            min-width: 0;
+            display: flex;
+            flex-wrap: wrap;
+            justify-content: flex-start;
+            height: auto !important;
+            min-height: 0 !important;
+            gap: 4px;
+            padding: 4px;
+        }
+
+        .tm-filter-rule-bar #tmMobileMenu .tm-mobile-view-switcher .tm-view-seg-item {
+            min-height: 24px !important;
+            height: 24px !important;
+            line-height: 24px !important;
+            font-size: 12px !important;
+            padding: 0 8px !important;
+            border-radius: 6px;
         }
 
         .tm-view-seg-item:hover {
@@ -20716,8 +20764,8 @@ async function __tmRefreshAfterWake(reason) {
                             <div style="display:flex; flex-direction:column; gap:10px;">
                                 <div class="tm-mobile-only-item" style="display:flex; flex-direction:column; gap:6px; align-items:stretch;">
                                     <span style="color:var(--tm-text-color);">视图:</span>
-                                    <div style="overflow-x:auto; -webkit-overflow-scrolling:touch;">
-                                        <div class="tm-view-segmented bc-tabs-list" role="tablist" aria-label="视图" style="height:28px; min-width:max-content;">
+                                    <div class="tm-mobile-view-switcher-wrap">
+                                        <div class="tm-view-segmented bc-tabs-list tm-mobile-view-switcher" role="tablist" aria-label="视图">
                                             ${__tmRenderViewSwitcherButtons({ compact: true })}
                                         </div>
                                     </div>
