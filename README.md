@@ -8,11 +8,26 @@
 
 PR贡献名单：[bytemain](https://github.com/bytemain)
 
-赞助者名单：[bigyelloworange](https://ld246.com/member/bigyelloworange) / [Floria233](https://ld246.com/member/Floria233) / [nj90hou](https://ld246.com/member/nj90hou) / [sky90038528](https://ld246.com/member/sky90038528) / [Lu9693](https://ld246.com/member/Lu9693) / [ggltxj](https://ld246.com/member/ggltxj) / [mozhu](https://ld246.com/member/mozhu) / [ppt68298100](https://ld246.com/member/ppt68298100) 
+赞助者名单：[bigyelloworange](https://ld246.com/member/bigyelloworange) / [Floria233](https://ld246.com/member/Floria233) / [nj90hou](https://ld246.com/member/nj90hou) / [sky90038528](https://ld246.com/member/sky90038528) / [Lu9693](https://ld246.com/member/Lu9693) / [ggltxj](https://ld246.com/member/ggltxj) / [mozhu](https://ld246.com/member/mozhu) / [ppt68298100](https://ld246.com/member/ppt68298100) / [NorthCJ](https://ld246.com/member/NorthCJ) / [601063672](https://ld246.com/member/601063672) 
+
+插件交流Q群：[758666272](https://qm.qq.com/q/MRkXe3Z00U) 
 
 # 更新记录
 
-## 1.9.4更新内容
+## 1.9.5更新内容
+- **新增：视图选择器页面底部切换栏，移动端、桌面侧边栏中视图切换更快捷**
+- 优化：日历打开视图默认要包含今天所在的范围
+- 优化：隐藏表格视图日历侧边栏滚动条占位
+- 优化：看板、白板卡片的备注移至到任务名称下方
+- 优化：插件分屏下顶栏元素排布，重启思源生效
+- 优化：顶栏下拉菜单增加动画过渡
+- 优化：日历视图按钮样式
+- 修复：只添加笔记本分组后，异常“请先在设置中选择文档”的提示
+- 修复：设置里默认新建文档选择今天日记后，设置选项变成了未知文档的问题
+- 修复：月视图不显示任务名称后的时间范围
+- 修复：按钮Tooltip样式不一致
+
+## 1.9.4更新内容  
 - **新增：日历视图新增日历3日、工作日视图**
 - **新增：常规设置->视图与布局新增：看板、白板卡片字段配置，可配置重要性 状态 日期 备注是否在卡片中显示**
 - **新增：常规设置->视图与布局新增：表格和看板宽度填满窗口配置，开启后窗口宽于所有表格列或看板列总宽时，按当前列宽比例自动拉伸填满；窗口较窄时仍保持固定列宽横向滚动。**

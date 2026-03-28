@@ -1,5 +1,5 @@
 // @name         思源笔记任务管理器
-// @version      1.9.4
+// @version      1.9.5
 // @description  任务管理器，支持自定义筛选规则分组和排序
 // @author       5KYFKR
 
@@ -1274,7 +1274,7 @@
         }
 
         /* 分屏模式样式 - 通过容器宽度检测 */
-        @media (max-width: 900px) {
+        @media (max-width: 760px) {
             .tm-modal:not(.tm-modal--dock) .tm-filter-rule-bar {
                 flex-wrap: nowrap !important;
                 min-height: 42px !important;
@@ -1321,7 +1321,7 @@
             .tm-modal:not(.tm-modal--dock) .tm-search-box.tm-desktop-toolbar {
                 display: none !important;
             }
-            
+
             .tm-modal:not(.tm-modal--dock) .tm-mobile-menu-btn,
             .tm-modal:not(.tm-modal--dock) .tm-mobile-menu-btn[style*="display: none"] {
                 display: flex !important;
@@ -1396,8 +1396,15 @@
             }
         }
 
+        /* 容器查询：处理中间档位，先隐藏文档/规则/分组区，保留后部视图与按钮 */
+        @container tm-modal (max-width: 1024px) {
+            .tm-modal:not(.tm-modal--dock) .tm-header-selectors {
+                display: none !important;
+            }
+        }
+
         /* 容器查询：处理分屏/窄屏模式 - 基于容器宽度而非视口宽度 */
-        @container tm-modal (max-width: 900px) {
+        @container tm-modal (max-width: 760px) {
             /* 隐藏桌面端工具栏，显示移动端菜单按钮 */
             .tm-modal:not(.tm-modal--dock) .tm-desktop-toolbar.tm-header-selectors {
                 display: none !important;
@@ -1411,6 +1418,19 @@
             .tm-modal:not(.tm-modal--dock) .tm-mobile-menu-btn,
             .tm-modal:not(.tm-modal--dock) .tm-mobile-menu-btn[style*="display: none"] {
                 display: flex !important;
+            }
+
+            .tm-modal:not(.tm-modal--dock) .tm-compact-topbar-actions {
+                display: flex !important;
+                gap: 6px !important;
+            }
+
+            .tm-modal:not(.tm-modal--dock) .tm-compact-topbar-action--refresh {
+                display: inline-flex !important;
+            }
+
+            .tm-modal:not(.tm-modal--dock) .tm-compact-topbar-action--settings {
+                display: none !important;
             }
             
             /* 移动端专属项目显示 */
@@ -1726,6 +1746,19 @@
             font-size: 13px !important;
         }
 
+        .tm-filter-rule-bar .tm-topbar-add-btn,
+        .tm-filter-rule-bar .tm-topbar-add-btn:hover,
+        .tm-filter-rule-bar .tm-topbar-add-btn:focus,
+        .tm-filter-rule-bar .tm-topbar-add-btn:active {
+            background: var(--tm-success-color) !important;
+            color: #ffffff !important;
+            border-color: var(--tm-success-color) !important;
+        }
+
+        .tm-filter-rule-bar .tm-topbar-add-btn:hover {
+            opacity: 0.9;
+        }
+
         .tm-filter-rule-bar .tm-view-segmented .tm-view-seg-item {
             font-weight: 600 !important;
         }
@@ -1781,8 +1814,44 @@
         }
 
         .tm-filter-rule-bar .tm-topbar-row {
-            min-width: max-content;
+            min-width: 0;
             flex-wrap: nowrap !important;
+        }
+
+        .tm-filter-rule-bar .tm-topbar-row--main {
+            width: 100%;
+            min-width: 0;
+        }
+
+        .tm-filter-rule-bar .tm-topbar-row--brand {
+            flex: 0 1 auto;
+            min-width: 0;
+        }
+
+        .tm-filter-rule-bar .tm-title {
+            min-width: 0;
+            flex: 0 1 auto;
+        }
+
+        .tm-filter-rule-bar .tm-topbar-right {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            margin-left: auto;
+            min-width: 0;
+            flex: 0 0 auto;
+        }
+
+        .tm-filter-rule-bar .tm-compact-topbar-actions {
+            display: none !important;
+            align-items: center;
+            gap: 8px;
+            min-width: 0;
+            flex: 0 0 auto;
+        }
+
+        .tm-filter-rule-bar .tm-compact-topbar-action {
+            flex: 0 0 auto;
         }
 
         .tm-filter-rule-bar .tm-rule-selector {
@@ -1806,12 +1875,101 @@
             min-width: 0;
         }
 
+        .tm-filter-rule-bar .tm-topbar-select .bc-select-trigger {
+            width: 100%;
+            min-width: 0;
+        }
+
+        .tm-filter-rule-bar .tm-topbar-select .bc-select-trigger__value {
+            min-width: 0;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+        }
+
         .tm-filter-rule-bar .tm-search-box,
         .tm-filter-rule-bar .tm-header-selectors,
         .tm-filter-rule-bar .tm-topbar-row,
         .tm-filter-rule-bar .tm-mobile-menu-btn,
         .tm-filter-rule-bar .tm-view-segmented {
             overflow: visible;
+        }
+
+        @container tm-modal (max-width: 1280px) {
+            .tm-modal:not(.tm-modal--dock) .tm-header-selectors .tm-rule-label,
+            .tm-modal:not(.tm-modal--dock) .tm-header-selectors .tm-rule-display {
+                display: none !important;
+            }
+
+            .tm-modal:not(.tm-modal--dock) .tm-header-selectors .tm-topbar-spacer {
+                display: none !important;
+            }
+
+            .tm-modal:not(.tm-modal--dock) .tm-header-selectors {
+                gap: 6px !important;
+            }
+
+            .tm-modal:not(.tm-modal--dock) .tm-header-selectors .tm-rule-selector {
+                gap: 6px !important;
+            }
+
+            .tm-modal:not(.tm-modal--dock) .tm-search-box {
+                gap: 6px !important;
+            }
+        }
+
+        @container tm-modal (max-width: 1160px) {
+            .tm-modal:not(.tm-modal--dock) .tm-header-selectors .tm-topbar-select {
+                width: 118px !important;
+            }
+
+            .tm-modal:not(.tm-modal--dock) .tm-search-box .tm-view-segmented {
+                min-width: 0;
+                max-width: 420px;
+                overflow: hidden;
+            }
+
+            .tm-modal:not(.tm-modal--dock) .tm-search-box .tm-view-seg-item,
+            .tm-modal:not(.tm-modal--dock) .tm-search-box .bc-tabs-trigger {
+                padding: 0 10px !important;
+                font-size: 12px !important;
+            }
+        }
+
+        @container tm-modal (max-width: 1040px) {
+            .tm-modal:not(.tm-modal--dock) .tm-filter-rule-bar {
+                gap: 6px;
+                padding-left: 8px !important;
+                padding-right: 8px !important;
+            }
+
+            .tm-modal:not(.tm-modal--dock) .tm-header-selectors {
+                gap: 4px !important;
+            }
+
+            .tm-modal:not(.tm-modal--dock) .tm-header-selectors .tm-rule-selector {
+                gap: 4px !important;
+            }
+
+            .tm-modal:not(.tm-modal--dock) .tm-header-selectors .tm-topbar-select {
+                width: 100px !important;
+            }
+
+            .tm-modal:not(.tm-modal--dock) .tm-search-box .tm-view-segmented {
+                max-width: 340px;
+            }
+
+            .tm-modal:not(.tm-modal--dock) .tm-search-box .tm-view-seg-item,
+            .tm-modal:not(.tm-modal--dock) .tm-search-box .bc-tabs-trigger {
+                padding: 0 8px !important;
+                font-size: 12px !important;
+            }
+        }
+
+        @container tm-modal (max-width: 760px) {
+            .tm-modal:not(.tm-modal--dock) .tm-topbar-right {
+                gap: 6px !important;
+            }
         }
 
         .tm-filter-rule-bar #tmMobileMenu {
@@ -1911,6 +2069,68 @@
             overflow-x: hidden;
             overflow-y: hidden;
             overscroll-behavior: none;
+        }
+
+        .tm-list-pane {
+            flex: 1 1 auto;
+            min-width: 0;
+            min-height: 0;
+            position: relative;
+            display: flex;
+        }
+
+        .tm-list-pane > .tm-body.tm-body--list {
+            flex: 1 1 auto;
+            min-width: 0;
+            min-height: 0;
+        }
+
+        .tm-body.tm-body--list::-webkit-scrollbar {
+            width: 10px;
+            height: 10px;
+        }
+
+        .tm-body.tm-body--list::-webkit-scrollbar:vertical {
+            width: 0;
+        }
+
+        .tm-body.tm-body--list::-webkit-scrollbar-track {
+            background: transparent;
+        }
+
+        .tm-body.tm-body--list::-webkit-scrollbar-thumb:horizontal {
+            background: color-mix(in srgb, var(--tm-secondary-text) 28%, transparent);
+            border-radius: 999px;
+        }
+
+        .tm-body.tm-body--list::-webkit-scrollbar-corner {
+            background: transparent;
+        }
+
+        .tm-table-scrollbar {
+            position: absolute;
+            top: 10px;
+            bottom: 10px;
+            right: 2px;
+            width: 8px;
+            pointer-events: none;
+            opacity: 0;
+            transition: opacity 0.18s ease;
+            z-index: 24;
+        }
+
+        .tm-table-scrollbar.tm-table-scrollbar--visible {
+            opacity: 1;
+        }
+
+        .tm-table-scrollbar-thumb {
+            position: absolute;
+            left: 1px;
+            width: 6px;
+            min-height: 24px;
+            border-radius: 999px;
+            background: color-mix(in srgb, var(--tm-secondary-text) 28%, transparent);
+            transform: translateY(0);
         }
 
         .tm-body.tm-body--timeline {
@@ -5515,6 +5735,23 @@
         @keyframes tmBodyInFromLeft {
             from { opacity: 1; transform: translateX(-18px); }
             to { opacity: 1; transform: translateX(0); }
+        }
+
+        .tm-popup-surface {
+            transform-origin: top center;
+            will-change: transform, opacity;
+        }
+
+        .tm-popup-surface[data-popup-origin="top-left"] {
+            transform-origin: top left;
+        }
+
+        .tm-popup-surface[data-popup-origin="top-right"] {
+            transform-origin: top right;
+        }
+
+        .tm-popup-surface[data-popup-origin="top-center"] {
+            transform-origin: top center;
         }
 
         .tm-body.tm-body-anim--from-right {
@@ -10226,6 +10463,8 @@
         calendarDockDate: '',
         docTabsHidden: false,
         docTabsScrollLeft: 0,
+        mobileBottomViewbarActiveUntil: 0,
+        mobileBottomViewbarTimer: 0,
         ganttView: {
             dayWidth: 24,
             paddingDays: 7,
@@ -11756,9 +11995,9 @@ async function __tmRefreshAfterWake(reason) {
             : (opts.ariaLabel == null ? text : String(opts.ariaLabel || ''));
         const ariaLabel = String(ariaLabelRaw || '').trim();
         const attrs = [
-            `data-tooltip="${__tmEscAttr(text)}"`,
-            `data-side="${__tmEscAttr(side)}"`,
-            `data-align="${__tmEscAttr(align)}"`,
+            `data-tm-floating-tooltip-label="${__tmEscAttr(text)}"`,
+            `data-tm-tooltip-side="${__tmEscAttr(side)}"`,
+            `data-tm-tooltip-align="${__tmEscAttr(align)}"`,
         ];
         if (ariaLabel) attrs.push(`aria-label="${__tmEscAttr(ariaLabel)}"`);
         return ` ${attrs.join(' ')}`;
@@ -11911,22 +12150,10 @@ async function __tmRefreshAfterWake(reason) {
         if (!(modal instanceof Element)) return;
         modal.querySelectorAll('.tm-topbar-select .bc-select-trigger').forEach((trigger) => {
             if (!(trigger instanceof HTMLElement)) return;
-            const valueEl = trigger.querySelector('.bc-select-trigger__value');
             const labelText = String(trigger.getAttribute('data-tm-tooltip-label') || '').trim();
-            const valueText = String(valueEl?.textContent || '').trim();
             const side = String(trigger.getAttribute('data-tm-tooltip-side') || 'bottom').trim() || 'bottom';
             const align = String(trigger.getAttribute('data-tm-tooltip-align') || 'center').trim() || 'center';
-            const overflow = valueEl instanceof HTMLElement
-                && (Math.ceil(valueEl.scrollWidth) - Math.floor(valueEl.clientWidth) > 1);
-            const selector = trigger.closest('.tm-rule-selector');
-            const labelEl = selector?.querySelector('.tm-rule-label');
-            const labelHidden = labelEl instanceof HTMLElement
-                && window.getComputedStyle(labelEl).display === 'none';
-            let tooltipText = '';
-            if (labelHidden && overflow) tooltipText = `${labelText}：${valueText}`;
-            else if (labelHidden) tooltipText = labelText || valueText;
-            else if (overflow) tooltipText = valueText || labelText;
-            __tmApplyTooltipAttrsToElement(trigger, tooltipText, { side, align });
+            __tmApplyTooltipAttrsToElement(trigger, labelText, { side, align });
         });
     }
 
@@ -12051,7 +12278,7 @@ async function __tmRefreshAfterWake(reason) {
         if (opts.style) styleParts.push(String(opts.style));
         styleParts.push(`width:${widthPx}px;`);
         const styleAttr = styleParts.length ? ` style="${__tmEscAttr(styleParts.join(' '))}"` : '';
-        const tooltipLabel = String(opts.tooltip || current.label || label || '').trim();
+        const tooltipLabel = String(opts.tooltip || label || current.label || '').trim();
         return `
             <div class="tm-topbar-select ${extraClass}" id="${__tmEscAttr(id)}" data-open="false"${styleAttr}>
                 <button class="bc-select-trigger" type="button" onclick="tmToggleTopbarSelect('${escSq(id)}', event)" aria-haspopup="listbox" aria-expanded="false" data-tm-tooltip-label="${__tmEscAttr(tooltipLabel)}" data-tm-tooltip-side="bottom" data-tm-tooltip-align="center">
@@ -13064,6 +13291,7 @@ async function __tmRefreshAfterWake(reason) {
         }
         try { if (body) body.scrollTop = top; } catch (e) {}
         try { if (body) body.scrollLeft = left; } catch (e) {}
+        try { body?.__tmTableScrollUpdateThumb?.(); } catch (e) {}
         try { __tmApplyReminderTaskNameMarks(modal); } catch (e) {}
         try { __tmScheduleReminderTaskNameMarksRefresh(modal); } catch (e) {}
         try { __tmApplyTodayScheduledTaskNameMarks(modal); } catch (e) {}
@@ -14427,6 +14655,56 @@ async function __tmRefreshAfterWake(reason) {
         } catch (e) {}
     }
 
+    function __tmBindListScrollVisibility(modalEl) {
+        const modal = modalEl instanceof Element ? modalEl : state.modal;
+        const pane = modal?.querySelector?.('.tm-body.tm-body--list');
+        const track = modal?.querySelector?.('.tm-table-scrollbar');
+        const thumb = track?.querySelector?.('.tm-table-scrollbar-thumb');
+        if (!(pane instanceof HTMLElement)) return;
+        if (!(track instanceof HTMLElement) || !(thumb instanceof HTMLElement)) return;
+        if (pane.__tmTableScrollFxBound) return;
+        pane.__tmTableScrollFxBound = true;
+        const updateThumb = () => {
+            const viewport = Number(pane.clientHeight || 0);
+            const total = Number(pane.scrollHeight || 0);
+            const trackHeight = Number(track.clientHeight || 0);
+            if (!viewport || !total || total <= viewport + 1 || !trackHeight) {
+                track.classList.remove('tm-table-scrollbar--visible');
+                thumb.style.height = '0px';
+                thumb.style.transform = 'translateY(0)';
+                return;
+            }
+            const ratio = Math.min(1, viewport / total);
+            const thumbHeight = Math.max(24, Math.round(trackHeight * ratio));
+            const maxTop = Math.max(0, trackHeight - thumbHeight);
+            const progress = Math.min(1, Math.max(0, Number(pane.scrollTop || 0) / Math.max(1, total - viewport)));
+            const top = Math.round(maxTop * progress);
+            thumb.style.height = `${thumbHeight}px`;
+            thumb.style.transform = `translateY(${top}px)`;
+        };
+        pane.__tmTableScrollUpdateThumb = updateThumb;
+        const show = () => {
+            updateThumb();
+            track.classList.add('tm-table-scrollbar--visible');
+            try { clearTimeout(pane.__tmTableScrollFxTimer); } catch (e) {}
+            pane.__tmTableScrollFxTimer = setTimeout(() => {
+                try { track.classList.remove('tm-table-scrollbar--visible'); } catch (e2) {}
+            }, 600);
+        };
+        pane.addEventListener('scroll', show, { passive: true });
+        pane.addEventListener('scroll', updateThumb, { passive: true });
+        try {
+            const ro = new ResizeObserver(() => updateThumb());
+            ro.observe(pane);
+            const table = pane.querySelector('#tmTaskTable');
+            if (table instanceof HTMLElement) ro.observe(table);
+            pane.__tmTableScrollResizeObserver = ro;
+        } catch (e) {}
+        try {
+            requestAnimationFrame(() => updateThumb());
+        } catch (e) {}
+    }
+
     function __tmBindDocTabWheelScroll(modalEl) {
         const modal = modalEl instanceof Element ? modalEl : state.modal;
         const pane = modal?.querySelector?.('.tm-doc-tabs-scroll');
@@ -14448,6 +14726,30 @@ async function __tmRefreshAfterWake(reason) {
         pane.addEventListener('wheel', onWheel, { passive: false });
         pane.__tmDocTabWheelBound = true;
         pane.__tmDocTabWheelHandler = onWheel;
+    }
+
+    function __tmBindBottomViewbarWheelScroll(modalEl) {
+        const modal = modalEl instanceof Element ? modalEl : state.modal;
+        const pane = modal?.querySelector?.('.tm-mobile-bottom-viewbar__inner');
+        if (!(pane instanceof HTMLElement) || pane.__tmBottomViewbarWheelBound) return;
+        const onWheel = (event) => {
+            if (!(event instanceof WheelEvent) || event.ctrlKey) return;
+            const maxLeft = Math.max(0, (Number(pane.scrollWidth) || 0) - (Number(pane.clientWidth) || 0));
+            if (maxLeft <= 1) return;
+            const deltaX = Number(event.deltaX) || 0;
+            const deltaY = Number(event.deltaY) || 0;
+            const primaryDelta = Math.abs(deltaX) > Math.abs(deltaY) ? deltaX : deltaY;
+            if (!primaryDelta) return;
+            const prevLeft = Number(pane.scrollLeft) || 0;
+            const nextLeft = Math.max(0, Math.min(maxLeft, prevLeft + primaryDelta));
+            if (Math.abs(nextLeft - prevLeft) < 0.5) return;
+            pane.scrollLeft = nextLeft;
+            try { if (typeof window.tmTouchMobileBottomViewbar === 'function') window.tmTouchMobileBottomViewbar(event); } catch (e) {}
+            event.preventDefault();
+        };
+        pane.addEventListener('wheel', onWheel, { passive: false });
+        pane.__tmBottomViewbarWheelBound = true;
+        pane.__tmBottomViewbarWheelHandler = onWheel;
     }
 
     function __tmBindDocTabScrollMemory(modalEl) {
@@ -18636,10 +18938,13 @@ async function __tmRefreshAfterWake(reason) {
                 case 'clipboard-list': return '<rect x="9" y="3" width="6" height="4" rx="1"></rect><path d="M9 5H7a2 2 0 0 0-2 2v11a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V7a2 2 0 0 0-2-2h-2"></path><path d="M9 12h6"></path><path d="M9 16h6"></path>';
                 case 'calendar-days': return '<path d="M8 2v4"></path><path d="M16 2v4"></path><rect x="3" y="4" width="18" height="18" rx="2"></rect><path d="M3 10h18"></path><path d="M8 14h.01"></path><path d="M12 14h.01"></path><path d="M16 14h.01"></path><path d="M8 18h.01"></path><path d="M12 18h.01"></path><path d="M16 18h.01"></path>';
                 case 'refresh-cw': return '<path d="M21 12a9 9 0 0 0-15.5-6.4L3 8"></path><path d="M3 3v5h5"></path><path d="M3 12a9 9 0 0 0 15.5 6.4L21 16"></path><path d="M16 16h5v5"></path>';
+                case 'chevron-left': return '<path d="m15 18-6-6 6-6"></path>';
+                case 'chevron-right': return '<path d="m9 18 6-6-6-6"></path>';
                 case 'map': return '<polygon points="3 6 9 3 15 6 21 3 21 18 15 21 9 18 3 21"></polygon><line x1="9" y1="3" x2="9" y2="18"></line><line x1="15" y1="6" x2="15" y2="21"></line>';
                 case 'bot': return '<rect x="3" y="11" width="18" height="10" rx="2"></rect><circle cx="12" cy="5" r="2"></circle><path d="M12 7v4"></path><line x1="8" y1="16" x2="8" y2="16"></line><line x1="16" y1="16" x2="16" y2="16"></line>';
                 case 'settings': return '<path d="M12 15.5a3.5 3.5 0 1 0 0-7 3.5 3.5 0 0 0 0 7Z"></path><path d="M19.4 15a1.7 1.7 0 0 0 .34 1.87l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.7 1.7 0 0 0-1.87-.34 1.7 1.7 0 0 0-1 1.55V21a2 2 0 1 1-4 0v-.09a1.7 1.7 0 0 0-1-1.55 1.7 1.7 0 0 0-1.87.34l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06A1.7 1.7 0 0 0 4.6 15a1.7 1.7 0 0 0-1.55-1H3a2 2 0 1 1 0-4h.09a1.7 1.7 0 0 0 1.55-1 1.7 1.7 0 0 0-.34-1.87l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06A1.7 1.7 0 0 0 9 4.6a1.7 1.7 0 0 0 1-1.55V3a2 2 0 1 1 4 0v.09a1.7 1.7 0 0 0 1 1.55 1.7 1.7 0 0 0 1.87-.34l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06A1.7 1.7 0 0 0 19.4 9c.65.26 1.35.41 2.05.41H21a2 2 0 1 1 0 4h-.09c-.7 0-1.4.15-2.05.59Z"></path>';
                 case 'menu': return '<line x1="4" y1="6" x2="20" y2="6"></line><line x1="4" y1="12" x2="20" y2="12"></line><line x1="4" y1="18" x2="20" y2="18"></line>';
+                case 'plus': return '<path d="M12 5v14"></path><path d="M5 12h14"></path>';
                 case 'x': return '<path d="M18 6 6 18"></path><path d="m6 6 12 12"></path>';
                 case 'search': return '<circle cx="11" cy="11" r="8"></circle><path d="m21 21-4.3-4.3"></path>';
                 case 'puzzle': return '<path d="M19.43 12.98V17a2 2 0 0 1-2 2h-4.02a2 2 0 0 1-3.84 0H5.55a2 2 0 0 1-2-2v-4.02a2 2 0 0 1 0-3.84V5.12a2 2 0 0 1 2-2h4.02a2 2 0 0 1 3.84 0h4.02a2 2 0 0 1 2 2v4.02a2 2 0 0 1 0 3.84Z"></path>';
@@ -18670,6 +18975,11 @@ async function __tmRefreshAfterWake(reason) {
         return `<span class="${cls}" data-tm-lucide="${iconName}">${__tmLucideIconSvg(iconName)}</span>`;
     }
 
+    function __tmRenderTaskHorizonTopbarIcon(size = 18) {
+        const iconSize = Math.max(1, Number(size) || 18);
+        return `<svg viewBox="0 0 24 24" width="${iconSize}" height="${iconSize}" aria-hidden="true" style="display:block;fill:none;flex:0 0 auto;"><use href="#iconTaskHorizon" xlink:href="#iconTaskHorizon"></use></svg>`;
+    }
+
     window.tmHandleManagerTitleClick = function(ev) {
         try { ev?.stopPropagation?.(); } catch (e) {}
         try { ev?.preventDefault?.(); } catch (e) {}
@@ -18681,6 +18991,10 @@ async function __tmRefreshAfterWake(reason) {
         try { ev?.preventDefault?.(); } catch (e) {}
         if (globalThis.__taskHorizonPluginIsMobile) return;
         try {
+            if (String(state.viewMode || '').trim() === 'calendar' && typeof window.tmCalendarToggleSidebar === 'function') {
+                window.tmCalendarToggleSidebar();
+                return;
+            }
             if (typeof window.tmToggleCalendarSideDock === 'function') {
                 await window.tmToggleCalendarSideDock();
             }
@@ -18964,8 +19278,9 @@ async function __tmRefreshAfterWake(reason) {
             }] : [])
         ];
 
-        const __tmRenderListBodyHtml = () => `
-                <div class="tm-body${bodyAnimClass}">
+    const __tmRenderListBodyHtml = () => `
+                <div class="tm-list-pane">
+                    <div class="tm-body tm-body--list${bodyAnimClass}">
                     <table class="tm-table" id="tmTaskTable" style="${(() => {
                         const colOrder = SettingsStore.data.columnOrder || ['pinned', 'content', 'status', 'score', 'doc', 'h2', 'priority', 'startDate', 'completionTime', 'duration', 'spent', 'remark'];
                         const widths = SettingsStore.data.columnWidths || {};
@@ -19004,6 +19319,8 @@ async function __tmRefreshAfterWake(reason) {
                             ${renderTaskList()}
                         </tbody>
                     </table>
+                    </div>
+                    <div class="tm-table-scrollbar"><div class="tm-table-scrollbar-thumb"></div></div>
                 </div>
             `;
 
@@ -19966,8 +20283,8 @@ async function __tmRefreshAfterWake(reason) {
                             <button class="tm-kanban-more" onclick="tmOpenTaskDetail('${id}', event)">⋯</button>
                         </div>
                         ${parentTxt ? `<div class="tm-kanban-parent-line" style="font-size:12px;color:var(--tm-secondary-text);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;margin-bottom:6px;" title="${esc(parentTxt)}"><span>父任务：</span><span style="font-weight:800;color:var(--tm-text-color);">${esc(parentTxt)}</span></div>` : ''}
-                        ${metaParts.length ? `<div class="tm-kanban-card-meta">${metaParts.join('')}</div>` : ''}
                         ${remarkHtml}
+                        ${metaParts.length ? `<div class="tm-kanban-card-meta">${metaParts.join('')}</div>` : ''}
                         ${(isAllTabsView && docName) ? `<div style="font-size:12px;color:var(--tm-secondary-text);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">📄 ${esc(docName)}</div>` : ''}
                         ${childrenHtml ? `<div class="tm-kanban-subtasks">${childrenHtml}</div>` : ''}
                     </div>
@@ -20964,8 +21281,8 @@ async function __tmRefreshAfterWake(reason) {
                                 ${opBtn}
                             </div>
                             ${(detachedOrDetachedLike && parentText) ? `<div style="font-size:12px;color:var(--tm-secondary-text);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;margin-bottom:4px;" title="${esc(parentText)}"><span>父任务：</span><span style="font-weight:800;color:var(--tm-text-color);">${esc(parentText)}</span></div>` : ''}
-                            ${metaParts.length ? `<div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap;">${metaParts.join('')}</div>` : ''}
                             ${remarkHtml}
+                            ${metaParts.length ? `<div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap;">${metaParts.join('')}</div>` : ''}
                             ${childrenHtml}
                         </div>
                     `;
@@ -21343,6 +21660,8 @@ async function __tmRefreshAfterWake(reason) {
         const showAiSideDock = __tmShouldShowAiSidebar() && !!state.aiSidebarOpen && !isMobile;
         const calendarSideDockWidth = Math.max(260, Math.min(760, Math.round(Number(SettingsStore.data.calendarSideDockWidth) || 340)));
         const aiSideDockWidth = Math.max(320, Math.min(720, Math.round(Number(state.aiSidebarWidth) || 380)));
+        const showMobileBottomViewBar = isMobile || isDockHost;
+        const mobileBottomViewbarActive = showMobileBottomViewBar && (Date.now() < (Number(state.mobileBottomViewbarActiveUntil) || 0));
         const useCompactTopbar = !isMobile || isDockHost;
         const topbarPadding = useCompactTopbar ? '5px 10px' : '10px 10px';
         const topbarHeightStyle = useCompactTopbar ? 'min-height:42px;max-height:42px;height:42px;' : '';
@@ -21369,14 +21688,13 @@ async function __tmRefreshAfterWake(reason) {
         state.modal.innerHTML = `
             <div class="tm-box${showCalendarSideDock || showAiSideDock ? ' tm-box--with-cal-dock' : ''}">
                 <div class="tm-filter-rule-bar" style="padding: ${topbarPadding};${topbarHeightStyle}">
-                    <div class="tm-topbar-row" style="display:flex;align-items:center;gap:10px;flex-wrap:nowrap;justify-content:space-between;min-width:0;">
-                        <div class="tm-topbar-row" style="display:flex;align-items:center;gap:10px;">
+                        <div class="tm-topbar-row tm-topbar-row--main" style="display:flex;align-items:center;gap:10px;flex-wrap:nowrap;justify-content:space-between;min-width:0;">
+                        <div class="tm-topbar-row tm-topbar-row--brand" style="display:flex;align-items:center;gap:10px;min-width:0;">
                             <div class="tm-title" style="font-size: 16px; font-weight: 700; white-space: nowrap; display:inline-flex; align-items:center; gap:4px;">
-                                <span onclick="tmHandleManagerIconClick(event)" style="cursor:${isMobile ? 'default' : 'pointer'};display:inline-flex;align-items:center;justify-content:center;width:18px;height:18px;line-height:0;">${__tmRenderLucideIcon('clipboard-list')}</span>
+                                <span onclick="tmHandleManagerIconClick(event)" style="cursor:${isMobile ? 'default' : 'pointer'};display:inline-flex;align-items:center;justify-content:center;width:18px;height:18px;line-height:0;">${__tmRenderTaskHorizonTopbarIcon(16)}</span>
                                 <span onclick="tmHandleManagerTitleClick(event)" style="cursor:pointer;">任务管理器</span>
                             </div>
-                            <button class="tm-btn tm-btn-success bc-btn bc-btn--sm bc-btn--primary" onclick="tmAdd()" aria-label="新建任务" data-tm-floating-tooltip-label="新建任务" data-tm-tooltip-side="bottom" data-tm-tooltip-align="center" style="padding: 0; width: 30px; height: 30px; min-width: 30px; min-height: 30px; display: inline-flex; align-items: center; justify-content: center;">+</button>
-                            ${isMobile ? `<button class="tm-btn tm-btn-info bc-btn bc-btn--sm" onclick="tmRefresh()" style="padding: 0 10px; height: 30px; display: inline-flex; align-items: center; justify-content: center;"${__tmBuildTooltipAttrs('刷新', { side: 'bottom' })}>${__tmRenderLucideIcon('refresh-cw')}</button>` : ''}
+                            <button class="tm-btn tm-btn-success tm-topbar-add-btn bc-btn bc-btn--sm bc-btn--primary" onclick="tmAdd()" aria-label="新建任务" data-tm-floating-tooltip-label="新建任务" data-tm-tooltip-side="bottom" data-tm-tooltip-align="center" style="padding: 0; width: 30px; height: 30px; min-width: 30px; min-height: 30px; display: inline-flex; align-items: center; justify-content: center;">${__tmRenderLucideIcon('plus')}</button>
                             ${isMobile && state.viewMode === 'calendar' ? `<button class="tm-btn tm-btn-info bc-btn bc-btn--sm" onclick="tmCalendarToggleSidebar()" style="padding: 0 10px; height: 30px; display: inline-flex; align-items: center; justify-content: center;"${__tmBuildTooltipAttrs('日历侧边栏', { side: 'bottom' })}>${__tmRenderLucideIcon('calendar-days')}</button>` : ''}
                             ${(state.viewMode === 'timeline' && ((isMobile && isLandscape) || isDesktopNarrow)) ? `
                                 <button class="tm-btn tm-btn-info bc-btn bc-btn--sm" onclick="tmGanttZoomOut()" style="padding: 0 8px; height: 30px; display: inline-flex; align-items: center; justify-content: center;"${__tmBuildTooltipAttrs('缩小', { side: 'bottom' })}>－</button>
@@ -21398,8 +21716,6 @@ async function __tmRefreshAfterWake(reason) {
                                 ${__tmRenderTopbarSelect({ id: 'tmTopbarRuleSelect', label: '规则', options: ruleMenuOptions })}
                             </div>
                             ${currentRule ? `<div class="tm-rule-display"><span class="tm-rule-stats">${filteredCount} 个任务</span></div>` : ''}
-                            <div style="flex: 1 1 auto;"></div>
-                            
                             <div class="tm-rule-selector">
                                 <span class="tm-rule-label bc-field__label">分组:</span>
                                 ${__tmRenderTopbarSelect({ id: 'tmTopbarGroupModeSelect', label: '分组', options: groupModeMenuOptions })}
@@ -21407,15 +21723,25 @@ async function __tmRefreshAfterWake(reason) {
 
                         </div>
                         
+                        <div class="tm-topbar-right">
+                            ${!isMobile ? `
+                            <div class="tm-compact-topbar-actions">
+                                <button class="tm-btn tm-btn-info tm-compact-topbar-action tm-compact-topbar-action--refresh bc-btn bc-btn--sm" onclick="tmRefresh()" style="padding: 0; width: 30px; min-width: 30px; height: 30px; align-items: center; justify-content: center;"${__tmBuildTooltipAttrs('刷新', { side: 'bottom' })}>${__tmRenderLucideIcon('refresh-cw')}</button>
+                                <button class="tm-btn tm-btn-info tm-compact-topbar-action tm-compact-topbar-action--settings bc-btn bc-btn--sm" onclick="showSettings()" style="padding: 0; width: 30px; min-width: 30px; height: 30px; align-items: center; justify-content: center;"${__tmBuildTooltipAttrs('设置', { side: 'bottom' })}>${__tmRenderLucideIcon('settings')}</button>
+                            </div>
+                            ` : ''}
+
                         <!-- 移动端菜单按钮 -->
-                            <div class="tm-mobile-menu-btn" style="display:${isMobile ? 'flex' : 'none'};margin-left:auto;">
+                            <div class="tm-mobile-menu-btn" style="display:${isMobile ? 'flex' : 'none'};">
                             <div style="display:flex;align-items:center;gap:10px;">
-                                <button class="tm-btn tm-btn-info bc-btn bc-btn--sm" onclick="tmToggleMobileMenu(event)" ontouchend="tmToggleMobileMenu(event)" style="padding: 0 10px; height: 30px; display: inline-flex; align-items: center; justify-content: center;"${__tmBuildTooltipAttrs('菜单', { side: 'bottom' })}>
+                                ${isMobile ? `<button class="tm-btn tm-btn-info bc-btn bc-btn--sm" onclick="tmRefresh()" style="padding: 0; width: 30px; min-width: 30px; height: 30px; display: inline-flex; align-items: center; justify-content: center;"${__tmBuildTooltipAttrs('刷新', { side: 'bottom' })}>${__tmRenderLucideIcon('refresh-cw')}</button>` : ''}
+                                ${!isMobile ? `
+                                ` : ''}<button class="tm-btn tm-btn-info bc-btn bc-btn--sm" onclick="tmToggleMobileMenu(event)" ontouchend="tmToggleMobileMenu(event)" style="padding: 0; width: 30px; min-width: 30px; height: 30px; display: inline-flex; align-items: center; justify-content: center;"${__tmBuildTooltipAttrs('菜单', { side: 'bottom' })}>
                                     ${__tmRenderLucideIcon('menu')}
-                                    <span style="margin-left: 4px;">菜单</span>
                                 </button>
                                 ${isMobile && !isDockHost ? `<button class="tm-btn tm-btn-gray bc-btn bc-btn--sm bc-btn--ghost" onclick="tmClose(event)" ontouchend="tmClose(event)" style="padding: 0 10px; height: 30px; display: inline-flex; align-items: center; justify-content: center;"${__tmBuildTooltipAttrs('关闭', { side: 'bottom' })}>${__tmRenderLucideIcon('x')}</button>` : ''}
                             </div>
+                        </div>
                         </div>
                     </div>
                     
@@ -21433,9 +21759,11 @@ async function __tmRefreshAfterWake(reason) {
                             <button class="tm-btn tm-btn-info bc-btn bc-btn--sm" onclick="tmGanttFit()" style="padding: 0; width: 30px; min-width: 30px; height: 30px; display: inline-flex; align-items: center; justify-content: center;"${__tmBuildTooltipAttrs('适配范围', { side: 'bottom' })}>${__tmRenderLucideIcon('map')}</button>
                             <button class="tm-btn tm-btn-info bc-btn bc-btn--sm" onclick="tmGanttToday()" style="padding: 0; width: 30px; min-width: 30px; height: 30px; display: inline-flex; align-items: center; justify-content: center;"${__tmBuildTooltipAttrs('定位今天', { side: 'bottom' })}>${__tmRenderLucideIcon('calendar-days')}</button>
                         ` : ''}
+                        ${!showMobileBottomViewBar ? `
                         <div class="tm-view-segmented bc-tabs-list" role="tablist" aria-label="视图">
                             ${__tmRenderViewSwitcherButtons()}
                         </div>
+                        ` : ''}
                         <button class="tm-btn tm-btn-info bc-btn bc-btn--sm" onclick="tmRefresh()" style="padding: 0; width: 30px; min-width: 30px; height: 30px; display: inline-flex; align-items: center; justify-content: center;"${__tmBuildTooltipAttrs('刷新', { side: 'bottom' })}>${__tmRenderLucideIcon('refresh-cw')}</button>
                         ${__tmIsAiFeatureEnabled() ? `<button class="tm-btn tm-btn-info bc-btn bc-btn--sm" onclick="tmToggleAiSidebar()" style="padding: 0; width: 30px; min-width: 30px; height: 30px; display: inline-flex; align-items: center; justify-content: center;"${__tmBuildTooltipAttrs(state.aiSidebarOpen ? '收起 AI 工作台' : '展开 AI 工作台', { side: 'bottom' })}>${__tmRenderLucideIcon('bot')}</button>` : ''}
                         <button class="tm-btn tm-btn-info bc-btn bc-btn--sm" onclick="showSettings()" style="padding: 0; width: 30px; min-width: 30px; height: 30px; display: inline-flex; align-items: center; justify-content: center;"${__tmBuildTooltipAttrs('设置', { side: 'bottom' })}>${__tmRenderLucideIcon('settings')}</button>
@@ -21447,8 +21775,9 @@ async function __tmRefreshAfterWake(reason) {
                     </div>
 
                         <!-- 移动端下拉菜单 -->
-                        <div id="tmMobileMenu" style="display:none; position:absolute; right:0; top:45px; width:max-content; max-width:calc(100vw - 20px); min-width:0; box-sizing:border-box; padding:10px; border:1px solid var(--tm-border-color); border-radius:6px; background:var(--tm-header-bg); z-index:10001; box-shadow: 0 4px 12px rgba(0,0,0,0.15);">
+                        <div id="tmMobileMenu" style="display:none; position:absolute; right:0; top:45px; width:max-content; max-width:min(420px, calc(100% - 8px)); min-width:0; box-sizing:border-box; padding:10px; border:1px solid var(--tm-border-color); border-radius:6px; background:var(--tm-header-bg); z-index:10001; box-shadow: 0 4px 12px rgba(0,0,0,0.15);">
                             <div style="display:flex; flex-direction:column; gap:10px;">
+                                ${!showMobileBottomViewBar ? `
                                 <div class="tm-mobile-only-item" style="display:flex; flex-direction:column; gap:6px; align-items:stretch;">
                                     <span style="color:var(--tm-text-color);">视图:</span>
                                     <div class="tm-mobile-view-switcher-wrap">
@@ -21465,6 +21794,15 @@ async function __tmRefreshAfterWake(reason) {
                                         </div>
                                     ` : ''}
                                 </div>
+                                ` : state.viewMode === 'kanban' ? `
+                                <div class="tm-mobile-only-item" style="display:flex; flex-direction:column; gap:6px; align-items:stretch;">
+                                    <span style="color:var(--tm-text-color);">看板模式:</span>
+                                    <div class="tm-view-segmented tm-kanban-mode-segmented bc-tabs-list" role="tablist" aria-label="看板模式" style="width:100%;">
+                                        <button class="tm-view-seg-item bc-tabs-trigger ${!SettingsStore.data.kanbanHeadingGroupMode ? 'tm-view-seg-item--active' : ''}" data-state="${!SettingsStore.data.kanbanHeadingGroupMode ? 'active' : 'inactive'}" onclick="tmSetKanbanHeadingGroupMode('status', event)" role="tab" aria-selected="${!SettingsStore.data.kanbanHeadingGroupMode ? 'true' : 'false'}" style="flex:1;line-height:30px;">状态</button>
+                                        <button class="tm-view-seg-item bc-tabs-trigger ${SettingsStore.data.kanbanHeadingGroupMode ? 'tm-view-seg-item--active' : ''}" data-state="${SettingsStore.data.kanbanHeadingGroupMode ? 'active' : 'inactive'}" onclick="tmSetKanbanHeadingGroupMode('heading', event)" role="tab" aria-selected="${SettingsStore.data.kanbanHeadingGroupMode ? 'true' : 'false'}" style="flex:1;line-height:30px;">标题</button>
+                                    </div>
+                                </div>
+                                ` : ''}
                                 <div class="tm-mobile-only-item tm-mobile-menu-row" style="display:flex; gap:10px; align-items:center;">
                                     <span class="tm-mobile-menu-label" style="color:var(--tm-text-color);width:60px;">文档:</span>
                                     ${__tmRenderTopbarSelect({ id: 'tmMobileDocSelect', label: '文档', options: docGroupMenuOptions, style: 'flex:1;' })}
@@ -21529,7 +21867,7 @@ async function __tmRefreshAfterWake(reason) {
                         .tm-mobile-only-item {
                             display: none !important;
                         }
-                        
+
                         /* 移动端下显示 */
                         @media (max-width: 768px) {
                             .tm-mobile-only-item {
@@ -21601,6 +21939,9 @@ async function __tmRefreshAfterWake(reason) {
                     .tm-title {
                         cursor: pointer;
                         user-select: none;
+                    }
+                    .tm-box {
+                        position: relative;
                     }
                     .tm-doc-tabs {
                         display: flex;
@@ -21712,41 +22053,212 @@ async function __tmRefreshAfterWake(reason) {
                     }
                     
                     @media (max-width: 768px) {
-                        .tm-desktop-toolbar {
+                        .tm-modal.tm-modal--mobile .tm-desktop-toolbar {
                             display: none !important;
                         }
-                        .tm-mobile-menu-btn {
+                        .tm-modal.tm-modal--mobile .tm-compact-topbar-actions {
+                            display: flex !important;
+                            gap: 6px !important;
+                        }
+                        .tm-modal.tm-modal--mobile .tm-compact-topbar-action--refresh {
+                            display: inline-flex !important;
+                        }
+                        .tm-modal.tm-modal--mobile .tm-mobile-menu-btn {
                             display: block !important;
                         }
-                        .tm-filter-rule-bar {
+                        .tm-modal.tm-modal--mobile .tm-filter-rule-bar {
                             flex-wrap: wrap;
                         }
-                        .tm-doc-tabs {
+                        .tm-modal.tm-modal--mobile .tm-doc-tabs {
                             padding: 0 15px 0 8px;
                             width: 100%;
                             box-sizing: border-box;
                         }
-                        .tm-doc-tab {
+                        .tm-modal.tm-modal--mobile .tm-doc-tab {
                             font-size: 12px;
                             padding: 2px 8px;
                             height: 24px;
                             border-radius: 6px;
                         }
+
+                        .tm-modal.tm-modal--mobile .tm-topbar-right {
+                            gap: 6px !important;
+                        }
+
+                        .tm-modal.tm-modal--mobile .tm-compact-topbar-action--settings {
+                            display: none !important;
+                        }
+
+                        .tm-modal.tm-modal--mobile:not(.tm-modal--dock),
+                        .tm-modal.tm-modal--dock {
+                            --tm-mobile-bottom-viewbar-offset: calc(env(safe-area-inset-bottom, 0px) + 10px);
+                        }
+
+                        .tm-modal.tm-modal--mobile:not(.tm-modal--dock) .tm-mobile-bottom-viewbar,
+                        .tm-modal.tm-modal--dock .tm-mobile-bottom-viewbar {
+                            position: absolute;
+                            left: 0;
+                            right: 0;
+                            bottom: var(--tm-mobile-bottom-viewbar-offset);
+                            padding: 0 14px;
+                            display: flex;
+                            justify-content: center;
+                            pointer-events: none;
+                            z-index: 45;
+                        }
+
+                        .tm-modal.tm-modal--mobile:not(.tm-modal--dock) .tm-mobile-bottom-viewbar__inner,
+                        .tm-modal.tm-modal--dock .tm-mobile-bottom-viewbar__inner {
+                            pointer-events: auto;
+                            width: min(100%, 420px);
+                            padding: 3px;
+                            border-radius: 999px;
+                            border: 1px solid color-mix(in srgb, var(--tm-border-color) 84%, transparent);
+                            background: color-mix(in srgb, var(--tm-header-bg) 96%, rgba(255,255,255,0.12));
+                            box-shadow: 0 8px 24px rgba(15, 23, 42, 0.16);
+                            backdrop-filter: blur(14px);
+                            -webkit-backdrop-filter: blur(14px);
+                            overflow-x: auto;
+                            scrollbar-width: none;
+                            opacity: 0.3;
+                            transition: opacity 0.18s ease, box-shadow 0.18s ease, background 0.18s ease;
+                        }
+
+                        .tm-modal.tm-modal--mobile:not(.tm-modal--dock) .tm-mobile-bottom-viewbar__inner::-webkit-scrollbar,
+                        .tm-modal.tm-modal--dock .tm-mobile-bottom-viewbar__inner::-webkit-scrollbar {
+                            display: none;
+                        }
+
+                        .tm-modal.tm-modal--mobile:not(.tm-modal--dock) .tm-mobile-bottom-viewbar.tm-mobile-bottom-viewbar--active .tm-mobile-bottom-viewbar__inner,
+                        .tm-modal.tm-modal--mobile:not(.tm-modal--dock) .tm-mobile-bottom-viewbar:active .tm-mobile-bottom-viewbar__inner,
+                        .tm-modal.tm-modal--mobile:not(.tm-modal--dock) .tm-mobile-bottom-viewbar:focus-within .tm-mobile-bottom-viewbar__inner,
+                        .tm-modal.tm-modal--dock .tm-mobile-bottom-viewbar.tm-mobile-bottom-viewbar--active .tm-mobile-bottom-viewbar__inner,
+                        .tm-modal.tm-modal--dock .tm-mobile-bottom-viewbar:active .tm-mobile-bottom-viewbar__inner,
+                        .tm-modal.tm-modal--dock .tm-mobile-bottom-viewbar:focus-within .tm-mobile-bottom-viewbar__inner {
+                            opacity: 0.8;
+                        }
+
+                        .tm-modal.tm-modal--mobile:not(.tm-modal--dock) .tm-mobile-bottom-view-switcher,
+                        .tm-modal.tm-modal--dock .tm-mobile-bottom-view-switcher {
+                            display: flex;
+                            width: max-content;
+                            min-width: 100%;
+                            gap: 4px;
+                            padding: 0;
+                            background: transparent;
+                            border: none;
+                            box-shadow: none;
+                            flex-wrap: nowrap;
+                        }
+
+                        .tm-modal.tm-modal--mobile:not(.tm-modal--dock) .tm-mobile-bottom-view-switcher .tm-view-seg-item,
+                        .tm-modal.tm-modal--mobile:not(.tm-modal--dock) .tm-mobile-bottom-view-switcher .bc-tabs-trigger,
+                        .tm-modal.tm-modal--dock .tm-mobile-bottom-view-switcher .tm-view-seg-item,
+                        .tm-modal.tm-modal--dock .tm-mobile-bottom-view-switcher .bc-tabs-trigger {
+                            height: 28px !important;
+                            min-height: 28px !important;
+                            line-height: 28px !important;
+                            padding: 0 12px !important;
+                            border-radius: 999px !important;
+                            font-size: 13px !important;
+                            font-weight: 700 !important;
+                            white-space: nowrap;
+                            flex: 1 0 auto;
+                            background: transparent;
+                            border-color: transparent;
+                            box-shadow: none;
+                        }
+
+                        .tm-modal.tm-modal--mobile:not(.tm-modal--dock) .tm-mobile-bottom-view-switcher .tm-view-seg-item--active,
+                        .tm-modal.tm-modal--mobile:not(.tm-modal--dock) .tm-mobile-bottom-view-switcher .bc-tabs-trigger.tm-view-seg-item--active,
+                        .tm-modal.tm-modal--dock .tm-mobile-bottom-view-switcher .tm-view-seg-item--active,
+                        .tm-modal.tm-modal--dock .tm-mobile-bottom-view-switcher .bc-tabs-trigger.tm-view-seg-item--active {
+                            background: var(--tm-topbar-seg-item-active-bg) !important;
+                            color: var(--tm-topbar-control-text) !important;
+                            border-color: color-mix(in srgb, var(--tm-topbar-control-border) 72%, transparent) !important;
+                            box-shadow: 0 4px 12px color-mix(in srgb, var(--tm-primary-color) 16%, transparent);
+                        }
                     }
 
                     @media (max-width: 1024px) {
-                        .tm-header-selectors {
+                        .tm-modal.tm-modal--mobile .tm-header-selectors {
                             display: none !important;
                         }
-                        .tm-mobile-menu-btn {
-                            display: block !important;
-                        }
-                        .tm-mobile-only-item {
-                            display: flex !important;
-                        }
-                        .tm-desktop-menu-btn {
-                            display: none !important;
-                        }
+                    }
+                    .tm-modal.tm-modal--dock {
+                        --tm-mobile-bottom-viewbar-offset: 10px;
+                    }
+                    .tm-modal.tm-modal--dock .tm-mobile-bottom-viewbar {
+                        position: absolute;
+                        left: 0;
+                        right: 0;
+                        bottom: var(--tm-mobile-bottom-viewbar-offset);
+                        padding: 0 14px;
+                        display: flex;
+                        justify-content: center;
+                        pointer-events: none;
+                        z-index: 45;
+                    }
+                    .tm-modal.tm-modal--dock .tm-mobile-bottom-viewbar__inner {
+                        pointer-events: auto;
+                        width: fit-content;
+                        max-width: min(100%, 420px);
+                        padding: 3px;
+                        border-radius: 999px;
+                        border: 1px solid color-mix(in srgb, var(--tm-border-color) 84%, transparent);
+                        background: color-mix(in srgb, var(--tm-header-bg) 96%, rgba(255,255,255,0.12));
+                        box-shadow: 0 8px 24px rgba(15, 23, 42, 0.16);
+                        backdrop-filter: blur(14px);
+                        -webkit-backdrop-filter: blur(14px);
+                        overflow-x: auto;
+                        scrollbar-width: none;
+                        opacity: 0.3;
+                        transition: opacity 0.18s ease, box-shadow 0.18s ease, background 0.18s ease;
+                    }
+                    .tm-modal.tm-modal--dock .tm-mobile-bottom-viewbar__inner::-webkit-scrollbar {
+                        display: none;
+                    }
+                    .tm-modal.tm-modal--dock .tm-mobile-bottom-viewbar.tm-mobile-bottom-viewbar--active .tm-mobile-bottom-viewbar__inner,
+                    .tm-modal.tm-modal--dock .tm-mobile-bottom-viewbar:active .tm-mobile-bottom-viewbar__inner,
+                    .tm-modal.tm-modal--dock .tm-mobile-bottom-viewbar:focus-within .tm-mobile-bottom-viewbar__inner {
+                        opacity: 0.8;
+                    }
+                    .tm-modal.tm-modal--dock .tm-mobile-bottom-viewbar:hover .tm-mobile-bottom-viewbar__inner,
+                    .tm-modal.tm-modal--dock .tm-mobile-bottom-viewbar__inner:hover {
+                        opacity: 1;
+                    }
+                    .tm-modal.tm-modal--dock .tm-mobile-bottom-view-switcher {
+                        display: flex;
+                        width: max-content;
+                        min-width: 0;
+                        gap: 4px;
+                        padding: 0;
+                        background: transparent;
+                        border: none;
+                        box-shadow: none;
+                        flex-wrap: nowrap;
+                    }
+                    .tm-modal.tm-modal--dock .tm-mobile-bottom-view-switcher .tm-view-seg-item,
+                    .tm-modal.tm-modal--dock .tm-mobile-bottom-view-switcher .bc-tabs-trigger {
+                        height: 28px !important;
+                        min-height: 28px !important;
+                        line-height: 28px !important;
+                        padding: 0 12px !important;
+                        border-radius: 999px !important;
+                        font-size: 13px !important;
+                        font-weight: 700 !important;
+                        white-space: nowrap;
+                        flex: 1 0 auto;
+                        background: transparent;
+                        border-color: transparent;
+                        box-shadow: none;
+                    }
+                    .tm-modal.tm-modal--dock .tm-mobile-bottom-view-switcher .tm-view-seg-item--active,
+                    .tm-modal.tm-modal--dock .tm-mobile-bottom-view-switcher .bc-tabs-trigger.tm-view-seg-item--active {
+                        background: var(--tm-topbar-seg-item-active-bg) !important;
+                        color: var(--tm-topbar-control-text) !important;
+                        border-color: color-mix(in srgb, var(--tm-topbar-control-border) 72%, transparent) !important;
+                        box-shadow: 0 4px 12px color-mix(in srgb, var(--tm-primary-color) 16%, transparent);
                     }
                     .tm-main-body-with-cal-dock {
                         flex: 1 1 auto;
@@ -21755,13 +22267,14 @@ async function __tmRefreshAfterWake(reason) {
                         display: flex;
                         align-items: stretch;
                     }
-                    .tm-main-body-with-cal-dock > .tm-body {
+                    .tm-main-body-with-cal-dock > .tm-body,
+                    .tm-main-body-with-cal-dock > .tm-list-pane {
                         flex: 1 1 auto;
                         min-height: 0;
                         min-width: 0;
                     }
                     .tm-calendar-side-dock {
-                        border-left: 1px solid var(--tm-border-color);
+                        border-left: none;
                         background: var(--tm-bg-color);
                         overflow: hidden;
                         display: flex;
@@ -21821,16 +22334,50 @@ async function __tmRefreshAfterWake(reason) {
                         align-items: center;
                         justify-content: space-between;
                         gap: 8px;
-                        padding: 8px 10px;
-                        border-bottom: 1px solid var(--tm-border-color);
+                        padding: 4px 10px 4px;
+                        border-bottom: none;
                     }
                     .tm-calendar-dock-title {
-                        font-size: 13px;
-                        font-weight: 600;
+                        font-size: 15px;
+                        font-weight: 700;
+                        line-height: 1.2;
+                        transform: translateY(1px);
                     }
                     .tm-calendar-dock-nav {
                         display: inline-flex;
+                        align-items: center;
                         gap: 4px;
+                        transform: translateY(1px);
+                    }
+                    .tm-calendar-dock-nav .bc-btn,
+                    .tm-calendar-dock-nav .bc-btn--sm {
+                        height: 26px;
+                        min-height: 26px;
+                        font-size: 11px;
+                        font-weight: 500;
+                        border-radius: var(--tm-topbar-control-radius);
+                        border: var(--tm-topbar-control-border-width) solid var(--tm-topbar-control-border);
+                        background: var(--tm-topbar-control-bg);
+                        color: var(--tm-topbar-control-text);
+                        box-shadow: var(--tm-topbar-control-shadow);
+                        display: inline-flex;
+                        align-items: center;
+                        justify-content: center;
+                        line-height: 24px;
+                        white-space: nowrap;
+                    }
+                    .tm-calendar-dock-nav .bc-btn:hover,
+                    .tm-calendar-dock-nav .bc-btn--sm:hover {
+                        background: var(--tm-topbar-control-hover);
+                    }
+                    .tm-calendar-dock-nav .tm-calendar-dock-nav-btn--icon {
+                        width: 26px;
+                        min-width: 26px;
+                        padding: 0;
+                    }
+                    .tm-calendar-dock-nav .tm-calendar-dock-nav-btn--today {
+                        padding: 0 8px;
+                        min-width: 44px;
                     }
                     .tm-calendar-dock-date {
                         padding: 6px 10px;
@@ -21846,23 +22393,36 @@ async function __tmRefreshAfterWake(reason) {
                         flex: 1 1 auto;
                         min-height: 0;
                         overflow: auto;
+                        scrollbar-width: none;
+                        -ms-overflow-style: none;
+                    }
+                    #tmCalendarSideDockTimeline::-webkit-scrollbar {
+                        width: 0;
+                        height: 0;
                     }
                     #tmCalendarSideDockTimeline .fc {
                         height: auto;
                         min-height: 100%;
+                        box-shadow: none !important;
+                        filter: none !important;
                     }
                     #tmCalendarSideDockTimeline .fc-view-harness {
                         min-height: 0 !important;
                         height: auto !important;
+                        box-shadow: none !important;
+                        filter: none !important;
                     }
                     #tmCalendarSideDockTimeline .fc-view-harness-active > .fc-view {
                         position: relative !important;
                         inset: auto !important;
+                        box-shadow: none !important;
+                        filter: none !important;
                     }
                     #tmCalendarSideDockTimeline .fc-scrollgrid,
                     #tmCalendarSideDockTimeline .fc-scrollgrid-liquid,
                     #tmCalendarSideDockTimeline .fc-scrollgrid-section,
                     #tmCalendarSideDockTimeline .fc-scrollgrid-section > td,
+                    #tmCalendarSideDockTimeline .fc-scrollgrid-section > th,
                     #tmCalendarSideDockTimeline .fc-scroller-harness,
                     #tmCalendarSideDockTimeline .fc-scroller-harness-liquid,
                     #tmCalendarSideDockTimeline .fc-scroller,
@@ -21874,10 +22434,53 @@ async function __tmRefreshAfterWake(reason) {
                     #tmCalendarSideDockTimeline .fc-timegrid-slots table {
                         height: auto !important;
                         min-height: 0 !important;
+                        box-shadow: none !important;
+                        filter: none !important;
                     }
                     #tmCalendarSideDockTimeline .fc-scroller-liquid-absolute {
                         position: static !important;
                         inset: auto !important;
+                    }
+                    #tmCalendarSideDockTimeline .fc .fc-scrollgrid,
+                    #tmCalendarSideDockTimeline .fc .fc-scrollgrid-liquid {
+                        border-top: 0 !important;
+                        border-left: 0 !important;
+                    }
+                    #tmCalendarSideDockTimeline .fc .fc-scrollgrid-section > td:first-child,
+                    #tmCalendarSideDockTimeline .fc .fc-scrollgrid-section > th:first-child,
+                    #tmCalendarSideDockTimeline .fc td.fc-timegrid-slot-label,
+                    #tmCalendarSideDockTimeline .fc .fc-timegrid-axis,
+                    #tmCalendarSideDockTimeline .fc .fc-timegrid-axis-frame {
+                        border-left: 0 !important;
+                    }
+                    #tmCalendarSideDockTimeline .fc .fc-timegrid-all-day {
+                        border-bottom: 1px solid var(--fc-border-color) !important;
+                        box-shadow: none !important;
+                    }
+                    #tmCalendarSideDockTimeline .fc .fc-timegrid-divider,
+                    #tmCalendarSideDockTimeline .fc .fc-timegrid-divider td,
+                    #tmCalendarSideDockTimeline .fc .fc-timegrid-divider div {
+                        border-top: 0 !important;
+                        box-shadow: none !important;
+                        background: transparent !important;
+                        height: 0 !important;
+                        padding: 0 !important;
+                    }
+                    #tmCalendarSideDockTimeline .fc .fc-scrollgrid-section-sticky,
+                    #tmCalendarSideDockTimeline .fc .fc-scrollgrid-section-sticky > td,
+                    #tmCalendarSideDockTimeline .fc .fc-scrollgrid-section-sticky > th,
+                    #tmCalendarSideDockTimeline .fc .fc-scrollgrid-section-sticky td,
+                    #tmCalendarSideDockTimeline .fc .fc-scrollgrid-section-sticky th {
+                        box-shadow: none !important;
+                    }
+                    #tmCalendarSideDockTimeline .fc td.fc-timegrid-slot-label,
+                    #tmCalendarSideDockTimeline .fc .fc-timegrid-axis {
+                        border-right: 1px solid var(--fc-border-color) !important;
+                    }
+                    #tmCalendarSideDockTimeline .fc td.fc-timegrid-slot-lane,
+                    #tmCalendarSideDockTimeline .fc .fc-timegrid-col,
+                    #tmCalendarSideDockTimeline .fc .fc-timegrid-slot-frame {
+                        border-left: 0 !important;
                     }
                     #tmCalendarSideDockPanel {
                         height: 100%;
@@ -21912,6 +22515,15 @@ async function __tmRefreshAfterWake(reason) {
                 </style>
                 
                 ${bodyWithSideDockHtml}
+                ${showMobileBottomViewBar ? `
+                    <div class="tm-mobile-bottom-viewbar ${mobileBottomViewbarActive ? 'tm-mobile-bottom-viewbar--active' : ''}" onpointerdown="tmTouchMobileBottomViewbar(event)" ontouchstart="tmTouchMobileBottomViewbar(event)" onclick="tmTouchMobileBottomViewbar(event)">
+                        <div class="tm-mobile-bottom-viewbar__inner">
+                            <div class="tm-view-segmented bc-tabs-list tm-mobile-bottom-view-switcher" role="tablist" aria-label="视图">
+                                ${__tmRenderViewSwitcherButtons({ compact: true })}
+                            </div>
+                        </div>
+                    </div>
+                ` : ''}
                 ${isMobile && state.aiMobilePanelOpen && __tmIsAiFeatureEnabled() ? `
                     <div class="tm-ai-mobile-shell">
                         <div class="tm-ai-mobile-mask" onclick="tmCloseAiSidebar()"></div>
@@ -21929,8 +22541,10 @@ async function __tmRefreshAfterWake(reason) {
         try { __tmBindResponsiveTableResize(state.modal); } catch (e) {}
         try { __tmBindFloatingTooltips(state.modal); } catch (e) {}
         try { __tmBindDocTabWheelScroll(state.modal); } catch (e) {}
+        try { __tmBindBottomViewbarWheelScroll(state.modal); } catch (e) {}
         try { __tmBindDocTabScrollMemory(state.modal); } catch (e) {}
         try { __tmRestoreDocTabScroll(state.modal, savedDocTabsScrollLeft); } catch (e) {}
+        try { if (state.viewMode === 'list') __tmBindListScrollVisibility(state.modal); } catch (e) {}
         try { if (state.viewMode === 'checklist') __tmBindChecklistScrollVisibility(state.modal); } catch (e) {}
         try {
             if (state.viewMode === 'checklist') {
@@ -22307,10 +22921,12 @@ async function __tmRefreshAfterWake(reason) {
                     if (body) {
                         body.scrollTop = desiredTop;
                         body.scrollLeft = desiredLeft;
+                        try { body.__tmTableScrollUpdateThumb?.(); } catch (e) {}
                     }
                     
                     requestAnimationFrame(() => requestAnimationFrame(() => {
                          try { if (body) body.scrollTop = desiredTop; } catch (e) {}
+                         try { body?.__tmTableScrollUpdateThumb?.(); } catch (e) {}
                          try { __tmRunFlipAnimation(state.modal); } catch (e) {}
                          if (state.viewMode === 'whiteboard') {
                              try { __tmScheduleWhiteboardEdgeRedraw(); } catch (e) {}
@@ -22513,9 +23129,9 @@ async function __tmRefreshAfterWake(reason) {
             <div class="tm-calendar-dock-head">
                 <div class="tm-calendar-dock-title">${esc(__tmCalendarDockLabel(dateKey))}</div>
                 <div class="tm-calendar-dock-nav">
-                    <button class="tm-btn tm-btn-info" onclick="tmCalendarDockShiftDay(-1)" style="padding:2px 8px;">◀</button>
-                    <button class="tm-btn tm-btn-info" onclick="tmCalendarDockToday()" style="padding:2px 8px;">今天</button>
-                    <button class="tm-btn tm-btn-info" onclick="tmCalendarDockShiftDay(1)" style="padding:2px 8px;">▶</button>
+                    <button class="tm-btn tm-btn-info bc-btn bc-btn--sm tm-calendar-dock-nav-btn--icon" onclick="tmCalendarDockShiftDay(-1)">${__tmRenderLucideIcon('chevron-left')}</button>
+                    <button class="tm-btn tm-btn-info bc-btn bc-btn--sm tm-calendar-dock-nav-btn--today" onclick="tmCalendarDockToday()">今天</button>
+                    <button class="tm-btn tm-btn-info bc-btn bc-btn--sm tm-calendar-dock-nav-btn--icon" onclick="tmCalendarDockShiftDay(1)">${__tmRenderLucideIcon('chevron-right')}</button>
                 </div>
             </div>
             <div id="tmCalendarSideDockTimeline" style="flex:1 1 auto;min-height:0;"></div>
@@ -27515,7 +28131,7 @@ async function __tmRefreshAfterWake(reason) {
                 try { document.removeEventListener('click', state.desktopMenuCloseHandler); } catch (e2) {}
                 state.desktopMenuCloseHandler = null;
             }
-            existing.remove();
+            __tmAnimatePopupOutAndRemove(existing);
             return;
         }
         
@@ -27538,26 +28154,26 @@ async function __tmRefreshAfterWake(reason) {
         `;
         
         menu.innerHTML = `
-            <button class="tm-btn tm-btn-info bc-btn bc-btn--sm" onclick="tmShowSearchModal(); document.getElementById('tmDesktopMenu').remove()" style="text-align:left; justify-content:flex-start; padding: 6px 12px;"><span style="display:inline-flex;align-items:center;gap:6px;">${__tmRenderLucideIcon('search')}<span>搜索${state.searchKeyword ? ` (${String(state.searchKeyword || '').trim()})` : ''}</span></span></button>
-            <button class="tm-btn tm-btn-info bc-btn bc-btn--sm" onclick="tmShowSummaryModal(); document.getElementById('tmDesktopMenu').remove()" style="text-align:left; justify-content:flex-start; padding: 6px 12px;"><span style="display:inline-flex;align-items:center;gap:6px;">${__tmRenderLucideIcon('file-text')}<span>摘要</span></span></button>
-            <button class="tm-btn tm-btn-info bc-btn bc-btn--sm" onclick="window.tmAiSemanticCompletionPreview?.(); document.getElementById('tmDesktopMenu').remove()" style="text-align:left; justify-content:flex-start; padding: 6px 12px;"><span style="display:inline-flex;align-items:center;gap:6px;">${__tmRenderLucideIcon('calendar-days')}<span>语义日期</span></span></button>
+            <button class="tm-btn tm-btn-info bc-btn bc-btn--sm" onclick="tmShowSearchModal(); tmCloseDesktopMenu()" style="text-align:left; justify-content:flex-start; padding: 6px 12px;"><span style="display:inline-flex;align-items:center;gap:6px;">${__tmRenderLucideIcon('search')}<span>搜索${state.searchKeyword ? ` (${String(state.searchKeyword || '').trim()})` : ''}</span></span></button>
+            <button class="tm-btn tm-btn-info bc-btn bc-btn--sm" onclick="tmShowSummaryModal(); tmCloseDesktopMenu()" style="text-align:left; justify-content:flex-start; padding: 6px 12px;"><span style="display:inline-flex;align-items:center;gap:6px;">${__tmRenderLucideIcon('file-text')}<span>摘要</span></span></button>
+            <button class="tm-btn tm-btn-info bc-btn bc-btn--sm" onclick="window.tmAiSemanticCompletionPreview?.(); tmCloseDesktopMenu()" style="text-align:left; justify-content:flex-start; padding: 6px 12px;"><span style="display:inline-flex;align-items:center;gap:6px;">${__tmRenderLucideIcon('calendar-days')}<span>语义日期</span></span></button>
             ${__tmIsAiFeatureEnabled() ? `
             <div class="tm-btn tm-btn-info bc-btn bc-btn--sm" style="text-align:left; padding: 6px 12px; display:flex; align-items:center; justify-content:space-between; gap:10px;">
                 <span>AI 对话</span>
-                <input class="b3-switch fn__flex-center" type="checkbox" ${SettingsStore.data.aiSideDockEnabled ? 'checked' : ''} onchange="tmToggleAiSideDock(this.checked); document.getElementById('tmDesktopMenu').remove()">
+                <input class="b3-switch fn__flex-center" type="checkbox" ${SettingsStore.data.aiSideDockEnabled ? 'checked' : ''} onchange="tmToggleAiSideDock(this.checked); tmCloseDesktopMenu()">
             </div>
             ` : ''}
             <div class="tm-btn tm-btn-info bc-btn bc-btn--sm" style="text-align:left; padding: 6px 12px; display:flex; align-items:center; justify-content:space-between; gap:10px;">
                 <span>日历侧边栏</span>
-                <input class="b3-switch fn__flex-center" type="checkbox" ${SettingsStore.data.calendarSideDockEnabled ? 'checked' : ''} onchange="tmToggleCalendarSideDock(this.checked); document.getElementById('tmDesktopMenu').remove()">
+                <input class="b3-switch fn__flex-center" type="checkbox" ${SettingsStore.data.calendarSideDockEnabled ? 'checked' : ''} onchange="tmToggleCalendarSideDock(this.checked); tmCloseDesktopMenu()">
             </div>
-            ${state.searchKeyword ? `<button class="tm-btn tm-btn-secondary bc-btn bc-btn--sm" onclick="tmSearch(''); document.getElementById('tmDesktopMenu').remove()" style="text-align:left; justify-content:flex-start; padding: 6px 12px;">清除搜索</button>` : ''}
+            ${state.searchKeyword ? `<button class="tm-btn tm-btn-secondary bc-btn bc-btn--sm" onclick="tmSearch(''); tmCloseDesktopMenu()" style="text-align:left; justify-content:flex-start; padding: 6px 12px;">清除搜索</button>` : ''}
             <div class="tm-btn tm-btn-info bc-btn bc-btn--sm" style="text-align:left; padding: 6px 12px; display:flex; align-items:center; justify-content:space-between; gap:10px;">
                 <span>白板顺序模式</span>
-                <input class="b3-switch fn__flex-center" type="checkbox" ${SettingsStore.data.whiteboardSequenceMode ? 'checked' : ''} onchange="tmToggleWhiteboardSequenceMode(this.checked); document.getElementById('tmDesktopMenu').remove()">
+                <input class="b3-switch fn__flex-center" type="checkbox" ${SettingsStore.data.whiteboardSequenceMode ? 'checked' : ''} onchange="tmToggleWhiteboardSequenceMode(this.checked); tmCloseDesktopMenu()">
             </div>
-            <button class="tm-btn tm-btn-info bc-btn bc-btn--sm" onclick="tmCollapseAllTasks(); document.getElementById('tmDesktopMenu').remove()" style="text-align:left; justify-content:flex-start; padding: 6px 12px;"><svg class="tm-tree-toggle-icon" viewBox="0 0 16 16" width="16" height="16" style="transform:rotate(0deg);margin-right:6px;vertical-align:middle;"><path d="M6 4l4 4-4 4" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>全部折叠</button>
-            <button class="tm-btn tm-btn-info bc-btn bc-btn--sm" onclick="tmExpandAllTasks(); document.getElementById('tmDesktopMenu').remove()" style="text-align:left; justify-content:flex-start; padding: 6px 12px;"><svg class="tm-tree-toggle-icon" viewBox="0 0 16 16" width="16" height="16" style="transform:rotate(90deg);margin-right:6px;vertical-align:middle;"><path d="M6 4l4 4-4 4" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>全部展开</button>
+            <button class="tm-btn tm-btn-info bc-btn bc-btn--sm" onclick="tmCollapseAllTasks(); tmCloseDesktopMenu()" style="text-align:left; justify-content:flex-start; padding: 6px 12px;"><svg class="tm-tree-toggle-icon" viewBox="0 0 16 16" width="16" height="16" style="transform:rotate(0deg);margin-right:6px;vertical-align:middle;"><path d="M6 4l4 4-4 4" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>全部折叠</button>
+            <button class="tm-btn tm-btn-info bc-btn bc-btn--sm" onclick="tmExpandAllTasks(); tmCloseDesktopMenu()" style="text-align:left; justify-content:flex-start; padding: 6px 12px;"><svg class="tm-tree-toggle-icon" viewBox="0 0 16 16" width="16" height="16" style="transform:rotate(90deg);margin-right:6px;vertical-align:middle;"><path d="M6 4l4 4-4 4" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>全部展开</button>
         `;
         if (!__tmIsDarkMode()) {
             try {
@@ -27611,6 +28227,21 @@ async function __tmRefreshAfterWake(reason) {
             menu.style.left = `${nextLeft}px`;
             menu.style.top = `${nextTop}px`;
         } catch (e2) {}
+        __tmAnimatePopupIn(menu, { origin: 'top-right' });
+    };
+
+    window.tmCloseDesktopMenu = function() {
+        try {
+            if (state.desktopMenuCloseTimer) {
+                clearTimeout(state.desktopMenuCloseTimer);
+                state.desktopMenuCloseTimer = null;
+            }
+        } catch (e) {}
+        if (state.desktopMenuCloseHandler) {
+            try { document.removeEventListener('click', state.desktopMenuCloseHandler); } catch (e) {}
+            state.desktopMenuCloseHandler = null;
+        }
+        try { __tmAnimatePopupOutAndRemove(document.getElementById('tmDesktopMenu')); } catch (e) {}
     };
 
     window.tmToggleWhiteboardSequenceMode = async function(enabled) {
@@ -27657,7 +28288,17 @@ async function __tmRefreshAfterWake(reason) {
                 if (switcher instanceof HTMLElement) {
                     const switcherWidth = switcher.getBoundingClientRect().width;
                     const sidePadding = 20; // 菜单左右各 10px 内边距
-                    const maxWidth = Math.max(0, window.innerWidth - 20);
+                    const hostWidth = (() => {
+                        try {
+                            const modal = menu.closest('.tm-modal');
+                            if (modal instanceof HTMLElement) return Number(modal.clientWidth) || 0;
+                        } catch (e3) {}
+                        return 0;
+                    })();
+                    const maxWidth = Math.max(0, Math.min(
+                        Math.max(0, window.innerWidth - 20),
+                        hostWidth > 0 ? Math.max(180, hostWidth - 16) : Number.POSITIVE_INFINITY
+                    ));
                     const nextWidth = Math.round(Math.min(maxWidth, Math.max(180, switcherWidth + sidePadding)));
                     if (nextWidth > 0) {
                         menu.style.setProperty('width', `${nextWidth}px`, 'important');
@@ -27704,6 +28345,49 @@ async function __tmRefreshAfterWake(reason) {
         try { __tmHideMobileMenu(); } catch (e) {}
     };
 
+    window.tmTouchMobileBottomViewbar = function(event) {
+        try { event?.stopPropagation?.(); } catch (e) {}
+        const target = event?.target instanceof Element ? event.target : null;
+        const bar = target?.closest?.('.tm-mobile-bottom-viewbar');
+        if (!(bar instanceof HTMLElement)) return;
+        try { state.mobileBottomViewbarActiveUntil = Date.now() + 3000; } catch (e) {}
+        try { bar.classList.add('tm-mobile-bottom-viewbar--active'); } catch (e) {}
+        try {
+            if (bar.__tmActiveTimer) clearTimeout(bar.__tmActiveTimer);
+            if (state.mobileBottomViewbarTimer) clearTimeout(state.mobileBottomViewbarTimer);
+        } catch (e) {}
+        try {
+            const clearActive = () => {
+                try { state.mobileBottomViewbarActiveUntil = 0; } catch (e2) {}
+                try { bar.classList.remove('tm-mobile-bottom-viewbar--active'); } catch (e2) {}
+                try { state.modal?.querySelector?.('.tm-mobile-bottom-viewbar')?.classList?.remove?.('tm-mobile-bottom-viewbar--active'); } catch (e2) {}
+                try { bar.__tmActiveTimer = 0; } catch (e2) {}
+                try { state.mobileBottomViewbarTimer = 0; } catch (e2) {}
+            };
+            bar.__tmActiveTimer = setTimeout(clearActive, 3000);
+            state.mobileBottomViewbarTimer = bar.__tmActiveTimer;
+        } catch (e) {}
+        try {
+            const currentBar = state.modal?.querySelector?.('.tm-mobile-bottom-viewbar');
+            if (currentBar && currentBar !== bar) {
+                try { currentBar.classList.add('tm-mobile-bottom-viewbar--active'); } catch (e2) {}
+                try { currentBar.__tmActiveTimer = state.mobileBottomViewbarTimer; } catch (e2) {}
+            }
+        } catch (e) {}
+        try {
+            if (target && target.closest?.('.tm-mobile-bottom-view-switcher')) {
+                setTimeout(() => {
+                    try {
+                        const rerenderedBar = state.modal?.querySelector?.('.tm-mobile-bottom-viewbar');
+                        if (rerenderedBar && Date.now() < (Number(state.mobileBottomViewbarActiveUntil) || 0)) {
+                            rerenderedBar.classList.add('tm-mobile-bottom-viewbar--active');
+                        }
+                    } catch (e2) {}
+                }, 0);
+            }
+        } catch (e) {}
+    };
+
     function __tmCloseTopbarSelects() {
         try {
             document.querySelectorAll('.tm-topbar-select[data-open="true"]').forEach((el) => {
@@ -27711,12 +28395,85 @@ async function __tmRefreshAfterWake(reason) {
                 try { el.querySelector('.bc-select-trigger')?.setAttribute('aria-expanded', 'false'); } catch (e) {}
             });
         } catch (e) {}
-        try { document.getElementById('tmTopbarFloatingMenu')?.remove?.(); } catch (e) {}
+        try { __tmAnimatePopupOutAndRemove(document.getElementById('tmTopbarFloatingMenu')); } catch (e) {}
     }
 
     window.tmCloseTopbarSelects = function() {
         try { __tmCloseTopbarSelects(); } catch (e) {}
     };
+
+    function __tmPopupMotionDisabled() {
+        try {
+            return !!window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+        } catch (e) {
+            return false;
+        }
+    }
+
+    function __tmAnimatePopupIn(el, opts = {}) {
+        if (!(el instanceof HTMLElement)) return;
+        try { el.classList.add('tm-popup-surface'); } catch (e) {}
+        const origin = String(opts.origin || 'top-center').trim() || 'top-center';
+        try { el.dataset.popupOrigin = origin; } catch (e) {}
+        if (__tmPopupMotionDisabled() || typeof el.animate !== 'function') {
+            try {
+                el.style.opacity = '1';
+                el.style.transform = 'translateY(0) scale(1)';
+            } catch (e) {}
+            return;
+        }
+        try {
+            el.style.opacity = '0';
+            el.style.transform = 'translateY(-6px) scale(0.97)';
+            const anim = el.animate([
+                { opacity: 0, transform: 'translateY(-6px) scale(0.97)' },
+                { opacity: 1, transform: 'translateY(0) scale(1)' }
+            ], {
+                duration: Number(opts.duration) || 170,
+                easing: 'cubic-bezier(0.22, 1, 0.36, 1)',
+                fill: 'forwards'
+            });
+            anim.onfinish = () => {
+                try {
+                    el.style.opacity = '1';
+                    el.style.transform = 'translateY(0) scale(1)';
+                } catch (e2) {}
+            };
+        } catch (e) {
+            try {
+                el.style.opacity = '1';
+                el.style.transform = 'translateY(0) scale(1)';
+            } catch (e2) {}
+        }
+    }
+
+    function __tmAnimatePopupOutAndRemove(el, opts = {}) {
+        if (!(el instanceof HTMLElement)) return;
+        if (el.dataset.tmClosing === 'true') return;
+        try { el.dataset.tmClosing = 'true'; } catch (e) {}
+        if (__tmPopupMotionDisabled() || typeof el.animate !== 'function') {
+            try { el.remove(); } catch (e) {}
+            return;
+        }
+        try {
+            const anim = el.animate([
+                { opacity: 1, transform: 'translateY(0) scale(1)' },
+                { opacity: 0, transform: 'translateY(-4px) scale(0.985)' }
+            ], {
+                duration: Number(opts.duration) || 120,
+                easing: 'ease-out',
+                fill: 'forwards'
+            });
+            anim.onfinish = () => {
+                try { el.remove(); } catch (e2) {}
+            };
+            anim.oncancel = () => {
+                try { el.remove(); } catch (e2) {}
+            };
+        } catch (e) {
+            try { el.remove(); } catch (e2) {}
+        }
+    }
 
     window.tmToggleTopbarSelect = function(id, event) {
         try { event?.stopPropagation?.(); } catch (e) {}
@@ -27748,6 +28505,7 @@ async function __tmRefreshAfterWake(reason) {
                 const maxTop = Math.max(8, window.innerHeight - menuRect.height - 8);
                 menu.style.left = `${Math.min(Math.max(8, Math.round(rect.left)), maxLeft)}px`;
                 menu.style.top = `${Math.min(Math.round(rect.bottom + 8), maxTop)}px`;
+                __tmAnimatePopupIn(menu, { origin: 'top-left' });
             }
         }
     };
@@ -27784,7 +28542,7 @@ async function __tmRefreshAfterWake(reason) {
                 document.removeEventListener('click', state.desktopMenuCloseHandler);
                 state.desktopMenuCloseHandler = null;
             }
-            document.getElementById('tmDesktopMenu')?.remove?.();
+            __tmAnimatePopupOutAndRemove(document.getElementById('tmDesktopMenu'));
         } catch (e) {}
         try {
             if (state.taskContextMenuCloseHandler) {
@@ -34370,7 +35128,24 @@ async function __tmRefreshAfterWake(reason) {
         if (state.activeDocId && state.activeDocId !== 'all') return state.activeDocId;
         if (state.taskTree && state.taskTree.length > 0) return state.taskTree[0].id;
         if (state.selectedDocIds && state.selectedDocIds.length > 0) return state.selectedDocIds[0];
+        const cacheEnt = __tmQuickbarResolveConfiguredDocIds?.__cache;
+        if (cacheEnt && Array.isArray(cacheEnt.ids) && (Date.now() - Number(cacheEnt.t || 0)) < 30000) {
+            const cachedId = String(cacheEnt.ids.find((id) => String(id || '').trim()) || '').trim();
+            if (cachedId) return cachedId;
+        }
         return null;
+    }
+
+    async function __tmResolveDefaultDocIdAsync() {
+        const directId = __tmResolveDefaultDocId();
+        if (directId) return directId;
+        try {
+            const ids = await __tmQuickbarResolveConfiguredDocIds();
+            const fallbackId = String((Array.isArray(ids) ? ids : []).find((id) => String(id || '').trim()) || '').trim();
+            return fallbackId || null;
+        } catch (e) {
+            return null;
+        }
     }
 
     function __tmResolveQuickAddDocId() {
@@ -34775,7 +35550,7 @@ async function __tmRefreshAfterWake(reason) {
         state.quickAdd = null;
     };
 
-    window.tmQuickAddOpen = function() {
+    window.tmQuickAddOpen = async function() {
         if (state.quickAddModal) {
             try { state.quickAddModal.remove(); } catch (e) {}
             state.quickAddModal = null;
@@ -34785,16 +35560,16 @@ async function __tmRefreshAfterWake(reason) {
             state.quickAddDocPicker = null;
         }
 
-        const docId = __tmResolveQuickAddDocId();
-        if (!docId) {
+        const configuredNewTaskDoc = String(SettingsStore.data.newTaskDocId || '').trim();
+        const docId = await __tmResolveDefaultDocIdAsync();
+        if (!docId && configuredNewTaskDoc !== '__dailyNote__') {
             hint('⚠ 请先在设置中选择文档', 'warning');
             showSettings();
             return;
         }
 
-        const configuredNewTaskDoc = String(SettingsStore.data.newTaskDocId || '').trim();
         const initialMode = configuredNewTaskDoc === '__dailyNote__' ? 'dailyNote' : 'doc';
-        const initialDocId = configuredNewTaskDoc === '__dailyNote__' ? __tmResolveDefaultDocId() : docId;
+        const initialDocId = configuredNewTaskDoc === '__dailyNote__' ? (docId || '') : docId;
 
         const stOptions = SettingsStore.data.customStatusOptions || [];
         const defaultStatusId = String((stOptions[0] && stOptions[0].id) || 'todo').trim() || 'todo';
@@ -35350,7 +36125,7 @@ async function __tmRefreshAfterWake(reason) {
         window.tmQuickAddRenderMeta?.();
     };
 
-    window.tmQuickAddUseDefaultDoc = function() {
+    window.tmQuickAddUseDefaultDoc = async function() {
         const qa = state.quickAdd;
         if (!qa) return;
         const configured = String(SettingsStore.data.newTaskDocId || '').trim();
@@ -35359,7 +36134,7 @@ async function __tmRefreshAfterWake(reason) {
             window.tmQuickAddRenderMeta?.();
             return;
         }
-        const id = __tmResolveConfiguredQuickAddDocId() || __tmResolveDefaultDocId();
+        const id = __tmResolveConfiguredQuickAddDocId() || await __tmResolveDefaultDocIdAsync();
         if (!id) {
             hint('⚠ 未设置默认任务文档', 'warning');
             return;
@@ -36413,7 +37188,7 @@ async function __tmRefreshAfterWake(reason) {
             const docName = resolveDocName(docId);
             newTaskDocOptions.push(`<option value="${docId}" ${newTaskDocId === docId ? 'selected' : ''}>${esc(docName)}</option>`);
         });
-        if (newTaskDocId && !allDocIdsForNewTask.includes(newTaskDocId)) {
+        if (newTaskDocId && newTaskDocId !== '__dailyNote__' && !allDocIdsForNewTask.includes(newTaskDocId)) {
             const fallbackName = resolveDocName(newTaskDocId);
             newTaskDocOptions.push(`<option value="${newTaskDocId}" selected>${esc(fallbackName)} (不在当前列表)</option>`);
         }
@@ -36787,6 +37562,13 @@ async function __tmRefreshAfterWake(reason) {
                                 `<input class="b3-switch fn__flex-center" type="checkbox" ${SettingsStore.data.headingGroupCreateAtSectionEnd ? 'checked' : ''} onchange="updateHeadingGroupCreateAtSectionEnd(this.checked)">`
                             )}
                         </div>
+                        <div style="margin-top:10px;">
+                            ${renderSingleSwitchSetting(
+                                '新建任务默认置顶',
+                                '快速新建任务时默认勾选“置顶”。',
+                                `<input class="b3-switch fn__flex-center" type="checkbox" ${SettingsStore.data.pinNewTasksByDefault ? 'checked' : ''} onchange="updatePinNewTasksByDefault(this.checked)">`
+                            )}
+                        </div>
                     </div>
 
                     <div class="tm-settings-panel" style="margin-bottom: 16px;">
@@ -37017,10 +37799,10 @@ async function __tmRefreshAfterWake(reason) {
 
                     <div class="tm-settings-panel">
                         <div class="tm-settings-section-title">🧷 任务悬浮条</div>
-                        <div class="tm-settings-section-desc">控制任务块点击后的悬浮条和新建任务默认行为。</div>
+                        <div class="tm-settings-section-desc">控制任务块点击后的悬浮条与任务行末尾常驻字段显示。</div>
                         ${renderSingleSwitchSetting(
                             '启用任务悬浮条',
-                            '点击任务块显示自定义字段。',
+                            '点击任务块显示自定义字段。关闭后将不再弹出悬浮条，也不会拦截点击/长按事件。',
                             `<input class="b3-switch fn__flex-center" type="checkbox" ${SettingsStore.data.enableQuickbar ? 'checked' : ''} onchange="updateEnableQuickbar(this.checked)">`
                         )}
                         ${renderSingleSwitchSetting(
@@ -37056,15 +37838,6 @@ async function __tmRefreshAfterWake(reason) {
                                 '移动端屏幕较窄，关闭时仅保留原悬浮条交互。',
                                 `<input class="b3-switch fn__flex-center" type="checkbox" ${SettingsStore.data.quickbarInlineShowOnMobile ? 'checked' : ''} ${SettingsStore.data.enableQuickbarInlineMeta ? '' : 'disabled'} onchange="updateQuickbarInlineShowOnMobile(this.checked)">`
                             )}
-                        </div>
-                        ${renderSingleSwitchSetting(
-                            '新建任务默认置顶',
-                            '',
-                            `<input class="b3-switch fn__flex-center" type="checkbox" ${SettingsStore.data.pinNewTasksByDefault ? 'checked' : ''} onchange="updatePinNewTasksByDefault(this.checked)">`,
-                            { style: 'margin-top:8px;' }
-                        )}
-                        <div style="font-size: 12px; color: var(--tm-secondary-text); margin-top: 6px;">
-                            关闭后将不再弹出悬浮条，也不会拦截点击/长按事件。
                         </div>
                     </div>
 
@@ -37393,7 +38166,7 @@ async function __tmRefreshAfterWake(reason) {
                 ]
             },
             {
-                title: '顶栏 Basecoat 控件',
+                title: '顶栏控件颜色',
                 rows: [
                     { label: '背景 亮色', key: 'topbarControlBgLight', value: topbarLight.controlBg },
                     { label: '背景 夜间', key: 'topbarControlBgDark', value: topbarDark.controlBg },
@@ -37403,8 +38176,8 @@ async function __tmRefreshAfterWake(reason) {
                     { label: '边框 夜间', key: 'topbarControlBorderDark', value: topbarDark.controlBorder },
                     { label: '悬停 亮色', key: 'topbarControlHoverLight', value: topbarLight.controlHover },
                     { label: '悬停 夜间', key: 'topbarControlHoverDark', value: topbarDark.controlHover },
-                    { label: '分段背景 亮色', key: 'topbarControlSegmentBgLight', value: topbarLight.segBg },
-                    { label: '分段背景 夜间', key: 'topbarControlSegmentBgDark', value: topbarDark.segBg },
+                    { label: '视图选择器背景 亮色', key: 'topbarControlSegmentBgLight', value: topbarLight.segBg },
+                    { label: '视图选择器背景 夜间', key: 'topbarControlSegmentBgDark', value: topbarDark.segBg },
                     { label: '分段激活 亮色', key: 'topbarControlSegmentActiveBgLight', value: topbarLight.segActive },
                     { label: '分段激活 夜间', key: 'topbarControlSegmentActiveBgDark', value: topbarDark.segActive },
                     { label: '阴影 亮色', key: 'topbarControlShadowColorLight', value: topbarLight.shadowColor },
@@ -37532,7 +38305,6 @@ async function __tmRefreshAfterWake(reason) {
             <div style="padding:10px;border:1px solid var(--tm-border-color);border-radius:10px;background:var(--tm-card-bg);margin-bottom:12px;">
                 <div style="display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;margin-bottom:10px;">
                     <div style="font-weight:600;">顶栏控件形态</div>
-                    <div style="font-size:12px;color:var(--tm-secondary-text);">参考 theme switcher 的做法，将颜色与形态拆开设置。</div>
                 </div>
                 <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:8px;">
                     ${metrics.map(renderMetric).join('')}
@@ -38715,7 +39487,7 @@ async function __tmRefreshAfterWake(reason) {
 
     window.tmShowSummaryModal = async function() {
         try { __tmHideMobileMenu(); } catch (e) {}
-        try { document.getElementById('tmDesktopMenu')?.remove?.(); } catch (e) {}
+        try { tmCloseDesktopMenu(); } catch (e) {}
         __tmCloseSummaryModal();
 
         const docNameMap = {};
@@ -41844,7 +42616,7 @@ async function __tmRefreshAfterWake(reason) {
         } catch (e) {}
         try {
             const desktopMenu = document.getElementById('tmDesktopMenu');
-            if (desktopMenu) desktopMenu.remove();
+            if (desktopMenu) __tmAnimatePopupOutAndRemove(desktopMenu);
         } catch (e) {}
         try { __tmHideDocTabMenu?.(); } catch (e) {}
         try {

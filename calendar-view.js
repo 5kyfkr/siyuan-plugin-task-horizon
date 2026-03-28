@@ -1317,7 +1317,7 @@
                         state.mobileDragCloseTimer = null;
                         try {
                             const wrapEl = state.wrapEl;
-                            if (wrapEl) setMobileSidebarOpen(wrapEl, false);
+                            if (wrapEl) setCalendarSidebarOpen(wrapEl, false);
                         } catch (e2) {}
                     }, 180);
                 };
@@ -1332,7 +1332,7 @@
                     clearDragCloseTimer();
                     try {
                         const wrapEl = state.wrapEl;
-                        if (wrapEl) setMobileSidebarOpen(wrapEl, false);
+                        if (wrapEl) setCalendarSidebarOpen(wrapEl, false);
                     } catch (e2) {}
                 }, { signal: abort.signal });
             }
@@ -1383,12 +1383,14 @@
         } catch (e) {}
     }
 
-    function setMobileSidebarOpen(wrap, open, page) {
+    function setCalendarSidebarOpen(wrap, open, page) {
         try {
-            if (!wrap || !wrap.classList?.contains?.('tm-calendar-wrap--mobile')) return false;
+            if (!wrap?.classList) return false;
             if (page) setSidePage(wrap, page);
+            const isMobile = !!wrap.classList.contains('tm-calendar-wrap--mobile');
             const next = !!open;
-            wrap.classList.toggle('tm-calendar-wrap--sidebar-open', next);
+            if (isMobile) wrap.classList.toggle('tm-calendar-wrap--sidebar-open', next);
+            else wrap.classList.toggle('tm-calendar-wrap--sidebar-collapsed', !next);
             state.sidebarOpen = next;
             try { requestAnimationFrame(() => { try { state.calendar?.updateSize?.(); } catch (e2) {} }); } catch (e) {}
             return next;
@@ -1398,10 +1400,13 @@
     }
 
     function toggleMobileSidebar(wrap, open, page) {
-        const isMobile = !!wrap?.classList?.contains?.('tm-calendar-wrap--mobile');
-        if (!isMobile) return false;
-        const next = (open === undefined) ? !wrap.classList.contains('tm-calendar-wrap--sidebar-open') : !!open;
-        return setMobileSidebarOpen(wrap, next, page);
+        if (!wrap?.classList) return false;
+        const isMobile = !!wrap.classList.contains('tm-calendar-wrap--mobile');
+        const isOpen = isMobile
+            ? wrap.classList.contains('tm-calendar-wrap--sidebar-open')
+            : !wrap.classList.contains('tm-calendar-wrap--sidebar-collapsed');
+        const next = (open === undefined) ? !isOpen : !!open;
+        return setCalendarSidebarOpen(wrap, next, page);
     }
 
     function miniMonthKeyFromDate(d) {
@@ -4687,6 +4692,7 @@
         }
         if (state.sideDay.calendar) {
             state.sideDay.rootEl = rootEl;
+            try { state.sideDay.calendar.setOption('dayHeaders', false); } catch (e) {}
             if (String(inOpts.date || '').trim()) {
                 try { state.sideDay.calendar.gotoDate(String(inOpts.date || '').trim()); } catch (e) {}
             }
@@ -4707,6 +4713,7 @@
             expandRows: false,
             firstDay: Number(settings.firstDay) === 0 ? 0 : 1,
             headerToolbar: false,
+            dayHeaders: false,
             nowIndicator: true,
             editable: true,
             eventStartEditable: true,
@@ -4732,6 +4739,7 @@
             eventContent: (arg) => {
                 const ext = arg?.event?.extendedProps || {};
                 const source = String(ext.__tmSource || '').trim();
+                const hideRangeText = String(arg?.view?.type || '').trim() === 'dayGridMonth';
                 if (source === 'taskdate' || (source === 'schedule' && String(ext.__tmTaskId || '').trim())) {
                     const tid = String(ext.__tmTaskId || '').trim();
                     const done = (() => {
@@ -4771,7 +4779,7 @@
                         } catch (e) {}
                         refetchAllCalendars();
                     };
-                    const rangeText = source === 'schedule'
+                    const rangeText = !hideRangeText && source === 'schedule'
                         ? formatScheduleEventRangeText(arg?.event?.start, arg?.event?.end, arg?.event?.allDay === true)
                         : '';
                     const { title, titleText } = buildTaskEventTitleNode(String(arg?.event?.title || '').trim() || '任务', rangeText);
@@ -4791,7 +4799,7 @@
                     wrapEl.className = 'tm-cal-schedule-stack';
                     const { title } = buildTaskEventTitleNode(
                         String(arg?.event?.title || '').trim() || '日程',
-                        formatScheduleEventRangeText(arg?.event?.start, arg?.event?.end, arg?.event?.allDay === true)
+                        hideRangeText ? '' : formatScheduleEventRangeText(arg?.event?.start, arg?.event?.end, arg?.event?.allDay === true)
                     );
                     applyTaskEventTitleClamp(wrapEl, title);
                     wrapEl.appendChild(title);
@@ -7198,6 +7206,30 @@
         const isMobileDevice = hostForcesMobileUi || !!globalThis.__taskHorizonPluginIsMobile || (() => {
             try { return !!window.matchMedia?.('(pointer: coarse)')?.matches; } catch (e) { return false; }
         })();
+        const isDockHost = (() => {
+            try {
+                const local = String(rootEl?.dataset?.tmHostMode || '').trim();
+                if (local === 'dock') return true;
+            } catch (e) {}
+            try {
+                const hostEl = rootEl?.closest?.('[data-tm-host-mode]');
+                const hostMode = String(hostEl?.getAttribute?.('data-tm-host-mode') || '').trim();
+                if (hostMode === 'dock') return true;
+            } catch (e) {}
+            try {
+                const bodyMode = String(document.body?.dataset?.tmHostMode || '').trim();
+                if (bodyMode === 'dock') return true;
+            } catch (e) {}
+            try {
+                const frameMode = String(window.frameElement?.dataset?.tmHostMode || '').trim();
+                if (frameMode === 'dock') return true;
+            } catch (e) {}
+            try {
+                return String(globalThis.__taskHorizonHostMode || '').trim() === 'dock';
+            } catch (e) {
+                return false;
+            }
+        })();
         state.isMobileDevice = !!isMobileDevice;
         try {
             Promise.resolve().then(() => globalThis.tmCalendarWarmDocsToGroupCache?.()).catch(() => null);
@@ -7275,7 +7307,8 @@
         renderSidebar(wrap, s);
         renderTaskPage(wrap, s);
         setSidePage(wrap, state.sidePage);
-        if (isMobileDevice) setMobileSidebarOpen(wrap, false);
+        if (isMobileDevice || isDockHost) setCalendarSidebarOpen(wrap, false);
+        else setCalendarSidebarOpen(wrap, true);
         bindSidebarResize(wrap);
         let calendar = null;
         const preferredInitialView = (() => {
@@ -7285,8 +7318,11 @@
             return 'timeGridWeek';
         })();
         const preferredInitialDate = (() => {
-            const d0 = parseDateOnly(s.lastDate);
-            return d0 || undefined;
+            const explicit = parseDateOnly(state.opts?.date || state.opts?.initialDate);
+            if (explicit) return explicit;
+            const today = new Date();
+            today.setHours(0, 0, 0, 0);
+            return today;
         })();
         const slotLayout = getTimeGridSlotLayoutOptions(s);
         calendar = new FullCalendar.Calendar(host, {
@@ -7319,7 +7355,7 @@
             lazyFetching: false,
             ...slotLayout,
             headerToolbar: {
-                left: 'today prev,next',
+                left: 'prev today next',
                 center: 'title',
                 right: 'timeGridDay,timeGrid3Day,timeGridWorkdays,timeGridWeek,dayGridMonth',
             },
@@ -7327,6 +7363,7 @@
             eventContent: (arg) => {
                 const ext = arg?.event?.extendedProps || {};
                 const source = String(ext.__tmSource || '').trim();
+                const hideRangeText = String(arg?.view?.type || '').trim() === 'dayGridMonth';
                 if (source === 'taskdate' || (source === 'schedule' && String(ext.__tmTaskId || '').trim())) {
                     const tid = String(ext.__tmTaskId || '').trim();
                     const done = (() => {
@@ -7366,7 +7403,7 @@
                         } catch (e) {}
                         try { state.calendar?.refetchEvents?.(); } catch (e) {}
                     };
-                    const rangeText = source === 'schedule'
+                    const rangeText = !hideRangeText && source === 'schedule'
                         ? formatScheduleEventRangeText(arg?.event?.start, arg?.event?.end, arg?.event?.allDay === true)
                         : '';
                     const { title, titleText } = buildTaskEventTitleNode(String(arg?.event?.title || '').trim() || '任务', rangeText);
@@ -7396,7 +7433,7 @@
                     wrapEl.className = 'tm-cal-schedule-stack';
                     const { title } = buildTaskEventTitleNode(
                         String(arg?.event?.title || '').trim() || '日程',
-                        formatScheduleEventRangeText(arg?.event?.start, arg?.event?.end, arg?.event?.allDay === true)
+                        hideRangeText ? '' : formatScheduleEventRangeText(arg?.event?.start, arg?.event?.end, arg?.event?.allDay === true)
                     );
                     applyTaskEventTitleClamp(wrapEl, title);
                     wrapEl.appendChild(title);
@@ -7958,6 +7995,13 @@
         } catch (e) {}
         try {
             requestAnimationFrame(() => {
+                try {
+                    if (preferredInitialDate) {
+                        const currentType = String(calendar?.view?.type || '').trim();
+                        if (currentType && currentType !== preferredInitialView) calendar.changeView(preferredInitialView, preferredInitialDate);
+                        else calendar.gotoDate(preferredInitialDate);
+                    }
+                } catch (e2) {}
                 try { calendar.updateSize(); } catch (e2) {}
                 try { enhanceNowIndicator(host); } catch (e2) {}
             });
@@ -8026,7 +8070,7 @@
                 return;
             }
             if (action === 'closeSidebar') {
-                setMobileSidebarOpen(wrap, false);
+                setCalendarSidebarOpen(wrap, false);
                 return;
             }
             if (action === 'taskPrev') {
@@ -8096,7 +8140,7 @@
                 const t = e?.target;
                 if (!(t instanceof Element)) return;
                 if (t.closest('.tm-calendar-sidebar')) return;
-                setMobileSidebarOpen(wrap, false);
+                setCalendarSidebarOpen(wrap, false);
             } catch (e2) {}
         }, true);
         state.wrapEl = wrap;
@@ -9114,12 +9158,12 @@
         openSidebar: (page) => {
             const wrap = state.wrapEl;
             if (!wrap) return false;
-            return setMobileSidebarOpen(wrap, true, page || state.sidePage || 'calendar');
+            return setCalendarSidebarOpen(wrap, true, page || state.sidePage || 'calendar');
         },
         closeSidebar: () => {
             const wrap = state.wrapEl;
             if (!wrap) return false;
-            return setMobileSidebarOpen(wrap, false);
+            return setCalendarSidebarOpen(wrap, false);
         },
         mountSideDayTimeline,
         unmountSideDayTimeline,
