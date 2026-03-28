@@ -119,12 +119,14 @@
     let inlineMetaNeedSyncBlocks = true;
     let inlineMetaMutationTimer = null;
     let inlineMetaMutationHasStructural = false;
+    let inlineMetaMutationLastFireTs = 0;
     let inlineMetaLastScrollRenderTs = 0;
     let inlineMetaPropsInflight = new Map();
     let inlineMetaScrollDirection = 0;
     let inlineMetaLastScrollPos = 0;
     let inlineMetaWsHandler = null;
     let inlineMetaWsTimer = null;
+    let inlineMetaIsComposing = false;
     let inlineMetaScopeDocIds = null;
     let inlineMetaScopeDocIdsTs = 0;
     let inlineMetaScopeDocIdsPromise = null;
@@ -2183,12 +2185,21 @@
                     inlineMetaLayoutCache.clear();
                 }
                 if (inlineMetaMutationTimer) clearTimeout(inlineMetaMutationTimer);
-                inlineMetaMutationTimer = setTimeout(() => {
+                const now = Date.now();
+                const elapsed = now - inlineMetaMutationLastFireTs;
+                const fireNow = elapsed >= 80;
+                const fireMutation = () => {
                     inlineMetaMutationTimer = null;
+                    inlineMetaMutationLastFireTs = Date.now();
                     const structural = inlineMetaMutationHasStructural;
                     inlineMetaMutationHasStructural = false;
                     requestInlineMetaRender(structural);
-                }, 80);
+                };
+                if (fireNow) {
+                    fireMutation();
+                } else {
+                    inlineMetaMutationTimer = setTimeout(fireMutation, 80 - elapsed);
+                }
             });
             const roots = getInlineMetaObserveRoots();
             inlineMetaObservedRoots = roots;
@@ -2211,6 +2222,11 @@
 
         function layoutInlineMetaHost(blockEl, host, taskId, textAnchor, html, forceRefresh = false, visibilityBuffer = 0) {
             if (!blockEl || !host || !taskId || !textAnchor) return false;
+            if (inlineMetaIsComposing && isInlineMetaEditingBlock(blockEl)) {
+                console.log('[comp] COMPOSING_HIDE taskId=' + taskId);
+                host.classList.remove('is-ready');
+                return false;
+            }
             // --- FAST PATH: skip expensive geometry reads when content is unchanged ---
             const textSig = getInlineTextFastSignature(textAnchor);
             const prevLayout = inlineMetaLayoutCache.get(taskId);
@@ -2527,6 +2543,10 @@
             };
             try { document.addEventListener('scroll', inlineMetaScrollHandler, { capture: true, passive: true }); } catch (e) {}
             try { window.addEventListener('resize', inlineMetaScrollHandler, true); } catch (e) {}
+            try {
+                document.addEventListener('compositionstart', () => { console.log('[comp] START'); inlineMetaIsComposing = true; requestInlineMetaRender(false); }, true);
+                document.addEventListener('compositionend', () => { console.log('[comp] END'); inlineMetaIsComposing = false; requestInlineMetaRender(false); }, true);
+            } catch (e) {}
             try {
                 const eb = globalThis.__taskHorizonPluginInstance?.eventBus || window.siyuan?.eventBus;
                 if (eb && typeof eb.on === 'function' && !inlineMetaWsHandler) {

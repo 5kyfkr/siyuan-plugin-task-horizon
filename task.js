@@ -1,5 +1,5 @@
 // @name         思源笔记任务管理器
-// @version      1.9.5
+// @version      1.9.6
 // @description  任务管理器，支持自定义筛选规则分组和排序
 // @author       5KYFKR
 
@@ -2583,6 +2583,223 @@
             min-width: 520px;
             overflow: visible;
             background: transparent;
+        }
+
+        .tm-body.tm-body--whiteboard-stream {
+            padding: 18px;
+            overflow-y: auto;
+            overflow-x: hidden;
+        }
+
+        .tm-whiteboard-stream {
+            display: flex;
+            align-items: flex-start;
+            gap: 16px;
+            width: 100%;
+            min-height: 100%;
+            box-sizing: border-box;
+        }
+
+        .tm-whiteboard-stream-col {
+            flex: 1 1 0;
+            min-width: 0;
+            display: flex;
+            flex-direction: column;
+            gap: 16px;
+        }
+
+        .tm-whiteboard-stream-doc {
+            border: 1px solid color-mix(in srgb, var(--tm-border-color) 72%, var(--tm-text-color) 28%);
+            border-radius: 14px;
+            background: var(--tm-section-bg);
+            box-shadow: 0 10px 24px rgba(15, 23, 42, 0.08), 0 2px 6px rgba(15, 23, 42, 0.04);
+            overflow: hidden;
+            transition: border-color .12s ease, box-shadow .12s ease;
+            min-width: 0;
+        }
+
+        .tm-whiteboard-stream-doc:hover {
+            border-color: var(--tm-primary-color);
+            box-shadow: 0 16px 34px rgba(15, 23, 42, 0.12), 0 4px 10px rgba(15, 23, 42, 0.06);
+        }
+
+        .tm-whiteboard-stream-doc.tm-whiteboard-stream-doc--dragging {
+            opacity: .48;
+        }
+
+        .tm-whiteboard-stream-doc.tm-whiteboard-stream-doc--drag-before {
+            box-shadow: inset 0 3px 0 var(--tm-primary-color), 0 10px 26px rgba(15, 23, 42, 0.10);
+            border-color: var(--tm-primary-color);
+        }
+
+        .tm-whiteboard-stream-doc.tm-whiteboard-stream-doc--drag-after {
+            box-shadow: inset 0 -3px 0 var(--tm-primary-color), 0 10px 26px rgba(15, 23, 42, 0.10);
+            border-color: var(--tm-primary-color);
+        }
+
+        .tm-whiteboard-stream-doc-head {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            justify-content: space-between;
+            padding: 12px 14px;
+            border-bottom: 1px solid var(--tm-border-color);
+            background: color-mix(in srgb, var(--tm-table-header-bg) 90%, var(--tm-section-bg));
+        }
+
+        .tm-whiteboard-stream-doc-meta {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            min-width: 0;
+            flex: 1 1 auto;
+        }
+
+        .tm-whiteboard-stream-doc-title {
+            min-width: 0;
+            font-weight: 700;
+            font-size: 14px;
+            color: var(--tm-text-color);
+            cursor: pointer;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+        }
+
+        .tm-whiteboard-stream-doc-title:hover {
+            color: var(--tm-primary-color);
+        }
+
+        .tm-whiteboard-stream-doc-grip {
+            flex: 0 0 auto;
+            color: var(--tm-secondary-text);
+            cursor: grab;
+            user-select: none;
+            padding: 2px 4px;
+            border-radius: 8px;
+            border: 1px solid transparent;
+            font-size: 13px;
+            line-height: 1;
+        }
+
+        .tm-whiteboard-stream-doc-grip:hover {
+            color: var(--tm-text-color);
+            background: var(--tm-table-header-bg);
+            border-color: var(--tm-border-color);
+        }
+
+        .tm-whiteboard-stream-doc-grip:active {
+            cursor: grabbing;
+        }
+
+        .tm-whiteboard-stream-doc-list {
+            display: flex;
+            flex-direction: column;
+            gap: 2px;
+            padding: 10px 8px 8px;
+        }
+
+        .tm-whiteboard-stream-heading {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 10px;
+            padding: 8px 10px 6px;
+            margin-top: 6px;
+            border-top: 1px solid var(--tm-border-color);
+            color: var(--tm-secondary-text);
+            font-size: 12px;
+            font-weight: 700;
+        }
+
+        .tm-whiteboard-stream-heading:first-child {
+            margin-top: 0;
+            padding-top: 2px;
+            border-top: none;
+        }
+
+        .tm-whiteboard-stream-heading-main {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            min-width: 0;
+            flex: 1 1 auto;
+        }
+
+        .tm-whiteboard-stream-heading-label {
+            min-width: 0;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+        }
+
+        .tm-whiteboard-stream-task-node {
+            display: flex;
+            flex-direction: column;
+            gap: 6px;
+        }
+
+        .tm-whiteboard-stream-task {
+            padding: 0;
+            border-radius: 10px;
+        }
+
+        .tm-whiteboard-stream-task-head {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            padding: 7px 8px;
+            border-radius: 10px;
+            transition: background .12s ease;
+        }
+
+        .tm-whiteboard-stream-task-head:hover {
+            background: var(--tm-table-header-bg);
+        }
+
+        .tm-whiteboard-stream-task-toggle-slot {
+            width: 20px;
+            min-width: 20px;
+            height: 20px;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            flex: 0 0 20px;
+        }
+
+        .tm-whiteboard-stream-task-head .tm-task-checkbox-wrap,
+        .tm-whiteboard-stream-task-head .tm-task-checkbox {
+            margin-top: 0;
+            flex: 0 0 auto;
+        }
+
+        .tm-whiteboard-stream-task-title {
+            min-width: 0;
+            flex: 1 1 auto;
+            display: block;
+            line-height: 1.35;
+            color: var(--tm-text-color);
+            cursor: pointer;
+            overflow-wrap: anywhere;
+        }
+
+        .tm-whiteboard-stream-task-title:hover {
+            color: var(--tm-primary-color);
+        }
+
+        .tm-whiteboard-stream-subtasks {
+            margin-left: 14px;
+            padding-left: 8px;
+            border-left: 2px solid var(--tm-border-color);
+            display: flex;
+            flex-direction: column;
+            gap: 6px;
+        }
+
+        .tm-whiteboard-stream-empty {
+            padding: 12px;
+            color: var(--tm-secondary-text);
+            font-size: 13px;
         }
 
         .tm-whiteboard-edges {
@@ -6502,6 +6719,7 @@
             kanbanDragSyncSubtasks: true,
             kanbanCardFields: ['priority', 'status', 'date'],
             kanbanHeadingGroupMode: false,
+            whiteboardAllTabsCardMinWidth: 320,
             docH2SubgroupEnabled: true,
             groupByTaskName: false,
             groupMode: 'doc',
@@ -6648,6 +6866,8 @@
             whiteboardAutoLayout: false,
             whiteboardPlacedTaskIds: {},
             whiteboardDocFrameSize: {},
+            whiteboardAllTabsLayoutMode: 'board',
+            whiteboardAllTabsDocOrderByGroup: {},
             whiteboardSequenceMode: false,
             collapseAllIncludesGroups: false,
             docColorMap: {},
@@ -6818,6 +7038,7 @@
                                 if (typeof cloudData.kanbanDragSyncSubtasks === 'boolean') this.data.kanbanDragSyncSubtasks = cloudData.kanbanDragSyncSubtasks;
                                 if (Array.isArray(cloudData.kanbanCardFields)) this.data.kanbanCardFields = cloudData.kanbanCardFields;
                                 if (typeof cloudData.kanbanHeadingGroupMode === 'boolean') this.data.kanbanHeadingGroupMode = cloudData.kanbanHeadingGroupMode;
+                                if (typeof cloudData.whiteboardAllTabsCardMinWidth === 'number') this.data.whiteboardAllTabsCardMinWidth = cloudData.whiteboardAllTabsCardMinWidth;
                                 if (typeof cloudData.docH2SubgroupEnabled === 'boolean') this.data.docH2SubgroupEnabled = cloudData.docH2SubgroupEnabled;
                                 if (typeof cloudData.groupByTaskName === 'boolean') this.data.groupByTaskName = cloudData.groupByTaskName;
                                 if (typeof cloudData.groupMode === 'string') this.data.groupMode = cloudData.groupMode;
@@ -6980,6 +7201,8 @@
                                 if (typeof cloudData.whiteboardAutoLayout === 'boolean') this.data.whiteboardAutoLayout = cloudData.whiteboardAutoLayout;
                                 if (cloudData.whiteboardPlacedTaskIds && typeof cloudData.whiteboardPlacedTaskIds === 'object') this.data.whiteboardPlacedTaskIds = cloudData.whiteboardPlacedTaskIds;
                                 if (cloudData.whiteboardDocFrameSize && typeof cloudData.whiteboardDocFrameSize === 'object') this.data.whiteboardDocFrameSize = cloudData.whiteboardDocFrameSize;
+                                if (typeof cloudData.whiteboardAllTabsLayoutMode === 'string') this.data.whiteboardAllTabsLayoutMode = cloudData.whiteboardAllTabsLayoutMode;
+                                if (cloudData.whiteboardAllTabsDocOrderByGroup && typeof cloudData.whiteboardAllTabsDocOrderByGroup === 'object') this.data.whiteboardAllTabsDocOrderByGroup = cloudData.whiteboardAllTabsDocOrderByGroup;
                                 if (typeof cloudData.whiteboardSequenceMode === 'boolean') this.data.whiteboardSequenceMode = cloudData.whiteboardSequenceMode;
                                 if (cloudData.docColorMap && typeof cloudData.docColorMap === 'object') this.data.docColorMap = cloudData.docColorMap;
                                 if (typeof cloudData.docColorSeed === 'number') this.data.docColorSeed = cloudData.docColorSeed;
@@ -7079,6 +7302,7 @@
             this.data.kanbanDragSyncSubtasks = !!Storage.get('tm_kanban_drag_sync_subtasks', this.data.kanbanDragSyncSubtasks);
             this.data.kanbanCardFields = Storage.get('tm_kanban_card_fields', this.data.kanbanCardFields) || this.data.kanbanCardFields;
             this.data.kanbanHeadingGroupMode = !!Storage.get('tm_kanban_heading_group_mode', this.data.kanbanHeadingGroupMode);
+            this.data.whiteboardAllTabsCardMinWidth = Storage.get('tm_whiteboard_all_tabs_card_min_width', this.data.whiteboardAllTabsCardMinWidth);
             this.data.docH2SubgroupEnabled = !!Storage.get('tm_doc_h2_subgroup_enabled', this.data.docH2SubgroupEnabled);
             this.data.groupByTaskName = !!Storage.get('tm_group_by_taskname', this.data.groupByTaskName);
             this.data.groupMode = Storage.get('tm_group_mode', this.data.groupMode);
@@ -7236,6 +7460,8 @@
             this.data.whiteboardAutoLayout = Storage.get('tm_whiteboard_auto_layout', this.data.whiteboardAutoLayout);
             this.data.whiteboardPlacedTaskIds = Storage.get('tm_whiteboard_placed_task_ids', this.data.whiteboardPlacedTaskIds) || {};
             this.data.whiteboardDocFrameSize = Storage.get('tm_whiteboard_doc_frame_size', this.data.whiteboardDocFrameSize) || {};
+            this.data.whiteboardAllTabsLayoutMode = Storage.get('tm_whiteboard_all_tabs_layout_mode', this.data.whiteboardAllTabsLayoutMode);
+            this.data.whiteboardAllTabsDocOrderByGroup = Storage.get('tm_whiteboard_all_tabs_doc_order_by_group', this.data.whiteboardAllTabsDocOrderByGroup) || {};
             this.data.whiteboardSequenceMode = Storage.get('tm_whiteboard_sequence_mode', this.data.whiteboardSequenceMode);
             this.data.docColorMap = Storage.get('tm_doc_color_map', this.data.docColorMap) || {};
             this.data.docColorSeed = Storage.get('tm_doc_color_seed', this.data.docColorSeed);
@@ -7351,6 +7577,7 @@
             Storage.set('tm_kanban_drag_sync_subtasks', !!this.data.kanbanDragSyncSubtasks);
             Storage.set('tm_kanban_card_fields', this.data.kanbanCardFields || []);
             Storage.set('tm_kanban_heading_group_mode', !!this.data.kanbanHeadingGroupMode);
+            Storage.set('tm_whiteboard_all_tabs_card_min_width', Number(this.data.whiteboardAllTabsCardMinWidth) || 320);
             Storage.set('tm_doc_h2_subgroup_enabled', !!this.data.docH2SubgroupEnabled);
             Storage.set('tm_group_by_taskname', !!this.data.groupByTaskName);
             Storage.set('tm_group_mode', String(this.data.groupMode || '').trim() || 'none');
@@ -7511,6 +7738,8 @@
             Storage.set('tm_whiteboard_auto_layout', this.data.whiteboardAutoLayout !== false);
             Storage.set('tm_whiteboard_placed_task_ids', this.data.whiteboardPlacedTaskIds || {});
             Storage.set('tm_whiteboard_doc_frame_size', this.data.whiteboardDocFrameSize || {});
+            Storage.set('tm_whiteboard_all_tabs_layout_mode', __tmNormalizeWhiteboardAllTabsLayoutMode(this.data.whiteboardAllTabsLayoutMode));
+            Storage.set('tm_whiteboard_all_tabs_doc_order_by_group', this.data.whiteboardAllTabsDocOrderByGroup || {});
             Storage.set('tm_whiteboard_sequence_mode', !!this.data.whiteboardSequenceMode);
             Storage.set('tm_doc_color_map', this.data.docColorMap || {});
             Storage.set('tm_doc_color_seed', Number(this.data.docColorSeed) || 1);
@@ -7586,6 +7815,8 @@
             this.data.docColorSeed = (Number.isFinite(seed) && seed > 0) ? Math.floor(seed) : 1;
             const kw = Number(this.data.kanbanColumnWidth);
             this.data.kanbanColumnWidth = Number.isFinite(kw) ? Math.max(220, Math.min(520, Math.round(kw))) : 320;
+            const wbStreamMinW = Number(this.data.whiteboardAllTabsCardMinWidth);
+            this.data.whiteboardAllTabsCardMinWidth = Number.isFinite(wbStreamMinW) ? Math.max(220, Math.min(520, Math.round(wbStreamMinW))) : 320;
             this.data.kanbanFillColumns = !!this.data.kanbanFillColumns;
             this.data.kanbanCardFields = __tmNormalizeTaskCardFieldList(this.data.kanbanCardFields, ['priority', 'status', 'date']);
             this.data.docH2SubgroupEnabled = this.data.docH2SubgroupEnabled !== false;
@@ -7634,6 +7865,7 @@
                 ? this.data.whiteboardNodePos
                 : {};
             this.data.whiteboardAutoLayout = false;
+            this.data.whiteboardAllTabsLayoutMode = __tmNormalizeWhiteboardAllTabsLayoutMode(this.data.whiteboardAllTabsLayoutMode);
             this.data.whiteboardSequenceMode = !!this.data.whiteboardSequenceMode;
             const wbPlaced0 = (this.data.whiteboardPlacedTaskIds && typeof this.data.whiteboardPlacedTaskIds === 'object' && !Array.isArray(this.data.whiteboardPlacedTaskIds))
                 ? this.data.whiteboardPlacedTaskIds
@@ -7658,6 +7890,17 @@
                 wbFrame[id] = { w: Math.max(520, Math.round(w)), h: Math.max(220, Math.round(h)) };
             });
             this.data.whiteboardDocFrameSize = wbFrame;
+            const wbAllTabsOrder0 = (this.data.whiteboardAllTabsDocOrderByGroup && typeof this.data.whiteboardAllTabsDocOrderByGroup === 'object' && !Array.isArray(this.data.whiteboardAllTabsDocOrderByGroup))
+                ? this.data.whiteboardAllTabsDocOrderByGroup
+                : {};
+            const wbAllTabsOrder = {};
+            Object.keys(wbAllTabsOrder0).forEach((k) => {
+                const gid = String(k || '').trim() || 'all';
+                const ids = Array.isArray(wbAllTabsOrder0[k]) ? wbAllTabsOrder0[k] : [];
+                const nextIds = Array.from(new Set(ids.map((id) => String(id || '').trim()).filter(Boolean)));
+                if (nextIds.length > 0) wbAllTabsOrder[gid] = nextIds;
+            });
+            this.data.whiteboardAllTabsDocOrderByGroup = wbAllTabsOrder;
         },
 
         async save() {
@@ -10465,6 +10708,10 @@
         docTabsScrollLeft: 0,
         mobileBottomViewbarActiveUntil: 0,
         mobileBottomViewbarTimer: 0,
+        mobileViewportRefreshSig: '',
+        mobileViewportRefreshTimer: 0,
+        mobileViewportRefreshHandler: null,
+        mobileViewportRefreshVisualViewport: null,
         ganttView: {
             dayWidth: 24,
             paddingDays: 7,
@@ -10540,6 +10787,9 @@
         whiteboardSuppressClickUntil: 0,
         whiteboardPoolSelectedTaskIds: [],
         whiteboardPoolDragGhostEl: null,
+        whiteboardAllTabsDocDragId: '',
+        whiteboardAllTabsVisibleDocIds: [],
+        whiteboardAllTabsBaseDocIds: [],
         whiteboardDocFrameMap: {},
         whiteboardDocResize: null,
         whiteboardNoteClickTimer: 0,
@@ -11683,6 +11933,11 @@ async function __tmRefreshAfterWake(reason) {
         return Number.isFinite(ts) ? ts : 0;
     }
 
+    function __tmNormalizeWhiteboardAllTabsLayoutMode(mode) {
+        const m = String(mode || '').trim().toLowerCase();
+        return m === 'stream' ? 'stream' : 'board';
+    }
+
     function __tmCompareTasksByDocFlow(a, b) {
         const qa = Number(a?.docSeq);
         const qb = Number(b?.docSeq);
@@ -12207,9 +12462,14 @@ async function __tmRefreshAfterWake(reason) {
         } catch (e) {}
         const modal = modalEl instanceof Element ? modalEl : state.modal;
         if (!(modal instanceof Element)) return;
-        if (state.viewMode !== 'list' && state.viewMode !== 'calendar') return;
-        if (SettingsStore.data.kanbanFillColumns !== true) return;
-        const body = modal.querySelector(state.viewMode === 'calendar' ? '.tm-body.tm-body--calendar' : '.tm-body');
+        const isStreamWhiteboard = state.viewMode === 'whiteboard' && __tmIsWhiteboardAllTabsStreamMode();
+        if (state.viewMode !== 'list' && state.viewMode !== 'calendar' && !isStreamWhiteboard) return;
+        if (!isStreamWhiteboard && SettingsStore.data.kanbanFillColumns !== true) return;
+        const body = modal.querySelector(
+            isStreamWhiteboard
+                ? '.tm-body.tm-body--whiteboard-stream'
+                : (state.viewMode === 'calendar' ? '.tm-body.tm-body--calendar' : '.tm-body')
+        );
         if (!(body instanceof HTMLElement)) return;
         let lastWidth = Math.round(Number(body.clientWidth) || 0);
         state.tableResponsiveLastWidth = lastWidth;
@@ -12227,7 +12487,7 @@ async function __tmRefreshAfterWake(reason) {
                 state.tableResponsiveResizeRaf = requestAnimationFrame(() => {
                     state.tableResponsiveResizeRaf = 0;
                     if (!state.modal || !document.body.contains(state.modal)) return;
-                    if (state.viewMode !== 'list' && state.viewMode !== 'calendar') return;
+                    if (state.viewMode !== 'list' && state.viewMode !== 'calendar' && !(state.viewMode === 'whiteboard' && __tmIsWhiteboardAllTabsStreamMode())) return;
                     try { render(); } catch (e) {}
                 });
             });
@@ -12246,6 +12506,65 @@ async function __tmRefreshAfterWake(reason) {
         window.addEventListener('scroll', () => {
             try { __tmHideFloatingTooltip(); } catch (e) {}
         }, { passive: true, capture: true });
+    }
+
+    function __tmComputeMobileBottomViewbarLayoutSig() {
+        const isMobile = __tmIsMobileDevice();
+        const isDockHost = __tmIsDockHost();
+        const hostUsesMobileUI = __tmHostUsesMobileUI();
+        const isLandscape = !!(isMobile && (() => { try { return !!window.matchMedia?.('(orientation: landscape)')?.matches; } catch (e) { return false; } })());
+        const showMobileBottomViewBar = isDockHost
+            ? (!hostUsesMobileUI || !isLandscape)
+            : !!(isMobile && !isLandscape);
+        return `${isMobile ? 1 : 0}|${isDockHost ? 1 : 0}|${hostUsesMobileUI ? 1 : 0}|${isLandscape ? 1 : 0}|${showMobileBottomViewBar ? 1 : 0}`;
+    }
+
+    function __tmUnbindMobileViewportAutoRefresh() {
+        try {
+            if (state.mobileViewportRefreshTimer) {
+                clearTimeout(state.mobileViewportRefreshTimer);
+                state.mobileViewportRefreshTimer = 0;
+            }
+        } catch (e) {}
+        try {
+            if (state.mobileViewportRefreshHandler) {
+                window.removeEventListener('resize', state.mobileViewportRefreshHandler);
+                window.removeEventListener('orientationchange', state.mobileViewportRefreshHandler);
+                state.mobileViewportRefreshVisualViewport?.removeEventListener?.('resize', state.mobileViewportRefreshHandler);
+            }
+        } catch (e) {}
+        state.mobileViewportRefreshHandler = null;
+        state.mobileViewportRefreshVisualViewport = null;
+        state.mobileViewportRefreshSig = '';
+    }
+
+    function __tmBindMobileViewportAutoRefresh(modalEl) {
+        __tmUnbindMobileViewportAutoRefresh();
+        const modal = modalEl instanceof Element ? modalEl : state.modal;
+        if (!(modal instanceof Element)) return;
+        state.mobileViewportRefreshSig = __tmComputeMobileBottomViewbarLayoutSig();
+        const onViewportChange = () => {
+            try {
+                if (state.mobileViewportRefreshTimer) clearTimeout(state.mobileViewportRefreshTimer);
+            } catch (e) {}
+            state.mobileViewportRefreshTimer = setTimeout(() => {
+                state.mobileViewportRefreshTimer = 0;
+                if (!state.modal || !document.body.contains(state.modal)) return;
+                const nextSig = __tmComputeMobileBottomViewbarLayoutSig();
+                if (nextSig === state.mobileViewportRefreshSig) return;
+                state.mobileViewportRefreshSig = nextSig;
+                try { render(); } catch (e) {}
+            }, 120);
+        };
+        state.mobileViewportRefreshHandler = onViewportChange;
+        try { window.addEventListener('resize', onViewportChange, { passive: true }); } catch (e) {}
+        try { window.addEventListener('orientationchange', onViewportChange, { passive: true }); } catch (e) {}
+        try {
+            if (window.visualViewport?.addEventListener) {
+                window.visualViewport.addEventListener('resize', onViewportChange, { passive: true });
+                state.mobileViewportRefreshVisualViewport = window.visualViewport;
+            }
+        } catch (e) {}
     }
 
     const __tmRenderViewSwitcherButtons = (opts = {}) => {
@@ -18755,7 +19074,7 @@ async function __tmRefreshAfterWake(reason) {
         const title = String(meta?.title || '').trim();
         try {
             const row = (ev?.currentTarget instanceof Element)
-                ? ev.currentTarget.closest?.('tr[data-id], .tm-checklist-item[data-id], .tm-kanban-card[data-id], .tm-whiteboard-pool-item[data-task-id], .tm-whiteboard-node[data-task-id]')
+                ? ev.currentTarget.closest?.('tr[data-id], .tm-checklist-item[data-id], .tm-kanban-card[data-id], .tm-whiteboard-pool-item[data-task-id], .tm-whiteboard-node[data-task-id], .tm-whiteboard-stream-task-head[data-task-id], .tm-whiteboard-stream-task-node[data-task-id]')
                 : null;
             if (row && calendarId) row.setAttribute('data-calendar-id', calendarId);
         } catch (e) {}
@@ -19165,6 +19484,7 @@ async function __tmRefreshAfterWake(reason) {
         const hasTaskModeOption = !!(SettingsStore.data.groupByTaskName || state.groupByTaskName);
         const isMobile = __tmIsMobileDevice();
         const isDockHost = __tmIsDockHost();
+        const hostUsesMobileUI = __tmHostUsesMobileUI();
         const isSplitPane = false; // 使用CSS容器查询处理分屏模式
         const isLandscape = !!(isMobile && (() => { try { return !!window.matchMedia?.('(orientation: landscape)')?.matches; } catch (e) { return false; } })());
         const isDesktopNarrow = !!(!isMobile && (() => { try { return !!window.matchMedia?.('(max-width: 768px)')?.matches; } catch (e) { return false; } })());
@@ -19196,6 +19516,7 @@ async function __tmRefreshAfterWake(reason) {
         state.modal.className = 'tm-modal'
             + (__tmMountEl ? ' tm-modal--tab' : '')
             + (isMobile ? ' tm-modal--mobile' : '')
+            + (hostUsesMobileUI ? ' tm-modal--host-mobile-ui' : '')
             + (isSplitPane ? ' tm-modal--split-pane' : '')
             + (isDockHost ? ' tm-modal--dock' : '');
         try {
@@ -21034,6 +21355,155 @@ async function __tmRefreshAfterWake(reason) {
             // 不在这里按完成状态强制清空选中，避免点击已完成卡片后选中态立即丢失。
             // 仅当任务真实不存在时（见上方分支）才清理选中态。
 
+            const allView = !(state.activeDocId && state.activeDocId !== 'all');
+            if (allView && __tmGetWhiteboardAllTabsLayoutMode() === 'stream') {
+                const streamByDoc = new Map();
+                filtered.forEach((task) => {
+                    if (!task || typeof task !== 'object') return;
+                    const docId = String(task?.root_id || task?.docId || '').trim();
+                    const id = String(task?.id || '').trim();
+                    if (!docId || !id || !docIdSet.has(docId)) return;
+                    if (!showDoneTasks && !!task?.done) return;
+                    if (!streamByDoc.has(docId)) streamByDoc.set(docId, []);
+                    const list = streamByDoc.get(docId);
+                    if (list.some((item) => String(item?.id || '').trim() === id)) return;
+                    list.push(task);
+                });
+                const visibleDocIds0 = selectedDocIds.filter((docId) => (streamByDoc.get(String(docId || '').trim()) || []).length > 0);
+                const orderedVisibleDocIds = __tmGetWhiteboardAllTabsOrderedDocIds(currentGroupId, visibleDocIds0);
+                state.whiteboardAllTabsVisibleDocIds = orderedVisibleDocIds.slice();
+                state.whiteboardAllTabsBaseDocIds = docsInOrder0.slice();
+                if (!orderedVisibleDocIds.includes(String(state.whiteboardAllTabsDocDragId || '').trim())) {
+                    state.whiteboardAllTabsDocDragId = '';
+                }
+                const streamGap = 16;
+                const streamMinCardWidth = Math.max(220, Math.min(520, Number(SettingsStore.data.whiteboardAllTabsCardMinWidth) || 320));
+                const modalWidth = Math.round(Number(state.modal?.getBoundingClientRect?.().width) || Number(state.modal?.clientWidth) || 0);
+                const bodyWidth = Math.max(320, modalWidth || Number(window.innerWidth) || 1280);
+                const availableWidth = Math.max(220, bodyWidth - 40);
+                const colCount = Math.max(
+                    1,
+                    Math.min(
+                        4,
+                        orderedVisibleDocIds.length || 1,
+                        isMobile
+                            ? 1
+                            : Math.max(1, Math.floor((availableWidth + streamGap) / (streamMinCardWidth + streamGap)))
+                    )
+                );
+                const cols = Array.from({ length: colCount }, () => ({ score: 0, items: [] }));
+                orderedVisibleDocIds.forEach((docId, idx) => {
+                    const docTasks = (streamByDoc.get(docId) || []).slice().sort(__tmCompareTasksByDocFlow);
+                    const taskById = new Map(docTasks.map((task) => [String(task?.id || '').trim(), task]).filter(([id]) => !!id));
+                    const childMap = new Map();
+                    const orderById = new Map(docTasks.map((task, order) => [String(task?.id || '').trim(), order]));
+                    docTasks.forEach((task) => {
+                        const tid = String(task?.id || '').trim();
+                        const pid = String(task?.parentTaskId || '').trim();
+                        if (!tid || !pid || !taskById.has(pid)) return;
+                        if (!childMap.has(pid)) childMap.set(pid, []);
+                        childMap.get(pid).push(tid);
+                    });
+                    childMap.forEach((ids) => ids.sort((a, b) => (orderById.get(a) ?? 999999) - (orderById.get(b) ?? 999999)));
+                    const rootIds = docTasks
+                        .map((task) => String(task?.id || '').trim())
+                        .filter((tid) => {
+                            if (!tid) return false;
+                            const parentId = String(taskById.get(tid)?.parentTaskId || '').trim();
+                            return !parentId || !taskById.has(parentId);
+                        });
+                    const headingBuckets = __tmBuildDocHeadingBuckets(docTasks, noHeadingLabel);
+                    const rootIdsByHeading = new Map();
+                    const headingCountMap = new Map();
+                    docTasks.forEach((task) => {
+                        const bucket = __tmGetDocHeadingBucket(task, noHeadingLabel);
+                        const key = String(bucket?.key || '').trim();
+                        if (!key) return;
+                        headingCountMap.set(key, (headingCountMap.get(key) || 0) + 1);
+                    });
+                    rootIds.forEach((tid) => {
+                        const task = taskById.get(tid);
+                        const bucket = __tmGetDocHeadingBucket(task, noHeadingLabel);
+                        const key = String(bucket?.key || '').trim() || `label:${noHeadingLabel}`;
+                        if (!rootIdsByHeading.has(key)) rootIdsByHeading.set(key, []);
+                        rootIdsByHeading.get(key).push(tid);
+                    });
+                    const renderTaskTree = (taskId) => {
+                        const task = taskById.get(String(taskId || '').trim());
+                        if (!task) return '';
+                        const tid = String(task?.id || '').trim();
+                        const childIds = (childMap.get(tid) || []).filter((id) => taskById.has(String(id || '').trim()));
+                        const collapsed = childIds.length ? __tmKanbanGetCollapsedSet().has(tid) : false;
+                        const content = String(task?.content || '').trim() || '(无内容)';
+                        const toggleHtml = childIds.length
+                            ? `<button class="tm-kanban-toggle" onclick="tmWhiteboardToggleTaskCollapse('${escSq(tid)}', event)" title="${collapsed ? '展开子任务' : '折叠子任务'}"><svg class="tm-tree-toggle-icon" viewBox="0 0 16 16" width="10" height="10" style="transform:translate(-50%, -50%) rotate(${collapsed ? '0deg' : '90deg'});"><path d="M4.75 3.25l6.5 4.75-6.5 4.75" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></svg></button>`
+                            : `<span class="tm-whiteboard-stream-task-toggle-slot"></span>`;
+                        const childrenHtml = childIds.length && !collapsed
+                            ? `<div class="tm-whiteboard-stream-subtasks">${childIds.map((id) => renderTaskTree(id)).join('')}</div>`
+                            : '';
+                        return `
+                            <div class="tm-whiteboard-stream-task-node" data-task-id="${esc(tid)}" data-id="${esc(tid)}">
+                                <div class="tm-whiteboard-stream-task">
+                                    <div class="tm-whiteboard-stream-task-head" data-task-id="${esc(tid)}" data-id="${esc(tid)}" draggable="true" ondragstart="tmDragTaskStart(event, '${escSq(tid)}')" ondragend="tmDragTaskEnd(event)" oncontextmenu="tmShowTaskContextMenu(event, '${escSq(tid)}')">
+                                        ${toggleHtml}
+                                        ${__tmRenderTaskCheckboxWrap(tid, task, { checked: task?.done, stopMouseDown: true, stopClick: true, title: '完成状态' })}
+                                        <span class="tm-whiteboard-stream-task-title ${task?.done ? 'tm-task-done' : ''}" onclick="tmJumpToTask('${escSq(tid)}', event)" title="${esc(content)}">${API.renderTaskContentHtml(task?.markdown, content)}</span>
+                                    </div>
+                                </div>
+                                ${childrenHtml}
+                            </div>
+                        `;
+                    };
+                    const headingSectionsHtml = headingBuckets.map((bucket, bucketIndex) => {
+                        const key = String(bucket?.key || '').trim();
+                        const rootIdsInBucket = (rootIdsByHeading.get(key) || []).slice().sort((a, b) => (orderById.get(a) ?? 999999) - (orderById.get(b) ?? 999999));
+                        if (!rootIdsInBucket.length) return '';
+                        const groupKey = `wb_stream_h2_${docId}_${key}`;
+                        const groupCollapsed = state.collapsedGroups?.has(groupKey);
+                        const headingCount = Number(headingCountMap.get(key) || rootIdsInBucket.length);
+                        return `
+                            <div class="tm-whiteboard-stream-heading" onclick="tmToggleGroupCollapse('${escSq(groupKey)}', event)">
+                                <div class="tm-whiteboard-stream-heading-main">
+                                    <span class="tm-group-toggle" style="cursor:pointer;display:inline-flex;align-items:center;justify-content:center;width:16px;"><svg class="tm-group-toggle-icon" viewBox="0 0 16 16" width="16" height="16" style="transform:${groupCollapsed ? 'rotate(0deg)' : 'rotate(90deg)'};"><path d="M6 4l4 4-4 4" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg></span>
+                                    <span class="tm-whiteboard-stream-heading-label">${esc(String(bucket?.label || noHeadingLabel).trim() || noHeadingLabel)}</span>
+                                </div>
+                                <span class="tm-badge tm-badge--count">${headingCount}</span>
+                            </div>
+                            ${groupCollapsed ? '' : rootIdsInBucket.map((id) => renderTaskTree(id)).join('')}
+                        `;
+                    }).join('');
+                    const docHtml = `
+                        <section class="tm-whiteboard-stream-doc" data-doc-id="${esc(docId)}" data-doc-order="${idx}" ondragover="tmWhiteboardAllTabsDocDragOver(event, '${escSq(docId)}')" ondrop="tmWhiteboardAllTabsDocDrop(event, '${escSq(docId)}')">
+                            <header class="tm-whiteboard-stream-doc-head">
+                                <div class="tm-whiteboard-stream-doc-meta">
+                                    <span class="tm-whiteboard-stream-doc-title" onclick="tmSwitchDoc('${escSq(docId)}')" title="切换到该文档页签">📄 ${esc(docNameById.get(docId) || '未知文档')}</span>
+                                    <span class="tm-badge tm-badge--count">${docTasks.length}</span>
+                                </div>
+                                <span class="tm-whiteboard-stream-doc-grip" draggable="true" ondragstart="tmWhiteboardAllTabsDocDragStart(event, '${escSq(docId)}')" ondragend="tmWhiteboardAllTabsDocDragEnd(event)" title="拖拽调整文档卡片顺序">|||</span>
+                            </header>
+                            <div class="tm-whiteboard-stream-doc-list">
+                                ${headingSectionsHtml || `<div class="tm-whiteboard-stream-empty">当前文档没有任务</div>`}
+                            </div>
+                        </section>
+                    `;
+                    const estHeight = 86 + docTasks.length * 38 + headingBuckets.length * 26;
+                    let colIndex = 0;
+                    for (let i = 1; i < cols.length; i++) {
+                        if (cols[i].score < cols[colIndex].score) colIndex = i;
+                    }
+                    cols[colIndex].score += estHeight;
+                    cols[colIndex].items.push(docHtml);
+                });
+                const streamColsHtml = cols.map((col) => `<div class="tm-whiteboard-stream-col">${col.items.join('') || ''}</div>`).join('');
+                return `
+                    <div class="tm-body tm-body--whiteboard tm-body--whiteboard-stream${bodyAnimClass}" id="tmWhiteboardBody">
+                        ${orderedVisibleDocIds.length
+                            ? `<div class="tm-whiteboard-stream">${streamColsHtml}</div>`
+                            : `<div class="tm-whiteboard-stream-empty">暂无任务可用于卡片流</div>`}
+                    </div>
+                `;
+            }
+
             const ensureNodePos = (task, docId, idx) => {
                 const id = String(task?.id || '').trim();
                 const did = String(docId || '').trim();
@@ -21051,7 +21521,6 @@ async function __tmRefreshAfterWake(reason) {
                 return { x, y };
             };
 
-            const allView = !(state.activeDocId && state.activeDocId !== 'all');
             const docsHtml = selectedDocIds.map((docIdRaw) => {
                 const docId = String(docIdRaw || '').trim();
                 if (!docId) return '';
@@ -21660,11 +22129,15 @@ async function __tmRefreshAfterWake(reason) {
         const showAiSideDock = __tmShouldShowAiSidebar() && !!state.aiSidebarOpen && !isMobile;
         const calendarSideDockWidth = Math.max(260, Math.min(760, Math.round(Number(SettingsStore.data.calendarSideDockWidth) || 340)));
         const aiSideDockWidth = Math.max(320, Math.min(720, Math.round(Number(state.aiSidebarWidth) || 380)));
-        const showMobileBottomViewBar = isMobile || isDockHost;
+        const showMobileBottomViewBar = isDockHost
+            ? (!hostUsesMobileUI || !isLandscape)
+            : !!(isMobile && !isLandscape);
         const mobileBottomViewbarActive = showMobileBottomViewBar && (Date.now() < (Number(state.mobileBottomViewbarActiveUntil) || 0));
         const useCompactTopbar = !isMobile || isDockHost;
         const topbarPadding = useCompactTopbar ? '5px 10px' : '10px 10px';
         const topbarHeightStyle = useCompactTopbar ? 'min-height:42px;max-height:42px;height:42px;' : '';
+        const showWhiteboardAllTabsModeToggle = state.viewMode === 'whiteboard' && String(state.activeDocId || 'all').trim() === 'all';
+        const whiteboardAllTabsLayoutMode = __tmGetWhiteboardAllTabsLayoutMode();
         const bodyWithSideDockHtml = (showCalendarSideDock || showAiSideDock)
             ? `
                 <div class="tm-main-body-with-cal-dock">
@@ -21752,6 +22225,11 @@ async function __tmRefreshAfterWake(reason) {
                                 <button class="tm-view-seg-item bc-tabs-trigger ${!SettingsStore.data.kanbanHeadingGroupMode ? 'tm-view-seg-item--active' : ''}" data-state="${!SettingsStore.data.kanbanHeadingGroupMode ? 'active' : 'inactive'}" onclick="tmSetKanbanHeadingGroupMode('status', event)" role="tab" aria-selected="${!SettingsStore.data.kanbanHeadingGroupMode ? 'true' : 'false'}"${__tmBuildTooltipAttrs('状态看板', { side: 'bottom', ariaLabel: false })}>状态</button>
                                 <button class="tm-view-seg-item bc-tabs-trigger ${SettingsStore.data.kanbanHeadingGroupMode ? 'tm-view-seg-item--active' : ''}" data-state="${SettingsStore.data.kanbanHeadingGroupMode ? 'active' : 'inactive'}" onclick="tmSetKanbanHeadingGroupMode('heading', event)" role="tab" aria-selected="${SettingsStore.data.kanbanHeadingGroupMode ? 'true' : 'false'}"${__tmBuildTooltipAttrs('标题看板', { side: 'bottom', ariaLabel: false })}>标题</button>
                             </div>
+                        ` : showWhiteboardAllTabsModeToggle ? `
+                            <div class="tm-view-segmented tm-kanban-mode-segmented bc-tabs-list" role="tablist" aria-label="白板模式">
+                                <button class="tm-view-seg-item bc-tabs-trigger ${whiteboardAllTabsLayoutMode !== 'stream' ? 'tm-view-seg-item--active' : ''}" data-state="${whiteboardAllTabsLayoutMode !== 'stream' ? 'active' : 'inactive'}" onclick="tmSetWhiteboardAllTabsLayoutMode('board', event)" role="tab" aria-selected="${whiteboardAllTabsLayoutMode !== 'stream' ? 'true' : 'false'}"${__tmBuildTooltipAttrs('白板', { side: 'bottom', ariaLabel: false })}>白板</button>
+                                <button class="tm-view-seg-item bc-tabs-trigger ${whiteboardAllTabsLayoutMode === 'stream' ? 'tm-view-seg-item--active' : ''}" data-state="${whiteboardAllTabsLayoutMode === 'stream' ? 'active' : 'inactive'}" onclick="tmSetWhiteboardAllTabsLayoutMode('stream', event)" role="tab" aria-selected="${whiteboardAllTabsLayoutMode === 'stream' ? 'true' : 'false'}"${__tmBuildTooltipAttrs('卡片流', { side: 'bottom', ariaLabel: false })}>卡片流</button>
+                            </div>
                         ` : ''}
                         ${state.viewMode === 'timeline' ? `
                             <button class="tm-btn tm-btn-info bc-btn bc-btn--sm" onclick="tmGanttZoomOut()" style="padding: 0; width: 30px; min-width: 30px; height: 30px; display: inline-flex; align-items: center; justify-content: center;"${__tmBuildTooltipAttrs('缩小', { side: 'bottom' })}>－</button>
@@ -21792,6 +22270,13 @@ async function __tmRefreshAfterWake(reason) {
                                                 <button class="tm-view-seg-item bc-tabs-trigger ${SettingsStore.data.kanbanHeadingGroupMode ? 'tm-view-seg-item--active' : ''}" data-state="${SettingsStore.data.kanbanHeadingGroupMode ? 'active' : 'inactive'}" onclick="tmSetKanbanHeadingGroupMode('heading', event)" role="tab" aria-selected="${SettingsStore.data.kanbanHeadingGroupMode ? 'true' : 'false'}" style="flex:1;line-height:30px;">标题</button>
                                             </div>
                                         </div>
+                                    ` : showWhiteboardAllTabsModeToggle ? `
+                                        <div style="margin-top:6px;">
+                                            <div class="tm-view-segmented tm-kanban-mode-segmented bc-tabs-list" role="tablist" aria-label="白板模式" style="width:100%;">
+                                                <button class="tm-view-seg-item bc-tabs-trigger ${whiteboardAllTabsLayoutMode !== 'stream' ? 'tm-view-seg-item--active' : ''}" data-state="${whiteboardAllTabsLayoutMode !== 'stream' ? 'active' : 'inactive'}" onclick="tmSetWhiteboardAllTabsLayoutMode('board', event)" role="tab" aria-selected="${whiteboardAllTabsLayoutMode !== 'stream' ? 'true' : 'false'}" style="flex:1;line-height:30px;">白板</button>
+                                                <button class="tm-view-seg-item bc-tabs-trigger ${whiteboardAllTabsLayoutMode === 'stream' ? 'tm-view-seg-item--active' : ''}" data-state="${whiteboardAllTabsLayoutMode === 'stream' ? 'active' : 'inactive'}" onclick="tmSetWhiteboardAllTabsLayoutMode('stream', event)" role="tab" aria-selected="${whiteboardAllTabsLayoutMode === 'stream' ? 'true' : 'false'}" style="flex:1;line-height:30px;">卡片流</button>
+                                            </div>
+                                        </div>
                                     ` : ''}
                                 </div>
                                 ` : state.viewMode === 'kanban' ? `
@@ -21800,6 +22285,14 @@ async function __tmRefreshAfterWake(reason) {
                                     <div class="tm-view-segmented tm-kanban-mode-segmented bc-tabs-list" role="tablist" aria-label="看板模式" style="width:100%;">
                                         <button class="tm-view-seg-item bc-tabs-trigger ${!SettingsStore.data.kanbanHeadingGroupMode ? 'tm-view-seg-item--active' : ''}" data-state="${!SettingsStore.data.kanbanHeadingGroupMode ? 'active' : 'inactive'}" onclick="tmSetKanbanHeadingGroupMode('status', event)" role="tab" aria-selected="${!SettingsStore.data.kanbanHeadingGroupMode ? 'true' : 'false'}" style="flex:1;line-height:30px;">状态</button>
                                         <button class="tm-view-seg-item bc-tabs-trigger ${SettingsStore.data.kanbanHeadingGroupMode ? 'tm-view-seg-item--active' : ''}" data-state="${SettingsStore.data.kanbanHeadingGroupMode ? 'active' : 'inactive'}" onclick="tmSetKanbanHeadingGroupMode('heading', event)" role="tab" aria-selected="${SettingsStore.data.kanbanHeadingGroupMode ? 'true' : 'false'}" style="flex:1;line-height:30px;">标题</button>
+                                    </div>
+                                </div>
+                                ` : showWhiteboardAllTabsModeToggle ? `
+                                <div class="tm-mobile-only-item" style="display:flex; flex-direction:column; gap:6px; align-items:stretch;">
+                                    <span style="color:var(--tm-text-color);">白板模式:</span>
+                                    <div class="tm-view-segmented tm-kanban-mode-segmented bc-tabs-list" role="tablist" aria-label="白板模式" style="width:100%;">
+                                        <button class="tm-view-seg-item bc-tabs-trigger ${whiteboardAllTabsLayoutMode !== 'stream' ? 'tm-view-seg-item--active' : ''}" data-state="${whiteboardAllTabsLayoutMode !== 'stream' ? 'active' : 'inactive'}" onclick="tmSetWhiteboardAllTabsLayoutMode('board', event)" role="tab" aria-selected="${whiteboardAllTabsLayoutMode !== 'stream' ? 'true' : 'false'}" style="flex:1;line-height:30px;">白板</button>
+                                        <button class="tm-view-seg-item bc-tabs-trigger ${whiteboardAllTabsLayoutMode === 'stream' ? 'tm-view-seg-item--active' : ''}" data-state="${whiteboardAllTabsLayoutMode === 'stream' ? 'active' : 'inactive'}" onclick="tmSetWhiteboardAllTabsLayoutMode('stream', event)" role="tab" aria-selected="${whiteboardAllTabsLayoutMode === 'stream' ? 'true' : 'false'}" style="flex:1;line-height:30px;">卡片流</button>
                                     </div>
                                 </div>
                                 ` : ''}
@@ -22178,6 +22671,15 @@ async function __tmRefreshAfterWake(reason) {
                             border-color: color-mix(in srgb, var(--tm-topbar-control-border) 72%, transparent) !important;
                             box-shadow: 0 4px 12px color-mix(in srgb, var(--tm-primary-color) 16%, transparent);
                         }
+
+                        @media (orientation: landscape) {
+                            .tm-modal.tm-modal--mobile:not(.tm-modal--dock) .tm-mobile-bottom-viewbar {
+                                display: none !important;
+                            }
+                            .tm-modal.tm-modal--host-mobile-ui.tm-modal--dock .tm-mobile-bottom-viewbar {
+                                display: none !important;
+                            }
+                        }
                     }
 
                     @media (max-width: 1024px) {
@@ -22546,6 +23048,7 @@ async function __tmRefreshAfterWake(reason) {
         try { __tmRestoreDocTabScroll(state.modal, savedDocTabsScrollLeft); } catch (e) {}
         try { if (state.viewMode === 'list') __tmBindListScrollVisibility(state.modal); } catch (e) {}
         try { if (state.viewMode === 'checklist') __tmBindChecklistScrollVisibility(state.modal); } catch (e) {}
+        try { __tmBindMobileViewportAutoRefresh(state.modal); } catch (e) {}
         try {
             if (state.viewMode === 'checklist') {
                 __tmRefreshChecklistSelectionInPlace(state.modal);
@@ -28587,6 +29090,7 @@ async function __tmRefreshAfterWake(reason) {
             document.body.style.cursor = '';
             document.body.style.userSelect = '';
         } catch (e) {}
+        try { __tmUnbindMobileViewportAutoRefresh(); } catch (e) {}
         __tmClearTimelineTodayIndicatorTimer();
         
         // 强制移除所有可能的模态框（防御性编程）
@@ -30411,6 +30915,72 @@ async function __tmRefreshAfterWake(reason) {
             cur = parentId;
         }
         return '';
+    }
+
+    function __tmGetWhiteboardAllTabsLayoutMode() {
+        return __tmNormalizeWhiteboardAllTabsLayoutMode(SettingsStore.data.whiteboardAllTabsLayoutMode);
+    }
+
+    function __tmIsWhiteboardAllTabsStreamMode() {
+        const activeDocId = String(state.activeDocId || 'all').trim() || 'all';
+        return state.viewMode === 'whiteboard'
+            && activeDocId === 'all'
+            && __tmGetWhiteboardAllTabsLayoutMode() === 'stream';
+    }
+
+    function __tmGetWhiteboardAllTabsDocOrderByGroupMap() {
+        const raw = SettingsStore.data.whiteboardAllTabsDocOrderByGroup;
+        if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return {};
+        return raw;
+    }
+
+    function __tmGetWhiteboardAllTabsOrderedDocIds(groupId, docIds) {
+        const gid = String(groupId || 'all').trim() || 'all';
+        const baseIds = Array.isArray(docIds)
+            ? docIds.map((id) => String(id || '').trim()).filter(Boolean)
+            : [];
+        if (baseIds.length <= 1) return baseIds;
+        const stored = Array.isArray(__tmGetWhiteboardAllTabsDocOrderByGroupMap()[gid])
+            ? __tmGetWhiteboardAllTabsDocOrderByGroupMap()[gid]
+            : [];
+        const allow = new Set(baseIds);
+        const seen = new Set();
+        const out = [];
+        stored.forEach((id0) => {
+            const id = String(id0 || '').trim();
+            if (!id || seen.has(id) || !allow.has(id)) return;
+            seen.add(id);
+            out.push(id);
+        });
+        baseIds.forEach((id0) => {
+            const id = String(id0 || '').trim();
+            if (!id || seen.has(id)) return;
+            seen.add(id);
+            out.push(id);
+        });
+        return out;
+    }
+
+    function __tmSetWhiteboardAllTabsDocOrder(groupId, docIds, opts = {}) {
+        const gid = String(groupId || 'all').trim() || 'all';
+        const ids = Array.from(new Set((Array.isArray(docIds) ? docIds : []).map((id) => String(id || '').trim()).filter(Boolean)));
+        const o = (opts && typeof opts === 'object') ? opts : {};
+        const next = { ...__tmGetWhiteboardAllTabsDocOrderByGroupMap() };
+        if (ids.length > 0) next[gid] = ids;
+        else delete next[gid];
+        SettingsStore.data.whiteboardAllTabsDocOrderByGroup = next;
+        try { SettingsStore.syncToLocal(); } catch (e) {}
+        if (o.persist) {
+            try { SettingsStore.save(); } catch (e) {}
+        }
+    }
+
+    function __tmClearWhiteboardAllTabsDocDragMarkers() {
+        try {
+            state.modal?.querySelectorAll?.('.tm-whiteboard-stream-doc--drag-before,.tm-whiteboard-stream-doc--drag-after,.tm-whiteboard-stream-doc--dragging')?.forEach?.((el) => {
+                try { el.classList.remove('tm-whiteboard-stream-doc--drag-before', 'tm-whiteboard-stream-doc--drag-after', 'tm-whiteboard-stream-doc--dragging'); } catch (e) {}
+            });
+        } catch (e) {}
     }
 
     function __tmGetWhiteboardView() {
@@ -35077,6 +35647,9 @@ async function __tmRefreshAfterWake(reason) {
                 try { globalThis.tmAiPlanTaskSchedule?.(taskId); } catch (e) {}
             }));
         }
+        menu.appendChild(createItem('📝 任务详情', () => {
+            try { window.tmOpenTaskDetail?.(taskId); } catch (e) {}
+        }));
         menu.appendChild(createItem('✏️ 修改内容', () => tmEdit(taskId)));
         if (tomatoEnabled) {
             menu.appendChild(createItem('⏰ 提醒', () => tmReminder(taskId)));
@@ -37696,6 +38269,13 @@ async function __tmRefreshAfterWake(reason) {
                                     </label>
                                 `).join('')}</div>`;
                             })(),
+                            { style: 'margin-bottom:10px;' }
+                        )}
+                        ${renderSingleFieldSetting(
+                            '卡片流最小宽度',
+                            '用于白板“全部页签”的卡片流。会按最小宽度自动在 1 到 4 栏之间切换。',
+                            `<input type="range" min="220" max="520" step="10" value="${Number(SettingsStore.data.whiteboardAllTabsCardMinWidth) || 320}" onchange="updateWhiteboardAllTabsCardMinWidth(this.value)" style="max-width:180px;">
+                             <span class="tm-setting-field-unit" style="min-width:52px;text-align:right;">${Math.max(220, Math.min(520, Number(SettingsStore.data.whiteboardAllTabsCardMinWidth) || 320))}px</span>`,
                             { style: 'margin-bottom:10px;' }
                         )}
                         ${renderSingleSwitchSetting(
@@ -40615,6 +41195,16 @@ async function __tmRefreshAfterWake(reason) {
         }
     };
 
+    window.updateWhiteboardAllTabsCardMinWidth = async function(width) {
+        const n = Number(width);
+        SettingsStore.data.whiteboardAllTabsCardMinWidth = Number.isFinite(n) ? Math.max(220, Math.min(520, Math.round(n))) : 320;
+        await SettingsStore.save();
+        showSettings();
+        if (state.modal && document.body.contains(state.modal)) {
+            render();
+        }
+    };
+
     window.updateKanbanFillColumns = async function(enabled) {
         SettingsStore.data.kanbanFillColumns = !!enabled;
         await SettingsStore.save();
@@ -41001,6 +41591,109 @@ async function __tmRefreshAfterWake(reason) {
         applyFilters();
         render();
         try { hint(next ? '✅ 已切换到标题看板' : '✅ 已切换到状态看板', 'success'); } catch (e) {}
+    };
+
+    window.tmSetWhiteboardAllTabsLayoutMode = async function(mode, ev) {
+        try { ev?.stopPropagation?.(); } catch (e) {}
+        try { ev?.preventDefault?.(); } catch (e) {}
+        const next = __tmNormalizeWhiteboardAllTabsLayoutMode(mode);
+        const prev = __tmGetWhiteboardAllTabsLayoutMode();
+        if (next === prev) return;
+        SettingsStore.data.whiteboardAllTabsLayoutMode = next;
+        state.whiteboardAllTabsDocDragId = '';
+        try { SettingsStore.syncToLocal(); } catch (e) {}
+        await SettingsStore.save();
+        render();
+        try { hint(next === 'stream' ? '✅ 已切换到卡片流' : '✅ 已切换到白板', 'success'); } catch (e) {}
+    };
+
+    window.tmWhiteboardAllTabsDocDragStart = function(ev, docId) {
+        if (!__tmIsWhiteboardAllTabsStreamMode()) return;
+        const id = String(docId || '').trim();
+        if (!id) return;
+        state.whiteboardAllTabsDocDragId = id;
+        try {
+            if (ev?.dataTransfer) {
+                ev.dataTransfer.effectAllowed = 'move';
+                ev.dataTransfer.setData('text/plain', id);
+            }
+        } catch (e) {}
+        __tmClearWhiteboardAllTabsDocDragMarkers();
+        try {
+            const card = ev?.target instanceof Element ? ev.target.closest('.tm-whiteboard-stream-doc[data-doc-id]') : null;
+            card?.classList?.add?.('tm-whiteboard-stream-doc--dragging');
+        } catch (e) {}
+    };
+
+    window.tmWhiteboardAllTabsDocDragEnd = function() {
+        state.whiteboardAllTabsDocDragId = '';
+        __tmClearWhiteboardAllTabsDocDragMarkers();
+    };
+
+    window.tmWhiteboardAllTabsDocDragOver = function(ev, docId) {
+        if (!__tmIsWhiteboardAllTabsStreamMode()) return;
+        const sourceId = String(state.whiteboardAllTabsDocDragId || '').trim();
+        const targetId = String(docId || '').trim();
+        if (!sourceId || !targetId || sourceId === targetId) return;
+        try { ev?.preventDefault?.(); } catch (e) {}
+        try { if (ev?.dataTransfer) ev.dataTransfer.dropEffect = 'move'; } catch (e) {}
+        const card = ev?.target instanceof Element ? ev.target.closest('.tm-whiteboard-stream-doc[data-doc-id]') : null;
+        if (!(card instanceof HTMLElement)) return;
+        const rect = card.getBoundingClientRect();
+        const pos = (Number(ev?.clientY) - rect.top) > (rect.height / 2) ? 'after' : 'before';
+        __tmClearWhiteboardAllTabsDocDragMarkers();
+        card.classList.add(pos === 'after' ? 'tm-whiteboard-stream-doc--drag-after' : 'tm-whiteboard-stream-doc--drag-before');
+        try {
+            const sourceCard = state.modal?.querySelector?.(`.tm-whiteboard-stream-doc[data-doc-id="${CSS.escape(sourceId)}"]`);
+            sourceCard?.classList?.add?.('tm-whiteboard-stream-doc--dragging');
+        } catch (e) {}
+    };
+
+    window.tmWhiteboardAllTabsDocDrop = async function(ev, docId) {
+        if (!__tmIsWhiteboardAllTabsStreamMode()) return;
+        try { ev?.preventDefault?.(); } catch (e) {}
+        try { ev?.stopPropagation?.(); } catch (e) {}
+        const sourceId = String(state.whiteboardAllTabsDocDragId || '').trim()
+            || String(ev?.dataTransfer?.getData?.('text/plain') || '').trim();
+        const targetId = String(docId || '').trim();
+        if (!sourceId || !targetId || sourceId === targetId) {
+            __tmClearWhiteboardAllTabsDocDragMarkers();
+            return;
+        }
+        const visibleIds = Array.from(new Set((Array.isArray(state.whiteboardAllTabsVisibleDocIds) ? state.whiteboardAllTabsVisibleDocIds : []).map((id) => String(id || '').trim()).filter(Boolean)));
+        if (!visibleIds.includes(sourceId) || !visibleIds.includes(targetId)) {
+            __tmClearWhiteboardAllTabsDocDragMarkers();
+            return;
+        }
+        const card = ev?.target instanceof Element ? ev.target.closest('.tm-whiteboard-stream-doc[data-doc-id]') : null;
+        let insertAfter = false;
+        if (card instanceof HTMLElement) {
+            const rect = card.getBoundingClientRect();
+            insertAfter = (Number(ev?.clientY) - rect.top) > (rect.height / 2);
+        }
+        const nextVisible = visibleIds.filter((id) => id !== sourceId);
+        const targetIndex = nextVisible.indexOf(targetId);
+        const insertIndex = targetIndex < 0 ? nextVisible.length : Math.max(0, Math.min(nextVisible.length, targetIndex + (insertAfter ? 1 : 0)));
+        nextVisible.splice(insertIndex, 0, sourceId);
+        const groupId = String(SettingsStore.data.currentGroupId || 'all').trim() || 'all';
+        const storedIds = Array.isArray(__tmGetWhiteboardAllTabsDocOrderByGroupMap()[groupId])
+            ? __tmGetWhiteboardAllTabsDocOrderByGroupMap()[groupId]
+            : [];
+        const baseIds = Array.isArray(state.whiteboardAllTabsBaseDocIds) ? state.whiteboardAllTabsBaseDocIds : [];
+        const remainder = [];
+        const pushRemainder = (id0) => {
+            const id = String(id0 || '').trim();
+            if (!id || nextVisible.includes(id) || remainder.includes(id)) return;
+            remainder.push(id);
+        };
+        storedIds.forEach(pushRemainder);
+        baseIds.forEach(pushRemainder);
+        state.whiteboardAllTabsVisibleDocIds = nextVisible.slice();
+        __tmSetWhiteboardAllTabsDocOrder(groupId, nextVisible.concat(remainder));
+        state.whiteboardAllTabsDocDragId = '';
+        __tmClearWhiteboardAllTabsDocDragMarkers();
+        try { await SettingsStore.save(); } catch (e) {}
+        render();
     };
 
     window.tmToggleGroupCollapse = async function(groupKey, ev) {
@@ -42585,6 +43278,7 @@ async function __tmRefreshAfterWake(reason) {
         try { __tmCloseCellEditor(false); } catch (e) {}
         try { globalThis.__tmCalendar?.cleanup?.(); } catch (e) {}
         try { delete globalThis.__tmCalendar; } catch (e) {}
+        try { __tmUnbindMobileViewportAutoRefresh(); } catch (e) {}
 
         try {
             if (state.modal) {
@@ -43432,6 +44126,9 @@ async function __tmRefreshAfterWake(reason) {
                 'tm_table_border_color_dark',
                 'tm_meta_cache',
                 'tm_whiteboard_data_cache',
+                'tm_whiteboard_all_tabs_layout_mode',
+                'tm_whiteboard_all_tabs_doc_order_by_group',
+                'tm_whiteboard_all_tabs_card_min_width',
             ].forEach((k) => {
                 try { Storage.remove(k); } catch (e) {}
             });

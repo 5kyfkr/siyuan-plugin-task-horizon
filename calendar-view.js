@@ -146,8 +146,110 @@
         'dayGridMonth',
     ]);
 
+    const MAIN_CALENDAR_VIEW_OPTIONS = [
+        { value: 'timeGridDay', label: '日' },
+        { value: 'timeGrid3Day', label: '3日' },
+        { value: 'timeGridWorkdays', label: '工作日' },
+        { value: 'timeGridWeek', label: '周' },
+        { value: 'dayGridMonth', label: '月' },
+    ];
+
+    const MAIN_CALENDAR_VIEW_LABELS = MAIN_CALENDAR_VIEW_OPTIONS.reduce((acc, item) => {
+        const key = String(item?.value || '').trim();
+        if (key) acc[key] = String(item?.label || key);
+        return acc;
+    }, Object.create(null));
+
     function esc(s) {
         return String(s ?? '').replace(/[&<>"']/g, (ch) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[ch] || ch));
+    }
+
+    function syncMainCalendarViewSelectWidth(selectWrap, selectEl, label) {
+        if (!(selectWrap instanceof HTMLElement) || !(selectEl instanceof HTMLSelectElement)) return;
+        const text = String(label || '').trim() || '视图';
+        let measureEl = document.getElementById('tmCalendarViewSelectMeasure');
+        if (!(measureEl instanceof HTMLElement)) {
+            measureEl = document.createElement('span');
+            measureEl.id = 'tmCalendarViewSelectMeasure';
+            measureEl.setAttribute('aria-hidden', 'true');
+            measureEl.style.position = 'absolute';
+            measureEl.style.visibility = 'hidden';
+            measureEl.style.pointerEvents = 'none';
+            measureEl.style.whiteSpace = 'nowrap';
+            measureEl.style.left = '-9999px';
+            measureEl.style.top = '0';
+            measureEl.style.boxSizing = 'border-box';
+            document.body.appendChild(measureEl);
+        }
+        const computed = window.getComputedStyle(selectEl);
+        measureEl.style.font = computed.font;
+        measureEl.style.fontFamily = computed.fontFamily;
+        measureEl.style.fontSize = computed.fontSize;
+        measureEl.style.fontWeight = computed.fontWeight;
+        measureEl.style.letterSpacing = computed.letterSpacing;
+        measureEl.style.textTransform = computed.textTransform;
+        measureEl.textContent = text;
+        const textWidth = Math.ceil(measureEl.getBoundingClientRect().width || 0);
+        const borderLeft = parseFloat(computed.borderLeftWidth) || 0;
+        const borderRight = parseFloat(computed.borderRightWidth) || 0;
+        const paddingLeft = parseFloat(computed.paddingLeft) || 0;
+        const paddingRight = parseFloat(computed.paddingRight) || 0;
+        const iconAllowance = 10;
+        const minWidth = 48;
+        const nextWidth = Math.max(minWidth, Math.ceil(textWidth + paddingLeft + paddingRight + borderLeft + borderRight + iconAllowance));
+        selectWrap.style.width = `${nextWidth}px`;
+        selectEl.style.width = `${nextWidth}px`;
+    }
+
+    function syncMainCalendarViewSelect(wrap, calendar, opts = {}) {
+        const root = wrap instanceof Element ? wrap : null;
+        const cal = calendar || null;
+        if (!root || !cal) return;
+        const host = root.querySelector('.tm-calendar-host');
+        const toolbar = host?.querySelector?.('.fc-header-toolbar');
+        const rightChunk = toolbar?.querySelector?.('.fc-toolbar-chunk:last-child');
+        if (!(rightChunk instanceof Element)) return;
+        const useCompactSelect = opts.compact === true;
+        const existingWrap = rightChunk.querySelector('.tm-calendar-view-select-wrap');
+        if (!useCompactSelect) {
+            try { existingWrap?.remove?.(); } catch (e) {}
+            return;
+        }
+        let selectWrap = existingWrap;
+        if (!(selectWrap instanceof Element)) {
+            selectWrap = document.createElement('div');
+            selectWrap.className = 'tm-calendar-view-select-wrap';
+            const select = document.createElement('select');
+            select.className = 'tm-calendar-view-select';
+            select.setAttribute('data-tm-cal-view-select', 'main');
+            select.setAttribute('aria-label', '切换日历视图');
+            MAIN_CALENDAR_VIEW_OPTIONS.forEach((item) => {
+                const opt = document.createElement('option');
+                opt.value = item.value;
+                opt.textContent = item.label;
+                select.appendChild(opt);
+            });
+            select.addEventListener('change', () => {
+                const nextView = String(select.value || '').trim();
+                if (!MAIN_CALENDAR_ALLOWED_VIEWS.has(nextView)) return;
+                try {
+                    const currentDate = cal.getDate?.();
+                    if (currentDate instanceof Date && !Number.isNaN(currentDate.getTime())) cal.changeView(nextView, currentDate);
+                    else cal.changeView(nextView);
+                } catch (e) {}
+            });
+            selectWrap.appendChild(select);
+            rightChunk.appendChild(selectWrap);
+        }
+        const selectEl = selectWrap.querySelector('.tm-calendar-view-select');
+        if (!(selectEl instanceof HTMLSelectElement)) return;
+        const activeView = String(cal?.view?.type || '').trim();
+        if (MAIN_CALENDAR_ALLOWED_VIEWS.has(activeView) && selectEl.value !== activeView) {
+            selectEl.value = activeView;
+        }
+        const label = String(MAIN_CALENDAR_VIEW_LABELS[activeView] || activeView || '视图');
+        selectEl.title = `切换日历视图：${label}`;
+        syncMainCalendarViewSelectWidth(selectWrap, selectEl, label);
     }
 
     function findActionTarget(target, attrName = 'data-tm-cal-action') {
@@ -7942,6 +8044,7 @@
                 openScheduleModal({ start, end, allDay: info?.allDay === true, calendarId: pickDefaultCalendarId(getSettings()) });
             },
             datesSet: () => {
+                try { syncMainCalendarViewSelect(wrap, calendar, { compact: !!(isMobileDevice || isDockHost) }); } catch (e) {}
                 try {
                     const d = calendar?.getDate?.();
                     if (d) state.miniMonthKey = miniMonthKeyFromDate(d);
@@ -7987,6 +8090,7 @@
         state.calendar = calendar;
 
         try { calendar.render(); } catch (e) {}
+        try { syncMainCalendarViewSelect(wrap, calendar, { compact: !!(isMobileDevice || isDockHost) }); } catch (e) {}
         try {
             state.filteredTasksListener = () => {
                 try { renderTaskPage(wrap, getSettings()); } catch (e2) {}
