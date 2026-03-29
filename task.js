@@ -1,5 +1,5 @@
 // @name         思源笔记任务管理器
-// @version      1.9.6
+// @version      1.9.7
 // @description  任务管理器，支持自定义筛选规则分组和排序
 // @author       5KYFKR
 
@@ -926,6 +926,26 @@
             opacity: 0.9;
         }
 
+        .tm-modal:not(.tm-modal--mobile) #tmMobileMenu .tm-btn,
+        .tm-modal:not(.tm-modal--mobile) #tmMobileMenu .tm-btn-info {
+            background: var(--secondary);
+            color: var(--secondary-foreground);
+            border: 1px solid var(--border);
+            box-shadow: none;
+        }
+
+        .tm-modal:not(.tm-modal--mobile) #tmMobileMenu .tm-btn:hover,
+        .tm-modal:not(.tm-modal--mobile) #tmMobileMenu .tm-btn-info:hover {
+            background: color-mix(in srgb, var(--secondary) 72%, white 28%);
+            opacity: 1;
+        }
+
+        .tm-modal:not(.tm-modal--mobile) #tmMobileMenu .tm-btn.tm-btn-primary {
+            border-color: color-mix(in srgb, var(--primary) 68%, transparent 32%);
+            background: var(--primary);
+            color: var(--primary-foreground);
+        }
+
         .tm-filter-rule-bar #tmMobileMenu .tm-rule-select {
             background: var(--tm-input-bg);
             color: var(--tm-text-color);
@@ -946,33 +966,87 @@
             color: #ffffff !important;
         }
 
+        [data-theme-mode="light"] .tm-modal:not(.tm-modal--mobile) #tmMobileMenu .tm-btn,
+        [data-theme-mode="light"] .tm-modal:not(.tm-modal--mobile) #tmMobileMenu .tm-btn span {
+            color: var(--secondary-foreground) !important;
+        }
+
         [data-theme-mode="light"] #tmDesktopMenu,
-        [data-theme-mode="light"] #tmDesktopMenu .tm-btn,
-        [data-theme-mode="light"] #tmDesktopMenu .tm-btn span,
+        [data-theme-mode="light"] #tmDesktopMenu .bc-btn,
+        [data-theme-mode="light"] #tmDesktopMenu .bc-btn span,
         [data-theme-mode="light"] #tmDesktopMenu .tm-tree-toggle-icon,
-        [data-theme-mode="light"] #tmDesktopMenu .tm-btn-info,
-        [data-theme-mode="light"] #tmDesktopMenu .tm-btn-secondary,
-        [data-theme-mode="light"] #tmDesktopMenu > div > span,
+        [data-theme-mode="light"] #tmDesktopMenu .tm-desktop-menu-item__main,
         #tmDesktopMenu.tm-desktop-menu--light,
-        #tmDesktopMenu.tm-desktop-menu--light .tm-btn,
-        #tmDesktopMenu.tm-desktop-menu--light .tm-btn span,
+        #tmDesktopMenu.tm-desktop-menu--light .bc-btn,
+        #tmDesktopMenu.tm-desktop-menu--light .bc-btn span,
         #tmDesktopMenu.tm-desktop-menu--light .tm-tree-toggle-icon,
-        #tmDesktopMenu.tm-desktop-menu--light .tm-btn-info,
-        #tmDesktopMenu.tm-desktop-menu--light .tm-btn-secondary,
-        #tmDesktopMenu.tm-desktop-menu--light > div > span {
+        #tmDesktopMenu.tm-desktop-menu--light .tm-desktop-menu-item__main {
             color: #1f2329 !important;
         }
-        [data-theme-mode="light"] #tmDesktopMenu .tm-btn,
-        [data-theme-mode="light"] #tmDesktopMenu .tm-btn-info,
-        [data-theme-mode="light"] #tmDesktopMenu .tm-btn-secondary,
-        #tmDesktopMenu.tm-desktop-menu--light .tm-btn,
-        #tmDesktopMenu.tm-desktop-menu--light .tm-btn-info,
-        #tmDesktopMenu.tm-desktop-menu--light .tm-btn-secondary {
+        [data-theme-mode="light"] #tmDesktopMenu .bc-btn,
+        #tmDesktopMenu.tm-desktop-menu--light .bc-btn {
             border-color: #1f2329 !important;
         }
         [data-theme-mode="light"] #tmDesktopMenu .tm-tree-toggle-icon path,
         #tmDesktopMenu.tm-desktop-menu--light .tm-tree-toggle-icon path {
             stroke: #1f2329 !important;
+        }
+
+        #tmDesktopMenu {
+            min-width: 0;
+            width: max-content;
+            max-width: calc(100vw - 16px);
+            --radius: var(--tm-topbar-control-radius);
+        }
+
+        #tmDesktopMenu .tm-desktop-menu-row {
+            display: flex;
+            gap: 10px;
+            align-items: center;
+            min-width: 0;
+        }
+
+        #tmDesktopMenu .tm-desktop-menu-row .bc-btn {
+            width: 100%;
+            min-width: 0;
+            justify-content: center;
+            text-align: center;
+            border-width: var(--tm-topbar-control-border-width);
+            box-shadow: var(--tm-topbar-control-shadow);
+        }
+
+        #tmDesktopMenu .tm-desktop-menu-btn-content,
+        #tmDesktopMenu .tm-desktop-menu-toggle-content,
+        #tmDesktopMenu .tm-desktop-menu-item__main {
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            min-width: 0;
+        }
+
+        #tmDesktopMenu .tm-desktop-menu-btn-content {
+            width: 100%;
+            justify-content: center;
+            text-align: center;
+        }
+
+        #tmDesktopMenu .tm-desktop-menu-toggle-content {
+            flex: 1;
+            justify-content: center;
+            text-align: center;
+        }
+
+        #tmDesktopMenu .tm-desktop-menu-toggle {
+            flex: 1;
+            padding: 6px 10px;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 10px;
+        }
+
+        #tmDesktopMenu .tm-desktop-menu-toggle .b3-switch {
+            flex: 0 0 auto;
         }
 
         .tm-filter-rule-bar #tmMobileMenu .tm-view-segmented {
@@ -1867,6 +1941,36 @@
             min-width: 0;
         }
 
+        .tm-filter-rule-bar .tm-topbar-doc-quick-select {
+            display: inline-flex;
+            flex: 0 1 auto;
+            min-width: 0;
+            width: max-content;
+            max-width: min(46vw, 240px);
+        }
+
+        .tm-modal.tm-modal--mobile .tm-filter-rule-bar .tm-topbar-doc-quick-select {
+            max-width: min(42vw, 180px);
+        }
+
+        .tm-filter-rule-bar .tm-topbar-doc-quick-select .bc-select-trigger {
+            width: auto;
+            max-width: 100%;
+            display: inline-flex;
+            flex: 0 1 auto;
+        }
+
+        .tm-filter-rule-bar .tm-topbar-doc-quick-select .bc-select-trigger__value {
+            flex: 0 1 auto;
+        }
+
+        .tm-filter-rule-bar .tm-header-selectors .tm-topbar-select[data-tm-auto-width="true"] {
+            display: inline-flex;
+            flex: 0 0 auto;
+            width: max-content !important;
+            max-width: min(40vw, 520px);
+        }
+
         .tm-filter-rule-bar .tm-topbar-select--narrow {
             min-width: 0;
         }
@@ -1880,11 +1984,22 @@
             min-width: 0;
         }
 
+        .tm-filter-rule-bar .tm-header-selectors .tm-topbar-select[data-tm-auto-width="true"] .bc-select-trigger {
+            width: auto;
+            max-width: 100%;
+            display: inline-flex;
+            flex: 0 0 auto;
+        }
+
         .tm-filter-rule-bar .tm-topbar-select .bc-select-trigger__value {
             min-width: 0;
             overflow: hidden;
             text-overflow: ellipsis;
             white-space: nowrap;
+        }
+
+        .tm-filter-rule-bar .tm-header-selectors .tm-topbar-select[data-tm-auto-width="true"] .bc-select-trigger__value {
+            flex: 0 1 auto;
         }
 
         .tm-filter-rule-bar .tm-search-box,
@@ -1919,8 +2034,8 @@
         }
 
         @container tm-modal (max-width: 1160px) {
-            .tm-modal:not(.tm-modal--dock) .tm-header-selectors .tm-topbar-select {
-                width: 118px !important;
+            .tm-modal:not(.tm-modal--dock) .tm-header-selectors .tm-topbar-select[data-tm-auto-width="true"] {
+                width: max-content !important;
             }
 
             .tm-modal:not(.tm-modal--dock) .tm-search-box .tm-view-segmented {
@@ -1951,8 +2066,8 @@
                 gap: 4px !important;
             }
 
-            .tm-modal:not(.tm-modal--dock) .tm-header-selectors .tm-topbar-select {
-                width: 100px !important;
+            .tm-modal:not(.tm-modal--dock) .tm-header-selectors .tm-topbar-select[data-tm-auto-width="true"] {
+                width: max-content !important;
             }
 
             .tm-modal:not(.tm-modal--dock) .tm-search-box .tm-view-segmented {
@@ -2152,6 +2267,7 @@
             overscroll-behavior: contain;
             scrollbar-width: none;
             -ms-overflow-style: none;
+            position: relative;
         }
 
         .tm-body.tm-body--kanban::-webkit-scrollbar {
@@ -3771,6 +3887,41 @@
             background: var(--tm-table-header-bg);
         }
 
+        .tm-kanban-detail-float {
+            position: fixed;
+            top: 24px;
+            left: 24px;
+            width: min(420px, calc(100vw - 24px));
+            max-width: calc(100vw - 24px);
+            max-height: calc(100vh - 48px);
+            z-index: 200010;
+            pointer-events: auto;
+            display: flex;
+            flex-direction: column;
+            border: 1px solid var(--tm-border-color);
+            border-radius: 16px;
+            background: color-mix(in srgb, var(--tm-bg-color) 92%, var(--tm-section-bg) 8%);
+            box-shadow: 0 18px 48px rgba(15, 23, 42, 0.18);
+            overflow: hidden;
+            backdrop-filter: blur(10px);
+            -webkit-backdrop-filter: blur(10px);
+        }
+
+        .tm-kanban-detail-float__body {
+            flex: 1 1 auto;
+            min-height: 0;
+            overflow: auto;
+            padding: 12px 14px 14px;
+        }
+
+        .tm-kanban-detail-float .tm-checklist-detail-card {
+            border: none;
+            border-radius: 0;
+            background: transparent;
+            box-shadow: none;
+            padding: 0;
+        }
+
         .tm-task-detail-overlay {
             position: fixed;
             inset: 0;
@@ -3818,6 +3969,208 @@
         .tm-task-detail-value {
             flex: 1 1 auto;
             min-width: 0;
+            position: relative;
+        }
+
+        .tm-task-detail-status-select {
+            position: relative;
+            width: 100%;
+            min-width: 0;
+            max-width: 100%;
+            display: block;
+        }
+
+        .tm-task-detail-status-trigger {
+            width: 100%;
+            min-height: 36px;
+            padding: 6px 12px;
+            border: 1px solid color-mix(in srgb, var(--tm-input-border) 82%, var(--tm-text-color) 18%);
+            border-radius: 10px;
+            background: color-mix(in srgb, var(--tm-input-bg) 94%, var(--tm-bg-color));
+            color: var(--tm-text-color);
+            display: inline-flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 10px;
+            box-sizing: border-box;
+            box-shadow: inset 0 1px 0 rgba(255,255,255,0.03);
+            transition: border-color 0.16s ease, box-shadow 0.16s ease, background 0.16s ease;
+        }
+
+        .tm-task-detail-status-trigger[aria-expanded="true"],
+        .tm-task-detail-status-trigger:focus-visible {
+            border-color: color-mix(in srgb, var(--tm-primary-color) 72%, var(--tm-input-border));
+            box-shadow: 0 0 0 3px color-mix(in srgb, var(--tm-primary-color) 18%, transparent);
+            background: color-mix(in srgb, var(--tm-input-bg) 98%, var(--tm-bg-color));
+            outline: none;
+        }
+
+        .tm-task-detail-status-trigger__value {
+            display: inline-flex;
+            align-items: center;
+            min-width: 0;
+            flex: 1 1 auto;
+            overflow: hidden;
+            padding-right: 4px;
+        }
+
+        .tm-task-detail-status-trigger__value .tm-status-tag {
+            max-width: 100%;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+        }
+
+        .tm-task-detail-status-menu {
+            position: absolute;
+            top: calc(100% + 6px);
+            left: 0;
+            right: 0;
+            z-index: 40;
+            display: flex;
+            flex-direction: column;
+            gap: 4px;
+            padding: 6px;
+            border: 1px solid var(--tm-border-color);
+            border-radius: 10px;
+            background: var(--tm-bg-color);
+            box-shadow: var(--tm-shadow);
+            max-height: min(280px, 50vh);
+            overflow: auto;
+            box-sizing: border-box;
+        }
+
+        .tm-task-detail-status-menu[hidden] {
+            display: none;
+        }
+
+        .tm-task-detail-status-option {
+            width: 100%;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 8px;
+            padding: 4px 6px;
+            border: none;
+            border-radius: 8px;
+            background: transparent;
+            cursor: pointer;
+            text-align: left;
+            transition: background 0.16s ease;
+        }
+
+        .tm-task-detail-status-option:hover {
+            background: var(--tm-hover-bg);
+        }
+
+        .tm-task-detail-status-option.is-selected {
+            background: color-mix(in srgb, var(--tm-hover-bg) 72%, transparent);
+        }
+
+        .tm-task-detail-status-option .tm-status-tag {
+            pointer-events: none;
+        }
+
+        .tm-task-detail-status-option .bc-select-option__check {
+            opacity: 0;
+        }
+
+        .tm-task-detail-status-option.is-selected .bc-select-option__check {
+            opacity: 1;
+        }
+
+        .tm-task-detail-priority-group {
+            width: 100%;
+            display: flex;
+            align-items: center;
+            gap: 4px;
+            padding: 3px;
+            border: 1px solid color-mix(in srgb, var(--tm-input-border) 82%, var(--tm-text-color) 18%);
+            border-radius: 10px;
+            background: color-mix(in srgb, var(--tm-input-bg) 94%, var(--tm-bg-color));
+            box-sizing: border-box;
+            box-shadow: inset 0 1px 0 rgba(255,255,255,0.03);
+        }
+
+        .tm-task-detail-priority-group .tm-task-detail-priority-option {
+            flex: 1 1 0;
+            min-width: 0;
+            min-height: 30px;
+            padding: 0 10px;
+            border: 1px solid color-mix(in srgb, var(--tm-task-detail-priority-color, var(--tm-secondary-text)) 28%, var(--tm-border-color) 72%);
+            border-radius: 8px;
+            background: color-mix(in srgb, var(--tm-task-detail-priority-color, var(--tm-secondary-text)) 8%, transparent);
+            color: var(--tm-task-detail-priority-color, var(--tm-secondary-text));
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            gap: 6px;
+            cursor: pointer;
+            transition: background 0.16s ease, color 0.16s ease, border-color 0.16s ease, box-shadow 0.16s ease;
+        }
+
+        .tm-task-detail-priority-group .tm-task-detail-priority-option:not(.is-active):not([data-state="active"]) {
+            filter: saturate(0.72);
+        }
+
+        .tm-task-detail-priority-group .tm-task-detail-priority-option:hover {
+            background: color-mix(in srgb, var(--tm-task-detail-priority-color, var(--tm-secondary-text)) 14%, var(--tm-hover-bg) 86%);
+            border-color: color-mix(in srgb, var(--tm-task-detail-priority-color, var(--tm-secondary-text)) 42%, var(--tm-border-color) 58%);
+            filter: saturate(0.9);
+        }
+
+        .tm-task-detail-priority-group .tm-task-detail-priority-option.is-active,
+        .tm-task-detail-priority-group .tm-task-detail-priority-option[data-state="active"] {
+            background: color-mix(in srgb, var(--tm-task-detail-priority-color, var(--tm-secondary-text)) 20%, var(--tm-bg-color) 80%) !important;
+            color: var(--tm-task-detail-priority-color, var(--tm-text-color)) !important;
+            border-color: color-mix(in srgb, var(--tm-task-detail-priority-color, var(--tm-secondary-text)) 72%, var(--tm-border-color) 28%) !important;
+            box-shadow:
+                inset 0 0 0 1px color-mix(in srgb, var(--tm-task-detail-priority-color, var(--tm-secondary-text)) 82%, transparent),
+                0 0 0 1px color-mix(in srgb, var(--tm-task-detail-priority-color, var(--tm-secondary-text)) 36%, transparent) !important;
+            font-weight: 700 !important;
+            filter: none !important;
+        }
+
+        .tm-task-detail-priority-group .tm-task-detail-priority-option .tm-priority-jira {
+            color: inherit;
+            flex: 0 0 auto;
+        }
+
+        .tm-task-detail-priority-group .tm-task-detail-priority-option__icon {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            line-height: 0;
+            flex: 0 0 auto;
+            color: inherit;
+        }
+
+        .tm-task-detail-priority-group .tm-task-detail-priority-option__label {
+            min-width: 0;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+        }
+
+        .tm-task-detail-switch {
+            width: 100%;
+            min-height: 36px;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 12px;
+            padding: 0 4px;
+            box-sizing: border-box;
+        }
+
+        .tm-task-detail-switch__text {
+            color: var(--tm-text-color);
+            font-size: calc(var(--tm-font-size) * 0.95);
+            line-height: 1.35;
+        }
+
+        .tm-task-detail-switch .b3-switch {
+            flex: 0 0 auto;
         }
 
         .tm-task-detail-value .tm-input,
@@ -3888,7 +4241,7 @@
 
         .tm-checklist-pane {
             --tm-checklist-pane-pad-right: 10px;
-            --tm-checklist-pane-pad-left: 15px;
+            --tm-checklist-pane-pad-left: 10px;
             --tm-checklist-scroll-gutter-fill: 0px;
             flex: 1 1 auto;
             min-width: 320px;
@@ -4207,10 +4560,116 @@
             gap: 0;
         }
 
+        .tm-checklist-pane--compact .tm-checklist-group-card {
+            --tm-checklist-card-accent: color-mix(in srgb, var(--tm-primary-color) 78%, var(--tm-text-color) 22%);
+            --tm-checklist-card-accent-width: 4px;
+            --tm-checklist-card-accent-gap: 10px;
+            --tm-checklist-card-divider-start: calc(var(--tm-checklist-card-accent-width) + var(--tm-checklist-card-accent-gap));
+            --tm-checklist-card-divider-right: 12px;
+            --tm-checklist-compact-row-height: 40px;
+            position: relative;
+            margin: 0 0 12px 0;
+            border: 1px solid color-mix(in srgb, var(--tm-border-color) 86%, var(--tm-checklist-card-accent) 14%);
+            border-radius: 10px;
+            background: color-mix(in srgb, var(--tm-card-bg) 94%, var(--tm-checklist-card-group-bg, var(--tm-section-bg)) 6%);
+            box-shadow: 0 10px 24px rgba(15, 23, 42, 0.06);
+            overflow: hidden;
+            isolation: isolate;
+        }
+
+        .tm-checklist-pane--compact .tm-checklist-group-card:last-child {
+            margin-bottom: 0;
+        }
+
+        .tm-checklist-pane--compact .tm-checklist-group-card > .tm-checklist-group {
+            min-height: var(--tm-checklist-compact-row-height);
+            margin: 0;
+            padding: 0 14px;
+            border: 0;
+            border-bottom: 1px solid color-mix(in srgb, var(--tm-border-color) 88%, transparent);
+            background: transparent;
+        }
+
+        .tm-checklist-pane--compact .tm-checklist-group-card.tm-checklist-group-card--collapsed > .tm-checklist-group {
+            border-bottom: 0;
+        }
+
+        .tm-checklist-pane--compact .tm-checklist-group-card > .tm-checklist-group.tm-checklist-group--doc,
+        .tm-checklist-pane--compact .tm-checklist-group-card > .tm-checklist-group.tm-checklist-group--pinned,
+        .tm-checklist-pane--compact .tm-checklist-group-card > .tm-checklist-group.tm-checklist-group--time,
+        .tm-checklist-pane--compact .tm-checklist-group-card > .tm-checklist-group.tm-checklist-group--task,
+        .tm-checklist-pane--compact .tm-checklist-group-card > .tm-checklist-group.tm-checklist-group--quadrant {
+            padding-left: 14px;
+        }
+
+        .tm-checklist-pane--compact .tm-checklist-group-card-items {
+            position: relative;
+            padding: 0;
+        }
+
+        .tm-checklist-pane--compact .tm-checklist-group-card:not(.tm-checklist-group-card--collapsed) .tm-checklist-group-card-items::before {
+            content: '';
+            position: absolute;
+            left: 0;
+            top: 0;
+            bottom: 0;
+            width: var(--tm-checklist-card-accent-width);
+            border-radius: 0;
+            background: var(--tm-checklist-card-accent, transparent);
+            opacity: 0.92;
+            pointer-events: none;
+            z-index: 2;
+        }
+
+        .tm-checklist-pane--compact .tm-checklist-group-card .tm-checklist-group.tm-checklist-group--h2 {
+            min-height: var(--tm-checklist-compact-row-height);
+            margin: 0;
+            padding: 0 var(--tm-checklist-card-divider-right) 0 calc(var(--tm-checklist-card-divider-start) + 8px);
+            border: 0;
+            border-radius: 0;
+            background: transparent;
+            color: var(--tm-secondary-text);
+            font-size: calc(var(--tm-font-size) * 0.9);
+            font-weight: 600;
+        }
+
+        .tm-checklist-pane--compact .tm-checklist-group-card .tm-checklist-group.tm-checklist-group--h2.tm-checklist-group--collapsed {
+            background: color-mix(in srgb, var(--tm-subgroup-bg) 84%, var(--tm-bg-color) 16%);
+        }
+
+        .tm-checklist-pane--compact .tm-checklist-group-card .tm-checklist-item {
+            min-height: var(--tm-checklist-compact-row-height);
+            padding-top: 0;
+            padding-bottom: 0;
+            padding-left: calc(var(--tm-checklist-card-divider-start) + 2px + var(--tm-checklist-compact-indent, 0px));
+            padding-right: var(--tm-checklist-card-divider-right);
+            border-bottom: 0;
+        }
+
+        .tm-checklist-pane--compact .tm-checklist-group-card .tm-checklist-item::before {
+            display: none;
+        }
+
+        .tm-checklist-pane--compact .tm-checklist-group-card .tm-checklist-item::after {
+            content: '';
+            position: absolute;
+            left: var(--tm-checklist-card-divider-start);
+            right: var(--tm-checklist-card-divider-right);
+            top: 0;
+            height: 1px;
+            background: color-mix(in srgb, var(--tm-border-color) 92%, transparent);
+            display: block;
+            pointer-events: none;
+        }
+
+        .tm-checklist-pane--compact .tm-checklist-group-card .tm-checklist-group-card-items > .tm-checklist-item:first-child::after {
+            display: none;
+        }
+
         .tm-checklist-pane--compact .tm-checklist-item {
             align-items: center;
-            min-height: 38px;
-            padding: 4px 10px 4px calc(6px + var(--tm-checklist-compact-indent, 0px));
+            min-height: var(--tm-checklist-compact-row-height, 34px);
+            padding: 0 10px 0 calc(6px + var(--tm-checklist-compact-indent, 0px));
             border: 0;
             border-bottom: 1px solid color-mix(in srgb, var(--tm-border-color) 92%, transparent);
             border-radius: 0;
@@ -4335,6 +4794,7 @@
         .tm-checklist-pane--compact .tm-checklist-item--active {
             border: 0;
             border-bottom: 1px solid color-mix(in srgb, var(--tm-border-color) 92%, transparent);
+            border-bottom-color: transparent;
             border-radius: 12px;
             box-shadow: inset 0 0 0 1px color-mix(in srgb, #2f6fed 36%, var(--tm-border-color));
             background-color: color-mix(in srgb, var(--tm-bg-color) 88%, #2f6fed 8%) !important;
@@ -4641,10 +5101,15 @@
             background: var(--tm-section-bg);
         }
 
+        .tm-modal.tm-modal--dock .tm-checklist-pane {
+            --tm-checklist-pane-pad-right: 6px;
+            --tm-checklist-pane-pad-left: 6px;
+        }
+
         .tm-box--with-cal-dock .tm-checklist-pane {
             min-width: 240px;
             --tm-checklist-pane-pad-right: 10px;
-            --tm-checklist-pane-pad-left: 18px;
+            --tm-checklist-pane-pad-left: 10px;
             --tm-checklist-scroll-gutter-fill: 0px;
         }
 
@@ -4682,8 +5147,8 @@
             }
 
             .tm-checklist-pane {
-                --tm-checklist-pane-pad-right: 10px;
-                --tm-checklist-pane-pad-left: 5px;
+                --tm-checklist-pane-pad-right: 6px;
+                --tm-checklist-pane-pad-left: 6px;
                 --tm-checklist-scroll-gutter-fill: 0px;
             }
 
@@ -4703,6 +5168,23 @@
 
             .tm-checklist-pane--compact .tm-checklist-item {
                 padding-left: calc(10px + var(--tm-checklist-compact-indent, 0px));
+                padding-right: 8px;
+            }
+
+            .tm-checklist-pane--compact .tm-checklist-group-card {
+                margin-bottom: 10px;
+                --tm-checklist-card-accent-gap: 8px;
+                --tm-checklist-card-divider-right: 8px;
+                --tm-checklist-compact-row-height: 40px;
+                border-radius: 10px;
+            }
+
+            .tm-checklist-pane--compact .tm-checklist-group-card > .tm-checklist-group {
+                padding: 0 12px;
+            }
+
+            .tm-checklist-pane--compact .tm-checklist-group-card .tm-checklist-group.tm-checklist-group--h2 {
+                padding-left: calc(var(--tm-checklist-card-divider-start) + 6px);
                 padding-right: 8px;
             }
 
@@ -5234,23 +5716,16 @@
         .tm-checklist-pane--compact .tm-checklist-item.tm-timer-focus {
             border: 0;
             border-bottom: 1px solid color-mix(in srgb, var(--tm-border-color) 92%, transparent);
+            border-bottom-color: transparent;
             border-radius: 12px;
             background-color: color-mix(in srgb, var(--tm-bg-color) 88%, #2f6fed 8%) !important;
-            box-shadow:
-                inset 2px 0 0 var(--tm-primary-color),
-                inset -2px 0 0 var(--tm-primary-color),
-                inset 0 2px 0 var(--tm-primary-color),
-                inset 0 -2px 0 var(--tm-primary-color);
+            box-shadow: inset 0 0 0 1px var(--tm-primary-color);
             z-index: 1;
         }
 
         .tm-checklist-pane--compact .tm-checklist-item.tm-timer-focus:hover {
             background-color: color-mix(in srgb, var(--tm-bg-color) 84%, #2f6fed 12%) !important;
-            box-shadow:
-                inset 2px 0 0 var(--tm-primary-color),
-                inset -2px 0 0 var(--tm-primary-color),
-                inset 0 2px 0 var(--tm-primary-color),
-                inset 0 -2px 0 var(--tm-primary-color);
+            box-shadow: inset 0 0 0 1px var(--tm-primary-color);
         }
 
         /* 列宽调整手柄 */
@@ -6812,6 +7287,7 @@
             checklistDetailWidth: 320,
             docTopbarButtonDesktop: true,
             docTopbarButtonMobile: true,
+            docTopbarButtonSwapPressActions: false,
             windowTopbarIconDesktop: true,
             windowTopbarIconMobile: true,
             defaultDocId: '',
@@ -7116,6 +7592,7 @@
                                 if (typeof cloudData.calendarSideDockWidth === 'number') this.data.calendarSideDockWidth = cloudData.calendarSideDockWidth;
                                 if (typeof cloudData.docTopbarButtonDesktop === 'boolean') this.data.docTopbarButtonDesktop = cloudData.docTopbarButtonDesktop;
                                 if (typeof cloudData.docTopbarButtonMobile === 'boolean') this.data.docTopbarButtonMobile = cloudData.docTopbarButtonMobile;
+                                if (typeof cloudData.docTopbarButtonSwapPressActions === 'boolean') this.data.docTopbarButtonSwapPressActions = cloudData.docTopbarButtonSwapPressActions;
                                 if (typeof cloudData.windowTopbarIconDesktop === 'boolean') this.data.windowTopbarIconDesktop = cloudData.windowTopbarIconDesktop;
                                 if (typeof cloudData.windowTopbarIconMobile === 'boolean') this.data.windowTopbarIconMobile = cloudData.windowTopbarIconMobile;
                                 if (typeof cloudData.checklistDetailWidth === 'number') this.data.checklistDetailWidth = cloudData.checklistDetailWidth;
@@ -7411,6 +7888,7 @@
             this.data.checklistDetailWidth = Storage.get('tm_checklist_detail_width', this.data.checklistDetailWidth);
             this.data.docTopbarButtonDesktop = !!Storage.get('tm_doc_topbar_button_desktop', this.data.docTopbarButtonDesktop);
             this.data.docTopbarButtonMobile = !!Storage.get('tm_doc_topbar_button_mobile', this.data.docTopbarButtonMobile);
+            this.data.docTopbarButtonSwapPressActions = !!Storage.get('tm_doc_topbar_button_swap_press_actions', this.data.docTopbarButtonSwapPressActions);
             this.data.windowTopbarIconDesktop = !!Storage.get('tm_window_topbar_icon_desktop', this.data.windowTopbarIconDesktop);
             this.data.windowTopbarIconMobile = !!Storage.get('tm_window_topbar_icon_mobile', this.data.windowTopbarIconMobile);
             this.data.calendarColorFocus = Storage.get('tm_calendar_color_focus', this.data.calendarColorFocus);
@@ -7686,6 +8164,7 @@
             Storage.set('tm_checklist_detail_width', Number(this.data.checklistDetailWidth) || 320);
             Storage.set('tm_doc_topbar_button_desktop', !!this.data.docTopbarButtonDesktop);
             Storage.set('tm_doc_topbar_button_mobile', !!this.data.docTopbarButtonMobile);
+            Storage.set('tm_doc_topbar_button_swap_press_actions', !!this.data.docTopbarButtonSwapPressActions);
             Storage.set('tm_window_topbar_icon_desktop', !!this.data.windowTopbarIconDesktop);
             Storage.set('tm_window_topbar_icon_mobile', !!this.data.windowTopbarIconMobile);
             Storage.set('tm_calendar_color_focus', String(this.data.calendarColorFocus || '').trim());
@@ -7835,6 +8314,7 @@
             this.data.headingGroupCreateAtSectionEnd = !!this.data.headingGroupCreateAtSectionEnd;
             this.data.docTopbarButtonDesktop = this.data.docTopbarButtonDesktop !== false;
             this.data.docTopbarButtonMobile = this.data.docTopbarButtonMobile !== false;
+            this.data.docTopbarButtonSwapPressActions = !!this.data.docTopbarButtonSwapPressActions;
             this.data.windowTopbarIconDesktop = this.data.windowTopbarIconDesktop !== false;
             this.data.windowTopbarIconMobile = this.data.windowTopbarIconMobile !== false;
             this.data.timelineForceSortByCompletionNearToday = !!this.data.timelineForceSortByCompletionNearToday;
@@ -10700,6 +11180,9 @@
         viewModeInitialized: false,
         detailTaskId: '',
         checklistDetailSheetOpen: false,
+        checklistDetailDismissed: false,
+        kanbanDetailTaskId: '',
+        kanbanDetailAnchorTaskId: '',
         listRenderStep: 100,
         listRenderLimit: 100,
         listRenderSignature: '',
@@ -11274,6 +11757,9 @@
             activeDocId: String(state.activeDocId || 'all').trim() || 'all',
             detailTaskId: String(state.detailTaskId || ''),
             checklistDetailSheetOpen: !!state.checklistDetailSheetOpen,
+            checklistDetailDismissed: !!state.checklistDetailDismissed,
+            kanbanDetailTaskId: String(state.kanbanDetailTaskId || ''),
+            kanbanDetailAnchorTaskId: String(state.kanbanDetailAnchorTaskId || ''),
             docTabsHidden: !!state.docTabsHidden,
             aiSidebarOpen: !!state.aiSidebarOpen,
             aiMobilePanelOpen: !!state.aiMobilePanelOpen,
@@ -11296,6 +11782,9 @@
         state.activeDocId = String(snap.activeDocId || 'all').trim() || 'all';
         state.detailTaskId = String(snap.detailTaskId || '');
         state.checklistDetailSheetOpen = !!snap.checklistDetailSheetOpen;
+        state.checklistDetailDismissed = !!snap.checklistDetailDismissed;
+        state.kanbanDetailTaskId = String(snap.kanbanDetailTaskId || '');
+        state.kanbanDetailAnchorTaskId = String(snap.kanbanDetailAnchorTaskId || '');
         state.docTabsHidden = !!snap.docTabsHidden;
         state.aiSidebarOpen = !!snap.aiSidebarOpen;
         state.aiMobilePanelOpen = !!snap.aiMobilePanelOpen;
@@ -12160,6 +12649,30 @@ async function __tmRefreshAfterWake(reason) {
         ? (SettingsStore.data.docTopbarButtonMobile !== false)
         : (SettingsStore.data.docTopbarButtonDesktop !== false));
 
+    const __tmShouldSwapDocTopbarButtonPressActions = () => !!SettingsStore.data.docTopbarButtonSwapPressActions;
+
+    function __tmGetDocTopbarButtonPressActionMeta() {
+        const swapped = __tmShouldSwapDocTopbarButtonPressActions();
+        return swapped
+            ? {
+                shortLabel: '打开任务管理器',
+                longLabel: '快速新建任务',
+                shortRun: () => openManager({ preserveViewMode: true, forceOpenTab: true }),
+                longRun: () => window.tmQuickAddOpen?.(),
+            }
+            : {
+                shortLabel: '快速新建任务',
+                longLabel: '打开任务管理器',
+                shortRun: () => window.tmQuickAddOpen?.(),
+                longRun: () => openManager({ preserveViewMode: true, forceOpenTab: true }),
+            };
+    }
+
+    function __tmGetDocTopbarButtonTitle() {
+        const meta = __tmGetDocTopbarButtonPressActionMeta();
+        return `短按${meta.shortLabel}，长按${meta.longLabel}`;
+    }
+
     const __tmShouldShowWindowTopbarIcon = () => (__tmIsMobileDevice()
         ? (SettingsStore.data.windowTopbarIconMobile !== false)
         : (SettingsStore.data.windowTopbarIconDesktop !== false));
@@ -12510,13 +13023,14 @@ async function __tmRefreshAfterWake(reason) {
 
     function __tmComputeMobileBottomViewbarLayoutSig() {
         const isMobile = __tmIsMobileDevice();
+        const isRuntimeMobile = __tmIsRuntimeMobileClient();
         const isDockHost = __tmIsDockHost();
         const hostUsesMobileUI = __tmHostUsesMobileUI();
         const isLandscape = !!(isMobile && (() => { try { return !!window.matchMedia?.('(orientation: landscape)')?.matches; } catch (e) { return false; } })());
         const showMobileBottomViewBar = isDockHost
-            ? (!hostUsesMobileUI || !isLandscape)
+            ? (!isRuntimeMobile || !isLandscape)
             : !!(isMobile && !isLandscape);
-        return `${isMobile ? 1 : 0}|${isDockHost ? 1 : 0}|${hostUsesMobileUI ? 1 : 0}|${isLandscape ? 1 : 0}|${showMobileBottomViewBar ? 1 : 0}`;
+        return `${isMobile ? 1 : 0}|${isRuntimeMobile ? 1 : 0}|${isDockHost ? 1 : 0}|${hostUsesMobileUI ? 1 : 0}|${isLandscape ? 1 : 0}|${showMobileBottomViewBar ? 1 : 0}`;
     }
 
     function __tmUnbindMobileViewportAutoRefresh() {
@@ -12587,19 +13101,14 @@ async function __tmRefreshAfterWake(reason) {
         const label = String(opts.label || '').trim();
         const options = Array.isArray(opts.options) ? opts.options : [];
         const extraClass = String(opts.className || '').trim();
+        const autoWidth = opts.autoWidth !== false;
         const current = options.find((item) => item && item.selected) || options[0] || { label: '' };
-        const maxChars = options.reduce((max, item) => {
-            const len = String(item?.label || '').trim().length;
-            return Math.max(max, len);
-        }, String(current?.label || '').trim().length || 0);
-        const widthPx = Math.max(96, Math.min(220, Math.round(maxChars * 16 + 44)));
         const styleParts = [];
         if (opts.style) styleParts.push(String(opts.style));
-        styleParts.push(`width:${widthPx}px;`);
         const styleAttr = styleParts.length ? ` style="${__tmEscAttr(styleParts.join(' '))}"` : '';
         const tooltipLabel = String(opts.tooltip || label || current.label || '').trim();
         return `
-            <div class="tm-topbar-select ${extraClass}" id="${__tmEscAttr(id)}" data-open="false"${styleAttr}>
+            <div class="tm-topbar-select ${extraClass}" id="${__tmEscAttr(id)}" data-open="false" data-tm-auto-width="${autoWidth ? 'true' : 'false'}"${styleAttr}>
                 <button class="bc-select-trigger" type="button" onclick="tmToggleTopbarSelect('${escSq(id)}', event)" aria-haspopup="listbox" aria-expanded="false" data-tm-tooltip-label="${__tmEscAttr(tooltipLabel)}" data-tm-tooltip-side="bottom" data-tm-tooltip-align="center">
                     <span class="bc-select-trigger__value">${esc(String(current?.label || ''))}</span>
                     <span class="bc-select-trigger__chevron" aria-hidden="true">
@@ -19127,6 +19636,7 @@ async function __tmRefreshAfterWake(reason) {
             }
         }
         state.detailTaskId = id;
+        state.checklistDetailDismissed = false;
         if (__tmChecklistUseSheetMode(state.modal)) state.checklistDetailSheetOpen = true;
         if (!__tmRefreshChecklistSelectionInPlace(state.modal)) render();
     };
@@ -19364,6 +19874,8 @@ async function __tmRefreshAfterWake(reason) {
         let savedKanbanScrollLeft = 0;
         let savedKanbanColScrollTopByStatus = {};
         let savedWhiteboardSidebarScrollTop = 0;
+        let savedWhiteboardBodyScrollTop = 0;
+        let savedWhiteboardBodyScrollLeft = 0;
         let savedDocTabsScrollLeft = Number(state.docTabsScrollLeft) || 0;
         if (prevModalSnapshot) {
             prevModalEl = prevModalSnapshot;
@@ -19390,6 +19902,11 @@ async function __tmRefreshAfterWake(reason) {
             } else if (prevWasWhiteboard) {
                 const sidebar = prevModalSnapshot.querySelector('.tm-whiteboard-sidebar');
                 if (sidebar) savedWhiteboardSidebarScrollTop = Number(sidebar.scrollTop) || 0;
+                const body = prevModalSnapshot.querySelector('#tmWhiteboardBody');
+                if (body) {
+                    savedWhiteboardBodyScrollTop = Number(body.scrollTop) || 0;
+                    savedWhiteboardBodyScrollLeft = Number(body.scrollLeft) || 0;
+                }
             } else if (prevWasCalendar) {
                 try {
                     const root = prevModalSnapshot.querySelector('#tmCalendarRoot');
@@ -19422,7 +19939,11 @@ async function __tmRefreshAfterWake(reason) {
             if (prevModalSnapshot) {
                 if (prevWasTimeline) state.viewScroll.timeline = { top: Number(savedTimelineScrollTop) || 0, left: Number(savedTimelineScrollLeft) || 0 };
                 else if (prevWasKanban) state.viewScroll.kanban = { left: Number(savedKanbanScrollLeft) || 0, cols: savedKanbanColScrollTopByStatus || {} };
-                else if (prevWasWhiteboard) state.viewScroll.whiteboard = { sidebarTop: Number(savedWhiteboardSidebarScrollTop) || 0 };
+                else if (prevWasWhiteboard) state.viewScroll.whiteboard = {
+                    sidebarTop: Number(savedWhiteboardSidebarScrollTop) || 0,
+                    top: Number(savedWhiteboardBodyScrollTop) || 0,
+                    left: Number(savedWhiteboardBodyScrollLeft) || 0,
+                };
                 else if (prevWasCalendar) state.viewScroll.calendar = { top: Number(savedCalendarScrollTop) || 0, left: Number(savedCalendarScrollLeft) || 0 };
                 else state.viewScroll.list = { top: Number(savedScrollTop) || 0, left: Number(savedScrollLeft) || 0 };
             }
@@ -19483,6 +20004,7 @@ async function __tmRefreshAfterWake(reason) {
         const groupName = currentGroupId === 'all' ? '全部文档' : (currentGroup ? __tmResolveDocGroupName(currentGroup) : '未知分组');
         const hasTaskModeOption = !!(SettingsStore.data.groupByTaskName || state.groupByTaskName);
         const isMobile = __tmIsMobileDevice();
+        const isRuntimeMobile = __tmIsRuntimeMobileClient();
         const isDockHost = __tmIsDockHost();
         const hostUsesMobileUI = __tmHostUsesMobileUI();
         const isSplitPane = false; // 使用CSS容器查询处理分屏模式
@@ -19516,6 +20038,7 @@ async function __tmRefreshAfterWake(reason) {
         state.modal.className = 'tm-modal'
             + (__tmMountEl ? ' tm-modal--tab' : '')
             + (isMobile ? ' tm-modal--mobile' : '')
+            + (isRuntimeMobile ? ' tm-modal--runtime-mobile' : '')
             + (hostUsesMobileUI ? ' tm-modal--host-mobile-ui' : '')
             + (isSplitPane ? ' tm-modal--split-pane' : '')
             + (isDockHost ? ' tm-modal--dock' : '');
@@ -19666,9 +20189,10 @@ async function __tmRefreshAfterWake(reason) {
                 : __tmNormalizeHexColor(SettingsStore.data.progressBarColorLight, '#4caf50');
             const selectedId = String(state.detailTaskId || '').trim();
             const fallbackId = __tmResolveFirstVisibleTaskIdFromRowModel(rowModel);
+            const dismissed = !!state.checklistDetailDismissed;
             const activeId = state.flatTasks?.[selectedId]
                 ? selectedId
-                : (sheetMode ? '' : fallbackId);
+                : ((sheetMode || dismissed) ? '' : fallbackId);
             if (activeId !== selectedId) state.detailTaskId = activeId;
             if (!sheetMode) state.checklistDetailSheetOpen = false;
             let currentGroupBg = '';
@@ -19807,7 +20331,7 @@ async function __tmRefreshAfterWake(reason) {
                 }
                 if (row.kind === 'task' && row.groupDocColor) {
                     currentGroupBg = enableGroupBg ? (__tmGroupBgFromLabelColor(row.groupDocColor, isDark) || '') : '';
-                    currentGroupAccent = enableGroupBg ? String(row.groupDocColor || '') : '';
+                    currentGroupAccent = String(row.groupDocColor || labelColor || '');
                 } else if (row.kind === 'pinned') {
                     currentGroupBg = '';
                     currentGroupAccent = 'var(--tm-danger-color)';
@@ -19815,13 +20339,13 @@ async function __tmRefreshAfterWake(reason) {
                     // 文档分组下的标题子分组沿用文档组背景，不要被标题标签颜色覆盖。
                 } else {
                     currentGroupBg = enableGroupBg ? (__tmGroupBgFromLabelColor(labelColor, isDark) || '') : '';
-                    currentGroupAccent = enableGroupBg ? String(labelColor || '') : '';
+                    currentGroupAccent = String(labelColor || '');
                 }
                 const createBtnHtml = (row.kind === 'h2' && state.groupByDocName)
                     ? __tmBuildHeadingGroupCreateBtnHtml(row.docId, row.headingId, '在该标题下新建任务')
                     : '';
                 return `
-                    <div class="tm-checklist-group ${row.kind === 'doc' ? 'tm-checklist-group--doc' : ''} ${row.kind === 'pinned' ? 'tm-checklist-group--pinned' : ''} ${row.kind === 'task' ? 'tm-checklist-group--task' : ''} ${row.kind === 'h2' ? 'tm-checklist-group--h2' : ''} ${row.kind === 'time' ? 'tm-checklist-group--time' : ''} ${row.kind === 'quadrant' ? 'tm-checklist-group--quadrant' : ''}" data-group-key="${esc(String(row.key || ''))}" onclick="tmToggleGroupCollapse('${escSq(String(row.key || ''))}', event)">
+                    <div class="tm-checklist-group ${row.kind === 'doc' ? 'tm-checklist-group--doc' : ''} ${row.kind === 'pinned' ? 'tm-checklist-group--pinned' : ''} ${row.kind === 'task' ? 'tm-checklist-group--task' : ''} ${row.kind === 'h2' ? 'tm-checklist-group--h2' : ''} ${row.kind === 'time' ? 'tm-checklist-group--time' : ''} ${row.kind === 'quadrant' ? 'tm-checklist-group--quadrant' : ''} ${isCollapsed ? 'tm-checklist-group--collapsed' : ''}" data-group-key="${esc(String(row.key || ''))}" onclick="tmToggleGroupCollapse('${escSq(String(row.key || ''))}', event)">
                         ${toggle}
                         ${pinnedIconHtml}
                         <span class="tm-checklist-group-label" style="color:${labelColor};">${esc(String(row.label || ''))}</span>
@@ -19838,7 +20362,9 @@ async function __tmRefreshAfterWake(reason) {
                 if ((state.groupByTaskName || (!state.groupByDocName && !state.groupByTime && !state.quadrantEnabled)) && task.root_id) {
                     const taskDocColor = __tmGetDocColorHex(task.root_id, isDark) || '';
                     currentGroupBg = (enableGroupBg && taskDocColor) ? (__tmGroupBgFromLabelColor(taskDocColor, isDark) || '') : '';
-                    currentGroupAccent = (enableGroupBg && taskDocColor) ? taskDocColor : '';
+                    currentGroupAccent = state.groupByTaskName
+                        ? (taskDocColor || currentGroupAccent || '')
+                        : ((enableGroupBg && taskDocColor) ? taskDocColor : '');
                 }
                 const depth = Math.max(0, Number(row?.depth) || 0);
                 const hasChildren = !!row?.hasChildren;
@@ -19912,16 +20438,53 @@ async function __tmRefreshAfterWake(reason) {
             };
 
             const items = [];
+            let compactGroupCard = null;
+            const flushCompactGroupCard = () => {
+                if (!compactGroupCard) return;
+                const cardClasses = [
+                    'tm-checklist-group-card',
+                    `tm-checklist-group-card--${compactGroupCard.kind || 'default'}`,
+                    compactGroupCard.children.length ? '' : 'tm-checklist-group-card--collapsed',
+                ].filter(Boolean).join(' ');
+                const cardStyle = [];
+                if (compactGroupCard.accent) cardStyle.push(`--tm-checklist-card-accent:${compactGroupCard.accent};`);
+                if (compactGroupCard.groupBg) cardStyle.push(`--tm-checklist-card-group-bg:${compactGroupCard.groupBg};`);
+                const cardBodyHtml = compactGroupCard.children.length
+                    ? `<div class="tm-checklist-group-card-items">${compactGroupCard.children.join('')}</div>`
+                    : '';
+                items.push(`<section class="${cardClasses}"${cardStyle.length ? ` style="${cardStyle.join('')}"` : ''}>${compactGroupCard.header}${cardBodyHtml}</section>`);
+                compactGroupCard = null;
+            };
             for (const row of rowModel) {
                 if (row?.type === 'group') {
                     if (renderedChecklistTaskCount >= checklistTaskLimit) break;
-                    items.push(renderGroup(row));
+                    const groupHtml = renderGroup(row);
+                    if (checklistCompact && row.kind !== 'h2') {
+                        flushCompactGroupCard();
+                        compactGroupCard = {
+                            kind: String(row.kind || 'default'),
+                            accent: String(currentGroupAccent || '').trim(),
+                            groupBg: String(currentGroupBg || '').trim(),
+                            header: groupHtml,
+                            children: [],
+                        };
+                        continue;
+                    }
+                    if (checklistCompact && row.kind === 'h2' && compactGroupCard) {
+                        compactGroupCard.children.push(groupHtml);
+                        continue;
+                    }
+                    flushCompactGroupCard();
+                    items.push(groupHtml);
                     continue;
                 }
                 if (renderedChecklistTaskCount >= checklistTaskLimit) break;
                 const html = renderTask(row);
-                if (html) items.push(html);
+                if (!html) continue;
+                if (checklistCompact && compactGroupCard) compactGroupCard.children.push(html);
+                else items.push(html);
             }
+            flushCompactGroupCard();
             const itemsHtml = items.join('');
             const totalChecklistTaskCount = rowModel.reduce((acc, row) => (row?.type === 'group' ? acc : acc + 1), 0);
             const checklistRemain = (checklistVirtualEnabled && renderedChecklistTaskCount >= checklistTaskLimit)
@@ -19932,7 +20495,7 @@ async function __tmRefreshAfterWake(reason) {
                 : '';
             const detailTask = activeId ? (state.flatTasks?.[activeId] || null) : null;
             const detailHtml = detailTask
-                ? __tmBuildTaskDetailInnerHtml(detailTask, { embedded: true })
+                ? __tmBuildTaskDetailInnerHtml(detailTask, { embedded: true, closeable: true })
                 : `<div class="tm-checklist-empty-detail">选择左侧任务后，这里会显示可编辑的详情。</div>`;
             return `
                 <div class="tm-body${bodyAnimClass} tm-body--checklist">
@@ -20271,6 +20834,17 @@ async function __tmRefreshAfterWake(reason) {
             const isUngroupForKanban = !state.groupByDocName && !state.groupByTaskName && !state.groupByTime && !state.quadrantEnabled;
             const needDocFlowForKanban = allowDocFlowForKanban && (!!state.groupByDocName || isUngroupForKanban || !!state.groupByTaskName || !!state.groupByTime || !!state.quadrantEnabled);
             const escSq = (s) => String(s || '').replace(/\\/g, '\\\\').replace(/'/g, "\\'");
+            const kanbanDetailTaskId = String(state.kanbanDetailTaskId || '').trim();
+            const kanbanDetailTask = kanbanDetailTaskId ? (state.flatTasks?.[kanbanDetailTaskId] || null) : null;
+            const kanbanDetailHtml = kanbanDetailTask
+                ? `
+                    <aside class="tm-kanban-detail-float" id="tmKanbanDetailFloat">
+                        <div class="tm-kanban-detail-float__body" id="tmKanbanDetailPanel">
+                            ${__tmBuildTaskDetailInnerHtml(kanbanDetailTask, { embedded: true, floating: true })}
+                        </div>
+                    </aside>
+                `
+                : '';
             const isDark = __tmIsDarkMode();
             const timeBaseColor = isDark
                 ? __tmNormalizeHexColor(SettingsStore.data.timeGroupBaseColorDark, '#6ba5ff')
@@ -20404,6 +20978,7 @@ async function __tmRefreshAfterWake(reason) {
                         <div class="tm-kanban${isCompact ? ' tm-kanban--compact' : ''}${kanbanFillColumns ? ' tm-kanban--fill' : ''}">
                             ${__tmKanbanColsHtmlCache.html}
                         </div>
+                        ${kanbanDetailHtml}
                     </div>
                 `;
             }
@@ -21215,6 +21790,7 @@ async function __tmRefreshAfterWake(reason) {
                     <div class="tm-kanban${isCompact ? ' tm-kanban--compact' : ''}${kanbanFillColumns ? ' tm-kanban--fill' : ''}">
                         ${colsHtml}
                     </div>
+                    ${kanbanDetailHtml}
                 </div>
             `;
         };
@@ -22130,7 +22706,7 @@ async function __tmRefreshAfterWake(reason) {
         const calendarSideDockWidth = Math.max(260, Math.min(760, Math.round(Number(SettingsStore.data.calendarSideDockWidth) || 340)));
         const aiSideDockWidth = Math.max(320, Math.min(720, Math.round(Number(state.aiSidebarWidth) || 380)));
         const showMobileBottomViewBar = isDockHost
-            ? (!hostUsesMobileUI || !isLandscape)
+            ? (!isRuntimeMobile || !isLandscape)
             : !!(isMobile && !isLandscape);
         const mobileBottomViewbarActive = showMobileBottomViewBar && (Date.now() < (Number(state.mobileBottomViewbarActiveUntil) || 0));
         const useCompactTopbar = !isMobile || isDockHost;
@@ -22138,6 +22714,7 @@ async function __tmRefreshAfterWake(reason) {
         const topbarHeightStyle = useCompactTopbar ? 'min-height:42px;max-height:42px;height:42px;' : '';
         const showWhiteboardAllTabsModeToggle = state.viewMode === 'whiteboard' && String(state.activeDocId || 'all').trim() === 'all';
         const whiteboardAllTabsLayoutMode = __tmGetWhiteboardAllTabsLayoutMode();
+        const showInlineDocGroupQuickSelect = isMobile || isDockHost;
         const bodyWithSideDockHtml = (showCalendarSideDock || showAiSideDock)
             ? `
                 <div class="tm-main-body-with-cal-dock">
@@ -22168,6 +22745,13 @@ async function __tmRefreshAfterWake(reason) {
                                 <span onclick="tmHandleManagerTitleClick(event)" style="cursor:pointer;">任务管理器</span>
                             </div>
                             <button class="tm-btn tm-btn-success tm-topbar-add-btn bc-btn bc-btn--sm bc-btn--primary" onclick="tmAdd()" aria-label="新建任务" data-tm-floating-tooltip-label="新建任务" data-tm-tooltip-side="bottom" data-tm-tooltip-align="center" style="padding: 0; width: 30px; height: 30px; min-width: 30px; min-height: 30px; display: inline-flex; align-items: center; justify-content: center;">${__tmRenderLucideIcon('plus')}</button>
+                            ${showInlineDocGroupQuickSelect ? __tmRenderTopbarSelect({
+                                id: 'tmTopbarDocQuickSelect',
+                                label: '文档',
+                                options: docGroupMenuOptions,
+                                className: 'tm-topbar-doc-quick-select',
+                                tooltip: '切换文档分组'
+                            }) : ''}
                             ${isMobile && state.viewMode === 'calendar' ? `<button class="tm-btn tm-btn-info bc-btn bc-btn--sm" onclick="tmCalendarToggleSidebar()" style="padding: 0 10px; height: 30px; display: inline-flex; align-items: center; justify-content: center;"${__tmBuildTooltipAttrs('日历侧边栏', { side: 'bottom' })}>${__tmRenderLucideIcon('calendar-days')}</button>` : ''}
                             ${(state.viewMode === 'timeline' && ((isMobile && isLandscape) || isDesktopNarrow)) ? `
                                 <button class="tm-btn tm-btn-info bc-btn bc-btn--sm" onclick="tmGanttZoomOut()" style="padding: 0 8px; height: 30px; display: inline-flex; align-items: center; justify-content: center;"${__tmBuildTooltipAttrs('缩小', { side: 'bottom' })}>－</button>
@@ -22179,10 +22763,12 @@ async function __tmRefreshAfterWake(reason) {
 
                         <!-- 桌面端工具栏 -->
                         <div class="tm-desktop-toolbar tm-header-selectors" style="display:${isMobile ? 'none' : 'flex'};align-items:center;gap:8px;flex:1;min-width:0;">
+                            ${showInlineDocGroupQuickSelect ? '' : `
                             <div class="tm-rule-selector" style="margin-left: 6px;">
                                 <span class="tm-rule-label bc-field__label">文档:</span>
                                 ${__tmRenderTopbarSelect({ id: 'tmTopbarDocSelect', label: '文档', options: docGroupMenuOptions })}
                             </div>
+                            `}
 
                             <div class="tm-rule-selector">
                                 <span class="tm-rule-label bc-field__label">规则:</span>
@@ -22296,10 +22882,10 @@ async function __tmRefreshAfterWake(reason) {
                                     </div>
                                 </div>
                                 ` : ''}
-                                <div class="tm-mobile-only-item tm-mobile-menu-row" style="display:flex; gap:10px; align-items:center;">
+                                ${showInlineDocGroupQuickSelect ? '' : `<div class="tm-mobile-only-item tm-mobile-menu-row" style="display:flex; gap:10px; align-items:center;">
                                     <span class="tm-mobile-menu-label" style="color:var(--tm-text-color);width:60px;">文档:</span>
                                     ${__tmRenderTopbarSelect({ id: 'tmMobileDocSelect', label: '文档', options: docGroupMenuOptions, style: 'flex:1;' })}
-                                </div>
+                                </div>`}
                                 <div class="tm-mobile-only-item tm-mobile-menu-row" style="display:flex; gap:10px; align-items:center;">
                                     <span class="tm-mobile-menu-label" style="color:var(--tm-text-color);width:60px;">规则:</span>
                                     ${__tmRenderTopbarSelect({ id: 'tmMobileRuleSelect', label: '规则', options: ruleMenuOptions, style: 'flex:1;' })}
@@ -22676,7 +23262,7 @@ async function __tmRefreshAfterWake(reason) {
                             .tm-modal.tm-modal--mobile:not(.tm-modal--dock) .tm-mobile-bottom-viewbar {
                                 display: none !important;
                             }
-                            .tm-modal.tm-modal--host-mobile-ui.tm-modal--dock .tm-mobile-bottom-viewbar {
+                            .tm-modal.tm-modal--runtime-mobile.tm-modal--dock .tm-mobile-bottom-viewbar {
                                 display: none !important;
                             }
                         }
@@ -23106,6 +23692,8 @@ async function __tmRefreshAfterWake(reason) {
                 ? state.viewScroll.kanban.cols
                 : {};
             const wbSidebarTop = pickNum(state.viewScroll?.whiteboard?.sidebarTop, 0);
+            const wbBodyTop = pickNum(state.viewScroll?.whiteboard?.top, 0);
+            const wbBodyLeft = pickNum(state.viewScroll?.whiteboard?.left, 0);
             const desiredTop = prevWasTimeline ? timelineTop : listTop;
             const desiredLeft = isTimeline ? timelineLeft : listLeft;
             
@@ -23363,8 +23951,10 @@ async function __tmRefreshAfterWake(reason) {
                         } catch (e) {}
                     };
                     apply();
+                    try { __tmRefreshKanbanDetailInPlace(state.modal); } catch (e) {}
                     requestAnimationFrame(() => requestAnimationFrame(apply));
                     requestAnimationFrame(() => requestAnimationFrame(() => {
+                        try { __tmRefreshKanbanDetailInPlace(state.modal); } catch (e) {}
                         try { __tmRunFlipAnimation(state.modal); } catch (e) {}
                         if (useSoftSwap) {
                             try { state.modal.style.opacity = '1'; } catch (e) {}
@@ -23377,8 +23967,15 @@ async function __tmRefreshAfterWake(reason) {
                     }));
                 } else if (isWhiteboard) {
                     const sidebar = state.modal.querySelector('.tm-whiteboard-sidebar');
+                    const body = state.modal.querySelector('#tmWhiteboardBody');
                     const apply = () => {
                         try { if (sidebar) sidebar.scrollTop = wbSidebarTop; } catch (e) {}
+                        try {
+                            if (body) {
+                                body.scrollTop = wbBodyTop;
+                                body.scrollLeft = wbBodyLeft;
+                            }
+                        } catch (e) {}
                     };
                     apply();
                     requestAnimationFrame(() => requestAnimationFrame(apply));
@@ -28645,45 +29242,51 @@ async function __tmRefreshAfterWake(reason) {
         menu.style.cssText = `
             position: fixed;
             background: var(--tm-ui-popover);
-            border: 1px solid var(--tm-ui-border);
-            border-radius: 12px;
+            border: var(--tm-topbar-control-border-width) solid var(--tm-ui-border);
+            border-radius: calc(var(--tm-topbar-control-radius) + 2px);
             box-shadow: 0 10px 26px rgba(15,23,42,0.16);
             padding: 8px;
             z-index: 10000;
             display: flex;
             flex-direction: column;
             gap: 6px;
-            min-width: 60px;
+            min-width: 0;
+            width: max-content;
+            max-width: calc(100vw - 16px);
+        `;
+        const renderDesktopMenuButton = (labelHtml, action, extraClass = '') => `
+            <div class="tm-desktop-menu-row ${extraClass}">
+                <button type="button" class="tm-btn tm-btn-info bc-btn bc-btn--sm" onclick="${action}" style="flex:1; padding: 6px 10px;">
+                    <span class="tm-desktop-menu-btn-content">${labelHtml}</span>
+                </button>
+            </div>
+        `;
+        const renderDesktopMenuToggle = (labelText, checked, action, extraClass = '') => `
+            <div class="tm-desktop-menu-row ${extraClass}">
+                <label class="tm-btn tm-btn-info bc-btn bc-btn--sm tm-desktop-menu-toggle" title="${esc(String(labelText || '').trim())}">
+                    <span class="tm-desktop-menu-toggle-content"><span>${esc(String(labelText || '').trim())}</span></span>
+                    <input class="b3-switch fn__flex-center" type="checkbox" ${checked ? 'checked' : ''} onchange="${action}">
+                </label>
+            </div>
         `;
         
         menu.innerHTML = `
-            <button class="tm-btn tm-btn-info bc-btn bc-btn--sm" onclick="tmShowSearchModal(); tmCloseDesktopMenu()" style="text-align:left; justify-content:flex-start; padding: 6px 12px;"><span style="display:inline-flex;align-items:center;gap:6px;">${__tmRenderLucideIcon('search')}<span>搜索${state.searchKeyword ? ` (${String(state.searchKeyword || '').trim()})` : ''}</span></span></button>
-            <button class="tm-btn tm-btn-info bc-btn bc-btn--sm" onclick="tmShowSummaryModal(); tmCloseDesktopMenu()" style="text-align:left; justify-content:flex-start; padding: 6px 12px;"><span style="display:inline-flex;align-items:center;gap:6px;">${__tmRenderLucideIcon('file-text')}<span>摘要</span></span></button>
-            <button class="tm-btn tm-btn-info bc-btn bc-btn--sm" onclick="window.tmAiSemanticCompletionPreview?.(); tmCloseDesktopMenu()" style="text-align:left; justify-content:flex-start; padding: 6px 12px;"><span style="display:inline-flex;align-items:center;gap:6px;">${__tmRenderLucideIcon('calendar-days')}<span>语义日期</span></span></button>
-            ${__tmIsAiFeatureEnabled() ? `
-            <div class="tm-btn tm-btn-info bc-btn bc-btn--sm" style="text-align:left; padding: 6px 12px; display:flex; align-items:center; justify-content:space-between; gap:10px;">
-                <span>AI 对话</span>
-                <input class="b3-switch fn__flex-center" type="checkbox" ${SettingsStore.data.aiSideDockEnabled ? 'checked' : ''} onchange="tmToggleAiSideDock(this.checked); tmCloseDesktopMenu()">
-            </div>
-            ` : ''}
-            <div class="tm-btn tm-btn-info bc-btn bc-btn--sm" style="text-align:left; padding: 6px 12px; display:flex; align-items:center; justify-content:space-between; gap:10px;">
-                <span>日历侧边栏</span>
-                <input class="b3-switch fn__flex-center" type="checkbox" ${SettingsStore.data.calendarSideDockEnabled ? 'checked' : ''} onchange="tmToggleCalendarSideDock(this.checked); tmCloseDesktopMenu()">
-            </div>
-            ${state.searchKeyword ? `<button class="tm-btn tm-btn-secondary bc-btn bc-btn--sm" onclick="tmSearch(''); tmCloseDesktopMenu()" style="text-align:left; justify-content:flex-start; padding: 6px 12px;">清除搜索</button>` : ''}
-            <div class="tm-btn tm-btn-info bc-btn bc-btn--sm" style="text-align:left; padding: 6px 12px; display:flex; align-items:center; justify-content:space-between; gap:10px;">
-                <span>白板顺序模式</span>
-                <input class="b3-switch fn__flex-center" type="checkbox" ${SettingsStore.data.whiteboardSequenceMode ? 'checked' : ''} onchange="tmToggleWhiteboardSequenceMode(this.checked); tmCloseDesktopMenu()">
-            </div>
-            <button class="tm-btn tm-btn-info bc-btn bc-btn--sm" onclick="tmCollapseAllTasks(); tmCloseDesktopMenu()" style="text-align:left; justify-content:flex-start; padding: 6px 12px;"><svg class="tm-tree-toggle-icon" viewBox="0 0 16 16" width="16" height="16" style="transform:rotate(0deg);margin-right:6px;vertical-align:middle;"><path d="M6 4l4 4-4 4" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>全部折叠</button>
-            <button class="tm-btn tm-btn-info bc-btn bc-btn--sm" onclick="tmExpandAllTasks(); tmCloseDesktopMenu()" style="text-align:left; justify-content:flex-start; padding: 6px 12px;"><svg class="tm-tree-toggle-icon" viewBox="0 0 16 16" width="16" height="16" style="transform:rotate(90deg);margin-right:6px;vertical-align:middle;"><path d="M6 4l4 4-4 4" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>全部展开</button>
+            ${renderDesktopMenuButton(`${__tmRenderLucideIcon('search')}<span>搜索${state.searchKeyword ? ` (${esc(String(state.searchKeyword || '').trim())})` : ''}</span>`, `tmShowSearchModal(); tmCloseDesktopMenu()`)}
+            ${renderDesktopMenuButton(`${__tmRenderLucideIcon('file-text')}<span>摘要</span>`, `tmShowSummaryModal(); tmCloseDesktopMenu()`)}
+            ${renderDesktopMenuButton(`${__tmRenderLucideIcon('calendar-days')}<span>语义日期</span>`, `window.tmAiSemanticCompletionPreview?.(); tmCloseDesktopMenu()`)}
+            ${__tmIsAiFeatureEnabled() ? renderDesktopMenuToggle('AI 对话', !!SettingsStore.data.aiSideDockEnabled, `tmToggleAiSideDock(this.checked); tmCloseDesktopMenu()`) : ''}
+            ${renderDesktopMenuToggle('日历侧边栏', !!SettingsStore.data.calendarSideDockEnabled, `tmToggleCalendarSideDock(this.checked); tmCloseDesktopMenu()`)}
+            ${state.searchKeyword ? renderDesktopMenuButton(`<span>清除搜索</span>`, `tmSearch(''); tmCloseDesktopMenu()`) : ''}
+            ${renderDesktopMenuToggle('白板顺序模式', !!SettingsStore.data.whiteboardSequenceMode, `tmToggleWhiteboardSequenceMode(this.checked); tmCloseDesktopMenu()`)}
+            ${renderDesktopMenuButton(`<svg class="tm-tree-toggle-icon" viewBox="0 0 16 16" width="16" height="16" style="transform:rotate(0deg);vertical-align:middle;"><path d="M6 4l4 4-4 4" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg><span>全部折叠</span>`, `tmCollapseAllTasks(); tmCloseDesktopMenu()`)}
+            ${renderDesktopMenuButton(`<svg class="tm-tree-toggle-icon" viewBox="0 0 16 16" width="16" height="16" style="transform:rotate(90deg);vertical-align:middle;"><path d="M6 4l4 4-4 4" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg><span>全部展开</span>`, `tmExpandAllTasks(); tmCloseDesktopMenu()`)}
         `;
         if (!__tmIsDarkMode()) {
             try {
-                menu.querySelectorAll('.tm-btn, .tm-btn span, .tm-tree-toggle-icon').forEach((el) => {
+                menu.querySelectorAll('.bc-btn, .bc-btn span, .tm-tree-toggle-icon').forEach((el) => {
                     try { el.style.setProperty('color', '#1f2329', 'important'); } catch (e2) {}
                 });
-                menu.querySelectorAll('.tm-btn, .tm-btn-info, .tm-btn-secondary').forEach((el) => {
+                menu.querySelectorAll('.bc-btn').forEach((el) => {
                     try { el.style.setProperty('border-color', '#1f2329', 'important'); } catch (e2) {}
                 });
                 menu.querySelectorAll('.tm-tree-toggle-icon path').forEach((el) => {
@@ -28757,7 +29360,52 @@ async function __tmRefreshAfterWake(reason) {
 
     function __tmHideMobileMenu() {
         const menu = document.getElementById('tmMobileMenu');
-        if (menu) menu.style.display = 'none';
+        if (menu instanceof HTMLElement) {
+            try {
+                if (menu.__tmHideAnim && typeof menu.__tmHideAnim.cancel === 'function') {
+                    menu.__tmHideAnim.cancel();
+                }
+            } catch (e) {}
+            if (__tmPopupMotionDisabled() || typeof menu.animate !== 'function') {
+                try {
+                    menu.style.display = 'none';
+                    menu.style.opacity = '';
+                    menu.style.transform = '';
+                    delete menu.dataset.tmClosing;
+                } catch (e) {}
+            } else if (menu.style.display !== 'none') {
+                if (menu.dataset.tmClosing !== 'true') {
+                    try { menu.dataset.tmClosing = 'true'; } catch (e) {}
+                    try {
+                        const anim = menu.animate([
+                            { opacity: 1, transform: 'translateY(0) scale(1)' },
+                            { opacity: 0, transform: 'translateY(-4px) scale(0.985)' }
+                        ], {
+                            duration: 120,
+                            easing: 'ease-out',
+                            fill: 'forwards'
+                        });
+                        menu.__tmHideAnim = anim;
+                        const finalize = () => {
+                            try { menu.style.display = 'none'; } catch (e2) {}
+                            try { menu.style.opacity = ''; } catch (e2) {}
+                            try { menu.style.transform = ''; } catch (e2) {}
+                            try { delete menu.dataset.tmClosing; } catch (e2) {}
+                            try { menu.__tmHideAnim = null; } catch (e2) {}
+                        };
+                        anim.onfinish = finalize;
+                        anim.oncancel = finalize;
+                    } catch (e) {
+                        try {
+                            menu.style.display = 'none';
+                            menu.style.opacity = '';
+                            menu.style.transform = '';
+                            delete menu.dataset.tmClosing;
+                        } catch (e2) {}
+                    }
+                }
+            }
+        }
         try { if (state.mobileMenuCloseTimer) { clearTimeout(state.mobileMenuCloseTimer); state.mobileMenuCloseTimer = null; } } catch (e) {}
         if (state.mobileMenuCloseHandler) {
             try { document.removeEventListener('click', state.mobileMenuCloseHandler); } catch (e) {}
@@ -28785,7 +29433,14 @@ async function __tmRefreshAfterWake(reason) {
 
         const open = menu.style.display !== 'none';
         if (!open) {
+            try {
+                if (menu.__tmHideAnim && typeof menu.__tmHideAnim.cancel === 'function') {
+                    menu.__tmHideAnim.cancel();
+                }
+            } catch (e2) {}
+            try { delete menu.dataset.tmClosing; } catch (e2) {}
             menu.style.display = 'block';
+            try { __tmAnimatePopupIn(menu, { origin: 'top-right' }); } catch (e2) {}
             try {
                 const switcher = menu.querySelector('.tm-mobile-view-switcher');
                 if (switcher instanceof HTMLElement) {
@@ -29835,6 +30490,10 @@ async function __tmRefreshAfterWake(reason) {
             }
             if (removeIds.has(String(state.detailTaskId || '').trim())) {
                 state.detailTaskId = '';
+            }
+            if (removeIds.has(String(state.kanbanDetailTaskId || '').trim())) {
+                state.kanbanDetailTaskId = '';
+                state.kanbanDetailAnchorTaskId = '';
             }
             try { recalcStats(); } catch (e) {}
             try { applyFilters(); } catch (e) {}
@@ -32854,18 +33513,38 @@ async function __tmRefreshAfterWake(reason) {
     function __tmBuildTaskDetailInnerHtml(task, options = {}) {
         const opts = (options && typeof options === 'object') ? options : {};
         const embedded = !!opts.embedded;
+        const floating = !!opts.floating;
+        const closeable = !!opts.closeable;
         const title = embedded ? '任务详情' : '任务详情';
         const isOtherBlock = __tmIsCollectedOtherBlockTask(task);
         const statusOptionsRaw = Array.isArray(SettingsStore.data.customStatusOptions) ? SettingsStore.data.customStatusOptions : [];
         const statusOptions = statusOptionsRaw
-            .map((o) => ({ id: String(o?.id || '').trim(), name: String(o?.name || '').trim() }))
+            .map((o) => ({
+                id: String(o?.id || '').trim(),
+                name: String(o?.name || o?.id || '').trim(),
+                color: String(o?.color || '#757575').trim() || '#757575',
+            }))
             .filter((o) => o.id);
-        if (!statusOptions.some((o) => o.id === 'todo')) statusOptions.unshift({ id: 'todo', name: '待办' });
+        if (!statusOptions.some((o) => o.id === 'todo')) statusOptions.unshift({ id: 'todo', name: '待办', color: '#757575' });
         const curStatus = String(task?.customStatus || '').trim() || 'todo';
+        const curStatusOption = statusOptions.find((o) => o.id === curStatus) || statusOptions[0] || { id: 'todo', name: '待办', color: '#757575' };
         const curPriority = String(task?.priority || '').trim().toLowerCase();
         const curPinned = !!task?.pinned;
         const docName = String(task?.docName || '').trim();
         const headingName = String(task?.h2 || task?.h2Name || '').trim();
+        const priorityOptions = [
+            { value: '', label: '无' },
+            { value: 'low', label: '低' },
+            { value: 'medium', label: '中' },
+            { value: 'high', label: '高' },
+        ];
+        const getPriorityButtonColor = (value) => {
+            const key = String(value || '').trim() || 'none';
+            if (key === 'high') return '#de350b';
+            if (key === 'medium') return '#ff991f';
+            if (key === 'low') return '#1d7afc';
+            return 'var(--tm-task-done-color)';
+        };
         return `
             <div class="${embedded ? 'tm-checklist-detail-card' : 'tm-task-detail'}" role="dialog" aria-modal="${embedded ? 'false' : 'true'}">
                 <div class="${embedded ? 'tm-checklist-detail-head' : ''}" style="${embedded ? '' : 'display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:10px;'}">
@@ -32873,6 +33552,7 @@ async function __tmRefreshAfterWake(reason) {
                     ${embedded ? `
                         <div style="display:flex;gap:8px;align-items:center;">
                             <button class="tm-btn tm-btn-info" data-tm-detail="jump" style="padding:0 10px;height:30px;">跳转</button>
+                            ${(floating || closeable) ? `<button class="tm-btn tm-btn-gray" data-tm-detail="close" style="padding:0 10px;height:30px;display:inline-flex;align-items:center;justify-content:center;">✖</button>` : ''}
                         </div>
                     ` : `
                         <button class="tm-btn tm-btn-gray" data-tm-detail="close" style="padding:0 10px;height:30px;display:inline-flex;align-items:center;justify-content:center;">✖</button>
@@ -32903,30 +33583,47 @@ async function __tmRefreshAfterWake(reason) {
                 <div class="tm-task-detail-row">
                     <div class="tm-task-detail-label">状态</div>
                     <div class="tm-task-detail-value">
-                        <select class="tm-rule-select" data-tm-detail="status">
-                            ${statusOptions.map((o) => `<option value="${esc(o.id)}" ${o.id === curStatus ? 'selected' : ''}>${esc(o.name)}</option>`).join('')}
-                        </select>
+                        <div class="tm-task-detail-status-select" data-tm-detail-status-select>
+                            <input type="hidden" data-tm-detail="status" value="${esc(curStatusOption.id)}">
+                            <button type="button" class="bc-select-trigger tm-task-detail-status-trigger" data-tm-detail-status-trigger aria-haspopup="listbox" aria-expanded="false">
+                                <span class="tm-task-detail-status-trigger__value"><span class="tm-status-tag" style="${__tmBuildStatusChipStyle(curStatusOption.color)}">${esc(curStatusOption.name || curStatusOption.id)}</span></span>
+                                <span class="bc-select-trigger__chevron" aria-hidden="true">
+                                    <svg viewBox="0 0 16 16" width="16" height="16">
+                                        <path d="M4.25 6.5 8 10.25 11.75 6.5" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"></path>
+                                    </svg>
+                                </span>
+                            </button>
+                            <div class="bc-select-menu tm-task-detail-status-menu" data-tm-detail-status-menu role="listbox" aria-label="状态" hidden>
+                                ${statusOptions.map((o) => {
+                                    const selected = o.id === curStatusOption.id;
+                                    return `<button class="bc-select-option tm-task-detail-status-option ${selected ? 'is-selected' : ''}" type="button" role="option" aria-selected="${selected ? 'true' : 'false'}" data-tm-detail-status-option data-value="${esc(o.id)}"><span class="tm-status-tag" style="${__tmBuildStatusChipStyle(o.color)}">${esc(o.name || o.id)}</span><span class="bc-select-option__check" aria-hidden="true">✓</span></button>`;
+                                }).join('')}
+                            </div>
+                        </div>
                     </div>
                 </div>
 
                 <div class="tm-task-detail-row">
                     <div class="tm-task-detail-label">重要性</div>
                     <div class="tm-task-detail-value">
-                        <select class="tm-rule-select" data-tm-detail="priority">
-                            <option value="" ${!curPriority ? 'selected' : ''}>无</option>
-                            <option value="high" ${curPriority === 'high' ? 'selected' : ''}>高</option>
-                            <option value="medium" ${curPriority === 'medium' ? 'selected' : ''}>中</option>
-                            <option value="low" ${curPriority === 'low' ? 'selected' : ''}>低</option>
-                        </select>
+                        <input type="hidden" data-tm-detail="priority" value="${esc(curPriority)}">
+                        <div class="tm-task-detail-priority-group tm-view-segmented bc-tabs-list" role="tablist" aria-label="重要性">
+                            ${priorityOptions.map((opt) => {
+                                const selected = String(curPriority || '') === String(opt.value || '');
+                                const priorityValue = String(opt.value || '').trim() || 'none';
+                                const priorityColor = getPriorityButtonColor(priorityValue);
+                                return `<button type="button" class="tm-task-detail-priority-option tm-view-seg-item bc-tabs-trigger ${selected ? 'tm-view-seg-item--active is-active' : ''}" data-state="${selected ? 'active' : 'inactive'}" role="tab" aria-selected="${selected ? 'true' : 'false'}" data-tm-detail-priority-option data-value="${esc(opt.value)}" style="--tm-task-detail-priority-color:${priorityColor};color:${priorityColor};"><span class="tm-task-detail-priority-option__icon">${__tmRenderPriorityJira(priorityValue, false)}</span><span class="tm-task-detail-priority-option__label">${esc(opt.label)}</span></button>`;
+                            }).join('')}
+                        </div>
                     </div>
                 </div>
 
                 <div class="tm-task-detail-row">
                     <div class="tm-task-detail-label">置顶</div>
                     <div class="tm-task-detail-value">
-                        <label style="display:inline-flex;align-items:center;gap:0;">
-                            <input type="checkbox" data-tm-detail="pinned" ${curPinned ? 'checked' : ''} style="margin:0;">
-                            <span style="color:var(--tm-secondary-text);font-size:12px;">在列表/看板中置顶</span>
+                        <label class="tm-task-detail-switch">
+                            <span class="tm-task-detail-switch__text">在列表/看板中置顶</span>
+                            <input class="b3-switch fn__flex-center" type="checkbox" data-tm-detail="pinned" ${curPinned ? 'checked' : ''}>
                         </label>
                     </div>
                 </div>
@@ -33148,6 +33845,106 @@ async function __tmRefreshAfterWake(reason) {
                 doSave(false).catch(() => null);
             }, 600);
         };
+        const bindStatusSelect = () => {
+            const selectRoot = root.querySelector('[data-tm-detail-status-select]');
+            if (!(selectRoot instanceof HTMLElement)) return;
+            const hiddenInput = selectRoot.querySelector('[data-tm-detail="status"]');
+            const trigger = selectRoot.querySelector('[data-tm-detail-status-trigger]');
+            const menu = selectRoot.querySelector('[data-tm-detail-status-menu]');
+            const valueWrap = trigger?.querySelector('.tm-task-detail-status-trigger__value');
+            if (!(hiddenInput instanceof HTMLInputElement) || !(trigger instanceof HTMLElement) || !(menu instanceof HTMLElement) || !(valueWrap instanceof HTMLElement)) return;
+            const optionButtons = Array.from(menu.querySelectorAll('[data-tm-detail-status-option]')).filter((el) => el instanceof HTMLButtonElement);
+            if (!optionButtons.length) return;
+
+            const closeMenu = () => {
+                menu.hidden = true;
+                menu.style.display = 'none';
+                trigger.setAttribute('aria-expanded', 'false');
+            };
+            const openMenu = () => {
+                menu.hidden = false;
+                menu.style.display = 'flex';
+                trigger.setAttribute('aria-expanded', 'true');
+            };
+            const syncStatusUi = () => {
+                let current = String(hiddenInput.value || '').trim();
+                let matched = optionButtons.find((btn) => String(btn.getAttribute('data-value') || '').trim() === current) || optionButtons[0];
+                if (!matched) return;
+                current = String(matched.getAttribute('data-value') || '').trim();
+                hiddenInput.value = current;
+                const chip = matched.querySelector('.tm-status-tag');
+                if (chip instanceof HTMLElement) valueWrap.innerHTML = chip.outerHTML;
+                optionButtons.forEach((btn) => {
+                    const selected = btn === matched;
+                    btn.classList.toggle('is-selected', selected);
+                    btn.setAttribute('aria-selected', selected ? 'true' : 'false');
+                });
+            };
+
+            trigger.addEventListener('click', (ev) => {
+                try { ev.preventDefault(); } catch (e) {}
+                try { ev.stopPropagation(); } catch (e) {}
+                if (menu.hidden) openMenu();
+                else closeMenu();
+            });
+            root.addEventListener('pointerdown', (ev) => {
+                if (selectRoot.contains(ev.target)) return;
+                closeMenu();
+            });
+            selectRoot.addEventListener('focusout', () => {
+                try {
+                    requestAnimationFrame(() => {
+                        if (!selectRoot.contains(document.activeElement)) closeMenu();
+                    });
+                } catch (e) {}
+            });
+            selectRoot.addEventListener('keydown', (ev) => {
+                if (ev.key !== 'Escape') return;
+                try { ev.preventDefault(); } catch (e) {}
+                closeMenu();
+                try { trigger.focus(); } catch (e) {}
+            });
+            optionButtons.forEach((btn) => {
+                btn.addEventListener('click', (ev) => {
+                    try { ev.preventDefault(); } catch (e) {}
+                    try { ev.stopPropagation(); } catch (e) {}
+                    hiddenInput.value = String(btn.getAttribute('data-value') || '').trim();
+                    syncStatusUi();
+                    closeMenu();
+                    try { trigger.focus(); } catch (e) {}
+                    scheduleAutoSave();
+                });
+            });
+            syncStatusUi();
+            closeMenu();
+        };
+        const bindPrioritySegmented = () => {
+            const hiddenInput = root.querySelector('input[type="hidden"][data-tm-detail="priority"]');
+            const optionButtons = Array.from(root.querySelectorAll('[data-tm-detail-priority-option]')).filter((el) => el instanceof HTMLButtonElement);
+            if (!(hiddenInput instanceof HTMLInputElement) || !optionButtons.length) return;
+            const syncPriorityUi = () => {
+                const current = String(hiddenInput.value || '').trim();
+                optionButtons.forEach((btn) => {
+                    const selected = String(btn.getAttribute('data-value') || '').trim() === current;
+                    btn.classList.toggle('tm-view-seg-item--active', selected);
+                    btn.classList.toggle('is-active', selected);
+                    btn.setAttribute('data-state', selected ? 'active' : 'inactive');
+                    btn.setAttribute('aria-selected', selected ? 'true' : 'false');
+                });
+            };
+            optionButtons.forEach((btn) => {
+                btn.addEventListener('click', (ev) => {
+                    try { ev.preventDefault(); } catch (e) {}
+                    try { ev.stopPropagation(); } catch (e) {}
+                    hiddenInput.value = String(btn.getAttribute('data-value') || '').trim();
+                    syncPriorityUi();
+                    scheduleAutoSave();
+                });
+            });
+            syncPriorityUi();
+        };
+        bindStatusSelect();
+        bindPrioritySegmented();
         root.querySelectorAll('[data-tm-detail]').forEach((el) => {
             if (!(el instanceof HTMLElement)) return;
             const field = String(el.getAttribute('data-tm-detail') || '').trim();
@@ -33180,13 +33977,138 @@ async function __tmRefreshAfterWake(reason) {
         if (!(panel instanceof HTMLElement)) return false;
         const task = selectedId ? (state.flatTasks?.[selectedId] || null) : null;
         panel.innerHTML = task
-            ? __tmBuildTaskDetailInnerHtml(task, { embedded: true })
+            ? __tmBuildTaskDetailInnerHtml(task, { embedded: true, closeable: true })
             : `<div class="tm-checklist-empty-detail">选择左侧任务后，这里会显示可编辑的详情。</div>`;
-        if (task) __tmBindTaskDetailEditor(panel, selectedId, { embedded: true });
+        if (task) __tmBindTaskDetailEditor(panel, selectedId, {
+            embedded: true,
+            onClose: () => {
+                state.detailTaskId = '';
+                state.checklistDetailDismissed = true;
+                state.checklistDetailSheetOpen = false;
+                if (!__tmRefreshChecklistSelectionInPlace(state.modal)) render();
+            }
+        });
         const backdrop = modal.querySelector('#tmChecklistSheetBackdrop');
         const sheet = modal.querySelector('#tmChecklistSheet');
         if (backdrop instanceof HTMLElement) backdrop.classList.toggle('tm-checklist-sheet-backdrop--open', !!(sheetMode && state.checklistDetailSheetOpen && task));
         if (sheet instanceof HTMLElement) sheet.classList.toggle('tm-checklist-sheet--open', !!(sheetMode && state.checklistDetailSheetOpen && task));
+        return true;
+    }
+
+    let __tmKanbanDetailOutsideClickHandler = null;
+    let __tmKanbanDetailRepositionHandler = null;
+    let __tmKanbanDetailRepositionModal = null;
+
+    function __tmClearKanbanDetailFloatingHandlers() {
+        try {
+            if (__tmKanbanDetailOutsideClickHandler) {
+                document.removeEventListener('click', __tmKanbanDetailOutsideClickHandler, false);
+                __tmKanbanDetailOutsideClickHandler = null;
+            }
+        } catch (e) {}
+        try {
+            if (__tmKanbanDetailRepositionHandler && __tmKanbanDetailRepositionModal instanceof Element) {
+                __tmKanbanDetailRepositionModal.removeEventListener('scroll', __tmKanbanDetailRepositionHandler, true);
+            }
+        } catch (e) {}
+        try {
+            if (__tmKanbanDetailRepositionHandler) {
+                window.removeEventListener('resize', __tmKanbanDetailRepositionHandler, true);
+            }
+        } catch (e) {}
+        __tmKanbanDetailRepositionHandler = null;
+        __tmKanbanDetailRepositionModal = null;
+    }
+
+    function __tmCloseKanbanDetailFloating() {
+        if (!String(state.kanbanDetailTaskId || '').trim()) return;
+        state.kanbanDetailTaskId = '';
+        state.kanbanDetailAnchorTaskId = '';
+        render();
+    }
+
+    function __tmPositionKanbanDetailFloat(modalEl) {
+        const modal = modalEl instanceof Element ? modalEl : state.modal;
+        if (!(modal instanceof Element)) return false;
+        const panel = modal.querySelector('#tmKanbanDetailFloat');
+        const selectedId = String(state.kanbanDetailTaskId || '').trim();
+        const anchorId = String(state.kanbanDetailAnchorTaskId || selectedId).trim();
+        const card = anchorId ? modal.querySelector(`.tm-kanban-card[data-id="${CSS.escape(anchorId)}"]`) : null;
+        if (!(panel instanceof HTMLElement) || !(card instanceof HTMLElement)) return false;
+
+        const prevVisibility = panel.style.visibility;
+        const prevPointerEvents = panel.style.pointerEvents;
+        panel.style.visibility = 'hidden';
+        panel.style.pointerEvents = 'none';
+        panel.style.left = '24px';
+        panel.style.top = '24px';
+        panel.style.maxHeight = 'calc(100vh - 48px)';
+
+        const cardRect = card.getBoundingClientRect();
+        const panelRect = panel.getBoundingClientRect();
+        const viewportW = Number(window.innerWidth || document.documentElement.clientWidth || 0) || 0;
+        const viewportH = Number(window.innerHeight || document.documentElement.clientHeight || 0) || 0;
+        const gap = 12;
+        const margin = 12;
+        const panelW = Math.max(280, Math.min(420, Math.round(panelRect.width || 380)));
+        const preferRight = (viewportW - cardRect.right - margin) >= Math.max(260, panelW * 0.72);
+        let left = preferRight
+            ? (cardRect.right + gap)
+            : (cardRect.left - panelW - gap);
+        left = Math.max(margin, Math.min(left, Math.max(margin, viewportW - panelW - margin)));
+
+        let top = Math.round(cardRect.top);
+        const minTop = 12;
+        const panelH = Math.max(260, Math.round(panelRect.height || 480));
+        const maxTop = Math.max(minTop, viewportH - Math.min(panelH, viewportH - 24) - margin);
+        top = Math.max(minTop, Math.min(top, maxTop));
+        const maxHeight = Math.max(240, viewportH - top - margin);
+
+        panel.style.left = `${Math.round(left)}px`;
+        panel.style.top = `${Math.round(top)}px`;
+        panel.style.maxHeight = `${Math.round(maxHeight)}px`;
+        panel.style.visibility = prevVisibility || '';
+        panel.style.pointerEvents = prevPointerEvents || '';
+        return true;
+    }
+
+    function __tmRefreshKanbanDetailInPlace(modalEl) {
+        const modal = modalEl instanceof Element ? modalEl : state.modal;
+        if (!(modal instanceof Element)) return false;
+        if (String(state.viewMode || '').trim() !== 'kanban') return false;
+        const panel = modal.querySelector('#tmKanbanDetailPanel');
+        const selectedId = String(state.kanbanDetailTaskId || '').trim();
+        const task = selectedId ? (state.flatTasks?.[selectedId] || null) : null;
+        if (!(panel instanceof HTMLElement) || !task) {
+            __tmClearKanbanDetailFloatingHandlers();
+            return false;
+        }
+        panel.innerHTML = __tmBuildTaskDetailInnerHtml(task, { embedded: true, floating: true });
+        __tmBindTaskDetailEditor(panel, selectedId, {
+            embedded: true,
+            onClose: () => {
+                __tmCloseKanbanDetailFloating();
+            }
+        });
+        __tmClearKanbanDetailFloatingHandlers();
+        __tmKanbanDetailOutsideClickHandler = (ev) => {
+            const floatPanel = modal.querySelector('#tmKanbanDetailFloat');
+            if (!(floatPanel instanceof Element)) return;
+            const target = ev?.target;
+            if (!(target instanceof Element)) return;
+            if (floatPanel.contains(target)) return;
+            if (target.closest('.tm-kanban-more')) return;
+            __tmCloseKanbanDetailFloating();
+        };
+        document.addEventListener('click', __tmKanbanDetailOutsideClickHandler, false);
+        __tmKanbanDetailRepositionHandler = () => {
+            try { __tmPositionKanbanDetailFloat(modal); } catch (e) {}
+        };
+        __tmKanbanDetailRepositionModal = modal;
+        modal.addEventListener('scroll', __tmKanbanDetailRepositionHandler, true);
+        window.addEventListener('resize', __tmKanbanDetailRepositionHandler, true);
+        try { __tmPositionKanbanDetailFloat(modal); } catch (e) {}
+        try { requestAnimationFrame(() => { try { __tmPositionKanbanDetailFloat(modal); } catch (e) {} }); } catch (e) {}
         return true;
     }
 
@@ -35192,6 +36114,13 @@ async function __tmRefreshAfterWake(reason) {
         if (!task) {
             try { hint('⚠️ 未找到任务数据，无法打开详情', 'warning'); } catch (e) {}
             return false;
+        }
+
+        if (String(state.viewMode || '').trim() === 'kanban' && !__tmIsMobileDevice()) {
+            state.kanbanDetailTaskId = tid;
+            state.kanbanDetailAnchorTaskId = tid;
+            render();
+            return true;
         }
 
         __tmRemoveElementsById('tm-task-detail-overlay');
@@ -37485,7 +38414,8 @@ async function __tmRefreshAfterWake(reason) {
                 : __tmNormalizeHexColor(SettingsStore.data.progressBarColorLight, '#4caf50');
             const selectedId = String(state.detailTaskId || '').trim();
             const fallbackId = __tmResolveFirstVisibleTaskIdFromRowModel(rowModel);
-            const activeId = state.flatTasks?.[selectedId] ? selectedId : fallbackId;
+            const dismissed = !!state.checklistDetailDismissed;
+            const activeId = state.flatTasks?.[selectedId] ? selectedId : (dismissed ? '' : fallbackId);
             if (activeId !== selectedId) state.detailTaskId = activeId;
             let currentGroupBg = '';
             let currentGroupAccent = '';
@@ -37561,7 +38491,7 @@ async function __tmRefreshAfterWake(reason) {
                 }
                 if (row.kind === 'task' && row.groupDocColor) {
                     currentGroupBg = enableGroupBg ? (__tmGroupBgFromLabelColor(row.groupDocColor, isDark) || '') : '';
-                    currentGroupAccent = enableGroupBg ? String(row.groupDocColor || '') : '';
+                    currentGroupAccent = String(row.groupDocColor || labelColor || '');
                 } else if (row.kind === 'pinned') {
                     currentGroupBg = '';
                     currentGroupAccent = 'var(--tm-danger-color)';
@@ -37569,13 +38499,13 @@ async function __tmRefreshAfterWake(reason) {
                     // 文档分组下的标题子分组沿用文档组背景，不要被标题标签颜色覆盖。
                 } else {
                     currentGroupBg = enableGroupBg ? (__tmGroupBgFromLabelColor(labelColor, isDark) || '') : '';
-                    currentGroupAccent = enableGroupBg ? String(labelColor || '') : '';
+                    currentGroupAccent = String(labelColor || '');
                 }
                 const createBtnHtml = (row.kind === 'h2' && state.groupByDocName)
                     ? __tmBuildHeadingGroupCreateBtnHtml(row.docId, row.headingId, '在该标题下新建任务')
                     : '';
                 return `
-                    <div class="tm-checklist-group ${row.kind === 'doc' ? 'tm-checklist-group--doc' : ''} ${row.kind === 'pinned' ? 'tm-checklist-group--pinned' : ''} ${row.kind === 'task' ? 'tm-checklist-group--task' : ''} ${row.kind === 'h2' ? 'tm-checklist-group--h2' : ''} ${row.kind === 'time' ? 'tm-checklist-group--time' : ''} ${row.kind === 'quadrant' ? 'tm-checklist-group--quadrant' : ''}" data-group-key="${esc(String(row.key || ''))}" onclick="tmToggleGroupCollapse('${escSq(String(row.key || ''))}', event)">
+                    <div class="tm-checklist-group ${row.kind === 'doc' ? 'tm-checklist-group--doc' : ''} ${row.kind === 'pinned' ? 'tm-checklist-group--pinned' : ''} ${row.kind === 'task' ? 'tm-checklist-group--task' : ''} ${row.kind === 'h2' ? 'tm-checklist-group--h2' : ''} ${row.kind === 'time' ? 'tm-checklist-group--time' : ''} ${row.kind === 'quadrant' ? 'tm-checklist-group--quadrant' : ''} ${isCollapsed ? 'tm-checklist-group--collapsed' : ''}" data-group-key="${esc(String(row.key || ''))}" onclick="tmToggleGroupCollapse('${escSq(String(row.key || ''))}', event)">
                         ${toggle}
                         ${pinnedIconHtml}
                         <span class="tm-checklist-group-label" style="color:${labelColor};">${esc(String(row.label || ''))}</span>
@@ -37593,7 +38523,9 @@ async function __tmRefreshAfterWake(reason) {
                 if ((state.groupByTaskName || (!state.groupByDocName && !state.groupByTime && !state.quadrantEnabled)) && task.root_id) {
                     const taskDocColor = __tmGetDocColorHex(task.root_id, isDark) || '';
                     currentGroupBg = (enableGroupBg && taskDocColor) ? (__tmGroupBgFromLabelColor(taskDocColor, isDark) || '') : '';
-                    currentGroupAccent = (enableGroupBg && taskDocColor) ? taskDocColor : '';
+                    currentGroupAccent = state.groupByTaskName
+                        ? (taskDocColor || currentGroupAccent || '')
+                        : ((enableGroupBg && taskDocColor) ? taskDocColor : '');
                 }
                 const depth = Math.max(0, Number(row?.depth) || 0);
                 const hasChildren = !!row?.hasChildren;
@@ -37654,10 +38586,56 @@ async function __tmRefreshAfterWake(reason) {
                 `;
             };
 
-            const itemsHtml = rowModel.map((row) => row?.type === 'group' ? renderGroup(row) : renderTask(row)).join('');
+            const items = [];
+            let compactGroupCard = null;
+            const flushCompactGroupCard = () => {
+                if (!compactGroupCard) return;
+                const cardClasses = [
+                    'tm-checklist-group-card',
+                    `tm-checklist-group-card--${compactGroupCard.kind || 'default'}`,
+                    compactGroupCard.children.length ? '' : 'tm-checklist-group-card--collapsed',
+                ].filter(Boolean).join(' ');
+                const cardStyle = [];
+                if (compactGroupCard.accent) cardStyle.push(`--tm-checklist-card-accent:${compactGroupCard.accent};`);
+                if (compactGroupCard.groupBg) cardStyle.push(`--tm-checklist-card-group-bg:${compactGroupCard.groupBg};`);
+                const cardBodyHtml = compactGroupCard.children.length
+                    ? `<div class="tm-checklist-group-card-items">${compactGroupCard.children.join('')}</div>`
+                    : '';
+                items.push(`<section class="${cardClasses}"${cardStyle.length ? ` style="${cardStyle.join('')}"` : ''}>${compactGroupCard.header}${cardBodyHtml}</section>`);
+                compactGroupCard = null;
+            };
+            for (const row of rowModel) {
+                if (row?.type === 'group') {
+                    const groupHtml = renderGroup(row);
+                    if (checklistCompact && row.kind !== 'h2') {
+                        flushCompactGroupCard();
+                        compactGroupCard = {
+                            kind: String(row.kind || 'default'),
+                            accent: String(currentGroupAccent || '').trim(),
+                            groupBg: String(currentGroupBg || '').trim(),
+                            header: groupHtml,
+                            children: [],
+                        };
+                        continue;
+                    }
+                    if (checklistCompact && row.kind === 'h2' && compactGroupCard) {
+                        compactGroupCard.children.push(groupHtml);
+                        continue;
+                    }
+                    flushCompactGroupCard();
+                    items.push(groupHtml);
+                    continue;
+                }
+                const taskHtml = renderTask(row);
+                if (!taskHtml) continue;
+                if (checklistCompact && compactGroupCard) compactGroupCard.children.push(taskHtml);
+                else items.push(taskHtml);
+            }
+            flushCompactGroupCard();
+            const itemsHtml = items.join('');
             const detailTask = activeId ? (state.flatTasks?.[activeId] || null) : null;
             const detailHtml = detailTask
-                ? __tmBuildTaskDetailInnerHtml(detailTask, { embedded: true })
+                ? __tmBuildTaskDetailInnerHtml(detailTask, { embedded: true, closeable: true })
                 : `<div class="tm-checklist-empty-detail">选择左侧任务后，这里会显示可编辑的详情。</div>`;
             return `
                 <div class="tm-body${bodyAnimClass} tm-body--checklist">
@@ -38364,6 +39342,11 @@ async function __tmRefreshAfterWake(reason) {
                             '文档顶栏按钮(移动)',
                             '控制移动端文档顶栏中的任务管理按钮。',
                             `<input class="b3-switch fn__flex-center" type="checkbox" ${SettingsStore.data.docTopbarButtonMobile !== false ? 'checked' : ''} onchange="updateDocTopbarButtonMobile(this.checked)">`
+                        )}
+                        ${renderSingleSwitchSetting(
+                            '对调文档顶栏长短按',
+                            '开启后，文档顶栏插件按钮会改为短按打开任务管理器，长按快速新建任务；默认关闭。',
+                            `<input class="b3-switch fn__flex-center" type="checkbox" ${SettingsStore.data.docTopbarButtonSwapPressActions ? 'checked' : ''} onchange="updateDocTopbarButtonSwapPressActions(this.checked)">`
                         )}
                         ${renderSingleSwitchSetting(
                             '思源窗口顶栏图标(桌面)',
@@ -41364,6 +42347,13 @@ async function __tmRefreshAfterWake(reason) {
         showSettings();
     };
 
+    window.updateDocTopbarButtonSwapPressActions = async function(enabled) {
+        SettingsStore.data.docTopbarButtonSwapPressActions = !!enabled;
+        await SettingsStore.save();
+        __tmRefreshShellEntrances();
+        showSettings();
+    };
+
     window.updateWindowTopbarIconDesktop = async function(enabled) {
         SettingsStore.data.windowTopbarIconDesktop = !!enabled;
         await SettingsStore.save();
@@ -42028,13 +43018,17 @@ async function __tmRefreshAfterWake(reason) {
 
             breadcrumbs.forEach(breadcrumb => {
                 // 检查该面包屑下是否已存在按钮
-                if (breadcrumb.querySelector('.tm-breadcrumb-btn')) return;
+                const existingBtn = breadcrumb.querySelector('.tm-breadcrumb-btn');
+                if (existingBtn) {
+                    try { existingBtn.title = __tmGetDocTopbarButtonTitle(); } catch (e) {}
+                    return;
+                }
 
                 // 创建任务管理按钮
                 const tmBtn = document.createElement('button');
                 tmBtn.className = 'tm-breadcrumb-btn'; // 使用 class 标识
                 tmBtn.innerHTML = '<span style="display:flex;align-items:center;justify-content:center;width:100%;height:100%;line-height:0"><svg viewBox="0 0 24 24" width="14" height="14" style="display:block;fill:none;flex:0 0 auto;transform:translateY(1px)"><use xlink:href="#iconTaskHorizon"></use></svg><span class="tm-breadcrumb-btn-fallback" style="display:none;font-size:14px;line-height:1;transform:translateY(1px)">📋</span></span>';
-                tmBtn.title = '打开任务管理器';
+                tmBtn.title = __tmGetDocTopbarButtonTitle();
                 tmBtn.style.cssText = `
                     width: 28px;
                     height: 28px;
@@ -42073,7 +43067,10 @@ async function __tmRefreshAfterWake(reason) {
                         tmBtn.__tmLongPressFired = false;
                         return;
                     }
-                    try { window.tmQuickAddOpen?.(); } catch (e2) {}
+                    try {
+                        const meta = __tmGetDocTopbarButtonPressActionMeta();
+                        meta.shortRun?.();
+                    } catch (e2) {}
                 };
 
                 try {
@@ -42085,7 +43082,10 @@ async function __tmRefreshAfterWake(reason) {
                         if (pressTimer) clearTimeout(pressTimer);
                         pressTimer = setTimeout(() => {
                             tmBtn.__tmLongPressFired = true;
-                            try { openManager({ preserveViewMode: true, forceOpenTab: true }); } catch (e) {}
+                            try {
+                                const meta = __tmGetDocTopbarButtonPressActionMeta();
+                                meta.longRun?.();
+                            } catch (e) {}
                         }, 450);
                     };
                     const cancelHandler = () => {
@@ -44099,6 +45099,7 @@ async function __tmRefreshAfterWake(reason) {
                 'tm_tomato_spent_attr_mode',
                 'tm_tomato_spent_attr_key_minutes',
                 'tm_tomato_spent_attr_key_hours',
+                'tm_doc_topbar_button_swap_press_actions',
                 'tm_default_doc_id',
                 'tm_default_doc_id_by_group',
                 'tm_priority_score_config',
