@@ -81,13 +81,11 @@
         deviceScheduleModalEl: null,
         deviceScheduleAbort: null,
         isMobileDevice: false,
-        isDockHost: false,
         sidebarOpen: false,
         mobileDragCloseTimer: null,
         sidebarColorMenuCloseHandler: null,
         sidebarColorMenuBindTimer: null,
         sidebarResizeCleanup: null,
-        dockHoverKeepAliveTimer: null,
         onVisibilityChange: null,
         calendarResizeObserver: null,
         scheduleCache: {
@@ -747,7 +745,7 @@
             slotLabelContent: (arg) => {
                 const d = arg?.date;
                 if (!(d instanceof Date) || Number.isNaN(d.getTime())) return '';
-                return `${pad2(d.getHours())}`;
+                return `${pad2(d.getHours())}:${pad2(d.getMinutes())}`;
             },
         };
     }
@@ -1405,7 +1403,7 @@
                 }
             }, { signal: abort.signal });
 
-            if (state.isMobileDevice || state.isDockHost) {
+            if (state.isMobileDevice) {
                 const clearDragCloseTimer = () => {
                     if (state.mobileDragCloseTimer) {
                         try { clearTimeout(state.mobileDragCloseTimer); } catch (e2) {}
@@ -1511,32 +1509,6 @@
             : !wrap.classList.contains('tm-calendar-wrap--sidebar-collapsed');
         const next = (open === undefined) ? !isOpen : !!open;
         return setCalendarSidebarOpen(wrap, next, page);
-    }
-
-    function keepDockSidebarHovered(durationMs = 1600) {
-        if (!state.isDockHost) return;
-        const panel = state.rootEl?.closest?.('.dock__item, .dock__panel');
-        if (!(panel instanceof Element)) return;
-        const ping = () => {
-            try {
-                panel.dispatchEvent(new MouseEvent('mouseenter', { bubbles: true }));
-                panel.dispatchEvent(new MouseEvent('mousemove', { bubbles: true, clientX: panel.getBoundingClientRect().left + 8, clientY: panel.getBoundingClientRect().top + 8 }));
-            } catch (e) {}
-        };
-        ping();
-        if (state.dockHoverKeepAliveTimer) {
-            try { clearInterval(state.dockHoverKeepAliveTimer); } catch (e) {}
-            state.dockHoverKeepAliveTimer = null;
-        }
-        const started = Date.now();
-        state.dockHoverKeepAliveTimer = setInterval(() => {
-            if (Date.now() - started > Math.max(200, Number(durationMs) || 1600)) {
-                try { clearInterval(state.dockHoverKeepAliveTimer); } catch (e) {}
-                state.dockHoverKeepAliveTimer = null;
-                return;
-            }
-            ping();
-        }, 120);
     }
 
     function miniMonthKeyFromDate(d) {
@@ -7361,7 +7333,6 @@
             }
         })();
         state.isMobileDevice = !!isMobileDevice;
-        state.isDockHost = !!isDockHost;
         try {
             Promise.resolve().then(() => globalThis.tmCalendarWarmDocsToGroupCache?.()).catch(() => null);
         } catch (e) {}
@@ -7425,13 +7396,6 @@
         let _tmClickTracker = { x: 0, y: 0, ts: 0 };
         wrap.addEventListener('mousedown', (e) => {
             _tmClickTracker = { x: e.clientX, y: e.clientY, ts: Date.now() };
-            const target = e.target;
-            if (target instanceof Element && target.closest('select, .bc-select-trigger, .tm-calendar-view-select, [data-tm-cal-setting], .b3-menu, [data-type="b3-menu"]')) {
-                keepDockSidebarHovered(2200);
-            }
-        }, true);
-        wrap.addEventListener('contextmenu', () => {
-            keepDockSidebarHovered(2600);
         }, true);
         const miniHost = wrap.querySelector('.tm-calendar-mini');
         state.miniCalendarEl = miniHost;
@@ -8792,10 +8756,6 @@
             try { clearTimeout(state.mobileDragCloseTimer); } catch (e) {}
             state.mobileDragCloseTimer = null;
         }
-        if (state.dockHoverKeepAliveTimer) {
-            try { clearInterval(state.dockHoverKeepAliveTimer); } catch (e) {}
-            state.dockHoverKeepAliveTimer = null;
-        }
         state.taskDraggable = null;
         state.taskListEl = null;
         if (state._persistTimer) {
@@ -8826,7 +8786,6 @@
         state.settingsStore = null;
         state.opts = null;
         state.isMobileDevice = false;
-        state.isDockHost = false;
         state.sidebarOpen = false;
     }
 
