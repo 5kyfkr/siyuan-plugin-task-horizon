@@ -4760,7 +4760,7 @@
         }
 
         .tm-checklist-pane--compact .tm-checklist-leading .tm-tree-toggle {
-            left: 0;
+            left: -3px;
             width: 16px;
             min-width: 16px;
             height: 16px;
@@ -4953,7 +4953,7 @@
 
         .tm-checklist-pane--compact .tm-status-tag {
             flex: 0 0 auto;
-            margin-left: 8px;
+            margin-left: 5px;
         }
 
         .tm-checklist-side {
@@ -5270,7 +5270,7 @@
             }
 
             .tm-checklist-pane--compact .tm-checklist-leading .tm-tree-toggle {
-                left: 0;
+                left: -3px;
             }
 
             .tm-checklist-pane--compact .tm-checklist-meta-compact-doc {
@@ -7376,6 +7376,8 @@
             docPinnedByGroup: {},
             // 文档页签排序：created_desc | created_asc | name_asc | name_desc
             docTabSortMode: 'created_desc',
+            // 文档预计进度日期范围：{ [docId]: { startDate: 'YYYY-MM-DD', endDate: 'YYYY-MM-DD' } }
+            docExpectedProgressMap: {},
             // 当前选中的分组ID (UI显示用)
             currentGroupId: 'all', 
             // 任务标题级别 (h1-h6)
@@ -7948,6 +7950,7 @@
             this.data.newTaskDocId = Storage.get('tm_new_task_doc_id', '');
             this.data.newTaskDailyNoteNotebookId = String(Storage.get('tm_new_task_daily_note_notebook_id', this.data.newTaskDailyNoteNotebookId) || '').trim();
             this.data.docTabSortMode = String(Storage.get('tm_doc_tab_sort_mode', this.data.docTabSortMode) || this.data.docTabSortMode || 'created_desc').trim() || 'created_desc';
+            this.data.docExpectedProgressMap = Storage.get('tm_doc_expected_progress_map', this.data.docExpectedProgressMap) || {};
             this.data.taskAutoWrapEnabled = Storage.get('tm_task_auto_wrap_enabled', this.data.taskAutoWrapEnabled);
             this.data.taskContentWrapMaxLines = Number(Storage.get('tm_task_content_wrap_max_lines', this.data.taskContentWrapMaxLines));
             this.data.taskRemarkWrapMaxLines = Number(Storage.get('tm_task_remark_wrap_max_lines', this.data.taskRemarkWrapMaxLines));
@@ -8224,6 +8227,7 @@
             Storage.set('tm_new_task_daily_note_append_to_bottom', !!this.data.newTaskDailyNoteAppendToBottom);
             Storage.set('tm_heading_group_create_at_section_end', !!this.data.headingGroupCreateAtSectionEnd);
             Storage.set('tm_doc_tab_sort_mode', String(this.data.docTabSortMode || 'created_desc').trim() || 'created_desc');
+            Storage.set('tm_doc_expected_progress_map', this.data.docExpectedProgressMap || {});
             Storage.set('tm_task_auto_wrap_enabled', !!this.data.taskAutoWrapEnabled);
             Storage.set('tm_task_content_wrap_max_lines', Number(this.data.taskContentWrapMaxLines) || 3);
             Storage.set('tm_task_remark_wrap_max_lines', Number(this.data.taskRemarkWrapMaxLines) || 2);
@@ -8391,6 +8395,20 @@
                 normalizedPinMap[key] = list;
             });
             this.data.docPinnedByGroup = normalizedPinMap;
+            const expectedMap0 = this.data.docExpectedProgressMap;
+            const expectedMap = (expectedMap0 && typeof expectedMap0 === 'object' && !Array.isArray(expectedMap0)) ? expectedMap0 : {};
+            const normalizedExpectedMap = {};
+            Object.keys(expectedMap).forEach((k) => {
+                const key = String(k || '').trim();
+                if (!key || key === 'all') return;
+                const row = expectedMap[k];
+                if (!row || typeof row !== 'object') return;
+                const startDate = __tmNormalizeDateOnly(String(row.startDate || '').trim());
+                const endDate = __tmNormalizeDateOnly(String(row.endDate || '').trim());
+                if (!startDate || !endDate) return;
+                normalizedExpectedMap[key] = { startDate, endDate };
+            });
+            this.data.docExpectedProgressMap = normalizedExpectedMap;
             const seed = Number(this.data.docColorSeed);
             this.data.docColorSeed = (Number.isFinite(seed) && seed > 0) ? Math.floor(seed) : 1;
             const kw = Number(this.data.kanbanColumnWidth);
@@ -18895,6 +18913,41 @@ async function __tmRefreshAfterWake(reason) {
         await SettingsStore.save();
     }
 
+    function __tmGetDocExpectedProgress(docId) {
+        const id = String(docId || '').trim();
+        if (!id || id === 'all') return { startDate: '', endDate: '', percent: null };
+        const map = (SettingsStore.data.docExpectedProgressMap && typeof SettingsStore.data.docExpectedProgressMap === 'object')
+            ? SettingsStore.data.docExpectedProgressMap
+            : {};
+        const row = map[id];
+        const startDate = __tmNormalizeDateOnly(String(row?.startDate || '').trim()) || '';
+        const endDate = __tmNormalizeDateOnly(String(row?.endDate || '').trim()) || '';
+        if (!startDate || !endDate) return { startDate, endDate, percent: null };
+        const startTs = __tmParseTimeToTs(`${startDate} 00:00:00`);
+        const endTs = __tmParseTimeToTs(`${endDate} 23:59:59`);
+        if (!startTs || !endTs || endTs <= startTs) return { startDate, endDate, percent: null };
+        const now = Date.now();
+        const ratio = (now - startTs) / Math.max(1, (endTs - startTs));
+        const percent = Math.max(0, Math.min(100, Math.round(ratio * 100)));
+        return { startDate, endDate, percent };
+    }
+
+    async function __tmSetDocExpectedProgressRange(docId, startDate, endDate) {
+        const id = String(docId || '').trim();
+        if (!id || id === 'all') return;
+        const start = __tmNormalizeDateOnly(String(startDate || '').trim()) || '';
+        const end = __tmNormalizeDateOnly(String(endDate || '').trim()) || '';
+        const map0 = SettingsStore.data.docExpectedProgressMap;
+        const map = (map0 && typeof map0 === 'object' && !Array.isArray(map0)) ? map0 : {};
+        if (!start || !end) {
+            if (map[id]) delete map[id];
+        } else {
+            map[id] = { startDate: start, endDate: end };
+        }
+        SettingsStore.data.docExpectedProgressMap = map;
+        await SettingsStore.save();
+    }
+
     function __tmShowDocTabMenuAt(docId, x, y) {
         const id = String(docId || '').trim();
         if (!id || id === 'all') return;
@@ -19057,6 +19110,27 @@ async function __tmRefreshAfterWake(reason) {
             try { await SettingsStore.save(); } catch (e) {}
             render();
         }));
+        if (!isOtherBlocksTab) {
+            menu.appendChild(item('📈 设置预计进度日期…', async () => {
+                const current = __tmGetDocExpectedProgress(id);
+                const startInput = window.prompt('请输入开始日期（YYYY-MM-DD，留空则清除）', current.startDate || '');
+                if (startInput === null) return;
+                const endInput = window.prompt('请输入截止日期（YYYY-MM-DD，留空则清除）', current.endDate || '');
+                if (endInput === null) return;
+                const startDate = __tmNormalizeDateOnly(String(startInput || '').trim()) || '';
+                const endDate = __tmNormalizeDateOnly(String(endInput || '').trim()) || '';
+                if ((startDate && !endDate) || (!startDate && endDate)) {
+                    hint('⚠ 开始和截止日期需同时设置，或同时留空。', 'warning');
+                    return;
+                }
+                if (startDate && endDate && __tmParseTimeToTs(`${endDate} 00:00:00`) < __tmParseTimeToTs(`${startDate} 00:00:00`)) {
+                    hint('⚠ 截止日期不能早于开始日期。', 'warning');
+                    return;
+                }
+                await __tmSetDocExpectedProgressRange(id, startDate, endDate);
+                render();
+            }));
+        }
 
         menu.appendChild(item('🎲 重新随机未自定义颜色', async () => {
             SettingsStore.data.docColorSeed = Math.floor(Math.random() * 1000000000) + 1;
@@ -23099,6 +23173,11 @@ async function __tmRefreshAfterWake(reason) {
                             const groupProfile = __tmGetStoredGroupViewProfile(currentGroupId);
                             const profileSource = docProfile ? '页签自定义' : (groupProfile ? '分组默认' : '全局默认');
                             const profileTip = `${profileSource}: ${__tmDescribeViewProfile(docProfile || groupProfile || __tmGetViewProfilesStore().global)}`;
+                            const expected = __tmGetDocExpectedProgress(doc.id);
+                            const expectedPercent = Number.isFinite(expected.percent) ? Math.max(0, Math.min(100, Number(expected.percent))) : null;
+                            const expectedTip = (expected.startDate && expected.endDate && expectedPercent !== null)
+                                ? `&#10;预计进度 ${expectedPercent}%（${expected.startDate} → ${expected.endDate}）`
+                                : '';
                             // 预设宽度（如果缓存有值，直接渲染，减少闪烁）
                             const cachedPercent = __tmDocProgressCache?.get(doc.id) || 0;
                             // 调度异步更新
@@ -23112,7 +23191,8 @@ async function __tmRefreshAfterWake(reason) {
                                 ondragover="tmDocTabDragOver(event)" 
                                 ondrop="tmDocTabDrop(event, '${doc.id}')" 
                                 onclick="tmSwitchDoc('${doc.id}')"
-                                title="${esc(profileTip)}">
+                                title="${esc(profileTip)}${expectedTip}">
+                                <div class="tm-doc-tab-expected-progress" style="width:${expectedPercent === null ? 0 : expectedPercent}%;opacity:${expectedPercent === null ? 0 : 1};"></div>
                                 <div class="tm-doc-tab-bg" id="${pid}" style="width:${cachedPercent}%"></div>
                                 <div class="tm-doc-tab-text">${esc(doc.name)}</div>
                             </div>`;
@@ -23202,9 +23282,19 @@ async function __tmRefreshAfterWake(reason) {
                         z-index: 0;
                         pointer-events: none;
                     }
+                    .tm-doc-tab-expected-progress {
+                        position: absolute;
+                        top: 0;
+                        left: 0;
+                        height: 2px;
+                        background: var(--tm-doc-color, transparent);
+                        z-index: 3;
+                        pointer-events: none;
+                        transition: width 0.2s ease;
+                    }
                     .tm-doc-tab-text {
                         position: relative;
-                        z-index: 1;
+                        z-index: 4;
                     }
                     .tm-doc-tab::after {
                         content: '';
@@ -33678,10 +33768,10 @@ async function __tmRefreshAfterWake(reason) {
                     ${embedded ? `
                         <div style="display:flex;gap:8px;align-items:center;">
                             <button class="tm-btn tm-btn-info" data-tm-detail="jump" style="padding:0 10px;height:30px;">跳转</button>
-                            ${(floating || closeable) ? `<button class="tm-btn tm-btn-gray" data-tm-detail="close" style="padding:0 10px;height:30px;display:inline-flex;align-items:center;justify-content:center;">✖</button>` : ''}
+                            ${(floating || closeable) ? `<button class="tm-btn tm-btn-gray" data-tm-detail="close" style="padding:0 10px;height:30px;display:inline-flex;align-items:center;justify-content:center;">${__tmRenderLucideIcon('x')}</button>` : ''}
                         </div>
                     ` : `
-                        <button class="tm-btn tm-btn-gray" data-tm-detail="close" style="padding:0 10px;height:30px;display:inline-flex;align-items:center;justify-content:center;">✖</button>
+                        <button class="tm-btn tm-btn-gray" data-tm-detail="close" style="padding:0 10px;height:30px;display:inline-flex;align-items:center;justify-content:center;">${__tmRenderLucideIcon('x')}</button>
                     `}
                 </div>
 
