@@ -1,5 +1,5 @@
 // @name         思源笔记任务管理器
-// @version      2.0.0
+// @version      2.0.1
 // @description  任务管理器，支持自定义筛选规则分组和排序
 // @author       5KYFKR
 
@@ -7404,6 +7404,7 @@
             calendarSidebarCollapseTasks: false,
             calendarShowTomatoMaster: true,
             calendarShowTaskDates: true,
+            calendarShowOtherBlockCheckbox: true,
             calendarTaskDateColorMode: 'group',
             calendarNewScheduleMaxDurationMin: 60,
             calendarHourSlotHeightMode: 'normal',
@@ -7751,6 +7752,7 @@
                                 if (typeof cloudData.calendarSidebarCollapseTomato === 'boolean') this.data.calendarSidebarCollapseTomato = cloudData.calendarSidebarCollapseTomato;
                                 if (typeof cloudData.calendarSidebarCollapseTasks === 'boolean') this.data.calendarSidebarCollapseTasks = cloudData.calendarSidebarCollapseTasks;
                                 if (typeof cloudData.calendarShowTaskDates === 'boolean') this.data.calendarShowTaskDates = cloudData.calendarShowTaskDates;
+                                if (typeof cloudData.calendarShowOtherBlockCheckbox === 'boolean') this.data.calendarShowOtherBlockCheckbox = cloudData.calendarShowOtherBlockCheckbox;
                                 if (typeof cloudData.calendarTaskDateColorMode === 'string') this.data.calendarTaskDateColorMode = cloudData.calendarTaskDateColorMode;
                                 if (typeof cloudData.calendarNewScheduleMaxDurationMin === 'number') this.data.calendarNewScheduleMaxDurationMin = cloudData.calendarNewScheduleMaxDurationMin;
                                 if (typeof cloudData.calendarHourSlotHeightMode === 'string') this.data.calendarHourSlotHeightMode = cloudData.calendarHourSlotHeightMode;
@@ -8053,6 +8055,7 @@
             this.data.calendarShowStopwatch = Storage.get('tm_calendar_show_stopwatch', this.data.calendarShowStopwatch);
             this.data.calendarShowIdle = Storage.get('tm_calendar_show_idle', this.data.calendarShowIdle);
             this.data.calendarShowTaskDates = Storage.get('tm_calendar_show_task_dates', this.data.calendarShowTaskDates);
+            this.data.calendarShowOtherBlockCheckbox = Storage.get('tm_calendar_show_other_block_checkbox', this.data.calendarShowOtherBlockCheckbox);
             this.data.calendarTaskDateColorMode = Storage.get('tm_calendar_task_date_color_mode', this.data.calendarTaskDateColorMode);
             this.data.calendarNewScheduleMaxDurationMin = Number(Storage.get('tm_calendar_new_schedule_max_duration_min', this.data.calendarNewScheduleMaxDurationMin));
             this.data.calendarHourSlotHeightMode = Storage.get('tm_calendar_hour_slot_height_mode', this.data.calendarHourSlotHeightMode);
@@ -8330,6 +8333,7 @@
             Storage.set('tm_calendar_show_stopwatch', !!this.data.calendarShowStopwatch);
             Storage.set('tm_calendar_show_idle', !!this.data.calendarShowIdle);
             Storage.set('tm_calendar_show_task_dates', !!this.data.calendarShowTaskDates);
+            Storage.set('tm_calendar_show_other_block_checkbox', !!this.data.calendarShowOtherBlockCheckbox);
             Storage.set('tm_calendar_task_date_color_mode', String(this.data.calendarTaskDateColorMode || 'group').trim() || 'group');
             Storage.set('tm_calendar_new_schedule_max_duration_min', Number(this.data.calendarNewScheduleMaxDurationMin) || 60);
             Storage.set('tm_calendar_hour_slot_height_mode', String(this.data.calendarHourSlotHeightMode || 'normal').trim() || 'normal');
@@ -16586,6 +16590,8 @@ async function __tmRefreshAfterWake(reason) {
             blockId: rawId,
             taskId: String(taskId || '').trim(),
             title: explicitTitle || taskTitle || blockTitle || '日程',
+            taskStartDate: __tmNormalizeDateOnly((task || blockLike || {})?.startDate || ''),
+            taskCompletionTime: __tmNormalizeDateOnly((task || blockLike || {})?.completionTime || ''),
             taskDateStartKey: String(dateDraft.taskDateStartKey || '').trim(),
             taskDateEndExclusiveKey: String(dateDraft.taskDateEndExclusiveKey || '').trim(),
             calendarId: String(ext.calendarId || '').trim(),
@@ -31601,6 +31607,21 @@ async function __tmRefreshAfterWake(reason) {
         return true;
     }
 
+    async function __tmResolveCollectedOtherBlockTaskById(id) {
+        const tid = String(id || '').trim();
+        if (!tid) return null;
+        const existing = state.flatTasks?.[tid];
+        if (existing && __tmIsCollectedOtherBlockTask(existing)) return existing;
+        let rows = [];
+        try { rows = await API.getOtherBlocksByIds([tid]); } catch (e) { rows = []; }
+        const row = Array.isArray(rows) ? rows.find((item) => {
+            const rid = String(item?.id || '').trim();
+            return rid === tid && __tmIsSupportedOtherBlockType(item?.type, item?.subtype);
+        }) : null;
+        if (!row) return null;
+        return __tmBuildCollectedOtherBlockTask(row, Number.POSITIVE_INFINITY, '');
+    }
+
     function __tmEnsureEditableTaskLike(taskOrId, actionLabel = '该操作') {
         const task = (taskOrId && typeof taskOrId === 'object')
             ? taskOrId
@@ -36413,6 +36434,9 @@ async function __tmRefreshAfterWake(reason) {
         let task = state.flatTasks[id];
         if (!task) {
             try { task = await __tmEnsureTaskInStateById(id); } catch (e) { task = null; }
+        }
+        if (!task) {
+            try { task = await __tmResolveCollectedOtherBlockTaskById(id); } catch (e) { task = null; }
         }
         if (task && __tmIsCollectedOtherBlockTask(task)) {
             const ok = await __tmSetCollectedOtherBlockDone(task, done);

@@ -1148,6 +1148,7 @@
             showBreak: tomatoMaster && (s.calendarShowBreak !== false),
             showStopwatch: tomatoMaster && (s.calendarShowStopwatch !== false),
             showIdle: tomatoMaster && !!s.calendarShowIdle,
+            showOtherBlockCheckbox: readStoredBool('tm_calendar_show_other_block_checkbox', typeof s.calendarShowOtherBlockCheckbox === 'boolean' ? !!s.calendarShowOtherBlockCheckbox : undefined),
             colorFocus: String(s.calendarColorFocus || '#1a73e8'),
             colorBreak: String(s.calendarColorBreak || '#34a853'),
             colorStopwatch: String(s.calendarColorStopwatch || '#f9ab00'),
@@ -4306,12 +4307,25 @@
         }
     }
 
-    function applyTaskEventTitleClamp(wrapEl, titleEl) {
+    function isOtherBlockCalendarEvent(ext) {
+        const taskId = String(ext?.__tmTaskId || '').trim();
+        const blockId = String(ext?.__tmBlockId || '').trim();
+        if (!blockId) return false;
+        return !taskId || taskId === blockId;
+    }
+
+    function shouldShowCalendarEventCheckbox(ext) {
+        if (!isOtherBlockCalendarEvent(ext)) return true;
+        return getSettings().showOtherBlockCheckbox === true;
+    }
+
+    function applyTaskEventTitleClamp(wrapEl, titleEl, options = {}) {
         try {
             const stacked = !!titleEl?.classList?.contains?.('tm-cal-task-event-title--stack');
             const scheduleTask = !!wrapEl?.classList?.contains?.('tm-cal-task-event--schedule');
+            const hasLeadingCheckbox = options?.hasLeadingCheckbox === true;
             if (wrapEl instanceof HTMLElement) {
-                if (scheduleTask && stacked) {
+                if (scheduleTask && stacked && hasLeadingCheckbox) {
                     wrapEl.style.display = 'grid';
                     wrapEl.style.gridTemplateColumns = '12px minmax(0, 1fr)';
                     wrapEl.style.columnGap = '6px';
@@ -5031,35 +5045,38 @@
                         }
                         return false;
                     };
-                    const cb = document.createElement('input');
-                    cb.type = 'checkbox';
-                    cb.className = 'tm-cal-task-event-check';
-                    cb.checked = done;
-                    applyTaskEventCheckboxOffset(cb);
-                    cb.onchange = async (ev) => {
-                        try { ev.stopPropagation(); } catch (e) {}
-                        try { ev.preventDefault(); } catch (e) {}
-                        if (!tid || typeof window.tmSetDone !== 'function') return;
-                        const nextDone = cb.checked === true;
-                        applyTaskDoneVisual(wrapEl, titleText, nextDone);
-                        try {
-                            const r = window.tmSetDone(tid, nextDone, ev);
-                            if (r && typeof r.then === 'function') await r;
-                        } catch (e) {}
-                        refetchAllCalendars();
-                    };
                     const rangeText = !hideRangeText && source === 'schedule'
                         ? formatScheduleEventRangeText(arg?.event?.start, arg?.event?.end, arg?.event?.allDay === true)
                         : '';
                     const { title, titleText } = buildTaskEventTitleNode(String(arg?.event?.title || '').trim() || '任务', rangeText);
-                    applyTaskEventTitleClamp(wrapEl, title);
+                    let cb = null;
+                    if (shouldShowCalendarEventCheckbox(ext)) {
+                        cb = document.createElement('input');
+                        cb.type = 'checkbox';
+                        cb.className = 'tm-cal-task-event-check';
+                        cb.checked = done;
+                        applyTaskEventCheckboxOffset(cb);
+                        cb.onchange = async (ev) => {
+                            try { ev.stopPropagation(); } catch (e) {}
+                            try { ev.preventDefault(); } catch (e) {}
+                            if (!tid || typeof window.tmSetDone !== 'function') return;
+                            const nextDone = cb.checked === true;
+                            applyTaskDoneVisual(wrapEl, titleText, nextDone);
+                            try {
+                                const r = window.tmSetDone(tid, nextDone, ev);
+                                if (r && typeof r.then === 'function') await r;
+                            } catch (e) {}
+                            refetchAllCalendars();
+                        };
+                    }
+                    applyTaskEventTitleClamp(wrapEl, title, { hasLeadingCheckbox: !!cb });
                     applyTaskDoneVisual(wrapEl, titleText, done);
                     titleText.onclick = (ev) => {
                         try { ev.stopPropagation(); } catch (e) {}
                         if (!tid || typeof window.tmJumpToTask !== 'function') return;
                         try { window.tmJumpToTask(tid, ev); } catch (e) {}
                     };
-                    wrapEl.appendChild(cb);
+                    if (cb) wrapEl.appendChild(cb);
                     wrapEl.appendChild(title);
                     return { domNodes: [wrapEl] };
                 }
@@ -5070,7 +5087,7 @@
                         String(arg?.event?.title || '').trim() || '日程',
                         hideRangeText ? '' : formatScheduleEventRangeText(arg?.event?.start, arg?.event?.end, arg?.event?.allDay === true)
                     );
-                    applyTaskEventTitleClamp(wrapEl, title);
+                    applyTaskEventTitleClamp(wrapEl, title, { hasLeadingCheckbox: !!cb });
                     wrapEl.appendChild(title);
                     return { domNodes: [wrapEl] };
                 }
@@ -5336,6 +5353,11 @@
                 }
                 if (source === 'taskdate') {
                     try {
+                        if (shouldCreateScheduleFromTaskDateDrop(arg)) {
+                            await createScheduleFromTaskDateDrop(arg);
+                            toast('✅ 已加入日程', 'success');
+                            return;
+                        }
                         await persistTaskDateEventChange(arg);
                         toast('✅ 已更新任务日期', 'success');
                     } catch (e) {
@@ -5854,6 +5876,60 @@
         syncTaskDateEventExtendedProps(arg?.event, patch);
         try { refetchAllCalendars(); } catch (e) {}
         return patch;
+    }
+
+    function shouldCreateScheduleFromTaskDateDrop(arg) {
+        const eventApi = arg?.event;
+        const start = eventApi?.start instanceof Date ? eventApi.start : null;
+        if (!(start instanceof Date) || Number.isNaN(start.getTime())) return false;
+        const end0 = eventApi?.end instanceof Date ? eventApi.end : null;
+        const end = (end0 instanceof Date && !Number.isNaN(end0.getTime()) && end0.getTime() > start.getTime())
+            ? end0
+            : new Date(start.getTime() + 60 * 60000);
+        return !(eventApi?.allDay === true && isAllDayRange(start, end));
+    }
+
+    async function createScheduleFromTaskDateDrop(arg) {
+        const eventApi = arg?.event;
+        const ext = eventApi?.extendedProps || {};
+        const taskId = String(ext.__tmTaskId || '').trim();
+        const start = eventApi?.start instanceof Date ? eventApi.start : null;
+        if (!taskId || !(start instanceof Date) || Number.isNaN(start.getTime())) {
+            throw new Error('无效的任务日期事件');
+        }
+        const settings = getSettings();
+        let dragMeta = null;
+        try {
+            dragMeta = (typeof window.tmCalendarGetTaskDragMeta === 'function')
+                ? window.tmCalendarGetTaskDragMeta(taskId)
+                : null;
+        } catch (e) {}
+        const durationMin = clampNewScheduleDurationMin(Number(dragMeta?.durationMin), settings);
+        const end0 = eventApi?.end instanceof Date ? eventApi.end : null;
+        const end = (end0 instanceof Date && !Number.isNaN(end0.getTime()) && end0.getTime() > start.getTime())
+            ? end0
+            : new Date(start.getTime() + durationMin * 60000);
+        const title = String(eventApi?.title || dragMeta?.title || '').trim() || '任务';
+        const calendarId = String(dragMeta?.calendarId || ext.calendarId || '').trim() || pickDefaultCalendarId(settings);
+        const defs = getCalendarDefs(settings);
+        const sourceColor = String(
+            eventApi?.backgroundColor
+            || eventApi?.borderColor
+            || defs.find((d) => String(d?.id || '').trim() === calendarId)?.color
+            || ''
+        ).trim();
+        const item = await addTaskSchedule({
+            taskId,
+            title,
+            start,
+            end,
+            calendarId,
+            color: sourceColor,
+            durationMin,
+            allDay: false,
+        });
+        try { arg?.revert?.(); } catch (e) {}
+        return item;
     }
 
     function reminderOccurrenceKey(dateKey, timeKey) {
@@ -7022,7 +7098,15 @@
         const scheduleId = String(init.id || '');
         const taskId0 = String(init.taskId || '').trim();
         const blockId0 = getScheduleLinkedBlockId(init);
+        const taskDateStartKey0 = String(init.taskDateStartKey || init.startKey || '').trim();
+        const taskDateEndExclusiveKey0 = String(init.taskDateEndExclusiveKey || init.endExclusiveKey || '').trim();
+        const taskStartDate0 = String(init.taskStartDate || init.startDate || '').trim();
+        const taskCompletionTime0 = String(init.taskCompletionTime || init.completionTime || '').trim();
         const isEdit = !!scheduleId;
+        const taskDateEditor = !isEdit && (
+            init.taskDateEditor === true
+            || (!!(taskId0 || blockId0) && !!(taskDateStartKey0 || taskDateEndExclusiveKey0 || taskStartDate0 || taskCompletionTime0))
+        );
         const initAllDay = init.allDay === true;
         const reminderMode0 = String(init?.reminderMode || '').trim() === 'custom' ? 'custom' : 'inherit';
         const reminderEnabled0 = reminderMode0 === 'custom' ? (init?.reminderEnabled === true) : null;
@@ -7048,40 +7132,49 @@
         const calDef0 = calDefs.find((d) => d.id === calendarId0) || calDefs[0] || { id: 'default', name: '时间轴', color: '#0078d4' };
         const color0 = String(init.color || '').trim() || String(calDef0.color || '#0078d4');
         const calendarOptions = calDefs.map((d) => `<option value="${esc(d.id)}" ${d.id === calendarId0 ? 'selected' : ''}>${esc(d.name)}</option>`).join('');
-        const deviceSummary0 = isEdit ? getScheduleCurrentDeviceNotificationSummary(init) : '保存后会自动同步当前设备预约';
+        const deviceSummary0 = taskDateEditor
+            ? '此事件来自任务日期，仅支持同步修改任务的开始日期和完成日期'
+            : (isEdit ? getScheduleCurrentDeviceNotificationSummary(init) : '保存后会自动同步当前设备预约');
 
         const startLocal = start ? `${formatDateKey(start)}T${pad2(start.getHours())}:${pad2(start.getMinutes())}` : '';
         const endLocal = end ? `${formatDateKey(end)}T${pad2(end.getHours())}:${pad2(end.getMinutes())}` : '';
+        const startInputType = taskDateEditor ? 'date' : 'datetime-local';
+        const endInputType = taskDateEditor ? 'date' : 'datetime-local';
+        const startInputValue = taskDateEditor ? taskStartDate0 : startLocal;
+        const endInputValue = taskDateEditor ? taskCompletionTime0 : endLocal;
+        const startLabel = taskDateEditor ? '开始日期' : '开始';
+        const endLabel = taskDateEditor ? '完成日期' : '结束';
+        const modalTitle = taskDateEditor ? '编辑任务日期' : (isEdit ? '编辑日程' : '新建日程');
 
         const modal = document.createElement('div');
         modal.className = 'tm-calendar-edit-modal';
         modal.innerHTML = `
             <div class="tm-calendar-edit-box">
-                <div class="tm-calendar-edit-title">${isEdit ? '编辑日程' : '新建日程'}</div>
-                <div class="tm-calendar-edit-row">
+                <div class="tm-calendar-edit-title">${modalTitle}</div>
+                <div class="tm-calendar-edit-row"${taskDateEditor ? ' style="opacity:.55;"' : ''}>
                     <div class="tm-calendar-edit-label">标题</div>
-                    <input class="tm-calendar-edit-input" type="text" value="${esc(title0)}" placeholder="请输入标题" data-tm-cal-field="title">
+                    <input class="tm-calendar-edit-input" type="text" value="${esc(title0)}" placeholder="请输入标题" data-tm-cal-field="title" ${taskDateEditor ? 'disabled' : ''}>
                 </div>
-                <div class="tm-calendar-edit-row">
+                <div class="tm-calendar-edit-row"${taskDateEditor ? ' style="opacity:.55;"' : ''}>
                     <div class="tm-calendar-edit-label">日历</div>
-                    <select class="tm-calendar-edit-input" data-tm-cal-field="calendarId">${calendarOptions}</select>
+                    <select class="tm-calendar-edit-input" data-tm-cal-field="calendarId" ${taskDateEditor ? 'disabled' : ''}>${calendarOptions}</select>
                 </div>
                 <div class="tm-calendar-edit-row">
-                    <div class="tm-calendar-edit-label">开始</div>
-                    <input class="tm-calendar-edit-input" type="datetime-local" value="${esc(startLocal)}" data-tm-cal-field="start">
+                    <div class="tm-calendar-edit-label">${startLabel}</div>
+                    <input class="tm-calendar-edit-input" type="${startInputType}" value="${esc(startInputValue)}" data-tm-cal-field="start">
                 </div>
                 <div class="tm-calendar-edit-row">
-                    <div class="tm-calendar-edit-label">结束</div>
-                    <input class="tm-calendar-edit-input" type="datetime-local" value="${esc(endLocal)}" data-tm-cal-field="end">
+                    <div class="tm-calendar-edit-label">${endLabel}</div>
+                    <input class="tm-calendar-edit-input" type="${endInputType}" value="${esc(endInputValue)}" data-tm-cal-field="end">
                 </div>
-                <div class="tm-calendar-edit-row">
+                <div class="tm-calendar-edit-row"${taskDateEditor ? ' style="opacity:.55;"' : ''}>
                     <div class="tm-calendar-edit-label">颜色</div>
-                    <input class="tm-calendar-edit-input" style="width:120px;flex:none;padding:0;height:30px" type="color" value="${esc(color0)}" data-tm-cal-field="color">
+                    <input class="tm-calendar-edit-input" style="width:120px;flex:none;padding:0;height:30px" type="color" value="${esc(color0)}" data-tm-cal-field="color" ${taskDateEditor ? 'disabled' : ''}>
                     <div style="flex:1;"></div>
                 </div>
-                <div class="tm-calendar-edit-row">
+                <div class="tm-calendar-edit-row"${taskDateEditor ? ' style="opacity:.55;"' : ''}>
                     <div class="tm-calendar-edit-label">提醒</div>
-                    <select class="tm-calendar-edit-input" data-tm-cal-field="reminderSelect">
+                    <select class="tm-calendar-edit-input" data-tm-cal-field="reminderSelect" ${taskDateEditor ? 'disabled' : ''}>
                         <option value="inherit" ${reminderSelect0 === 'inherit' ? 'selected' : ''}>使用全局设置</option>
                         <option value="off" ${reminderSelect0 === 'off' ? 'selected' : ''}>关闭提醒</option>
                         ${initAllDay ? `<option value="on" ${reminderSelect0 === 'on' ? 'selected' : ''}>开启提醒（当天统一时间）</option>` : `
@@ -7094,9 +7187,9 @@
                         `}
                     </select>
                 </div>
-                <div class="tm-calendar-edit-row">
+                <div class="tm-calendar-edit-row"${taskDateEditor ? ' style="opacity:.55;"' : ''}>
                     <div class="tm-calendar-edit-label">循环</div>
-                    <select class="tm-calendar-edit-input" data-tm-cal-field="repeatType">
+                    <select class="tm-calendar-edit-input" data-tm-cal-field="repeatType" ${taskDateEditor ? 'disabled' : ''}>
                         <option value="none" ${repeatType0 === 'none' ? 'selected' : ''}>不循环</option>
                         <option value="daily" ${repeatType0 === 'daily' ? 'selected' : ''}>每天</option>
                         <option value="workday" ${repeatType0 === 'workday' ? 'selected' : ''}>工作日</option>
@@ -7105,32 +7198,32 @@
                         <option value="yearly" ${repeatType0 === 'yearly' ? 'selected' : ''}>每年</option>
                     </select>
                 </div>
-                <div class="tm-calendar-edit-row">
+                <div class="tm-calendar-edit-row"${taskDateEditor ? ' style="opacity:.55;"' : ''}>
                     <div class="tm-calendar-edit-label">间隔</div>
-                    <input class="tm-calendar-edit-input" type="number" min="1" step="1" value="${esc(String(repeatEvery0 || 1))}" data-tm-cal-field="repeatEvery" style="width:96px;flex:none;">
+                    <input class="tm-calendar-edit-input" type="number" min="1" step="1" value="${esc(String(repeatEvery0 || 1))}" data-tm-cal-field="repeatEvery" style="width:96px;flex:none;" ${taskDateEditor ? 'disabled' : ''}>
                     <div class="tm-calendar-edit-value" data-tm-cal-field="repeatEveryUnit" style="opacity:.85;">${esc(getScheduleRepeatUnitLabel(repeatType0, repeatEvery0))}</div>
                 </div>
-                <div class="tm-calendar-edit-row">
+                <div class="tm-calendar-edit-row"${taskDateEditor ? ' style="opacity:.55;"' : ''}>
                     <div class="tm-calendar-edit-label">月规则</div>
-                    <select class="tm-calendar-edit-input" data-tm-cal-field="repeatMonthlyMode" style="width:140px;flex:none;">
+                    <select class="tm-calendar-edit-input" data-tm-cal-field="repeatMonthlyMode" style="width:140px;flex:none;" ${taskDateEditor ? 'disabled' : ''}>
                         <option value="date" ${repeatMonthlyMode0 !== 'weekday' ? 'selected' : ''}>按日期</option>
                         <option value="weekday" ${repeatMonthlyMode0 === 'weekday' ? 'selected' : ''}>按星期</option>
                     </select>
                     <div class="tm-calendar-edit-value" data-tm-cal-field="repeatMonthlySummary" style="opacity:.85;">${esc(start ? `每月${getScheduleMonthlyWeekPatternLabel(start)}` : '根据开始时间自动计算')}</div>
                 </div>
-                <div class="tm-calendar-edit-row">
+                <div class="tm-calendar-edit-row"${taskDateEditor ? ' style="opacity:.55;"' : ''}>
                     <div class="tm-calendar-edit-label">循环截止</div>
-                    <input class="tm-calendar-edit-input" type="date" value="${esc(repeatUntil0)}" data-tm-cal-field="repeatUntil">
+                    <input class="tm-calendar-edit-input" type="date" value="${esc(repeatUntil0)}" data-tm-cal-field="repeatUntil" ${taskDateEditor ? 'disabled' : ''}>
                 </div>
-                <div class="tm-calendar-edit-row">
+                <div class="tm-calendar-edit-row"${taskDateEditor ? ' style="opacity:.55;"' : ''}>
                     <div class="tm-calendar-edit-label">当前设备预约</div>
                     <div class="tm-calendar-edit-value" data-tm-cal-field="deviceScheduleSummary" style="flex:1;line-height:1.4;opacity:.85;">${esc(deviceSummary0)}</div>
-                    ${isEdit ? `<button class="tm-btn tm-btn-secondary" type="button" data-tm-cal-action="viewDeviceSchedule" style="margin-left:8px;">查看</button>` : ''}
+                    ${isEdit && !taskDateEditor ? `<button class="tm-btn tm-btn-secondary" type="button" data-tm-cal-action="viewDeviceSchedule" style="margin-left:8px;">查看</button>` : ''}
                 </div>
                 <div class="tm-calendar-edit-actions">
                     <button class="tm-btn tm-btn-secondary" data-tm-cal-action="cancel">取消</button>
                     <div style="flex:1;"></div>
-                    ${isEdit ? `<button class="tm-btn tm-btn-danger" data-tm-cal-action="delete">删除</button>` : ''}
+                    ${isEdit && !taskDateEditor ? `<button class="tm-btn tm-btn-danger" data-tm-cal-action="delete">删除</button>` : ''}
                     <button class="tm-btn tm-btn-success" data-tm-cal-action="save">保存</button>
                 </div>
             </div>
@@ -7152,12 +7245,20 @@
             const el = modal.querySelector(`[data-tm-cal-field="${field}"]`);
             return el ? String(el.value || '').trim() : '';
         };
+        const normalizeTaskDateInput = (raw) => {
+            const s = String(raw || '').trim();
+            if (!s) return '';
+            const dt = parseDateOnly(s);
+            if (!(dt instanceof Date) || Number.isNaN(dt.getTime())) throw new Error('日期格式不合法');
+            return formatDateKey(dt);
+        };
         const getStartDraft = () => {
             const raw = getInputValue('start');
             const dt = raw ? new Date(raw) : start;
             return (dt instanceof Date && !Number.isNaN(dt.getTime())) ? dt : start;
         };
         const syncColorToCalendar = () => {
+            if (taskDateEditor) return;
             const calendarId = getInputValue('calendarId') || calendarId0 || 'default';
             const colorEl = modal.querySelector('[data-tm-cal-field="color"]');
             if (!(colorEl instanceof HTMLInputElement)) return;
@@ -7170,6 +7271,12 @@
             const monthlyModeEl = modal.querySelector('[data-tm-cal-field="repeatMonthlyMode"]');
             const summaryEl = modal.querySelector('[data-tm-cal-field="repeatMonthlySummary"]');
             if (!(monthlyModeEl instanceof HTMLSelectElement) || !summaryEl) return;
+            if (taskDateEditor) {
+                monthlyModeEl.disabled = true;
+                monthlyModeEl.style.opacity = '0.55';
+                summaryEl.textContent = '任务日期事件不可编辑循环规则';
+                return;
+            }
             const repeatType = normalizeScheduleRepeatType(getInputValue('repeatType') || repeatType0);
             const startDraft = getStartDraft();
             const isMonthly = repeatType === 'monthly';
@@ -7200,21 +7307,23 @@
             const repeatEveryUnitEl = modal.querySelector('[data-tm-cal-field="repeatEveryUnit"]');
             const untilEl = modal.querySelector('[data-tm-cal-field="repeatUntil"]');
             if (!(untilEl instanceof HTMLInputElement)) return;
-            const disabled = repeatType === 'none';
+            const disabled = taskDateEditor || repeatType === 'none';
             if (repeatEveryEl instanceof HTMLInputElement) {
                 repeatEveryEl.disabled = disabled;
                 repeatEveryEl.style.opacity = disabled ? '0.55' : '1';
                 if (!repeatEveryEl.value || Number(repeatEveryEl.value) <= 0) repeatEveryEl.value = String(repeatEvery0 || 1);
             }
             if (repeatEveryUnitEl) {
-                repeatEveryUnitEl.textContent = disabled
+                repeatEveryUnitEl.textContent = taskDateEditor
+                    ? '任务日期事件不可编辑'
+                    : (disabled
                     ? '关闭循环时忽略'
-                    : `每 ${getScheduleRepeatUnitLabel(repeatType, getInputValue('repeatEvery') || repeatEvery0)}`;
+                    : `每 ${getScheduleRepeatUnitLabel(repeatType, getInputValue('repeatEvery') || repeatEvery0)}`);
             }
             syncMonthlyModeSummary();
             untilEl.disabled = disabled;
             untilEl.style.opacity = disabled ? '0.55' : '1';
-            if (disabled) untilEl.value = '';
+            if (!taskDateEditor && disabled) untilEl.value = '';
         };
         const repeatTypeEl = modal.querySelector('[data-tm-cal-field="repeatType"]');
         if (repeatTypeEl) {
@@ -7386,6 +7495,33 @@
                 return;
             }
             if (action === 'save') {
+                if (taskDateEditor) {
+                    const targetId = String(taskId0 || blockId0 || '').trim();
+                    if (!targetId) {
+                        toast('⚠ 缺少任务标识', 'warning');
+                        return;
+                    }
+                    let nextStartDate = '';
+                    let nextCompletionDate = '';
+                    try {
+                        nextStartDate = normalizeTaskDateInput(getInputValue('start'));
+                        nextCompletionDate = normalizeTaskDateInput(getInputValue('end'));
+                    } catch (err) {
+                        toast(`⚠ ${String(err?.message || err || '日期格式不合法')}`, 'warning');
+                        return;
+                    }
+                    try {
+                        await window.tmUpdateTaskDates(targetId, {
+                            startDate: nextStartDate,
+                            completionTime: nextCompletionDate,
+                        });
+                        closeModal();
+                        toast('✅ 已同步任务日期', 'success');
+                    } catch (err) {
+                        toast(`❌ 保存失败：${String(err?.message || err || '')}`, 'error');
+                    }
+                    return;
+                }
                 const title = getInputValue('title');
                 const calendarId = getInputValue('calendarId') || calendarId0 || 'default';
                 const s0 = getInputValue('start');
@@ -7757,27 +7893,30 @@
                         }
                         return false;
                     };
-                    const cb = document.createElement('input');
-                    cb.type = 'checkbox';
-                    cb.className = 'tm-cal-task-event-check';
-                    cb.checked = done;
-                    applyTaskEventCheckboxOffset(cb);
-                    cb.onchange = async (ev) => {
-                        try { ev.stopPropagation(); } catch (e) {}
-                        try { ev.preventDefault(); } catch (e) {}
-                        if (!tid || typeof window.tmSetDone !== 'function') return;
-                        const nextDone = cb.checked === true;
-                        applyTaskDoneVisual(wrapEl, titleText, nextDone);
-                        try {
-                            const r = window.tmSetDone(tid, nextDone, ev);
-                            if (r && typeof r.then === 'function') await r;
-                        } catch (e) {}
-                        try { state.calendar?.refetchEvents?.(); } catch (e) {}
-                    };
                     const rangeText = !hideRangeText && source === 'schedule'
                         ? formatScheduleEventRangeText(arg?.event?.start, arg?.event?.end, arg?.event?.allDay === true)
                         : '';
                     const { title, titleText } = buildTaskEventTitleNode(String(arg?.event?.title || '').trim() || '任务', rangeText);
+                    let cb = null;
+                    if (shouldShowCalendarEventCheckbox(ext)) {
+                        cb = document.createElement('input');
+                        cb.type = 'checkbox';
+                        cb.className = 'tm-cal-task-event-check';
+                        cb.checked = done;
+                        applyTaskEventCheckboxOffset(cb);
+                        cb.onchange = async (ev) => {
+                            try { ev.stopPropagation(); } catch (e) {}
+                            try { ev.preventDefault(); } catch (e) {}
+                            if (!tid || typeof window.tmSetDone !== 'function') return;
+                            const nextDone = cb.checked === true;
+                            applyTaskDoneVisual(wrapEl, titleText, nextDone);
+                            try {
+                                const r = window.tmSetDone(tid, nextDone, ev);
+                                if (r && typeof r.then === 'function') await r;
+                            } catch (e) {}
+                            try { state.calendar?.refetchEvents?.(); } catch (e) {}
+                        };
+                    }
                     applyTaskEventTitleClamp(wrapEl, title);
                     applyTaskDoneVisual(wrapEl, titleText, done);
                     titleText.onclick = (ev) => {
@@ -7795,7 +7934,7 @@
                         if (!tid || typeof window.tmJumpToTask !== 'function') return;
                         try { window.tmJumpToTask(tid, ev); } catch (e) {}
                     };
-                    wrapEl.appendChild(cb);
+                    if (cb) wrapEl.appendChild(cb);
                     wrapEl.appendChild(title);
                     return { domNodes: [wrapEl] };
                 }
@@ -8191,6 +8330,11 @@
                 }
                 if (source === 'taskdate') {
                     try {
+                        if (shouldCreateScheduleFromTaskDateDrop(arg)) {
+                            await createScheduleFromTaskDateDrop(arg);
+                            toast('✅ 已加入日程', 'success');
+                            return;
+                        }
                         await persistTaskDateEventChange(arg);
                         toast('✅ 已更新任务日期', 'success');
                     } catch (e) {
@@ -9127,6 +9271,10 @@
                     <input class="b3-switch fn__flex-center" type="checkbox" data-tm-cal-setting="calendarShowTaskDates" ${s.showTaskDates ? 'checked' : ''}>
                 </div>
                 <div class="tm-calendar-settings-row">
+                    <div class="tm-calendar-settings-label">其他块显示复选框</div>
+                    <input class="b3-switch fn__flex-center" type="checkbox" data-tm-cal-setting="calendarShowOtherBlockCheckbox" ${s.showOtherBlockCheckbox ? 'checked' : ''}>
+                </div>
+                <div class="tm-calendar-settings-row">
                     <div class="tm-calendar-settings-label">日程提醒</div>
                     <input class="b3-switch fn__flex-center" type="checkbox" data-tm-cal-setting="calendarScheduleReminderEnabled" ${s.scheduleReminderEnabled ? 'checked' : ''}>
                 </div>
@@ -9239,6 +9387,9 @@
                 } else if (key === 'calendarScheduleReminderEnabled' || key === 'calendarScheduleReminderSystemEnabled' || key === 'calendarScheduleReminderDefaultMode' || key === 'calendarAllDayReminderEnabled' || key === 'calendarAllDayReminderTime' || key === 'calendarTaskDateAllDayReminderEnabled' || key === 'calendarAllDaySummaryIncludeExtras') {
                     try { renderSettings(containerEl, store); } catch (e2) {}
                     try { scheduleScheduleReminderRefresh('settings'); } catch (e2) {}
+                } else if (key === 'calendarShowOtherBlockCheckbox') {
+                    try { state.calendar?.refetchEvents?.(); } catch (e2) {}
+                    try { state.sideDay?.calendar?.refetchEvents?.(); } catch (e2) {}
                 } else if (key === 'calendarNewScheduleMaxDurationMin') {
                     try {
                         const root = state.rootEl;
@@ -9341,6 +9492,8 @@
         const startKey = String(extra.taskDateStartKey || extra.startKey || '').trim();
         const endExKey = String(extra.taskDateEndExclusiveKey || extra.endExclusiveKey || '').trim();
         const color0 = String(extra.color || '').trim();
+        const taskStartDate0 = String(extra.taskStartDate || extra.startDate || '').trim();
+        const taskCompletionTime0 = String(extra.taskCompletionTime || extra.completionTime || '').trim();
 
         if (startKey && endExKey) {
             const startDate = parseDateOnly(startKey);
@@ -9360,6 +9513,11 @@
                         calendarId: calendarId0,
                         taskId,
                         blockId,
+                        taskDateEditor: true,
+                        taskStartDate: taskStartDate0,
+                        taskCompletionTime: taskCompletionTime0,
+                        taskDateStartKey: startKey,
+                        taskDateEndExclusiveKey: endExKey,
                         reminderMode: reminderMode0,
                         reminderEnabled: extra.reminderEnabled,
                         reminderOffsetMin: extra.reminderOffsetMin,
@@ -9465,28 +9623,12 @@
             if (items.length === 0) {
                 const startKey = String(extra.taskDateStartKey || extra.startKey || '').trim();
                 const endExKey = String(extra.taskDateEndExclusiveKey || extra.endExclusiveKey || '').trim();
-                const title0 = String(extra.title || '').trim();
                 if (startKey && endExKey) {
-                    const startDate = parseDateOnly(startKey);
-                    const endDate = parseDateOnly(endExKey);
-                    if (startDate && endDate) {
-                        const s = new Date(startDate.getTime());
-                        s.setHours(0, 0, 0, 0);
-                        const e = new Date(endDate.getTime());
-                        e.setHours(0, 0, 0, 0);
-                        if (e.getTime() > s.getTime()) {
-                            openScheduleModal({
-                                title: title0 || '任务',
-                                start: s,
-                                end: e,
-                                allDay: true,
-                                calendarId: String(extra.calendarId || 'default').trim() || 'default',
-                                taskId: tid,
-                                reminderMode: 'inherit',
-                            });
-                            return true;
-                        }
-                    }
+                    openScheduleModal(buildScheduleEditorInitFromInput({
+                        ...extra,
+                        taskId: tid,
+                    }));
+                    return true;
                 }
                 toast('⚠ 该任务暂无日程', 'warning');
                 return false;
