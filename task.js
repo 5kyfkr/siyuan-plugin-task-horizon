@@ -12228,6 +12228,47 @@
         __tmLoadedDocIdsForTasks: [],
     };
 
+    const __tmModalStack = [];
+
+    function __tmModalStackPush(entry) {
+        if (!entry || typeof entry.close !== 'function') return __tmModalStack.length;
+        __tmModalStack.push(entry);
+        return __tmModalStack.length;
+    }
+
+    function __tmModalStackRemove(entry) {
+        const idx = __tmModalStack.indexOf(entry);
+        if (idx !== -1) __tmModalStack.splice(idx, 1);
+        return __tmModalStack.length;
+    }
+
+    function __tmModalStackPop() {
+        if (__tmModalStack.length === 0) return 0;
+        const top = __tmModalStack[__tmModalStack.length - 1];
+        try { top.close(); } catch (e) {}
+        __tmModalStackRemove(top);
+        return __tmModalStack.length;
+    }
+
+    function __tmModalStackBind(closeFn) {
+        let entry = { close: closeFn };
+        __tmModalStackPush(entry);
+        return () => {
+            if (entry) { __tmModalStackRemove(entry); entry = null; }
+        };
+    }
+
+    (function __tmInitModalStackEscHandler() {
+        const handler = (e) => {
+            if (e.key !== 'Escape') return;
+            if (__tmModalStack.length === 0) return;
+            try { e.preventDefault(); } catch (e2) {}
+            try { e.stopPropagation(); } catch (e2) {}
+            __tmModalStackPop();
+        };
+        document.addEventListener('keydown', handler, true);
+    })();
+
     function __tmGetTodayDateKey() {
         const d = new Date();
         const pad = (n) => String(n).padStart(2, '0');
@@ -12668,6 +12709,8 @@
     }
 
     function __tmCloseSemanticDateConfirmModal() {
+        state.__semanticDateConfirmUnstack?.();
+        state.__semanticDateConfirmUnstack = null;
         if (!state.semanticDateConfirmModal) return;
         try { state.semanticDateConfirmModal.remove(); } catch (e) {}
         state.semanticDateConfirmModal = null;
@@ -12834,6 +12877,7 @@
         });
         document.body.appendChild(modal);
         state.semanticDateConfirmModal = modal;
+        state.__semanticDateConfirmUnstack = __tmModalStackBind(() => __tmCloseSemanticDateConfirmModal());
     }
 
     async function __tmMaybeAutoPromptSemanticDates(token) {
@@ -13470,7 +13514,6 @@
 
     // ===== 全局清理句柄 =====
     let __tmGlobalClickHandler = null;
-    let __tmSettingsEscHandler = null;
     let __tmDomReadyHandler = null;
     let __tmBreadcrumbObserver = null;
     let __tmThemeModeObserver = null;
@@ -16215,7 +16258,10 @@ async function __tmRefreshAfterWake(reason) {
         okBtn.className = 'tm-btn tm-btn-primary';
         okBtn.textContent = '应用';
 
+        let __colorPickerUnstack = null;
         const close = () => {
+            __colorPickerUnstack?.();
+            __colorPickerUnstack = null;
             try { backdrop.remove(); } catch (e) {}
         };
 
@@ -16236,6 +16282,7 @@ async function __tmRefreshAfterWake(reason) {
 
         backdrop.appendChild(dialog);
         document.body.appendChild(backdrop);
+        __colorPickerUnstack = __tmModalStackBind(close);
     }
 
     function __tmNormalizeAppearanceMetric(input, fallback, min, max) {
@@ -17371,6 +17418,8 @@ async function __tmRefreshAfterWake(reason) {
             modal.appendChild(box);
             document.body.appendChild(modal);
 
+            const removeFromStack = __tmModalStackBind(() => cancelBtn.click());
+
             const focusInput = () => {
                 try {
                     input.focus({ preventScroll: true });
@@ -17385,11 +17434,13 @@ async function __tmRefreshAfterWake(reason) {
 
             okBtn.onclick = () => {
                 const value = String(input.value || '').trim();
+                removeFromStack();
                 modal.remove();
                 resolve(value);
             };
 
             cancelBtn.onclick = () => {
+                removeFromStack();
                 modal.remove();
                 resolve(null);
             };
@@ -17397,8 +17448,6 @@ async function __tmRefreshAfterWake(reason) {
             input.onkeydown = (e) => {
                 if (e.key === 'Enter') {
                     okBtn.click();
-                } else if (e.key === 'Escape') {
-                    cancelBtn.click();
                 }
             };
 
@@ -17435,30 +17484,22 @@ async function __tmRefreshAfterWake(reason) {
 
             const okBtn = modal.querySelector('#tm-confirm-ok');
             const cancelBtn = modal.querySelector('#tm-confirm-cancel');
-            const cleanupKey = () => {
-                try { document.removeEventListener('keydown', onKey, true); } catch (e) {}
-            };
-            function onKey(e) {
-                if (e.key === 'Escape') {
-                    cleanupKey();
-                    cancelBtn.click();
-                }
-            }
+
+            const removeFromStack = __tmModalStackBind(() => cancelBtn.click());
 
             okBtn.onclick = () => {
-                cleanupKey();
+                removeFromStack();
                 modal.remove();
                 resolve(true);
             };
             cancelBtn.onclick = () => {
-                cleanupKey();
+                removeFromStack();
                 modal.remove();
                 resolve(false);
             };
             modal.onclick = (e) => {
                 if (e.target === modal) cancelBtn.click();
             };
-            document.addEventListener('keydown', onKey, true);
         });
     }
 
@@ -17496,18 +17537,21 @@ async function __tmRefreshAfterWake(reason) {
             const okBtn = modal.querySelector('#tm-prompt-ok');
             const cancelBtn = modal.querySelector('#tm-prompt-cancel');
 
+            const removeFromStack = __tmModalStackBind(() => cancelBtn.click());
+
             okBtn.onclick = () => {
                 const value = String(select.value || '').trim();
+                removeFromStack();
                 modal.remove();
                 resolve(value);
             };
             cancelBtn.onclick = () => {
+                removeFromStack();
                 modal.remove();
                 resolve(null);
             };
             select.onkeydown = (e) => {
                 if (e.key === 'Enter') okBtn.click();
-                else if (e.key === 'Escape') cancelBtn.click();
             };
             modal.onclick = (e) => {
                 if (e.target === modal) cancelBtn.click();
@@ -17544,15 +17588,19 @@ async function __tmRefreshAfterWake(reason) {
             const cancelBtn = modal.querySelector('#tm-choice-cancel');
             const choiceButtons = Array.from(modal.querySelectorAll('[data-tm-choice-value]'));
 
+            const removeFromStack = __tmModalStackBind(() => cancelBtn.click());
+
             choiceButtons.forEach((btn) => {
                 btn.onclick = () => {
                     const value = String(btn.getAttribute('data-tm-choice-value') || '').trim();
+                    removeFromStack();
                     modal.remove();
                     resolve(value || null);
                 };
             });
 
             cancelBtn.onclick = () => {
+                removeFromStack();
                 modal.remove();
                 resolve(null);
             };
@@ -17989,23 +18037,27 @@ async function __tmRefreshAfterWake(reason) {
             const cancelBtn = modal.querySelector('#tm-prompt-cancel');
             const clearBtn = modal.querySelector('#tm-prompt-clear');
 
+            const removeFromStack = __tmModalStackBind(() => cancelBtn.click());
+
             okBtn.onclick = () => {
                 const raw = String(input.value || '').trim();
+                removeFromStack();
                 modal.remove();
                 if (!raw) return resolve('');
                 resolve(__tmParseDatetimeLocalToISO(raw));
             };
             clearBtn.onclick = () => {
+                removeFromStack();
                 modal.remove();
                 resolve('');
             };
             cancelBtn.onclick = () => {
+                removeFromStack();
                 modal.remove();
                 resolve(null);
             };
             input.onkeydown = (e) => {
                 if (e.key === 'Enter') okBtn.click();
-                else if (e.key === 'Escape') cancelBtn.click();
             };
             modal.onclick = (e) => {
                 if (e.target === modal) cancelBtn.click();
@@ -18041,10 +18093,14 @@ async function __tmRefreshAfterWake(reason) {
             const okBtn = modal.querySelector('#tm-prompt-ok');
             const cancelBtn = modal.querySelector('#tm-prompt-cancel');
             const clearBtn = modal.querySelector('#tm-prompt-clear');
+
+            const removeFromStack = __tmModalStackBind(() => cancelBtn.click());
+
             let settled = false;
             const finish = (value) => {
                 if (settled) return;
                 settled = true;
+                removeFromStack();
                 try { modal.remove(); } catch (e) {}
                 resolve(value);
             };
@@ -18069,7 +18125,6 @@ async function __tmRefreshAfterWake(reason) {
             }
             input.onkeydown = (e) => {
                 if (e.key === 'Enter') okBtn.click();
-                else if (e.key === 'Escape') cancelBtn.click();
             };
             modal.onclick = (e) => {
                 if (e.target === modal) cancelBtn.click();
@@ -18124,6 +18179,7 @@ async function __tmRefreshAfterWake(reason) {
         
         document.body.appendChild(state.rulesModal);
         __tmBindRulesManagerEvents(state.rulesModal);
+        state.__rulesUnstack = __tmModalStackBind(() => window.closeRulesManager?.());
     }
 
     function __tmBindRulesManagerEvents(rootEl) {
@@ -18881,6 +18937,7 @@ async function __tmRefreshAfterWake(reason) {
         state.priorityModal.innerHTML = __tmRenderPriorityScoreSettings(false);
         document.body.appendChild(state.priorityModal);
         __tmBindRulesManagerEvents(state.priorityModal);
+        state.__priorityUnstack = __tmModalStackBind(() => window.closePriorityScoreSettings?.());
     }
     window.showPriorityScoreSettings = showPriorityScoreSettings;
 
@@ -18894,6 +18951,8 @@ async function __tmRefreshAfterWake(reason) {
     }
 
     window.closePriorityScoreSettings = function() {
+        state.__priorityUnstack?.();
+        state.__priorityUnstack = null;
         if (state.priorityModal) {
             state.priorityModal.remove();
             state.priorityModal = null;
@@ -19074,13 +19133,19 @@ async function __tmRefreshAfterWake(reason) {
                     </div>
                 </div>
                 <div class="tm-prompt-buttons">
-                    <button class="tm-prompt-btn tm-prompt-btn-secondary" onclick="this.closest('.tm-prompt-modal').remove()">取消</button>
+                    <button class="tm-prompt-btn tm-prompt-btn-secondary" id="tm-cancel-quadrant-rule">取消</button>
                     <button class="tm-prompt-btn tm-prompt-btn-primary" id="tm-save-quadrant-rule">保存</button>
                 </div>
             </div>
         `;
         
         document.body.appendChild(modal);
+        const __quadrantRuleUnstack = __tmModalStackBind(() => modal.remove());
+
+        document.getElementById('tm-cancel-quadrant-rule').onclick = function() {
+            __quadrantRuleUnstack?.();
+            modal.remove();
+        };
         
         document.getElementById('tm-save-quadrant-rule').onclick = async function() {
             const selectedImportance = Array.from(modal.querySelectorAll('[data-quadrant-importance]:checked')).map(cb => cb.value);
@@ -19102,6 +19167,7 @@ async function __tmRefreshAfterWake(reason) {
             SettingsStore.data.quadrantConfig = quadrantConfig;
             await SettingsStore.save();
             
+            __quadrantRuleUnstack?.();
             modal.remove();
             hint('✅ 四象限规则已更新', 'success');
             showSettings();
@@ -19268,6 +19334,8 @@ async function __tmRefreshAfterWake(reason) {
     };
 
     window.tmClosePriorityDocDeltaPicker = function() {
+        state.__priorityDocDeltaPickerUnstack?.();
+        state.__priorityDocDeltaPickerUnstack = null;
         if (state.priorityDocDeltaPicker) {
             try { state.priorityDocDeltaPicker.remove(); } catch (e) {}
             state.priorityDocDeltaPicker = null;
@@ -19275,6 +19343,8 @@ async function __tmRefreshAfterWake(reason) {
     };
 
     window.tmClosePriorityGroupDeltaPicker = function() {
+        state.__priorityGroupDeltaPickerUnstack?.();
+        state.__priorityGroupDeltaPickerUnstack = null;
         if (state.priorityGroupDeltaPicker) {
             try { state.priorityGroupDeltaPicker.remove(); } catch (e) {}
             state.priorityGroupDeltaPicker = null;
@@ -19351,6 +19421,7 @@ async function __tmRefreshAfterWake(reason) {
         `;
         document.body.appendChild(picker);
         state.priorityDocDeltaPicker = picker;
+        state.__priorityDocDeltaPickerUnstack = __tmModalStackBind(() => window.tmClosePriorityDocDeltaPicker?.());
 
         const listEl = picker.querySelector('#tmPriorityDocDeltaList');
 
@@ -19469,6 +19540,7 @@ async function __tmRefreshAfterWake(reason) {
         `;
         document.body.appendChild(picker);
         state.priorityGroupDeltaPicker = picker;
+        state.__priorityGroupDeltaPickerUnstack = __tmModalStackBind(() => window.tmClosePriorityGroupDeltaPicker?.());
 
         const listEl = picker.querySelector('#tmPriorityGroupDeltaList');
         if (!listEl) return;
@@ -19794,6 +19866,10 @@ async function __tmRefreshAfterWake(reason) {
     };
 
     window.closeRulesManager = function() {
+        state.__priorityUnstack?.();
+        state.__priorityUnstack = null;
+        state.__rulesUnstack?.();
+        state.__rulesUnstack = null;
         if (state.rulesModal) {
             state.rulesModal.remove();
             state.rulesModal = null;
@@ -21292,12 +21368,12 @@ async function __tmRefreshAfterWake(reason) {
     window.tmShowSearchModal = function() {
         const modal = document.createElement('div');
         modal.className = 'tm-modal';
-        modal.style.zIndex = '200001'; // 高于主界面
+        modal.style.zIndex = '200001';
         modal.innerHTML = `
             <div class="tm-box" style="width: 500px; height: auto; max-height: 80vh; position: relative;">
                 <div class="tm-header">
                     <div style="font-size: 18px; font-weight: bold; color: var(--tm-text-color);">🔍 搜索任务</div>
-                    <button class="tm-btn tm-btn-gray" onclick="this.closest('.tm-modal').remove()">关闭</button>
+                    <button class="tm-btn tm-btn-gray" onclick="window.__tmCloseSearchModal?.()">关闭</button>
                 </div>
                 <div style="padding: 20px;">
                     <input type="text" id="tmPopupSearchInput" class="tm-input" 
@@ -21305,22 +21381,25 @@ async function __tmRefreshAfterWake(reason) {
                            value="${esc(String(state.searchKeyword || ''))}" 
                            style="width: 100%; margin-bottom: 15px; font-size: 16px; padding: 8px;">
                     <div style="display: flex; justify-content: flex-end; gap: 10px;">
-                         <button class="tm-btn tm-btn-secondary" onclick="tmSearch(''); this.closest('.tm-modal').remove()">清除搜索</button>
-                         <button class="tm-btn tm-btn-primary" onclick="tmSearch(document.getElementById('tmPopupSearchInput').value); this.closest('.tm-modal').remove()">搜索</button>
+                         <button class="tm-btn tm-btn-secondary" onclick="tmSearch(''); window.__tmCloseSearchModal?.()">清除搜索</button>
+                         <button class="tm-btn tm-btn-primary" onclick="tmSearch(document.getElementById('tmPopupSearchInput').value); window.__tmCloseSearchModal?.()">搜索</button>
                     </div>
                 </div>
             </div>
         `;
         document.body.appendChild(modal);
-        // 自动聚焦
+        state.__searchUnstack = __tmModalStackBind(() => window.__tmCloseSearchModal?.());
+        window.__tmCloseSearchModal = function() {
+            state.__searchUnstack?.();
+            state.__searchUnstack = null;
+            try { modal.remove(); } catch (e) {}
+        };
         setTimeout(() => modal.querySelector('input').focus(), 50);
-        
-        // 回车搜索
         const input = modal.querySelector('input');
         input.onkeyup = (e) => {
             if (e.key === 'Enter') {
                 tmSearch(input.value);
-                modal.remove();
+                window.__tmCloseSearchModal?.();
             }
         };
     };
@@ -31728,6 +31807,8 @@ async function __tmRefreshAfterWake(reason) {
         ];
     }
 
+    let __desktopMenuUnstack = null;
+
     window.tmToggleDesktopMenu = function(e) {
         if (e) { e.stopPropagation(); e.preventDefault(); }
         
@@ -31739,6 +31820,8 @@ async function __tmRefreshAfterWake(reason) {
                 try { document.removeEventListener('click', state.desktopMenuCloseHandler); } catch (e2) {}
                 state.desktopMenuCloseHandler = null;
             }
+            __desktopMenuUnstack?.();
+            __desktopMenuUnstack = null;
             __tmAnimatePopupOutAndRemove(existing);
             return;
         }
@@ -31821,6 +31904,8 @@ async function __tmRefreshAfterWake(reason) {
         // 点击外部关闭
         const closeHandler = (ev) => {
             if (!menu.contains(ev.target) && ev.target !== e.target) {
+                __desktopMenuUnstack?.();
+                __desktopMenuUnstack = null;
                 menu.remove();
                 try { document.removeEventListener('click', closeHandler); } catch (e2) {}
                 if (state.desktopMenuCloseHandler === closeHandler) state.desktopMenuCloseHandler = null;
@@ -31857,9 +31942,12 @@ async function __tmRefreshAfterWake(reason) {
             menu.style.top = `${nextTop}px`;
         } catch (e2) {}
         __tmAnimatePopupIn(menu, { origin: 'top-right' });
+        __desktopMenuUnstack = __tmModalStackBind(window.tmCloseDesktopMenu);
     };
 
     window.tmCloseDesktopMenu = function() {
+        __desktopMenuUnstack?.();
+        __desktopMenuUnstack = null;
         try {
             if (state.desktopMenuCloseTimer) {
                 clearTimeout(state.desktopMenuCloseTimer);
@@ -32070,6 +32158,8 @@ async function __tmRefreshAfterWake(reason) {
     };
 
     function __tmCloseTopbarSelects() {
+        state.__topbarSelectUnstack?.();
+        state.__topbarSelectUnstack = null;
         try {
             document.querySelectorAll('.tm-topbar-select[data-open="true"]').forEach((el) => {
                 try { el.dataset.open = 'false'; } catch (e) {}
@@ -32189,6 +32279,7 @@ async function __tmRefreshAfterWake(reason) {
                 menu.style.top = `${Math.min(Math.round(rect.bottom + 8), maxTop)}px`;
                 __tmAnimatePopupIn(menu, { origin: 'top-left' });
             }
+            state.__topbarSelectUnstack = __tmModalStackBind(() => __tmCloseTopbarSelects());
         }
     };
 
@@ -32197,14 +32288,9 @@ async function __tmRefreshAfterWake(reason) {
         __tmCloseTopbarSelects();
     }
 
-    function __tmOnTopbarSelectOutsideKeydown(event) {
-        if (String(event?.key || '') === 'Escape') __tmCloseTopbarSelects();
-    }
-
     if (!window.__tmTopbarSelectOutsideBound) {
         window.__tmTopbarSelectOutsideBound = true;
         document.addEventListener('click', __tmOnTopbarSelectOutsideClick, true);
-        document.addEventListener('keydown', __tmOnTopbarSelectOutsideKeydown, true);
     }
 
     window.tmClose = function(event) {
@@ -33092,6 +33178,8 @@ async function __tmRefreshAfterWake(reason) {
         return false;
     }
 
+    let __contextMenuUnstack = null;
+
     function __tmShowCollectedOtherBlockContextMenu(event, taskId) {
         const tid = String(taskId || '').trim();
         const task = state.flatTasks?.[tid];
@@ -33104,6 +33192,8 @@ async function __tmRefreshAfterWake(reason) {
             try { document.removeEventListener('contextmenu', state.taskContextMenuCloseHandler); } catch (e) {}
             state.taskContextMenuCloseHandler = null;
         }
+        __contextMenuUnstack?.();
+        __contextMenuUnstack = null;
 
         const menu = document.createElement('div');
         menu.id = 'tm-task-context-menu';
@@ -33141,7 +33231,7 @@ async function __tmRefreshAfterWake(reason) {
             item.onmouseleave = () => item.style.backgroundColor = 'transparent';
             item.onclick = async (ev) => {
                 try { ev.stopPropagation(); } catch (e) {}
-                try { menu.remove(); } catch (e) {}
+                try { closeHandler(); } catch (e) {}
                 await onClick?.();
             };
             return item;
@@ -33212,7 +33302,7 @@ async function __tmRefreshAfterWake(reason) {
                 b.onclick = async (e) => {
                     e.stopPropagation();
                     await runTaskTimer(min, 'countdown');
-                    menu.remove();
+                    try { closeHandler(); } catch (e2) {}
                 };
                 btnRow.appendChild(b);
             });
@@ -33223,7 +33313,7 @@ async function __tmRefreshAfterWake(reason) {
             sw.onclick = async (e) => {
                 e.stopPropagation();
                 await runTaskTimer(0, 'stopwatch');
-                menu.remove();
+                try { closeHandler(); } catch (e2) {}
             };
             btnRow.appendChild(sw);
             timerWrap.appendChild(btnRow);
@@ -33283,12 +33373,15 @@ async function __tmRefreshAfterWake(reason) {
             } catch (e) {}
         });
         const closeHandler = () => {
+            __contextMenuUnstack?.();
+            __contextMenuUnstack = null;
             try { menu.remove(); } catch (e) {}
             try { document.removeEventListener('click', closeHandler); } catch (e) {}
             try { document.removeEventListener('contextmenu', closeHandler); } catch (e) {}
             if (state.taskContextMenuCloseHandler === closeHandler) state.taskContextMenuCloseHandler = null;
         };
         state.taskContextMenuCloseHandler = closeHandler;
+        __contextMenuUnstack = __tmModalStackBind(closeHandler);
         setTimeout(() => {
             try { document.addEventListener('click', closeHandler); } catch (e) {}
             try { document.addEventListener('contextmenu', closeHandler); } catch (e) {}
@@ -34873,7 +34966,11 @@ async function __tmRefreshAfterWake(reason) {
 
     let __tmInlineEditorState = null;
 
+    let __inlineEditorUnstack = null;
+
     function __tmCloseInlineEditor() {
+        __inlineEditorUnstack?.();
+        __inlineEditorUnstack = null;
         if (!__tmInlineEditorState) return;
         try { __tmInlineEditorState.cleanup?.(); } catch (e) {}
         try { __tmInlineEditorState.el?.remove?.(); } catch (e) {}
@@ -34951,20 +35048,14 @@ async function __tmRefreshAfterWake(reason) {
             if (anchorEl.contains && anchorEl.contains(t)) return;
             __tmCloseInlineEditor();
         };
-        const onDocKeyDown = (e) => {
-            if (e.key === 'Escape') {
-                e.preventDefault();
-                __tmCloseInlineEditor();
-            }
-        };
 
         document.addEventListener('pointerdown', onDocPointerDown, true);
-        document.addEventListener('keydown', onDocKeyDown, true);
 
         cleanupFns.push(() => document.removeEventListener('pointerdown', onDocPointerDown, true));
-        cleanupFns.push(() => document.removeEventListener('keydown', onDocKeyDown, true));
 
         __tmInlineEditorState = { el: editor, cleanup };
+
+        __inlineEditorUnstack = __tmModalStackBind(__tmCloseInlineEditor);
 
         try {
             const focusable = editor.querySelector('input,select,button,textarea');
@@ -40699,6 +40790,10 @@ async function __tmRefreshAfterWake(reason) {
     };
 
     window.tmQuickAddClose = function() {
+        state.__quickAddDocPickerUnstack?.();
+        state.__quickAddDocPickerUnstack = null;
+        state.__quickAddUnstack?.();
+        state.__quickAddUnstack = null;
         if (state.quickAddModal) {
             try { state.quickAddModal.remove(); } catch (e) {}
             state.quickAddModal = null;
@@ -40820,35 +40915,10 @@ async function __tmRefreshAfterWake(reason) {
             };
         }
 
-        const __tmQuickAddEscHandler = (e) => {
-            if (e.key !== 'Escape') return;
-            if (!state.quickAddModal) {
-                try { document.removeEventListener('keydown', __tmQuickAddEscHandler, true); } catch (e2) {}
-                return;
-            }
-            try { e.preventDefault(); } catch (e2) {}
-            try { e.stopPropagation(); } catch (e2) {}
-            const hasStatusEditor = !!document.querySelector('.tm-inline-editor');
-            if (hasStatusEditor) {
-                return;
-            }
-            if (state.quickAddDocPicker) {
-                window.tmQuickAddCloseDocPicker?.();
-                return;
-            }
-            window.tmQuickAddClose?.();
-            try { document.removeEventListener('keydown', __tmQuickAddEscHandler, true); } catch (e2) {}
-        };
-        document.addEventListener('keydown', __tmQuickAddEscHandler, true);
+        state.__quickAddUnstack = __tmModalStackBind(() => window.tmQuickAddClose?.());
 
         modal.onclick = (e) => {
-            if (e.target === modal) {
-                if (state.quickAddDocPicker) {
-                    window.tmQuickAddCloseDocPicker?.();
-                    return;
-                }
-                window.tmQuickAddClose?.();
-            }
+            if (e.target === modal) window.tmQuickAddClose?.();
         };
 
         window.tmQuickAddRenderMeta?.();
@@ -41132,6 +41202,8 @@ async function __tmRefreshAfterWake(reason) {
         document.body.appendChild(picker);
         state.quickAddDocPicker = picker;
 
+        state.__quickAddDocPickerUnstack = __tmModalStackBind(() => window.tmQuickAddCloseDocPicker?.());
+
         picker.onclick = (e) => {
             if (e.target === picker) window.tmQuickAddCloseDocPicker?.();
         };
@@ -41292,6 +41364,8 @@ async function __tmRefreshAfterWake(reason) {
     };
 
     window.tmQuickAddCloseDocPicker = function() {
+        state.__quickAddDocPickerUnstack?.();
+        state.__quickAddDocPickerUnstack = null;
         if (state.quickAddDocPicker) {
             try { state.quickAddDocPicker.remove(); } catch (e) {}
             state.quickAddDocPicker = null;
@@ -42278,10 +42352,8 @@ async function __tmRefreshAfterWake(reason) {
         let savedSettingsContentScrollTop = Number(state.settingsContentScrollTop) || 0;
         if (state.settingsModal) {
             try {
-                if (__tmSettingsEscHandler) {
-                    document.removeEventListener('keydown', __tmSettingsEscHandler, true);
-                    __tmSettingsEscHandler = null;
-                }
+                state.__settingsUnstack?.();
+                state.__settingsUnstack = null;
             } catch (e) {}
             try {
                 const prevSidebar = state.settingsModal.querySelector('.tm-settings-sidebar');
@@ -43503,16 +43575,7 @@ async function __tmRefreshAfterWake(reason) {
             </div>
         `;
         document.body.appendChild(state.settingsModal);
-        try {
-            __tmSettingsEscHandler = (e) => {
-                if (e.key !== 'Escape') return;
-                if (!state.settingsModal || !document.body.contains(state.settingsModal)) return;
-                try { e.preventDefault(); } catch (err) {}
-                try { e.stopPropagation(); } catch (err) {}
-                closeSettings();
-            };
-            document.addEventListener('keydown', __tmSettingsEscHandler, true);
-        } catch (e) {}
+        state.__settingsUnstack = __tmModalStackBind(() => window.closeSettings?.());
         try {
             const settingsSidebar = state.settingsModal.querySelector('.tm-settings-sidebar');
             const settingsTabs = state.settingsModal.querySelector('.tm-settings-tabs');
@@ -44983,6 +45046,8 @@ async function __tmRefreshAfterWake(reason) {
     }
 
     function __tmCloseSummaryModal() {
+        state.__summaryUnstack?.();
+        state.__summaryUnstack = null;
         if (!state.summaryModal) return;
         try { state.summaryModal.remove(); } catch (e) {}
         state.summaryModal = null;
@@ -45114,6 +45179,7 @@ async function __tmRefreshAfterWake(reason) {
         `;
         state.summaryModal.appendChild(box);
         document.body.appendChild(state.summaryModal);
+        state.__summaryUnstack = __tmModalStackBind(() => __tmCloseSummaryModal());
 
         const root = state.summaryModal;
         const ctx = { docNameMap, docTaskCount, docToGroup, groupDocIdsMap, statusMap, groupNameMap, summaryTasks };
@@ -47193,12 +47259,8 @@ async function __tmRefreshAfterWake(reason) {
     };
 
     window.closeSettings = function() {
-        try {
-            if (__tmSettingsEscHandler) {
-                document.removeEventListener('keydown', __tmSettingsEscHandler, true);
-                __tmSettingsEscHandler = null;
-            }
-        } catch (e) {}
+        state.__settingsUnstack?.();
+        state.__settingsUnstack = null;
         if (state.settingsModal) {
             state.settingsModal.remove();
             state.settingsModal = null;
@@ -48412,10 +48474,8 @@ async function __tmRefreshAfterWake(reason) {
             }
         } catch (e) {}
         try {
-            if (__tmSettingsEscHandler) {
-                document.removeEventListener('keydown', __tmSettingsEscHandler, true);
-                __tmSettingsEscHandler = null;
-            }
+            state.__settingsUnstack?.();
+            state.__settingsUnstack = null;
         } catch (e) {}
         try {
             document.removeEventListener('pointerdown', __tmRememberFocusedProtyleOnPointerDown, true);
@@ -48548,7 +48608,6 @@ async function __tmRefreshAfterWake(reason) {
         } catch (e) {}
         try {
             document.removeEventListener('click', __tmOnTopbarSelectOutsideClick, true);
-            document.removeEventListener('keydown', __tmOnTopbarSelectOutsideKeydown, true);
             try { delete window.__tmTopbarSelectOutsideBound; } catch (e2) { window.__tmTopbarSelectOutsideBound = false; }
         } catch (e) {}
         try {
