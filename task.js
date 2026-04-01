@@ -40809,10 +40809,15 @@ async function __tmRefreshAfterWake(reason) {
         if (input) {
             setTimeout(() => {
                 input.focus();
-                // 移动端尝试触发软键盘
                 try { input.click(); } catch(e) {}
             }, 300);
             input.onkeydown = (e) => {
+                if (e.key === 'Escape') {
+                    try { e.preventDefault(); } catch (e2) {}
+                    try { e.stopPropagation(); } catch (e2) {}
+                    window.tmQuickAddClose?.();
+                    return;
+                }
                 if (e.key !== 'Enter') return;
                 if (e.shiftKey || e.ctrlKey || e.altKey || e.metaKey) return;
                 try { e.preventDefault(); } catch (e2) {}
@@ -40820,6 +40825,24 @@ async function __tmRefreshAfterWake(reason) {
                 window.tmQuickAddSubmit?.();
             };
         }
+
+        const onEscKey = (e) => {
+            if (e.key !== 'Escape') return;
+            if (!state.quickAddModal) return;
+            try { e.preventDefault(); } catch (e2) {}
+            try { e.stopPropagation(); } catch (e2) {}
+            if (state.quickAddDocPicker) {
+                window.tmQuickAddCloseDocPicker?.();
+                return;
+            }
+            window.tmQuickAddClose?.();
+            try { document.removeEventListener('keydown', onEscKey, true); } catch (e2) {}
+        };
+        document.addEventListener('keydown', onEscKey, true);
+
+        modal.onclick = (e) => {
+            if (e.target === modal) window.tmQuickAddClose?.();
+        };
 
         window.tmQuickAddRenderMeta?.();
     };
