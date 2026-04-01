@@ -1,5 +1,5 @@
 // @name         思源笔记任务管理器
-// @version      2.0.3
+// @version      2.0.4
 // @description  任务管理器，支持自定义筛选规则分组和排序
 // @author       5KYFKR
 
@@ -21767,8 +21767,13 @@ async function __tmRefreshAfterWake(reason) {
         if (!__tmRefreshChecklistSelectionInPlace(state.modal)) render();
     };
 
+    function __tmChecklistTouchTargetIsInteractive(target) {
+        return !!target?.closest?.('input,button,select,textarea,a,label,.tm-tree-toggle,.tm-task-checkbox,.tm-task-checkbox-wrap,.tm-checklist-mobile-toggle');
+    }
+
     window.tmChecklistItemTouchStart = function(ev, taskId) {
         if (!__tmIsRuntimeMobileClient()) return;
+        if (__tmChecklistTouchTargetIsInteractive(ev?.target)) return;
         const item = ev?.currentTarget instanceof HTMLElement
             ? ev.currentTarget
             : ev?.target?.closest?.('.tm-checklist-item');
@@ -21801,6 +21806,7 @@ async function __tmRefreshAfterWake(reason) {
 
     window.tmChecklistItemTouchEnd = function(taskId, ev) {
         if (!__tmIsRuntimeMobileClient()) return;
+        if (__tmChecklistTouchTargetIsInteractive(ev?.target)) return;
         const item = ev?.currentTarget instanceof HTMLElement
             ? ev.currentTarget
             : ev?.target?.closest?.('.tm-checklist-item');
