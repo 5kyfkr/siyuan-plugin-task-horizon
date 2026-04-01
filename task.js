@@ -1,5 +1,5 @@
 // @name         思源笔记任务管理器
-// @version      2.0.2
+// @version      2.0.3
 // @description  任务管理器，支持自定义筛选规则分组和排序
 // @author       5KYFKR
 
@@ -7787,6 +7787,7 @@
     const META_FILE_PATH = `${PLUGIN_STORAGE_DIR}/task-meta.json`;
     const SETTINGS_FILE_PATH = `${PLUGIN_STORAGE_DIR}/task-settings.json`;
     const WHITEBOARD_DATA_FILE_PATH = `${PLUGIN_STORAGE_DIR}/whiteboard-data.json`;
+    const SEMANTIC_DATE_RECOGNIZED_FILE_PATH = `${PLUGIN_STORAGE_DIR}/semantic-date-recognized.json`;
     const __TM_OTHER_BLOCK_TAB_ID = '__tm_other_blocks__';
     const __TM_OTHER_BLOCK_TAB_NAME = '其他块';
     const WHITEBOARD_DATA_CACHE_KEY = 'tm_whiteboard_data_cache';
@@ -12235,6 +12236,129 @@
 
     const __TM_SEMANTIC_DATE_RECOGNIZED_KEY = 'tm_semantic_date_recognized';
 
+    const SemanticDateRecognizedStore = {
+        data: Storage.get(__TM_SEMANTIC_DATE_RECOGNIZED_KEY, {}) || {},
+        loaded: false,
+        loadingPromise: null,
+        saving: false,
+        saveDirty: false,
+        saveTimer: null,
+
+        normalize(input) {
+            const source = (input && typeof input === 'object' && !Array.isArray(input)) ? input : {};
+            const out = {};
+            Object.entries(source).forEach(([taskId, raw]) => {
+                const id = String(taskId || '').trim();
+                if (!id) return;
+                const item = (raw && typeof raw === 'object' && !Array.isArray(raw))
+                    ? raw
+                    : { signature: String(raw || '').trim() };
+                const signature = String(item.signature || '').trim();
+                if (!signature) return;
+                out[id] = {
+                    signature,
+                    recognizedAt: Number(item.recognizedAt) || Date.now(),
+                    completionValue: String(item.completionValue || '').trim(),
+                    hasTime: !!item.hasTime,
+                };
+            });
+            return out;
+        },
+
+        async load() {
+            if (this.loaded) return this.data;
+            if (this.loadingPromise) return this.loadingPromise;
+            this.loadingPromise = Promise.resolve().then(async () => {
+                let next = this.normalize(Storage.get(__TM_SEMANTIC_DATE_RECOGNIZED_KEY, {}) || {});
+                try {
+                    const res = await fetch('/api/file/getFile', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ path: SEMANTIC_DATE_RECOGNIZED_FILE_PATH }),
+                    });
+                    if (res.ok) {
+                        const text = await res.text();
+                        if (text && text.trim()) {
+                            const json = JSON.parse(text);
+                            const fromFile = this.normalize(json);
+                            if (Object.keys(fromFile).length > 0) next = fromFile;
+                        }
+                    }
+                } catch (e) {}
+                this.data = next;
+                try { Storage.set(__TM_SEMANTIC_DATE_RECOGNIZED_KEY, this.data || {}); } catch (e) {}
+                this.loaded = true;
+                return this.data;
+            }).finally(() => {
+                this.loadingPromise = null;
+            });
+            return this.loadingPromise;
+        },
+
+        snapshot() {
+            return this.normalize(this.data);
+        },
+
+        upsertMany(items) {
+            const list = Array.isArray(items) ? items : [];
+            if (!list.length) return;
+            const base = this.normalize(this.data);
+            const now = Date.now();
+            list.forEach((item) => {
+                const taskId = String(item?.taskId || '').trim();
+                const signature = String(item?.signature || '').trim();
+                if (!taskId || !signature) return;
+                base[taskId] = {
+                    signature,
+                    recognizedAt: now,
+                    completionValue: String(item?.completionValue || '').trim(),
+                    hasTime: !!item?.hasTime,
+                };
+            });
+            this.data = base;
+            this.loaded = true;
+            this.saveDirty = true;
+            try { Storage.set(__TM_SEMANTIC_DATE_RECOGNIZED_KEY, this.data || {}); } catch (e) {}
+            try { if (this.saveTimer) clearTimeout(this.saveTimer); } catch (e) {}
+            this.saveTimer = setTimeout(() => {
+                this.saveTimer = null;
+                this.saveNow();
+            }, 120);
+            try { this.saveNow(); } catch (e) {}
+        },
+
+        async saveNow() {
+            if (this.saving) return;
+            if (!this.saveDirty) return;
+            this.saving = true;
+            this.saveDirty = false;
+            try {
+                this.data = this.normalize(this.data);
+                try { Storage.set(__TM_SEMANTIC_DATE_RECOGNIZED_KEY, this.data || {}); } catch (e) {}
+                const formDir = new FormData();
+                formDir.append('path', PLUGIN_STORAGE_DIR);
+                formDir.append('isDir', 'true');
+                await fetch('/api/file/putFile', { method: 'POST', body: formDir }).catch(() => null);
+
+                const form = new FormData();
+                form.append('path', SEMANTIC_DATE_RECOGNIZED_FILE_PATH);
+                form.append('isDir', 'false');
+                form.append('file', new Blob([JSON.stringify(this.data || {}, null, 2)], { type: 'application/json' }));
+                await fetch('/api/file/putFile', { method: 'POST', body: form }).catch(() => null);
+            } catch (e) {
+            } finally {
+                this.saving = false;
+                if (this.saveDirty) {
+                    try { if (this.saveTimer) clearTimeout(this.saveTimer); } catch (e2) {}
+                    this.saveTimer = setTimeout(() => {
+                        this.saveTimer = null;
+                        this.saveNow();
+                    }, 120);
+                }
+            }
+        }
+    };
+
     function __tmSemanticPad2(n) {
         return String(Math.max(0, Math.floor(Number(n) || 0))).padStart(2, '0');
     }
@@ -12296,6 +12420,13 @@
         return (hh >= 0 && hh <= 23) ? hh : null;
     }
 
+    function __tmSemanticNormalizeMatchText(value) {
+        return String(value || '')
+            .replace(/[，。；、]/g, ' ')
+            .replace(/\s+/g, ' ')
+            .trim();
+    }
+
     function __tmSemanticExtractTimeInfo(rawText) {
         const text = String(rawText || '')
             .replace(/[，。；、]/g, ' ')
@@ -12308,10 +12439,13 @@
             const minute = Number(colon[3]);
             const hour = __tmSemanticAdjustHourByPeriod(hour0, colon[1]);
             if (Number.isFinite(hour) && Number.isFinite(minute) && minute >= 0 && minute <= 59) {
+                const matchedText = __tmSemanticNormalizeMatchText(colon[0]);
                 return {
                     hour,
                     minute,
                     label: `${hour0}:${__tmSemanticPad2(minute)}${colon[1] ? `（${colon[1]}）` : ''}`,
+                    stableKey: `clock:${matchedText}`,
+                    matchedText,
                 };
             }
         }
@@ -12326,10 +12460,13 @@
         else if (cn[4] !== undefined && cn[4] !== null && String(cn[4]).trim() !== '') minute = Number(cn[4]);
         const hour = __tmSemanticAdjustHourByPeriod(hour0, cn[1]);
         if (!Number.isFinite(hour) || !Number.isFinite(minute) || minute < 0 || minute > 59) return null;
+        const matchedText = __tmSemanticNormalizeMatchText(cn[0]);
         return {
             hour,
             minute,
             label: `${hour0}点${suffix || ''}${cn[1] ? `（${cn[1]}）` : ''}`,
+            stableKey: `cn:${matchedText}`,
+            matchedText,
         };
     }
 
@@ -12349,17 +12486,26 @@
         const weekday = /((本周|这周|下周|下下周)?\s*(周|星期|礼拜)\s*([一二三四五六日天1-7]))/.exec(text);
         let dt = null;
         let reason = '';
+        let stableKey = '';
+        let matchedText = '';
+        let isRelative = false;
         if (ymd) {
             dt = __tmSemanticClampYmd(ymd[1], ymd[2], ymd[3]);
             reason = '识别到明确日期';
+            matchedText = __tmSemanticNormalizeMatchText(ymd[0]);
+            stableKey = `ymd:${matchedText}`;
         } else if (mdCn) {
             dt = __tmSemanticClampYmd(today.getFullYear(), mdCn[1], mdCn[2]);
             if (dt && dt.getTime() < todayMs) dt.setFullYear(dt.getFullYear() + 1);
             reason = '识别到月日表达';
+            matchedText = __tmSemanticNormalizeMatchText(mdCn[0]);
+            stableKey = `mdcn:${matchedText}`;
         } else if (md) {
             dt = __tmSemanticClampYmd(today.getFullYear(), md[2], md[3]);
             if (dt && dt.getTime() < todayMs) dt.setFullYear(dt.getFullYear() + 1);
             reason = '识别到数字日期';
+            matchedText = __tmSemanticNormalizeMatchText(md[0]);
+            stableKey = `md:${matchedText}`;
         } else if (rel) {
             dt = new Date(today.getTime());
             const token = String(rel[1] || '').trim();
@@ -12367,12 +12513,18 @@
             else if (token === '后天') dt.setDate(dt.getDate() + 2);
             else if (token === '大后天') dt.setDate(dt.getDate() + 3);
             reason = `识别到${token}`;
+            matchedText = __tmSemanticNormalizeMatchText(rel[0]);
+            stableKey = `rel:${matchedText}`;
+            isRelative = true;
         } else if (dur) {
             dt = new Date(today.getTime());
             const n = parseInt(dur[1], 10) || 0;
             if (dur[2] === '天' || dur[2] === '日') dt.setDate(dt.getDate() + n);
             else dt.setDate(dt.getDate() + n * 7);
             reason = `识别到“${dur[0]}”`;
+            matchedText = __tmSemanticNormalizeMatchText(dur[0]);
+            stableKey = `dur:${matchedText}`;
+            isRelative = true;
         } else if (weekday) {
             const scope = String(weekday[2] || '').trim();
             const targetDow = __tmSemanticDowFromToken(weekday[4]);
@@ -12384,13 +12536,22 @@
                 else if (!scope && forward === 0) forward += 7;
                 dt.setDate(dt.getDate() + forward);
                 reason = `识别到${weekday[1]}`;
+                matchedText = __tmSemanticNormalizeMatchText(weekday[1]);
+                stableKey = `weekday:${matchedText}`;
+                isRelative = true;
             }
         }
         if (!(dt instanceof Date) || Number.isNaN(dt.getTime())) return null;
-        return { date: dt, reason: reason || '识别到日期' };
+        return {
+            date: dt,
+            reason: reason || '识别到日期',
+            stableKey: stableKey || `date:${__tmSemanticFormatDateKey(dt)}`,
+            matchedText: matchedText || __tmSemanticFormatDateKey(dt),
+            isRelative,
+        };
     }
 
-    function __tmBuildSemanticTaskSignature(task, completionValue, sourceKey) {
+    function __tmBuildSemanticTaskLegacySignature(task, completionValue, sourceKey) {
         return [
             String(task?.content || '').trim(),
             String(task?.remark || '').trim(),
@@ -12399,32 +12560,28 @@
         ].join('||');
     }
 
+    function __tmBuildSemanticTaskSignature(task, sourceKey, dateStableKey, timeStableKey) {
+        return [
+            String(sourceKey || '').trim(),
+            String(dateStableKey || '').trim(),
+            String(timeStableKey || '').trim(),
+        ].join('||');
+    }
+
     function __tmLoadSemanticDateRecognizedMap() {
-        const raw = Storage.get(__TM_SEMANTIC_DATE_RECOGNIZED_KEY, {});
-        return (raw && typeof raw === 'object' && !Array.isArray(raw)) ? raw : {};
+        return SemanticDateRecognizedStore.snapshot();
     }
 
     function __tmSaveSemanticDateRecognizedMap(map) {
-        Storage.set(__TM_SEMANTIC_DATE_RECOGNIZED_KEY, (map && typeof map === 'object' && !Array.isArray(map)) ? map : {});
+        SemanticDateRecognizedStore.data = SemanticDateRecognizedStore.normalize(map);
+        SemanticDateRecognizedStore.loaded = true;
+        SemanticDateRecognizedStore.saveDirty = true;
+        try { Storage.set(__TM_SEMANTIC_DATE_RECOGNIZED_KEY, SemanticDateRecognizedStore.data || {}); } catch (e) {}
+        try { SemanticDateRecognizedStore.saveNow(); } catch (e) {}
     }
 
     function __tmMarkSemanticDateSuggestionsRecognized(items) {
-        const list = Array.isArray(items) ? items : [];
-        if (!list.length) return;
-        const now = Date.now();
-        const next = __tmLoadSemanticDateRecognizedMap();
-        list.forEach((item) => {
-            const taskId = String(item?.taskId || '').trim();
-            const signature = String(item?.signature || '').trim();
-            if (!taskId || !signature) return;
-            next[taskId] = {
-                signature,
-                recognizedAt: now,
-                completionValue: String(item?.completionValue || '').trim(),
-                hasTime: !!item?.hasTime,
-            };
-        });
-        __tmSaveSemanticDateRecognizedMap(next);
+        SemanticDateRecognizedStore.upsertMany(items);
     }
 
     function __tmLoadCalendarScheduledTaskIds() {
@@ -12464,13 +12621,18 @@
                 hasTime: !!timeInfo,
                 start: timeInfo ? new Date(resolved.getTime()) : null,
                 reason: `${source.label}：${dateInfo.reason}${timeInfo ? `，识别到 ${timeInfo.label}` : ''}`,
-                signature: __tmBuildSemanticTaskSignature(target, completionValue, source.key),
+                isRelativeDate: !!dateInfo.isRelative,
+                sourceKey: String(source.key || '').trim(),
+                dateStableKey: String(dateInfo.stableKey || '').trim(),
+                timeStableKey: String(timeInfo?.stableKey || '').trim(),
+                signature: __tmBuildSemanticTaskSignature(target, source.key, dateInfo.stableKey, timeInfo?.stableKey),
             };
         }
         return null;
     }
 
-    function __tmCollectSemanticDateSuggestions(tasks) {
+    async function __tmCollectSemanticDateSuggestions(tasks) {
+        try { await SemanticDateRecognizedStore.load(); } catch (e) {}
         const list = Array.isArray(tasks) ? tasks : [];
         const recognizedMap = __tmLoadSemanticDateRecognizedMap();
         const scheduledTaskIds = __tmLoadCalendarScheduledTaskIds();
@@ -12485,6 +12647,10 @@
             const recognized = recognizedMap[taskId];
             const prevSignature = String(recognized?.signature || recognized || '').trim();
             if (prevSignature && prevSignature === suggestion.signature) return;
+            if (suggestion.isRelativeDate) {
+                const legacySignature = __tmBuildSemanticTaskLegacySignature(task, recognized?.completionValue, suggestion.sourceKey);
+                if (prevSignature && recognized?.completionValue && prevSignature === legacySignature) return;
+            }
             const scheduleExists = scheduledTaskIds.has(taskId);
             const calendarEligible = !!suggestion.hasTime && !scheduleExists && hasCalendarModule;
             out.push({
@@ -12670,12 +12836,12 @@
         state.semanticDateConfirmModal = modal;
     }
 
-    function __tmMaybeAutoPromptSemanticDates(token) {
+    async function __tmMaybeAutoPromptSemanticDates(token) {
         if (token !== undefined && token !== null && token !== (Number(state.openToken) || 0)) return;
         if (state.semanticDateAutoApplying) return;
         if (state.semanticDateConfirmModal && document.body.contains(state.semanticDateConfirmModal)) return;
         const tasks = Object.values(state.flatTasks || {});
-        const suggestions = __tmCollectSemanticDateSuggestions(tasks);
+        const suggestions = await __tmCollectSemanticDateSuggestions(tasks);
         if (!suggestions.length) return;
         __tmMarkSemanticDateSuggestionsRecognized(suggestions);
         __tmShowSemanticDateConfirmModal(suggestions);
@@ -42021,10 +42187,10 @@ async function __tmRefreshAfterWake(reason) {
                 if (state.modal && token === (Number(state.openToken) || 0)) {
                     try {
                         requestAnimationFrame(() => {
-                            try { __tmMaybeAutoPromptSemanticDates(token); } catch (e) {}
+                            try { void __tmMaybeAutoPromptSemanticDates(token).catch(() => null); } catch (e) {}
                         });
                     } catch (e) {
-                        try { __tmMaybeAutoPromptSemanticDates(token); } catch (e2) {}
+                        try { void __tmMaybeAutoPromptSemanticDates(token).catch(() => null); } catch (e2) {}
                     }
                 }
                 scheduleDeferredPostLoadWork();
@@ -48633,6 +48799,17 @@ async function __tmRefreshAfterWake(reason) {
             }
         } catch (e) {}
         try {
+            if (SemanticDateRecognizedStore?.saveTimer) {
+                clearTimeout(SemanticDateRecognizedStore.saveTimer);
+                SemanticDateRecognizedStore.saveTimer = null;
+            }
+            try {
+                if (SemanticDateRecognizedStore?.saveDirty && typeof SemanticDateRecognizedStore.saveNow === 'function') {
+                    SemanticDateRecognizedStore.saveNow();
+                }
+            } catch (e2) {}
+        } catch (e) {}
+        try {
             if (__tmWhiteboardViewSaveTimer) {
                 clearTimeout(__tmWhiteboardViewSaveTimer);
                 __tmWhiteboardViewSaveTimer = null;
@@ -49364,6 +49541,7 @@ async function __tmRefreshAfterWake(reason) {
         try {
             await Promise.all([
                 removePluginFile(`${PLUGIN_STORAGE_DIR}/calendar-events.json`),
+                removePluginFile(SEMANTIC_DATE_RECOGNIZED_FILE_PATH),
                 removePluginFile(`${PLUGIN_STORAGE_DIR}/ai-conversations.json`),
                 removePluginFile(`${PLUGIN_STORAGE_DIR}/ai-debug.json`),
                 removePluginFile(`${PLUGIN_STORAGE_DIR}/ai-prompt-templates.json`),
@@ -49440,6 +49618,7 @@ async function __tmRefreshAfterWake(reason) {
                 'tm_ai_minimax_timeout_ms',
                 'tm_ai_default_context_mode',
                 'tm_ai_schedule_windows',
+                __TM_SEMANTIC_DATE_RECOGNIZED_KEY,
                 'tm-ai-ui-prefs',
                 'tm-calendar-events',
                 'tm-calendar-mobile-notification-registry',
