@@ -1,5 +1,5 @@
 // @name         思源笔记任务管理器
-// @version      2.0.4
+// @version      2.0.5
 // @description  任务管理器，支持自定义筛选规则分组和排序
 // @author       5KYFKR
 
@@ -21768,7 +21768,7 @@ async function __tmRefreshAfterWake(reason) {
     };
 
     function __tmChecklistTouchTargetIsInteractive(target) {
-        return !!target?.closest?.('input,button,select,textarea,a,label,.tm-tree-toggle,.tm-task-checkbox,.tm-task-checkbox-wrap,.tm-checklist-mobile-toggle');
+        return !!target?.closest?.('input,button,select,textarea,a,label,.tm-tree-toggle,.tm-task-checkbox,.tm-task-checkbox-wrap,.tm-checklist-mobile-toggle,.tm-checklist-title-button');
     }
 
     window.tmChecklistItemTouchStart = function(ev, taskId) {
