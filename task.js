@@ -40812,12 +40812,6 @@ async function __tmRefreshAfterWake(reason) {
                 try { input.click(); } catch(e) {}
             }, 300);
             input.onkeydown = (e) => {
-                if (e.key === 'Escape') {
-                    try { e.preventDefault(); } catch (e2) {}
-                    try { e.stopPropagation(); } catch (e2) {}
-                    window.tmQuickAddClose?.();
-                    return;
-                }
                 if (e.key !== 'Enter') return;
                 if (e.shiftKey || e.ctrlKey || e.altKey || e.metaKey) return;
                 try { e.preventDefault(); } catch (e2) {}
@@ -40826,22 +40820,35 @@ async function __tmRefreshAfterWake(reason) {
             };
         }
 
-        const onEscKey = (e) => {
+        const __tmQuickAddEscHandler = (e) => {
             if (e.key !== 'Escape') return;
-            if (!state.quickAddModal) return;
+            if (!state.quickAddModal) {
+                try { document.removeEventListener('keydown', __tmQuickAddEscHandler, true); } catch (e2) {}
+                return;
+            }
             try { e.preventDefault(); } catch (e2) {}
             try { e.stopPropagation(); } catch (e2) {}
+            const hasStatusEditor = !!document.querySelector('.tm-inline-editor');
+            if (hasStatusEditor) {
+                return;
+            }
             if (state.quickAddDocPicker) {
                 window.tmQuickAddCloseDocPicker?.();
                 return;
             }
             window.tmQuickAddClose?.();
-            try { document.removeEventListener('keydown', onEscKey, true); } catch (e2) {}
+            try { document.removeEventListener('keydown', __tmQuickAddEscHandler, true); } catch (e2) {}
         };
-        document.addEventListener('keydown', onEscKey, true);
+        document.addEventListener('keydown', __tmQuickAddEscHandler, true);
 
         modal.onclick = (e) => {
-            if (e.target === modal) window.tmQuickAddClose?.();
+            if (e.target === modal) {
+                if (state.quickAddDocPicker) {
+                    window.tmQuickAddCloseDocPicker?.();
+                    return;
+                }
+                window.tmQuickAddClose?.();
+            }
         };
 
         window.tmQuickAddRenderMeta?.();
@@ -41124,6 +41131,10 @@ async function __tmRefreshAfterWake(reason) {
         `;
         document.body.appendChild(picker);
         state.quickAddDocPicker = picker;
+
+        picker.onclick = (e) => {
+            if (e.target === picker) window.tmQuickAddCloseDocPicker?.();
+        };
 
         const listEl = picker.querySelector('#tmQuickAddDocList');
         const renderGroup = (label, docs, groupKey, initialOpen = false) => {
