@@ -1,5 +1,5 @@
 // @name         思源笔记任务管理器
-// @version      2.0.5
+// @version      2.0.6
 // @description  任务管理器，支持自定义筛选规则分组和排序
 // @author       5KYFKR
 
@@ -21850,6 +21850,10 @@ async function __tmRefreshAfterWake(reason) {
         const id = String(taskId || '').trim();
         if (!id) return;
         try { ev?.stopPropagation?.(); } catch (e) {}
+        if (__tmIsRuntimeMobileClient()) {
+            window.tmJumpToTask(id, ev);
+            return;
+        }
         if (__tmShouldJumpOnDockChecklistTitleClick()) {
             window.tmJumpToTask(id, ev);
             return;
