@@ -1,5 +1,5 @@
 // @name         思源笔记任务管理器
-// @version      2.0.6
+// @version      2.0.7
 // @description  任务管理器，支持自定义筛选规则分组和排序
 // @author       5KYFKR
 
@@ -21748,12 +21748,7 @@ async function __tmRefreshAfterWake(reason) {
             try { ev?.stopPropagation?.(); } catch (e) {}
             return;
         }
-        if (__tmIsRuntimeMobileClient()) {
-            if (!ev?.__tmChecklistTapConfirmed) {
-                try { ev?.preventDefault?.(); } catch (e) {}
-                try { ev?.stopPropagation?.(); } catch (e) {}
-                return;
-            }
+        if (__tmIsMobileDevice()) {
             const pane = state.modal?.querySelector?.('.tm-checklist-scroll');
             if (Number(pane?.__tmChecklistSuppressTapUntil || 0) > Date.now()) {
                 try { ev?.preventDefault?.(); } catch (e) {}
@@ -21765,81 +21760,6 @@ async function __tmRefreshAfterWake(reason) {
         state.checklistDetailDismissed = false;
         if (__tmChecklistUseSheetMode(state.modal)) state.checklistDetailSheetOpen = true;
         if (!__tmRefreshChecklistSelectionInPlace(state.modal)) render();
-    };
-
-    function __tmChecklistTouchTargetIsInteractive(target) {
-        return !!target?.closest?.('input,button,select,textarea,a,label,.tm-tree-toggle,.tm-task-checkbox,.tm-task-checkbox-wrap,.tm-checklist-mobile-toggle,.tm-checklist-title-button');
-    }
-
-    window.tmChecklistItemTouchStart = function(ev, taskId) {
-        if (!__tmIsRuntimeMobileClient()) return;
-        if (__tmChecklistTouchTargetIsInteractive(ev?.target)) return;
-        const item = ev?.currentTarget instanceof HTMLElement
-            ? ev.currentTarget
-            : ev?.target?.closest?.('.tm-checklist-item');
-        if (!(item instanceof HTMLElement)) return;
-        const pane = item.closest('.tm-checklist-scroll');
-        const point = ev?.touches?.[0] || ev?.changedTouches?.[0] || null;
-        item.__tmChecklistTouchTap = {
-            taskId: String(taskId || '').trim(),
-            x: Number(point?.clientX || 0),
-            y: Number(point?.clientY || 0),
-            paneTop: Number(pane?.scrollTop || 0),
-            paneLastScrollAt: Number(pane?.__tmChecklistLastScrollAt || 0),
-            moved: false,
-            ts: Date.now(),
-        };
-    };
-
-    window.tmChecklistItemTouchMove = function(ev) {
-        if (!__tmIsRuntimeMobileClient()) return;
-        const item = ev?.currentTarget instanceof HTMLElement
-            ? ev.currentTarget
-            : ev?.target?.closest?.('.tm-checklist-item');
-        const tap = item?.__tmChecklistTouchTap;
-        if (!(item instanceof HTMLElement) || !tap) return;
-        const point = ev?.touches?.[0] || ev?.changedTouches?.[0] || null;
-        const dx = Math.abs(Number(point?.clientX || 0) - Number(tap.x || 0));
-        const dy = Math.abs(Number(point?.clientY || 0) - Number(tap.y || 0));
-        if ((dx + dy) > 10) tap.moved = true;
-    };
-
-    window.tmChecklistItemTouchEnd = function(taskId, ev) {
-        if (!__tmIsRuntimeMobileClient()) return;
-        if (__tmChecklistTouchTargetIsInteractive(ev?.target)) return;
-        const item = ev?.currentTarget instanceof HTMLElement
-            ? ev.currentTarget
-            : ev?.target?.closest?.('.tm-checklist-item');
-        const tap = item?.__tmChecklistTouchTap;
-        const pane = item?.closest?.('.tm-checklist-scroll');
-        if (item instanceof HTMLElement) {
-            try { delete item.__tmChecklistTouchTap; } catch (e) { item.__tmChecklistTouchTap = null; }
-        }
-        if (!tap || tap.moved) return;
-        if ((Date.now() - Number(tap.ts || 0)) > 450) return;
-        if (pane instanceof HTMLElement) {
-            const scrolledDistance = Math.abs(Number(pane.scrollTop || 0) - Number(tap.paneTop || 0));
-            const recentScrollAt = Math.max(Number(tap.paneLastScrollAt || 0), Number(pane.__tmChecklistLastScrollAt || 0));
-            if (scrolledDistance > 2) return;
-            if ((Date.now() - recentScrollAt) < 260) return;
-        }
-        try { ev?.preventDefault?.(); } catch (e) {}
-        try { ev?.stopPropagation?.(); } catch (e) {}
-        window.tmChecklistSelectTask(taskId, {
-            target: ev?.target || null,
-            preventDefault() {},
-            stopPropagation() {},
-            __tmChecklistTapConfirmed: true,
-        });
-    };
-
-    window.tmChecklistItemTouchCancel = function(ev) {
-        if (!__tmIsRuntimeMobileClient()) return;
-        const item = ev?.currentTarget instanceof HTMLElement
-            ? ev.currentTarget
-            : ev?.target?.closest?.('.tm-checklist-item');
-        if (!(item instanceof HTMLElement)) return;
-        try { delete item.__tmChecklistTouchTap; } catch (e) { item.__tmChecklistTouchTap = null; }
     };
 
     window.tmChecklistTitlePointerDown = function(ev) {
@@ -22682,7 +22602,7 @@ async function __tmRefreshAfterWake(reason) {
                     : `margin-left:${indent}px;`;
                 renderedChecklistTaskCount += 1;
                 return `
-                    <div class="tm-checklist-item${activeCls}${doneCls}${timerCls}" data-id="${esc(String(task.id || ''))}" data-depth="${depth}" draggable="true" ondragstart="tmDragTaskStart(event, '${escSq(String(task.id || ''))}')" ondragend="tmDragTaskEnd(event)" style="${itemIndentStyle}${accentStyle}${baseBg}${progressBg}" onclick="tmChecklistSelectTask('${escSq(String(task.id || ''))}', event)" ontouchstart="tmChecklistItemTouchStart(event, '${escSq(String(task.id || ''))}')" ontouchmove="tmChecklistItemTouchMove(event)" ontouchend="tmChecklistItemTouchEnd('${escSq(String(task.id || ''))}', event)" ontouchcancel="tmChecklistItemTouchCancel(event)" oncontextmenu="tmShowTaskContextMenu(event, '${escSq(String(task.id || ''))}')">
+                    <div class="tm-checklist-item${activeCls}${doneCls}${timerCls}" data-id="${esc(String(task.id || ''))}" data-depth="${depth}" draggable="true" ondragstart="tmDragTaskStart(event, '${escSq(String(task.id || ''))}')" ondragend="tmDragTaskEnd(event)" style="${itemIndentStyle}${accentStyle}${baseBg}${progressBg}" onclick="tmChecklistSelectTask('${escSq(String(task.id || ''))}', event)" oncontextmenu="tmShowTaskContextMenu(event, '${escSq(String(task.id || ''))}')">
                         <div class="tm-checklist-leading${hasChildren ? ' tm-checklist-leading--branch' : ''}${hasChildren && collapsed ? ' tm-checklist-leading--collapsed' : ''}">
                             ${hasChildren ? `<span class="tm-tree-toggle" onclick="tmToggleCollapse('${escSq(String(task.id || ''))}', event)" style="opacity:1;pointer-events:auto;color:var(--tm-text-color);"><svg class="tm-tree-toggle-icon" viewBox="0 0 16 16" width="16" height="16" style="transform:${collapsed ? 'rotate(0deg)' : 'rotate(90deg)'};"><path d="M6 4l4 4-4 4" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg></span>` : '<span class="tm-tree-toggle tm-tree-toggle--placeholder" aria-hidden="true"></span>'}
                             ${hasChildren && collapsed ? '<span class="tm-task-leading-ring" aria-hidden="true"></span>' : ''}
@@ -42546,7 +42466,7 @@ async function __tmRefreshAfterWake(reason) {
                     ? `--tm-checklist-compact-indent:${indent}px;`
                     : `margin-left:${indent}px;`;
                 return `
-                    <div class="tm-checklist-item${activeCls}${doneCls}${timerCls}" data-id="${esc(String(task.id || ''))}" data-depth="${depth}" style="${itemIndentStyle}${accentStyle}${baseBg}${progressBg}" onclick="tmChecklistSelectTask('${escSq(String(task.id || ''))}', event)" ontouchstart="tmChecklistItemTouchStart(event, '${escSq(String(task.id || ''))}')" ontouchmove="tmChecklistItemTouchMove(event)" ontouchend="tmChecklistItemTouchEnd('${escSq(String(task.id || ''))}', event)" ontouchcancel="tmChecklistItemTouchCancel(event)" oncontextmenu="tmShowTaskContextMenu(event, '${escSq(String(task.id || ''))}')">
+                    <div class="tm-checklist-item${activeCls}${doneCls}${timerCls}" data-id="${esc(String(task.id || ''))}" data-depth="${depth}" style="${itemIndentStyle}${accentStyle}${baseBg}${progressBg}" onclick="tmChecklistSelectTask('${escSq(String(task.id || ''))}', event)" oncontextmenu="tmShowTaskContextMenu(event, '${escSq(String(task.id || ''))}')">
                         <div class="tm-checklist-leading${hasChildren ? ' tm-checklist-leading--branch' : ''}${hasChildren && collapsed ? ' tm-checklist-leading--collapsed' : ''}">
                             ${hasChildren ? `<span class="tm-tree-toggle" onclick="tmToggleCollapse('${escSq(String(task.id || ''))}', event)" style="opacity:1;pointer-events:auto;color:var(--tm-text-color);"><svg class="tm-tree-toggle-icon" viewBox="0 0 16 16" width="16" height="16" style="transform:${collapsed ? 'rotate(0deg)' : 'rotate(90deg)'};"><path d="M6 4l4 4-4 4" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg></span>` : '<span class="tm-tree-toggle tm-tree-toggle--placeholder" aria-hidden="true"></span>'}
                             ${hasChildren && collapsed ? '<span class="tm-task-leading-ring" aria-hidden="true"></span>' : ''}
