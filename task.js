@@ -1,5 +1,5 @@
 // @name         思源笔记任务管理器
-// @version      2.0.4
+// @version      2.0.5
 // @description  任务管理器，支持自定义筛选规则分组和排序
 // @author       5KYFKR
 
@@ -1685,6 +1685,331 @@
             flex-direction: column;
             overflow: hidden;
             color: var(--tm-text-color);
+        }
+
+        .tm-main-stage {
+            position: relative;
+            flex: 1 1 auto;
+            min-height: 0;
+            display: flex;
+            flex-direction: column;
+        }
+
+        .tm-main-stage > .tm-body,
+        .tm-main-stage > .tm-list-pane,
+        .tm-main-stage > .tm-main-body-with-cal-dock {
+            flex: 1 1 auto;
+            min-height: 0;
+        }
+
+        .tm-inline-loading-overlay {
+            position: absolute;
+            inset: 0;
+            z-index: 18;
+            display: flex;
+            align-items: stretch;
+            justify-content: stretch;
+            padding: 14px;
+            background: rgba(255,255,255,0.92);
+            background: color-mix(in srgb, var(--tm-bg-color) 92%, transparent);
+        }
+
+        .tm-inline-loading-surface {
+            width: 100%;
+            min-height: 0;
+            border: 1px solid var(--tm-border-color);
+            border-radius: 12px;
+            background: color-mix(in srgb, var(--tm-header-bg) 82%, var(--tm-bg-color) 18%);
+            padding: 16px;
+            display: flex;
+            flex-direction: column;
+            gap: 14px;
+            box-sizing: border-box;
+        }
+
+        .tm-inline-loading-title {
+            font-size: 13px;
+            font-weight: 600;
+            color: var(--tm-secondary-text);
+            letter-spacing: 0.01em;
+        }
+
+        .tm-skeleton-block {
+            display: block;
+            border-radius: 999px;
+            background: color-mix(in srgb, var(--tm-text-color) 10%, transparent);
+        }
+
+        .tm-inline-loading-list {
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+        }
+
+        .tm-inline-loading-list-row {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+
+        .tm-inline-loading-check {
+            width: 16px;
+            height: 16px;
+            flex: 0 0 16px;
+            border-radius: 5px;
+        }
+
+        .tm-inline-loading-line {
+            height: 14px;
+            min-width: 80px;
+        }
+
+        .tm-inline-loading-chip {
+            margin-left: auto;
+            width: 48px;
+            height: 14px;
+        }
+
+        .tm-inline-loading-toolbar {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+
+        .tm-inline-loading-btn {
+            width: 32px;
+            height: 32px;
+            border-radius: 10px;
+        }
+
+        .tm-inline-loading-btn--wide {
+            width: 96px;
+        }
+
+        .tm-inline-loading-calendar {
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+            min-height: 0;
+        }
+
+        .tm-inline-loading-calendar-head,
+        .tm-inline-loading-calendar-grid {
+            display: grid;
+            grid-template-columns: repeat(7, minmax(0, 1fr));
+            gap: 8px;
+        }
+
+        .tm-inline-loading-cal-head {
+            height: 16px;
+        }
+
+        .tm-inline-loading-cal-cell {
+            height: clamp(54px, 10vh, 96px);
+            border-radius: 12px;
+        }
+
+        .tm-inline-loading-kanban-grid {
+            display: grid;
+            grid-template-columns: repeat(3, minmax(0, 1fr));
+            gap: 12px;
+            min-height: 0;
+        }
+
+        .tm-inline-loading-kanban-col {
+            min-height: 0;
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+            padding: 10px;
+            border: 1px solid color-mix(in srgb, var(--tm-border-color) 84%, transparent);
+            border-radius: 12px;
+            background: color-mix(in srgb, var(--tm-bg-color) 90%, var(--tm-header-bg) 10%);
+        }
+
+        .tm-inline-loading-kanban-head {
+            height: 16px;
+        }
+
+        .tm-inline-loading-kanban-card {
+            height: 72px;
+            border-radius: 12px;
+        }
+
+        .tm-inline-loading-kanban-card--sm {
+            height: 54px;
+        }
+
+        .tm-inline-loading-timeline {
+            display: grid;
+            grid-template-columns: minmax(180px, 0.9fr) minmax(0, 1.4fr);
+            gap: 12px;
+            min-height: 0;
+        }
+
+        .tm-inline-loading-timeline-left,
+        .tm-inline-loading-timeline-right {
+            display: flex;
+            flex-direction: column;
+            gap: 12px;
+            min-height: 0;
+            padding: 12px;
+            border: 1px solid color-mix(in srgb, var(--tm-border-color) 84%, transparent);
+            border-radius: 12px;
+            background: color-mix(in srgb, var(--tm-bg-color) 90%, var(--tm-header-bg) 10%);
+        }
+
+        .tm-inline-loading-timeline-line {
+            height: 14px;
+        }
+
+        .tm-inline-loading-timeline-bar {
+            height: 18px;
+            border-radius: 10px;
+        }
+
+        .tm-inline-loading-board {
+            position: relative;
+            flex: 1 1 auto;
+            min-height: 280px;
+            border: 1px dashed color-mix(in srgb, var(--tm-border-color) 80%, transparent);
+            border-radius: 14px;
+            background:
+                linear-gradient(color-mix(in srgb, var(--tm-border-color) 35%, transparent) 1px, transparent 1px),
+                linear-gradient(90deg, color-mix(in srgb, var(--tm-border-color) 35%, transparent) 1px, transparent 1px);
+            background-size: 24px 24px;
+            background-position: center center;
+        }
+
+        .tm-inline-loading-board-card {
+            position: absolute;
+            width: 140px;
+            height: 84px;
+            border-radius: 14px;
+            background: color-mix(in srgb, var(--tm-text-color) 10%, transparent);
+        }
+
+        .tm-inline-loading-overlay--topbar {
+            inset: 0;
+            padding: 0;
+            align-items: flex-start;
+            justify-content: stretch;
+            background: transparent;
+            pointer-events: auto;
+            cursor: progress;
+        }
+
+        .tm-inline-loading-topbar-shell {
+            width: 100%;
+            display: flex;
+            flex-direction: column;
+            align-items: stretch;
+            gap: 10px;
+        }
+
+        .tm-inline-loading-topbar-line {
+            position: relative;
+            width: 100%;
+            height: 3px;
+            overflow: hidden;
+        }
+
+        .tm-inline-loading-topbar-track,
+        .tm-inline-loading-topbar-indicator {
+            position: absolute;
+            inset: 0;
+            border-radius: 999px;
+        }
+
+        .tm-inline-loading-topbar-track {
+            background: color-mix(in srgb, var(--tm-border-color) 65%, transparent);
+            opacity: 0.9;
+        }
+
+        .tm-inline-loading-topbar-indicator {
+            width: 100%;
+            background: linear-gradient(90deg,
+                color-mix(in srgb, var(--tm-primary-color, #4285f4) 12%, transparent) 0%,
+                color-mix(in srgb, var(--tm-primary-color, #4285f4) 88%, transparent) 16%,
+                var(--tm-primary-color, #4285f4) 68%,
+                color-mix(in srgb, var(--tm-primary-color, #4285f4) 92%, white 8%) 100%);
+            box-shadow: 0 0 12px color-mix(in srgb, var(--tm-primary-color, #4285f4) 22%, transparent);
+            transform-origin: left center;
+            animation: tm-inline-loading-topbar-fill 1.22s cubic-bezier(0.22, 0.61, 0.36, 1) infinite;
+        }
+
+        .tm-inline-loading-topbar-badge {
+            align-self: flex-end;
+            margin-right: 12px;
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+            padding: 6px 10px;
+            border-radius: 999px;
+            border: 1px solid color-mix(in srgb, var(--tm-border-color) 78%, transparent);
+            background: color-mix(in srgb, var(--tm-header-bg) 88%, var(--tm-bg-color) 12%);
+            color: var(--tm-secondary-text);
+            font-size: 12px;
+            line-height: 1;
+            box-shadow: 0 8px 22px rgba(0,0,0,0.06);
+        }
+
+        .tm-inline-loading-spinner {
+            width: 13px;
+            height: 13px;
+            border-radius: 50%;
+            border: 2px solid color-mix(in srgb, var(--tm-primary-color, #4285f4) 30%, transparent);
+            border-top-color: var(--tm-primary-color, #4285f4);
+            animation: tm-inline-loading-spin 0.82s linear infinite;
+            box-sizing: border-box;
+            flex: 0 0 auto;
+        }
+
+        .tm-inline-loading-topbar-text {
+            white-space: nowrap;
+        }
+
+        @keyframes tm-inline-loading-spin {
+            from { transform: rotate(0deg); }
+            to { transform: rotate(360deg); }
+        }
+
+        @keyframes tm-inline-loading-topbar-fill {
+            0% {
+                transform: scaleX(0.04);
+                opacity: 0.72;
+            }
+            42% {
+                transform: scaleX(0.62);
+                opacity: 0.96;
+            }
+            74% {
+                transform: scaleX(0.86);
+                opacity: 1;
+            }
+            100% {
+                transform: scaleX(1);
+                opacity: 0.88;
+            }
+        }
+
+        @media (prefers-reduced-motion: reduce) {
+            .tm-inline-loading-topbar-indicator,
+            .tm-inline-loading-spinner {
+                animation: none;
+            }
+
+            .tm-inline-loading-topbar-indicator {
+                width: 100%;
+                transform: scaleX(1);
+            }
+        }
+
+        @media (max-width: 980px) {
+            .tm-inline-loading-kanban-grid,
+            .tm-inline-loading-timeline {
+                grid-template-columns: 1fr;
+            }
         }
 
         .tm-modal:not(.tm-modal--mobile):not(.tm-modal--tab) .tm-box {
@@ -7167,7 +7492,7 @@
         }
 
         .tm-body.tm-body-anim {
-            animation: tmBodyFadeSlide 180ms ease-out;
+            animation: tmBodyFadeSlide 240ms ease-out;
         }
 
         @keyframes tmBodyInFromRight {
@@ -7198,11 +7523,62 @@
         }
 
         .tm-body.tm-body-anim--from-right {
-            animation: tmBodyInFromRight 220ms cubic-bezier(0.2, 0, 0, 1);
+            animation: tmBodyInFromRight 300ms cubic-bezier(0.2, 0, 0, 1);
         }
 
         .tm-body.tm-body-anim--from-left {
-            animation: tmBodyInFromLeft 220ms cubic-bezier(0.2, 0, 0, 1);
+            animation: tmBodyInFromLeft 300ms cubic-bezier(0.2, 0, 0, 1);
+        }
+
+        @keyframes tmBoxFadeSlide {
+            from { opacity: 0.92; transform: translateY(4px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+
+        @keyframes tmBoxInFromRight {
+            from { opacity: 0.9; transform: translateX(18px); }
+            to { opacity: 1; transform: translateX(0); }
+        }
+
+        @keyframes tmBoxInFromLeft {
+            from { opacity: 0.9; transform: translateX(-18px); }
+            to { opacity: 1; transform: translateX(0); }
+        }
+
+        .tm-box.tm-box-anim,
+        .tm-box.tm-box-anim--from-right,
+        .tm-box.tm-box-anim--from-left {
+            will-change: transform, opacity;
+        }
+
+        .tm-box.tm-box-anim {
+            animation: tmBoxFadeSlide 240ms ease-out;
+        }
+
+        .tm-box.tm-box-anim--from-right {
+            animation: tmBoxInFromRight 300ms cubic-bezier(0.2, 0, 0, 1);
+        }
+
+        .tm-box.tm-box-anim--from-left {
+            animation: tmBoxInFromLeft 300ms cubic-bezier(0.2, 0, 0, 1);
+        }
+
+        .tm-main-stage.tm-stage-anim,
+        .tm-main-stage.tm-stage-anim--from-right,
+        .tm-main-stage.tm-stage-anim--from-left {
+            will-change: transform, opacity;
+        }
+
+        .tm-main-stage.tm-stage-anim {
+            animation: tmBoxFadeSlide 240ms ease-out;
+        }
+
+        .tm-main-stage.tm-stage-anim--from-right {
+            animation: tmBoxInFromRight 300ms cubic-bezier(0.2, 0, 0, 1);
+        }
+
+        .tm-main-stage.tm-stage-anim--from-left {
+            animation: tmBoxInFromLeft 300ms cubic-bezier(0.2, 0, 0, 1);
         }
 
         /* 提示框样式 */
@@ -7952,6 +8328,7 @@
             dockSidebarEnabled: true,
             dockDefaultViewMode: 'follow-mobile',
             dockChecklistCompactTitleJump: true,
+            mobileChecklistCompactTitleJump: true,
             enabledViews: ['list', 'checklist', 'timeline', 'kanban', 'calendar', 'whiteboard'],
             kanbanCompactMode: false,
             checklistCompactMode: true,
@@ -8315,6 +8692,11 @@
                                 if (typeof cloudData.dockSidebarEnabled === 'boolean') this.data.dockSidebarEnabled = cloudData.dockSidebarEnabled;
                                 if (typeof cloudData.dockDefaultViewMode === 'string') this.data.dockDefaultViewMode = cloudData.dockDefaultViewMode;
                                 if (typeof cloudData.dockChecklistCompactTitleJump === 'boolean') this.data.dockChecklistCompactTitleJump = cloudData.dockChecklistCompactTitleJump;
+                                if (typeof cloudData.mobileChecklistCompactTitleJump === 'boolean') {
+                                    this.data.mobileChecklistCompactTitleJump = cloudData.mobileChecklistCompactTitleJump;
+                                } else {
+                                    this.data.mobileChecklistCompactTitleJump = this.data.dockChecklistCompactTitleJump;
+                                }
                                 if (Array.isArray(cloudData.enabledViews)) this.data.enabledViews = __tmNormalizeEnabledViews(cloudData.enabledViews);
                                 if (typeof cloudData.kanbanCompactMode === 'boolean') this.data.kanbanCompactMode = cloudData.kanbanCompactMode;
                                 if (typeof cloudData.checklistCompactMode === 'boolean') this.data.checklistCompactMode = cloudData.checklistCompactMode;
@@ -8589,6 +8971,7 @@
             this.data.dockSidebarEnabled = !!Storage.get('tm_dock_sidebar_enabled', this.data.dockSidebarEnabled);
             this.data.dockDefaultViewMode = Storage.get('tm_dock_default_view_mode', this.data.dockDefaultViewMode || 'follow-mobile');
             this.data.dockChecklistCompactTitleJump = !!Storage.get('tm_dock_checklist_compact_title_jump', this.data.dockChecklistCompactTitleJump);
+            this.data.mobileChecklistCompactTitleJump = !!Storage.get('tm_mobile_checklist_compact_title_jump', this.data.mobileChecklistCompactTitleJump ?? this.data.dockChecklistCompactTitleJump);
             this.data.enabledViews = __tmNormalizeEnabledViews(Storage.get('tm_enabled_views', this.data.enabledViews));
             this.data.kanbanCompactMode = !!Storage.get('tm_kanban_compact_mode', this.data.kanbanCompactMode);
             this.data.checklistCompactMode = !!Storage.get('tm_checklist_compact_mode', this.data.checklistCompactMode);
@@ -8868,6 +9251,7 @@
             Storage.set('tm_dock_sidebar_enabled', !!this.data.dockSidebarEnabled);
             Storage.set('tm_dock_default_view_mode', String(this.data.dockDefaultViewMode || 'follow-mobile').trim() || 'follow-mobile');
             Storage.set('tm_dock_checklist_compact_title_jump', !!this.data.dockChecklistCompactTitleJump);
+            Storage.set('tm_mobile_checklist_compact_title_jump', !!this.data.mobileChecklistCompactTitleJump);
             Storage.set('tm_enabled_views', this.data.enabledViews);
             Storage.set('tm_kanban_compact_mode', !!this.data.kanbanCompactMode);
             Storage.set('tm_checklist_compact_mode', !!this.data.checklistCompactMode);
@@ -9962,6 +10346,27 @@
     let __tmSqlCacheEventBusHandler = null;
     let __tmCalendarTxRefreshTimer = null;
 
+    function __tmCloneTaskQueryRows(rows) {
+        return Array.isArray(rows)
+            ? rows.map((row) => {
+                const next = (row && typeof row === 'object') ? { ...row } : {};
+                try { delete next.children; } catch (e) {}
+                try { delete next.level; } catch (e) {}
+                try { delete next.priorityScore; } catch (e) {}
+                try { delete next.__tmPendingInserted; } catch (e) {}
+                return next;
+            })
+            : [];
+    }
+
+    function __tmCloneTaskQueryResult(result) {
+        const src = (result && typeof result === 'object') ? result : {};
+        return {
+            ...src,
+            tasks: __tmCloneTaskQueryRows(src.tasks),
+        };
+    }
+
     function __tmRunSqlQueued(fn) {
         const run = () => Promise.resolve().then(fn);
         return new Promise((resolve, reject) => {
@@ -9987,6 +10392,9 @@
             try { __tmTaskDocMapCache.clear(); } catch (e) {}
             try { __tmDocEnhanceWarmQueue.items.length = 0; __tmDocEnhanceWarmQueue.set.clear(); } catch (e) {}
             try { __tmAuxQueryCache.clear(); } catch (e) {}
+            try { __tmDocExpandCache.clear(); } catch (e) {}
+            try { __tmResolvedDocIdsCache = null; } catch (e) {}
+            try { __tmResolvedDocIdsPromise = null; } catch (e) {}
             return;
         }
         try {
@@ -10006,6 +10414,7 @@
         try { __tmAuxQueryCache.clear(); } catch (e) {}
         try { __tmDocExpandCache.clear(); } catch (e) {}
         try { __tmResolvedDocIdsCache = null; } catch (e) {}
+        try { __tmResolvedDocIdsPromise = null; } catch (e) {}
     }
 
     function __tmInvalidateAllSqlCaches() {
@@ -10018,6 +10427,7 @@
         try { __tmAuxQueryCache.clear(); } catch (e) {}
         try { __tmDocExpandCache.clear(); } catch (e) {}
         try { __tmResolvedDocIdsCache = null; } catch (e) {}
+        try { __tmResolvedDocIdsPromise = null; } catch (e) {}
     }
 
     async function __tmFillDocHasTasksMap(docIds, tasksMap) {
@@ -10184,6 +10594,12 @@
         } catch (e) {}
         return trace;
     }
+
+    try {
+        globalThis.__tmTaskHorizonPerfCreate = __tmCreatePerfTrace;
+        globalThis.__tmTaskHorizonPerfMark = __tmPerfTraceMark;
+        globalThis.__tmTaskHorizonPerfFinish = __tmPerfTraceFinish;
+    } catch (e) {}
 
     function __tmScheduleIdleTask(task, timeout = 180) {
         const run = () => Promise.resolve().then(task).catch(() => null);
@@ -11040,7 +11456,9 @@
             })();
             const cacheKey = `getTasksByDocuments:${idList}:${perDocLimit}:${doneOnly ? 1 : 0}:${ignoreExcludeCompleted ? 1 : 0}:${SettingsStore.data.enableTomatoIntegration ? 1 : 0}`;
             const cached = __tmTasksQueryCache.get(cacheKey);
-            if (!forceFresh && cached && cached.t && (Date.now() - cached.t) < cacheTtlMs && cached.v) return cached.v;
+            if (!forceFresh && cached && cached.t && (Date.now() - cached.t) < cacheTtlMs && cached.v) {
+                return __tmCloneTaskQueryResult(cached.v);
+            }
             const docIdSet = new Set(safeDocIds);
 
             const tomatoEnabled = !!SettingsStore.data.enableTomatoIntegration;
@@ -11161,20 +11579,23 @@
                     const tasks = [];
                     results.forEach(r => tasks.push(...(r?.tasks || [])));
                     const fallbackTime = Date.now() - fallbackStart;
-                    const out = { tasks, queryTime: queryTime + fallbackTime };
+                    const out = {
+                        tasks: __tmCloneTaskQueryRows(tasks),
+                        queryTime: queryTime + fallbackTime
+                    };
                     __tmTasksQueryCache.set(cacheKey, { t: Date.now(), v: out, docIdSet, ttl: cacheTtlMs });
-                    return out;
+                    return __tmCloneTaskQueryResult(out);
                 } catch (e) {
                     return { tasks: [], queryTime };
                 }
             }
-            const tasks = Array.isArray(res.data) ? res.data : [];
+            const tasks = __tmCloneTaskQueryRows(Array.isArray(res.data) ? res.data : []);
             // 注意：这里不能提前过滤已完成任务。
             // 子任务进度条、父子层级和“父任务未完成时显示已完成子任务”的规则，都依赖完整树结构。
             // 真正的显隐交给 applyFilters/filterVisibleTasks 统一处理。
             const out = { tasks, queryTime };
             __tmTasksQueryCache.set(cacheKey, { t: Date.now(), v: out, docIdSet, ttl: cacheTtlMs });
-            return out;
+            return __tmCloneTaskQueryResult(out);
         },
 
         async getTaskById(id) {
@@ -12156,6 +12577,13 @@
         // 操作状态
         isRefreshing: false,
         openToken: 0,
+        uiInlineLoadingActive: false,
+        uiInlineLoadingVisible: false,
+        uiInlineLoadingTimer: 0,
+        uiInlineLoadingToken: 0,
+        uiInlineLoadingStyleKind: '',
+        renderChecklistBodyHtml: null,
+        renderKanbanBodyHtml: null,
         // 悬浮条修改的任务ID列表（用于切换页签时强制刷新）
         quickbarModifiedTaskIds: new Set(),
         // 悬浮条最后更新时间（用于判断是否需要刷新）
@@ -12236,6 +12664,209 @@
         kanbanDocHeadingsLoadedAt: 0,
         __tmLoadedDocIdsForTasks: [],
     };
+
+    function __tmHasTaskDataReadyForUi() {
+        try {
+            if (Array.isArray(state.filteredTasks) && state.filteredTasks.length > 0) return true;
+            if (Array.isArray(state.taskTree) && state.taskTree.length > 0) return true;
+            return !!(state.flatTasks && Object.keys(state.flatTasks).length > 0);
+        } catch (e) {}
+        return false;
+    }
+
+    function __tmClearInlineLoadingTimer() {
+        const timer = Number(state.uiInlineLoadingTimer) || 0;
+        if (!timer) return;
+        try { clearTimeout(timer); } catch (e) {}
+        state.uiInlineLoadingTimer = 0;
+    }
+
+    function __tmBuildInlineLoadingSkeletonMarkup() {
+        const mode = String(state.viewMode || 'list').trim() || 'list';
+        const titleMap = {
+            list: '正在准备任务列表',
+            checklist: '正在准备清单视图',
+            timeline: '正在准备时间线',
+            kanban: '正在准备看板视图',
+            calendar: '正在准备日历视图',
+            whiteboard: '正在准备白板视图',
+        };
+        const title = titleMap[mode] || '正在准备任务视图';
+        const listRows = [84, 72, 66, 78, 61, 74]
+            .map((width, index) => `
+                <div class="tm-inline-loading-list-row">
+                    <span class="tm-skeleton-block tm-inline-loading-check"></span>
+                    <span class="tm-skeleton-block tm-inline-loading-line" style="width:${width}%;"></span>
+                    ${index % 2 === 0 ? '<span class="tm-skeleton-block tm-inline-loading-chip"></span>' : ''}
+                </div>
+            `)
+            .join('');
+        if (mode === 'calendar') {
+            const toolbar = `
+                <div class="tm-inline-loading-toolbar">
+                    <span class="tm-skeleton-block tm-inline-loading-btn"></span>
+                    <span class="tm-skeleton-block tm-inline-loading-btn tm-inline-loading-btn--wide"></span>
+                    <span class="tm-skeleton-block tm-inline-loading-btn"></span>
+                </div>
+            `;
+            const week = Array.from({ length: 7 }, () => '<span class="tm-skeleton-block tm-inline-loading-cal-head"></span>').join('');
+            const cells = Array.from({ length: 35 }, () => '<span class="tm-skeleton-block tm-inline-loading-cal-cell"></span>').join('');
+            return `
+                <div class="tm-inline-loading-surface tm-inline-loading-surface--calendar">
+                    <div class="tm-inline-loading-title">${title}</div>
+                    ${toolbar}
+                    <div class="tm-inline-loading-calendar">
+                        <div class="tm-inline-loading-calendar-head">${week}</div>
+                        <div class="tm-inline-loading-calendar-grid">${cells}</div>
+                    </div>
+                </div>
+            `;
+        }
+        if (mode === 'kanban') {
+            const cols = Array.from({ length: 3 }, (_, index) => `
+                <div class="tm-inline-loading-kanban-col">
+                    <span class="tm-skeleton-block tm-inline-loading-kanban-head" style="width:${62 + index * 8}%;"></span>
+                    <span class="tm-skeleton-block tm-inline-loading-kanban-card"></span>
+                    <span class="tm-skeleton-block tm-inline-loading-kanban-card tm-inline-loading-kanban-card--sm"></span>
+                    <span class="tm-skeleton-block tm-inline-loading-kanban-card"></span>
+                </div>
+            `).join('');
+            return `
+                <div class="tm-inline-loading-surface tm-inline-loading-surface--kanban">
+                    <div class="tm-inline-loading-title">${title}</div>
+                    <div class="tm-inline-loading-kanban-grid">${cols}</div>
+                </div>
+            `;
+        }
+        if (mode === 'timeline') {
+            const left = Array.from({ length: 6 }, (_, index) => `<span class="tm-skeleton-block tm-inline-loading-timeline-line" style="width:${74 - index * 5}%;"></span>`).join('');
+            const right = Array.from({ length: 6 }, (_, index) => `<span class="tm-skeleton-block tm-inline-loading-timeline-bar" style="width:${42 + index * 8}%;margin-left:${(index % 3) * 10}%;"></span>`).join('');
+            return `
+                <div class="tm-inline-loading-surface tm-inline-loading-surface--timeline">
+                    <div class="tm-inline-loading-title">${title}</div>
+                    <div class="tm-inline-loading-timeline">
+                        <div class="tm-inline-loading-timeline-left">${left}</div>
+                        <div class="tm-inline-loading-timeline-right">${right}</div>
+                    </div>
+                </div>
+            `;
+        }
+        if (mode === 'whiteboard') {
+            const cards = [18, 58, 30, 66]
+                .map((left) => `
+                    <div class="tm-inline-loading-board-card" style="left:${left}%;top:${18 + (left % 3) * 14}%;"></div>
+                `)
+                .join('');
+            return `
+                <div class="tm-inline-loading-surface tm-inline-loading-surface--whiteboard">
+                    <div class="tm-inline-loading-title">${title}</div>
+                    <div class="tm-inline-loading-board">${cards}</div>
+                </div>
+            `;
+        }
+        return `
+            <div class="tm-inline-loading-surface">
+                <div class="tm-inline-loading-title">${title}</div>
+                <div class="tm-inline-loading-list">${listRows}</div>
+            </div>
+        `;
+    }
+
+    function __tmBuildInlineLoadingTopbarMarkup() {
+        return `
+            <div class="tm-inline-loading-topbar-shell">
+                <div class="tm-inline-loading-topbar-line">
+                    <span class="tm-inline-loading-topbar-track"></span>
+                    <span class="tm-inline-loading-topbar-indicator"></span>
+                </div>
+                <div class="tm-inline-loading-topbar-badge">
+                    <span class="tm-inline-loading-spinner" aria-hidden="true"></span>
+                    <span class="tm-inline-loading-topbar-text">加载中</span>
+                </div>
+            </div>
+        `;
+    }
+
+    function __tmSyncInlineLoadingOverlay(modalEl) {
+        const modal = modalEl instanceof Element ? modalEl : state.modal;
+        const stage = modal?.querySelector?.('.tm-main-stage');
+        if (!(stage instanceof HTMLElement)) return false;
+        const active = !!state.uiInlineLoadingActive;
+        const visible = !!(active && state.uiInlineLoadingVisible);
+        try { stage.setAttribute('aria-busy', active ? 'true' : 'false'); } catch (e) {}
+        let overlay = null;
+        try { overlay = stage.querySelector('.tm-inline-loading-overlay'); } catch (e) {}
+        if (!visible) {
+            if (overlay) {
+                try { overlay.remove(); } catch (e) {}
+            }
+            return false;
+        }
+        const mode = String(state.viewMode || 'list').trim() || 'list';
+        if (!(overlay instanceof HTMLElement)) {
+            overlay = document.createElement('div');
+            overlay.className = 'tm-inline-loading-overlay';
+            overlay.setAttribute('aria-hidden', 'true');
+            try { stage.appendChild(overlay); } catch (e) { return false; }
+        }
+        const styleKind = String(state.uiInlineLoadingStyleKind || '').trim() || (__tmHasTaskDataReadyForUi() ? 'topbar' : 'skeleton');
+        if (String(overlay.getAttribute('data-tm-loading-style') || '').trim() !== styleKind) {
+            try { overlay.setAttribute('data-tm-loading-style', styleKind); } catch (e) {}
+            try { overlay.className = `tm-inline-loading-overlay tm-inline-loading-overlay--${styleKind}`; } catch (e) {}
+        }
+        const renderSig = styleKind === 'topbar' ? styleKind : `${styleKind}:${mode}`;
+        if (String(overlay.getAttribute('data-tm-loading-render-sig') || '').trim() !== renderSig) {
+            try { overlay.setAttribute('data-tm-loading-mode', mode); } catch (e) {}
+            try { overlay.setAttribute('data-tm-loading-render-sig', renderSig); } catch (e) {}
+            try {
+                overlay.innerHTML = styleKind === 'topbar'
+                    ? __tmBuildInlineLoadingTopbarMarkup()
+                    : __tmBuildInlineLoadingSkeletonMarkup();
+            } catch (e) {}
+        }
+        return true;
+    }
+
+    function __tmSetInlineLoading(active, options = {}) {
+        const next = !!active;
+        if (!next) {
+            const changed = !!(state.uiInlineLoadingActive || state.uiInlineLoadingVisible || state.uiInlineLoadingTimer);
+            __tmClearInlineLoadingTimer();
+            state.uiInlineLoadingActive = false;
+            state.uiInlineLoadingVisible = false;
+            state.uiInlineLoadingToken = 0;
+            state.uiInlineLoadingStyleKind = '';
+            if (changed) {
+                try { __tmSyncInlineLoadingOverlay(state.modal); } catch (e) {}
+            }
+            return;
+        }
+        const token = Number(options?.token) || Number(state.openToken) || 0;
+        const styleKind = String(options?.styleKind || '').trim() || (__tmHasTaskDataReadyForUi() ? 'topbar' : 'skeleton');
+        const delayMs = Number.isFinite(Number(options?.delayMs))
+            ? Math.max(0, Math.round(Number(options.delayMs)))
+            : (__tmHasTaskDataReadyForUi() ? 220 : 140);
+        __tmClearInlineLoadingTimer();
+        state.uiInlineLoadingActive = true;
+        state.uiInlineLoadingVisible = false;
+        state.uiInlineLoadingToken = token;
+        state.uiInlineLoadingStyleKind = styleKind;
+        try { __tmSyncInlineLoadingOverlay(state.modal); } catch (e) {}
+        const reveal = () => {
+            if (!state.uiInlineLoadingActive) return;
+            if (token && token !== (Number(state.uiInlineLoadingToken) || 0)) return;
+            state.uiInlineLoadingVisible = true;
+            try { __tmSyncInlineLoadingOverlay(state.modal); } catch (e) {}
+        };
+        if (delayMs <= 0) {
+            reveal();
+            return;
+        }
+        state.uiInlineLoadingTimer = setTimeout(() => {
+            state.uiInlineLoadingTimer = 0;
+            reveal();
+        }, delayMs);
+    }
 
     const __tmModalStack = [];
 
@@ -12323,6 +12954,27 @@
             return out;
         },
 
+        mergeMaps(baseInput, incomingInput) {
+            const base = this.normalize(baseInput);
+            const incoming = this.normalize(incomingInput);
+            const out = { ...base };
+            Object.entries(incoming).forEach(([taskId, item]) => {
+                const id = String(taskId || '').trim();
+                if (!id || !item) return;
+                const prev = out[id];
+                const prevAt = Number(prev?.recognizedAt) || 0;
+                const nextAt = Number(item?.recognizedAt) || 0;
+                if (!prev || nextAt >= prevAt) out[id] = { ...item };
+            });
+            return out;
+        },
+
+        syncLocalCache() {
+            this.data = this.normalize(this.data);
+            this.loaded = true;
+            try { Storage.set(__TM_SEMANTIC_DATE_RECOGNIZED_KEY, this.data || {}); } catch (e) {}
+        },
+
         async load() {
             if (this.loaded) return this.data;
             if (this.loadingPromise) return this.loadingPromise;
@@ -12339,13 +12991,12 @@
                         if (text && text.trim()) {
                             const json = JSON.parse(text);
                             const fromFile = this.normalize(json);
-                            if (Object.keys(fromFile).length > 0) next = fromFile;
+                            if (Object.keys(fromFile).length > 0) next = this.mergeMaps(fromFile, next);
                         }
                     }
                 } catch (e) {}
                 this.data = next;
-                try { Storage.set(__TM_SEMANTIC_DATE_RECOGNIZED_KEY, this.data || {}); } catch (e) {}
-                this.loaded = true;
+                this.syncLocalCache();
                 return this.data;
             }).finally(() => {
                 this.loadingPromise = null;
@@ -12357,9 +13008,10 @@
             return this.normalize(this.data);
         },
 
-        upsertMany(items) {
+        upsertMany(items, options = {}) {
             const list = Array.isArray(items) ? items : [];
             if (!list.length) return;
+            const persist = options?.persist !== false;
             const base = this.normalize(this.data);
             const now = Date.now();
             list.forEach((item) => {
@@ -12374,9 +13026,9 @@
                 };
             });
             this.data = base;
-            this.loaded = true;
+            this.syncLocalCache();
+            if (!persist) return;
             this.saveDirty = true;
-            try { Storage.set(__TM_SEMANTIC_DATE_RECOGNIZED_KEY, this.data || {}); } catch (e) {}
             try { if (this.saveTimer) clearTimeout(this.saveTimer); } catch (e) {}
             this.saveTimer = setTimeout(() => {
                 this.saveTimer = null;
@@ -12391,8 +13043,7 @@
             this.saving = true;
             this.saveDirty = false;
             try {
-                this.data = this.normalize(this.data);
-                try { Storage.set(__TM_SEMANTIC_DATE_RECOGNIZED_KEY, this.data || {}); } catch (e) {}
+                this.syncLocalCache();
                 const formDir = new FormData();
                 formDir.append('path', PLUGIN_STORAGE_DIR);
                 formDir.append('isDir', 'true');
@@ -12538,7 +13189,8 @@
         const todayMs = today.getTime();
         const ymd = /(\d{4})[./-](\d{1,2})[./-](\d{1,2})/.exec(text);
         const mdCn = /(\d{1,2})\s*月\s*(\d{1,2})\s*(日|号)?/.exec(text);
-        const md = /(^|[^\d])(\d{1,2})[./-](\d{1,2})(?!\d)/.exec(text);
+        // 仅保留斜杠月日简写，避免把版本号/编号如 5-2、5.2 误识别成 5月2日
+        const md = /(^|[^\d])(\d{1,2})\/(\d{1,2})(?!\d)/.exec(text);
         const rel = /(今天|今日|今早|今晨|今晚|明天|明早|明晨|明晚|后天|大后天)/.exec(text);
         const dur = /(\d+)\s*(天|日|周|星期|礼拜)\s*后/.exec(text);
         const weekday = /((本周|这周|下周|下下周)?\s*(周|星期|礼拜)\s*([一二三四五六日天1-7]))/.exec(text);
@@ -12632,14 +13284,13 @@
 
     function __tmSaveSemanticDateRecognizedMap(map) {
         SemanticDateRecognizedStore.data = SemanticDateRecognizedStore.normalize(map);
-        SemanticDateRecognizedStore.loaded = true;
+        SemanticDateRecognizedStore.syncLocalCache();
         SemanticDateRecognizedStore.saveDirty = true;
-        try { Storage.set(__TM_SEMANTIC_DATE_RECOGNIZED_KEY, SemanticDateRecognizedStore.data || {}); } catch (e) {}
         try { SemanticDateRecognizedStore.saveNow(); } catch (e) {}
     }
 
-    function __tmMarkSemanticDateSuggestionsRecognized(items) {
-        SemanticDateRecognizedStore.upsertMany(items);
+    function __tmMarkSemanticDateSuggestionsRecognized(items, options = {}) {
+        SemanticDateRecognizedStore.upsertMany(items, options);
     }
 
     function __tmLoadCalendarScheduledTaskIds() {
@@ -12765,11 +13416,6 @@
 
     function __tmGetSemanticDateConfirmHost() {
         try {
-            if (state.modal instanceof HTMLElement && document.body.contains(state.modal)) {
-                return state.modal;
-            }
-        } catch (e) {}
-        try {
             const mountRoot = __tmGetMountRoot?.();
             if (mountRoot instanceof HTMLElement && document.body.contains(mountRoot)) {
                 return mountRoot;
@@ -12778,11 +13424,85 @@
         return document.body;
     }
 
+    function __tmPrepareTaskForSemanticScan(rawTask) {
+        if (!rawTask || typeof rawTask !== 'object') return null;
+        if (rawTask.otherBlockType || rawTask.otherBlockSubtype || rawTask.otherBlockGroupId) return null;
+        const task = { ...rawTask };
+        const taskId = String(task?.id || '').trim();
+        const docId = String(task?.root_id || task?.docId || '').trim();
+        if (!taskId || !docId) return null;
+        try {
+            if (typeof task.markdown === 'string' && task.markdown) {
+                const parsed = API.parseTaskStatus(task.markdown);
+                task.done = !!parsed.done;
+                task.content = parsed.content;
+            }
+        } catch (e) {}
+        try { MetaStore.applyToTask(task); } catch (e) {}
+        try {
+            const docName = String(task.docName || task.doc_name || '未命名文档').trim() || '未命名文档';
+            normalizeTaskFields(task, docName);
+        } catch (e) {}
+        return task;
+    }
+
+    async function __tmLoadSemanticDateTasksForAutoPrompt(token) {
+        try { await MetaStore.load(); } catch (e) {}
+        const mergedTasks = [];
+        const seenTaskIds = new Set();
+        Object.values(state.flatTasks || {}).forEach((rawTask) => {
+            const task = __tmPrepareTaskForSemanticScan(rawTask);
+            const taskId = String(task?.id || '').trim();
+            if (!taskId || seenTaskIds.has(taskId)) return;
+            seenTaskIds.add(taskId);
+            mergedTasks.push(task);
+        });
+
+        const currentGroupId = String(SettingsStore?.data?.currentGroupId || 'all').trim() || 'all';
+        if (currentGroupId === 'all') return mergedTasks;
+
+        const allDocIds = await resolveDocIdsFromGroups({
+            groupId: 'all',
+            forceRefreshScope: !!state.isRefreshing,
+        });
+        if (token !== undefined && token !== null && token !== (Number(state.openToken) || 0)) return mergedTasks;
+
+        const loadedDocIdSet = new Set(
+            (Array.isArray(state.__tmLoadedDocIdsForTasks) ? state.__tmLoadedDocIdsForTasks : [])
+                .map((id) => String(id || '').trim())
+                .filter(Boolean)
+        );
+        const missingDocIds = (Array.isArray(allDocIds) ? allDocIds : [])
+            .map((id) => String(id || '').trim())
+            .filter((id) => id && !loadedDocIdSet.has(id));
+        if (!missingDocIds.length) return mergedTasks;
+
+        const queryLimit = Number.isFinite(Number(state.queryLimit || SettingsStore?.data?.queryLimit))
+            ? Math.max(1, Math.min(5000, Math.round(Number(state.queryLimit || SettingsStore?.data?.queryLimit))))
+            : 500;
+        try {
+            const res = await API.getTasksByDocuments(missingDocIds, queryLimit, {
+                doneOnly: false,
+                forceFresh: !!state.isRefreshing,
+            });
+            const extraTasks = Array.isArray(res?.tasks) ? res.tasks : [];
+            extraTasks.forEach((rawTask) => {
+                const task = __tmPrepareTaskForSemanticScan(rawTask);
+                const taskId = String(task?.id || '').trim();
+                if (!taskId || seenTaskIds.has(taskId)) return;
+                seenTaskIds.add(taskId);
+                mergedTasks.push(task);
+            });
+        } catch (e) {}
+        return mergedTasks;
+    }
+
     async function __tmApplySemanticDateSuggestions(items) {
         const chosen = Array.isArray(items) ? items.filter(Boolean) : [];
-        if (!chosen.length) return { completionApplied: 0, calendarApplied: 0, failures: [] };
+        if (!chosen.length) return { completionApplied: 0, calendarApplied: 0, failures: [], appliedItems: [] };
         const failures = [];
         const touchedDocIds = new Set();
+        const appliedItems = [];
         let completionApplied = 0;
         let calendarApplied = 0;
         let calendarChanged = false;
@@ -12798,6 +13518,7 @@
                 if (task && typeof task === 'object') task.completionTime = completionValue;
                 touchedDocIds.add(String(item?.docId || task?.root_id || task?.docId || '').trim());
                 completionApplied += 1;
+                appliedItems.push(item);
             } catch (e) {
                 failures.push(`${taskTitle}：完成时间写入失败（${String(e?.message || e || '未知错误')}）`);
                 continue;
@@ -12835,7 +13556,7 @@
         if (calendarChanged) {
             try { await globalThis.__tmCalendar?.refreshInPlace?.({ silent: false, hard: false }); } catch (e) {}
         }
-        return { completionApplied, calendarApplied, failures };
+        return { completionApplied, calendarApplied, failures, appliedItems };
     }
 
     function __tmShowSemanticDateConfirmModal(items, options = {}) {
@@ -12940,6 +13661,9 @@
             if (applyBtn) applyBtn.textContent = '应用中...';
             try {
                 const result = await __tmApplySemanticDateSuggestions(chosen);
+                if (Array.isArray(result.appliedItems) && result.appliedItems.length > 0) {
+                    __tmMarkSemanticDateSuggestionsRecognized(result.appliedItems);
+                }
                 if (result.completionApplied > 0 || result.calendarApplied > 0) {
                     hint(`✅ 已写入 ${result.completionApplied} 条完成时间${result.calendarApplied > 0 ? `，新增 ${result.calendarApplied} 条日历` : ''}`, 'success');
                 }
@@ -12993,7 +13717,8 @@
         if (state.semanticDateAutoApplying) return;
         if (state.semanticDateConfirmModal && document.body.contains(state.semanticDateConfirmModal)) return;
         if (typeof __tmIsPluginVisibleNow === 'function' && !__tmIsPluginVisibleNow()) return;
-        const tasks = Object.values(state.flatTasks || {});
+        const tasks = await __tmLoadSemanticDateTasksForAutoPrompt(token);
+        if (token !== undefined && token !== null && token !== (Number(state.openToken) || 0)) return;
         const { items: suggestions, interrupted } = await __tmCollectSemanticDateSuggestions(tasks, {
             batchSize: __TM_SEMANTIC_DATE_AUTO_SCAN_BATCH_SIZE,
             shouldStop: () => {
@@ -13006,7 +13731,7 @@
         if (token !== undefined && token !== null && token !== (Number(state.openToken) || 0)) return;
         if (typeof __tmIsPluginVisibleNow === 'function' && !__tmIsPluginVisibleNow()) return;
         if (!suggestions.length) return;
-        __tmMarkSemanticDateSuggestionsRecognized(suggestions);
+        __tmMarkSemanticDateSuggestionsRecognized(suggestions, { persist: false });
         const batchCount = Math.max(1, Math.ceil(suggestions.length / __TM_SEMANTIC_DATE_AUTO_PROMPT_BATCH_SIZE));
         const firstBatch = suggestions.slice(0, __TM_SEMANTIC_DATE_AUTO_PROMPT_BATCH_SIZE);
         const remainingItems = suggestions.slice(__TM_SEMANTIC_DATE_AUTO_PROMPT_BATCH_SIZE);
@@ -13645,6 +14370,7 @@
     let __tmBreadcrumbObserver = null;
     let __tmThemeModeObserver = null;
     let __tmTopBarTimer = null;
+    let __tmShellEntrancesRefreshRaf = null;
     let __tmMountRetryTimer = null;
     let __tmTopBarAdded = false;
     let __tmTopBarEl = null;
@@ -13662,6 +14388,7 @@
     let __tmCalendarBootstrapRetryTimer = null;
     let __tmQuickbarTaskUpdateHandler = null;
     let __tmEditorTitleIconMenuHandler = null;
+    const __TM_MOBILE_TOPBAR_REGISTERED_KEY = '__taskHorizonMobileTopBarRegistered';
     let __tmDocTreeMenuHandler = null;
     let __tmBlockIconMenuHandler = null;
     let __tmDocMenuObserver = null;
@@ -13769,7 +14496,11 @@ async function __tmRefreshAfterWake(reason) {
                     try { globalThis.__tmCalendar.refreshInPlace({ layoutOnly: true, hard: true }); } catch (e2) {}
                 }
             } else {
-                try { render(); } catch (e2) {}
+                try {
+                    if (!__tmRerenderCurrentViewInPlace(state.modal)) render();
+                } catch (e2) {
+                    try { render(); } catch (e3) {}
+                }
             }
         } catch (e) {}
         
@@ -14477,10 +15208,17 @@ async function __tmRefreshAfterWake(reason) {
     };
 
     const __tmShouldJumpOnDockChecklistTitleClick = () => {
-        const appliesToCurrentHost = (__tmIsDockHost() && !__tmIsRuntimeMobileClient()) || __tmIsMobileDevice();
+        const appliesToCurrentHost = __tmIsDockHost() && !__tmIsRuntimeMobileClient();
         return appliesToCurrentHost
             && !!SettingsStore?.data?.checklistCompactMode
             && !!SettingsStore?.data?.dockChecklistCompactTitleJump;
+    };
+
+    const __tmShouldJumpOnMobileChecklistTitleClick = () => {
+        const appliesToCurrentHost = __tmIsMobileDevice() && !(__tmIsDockHost() && !__tmIsRuntimeMobileClient());
+        return appliesToCurrentHost
+            && !!SettingsStore?.data?.checklistCompactMode
+            && !!SettingsStore?.data?.mobileChecklistCompactTitleJump;
     };
 
     const __tmGetConfiguredDefaultViewMode = (isMobile = __tmIsMobileDevice()) => {
@@ -15488,6 +16226,16 @@ async function __tmRefreshAfterWake(reason) {
         state.__tmFlipTs = Date.now();
     }
 
+    function __tmShouldReduceUiAnimationByScale() {
+        try {
+            const totalFiltered = Array.isArray(state.filteredTasks) ? state.filteredTasks.length : 0;
+            if (totalFiltered > 120) return true;
+            const totalRows = state.modal?.querySelectorAll?.('#tmTaskTable tbody tr[data-id], #tmTimelineLeftTable tbody tr[data-id]')?.length || 0;
+            if (totalRows > 180) return true;
+        } catch (e) {}
+        return false;
+    }
+
     function __tmUpdateToggleGlyphInDom(opts) {
         const o = (opts && typeof opts === 'object') ? opts : {};
         const kind = String(o.kind || '');
@@ -15807,13 +16555,7 @@ async function __tmRefreshAfterWake(reason) {
     }
 
     function __tmShouldSkipCollapseAnimByScale() {
-        try {
-            const totalFiltered = Array.isArray(state.filteredTasks) ? state.filteredTasks.length : 0;
-            if (totalFiltered > 120) return true;
-            const totalRows = state.modal?.querySelectorAll?.('#tmTaskTable tbody tr[data-id], #tmTimelineLeftTable tbody tr[data-id]')?.length || 0;
-            if (totalRows > 180) return true;
-        } catch (e) {}
-        return false;
+        return __tmShouldReduceUiAnimationByScale();
     }
 
     function __tmGetCollapseAnimMode() {
@@ -15867,6 +16609,11 @@ async function __tmRefreshAfterWake(reason) {
 
     function __tmPrepareFlipAnimation(opts) {
         if (!state.modal) return;
+        if (__tmShouldReduceUiAnimationByScale()) {
+            state.__tmFlipFirst = null;
+            state.__tmFlipAction = null;
+            return;
+        }
         try { __tmCancelAnimationsWithin(state.modal); } catch (e) {}
         state.__tmFlipFirst = __tmCaptureFlipSnapshot(state.modal);
         state.__tmFlipAction = (opts && typeof opts === 'object') ? { ...opts } : null;
@@ -15915,6 +16662,10 @@ async function __tmRefreshAfterWake(reason) {
         if (!(first instanceof Map) || first.size === 0) return;
         const root = modalEl instanceof Element ? modalEl : state.modal;
         if (!root) return;
+        if (__tmShouldReduceUiAnimationByScale()) {
+            try { __tmResetFlipState(root); } catch (e) {}
+            return;
+        }
 
         // 检查是否滚动到了页面下方，如果是则跳过 FLIP 动画以避免闪烁
         const timelineLeftBody = root.querySelector('#tmTimelineLeftBody');
@@ -16292,6 +17043,146 @@ async function __tmRefreshAfterWake(reason) {
         try { __tmApplyTodayScheduledTaskNameMarks(modal); } catch (e) {}
         try { __tmScheduleTodayScheduledTaskNameMarksRefresh(modal); } catch (e) {}
         return true;
+    }
+
+    function __tmBuildElementFromHtml(html) {
+        const shell = document.createElement('div');
+        try { shell.innerHTML = String(html || '').trim(); } catch (e) { return null; }
+        return shell.firstElementChild instanceof HTMLElement ? shell.firstElementChild : null;
+    }
+
+    function __tmCleanupChecklistScrollFxForEl(paneEl) {
+        if (!(paneEl instanceof HTMLElement)) return;
+        try {
+            if (paneEl.__tmChecklistScrollFxTimer) {
+                clearTimeout(paneEl.__tmChecklistScrollFxTimer);
+                paneEl.__tmChecklistScrollFxTimer = 0;
+            }
+        } catch (e) {}
+        try {
+            paneEl.__tmChecklistScrollResizeObserver?.disconnect?.();
+            paneEl.__tmChecklistScrollResizeObserver = null;
+        } catch (e) {}
+    }
+
+    function __tmRerenderChecklistInPlace(modalEl) {
+        const modal = modalEl instanceof Element ? modalEl : state.modal;
+        if (!(modal instanceof Element)) return false;
+        if (String(state.viewMode || '').trim() !== 'checklist') return false;
+        const renderBodyHtml = state.renderChecklistBodyHtml;
+        if (typeof renderBodyHtml !== 'function') return false;
+        const body = modal.querySelector('.tm-body.tm-body--checklist');
+        const pane = modal.querySelector('.tm-checklist-scroll');
+        if (!(body instanceof HTMLElement) || !(pane instanceof HTMLElement)) return false;
+        const sheetMode = __tmChecklistUseSheetMode(modal);
+        const detailPanel = modal.querySelector(sheetMode ? '#tmChecklistSheetPanel' : '#tmChecklistDetailPanel');
+        const paneTop = Number(pane.scrollTop || 0);
+        const paneLeft = Number(pane.scrollLeft || 0);
+        const detailTop = Number(detailPanel?.scrollTop || 0);
+        const detailLeft = Number(detailPanel?.scrollLeft || 0);
+        const nextBody = __tmBuildElementFromHtml(renderBodyHtml());
+        if (!(nextBody instanceof HTMLElement)) return false;
+        __tmCleanupChecklistScrollFxForEl(pane);
+        try { body.replaceWith(nextBody); } catch (e) { return false; }
+        try { __tmBindChecklistScrollVisibility(modal); } catch (e) {}
+        try { __tmRefreshChecklistSelectionInPlace(modal); } catch (e) {}
+        try { __tmApplyReminderTaskNameMarks(modal); } catch (e) {}
+        try { __tmScheduleReminderTaskNameMarksRefresh(modal); } catch (e) {}
+        try { __tmApplyTodayScheduledTaskNameMarks(modal); } catch (e) {}
+        try { __tmScheduleTodayScheduledTaskNameMarksRefresh(modal); } catch (e) {}
+        const restore = () => {
+            try {
+                const nextPane = modal.querySelector('.tm-checklist-scroll');
+                if (nextPane instanceof HTMLElement) {
+                    nextPane.scrollTop = paneTop;
+                    nextPane.scrollLeft = paneLeft;
+                    try { nextPane.__tmChecklistScrollUpdateThumb?.(); } catch (e2) {}
+                }
+            } catch (e) {}
+            try {
+                const nextPanel = modal.querySelector(sheetMode ? '#tmChecklistSheetPanel' : '#tmChecklistDetailPanel');
+                if (nextPanel instanceof HTMLElement) {
+                    nextPanel.scrollTop = detailTop;
+                    nextPanel.scrollLeft = detailLeft;
+                }
+            } catch (e) {}
+        };
+        try { restore(); } catch (e) {}
+        try { requestAnimationFrame(restore); } catch (e) {}
+        return true;
+    }
+
+    function __tmRerenderKanbanInPlace(modalEl) {
+        const modal = modalEl instanceof Element ? modalEl : state.modal;
+        if (!(modal instanceof Element)) return false;
+        if (String(state.viewMode || '').trim() !== 'kanban') return false;
+        const renderBodyHtml = state.renderKanbanBodyHtml;
+        if (typeof renderBodyHtml !== 'function') return false;
+        const body = modal.querySelector('.tm-body.tm-body--kanban');
+        if (!(body instanceof HTMLElement)) return false;
+        const bodyLeft = Number(body.scrollLeft || 0);
+        const colScrollMap = new Map();
+        try {
+            modal.querySelectorAll('.tm-kanban-col').forEach((col) => {
+                if (!(col instanceof HTMLElement)) return;
+                const colKey = __tmGetKanbanColScrollKey(col);
+                if (!colKey) return;
+                const colBody = col.querySelector('.tm-kanban-col-body');
+                if (!(colBody instanceof HTMLElement)) return;
+                colScrollMap.set(colKey, Number(colBody.scrollTop || 0));
+            });
+        } catch (e) {}
+        const detailScrollSnapshot = __tmCaptureKanbanDetailScrollSnapshot(modal);
+        const nextBody = __tmBuildElementFromHtml(renderBodyHtml());
+        if (!(nextBody instanceof HTMLElement)) return false;
+        try { __tmClearKanbanDetailFloatingHandlers(); } catch (e) {}
+        try { body.replaceWith(nextBody); } catch (e) { return false; }
+        try { __tmBindKanbanPan(modal); } catch (e) {}
+        try { __tmRefreshKanbanDetailInPlace(modal, { scrollSnapshot: detailScrollSnapshot }); } catch (e) {}
+        try { __tmApplyReminderTaskNameMarks(modal); } catch (e) {}
+        try { __tmScheduleReminderTaskNameMarksRefresh(modal); } catch (e) {}
+        try { __tmApplyTodayScheduledTaskNameMarks(modal); } catch (e) {}
+        try { __tmScheduleTodayScheduledTaskNameMarksRefresh(modal); } catch (e) {}
+        const restore = () => {
+            try {
+                const nextBodyEl = modal.querySelector('.tm-body.tm-body--kanban');
+                if (nextBodyEl instanceof HTMLElement) {
+                    nextBodyEl.scrollLeft = bodyLeft;
+                }
+            } catch (e) {}
+            try {
+                modal.querySelectorAll('.tm-kanban-col').forEach((col) => {
+                    if (!(col instanceof HTMLElement)) return;
+                    const colKey = __tmGetKanbanColScrollKey(col);
+                    if (!colKey || !colScrollMap.has(colKey)) return;
+                    const colBody = col.querySelector('.tm-kanban-col-body');
+                    if (!(colBody instanceof HTMLElement)) return;
+                    colBody.scrollTop = Number(colScrollMap.get(colKey) || 0);
+                });
+            } catch (e) {}
+            try { __tmRefreshKanbanDetailInPlace(modal, { scrollSnapshot: detailScrollSnapshot }); } catch (e) {}
+        };
+        try { restore(); } catch (e) {}
+        try { requestAnimationFrame(restore); } catch (e) {}
+        return true;
+    }
+
+    function __tmRerenderCurrentViewInPlace(modalEl) {
+        const modal = modalEl instanceof Element ? modalEl : state.modal;
+        if (!(modal instanceof Element)) return false;
+        if (state.viewMode === 'calendar') {
+            try {
+                if (globalThis.__tmCalendar?.refreshInPlace) {
+                    globalThis.__tmCalendar.refreshInPlace({ hard: false });
+                    return true;
+                }
+            } catch (e) {}
+        }
+        if (state.viewMode === 'timeline') return __tmRerenderTimelineInPlace(modal);
+        if (state.viewMode === 'list') return __tmRerenderListInPlace(modal);
+        if (state.viewMode === 'checklist') return __tmRerenderChecklistInPlace(modal);
+        if (state.viewMode === 'kanban') return __tmRerenderKanbanInPlace(modal);
+        return false;
     }
 
     function __tmRerenderCollapseInPlace() {
@@ -21521,8 +22412,6 @@ async function __tmRefreshAfterWake(reason) {
             try { __tmHideMobileMenu(); } catch (e) {}
             return;
         }
-        let loadingHintEl = null;
-        try { loadingHintEl = hint('⏳ 正在切换文档分组...', 'info'); } catch (e) {}
         SettingsStore.data.currentGroupId = nextGroupId;
         // 切换文档分组后，统一回到“全部文档”页签，避免白板停留在旧分组文档导致空白
         state.activeDocId = 'all';
@@ -21537,8 +22426,12 @@ async function __tmRefreshAfterWake(reason) {
         try {
             await SettingsStore.save();
             try { __tmHideMobileMenu(); } catch (e) {}
-            await loadSelectedDocuments();
-            __tmRemoveHint(loadingHintEl);
+            await loadSelectedDocuments({
+                showInlineLoading: true,
+                loadingStyleKind: 'topbar',
+                loadingDelayMs: 0,
+                source: 'switch-doc-group',
+            });
             if (state.viewMode === 'whiteboard') {
                 try {
                     requestAnimationFrame(() => {
@@ -21548,7 +22441,6 @@ async function __tmRefreshAfterWake(reason) {
             }
             try { hint('✅ 文档分组已切换', 'success'); } catch (e) {}
         } catch (e) {
-            __tmRemoveHint(loadingHintEl);
             try { hint(`❌ 切换失败: ${e?.message || String(e)}`, 'error'); } catch (e2) {}
             throw e;
         }
@@ -21940,11 +22832,7 @@ async function __tmRefreshAfterWake(reason) {
         const id = String(taskId || '').trim();
         if (!id) return;
         try { ev?.stopPropagation?.(); } catch (e) {}
-        if (__tmIsRuntimeMobileClient()) {
-            window.tmJumpToTask(id, ev);
-            return;
-        }
-        if (__tmShouldJumpOnDockChecklistTitleClick()) {
+        if (__tmShouldJumpOnDockChecklistTitleClick() || __tmShouldJumpOnMobileChecklistTitleClick()) {
             window.tmJumpToTask(id, ev);
             return;
         }
@@ -22185,7 +23073,7 @@ async function __tmRefreshAfterWake(reason) {
         }
         const kind0 = String(state.uiAnimKind || '').trim();
         const isViewSwitchAnim = (kind0 === 'from-right' || kind0 === 'from-left')
-            && (Date.now() - (Number(state.uiAnimTs) || 0) < 380);
+            && (Date.now() - (Number(state.uiAnimTs) || 0) < 500);
         const isTimelineView = state.viewMode === 'timeline';
         if (!isTimelineView) __tmClearTimelineTodayIndicatorTimer();
         const useSoftSwap = isViewSwitchAnim;
@@ -22193,6 +23081,12 @@ async function __tmRefreshAfterWake(reason) {
         const prevModalSnapshot = state.modal instanceof Element ? state.modal : null;
         const prevMountRoot = prevModalSnapshot?.parentElement instanceof Element ? prevModalSnapshot.parentElement : null;
         const nextMountRoot = __tmGetMountRoot();
+        const useOverlaySoftSwap = !!(useSoftSwap
+            && prevModalSnapshot
+            && nextMountRoot instanceof HTMLElement
+            && nextMountRoot !== document.body
+            && !__tmIsRuntimeMobileClient()
+            && (!__tmIsMobileDevice() || __tmIsDockHost()));
         const snapshotKind = prevMountRoot instanceof Element ? __tmGetKeepaliveSnapshotKind(prevMountRoot) : '';
         const keepMountSnapshot = !!(prevModalSnapshot && snapshotKind && prevMountRoot !== nextMountRoot);
         const prevWasTimeline = !!(prevModalSnapshot && prevModalSnapshot.querySelector && prevModalSnapshot.querySelector('#tmTimelineLeftBody'));
@@ -22322,6 +23216,18 @@ async function __tmRefreshAfterWake(reason) {
                 prevModalEl = null;
             } else {
                 try { prevModalSnapshot.style.pointerEvents = 'none'; } catch (e) {}
+                if (useOverlaySoftSwap) {
+                    try {
+                        if (window.getComputedStyle(nextMountRoot).position === 'static') {
+                            nextMountRoot.style.position = 'relative';
+                        }
+                    } catch (e) {}
+                    try { prevModalSnapshot.style.position = 'absolute'; } catch (e) {}
+                    try { prevModalSnapshot.style.inset = '0'; } catch (e) {}
+                    try { prevModalSnapshot.style.width = '100%'; } catch (e) {}
+                    try { prevModalSnapshot.style.height = '100%'; } catch (e) {}
+                    try { prevModalSnapshot.style.zIndex = '0'; } catch (e) {}
+                }
             }
         }
         
@@ -22356,12 +23262,19 @@ async function __tmRefreshAfterWake(reason) {
         const isRuntimeMobile = __tmIsRuntimeMobileClient();
         const isDockHost = __tmIsDockHost();
         const hostUsesMobileUI = __tmHostUsesMobileUI();
+        const isAnimatedDockHost = !!(isDockHost && !isRuntimeMobile);
         const isSplitPane = false; // 使用CSS容器查询处理分屏模式
         const isLandscape = !!(isMobile && (() => { try { return !!window.matchMedia?.('(orientation: landscape)')?.matches; } catch (e) { return false; } })());
         const isDesktopNarrow = !!(!isMobile && (() => { try { return !!window.matchMedia?.('(max-width: 768px)')?.matches; } catch (e) { return false; } })());
         const kind = String(state.uiAnimKind || '').trim();
-        const bodyAnimClass = (Date.now() - (Number(state.uiAnimTs) || 0) < 300)
+        const bodyAnimClass = ((isMobile || hostUsesMobileUI) && !isAnimatedDockHost && (Date.now() - (Number(state.uiAnimTs) || 0) < 390))
             ? (kind === 'from-right' ? ' tm-body-anim--from-right' : kind === 'from-left' ? ' tm-body-anim--from-left' : ' tm-body-anim')
+            : '';
+        const boxAnimClass = (!(isMobile || hostUsesMobileUI) && (Date.now() - (Number(state.uiAnimTs) || 0) < 390))
+            ? (kind === 'from-right' ? ' tm-box-anim--from-right' : kind === 'from-left' ? ' tm-box-anim--from-left' : ' tm-box-anim')
+            : '';
+        const stageAnimClass = (isAnimatedDockHost && (Date.now() - (Number(state.uiAnimTs) || 0) < 390))
+            ? (kind === 'from-right' ? ' tm-stage-anim--from-right' : kind === 'from-left' ? ' tm-stage-anim--from-left' : ' tm-stage-anim')
             : '';
         const tableFillColumns = SettingsStore.data.kanbanFillColumns === true;
         const tableAvailableWidth = tableFillColumns ? (() => {
@@ -22399,6 +23312,18 @@ async function __tmRefreshAfterWake(reason) {
         } catch (e) {}
         if (useSoftSwap && prevModalEl) {
             try { state.modal.style.pointerEvents = 'none'; } catch (e) {}
+            if (useOverlaySoftSwap) {
+                try {
+                    if (window.getComputedStyle(nextMountRoot).position === 'static') {
+                        nextMountRoot.style.position = 'relative';
+                    }
+                } catch (e) {}
+                try { state.modal.style.position = 'absolute'; } catch (e) {}
+                try { state.modal.style.inset = '0'; } catch (e) {}
+                try { state.modal.style.width = '100%'; } catch (e) {}
+                try { state.modal.style.height = '100%'; } catch (e) {}
+                try { state.modal.style.zIndex = '1'; } catch (e) {}
+            }
         }
         
         // 构建规则选择选项
@@ -24156,7 +25081,7 @@ async function __tmRefreshAfterWake(reason) {
 
         const __tmRenderWhiteboardBodyHtml = () => {
             const filtered = Array.isArray(state.filteredTasks) ? state.filteredTasks : [];
-            try { __tmUpsertWhiteboardTaskSnapshots(filtered); } catch (e) {}
+            try { __tmUpsertWhiteboardTaskSnapshots(filtered, { persist: false }); } catch (e) {}
             const orderMap = new Map(filtered.map((t, i) => [String(t?.id || '').trim(), i]));
             const getOrder = (taskId) => orderMap.get(String(taskId || '').trim()) ?? 999999;
             const escSq = (s) => String(s || '').replace(/\\/g, '\\\\').replace(/'/g, "\\'");
@@ -25044,6 +25969,9 @@ async function __tmRefreshAfterWake(reason) {
             `;
         };
 
+        state.renderChecklistBodyHtml = __tmRenderChecklistBodyHtml;
+        state.renderKanbanBodyHtml = __tmRenderKanbanBodyHtml;
+
         const __tmTimelineRowModel = state.viewMode === 'timeline' ? __tmBuildTaskRowModel() : null;
         const mainBodyHtml = state.viewMode === 'calendar'
             ? __tmRenderCalendarBodyHtml()
@@ -25091,7 +26019,7 @@ async function __tmRefreshAfterWake(reason) {
             : mainBodyHtml;
 
         state.modal.innerHTML = `
-            <div class="tm-box${showCalendarSideDock || showAiSideDock ? ' tm-box--with-cal-dock' : ''}">
+            <div class="tm-box${showCalendarSideDock || showAiSideDock ? ' tm-box--with-cal-dock' : ''}${boxAnimClass}">
                 <div class="tm-filter-rule-bar" style="padding: ${topbarPadding};${topbarHeightStyle}">
                         <div class="tm-topbar-row tm-topbar-row--main" style="display:flex;align-items:center;gap:10px;flex-wrap:nowrap;justify-content:space-between;min-width:0;">
                         <div class="tm-topbar-row tm-topbar-row--brand" style="display:flex;align-items:center;gap:10px;min-width:0;">
@@ -26117,7 +27045,9 @@ async function __tmRefreshAfterWake(reason) {
                     }
                 </style>
                 
-                ${bodyWithSideDockHtml}
+                <div class="tm-main-stage${stageAnimClass}">
+                    ${bodyWithSideDockHtml}
+                </div>
                 ${showMobileBottomViewBar ? `
                     <div class="tm-mobile-bottom-viewbar ${mobileBottomViewbarActive ? 'tm-mobile-bottom-viewbar--active' : ''}" onpointerdown="tmTouchMobileBottomViewbar(event)" ontouchstart="tmTouchMobileBottomViewbar(event)" onclick="tmTouchMobileBottomViewbar(event)">
                         <div class="tm-mobile-bottom-viewbar__inner">
@@ -26140,6 +27070,7 @@ async function __tmRefreshAfterWake(reason) {
         try { if (state.viewMode === 'kanban') __tmBindKanbanPan(state.modal); } catch (e) {}
         try { if (state.viewMode === 'whiteboard') __tmBindWhiteboardViewportInput(state.modal); } catch (e) {}
         (nextMountRoot || __tmGetMountRoot()).appendChild(state.modal);
+        try { __tmSyncInlineLoadingOverlay(state.modal); } catch (e) {}
         try { __tmBindTopbarOverflowTooltips(state.modal); } catch (e) {}
         try { __tmBindResponsiveTableResize(state.modal); } catch (e) {}
         try { __tmBindFloatingTooltips(state.modal); } catch (e) {}
@@ -26300,8 +27231,7 @@ async function __tmRefreshAfterWake(reason) {
                          try { state.modal.style.opacity = '1'; } catch (e) {}
                          try { state.modal.style.pointerEvents = ''; } catch (e) {}
                          if (prevModalEl) {
-                             try { prevModalEl.style.visibility = 'hidden'; } catch (e2) {}
-                             setTimeout(() => { try { prevModalEl.remove(); } catch (e2) {} }, 140);
+                             setTimeout(() => { try { prevModalEl.remove(); } catch (e2) {} }, 340);
                          }
                     }
                 }));
@@ -26443,8 +27373,7 @@ async function __tmRefreshAfterWake(reason) {
                             try { state.modal.style.opacity = '1'; } catch (e) {}
                             try { state.modal.style.pointerEvents = ''; } catch (e) {}
                             if (prevModalEl) {
-                                try { prevModalEl.style.visibility = 'hidden'; } catch (e2) {}
-                                setTimeout(() => { try { prevModalEl.remove(); } catch (e2) {} }, 140);
+                                setTimeout(() => { try { prevModalEl.remove(); } catch (e2) {} }, 340);
                             }
                         }
                     }));
@@ -26475,8 +27404,7 @@ async function __tmRefreshAfterWake(reason) {
                             try { state.modal.style.opacity = '1'; } catch (e) {}
                             try { state.modal.style.pointerEvents = ''; } catch (e) {}
                             if (prevModalEl) {
-                                try { prevModalEl.style.visibility = 'hidden'; } catch (e2) {}
-                                setTimeout(() => { try { prevModalEl.remove(); } catch (e2) {} }, 140);
+                                setTimeout(() => { try { prevModalEl.remove(); } catch (e2) {} }, 340);
                             }
                         }
                     }));
@@ -26501,8 +27429,7 @@ async function __tmRefreshAfterWake(reason) {
                             try { state.modal.style.opacity = '1'; } catch (e) {}
                             try { state.modal.style.pointerEvents = ''; } catch (e) {}
                             if (prevModalEl) {
-                                try { prevModalEl.style.visibility = 'hidden'; } catch (e2) {}
-                                setTimeout(() => { try { prevModalEl.remove(); } catch (e2) {} }, 140);
+                                setTimeout(() => { try { prevModalEl.remove(); } catch (e2) {} }, 340);
                             }
                         }
                     }));
@@ -26525,8 +27452,7 @@ async function __tmRefreshAfterWake(reason) {
                             try { state.modal.style.opacity = '1'; } catch (e) {}
                             try { state.modal.style.pointerEvents = ''; } catch (e) {}
                             if (prevModalEl) {
-                                try { prevModalEl.style.visibility = 'hidden'; } catch (e2) {}
-                                setTimeout(() => { try { prevModalEl.remove(); } catch (e2) {} }, 140);
+                                setTimeout(() => { try { prevModalEl.remove(); } catch (e2) {} }, 340);
                             }
                         }
                     }));
@@ -26551,8 +27477,7 @@ async function __tmRefreshAfterWake(reason) {
                              try { state.modal.style.opacity = '1'; } catch (e) {}
                              try { state.modal.style.pointerEvents = ''; } catch (e) {}
                              if (prevModalEl) {
-                                 try { prevModalEl.style.visibility = 'hidden'; } catch (e2) {}
-                                 setTimeout(() => { try { prevModalEl.remove(); } catch (e2) {} }, 140);
+                                 setTimeout(() => { try { prevModalEl.remove(); } catch (e2) {} }, 340);
                              }
                          }
                     }));
@@ -26624,6 +27549,7 @@ async function __tmRefreshAfterWake(reason) {
         state.isRefreshing = true;
         if (!silent) hint('🔄 正在刷新...', 'info');
         try {
+            try { __tmInvalidateAllSqlCaches(); } catch (e) {}
             try { window.__tmCalendarAllTasksCache = null; } catch (e) {}
             await loadSelectedDocuments({ skipRender: true });
             let removedCount = 0;
@@ -26651,6 +27577,7 @@ async function __tmRefreshAfterWake(reason) {
         state.isRefreshing = true;
         hint('🔄 正在刷新...', 'info');
         try {
+            try { __tmInvalidateAllSqlCaches(); } catch (e) {}
             // 清除日历缓存，确保获取最新数据
             try { window.__tmCalendarAllTasksCache = null; } catch (e) {}
             await loadSelectedDocuments();
@@ -26985,15 +27912,58 @@ async function __tmRefreshAfterWake(reason) {
         const next = __tmGetSafeViewMode(mode);
         const prev = String(state.viewMode || '').trim();
         if (prev === next) return;
+        const enabledViews = __tmGetEnabledViews();
+        const prevIdx = enabledViews.indexOf(prev);
+        const nextIdx = enabledViews.indexOf(next);
+        const perfTrace = __tmCreatePerfTrace('switchViewMode', {
+            from: prev || 'unknown',
+            to: next || 'unknown',
+            currentGroupId: String(SettingsStore?.data?.currentGroupId || 'all').trim() || 'all',
+        });
+        __tmPerfTraceMark(perfTrace, 'view-switch-start', {
+            from: prev || 'unknown',
+            to: next || 'unknown',
+        });
         const needRefilter = !!SettingsStore.data.whiteboardSequenceMode && (prev === 'whiteboard' || next === 'whiteboard');
         state.viewMode = next;
-        state.uiAnimKind = '';
-        state.uiAnimTs = 0;
+        state.uiAnimKind = (prevIdx >= 0 && nextIdx >= 0 && nextIdx !== prevIdx)
+            ? (nextIdx > prevIdx ? 'from-right' : 'from-left')
+            : '';
+        state.uiAnimTs = Date.now();
         try { __tmHideMobileMenu(); } catch (e) {}
         if (needRefilter) {
             try { applyFilters(); } catch (e) {}
         }
         render();
+        try {
+            requestAnimationFrame(() => requestAnimationFrame(() => {
+                try {
+                    __tmPerfTraceMark(perfTrace, 'view-switch-done', {
+                        from: prev || 'unknown',
+                        to: next || 'unknown',
+                        viewMode: String(state.viewMode || '').trim() || next || 'unknown',
+                    });
+                    __tmPerfTraceFinish(perfTrace, {
+                        from: prev || 'unknown',
+                        to: next || 'unknown',
+                        viewMode: String(state.viewMode || '').trim() || next || 'unknown',
+                    });
+                } catch (e) {}
+            }));
+        } catch (e) {
+            try {
+                __tmPerfTraceMark(perfTrace, 'view-switch-done', {
+                    from: prev || 'unknown',
+                    to: next || 'unknown',
+                    viewMode: String(state.viewMode || '').trim() || next || 'unknown',
+                });
+                __tmPerfTraceFinish(perfTrace, {
+                    from: prev || 'unknown',
+                    to: next || 'unknown',
+                    viewMode: String(state.viewMode || '').trim() || next || 'unknown',
+                });
+            } catch (e2) {}
+        }
         if (next !== 'calendar') {
             const refreshDock = () => {
                 try { globalThis.__tmCalendar?.refreshSideDayLayout?.(); } catch (e) {}
@@ -37750,6 +38720,7 @@ async function __tmRefreshAfterWake(reason) {
             if (!(target instanceof Element)) return;
             if (floatPanel.contains(target)) return;
             if (target.closest('.tm-kanban-more')) return;
+            if (target.closest('.tm-task-detail-inline-popover,.tm-inline-editor')) return;
             __tmCloseKanbanDetailFloating();
         };
         document.addEventListener('click', __tmKanbanDetailOutsideClickHandler, false);
@@ -41643,10 +42614,14 @@ async function __tmRefreshAfterWake(reason) {
     }
 
     // 解析文档分组中的所有文档ID
-    async function resolveDocIdsFromGroups() {
+    async function resolveDocIdsFromGroups(options = {}) {
+        const opts = (options && typeof options === 'object') ? options : {};
         const groups = SettingsStore.data.docGroups || [];
-        const currentGroupId = SettingsStore.data.currentGroupId || 'all';
-        const quickAddDocId = String(SettingsStore.data.newTaskDocId || '').trim();
+        const currentGroupIdRaw = (opts.groupId ?? SettingsStore.data.currentGroupId ?? 'all');
+        const currentGroupId = String(currentGroupIdRaw).trim() || 'all';
+        const includeQuickAddDoc = opts.includeQuickAddDoc !== false;
+        const forceRefreshScope = !!opts.forceRefreshScope;
+        const quickAddDocId = includeQuickAddDoc ? String(SettingsStore.data.newTaskDocId || '').trim() : '';
         
         let targetDocs = [];
         
@@ -41680,6 +42655,11 @@ async function __tmRefreshAfterWake(reason) {
                 };
             })
             .filter(Boolean);
+        if (forceRefreshScope) {
+            try { __tmDocExpandCache.clear(); } catch (e) {}
+            try { __tmResolvedDocIdsCache = null; } catch (e) {}
+            try { __tmResolvedDocIdsPromise = null; } catch (e) {}
+        }
         const resolveCacheKey = [
             currentGroupId,
             quickAddDocId,
@@ -41741,6 +42721,7 @@ async function __tmRefreshAfterWake(reason) {
     async function loadSelectedDocuments(options = {}) {
         const token = Number(state.openToken) || 0;
         const skipRender = !!(options && options.skipRender);
+        const showInlineLoading = !skipRender && !(options && options.showInlineLoading === false);
         const preferFastFirstPaint = !!(options && options.preferFastFirstPaint);
         const perfTrace = (options && options.perfTrace) || __tmCreatePerfTrace('loadSelectedDocuments', {
             source: String(options?.source || 'direct').trim() || 'direct',
@@ -41755,6 +42736,15 @@ async function __tmRefreshAfterWake(reason) {
             perfFinished = true;
             __tmPerfTraceFinish(perfTrace, detail);
         };
+        if (showInlineLoading) {
+            try {
+                __tmSetInlineLoading(true, {
+                    token,
+                    styleKind: options?.loadingStyleKind,
+                    delayMs: Number(options?.loadingDelayMs),
+                });
+            } catch (e) {}
+        }
         try { state.doneOverrides = {}; } catch (e) {}
         // 加载设置（包括文档ID列表）
         await SettingsStore.load();
@@ -41852,7 +42842,9 @@ async function __tmRefreshAfterWake(reason) {
         state.__tmQueryDoneOnly = !!(currentRule && currentRule.conditions && currentRule.conditions.some(c => c && c.field === 'done' && c.operator === '=' && (c.value === true || String(c.value) === 'true' || c.value === '') && String(c.value) !== '__all__'));
 
         // 1. 解析所有需要查询的文档ID
-        const allDocIds = await resolveDocIdsFromGroups();
+        const allDocIds = await resolveDocIdsFromGroups({
+            forceRefreshScope: !!state.isRefreshing,
+        });
         state.__tmLoadedDocIdsForTasks = Array.isArray(allDocIds) ? allDocIds.slice() : [];
         __tmPerfTraceMark(perfTrace, 'docs', {
             docCount: Array.isArray(allDocIds) ? allDocIds.length : 0,
@@ -41930,6 +42922,7 @@ async function __tmRefreshAfterWake(reason) {
                 reason: 'empty-docs',
             });
             if (!skipRender && state.modal && token === (Number(state.openToken) || 0)) {
+                try { if (showInlineLoading && Number(state.uiInlineLoadingToken) === token) __tmSetInlineLoading(false); } catch (e) {}
                 render();
                 __tmPerfTraceMark(perfTrace, 'render', {
                     filteredCount: Array.isArray(state.filteredTasks) ? state.filteredTasks.length : 0,
@@ -42295,8 +43288,8 @@ async function __tmRefreshAfterWake(reason) {
                     // 建立父子关系
                     const rootTasks = [];
                     rawTasks.forEach(t => {
-                        // 确保 children 是空的
-                        if (!t.children) t.children = [];
+                        // 每次重建树都强制清空 children，避免命中查询缓存时复用旧层级引用。
+                        t.children = [];
                         
                         if (t.parentTaskId && idMap.has(t.parentTaskId)) {
                             const parent = idMap.get(t.parentTaskId);
@@ -42337,7 +43330,7 @@ async function __tmRefreshAfterWake(reason) {
                     String(SettingsStore.data.currentGroupId || 'all').trim() || 'all'
                 );
                 state.flatTasks = nextFlatTasks;
-                try { __tmUpsertWhiteboardTaskSnapshots(Object.values(state.flatTasks || {})); } catch (e) {}
+                try { __tmUpsertWhiteboardTaskSnapshots(Object.values(state.flatTasks || {}), { persist: false }); } catch (e) {}
                 state.flatTasks = __tmMergeOtherBlocksIntoFlatTasks(state.flatTasks);
                 try { recalcStats(); } catch (e) {}
                 __tmPerfTraceMark(perfTrace, 'enhance', {
@@ -42360,8 +43353,13 @@ async function __tmRefreshAfterWake(reason) {
                     filteredCount: Array.isArray(state.filteredTasks) ? state.filteredTasks.length : 0,
                     listRenderLimit: Number.isFinite(Number(state.listRenderLimit)) ? Number(state.listRenderLimit) : 0,
                 });
+                __tmPerfTraceMark(perfTrace, 'data-ready', {
+                    filteredCount: Array.isArray(state.filteredTasks) ? state.filteredTasks.length : 0,
+                    taskCount: Array.isArray(res.tasks) ? res.tasks.length : 0,
+                });
 
                 if (!skipRender && state.modal && token === (Number(state.openToken) || 0)) {
+                    try { if (showInlineLoading && Number(state.uiInlineLoadingToken) === token) __tmSetInlineLoading(false); } catch (e) {}
                     render();
                     __tmPerfTraceMark(perfTrace, 'render', {
                         filteredCount: Array.isArray(state.filteredTasks) ? state.filteredTasks.length : 0,
@@ -42437,7 +43435,9 @@ async function __tmRefreshAfterWake(reason) {
                         });
                         if (!changed || deferredToken !== (Number(state.openToken) || 0)) return;
                         applyFilters();
-                        if (!skipRender && state.modal && deferredToken === (Number(state.openToken) || 0)) render();
+                        if (!skipRender && state.modal && deferredToken === (Number(state.openToken) || 0)) {
+                            if (!__tmRerenderCurrentViewInPlace(state.modal)) render();
+                        }
                     }).catch(() => null);
                 }
                 finishPerfTrace({
@@ -42455,6 +43455,10 @@ async function __tmRefreshAfterWake(reason) {
             });
             console.error('[加载] 获取任务失败:', e);
             hint('❌ 加载任务失败', 'error');
+        } finally {
+            if (showInlineLoading && Number(state.uiInlineLoadingToken) === token) {
+                try { __tmSetInlineLoading(false); } catch (e) {}
+            }
         }
     }
 
@@ -43330,11 +44334,17 @@ async function __tmRefreshAfterWake(reason) {
                         </div>
                         ${renderSingleSwitchSetting(
                             'Dock 紧凑标题点击跳转',
-                            '桌面端 Dock 与移动端的清单紧凑视图中，开启后点击任务名直接跳转文档；关闭后保持打开任务详情抽屉。',
+                            '桌面端 Dock 清单紧凑视图中，开启后点击任务名直接跳转文档；关闭后保持打开任务详情抽屉。',
                             `<input class="b3-switch fn__flex-center" type="checkbox" ${SettingsStore.data.dockChecklistCompactTitleJump ? 'checked' : ''} ${SettingsStore.data.dockSidebarEnabled !== false ? '' : 'disabled'} onchange="updateDockChecklistCompactTitleJump(this.checked)">`,
                             { style: `margin-bottom:10px;opacity:${SettingsStore.data.dockSidebarEnabled !== false ? 1 : 0.6};` }
                         )}
                         ` : ''}
+                        ${renderSingleSwitchSetting(
+                            '移动端清单紧凑视图标题点击跳转',
+                            '移动端清单紧凑视图中，开启后点击任务名直接跳转文档；关闭后保持打开任务详情抽屉。',
+                            `<input class="b3-switch fn__flex-center" type="checkbox" ${SettingsStore.data.mobileChecklistCompactTitleJump ? 'checked' : ''} onchange="updateMobileChecklistCompactTitleJump(this.checked)">`,
+                            { style: 'margin-bottom:10px;' }
+                        )}
                         <div style="margin-bottom:10px;">
                             <div style="font-size:12px;color:var(--tm-secondary-text);margin-bottom:8px;">显示视图:</div>
                             <div style="display:flex;gap:8px;flex-wrap:wrap;">
@@ -44534,8 +45544,6 @@ async function __tmRefreshAfterWake(reason) {
 
     // 新增：切换分组
     window.switchDocGroup = async function(groupId) {
-        let loadingHintEl = null;
-        try { loadingHintEl = hint('⏳ 正在切换文档分组...', 'info'); } catch (e) {}
         try {
             await SettingsStore.updateCurrentGroupId(groupId);
             state.activeDocId = 'all';
@@ -44543,13 +45551,16 @@ async function __tmRefreshAfterWake(reason) {
             state.currentRule = firstRuleId || null;
             SettingsStore.data.currentRule = firstRuleId || null;
             await SettingsStore.save();
-            await loadSelectedDocuments();
-            __tmRemoveHint(loadingHintEl);
+            await loadSelectedDocuments({
+                showInlineLoading: true,
+                loadingStyleKind: 'topbar',
+                loadingDelayMs: 0,
+                source: 'legacy-switch-doc-group',
+            });
             render();
             showSettings();
             try { hint('✅ 文档分组已切换', 'success'); } catch (e) {}
         } catch (e) {
-            __tmRemoveHint(loadingHintEl);
             try { hint(`❌ 切换失败: ${e?.message || String(e)}`, 'error'); } catch (e2) {}
             throw e;
         }
@@ -46678,6 +47689,15 @@ async function __tmRefreshAfterWake(reason) {
         }
     };
 
+    window.updateMobileChecklistCompactTitleJump = async function(enabled) {
+        SettingsStore.data.mobileChecklistCompactTitleJump = !!enabled;
+        await SettingsStore.save();
+        showSettings();
+        if (state.modal && document.body.contains(state.modal)) {
+            try { render(); } catch (e) {}
+        }
+    };
+
     window.updateEnabledView = async function(mode, enabled) {
         const id = String(mode || '').trim();
         if (!__TM_ALL_VIEWS.some(v => v.id === id)) return;
@@ -46707,7 +47727,7 @@ async function __tmRefreshAfterWake(reason) {
         await SettingsStore.save();
         showSettings();
         if (state.modal && document.body.contains(state.modal)) {
-            render();
+            if (!__tmRerenderCurrentViewInPlace(state.modal)) render();
         }
     };
 
@@ -46716,7 +47736,7 @@ async function __tmRefreshAfterWake(reason) {
         await SettingsStore.save();
         showSettings();
         if (state.modal && document.body.contains(state.modal)) {
-            render();
+            if (!__tmRerenderCurrentViewInPlace(state.modal)) render();
         }
     };
 
@@ -46726,7 +47746,7 @@ async function __tmRefreshAfterWake(reason) {
         await SettingsStore.save();
         showSettings();
         if (state.modal && document.body.contains(state.modal)) {
-            render();
+            if (!__tmRerenderCurrentViewInPlace(state.modal)) render();
         }
     };
 
@@ -46745,7 +47765,7 @@ async function __tmRefreshAfterWake(reason) {
         await SettingsStore.save();
         showSettings();
         if (state.modal && document.body.contains(state.modal)) {
-            render();
+            if (!__tmRerenderCurrentViewInPlace(state.modal)) render();
         }
     };
 
@@ -46754,7 +47774,7 @@ async function __tmRefreshAfterWake(reason) {
         await SettingsStore.save();
         showSettings();
         if (state.modal && document.body.contains(state.modal)) {
-            render();
+            if (!__tmRerenderCurrentViewInPlace(state.modal)) render();
         }
     };
 
@@ -46769,7 +47789,7 @@ async function __tmRefreshAfterWake(reason) {
         await SettingsStore.save();
         showSettings();
         if (state.modal && document.body.contains(state.modal)) {
-            render();
+            if (!__tmRerenderCurrentViewInPlace(state.modal)) render();
         }
     };
 
@@ -46778,7 +47798,7 @@ async function __tmRefreshAfterWake(reason) {
         await SettingsStore.save();
         showSettings();
         if (state.modal && document.body.contains(state.modal)) {
-            render();
+            if (!__tmRerenderCurrentViewInPlace(state.modal)) render();
         }
     };
 
@@ -46800,7 +47820,7 @@ async function __tmRefreshAfterWake(reason) {
         state.quadrantEnabled = !!(SettingsStore.data.quadrantConfig && SettingsStore.data.quadrantConfig.enabled);
         showSettings();
         if (state.modal && document.body.contains(state.modal)) {
-            render();
+            if (!__tmRerenderCurrentViewInPlace(state.modal)) render();
         }
     };
 
@@ -46811,7 +47831,7 @@ async function __tmRefreshAfterWake(reason) {
         await SettingsStore.save();
         showSettings();
         if (state.modal && document.body.contains(state.modal)) {
-            render();
+            if (!__tmRerenderCurrentViewInPlace(state.modal)) render();
         }
     };
 
@@ -47112,7 +48132,7 @@ async function __tmRefreshAfterWake(reason) {
             try { await __tmWarmKanbanDocHeadings(state.__tmLoadedDocIdsForTasks || []); } catch (e) {}
         }
         applyFilters();
-        render();
+        if (!__tmRerenderCurrentViewInPlace(state.modal)) render();
         try { hint(next ? '✅ 已切换到标题看板' : '✅ 已切换到状态看板', 'success'); } catch (e) {}
     };
 
@@ -47131,7 +48151,7 @@ async function __tmRefreshAfterWake(reason) {
             try { await __tmWarmKanbanDocHeadings(state.__tmLoadedDocIdsForTasks || []); } catch (e) {}
         }
         applyFilters();
-        render();
+        if (!__tmRerenderCurrentViewInPlace(state.modal)) render();
         try { hint(next ? '✅ 已切换到标题看板' : '✅ 已切换到状态看板', 'success'); } catch (e) {}
     };
 
@@ -47667,8 +48687,7 @@ async function __tmRefreshAfterWake(reason) {
             breadcrumbTries = 0;
         };
 
-        // 延迟执行
-        scheduleTry(0);
+        tryAddButton();
     }
 
     /**
@@ -47757,6 +48776,35 @@ async function __tmRefreshAfterWake(reason) {
         try { el.addEventListener('click', __tmTopBarClickCaptureHandler, true); } catch (e) {}
     }
 
+    function __tmIsMobileTopBarRegistrationHost() {
+        try {
+            return !!(__tmIsRuntimeMobileClient() && !__tmIsDockHost());
+        } catch (e) {
+            return false;
+        }
+    }
+
+    function __tmGetTopBarEntries() {
+        try {
+            return Array.from(document.querySelectorAll('[aria-label="任务管理器"], [aria-label="任务管理"]'));
+        } catch (e) {
+            return [];
+        }
+    }
+
+    function __tmDeduplicateTopBarEntries() {
+        const entries = __tmGetTopBarEntries();
+        if (!entries.length) return null;
+        const keeper = (__tmTopBarEl instanceof Element && entries.includes(__tmTopBarEl))
+            ? __tmTopBarEl
+            : entries[0];
+        entries.forEach((el) => {
+            if (!(el instanceof Element) || el === keeper) return;
+            try { el.remove(); } catch (e) {}
+        });
+        return keeper instanceof Element ? keeper : null;
+    }
+
     function __tmRemoveTopBarIcon() {
         try {
             if (__tmTopBarEl && __tmTopBarClickCaptureHandler) {
@@ -47764,9 +48812,12 @@ async function __tmRefreshAfterWake(reason) {
             }
         } catch (e) {}
         try {
-            const exists = __tmTopBarEl || document.querySelector('[aria-label="任务管理器"], [aria-label="任务管理"]');
-            if (exists?.remove) exists.remove();
+            const entries = __tmGetTopBarEntries();
+            entries.forEach((el) => { try { el.remove(); } catch (e) {} });
+            const exists = __tmTopBarEl;
+            if (exists?.remove && !(exists instanceof Element && entries.includes(exists))) exists.remove();
         } catch (e) {}
+        try { delete globalThis[__TM_MOBILE_TOPBAR_REGISTERED_KEY]; } catch (e) {}
         __tmTopBarEl = null;
         __tmTopBarAdded = false;
     }
@@ -47776,12 +48827,33 @@ async function __tmRefreshAfterWake(reason) {
             __tmRemoveTopBarIcon();
             return;
         }
-        if (__tmTopBarAdded) {
+        const isMobileTopBarHost = __tmIsMobileTopBarRegistrationHost();
+        if (isMobileTopBarHost && globalThis[__TM_MOBILE_TOPBAR_REGISTERED_KEY]) {
+            __tmTopBarAdded = true;
             try {
-                const exists = document.querySelector('[aria-label="任务管理器"], [aria-label="任务管理"]');
+                const exists = __tmDeduplicateTopBarEntries();
                 if (exists) __tmBindTopBarClickCapture(exists);
             } catch (e) {}
             return;
+        }
+        if (__tmTopBarAdded) {
+            if (isMobileTopBarHost) {
+                try {
+                    const exists = __tmDeduplicateTopBarEntries();
+                    if (exists) __tmBindTopBarClickCapture(exists);
+                } catch (e) {}
+                return;
+            }
+            try {
+                const exists = __tmDeduplicateTopBarEntries();
+                if (exists) {
+                    __tmSetUseIcon(exists, 'iconTaskHorizon');
+                    __tmBindTopBarClickCapture(exists);
+                    return;
+                }
+            } catch (e) {}
+            __tmTopBarAdded = false;
+            __tmTopBarEl = null;
         }
         // 尝试通过全局插件实例添加
         const pluginInstance = globalThis.__taskHorizonPluginInstance || globalThis.__tomatoPluginInstance;
@@ -47796,6 +48868,9 @@ async function __tmRefreshAfterWake(reason) {
                 __tmSetUseIcon(exists, 'iconTaskHorizon');
                 try { __tmBindTopBarClickCapture(exists); } catch (e) {}
                 __tmTopBarAdded = true;
+                if (isMobileTopBarHost) {
+                    try { globalThis[__TM_MOBILE_TOPBAR_REGISTERED_KEY] = true; } catch (e) {}
+                }
                 return;
             }
 
@@ -47807,7 +48882,16 @@ async function __tmRefreshAfterWake(reason) {
             });
             try { __tmBindTopBarClickCapture(topBarEl || document.querySelector('[aria-label="任务管理器"], [aria-label="任务管理"]')); } catch (e) {}
             __tmTopBarAdded = true;
-            setTimeout(() => { try { __tmSetUseIcon(document.querySelector('[aria-label="任务管理器"], [aria-label="任务管理"]'), 'iconTaskHorizon'); } catch (e) {} }, 0);
+            if (isMobileTopBarHost) {
+                try { globalThis[__TM_MOBILE_TOPBAR_REGISTERED_KEY] = true; } catch (e) {}
+            }
+            setTimeout(() => {
+                try {
+                    const exists = __tmDeduplicateTopBarEntries() || document.querySelector('[aria-label="任务管理器"], [aria-label="任务管理"]');
+                    try { __tmSetUseIcon(exists, 'iconTaskHorizon'); } catch (e2) {}
+                    try { if (exists) __tmBindTopBarClickCapture(exists); } catch (e2) {}
+                } catch (e) {}
+            }, 0);
         } else {
         }
     }
@@ -47821,6 +48905,43 @@ async function __tmRefreshAfterWake(reason) {
             if (__tmShouldShowWindowTopbarIcon()) addTopBarIcon();
             else __tmRemoveTopBarIcon();
         } catch (e) {}
+    }
+
+    function __tmNodeTouchesShellEntrances(node) {
+        if (!(node instanceof Element)) return false;
+        if (node.closest?.('.tm-modal')) return false;
+        if (node.matches?.('.protyle-breadcrumb, [aria-label="任务管理器"], [aria-label="任务管理"]')) return true;
+        if (node.querySelector?.('.protyle-breadcrumb, [aria-label="任务管理器"], [aria-label="任务管理"]')) return true;
+        try {
+            const cls = String(node.className?.baseVal || node.className || '').trim();
+            if (/(^|\b)(protyle|breadcrumb|toolbar|topbar|layout__wnd)(\b|$)/i.test(cls)) return true;
+        } catch (e) {}
+        return false;
+    }
+
+    function __tmMutationTouchesShellEntrances(mutation) {
+        const target = mutation?.target;
+        if (target instanceof Element) {
+            if (target.closest?.('.tm-modal')) return false;
+            if (__tmNodeTouchesShellEntrances(target)) return true;
+        }
+        const nodes = [
+            ...(Array.isArray(mutation?.addedNodes) ? mutation.addedNodes : Array.from(mutation?.addedNodes || [])),
+            ...(Array.isArray(mutation?.removedNodes) ? mutation.removedNodes : Array.from(mutation?.removedNodes || [])),
+        ];
+        return nodes.some((node) => __tmNodeTouchesShellEntrances(node));
+    }
+
+    function __tmScheduleShellEntrancesRefresh() {
+        if (__tmShellEntrancesRefreshRaf != null) return;
+        try {
+            __tmShellEntrancesRefreshRaf = requestAnimationFrame(() => {
+                __tmShellEntrancesRefreshRaf = null;
+                __tmRefreshShellEntrances();
+            });
+        } catch (e) {
+            __tmRefreshShellEntrances();
+        }
     }
 
     function __tmFindExistingTaskHorizonCustomModel() {
@@ -47922,7 +49043,8 @@ async function __tmRefreshAfterWake(reason) {
                 });
             });
             if (onlyTaskHorizonModalMutations) return;
-            __tmRefreshShellEntrances();
+            if (!list.some((mutation) => __tmMutationTouchesShellEntrances(mutation))) return;
+            __tmScheduleShellEntrancesRefresh();
         });
 
         // 监听整个文档的子节点变化
@@ -48493,6 +49615,9 @@ async function __tmRefreshAfterWake(reason) {
         __tmPerfTraceMark(perfTrace, 'open:shell-render', {
             reusedExistingModal: reusedExistingModal ? 1 : 0,
         });
+        __tmPerfTraceMark(perfTrace, 'open:shell-first-paint', {
+            reusedExistingModal: reusedExistingModal ? 1 : 0,
+        });
 
         let hasDataReadyForSoftReuse0 = false;
         try {
@@ -48503,13 +49628,17 @@ async function __tmRefreshAfterWake(reason) {
             hasDataReadyForSoftReuse0 = false;
         }
         const quickbarDirty0 = __tmHasQuickbarModificationsSync();
-        const shouldShowLoadingHint = !state.wasHidden
+        const hasPendingInsertedTasks0 = (() => {
+            try {
+                return Object.keys(state.pendingInsertedTasks || {}).some((id) => !!String(id || '').trim());
+            } catch (e) {
+                return false;
+            }
+        })();
+        const shouldShowInlineLoading = !state.wasHidden
             && !(options && options.skipLoadingHint)
             && !(options && options.skipEnsureTabOpened)
-            && !(reusedExistingModal && hasDataReadyForSoftReuse0 && !quickbarDirty0);
-        if (shouldShowLoadingHint) {
-            hint('🔄 加载任务中...', 'info');
-        }
+            && !(reusedExistingModal && hasDataReadyForSoftReuse0 && !quickbarDirty0 && !hasPendingInsertedTasks0);
         state.wasHidden = false;
 
         await SettingsStore.load();
@@ -48580,7 +49709,14 @@ async function __tmRefreshAfterWake(reason) {
             }
         })();
         const quickbarDirty = __tmHasQuickbarModificationsSync();
-        const canSkipRenderOnReuse = reusedExistingModal && hasDataReadyForSoftReuse && !quickbarDirty;
+        const hasPendingInsertedTasks = (() => {
+            try {
+                return Object.keys(state.pendingInsertedTasks || {}).some((id) => !!String(id || '').trim());
+            } catch (e) {
+                return false;
+            }
+        })();
+        const canSkipRenderOnReuse = reusedExistingModal && hasDataReadyForSoftReuse && !quickbarDirty && !hasPendingInsertedTasks;
         if (canSkipRenderOnReuse) {
             try { __tmScheduleReminderTaskNameMarksRefresh(state.modal, true); } catch (e) {}
             try {
@@ -48611,6 +49747,7 @@ async function __tmRefreshAfterWake(reason) {
         loadSelectedDocuments({
             skipRender: canSkipRenderOnReuse,
             preferFastFirstPaint: !canSkipRenderOnReuse && __tmIsRuntimeMobileClient(),
+            showInlineLoading: shouldShowInlineLoading,
             perfTrace,
             source: 'openManager'
         }).then(() => {
@@ -48700,6 +49837,8 @@ async function __tmRefreshAfterWake(reason) {
                 try { __tmTopBarEl?.removeEventListener?.('click', __tmTopBarClickCaptureHandler, true); } catch (e2) {}
                 __tmTopBarClickCaptureHandler = null;
             }
+            try { __tmRemoveTopBarIcon(); } catch (e2) {}
+            try { delete globalThis[__TM_MOBILE_TOPBAR_REGISTERED_KEY]; } catch (e2) {}
             __tmTopBarEl = null;
             __tmTopBarClickInFlight = false;
         } catch (e) {}
@@ -48738,6 +49877,7 @@ async function __tmRefreshAfterWake(reason) {
             }
         } catch (e) {}
         try { __tmClearTimelineTodayIndicatorTimer(); } catch (e) {}
+        try { __tmSetInlineLoading(false); } catch (e) {}
         try {
             if (__tmTomatoAssociationHandler) {
                 window.removeEventListener('tomato:association-cleared', __tmTomatoAssociationHandler);
@@ -48837,6 +49977,12 @@ async function __tmRefreshAfterWake(reason) {
             if (__tmTopBarTimer != null) {
                 clearTimeout(__tmTopBarTimer);
                 __tmTopBarTimer = null;
+            }
+        } catch (e) {}
+        try {
+            if (__tmShellEntrancesRefreshRaf != null) {
+                cancelAnimationFrame(__tmShellEntrancesRefreshRaf);
+                __tmShellEntrancesRefreshRaf = null;
             }
         } catch (e) {}
         try {
@@ -49004,11 +50150,7 @@ async function __tmRefreshAfterWake(reason) {
                 clearTimeout(SemanticDateRecognizedStore.saveTimer);
                 SemanticDateRecognizedStore.saveTimer = null;
             }
-            try {
-                if (SemanticDateRecognizedStore?.saveDirty && typeof SemanticDateRecognizedStore.saveNow === 'function') {
-                    SemanticDateRecognizedStore.saveNow();
-                }
-            } catch (e2) {}
+            try { SemanticDateRecognizedStore.saveDirty = false; } catch (e2) {}
         } catch (e) {}
         try {
             if (__tmWhiteboardViewSaveTimer) {
@@ -49021,11 +50163,7 @@ async function __tmRefreshAfterWake(reason) {
                 clearTimeout(WhiteboardStore.saveTimer);
                 WhiteboardStore.saveTimer = null;
             }
-            try {
-                if (WhiteboardStore?.saveDirty && typeof WhiteboardStore.saveNow === 'function') {
-                    WhiteboardStore.saveNow();
-                }
-            } catch (e2) {}
+            try { WhiteboardStore.saveDirty = false; } catch (e2) {}
         } catch (e) {}
         try {
             if (SettingsStore?.saveTimer) {

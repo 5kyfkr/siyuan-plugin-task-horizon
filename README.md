@@ -11,11 +11,21 @@
 
 PR贡献名单：[bytemain](https://github.com/bytemain)
 
-赞助者名单：[bigyelloworange](https://ld246.com/member/bigyelloworange) / [Floria233](https://ld246.com/member/Floria233) / [nj90hou](https://ld246.com/member/nj90hou) / [sky90038528](https://ld246.com/member/sky90038528) / [Lu9693](https://ld246.com/member/Lu9693) / [ggltxj](https://ld246.com/member/ggltxj) / [mozhu](https://ld246.com/member/mozhu) / [ppt68298100](https://ld246.com/member/ppt68298100) / [NorthCJ](https://ld246.com/member/NorthCJ) / [601063672](https://ld246.com/member/601063672) / [mcz007](https://ld246.com/member/mcz007) 
+赞助者名单：[bigyelloworange](https://ld246.com/member/bigyelloworange) / [Floria233](https://ld246.com/member/Floria233) / [nj90hou](https://ld246.com/member/nj90hou) / [sky90038528](https://ld246.com/member/sky90038528) / [Lu9693](https://ld246.com/member/Lu9693) / [ggltxj](https://ld246.com/member/ggltxj) / [mozhu](https://ld246.com/member/mozhu) / [ppt68298100](https://ld246.com/member/ppt68298100) / [NorthCJ](https://ld246.com/member/NorthCJ) / [601063672](https://ld246.com/member/601063672) / [mcz007](https://ld246.com/member/mcz007) / [Afterglow](https://ld246.com/member/Afterglow) 
 
 插件交流Q群：[758666272](https://qm.qq.com/q/MRkXe3Z00U) 
 
 # 更新记录
+
+## 2.0.5更新内容
+- **新增：常规设置->视图与布局中新增移动端清单紧凑视图标题跳转设置，开启后可点击标题弹出任务详情，不跳转文档**
+- 优化：增加文档分组切换顶部进度加载条，以及视图切换过渡动画
+- 优化：去除5-2，5.2这两种误识别成5月2日的语义识别规则
+- 修复：工作日视图日期范围显示不对
+- 修复：看板中的任务详情界面选择日期的时候界界面会消失
+- 修复：语义自动识别弹窗出现后会马上消失，其他分区新建任务未识别问题
+- 修复：自动语义功能造成的同步后插件重载
+- 修复：有时有概率出现两个重复任务的问题
 
 ## 2.0.4更新内容
 - **新增：设置->搜索与分组->自动识别语义日期（全量分批）开关，默认开启**
@@ -46,7 +56,7 @@ PR贡献名单：[bytemain](https://github.com/bytemain)
 
 ## 1.9.11更新内容
 - **新增：文档页签支持设置文档开始日期和截止日期，并在页签顶部显示时间进度条**
-- **新增：常规设置->视图与布局->Dock 紧凑标题点击跳转 开关，开启后侧边栏和移动端默认点击任务名称跳转至笔记页面，默认开启**
+- **新增：常规设置->视图与布局->Dock 紧凑标题点击跳转 开关，开启后侧边栏默认点击任务名称跳转至笔记页面，默认开启**
 - 优化：去除日历时间轴的时间刻度的分钟值，只保留小时值，更加简洁
 - 优化：文档页签栏左右空白占位，页签栏全宽无遮挡
 - 优化：日历全天事件中的任务支持拖拽同步调节任务的开始、完成日期

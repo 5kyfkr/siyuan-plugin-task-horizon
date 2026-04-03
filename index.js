@@ -162,11 +162,34 @@ const unwrapGetFileText = (raw) => {
     return text;
 };
 
+const __tmResourceTextCache = new Map();
+const __tmResourceTextInflight = new Map();
+
+const fetchPluginResourceText = async (path) => {
+    const key = String(path || "").trim();
+    if (!key) throw new Error("empty resource path");
+    if (__tmResourceTextCache.has(key)) {
+        return __tmResourceTextCache.get(key);
+    }
+    if (__tmResourceTextInflight.has(key)) {
+        return await __tmResourceTextInflight.get(key);
+    }
+    const task = Promise.resolve().then(async () => {
+        const raw = await fetchText("/api/file/getFile", { path: key });
+        const text = unwrapGetFileText(raw);
+        if (!text || !text.trim()) throw new Error("empty resource");
+        __tmResourceTextCache.set(key, text);
+        return text;
+    }).finally(() => {
+        __tmResourceTextInflight.delete(key);
+    });
+    __tmResourceTextInflight.set(key, task);
+    return await task;
+};
+
 const loadScriptTextIntoDocument = async (targetDoc, path, sourceName) => {
     try {
-        const raw = await fetchText("/api/file/getFile", { path });
-        const code = unwrapGetFileText(raw);
-        if (!code || !code.trim()) throw new Error("empty script");
+        const code = await fetchPluginResourceText(path);
 
         const script = targetDoc.createElement("script");
         script.textContent = code + `\n//# sourceURL=${sourceName}`;
@@ -187,9 +210,7 @@ const loadScriptTextIntoDocument = async (targetDoc, path, sourceName) => {
 
 const loadStyleTextIntoDocument = async (targetDoc, path, sourceName) => {
     try {
-        const raw = await fetchText("/api/file/getFile", { path });
-        const css = unwrapGetFileText(raw);
-        if (!css || !css.trim()) throw new Error("empty style");
+        const css = await fetchPluginResourceText(path);
         const style = targetDoc.createElement("style");
         style.textContent = css + `\n/*# sourceURL=${sourceName} */`;
         style.dataset.tmStyleSource = sourceName || "";
