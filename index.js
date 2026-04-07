@@ -487,6 +487,7 @@ module.exports = class TaskHorizonPlugin extends Plugin {
                 this.element.style.display = "flex";
                 this.element.style.flexDirection = "column";
                 this.element.style.height = "100%";
+                this.element.style.isolation = "isolate";
                 globalThis.__taskHorizonTabElement = this.element;
                 if (typeof globalThis.__taskHorizonMount === "function") {
                     globalThis.__taskHorizonMount(this.element);
@@ -780,6 +781,7 @@ module.exports = class TaskHorizonPlugin extends Plugin {
         root.style.flex = "1 1 auto";
         root.style.position = "relative";
         root.style.overflow = "hidden";
+        root.style.isolation = "isolate";
         if (root.dataset.tmDockReactivateBound !== "1") {
             root.addEventListener("click", () => {
                 try {
