@@ -14128,6 +14128,14 @@
             return null;
         },
 
+        async getChildBlocks(blockId) {
+            const id = String(blockId || '').trim();
+            if (!id) return [];
+            const res = await this.call('/api/block/getChildBlocks', { id });
+            if (res.code === 0 && Array.isArray(res.data)) return res.data;
+            return [];
+        },
+
         async getFirstDirectChildListIdOfDoc(docId) {
             const id = String(docId || '').trim();
             if (!id) return null;
@@ -22793,19 +22801,15 @@ async function __tmRefreshAfterWake(reason) {
     async function __tmFindDirectChildAnchorExcluding(docId, mode = 'first', excludeIds = []) {
         const did = String(docId || '').trim();
         if (!did) return '';
-        const excluded = Array.from(new Set((excludeIds || []).map((item) => String(item || '').trim()).filter(Boolean)));
-        const orderSql = String(mode || '').trim() === 'last'
-            ? 'ORDER BY sort DESC, created DESC, id DESC'
-            : 'ORDER BY sort ASC, created ASC, id ASC';
-        const excludeSql = excluded.length
-            ? ` AND id NOT IN (${excluded.map((id) => `'${id.replace(/'/g, "''")}'`).join(',')})`
-            : '';
-        const sql = `SELECT id FROM blocks WHERE parent_id = '${did.replace(/'/g, "''")}'${excludeSql} ${orderSql} LIMIT 1`;
-        const res = await API.call('/api/query/sql', { stmt: sql });
-        if (res.code === 0 && Array.isArray(res.data) && res.data.length > 0) {
-            return String(res.data[0]?.id || '').trim();
-        }
-        return '';
+        const excluded = new Set((excludeIds || []).map((item) => String(item || '').trim()).filter(Boolean));
+        const children = await API.getChildBlocks(did);
+        const filtered = children.filter((child) => {
+            const childId = String(child?.id || '').trim();
+            return childId && !excluded.has(childId);
+        });
+        if (!filtered.length) return '';
+        const target = String(mode || '').trim() === 'last' ? filtered[filtered.length - 1] : filtered[0];
+        return String(target?.id || '').trim();
     }
 
     async function __tmResolveDailyNoteNotebookIdForBlocks(blockIds, options = {}) {
