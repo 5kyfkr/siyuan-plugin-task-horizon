@@ -1188,16 +1188,7 @@
             try { ev.preventDefault?.(); } catch (e) {}
             try { ev.stopPropagation?.(); } catch (e) {}
         };
-        const swallowPointerStart = (ev) => {
-            try { ev.stopPropagation?.(); } catch (e) {}
-        };
-        title.addEventListener('pointerdown', swallowPointerStart);
-        title.addEventListener('mousedown', swallowPointerStart);
-        title.addEventListener('touchstart', swallowPointerStart, { passive: true });
         title.addEventListener('dragstart', swallowDragStart);
-        titleText.addEventListener('pointerdown', swallowPointerStart);
-        titleText.addEventListener('mousedown', swallowPointerStart);
-        titleText.addEventListener('touchstart', swallowPointerStart, { passive: true });
         titleText.addEventListener('dragstart', swallowDragStart);
         title.appendChild(titleText);
         const range = String(rangeText || '').trim();
@@ -1207,9 +1198,6 @@
         timeText.className = 'tm-cal-task-event-time';
         timeText.textContent = range;
         timeText.draggable = false;
-        timeText.addEventListener('pointerdown', swallowPointerStart);
-        timeText.addEventListener('mousedown', swallowPointerStart);
-        timeText.addEventListener('touchstart', swallowPointerStart, { passive: true });
         timeText.addEventListener('dragstart', swallowDragStart);
         title.appendChild(timeText);
         return { title, titleText, timeText };
@@ -7022,6 +7010,7 @@
                     applyTaskDoneVisual(wrapEl, titleText, done);
                     titleText.onclick = (ev) => {
                         try { ev.stopPropagation(); } catch (e) {}
+                        try { ev.preventDefault(); } catch (e) {}
                         if (!tid) return;
                         try { openCalendarLinkedTask(tid, ev); } catch (e) {}
                     };
@@ -7049,6 +7038,7 @@
                     applyTaskDoneVisual(wrapEl, titleText, !!ext.__tmReminderDone);
                     titleText.onclick = (ev) => {
                         try { ev.stopPropagation(); } catch (e) {}
+                        try { ev.preventDefault(); } catch (e) {}
                         if (!tid) return;
                         try { openCalendarLinkedTask(tid, ev); } catch (e) {}
                     };
@@ -10029,6 +10019,8 @@
                     applyTaskEventTitleClamp(wrapEl, title, { hasLeadingCheckbox: !!cb });
                     applyTaskDoneVisual(wrapEl, titleText, done);
                     titleText.onclick = (ev) => {
+                        try { ev.stopPropagation(); } catch (e) {}
+                        try { ev.preventDefault(); } catch (e) {}
                         if (_tmClickTracker && _tmClickTracker.ts > 0) {
                             const dur = Date.now() - _tmClickTracker.ts;
                             const x = Number(ev.clientX);
@@ -10066,6 +10058,8 @@
                     applyTaskEventTitleClamp(wrapEl, title);
                     applyTaskDoneVisual(wrapEl, titleText, !!ext.__tmReminderDone);
                     titleText.onclick = (ev) => {
+                        try { ev.stopPropagation(); } catch (e) {}
+                        try { ev.preventDefault(); } catch (e) {}
                         if (_tmClickTracker && _tmClickTracker.ts > 0) {
                             const dur = Date.now() - _tmClickTracker.ts;
                             const x = Number(ev.clientX);
