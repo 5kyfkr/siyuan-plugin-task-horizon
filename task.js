@@ -35859,7 +35859,8 @@ async function __tmRefreshAfterWake(reason) {
         const silent = opt.silent === true;
         if (state.isRefreshing) return;
         state.isRefreshing = true;
-        if (!silent) hint('🔄 正在刷新...', 'info');
+        let _refreshHint = null;
+        if (!silent) _refreshHint = hint('🔄 正在刷新...', 'info');
         try {
             try { __tmInvalidateAllSqlCaches(); } catch (e) {}
             try { window.__tmCalendarAllTasksCache = null; } catch (e) {}
@@ -35873,9 +35874,9 @@ async function __tmRefreshAfterWake(reason) {
             } else {
                 try { render(); } catch (e) {}
             }
-            if (!silent) hint(removedCount > 0 ? `✅ 刷新完成，已清理冻结任务 ${removedCount} 项` : '✅ 刷新完成', 'success');
+            if (!silent) { __tmRemoveHint(_refreshHint); hint(removedCount > 0 ? `✅ 刷新完成，已清理冻结任务 ${removedCount} 项` : '✅ 刷新完成', 'success'); }
         } catch (e) {
-            if (!silent) hint(`❌ 刷新失败: ${e.message}`, 'error');
+            if (!silent) { __tmRemoveHint(_refreshHint); hint(`❌ 刷新失败: ${e.message}`, 'error'); }
         } finally {
             state.isRefreshing = false;
         }
@@ -35887,7 +35888,7 @@ async function __tmRefreshAfterWake(reason) {
             return window.tmRefreshCalendarInPlace({ silent: false });
         }
         state.isRefreshing = true;
-        hint('🔄 正在刷新...', 'info');
+        const _refreshHint = hint('🔄 正在刷新...', 'info');
         try {
             try { __tmInvalidateAllSqlCaches(); } catch (e) {}
             // 清除日历缓存，确保获取最新数据
@@ -35901,8 +35902,10 @@ async function __tmRefreshAfterWake(reason) {
                 try { applyFilters(); } catch (e) {}
                 try { if (state.modal) render(); } catch (e) {}
             }
+            __tmRemoveHint(_refreshHint);
             hint(removedCount > 0 ? `✅ 刷新完成，已清理冻结任务 ${removedCount} 项` : '✅ 刷新完成', 'success');
         } catch (e) {
+            __tmRemoveHint(_refreshHint);
             hint(`❌ 刷新失败: ${e.message}`, 'error');
         } finally {
             state.isRefreshing = false;
