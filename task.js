@@ -1,5 +1,5 @@
 // @name         思源笔记任务管理器
-// @version      2.1.5
+// @version      2.1.6
 // @description  任务管理器，支持自定义筛选规则分组和排序
 // @author       5KYFKR
 
@@ -9581,74 +9581,6 @@
         }
     };
 
-    function __tmFormatPersistError(error) {
-        const raw = String(error?.message || error || '').trim();
-        return raw || '未知错误';
-    }
-
-    function __tmLogPersistenceError(scope, error) {
-        try { console.warn(`[task-horizon] ${scope} failed: ${__tmFormatPersistError(error)}`, error); } catch (e) {}
-    }
-
-    function __tmUnwrapGetFileText(raw) {
-        const text = String(raw ?? '');
-        const trimmed = text.replace(/^\uFEFF/, '').trim();
-        if (!trimmed) return '';
-        if (!trimmed.startsWith('{')) return text;
-        if (!/\"(code|msg|data|content)\"\s*:/.test(trimmed)) return text;
-        let obj = null;
-        try {
-            obj = JSON.parse(trimmed);
-        } catch (e) {
-            throw new Error(`getFile response looks like JSON but failed to parse: ${e?.message || e}`);
-        }
-        if (obj && typeof obj === 'object') {
-            if (typeof obj.data === 'string') return obj.data;
-            if (typeof obj.content === 'string') return obj.content;
-            if (obj.data && typeof obj.data === 'object' && typeof obj.data.content === 'string') return obj.data.content;
-            if (typeof obj.msg === 'string' && typeof obj.code !== 'undefined') {
-                throw new Error(`getFile error: ${obj.code} ${obj.msg}`);
-            }
-        }
-        return text;
-    }
-
-    async function __tmGetFileText(path) {
-        const res = await fetch('/api/file/getFile', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ path }),
-        });
-        if (!res.ok) throw new Error(`HTTP ${res.status}`);
-        return __tmUnwrapGetFileText(await res.text());
-    }
-
-    async function __tmGetJsonFile(path, fallbackValue = null) {
-        const text = await __tmGetFileText(path);
-        if (!text || !text.trim()) return fallbackValue;
-        return JSON.parse(text);
-    }
-
-    async function __tmEnsurePluginStorageDir() {
-        const formDir = new FormData();
-        formDir.append('path', PLUGIN_STORAGE_DIR);
-        formDir.append('isDir', 'true');
-        const res = await fetch('/api/file/putFile', { method: 'POST', body: formDir });
-        if (!res.ok) throw new Error(`HTTP ${res.status}`);
-        return true;
-    }
-
-    async function __tmPutJsonFile(path, value) {
-        await __tmEnsurePluginStorageDir();
-        const form = new FormData();
-        form.append('path', path);
-        form.append('isDir', 'false');
-        form.append('file', new Blob([JSON.stringify(value ?? {}, null, 2)], { type: 'application/json' }));
-        const res = await fetch('/api/file/putFile', { method: 'POST', body: form });
-        if (!res.ok) throw new Error(`HTTP ${res.status}`);
-        return true;
-    }
-
     const PLUGIN_STORAGE_DIR = '/data/storage/petal/siyuan-plugin-task-horizon';
     const META_FILE_PATH = `${PLUGIN_STORAGE_DIR}/task-meta.json`;
     const SETTINGS_FILE_PATH = `${PLUGIN_STORAGE_DIR}/task-settings.json`;
@@ -10218,12 +10150,27 @@
 
             // 从云端加载元数据（优先）
             try {
-                const json = await __tmGetJsonFile(META_FILE_PATH, null);
-                if (json && typeof json === 'object' && Object.keys(json).length > 0) {
-                    this.data = json;
-                    Storage.set('tm_meta_cache', this.data);
-                    this.loaded = true;
-                    return;
+                const res = await fetch('/api/file/getFile', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ path: META_FILE_PATH }),
+                });
+
+                if (res.ok) {
+                    const text = await res.text();
+                    // 如果文件内容有效
+                    if (text && text.trim() !== '') {
+                        try {
+                            const json = JSON.parse(text);
+                            if (json && typeof json === 'object' && Object.keys(json).length > 0) {
+                                this.data = json;
+                                Storage.set('tm_meta_cache', this.data);
+                                this.loaded = true;
+                                return;
+                            }
+                        } catch (parseError) {
+                        }
+                    }
                 }
             } catch (e) {
             }
@@ -10338,30 +10285,27 @@
             } catch (e) {}
             this.saveTimer = setTimeout(() => {
                 this.saveTimer = null;
-                this.saveNow().catch(() => null);
+                this.saveNow();
             }, 500);
         },
 
         async saveNow() {
             if (this.saving) return;
             this.saving = true;
-            let saveError = null;
             try {
                 Storage.set('tm_meta_cache', this.data || {});
-                await __tmPutJsonFile(META_FILE_PATH, this.data || {});
-                return true;
-            } catch (e) {
-                saveError = e;
-                __tmLogPersistenceError('save meta cache', e);
-                throw e;
-            } finally {
+                const formDir = new FormData();
+                formDir.append('path', PLUGIN_STORAGE_DIR);
+                formDir.append('isDir', 'true');
+                await fetch('/api/file/putFile', { method: 'POST', body: formDir }).catch(() => null);
+
+                const form = new FormData();
+                form.append('path', META_FILE_PATH);
+                form.append('isDir', 'false');
+                form.append('file', new Blob([JSON.stringify(this.data || {}, null, 2)], { type: 'application/json' }));
+                await fetch('/api/file/putFile', { method: 'POST', body: form });
+            } catch (e) {} finally {
                 this.saving = false;
-                if (saveError && !this.saveTimer) {
-                    this.saveTimer = setTimeout(() => {
-                        this.saveTimer = null;
-                        this.saveNow().catch(() => null);
-                    }, 1000);
-                }
             }
         }
     };
@@ -10739,8 +10683,19 @@
 
             // 从云端加载设置（优先）
             try {
-                const cloudData = await __tmGetJsonFile(SETTINGS_FILE_PATH, null);
-                if (cloudData && typeof cloudData === 'object' && Object.keys(cloudData).length > 0) {
+                const res = await fetch('/api/file/getFile', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ path: SETTINGS_FILE_PATH }),
+                });
+
+                if (res.ok) {
+                    const text = await res.text();
+                    // 如果文件内容有效且有数据
+                    if (text && text.trim() !== '') {
+                        try {
+                            const cloudData = JSON.parse(text);
+                            if (cloudData && typeof cloudData === 'object' && Object.keys(cloudData).length > 0) {
                                 // 应用云端数据
                                 if (Array.isArray(cloudData.selectedDocIds)) this.data.selectedDocIds = cloudData.selectedDocIds;
                                 if (typeof cloudData.queryLimit === 'number') this.data.queryLimit = cloudData.queryLimit;
@@ -11027,6 +10982,10 @@
                                     try { await this.save(); } catch (e) {}
                                 }
                                 return;
+                            }
+                        } catch (parseError) {
+                        }
+                    }
                 }
             } catch (e) {
             }
@@ -11775,7 +11734,7 @@
             }
             this.saveTimer = setTimeout(() => {
                 this.saveTimer = null;
-                this.flushSave().catch(() => null);
+                this.flushSave();
             }, 350);
             return this.savePromise;
         },
@@ -11785,40 +11744,31 @@
             if (!this.saveDirty) return;
             this.saving = true;
             this.saveDirty = false;
-            let saveError = null;
             try {
                 // 本地缓存延后到 flush，避免每次 save() 都全量写 localStorage
                 this.syncToLocal();
                 const payload = this.buildCloudPayload();
-                await __tmPutJsonFile(SETTINGS_FILE_PATH, payload);
-                return true;
+                const formData = new FormData();
+                formData.append('path', SETTINGS_FILE_PATH);
+                formData.append('isDir', 'false');
+                formData.append('file', new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' }));
+
+                await fetch('/api/file/putFile', { method: 'POST', body: formData }).catch(() => null);
             } catch (e) {
-                saveError = e;
-                this.saveDirty = true;
-                __tmLogPersistenceError('save settings', e);
-                throw e;
             } finally {
                 this.saving = false;
                 if (this.saveDirty) {
                     try { if (this.saveTimer) clearTimeout(this.saveTimer); } catch (e) {}
                     this.saveTimer = setTimeout(() => {
                         this.saveTimer = null;
-                        this.flushSave().catch(() => null);
-                    }, saveError ? 1000 : 50);
+                        this.flushSave();
+                    }, 50);
+                    return;
                 }
-            }
-            if (saveError) {
-                try { this.savePromiseReject?.(saveError); } catch (e) {}
+                try { this.savePromiseResolve?.(); } catch (e) {}
                 this.savePromise = null;
                 this.savePromiseResolve = null;
-                this.savePromiseReject = null;
-                return;
             }
-            if (this.saveDirty) return;
-            try { this.savePromiseResolve?.(); } catch (e) {}
-            this.savePromise = null;
-            this.savePromiseResolve = null;
-            this.savePromiseReject = null;
         },
 
         // 便捷方法：更新列宽度
@@ -11948,8 +11898,18 @@
             if (this.loaded) return;
             try { this.normalize(); } catch (e) {}
             try {
-                const json = await __tmGetJsonFile(WHITEBOARD_DATA_FILE_PATH, null);
-                if (json && typeof json === 'object') this.data = json;
+                const res = await fetch('/api/file/getFile', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ path: WHITEBOARD_DATA_FILE_PATH }),
+                });
+                if (res.ok) {
+                    const text = await res.text();
+                    if (text && text.trim()) {
+                        const json = JSON.parse(text);
+                        if (json && typeof json === 'object') this.data = json;
+                    }
+                }
             } catch (e) {}
             try { this.normalize(); } catch (e) {}
             try { Storage.set(WHITEBOARD_DATA_CACHE_KEY, this.data || { cards: {}, links: [] }); } catch (e) {}
@@ -11961,7 +11921,7 @@
             try { if (this.saveTimer) clearTimeout(this.saveTimer); } catch (e) {}
             this.saveTimer = setTimeout(() => {
                 this.saveTimer = null;
-                this.saveNow().catch(() => null);
+                this.saveNow();
             }, 420);
         },
 
@@ -11970,26 +11930,23 @@
             if (!this.saveDirty) return;
             this.saving = true;
             this.saveDirty = false;
-            let saveError = null;
             try {
                 this.normalize();
                 try { Storage.set(WHITEBOARD_DATA_CACHE_KEY, this.data || { cards: {}, links: [] }); } catch (e) {}
-                await __tmPutJsonFile(WHITEBOARD_DATA_FILE_PATH, this.data || { cards: {}, links: [] });
-                return true;
+                const formDir = new FormData();
+                formDir.append('path', PLUGIN_STORAGE_DIR);
+                formDir.append('isDir', 'true');
+                await fetch('/api/file/putFile', { method: 'POST', body: formDir }).catch(() => null);
+
+                const formData = new FormData();
+                formData.append('path', WHITEBOARD_DATA_FILE_PATH);
+                formData.append('isDir', 'false');
+                formData.append('file', new Blob([JSON.stringify(this.data || { cards: {}, links: [] }, null, 2)], { type: 'application/json' }));
+                await fetch('/api/file/putFile', { method: 'POST', body: formData }).catch(() => null);
             } catch (e) {
-                saveError = e;
-                this.saveDirty = true;
-                __tmLogPersistenceError('save whiteboard data', e);
-                throw e;
             } finally {
                 this.saving = false;
-                if (this.saveDirty) {
-                    try { if (this.saveTimer) clearTimeout(this.saveTimer); } catch (e2) {}
-                    this.saveTimer = setTimeout(() => {
-                        this.saveTimer = null;
-                        this.saveNow().catch(() => null);
-                    }, saveError ? 1000 : 420);
-                }
+                if (this.saveDirty) this.scheduleSave();
             }
         },
 
@@ -16643,10 +16600,18 @@
             this.loadingPromise = Promise.resolve().then(async () => {
                 let next = this.normalize(Storage.get(__TM_SEMANTIC_DATE_RECOGNIZED_KEY, {}) || {});
                 try {
-                    const json = await __tmGetJsonFile(SEMANTIC_DATE_RECOGNIZED_FILE_PATH, null);
-                    if (json && typeof json === 'object') {
-                        const fromFile = this.normalize(json);
-                        if (Object.keys(fromFile).length > 0) next = this.mergeMaps(fromFile, next);
+                    const res = await fetch('/api/file/getFile', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ path: SEMANTIC_DATE_RECOGNIZED_FILE_PATH }),
+                    });
+                    if (res.ok) {
+                        const text = await res.text();
+                        if (text && text.trim()) {
+                            const json = JSON.parse(text);
+                            const fromFile = this.normalize(json);
+                            if (Object.keys(fromFile).length > 0) next = this.mergeMaps(fromFile, next);
+                        }
                     }
                 } catch (e) {}
                 this.data = next;
@@ -16686,9 +16651,9 @@
             try { if (this.saveTimer) clearTimeout(this.saveTimer); } catch (e) {}
             this.saveTimer = setTimeout(() => {
                 this.saveTimer = null;
-                this.saveNow().catch(() => null);
+                this.saveNow();
             }, 120);
-            try { Promise.resolve(this.saveNow()).catch(() => null); } catch (e) {}
+            try { this.saveNow(); } catch (e) {}
         },
 
         async saveNow() {
@@ -16696,24 +16661,27 @@
             if (!this.saveDirty) return;
             this.saving = true;
             this.saveDirty = false;
-            let saveError = null;
             try {
                 this.syncLocalCache();
-                await __tmPutJsonFile(SEMANTIC_DATE_RECOGNIZED_FILE_PATH, this.data || {});
-                return true;
+                const formDir = new FormData();
+                formDir.append('path', PLUGIN_STORAGE_DIR);
+                formDir.append('isDir', 'true');
+                await fetch('/api/file/putFile', { method: 'POST', body: formDir }).catch(() => null);
+
+                const form = new FormData();
+                form.append('path', SEMANTIC_DATE_RECOGNIZED_FILE_PATH);
+                form.append('isDir', 'false');
+                form.append('file', new Blob([JSON.stringify(this.data || {}, null, 2)], { type: 'application/json' }));
+                await fetch('/api/file/putFile', { method: 'POST', body: form }).catch(() => null);
             } catch (e) {
-                saveError = e;
-                this.saveDirty = true;
-                __tmLogPersistenceError('save semantic-date cache', e);
-                throw e;
             } finally {
                 this.saving = false;
                 if (this.saveDirty) {
                     try { if (this.saveTimer) clearTimeout(this.saveTimer); } catch (e2) {}
                     this.saveTimer = setTimeout(() => {
                         this.saveTimer = null;
-                        this.saveNow().catch(() => null);
-                    }, saveError ? 1000 : 120);
+                        this.saveNow();
+                    }, 120);
                 }
             }
         }
