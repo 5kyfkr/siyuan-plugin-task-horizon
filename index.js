@@ -50,6 +50,41 @@ const readTaskDockSettings = () => ({
     defaultViewMode: normalizeDockDefaultViewMode(readLocalJson("tm_dock_default_view_mode", "follow-mobile")),
 });
 
+const MOBILE_RUNTIME_CONTAINERS = new Set(["android", "ios", "harmony"]);
+
+const getSiyuanRuntimeBackend = () => {
+    try {
+        const container = globalThis?.siyuan?.config?.system?.container;
+        if (typeof container === "string" && container.trim()) return container.trim().toLowerCase();
+    } catch (e) {}
+    try {
+        const container = window?.siyuan?.config?.system?.container;
+        if (typeof container === "string" && container.trim()) return container.trim().toLowerCase();
+    } catch (e) {}
+    try {
+        const os = globalThis?.siyuan?.config?.system?.os;
+        if (typeof os === "string" && os.trim()) return os.trim().toLowerCase();
+    } catch (e) {}
+    try {
+        const os = window?.siyuan?.config?.system?.os;
+        if (typeof os === "string" && os.trim()) return os.trim().toLowerCase();
+    } catch (e) {}
+    return "";
+};
+
+const hasOfficialMobileRuntimeSignal = () => {
+    try {
+        if (window?.siyuan?.mobile && typeof window.siyuan.mobile === "object") return true;
+    } catch (e) {}
+    try {
+        if (globalThis?.siyuan?.mobile && typeof globalThis.siyuan.mobile === "object") return true;
+    } catch (e) {}
+    try {
+        if (globalThis?.JSAndroid || globalThis?.JSHarmony) return true;
+    } catch (e) {}
+    return false;
+};
+
 const isRuntimeMobileClient = (pluginInstance = null) => {
     try {
         if (globalThis?.siyuan?.config?.isMobile !== undefined) {
@@ -66,8 +101,12 @@ const isRuntimeMobileClient = (pluginInstance = null) => {
             return !!pluginInstance.isMobile;
         }
     } catch (e) {}
+    const backend = getSiyuanRuntimeBackend();
+    if (MOBILE_RUNTIME_CONTAINERS.has(backend)) return true;
+    if (hasOfficialMobileRuntimeSignal()) return true;
     const ua = navigator.userAgent || "";
-    return /Mobile|Android|iPhone|iPad|iPod/i.test(ua);
+    if (/Android|iPhone|iPad|iPod|Mobile/i.test(ua)) return true;
+    return false;
 };
 
 const findDockTabPath = (node, type, path = []) => {
@@ -161,10 +200,12 @@ const unwrapGetFileText = (raw) => {
 
 const __tmResourceTextCache = new Map();
 const __tmResourceTextInflight = new Map();
+const __tmDeferredScriptLoaders = new Map();
 
 const clearPluginResourceTextCache = () => {
     try { __tmResourceTextCache.clear(); } catch (e) {}
     try { __tmResourceTextInflight.clear(); } catch (e) {}
+    try { __tmDeferredScriptLoaders.clear(); } catch (e) {}
 };
 
 const fetchPluginResourceText = async (path) => {
@@ -210,6 +251,55 @@ const loadScriptText = async (path, sourceName) => {
     }
 };
 
+const hasAiRuntime = () => {
+    try {
+        return !!globalThis.__tmAI?.loaded;
+    } catch (e) {
+        return false;
+    }
+};
+
+const hasXlsxRuntime = () => {
+    const candidates = [
+        globalThis.XLSX,
+        globalThis.exports,
+        globalThis.module?.exports,
+        (typeof window !== "undefined" ? window.XLSX : null),
+        (typeof window !== "undefined" ? window.exports : null),
+        (typeof window !== "undefined" ? window.module?.exports : null),
+    ];
+    return candidates.some((candidate) => !!(candidate && candidate.utils && (typeof candidate.writeFile === "function" || typeof candidate.writeFileXLSX === "function")));
+};
+
+const ensureDeferredScriptText = async (key, path, sourceName, readyCheck) => {
+    try {
+        if (typeof readyCheck === "function" && readyCheck()) return true;
+    } catch (e) {}
+    const cacheKey = String(key || "").trim() || String(sourceName || path || "").trim();
+    if (__tmDeferredScriptLoaders.has(cacheKey)) {
+        return await __tmDeferredScriptLoaders.get(cacheKey);
+    }
+    const task = Promise.resolve().then(async () => {
+        const ok = await loadScriptText(path, sourceName);
+        if (!ok) return false;
+        try {
+            return typeof readyCheck === "function" ? !!readyCheck() : true;
+        } catch (e) {
+            return true;
+        }
+    }).finally(() => {
+        try {
+            if (!(typeof readyCheck === "function" && readyCheck())) {
+                __tmDeferredScriptLoaders.delete(cacheKey);
+            }
+        } catch (e) {
+            __tmDeferredScriptLoaders.delete(cacheKey);
+        }
+    });
+    __tmDeferredScriptLoaders.set(cacheKey, task);
+    return await task;
+};
+
 const loadStyleText = async (path, sourceName) => {
     try {
         const css = await fetchPluginResourceText(path);
@@ -251,6 +341,8 @@ module.exports = class TaskHorizonPlugin extends Plugin {
         globalThis.__taskHorizonCustomTabId = CUSTOM_TAB_ID;
         globalThis.__taskHorizonTabType = TAB_TYPE;
         globalThis.__taskHorizonMountToken = mountToken;
+        globalThis.__taskHorizonEnsureAiModuleLoaded = () => ensureDeferredScriptText("ai", AI_SCRIPT_PATH, "ai.js", hasAiRuntime);
+        globalThis.__taskHorizonEnsureXlsxModuleLoaded = () => ensureDeferredScriptText("xlsx", XLSX_VENDOR_SCRIPT_PATH, "vendor/xlsx.full.min.js", hasXlsxRuntime);
         try { this.addIcons(ICON_SYMBOL); } catch (e) {}
         this.ensureCustomTab();
         this.initTaskDock();
@@ -266,9 +358,7 @@ module.exports = class TaskHorizonPlugin extends Plugin {
         } catch (e) {}
         await loadScriptText(BASECOAT_SCRIPT_PATH, "basecoat/basecoat.js");
         await loadScriptText(TASK_SCRIPT_PATH, "task.js");
-        await loadScriptText(AI_SCRIPT_PATH, "ai.js");
         await loadScriptText(QUICKBAR_SCRIPT_PATH, "quickbar.js");
-        await loadScriptText(XLSX_VENDOR_SCRIPT_PATH, "vendor/xlsx.full.min.js");
         await loadStyleText(BASECOAT_CSS_PATH, "basecoat/basecoat.css");
         await loadScriptText(FULLCALENDAR_MIN_SCRIPT_PATH, "fullcalendar/index.global.min.js");
         await loadScriptText(FULLCALENDAR_ZH_LOCALE_SCRIPT_PATH, "fullcalendar/locales/zh-cn.global.min.js");
@@ -280,6 +370,7 @@ module.exports = class TaskHorizonPlugin extends Plugin {
     ensureCustomTab() {
         if (this._tabRegistered) return;
         const type = TAB_TYPE;
+        const plugin = this;
         this.addTab({
             type,
             init() {
@@ -290,37 +381,101 @@ module.exports = class TaskHorizonPlugin extends Plugin {
                 this.element.style.height = "100%";
                 this.element.style.isolation = "isolate";
                 globalThis.__taskHorizonTabElement = this.element;
-                if (typeof globalThis.__taskHorizonMount === "function") {
-                    globalThis.__taskHorizonMount(this.element);
-                }
+                plugin.tryMountTabRoot(this.element, {
+                    maxWaitMs: plugin.isRuntimeMobileClient() ? 7000 : 2600,
+                });
             },
         });
         this._tabRegistered = true;
     }
 
-    mountExistingTabs() {
-        if (this.isRuntimeMobileClient()) return;
-        let tries = 0;
+    hasMountedTabContent(element) {
+        if (!(element instanceof HTMLElement)) return false;
+        try {
+            return !!element.querySelector?.(".tm-modal, .tm-box, [data-task-horizon-dock-root], [data-task-horizon-dock-snapshot]");
+        } catch (e) {
+            return false;
+        }
+    }
+
+    isTabRootMountedForCurrentToken(element) {
+        if (!(element instanceof HTMLElement)) return false;
+        const token = String(globalThis.__taskHorizonMountToken || this._mountToken || "");
+        if (!token) return this.hasMountedTabContent(element);
+        return element.dataset?.tmTaskHorizonMounted === token && this.hasMountedTabContent(element);
+    }
+
+    tryMountTabRoot(element, options = {}) {
+        if (!(element instanceof HTMLElement)) return false;
+        const maxWaitMs = Math.max(200, Number(options?.maxWaitMs) || 2600);
+        const retryDelayMs = Math.max(80, Number(options?.retryDelayMs) || 180);
+        const startedAt = Date.now();
         const run = () => {
             if (this._mountExistingTabsStopped) return;
-            tries += 1;
-            const mountFn = globalThis.__taskHorizonMount;
-            const roots = Array.from(document.querySelectorAll(".tm-tab-root"));
-            const token = String(globalThis.__taskHorizonMountToken || this._mountToken || "");
-            if (typeof mountFn === "function") {
-                roots.forEach((el) => {
-                    if (!el) return;
-                    if (token && el.dataset?.tmTaskHorizonMounted === token) return;
-                    try {
-                        globalThis.__taskHorizonTabElement = el;
-                        mountFn(el);
-                        if (token) el.dataset.tmTaskHorizonMounted = token;
-                    } catch (e) {}
-                });
+            if (!(element instanceof HTMLElement)) return;
+            if (this.isTabRootMountedForCurrentToken(element)) return;
+            if (!document.body.contains(element)) {
+                if (Date.now() - startedAt < maxWaitMs) {
+                    element.__tmTaskHorizonMountRetryTimer = setTimeout(run, retryDelayMs);
+                }
                 return;
             }
-            if (tries < 50) this._mountExistingTabsTimer = setTimeout(run, 200);
+            const mountFn = globalThis.__taskHorizonMount;
+            if (typeof mountFn === "function") {
+                try {
+                    globalThis.__taskHorizonTabElement = element;
+                    mountFn(element);
+                    const token = String(globalThis.__taskHorizonMountToken || this._mountToken || "");
+                    if (token) element.dataset.tmTaskHorizonMounted = token;
+                    if (this.hasMountedTabContent(element)) return;
+                } catch (e) {}
+            }
+            if (Date.now() - startedAt < maxWaitMs) {
+                element.__tmTaskHorizonMountRetryTimer = setTimeout(run, retryDelayMs);
+            }
         };
+        try {
+            if (element.__tmTaskHorizonMountRetryTimer) {
+                clearTimeout(element.__tmTaskHorizonMountRetryTimer);
+                element.__tmTaskHorizonMountRetryTimer = null;
+            }
+        } catch (e) {}
+        run();
+        return this.isTabRootMountedForCurrentToken(element);
+    }
+
+    mountExistingTabs(maxWaitMs = null) {
+        const waitMs = Math.max(400, Number(maxWaitMs) || (this.isRuntimeMobileClient() ? 7000 : 2600));
+        const startedAt = Date.now();
+        const run = () => {
+            if (this._mountExistingTabsStopped) return;
+            const roots = Array.from(document.querySelectorAll(".tm-tab-root"));
+            let mountedAny = false;
+            if (roots.length) {
+                roots.forEach((el) => {
+                    if (!(el instanceof HTMLElement)) return;
+                    if (this.isTabRootMountedForCurrentToken(el)) {
+                        mountedAny = true;
+                        return;
+                    }
+                    if (this.tryMountTabRoot(el, { maxWaitMs: Math.max(600, waitMs - (Date.now() - startedAt)) })) {
+                        mountedAny = true;
+                    }
+                });
+            }
+            if (mountedAny && roots.length) {
+                return;
+            }
+            if (Date.now() - startedAt < waitMs) {
+                this._mountExistingTabsTimer = setTimeout(run, 200);
+            }
+        };
+        try {
+            if (this._mountExistingTabsTimer) {
+                clearTimeout(this._mountExistingTabsTimer);
+                this._mountExistingTabsTimer = null;
+            }
+        } catch (e) {}
         run();
     }
 
@@ -729,6 +884,8 @@ module.exports = class TaskHorizonPlugin extends Plugin {
         try { delete globalThis.__taskHorizonQuickbarToggle; } catch (e) {}
         try { delete globalThis.__taskHorizonQuickbarCleanup; } catch (e) {}
         try { delete globalThis.__taskHorizonAiCleanup; } catch (e) {}
+        try { delete globalThis.__taskHorizonEnsureAiModuleLoaded; } catch (e) {}
+        try { delete globalThis.__taskHorizonEnsureXlsxModuleLoaded; } catch (e) {}
         try { delete globalThis.__taskHorizonMount; } catch (e) {}
         try { delete globalThis.__TaskManagerCleanup; } catch (e) {}
         try { delete globalThis.__taskHorizonMountToken; } catch (e) {}

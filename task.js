@@ -1,5 +1,5 @@
 // @name         思源笔记任务管理器
-// @version      2.1.4
+// @version      2.1.5
 // @description  任务管理器，支持自定义筛选规则分组和排序
 // @author       5KYFKR
 
@@ -5843,7 +5843,7 @@
             border: 1px solid color-mix(in srgb, var(--tm-border-color) 76%, transparent);
             border-radius: 14px;
             background: color-mix(in srgb, var(--tm-card-bg) 88%, var(--tm-bg-color) 12%);
-            padding: 12px 44px 12px 12px;
+            padding: 12px;
             transition: border-color 0.18s ease, box-shadow 0.18s ease, background 0.18s ease;
         }
 
@@ -5904,8 +5904,36 @@
             padding-left: 20px;
         }
 
+        .tm-task-detail-remark-preview ul ul,
+        .tm-task-detail-remark-preview ul ol,
+        .tm-task-detail-remark-preview ol ul,
+        .tm-task-detail-remark-preview ol ol {
+            margin-top: 4px;
+            padding-left: 24px;
+        }
+
+        .tm-task-detail-remark-preview ul ul {
+            list-style-type: circle;
+        }
+
+        .tm-task-detail-remark-preview ul ul ul {
+            list-style-type: square;
+        }
+
+        .tm-task-detail-remark-preview ol ol {
+            list-style-type: lower-alpha;
+        }
+
+        .tm-task-detail-remark-preview ol ol ol {
+            list-style-type: lower-roman;
+        }
+
         .tm-task-detail-remark-preview li + li {
             margin-top: 4px;
+        }
+
+        .tm-task-detail-remark-inline {
+            white-space: break-spaces;
         }
 
         .tm-task-detail-remark-preview code {
@@ -5936,7 +5964,11 @@
             position: relative;
             z-index: 4;
             min-height: 80px;
-            padding-right: 8px;
+            padding: 0;
+            border: 0 !important;
+            border-radius: 0;
+            background: transparent !important;
+            box-shadow: none !important;
         }
 
         .tm-task-detail-remark-shell.is-editing .tm-task-detail-remark-editor {
@@ -5949,7 +5981,7 @@
 
         .tm-task-detail-remark-activator {
             position: absolute;
-            inset: 0 44px 0 0;
+            inset: 0;
             z-index: 2;
             margin: 0;
             padding: 0;
@@ -5962,11 +5994,24 @@
             display: none;
         }
 
+        .tm-task-detail-section-head.tm-task-detail-remark-head {
+            display: flex;
+            flex-direction: row;
+            align-items: center;
+            justify-content: flex-start;
+            gap: 8px;
+            flex-wrap: nowrap;
+            overflow: hidden;
+        }
+
+        .tm-task-detail-remark-head-main {
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+            flex: 0 0 auto;
+        }
+
         .tm-task-detail-remark-toolbar-toggle {
-            position: absolute;
-            right: 10px;
-            bottom: 10px;
-            z-index: 5;
             width: 28px;
             min-width: 28px;
             height: 28px;
@@ -5985,16 +6030,27 @@
             z-index: 4;
             align-items: center;
             gap: 6px;
-            flex-wrap: wrap;
-            padding: 8px 10px;
-            border-radius: 999px;
-            border: 1px solid color-mix(in srgb, var(--tm-border-color) 70%, transparent);
-            background: color-mix(in srgb, var(--tm-card-bg) 94%, var(--tm-bg-color) 6%);
-            box-shadow: 0 12px 24px rgba(15, 23, 42, 0.12);
+            flex: 1 1 auto;
+            flex-wrap: nowrap;
+            min-width: 0;
+            max-width: 100%;
+            overflow-x: auto;
+            overflow-y: hidden;
+            white-space: nowrap;
+            padding: 0;
+            border-radius: 0;
+            border: none;
+            background: transparent;
+            box-shadow: none;
+            scrollbar-width: none;
         }
 
         .tm-task-detail-remark-toolbar.is-open {
             display: inline-flex;
+        }
+
+        .tm-task-detail-remark-toolbar::-webkit-scrollbar {
+            display: none;
         }
 
         .tm-task-detail-remark-toolbar-btn {
@@ -6084,6 +6140,12 @@
             .tm-task-detail-section-head {
                 align-items: center;
                 flex-direction: row;
+            }
+
+            .tm-task-detail-section-head.tm-task-detail-remark-head {
+                align-items: center;
+                flex-direction: row;
+                flex-wrap: nowrap;
             }
 
             .tm-task-detail-subtask-row {
@@ -6427,7 +6489,7 @@
             display: none;
             flex: 0 0 auto;
             align-items: center;
-            gap: 10px;
+            gap: 6px;
             margin-left: 12px;
             color: var(--tm-secondary-text);
             font-size: calc(var(--tm-font-size) * 0.82);
@@ -6703,12 +6765,12 @@
 
         .tm-modal.tm-modal--mobile .tm-checklist-pane--compact .tm-checklist-title-row:not(.tm-checklist-title-row--has-children) .tm-checklist-meta-compact,
         .tm-modal.tm-modal--dock .tm-checklist-pane--compact .tm-checklist-title-row:not(.tm-checklist-title-row--has-children) .tm-checklist-meta-compact {
-            margin-left: 0;
+            margin-left: 12px;
         }
 
         .tm-modal.tm-modal--mobile .tm-checklist-pane--compact .tm-status-tag,
         .tm-modal.tm-modal--dock .tm-checklist-pane--compact .tm-status-tag {
-            margin-left: 0;
+            margin-left: auto;
             margin-right: -3px;
         }
 
@@ -6743,10 +6805,16 @@
         }
 
         .tm-checklist-pane--compact .tm-checklist-title-main {
+            flex: 1 1 auto;
             min-width: 0;
+            max-width: 100%;
         }
 
         .tm-checklist-pane--compact .tm-checklist-title {
+            display: flex;
+            align-items: center;
+            gap: 0;
+            min-width: 0;
             font-size: calc(var(--tm-font-size) * 0.96);
             line-height: 1.2;
             white-space: nowrap;
@@ -6755,31 +6823,46 @@
         }
 
         .tm-checklist-pane--compact.tm-checklist-pane--wrap .tm-checklist-title {
+            align-items: flex-start;
             white-space: normal;
             word-break: break-word;
             overflow-wrap: anywhere;
-            display: -webkit-box;
-            -webkit-box-orient: vertical;
-            -webkit-line-clamp: var(--tm-task-content-wrap-lines, 3);
-            line-clamp: var(--tm-task-content-wrap-lines, 3);
-            text-overflow: ellipsis;
         }
 
         .tm-checklist-pane--compact .tm-checklist-title-button {
-            display: inline-block;
+            display: flex;
+            align-items: center;
+            flex: 0 1 auto;
+            min-width: 0;
             max-width: 100%;
             overflow: hidden;
-            text-overflow: ellipsis;
-            white-space: nowrap;
-            vertical-align: middle;
         }
 
         .tm-checklist-pane--compact.tm-checklist-pane--wrap .tm-checklist-title-button {
+            display: block;
+        }
+
+        .tm-checklist-pane--compact .tm-checklist-title-button > span {
+            display: block;
+            min-width: 0;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+        }
+
+        .tm-checklist-pane--compact.tm-checklist-pane--wrap .tm-checklist-title-button > span {
             display: -webkit-box;
             white-space: normal;
             -webkit-box-orient: vertical;
-            -webkit-line-clamp: inherit;
-            line-clamp: inherit;
+            -webkit-line-clamp: var(--tm-task-content-wrap-lines, 3);
+            line-clamp: var(--tm-task-content-wrap-lines, 3);
+        }
+
+        .tm-checklist-pane--compact .tm-checklist-title > .tm-task-reminder-emoji,
+        .tm-checklist-pane--compact .tm-checklist-title > .tm-task-remark-emoji {
+            flex: 0 0 auto;
+            align-self: center;
+            margin-left: 5px;
         }
 
         .tm-checklist-pane--compact .tm-tree-toggle {
@@ -6841,7 +6924,7 @@
 
         .tm-checklist-pane--compact .tm-status-tag {
             flex: 0 0 auto;
-            margin-left: 8px;
+            margin-left: auto;
         }
 
         .tm-checklist-side {
@@ -7080,6 +7163,14 @@
             padding: 10px var(--tm-checklist-pane-pad-right) 10px var(--tm-checklist-pane-pad-left);
         }
 
+        .tm-modal.tm-modal--dock .tm-checklist-pane--compact .tm-checklist-scroll {
+            padding-top: 7px;
+        }
+
+        .tm-box--with-cal-dock .tm-checklist-pane--compact .tm-checklist-scroll {
+            padding-top: 7px;
+        }
+
         .tm-box--with-cal-dock .tm-checklist-side {
             flex-basis: 300px;
             width: 300px;
@@ -7186,6 +7277,10 @@
             .tm-checklist-pane--compact .tm-checklist-meta-compact {
                 margin-left: 6px;
                 max-width: 34%;
+            }
+
+            .tm-modal.tm-modal--mobile .tm-checklist-pane--compact .tm-checklist-scroll {
+                padding-top: 7px;
             }
 
             .tm-checklist-mobile-toggle {
@@ -8401,6 +8496,99 @@
             cursor: not-allowed;
         }
 
+        .tm-task-checkbox.tm-task-checkbox--delight {
+            animation: tm-task-checkbox-delight-pop 0.42s cubic-bezier(0.22, 1, 0.36, 1);
+            box-shadow: 0 0 0 0 color-mix(in srgb, var(--tm-checklist-checkbox-color, var(--tm-success-color)) 0%, transparent);
+        }
+
+        .tm-checklist-pane--compact .tm-checklist-leading .tm-task-checkbox.tm-task-checkbox--delight {
+            animation-name: tm-task-checkbox-delight-pop-compact;
+        }
+
+        .tm-task-checkbox.tm-task-checkbox--delight:checked::after {
+            animation: tm-task-checkbox-delight-mark 0.34s cubic-bezier(0.22, 1, 0.36, 1);
+            transform-origin: 50% 55%;
+        }
+
+        .tm-task-done-delight-surface {
+            animation: tm-task-done-delight-surface 0.64s cubic-bezier(0.22, 1, 0.36, 1);
+        }
+
+        .tm-task-done-delight-cell {
+            animation: tm-task-done-delight-cell 0.64s cubic-bezier(0.22, 1, 0.36, 1);
+        }
+
+        @keyframes tm-task-checkbox-delight-pop {
+            0% {
+                transform: scale(1);
+                box-shadow: 0 0 0 0 color-mix(in srgb, var(--tm-checklist-checkbox-color, var(--tm-success-color)) 0%, transparent);
+            }
+            45% {
+                transform: scale(1.24);
+                box-shadow: 0 0 0 6px color-mix(in srgb, var(--tm-checklist-checkbox-color, var(--tm-success-color)) 20%, transparent);
+            }
+            100% {
+                transform: scale(1);
+                box-shadow: 0 0 0 0 color-mix(in srgb, var(--tm-checklist-checkbox-color, var(--tm-success-color)) 0%, transparent);
+            }
+        }
+
+        @keyframes tm-task-checkbox-delight-mark {
+            0% {
+                opacity: 0;
+                transform: rotate(42deg) scale(0.55);
+            }
+            100% {
+                opacity: 1;
+                transform: rotate(42deg) scale(1);
+            }
+        }
+
+        @keyframes tm-task-checkbox-delight-pop-compact {
+            0% {
+                transform: translateY(-50%) scale(1);
+                box-shadow: 0 0 0 0 color-mix(in srgb, var(--tm-checklist-checkbox-color, var(--tm-success-color)) 0%, transparent);
+            }
+            45% {
+                transform: translateY(-50%) scale(1.24);
+                box-shadow: 0 0 0 6px color-mix(in srgb, var(--tm-checklist-checkbox-color, var(--tm-success-color)) 20%, transparent);
+            }
+            100% {
+                transform: translateY(-50%) scale(1);
+                box-shadow: 0 0 0 0 color-mix(in srgb, var(--tm-checklist-checkbox-color, var(--tm-success-color)) 0%, transparent);
+            }
+        }
+
+        @keyframes tm-task-done-delight-surface {
+            0% {
+                transform: translateY(0) scale(1);
+                box-shadow: 0 0 0 0 color-mix(in srgb, var(--tm-success-color) 0%, transparent), 0 0 0 0 color-mix(in srgb, var(--tm-success-color) 0%, transparent);
+            }
+            35% {
+                transform: translateY(-1px) scale(1.008);
+                box-shadow: 0 0 0 4px color-mix(in srgb, var(--tm-success-color) 16%, transparent), 0 16px 28px -24px color-mix(in srgb, var(--tm-success-color) 68%, transparent);
+            }
+            100% {
+                transform: translateY(0) scale(1);
+                box-shadow: 0 0 0 0 color-mix(in srgb, var(--tm-success-color) 0%, transparent), 0 0 0 0 color-mix(in srgb, var(--tm-success-color) 0%, transparent);
+            }
+        }
+
+        @keyframes tm-task-done-delight-cell {
+            0% {
+                background-color: transparent;
+                box-shadow: inset 0 0 0 0 color-mix(in srgb, var(--tm-success-color) 0%, transparent);
+            }
+            35% {
+                background-color: color-mix(in srgb, var(--tm-success-color) 10%, transparent);
+                box-shadow: inset 0 0 0 999px color-mix(in srgb, var(--tm-success-color) 8%, transparent);
+            }
+            100% {
+                background-color: transparent;
+                box-shadow: inset 0 0 0 999px color-mix(in srgb, var(--tm-success-color) 0%, transparent);
+            }
+        }
+
         .tm-task-checkbox-wrap {
             position: relative;
             display: inline-flex;
@@ -9393,6 +9581,74 @@
         }
     };
 
+    function __tmFormatPersistError(error) {
+        const raw = String(error?.message || error || '').trim();
+        return raw || '未知错误';
+    }
+
+    function __tmLogPersistenceError(scope, error) {
+        try { console.warn(`[task-horizon] ${scope} failed: ${__tmFormatPersistError(error)}`, error); } catch (e) {}
+    }
+
+    function __tmUnwrapGetFileText(raw) {
+        const text = String(raw ?? '');
+        const trimmed = text.replace(/^\uFEFF/, '').trim();
+        if (!trimmed) return '';
+        if (!trimmed.startsWith('{')) return text;
+        if (!/\"(code|msg|data|content)\"\s*:/.test(trimmed)) return text;
+        let obj = null;
+        try {
+            obj = JSON.parse(trimmed);
+        } catch (e) {
+            throw new Error(`getFile response looks like JSON but failed to parse: ${e?.message || e}`);
+        }
+        if (obj && typeof obj === 'object') {
+            if (typeof obj.data === 'string') return obj.data;
+            if (typeof obj.content === 'string') return obj.content;
+            if (obj.data && typeof obj.data === 'object' && typeof obj.data.content === 'string') return obj.data.content;
+            if (typeof obj.msg === 'string' && typeof obj.code !== 'undefined') {
+                throw new Error(`getFile error: ${obj.code} ${obj.msg}`);
+            }
+        }
+        return text;
+    }
+
+    async function __tmGetFileText(path) {
+        const res = await fetch('/api/file/getFile', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ path }),
+        });
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        return __tmUnwrapGetFileText(await res.text());
+    }
+
+    async function __tmGetJsonFile(path, fallbackValue = null) {
+        const text = await __tmGetFileText(path);
+        if (!text || !text.trim()) return fallbackValue;
+        return JSON.parse(text);
+    }
+
+    async function __tmEnsurePluginStorageDir() {
+        const formDir = new FormData();
+        formDir.append('path', PLUGIN_STORAGE_DIR);
+        formDir.append('isDir', 'true');
+        const res = await fetch('/api/file/putFile', { method: 'POST', body: formDir });
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        return true;
+    }
+
+    async function __tmPutJsonFile(path, value) {
+        await __tmEnsurePluginStorageDir();
+        const form = new FormData();
+        form.append('path', path);
+        form.append('isDir', 'false');
+        form.append('file', new Blob([JSON.stringify(value ?? {}, null, 2)], { type: 'application/json' }));
+        const res = await fetch('/api/file/putFile', { method: 'POST', body: form });
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        return true;
+    }
+
     const PLUGIN_STORAGE_DIR = '/data/storage/petal/siyuan-plugin-task-horizon';
     const META_FILE_PATH = `${PLUGIN_STORAGE_DIR}/task-meta.json`;
     const SETTINGS_FILE_PATH = `${PLUGIN_STORAGE_DIR}/task-settings.json`;
@@ -9962,27 +10218,12 @@
 
             // 从云端加载元数据（优先）
             try {
-                const res = await fetch('/api/file/getFile', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ path: META_FILE_PATH }),
-                });
-
-                if (res.ok) {
-                    const text = await res.text();
-                    // 如果文件内容有效
-                    if (text && text.trim() !== '') {
-                        try {
-                            const json = JSON.parse(text);
-                            if (json && typeof json === 'object' && Object.keys(json).length > 0) {
-                                this.data = json;
-                                Storage.set('tm_meta_cache', this.data);
-                                this.loaded = true;
-                                return;
-                            }
-                        } catch (parseError) {
-                        }
-                    }
+                const json = await __tmGetJsonFile(META_FILE_PATH, null);
+                if (json && typeof json === 'object' && Object.keys(json).length > 0) {
+                    this.data = json;
+                    Storage.set('tm_meta_cache', this.data);
+                    this.loaded = true;
+                    return;
                 }
             } catch (e) {
             }
@@ -10003,6 +10244,7 @@
             // 优先使用 MetaStore 的值（非空字符串、非 'null'、非 undefined）
             // 排除 'null' 字符串（SQL 查询返回的 null 会被转成字符串 'null'）
             const isValidValue = (val) => val !== undefined && val !== null && val !== '' && val !== 'null';
+            const allowVisibleDateFallback = __tmHasPendingVisibleDatePersistence(String(task?.id || '').trim());
 
             // 对于从数据库查询的字段，如果数据库已有有效值，则优先使用数据库的值
             // 这样可以确保悬浮条修改后，切换页签时能获取到最新数据
@@ -10022,8 +10264,8 @@
             if (!dbHasMilestone && 'milestone' in v && isValidValue(v.milestone)) task.milestone = v.milestone;
             if (!dbHasDuration && 'duration' in v && isValidValue(v.duration)) task.duration = v.duration;
             if (!dbHasRemark && 'remark' in v && isValidValue(v.remark)) task.remark = v.remark;
-            if (!dbHasCompletionTime && 'completionTime' in v && isValidValue(v.completionTime)) task.completionTime = v.completionTime;
-            if (!dbHasCustomTime && 'customTime' in v && isValidValue(v.customTime)) task.customTime = v.customTime;
+            if (!dbHasCompletionTime && allowVisibleDateFallback && 'completionTime' in v && isValidValue(v.completionTime)) task.completionTime = v.completionTime;
+            if (!dbHasCustomTime && allowVisibleDateFallback && 'customTime' in v && isValidValue(v.customTime)) task.customTime = v.customTime;
             if (!dbHasCustomStatus && 'customStatus' in v && isValidValue(v.customStatus)) task.customStatus = v.customStatus;
             if (v.customFieldValues && typeof v.customFieldValues === 'object' && !Array.isArray(v.customFieldValues)) {
                 const current = (task.customFieldValues && typeof task.customFieldValues === 'object' && !Array.isArray(task.customFieldValues))
@@ -10096,27 +10338,30 @@
             } catch (e) {}
             this.saveTimer = setTimeout(() => {
                 this.saveTimer = null;
-                this.saveNow();
+                this.saveNow().catch(() => null);
             }, 500);
         },
 
         async saveNow() {
             if (this.saving) return;
             this.saving = true;
+            let saveError = null;
             try {
                 Storage.set('tm_meta_cache', this.data || {});
-                const formDir = new FormData();
-                formDir.append('path', PLUGIN_STORAGE_DIR);
-                formDir.append('isDir', 'true');
-                await fetch('/api/file/putFile', { method: 'POST', body: formDir }).catch(() => null);
-
-                const form = new FormData();
-                form.append('path', META_FILE_PATH);
-                form.append('isDir', 'false');
-                form.append('file', new Blob([JSON.stringify(this.data || {}, null, 2)], { type: 'application/json' }));
-                await fetch('/api/file/putFile', { method: 'POST', body: form });
-            } catch (e) {} finally {
+                await __tmPutJsonFile(META_FILE_PATH, this.data || {});
+                return true;
+            } catch (e) {
+                saveError = e;
+                __tmLogPersistenceError('save meta cache', e);
+                throw e;
+            } finally {
                 this.saving = false;
+                if (saveError && !this.saveTimer) {
+                    this.saveTimer = setTimeout(() => {
+                        this.saveTimer = null;
+                        this.saveNow().catch(() => null);
+                    }, 1000);
+                }
             }
         }
     };
@@ -10168,6 +10413,7 @@
             taskContentWrapMaxLines: 3,
             taskRemarkWrapMaxLines: 2,
             enableQuickbar: true,
+            taskDoneDelightEnabled: true,
             aiEnabled: false,
             aiProvider: 'minimax',
             aiMiniMaxApiKey: '',
@@ -10310,6 +10556,8 @@
             whiteboardAllTabsDocOrderByGroup: {},
             whiteboardSequenceMode: false,
             collapseAllIncludesGroups: false,
+            serverSyncOnManualRefresh: false,
+            serverSyncSessionStateOnManualRefresh: false,
             docColorMap: {},
             docColorSeed: 1,
             docDefaultColorScheme: {
@@ -10440,6 +10688,7 @@
         saveDirty: false,
         savePromise: null,
         savePromiseResolve: null,
+        savePromiseReject: null,
 
         migrateLegacyTopbarDefaults() {
             const legacyDefaults = {
@@ -10490,19 +10739,8 @@
 
             // 从云端加载设置（优先）
             try {
-                const res = await fetch('/api/file/getFile', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ path: SETTINGS_FILE_PATH }),
-                });
-
-                if (res.ok) {
-                    const text = await res.text();
-                    // 如果文件内容有效且有数据
-                    if (text && text.trim() !== '') {
-                        try {
-                            const cloudData = JSON.parse(text);
-                            if (cloudData && typeof cloudData === 'object' && Object.keys(cloudData).length > 0) {
+                const cloudData = await __tmGetJsonFile(SETTINGS_FILE_PATH, null);
+                if (cloudData && typeof cloudData === 'object' && Object.keys(cloudData).length > 0) {
                                 // 应用云端数据
                                 if (Array.isArray(cloudData.selectedDocIds)) this.data.selectedDocIds = cloudData.selectedDocIds;
                                 if (typeof cloudData.queryLimit === 'number') this.data.queryLimit = cloudData.queryLimit;
@@ -10548,6 +10786,7 @@
                                 if (typeof cloudData.taskContentWrapMaxLines === 'number') this.data.taskContentWrapMaxLines = cloudData.taskContentWrapMaxLines;
                                 if (typeof cloudData.taskRemarkWrapMaxLines === 'number') this.data.taskRemarkWrapMaxLines = cloudData.taskRemarkWrapMaxLines;
                                 if (typeof cloudData.enableQuickbar === 'boolean') this.data.enableQuickbar = cloudData.enableQuickbar;
+                                if (typeof cloudData.taskDoneDelightEnabled === 'boolean') this.data.taskDoneDelightEnabled = cloudData.taskDoneDelightEnabled;
                                 if (typeof cloudData.enableQuickbarInlineMeta === 'boolean') this.data.enableQuickbarInlineMeta = cloudData.enableQuickbarInlineMeta;
                                 if (typeof cloudData.enableMoveBlockToDailyNote === 'boolean') this.data.enableMoveBlockToDailyNote = cloudData.enableMoveBlockToDailyNote;
                                 if (Array.isArray(cloudData.quickbarInlineFields)) this.data.quickbarInlineFields = cloudData.quickbarInlineFields;
@@ -10731,6 +10970,8 @@
                                 if (typeof cloudData.aiDefaultContextMode === 'string') this.data.aiDefaultContextMode = cloudData.aiDefaultContextMode;
                                 if (Array.isArray(cloudData.aiScheduleWindows)) this.data.aiScheduleWindows = cloudData.aiScheduleWindows;
                                 else if (typeof cloudData.aiScheduleWindows === 'string') this.data.aiScheduleWindows = String(cloudData.aiScheduleWindows).split(/\r?\n/);
+                                if (typeof cloudData.serverSyncOnManualRefresh === 'boolean') this.data.serverSyncOnManualRefresh = cloudData.serverSyncOnManualRefresh;
+                                if (typeof cloudData.serverSyncSessionStateOnManualRefresh === 'boolean') this.data.serverSyncSessionStateOnManualRefresh = cloudData.serverSyncSessionStateOnManualRefresh;
 
                                 const validModes = new Set(['none', 'doc', 'time', 'quadrant', 'task']);
                                 if (!validModes.has(String(this.data.groupMode || ''))) {
@@ -10786,10 +11027,6 @@
                                     try { await this.save(); } catch (e) {}
                                 }
                                 return;
-                            }
-                        } catch (parseError) {
-                        }
-                    }
                 }
             } catch (e) {
             }
@@ -10888,6 +11125,7 @@
             this.data.tableBorderColorDark = Storage.get('tm_table_border_color_dark', this.data.tableBorderColorDark);
             this.data.enableQuickbar = Storage.get('tm_enable_quickbar', true);
             this.data.enableQuickbarInlineMeta = !!Storage.get('tm_enable_quickbar_inline_meta', this.data.enableQuickbarInlineMeta);
+            this.data.taskDoneDelightEnabled = Storage.get('tm_task_done_delight_enabled', this.data.taskDoneDelightEnabled);
             this.data.enableMoveBlockToDailyNote = !!Storage.get('tm_enable_move_block_to_daily_note', this.data.enableMoveBlockToDailyNote);
             this.data.quickbarInlineFields = Storage.get('tm_quickbar_inline_fields', this.data.quickbarInlineFields) || this.data.quickbarInlineFields;
             this.data.quickbarVisibleItems = Storage.get('tm_quickbar_visible_items', this.data.quickbarVisibleItems) || this.data.quickbarVisibleItems;
@@ -11026,6 +11264,8 @@
             if (!Array.isArray(this.data.aiScheduleWindows)) this.data.aiScheduleWindows = String(this.data.aiScheduleWindows || '').split(/\r?\n/);
             this.data.aiScheduleWindows = this.data.aiScheduleWindows.map(v => String(v || '').trim()).filter(Boolean);
             if (!this.data.aiScheduleWindows.length) this.data.aiScheduleWindows = ['09:00-18:00'];
+            this.data.serverSyncOnManualRefresh = !!Storage.get('tm_server_sync_on_manual_refresh', this.data.serverSyncOnManualRefresh);
+            this.data.serverSyncSessionStateOnManualRefresh = !!Storage.get('tm_server_sync_session_state_on_manual_refresh', this.data.serverSyncSessionStateOnManualRefresh);
             this.data.newTaskDailyNoteAppendToBottom = !!Storage.get('tm_new_task_daily_note_append_to_bottom', this.data.newTaskDailyNoteAppendToBottom);
             this.data.headingGroupCreateAtSectionEnd = !!Storage.get('tm_heading_group_create_at_section_end', this.data.headingGroupCreateAtSectionEnd);
             {
@@ -11190,6 +11430,7 @@
             Storage.set('tm_table_border_color_dark', String(this.data.tableBorderColorDark || '').trim());
             Storage.set('tm_enable_quickbar', !!this.data.enableQuickbar);
             Storage.set('tm_enable_quickbar_inline_meta', !!this.data.enableQuickbarInlineMeta);
+            Storage.set('tm_task_done_delight_enabled', !!this.data.taskDoneDelightEnabled);
             Storage.set('tm_enable_move_block_to_daily_note', !!this.data.enableMoveBlockToDailyNote);
             Storage.set('tm_quickbar_inline_fields', Array.isArray(this.data.quickbarInlineFields) ? this.data.quickbarInlineFields : ['custom-status', 'custom-completion-time']);
             Storage.set('tm_quickbar_visible_items', Array.isArray(this.data.quickbarVisibleItems) ? this.data.quickbarVisibleItems : ['custom-status', 'custom-priority', 'custom-start-date', 'custom-completion-time', 'custom-duration', 'custom-remark', 'action-ai-title', 'action-reminder', 'action-more']);
@@ -11328,6 +11569,8 @@
             Storage.set('tm_ai_minimax_timeout_ms', Number.isFinite(Number(this.data.aiMiniMaxTimeoutMs)) ? Math.round(Number(this.data.aiMiniMaxTimeoutMs)) : 30000);
             Storage.set('tm_ai_default_context_mode', String(this.data.aiDefaultContextMode || '').trim() === 'fulltext' ? 'fulltext' : 'nearby');
             Storage.set('tm_ai_schedule_windows', Array.isArray(this.data.aiScheduleWindows) ? this.data.aiScheduleWindows.map(v => String(v || '').trim()).filter(Boolean) : ['09:00-18:00']);
+            Storage.set('tm_server_sync_on_manual_refresh', !!this.data.serverSyncOnManualRefresh);
+            Storage.set('tm_server_sync_session_state_on_manual_refresh', !!this.data.serverSyncSessionStateOnManualRefresh);
         },
 
         normalizeColumns() {
@@ -11453,6 +11696,8 @@
             this.data.windowTopbarIconDesktop = this.data.windowTopbarIconDesktop !== false;
             this.data.windowTopbarIconMobile = this.data.windowTopbarIconMobile !== false;
             this.data.semanticDateAutoPromptEnabled = !!this.data.semanticDateAutoPromptEnabled;
+            this.data.serverSyncOnManualRefresh = !!this.data.serverSyncOnManualRefresh;
+            this.data.serverSyncSessionStateOnManualRefresh = !!this.data.serverSyncSessionStateOnManualRefresh;
             this.data.timelineForceSortByCompletionNearToday = !!this.data.timelineForceSortByCompletionNearToday;
             this.data.groupSortByBestSubtaskTimeInTimeQuadrant = !!this.data.groupSortByBestSubtaskTimeInTimeQuadrant;
             this.data.whiteboardLinks = Array.isArray(this.data.whiteboardLinks) ? this.data.whiteboardLinks : [];
@@ -11523,13 +11768,14 @@
             this.saveDirty = true;
             try { if (this.saveTimer) clearTimeout(this.saveTimer); } catch (e) {}
             if (!this.savePromise) {
-                this.savePromise = new Promise((resolve) => {
+                this.savePromise = new Promise((resolve, reject) => {
                     this.savePromiseResolve = resolve;
+                    this.savePromiseReject = reject;
                 });
             }
             this.saveTimer = setTimeout(() => {
                 this.saveTimer = null;
-                this.flushSave();
+                this.flushSave().catch(() => null);
             }, 350);
             return this.savePromise;
         },
@@ -11539,31 +11785,40 @@
             if (!this.saveDirty) return;
             this.saving = true;
             this.saveDirty = false;
+            let saveError = null;
             try {
                 // 本地缓存延后到 flush，避免每次 save() 都全量写 localStorage
                 this.syncToLocal();
                 const payload = this.buildCloudPayload();
-                const formData = new FormData();
-                formData.append('path', SETTINGS_FILE_PATH);
-                formData.append('isDir', 'false');
-                formData.append('file', new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' }));
-
-                await fetch('/api/file/putFile', { method: 'POST', body: formData }).catch(() => null);
+                await __tmPutJsonFile(SETTINGS_FILE_PATH, payload);
+                return true;
             } catch (e) {
+                saveError = e;
+                this.saveDirty = true;
+                __tmLogPersistenceError('save settings', e);
+                throw e;
             } finally {
                 this.saving = false;
                 if (this.saveDirty) {
                     try { if (this.saveTimer) clearTimeout(this.saveTimer); } catch (e) {}
                     this.saveTimer = setTimeout(() => {
                         this.saveTimer = null;
-                        this.flushSave();
-                    }, 50);
-                    return;
+                        this.flushSave().catch(() => null);
+                    }, saveError ? 1000 : 50);
                 }
-                try { this.savePromiseResolve?.(); } catch (e) {}
+            }
+            if (saveError) {
+                try { this.savePromiseReject?.(saveError); } catch (e) {}
                 this.savePromise = null;
                 this.savePromiseResolve = null;
+                this.savePromiseReject = null;
+                return;
             }
+            if (this.saveDirty) return;
+            try { this.savePromiseResolve?.(); } catch (e) {}
+            this.savePromise = null;
+            this.savePromiseResolve = null;
+            this.savePromiseReject = null;
         },
 
         // 便捷方法：更新列宽度
@@ -11693,18 +11948,8 @@
             if (this.loaded) return;
             try { this.normalize(); } catch (e) {}
             try {
-                const res = await fetch('/api/file/getFile', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ path: WHITEBOARD_DATA_FILE_PATH }),
-                });
-                if (res.ok) {
-                    const text = await res.text();
-                    if (text && text.trim()) {
-                        const json = JSON.parse(text);
-                        if (json && typeof json === 'object') this.data = json;
-                    }
-                }
+                const json = await __tmGetJsonFile(WHITEBOARD_DATA_FILE_PATH, null);
+                if (json && typeof json === 'object') this.data = json;
             } catch (e) {}
             try { this.normalize(); } catch (e) {}
             try { Storage.set(WHITEBOARD_DATA_CACHE_KEY, this.data || { cards: {}, links: [] }); } catch (e) {}
@@ -11716,7 +11961,7 @@
             try { if (this.saveTimer) clearTimeout(this.saveTimer); } catch (e) {}
             this.saveTimer = setTimeout(() => {
                 this.saveTimer = null;
-                this.saveNow();
+                this.saveNow().catch(() => null);
             }, 420);
         },
 
@@ -11725,23 +11970,26 @@
             if (!this.saveDirty) return;
             this.saving = true;
             this.saveDirty = false;
+            let saveError = null;
             try {
                 this.normalize();
                 try { Storage.set(WHITEBOARD_DATA_CACHE_KEY, this.data || { cards: {}, links: [] }); } catch (e) {}
-                const formDir = new FormData();
-                formDir.append('path', PLUGIN_STORAGE_DIR);
-                formDir.append('isDir', 'true');
-                await fetch('/api/file/putFile', { method: 'POST', body: formDir }).catch(() => null);
-
-                const formData = new FormData();
-                formData.append('path', WHITEBOARD_DATA_FILE_PATH);
-                formData.append('isDir', 'false');
-                formData.append('file', new Blob([JSON.stringify(this.data || { cards: {}, links: [] }, null, 2)], { type: 'application/json' }));
-                await fetch('/api/file/putFile', { method: 'POST', body: formData }).catch(() => null);
+                await __tmPutJsonFile(WHITEBOARD_DATA_FILE_PATH, this.data || { cards: {}, links: [] });
+                return true;
             } catch (e) {
+                saveError = e;
+                this.saveDirty = true;
+                __tmLogPersistenceError('save whiteboard data', e);
+                throw e;
             } finally {
                 this.saving = false;
-                if (this.saveDirty) this.scheduleSave();
+                if (this.saveDirty) {
+                    try { if (this.saveTimer) clearTimeout(this.saveTimer); } catch (e2) {}
+                    this.saveTimer = setTimeout(() => {
+                        this.saveTimer = null;
+                        this.saveNow().catch(() => null);
+                    }, saveError ? 1000 : 420);
+                }
             }
         },
 
@@ -12485,6 +12733,181 @@
     let __tmTxTaskRefreshInFlight = false;
     const __tmTxTaskRefreshDocIds = new Set();
     const __tmTxTaskRefreshBlockIds = new Set();
+    const __tmRecentVisibleDateFallbackTasks = new Map();
+
+    function __tmIsVisibleDateAttrKey(key) {
+        const normalized = String(key || '').trim();
+        return normalized === 'custom-start-date'
+            || normalized === 'custom-completion-time'
+            || normalized === 'custom-time';
+    }
+
+    function __tmPruneRecentVisibleDateFallbackTasks(maxAgeMs = 20000) {
+        const now = Date.now();
+        const ttl = Math.max(1000, Number(maxAgeMs) || 20000);
+        __tmRecentVisibleDateFallbackTasks.forEach((ts, taskId) => {
+            if (!taskId || !ts || (now - Number(ts)) > ttl) {
+                __tmRecentVisibleDateFallbackTasks.delete(taskId);
+            }
+        });
+    }
+
+    function __tmMarkVisibleDateFallbackTask(taskId) {
+        const tid = String(taskId || '').trim();
+        if (!tid) return;
+        __tmPruneRecentVisibleDateFallbackTasks();
+        __tmRecentVisibleDateFallbackTasks.set(tid, Date.now());
+    }
+
+    function __tmHasPendingVisibleDatePersistence(taskId) {
+        const tid = String(taskId || '').trim();
+        if (!tid) return false;
+        __tmPruneRecentVisibleDateFallbackTasks();
+        if (state.pendingInsertedTasks?.[tid]) return true;
+        const recentTs = Number(__tmRecentVisibleDateFallbackTasks.get(tid) || 0);
+        if (recentTs && (Date.now() - recentTs) <= 20000) return true;
+        const items = Array.isArray(__tmOpQueue?.items) ? __tmOpQueue.items : [];
+        return items.some((op) => {
+            if (!op || String(op.status || '').trim() !== 'queued') return false;
+            if (String(op.type || '').trim() !== 'attrPatch') return false;
+            if (String(op?.data?.taskId || '').trim() !== tid) return false;
+            const patch = (op?.data?.patch && typeof op.data.patch === 'object') ? op.data.patch : null;
+            if (!patch) return false;
+            return Object.prototype.hasOwnProperty.call(patch, 'startDate')
+                || Object.prototype.hasOwnProperty.call(patch, 'completionTime')
+                || Object.prototype.hasOwnProperty.call(patch, 'customTime');
+        });
+    }
+
+    function __tmShouldSyncAttrKeyFromTx(key) {
+        const normalized = String(key || '').trim();
+        if (!normalized) return false;
+        if (normalized === 'custom-status'
+            || normalized === 'custom-priority'
+            || normalized === 'custom-start-date'
+            || normalized === 'custom-completion-time'
+            || normalized === 'custom-duration'
+            || normalized === 'custom-remark'
+            || normalized === 'custom-pinned'
+            || normalized === 'bookmark'
+            || normalized === 'custom-reminder') {
+            return true;
+        }
+        try {
+            return !!__tmGetCustomFieldDefByAttrStorageKey(normalized);
+        } catch (e) {
+            return false;
+        }
+    }
+
+    function __tmExtractAttrUpdatesFromTx(payload) {
+        const updateMap = new Map();
+        const mergePatchFromSource = (target, source) => {
+            if (!source || typeof source !== 'object' || Array.isArray(source)) return;
+            Object.entries(source).forEach(([rawKey, rawValue]) => {
+                const key = String(rawKey || '').trim();
+                if (!__tmShouldSyncAttrKeyFromTx(key)) return;
+                target[key] = rawValue == null ? '' : String(rawValue);
+            });
+        };
+        const collectFromNode = (node) => {
+            if (!node || typeof node !== 'object') return;
+            const data = (node.data && typeof node.data === 'object' && !Array.isArray(node.data)) ? node.data : null;
+            const action = String(node.action || node.cmd || node.operation || data?.action || '').trim().toLowerCase();
+            const blockId = [
+                data?.id,
+                data?.blockID,
+                data?.blockId,
+                node.id,
+                node.blockID,
+                node.blockId
+            ].map((value) => String(value || '').trim()).find((value) => __tmIsLikelyBlockId(value)) || '';
+            if (!blockId) return;
+            const patch = {};
+            mergePatchFromSource(patch, data?.attrs);
+            mergePatchFromSource(patch, data?.new);
+            mergePatchFromSource(patch, node.attrs);
+            mergePatchFromSource(patch, node.new);
+            if (!Object.keys(patch).length && (action === 'updateattrs' || action === 'setattrs' || action === 'setblockattrs')) {
+                mergePatchFromSource(patch, data);
+            }
+            if (!Object.keys(patch).length) return;
+            Object.entries(patch).forEach(([key, value]) => {
+                updateMap.set(`${blockId}::${key}`, { taskId: blockId, key, value });
+            });
+        };
+        const walk = (node, depth) => {
+            if (depth > 7 || !node) return;
+            if (Array.isArray(node)) {
+                node.forEach((item) => walk(item, depth + 1));
+                return;
+            }
+            if (typeof node !== 'object') return;
+            collectFromNode(node);
+            [
+                node.data,
+                node.detail,
+                node.tx,
+                node.payload,
+                node.rows,
+                node.ops,
+                node.operations,
+                node.doOperations,
+                node.undoOperations,
+                node.children,
+                node.items,
+                node.srcs,
+                node.dsts
+            ].forEach((next) => walk(next, depth + 1));
+        };
+        walk(payload, 0);
+        return Array.from(updateMap.values());
+    }
+
+    function __tmApplyTxAttrUpdatesInState(payload) {
+        const updates = __tmExtractAttrUpdatesFromTx(payload);
+        if (!updates.length) return false;
+        let applied = false;
+        const unresolved = [];
+        updates.forEach((update) => {
+            const taskId = String(update?.taskId || '').trim();
+            const attrKey = String(update?.key || '').trim();
+            const attrValue = String(update?.value ?? '');
+            if (!taskId || !attrKey) return;
+            const ok = __tmApplyQuickbarAttrUpdateInState(taskId, attrKey, attrValue);
+            if (ok) {
+                applied = true;
+                return;
+            }
+            unresolved.push({ taskId, attrKey, attrValue });
+        });
+        const refreshView = () => {
+            try { applyFilters(); } catch (e) {}
+            try {
+                if (__tmIsPluginVisibleNow()) {
+                    __tmRefreshMainViewInPlace({ withFilters: false });
+                }
+            } catch (e) {}
+        };
+        if (applied) refreshView();
+        if (unresolved.length) {
+            Promise.resolve().then(async () => {
+                let resolvedApplied = false;
+                for (const update of unresolved) {
+                    try {
+                        const resolvedTaskId = await __tmResolveTaskIdFromAnyBlockId(update.taskId);
+                        const nextTaskId = String(resolvedTaskId || '').trim();
+                        if (!nextTaskId || nextTaskId === update.taskId) continue;
+                        if (__tmApplyQuickbarAttrUpdateInState(nextTaskId, update.attrKey, update.attrValue)) {
+                            resolvedApplied = true;
+                        }
+                    } catch (e) {}
+                }
+                if (resolvedApplied) refreshView();
+            }).catch(() => null);
+        }
+        return applied;
+    }
 
     function __tmCloneTaskQueryRows(rows) {
         return Array.isArray(rows)
@@ -13090,6 +13513,22 @@
         return out;
     }
 
+    async function __tmFlushSqlTransactionsSafe(reason = '') {
+        try {
+            const res = await API.call('/api/sqlite/flushTransaction', {});
+            if (res && res.code !== 0) {
+                try { console.warn('[task-horizon] flushTransaction failed', reason || 'unknown', res?.msg || res); } catch (e) {}
+                return false;
+            }
+            // Give the attributes query a brief moment to observe the flushed rows.
+            await new Promise((resolve) => setTimeout(resolve, 40));
+            return true;
+        } catch (e) {
+            try { console.warn('[task-horizon] flushTransaction error', reason || 'unknown', e); } catch (err) {}
+            return false;
+        }
+    }
+
     async function __tmBuildInjectedTasksByDocFromBlockIds(blockIds) {
         const out = new Map();
         const list = Array.from(new Set((Array.isArray(blockIds) ? blockIds : [])
@@ -13205,6 +13644,7 @@
 
         __tmTxTaskRefreshInFlight = true;
         try {
+            await __tmFlushSqlTransactionsSafe('ws-main-incremental-refresh');
             const injectedTasksByDoc = await __tmBuildInjectedTasksByDocFromBlockIds(pendingBlockIds);
             const docIdSet = new Set();
             pendingDocIds.forEach((id) => {
@@ -13275,6 +13715,7 @@
             const eb = window.siyuan?.eventBus;
             if (eb && typeof eb.on === 'function') {
                 __tmSqlCacheEventBusHandler = (msg) => {
+                    try { __tmApplyTxAttrUpdatesInState(msg); } catch (e) {}
                     const docIds = __tmExtractDocIdsFromTx(msg);
                     if (docIds && docIds.size > 0) docIds.forEach((d) => __tmInvalidateTasksQueryCacheByDocId(d));
                     else __tmInvalidateAllSqlCaches();
@@ -15219,6 +15660,7 @@
         docTabsHidden: false,
         docTabsScrollLeft: 0,
         settingsSubtabsScrollLeft: 0,
+        settingsSectionJump: null,
         dockTaskPointerDragAbort: null,
         dockTaskPointerGestureCleanup: null,
         dockTaskPointerSuppressClickUntil: 0,
@@ -15360,6 +15802,7 @@
         const key = String(field || '').trim();
         if (key === 'pinned') return !!(value === true || value === '1' || value === 1);
         if (key === 'milestone') return (value === true || value === '1' || value === 1) ? '1' : '';
+        if (key === 'remark') return __tmNormalizeRemarkMarkdown(value);
         if (key === 'customFieldValues') {
             const input = (value && typeof value === 'object' && !Array.isArray(value)) ? value : {};
             const out = {};
@@ -15374,7 +15817,7 @@
             });
             return out;
         }
-        if (key === 'priority' || key === 'customStatus' || key === 'duration' || key === 'remark' || key === 'startDate' || key === 'completionTime' || key === 'customTime') {
+        if (key === 'priority' || key === 'customStatus' || key === 'duration' || key === 'startDate' || key === 'completionTime' || key === 'customTime') {
             return String(value ?? '').trim();
         }
         return value;
@@ -15496,6 +15939,11 @@
         const tid = String(taskId || '').trim();
         const nextPatch = (patch && typeof patch === 'object') ? patch : {};
         if (!tid || !Object.keys(nextPatch).length) return false;
+        if (Object.prototype.hasOwnProperty.call(nextPatch, 'startDate')
+            || Object.prototype.hasOwnProperty.call(nextPatch, 'completionTime')
+            || Object.prototype.hasOwnProperty.call(nextPatch, 'customTime')) {
+            __tmMarkVisibleDateFallbackTask(tid);
+        }
         const task = state.flatTasks?.[tid] || null;
         const pending = state.pendingInsertedTasks?.[tid] || null;
         Object.entries(nextPatch).forEach(([key, rawValue]) => {
@@ -15626,6 +16074,7 @@
                 force: true,
                 statusPatch: op?.data?.statusPatch,
                 suppressHint: op?.data?.suppressHint === true,
+                source: op?.data?.source,
             });
         }
         if (type === 'moveTask') {
@@ -15671,7 +16120,7 @@
             return;
         }
         if (type === 'setDone') {
-            __tmApplyDoneOptimisticLocal(op?.data?.taskId, !!op?.data?.done, op?.data?.statusPatch);
+            __tmApplyDoneOptimisticLocal(op?.data?.taskId, !!op?.data?.done, op?.data?.statusPatch, op?.data?.source);
             return;
         }
         if (type === 'moveTask') {
@@ -15700,7 +16149,7 @@
             return;
         }
         if (type === 'setDone') {
-            __tmRollbackDoneOptimisticLocal(op?.data?.taskId, op?.inversePatch);
+            __tmRollbackDoneOptimisticLocal(op?.data?.taskId, op?.inversePatch, op?.data?.source);
             return;
         }
         if (type === 'moveTask') {
@@ -16194,18 +16643,10 @@
             this.loadingPromise = Promise.resolve().then(async () => {
                 let next = this.normalize(Storage.get(__TM_SEMANTIC_DATE_RECOGNIZED_KEY, {}) || {});
                 try {
-                    const res = await fetch('/api/file/getFile', {
-                        method: 'POST',
-                        headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({ path: SEMANTIC_DATE_RECOGNIZED_FILE_PATH }),
-                    });
-                    if (res.ok) {
-                        const text = await res.text();
-                        if (text && text.trim()) {
-                            const json = JSON.parse(text);
-                            const fromFile = this.normalize(json);
-                            if (Object.keys(fromFile).length > 0) next = this.mergeMaps(fromFile, next);
-                        }
+                    const json = await __tmGetJsonFile(SEMANTIC_DATE_RECOGNIZED_FILE_PATH, null);
+                    if (json && typeof json === 'object') {
+                        const fromFile = this.normalize(json);
+                        if (Object.keys(fromFile).length > 0) next = this.mergeMaps(fromFile, next);
                     }
                 } catch (e) {}
                 this.data = next;
@@ -16245,9 +16686,9 @@
             try { if (this.saveTimer) clearTimeout(this.saveTimer); } catch (e) {}
             this.saveTimer = setTimeout(() => {
                 this.saveTimer = null;
-                this.saveNow();
+                this.saveNow().catch(() => null);
             }, 120);
-            try { this.saveNow(); } catch (e) {}
+            try { Promise.resolve(this.saveNow()).catch(() => null); } catch (e) {}
         },
 
         async saveNow() {
@@ -16255,27 +16696,24 @@
             if (!this.saveDirty) return;
             this.saving = true;
             this.saveDirty = false;
+            let saveError = null;
             try {
                 this.syncLocalCache();
-                const formDir = new FormData();
-                formDir.append('path', PLUGIN_STORAGE_DIR);
-                formDir.append('isDir', 'true');
-                await fetch('/api/file/putFile', { method: 'POST', body: formDir }).catch(() => null);
-
-                const form = new FormData();
-                form.append('path', SEMANTIC_DATE_RECOGNIZED_FILE_PATH);
-                form.append('isDir', 'false');
-                form.append('file', new Blob([JSON.stringify(this.data || {}, null, 2)], { type: 'application/json' }));
-                await fetch('/api/file/putFile', { method: 'POST', body: form }).catch(() => null);
+                await __tmPutJsonFile(SEMANTIC_DATE_RECOGNIZED_FILE_PATH, this.data || {});
+                return true;
             } catch (e) {
+                saveError = e;
+                this.saveDirty = true;
+                __tmLogPersistenceError('save semantic-date cache', e);
+                throw e;
             } finally {
                 this.saving = false;
                 if (this.saveDirty) {
                     try { if (this.saveTimer) clearTimeout(this.saveTimer); } catch (e2) {}
                     this.saveTimer = setTimeout(() => {
                         this.saveTimer = null;
-                        this.saveNow();
-                    }, 120);
+                        this.saveNow().catch(() => null);
+                    }, saveError ? 1000 : 120);
                 }
             }
         }
@@ -18394,6 +18832,57 @@
         }
     }
 
+    let __tmSettingsEnsurePromise = null;
+    let __tmFilterRulesEnsurePromise = null;
+
+    async function __tmEnsureSettingsLoaded(force = false) {
+        if (!force && SettingsStore.loaded) return SettingsStore.data;
+        if (!force && __tmSettingsEnsurePromise) return await __tmSettingsEnsurePromise;
+        const task = Promise.resolve().then(async () => {
+            await SettingsStore.load();
+            return SettingsStore.data;
+        }).finally(() => {
+            __tmSettingsEnsurePromise = null;
+        });
+        __tmSettingsEnsurePromise = task;
+        return await task;
+    }
+
+    async function __tmEnsureFilterRulesLoaded(force = false) {
+        if (!force && Array.isArray(state.filterRules) && state.filterRules.length > 0) {
+            return state.filterRules;
+        }
+        if (!force && SettingsStore.loaded && Array.isArray(SettingsStore.data.filterRules) && SettingsStore.data.filterRules.length > 0) {
+            state.filterRules = SettingsStore.data.filterRules;
+            return state.filterRules;
+        }
+        if (!force && __tmFilterRulesEnsurePromise) return await __tmFilterRulesEnsurePromise;
+        const task = Promise.resolve().then(async () => {
+            await __tmEnsureSettingsLoaded(force);
+            const rules = await RuleManager.initRules();
+            state.filterRules = Array.isArray(rules) ? rules : [];
+            return state.filterRules;
+        }).finally(() => {
+            __tmFilterRulesEnsurePromise = null;
+        });
+        __tmFilterRulesEnsurePromise = task;
+        return await task;
+    }
+
+    async function __tmEnsureAiRuntimeLoaded() {
+        try {
+            if (globalThis.__tmAI?.loaded) return true;
+        } catch (e) {}
+        const loader = globalThis.__taskHorizonEnsureAiModuleLoaded;
+        if (typeof loader !== 'function') return !!globalThis.__tmAI?.loaded;
+        try {
+            const ok = await loader();
+            return !!(ok && globalThis.__tmAI?.loaded);
+        } catch (e) {
+            return false;
+        }
+    }
+
     function __tmOpenManagerFromTopbarEntry() {
         const options = { preserveViewMode: true };
         try {
@@ -18505,7 +18994,7 @@ async function __tmRefreshAfterWake(reason) {
         } catch (e) {}
 
         try {
-            await SettingsStore.load();
+            await __tmEnsureSettingsLoaded();
             try {
                 if (globalThis.__tmCalendar && typeof globalThis.__tmCalendar.setSettingsStore === 'function') {
                     globalThis.__tmCalendar.setSettingsStore(SettingsStore);
@@ -18904,6 +19393,13 @@ async function __tmRefreshAfterWake(reason) {
     const __tmRemarkRenderCache = new Map();
     const __tmRemarkStripCache = new Map();
 
+    function __tmTrimOuterBlankLines(input) {
+        const lines = String(input || '').split('\n');
+        while (lines.length && !String(lines[0] || '').trim()) lines.shift();
+        while (lines.length && !String(lines[lines.length - 1] || '').trim()) lines.pop();
+        return lines.join('\n');
+    }
+
     function __tmNormalizeRemarkMarkdown(input) {
         const text = String(input || '').replace(/\r\n?/g, '\n');
         const lines = text.split('\n').map((line) => String(line || '').replace(/[ \t]+$/g, ''));
@@ -18919,7 +19415,7 @@ async function __tmRefreshAfterWake(reason) {
             blankCount = 0;
             normalized.push(nextLine);
         });
-        return normalized.join('\n').trim();
+        return __tmTrimOuterBlankLines(normalized.join('\n'));
     }
 
     function __tmSanitizeRemarkHref(rawHref) {
@@ -18954,6 +19450,59 @@ async function __tmRefreshAfterWake(reason) {
         return html;
     }
 
+    function __tmRenderRemarkLineHtml(input) {
+        return `<span class="tm-task-detail-remark-inline">${__tmRenderRemarkInlineHtml(input)}</span>`;
+    }
+
+    function __tmMeasureRemarkIndent(rawLine) {
+        const leading = (String(rawLine || '').match(/^[\t ]*/) || [''])[0];
+        let width = 0;
+        for (let i = 0; i < leading.length; i += 1) {
+            width += leading[i] === '\t' ? 4 : 1;
+        }
+        return width;
+    }
+
+    function __tmRenderRemarkListHtml(entries) {
+        const list = Array.isArray(entries) ? entries.filter((item) => item && item.text) : [];
+        if (!list.length) return '';
+        let html = '';
+        const stack = [];
+        const openList = (type, indent) => {
+            html += `<${type}>`;
+            stack.push({ type, indent, liOpen: false });
+        };
+        const closeList = () => {
+            const current = stack.pop();
+            if (!current) return;
+            if (current.liOpen) html += '</li>';
+            html += `</${current.type}>`;
+        };
+        list.forEach((entry) => {
+            const type = entry.type === 'ol' ? 'ol' : 'ul';
+            const indent = Math.max(0, Number(entry.indent) || 0);
+            while (stack.length && indent < stack[stack.length - 1].indent) closeList();
+            if (stack.length && indent === stack[stack.length - 1].indent && type !== stack[stack.length - 1].type) {
+                closeList();
+            }
+            if (!stack.length || indent > stack[stack.length - 1].indent) {
+                openList(type, indent);
+            } else if (stack[stack.length - 1].type !== type) {
+                openList(type, indent);
+            } else if (stack[stack.length - 1].liOpen) {
+                html += '</li>';
+                stack[stack.length - 1].liOpen = false;
+            }
+            if (!stack.length || stack[stack.length - 1].indent !== indent || stack[stack.length - 1].type !== type) {
+                openList(type, indent);
+            }
+            html += `<li>${__tmRenderRemarkLineHtml(entry.text)}`;
+            stack[stack.length - 1].liOpen = true;
+        });
+        while (stack.length) closeList();
+        return html;
+    }
+
     function __tmRenderRemarkMarkdown(input) {
         const source = __tmNormalizeRemarkMarkdown(input);
         if (!source) return '<div class="tm-task-detail-remark-empty">点击添加备注</div>';
@@ -18963,25 +19512,22 @@ async function __tmRefreshAfterWake(reason) {
         const blocks = [];
         let paragraph = [];
         let quote = [];
-        let listType = '';
-        let listItems = [];
+        let listEntries = [];
 
         const flushParagraph = () => {
             if (!paragraph.length) return;
-            blocks.push(`<p>${paragraph.map((line) => __tmRenderRemarkInlineHtml(line)).join('<br>')}</p>`);
+            blocks.push(`<p>${paragraph.map((line) => __tmRenderRemarkLineHtml(line)).join('<br>')}</p>`);
             paragraph = [];
         };
         const flushQuote = () => {
             if (!quote.length) return;
-            blocks.push(`<blockquote>${quote.map((line) => __tmRenderRemarkInlineHtml(line)).join('<br>')}</blockquote>`);
+            blocks.push(`<blockquote>${quote.map((line) => __tmRenderRemarkLineHtml(line)).join('<br>')}</blockquote>`);
             quote = [];
         };
         const flushList = () => {
-            if (!listItems.length || !listType) return;
-            const tag = listType === 'ol' ? 'ol' : 'ul';
-            blocks.push(`<${tag}>${listItems.map((item) => `<li>${__tmRenderRemarkInlineHtml(item)}</li>`).join('')}</${tag}>`);
-            listType = '';
-            listItems = [];
+            if (!listEntries.length) return;
+            blocks.push(__tmRenderRemarkListHtml(listEntries));
+            listEntries = [];
         };
 
         lines.forEach((line) => {
@@ -19000,28 +19546,32 @@ async function __tmRefreshAfterWake(reason) {
             if (quoteMatch) {
                 flushParagraph();
                 flushList();
-                quote.push(String(quoteMatch[1] || '').trim());
+                quote.push(String(quoteMatch[1] || ''));
                 return;
             }
             if (orderedMatch) {
                 flushParagraph();
                 flushQuote();
-                if (listType && listType !== 'ol') flushList();
-                listType = 'ol';
-                listItems.push(String(orderedMatch[2] || '').trim());
+                listEntries.push({
+                    type: 'ol',
+                    indent: __tmMeasureRemarkIndent(rawLine),
+                    text: String(orderedMatch[2] || ''),
+                });
                 return;
             }
             if (bulletMatch) {
                 flushParagraph();
                 flushQuote();
-                if (listType && listType !== 'ul') flushList();
-                listType = 'ul';
-                listItems.push(String(bulletMatch[1] || '').trim());
+                listEntries.push({
+                    type: 'ul',
+                    indent: __tmMeasureRemarkIndent(rawLine),
+                    text: String(bulletMatch[1] || ''),
+                });
                 return;
             }
             flushQuote();
             flushList();
-            paragraph.push(trimmed);
+            paragraph.push(rawLine);
         });
 
         flushParagraph();
@@ -19161,8 +19711,75 @@ async function __tmRefreshAfterWake(reason) {
         return true;
     }
 
+    function __tmAdjustRemarkIndent(textarea, outdent = false) {
+        if (!(textarea instanceof HTMLTextAreaElement)) return false;
+        const { start, end, value } = __tmGetTextareaSelectionRange(textarea);
+        const indentUnit = '    ';
+        const effectiveEnd = end > start && value[end - 1] === '\n' ? (end - 1) : end;
+        const lineStart = value.lastIndexOf('\n', Math.max(0, start - 1)) + 1;
+        const lineEndIndex = value.indexOf('\n', Math.max(0, effectiveEnd));
+        const lineEnd = lineEndIndex < 0 ? value.length : lineEndIndex;
+        const block = value.slice(lineStart, lineEnd);
+        const lines = block.split('\n');
+        let changed = false;
+        const meta = lines.map((line) => {
+            if (!outdent) {
+                changed = true;
+                return {
+                    nextLine: `${indentUnit}${line}`,
+                    removed: 0,
+                };
+            }
+            let removed = 0;
+            if (line.startsWith('\t')) removed = 1;
+            else {
+                const match = line.match(/^ {1,4}/);
+                removed = match ? match[0].length : 0;
+            }
+            if (removed > 0) changed = true;
+            return {
+                nextLine: line.slice(removed),
+                removed,
+            };
+        });
+        if (!changed) return true;
+        const nextLines = meta.map((item) => item.nextLine);
+        const nextBlock = nextLines.join('\n');
+        const mapOffset = (offset) => {
+            const safeOffset = Math.max(0, Math.min(offset, block.length));
+            let originalCursor = 0;
+            let nextCursor = 0;
+            for (let index = 0; index < lines.length; index += 1) {
+                const currentLine = lines[index];
+                const nextLine = nextLines[index];
+                const lineLength = currentLine.length;
+                const lineEndOffset = originalCursor + lineLength;
+                if (safeOffset <= lineEndOffset) {
+                    const column = safeOffset - originalCursor;
+                    if (!outdent) return nextCursor + indentUnit.length + column;
+                    return nextCursor + Math.max(0, column - (meta[index].removed || 0));
+                }
+                if (safeOffset === lineEndOffset + 1 && index < lines.length - 1) {
+                    return nextCursor + nextLine.length + 1;
+                }
+                originalCursor = lineEndOffset + 1;
+                nextCursor += nextLine.length + 1;
+            }
+            return nextBlock.length;
+        };
+        const nextValue = `${value.slice(0, lineStart)}${nextBlock}${value.slice(lineEnd)}`;
+        const nextStart = lineStart + mapOffset(start - lineStart);
+        const nextEnd = lineStart + mapOffset(end - lineStart);
+        __tmSetTextareaValueAndSelection(textarea, nextValue, nextStart, nextEnd);
+        return true;
+    }
+
     function __tmHandleRemarkTextareaKeydown(textarea, event) {
         if (!(textarea instanceof HTMLTextAreaElement) || !event || event.defaultPrevented) return false;
+        if (event.key === 'Tab' && !event.altKey && !event.ctrlKey && !event.metaKey && !event.isComposing) {
+            event.preventDefault();
+            return __tmAdjustRemarkIndent(textarea, !!event.shiftKey);
+        }
         const isMeta = !!(event.metaKey || event.ctrlKey);
         if (isMeta && !event.altKey) {
             const key = String(event.key || '').toLowerCase();
@@ -19233,6 +19850,7 @@ async function __tmRefreshAfterWake(reason) {
             toggleLinePrefix: __tmToggleRemarkLinePrefix,
             toggleOrderedList: __tmToggleRemarkOrderedList,
             insertLinkTemplate: __tmInsertRemarkLinkTemplate,
+            adjustIndent: __tmAdjustRemarkIndent,
             handleTextareaKeydown: __tmHandleRemarkTextareaKeydown,
         };
     } catch (e) {}
@@ -19531,13 +20149,32 @@ async function __tmRefreshAfterWake(reason) {
         return html;
     }
 
-    const __tmIsMobileDevice = () => {
-        if (__tmHostUsesMobileUI()) return true;
+    const __tmGetRuntimeBackendType = () => {
+        try {
+            const container = window?.siyuan?.config?.system?.container;
+            if (typeof container === 'string' && container.trim()) return container.trim().toLowerCase();
+        } catch (e) {}
+        try {
+            const os = window?.siyuan?.config?.system?.os;
+            if (typeof os === 'string' && os.trim()) return os.trim().toLowerCase();
+        } catch (e) {}
+        return '';
+    };
+
+    const __tmHasOfficialMobileRuntimeSignal = () => {
         try {
             if (window.siyuan?.config?.isMobile !== undefined) return !!window.siyuan.config.isMobile;
         } catch (e) {}
-        const ua = navigator.userAgent || '';
-        return /Mobile|Android|iPhone|iPad|iPod/i.test(ua) || (window.innerWidth || 0) <= 768;
+        try {
+            if (window.siyuan?.mobile && typeof window.siyuan.mobile === 'object') return true;
+        } catch (e) {}
+        try {
+            if (globalThis?.siyuan?.mobile && typeof globalThis.siyuan.mobile === 'object') return true;
+        } catch (e) {}
+        try {
+            if (globalThis?.JSAndroid || globalThis?.JSHarmony) return true;
+        } catch (e) {}
+        return false;
     };
 
     const __tmIsRuntimeMobileClient = () => {
@@ -19547,8 +20184,19 @@ async function __tmRefreshAfterWake(reason) {
         try {
             if (globalThis.__taskHorizonPluginIsMobile !== undefined) return !!globalThis.__taskHorizonPluginIsMobile;
         } catch (e) {}
+        const backend = __tmGetRuntimeBackendType();
+        if (backend === 'android' || backend === 'ios' || backend === 'harmony') return true;
+        if (__tmHasOfficialMobileRuntimeSignal()) return true;
         const ua = navigator.userAgent || '';
-        return /Mobile|Android|iPhone|iPad|iPod/i.test(ua);
+        if (/Android|iPhone|iPad|iPod|Mobile/i.test(ua)) return true;
+        return false;
+    };
+
+    const __tmIsMobileDevice = () => {
+        if (__tmHostUsesMobileUI()) return true;
+        if (__tmIsRuntimeMobileClient()) return true;
+        const ua = navigator.userAgent || '';
+        return /Mobile|Android|iPhone|iPad|iPod/i.test(ua) || (window.innerWidth || 0) <= 768;
     };
 
     const __tmShouldShowDocTopbarButton = () => (__tmIsMobileDevice()
@@ -19654,8 +20302,13 @@ async function __tmRefreshAfterWake(reason) {
         (__tmShouldJumpOnDockChecklistTitleClick() || __tmShouldJumpOnMobileChecklistTitleClick())
         && !!SettingsStore?.data?.checklistCompactTitleOpenDetailPage;
 
+    const __tmShouldOpenChecklistDetailDrawerOnTitleClick = () =>
+        __tmShouldOpenTaskDetailPageOnChecklistTitleClick()
+        && __tmIsDockHost()
+        && !__tmIsRuntimeMobileClient();
+
     const __tmIsTaskTitleClickEvent = (ev) => {
-        const selector = '.tm-task-content-clickable,.tm-whiteboard-stream-task-title,.tm-checklist-title,.tm-checklist-title-button > span';
+        const selector = '.tm-task-content-clickable,.tm-whiteboard-stream-task-title,.tm-checklist-title,.tm-checklist-title-button > span,.tm-cal-task-event-title,.tm-cal-task-event-title-text';
         const target = ev?.target instanceof Element ? ev.target : null;
         const current = ev?.currentTarget instanceof Element ? ev.currentTarget : null;
         return !!(
@@ -23544,6 +24197,169 @@ async function __tmRefreshAfterWake(reason) {
         try { hintEl.remove(); } catch (e) {}
     }
 
+    const __TM_TASK_DONE_DELIGHT_MESSAGES = [
+        '又拿下一条',
+        '这条已经体面退场',
+        '清掉一个，小赚一点轻松',
+        '这一条，拿下',
+        '很好，列表又清爽了一点',
+        '这项已经搬出脑内常驻区',
+        '漂亮，刚刚那一下很利落',
+        '这条我先替你收好了',
+        '清单里少了一个牵挂',
+        '好，待办又瘦了一点',
+        '这项已经归档到安心区',
+        '列表安静了一点'
+    ];
+    const __TM_TASK_DONE_DELIGHT_EASTER_MESSAGES = [
+        '咔哒，这条下班了',
+        '很好，压力值 -1',
+        '待办宇宙失去一名居民',
+        '又送走一个待办小怪',
+        '这条终于不用盯着你了',
+        '任务刚刚偷偷点了个头'
+    ];
+    let __tmTaskDoneDelightLastMessage = '';
+
+    function __tmIsTaskDoneDelightEnabled() {
+        return SettingsStore?.data?.taskDoneDelightEnabled !== false;
+    }
+
+    function __tmPickTaskDoneDelightMessage() {
+        const pool = Math.random() < 0.2 ? __TM_TASK_DONE_DELIGHT_EASTER_MESSAGES : __TM_TASK_DONE_DELIGHT_MESSAGES;
+        if (!Array.isArray(pool) || !pool.length) return '✅ 任务已完成';
+        let picked = String(pool[Math.floor(Math.random() * pool.length)] || '').trim();
+        if (pool.length > 1 && picked === __tmTaskDoneDelightLastMessage) {
+            const idx = Math.max(0, pool.indexOf(picked));
+            picked = String(pool[(idx + 1) % pool.length] || '').trim() || picked;
+        }
+        __tmTaskDoneDelightLastMessage = picked;
+        return picked || '✅ 任务已完成';
+    }
+
+    function __tmBuildTaskDoneSuccessHint(done, fallbackText = '✅ 任务已完成') {
+        if (!done) return '✅ 已取消完成';
+        if (!__tmIsTaskDoneDelightEnabled()) return String(fallbackText || '✅ 任务已完成').trim() || '✅ 任务已完成';
+        return __tmPickTaskDoneDelightMessage();
+    }
+
+    function __tmTaskDoneDelightMotionDisabled() {
+        try {
+            return __tmPopupMotionDisabled();
+        } catch (e) {
+            return false;
+        }
+    }
+
+    function __tmEscapeCssSelectorValue(value) {
+        const raw = String(value || '').trim();
+        if (!raw) return '';
+        try {
+            if (typeof CSS !== 'undefined' && typeof CSS.escape === 'function') return CSS.escape(raw);
+        } catch (e) {}
+        return raw.replace(/["\\]/g, '\\$&');
+    }
+
+    function __tmRestartTransientClass(node, className, duration = 720) {
+        if (!(node instanceof HTMLElement)) return;
+        const cls = String(className || '').trim();
+        if (!cls) return;
+        try {
+            node.classList.remove(cls);
+            void node.offsetWidth;
+            node.classList.add(cls);
+        } catch (e) {
+            return;
+        }
+        try {
+            if (node.__tmTransientClassTimers && node.__tmTransientClassTimers[cls]) clearTimeout(node.__tmTransientClassTimers[cls]);
+        } catch (e) {}
+        try {
+            if (!node.__tmTransientClassTimers || typeof node.__tmTransientClassTimers !== 'object') node.__tmTransientClassTimers = {};
+            node.__tmTransientClassTimers[cls] = setTimeout(() => {
+                try { node.classList.remove(cls); } catch (e2) {}
+                try {
+                    if (node.__tmTransientClassTimers) delete node.__tmTransientClassTimers[cls];
+                } catch (e2) {}
+            }, Math.max(220, Number(duration) || 720));
+        } catch (e) {}
+    }
+
+    function __tmCollectTaskDoneDelightTargets(taskId) {
+        const tid = String(taskId || '').trim();
+        if (!tid) return [];
+        const escaped = __tmEscapeCssSelectorValue(tid);
+        if (!escaped) return [];
+        const selectors = [
+            `#tmTaskTable tbody tr[data-id="${escaped}"]`,
+            `#tmTimelineLeftTable tbody tr[data-id="${escaped}"]`,
+            `.tm-checklist-item[data-id="${escaped}"]`,
+            `.tm-kanban-card[data-id="${escaped}"]`,
+            `.tm-whiteboard-stream-task-head[data-id="${escaped}"]`,
+            `.tm-whiteboard-stream-task-node[data-id="${escaped}"]`,
+            `.tm-whiteboard-stream-task-head[data-task-id="${escaped}"]`,
+            `.tm-whiteboard-stream-task-node[data-task-id="${escaped}"]`,
+            `.tm-whiteboard-card[data-task-id="${escaped}"]`,
+            `.tm-whiteboard-node[data-task-id="${escaped}"]`,
+            `.tm-whiteboard-pool-item[data-task-id="${escaped}"]`,
+            `.tm-gantt-row[data-id="${escaped}"]`
+        ];
+        const found = new Set();
+        selectors.forEach((selector) => {
+            try {
+                document.querySelectorAll(selector).forEach((el) => {
+                    if (el instanceof HTMLElement) found.add(el);
+                });
+            } catch (e) {}
+        });
+        return Array.from(found);
+    }
+
+    function __tmApplyTaskDoneDelight(taskId) {
+        const targets = __tmCollectTaskDoneDelightTargets(taskId);
+        if (!targets.length) return false;
+        targets.forEach((target) => {
+            if (!(target instanceof HTMLElement)) return;
+            if (String(target.tagName || '').toLowerCase() === 'tr') {
+                const cells = target.querySelectorAll('td');
+                if (cells.length) {
+                    cells.forEach((cell) => __tmRestartTransientClass(cell, 'tm-task-done-delight-cell', 760));
+                } else {
+                    __tmRestartTransientClass(target, 'tm-task-done-delight-surface', 760);
+                }
+            } else {
+                __tmRestartTransientClass(target, 'tm-task-done-delight-surface', 760);
+            }
+            try {
+                target.querySelectorAll('.tm-task-checkbox').forEach((checkbox) => {
+                    if (checkbox instanceof HTMLElement) __tmRestartTransientClass(checkbox, 'tm-task-checkbox--delight', 520);
+                });
+            } catch (e) {}
+        });
+        return true;
+    }
+
+    function __tmQueueTaskDoneDelight(taskId, options = {}) {
+        const tid = String(taskId || '').trim();
+        const opts = (options && typeof options === 'object') ? options : {};
+        if (!tid || opts.done !== true) return false;
+        if (!__tmIsTaskDoneDelightEnabled()) return false;
+        if (opts.suppressHint === true) return false;
+        if (String(opts.source || '').trim() === 'undo') return false;
+        if (__tmTaskDoneDelightMotionDisabled()) return true;
+        let tries = 0;
+        const maxTries = 5;
+        const run = () => {
+            tries += 1;
+            const ok = __tmApplyTaskDoneDelight(tid);
+            if (!ok && tries < maxTries) setTimeout(run, tries * 90);
+        };
+        requestAnimationFrame(() => {
+            requestAnimationFrame(run);
+        });
+        return true;
+    }
+
     async function __tmRefreshNotebookCache(force = false) {
         const now = Date.now();
         if (!force && Array.isArray(state.notebooks) && state.notebooks.length > 0 && (now - (Number(state.notebooksFetchedAt) || 0) < 60000)) {
@@ -24405,48 +25221,50 @@ async function __tmRefreshAfterWake(reason) {
     function __tmBindDocTabWheelScroll(modalEl) {
         const modal = modalEl instanceof Element ? modalEl : state.modal;
         const pane = modal?.querySelector?.('.tm-doc-tabs-scroll');
-        if (!(pane instanceof HTMLElement) || pane.__tmDocTabWheelBound) return;
-        const onWheel = (event) => {
-            if (!(event instanceof WheelEvent) || event.ctrlKey) return;
-            const maxLeft = Math.max(0, (Number(pane.scrollWidth) || 0) - (Number(pane.clientWidth) || 0));
-            if (maxLeft <= 1) return;
-            const deltaX = Number(event.deltaX) || 0;
-            const deltaY = Number(event.deltaY) || 0;
-            const primaryDelta = Math.abs(deltaX) > Math.abs(deltaY) ? deltaX : deltaY;
-            if (!primaryDelta) return;
-            const prevLeft = Number(pane.scrollLeft) || 0;
-            const nextLeft = Math.max(0, Math.min(maxLeft, prevLeft + primaryDelta));
-            if (Math.abs(nextLeft - prevLeft) < 0.5) return;
-            pane.scrollLeft = nextLeft;
-            event.preventDefault();
-        };
-        pane.addEventListener('wheel', onWheel, { passive: false });
-        pane.__tmDocTabWheelBound = true;
-        pane.__tmDocTabWheelHandler = onWheel;
+        __tmBindHorizontalWheelScroll(pane, {
+            boundKey: '__tmDocTabWheelBound',
+            handlerKey: '__tmDocTabWheelHandler',
+        });
     }
 
     function __tmBindBottomViewbarWheelScroll(modalEl) {
         const modal = modalEl instanceof Element ? modalEl : state.modal;
         const pane = modal?.querySelector?.('.tm-mobile-bottom-viewbar__inner');
-        if (!(pane instanceof HTMLElement) || pane.__tmBottomViewbarWheelBound) return;
+        __tmBindHorizontalWheelScroll(pane, {
+            boundKey: '__tmBottomViewbarWheelBound',
+            handlerKey: '__tmBottomViewbarWheelHandler',
+            onAfterScroll: (event) => {
+                try { if (typeof window.tmTouchMobileBottomViewbar === 'function') window.tmTouchMobileBottomViewbar(event); } catch (e) {}
+            },
+        });
+    }
+
+    function __tmBindHorizontalWheelScroll(scroller, options = {}) {
+        if (!(scroller instanceof HTMLElement)) return;
+        const opts = (options && typeof options === 'object') ? options : {};
+        const boundKey = String(opts.boundKey || '__tmHorizontalWheelBound').trim() || '__tmHorizontalWheelBound';
+        const handlerKey = String(opts.handlerKey || '__tmHorizontalWheelHandler').trim() || '__tmHorizontalWheelHandler';
+        if (scroller[boundKey]) return;
         const onWheel = (event) => {
             if (!(event instanceof WheelEvent) || event.ctrlKey) return;
-            const maxLeft = Math.max(0, (Number(pane.scrollWidth) || 0) - (Number(pane.clientWidth) || 0));
+            const maxLeft = Math.max(0, (Number(scroller.scrollWidth) || 0) - (Number(scroller.clientWidth) || 0));
             if (maxLeft <= 1) return;
             const deltaX = Number(event.deltaX) || 0;
             const deltaY = Number(event.deltaY) || 0;
             const primaryDelta = Math.abs(deltaX) > Math.abs(deltaY) ? deltaX : deltaY;
             if (!primaryDelta) return;
-            const prevLeft = Number(pane.scrollLeft) || 0;
+            const prevLeft = Number(scroller.scrollLeft) || 0;
             const nextLeft = Math.max(0, Math.min(maxLeft, prevLeft + primaryDelta));
             if (Math.abs(nextLeft - prevLeft) < 0.5) return;
-            pane.scrollLeft = nextLeft;
-            try { if (typeof window.tmTouchMobileBottomViewbar === 'function') window.tmTouchMobileBottomViewbar(event); } catch (e) {}
+            scroller.scrollLeft = nextLeft;
+            if (typeof opts.onAfterScroll === 'function') {
+                try { opts.onAfterScroll(event, { prevLeft, nextLeft, scroller }); } catch (e) {}
+            }
             event.preventDefault();
         };
-        pane.addEventListener('wheel', onWheel, { passive: false });
-        pane.__tmBottomViewbarWheelBound = true;
-        pane.__tmBottomViewbarWheelHandler = onWheel;
+        scroller.addEventListener('wheel', onWheel, { passive: false });
+        scroller[boundKey] = true;
+        scroller[handlerKey] = onWheel;
     }
 
     function __tmBindDocTabScrollMemory(modalEl) {
@@ -30740,6 +31558,10 @@ async function __tmRefreshAfterWake(reason) {
             return;
         }
         if (__tmChecklistTitleClickUsesScopedJumpSettings()) {
+            if (__tmShouldOpenChecklistDetailDrawerOnTitleClick()) {
+                window.tmChecklistSelectTask(id, ev);
+                return;
+            }
             if (__tmShouldOpenTaskDetailPageOnChecklistTitleClick()) {
                 window.tmOpenTaskDetail?.(id, ev);
                 return;
@@ -30986,6 +31808,12 @@ async function __tmRefreshAfterWake(reason) {
         'timer': 'M128,44a96,96,0,1,0,96,96A96.11,96.11,0,0,0,128,44Zm0,168a72,72,0,1,1,72-72A72.08,72.08,0,0,1,128,212ZM164.49,99.51a12,12,0,0,1,0,17l-28,28a12,12,0,0,1-17-17l28-28A12,12,0,0,1,164.49,99.51ZM92,16A12,12,0,0,1,104,4h48a12,12,0,0,1,0,24H104A12,12,0,0,1,92,16Z',
         'x': 'M208.49,191.51a12,12,0,0,1-17,17L128,145,64.49,208.49a12,12,0,0,1-17-17L111,128,47.51,64.49a12,12,0,0,1,17-17L128,111l63.51-63.52a12,12,0,0,1,17,17L145,128Z',
     };
+
+    __tmPhosphorBoldPaths['link-simple'] = 'M87.5,151.52l64-64a12,12,0,0,1,17,17l-64,64a12,12,0,0,1-17-17Zm131-114a60.08,60.08,0,0,0-84.87,0L103.51,67.61a12,12,0,0,0,17,17l30.07-30.06a36,36,0,0,1,50.93,50.92L171.4,135.52a12,12,0,1,0,17,17l30.08-30.06A60.09,60.09,0,0,0,218.45,37.55ZM135.52,171.4l-30.07,30.08a36,36,0,0,1-50.92-50.93l30.06-30.07a12,12,0,0,0-17-17L37.55,133.58a60,60,0,0,0,84.88,84.87l30.06-30.07a12,12,0,0,0-17-17Z';
+    __tmPhosphorBoldPaths['list-bullets'] = 'M76,64A12,12,0,0,1,88,52H216a12,12,0,0,1,0,24H88A12,12,0,0,1,76,64Zm140,52H88a12,12,0,0,0,0,24H216a12,12,0,0,0,0-24Zm0,64H88a12,12,0,0,0,0,24H216a12,12,0,0,0,0-24ZM44,112a16,16,0,1,0,16,16A16,16,0,0,0,44,112Zm0-64A16,16,0,1,0,60,64,16,16,0,0,0,44,48Zm0,128a16,16,0,1,0,16,16A16,16,0,0,0,44,176Z';
+    __tmPhosphorBoldPaths['list-numbers'] = 'M228,128a12,12,0,0,1-12,12H116a12,12,0,0,1,0-24H216A12,12,0,0,1,228,128ZM116,76H216a12,12,0,0,0,0-24H116a12,12,0,0,0,0,24ZM216,180H116a12,12,0,0,0,0,24H216a12,12,0,0,0,0-24ZM44,59.31V104a12,12,0,0,0,24,0V40A12,12,0,0,0,50.64,29.27l-16,8a12,12,0,0,0,9.36,22Zm39.73,96.86a27.7,27.7,0,0,0-11.2-18.63A28.89,28.89,0,0,0,32.9,143a27.71,27.71,0,0,0-4.17,7.54,12,12,0,0,0,22.55,8.21,4,4,0,0,1,.58-1,4.78,4.78,0,0,1,6.5-.82,3.82,3.82,0,0,1,1.61,2.6,3.63,3.63,0,0,1-.77,2.77l-.13.17L30.39,200.82A12,12,0,0,0,40,220H72a12,12,0,0,0,0-24H64l14.28-19.11A27.48,27.48,0,0,0,83.73,156.17Z';
+    __tmPhosphorBoldPaths['text-indent'] = 'M228,128a12,12,0,0,1-12,12H120a12,12,0,0,1,0-24h96A12,12,0,0,1,228,128ZM120,76h96a12,12,0,0,0,0-24H120a12,12,0,0,0,0,24Zm96,104H40a12,12,0,0,0,0,24H216a12,12,0,0,0,0-24ZM31.51,144.49a12,12,0,0,0,17,0l40-40a12,12,0,0,0,0-17l-40-40a12,12,0,0,0-17,17L63,96,31.51,127.51A12,12,0,0,0,31.51,144.49Z';
+    __tmPhosphorBoldPaths['text-outdent'] = 'M228,128a12,12,0,0,1-12,12H120a12,12,0,0,1,0-24h96A12,12,0,0,1,228,128ZM120,76h96a12,12,0,0,0,0-24H120a12,12,0,0,0,0,24Zm96,104H40a12,12,0,0,0,0,24H216a12,12,0,0,0,0-24ZM72,148a12,12,0,0,0,8.49-20.49L49,96,80.49,64.48a12,12,0,0,0-17-17l-40,40a12,12,0,0,0,0,17l40,40A12,12,0,0,0,72,148Z';
 
     function __tmLucideIconSvg(iconName, options = {}) {
         const normalizedName = __tmNormalizeLucideIconName(iconName);
@@ -31784,9 +32612,19 @@ async function __tmRefreshAfterWake(reason) {
                 const itemIndentStyle = checklistCompact
                     ? `--tm-checklist-compact-indent:${indent}px;`
                     : `margin-left:${indent}px;`;
+                const runtimeMobile = __tmIsRuntimeMobileClient();
+                const itemDragAttrs = runtimeMobile
+                    ? 'draggable="false"'
+                    : `draggable="true" ondragstart="tmDragTaskStart(event, '${escSq(String(task.id || ''))}')" ondragend="tmDragTaskEnd(event)"`;
+                const titleDragAttrs = runtimeMobile
+                    ? ''
+                    : `draggable="true" ondragstart="tmDragTaskStart(event, '${escSq(String(task.id || ''))}')" ondragend="tmDragTaskEnd(event)"`;
+                const itemContextMenuAttr = runtimeMobile
+                    ? 'oncontextmenu="event.preventDefault();event.stopPropagation();return false;"'
+                    : `oncontextmenu="tmShowTaskContextMenu(event, '${escSq(String(task.id || ''))}')"`;
                 renderedChecklistTaskCount += 1;
                 return `
-                    <div class="tm-checklist-item${activeCls}${doneCls}${timerCls}${multiSelectCls}" data-id="${esc(String(task.id || ''))}" data-depth="${depth}" draggable="true" ondragstart="tmDragTaskStart(event, '${escSq(String(task.id || ''))}')" ondragend="tmDragTaskEnd(event)" style="${itemIndentStyle}${accentStyle}${baseBg}${progressBg}" onclick="tmChecklistSelectTask('${escSq(String(task.id || ''))}', event)" oncontextmenu="tmShowTaskContextMenu(event, '${escSq(String(task.id || ''))}')">
+                    <div class="tm-checklist-item${activeCls}${doneCls}${timerCls}${multiSelectCls}" data-id="${esc(String(task.id || ''))}" data-depth="${depth}" ${itemDragAttrs} style="${itemIndentStyle}${accentStyle}${baseBg}${progressBg}" onclick="tmChecklistSelectTask('${escSq(String(task.id || ''))}', event)" ${itemContextMenuAttr}>
                         <div class="tm-checklist-leading${hasChildren ? ' tm-checklist-leading--branch' : ''}${hasChildren && collapsed ? ' tm-checklist-leading--collapsed' : ''}">
                             ${hasChildren ? `<span class="tm-tree-toggle" onclick="tmToggleCollapse('${escSq(String(task.id || ''))}', event)" style="opacity:1;pointer-events:auto;color:var(--tm-text-color);">${__tmRenderToggleIcon(16, collapsed ? 0 : 90, 'tm-tree-toggle-icon')}</span>` : '<span class="tm-tree-toggle tm-tree-toggle--placeholder" aria-hidden="true"></span>'}
                             ${hasChildren && collapsed ? '<span class="tm-task-leading-ring" aria-hidden="true"></span>' : ''}
@@ -31794,7 +32632,7 @@ async function __tmRefreshAfterWake(reason) {
                         </div>
                         <div class="tm-checklist-item-main">
                             <div class="${titleRowClass}">
-                                <div class="tm-checklist-title-main"><div class="tm-checklist-title"><span class="tm-checklist-title-button"><span draggable="true" ondragstart="tmDragTaskStart(event, '${escSq(String(task.id || ''))}')" ondragend="tmDragTaskEnd(event)" onpointerdown="tmChecklistTitlePointerDown(event)" onclick="tmChecklistTitleClick('${escSq(String(task.id || ''))}', event)"${__tmBuildTooltipAttrs(String(task.content || '').trim() || '(无内容)', { side: 'bottom', ariaLabel: false })}>${API.renderTaskContentHtml(task.markdown, String(task.content || '').trim() || '(无内容)')}</span></span>${reminderHtml}${remarkIconHtml}</div></div>
+                                <div class="tm-checklist-title-main"><div class="tm-checklist-title"><span class="tm-checklist-title-button"><span ${titleDragAttrs} onpointerdown="tmChecklistTitlePointerDown(event)" onclick="tmChecklistTitleClick('${escSq(String(task.id || ''))}', event)"${__tmBuildTooltipAttrs(String(task.content || '').trim() || '(无内容)', { side: 'bottom', ariaLabel: false })}>${API.renderTaskContentHtml(task.markdown, String(task.content || '').trim() || '(无内容)')}</span></span>${reminderHtml}${remarkIconHtml}</div></div>
                                 ${compactMeta}
                                 <span class="tm-status-tag" style="${statusChipStyle}">${esc(String(statusOption?.name || currentStatus || ''))}</span>
                                 ${task.pinned ? `<span class="tm-checklist-meta-chip" title="置顶">${__tmRenderLucideIcon('pin')}</span>` : ''}
@@ -35332,7 +36170,8 @@ async function __tmRefreshAfterWake(reason) {
         `;
         try { if (state.viewMode === 'kanban') __tmBindKanbanPan(state.modal); } catch (e) {}
         try { if (state.viewMode === 'whiteboard') __tmBindWhiteboardViewportInput(state.modal); } catch (e) {}
-        (nextMountRoot || __tmGetMountRoot()).appendChild(state.modal);
+        const finalMountRoot = nextMountRoot || __tmGetMountRoot();
+        finalMountRoot.appendChild(state.modal);
         try { __tmSyncInlineLoadingOverlay(state.modal); } catch (e) {}
         try { __tmBindTopbarOverflowTooltips(state.modal); } catch (e) {}
         try { __tmBindResponsiveTableResize(state.modal); } catch (e) {}
@@ -35854,15 +36693,120 @@ async function __tmRefreshAfterWake(reason) {
     };
 
     // 原有的其他函数保持不变...
+    function __tmCancelSettingsStorePendingSave() {
+        try {
+            if (SettingsStore?.saveTimer) {
+                clearTimeout(SettingsStore.saveTimer);
+                SettingsStore.saveTimer = null;
+            }
+        } catch (e) {}
+        try {
+            SettingsStore.saveDirty = false;
+            SettingsStore.saving = false;
+        } catch (e) {}
+        try { SettingsStore.savePromiseResolve?.(); } catch (e) {}
+        try {
+            SettingsStore.savePromise = null;
+            SettingsStore.savePromiseResolve = null;
+            SettingsStore.savePromiseReject = null;
+        } catch (e) {}
+    }
+
+    function __tmCancelSimpleStorePendingSave(store) {
+        const target = (store && typeof store === 'object') ? store : null;
+        if (!target) return;
+        try {
+            if (target.saveTimer) {
+                clearTimeout(target.saveTimer);
+                target.saveTimer = null;
+            }
+        } catch (e) {}
+        try { target.saveDirty = false; } catch (e) {}
+    }
+
+    function __tmSafeCloneJson(value, fallback) {
+        try {
+            return JSON.parse(JSON.stringify(value));
+        } catch (e) {
+            return fallback;
+        }
+    }
+
+    function __tmCaptureManualRefreshSessionState() {
+        return {
+            currentGroupId: String(SettingsStore?.data?.currentGroupId || 'all').trim() || 'all',
+            currentRule: SettingsStore?.data?.currentRule ?? null,
+            collapsedTaskIds: Array.from(state?.collapsedTaskIds || []),
+            collapsedGroups: Array.from(state?.collapsedGroups || []),
+            kanbanCollapsedTaskIds: Array.isArray(SettingsStore?.data?.kanbanCollapsedTaskIds) ? SettingsStore.data.kanbanCollapsedTaskIds.slice() : [],
+            viewProfiles: __tmSafeCloneJson(SettingsStore?.data?.viewProfiles || {}, {}),
+            groupMode: String(SettingsStore?.data?.groupMode || 'none').trim() || 'none',
+            groupByDocName: !!SettingsStore?.data?.groupByDocName,
+            groupByTime: !!SettingsStore?.data?.groupByTime,
+            groupByTaskName: !!SettingsStore?.data?.groupByTaskName,
+        };
+    }
+
+    function __tmRestoreManualRefreshSessionState(snapshot) {
+        const saved = (snapshot && typeof snapshot === 'object') ? snapshot : null;
+        if (!saved || !SettingsStore?.data) return;
+        SettingsStore.data.currentGroupId = String(saved.currentGroupId || 'all').trim() || 'all';
+        SettingsStore.data.currentRule = saved.currentRule ?? null;
+        SettingsStore.data.collapsedTaskIds = Array.isArray(saved.collapsedTaskIds) ? saved.collapsedTaskIds.slice() : [];
+        SettingsStore.data.collapsedGroups = Array.isArray(saved.collapsedGroups) ? saved.collapsedGroups.slice() : [];
+        SettingsStore.data.kanbanCollapsedTaskIds = Array.isArray(saved.kanbanCollapsedTaskIds) ? saved.kanbanCollapsedTaskIds.slice() : [];
+        SettingsStore.data.viewProfiles = __tmSafeCloneJson(saved.viewProfiles || {}, SettingsStore.data.viewProfiles || {});
+        SettingsStore.data.groupMode = String(saved.groupMode || 'none').trim() || 'none';
+        SettingsStore.data.groupByDocName = !!saved.groupByDocName;
+        SettingsStore.data.groupByTime = !!saved.groupByTime;
+        SettingsStore.data.groupByTaskName = !!saved.groupByTaskName;
+        SettingsStore.normalizeColumns();
+        try { SettingsStore.syncToLocal(); } catch (e) {}
+    }
+
+    async function __tmMaybeSyncServerSharedStateOnManualRefresh() {
+        if (SettingsStore?.data?.serverSyncOnManualRefresh !== true) return false;
+        const keepSessionState = SettingsStore?.data?.serverSyncSessionStateOnManualRefresh !== true;
+        const sessionSnapshot = keepSessionState ? __tmCaptureManualRefreshSessionState() : null;
+        __tmCancelSettingsStorePendingSave();
+        __tmCancelSimpleStorePendingSave(MetaStore);
+        __tmCancelSimpleStorePendingSave(WhiteboardStore);
+        __tmCancelSimpleStorePendingSave(SemanticDateRecognizedStore);
+        try { SettingsStore.loaded = false; } catch (e) {}
+        try { MetaStore.loaded = false; } catch (e) {}
+        try { WhiteboardStore.loaded = false; } catch (e) {}
+        try { SemanticDateRecognizedStore.loaded = false; } catch (e) {}
+        try { SemanticDateRecognizedStore.loadingPromise = null; } catch (e) {}
+        await SettingsStore.load();
+        if (keepSessionState) __tmRestoreManualRefreshSessionState(sessionSnapshot);
+        await MetaStore.load();
+        await WhiteboardStore.load();
+        await SemanticDateRecognizedStore.load();
+        try { __tmApplyAppearanceThemeVars(); } catch (e) {}
+        try {
+            if (globalThis.__tmCalendar && typeof globalThis.__tmCalendar.setSettingsStore === 'function') {
+                globalThis.__tmCalendar.setSettingsStore(SettingsStore);
+            }
+        } catch (e) {}
+        try { __tmDispatchDockSettingsChanged('manual-refresh-server-sync'); } catch (e) {}
+        try { __tmRefreshShellEntrances(); } catch (e) {}
+        try {
+            if (state.settingsModal && document.body.contains(state.settingsModal)) showSettings();
+        } catch (e) {}
+        return true;
+    }
+
     window.tmRefreshCalendarInPlace = async function(options = {}) {
         const opt = (options && typeof options === 'object') ? options : {};
         const silent = opt.silent === true;
         if (state.isRefreshing) return;
         state.isRefreshing = true;
-        if (!silent) hint('🔄 正在刷新...', 'info');
+        let _refreshHint = null;
+        if (!silent) _refreshHint = hint('🔄 正在刷新...', 'info');
         try {
             try { __tmInvalidateAllSqlCaches(); } catch (e) {}
             try { window.__tmCalendarAllTasksCache = null; } catch (e) {}
+            const syncedServerState = await __tmMaybeSyncServerSharedStateOnManualRefresh();
             await loadSelectedDocuments({ skipRender: true });
             let removedCount = 0;
             try {
@@ -35873,9 +36817,13 @@ async function __tmRefreshAfterWake(reason) {
             } else {
                 try { render(); } catch (e) {}
             }
-            if (!silent) hint(removedCount > 0 ? `✅ 刷新完成，已清理冻结任务 ${removedCount} 项` : '✅ 刷新完成', 'success');
+            if (!silent) {
+                __tmRemoveHint(_refreshHint);
+                const syncedLabel = syncedServerState ? '，已同步伺服共享配置' : '';
+                hint(removedCount > 0 ? `✅ 刷新完成${syncedLabel}，已清理冻结任务 ${removedCount} 项` : `✅ 刷新完成${syncedLabel}`, 'success');
+            }
         } catch (e) {
-            if (!silent) hint(`❌ 刷新失败: ${e.message}`, 'error');
+            if (!silent) { __tmRemoveHint(_refreshHint); hint(`❌ 刷新失败: ${e.message}`, 'error'); }
         } finally {
             state.isRefreshing = false;
         }
@@ -35887,11 +36835,13 @@ async function __tmRefreshAfterWake(reason) {
             return window.tmRefreshCalendarInPlace({ silent: false });
         }
         state.isRefreshing = true;
-        hint('🔄 正在刷新...', 'info');
+        const _refreshHint = hint('🔄 正在刷新...', 'info');
         try {
             try { __tmInvalidateAllSqlCaches(); } catch (e) {}
             // 清除日历缓存，确保获取最新数据
             try { window.__tmCalendarAllTasksCache = null; } catch (e) {}
+            const syncedServerState = await __tmMaybeSyncServerSharedStateOnManualRefresh();
+            await __tmFlushSqlTransactionsSafe('manual-refresh');
             await loadSelectedDocuments();
             let removedCount = 0;
             try {
@@ -35901,8 +36851,11 @@ async function __tmRefreshAfterWake(reason) {
                 try { applyFilters(); } catch (e) {}
                 try { if (state.modal) render(); } catch (e) {}
             }
-            hint(removedCount > 0 ? `✅ 刷新完成，已清理冻结任务 ${removedCount} 项` : '✅ 刷新完成', 'success');
+            __tmRemoveHint(_refreshHint);
+            const syncedLabel = syncedServerState ? '，已同步伺服共享配置' : '';
+            hint(removedCount > 0 ? `✅ 刷新完成${syncedLabel}，已清理冻结任务 ${removedCount} 项` : `✅ 刷新完成${syncedLabel}`, 'success');
         } catch (e) {
+            __tmRemoveHint(_refreshHint);
             hint(`❌ 刷新失败: ${e.message}`, 'error');
         } finally {
             state.isRefreshing = false;
@@ -36128,6 +37081,8 @@ async function __tmRefreshAfterWake(reason) {
         const isMobile = __tmIsMobileDevice();
         const host = state.modal?.querySelector?.(isMobile ? '#tmAiMobileSidebarPanel' : '#tmAiSidebarPanel');
         if (!(host instanceof HTMLElement)) return false;
+        const ready = await __tmEnsureAiRuntimeLoaded();
+        if (!ready) return false;
         if (globalThis.__tmAI?.mountSidebar) {
             try { await globalThis.__tmAI.mountSidebar(host, { mobile: isMobile }); } catch (e) {}
         }
@@ -43061,6 +44016,7 @@ async function __tmRefreshAfterWake(reason) {
 
         const isValidValue = (val) => val !== undefined && val !== null && val !== '' && val !== 'null';
         const resolvedDocId = String(task.docId || task.root_id || '').trim();
+        const allowVisibleDateFallback = __tmHasPendingVisibleDatePersistence(String(task.id || '').trim());
 
         const normalizePriority = (raw) => {
             const s = String(raw ?? '').trim();
@@ -43135,9 +44091,9 @@ async function __tmRefreshAfterWake(reason) {
             if (!isValidValue(task.priority) && isValidValue(meta.priority)) task.priority = normalizePriority(meta.priority);
             if (!isValidValue(task.duration) && isValidValue(meta.duration)) task.duration = meta.duration;
             if (!isValidValue(task.remark) && isValidValue(meta.remark)) task.remark = meta.remark;
-            if (!isValidValue(task.completionTime) && isValidValue(meta.completionTime)) task.completionTime = meta.completionTime;
-            if (!isValidValue(task.startDate) && isValidValue(meta.startDate)) task.startDate = meta.startDate;
-            if (!isValidValue(task.customTime) && isValidValue(meta.customTime)) task.customTime = meta.customTime;
+            if (!isValidValue(task.completionTime) && allowVisibleDateFallback && isValidValue(meta.completionTime)) task.completionTime = meta.completionTime;
+            if (!isValidValue(task.startDate) && allowVisibleDateFallback && isValidValue(meta.startDate)) task.startDate = meta.startDate;
+            if (!isValidValue(task.customTime) && allowVisibleDateFallback && isValidValue(meta.customTime)) task.customTime = meta.customTime;
             if (!isValidValue(task.customStatus) && isValidValue(meta.customStatus)) task.customStatus = meta.customStatus;
             if (task.isOtherBlock === true && Object.prototype.hasOwnProperty.call(meta, 'done')) {
                 const doneRaw = meta.done;
@@ -43748,6 +44704,8 @@ async function __tmRefreshAfterWake(reason) {
 
     function __tmMergeVisibleDateFieldsFromPrevTask(task, prevTask) {
         if (!task || typeof task !== 'object' || !prevTask || typeof prevTask !== 'object') return task;
+        const taskId = String(task.id || prevTask.id || '').trim();
+        if (!__tmHasPendingVisibleDatePersistence(taskId)) return task;
         const isValidValue = (val) => val !== undefined && val !== null && val !== '' && val !== 'null';
         if (!isValidValue(task.completionTime) && isValidValue(prevTask.completionTime)) {
             task.completionTime = String(prevTask.completionTime);
@@ -45045,7 +46003,7 @@ async function __tmRefreshAfterWake(reason) {
                 return;
             }
             if (field === 'remark') {
-                const next = String(value || '').trim();
+                const next = __tmNormalizeRemarkMarkdown(value);
                 await __tmApplyTaskMetaPatchWithUndo(id, { remark: next }, {
                     source: 'cell-edit',
                     label: '备注',
@@ -45369,7 +46327,9 @@ async function __tmRefreshAfterWake(reason) {
                 if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) {
                     try { e.preventDefault(); } catch (err) {}
                     save();
+                    return;
                 }
+                __tmHandleRemarkTextareaKeydown(input, e);
             };
             try {
                 input.focus();
@@ -45574,7 +46534,7 @@ async function __tmRefreshAfterWake(reason) {
             input.value = String(task.remark || '');
             editor.appendChild(input);
             const { wrap } = __tmBuildActions('保存', async () => {
-                const next = String(input.value || '').trim();
+                const next = __tmNormalizeRemarkMarkdown(input.value);
                 try {
                     task.remark = next;
                     __tmPersistMetaAndAttrs(id, { remark: next });
@@ -45874,8 +46834,9 @@ async function __tmRefreshAfterWake(reason) {
         const next = await showPrompt('设置备注', '输入备注（可留空）', String(task.remark || ''));
         if (next == null) return;
         try {
-            task.remark = next;
-            __tmPersistMetaAndAttrs(id, { remark: String(next || '').trim() });
+            const remark = __tmNormalizeRemarkMarkdown(next);
+            task.remark = remark;
+            __tmPersistMetaAndAttrs(id, { remark });
             applyFilters();
             render();
             hint('✅ 备注已更新', 'success');
@@ -46160,7 +47121,7 @@ async function __tmRefreshAfterWake(reason) {
                 openMobile(app, docId);
                 setTimeout(() => __tmScheduleScrollToBlock(taskId, 24), 650);
                 closeAfterJump();
-                return;
+                return true;
             } catch (e) {}
         }
         
@@ -46185,7 +47146,7 @@ async function __tmRefreshAfterWake(reason) {
                 __tmScheduleScrollToBlock(taskId);
                 closeAfterJump();
                 
-                return;
+                return true;
             } catch (e) {}
         }
 
@@ -46212,11 +47173,15 @@ async function __tmRefreshAfterWake(reason) {
             
             setTimeout(() => tempSpan.remove(), 100);
             closeAfterJump();
-            return;
+            return true;
         } catch (e) {}
 
-        topWin.open(`siyuan://blocks/${taskId}`);
-        closeAfterJump();
+        try {
+            topWin.open(`siyuan://blocks/${taskId}`);
+            closeAfterJump();
+            return true;
+        } catch (e) {}
+        return false;
     };
 
     function __tmBuildTaskRowModel() {
@@ -46897,19 +47862,21 @@ async function __tmRefreshAfterWake(reason) {
 
     function __tmBuildTaskDetailRemarkToolbarHtml() {
         const tools = [
-            { action: 'bullet', label: '•', title: '无序列表' },
-            { action: 'ordered', label: '1.', title: '有序列表' },
+            { action: 'outdent', title: '取消缩进', content: __tmRenderLucideIcon('text-outdent') },
+            { action: 'indent', title: '缩进', content: __tmRenderLucideIcon('text-indent') },
+            { action: 'bullet', title: '无序列表', content: __tmRenderLucideIcon('list-bullets', '', { size: 16, style: 'width:16px;height:16px;' }) },
+            { action: 'ordered', title: '有序列表', content: __tmRenderLucideIcon('list-numbers', '', { size: 16, style: 'width:16px;height:16px;' }) },
             { action: 'bold', label: 'B', title: '粗体' },
-            { action: 'italic', label: 'I', title: '斜体' },
+            { action: 'italic', content: '<span style="font-style:italic;">I</span>', title: '斜体' },
             { action: 'code', label: 'Code', title: '行内代码' },
-            { action: 'link', label: '∞', title: '链接' },
+            { action: 'link', title: '链接', content: __tmRenderLucideIcon('link-simple', '', { size: 18, style: 'width:18px;height:18px;' }) },
             { action: 'quote', label: '❝', title: '引用' },
         ];
         return tools.map((tool) => `
             <button type="button"
                 class="bc-btn bc-btn--sm tm-task-detail-remark-toolbar-btn"
                 data-tm-detail-remark-tool="${esc(tool.action)}"
-                ${__tmBuildTooltipAttrs(tool.title, { side: 'top', ariaLabel: false })}>${tool.label}</button>
+                ${__tmBuildTooltipAttrs(tool.title, { side: 'top', ariaLabel: false })}>${tool.content || tool.label || ''}</button>
         `).join('');
     }
 
@@ -46918,15 +47885,17 @@ async function __tmRefreshAfterWake(reason) {
         const previewHtml = __tmRenderRemarkMarkdown(source);
         return `
             <section class="tm-task-detail-section">
-                <div class="tm-task-detail-section-head">
-                    <div class="tm-task-detail-section-title">备注</div>
+                <div class="tm-task-detail-section-head tm-task-detail-remark-head">
+                    <div class="tm-task-detail-remark-head-main">
+                        <div class="tm-task-detail-section-title">备注</div>
+                        <button type="button" class="bc-btn bc-btn--sm tm-task-detail-remark-toolbar-toggle" data-tm-detail-remark-toolbar-toggle${detailTip('格式工具', { ariaLabel: false })}>A</button>
+                    </div>
+                    <div class="tm-task-detail-remark-toolbar" data-tm-detail-remark-toolbar>${__tmBuildTaskDetailRemarkToolbarHtml()}</div>
                 </div>
                 <div class="tm-task-detail-remark-shell" data-tm-detail-remark-shell>
                     <div class="tm-task-detail-remark-preview" data-tm-detail-remark-preview>${previewHtml}</div>
                     <button type="button" class="tm-task-detail-remark-activator" data-tm-detail-remark-activator aria-label="编辑备注"></button>
                     <textarea class="bc-textarea tm-task-detail-remark tm-task-detail-remark-editor" data-tm-detail="remark" rows="1">${esc(source)}</textarea>
-                    <button type="button" class="bc-btn bc-btn--sm tm-task-detail-remark-toolbar-toggle" data-tm-detail-remark-toolbar-toggle${detailTip('格式工具', { ariaLabel: false })}>A</button>
-                    <div class="tm-task-detail-remark-toolbar" data-tm-detail-remark-toolbar>${__tmBuildTaskDetailRemarkToolbarHtml()}</div>
                 </div>
             </section>
         `;
@@ -46951,11 +47920,40 @@ async function __tmRefreshAfterWake(reason) {
         const endValue = __tmNormalizeDateOnly(String(task?.completionTime || '').trim());
         const durationValue = String(task?.duration || '').trim();
         const spentValue = __tmGetTaskSpentDisplay(task);
-        const remarkValue = String(task?.remark || '').trim();
+        const remarkValue = __tmNormalizeRemarkMarkdown(task?.remark || '');
+        const cleanDetailTitle = (value, fallback = '') => {
+            const stripTaskSyntax = (input) => String(input || '')
+                .replace(/^[\s>*-]*\[(?:[xX ]?)\]\s*/, '')
+                .replace(/^[\s>*-]*\[\]\s*/, '')
+                .replace(/\r?\n+/g, ' ')
+                .replace(/\s{2,}/g, ' ')
+                .trim();
+            let text = String(value || fallback || '').trim();
+            if (!text) return '';
+            try {
+                if (typeof API?.extractTaskContentLine === 'function') {
+                    text = String(API.extractTaskContentLine(text) || text).trim();
+                } else {
+                    text = String(text.split(/\r?\n/)[0] || text).trim();
+                }
+            } catch (e) {}
+            try {
+                if (typeof API?.normalizeTaskContent === 'function') {
+                    text = String(API.normalizeTaskContent(text) || text).trim();
+                }
+            } catch (e) {}
+            text = stripTaskSyntax(text);
+            return text || stripTaskSyntax(fallback);
+        };
         const titleValue = (() => {
-            if (isOtherBlock) return String(task?.otherBlockRawContent || task?.content || '').trim();
+            if (isOtherBlock) {
+                const raw = String(task?.otherBlockRawContent || task?.content || '').trim();
+                return cleanDetailTitle(raw, raw);
+            }
             const parsedContent = String(API.parseTaskStatus(String(task?.markdown || '')).content || '').trim();
-            return parsedContent || String(task?.content || '').trim();
+            if (parsedContent) return cleanDetailTitle(parsedContent, parsedContent);
+            const fallback = String(task?.content || '').trim();
+            return cleanDetailTitle(fallback, fallback);
         })();
         const docName = String(task?.docName || '').trim();
         const docId = String(task?.root_id || task?.docId || '').trim();
@@ -47141,7 +48139,10 @@ async function __tmRefreshAfterWake(reason) {
             }
         };
         const onClose = typeof opts.onClose === 'function' ? opts.onClose : null;
-        const close = () => { if (onClose) onClose(); };
+        const close = () => {
+            if (onClose) return onClose();
+            return undefined;
+        };
         let autoSaveTimer = null;
         let saving = false;
         let lastSerialized = '';
@@ -47443,9 +48444,12 @@ async function __tmRefreshAfterWake(reason) {
         };
         on(root.querySelector('[data-tm-detail="close"]'), 'click', close);
         on(root.querySelector('[data-tm-detail="cancel"]'), 'click', close);
-        on(root.querySelector('[data-tm-detail="jump"]'), 'click', (ev) => {
+        on(root.querySelector('[data-tm-detail="jump"]'), 'click', async (ev) => {
             try { ev.preventDefault(); } catch (e) {}
-            try { tmJumpToTask(taskId, ev); } catch (e) {}
+            try {
+                const jumped = await tmJumpToTask(taskId, ev);
+                if (jumped !== false) await close();
+            } catch (e) {}
         });
         on(root.querySelector('[data-tm-detail="location-doc"]'), 'click', (ev) => {
             try { ev.preventDefault(); } catch (e) {}
@@ -48534,6 +49538,12 @@ async function __tmRefreshAfterWake(reason) {
                 });
             }
             if (remarkToolbar instanceof HTMLElement) {
+                try {
+                    __tmBindHorizontalWheelScroll(remarkToolbar, {
+                        boundKey: '__tmDetailRemarkToolbarWheelBound',
+                        handlerKey: '__tmDetailRemarkToolbarWheelHandler',
+                    });
+                } catch (e) {}
                 remarkToolbar.querySelectorAll('[data-tm-detail-remark-tool]').forEach((button) => {
                     if (!(button instanceof HTMLButtonElement)) return;
                     on(button, 'mousedown', (ev) => {
@@ -48545,7 +49555,9 @@ async function __tmRefreshAfterWake(reason) {
                         const action = String(button.getAttribute('data-tm-detail-remark-tool') || '').trim();
                         if (!action) return;
                         preserveDetailScroll(() => {
-                            if (action === 'bold') __tmWrapRemarkSelection(remarkTextarea, '**');
+                            if (action === 'indent') __tmAdjustRemarkIndent(remarkTextarea, false);
+                            else if (action === 'outdent') __tmAdjustRemarkIndent(remarkTextarea, true);
+                            else if (action === 'bold') __tmWrapRemarkSelection(remarkTextarea, '**');
                             else if (action === 'italic') __tmWrapRemarkSelection(remarkTextarea, '*');
                             else if (action === 'code') __tmWrapRemarkSelection(remarkTextarea, '`');
                             else if (action === 'link') __tmInsertRemarkLinkTemplate(remarkTextarea);
@@ -50090,7 +51102,7 @@ async function __tmRefreshAfterWake(reason) {
             done: !!parsed?.done,
             priority: String(attrs['custom-priority'] || '').trim(),
             duration: String(attrs['custom-duration'] || '').trim(),
-            remark: String(attrs['custom-remark'] || '').trim(),
+            remark: __tmNormalizeRemarkMarkdown(attrs['custom-remark'] || ''),
             startDate: String(attrs['custom-start-date'] || '').trim(),
             start_date: String(attrs['custom-start-date'] || '').trim(),
             completionTime: String(attrs['custom-completion-time'] || '').trim(),
@@ -50225,6 +51237,7 @@ async function __tmRefreshAfterWake(reason) {
     async function __tmSetDoneKernel(id, done, ev, options = {}) {
         const opts = (options && typeof options === 'object') ? options : {};
         const targetDone = !!done;
+        const useCalendarLocalRefresh = __tmShouldSyncCalendarDoneInPlace(opts.source);
         if (ev) {
             ev.stopPropagation();
             ev.preventDefault();
@@ -50246,6 +51259,7 @@ async function __tmRefreshAfterWake(reason) {
             if (opts.suppressHint !== true) {
                 try { hint(done ? '✅ 已在插件内标记完成' : '✅ 已取消插件内完成', 'success'); } catch (e) {}
             }
+            if (targetDone && opts.force !== true) __tmQueueTaskDoneDelight(id, { done: true, suppressHint: opts.suppressHint, source: opts.source });
             return;
         }
         const statusPatch = __tmBuildCheckboxStatusPatch(task, targetDone, opts.statusPatch);
@@ -50269,9 +51283,14 @@ async function __tmRefreshAfterWake(reason) {
                 } catch (e) {}
                 try { __tmInvalidateAllSqlCaches(); } catch (e) {}
                 if (opts.suppressHint !== true) {
-                    try { hint(done ? '✅ 任务已完成' : '✅ 已取消完成', 'success'); } catch (e) {}
+                    try { hint(__tmBuildTaskDoneSuccessHint(!!done, '✅ 任务已完成'), 'success'); } catch (e) {}
                 }
-                try { globalThis.__tmCalendar?.refreshInPlace?.({ hard: false }); } catch (e) {}
+                if (targetDone && opts.force !== true) __tmQueueTaskDoneDelight(id, { done: true, suppressHint: opts.suppressHint, source: opts.source });
+                if (useCalendarLocalRefresh) {
+                    try { globalThis.__tmCalendar?.syncTaskDoneInPlace?.(id, !!done, { allowRefetch: true }); } catch (e) {}
+                } else {
+                    try { globalThis.__tmCalendar?.refreshInPlace?.({ hard: false }); } catch (e) {}
+                }
                 return;
             }
             if (opts.suppressHint !== true) hint('❌ 任务不存在', 'error');
@@ -50543,13 +51562,18 @@ async function __tmRefreshAfterWake(reason) {
             }
 
             recalcStats();
-            // 延迟 render() 确保思源原生处理完成
-            requestAnimationFrame(() => {
+            if (useCalendarLocalRefresh) {
+                try { globalThis.__tmCalendar?.syncTaskDoneInPlace?.(id, !!actualDone, { allowRefetch: true }); } catch (e) {}
+                __tmRestoreChecklistDetailScrollSnapshot(detailScrollSnapshot);
+            } else {
+                // 延迟 render() 确保思源原生处理完成
                 requestAnimationFrame(() => {
-                    render();
-                    __tmRestoreChecklistDetailScrollSnapshot(detailScrollSnapshot);
+                    requestAnimationFrame(() => {
+                        render();
+                        __tmRestoreChecklistDetailScrollSnapshot(detailScrollSnapshot);
+                    });
                 });
-            });
+            }
 
             try {
                 const did = String(docId || '').trim();
@@ -50558,8 +51582,8 @@ async function __tmRefreshAfterWake(reason) {
             } catch (e) {}
 
             if (opts.suppressHint !== true) {
-                if (statusSyncError) hint(`${actualDone ? '✅ 任务已完成' : '✅ 已取消完成'}，但状态同步失败`, 'warning');
-                else hint(actualDone ? '✅ 任务已完成' : '✅ 已取消完成', 'success');
+                if (statusSyncError) hint(`${__tmBuildTaskDoneSuccessHint(!!actualDone, '✅ 任务已完成')}，但状态同步失败`, 'warning');
+                else hint(__tmBuildTaskDoneSuccessHint(!!actualDone, '✅ 任务已完成'), 'success');
             }
 
         } catch (err) {
@@ -50580,8 +51604,13 @@ async function __tmRefreshAfterWake(reason) {
             }
 
             recalcStats();
-            render();
-            __tmRestoreChecklistDetailScrollSnapshot(detailScrollSnapshot);
+            if (useCalendarLocalRefresh) {
+                try { globalThis.__tmCalendar?.syncTaskDoneInPlace?.(id, !targetDone, { allowRefetch: true }); } catch (e) {}
+                __tmRestoreChecklistDetailScrollSnapshot(detailScrollSnapshot);
+            } else {
+                render();
+                __tmRestoreChecklistDetailScrollSnapshot(detailScrollSnapshot);
+            }
             if (opts.suppressHint !== true) hint(`❌ 操作失败: ${err.message}`, 'error');
         } finally {
             // render() 完成后手动解锁
@@ -50630,6 +51659,7 @@ async function __tmRefreshAfterWake(reason) {
                     docId: String(task.root_id || task.docId || '').trim(),
                     statusPatch: statusPatch && Object.keys(statusPatch).length > 0 ? { ...statusPatch } : null,
                     suppressHint: opts.suppressHint === true,
+                    source: String(opts.source || '').trim(),
                 },
                 inversePatch,
             }, { wait: true });
@@ -50647,6 +51677,7 @@ async function __tmRefreshAfterWake(reason) {
                     source: String(opts.source || '').trim(),
                 });
             }
+            if (targetDone) __tmQueueTaskDoneDelight(tid, { done: true, suppressHint: opts.suppressHint, source: opts.source });
             if (opts.suppressHint === true) return true;
         } catch (e) {
             hint(`❌ 操作失败: ${e.message}`, 'error');
@@ -50793,6 +51824,7 @@ async function __tmRefreshAfterWake(reason) {
         // 3. 构建树（保持原有逻辑）
         const taskMap = new Map();
         const rootTasks = [];
+        const isValidValue = (val) => val !== undefined && val !== null && val !== '' && val !== 'null';
 
         // 先创建所有节点（从 MetaStore 读取所有自定义属性，不依赖 SQL 查询）
         flatTasks.forEach(t => {
@@ -50810,6 +51842,7 @@ async function __tmRefreshAfterWake(reason) {
                 // 同时保存到当前ID下，确保后续能直接读取
                 MetaStore.set(t.id, oldMeta);
             }
+            const allowVisibleDateFallback = __tmHasPendingVisibleDatePersistence(String(t.id || '').trim());
 
             taskMap.set(t.id, {
                 id: t.id,
@@ -50822,35 +51855,62 @@ async function __tmRefreshAfterWake(reason) {
                 doc_name: t.doc_name,
                 children: [],
                 priority: (() => {
+                    const dbv = String(t.priority ?? '');
                     const mv = Object.prototype.hasOwnProperty.call(meta, 'priority') ? String(meta.priority ?? '') : '';
-                    if (mv && mv !== 'null') return mv;
-                    return String(t.priority ?? '');
+                    if (isValidValue(dbv)) return dbv;
+                    if (isValidValue(mv)) return mv;
+                    return dbv;
                 })(),
-                duration: Object.prototype.hasOwnProperty.call(meta, 'duration')
-                    ? String(meta.duration ?? '')
-                    : String(t.duration ?? ''),
-                remark: Object.prototype.hasOwnProperty.call(meta, 'remark')
-                    ? String(meta.remark ?? '')
-                    : String(t.remark ?? ''),
+                duration: (() => {
+                    const dbv = String(t.duration ?? '');
+                    const mv = Object.prototype.hasOwnProperty.call(meta, 'duration') ? String(meta.duration ?? '') : '';
+                    if (isValidValue(dbv)) return dbv;
+                    if (isValidValue(mv)) return mv;
+                    return dbv;
+                })(),
+                remark: (() => {
+                    const dbv = String(t.remark ?? '');
+                    const mv = Object.prototype.hasOwnProperty.call(meta, 'remark') ? String(meta.remark ?? '') : '';
+                    if (isValidValue(dbv)) return dbv;
+                    if (isValidValue(mv)) return mv;
+                    return dbv;
+                })(),
+                startDate: (() => {
+                    const dbv = String(t.start_date ?? '');
+                    const mv = Object.prototype.hasOwnProperty.call(meta, 'startDate') ? String(meta.startDate ?? '') : '';
+                    if (isValidValue(dbv)) return dbv;
+                    if (allowVisibleDateFallback && isValidValue(mv)) return mv;
+                    return dbv;
+                })(),
                 completionTime: (() => {
+                    const dbv = String(t.completion_time ?? '');
                     const mv = Object.prototype.hasOwnProperty.call(meta, 'completionTime')
                         ? String(meta.completionTime ?? '')
                         : '';
-                    if (mv && mv !== 'null') return mv;
-                    return String(t.completion_time ?? '');
+                    if (isValidValue(dbv)) return dbv;
+                    if (allowVisibleDateFallback && isValidValue(mv)) return mv;
+                    return dbv;
                 })(),
-                customTime: Object.prototype.hasOwnProperty.call(meta, 'customTime')
-                    ? String(meta.customTime ?? '')
-                    : String(t.custom_time ?? ''),
+                customTime: (() => {
+                    const dbv = String(t.custom_time ?? '');
+                    const mv = Object.prototype.hasOwnProperty.call(meta, 'customTime') ? String(meta.customTime ?? '') : '';
+                    if (isValidValue(dbv)) return dbv;
+                    if (allowVisibleDateFallback && isValidValue(mv)) return mv;
+                    return dbv;
+                })(),
                 pinned: (() => {
                     const raw = Object.prototype.hasOwnProperty.call(meta, 'pinned') ? meta.pinned : t.pinned;
                     if (typeof raw === 'boolean') return raw;
                     const s = String(raw || '').trim().toLowerCase();
                     return s === 'true' || s === '1';
                 })(),
-                customStatus: Object.prototype.hasOwnProperty.call(meta, 'customStatus')
-                    ? String(meta.customStatus ?? '')
-                    : String(t.custom_status ?? '')
+                customStatus: (() => {
+                    const dbv = String(t.custom_status ?? '');
+                    const mv = Object.prototype.hasOwnProperty.call(meta, 'customStatus') ? String(meta.customStatus ?? '') : '';
+                    if (isValidValue(dbv)) return dbv;
+                    if (isValidValue(mv)) return mv;
+                    return dbv;
+                })()
             });
         });
 
@@ -52160,6 +53220,51 @@ async function __tmRefreshAfterWake(reason) {
         return exists ? configured : null;
     }
 
+    const __TM_QUICK_ADD_RECENT_DOCS_KEY = 'tm_quick_add_recent_docs';
+    const __TM_QUICK_ADD_RECENT_DOCS_LIMIT = 6;
+
+    function __tmResolveQuickAddRecentDocMeta(docId, fallback = null) {
+        const id = String(docId || '').trim();
+        if (!id || id === '__dailyNote__') return null;
+        const fromAll = (Array.isArray(state.allDocuments) ? state.allDocuments : [])
+            .find((doc) => String(doc?.id || '').trim() === id);
+        const fromTree = (Array.isArray(state.taskTree) ? state.taskTree : [])
+            .find((doc) => String(doc?.id || '').trim() === id);
+        const fb = (fallback && typeof fallback === 'object') ? fallback : null;
+        const name = String(fromAll?.name || fromTree?.name || fb?.name || '').trim() || '未命名文档';
+        const path = String(fromAll?.path || fromTree?.path || fb?.path || '').trim();
+        return { id, name, path };
+    }
+
+    function __tmGetQuickAddRecentDocs() {
+        const raw = Storage.get(__TM_QUICK_ADD_RECENT_DOCS_KEY, []);
+        const list = Array.isArray(raw) ? raw : [];
+        const seen = new Set();
+        const out = [];
+        list.forEach((entry) => {
+            const id = String((typeof entry === 'object' ? entry?.id : entry) || '').trim();
+            if (!id || id === '__dailyNote__' || seen.has(id)) return;
+            const meta = __tmResolveQuickAddRecentDocMeta(id, entry);
+            if (!meta) return;
+            seen.add(id);
+            out.push({
+                ...meta,
+                ts: Number(typeof entry === 'object' ? entry?.ts : 0) || 0,
+            });
+        });
+        return out.slice(0, __TM_QUICK_ADD_RECENT_DOCS_LIMIT);
+    }
+
+    function __tmRememberQuickAddRecentDoc(docId, fallback = null) {
+        const meta = __tmResolveQuickAddRecentDocMeta(docId, fallback);
+        if (!meta) return;
+        const existing = __tmGetQuickAddRecentDocs()
+            .filter((entry) => String(entry?.id || '').trim() !== meta.id);
+        const next = [{ ...meta, ts: Date.now() }, ...existing]
+            .slice(0, __TM_QUICK_ADD_RECENT_DOCS_LIMIT);
+        Storage.set(__TM_QUICK_ADD_RECENT_DOCS_KEY, next);
+    }
+
     function __tmResolveDefaultDocId() {
         const configuredDocId = __tmResolveConfiguredQuickAddDocId();
         if (configuredDocId) return configuredDocId;
@@ -52491,7 +53596,13 @@ async function __tmRefreshAfterWake(reason) {
         return true;
     }
 
-    function __tmApplyDoneOptimisticLocal(taskId, done, statusPatch = null) {
+    function __tmShouldSyncCalendarDoneInPlace(source) {
+        return String(source || '').trim() === 'calendar'
+            && String(state.viewMode || '').trim() === 'calendar'
+            && !!globalThis.__tmCalendar?.syncTaskDoneInPlace;
+    }
+
+    function __tmApplyDoneOptimisticLocal(taskId, done, statusPatch = null, source = '') {
         const tid = String(taskId || '').trim();
         const task = state.flatTasks?.[tid] || null;
         if (!task) return false;
@@ -52506,11 +53617,15 @@ async function __tmRefreshAfterWake(reason) {
         } catch (e) {}
         try { MetaStore.set(tid, { done: !!done, content: task.content }); } catch (e) {}
         try { recalcStats(); } catch (e) {}
+        if (__tmShouldSyncCalendarDoneInPlace(source)) {
+            try { globalThis.__tmCalendar.syncTaskDoneInPlace(tid, !!done, { allowRefetch: true }); } catch (e) {}
+            return true;
+        }
         try { __tmScheduleRender({ withFilters: true }); } catch (e) {}
         return true;
     }
 
-    function __tmRollbackDoneOptimisticLocal(taskId, inversePatch) {
+    function __tmRollbackDoneOptimisticLocal(taskId, inversePatch, source = '') {
         const tid = String(taskId || '').trim();
         const task = state.flatTasks?.[tid] || null;
         if (!task) return false;
@@ -52528,6 +53643,10 @@ async function __tmRefreshAfterWake(reason) {
         } catch (e) {}
         try { MetaStore.set(tid, { done: prevDone, content: task.content }); } catch (e) {}
         try { recalcStats(); } catch (e) {}
+        if (__tmShouldSyncCalendarDoneInPlace(source)) {
+            try { globalThis.__tmCalendar.syncTaskDoneInPlace(tid, prevDone, { allowRefetch: true }); } catch (e) {}
+            return true;
+        }
         try { __tmScheduleRender({ withFilters: true }); } catch (e) {}
         return true;
     }
@@ -53568,6 +54687,29 @@ async function __tmRefreshAfterWake(reason) {
             ? '今天日记'
             : (defaultDocId ? resolveDocName(defaultDocId) : '未设置');
         const defaultDocReady = defaultDocIsDailyNote || !!defaultDocId;
+        const recentDocs = __tmGetQuickAddRecentDocs();
+        const recentSectionHtml = recentDocs.length > 0 ? `
+                <div style="border:1px solid var(--tm-border-color);border-radius:8px;margin-bottom:8px;overflow:hidden;">
+                    <div style="padding:8px 10px;background:var(--tm-header-bg);font-weight:600;">最近选择</div>
+                    <div style="padding:6px 10px;">
+                        ${recentDocs.map((doc) => {
+                            const id = String(doc?.id || '').trim();
+                            const checked = qa.docMode !== 'dailyNote' && qa.docId === id;
+                            const name = esc(String(doc?.name || resolveDocName(id) || '未命名文档'));
+                            const path = String(doc?.path || '').trim();
+                            return `
+                                <div style="display:flex;align-items:center;justify-content:space-between;padding:8px 0;cursor:pointer;" onclick="tmQuickAddSelectDoc('${escSq(id)}')">
+                                    <div style="min-width:0;flex:1;">
+                                        <div style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${name}</div>
+                                        ${path ? `<div style="margin-top:2px;font-size:12px;color:var(--tm-secondary-text);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${esc(path)}</div>` : ''}
+                                    </div>
+                                    <div style="margin-left:10px;">${checked ? '✅' : '◻️'}</div>
+                                </div>
+                            `;
+                        }).join('')}
+                    </div>
+                </div>
+        ` : '';
 
         const picker = document.createElement('div');
         picker.className = 'tm-quick-add-modal';
@@ -53588,6 +54730,7 @@ async function __tmRefreshAfterWake(reason) {
                         </div>
                     </div>
                 </div>
+                ${recentSectionHtml}
                 <div id="tmQuickAddDocList"></div>
                 <div style="display:flex;gap:8px;margin-top:10px;">
                     <button class="tm-btn tm-btn-gray" id="tmQuickAddDocPickerCloseBtn" onclick="tmQuickAddCloseDocPicker()" style="padding: 6px 10px; font-size: 12px;">关闭</button>
@@ -53778,6 +54921,7 @@ async function __tmRefreshAfterWake(reason) {
         // 仅更新本地状态，不修改全局设置
         qa.docId = id;
         qa.docMode = 'doc';
+        __tmRememberQuickAddRecentDoc(id);
         // 移除对 updateNewTaskDocId 的调用，避免修改全局新建文档设置
         window.tmQuickAddRenderMeta?.();
         window.tmQuickAddCloseDocPicker?.();
@@ -53807,6 +54951,7 @@ async function __tmRefreshAfterWake(reason) {
         }
         qa.docId = id;
         qa.docMode = 'doc';
+        __tmRememberQuickAddRecentDoc(id);
         window.tmQuickAddRenderMeta?.();
     };
 
@@ -54029,7 +55174,7 @@ async function __tmRefreshAfterWake(reason) {
         }
         try { state.doneOverrides = {}; } catch (e) {}
         // 加载设置（包括文档ID列表）
-        await SettingsStore.load();
+        await __tmEnsureSettingsLoaded();
         __tmPerfTraceMark(perfTrace, 'settings', {
             preferFastFirstPaint: preferFastFirstPaint ? 1 : 0,
             source: String(options?.source || 'direct').trim() || 'direct',
@@ -54119,7 +55264,7 @@ async function __tmRefreshAfterWake(reason) {
         state.excludeCompletedTasks = !!SettingsStore.data.excludeCompletedTasks;
 
         // 加载筛选规则
-        state.filterRules = await RuleManager.initRules();
+        state.filterRules = await __tmEnsureFilterRulesLoaded();
         const currentRule = state.currentRule ? state.filterRules.find(r => r.id === state.currentRule) : null;
         state.__tmQueryDoneOnly = !!(currentRule && currentRule.conditions && currentRule.conditions.some(c => c && c.field === 'done' && c.operator === '=' && (c.value === true || String(c.value) === 'true' || c.value === '') && String(c.value) !== '__all__'));
 
@@ -54731,24 +55876,27 @@ async function __tmRefreshAfterWake(reason) {
 
     let __tmAllDocumentsFetchedAt = 0;
     let __tmAllDocumentsFetchPromise = null;
-    function __tmEnsureAllDocumentsLoaded(force = false) {
+    async function __tmEnsureAllDocumentsLoaded(force = false) {
         const now = Date.now();
         if (!force && Array.isArray(state.allDocuments) && state.allDocuments.length > 0 && (now - (__tmAllDocumentsFetchedAt || 0) < 60000)) {
-            return;
+            return state.allDocuments;
         }
-        if (__tmAllDocumentsFetchPromise) return;
+        if (!force && __tmAllDocumentsFetchPromise) return await __tmAllDocumentsFetchPromise;
         __tmAllDocumentsFetchPromise = Promise.resolve()
             .then(() => API.getAllDocuments())
             .then((docs) => {
                 if (Array.isArray(docs)) state.allDocuments = docs;
                 __tmAllDocumentsFetchedAt = Date.now();
+                return Array.isArray(state.allDocuments) ? state.allDocuments : [];
             })
             .catch((e) => {
                 try { console.error('[设置] 刷新文档列表失败:', e); } catch (e2) {}
+                return Array.isArray(state.allDocuments) ? state.allDocuments : [];
             })
             .finally(() => {
                 __tmAllDocumentsFetchPromise = null;
             });
+        return await __tmAllDocumentsFetchPromise;
     }
 
     const TM_MAIN_SETTINGS_SECTIONS = Object.freeze([
@@ -54761,6 +55909,20 @@ async function __tmRefreshAfterWake(reason) {
         { id: 'quickbar', label: '悬浮条' },
         { id: 'tomato', label: '番茄钟' }
     ]);
+
+    function __tmGetSettingsSectionAnchorTop(content, section) {
+        if (!(content instanceof HTMLElement) || !(section instanceof HTMLElement)) return 0;
+        const anchor = section.querySelector('.tm-settings-section-title');
+        const target = anchor instanceof HTMLElement ? anchor : section;
+        const contentRect = content.getBoundingClientRect();
+        const targetRect = target.getBoundingClientRect();
+        return (Number(content.scrollTop) || 0) + (targetRect.top - contentRect.top);
+    }
+
+    function __tmGetSettingsSectionProbeTop(content, subtabs) {
+        const stickyOffset = (subtabs instanceof HTMLElement ? subtabs.offsetHeight : 0) + 8;
+        return (Number(content?.scrollTop) || 0) + stickyOffset;
+    }
 
     function __tmSetActiveSettingsSection(modal, sectionId, ensureVisible = false) {
         const root = modal || state.settingsModal;
@@ -54791,14 +55953,34 @@ async function __tmRefreshAfterWake(reason) {
         const root = modal || state.settingsModal;
         if (!root || String(state.settingsActiveTab || 'docs') !== 'main') return;
         const content = root.querySelector('.tm-settings-content');
+        const subtabs = root.querySelector('.tm-settings-subtabs');
         const sections = Array.from(root.querySelectorAll('.tm-settings-panel[data-tm-settings-section]'));
         if (!(content instanceof HTMLElement) || !sections.length) return;
-        const probeTop = content.scrollTop + 20;
+        const pendingJump = state.settingsSectionJump;
+        if (pendingJump && pendingJump.root === root) {
+            const pendingId = String(pendingJump.sectionId || '').trim();
+            const targetTop = Number(pendingJump.targetTop);
+            const reached = Number.isFinite(targetTop) && Math.abs((Number(content.scrollTop) || 0) - targetTop) <= 6;
+            if (pendingId) {
+                __tmSetActiveSettingsSection(root, pendingId, false);
+                if (!reached && Date.now() < (Number(pendingJump.until) || 0)) return;
+                state.settingsSectionJump = null;
+                return;
+            }
+            state.settingsSectionJump = null;
+        }
+        const probeTop = __tmGetSettingsSectionProbeTop(content, subtabs);
         let activeId = String(sections[0]?.dataset?.tmSettingsSection || '').trim();
+        const maxScrollTop = Math.max(0, content.scrollHeight - content.clientHeight);
+        if ((Number(content.scrollTop) || 0) >= maxScrollTop - 4) {
+            activeId = String(sections[sections.length - 1]?.dataset?.tmSettingsSection || '').trim() || activeId;
+            __tmSetActiveSettingsSection(root, activeId, false);
+            return;
+        }
         sections.forEach((section) => {
             const sectionId = String(section?.dataset?.tmSettingsSection || '').trim();
             if (!sectionId) return;
-            if (section.offsetTop <= probeTop) activeId = sectionId;
+            if (__tmGetSettingsSectionAnchorTop(content, section) <= probeTop) activeId = sectionId;
         });
         __tmSetActiveSettingsSection(root, activeId, false);
     }
@@ -54878,11 +56060,15 @@ async function __tmRefreshAfterWake(reason) {
             return String(section?.dataset?.tmSettingsSection || '').trim() === String(sectionId || '').trim();
         });
         if (!(target instanceof HTMLElement)) return;
-        const anchor = target.querySelector('.tm-settings-section-title') || target;
-        const contentRect = content.getBoundingClientRect();
-        const anchorRect = anchor.getBoundingClientRect();
-        const stickyOffset = (subtabs instanceof HTMLElement ? subtabs.getBoundingClientRect().height : 0) + 6;
-        const nextTop = Math.max(0, content.scrollTop + (anchorRect.top - contentRect.top) - stickyOffset);
+        const stickyOffset = (subtabs instanceof HTMLElement ? subtabs.offsetHeight : 0) + 6;
+        const maxScrollTop = Math.max(0, content.scrollHeight - content.clientHeight);
+        const nextTop = Math.max(0, Math.min(maxScrollTop, __tmGetSettingsSectionAnchorTop(content, target) - stickyOffset));
+        state.settingsSectionJump = {
+            root,
+            sectionId: String(sectionId || '').trim(),
+            targetTop: nextTop,
+            until: Date.now() + 2000
+        };
         __tmSetActiveSettingsSection(root, sectionId, true);
         try { content.scrollTo({ top: nextTop, behavior: 'smooth' }); } catch (e) { content.scrollTop = nextTop; }
     };
@@ -54922,6 +56108,7 @@ async function __tmRefreshAfterWake(reason) {
             } catch (e) {}
             try { state.settingsModal.remove(); } catch (e) {}
             state.settingsModal = null;
+            state.settingsSectionJump = null;
         }
         state.settingsSidebarScrollLeft = savedSettingsSidebarScrollLeft;
         state.settingsTabsScrollLeft = savedSettingsTabsScrollLeft;
@@ -55141,8 +56328,21 @@ async function __tmRefreshAfterWake(reason) {
                 const itemIndentStyle = checklistCompact
                     ? `--tm-checklist-compact-indent:${indent}px;`
                     : `margin-left:${indent}px;`;
+                const calendarSidebarChecklist = state.__tmCalendarSidebarChecklistRender === true;
+                const runtimeMobile = __tmIsRuntimeMobileClient();
+                const disableDesktopDragAndMenu = calendarSidebarChecklist || runtimeMobile;
+                const dragAttrs = disableDesktopDragAndMenu
+                    ? ' draggable="false"'
+                    : ` draggable="true" ondragstart="tmDragTaskStart(event, '${escSq(String(task.id || ''))}')" ondragend="tmDragTaskEnd(event)"`;
+                const titleDragAttrs = disableDesktopDragAndMenu
+                    ? ''
+                    : ` draggable="true" ondragstart="tmDragTaskStart(event, '${escSq(String(task.id || ''))}')" ondragend="tmDragTaskEnd(event)"`;
+                const contextMenuAttr = disableDesktopDragAndMenu
+                    ? ' oncontextmenu="event.preventDefault();event.stopPropagation();return false;"'
+                    : ` oncontextmenu="tmShowTaskContextMenu(event, '${escSq(String(task.id || ''))}')"`
+                ;
                 return `
-                    <div class="tm-checklist-item${activeCls}${doneCls}${timerCls}" data-id="${esc(String(task.id || ''))}" data-depth="${depth}" draggable="true" ondragstart="tmDragTaskStart(event, '${escSq(String(task.id || ''))}')" ondragend="tmDragTaskEnd(event)" style="${itemIndentStyle}${accentStyle}${baseBg}${progressBg}" onclick="tmChecklistSelectTask('${escSq(String(task.id || ''))}', event)" oncontextmenu="tmShowTaskContextMenu(event, '${escSq(String(task.id || ''))}')">
+                    <div class="tm-checklist-item${activeCls}${doneCls}${timerCls}" data-id="${esc(String(task.id || ''))}" data-depth="${depth}"${dragAttrs} style="${itemIndentStyle}${accentStyle}${baseBg}${progressBg}" onclick="tmChecklistSelectTask('${escSq(String(task.id || ''))}', event)"${contextMenuAttr}>
                         <div class="tm-checklist-leading${hasChildren ? ' tm-checklist-leading--branch' : ''}${hasChildren && collapsed ? ' tm-checklist-leading--collapsed' : ''}">
                             ${hasChildren ? `<span class="tm-tree-toggle" onclick="tmToggleCollapse('${escSq(String(task.id || ''))}', event)" style="opacity:1;pointer-events:auto;color:var(--tm-text-color);">${__tmRenderToggleIcon(16, collapsed ? 0 : 90, 'tm-tree-toggle-icon')}</span>` : '<span class="tm-tree-toggle tm-tree-toggle--placeholder" aria-hidden="true"></span>'}
                             ${hasChildren && collapsed ? '<span class="tm-task-leading-ring" aria-hidden="true"></span>' : ''}
@@ -55150,7 +56350,7 @@ async function __tmRefreshAfterWake(reason) {
                         </div>
                         <div class="tm-checklist-item-main" ondblclick="tmChecklistItemDblClick('${escSq(String(task.id || ''))}', event)">
                             <div class="${titleRowClass}">
-                                <div class="tm-checklist-title-main"><div class="tm-checklist-title"><span class="tm-checklist-title-button"><span draggable="true" ondragstart="tmDragTaskStart(event, '${escSq(String(task.id || ''))}')" ondragend="tmDragTaskEnd(event)" onpointerdown="tmChecklistTitlePointerDown(event)" onclick="tmChecklistTitleClick('${escSq(String(task.id || ''))}', event)"${__tmBuildTooltipAttrs(String(task.content || '').trim() || '(无内容)', { side: 'bottom', ariaLabel: false })}>${esc(String(task.content || '').trim() || '(无内容)')}</span></span>${reminderHtml}${remarkIconHtml}</div></div>
+                                <div class="tm-checklist-title-main"><div class="tm-checklist-title"><span class="tm-checklist-title-button"><span${titleDragAttrs} onpointerdown="tmChecklistTitlePointerDown(event)" onclick="tmChecklistTitleClick('${escSq(String(task.id || ''))}', event)"${__tmBuildTooltipAttrs(String(task.content || '').trim() || '(无内容)', { side: 'bottom', ariaLabel: false })}>${esc(String(task.content || '').trim() || '(无内容)')}</span></span>${reminderHtml}${remarkIconHtml}</div></div>
                                 ${compactMeta}
                                 <span class="tm-status-tag" style="${statusChipStyle}">${esc(String(statusOption?.name || currentStatus || ''))}</span>
                                 ${task.pinned ? `<span class="tm-checklist-meta-chip" title="置顶">${__tmRenderLucideIcon('pin')}</span>` : ''}
@@ -55654,6 +56854,12 @@ async function __tmRefreshAfterWake(reason) {
                                 <option value="h6" ${SettingsStore.data.taskHeadingLevel === 'h6' ? 'selected' : ''}>H6 六级标题</option>
                             </select>`
                         )}
+                        ${renderSingleSwitchSetting(
+                            '完成反馈',
+                            '勾选完成后播放轻微动画并显示趣味提示；关闭后恢复为普通完成提示。',
+                            `<input class="b3-switch fn__flex-center" type="checkbox" ${SettingsStore.data.taskDoneDelightEnabled !== false ? 'checked' : ''} onchange="updateTaskDoneDelightEnabled(this.checked)">`,
+                            { style: 'margin-top:10px;' }
+                        )}
                         ${renderSingleFieldSetting(
                             '文档名称显示',
                             '控制插件默认显示文档原名还是思源别名；当首选项为空时会自动回退到另一项。',
@@ -55805,7 +57011,7 @@ async function __tmRefreshAfterWake(reason) {
                         </div>
                         ${renderSingleSwitchSetting(
                             'Dock 紧凑标题点击跳转',
-                            '桌面端 Dock 清单紧凑视图中，开启后点击任务名默认跳转文档；若开启下方“标题点击弹出详情页面”则改为弹出详情页面。关闭后保持打开任务详情抽屉。',
+                            '桌面端 Dock 清单紧凑视图中，开启后点击任务名默认跳转文档；若开启下方“标题点击弹出详情页面”则改为打开 Dock 内任务详情抽屉。关闭后保持打开任务详情抽屉。',
                             `<input class="b3-switch fn__flex-center" type="checkbox" ${SettingsStore.data.dockChecklistCompactTitleJump ? 'checked' : ''} ${SettingsStore.data.dockSidebarEnabled !== false ? '' : 'disabled'} onchange="updateDockChecklistCompactTitleJump(this.checked)">`,
                             { style: `margin-bottom:10px;opacity:${SettingsStore.data.dockSidebarEnabled !== false ? 1 : 0.6};` }
                         )}
@@ -55818,7 +57024,7 @@ async function __tmRefreshAfterWake(reason) {
                         )}
                         ${renderSingleSwitchSetting(
                             '标题点击弹出详情页面',
-                            '适用于各视图的任务标题点击。开启后标题默认弹出任务详情页面；在移动端/Dock 清单紧凑视图中，仍低于上方两个“标题点击跳转”开关，仅在原本允许标题点击跳转时才会把跳转改为弹出详情页面。',
+                            '适用于各视图的任务标题点击。开启后标题默认打开任务详情页面；在移动端/Dock 清单紧凑视图中，仍低于上方两个“标题点击跳转”开关，仅在原本允许标题点击跳转时才会生效；其中 Dock 紧凑视图会改为打开抽屉详情。',
                             `<input class="b3-switch fn__flex-center" type="checkbox" ${SettingsStore.data.checklistCompactTitleOpenDetailPage ? 'checked' : ''} onchange="updateChecklistCompactTitleOpenDetailPage(this.checked)">`,
                             { style: 'margin-bottom:10px;' }
                         )}
@@ -55984,6 +57190,18 @@ async function __tmRefreshAfterWake(reason) {
                             '开启后，顶部和右上角菜单里的“全部折叠/展开”会连同当前视图里的分组一起处理。',
                             `<input class="b3-switch fn__flex-center" type="checkbox" ${SettingsStore.data.collapseAllIncludesGroups ? 'checked' : ''} onchange="updateCollapseAllIncludesGroups(this.checked)">`,
                             { style: 'margin-top:10px;' }
+                        )}
+                        ${renderSingleSwitchSetting(
+                            '手动刷新时同步伺服共享设置',
+                            '默认关闭。开启后点击顶部刷新按钮时，会额外从伺服重载共享设置、任务补充元数据、白板数据和语义识别记录；平时不做后台轮询，不增加常驻性能开销。',
+                            `<input class="b3-switch fn__flex-center" type="checkbox" ${SettingsStore.data.serverSyncOnManualRefresh ? 'checked' : ''} onchange="updateServerSyncOnManualRefresh(this.checked)">`,
+                            { style: 'margin-top:10px;' }
+                        )}
+                        ${renderSingleSwitchSetting(
+                            '手动刷新时同步当前分组/规则等会话状态',
+                            '默认关闭。仅在上方开关开启时生效。开启后，手动刷新会一并套用另一端保存的当前分组、当前规则、折叠状态等会话类状态；关闭则保留本端当前界面上下文。',
+                            `<input class="b3-switch fn__flex-center" type="checkbox" ${SettingsStore.data.serverSyncSessionStateOnManualRefresh ? 'checked' : ''} ${SettingsStore.data.serverSyncOnManualRefresh ? '' : 'disabled'} onchange="updateServerSyncSessionStateOnManualRefresh(this.checked)">`,
+                            { style: `margin-top:10px;opacity:${SettingsStore.data.serverSyncOnManualRefresh ? 1 : 0.6};` }
                         )}
                     </div>
 
@@ -56829,6 +58047,18 @@ async function __tmRefreshAfterWake(reason) {
         showSettings();
     };
 
+    window.updateServerSyncOnManualRefresh = async function(enabled) {
+        SettingsStore.data.serverSyncOnManualRefresh = !!enabled;
+        await SettingsStore.save();
+        showSettings();
+    };
+
+    window.updateServerSyncSessionStateOnManualRefresh = async function(enabled) {
+        SettingsStore.data.serverSyncSessionStateOnManualRefresh = !!enabled;
+        await SettingsStore.save();
+        showSettings();
+    };
+
     window.tmResetAppearanceColors = async function() {
         SettingsStore.data.themeConfig = __tmGetDefaultThemeConfig();
         SettingsStore.data.topbarControlRadiusPx = 10;
@@ -57187,7 +58417,7 @@ async function __tmRefreshAfterWake(reason) {
             const checklistInfo = kind === 'checklist'
                 ? __tmTickTickParseChecklistContent(rawContent)
                 : {
-                    remark: String(rawContent || '').replace(/\r\n?/g, '\n').trim(),
+                    remark: __tmNormalizeRemarkMarkdown(rawContent || ''),
                     inlineSubtasks: [],
                 };
             const sourceTaskId = getCell(row, ['taskId', 'Task ID']);
@@ -57690,7 +58920,7 @@ async function __tmRefreshAfterWake(reason) {
         const onProgress = typeof opts.onProgress === 'function' ? opts.onProgress : null;
         const shouldCancel = typeof opts.shouldCancel === 'function' ? opts.shouldCancel : null;
         if (!docs.length) throw new Error('没有可导入的任务');
-        await SettingsStore.load();
+        await __tmEnsureSettingsLoaded();
         await MetaStore.load();
         const createdDocIds = [];
         const summary = { docs: 0, headings: 0, tasks: 0, subtasks: 0 };
@@ -60068,6 +61298,17 @@ async function __tmRefreshAfterWake(reason) {
         return null;
     }
 
+    async function __tmEnsureXlsxRuntimeLoaded() {
+        let runtime = __tmResolveXlsxRuntime();
+        if (runtime) return runtime;
+        const loader = globalThis.__taskHorizonEnsureXlsxModuleLoaded;
+        if (typeof loader === 'function') {
+            try { await loader(); } catch (e) {}
+        }
+        runtime = __tmResolveXlsxRuntime();
+        return runtime || null;
+    }
+
     function __tmExcelResolveStatusName(task) {
         const currentStatus = String(task?.customStatus || task?.status || 'todo').trim() || 'todo';
         const statusOptions = Array.isArray(SettingsStore.data.customStatusOptions) ? SettingsStore.data.customStatusOptions : [];
@@ -60461,12 +61702,14 @@ async function __tmRefreshAfterWake(reason) {
         };
     }
 
-    window.tmExportCurrentTableExcel = function() {
+    window.tmExportCurrentTableExcel = async function() {
         if (String(state.viewMode || '').trim() !== 'list') {
             hint('⚠️ 仅表格视图支持导出 Excel', 'warning');
             return;
         }
-        const XLSX = __tmResolveXlsxRuntime();
+        const cachedXlsx = __tmResolveXlsxRuntime();
+        if (!cachedXlsx) hint('⏳ 正在准备 Excel 导出组件...', 'info');
+        const XLSX = cachedXlsx || await __tmEnsureXlsxRuntimeLoaded();
         if (!XLSX || !XLSX.utils) {
             hint('❌ Excel 导出组件未加载', 'error');
             return;
@@ -61300,6 +62543,12 @@ async function __tmRefreshAfterWake(reason) {
         SettingsStore.data.enableQuickbarInlineMeta = !!enabled;
         await SettingsStore.save();
         try { globalThis.__taskHorizonQuickbarRefreshInline?.(); } catch (e) {}
+        showSettings();
+    };
+
+    window.updateTaskDoneDelightEnabled = async function(enabled) {
+        SettingsStore.data.taskDoneDelightEnabled = !!enabled;
+        await SettingsStore.save();
         showSettings();
     };
 
@@ -62261,6 +63510,7 @@ async function __tmRefreshAfterWake(reason) {
             state.settingsModal.remove();
             state.settingsModal = null;
         }
+        state.settingsSectionJump = null;
     };
 
     window.tmUpdateAiEnabled = async function(enabled) {
@@ -62317,7 +63567,8 @@ async function __tmRefreshAfterWake(reason) {
         await SettingsStore.save();
     };
     window.tmAiTestConnection = async function() {
-        const fn = globalThis.__tmAI?.testConnection;
+        const ready = await __tmEnsureAiRuntimeLoaded();
+        const fn = ready ? globalThis.__tmAI?.testConnection : null;
         if (typeof fn !== 'function') {
             hint('⚠ AI 模块尚未加载完成', 'warning');
             return;
@@ -63363,6 +64614,9 @@ async function __tmRefreshAfterWake(reason) {
                 if (!taskId) return;
                 const attrKey = String(e.detail.attrKey || '').trim();
                 const attrValue = String(e.detail.value ?? '');
+                if (__tmIsVisibleDateAttrKey(attrKey)) {
+                    __tmMarkVisibleDateFallbackTask(taskId);
+                }
                 
                 // 使用 localStorage 持久化存储，以便在插件重新加载后仍能检测到
                 try {
@@ -63414,7 +64668,7 @@ async function __tmRefreshAfterWake(reason) {
 
         // 1. 先加载设置（包括文档ID）
         try {
-            await SettingsStore.load();
+            await __tmEnsureSettingsLoaded();
             try {
                 if (globalThis.__tmCalendar && typeof globalThis.__tmCalendar.setSettingsStore === 'function') {
                     globalThis.__tmCalendar.setSettingsStore(SettingsStore);
@@ -63469,7 +64723,7 @@ async function __tmRefreshAfterWake(reason) {
             state.docTabsHidden = !!Storage.get('tm_doc_tabs_hidden', false);
 
             // 加载筛选规则
-            state.filterRules = await RuleManager.initRules();
+            state.filterRules = await __tmEnsureFilterRulesLoaded();
         } catch (e) {
             console.error('[初始化] 加载设置失败:', e);
         }
@@ -63489,7 +64743,7 @@ async function __tmRefreshAfterWake(reason) {
 
         // 2. 获取所有文档列表
         try {
-            state.allDocuments = await API.getAllDocuments();
+            state.allDocuments = await __tmEnsureAllDocumentsLoaded(false);
         } catch (e) {
             console.error('[初始化] 加载文档列表失败:', e);
         }
@@ -63737,7 +64991,7 @@ async function __tmRefreshAfterWake(reason) {
             && !(reusedExistingModal && hasDataReadyForSoftReuse0 && !quickbarDirty0 && !hasPendingInsertedTasks0);
         state.wasHidden = false;
 
-        await SettingsStore.load();
+        await __tmEnsureSettingsLoaded();
         try { await __tmRefreshNotebookCache(); } catch (e) {}
         try {
             if (globalThis.__tmCalendar && typeof globalThis.__tmCalendar.setSettingsStore === 'function') {
@@ -63986,6 +65240,7 @@ async function __tmRefreshAfterWake(reason) {
             __tmTxTaskRefreshInFlight = false;
             __tmTxTaskRefreshDocIds.clear();
             __tmTxTaskRefreshBlockIds.clear();
+            __tmRecentVisibleDateFallbackTasks.clear();
         } catch (e) {}
         try { __tmClearTimelineTodayIndicatorTimer(); } catch (e) {}
         try { __tmSetInlineLoading(false); } catch (e) {}
@@ -64314,6 +65569,7 @@ async function __tmRefreshAfterWake(reason) {
             try {
                 SettingsStore.savePromise = null;
                 SettingsStore.savePromiseResolve = null;
+                SettingsStore.savePromiseReject = null;
                 SettingsStore.saveDirty = false;
                 SettingsStore.saving = false;
             } catch (e2) {}

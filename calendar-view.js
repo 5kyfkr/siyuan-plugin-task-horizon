@@ -1066,14 +1066,15 @@
         if (!el) return;
         const accent = String(color || '').trim() || 'var(--tm-primary-color)';
         const rgb = parseColorToRgb(accent);
-        const softBg = rgb ? toRgbaString(rgb, 0.36) : 'rgba(0, 120, 212, 0.36)';
-        const softBorder = rgb ? toRgbaString(rgb, 0.42) : 'rgba(0, 120, 212, 0.42)';
-        const hoverBg = rgb ? toRgbaString(rgb, 0.44) : 'rgba(0, 120, 212, 0.44)';
+        const softBg = rgb ? toRgbaString(rgb, 0.22) : 'rgba(0, 120, 212, 0.22)';
+        const softBorder = rgb ? toRgbaString(rgb, 0.28) : 'rgba(0, 120, 212, 0.28)';
+        const hoverBg = rgb ? toRgbaString(rgb, 0.3) : 'rgba(0, 120, 212, 0.3)';
         const textColor = isDarkThemeMode() ? 'rgba(255, 255, 255, 0.96)' : '#222';
         try { el.style.setProperty('--tm-cal-schedule-accent', accent); } catch (e) {}
         try { el.style.setProperty('--tm-cal-schedule-text', textColor); } catch (e) {}
         try { el.style.setProperty('--tm-cal-schedule-bg', softBg); } catch (e) {}
         try { el.style.setProperty('--tm-cal-schedule-border', softBorder); } catch (e) {}
+        try { el.style.setProperty('--tm-cal-schedule-stripe', accent); } catch (e) {}
         try { el.style.setProperty('--tm-cal-schedule-hover-bg', hoverBg); } catch (e) {}
         try { el.classList.add('tm-cal-schedule-event'); } catch (e) {}
         try { el.style.setProperty('--fc-event-border-color', 'transparent'); } catch (e) {}
@@ -1082,6 +1083,7 @@
         try { el.style.setProperty('border', '0', 'important'); } catch (e) {}
         try { el.style.setProperty('border-color', 'transparent', 'important'); } catch (e) {}
         try { el.style.setProperty('border-left', `4px solid ${accent}`, 'important'); } catch (e) {}
+        try { applyCalendarEventDoneBorderTone(el, el.classList.contains('tm-cal-event--done')); } catch (e) {}
         try { el.style.setProperty('border-radius', '4px', 'important'); } catch (e) {}
         try { el.style.setProperty('outline', 'none', 'important'); } catch (e) {}
         try { el.style.setProperty('box-shadow', 'none', 'important'); } catch (e) {}
@@ -1100,20 +1102,22 @@
         const accent = String(color || '').trim() || 'var(--tm-primary-color)';
         const rgb = parseColorToRgb(accent);
         const textColor = isDarkThemeMode() ? 'rgba(255, 255, 255, 0.96)' : '#222';
-        const softBg = rgb ? toRgbaString(rgb, 0.36) : 'rgba(0, 120, 212, 0.36)';
-        const softBorder = rgb ? toRgbaString(rgb, 0.42) : 'rgba(0, 120, 212, 0.42)';
+        const softBg = rgb ? toRgbaString(rgb, 0.22) : 'rgba(0, 120, 212, 0.22)';
+        const softBorder = rgb ? toRgbaString(rgb, 0.28) : 'rgba(0, 120, 212, 0.28)';
         try { el.classList.add('tm-cal-allday-soft-event'); } catch (e) {}
         try { el.classList.remove('tm-cal-schedule-event'); } catch (e) {}
         try { el.style.setProperty('--tm-cal-schedule-accent', accent); } catch (e) {}
         try { el.style.setProperty('--tm-cal-schedule-text', textColor); } catch (e) {}
         try { el.style.setProperty('--tm-cal-schedule-bg', softBg); } catch (e) {}
         try { el.style.setProperty('--tm-cal-schedule-border', softBorder); } catch (e) {}
+        try { el.style.setProperty('--tm-cal-schedule-stripe', accent); } catch (e) {}
         try { el.style.setProperty('--fc-event-border-color', 'transparent'); } catch (e) {}
         try { el.style.setProperty('background', softBg, 'important'); } catch (e) {}
         try { el.style.setProperty('background-color', softBg, 'important'); } catch (e) {}
         try { el.style.setProperty('border', '0', 'important'); } catch (e) {}
         try { el.style.setProperty('border-color', 'transparent', 'important'); } catch (e) {}
         try { el.style.setProperty('border-left', `3px solid ${accent}`, 'important'); } catch (e) {}
+        try { applyCalendarEventDoneBorderTone(el, el.classList.contains('tm-cal-event--done')); } catch (e) {}
         try { el.style.setProperty('border-radius', '4px', 'important'); } catch (e) {}
         try { el.style.setProperty('outline', 'none', 'important'); } catch (e) {}
         try { el.style.setProperty('box-shadow', 'none', 'important'); } catch (e) {}
@@ -1275,7 +1279,8 @@
         const formDir = new FormData();
         formDir.append('path', '/data/storage/petal/siyuan-plugin-task-horizon');
         formDir.append('isDir', 'true');
-        try { await fetch('/api/file/putFile', { method: 'POST', body: formDir }).catch(() => null); } catch (e) {}
+        const dirRes = await fetch('/api/file/putFile', { method: 'POST', body: formDir });
+        if (!dirRes.ok) throw new Error(`HTTP ${dirRes.status}`);
         const form = new FormData();
         form.append('path', path);
         form.append('isDir', 'false');
@@ -1872,7 +1877,32 @@
 
     function shouldOpenTaskDetailOnCalendarTaskClick() {
         const liveStore = state.settingsStore || state.sideDay?.settingsStore || null;
-        return !!liveStore?.data?.checklistCompactTitleOpenDetailPage;
+        if (typeof liveStore?.data?.checklistCompactTitleOpenDetailPage === 'boolean') {
+            return !!liveStore.data.checklistCompactTitleOpenDetailPage;
+        }
+        try {
+            const raw = localStorage.getItem('tm_checklist_compact_title_open_detail_page');
+            if (raw != null) {
+                const normalized = String(raw).trim().toLowerCase();
+                return normalized === 'true' || normalized === '1';
+            }
+        } catch (e) {}
+        return false;
+    }
+
+    function shouldEnableCalendarEventContextMenu() {
+        return !(state.isMobileDevice || isLikelyMobileRuntime());
+    }
+
+    function shouldSuppressCalendarTaskListContextMenu() {
+        return !!(state.isMobileDevice || isLikelyMobileRuntime());
+    }
+
+    function setCalendarTouchGestureLock(rootEl, locked) {
+        if (!(rootEl instanceof HTMLElement)) return false;
+        const next = !!locked && (state.isMobileDevice || isLikelyMobileRuntime());
+        try { rootEl.classList.toggle('tm-cal-touch-gesture-lock', next); } catch (e) {}
+        return next;
     }
 
     async function openCalendarLinkedTask(taskId, ev) {
@@ -2459,7 +2489,7 @@
                 if (!taskId) return;
                 syncDoneVisualState(getTaskRowFromEvent(e), !!el.checked);
                 if (typeof window.tmSetDone === 'function') {
-                    try { window.tmSetDone(taskId, !!el.checked, e); } catch (e2) {}
+                    try { window.tmSetDone(taskId, !!el.checked, e, { source: 'calendar' }); } catch (e2) {}
                 }
             }, { signal: abort.signal, capture: true });
 
@@ -2485,6 +2515,11 @@
                 if (!(target instanceof Element)) return;
                 const row = getTaskRowFromEvent(e);
                 if (!row) return;
+                if (shouldSuppressCalendarTaskListContextMenu()) {
+                    try { e.preventDefault(); } catch (e2) {}
+                    try { e.stopPropagation(); } catch (e2) {}
+                    return;
+                }
                 const taskId = String(row.getAttribute('data-task-id') || row.getAttribute('data-id') || '').trim();
                 if (!taskId) return;
                 if (typeof window.tmShowTaskContextMenu === 'function') {
@@ -4454,7 +4489,12 @@
         const serialized = JSON.stringify(list, null, 2);
         setScheduleCache(list, computeScheduleSourceSignature(serialized));
         try { localStorage.setItem(STORAGE.SCHEDULE_LS_KEY, serialized); } catch (e) {}
-        try { await putFileText(STORAGE.SCHEDULE_FILE, serialized); } catch (e) {}
+        try {
+            await putFileText(STORAGE.SCHEDULE_FILE, serialized);
+        } catch (e) {
+            try { console.warn('[task-horizon] save schedule file failed', e); } catch (e2) {}
+            throw e;
+        }
         try { window.dispatchEvent(new CustomEvent('tm:calendar-schedule-updated', { detail: { ts: Date.now() } })); } catch (e) {}
         if (!opts.skipDeviceSync && shouldPreferDeviceNotificationBackend()) {
             try { scheduleScheduleMobileSync('save-schedule-all'); } catch (e) {}
@@ -4517,15 +4557,42 @@
         return '';
     }
 
+    function hasOfficialMobileRuntimeSignal() {
+        try {
+            if (window?.siyuan?.config?.isMobile !== undefined) return !!window.siyuan.config.isMobile;
+        } catch (e) {}
+        try {
+            if (window?.siyuan?.mobile && typeof window.siyuan.mobile === 'object') return true;
+        } catch (e) {}
+        try {
+            if (globalThis?.siyuan?.mobile && typeof globalThis.siyuan.mobile === 'object') return true;
+        } catch (e) {}
+        try {
+            if (globalThis?.JSAndroid || globalThis?.JSHarmony) return true;
+        } catch (e) {}
+        return false;
+    }
+
     function isLikelyMobileRuntime() {
         try {
+            if (globalThis.__taskHorizonPluginIsMobile === true) return true;
+        } catch (e) {}
+        try {
+            if (window?.siyuan?.config?.isMobile !== undefined) return !!window.siyuan.config.isMobile;
+        } catch (e) {}
+        const backend = getRuntimeBackendType();
+        if (backend === 'android' || backend === 'ios' || backend === 'harmony') return true;
+        if (hasOfficialMobileRuntimeSignal()) return true;
+        try {
             const ua = String(navigator?.userAgent || '');
+            if (/^SiYuan\//i.test(ua) && (Number(navigator?.maxTouchPoints) || 0) > 0) return true;
             if (/Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini|Mobile|Tablet/i.test(ua)) return true;
             if (/HarmonyOS/i.test(ua)) return true;
             if (/Huawei|HUAWEI/.test(ua) && !/Chrome|Chromium|EdgA|Firefox/.test(ua)) return true;
             if (window.matchMedia?.('(any-pointer:coarse)')?.matches) {
                 if (/Android|Linux/.test(ua) && !/Win|Mac|X11/.test(ua)) return true;
             }
+            if (('ontouchstart' in window) && (Number(navigator?.maxTouchPoints) || 0) > 1) return true;
         } catch (e) {}
         return false;
     }
@@ -6195,6 +6262,11 @@
     function applyTaskDoneVisual(wrapEl, titleEl, done) {
         const v = !!done;
         try { wrapEl?.classList?.toggle?.('tm-cal-task-event--done', v); } catch (e) {}
+        try {
+            const eventEl = wrapEl?.closest?.('.fc-event');
+            eventEl?.classList?.toggle?.('tm-cal-event--done', v);
+            applyCalendarEventDoneBorderTone(eventEl, v);
+        } catch (e) {}
         const styleNodes = new Set();
         if (titleEl instanceof HTMLElement) styleNodes.add(titleEl);
         try {
@@ -6207,9 +6279,9 @@
             try {
                 const isTime = node.classList.contains('tm-cal-task-event-time');
                 if (v) {
-                    node.style.textDecoration = isTime ? 'none' : 'line-through';
-                    node.style.opacity = isTime ? '0.72' : '0.9';
-                    node.style.color = 'var(--tm-secondary-text, #8a8a8a)';
+                    node.style.setProperty('text-decoration', isTime ? 'none' : 'line-through', 'important');
+                    node.style.setProperty('opacity', isTime ? '0.72' : '0.9', 'important');
+                    node.style.setProperty('color', 'var(--tm-secondary-text, #8a8a8a)', 'important');
                 } else {
                     node.style.removeProperty('text-decoration');
                     node.style.removeProperty('opacity');
@@ -6217,6 +6289,24 @@
                 }
             } catch (e) {}
         });
+    }
+
+    function applyCalendarEventDoneBorderTone(eventEl, done) {
+        const el = eventEl instanceof Element ? eventEl : null;
+        if (!el) return;
+        const nextColor = done
+            ? 'color-mix(in srgb, var(--tm-cal-schedule-accent) 36%, var(--tm-border-color) 64%)'
+            : 'var(--tm-cal-schedule-stripe, var(--tm-cal-schedule-accent, var(--tm-primary-color)))';
+        try { el.style.setProperty('border-left-color', nextColor, 'important'); } catch (e) {}
+    }
+
+    function resolveCalendarEventDoneState(ext) {
+        const source = String(ext?.__tmSource || '').trim();
+        if (!(source === 'taskdate' || source === 'schedule')) return false;
+        const tid = String(ext?.__tmTaskId || ext?.__tmBlockId || '').trim();
+        if (!tid) return false;
+        if (typeof window.tmIsTaskDone !== 'function') return false;
+        try { return !!window.tmIsTaskDone(tid); } catch (e) { return false; }
     }
 
     function isOtherBlockCalendarEvent(ext) {
@@ -6930,6 +7020,7 @@
             eventResizableFromStart: true,
             selectable: true,
             selectMirror: true,
+            fixedMirrorParent: document.body,
             scrollTimeReset: false,
             droppable: true,
             dropAccept: 'tr[data-id], .tm-cal-task, .tm-checklist-item[data-id], .tm-kanban-card[data-id]',
@@ -6943,7 +7034,8 @@
             eventOrderStrict: true,
             eventClassNames: (arg) => {
                 if (arg?.isMirror) return ['tm-cal-selection-mirror', 'tm-cal-schedule-event'];
-                return [];
+                const ext = arg?.event?.extendedProps || {};
+                return resolveCalendarEventDoneState(ext) ? ['tm-cal-event--done'] : [];
             },
             eventContent: (arg) => {
                 const ext = arg?.event?.extendedProps || {};
@@ -6951,26 +7043,24 @@
                 const hideRangeText = String(arg?.view?.type || '').trim() === 'dayGridMonth';
                 if (source === 'taskdate' || (source === 'schedule' && (String(ext.__tmTaskId || '').trim() || String(ext.__tmBlockId || '').trim()))) {
                     const tid = String(ext.__tmTaskId || ext.__tmBlockId || '').trim();
-                    const done = (() => {
-                        if (!tid) return false;
-                        if (typeof window.tmIsTaskDone !== 'function') return false;
-                        try { return !!window.tmIsTaskDone(tid); } catch (e) { return false; }
-                    })();
+                    const done = resolveCalendarEventDoneState(ext);
                     const wrapEl = document.createElement('span');
                     wrapEl.className = source === 'schedule' ? 'tm-cal-task-event tm-cal-task-event--schedule' : 'tm-cal-task-event';
-                    wrapEl.oncontextmenu = (ev) => {
-                        try { ev.stopPropagation(); } catch (e) {}
-                        try { ev.preventDefault(); } catch (e) {}
-                        if (tid && typeof window.tmShowTaskContextMenu === 'function') {
-                            const sid0 = String(ext.__tmScheduleId || '').trim();
-                            try {
-                                if (source === 'schedule' && sid0) window.tmShowTaskContextMenu(ev, tid, { scheduleId: sid0, title: String(arg?.event?.title || '').trim(), start: arg?.event?.start, end: arg?.event?.end });
-                                else if (source === 'taskdate') window.tmShowTaskContextMenu(ev, tid, { taskDateStartKey: String(ext.__tmTaskDateStartKey || '').trim(), taskDateEndExclusiveKey: String(ext.__tmTaskDateEndExclusiveKey || '').trim(), calendarId: String(ext.calendarId || 'default').trim(), title: String(arg?.event?.title || '').trim() });
-                                else window.tmShowTaskContextMenu(ev, tid);
-                            } catch (e2) {}
-                        }
-                        return false;
-                    };
+                    if (shouldEnableCalendarEventContextMenu()) {
+                        wrapEl.oncontextmenu = (ev) => {
+                            try { ev.stopPropagation(); } catch (e) {}
+                            try { ev.preventDefault(); } catch (e) {}
+                            if (tid && typeof window.tmShowTaskContextMenu === 'function') {
+                                const sid0 = String(ext.__tmScheduleId || '').trim();
+                                try {
+                                    if (source === 'schedule' && sid0) window.tmShowTaskContextMenu(ev, tid, { scheduleId: sid0, title: String(arg?.event?.title || '').trim(), start: arg?.event?.start, end: arg?.event?.end });
+                                    else if (source === 'taskdate') window.tmShowTaskContextMenu(ev, tid, { taskDateStartKey: String(ext.__tmTaskDateStartKey || '').trim(), taskDateEndExclusiveKey: String(ext.__tmTaskDateEndExclusiveKey || '').trim(), calendarId: String(ext.calendarId || 'default').trim(), title: String(arg?.event?.title || '').trim() });
+                                    else window.tmShowTaskContextMenu(ev, tid);
+                                } catch (e2) {}
+                            }
+                            return false;
+                        };
+                    }
                     const rangeText = !hideRangeText && source === 'schedule'
                         ? formatScheduleEventRangeText(arg?.event?.start, arg?.event?.end, arg?.event?.allDay === true)
                         : '';
@@ -6998,7 +7088,7 @@
                             const nextDone = cb.checked === true;
                             applyTaskDoneVisual(wrapEl, titleText, nextDone);
                             try {
-                                const r = window.tmSetDone(tid, nextDone, null);
+                                const r = window.tmSetDone(tid, nextDone, null, { source: 'calendar' });
                                 if (r && typeof r.then === 'function') await r;
                             } catch (e) {
                                 cb.checked = !nextDone;
@@ -7076,11 +7166,17 @@
                     const el = arg?.el;
                     if (el && el instanceof Element) {
                         applyCalendarEventClampFromRoot(el);
+                        try { el.classList.toggle('tm-cal-event--done', resolveCalendarEventDoneState(ext)); } catch (e1) {}
                         const eid = String(arg?.event?.id || '').trim();
                         if (eid) el.setAttribute('data-tm-cal-event-id', eid);
                         if (source) el.setAttribute('data-tm-cal-source', source);
                         if (source === 'schedule' || source === 'tomato' || arg?.isMirror) applyScheduleEventColorVars(el, String(arg?.event?.backgroundColor || arg?.event?.borderColor || 'var(--tm-primary-color)'));
                         if ((source === 'schedule' || source === 'taskdate') && arg?.event?.allDay === true) applyAllDaySoftEventColorVars(el, String(arg?.event?.backgroundColor || arg?.event?.borderColor || 'var(--tm-primary-color)'));
+                        try {
+                            const wrapEl = el.querySelector?.('.tm-cal-task-event');
+                            const titleEl = wrapEl?.querySelector?.('.tm-cal-task-event-title-text') || wrapEl?.querySelector?.('.tm-cal-task-event-title') || null;
+                            if (wrapEl) applyTaskDoneVisual(wrapEl, titleEl, resolveCalendarEventDoneState(ext));
+                        } catch (e2) {}
                         const tid = String(ext.__tmTaskId || '').trim();
                         if (tid) el.setAttribute('data-tm-cal-task-id', tid);
                         const rid = String(ext.__tmReminderBlockId || '').trim();
@@ -7091,7 +7187,7 @@
                     if (source === 'schedule') {
                         const sid = String(ext.__tmScheduleId || '').trim();
                         const tid = String(ext.__tmTaskId || '').trim();
-                        if (sid && el && !el.__tmScheduleCtxBound) {
+                        if (sid && el && !el.__tmScheduleCtxBound && shouldEnableCalendarEventContextMenu()) {
                             el.__tmScheduleCtxBound = true;
                             el.addEventListener('contextmenu', (ev) => {
                                 try {
@@ -7119,7 +7215,7 @@
                     }
                     if (source === 'taskdate') {
                         const tid = String(ext.__tmTaskId || '').trim();
-                        if (tid && el && !el.__tmTaskCtxBound) {
+                        if (tid && el && !el.__tmTaskCtxBound && shouldEnableCalendarEventContextMenu()) {
                             el.__tmTaskCtxBound = true;
                             el.addEventListener('contextmenu', (ev) => {
                                 try { ev.stopPropagation(); } catch (e) {}
@@ -7139,6 +7235,18 @@
             },
             eventsSet: () => {
                 try { scheduleSyncTimeGridAllDayCollapseUi(rootEl, cal); } catch (e) {}
+            },
+            eventDragStart: () => {
+                try { setCalendarTouchGestureLock(rootEl, true); } catch (e) {}
+            },
+            eventDragStop: () => {
+                try { setCalendarTouchGestureLock(rootEl, false); } catch (e) {}
+            },
+            eventResizeStart: () => {
+                try { setCalendarTouchGestureLock(rootEl, true); } catch (e) {}
+            },
+            eventResizeStop: () => {
+                try { setCalendarTouchGestureLock(rootEl, false); } catch (e) {}
             },
             drop: () => {},
             eventReceive: async (info) => {
@@ -9714,6 +9822,89 @@
         return true;
     }
 
+    function collectCalendarsForTaskSync() {
+        const list = [];
+        if (state.calendar) list.push(state.calendar);
+        if (state.sideDay?.calendar && state.sideDay.calendar !== state.calendar) list.push(state.sideDay.calendar);
+        return list;
+    }
+
+    function findCalendarEventsByTaskId(cal, taskId) {
+        const api = cal && typeof cal.getEvents === 'function' ? cal : null;
+        const tid = String(taskId || '').trim();
+        if (!api || !tid) return [];
+        try {
+            return api.getEvents().filter((eventApi) => {
+                const ext = eventApi?.extendedProps || {};
+                const linkedTaskId = String(ext.__tmTaskId || '').trim();
+                const linkedBlockId = String(ext.__tmBlockId || '').trim();
+                return linkedTaskId === tid || linkedBlockId === tid;
+            });
+        } catch (e) {
+            return [];
+        }
+    }
+
+    function applyRenderedEventDoneStateById(eventId, done) {
+        const eid = String(eventId || '').trim();
+        if (!eid) return false;
+        const roots = [state.wrapEl, state.sideDay?.rootEl, document.body];
+        let touched = false;
+        roots.forEach((root) => {
+            if (!(root instanceof Element)) return;
+            const nodes = root.querySelectorAll?.('.fc-event[data-tm-cal-event-id]');
+            if (!nodes || !nodes.length) return;
+            nodes.forEach((el) => {
+                if (String(el.getAttribute('data-tm-cal-event-id') || '').trim() !== eid) return;
+                touched = true;
+                try { el.classList.toggle('tm-cal-event--done', !!done); } catch (e) {}
+                const wrapEl = el.querySelector?.('.tm-cal-task-event');
+                if (wrapEl instanceof HTMLElement) {
+                    const checkEl = wrapEl.querySelector?.('.tm-cal-task-event-check');
+                    if (checkEl instanceof HTMLInputElement) checkEl.checked = !!done;
+                    const titleEl = wrapEl.querySelector?.('.tm-cal-task-event-title-text') || wrapEl.querySelector?.('.tm-cal-task-event-title') || null;
+                    try { applyTaskDoneVisual(wrapEl, titleEl, !!done); } catch (e) {}
+                }
+            });
+        });
+        return touched;
+    }
+
+    function syncTaskDoneInPlace(taskId, done, options = {}) {
+        const tid = String(taskId || '').trim();
+        if (!tid) return false;
+        const opt = (options && typeof options === 'object') ? options : {};
+        const nextDone = !!done;
+        let touched = false;
+        let needsRefetch = false;
+        const calendars = collectCalendarsForTaskSync();
+        calendars.forEach((cal) => {
+            const events = findCalendarEventsByTaskId(cal, tid);
+            events.forEach((eventApi) => {
+                const ext = eventApi?.extendedProps || {};
+                const source = String(ext.__tmSource || '').trim();
+                if (source === 'taskdate') {
+                    if (nextDone) {
+                        try { eventApi.remove(); } catch (e) {}
+                        touched = true;
+                    } else {
+                        needsRefetch = true;
+                    }
+                    return;
+                }
+                if (applyRenderedEventDoneStateById(eventApi?.id, nextDone)) touched = true;
+            });
+        });
+        if (state.wrapEl instanceof HTMLElement) {
+            try { scheduleTaskPageRender(state.wrapEl, getSettings()); } catch (e) {}
+        }
+        if (needsRefetch && opt.allowRefetch !== false) {
+            try { refreshInPlace({ hard: false }); } catch (e) {}
+            return true;
+        }
+        return touched;
+    }
+
     function refreshSideDayLayout() {
         const rootEl = state.sideDay?.rootEl;
         const cal = state.sideDay?.calendar;
@@ -9756,9 +9947,12 @@
             } catch (e) {}
             return false;
         })();
-        const isMobileDevice = hostForcesMobileUi || !!globalThis.__taskHorizonPluginIsMobile || (() => {
-            try { return !!window.matchMedia?.('(pointer: coarse)')?.matches; } catch (e) { return false; }
-        })();
+        const isMobileDevice = hostForcesMobileUi
+            || isLikelyMobileRuntime()
+            || !!globalThis.__taskHorizonPluginIsMobile
+            || (() => {
+                try { return !!window.matchMedia?.('(pointer: coarse)')?.matches; } catch (e) { return false; }
+            })();
         const isDockHost = (() => {
             try {
                 const local = String(rootEl?.dataset?.tmHostMode || '').trim();
@@ -9961,26 +10155,24 @@
                 const hideRangeText = String(arg?.view?.type || '').trim() === 'dayGridMonth';
                 if (source === 'taskdate' || (source === 'schedule' && (String(ext.__tmTaskId || '').trim() || String(ext.__tmBlockId || '').trim()))) {
                     const tid = String(ext.__tmTaskId || ext.__tmBlockId || '').trim();
-                    const done = (() => {
-                        if (!tid) return false;
-                        if (typeof window.tmIsTaskDone !== 'function') return false;
-                        try { return !!window.tmIsTaskDone(tid); } catch (e) { return false; }
-                    })();
+                    const done = resolveCalendarEventDoneState(ext);
                     const wrapEl = document.createElement('span');
                     wrapEl.className = source === 'schedule' ? 'tm-cal-task-event tm-cal-task-event--schedule' : 'tm-cal-task-event';
-                    wrapEl.oncontextmenu = (ev) => {
-                        try { ev.stopPropagation(); } catch (e) {}
-                        try { ev.preventDefault(); } catch (e) {}
-                        if (tid && typeof window.tmShowTaskContextMenu === 'function') {
-                            const sid0 = String(ext.__tmScheduleId || '').trim();
-                            try {
-                                if (source === 'schedule' && sid0) window.tmShowTaskContextMenu(ev, tid, { scheduleId: sid0, title: String(arg?.event?.title || '').trim(), start: arg?.event?.start, end: arg?.event?.end });
-                                else if (source === 'taskdate') window.tmShowTaskContextMenu(ev, tid, { taskDateStartKey: String(ext.__tmTaskDateStartKey || '').trim(), taskDateEndExclusiveKey: String(ext.__tmTaskDateEndExclusiveKey || '').trim(), calendarId: String(ext.calendarId || 'default').trim(), title: String(arg?.event?.title || '').trim() });
-                                else window.tmShowTaskContextMenu(ev, tid);
-                            } catch (e) {}
-                        }
-                        return false;
-                    };
+                    if (shouldEnableCalendarEventContextMenu()) {
+                        wrapEl.oncontextmenu = (ev) => {
+                            try { ev.stopPropagation(); } catch (e) {}
+                            try { ev.preventDefault(); } catch (e) {}
+                            if (tid && typeof window.tmShowTaskContextMenu === 'function') {
+                                const sid0 = String(ext.__tmScheduleId || '').trim();
+                                try {
+                                    if (source === 'schedule' && sid0) window.tmShowTaskContextMenu(ev, tid, { scheduleId: sid0, title: String(arg?.event?.title || '').trim(), start: arg?.event?.start, end: arg?.event?.end });
+                                    else if (source === 'taskdate') window.tmShowTaskContextMenu(ev, tid, { taskDateStartKey: String(ext.__tmTaskDateStartKey || '').trim(), taskDateEndExclusiveKey: String(ext.__tmTaskDateEndExclusiveKey || '').trim(), calendarId: String(ext.calendarId || 'default').trim(), title: String(arg?.event?.title || '').trim() });
+                                    else window.tmShowTaskContextMenu(ev, tid);
+                                } catch (e) {}
+                            }
+                            return false;
+                        };
+                    }
                     const rangeText = !hideRangeText && source === 'schedule'
                         ? formatScheduleEventRangeText(arg?.event?.start, arg?.event?.end, arg?.event?.allDay === true)
                         : '';
@@ -10008,7 +10200,7 @@
                             const nextDone = cb.checked === true;
                             applyTaskDoneVisual(wrapEl, titleText, nextDone);
                             try {
-                                const r = window.tmSetDone(tid, nextDone, null);
+                                const r = window.tmSetDone(tid, nextDone, null, { source: 'calendar' });
                                 if (r && typeof r.then === 'function') await r;
                             } catch (e) {
                                 cb.checked = !nextDone;
@@ -10107,11 +10299,17 @@
                         const el = arg?.el;
                         if (el && el instanceof Element) {
                             applyCalendarEventClampFromRoot(el);
+                            try { el.classList.toggle('tm-cal-event--done', resolveCalendarEventDoneState(ext)); } catch (e1) {}
                             const eid = String(arg?.event?.id || '').trim();
                             if (eid) el.setAttribute('data-tm-cal-event-id', eid);
                             if (source) el.setAttribute('data-tm-cal-source', source);
                             if (source === 'schedule' || source === 'tomato' || arg?.isMirror) applyScheduleEventColorVars(el, String(arg?.event?.backgroundColor || arg?.event?.borderColor || 'var(--tm-primary-color)'));
                             if ((source === 'schedule' || source === 'taskdate') && arg?.event?.allDay === true) applyAllDaySoftEventColorVars(el, String(arg?.event?.backgroundColor || arg?.event?.borderColor || 'var(--tm-primary-color)'));
+                            try {
+                                const wrapEl = el.querySelector?.('.tm-cal-task-event');
+                                const titleEl = wrapEl?.querySelector?.('.tm-cal-task-event-title-text') || wrapEl?.querySelector?.('.tm-cal-task-event-title') || null;
+                                if (wrapEl) applyTaskDoneVisual(wrapEl, titleEl, resolveCalendarEventDoneState(ext));
+                            } catch (e2) {}
                             const aggDay = String(ext.__tmAggregateDay || '').trim();
                             if (aggDay) el.setAttribute('data-tm-cal-agg-day', aggDay);
                             const tid = String(ext.__tmTaskId || '').trim();
@@ -10130,7 +10328,7 @@
                         const sid = String(ext.__tmScheduleId || '').trim();
                         const tid = String(ext.__tmTaskId || '').trim();
                         const el = arg?.el;
-                        if (sid && el && !el.__tmScheduleCtxBound) {
+                        if (sid && el && !el.__tmScheduleCtxBound && shouldEnableCalendarEventContextMenu()) {
                             el.__tmScheduleCtxBound = true;
                             el.addEventListener('contextmenu', (ev) => {
                                 try {
@@ -10159,7 +10357,7 @@
                     if (source === 'taskdate') {
                         const tid = String(ext.__tmTaskId || '').trim();
                         const el = arg?.el;
-                        if (tid && el && !el.__tmTaskCtxBound) {
+                        if (tid && el && !el.__tmTaskCtxBound && shouldEnableCalendarEventContextMenu()) {
                             el.__tmTaskCtxBound = true;
                             el.addEventListener('contextmenu', (ev) => {
                                 try { ev.stopPropagation(); } catch (e) {}
@@ -10186,11 +10384,24 @@
             eventsSet: () => {
                 try { scheduleSyncTimeGridAllDayCollapseUi(host, calendar); } catch (e) {}
             },
+            eventDragStart: () => {
+                try { setCalendarTouchGestureLock(host, true); } catch (e) {}
+            },
+            eventDragStop: () => {
+                try { setCalendarTouchGestureLock(host, false); } catch (e) {}
+            },
+            eventResizeStart: () => {
+                try { setCalendarTouchGestureLock(host, true); } catch (e) {}
+            },
+            eventResizeStop: () => {
+                try { setCalendarTouchGestureLock(host, false); } catch (e) {}
+            },
             eventOrder: '__tmRank,title',
             eventOrderStrict: true,
             eventClassNames: (arg) => {
                 if (arg?.isMirror) return ['tm-cal-selection-mirror', 'tm-cal-schedule-event'];
-                return [];
+                const ext = arg?.event?.extendedProps || {};
+                return resolveCalendarEventDoneState(ext) ? ['tm-cal-event--done'] : [];
             },
             editable: true,
             eventStartEditable: true,
@@ -10202,6 +10413,7 @@
             eventDragMinDistance: isMobileDevice ? 0 : undefined,
             selectable: true,
             selectMirror: true,
+            fixedMirrorParent: document.body,
             scrollTimeReset: false,
             droppable: true,
             dropAccept: '.tm-cal-task, .tm-checklist-item[data-id], tr[data-id], .tm-kanban-card[data-id]',
@@ -12044,6 +12256,7 @@
         deleteScheduleById,
         setSettingsStore,
         refreshInPlace,
+        syncTaskDoneInPlace,
         refreshSideDayLayout,
     };
 })();

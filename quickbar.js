@@ -137,6 +137,7 @@
     let inlineMetaIsComposing = false;
     let inlineMetaCompositionStartHandler = null;
     let inlineMetaCompositionEndHandler = null;
+    let inlineMetaBootstrapTimers = [];
     let inlineMetaScopeDocIds = null;
     let inlineMetaScopeDocIdsTs = 0;
     let inlineMetaScopeDocIdsPromise = null;
@@ -171,6 +172,84 @@
         } catch (e) {
             return { items: quickbarVisibleItemDefaults.slice() };
         }
+    }
+
+    function clearInlineMetaBootstrapTimers() {
+        if (!Array.isArray(inlineMetaBootstrapTimers) || !inlineMetaBootstrapTimers.length) return;
+        inlineMetaBootstrapTimers.forEach((timer) => {
+            try { clearTimeout(timer); } catch (e) {}
+        });
+        inlineMetaBootstrapTimers = [];
+    }
+
+    function hasInlineMetaReadyHosts() {
+        try {
+            const layer = inlineMetaLayer && inlineMetaLayer.isConnected
+                ? inlineMetaLayer
+                : document.querySelector('.sy-custom-props-inline-layer');
+            if (!layer) return false;
+            return !!layer.querySelector('.sy-custom-props-inline-host.is-ready');
+        } catch (e) {
+            return false;
+        }
+    }
+
+    function scheduleInlineMetaBootstrapRenders(forceRefresh = false) {
+        clearInlineMetaBootstrapTimers();
+        const plan = [0, 48, 160, 360, 760];
+        plan.forEach((delay, index) => {
+            if (delay === 0) {
+                try { scheduleInlineMetaRender(!!forceRefresh, true); } catch (e) {}
+                return;
+            }
+            const timer = setTimeout(() => {
+                inlineMetaBootstrapTimers = inlineMetaBootstrapTimers.filter((item) => item !== timer);
+                if (!inlineMetaStarted || !isInlineMetaEnabled()) return;
+                const needRetry = inlineMetaObservedRoots.length === 0
+                    || inlineMetaObservedTaskBlocks.size === 0
+                    || !hasInlineMetaReadyHosts();
+                if (!forceRefresh && !needRetry) return;
+                try { requestInlineMetaRender(forceRefresh || index >= plan.length - 2); } catch (e) {}
+            }, delay);
+            inlineMetaBootstrapTimers.push(timer);
+        });
+    }
+
+    function getStatusOptionsSnapshot() {
+        try {
+            const savedOptions = localStorage.getItem('tm_custom_status_options');
+            if (savedOptions) {
+                const options = JSON.parse(savedOptions);
+                if (Array.isArray(options) && options.length > 0) {
+                    taskStatusOptions = options;
+                }
+            }
+        } catch (e) {}
+        return Array.isArray(taskStatusOptions) && taskStatusOptions.length
+            ? taskStatusOptions
+            : [
+                { id: 'todo', name: '待办', color: '#757575' },
+                { id: 'in_progress', name: '进行中', color: '#2196F3' },
+                { id: 'done', name: '已完成', color: '#4CAF50' },
+                { id: 'blocked', name: '阻塞', color: '#F44336' },
+                { id: 'review', name: '待审核', color: '#FF9800' }
+            ];
+    }
+
+    function getDefaultUndoneStatusId(statusOptionsInput = null) {
+        const statusOptions = Array.isArray(statusOptionsInput) && statusOptionsInput.length
+            ? statusOptionsInput
+            : getStatusOptionsSnapshot();
+        let configured = '';
+        try {
+            configured = String(localStorage.getItem('tm_checkbox_undone_status_id') || '').trim();
+        } catch (e) {}
+        if (configured && configured !== '__none__' && statusOptions.some((item) => String(item?.id || '').trim() === configured)) {
+            return configured;
+        }
+        const todoExists = statusOptions.some((item) => String(item?.id || '').trim() === 'todo');
+        if (todoExists) return 'todo';
+        return String(statusOptions[0]?.id || '').trim() || 'todo';
     }
 
     function isInlineMetaScopeStorageKey(key) {
@@ -1169,37 +1248,24 @@
 
         // 更新配置中的状态选项
         function updateStatusOptionsInConfig() {
+            const statusOptions = getStatusOptionsSnapshot();
             const statusConfig = [...customPropsConfig.firstRow, ...customPropsConfig.secondRow]
                 .find(p => p.attrKey === 'custom-status');
             if (statusConfig) {
-                statusConfig.options = taskStatusOptions.map(o => ({
+                statusConfig.options = statusOptions.map(o => ({
                     value: o.id,
                     label: o.name,
                     color: o.color
                 }));
+                statusConfig.defaultValue = getDefaultUndoneStatusId(statusOptions);
             }
         }
 
         // 从任务管理器读取状态选项
         async function loadStatusOptions() {
             try {
-                // 尝试从 localStorage 读取任务管理器的状态选项
-                const savedOptions = localStorage.getItem('tm_custom_status_options');
-                if (savedOptions) {
-                    const options = JSON.parse(savedOptions);
-                    if (Array.isArray(options) && options.length > 0) {
-                        // 检查是否有变化
-                        const currentLength = taskStatusOptions.length;
-                        const newLength = options.length;
-
-                        if (currentLength !== newLength) {
-                        }
-
-                        taskStatusOptions = options;
-                        // 更新配置中的状态选项
-                        updateStatusOptionsInConfig();
-                    }
-                }
+                getStatusOptionsSnapshot();
+                updateStatusOptionsInConfig();
             } catch (e) {
                 console.warn('读取状态选项失败:', e);
             }
@@ -1207,7 +1273,7 @@
 
         __tmQBStatusRenderStorageHandler = (e) => {
             if (!e) return;
-            if (e.key === 'tm_custom_status_options') {
+            if (e.key === 'tm_custom_status_options' || e.key === 'tm_checkbox_undone_status_id') {
                 loadStatusOptions().then(() => {
                     try { renderFloatBar(); } catch (e) {}
                     try { scheduleInlineMetaRender(true); } catch (e) {}
@@ -1223,7 +1289,6 @@
                 try { refreshInlineMetaMode(true); } catch (e) {}
             }
         };
-        window.addEventListener('storage', __tmQBStatusRenderStorageHandler);
 
         // 获取块的自定义属性
         async function getBlockCustomAttrs(blockId) {
@@ -1368,9 +1433,11 @@
 
         // 获取状态选项的显示文本和颜色
         function getStatusDisplay(value) {
-            const option = taskStatusOptions.find(o => o.id === value);
+            const statusOptions = getStatusOptionsSnapshot();
+            const resolvedValue = String(value || '').trim() || getDefaultUndoneStatusId(statusOptions);
+            const option = statusOptions.find(o => o.id === resolvedValue);
             return {
-                name: option ? option.name : value,
+                name: option ? option.name : resolvedValue,
                 color: option ? option.color : '#757575'
             };
         }
@@ -1458,9 +1525,11 @@
 
         function normalizeCustomProps(attrs) {
             const data = attrs && typeof attrs === 'object' ? attrs : {};
+            const statusOptions = getStatusOptionsSnapshot();
+            const defaultUndoneStatusId = getDefaultUndoneStatusId(statusOptions);
             return {
                 'custom-priority': data['custom-priority'] || 'none',
-                'custom-status': data['custom-status'] || 'todo',
+                'custom-status': String(data['custom-status'] || '').trim() || defaultUndoneStatusId,
                 'custom-completion-time': data['custom-completion-time'] || '',
                 'custom-start-date': data['custom-start-date'] || '',
                 'custom-duration': data['custom-duration'] || '',
@@ -1510,9 +1579,10 @@
             const rawValue = String(value ?? '');
             const escapedValue = rawValue.replace(/"/g, '&quot;');
             if (attrKey === 'custom-status') {
-                const statusInfo = getStatusDisplay(rawValue || 'todo');
+                const effectiveValue = rawValue || getDefaultUndoneStatusId();
+                const statusInfo = getStatusDisplay(effectiveValue);
                 return `
-                    <span class="sy-custom-props-inline-chip sy-custom-props-inline-chip--status" data-inline-attr="${escapedAttr}" data-inline-type="select" data-inline-name="${escapedName}" data-inline-value="${escapedValue}" title="${escapedName}">
+                    <span class="sy-custom-props-inline-chip sy-custom-props-inline-chip--status" data-inline-attr="${escapedAttr}" data-inline-type="select" data-inline-name="${escapedName}" data-inline-value="${esc(String(effectiveValue)).replace(/"/g, '&quot;')}" title="${escapedName}">
                         <span class="sy-custom-props-floatbar__option-label sy-custom-props-floatbar__option-label--status" style="${buildStatusChipStyle(statusInfo.color)}">${statusInfo.name}</span>
                     </span>
                 `.trim();
@@ -1629,6 +1699,7 @@
 
         // 渲染悬浮条
         function renderFloatBar() {
+            updateStatusOptionsInConfig();
             const rows = [];
             const visibleSettings = getQuickbarVisibleSettings();
             const visibleSet = new Set(visibleSettings.items);
@@ -2373,16 +2444,39 @@
                 let lastTextNode = null;
                 while (walker.nextNode()) lastTextNode = walker.currentNode;
                 if (lastTextNode) {
-                    const raw = String(lastTextNode.nodeValue || '').replace(/\u200b/g, '');
+                    const raw = String(lastTextNode.nodeValue || '');
                     const endOffset = raw.length;
                     if (endOffset > 0) {
                         const range = document.createRange();
                         range.setStart(lastTextNode, 0);
                         range.setEnd(lastTextNode, endOffset);
-                        const rects = Array.from(range.getClientRects()).filter((rect) => rect && rect.width >= 0);
-                        if (rects.length) return rects[rects.length - 1];
-                        const rect = range.getBoundingClientRect();
-                        if (rect && (rect.width || rect.height)) return rect;
+                        const rects = Array.from(range.getClientRects()).filter((rect) => rect && (rect.width || rect.height));
+                        let tailRect = rects.length ? rects[rects.length - 1] : null;
+                        if (!tailRect) {
+                            const rect = range.getBoundingClientRect();
+                            if (rect && (rect.width || rect.height)) tailRect = rect;
+                        }
+                        let inlineRect = null;
+                        let probe = lastTextNode.parentElement;
+                        while (probe && probe !== textAnchor) {
+                            const style = window.getComputedStyle?.(probe);
+                            const display = String(style?.display || '').toLowerCase();
+                            if (display.startsWith('inline')) {
+                                const rect = probe.getBoundingClientRect?.();
+                                if (rect && (rect.width || rect.height)) {
+                                    const sameLine = !tailRect || (
+                                        rect.bottom >= (tailRect.top - 1)
+                                        && rect.top <= (tailRect.bottom + 1)
+                                    );
+                                    if (sameLine && (!tailRect || rect.right >= (tailRect.right - 1))) {
+                                        inlineRect = rect;
+                                    }
+                                }
+                            }
+                            probe = probe.parentElement;
+                        }
+                        if (inlineRect) return inlineRect;
+                        if (tailRect) return tailRect;
                     }
                 }
             } catch (e) {}
@@ -3132,6 +3226,7 @@
 
         function stopInlineMeta() {
             inlineMetaStarted = false;
+            clearInlineMetaBootstrapTimers();
             if (inlineMetaRenderTimer) clearTimeout(inlineMetaRenderTimer);
             inlineMetaRenderTimer = null;
             if (inlineMetaRafId) cancelAnimationFrame(inlineMetaRafId);
@@ -3167,7 +3262,7 @@
             if (forceRefresh) clearInlineMetaScopeDocCache();
             if (isInlineMetaEnabled()) {
                 startInlineMeta();
-                scheduleInlineMetaRender(!!forceRefresh);
+                scheduleInlineMetaBootstrapRenders(!!forceRefresh);
             } else {
                 stopInlineMeta();
             }
@@ -3377,27 +3472,11 @@
 
             // 监听localStorage变化（跨标签页同步）
             storageHandler = (e) => {
-                if (e.key === 'tm_custom_status_options') {
-                    try {
-                        const options = JSON.parse(e.newValue);
-                        if (Array.isArray(options) && options.length > 0) {
-                            taskStatusOptions = options;
-                            updateStatusOptionsInConfig();
-                            console.log('🎯 检测到状态选项变化:', options.length, '个选项');
-                            scheduleInlineMetaRender(true);
-                        }
-                    } catch (err) {
-                        console.warn('解析状态选项失败:', err);
-                    }
-                } else if (e.key === 'tm_enable_quickbar_inline_meta' || e.key === 'tm_quickbar_inline_fields' || e.key === 'tm_quickbar_inline_show_on_mobile') {
-                    refreshInlineMetaMode(true);
-                } else if (e.key === 'tm_quickbar_visible_items') {
+                try { __tmQBStatusRenderStorageHandler?.(e); } catch (err) {}
+                if (e.key === 'tm_quickbar_visible_items') {
                     try {
                         if (floatBar && floatBar.style.display !== 'none') renderFloatBar();
                     } catch (err) {}
-                } else if (isInlineMetaScopeStorageKey(e.key)) {
-                    clearInlineMetaScopeDocCache();
-                    refreshInlineMetaMode(true);
                 }
             };
             window.addEventListener('storage', storageHandler);
