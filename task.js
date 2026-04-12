@@ -1,5 +1,5 @@
 // @name         思源笔记任务管理器
-// @version      2.1.8
+// @version      2.1.9
 // @description  任务管理器，支持自定义筛选规则分组和排序
 // @author       5KYFKR
 
@@ -16226,6 +16226,19 @@
         if (!configured) return '';
         if (statusOptions.some((item) => String(item?.id || '').trim() === configured)) return configured;
         return done ? __tmGetCheckboxStatusBindingFallbackId(true, statusOptions) : __tmGetDefaultUndoneStatusId(statusOptions);
+    }
+
+    function __tmShouldApplyUndoneStatusFallback(task, expectedStatus, currentStatus = '', persistedStatus = '', statusOptionsInput = null) {
+        const expected = String(expectedStatus || '').trim();
+        if (!expected) return false;
+        const persisted = String(persistedStatus || '').trim();
+        const current = String(currentStatus || '').trim();
+        const effective = persisted || current;
+        if (!effective) return true;
+        if (effective === expected) return true;
+        const doneLinkedStatus = String(__tmResolveCheckboxLinkedStatusId(true, statusOptionsInput) || '').trim();
+        if (doneLinkedStatus && effective === doneLinkedStatus) return true;
+        return !!task?.done;
     }
 
     function __tmResolveTaskStatusDisplayOption(task, statusOptionsInput = null, options = {}) {
@@ -66018,6 +66031,18 @@ async function __tmRefreshAfterWake(reason) {
         }
     }
 
+    function __tmResolveNativeDocTaskToggleBlockId(target) {
+        try {
+            const node = target instanceof Element ? target : target?.parentElement || null;
+            if (!(node instanceof Element) || !node.closest) return '';
+            const toggle = node.matches?.('.protyle-action--task') ? node : node.closest('.protyle-action--task');
+            if (!(toggle instanceof Element) || !toggle.closest('.protyle')) return '';
+            return __tmResolveNativeDocTaskBlockId(toggle);
+        } catch (e) {
+            return '';
+        }
+    }
+
     function __tmReadNativeDocTaskDoneFromListItem(listItem) {
         try {
             if (!(listItem instanceof Element)) return null;
@@ -66050,6 +66075,19 @@ async function __tmRefreshAfterWake(reason) {
             return __tmReadNativeDocTaskDoneFromListItem(listItem);
         }
         return null;
+    }
+
+    function __tmReadNativeDocCheckboxIconDoneState(target) {
+        try {
+            const el = target instanceof Element ? target : null;
+            if (!(el instanceof Element)) return null;
+            const href = String(el.getAttribute('xlink:href') || el.getAttribute('href') || '').trim();
+            if (href === '#iconCheck') return true;
+            if (href === '#iconUncheck') return false;
+            return null;
+        } catch (e) {
+            return null;
+        }
     }
 
     function __tmFindNativeDocTaskListItemsByIds(blockIds) {
@@ -66255,14 +66293,17 @@ async function __tmRefreshAfterWake(reason) {
         if (!task || typeof task !== 'object') return false;
         try { normalizeTaskFields(task, String(task.doc_name || task.docName || '').trim()); } catch (e) {}
 
-        const expectedStatus = String(__tmResolveCheckboxLinkedStatusId(!!domDone) || '').trim();
+        const statusOptions = Array.isArray(SettingsStore?.data?.customStatusOptions) ? SettingsStore.data.customStatusOptions : [];
+        const expectedStatus = String(__tmResolveCheckboxLinkedStatusId(!!domDone, statusOptions) || '').trim();
         const currentStatus = String(task.customStatus || '').trim();
         const persistedStatusBefore = String(await __tmReadDocCheckboxBlockAttrs(tid) || '').trim();
-        const shouldPersistStatus = !!expectedStatus && persistedStatusBefore !== expectedStatus;
-        const shouldSyncLocalStatus = !!expectedStatus && currentStatus !== expectedStatus;
-        const statusPatch = shouldPersistStatus ? { customStatus: expectedStatus } : (shouldSyncLocalStatus ? { customStatus: expectedStatus } : null);
+        const shouldApplyExpectedStatus = !!domDone || __tmShouldApplyUndoneStatusFallback(task, expectedStatus, currentStatus, persistedStatusBefore, statusOptions);
+        const targetStatus = String(shouldApplyExpectedStatus ? expectedStatus : (persistedStatusBefore || currentStatus || '')).trim();
+        const shouldPersistStatus = !!targetStatus && persistedStatusBefore !== targetStatus;
+        const shouldSyncLocalStatus = !!targetStatus && currentStatus !== targetStatus;
+        const statusPatch = shouldPersistStatus ? { customStatus: targetStatus } : (shouldSyncLocalStatus ? { customStatus: targetStatus } : null);
         if (!statusPatch || Object.keys(statusPatch).length === 0) {
-            const resolvedStatus = String(expectedStatus || persistedStatusBefore || currentStatus || '').trim();
+            const resolvedStatus = String(targetStatus || expectedStatus || persistedStatusBefore || currentStatus || '').trim();
             __tmApplyNativeDocCheckboxLocalState(tid, !!domDone, resolvedStatus, task);
             try {
                 const docId = String(task.root_id || task.docId || '').trim();
@@ -66286,7 +66327,7 @@ async function __tmRefreshAfterWake(reason) {
                 skipFlush: false,
             });
             persistedStatus = await __tmReadDocCheckboxBlockAttrs(tid);
-            if (persistedStatus !== expectedStatus && __tmIsNativeDocCheckboxReconcileVersionCurrent(rawId, syncVersion)) {
+            if (persistedStatus !== targetStatus && __tmIsNativeDocCheckboxReconcileVersionCurrent(rawId, syncVersion)) {
                 await __tmReconcileNativeDocCheckboxStatus(rawId, tid, statusPatch, !!domDone, syncVersion);
                 persistedStatus = await __tmReadDocCheckboxBlockAttrs(tid);
             }
@@ -66298,7 +66339,7 @@ async function __tmRefreshAfterWake(reason) {
             });
             __tmMirrorDocCheckboxStatusPatch(tid, statusPatch);
         } catch (e) {}
-        __tmApplyNativeDocCheckboxLocalState(tid, !!domDone, expectedStatus, task);
+        __tmApplyNativeDocCheckboxLocalState(tid, !!domDone, targetStatus, task);
         try {
             const docId = String(task.root_id || task.docId || '').trim();
             if (docId) __tmInvalidateTasksQueryCacheByDocId(docId);
@@ -66389,7 +66430,7 @@ async function __tmRefreshAfterWake(reason) {
 
         __tmNativeDocCheckboxSyncClickHandler = (event) => {
             if (!event || event.isTrusted !== true) return;
-            const blockId = __tmResolveNativeDocTaskBlockId(event.target);
+            const blockId = __tmResolveNativeDocTaskToggleBlockId(event.target);
             if (!blockId) return;
             __tmScheduleNativeDocCheckboxStatusSync(blockId);
         };
@@ -66411,24 +66452,33 @@ async function __tmRefreshAfterWake(reason) {
                         const attrName = String(mutation?.attributeName || '').trim();
                         if (!targetEl) return;
                         if (attrName === 'class') {
+                            const oldDone = /\bprotyle-task--done\b/.test(String(mutation?.oldValue || ''));
+                            const newDone = !!targetEl.classList?.contains?.('protyle-task--done');
+                            if (oldDone === newDone) return;
                             if (!(targetEl.matches?.('.protyle-action--task, [data-type="NodeListItem"], .li[data-node-id]') || targetEl.closest?.('.protyle-action--task, [data-type="NodeListItem"], .li[data-node-id]'))) return;
                         } else if (attrName === 'href' || attrName === 'xlink:href') {
                             if (!(targetEl.matches?.('use') || targetEl.closest?.('.protyle-action--task'))) return;
+                            const oldHref = String(mutation?.oldValue || '').trim();
+                            const oldDone = oldHref === '#iconCheck' ? true : (oldHref === '#iconUncheck' ? false : null);
+                            const newDone = __tmReadNativeDocCheckboxIconDoneState(targetEl);
+                            if (oldDone === null && newDone === null) return;
+                            if (oldDone === newDone) return;
                         } else {
                             return;
                         }
                         collect(targetEl);
                         return;
                     }
-                    const targetEl = target instanceof Element ? target : null;
-                    if (targetEl?.matches?.('.protyle-action--task') || targetEl?.closest?.('.protyle-action--task')) {
-                        collect(targetEl);
-                    }
                     if (type === 'childList') {
                         try {
                             (Array.from(mutation?.addedNodes || [])).forEach((node) => {
                                 const el = node instanceof Element ? node : null;
-                                if (el?.matches?.('.protyle-action--task, .protyle-action--task *') || el?.closest?.('.protyle-action--task')) {
+                                const useEl = el?.matches?.('use')
+                                    ? el
+                                    : (el?.querySelector?.('.protyle-action--task use') || null);
+                                const iconDone = __tmReadNativeDocCheckboxIconDoneState(useEl);
+                                const hasCheckboxInput = !!(el?.matches?.('input[type="checkbox"]') || el?.querySelector?.('input[type="checkbox"]'));
+                                if (iconDone !== null || hasCheckboxInput) {
                                     collect(el);
                                 }
                             });
@@ -66442,6 +66492,7 @@ async function __tmRefreshAfterWake(reason) {
                 childList: true,
                 attributes: true,
                 attributeFilter: ['class', 'href', 'xlink:href'],
+                attributeOldValue: true,
             });
         } catch (e) {}
     }
