@@ -102,6 +102,9 @@
         mainLayoutHost: null,
         mainLayoutCalendar: null,
         mainLayoutNeedsUpdateSize: false,
+        mainTimeGridAutoCenterKey: '',
+        mainTimeGridAutoCenterPendingKey: '',
+        mainTimeGridAutoCenterToken: 0,
         allDayCollapsed: false,
         cnHolidaySignature: '',
         scheduleCache: {
@@ -148,6 +151,9 @@
             previewEl: null,
             popoverObserver: null,
             popoverClickCapture: null,
+            autoCenterKey: '',
+            autoCenterPendingKey: '',
+            autoCenterToken: 0,
         },
         floatingMini: {
             open: false,
@@ -962,6 +968,198 @@
         return realignMainCalendar3DayTodayRange(cal, settings);
     }
 
+    function parseCalendarTimeToMinutes(value) {
+        const raw = String(value || '').trim();
+        const m = raw.match(/^(\d{1,2}):(\d{2})(?::(\d{2}))?$/);
+        if (!m) return NaN;
+        const hh = Number(m[1]);
+        const mm = Number(m[2]);
+        const ss = Number(m[3] || 0);
+        if (!Number.isInteger(hh) || !Number.isInteger(mm) || !Number.isInteger(ss)) return NaN;
+        return hh * 60 + mm + (ss / 60);
+    }
+
+    function getDateMinutesOfDay(value) {
+        const date = value instanceof Date ? value : null;
+        if (!(date instanceof Date) || Number.isNaN(date.getTime())) return NaN;
+        return (date.getHours() * 60) + date.getMinutes() + (date.getSeconds() / 60) + (date.getMilliseconds() / 60000);
+    }
+
+    function isTimeGridViewType(value) {
+        const type = String(value || '').trim();
+        return !!type && type.startsWith('timeGrid');
+    }
+
+    function getTimeGridBodyScroller(rootEl) {
+        if (!(rootEl instanceof HTMLElement)) return null;
+        const selectors = [
+            '.fc-timegrid-body .fc-scroller-harness .fc-scroller',
+            '.fc-timegrid-body .fc-scroller-liquid-absolute',
+            '.fc-timegrid-body .fc-scroller',
+            '.fc-scroller-liquid-absolute .fc-scroller',
+        ];
+        for (const selector of selectors) {
+            const node = rootEl.querySelector(selector);
+            if (node instanceof HTMLElement) return node;
+        }
+        const candidates = Array.from(rootEl.querySelectorAll('.fc-timegrid-body .fc-scroller, .fc-scroller')).filter((node) => node instanceof HTMLElement);
+        let best = null;
+        let bestScore = -1;
+        for (const node of candidates) {
+            const score = Math.max(Number(node.scrollHeight || 0), Number(node.clientHeight || 0));
+            if (score <= bestScore) continue;
+            best = node;
+            bestScore = score;
+        }
+        return best instanceof HTMLElement ? best : null;
+    }
+
+    function getTimeGridAutoCenterScopeMeta(scope) {
+        if (scope === 'sideDay') {
+            return {
+                target: state.sideDay,
+                keyField: 'autoCenterKey',
+                pendingField: 'autoCenterPendingKey',
+                tokenField: 'autoCenterToken',
+            };
+        }
+        return {
+            target: state,
+            keyField: 'mainTimeGridAutoCenterKey',
+            pendingField: 'mainTimeGridAutoCenterPendingKey',
+            tokenField: 'mainTimeGridAutoCenterToken',
+        };
+    }
+
+    function clearTimeGridAutoCenterState(scope) {
+        const meta = getTimeGridAutoCenterScopeMeta(scope);
+        const target = meta?.target;
+        if (!target) return false;
+        target[meta.keyField] = '';
+        target[meta.pendingField] = '';
+        target[meta.tokenField] = Number(target[meta.tokenField] || 0) + 1;
+        return true;
+    }
+
+    function shouldAutoCenterCurrentTime(rootEl, calendar, settings, scope = 'main') {
+        if (!(rootEl instanceof HTMLElement) || !calendar) return null;
+        const viewType = String(calendar?.view?.type || '').trim();
+        if (!isTimeGridViewType(viewType)) return null;
+        const today = normalizeDateOnly(new Date());
+        if (!(today instanceof Date)) return null;
+        const visibleRange = getCalendarVisibleSlotRange(settings || getSettings());
+        const startMinutes = parseCalendarTimeToMinutes(visibleRange.slotMinTime);
+        const endMinutes = parseCalendarTimeToMinutes(visibleRange.slotMaxTime);
+        if (!Number.isFinite(startMinutes) || !Number.isFinite(endMinutes) || endMinutes <= startMinutes) return null;
+        let anchorKey = '';
+        if (scope === 'sideDay') {
+            const currentDate = normalizeDateOnly(calendar?.getDate?.() || calendar?.view?.currentStart || calendar?.view?.activeStart);
+            if (!(currentDate instanceof Date)) return null;
+            if (formatDateKey(currentDate) !== formatDateKey(today)) return null;
+            anchorKey = formatDateKey(currentDate);
+        } else {
+            const range = getMainCalendarVisibleRange(calendar);
+            const start = normalizeDateOnly(range?.start);
+            const end = normalizeDateOnly(range?.end);
+            if (!(start instanceof Date) || !(end instanceof Date)) return null;
+            if (today.getTime() < start.getTime() || today.getTime() > end.getTime()) return null;
+            anchorKey = `${formatDateKey(start)}|${formatDateKey(end)}`;
+        }
+        return {
+            key: [scope, viewType, anchorKey, visibleRange.start, visibleRange.end, getCalendarHalfHourSlotHeight(settings || getSettings())].join('|'),
+            targetDate: new Date(),
+            startMinutes,
+            endMinutes,
+        };
+    }
+
+    function centerCurrentTimeInTimeGrid(rootEl, calendar, settings, targetDate = new Date()) {
+        if (!(rootEl instanceof HTMLElement) || !calendar) return false;
+        const guard = shouldAutoCenterCurrentTime(rootEl, calendar, settings, isSideDayTimelineRoot(rootEl) ? 'sideDay' : 'main');
+        if (!guard) return false;
+        const scroller = getTimeGridBodyScroller(rootEl);
+        if (!(scroller instanceof HTMLElement)) return false;
+        const clientHeight = Number(scroller.clientHeight || 0);
+        const scrollHeight = Number(scroller.scrollHeight || 0);
+        if (clientHeight <= 0 || scrollHeight <= 0) return false;
+        const scrollerRect = scroller.getBoundingClientRect();
+        let targetContentY = NaN;
+        const indicator = rootEl.querySelector('.fc-timegrid-now-indicator-line');
+        if (indicator instanceof HTMLElement) {
+            const rect = indicator.getBoundingClientRect();
+            const centerY = ((rect.top + rect.bottom) / 2) - scrollerRect.top + Number(scroller.scrollTop || 0);
+            if (Number.isFinite(centerY)) targetContentY = centerY;
+        }
+        if (!Number.isFinite(targetContentY)) {
+            const nextSettings = settings || getSettings();
+            const slotHeight = getTimeGridSlotHeight(rootEl, getCalendarHalfHourSlotHeight(nextSettings));
+            const nowMinutesRaw = getDateMinutesOfDay(targetDate);
+            const nowMinutes = Math.min(guard.endMinutes, Math.max(guard.startMinutes, nowMinutesRaw));
+            if (!Number.isFinite(slotHeight) || slotHeight <= 0 || !Number.isFinite(nowMinutes)) return false;
+            let contentStartY = Number(scroller.scrollTop || 0);
+            const slotsEl = rootEl.querySelector('.fc-timegrid-slots');
+            if (slotsEl instanceof HTMLElement) {
+                const slotsRect = slotsEl.getBoundingClientRect();
+                const offsetTop = (slotsRect.top - scrollerRect.top) + Number(scroller.scrollTop || 0);
+                if (Number.isFinite(offsetTop)) contentStartY = Math.max(0, offsetTop);
+            }
+            targetContentY = contentStartY + ((nowMinutes - guard.startMinutes) / 30) * slotHeight;
+        }
+        if (!Number.isFinite(targetContentY)) return false;
+        const maxScrollTop = Math.max(0, scrollHeight - clientHeight);
+        const nextTop = Math.max(0, Math.min(maxScrollTop, targetContentY - (clientHeight / 2)));
+        try {
+            scroller.scrollTo({ top: nextTop, behavior: 'auto' });
+        } catch (e) {
+            try { scroller.scrollTop = nextTop; } catch (e2) {}
+        }
+        return true;
+    }
+
+    function scheduleCurrentTimeAutoCenter(rootEl, calendar, settings, options = {}) {
+        if (!(rootEl instanceof HTMLElement) || !calendar) return false;
+        const scope = options?.scope === 'sideDay' ? 'sideDay' : 'main';
+        const force = options?.force === true;
+        const guard = shouldAutoCenterCurrentTime(rootEl, calendar, settings, scope);
+        if (!guard) {
+            try { clearTimeGridAutoCenterState(scope); } catch (e) {}
+            return false;
+        }
+        const meta = getTimeGridAutoCenterScopeMeta(scope);
+        const target = meta?.target;
+        if (!target) return false;
+        if (!force) {
+            if (target[meta.keyField] === guard.key) return false;
+            if (target[meta.pendingField] === guard.key) return false;
+        }
+        target[meta.pendingField] = guard.key;
+        const token = Number(target[meta.tokenField] || 0) + 1;
+        target[meta.tokenField] = token;
+        const delays = [0, 120, 320];
+        const runAttempt = (index) => {
+            if (Number(target[meta.tokenField] || 0) !== token) return;
+            if (!rootEl.isConnected) {
+                if (target[meta.pendingField] === guard.key) target[meta.pendingField] = '';
+                return;
+            }
+            const ok = centerCurrentTimeInTimeGrid(rootEl, calendar, settings, guard.targetDate);
+            if (index < delays.length - 1) {
+                const wait = Math.max(0, delays[index + 1] - delays[index]);
+                setTimeout(() => runAttempt(index + 1), wait);
+                return;
+            }
+            if (Number(target[meta.tokenField] || 0) !== token) return;
+            if (ok) target[meta.keyField] = guard.key;
+            if (target[meta.pendingField] === guard.key) target[meta.pendingField] = '';
+        };
+        try {
+            requestAnimationFrame(() => runAttempt(0));
+        } catch (e) {
+            runAttempt(0);
+        }
+        return true;
+    }
+
     function formatMonthDayZh(date, options = {}) {
         const dt = date instanceof Date ? date : null;
         if (!(dt instanceof Date) || Number.isNaN(dt.getTime())) return '';
@@ -1734,12 +1932,14 @@
         try { forceSideDaySlotHeight(rootEl, nextSettings); } catch (e) {}
         try { calendar?.updateSize?.(); } catch (e) {}
         try { enhanceNowIndicator(rootEl); } catch (e) {}
+        try { scheduleCurrentTimeAutoCenter(rootEl, calendar, nextSettings, { scope: 'sideDay' }); } catch (e) {}
         try {
             requestAnimationFrame(() => {
                 try { applyTimeAxisColumnLayout(rootEl, 40); } catch (e2) {}
                 try { forceSideDaySlotHeight(rootEl, nextSettings); } catch (e2) {}
                 try { calendar?.updateSize?.(); } catch (e2) {}
                 try { enhanceNowIndicator(rootEl); } catch (e2) {}
+                try { scheduleCurrentTimeAutoCenter(rootEl, calendar, nextSettings, { scope: 'sideDay' }); } catch (e2) {}
             });
         } catch (e) {}
         return true;
@@ -1921,9 +2121,12 @@
 
     function refreshCalendarSlotHeight(settings) {
         const nextSettings = settings || getSettings();
+        try { clearTimeGridAutoCenterState('main'); } catch (e) {}
+        try { clearTimeGridAutoCenterState('sideDay'); } catch (e) {}
         try { applyCalendarSlotHeightStyle(state.wrapEl, nextSettings); } catch (e) {}
         try { applyMainCalendarSlotHeightLayout(state.wrapEl, nextSettings); } catch (e) {}
         try { state.calendar?.updateSize?.(); } catch (e) {}
+        try { scheduleCurrentTimeAutoCenter(state.calendarEl, state.calendar, nextSettings, { scope: 'main', force: true }); } catch (e) {}
         try { scheduleSyncTimeGridAllDayCollapseUi(state.calendarEl, state.calendar); } catch (e) {}
         try { syncSideDayLayout(state.sideDay?.rootEl, state.sideDay?.calendar, nextSettings); } catch (e) {}
         try { scheduleSyncTimeGridAllDayCollapseUi(state.sideDay?.rootEl, state.sideDay?.calendar); } catch (e) {}
@@ -1932,6 +2135,7 @@
                 try { applyCalendarSlotHeightStyle(state.wrapEl, nextSettings); } catch (e2) {}
                 try { applyMainCalendarSlotHeightLayout(state.wrapEl, nextSettings); } catch (e2) {}
                 try { state.calendar?.updateSize?.(); } catch (e2) {}
+                try { scheduleCurrentTimeAutoCenter(state.calendarEl, state.calendar, nextSettings, { scope: 'main', force: true }); } catch (e2) {}
                 try { scheduleSyncTimeGridAllDayCollapseUi(state.calendarEl, state.calendar); } catch (e2) {}
                 try { syncSideDayLayout(state.sideDay?.rootEl, state.sideDay?.calendar, nextSettings); } catch (e2) {}
                 try { scheduleSyncTimeGridAllDayCollapseUi(state.sideDay?.rootEl, state.sideDay?.calendar); } catch (e2) {}
@@ -2740,6 +2944,7 @@
                 }
                 try { scheduleSyncTimeGridAllDayCollapseUi(nextHost || state.calendarEl, nextCalendar); } catch (e) {}
                 try { if (nextHost instanceof Element) enhanceNowIndicator(nextHost); } catch (e) {}
+                try { if (nextHost instanceof HTMLElement) scheduleCurrentTimeAutoCenter(nextHost, nextCalendar, getSettings(), { scope: 'main' }); } catch (e) {}
                 try { applyCnHolidayDots(nextWrap); } catch (e) {}
                 try { applyCnLunarLabels(nextWrap); } catch (e) {}
             });
@@ -2752,6 +2957,7 @@
             try { if (options.updateSize === true) targetCalendar.updateSize(); } catch (e2) {}
             try { scheduleSyncTimeGridAllDayCollapseUi(targetHost || state.calendarEl, targetCalendar); } catch (e2) {}
             try { if (targetHost instanceof Element) enhanceNowIndicator(targetHost); } catch (e2) {}
+            try { if (targetHost instanceof HTMLElement) scheduleCurrentTimeAutoCenter(targetHost, targetCalendar, getSettings(), { scope: 'main' }); } catch (e2) {}
             try { applyCnHolidayDots(targetWrap); } catch (e2) {}
             try { applyCnLunarLabels(targetWrap); } catch (e2) {}
             return false;
@@ -6654,6 +6860,7 @@
     }
 
     function unmountSideDayTimeline() {
+        try { clearTimeGridAutoCenterState('sideDay'); } catch (e) {}
         if (state.sideDay.popoverClickCapture && state.sideDay.rootEl) {
             try { state.sideDay.rootEl.removeEventListener('click', state.sideDay.popoverClickCapture, true); } catch (e) {}
             state.sideDay.popoverClickCapture = null;
@@ -11209,6 +11416,16 @@
             }
             const masterEl = e.target?.closest?.('[data-tm-cal-master]');
             if (masterEl) return;
+            const fcTodayButton = e.target?.closest?.('.fc-today-button');
+            if (fcTodayButton) {
+                try { clearTimeGridAutoCenterState('main'); } catch (e2) {}
+                try {
+                    requestAnimationFrame(() => {
+                        try { scheduleCurrentTimeAutoCenter(host, calendar, getSettings(), { scope: 'main', force: true }); } catch (e3) {}
+                    });
+                } catch (e2) {}
+                return;
+            }
             const collapseEl = e.target?.closest?.('[data-tm-cal-collapse]');
             const collapseKey = String(collapseEl?.getAttribute?.('data-tm-cal-collapse') || '').trim();
             if (collapseKey) {
@@ -11295,7 +11512,9 @@
             if (action === 'today') {
                 try {
                     const currentView = String(calendar?.view?.type || '').trim();
+                    clearTimeGridAutoCenterState('main');
                     calendar.gotoDate(resolveMainCalendarAnchorDate(new Date(), currentView, getSettings()) || new Date());
+                    scheduleCurrentTimeAutoCenter(host, calendar, getSettings(), { scope: 'main', force: true });
                 } catch (e2) {}
             }
         };
@@ -11760,6 +11979,7 @@
 
     function unmount() {
         closeModal();
+        try { clearTimeGridAutoCenterState('main'); } catch (e) {}
         if (state.wrapEl) {
             try {
                 const navPane = state.wrapEl.querySelector('.tm-calendar-nav');
@@ -12087,9 +12307,12 @@
                     try { state.calendar?.refetchEvents?.(); } catch (e2) {}
                 } else if (key === 'calendarVisibleStartTime' || key === 'calendarVisibleEndTime') {
                     const settings = getSettings();
+                    try { clearTimeGridAutoCenterState('main'); } catch (e2) {}
+                    try { clearTimeGridAutoCenterState('sideDay'); } catch (e2) {}
                     try { applyCalendarVisibleSlotRange(state.calendar, settings); } catch (e2) {}
                     try { applyCalendarVisibleSlotRange(state.sideDay?.calendar, settings); } catch (e2) {}
                     try { state.calendar?.updateSize?.(); } catch (e2) {}
+                    try { scheduleMainCalendarLayoutRefresh(state.wrapEl, state.calendarEl, state.calendar, { updateSize: true }); } catch (e2) {}
                     try { syncSideDayLayout(state.sideDay?.rootEl, state.sideDay?.calendar, settings); } catch (e2) {}
                 } else if (key === 'calendar3DayTodayPosition') {
                     const settings = getSettings();

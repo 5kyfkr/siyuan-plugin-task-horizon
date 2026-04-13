@@ -607,7 +607,7 @@ module.exports = class TaskHorizonPlugin extends Plugin {
         };
         this._taskDockStorageHandler = (event) => {
             const key = String(event?.key || "");
-            if (key && key !== "tm_dock_sidebar_enabled" && key !== "tm_dock_default_view_mode" && key !== "tm_default_view_mode_mobile" && key !== "tm_enabled_views") {
+            if (key && key !== "tm_dock_sidebar_enabled" && key !== "tm_dock_default_view_mode" && key !== "tm_dock_checklist_compact_meta_fields" && key !== "tm_default_view_mode_mobile" && key !== "tm_enabled_views") {
                 return;
             }
             this.handleTaskDockSettingsChanged();

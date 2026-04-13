@@ -2818,6 +2818,31 @@
             flex: 0 1 auto;
         }
 
+        .tm-filter-rule-bar .tm-manager-brand-icon {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            width: 30px;
+            min-width: 30px;
+            height: 30px;
+            padding: 0;
+            border: none;
+            border-radius: 8px;
+            background: transparent;
+            color: inherit;
+            cursor: pointer;
+            line-height: 0;
+            flex: 0 0 auto;
+        }
+
+        .tm-filter-rule-bar .tm-manager-brand-icon:hover {
+            background: color-mix(in srgb, var(--tm-topbar-control-hover) 72%, transparent);
+        }
+
+        .tm-filter-rule-bar .tm-manager-title-label {
+            cursor: pointer;
+        }
+
         .tm-filter-rule-bar .tm-topbar-right {
             display: flex;
             align-items: center;
@@ -6219,6 +6244,14 @@
             box-shadow: 0 18px 36px rgba(15, 23, 42, 0.18);
         }
 
+        .tm-task-detail-inline-popover.is-busy {
+            cursor: progress;
+        }
+
+        .tm-task-detail-inline-popover.is-busy .tm-task-detail-inline-popover__input {
+            opacity: 0.78;
+        }
+
         .tm-task-detail-inline-popover__title {
             font-size: 12px;
             font-weight: 700;
@@ -6631,13 +6664,17 @@
         }
 
         .tm-checklist-meta-compact-doc,
-        .tm-checklist-meta-compact-time {
+        .tm-checklist-meta-compact-time,
+        .tm-checklist-meta-compact-start,
+        .tm-checklist-meta-compact-remaining {
             overflow: hidden;
             text-overflow: ellipsis;
             white-space: nowrap;
         }
 
-        .tm-checklist-meta-compact-time {
+        .tm-checklist-meta-compact-time,
+        .tm-checklist-meta-compact-start,
+        .tm-checklist-meta-compact-remaining {
             flex: 0 0 auto;
             overflow: visible;
             text-overflow: clip;
@@ -7406,10 +7443,6 @@
 
             .tm-checklist-pane--compact .tm-checklist-leading .tm-tree-toggle {
                 left: 0;
-            }
-
-            .tm-checklist-pane--compact .tm-checklist-meta-compact-doc {
-                display: none;
             }
 
             .tm-checklist-pane--compact .tm-checklist-meta-compact {
@@ -10986,6 +11019,9 @@
             dockDefaultViewMode: 'follow-mobile',
             dockChecklistCompactTitleJump: true,
             mobileChecklistCompactTitleJump: true,
+            desktopChecklistCompactMetaFields: ['completionTime', 'status'],
+            dockChecklistCompactMetaFields: ['completionTime', 'status'],
+            mobileChecklistCompactMetaFields: ['completionTime', 'status'],
             checklistCompactTitleOpenDetailPage: false,
             enabledViews: ['list', 'checklist', 'timeline', 'kanban', 'calendar', 'whiteboard'],
             kanbanCompactMode: false,
@@ -11375,6 +11411,9 @@
                                 } else {
                                     this.data.mobileChecklistCompactTitleJump = this.data.dockChecklistCompactTitleJump;
                                 }
+                                if (Array.isArray(cloudData.desktopChecklistCompactMetaFields)) this.data.desktopChecklistCompactMetaFields = cloudData.desktopChecklistCompactMetaFields;
+                                if (Array.isArray(cloudData.dockChecklistCompactMetaFields)) this.data.dockChecklistCompactMetaFields = cloudData.dockChecklistCompactMetaFields;
+                                if (Array.isArray(cloudData.mobileChecklistCompactMetaFields)) this.data.mobileChecklistCompactMetaFields = cloudData.mobileChecklistCompactMetaFields;
                                 if (typeof cloudData.checklistCompactTitleOpenDetailPage === 'boolean') this.data.checklistCompactTitleOpenDetailPage = cloudData.checklistCompactTitleOpenDetailPage;
                                 if (Array.isArray(cloudData.enabledViews)) this.data.enabledViews = __tmNormalizeEnabledViews(cloudData.enabledViews);
                                 if (typeof cloudData.kanbanCompactMode === 'boolean') this.data.kanbanCompactMode = cloudData.kanbanCompactMode;
@@ -11673,6 +11712,9 @@
             this.data.dockDefaultViewMode = Storage.get('tm_dock_default_view_mode', this.data.dockDefaultViewMode || 'follow-mobile');
             this.data.dockChecklistCompactTitleJump = !!Storage.get('tm_dock_checklist_compact_title_jump', this.data.dockChecklistCompactTitleJump);
             this.data.mobileChecklistCompactTitleJump = !!Storage.get('tm_mobile_checklist_compact_title_jump', this.data.mobileChecklistCompactTitleJump ?? this.data.dockChecklistCompactTitleJump);
+            this.data.desktopChecklistCompactMetaFields = __tmNormalizeCompactChecklistMetaFields(Storage.get('tm_desktop_checklist_compact_meta_fields', this.data.desktopChecklistCompactMetaFields));
+            this.data.dockChecklistCompactMetaFields = __tmNormalizeCompactChecklistMetaFields(Storage.get('tm_dock_checklist_compact_meta_fields', this.data.dockChecklistCompactMetaFields));
+            this.data.mobileChecklistCompactMetaFields = __tmNormalizeCompactChecklistMetaFields(Storage.get('tm_mobile_checklist_compact_meta_fields', this.data.mobileChecklistCompactMetaFields));
             this.data.checklistCompactTitleOpenDetailPage = !!Storage.get('tm_checklist_compact_title_open_detail_page', this.data.checklistCompactTitleOpenDetailPage);
             this.data.enabledViews = __tmNormalizeEnabledViews(Storage.get('tm_enabled_views', this.data.enabledViews));
             this.data.kanbanCompactMode = !!Storage.get('tm_kanban_compact_mode', this.data.kanbanCompactMode);
@@ -11892,6 +11934,9 @@
             this.data.serverSyncSessionStateOnManualRefresh = !!Storage.get('tm_server_sync_session_state_on_manual_refresh', this.data.serverSyncSessionStateOnManualRefresh);
             this.data.newTaskDailyNoteAppendToBottom = !!Storage.get('tm_new_task_daily_note_append_to_bottom', this.data.newTaskDailyNoteAppendToBottom);
             this.data.headingGroupCreateAtSectionEnd = !!Storage.get('tm_heading_group_create_at_section_end', this.data.headingGroupCreateAtSectionEnd);
+            this.data.desktopChecklistCompactMetaFields = __tmNormalizeCompactChecklistMetaFields(this.data.desktopChecklistCompactMetaFields);
+            this.data.dockChecklistCompactMetaFields = __tmNormalizeCompactChecklistMetaFields(this.data.dockChecklistCompactMetaFields);
+            this.data.mobileChecklistCompactMetaFields = this.data.dockChecklistCompactMetaFields.slice();
             {
                 const allowInlineFields = new Set(['custom-status', 'custom-completion-time', 'custom-priority', 'custom-start-date', 'custom-duration', 'custom-remark']);
                 const rawInlineFields = Array.isArray(this.data.quickbarInlineFields) ? this.data.quickbarInlineFields : ['custom-status', 'custom-completion-time'];
@@ -11982,6 +12027,12 @@
             Storage.set('tm_dock_default_view_mode', String(this.data.dockDefaultViewMode || 'follow-mobile').trim() || 'follow-mobile');
             Storage.set('tm_dock_checklist_compact_title_jump', !!this.data.dockChecklistCompactTitleJump);
             Storage.set('tm_mobile_checklist_compact_title_jump', !!this.data.mobileChecklistCompactTitleJump);
+            this.data.desktopChecklistCompactMetaFields = __tmNormalizeCompactChecklistMetaFields(this.data.desktopChecklistCompactMetaFields);
+            this.data.dockChecklistCompactMetaFields = __tmNormalizeCompactChecklistMetaFields(this.data.dockChecklistCompactMetaFields);
+            this.data.mobileChecklistCompactMetaFields = this.data.dockChecklistCompactMetaFields.slice();
+            Storage.set('tm_desktop_checklist_compact_meta_fields', this.data.desktopChecklistCompactMetaFields);
+            Storage.set('tm_dock_checklist_compact_meta_fields', this.data.dockChecklistCompactMetaFields);
+            Storage.set('tm_mobile_checklist_compact_meta_fields', this.data.mobileChecklistCompactMetaFields);
             Storage.set('tm_checklist_compact_title_open_detail_page', !!this.data.checklistCompactTitleOpenDetailPage);
             Storage.set('tm_enabled_views', this.data.enabledViews);
             Storage.set('tm_kanban_compact_mode', !!this.data.kanbanCompactMode);
@@ -16576,6 +16627,13 @@
         listRenderSignature: '',
         calendarDockDate: '',
         docTabsHidden: false,
+        topbarManagerIconLongPressTimer: null,
+        topbarManagerIconLongPressFired: false,
+        topbarManagerIconLongPressMoved: false,
+        topbarManagerIconLongPressStartX: 0,
+        topbarManagerIconLongPressStartY: 0,
+        topbarManagerIconTrigger: null,
+        topbarManagerIconSuppressClickUntil: 0,
         docTabsScrollLeft: 0,
         settingsSubtabsScrollLeft: 0,
         settingsSectionJump: null,
@@ -20158,7 +20216,6 @@ async function __tmRefreshAfterWake(reason) {
                 } else if (state.modal && document.body.contains(state.modal)) {
                     try { __tmScheduleReminderTaskNameMarksRefresh(state.modal, true); } catch (e) {}
                 }
-                // 如果没有悬浮条修改，则不刷新，保持当前显示状态
 			} catch (e) {}
 		};
 		__tmFocusHandler = async () => {
@@ -21338,6 +21395,40 @@ async function __tmRefreshAfterWake(reason) {
     const __tmGetDockDefaultViewValue = () => {
         const raw = String(SettingsStore?.data?.dockDefaultViewMode || 'follow-mobile').trim();
         return (raw === 'follow-mobile' || __TM_ALL_VIEWS.some(v => v.id === raw)) ? raw : 'follow-mobile';
+    };
+
+    const __TM_CHECKLIST_COMPACT_META_FIELD_OPTIONS = Object.freeze([
+        { key: 'docName', label: '文档名' },
+        { key: 'startDate', label: '开始时间' },
+        { key: 'completionTime', label: '完成时间' },
+        { key: 'remainingTime', label: '剩余时间' },
+        { key: 'status', label: '状态标签' },
+    ]);
+
+    const __TM_CHECKLIST_COMPACT_META_FIELD_DEFAULTS = Object.freeze(['completionTime', 'status']);
+
+    const __tmNormalizeCompactChecklistMetaFields = (fields, defaults = __TM_CHECKLIST_COMPACT_META_FIELD_DEFAULTS) => {
+        const allow = new Set(__TM_CHECKLIST_COMPACT_META_FIELD_OPTIONS.map((item) => item.key));
+        const source = Array.isArray(fields) ? fields : defaults;
+        const result = [];
+        source.forEach((value) => {
+            const key = String(value || '').trim();
+            if (!allow.has(key) || result.includes(key)) return;
+            result.push(key);
+        });
+        return result;
+    };
+
+    const __tmGetCompactChecklistMetaFieldsForCurrentHost = () => {
+        const isDockHost = __tmIsDockHost() && !__tmIsRuntimeMobileClient();
+        const isMobileHost = __tmIsMobileDevice() && !isDockHost;
+        if (isDockHost) {
+            return __tmNormalizeCompactChecklistMetaFields(SettingsStore?.data?.dockChecklistCompactMetaFields);
+        }
+        if (isMobileHost) {
+            return __tmNormalizeCompactChecklistMetaFields(SettingsStore?.data?.dockChecklistCompactMetaFields);
+        }
+        return __tmNormalizeCompactChecklistMetaFields(SettingsStore?.data?.desktopChecklistCompactMetaFields);
     };
 
     const __tmShouldShowCompactChecklistDocName = () => {
@@ -25579,12 +25670,26 @@ async function __tmRefreshAfterWake(reason) {
         };
     }
 
+    function __tmNormalizeDocGroupExcludedDocIds(input) {
+        const source = Array.isArray(input) ? input : [];
+        const out = [];
+        const seen = new Set();
+        source.forEach((item) => {
+            const id = String((typeof item === 'object' ? item?.id : item) || '').trim();
+            if (!id || seen.has(id)) return;
+            seen.add(id);
+            out.push(id);
+        });
+        return out;
+    }
+
     function __tmNormalizeDocGroupConfig(group, globalDocColorScheme = null) {
         if (!group || typeof group !== 'object') return null;
         const id = String(group.id || '').trim();
         if (!id) return null;
         const notebookId = String(group.notebookId || '').trim();
         const docs = Array.isArray(group.docs) ? group.docs : [];
+        const excludedDocIds = __tmNormalizeDocGroupExcludedDocIds(group.excludedDocIds);
         const otherBlockRefs = __tmNormalizeOtherBlockRefs(group.otherBlockRefs);
         const normalizedGlobalScheme = __tmNormalizeDocColorSchemeConfig(globalDocColorScheme, {
             seedFallback: Number(globalDocColorScheme?.seed) || 1
@@ -25606,6 +25711,7 @@ async function __tmRefreshAfterWake(reason) {
             name: String(group.name || '').trim(),
             notebookId,
             docs: normalizedDocs,
+            excludedDocIds,
             otherBlockRefs,
             docColorConfig: __tmNormalizeDocColorSchemeConfig(group.docColorConfig, {
                 allowInherit: true,
@@ -25617,6 +25723,10 @@ async function __tmRefreshAfterWake(reason) {
 
     function __tmGetGroupCalendarSearchOptimization(group) {
         return __tmNormalizeCalendarSearchOptimization(group?.calendarSearchOptimization);
+    }
+
+    function __tmGetGroupExcludedDocIds(group) {
+        return __tmNormalizeDocGroupExcludedDocIds(group?.excludedDocIds);
     }
 
     function __tmExtractCalendarDateFromText(text, options = {}) {
@@ -26096,11 +26206,21 @@ async function __tmRefreshAfterWake(reason) {
     }
 
     function __tmGetGroupSourceEntries(group) {
-        const out = __tmNormalizeGroupDocEntries(group);
+        const excludedDocIds = __tmGetGroupExcludedDocIds(group);
+        const out = __tmNormalizeGroupDocEntries(group).map((entry) => ({
+            ...entry,
+            excludedDocIds: excludedDocIds.slice()
+        }));
         const notebookId = String(group?.notebookId || '').trim();
         const calendarOptimization = __tmGetGroupCalendarSearchOptimization(group);
         if (notebookId) {
-            out.push({ id: notebookId, kind: 'notebook', recursive: true, calendarOptimization });
+            out.push({
+                id: notebookId,
+                kind: 'notebook',
+                recursive: true,
+                calendarOptimization,
+                excludedDocIds: excludedDocIds.slice()
+            });
         }
         return out;
     }
@@ -26111,10 +26231,12 @@ async function __tmRefreshAfterWake(reason) {
         const id = String(entry.id || '').trim();
         if (!id) return;
         const entryCalendarOptimization = __tmNormalizeCalendarSearchOptimization(entry?.calendarOptimization);
+        const excludedDocIds = __tmNormalizeDocGroupExcludedDocIds(entry?.excludedDocIds);
+        const excludedDocIdSet = new Set(excludedDocIds);
         const recursiveDocLimit = Number.isFinite(Number(SettingsStore.data?.recursiveDocLimit))
             ? Math.max(1, Math.min(500000, Math.round(Number(SettingsStore.data.recursiveDocLimit))))
             : 2000;
-        const cacheKey = `${kind}:${id}:${entry.recursive ? 1 : 0}:${recursiveDocLimit}:${entryCalendarOptimization.enabled ? 1 : 0}:${Number(entryCalendarOptimization.days) || 0}`;
+        const cacheKey = `${kind}:${id}:${entry.recursive ? 1 : 0}:${recursiveDocLimit}:${entryCalendarOptimization.enabled ? 1 : 0}:${Number(entryCalendarOptimization.days) || 0}:${excludedDocIds.join(',')}`;
         const now = Date.now();
         const cacheTtlMs = kind === 'notebook' ? 15000 : 10000;
         const cacheEnt = __tmDocExpandCache.get(cacheKey);
@@ -26140,13 +26262,16 @@ async function __tmRefreshAfterWake(reason) {
                     });
                     notebookDocIds = Array.isArray(optimized) ? optimized : notebookDocIds;
                 }
+                if (excludedDocIdSet.size) {
+                    notebookDocIds = notebookDocIds.filter((docId) => !excludedDocIdSet.has(String(docId || '').trim()));
+                }
                 if (notebookDocIds.length > recursiveDocLimit) notebookDocIds = notebookDocIds.slice(0, recursiveDocLimit);
                 notebookDocIds.forEach((docId) => pushLocal(docId));
             } catch (e) {}
             __tmDocExpandCache.set(cacheKey, { t: Date.now(), ids: nextIds });
             return;
         }
-        pushLocal(id);
+        if (!excludedDocIdSet.has(id)) pushLocal(id);
         if (entry.recursive && API && typeof API.getSubDocIds === 'function') {
             try {
                 let subIds = await API.getSubDocIds(id, entryCalendarOptimization.enabled ? { limit: 0 } : null);
@@ -26157,6 +26282,9 @@ async function __tmRefreshAfterWake(reason) {
                         calendarSearchOptimization: entryCalendarOptimization,
                     });
                     subIds = Array.isArray(optimized) ? optimized : subIds;
+                }
+                if (excludedDocIdSet.size) {
+                    subIds = subIds.filter((sid) => !excludedDocIdSet.has(String(sid || '').trim()));
                 }
                 if (subIds.length > recursiveDocLimit) subIds = subIds.slice(0, recursiveDocLimit);
                 subIds.forEach((sid) => pushLocal(sid));
@@ -30775,19 +30903,8 @@ async function __tmRefreshAfterWake(reason) {
         const durationFormat = SettingsStore.data.durationFormat || 'hours';
         let totalMinutes = 0;
         list.forEach((task) => {
-            const durationStr = String(task?.duration || '').trim();
-            if (!durationStr) return;
-            let minutes = 0;
-            if (durationStr.toLowerCase().endsWith('h')) {
-                const hours = parseFloat(durationStr.toLowerCase().replace('h', ''));
-                if (!Number.isNaN(hours)) minutes = hours * 60;
-            } else if (durationStr.toLowerCase().endsWith('min')) {
-                const mins = parseFloat(durationStr.toLowerCase().replace('min', ''));
-                if (!Number.isNaN(mins)) minutes = mins;
-            } else {
-                const num = parseFloat(durationStr);
-                if (!Number.isNaN(num)) minutes = num > 100 ? num : num * 60;
-            }
+            const minutes = __tmParseDurationMinutes(task?.duration);
+            if (!(Number.isFinite(minutes) && minutes > 0)) return;
             totalMinutes += minutes;
         });
         if (totalMinutes <= 0) return '';
@@ -30831,7 +30948,7 @@ async function __tmRefreshAfterWake(reason) {
         }];
 
         const globalNewTaskDocId = String(SettingsStore.data.newTaskDocId || '').trim();
-        if (globalNewTaskDocId && globalNewTaskDocId !== '__dailyNote__') {
+        if (globalNewTaskDocId && globalNewTaskDocId !== '__dailyNote__' && !__tmIsDocExcludedInGroup(globalNewTaskDocId, currentGroupId)) {
             items.push({
                 id: globalNewTaskDocId,
                 label: __tmGetDocDisplayName(globalNewTaskDocId, '未命名文档'),
@@ -30875,6 +30992,8 @@ async function __tmRefreshAfterWake(reason) {
             ? source.currentTarget
             : (source?.target instanceof Element ? source.target : null);
         if (target instanceof Element) {
+            const directTrigger = target.closest('[data-tm-all-doc-menu-trigger="1"]');
+            if (directTrigger instanceof HTMLElement) return directTrigger;
             const found = target.closest('.tm-doc-tab--all');
             if (found instanceof HTMLElement) return found;
         }
@@ -30908,6 +31027,39 @@ async function __tmRefreshAfterWake(reason) {
             try { event?.stopPropagation?.(); } catch (e) {}
         }
         state.allDocTabLongPressFired = false;
+    }
+
+    const __tmShouldUseCompactTopbarBrand = () => {
+        if (__tmIsDockHost()) return true;
+        if (__tmHostUsesMobileUI()) return true;
+        if (__tmIsRuntimeMobileClient()) return true;
+        return false;
+    };
+
+    function __tmClearTopbarManagerIconLongPressTimer() {
+        try {
+            if (state.topbarManagerIconLongPressTimer) {
+                clearTimeout(state.topbarManagerIconLongPressTimer);
+                state.topbarManagerIconLongPressTimer = null;
+            }
+        } catch (e) {}
+    }
+
+    function __tmFinishTopbarManagerIconLongPress(event, options = {}) {
+        const opts = (options && typeof options === 'object') ? options : {};
+        const fired = !!state.topbarManagerIconLongPressFired;
+        __tmClearTopbarManagerIconLongPressTimer();
+        state.topbarManagerIconLongPressMoved = false;
+        state.topbarManagerIconTrigger = null;
+        state.topbarManagerIconLongPressStartX = 0;
+        state.topbarManagerIconLongPressStartY = 0;
+        try { state.__tmPluginIconLongPressing = false; } catch (e) {}
+        if (fired && opts.suppressClick !== false) {
+            state.topbarManagerIconSuppressClickUntil = Date.now() + 700;
+            try { event?.preventDefault?.(); } catch (e) {}
+            try { event?.stopPropagation?.(); } catch (e) {}
+        }
+        state.topbarManagerIconLongPressFired = false;
     }
 
     async function __tmSetDocPinnedForGroup(docId, pinned, groupId) {
@@ -31120,6 +31272,7 @@ async function __tmRefreshAfterWake(reason) {
         const existing = __tmNormalizeHexColor(map[id], '');
         const pinGroupId = String(SettingsStore.data.currentGroupId || 'all').trim() || 'all';
         const pinnedInGroup = __tmIsDocPinnedInGroup(id, pinGroupId);
+        const excludedInGroup = pinGroupId !== 'all' && __tmIsDocExcludedInGroup(id, pinGroupId);
         const docCustomProfile = __tmGetStoredDocViewProfile(id);
         const groupCustomProfile = __tmGetStoredGroupViewProfile(pinGroupId);
         const defaultProfile = __tmGetViewProfilesStore().global;
@@ -31185,6 +31338,17 @@ async function __tmRefreshAfterWake(reason) {
                 await __tmSetDocPinnedForGroup(id, !pinnedInGroup, pinGroupId);
                 await loadSelectedDocuments();
             }));
+            if (pinGroupId !== 'all') {
+                menu.appendChild(item(__tmRenderContextMenuLabel('eye-off', '排除当前文档'), async () => {
+                    if (excludedInGroup) {
+                        hint('ℹ 当前文档已在排除列表中，恢复显示请到文档分组设置中移出排除列表', 'info');
+                        return;
+                    }
+                    const result = await __tmSetDocExcludedForGroup(id, true, pinGroupId);
+                    if (!result?.changed) return;
+                    hint('✅ 已排除当前文档。恢复显示请到文档分组设置中移出排除列表', 'success');
+                }));
+            }
         }
 
         if (isOtherBlocksTab) {
@@ -33361,11 +33525,70 @@ async function __tmRefreshAfterWake(reason) {
     };
 
     window.tmHandleManagerIconClick = async function(ev) {
+        if (Number(state.topbarManagerIconSuppressClickUntil || 0) > Date.now()) {
+            state.topbarManagerIconSuppressClickUntil = 0;
+            try { ev?.preventDefault?.(); } catch (e) {}
+            try { ev?.stopPropagation?.(); } catch (e) {}
+            return;
+        }
+        if (state.topbarManagerIconLongPressFired) {
+            state.topbarManagerIconLongPressFired = false;
+            try { ev?.preventDefault?.(); } catch (e) {}
+            try { ev?.stopPropagation?.(); } catch (e) {}
+            return;
+        }
         try { ev?.stopPropagation?.(); } catch (e) {}
         try { ev?.preventDefault?.(); } catch (e) {}
         try {
             window.tmShowAllDocTabMenu?.(ev);
         } catch (e) {}
+    };
+
+    window.tmTopbarManagerIconPressStart = function(event) {
+        if (!__tmShouldUseCompactTopbarBrand()) return;
+        const type = String(event?.type || '').trim();
+        if (type.startsWith('mouse') && Number(event?.button) !== 0) return;
+        __tmClearTopbarManagerIconLongPressTimer();
+        state.topbarManagerIconLongPressFired = false;
+        state.topbarManagerIconLongPressMoved = false;
+        state.topbarManagerIconSuppressClickUntil = 0;
+        state.topbarManagerIconTrigger = event?.currentTarget instanceof HTMLElement
+            ? event.currentTarget
+            : (event?.target instanceof HTMLElement ? event.target.closest('[data-tm-all-doc-menu-trigger="1"]') : null);
+        const point = event?.touches?.[0] || event;
+        state.topbarManagerIconLongPressStartX = Number(point?.clientX) || 0;
+        state.topbarManagerIconLongPressStartY = Number(point?.clientY) || 0;
+        try { state.__tmPluginIconLongPressing = true; } catch (e) {}
+        state.topbarManagerIconLongPressTimer = setTimeout(() => {
+            if (state.topbarManagerIconLongPressMoved) return;
+            state.topbarManagerIconLongPressFired = true;
+            state.topbarManagerIconSuppressClickUntil = Date.now() + 700;
+            const trigger = state.topbarManagerIconTrigger;
+            window.tmToggleDocTabs?.({
+                currentTarget: trigger,
+                target: trigger,
+                preventDefault() {},
+                stopPropagation() {},
+            });
+        }, 460);
+    };
+
+    window.tmTopbarManagerIconPressMove = function(event) {
+        if (!state.topbarManagerIconLongPressTimer) return;
+        const point = event?.touches?.[0] || event;
+        const x = Number(point?.clientX) || 0;
+        const y = Number(point?.clientY) || 0;
+        const dx = x - (Number(state.topbarManagerIconLongPressStartX) || 0);
+        const dy = y - (Number(state.topbarManagerIconLongPressStartY) || 0);
+        if (Math.abs(dx) + Math.abs(dy) > 10) {
+            state.topbarManagerIconLongPressMoved = true;
+            __tmClearTopbarManagerIconLongPressTimer();
+            try { state.__tmPluginIconLongPressing = false; } catch (e) {}
+        }
+    };
+
+    window.tmTopbarManagerIconPressEnd = function(event) {
+        __tmFinishTopbarManagerIconLongPress(event);
     };
 
     // 修改渲染函数以显示规则信息
@@ -33574,6 +33797,8 @@ async function __tmRefreshAfterWake(reason) {
         const isRuntimeMobile = __tmIsRuntimeMobileClient();
         const isDockHost = __tmIsDockHost();
         const hostUsesMobileUI = __tmHostUsesMobileUI();
+        const useCompactTopbarBrand = __tmShouldUseCompactTopbarBrand();
+        const managerIconTooltip = useCompactTopbarBrand ? '全部页签，长按隐藏/展开页签栏' : '全部页签';
         const isAnimatedDockHost = !!(isDockHost && !isRuntimeMobile);
         const isSplitPane = false; // 使用CSS容器查询处理分屏模式
         const isLandscape = !!(isMobile && (() => { try { return !!window.matchMedia?.('(orientation: landscape)')?.matches; } catch (e) { return false; } })());
@@ -33759,6 +33984,9 @@ async function __tmRefreshAfterWake(reason) {
             const isDark = __tmIsDarkMode();
             const enableGroupBg = !!SettingsStore.data.enableGroupTaskBgByGroupColor;
             const checklistCompact = !!SettingsStore.data.checklistCompactMode;
+            const compactChecklistMetaFieldSet = checklistCompact
+                ? new Set(__tmGetCompactChecklistMetaFieldsForCurrentHost())
+                : new Set(__TM_CHECKLIST_COMPACT_META_FIELD_DEFAULTS);
             const wrapCfg = __tmGetWrapConfig();
             const escSq = (s) => String(s || '').replace(/\\/g, '\\\\').replace(/'/g, "\\'");
             const sheetMode = __tmChecklistUseSheetMode();
@@ -33991,6 +34219,15 @@ async function __tmRefreshAfterWake(reason) {
                 const statusChipStyle = __tmBuildStatusChipStyle(statusOption.color);
                 const indent = checklistCompact ? depth * 14 : depth * 22;
                 const showTaskDocName = __tmShouldShowCompactChecklistDocName();
+                const isAllTabsView = !(state.activeDocId && state.activeDocId !== 'all');
+                const showCompactDocName = checklistCompact && isAllTabsView && compactChecklistMetaFieldSet.has('docName') && !!task.docName;
+                const showCompactStartDate = checklistCompact && compactChecklistMetaFieldSet.has('startDate') && !!task.startDate;
+                const showCompactCompletionTime = checklistCompact && compactChecklistMetaFieldSet.has('completionTime') && !!task.completionTime;
+                const compactRemainingTimeLabel = checklistCompact && compactChecklistMetaFieldSet.has('remainingTime')
+                    ? String(__tmGetTaskRemainingTimeLabel(task) || '').trim()
+                    : '';
+                const showCompactRemainingTime = !!compactRemainingTimeLabel && !!(String(task?.startDate || '').trim() || String(task?.completionTime || '').trim());
+                const showCompactStatusTag = !checklistCompact || compactChecklistMetaFieldSet.has('status');
                 const meta = [];
                 const priorityIcon = __tmRenderPriorityJira(task.priority, false);
                 if (showTaskDocName && task.docName) meta.push(`<span class="tm-checklist-meta-chip">${__tmRenderLucideIcon('file-text')} ${esc(String(task.docName || ''))}</span>`);
@@ -34000,8 +34237,10 @@ async function __tmRefreshAfterWake(reason) {
                 if (task.duration) meta.push(`<span class="tm-checklist-meta-chip">${__tmRenderLucideIcon('timer')} ${esc(String(task.duration || ''))}</span>`);
                 if (totalChildren > 0) meta.push(`<span class="tm-checklist-meta-chip">子任务 ${completedChildren}/${totalChildren}</span>`);
                 const compactMetaParts = [];
-                if (checklistCompact && showTaskDocName && task.docName) compactMetaParts.push(`<span class="tm-checklist-meta-compact-doc">${esc(String(task.docName || ''))}</span>`);
-                if (checklistCompact && task.completionTime) compactMetaParts.push(`<span class="tm-checklist-meta-compact-time">${esc(__tmFormatTaskTimeCompact(task.completionTime))}</span>`);
+                if (showCompactDocName) compactMetaParts.push(`<span class="tm-checklist-meta-compact-doc">${esc(String(task.docName || ''))}</span>`);
+                if (showCompactStartDate) compactMetaParts.push(`<span class="tm-checklist-meta-compact-start">${esc(__tmFormatTaskTimeCompact(task.startDate))}</span>`);
+                if (showCompactCompletionTime) compactMetaParts.push(`<span class="tm-checklist-meta-compact-time">${esc(__tmFormatTaskTimeCompact(task.completionTime))}</span>`);
+                if (showCompactRemainingTime) compactMetaParts.push(`<span class="tm-checklist-meta-compact-remaining">${esc(compactRemainingTimeLabel)}</span>`);
                 const hasCompactMeta = compactMetaParts.length > 0;
                 const compactMeta = hasCompactMeta
                     ? `<div class="tm-checklist-meta-compact">${compactMetaParts.join('')}</div>`
@@ -34025,7 +34264,7 @@ async function __tmRefreshAfterWake(reason) {
                             <div class="${titleRowClass}">
                                 <div class="tm-checklist-title-main"><div class="tm-checklist-title"><span class="tm-checklist-title-button"><span ${titleDragAttrs} onpointerdown="tmChecklistTitlePointerDown(event, '${escSq(String(task.id || ''))}')" onclick="tmChecklistTitleClick('${escSq(String(task.id || ''))}', event)"${__tmBuildTooltipAttrs(String(task.content || '').trim() || '(无内容)', { side: 'bottom', ariaLabel: false })}>${API.renderTaskContentHtml(task.markdown, String(task.content || '').trim() || '(无内容)')}</span></span>${reminderHtml}${remarkIconHtml}</div></div>
                                 ${compactMeta}
-                                <span class="tm-status-tag" style="${statusChipStyle}">${esc(String(statusOption?.name || currentStatus || ''))}</span>
+                                ${showCompactStatusTag ? `<span class="tm-status-tag" style="${statusChipStyle}">${esc(String(statusOption?.name || currentStatus || ''))}</span>` : ''}
                                 ${task.pinned ? `<span class="tm-checklist-meta-chip" title="置顶">${__tmRenderLucideIcon('pin')}</span>` : ''}
                                 ${hasChildren ? `<span class="tm-checklist-mobile-toggle" onclick="tmToggleCollapse('${escSq(String(task.id || ''))}', event)" style="opacity:1;pointer-events:auto;">${__tmRenderToggleIcon(16, collapsed ? 0 : 90, 'tm-tree-toggle-icon')}</span>` : ''}
                             </div>
@@ -36541,8 +36780,22 @@ async function __tmRefreshAfterWake(reason) {
                         <div class="tm-topbar-row tm-topbar-row--main" style="display:flex;align-items:center;gap:10px;flex-wrap:nowrap;justify-content:space-between;min-width:0;">
                         <div class="tm-topbar-row tm-topbar-row--brand" style="display:flex;align-items:center;gap:10px;min-width:0;">
                             <div class="tm-title" style="font-size: 16px; font-weight: 700; white-space: nowrap; display:inline-flex; align-items:center; gap:4px;">
-                                <span onclick="tmHandleManagerIconClick(event)" style="cursor:pointer;display:inline-flex;align-items:center;justify-content:center;width:18px;height:18px;line-height:0;">${__tmRenderTaskHorizonTopbarIcon(16)}</span>
-                                <span onclick="tmHandleManagerTitleClick(event)" style="cursor:pointer;">任务管理器</span>
+                                <button
+                                    type="button"
+                                    class="tm-manager-brand-icon"
+                                    data-tm-all-doc-menu-trigger="1"
+                                    onclick="tmHandleManagerIconClick(event)"
+                                    ontouchstart="tmTopbarManagerIconPressStart(event)"
+                                    ontouchmove="tmTopbarManagerIconPressMove(event)"
+                                    ontouchend="tmTopbarManagerIconPressEnd(event)"
+                                    ontouchcancel="tmTopbarManagerIconPressEnd(event)"
+                                    onmousedown="tmTopbarManagerIconPressStart(event)"
+                                    onmousemove="tmTopbarManagerIconPressMove(event)"
+                                    onmouseup="tmTopbarManagerIconPressEnd(event)"
+                                    onmouseleave="tmTopbarManagerIconPressEnd(event)"
+                                    ${__tmBuildTooltipAttrs(managerIconTooltip, { side: 'bottom' })}
+                                >${__tmRenderTaskHorizonTopbarIcon(16)}</button>
+                                ${useCompactTopbarBrand ? '' : `<span class="tm-manager-title-label" onclick="tmHandleManagerTitleClick(event)">任务管理器</span>`}
                             </div>
                             ${showInlineDocGroupQuickSelect ? __tmRenderTopbarSelect({
                                 id: 'tmTopbarDocQuickSelect',
@@ -36764,6 +37017,7 @@ async function __tmRefreshAfterWake(reason) {
                         <div class="tm-doc-tab tm-doc-tab--all ${state.activeDocId === 'all' ? 'active' : ''}" onclick="tmHandleAllDocTabClick(event)" oncontextmenu="tmShowAllDocTabContextMenu(event)" ontouchstart="tmAllDocTabPressStart(event)" ontouchmove="tmAllDocTabPressMove(event)" ontouchend="tmAllDocTabPressEnd(event)" ontouchcancel="tmAllDocTabPressEnd(event)"${__tmBuildTooltipAttrs(`${__tmGetViewProfileSourceLabel(__tmGetEffectiveViewProfileForContext('all', currentGroupId).source)}: ${__tmDescribeViewProfile(__tmGetEffectiveViewProfileForContext('all', currentGroupId).profile)} ｜ 右键或长按查看当前分组全部页签`, { side: 'bottom', ariaLabel: false })}>全部</div>
                         ${(() => {
                             const id = String(SettingsStore.data.newTaskDocId || '').trim();
+                            if (__tmIsDocExcludedInGroup(id, currentGroupId)) return '';
                             if (!id || id === '__dailyNote__') return '';
                             const docName = __tmGetDocDisplayName(id, '未命名文档');
                             const rawName = __tmGetDocRawName(id, '未命名文档');
@@ -45565,6 +45819,79 @@ async function __tmRefreshAfterWake(reason) {
         return groups.find((group) => String(group?.id || '').trim() === gid) || null;
     }
 
+    function __tmIsDocExcludedInGroup(docId, groupId) {
+        const id = String(docId || '').trim();
+        const group = __tmGetDocGroupById(groupId);
+        if (!id || !group) return false;
+        return __tmGetGroupExcludedDocIds(group).includes(id);
+    }
+
+    async function __tmSetDocExcludedForGroup(docId, excluded, groupId) {
+        const id = String(docId || '').trim();
+        const gid = String(groupId || '').trim();
+        if (!id || !gid || gid === 'all') return { changed: false, group: null, reason: 'invalid-group' };
+
+        const groups = Array.isArray(SettingsStore.data.docGroups) ? SettingsStore.data.docGroups : [];
+        const idx = groups.findIndex((group) => String(group?.id || '').trim() === gid);
+        if (idx < 0) return { changed: false, group: null, reason: 'group-missing' };
+
+        const group = groups[idx];
+        const nextExcluded = new Set(__tmGetGroupExcludedDocIds(group));
+        const had = nextExcluded.has(id);
+        if (excluded) nextExcluded.add(id);
+        else nextExcluded.delete(id);
+        if (had === !!excluded) return { changed: false, group, reason: had ? 'already-set' : 'already-cleared' };
+
+        groups[idx] = {
+            ...group,
+            excludedDocIds: Array.from(nextExcluded)
+        };
+        SettingsStore.data.docGroups = groups.map((item) => __tmNormalizeDocGroupConfig(item, SettingsStore.data.docDefaultColorScheme)).filter(Boolean);
+
+        if (excluded) {
+            const pinMap0 = (SettingsStore.data.docPinnedByGroup && typeof SettingsStore.data.docPinnedByGroup === 'object')
+                ? SettingsStore.data.docPinnedByGroup
+                : {};
+            const pinMap = { ...pinMap0 };
+            const pinList = Array.isArray(pinMap[gid]) ? pinMap[gid] : [];
+            const nextPinned = pinList.map((item) => String(item || '').trim()).filter(Boolean).filter((item) => item !== id);
+            if (nextPinned.length !== pinList.length) {
+                pinMap[gid] = nextPinned;
+                SettingsStore.data.docPinnedByGroup = pinMap;
+            }
+
+            const defaultDocIdByGroup = (SettingsStore.data.defaultDocIdByGroup && typeof SettingsStore.data.defaultDocIdByGroup === 'object')
+                ? { ...SettingsStore.data.defaultDocIdByGroup }
+                : {};
+            if (String(defaultDocIdByGroup[gid] || '').trim() === id) {
+                delete defaultDocIdByGroup[gid];
+                SettingsStore.data.defaultDocIdByGroup = defaultDocIdByGroup;
+            }
+        }
+
+        try { __tmDocExpandCache.clear(); } catch (e) {}
+        try { __tmResolvedDocIdsCache = null; } catch (e) {}
+        try { __tmResolvedDocIdsPromise = null; } catch (e) {}
+
+        await SettingsStore.save();
+
+        const currentGroupId = String(SettingsStore.data.currentGroupId || 'all').trim() || 'all';
+        if (currentGroupId === gid) {
+            if (excluded && String(state.activeDocId || 'all').trim() === id) state.activeDocId = 'all';
+            try { await __tmApplyCurrentContextViewProfile(); } catch (e) {}
+            try {
+                await loadSelectedDocuments({
+                    showInlineLoading: false,
+                    source: excluded ? 'exclude-doc' : 'restore-excluded-doc',
+                });
+            } catch (e) {}
+            try { render(); } catch (e) {}
+        }
+
+        if (state.settingsModal) showSettings();
+        return { changed: true, group: __tmGetDocGroupById(gid), reason: excluded ? 'excluded' : 'restored' };
+    }
+
     function __tmNormalizeOtherBlockRefs(input) {
         const source = Array.isArray(input) ? input : [];
         const out = [];
@@ -48879,30 +49206,7 @@ async function __tmRefreshAfterWake(reason) {
             });
 
             const calculateDuration = (items) => {
-                const durationFormat = SettingsStore.data.durationFormat || 'hours';
-                let totalMinutes = 0;
-                items.forEach(task => {
-                    const durationStr = String(task.duration || '').trim();
-                    if (!durationStr) return;
-                    let minutes = 0;
-                    if (durationStr.toLowerCase().endsWith('h')) {
-                        const hours = parseFloat(durationStr.toLowerCase().replace('h', ''));
-                        if (!isNaN(hours)) minutes = hours * 60;
-                    } else if (durationStr.toLowerCase().endsWith('min')) {
-                        const mins = parseFloat(durationStr.toLowerCase().replace('min', ''));
-                        if (!isNaN(mins)) minutes = mins;
-                    } else {
-                        const num = parseFloat(durationStr);
-                        if (!isNaN(num)) minutes = num > 100 ? num : num * 60;
-                    }
-                    totalMinutes += minutes;
-                });
-                if (totalMinutes === 0) return '';
-                if (durationFormat === 'hours') {
-                    const hours = Math.round(totalMinutes / 60 * 10) / 10;
-                    return `${hours}h`;
-                }
-                return `${totalMinutes}min`;
+                return __tmCalcGroupDurationText(items);
             };
 
             quadrantOrder.forEach((quadrantId) => {
@@ -49081,32 +49385,7 @@ async function __tmRefreshAfterWake(reason) {
 
             const sortedGroups = [...timeGroups.values()].sort((a, b) => a.sortValue - b.sortValue);
             const calculateGroupDuration = (items) => {
-                const durationFormat = SettingsStore.data.durationFormat || 'hours';
-                let totalMinutes = 0;
-                items.forEach(task => {
-                    const durationStr = String(task.duration || '').trim();
-                    if (!durationStr) return;
-                    let minutes = 0;
-                    if (durationStr.toLowerCase().endsWith('h')) {
-                        const hours = parseFloat(durationStr.toLowerCase().replace('h', ''));
-                        if (!isNaN(hours)) minutes = hours * 60;
-                    } else if (durationStr.toLowerCase().endsWith('min')) {
-                        const mins = parseFloat(durationStr.toLowerCase().replace('min', ''));
-                        if (!isNaN(mins)) minutes = mins;
-                    } else {
-                        const num = parseFloat(durationStr);
-                        if (!isNaN(num)) minutes = num > 100 ? num : num * 60;
-                    }
-                    totalMinutes += minutes;
-                });
-                if (totalMinutes <= 0) return '';
-                if (durationFormat === 'hours') {
-                    const hours = totalMinutes / 60;
-                    if (hours < 1) return `${Math.round(totalMinutes)}min`;
-                    if (hours === Math.floor(hours)) return `${Math.round(hours)}h`;
-                    return `${hours.toFixed(1)}h`;
-                }
-                return `${totalMinutes}min`;
+                return __tmCalcGroupDurationText(items);
             };
 
             sortedGroups.forEach(group => {
@@ -49233,6 +49512,9 @@ async function __tmRefreshAfterWake(reason) {
 
     function __tmBuildTaskDetailCoreChipFace(kind, rawValue) {
         const value = String(rawValue || '').trim();
+        if (kind === 'reminder') {
+            return __tmRenderLucideIcon('alarm-clock', 'tm-task-detail-core-chip__icon');
+        }
         if (kind === 'pinned') {
             return __tmRenderLucideIcon('pin', 'tm-task-detail-core-chip__icon');
         }
@@ -49358,6 +49640,8 @@ async function __tmRefreshAfterWake(reason) {
         const curStatusOption = statusOptions.find((o) => o.id === curStatus) || { id: curStatus, name: curStatus || '待办', color: '#757575' };
         const curPriority = String(task?.priority || '').trim().toLowerCase();
         const curPinned = !!task?.pinned;
+        const tomatoEnabled = !!SettingsStore.data.enableTomatoIntegration;
+        const curHasReminder = tomatoEnabled && __tmHasReminderMark(task);
         const startValue = __tmNormalizeDateOnly(String(task?.startDate || '').trim());
         const endValue = __tmNormalizeDateOnly(String(task?.completionTime || '').trim());
         const durationValue = String(task?.duration || '').trim();
@@ -49520,12 +49804,15 @@ async function __tmRefreshAfterWake(reason) {
                             <span class="tm-task-detail-core-chip__face" data-tm-detail-chip-face="completionTime">${__tmBuildTaskDetailCoreChipFace('completionTime', endValue)}</span>
                         </button>
                         <input type="hidden" data-tm-detail="duration" value="${esc(durationValue)}">
-                        <button type="button" class="bc-btn bc-btn--sm tm-task-detail-core-chip ${durationValue ? 'has-value' : ''}" data-tm-detail-duration-trigger"${detailTip('时长', { ariaLabel: false })}>
+                        <button type="button" class="bc-btn bc-btn--sm tm-task-detail-core-chip ${durationValue ? 'has-value' : ''}" data-tm-detail-duration-trigger${detailTip('时长', { ariaLabel: false })}>
                             <span class="tm-task-detail-core-chip__face" data-tm-detail-chip-face="duration">${__tmBuildTaskDetailCoreChipFace('duration', durationValue)}</span>
                         </button>
                         ${spentValue ? `<div class="bc-btn bc-btn--sm tm-task-detail-core-chip tm-task-detail-core-chip--static has-value"${detailTip('耗时', { ariaLabel: false })}>
                             <span class="tm-task-detail-core-chip__face" data-tm-detail-chip-face="spent"${detailTip('耗时', { ariaLabel: false })}>${__tmBuildTaskDetailCoreChipFace('spent', spentValue)}</span>
                         </div>` : ''}
+                        ${tomatoEnabled ? `<button type="button" class="bc-btn bc-btn--sm tm-task-detail-core-chip tm-task-detail-core-chip--icon ${curHasReminder ? 'is-active' : ''}" data-tm-detail-reminder-toggle${detailTip(curHasReminder ? '已添加提醒' : '提醒', { ariaLabel: false })}>
+                            <span class="tm-task-detail-core-chip__face" data-tm-detail-chip-face="reminder">${__tmBuildTaskDetailCoreChipFace('reminder', curHasReminder ? '1' : '')}</span>
+                        </button>` : ''}
                         <input type="hidden" data-tm-detail="pinned" value="${curPinned ? '1' : ''}">
                         <button type="button" class="bc-btn bc-btn--sm tm-task-detail-core-chip tm-task-detail-core-chip--icon ${curPinned ? 'is-active' : ''}" data-tm-detail-pinned-toggle${detailTip(curPinned ? '取消置顶' : '置顶', { ariaLabel: false })}>
                             <span class="tm-task-detail-core-chip__face" data-tm-detail-chip-face="pinned">${__tmBuildTaskDetailCoreChipFace('pinned', curPinned ? '1' : '')}</span>
@@ -49624,6 +49911,60 @@ async function __tmRefreshAfterWake(reason) {
             return input.type === 'checkbox'
                 ? !!input.checked
                 : !!String(input.value || '').trim();
+        };
+        const readReminderValue = () => {
+            const task = getBoundTask();
+            return !!(task && __tmHasReminderMark(task));
+        };
+        const syncReminderChipFace = () => {
+            const reminder = readReminderValue();
+            const reminderFace = root.querySelector('[data-tm-detail-chip-face="reminder"]');
+            if (reminderFace instanceof HTMLElement) reminderFace.innerHTML = __tmBuildTaskDetailCoreChipFace('reminder', reminder ? '1' : '');
+            const reminderBtn = root.querySelector('[data-tm-detail-reminder-toggle]');
+            if (reminderBtn instanceof HTMLElement) {
+                const label = reminder ? '已添加提醒' : '提醒';
+                reminderBtn.classList.toggle('is-active', reminder);
+                try { __tmApplyTooltipAttrsToElement(reminderBtn, label, { side: 'bottom' }); } catch (e) {}
+                try { reminderBtn.setAttribute('aria-label', label); } catch (e) {}
+                try { reminderBtn.removeAttribute('title'); } catch (e) {}
+            }
+        };
+        const refreshReminderButtonState = async (force = false) => {
+            const reminderBtn = root.querySelector('[data-tm-detail-reminder-toggle]');
+            if (!(reminderBtn instanceof HTMLElement)) return;
+            syncReminderChipFace();
+            const task = getBoundTask();
+            const tid = String(task?.id || taskId || '').trim();
+            if (!tid) return;
+            if (!force && (String(task?.bookmark || '').includes('⏰') || __tmReminderMarkCache.has(tid))) return;
+            if (__tmReminderMarkLoading.has(tid)) return;
+            __tmReminderMarkLoading.add(tid);
+            try {
+                const markMap = await __tmFetchReminderMarksByTaskIds([tid]);
+                const hasReminder = markMap.get(tid) === true;
+                __tmSetTaskReminderMark(tid, hasReminder);
+                const boundTask = getBoundTask();
+                if (boundTask && String(boundTask.id || '').trim() === tid) {
+                    boundTask.bookmark = hasReminder ? '⏰' : '';
+                    try { root.__tmTaskDetailTask = boundTask; } catch (e) {}
+                }
+            } catch (e) {
+                if (!__tmReminderMarkCache.has(tid)) __tmReminderMarkCache.set(tid, false);
+            } finally {
+                __tmReminderMarkLoading.delete(tid);
+            }
+            if (!root.isConnected) return;
+            syncReminderChipFace();
+        };
+        const scheduleReminderButtonStateRefresh = () => {
+            [180, 900, 2200, 4200].forEach((ms) => {
+                try {
+                    setTimeout(() => {
+                        if (!root.isConnected) return;
+                        void refreshReminderButtonState(true);
+                    }, ms);
+                } catch (e) {}
+            });
         };
         const collectCustomTextFieldValues = () => {
             const values = {};
@@ -49732,6 +50073,8 @@ async function __tmRefreshAfterWake(reason) {
             if (durationFace instanceof HTMLElement) durationFace.innerHTML = __tmBuildTaskDetailCoreChipFace('duration', durationValue);
             const durationBtn = root.querySelector('[data-tm-detail-duration-trigger]');
             if (durationBtn instanceof HTMLElement) durationBtn.classList.toggle('has-value', !!durationValue);
+
+            syncReminderChipFace();
 
             const pinnedFace = root.querySelector('[data-tm-detail-chip-face="pinned"]');
             if (pinnedFace instanceof HTMLElement) pinnedFace.innerHTML = __tmBuildTaskDetailCoreChipFace('pinned', pinned ? '1' : '');
@@ -50099,6 +50442,7 @@ async function __tmRefreshAfterWake(reason) {
         try { root.__tmTaskDetailFlushSave = flushAutoSaveNow; } catch (e) {}
         let activeInlinePopover = null;
         let activeInlinePopoverTrigger = null;
+        let inlinePopoverCommitting = false;
         const subtaskSaveTimers = new Map();
         const syncAutoHeight = (textarea, minHeight = 34) => {
             if (!(textarea instanceof HTMLTextAreaElement)) return;
@@ -50109,9 +50453,26 @@ async function __tmRefreshAfterWake(reason) {
                 textarea.style.height = `${nextHeight}px`;
             } catch (e) {}
         };
-        const closeInlinePopover = () => {
+        const setInlinePopoverBusyState = (busy, popover = activeInlinePopover) => {
+            inlinePopoverCommitting = !!busy;
+            if (!(popover instanceof HTMLElement)) return;
+            popover.classList.toggle('is-busy', !!busy);
+            try { popover.setAttribute('aria-busy', busy ? 'true' : 'false'); } catch (e) {}
+            const input = popover.querySelector('[data-tm-detail-inline-popover-input]');
+            const clearBtn = popover.querySelector('[data-tm-detail-inline-popover-clear]');
+            const applyBtn = popover.querySelector('[data-tm-detail-inline-popover-apply]');
+            if (input instanceof HTMLInputElement) input.disabled = !!busy;
+            if (clearBtn instanceof HTMLButtonElement) clearBtn.disabled = !!busy;
+            if (applyBtn instanceof HTMLButtonElement) {
+                applyBtn.disabled = !!busy;
+                applyBtn.textContent = busy ? '保存中...' : '确定';
+            }
+        };
+        const closeInlinePopover = (force = false) => {
+            if (inlinePopoverCommitting && !force) return false;
             const popover = activeInlinePopover;
             const trigger = activeInlinePopoverTrigger;
+            setInlinePopoverBusyState(false, popover);
             activeInlinePopover = null;
             activeInlinePopoverTrigger = null;
             try { trigger?.classList?.remove?.('is-open'); } catch (e) {}
@@ -50120,6 +50481,7 @@ async function __tmRefreshAfterWake(reason) {
                     try { popover.remove(); } catch (e2) {}
                 }
             }
+            return true;
         };
         try { root.__tmTaskDetailCloseInlinePopover = closeInlinePopover; } catch (e) {}
         try { abortController.signal.addEventListener('abort', closeInlinePopover, { once: true }); } catch (e) {}
@@ -50138,6 +50500,7 @@ async function __tmRefreshAfterWake(reason) {
         };
         const openInlinePopover = (trigger, config = {}) => {
             if (!(trigger instanceof HTMLElement)) return;
+            if (inlinePopoverCommitting) return;
             if (activeInlinePopover && activeInlinePopoverTrigger === trigger) {
                 closeInlinePopover();
                 return;
@@ -50174,6 +50537,7 @@ async function __tmRefreshAfterWake(reason) {
                 } catch (e) {}
             }
             const commit = async (rawValue = null) => {
+                if (inlinePopoverCommitting) return;
                 const inputValue = rawValue == null && input instanceof HTMLInputElement
                     ? input.value
                     : String(rawValue ?? '');
@@ -50181,16 +50545,23 @@ async function __tmRefreshAfterWake(reason) {
                     ? config.normalize(inputValue)
                     : String(inputValue || '').trim();
                 try {
-                    if (typeof config.onCommit === 'function') await config.onCommit(nextValue);
-                    closeInlinePopover();
+                    setInlinePopoverBusyState(true, popover);
+                    const commitResult = typeof config.onCommit === 'function'
+                        ? await config.onCommit(nextValue)
+                        : true;
+                    if (commitResult === false) return;
+                    closeInlinePopover(true);
                     try { trigger.focus(); } catch (e) {}
                 } catch (e) {
                     hint(`❌ 更新失败: ${e.message}`, 'error');
+                } finally {
+                    setInlinePopoverBusyState(false);
                 }
             };
             if (input instanceof HTMLInputElement) {
                 on(input, 'keydown', async (ev) => {
                     if (ev.key === 'Escape') {
+                        if (inlinePopoverCommitting) return;
                         try { ev.preventDefault(); } catch (e) {}
                         closeInlinePopover();
                         try { trigger.focus(); } catch (e) {}
@@ -50235,11 +50606,22 @@ async function __tmRefreshAfterWake(reason) {
                 if (activeInlinePopover.contains(target)) return;
                 if (activeInlinePopoverTrigger instanceof HTMLElement && activeInlinePopoverTrigger.contains(target)) return;
             }
+            if (inlinePopoverCommitting) {
+                try { ev.preventDefault(); } catch (e) {}
+                try { ev.stopPropagation(); } catch (e) {}
+                try { ev.stopImmediatePropagation(); } catch (e) {}
+                return;
+            }
             closeInlinePopover();
         }, { capture: true });
         on(document, 'keydown', (ev) => {
             if (String(ev?.key || '') !== 'Escape') return;
             if (!activeInlinePopover) return;
+            if (inlinePopoverCommitting) {
+                try { ev.preventDefault(); } catch (e) {}
+                try { ev.stopPropagation(); } catch (e) {}
+                return;
+            }
             closeInlinePopover();
         }, { capture: true });
         on(window, 'resize', () => {
@@ -50248,6 +50630,7 @@ async function __tmRefreshAfterWake(reason) {
         });
         on(window, 'scroll', () => {
             if (!activeInlinePopover) return;
+            if (inlinePopoverCommitting) return;
             closeInlinePopover();
         }, { capture: true, passive: true });
         const clearSubtaskSaveTimer = (subtaskId) => {
@@ -50675,7 +51058,12 @@ async function __tmRefreshAfterWake(reason) {
                         onCommit: async (nextValue) => {
                             setHiddenInputValue(field, nextValue);
                             syncMetaChipFaces();
-                            scheduleAutoSave();
+                            return await flushAutoSaveNow({
+                                showHint: false,
+                                closeAfterSave: false,
+                                preserveFocus: true,
+                                skipRerender: true,
+                            });
                         }
                     });
                 });
@@ -50692,9 +51080,23 @@ async function __tmRefreshAfterWake(reason) {
                     onCommit: async (nextValue) => {
                         setHiddenInputValue('duration', nextValue);
                         syncMetaChipFaces();
-                        scheduleAutoSave();
+                        return await flushAutoSaveNow({
+                            showHint: false,
+                            closeAfterSave: false,
+                            preserveFocus: true,
+                            skipRerender: true,
+                        });
                     }
                 });
+            });
+            on(root.querySelector('[data-tm-detail-reminder-toggle]'), 'click', async (ev) => {
+                try { ev.preventDefault(); } catch (e) {}
+                try { ev.stopPropagation(); } catch (e) {}
+                try {
+                    await tmReminder(taskId);
+                } finally {
+                    scheduleReminderButtonStateRefresh();
+                }
             });
             on(root.querySelector('[data-tm-detail-pinned-toggle]'), 'click', (ev) => {
                 try { ev.preventDefault(); } catch (e) {}
@@ -50728,6 +51130,7 @@ async function __tmRefreshAfterWake(reason) {
             });
         };
         syncMetaChipFaces();
+        void refreshReminderButtonState();
         const titleTextarea = root.querySelector('[data-tm-detail="content"]');
         if (titleTextarea instanceof HTMLTextAreaElement) {
             syncAutoHeight(titleTextarea, 36);
@@ -51859,31 +52262,8 @@ async function __tmRefreshAfterWake(reason) {
                 const toggle = `<span class="tm-group-toggle${isCollapsed ? ' tm-group-toggle--collapsed' : ''}" onclick="tmToggleGroupCollapse('${groupKey}', event)" style="cursor:pointer;margin-right:0;display:inline-flex;align-items:center;justify-content:center;width:16px;"><svg class="tm-group-toggle-icon" viewBox="0 0 16 16" width="16" height="16"><path d="M6 4l4 4-4 4" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg></span>`;
                 
                 // 计算时长总和
-                const durationFormat = SettingsStore.data.durationFormat || 'hours';
                 const calculateDuration = (items) => {
-                    let totalMinutes = 0;
-                    items.forEach(task => {
-                        const durationStr = String(task.duration || '').trim();
-                        if (!durationStr) return;
-                        let minutes = 0;
-                        if (durationStr.toLowerCase().endsWith('h')) {
-                            const hours = parseFloat(durationStr.toLowerCase().replace('h', ''));
-                            if (!isNaN(hours)) minutes = hours * 60;
-                        } else if (durationStr.toLowerCase().endsWith('min')) {
-                            const mins = parseFloat(durationStr.toLowerCase().replace('min', ''));
-                            if (!isNaN(mins)) minutes = mins;
-                        } else {
-                            const num = parseFloat(durationStr);
-                            if (!isNaN(num)) minutes = num > 100 ? num : num * 60;
-                        }
-                        totalMinutes += minutes;
-                    });
-                    if (totalMinutes === 0) return '';
-                    if (durationFormat === 'hours') {
-                        const hours = Math.round(totalMinutes / 60 * 10) / 10;
-                        return `${hours}h`;
-                    }
-                    return `${totalMinutes}min`;
+                    return __tmCalcGroupDurationText(items);
                 };
                 const durationSum = calculateDuration(group.items);
                 
@@ -52016,54 +52396,7 @@ async function __tmRefreshAfterWake(reason) {
 
             // 计算时长总和的辅助函数
             const calculateGroupDuration = (items) => {
-                const durationFormat = SettingsStore.data.durationFormat || 'hours';
-                let totalMinutes = 0;
-                
-                items.forEach(task => {
-                    // 获取任务的时长（可能是数字或字符串）
-                    const durationStr = String(task.duration || '').trim();
-                    if (!durationStr) return;
-                    
-                    // 尝试解析时长（支持 "1.5h", "90min", "90", "1.5" 等格式）
-                    let minutes = 0;
-                    
-                    if (durationStr.toLowerCase().endsWith('h')) {
-                        // 小时格式，如 "1.5h"
-                        const hours = parseFloat(durationStr.toLowerCase().replace('h', ''));
-                        if (!isNaN(hours)) minutes = hours * 60;
-                    } else if (durationStr.toLowerCase().endsWith('min')) {
-                        // 分钟格式，如 "90min"
-                        const mins = parseFloat(durationStr.toLowerCase().replace('min', ''));
-                        if (!isNaN(mins)) minutes = mins;
-                    } else {
-                        // 纯数字，可能是小时或分钟
-                        const num = parseFloat(durationStr);
-                        if (!isNaN(num)) {
-                            // 如果数字大于100，认为是分钟，否则是小时
-                            minutes = num > 100 ? num : num * 60;
-                        }
-                    }
-                    
-                    totalMinutes += minutes;
-                });
-                
-                // 如果总时长为0，返回空字符串（不显示）
-                if (totalMinutes <= 0) return '';
-                
-                // 根据设置格式化输出
-                if (durationFormat === 'hours') {
-                    const hours = totalMinutes / 60;
-                    // 如果小于1小时，显示分钟；如果大于等于1小时，显示小时
-                    if (hours < 1) {
-                        return `${Math.round(totalMinutes)}min`;
-                    } else if (hours === Math.floor(hours)) {
-                        return `${Math.round(hours)}h`;
-                    } else {
-                        return `${hours.toFixed(1)}h`;
-                    }
-                } else {
-                    return `${totalMinutes}min`;
-                }
+                return __tmCalcGroupDurationText(items);
             };
 
             sortedGroups.forEach(group => {
@@ -56636,7 +56969,8 @@ async function __tmRefreshAfterWake(reason) {
                 return {
                     id,
                     kind: String((typeof doc === 'object' ? doc?.kind : '') || 'doc').trim() || 'doc',
-                    recursive: !!(typeof doc === 'object' ? doc?.recursive : false)
+                    recursive: !!(typeof doc === 'object' ? doc?.recursive : false),
+                    excludedDocIds: __tmNormalizeDocGroupExcludedDocIds(typeof doc === 'object' ? doc?.excludedDocIds : [])
                 };
             })
             .filter(Boolean);
@@ -56648,7 +56982,7 @@ async function __tmRefreshAfterWake(reason) {
         const resolveCacheKey = [
             currentGroupId,
             quickAddDocId,
-            ...normalizedDocs.map((doc) => `${doc.kind}:${doc.id}:${doc.recursive ? 1 : 0}`)
+            ...normalizedDocs.map((doc) => `${doc.kind}:${doc.id}:${doc.recursive ? 1 : 0}:${__tmNormalizeDocGroupExcludedDocIds(doc?.excludedDocIds).join(',')}`)
         ].join('|');
         const resolveCacheEnt = __tmResolvedDocIdsCache;
         const resolveCacheTtlMs = 30000;
@@ -56673,7 +57007,8 @@ async function __tmRefreshAfterWake(reason) {
             seen.add(id);
             finalIds.push(id);
         };
-        if (quickAddDocId && quickAddDocId !== '__dailyNote__') pushId(quickAddDocId);
+        const quickAddExcluded = currentGroupId !== 'all' && __tmIsDocExcludedInGroup(quickAddDocId, currentGroupId);
+        if (quickAddDocId && quickAddDocId !== '__dailyNote__' && !quickAddExcluded) pushId(quickAddDocId);
 
         const resolvePromise = Promise.resolve().then(async () => {
             const promises = docsInOrder.map((doc) => __tmExpandSourceEntryDocIds(doc, pushId));
@@ -57688,6 +58023,7 @@ async function __tmRefreshAfterWake(reason) {
             ? null
             : (groups.find((g) => String(g?.id || '').trim() === String(currentGroupId || '').trim()) || null);
         const currentGroupCalendarOptimization = __tmGetGroupCalendarSearchOptimization(currentGroup);
+        const currentGroupExcludedDocIds = currentGroup ? __tmGetGroupExcludedDocIds(currentGroup) : [];
         
         // 渲染分组选择器
         const renderGroupSelector = () => {
@@ -57720,6 +58056,9 @@ async function __tmRefreshAfterWake(reason) {
             const isDark = __tmIsDarkMode();
             const enableGroupBg = !!SettingsStore.data.enableGroupTaskBgByGroupColor;
             const checklistCompact = !!SettingsStore.data.checklistCompactMode;
+            const compactChecklistMetaFieldSet = checklistCompact
+                ? new Set(__tmGetCompactChecklistMetaFieldsForCurrentHost())
+                : new Set(__TM_CHECKLIST_COMPACT_META_FIELD_DEFAULTS);
             const wrapCfg = __tmGetWrapConfig();
             const escSq = (s) => String(s || '').replace(/\\/g, '\\\\').replace(/'/g, "\\'");
             const progressBarColor = isDark
@@ -57875,6 +58214,15 @@ async function __tmRefreshAfterWake(reason) {
                 const statusChipStyle = __tmBuildStatusChipStyle(statusOption.color);
                 const indent = checklistCompact ? depth * 14 : depth * 22;
                 const showTaskDocName = __tmShouldShowCompactChecklistDocName();
+                const isAllTabsView = !(state.activeDocId && state.activeDocId !== 'all');
+                const showCompactDocName = checklistCompact && isAllTabsView && compactChecklistMetaFieldSet.has('docName') && !!task.docName;
+                const showCompactStartDate = checklistCompact && compactChecklistMetaFieldSet.has('startDate') && !!task.startDate;
+                const showCompactCompletionTime = checklistCompact && compactChecklistMetaFieldSet.has('completionTime') && !!task.completionTime;
+                const compactRemainingTimeLabel = checklistCompact && compactChecklistMetaFieldSet.has('remainingTime')
+                    ? String(__tmGetTaskRemainingTimeLabel(task) || '').trim()
+                    : '';
+                const showCompactRemainingTime = !!compactRemainingTimeLabel && !!(String(task?.startDate || '').trim() || String(task?.completionTime || '').trim());
+                const showCompactStatusTag = !checklistCompact || compactChecklistMetaFieldSet.has('status');
                 const meta = [];
                 if (showTaskDocName && task.docName) meta.push(`<span class="tm-checklist-meta-chip">${__tmRenderLucideIcon('file-text')} ${esc(String(task.docName || ''))}</span>`);
                 if (task.h2) meta.push(`<span class="tm-checklist-meta-chip">${__tmRenderLucideIcon('puzzle')} ${esc(__tmNormalizeHeadingText(task.h2))}</span>`);
@@ -57882,8 +58230,10 @@ async function __tmRefreshAfterWake(reason) {
                 if (task.duration) meta.push(`<span class="tm-checklist-meta-chip">${__tmRenderLucideIcon('timer')} ${esc(String(task.duration || ''))}</span>`);
                 if (totalChildren > 0) meta.push(`<span class="tm-checklist-meta-chip">子任务 ${completedChildren}/${totalChildren}</span>`);
                 const compactMetaParts = [];
-                if (checklistCompact && showTaskDocName && task.docName) compactMetaParts.push(`<span class="tm-checklist-meta-compact-doc">${esc(String(task.docName || ''))}</span>`);
-                if (checklistCompact && task.completionTime) compactMetaParts.push(`<span class="tm-checklist-meta-compact-time">${esc(__tmFormatTaskTimeCompact(task.completionTime))}</span>`);
+                if (showCompactDocName) compactMetaParts.push(`<span class="tm-checklist-meta-compact-doc">${esc(String(task.docName || ''))}</span>`);
+                if (showCompactStartDate) compactMetaParts.push(`<span class="tm-checklist-meta-compact-start">${esc(__tmFormatTaskTimeCompact(task.startDate))}</span>`);
+                if (showCompactCompletionTime) compactMetaParts.push(`<span class="tm-checklist-meta-compact-time">${esc(__tmFormatTaskTimeCompact(task.completionTime))}</span>`);
+                if (showCompactRemainingTime) compactMetaParts.push(`<span class="tm-checklist-meta-compact-remaining">${esc(compactRemainingTimeLabel)}</span>`);
                 const hasCompactMeta = compactMetaParts.length > 0;
                 const compactMeta = hasCompactMeta
                     ? `<div class="tm-checklist-meta-compact">${compactMetaParts.join('')}</div>`
@@ -57913,7 +58263,7 @@ async function __tmRefreshAfterWake(reason) {
                             <div class="${titleRowClass}">
                                 <div class="tm-checklist-title-main"><div class="tm-checklist-title"><span class="tm-checklist-title-button"><span${titleDragAttrs} onpointerdown="tmChecklistTitlePointerDown(event, '${escSq(String(task.id || ''))}')" onclick="tmChecklistTitleClick('${escSq(String(task.id || ''))}', event)"${__tmBuildTooltipAttrs(String(task.content || '').trim() || '(无内容)', { side: 'bottom', ariaLabel: false })}>${esc(String(task.content || '').trim() || '(无内容)')}</span></span>${reminderHtml}${remarkIconHtml}</div></div>
                                 ${compactMeta}
-                                <span class="tm-status-tag" style="${statusChipStyle}">${esc(String(statusOption?.name || currentStatus || ''))}</span>
+                                ${showCompactStatusTag ? `<span class="tm-status-tag" style="${statusChipStyle}">${esc(String(statusOption?.name || currentStatus || ''))}</span>` : ''}
                                 ${task.pinned ? `<span class="tm-checklist-meta-chip" title="置顶">${__tmRenderLucideIcon('pin')}</span>` : ''}
                                 ${hasChildren ? `<span class="tm-checklist-mobile-toggle" onclick="tmToggleCollapse('${escSq(String(task.id || ''))}', event)" style="opacity:1;pointer-events:auto;">${__tmRenderToggleIcon(16, collapsed ? 0 : 90, 'tm-tree-toggle-icon')}</span>` : ''}
                             </div>
@@ -58576,11 +58926,40 @@ async function __tmRefreshAfterWake(reason) {
                             `<input class="b3-switch fn__flex-center" type="checkbox" ${SettingsStore.data.dockChecklistCompactTitleJump ? 'checked' : ''} ${SettingsStore.data.dockSidebarEnabled !== false ? '' : 'disabled'} onchange="updateDockChecklistCompactTitleJump(this.checked)">`,
                             { style: `margin-bottom:10px;opacity:${SettingsStore.data.dockSidebarEnabled !== false ? 1 : 0.6};` }
                         )}
-                        ` : ''}
                         ${renderSingleSwitchSetting(
                             '移动端清单紧凑视图标题点击跳转',
                             '移动端清单紧凑视图中，开启后点击任务名默认跳转文档；若开启下方“标题点击弹出详情页面”则改为弹出详情页面。关闭后保持打开任务详情抽屉。',
                             `<input class="b3-switch fn__flex-center" type="checkbox" ${SettingsStore.data.mobileChecklistCompactTitleJump ? 'checked' : ''} onchange="updateMobileChecklistCompactTitleJump(this.checked)">`,
+                            { style: 'margin-bottom:10px;' }
+                        )}
+                        <div style="margin-bottom:10px;opacity:${SettingsStore.data.dockSidebarEnabled !== false ? 1 : 0.6};">
+                            ${renderSingleFieldSetting(
+                                'Dock 及移动端紧凑右侧字段',
+                                '控制 Dock 侧边栏和移动端清单紧凑视图里任务右侧显示哪些信息。默认显示完成时间和状态标签。',
+                                (() => {
+                                    const selected = new Set(__tmNormalizeCompactChecklistMetaFields(SettingsStore.data.dockChecklistCompactMetaFields));
+                                    return `<div style="display:flex;gap:8px;flex-wrap:wrap;">${__TM_CHECKLIST_COMPACT_META_FIELD_OPTIONS.map((item) => `
+                                        <label style="display:inline-flex;align-items:center;gap:6px;padding:6px 10px;border:1px solid var(--tm-border-color);border-radius:999px;background:var(--tm-card-bg);cursor:${SettingsStore.data.dockSidebarEnabled !== false ? 'pointer' : 'not-allowed'};opacity:${SettingsStore.data.dockSidebarEnabled !== false ? 1 : 0.6};">
+                                            <input class="b3-switch fn__flex-center" type="checkbox" ${selected.has(item.key) ? 'checked' : ''} ${SettingsStore.data.dockSidebarEnabled !== false ? '' : 'disabled'} onchange="updateChecklistCompactMetaFieldVisibility('dock', '${item.key}', this.checked)">
+                                            <span>${item.label}</span>
+                                        </label>
+                                    `).join('')}</div>`;
+                                })()
+                            )}
+                        </div>
+                        ` : ''}
+                        ${renderSingleFieldSetting(
+                            '桌面端紧凑右侧字段',
+                            '控制桌面端清单紧凑视图里任务右侧显示哪些信息。默认显示完成时间和状态标签，文档名仅在全部页签下显示。',
+                            (() => {
+                                const selected = new Set(__tmNormalizeCompactChecklistMetaFields(SettingsStore.data.desktopChecklistCompactMetaFields));
+                                return `<div style="display:flex;gap:8px;flex-wrap:wrap;">${__TM_CHECKLIST_COMPACT_META_FIELD_OPTIONS.map((item) => `
+                                    <label style="display:inline-flex;align-items:center;gap:6px;padding:6px 10px;border:1px solid var(--tm-border-color);border-radius:999px;background:var(--tm-card-bg);cursor:pointer;">
+                                        <input class="b3-switch fn__flex-center" type="checkbox" ${selected.has(item.key) ? 'checked' : ''} onchange="updateChecklistCompactMetaFieldVisibility('desktop', '${item.key}', this.checked)">
+                                        <span>${item.label}</span>
+                                    </label>
+                                `).join('')}</div>`;
+                            })(),
                             { style: 'margin-bottom:10px;' }
                         )}
                         ${renderSingleSwitchSetting(
@@ -59012,6 +59391,36 @@ async function __tmRefreshAfterWake(reason) {
                             </div>
                         ` : '<div style="color: var(--tm-secondary-text); font-size: 13px; padding: 10px; background: var(--tm-rule-group-bg); border-radius: 8px;">暂无文档，请添加</div>'}
                     </div>
+                    ${currentGroupId !== 'all' ? `
+                    <div style="margin-top: 16px;">
+                        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
+                            <span style="font-weight: 600;">🚫 排除文档（${currentGroupExcludedDocIds.length} 个）</span>
+                        </div>
+                        <div style="font-size: 12px; color: var(--tm-secondary-text); line-height: 1.7; margin-bottom: 8px;">
+                            右击文档页签可快速排除。恢复显示请从这里移出排除列表。
+                        </div>
+                        ${currentGroupExcludedDocIds.length > 0 ? `
+                            <div style="max-height: min(32vh, 240px); overflow-y: auto; border: 1px solid var(--tm-border-color); border-radius: 8px; padding: 8px;">
+                                ${currentGroupExcludedDocIds.map((docId, index) => {
+                                    const docName = resolveDocName(docId);
+                                    const displayName = docName.length > 25 ? docName.substring(0, 25) + '...' : docName;
+                                    return `
+                                        <div style="display: flex; align-items: center; justify-content: space-between; padding: 6px 8px; background: var(--tm-card-bg); border-radius: 4px; margin-bottom: 4px;">
+                                            <div style="display: flex; align-items: center; gap: 8px; min-width: 0;">
+                                                <span style="color: var(--tm-danger-color); font-weight: 500;">${index + 1}.</span>
+                                                <div style="overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">
+                                                    <span title="${esc(docName)}">${esc(displayName)}</span>
+                                                </div>
+                                                <span style="font-size: 11px; color: var(--tm-task-done-color); font-family: monospace;">${docId.slice(0, 8)}...</span>
+                                            </div>
+                                            <button class="tm-btn tm-btn-success" onclick="removeExcludedDocFromCurrentGroup('${docId}')" style="padding: 2px 6px; font-size: 11px;">移出排除</button>
+                                        </div>
+                                    `;
+                                }).join('')}
+                            </div>
+                        ` : '<div style="color: var(--tm-secondary-text); font-size: 13px; padding: 10px; background: var(--tm-rule-group-bg); border-radius: 8px;">暂无排除文档</div>'}
+                    </div>
+                    ` : ''}
                     ` : ''}
                 </div>
                     </div>
@@ -63704,6 +64113,7 @@ async function __tmRefreshAfterWake(reason) {
         const group = groups.find(g => g.id === currentId);
         if (group) {
             group.docs = [];
+            group.excludedDocIds = [];
             delete group.notebookId;
             await SettingsStore.updateDocGroups(groups);
             showSettings();
@@ -63718,10 +64128,25 @@ async function __tmRefreshAfterWake(reason) {
         const groups = SettingsStore.data.docGroups || [];
         const group = groups.find(g => g.id === currentId);
         if (group && group.docs) {
-            group.docs.splice(index, 1);
+            const removed = group.docs.splice(index, 1)[0];
+            const removedDocId = String((typeof removed === 'object' ? removed?.id : removed) || '').trim();
+            if (removedDocId) {
+                group.excludedDocIds = __tmGetGroupExcludedDocIds(group).filter((id) => id !== removedDocId);
+            }
             await SettingsStore.updateDocGroups(groups);
             showSettings();
         }
+    };
+
+    window.removeExcludedDocFromCurrentGroup = async function(docId) {
+        const currentId = String(SettingsStore.data.currentGroupId || 'all').trim() || 'all';
+        if (currentId === 'all') return;
+        const result = await __tmSetDocExcludedForGroup(docId, false, currentId);
+        if (!result?.changed) {
+            hint('⚠ 该文档不在排除列表中', 'warning');
+            return;
+        }
+        hint('✅ 已从排除列表移出，文档会重新显示', 'success');
     };
 
     window.removeDocFromAll = async function(docId) {
@@ -63746,6 +64171,9 @@ async function __tmRefreshAfterWake(reason) {
                 if (!g || !Array.isArray(g.docs)) return;
                 const before = g.docs.length;
                 g.docs = g.docs.filter(d => String((typeof d === 'object' ? d?.id : d) || '') !== id);
+                const excludedBefore = __tmGetGroupExcludedDocIds(g);
+                g.excludedDocIds = excludedBefore.filter((item) => item !== id);
+                if (g.excludedDocIds.length !== excludedBefore.length) groupsChanged = true;
                 if (g.docs.length !== before) groupsChanged = true;
             });
             if (groupsChanged) {
@@ -64251,6 +64679,33 @@ async function __tmRefreshAfterWake(reason) {
     window.updateMobileChecklistCompactTitleJump = async function(enabled) {
         SettingsStore.data.mobileChecklistCompactTitleJump = !!enabled;
         await SettingsStore.save();
+        showSettings();
+        if (state.modal && document.body.contains(state.modal)) {
+            try { render(); } catch (e) {}
+        }
+    };
+
+    window.updateChecklistCompactMetaFieldVisibility = async function(scope, fieldKey, enabled) {
+        const rawScope = String(scope || '').trim();
+        const scopeKey = (rawScope === 'dock' || rawScope === 'mobile')
+            ? 'dock'
+            : (rawScope === 'desktop' ? 'desktop' : 'mobile');
+        const normalizedField = String(fieldKey || '').trim();
+        if (!__TM_CHECKLIST_COMPACT_META_FIELD_OPTIONS.some((item) => item.key === normalizedField)) return;
+        const settingsKey = scopeKey === 'dock'
+            ? 'dockChecklistCompactMetaFields'
+            : (scopeKey === 'desktop' ? 'desktopChecklistCompactMetaFields' : 'mobileChecklistCompactMetaFields');
+        const current = new Set(__tmNormalizeCompactChecklistMetaFields(SettingsStore.data[settingsKey]));
+        if (enabled) current.add(normalizedField);
+        else current.delete(normalizedField);
+        SettingsStore.data[settingsKey] = __tmNormalizeCompactChecklistMetaFields(Array.from(current), []);
+        if (scopeKey === 'dock') {
+            SettingsStore.data.mobileChecklistCompactMetaFields = SettingsStore.data[settingsKey].slice();
+        }
+        await SettingsStore.save();
+        if (scopeKey === 'dock') {
+            __tmDispatchDockSettingsChanged('dock-checklist-compact-meta-fields');
+        }
         showSettings();
         if (state.modal && document.body.contains(state.modal)) {
             try { render(); } catch (e) {}
@@ -67632,6 +68087,17 @@ async function __tmRefreshAfterWake(reason) {
             state.allDocTabLongPressStartY = 0;
             state.allDocTabSuppressClickUntil = 0;
             state.allDocTabIgnoreContextMenuUntil = 0;
+        } catch (e) {}
+
+        try {
+            __tmClearTopbarManagerIconLongPressTimer();
+            state.topbarManagerIconLongPressFired = false;
+            state.topbarManagerIconLongPressMoved = false;
+            state.topbarManagerIconTrigger = null;
+            state.topbarManagerIconLongPressStartX = 0;
+            state.topbarManagerIconLongPressStartY = 0;
+            state.topbarManagerIconSuppressClickUntil = 0;
+            state.__tmPluginIconLongPressing = false;
         } catch (e) {}
 
         try { __tmRemoveBreadcrumbButton({ destroy: true }); } catch (e) {}
