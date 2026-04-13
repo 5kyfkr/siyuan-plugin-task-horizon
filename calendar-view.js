@@ -121,6 +121,9 @@
         scheduleReminder: {
             enabled: false,
             refreshTimer: null,
+            refreshRunning: false,
+            refreshQueued: false,
+            pendingReason: '',
             periodicTimer: null,
             timers: new Map(),
             mobileSyncTimer: null,
@@ -4897,6 +4900,31 @@
         } catch (e) {}
     }
 
+    function scheduleReminderDispatchLockStorageKey(lockKey) {
+        return `tm-calendar-schedule-reminder-dispatch:${String(lockKey || '').trim()}`;
+    }
+
+    function tryAcquireScheduleReminderDispatchLock(lockKey, ttlMs = 90000) {
+        const safeKey = String(lockKey || '').trim();
+        if (!safeKey) return true;
+        const now = Date.now();
+        const expiresAt = now + Math.max(1000, Math.round(Number(ttlMs) || 90000));
+        const storageKey = scheduleReminderDispatchLockStorageKey(safeKey);
+        try {
+            const raw = String(localStorage.getItem(storageKey) || '').trim();
+            if (raw) {
+                const parsed = JSON.parse(raw);
+                const until = Number(parsed?.expiresAt || 0);
+                if (Number.isFinite(until) && until > now) return false;
+            }
+        } catch (e) {}
+        try {
+            localStorage.setItem(storageKey, JSON.stringify({ expiresAt, updatedAt: now }));
+            return true;
+        } catch (e) {}
+        return true;
+    }
+
     function buildScheduleReminderKey(scheduleId, atMs) {
         return `schedule:${String(scheduleId || '').trim()}:${String(atMs || '')}`;
     }
@@ -5915,6 +5943,9 @@
                 sr.refreshTimer = null;
             }
         } catch (e) {}
+        sr.refreshRunning = false;
+        sr.refreshQueued = false;
+        sr.pendingReason = '';
         try {
             if (sr.periodicTimer) {
                 clearTimeout(sr.periodicTimer);
@@ -5939,6 +5970,13 @@
 
     async function refreshScheduleReminderTimers(reason) {
         const sr = state.scheduleReminder;
+        if (sr.refreshRunning) {
+            sr.refreshQueued = true;
+            sr.pendingReason = String(reason || '').trim() || sr.pendingReason || 'refresh';
+            return;
+        }
+        sr.refreshRunning = true;
+        try {
         const hasStore = !!(state.settingsStore && state.settingsStore.data) || !!(state.sideDay?.settingsStore && state.sideDay.settingsStore.data);
         if (!hasStore) return;
         const settings = getSettings();
@@ -6227,6 +6265,7 @@
                             titles.push(t0);
                         }
                         if (firedAny.length === 0) return;
+                        if (!tryAcquireScheduleReminderDispatchLock(`allday:${dateKey0}:${String(atMs0)}`)) return;
                         saveScheduleReminderFiredSet(dateKey0, fired);
                         const title = `全天提醒 ${timeText}`;
                         const body = titles.map((x) => `• ${x}`).join('\n');
@@ -6240,6 +6279,7 @@
                     const key = String(pack?.key || timerKey).trim();
                     const dateKey = String(meta.dateKey || dateKey0).trim() || dateKey0;
                     if (dateKey !== dateKey0) return;
+                    if (!tryAcquireScheduleReminderDispatchLock(`single:${key}`)) return;
                     // 非全天日程：直接触发提醒，不保存 fired 记录（修改后可重新触发）
                     const offset = Number(meta.offsetMin);
                     const startMs1 = (() => {
@@ -6279,14 +6319,31 @@
         sr.periodicTimer = setTimeout(() => {
             try { scheduleScheduleReminderRefresh(shouldPreferDeviceNotificationBackend() ? 'mobile-periodic' : 'periodic'); } catch (e) {}
         }, periodicDelayMs);
+        } finally {
+            sr.refreshRunning = false;
+            if (sr.refreshQueued || sr.pendingReason) {
+                const nextReason = sr.pendingReason || String(reason || '').trim() || 'refresh';
+                sr.refreshQueued = false;
+                sr.pendingReason = '';
+                try { scheduleScheduleReminderRefresh(nextReason); } catch (e) {}
+            }
+        }
     }
 
     function scheduleScheduleReminderRefresh(reason) {
         const sr = state.scheduleReminder;
+        const nextReason = String(reason || '').trim() || 'refresh';
+        sr.pendingReason = nextReason;
+        if (sr.refreshRunning) {
+            sr.refreshQueued = true;
+            return;
+        }
         if (sr.refreshTimer) return;
         sr.refreshTimer = setTimeout(() => {
             sr.refreshTimer = null;
-            refreshScheduleReminderTimers(reason).catch(() => null);
+            const runReason = sr.pendingReason || nextReason;
+            sr.pendingReason = '';
+            refreshScheduleReminderTimers(runReason).catch(() => null);
         }, 180);
     }
 
