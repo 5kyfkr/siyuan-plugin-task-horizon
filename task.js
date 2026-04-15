@@ -34960,6 +34960,52 @@ async function __tmRefreshAfterWake(reason) {
         document.addEventListener('touchcancel', end, opts);
     }
 
+    function __tmEnsureAllDocTabTouchDelegation() {
+        try { if (state.allDocTabTouchDelegationBound) return; } catch (e) {}
+        state.allDocTabTouchDelegationBound = true;
+        const start = (ev) => {
+            const el = ev?.target?.closest?.('.tm-doc-tab--all');
+            if (!el) return;
+            window.tmAllDocTabPressStart?.(ev);
+        };
+        const move = (ev) => {
+            if (!state.allDocTabLongPressTimer) return;
+            window.tmAllDocTabPressMove?.(ev);
+        };
+        const end = (ev) => {
+            if (!state.allDocTabLongPressTimer && !state.allDocTabLongPressFired) return;
+            window.tmAllDocTabPressEnd?.(ev);
+        };
+        state.allDocTabTouchDelegationHandlers = { start, move, end };
+        document.addEventListener('touchstart', start, { passive: true });
+        document.addEventListener('touchmove', move, { passive: true });
+        document.addEventListener('touchend', end, { passive: false });
+        document.addEventListener('touchcancel', end, { passive: false });
+    }
+
+    function __tmEnsureTopbarManagerIconTouchDelegation() {
+        try { if (state.topbarManagerIconTouchDelegationBound) return; } catch (e) {}
+        state.topbarManagerIconTouchDelegationBound = true;
+        const start = (ev) => {
+            const el = ev?.target?.closest?.('[data-tm-all-doc-menu-trigger="1"]');
+            if (!el) return;
+            window.tmTopbarManagerIconPressStart?.(ev);
+        };
+        const move = (ev) => {
+            if (!state.topbarManagerIconLongPressTimer) return;
+            window.tmTopbarManagerIconPressMove?.(ev);
+        };
+        const end = (ev) => {
+            if (!state.topbarManagerIconLongPressTimer && !state.topbarManagerIconLongPressFired) return;
+            window.tmTopbarManagerIconPressEnd?.(ev);
+        };
+        state.topbarManagerIconTouchDelegationHandlers = { start, move, end };
+        document.addEventListener('touchstart', start, { passive: true });
+        document.addEventListener('touchmove', move, { passive: true });
+        document.addEventListener('touchend', end, { passive: false });
+        document.addEventListener('touchcancel', end, { passive: false });
+    }
+
     function __tmBindWhiteboardViewportInput(modalEl) {
         const modal = modalEl instanceof Element ? modalEl : state.modal;
         const viewport = modal?.querySelector?.('#tmWhiteboardViewport');
@@ -36755,6 +36801,8 @@ async function __tmRefreshAfterWake(reason) {
     // 修改渲染函数以显示规则信息
     function render() {
         try { __tmEnsureDocTabTouchDelegation(); } catch (e) {}
+        try { __tmEnsureAllDocTabTouchDelegation(); } catch (e) {}
+        try { __tmEnsureTopbarManagerIconTouchDelegation(); } catch (e) {}
         try { state.dockTaskPointerGestureCleanup?.(); } catch (e) {}
         try { state.multiSelectPointerGestureCleanup?.(); } catch (e) {}
         try { __tmCloseMultiSelectMoreMenu(); } catch (e) {}
@@ -39111,7 +39159,7 @@ async function __tmRefreshAfterWake(reason) {
                                 <div class="tm-whiteboard-stream-task">
                                     <div class="tm-whiteboard-stream-task-head${multiSelectCls}" data-task-id="${esc(tid)}" data-id="${esc(tid)}" draggable="true" ondragstart="tmDragTaskStart(event, '${escSq(tid)}')" ondragend="tmDragTaskEnd(event)" oncontextmenu="tmShowTaskContextMenu(event, '${escSq(tid)}')" onclick="tmWhiteboardStreamTaskHeadClick('${escSq(tid)}', event)">
                                         ${__tmRenderTaskCheckboxWrap(tid, task, { checked: task?.done, stopMouseDown: true, stopClick: true, title: '完成状态' })}
-                                        <span class="tm-whiteboard-stream-task-title ${task?.done ? 'tm-task-done' : ''}" onpointerdown="tmWhiteboardStreamTaskTitlePointerDown(event)" onmousedown="tmWhiteboardStreamTaskTitleMouseDown(event)" ontouchstart="tmWhiteboardStreamTaskTitleTouchStart(event)" onclick="tmWhiteboardStreamTaskTitleClick('${escSq(tid)}', event)"${__tmBuildTooltipAttrs(String(content || '').trim() || '(无内容)', { side: 'bottom', ariaLabel: false })}>${API.renderTaskContentHtml(task?.markdown, content)}${__tmRenderRecurringTaskInlineIcon(task)}${__tmRenderRecurringInstanceBadge(task, { className: 'tm-recurring-instance-badge--inline' })}</span>
+                                        <span class="tm-whiteboard-stream-task-title ${task?.done ? 'tm-task-done' : ''}" onpointerdown="tmWhiteboardStreamTaskTitlePointerDown(event)" onmousedown="tmWhiteboardStreamTaskTitleMouseDown(event)" onclick="tmWhiteboardStreamTaskTitleClick('${escSq(tid)}', event)"${__tmBuildTooltipAttrs(String(content || '').trim() || '(无内容)', { side: 'bottom', ariaLabel: false })}>${API.renderTaskContentHtml(task?.markdown, content)}${__tmRenderRecurringTaskInlineIcon(task)}${__tmRenderRecurringInstanceBadge(task, { className: 'tm-recurring-instance-badge--inline' })}</span>
                                         ${toggleHtml}
                                     </div>
                                 </div>
@@ -39902,7 +39950,7 @@ async function __tmRefreshAfterWake(reason) {
         const timelineFloatingToolbarHtml = showTimelineFloatingToolbar
             ? `<div class="tm-timeline-mobile-toolbar"><div class="tm-timeline-mobile-toolbar__inner">${__tmRenderTimelineToolbarButtons({
                 buttonClass: 'tm-timeline-mobile-toolbar__btn',
-                interactionAttrs: showMobileTimelineFloatingToolbar ? ' onpointerdown=\"tmTouchTimelineMobileToolbarButton(event)\" ontouchstart=\"tmTouchTimelineMobileToolbarButton(event)\"' : '',
+                interactionAttrs: showMobileTimelineFloatingToolbar ? ' onpointerdown=\"tmTouchTimelineMobileToolbarButton(event)\"' : '',
                 clickPrefix: showMobileTimelineFloatingToolbar ? 'tmTouchTimelineMobileToolbarButton(event);' : ''
             })}</div></div>`
             : '';
@@ -39978,10 +40026,6 @@ async function __tmRefreshAfterWake(reason) {
                                     data-tm-all-doc-menu-trigger="1"
                                     onclick="tmHandleManagerIconClick(event)"
                                     oncontextmenu="return tmHandleManagerIconContextMenu(event)"
-                                    ontouchstart="tmTopbarManagerIconPressStart(event)"
-                                    ontouchmove="tmTopbarManagerIconPressMove(event)"
-                                    ontouchend="tmTopbarManagerIconPressEnd(event)"
-                                    ontouchcancel="tmTopbarManagerIconPressEnd(event)"
                                     onmousedown="tmTopbarManagerIconPressStart(event)"
                                     onmousemove="tmTopbarManagerIconPressMove(event)"
                                     onmouseup="tmTopbarManagerIconPressEnd(event)"
@@ -40206,7 +40250,7 @@ async function __tmRefreshAfterWake(reason) {
                      ondragover="tmDocTabDragOver(event)" 
                      ondrop="tmDocTabDrop(event, '')">
                     <div class="tm-doc-tabs-scroll" style="display:flex; gap:8px; overflow-x:auto; flex:1; align-items:center; padding: ${isMobile ? '4px 0 4px 0' : '4px 0 4px 0'};" ondragover="tmDocTabDragOver(event)" ondrop="tmDocTabDrop(event, '')">
-                        <div class="tm-doc-tab tm-doc-tab--all ${state.activeDocId === 'all' ? 'active' : ''}" onclick="tmHandleAllDocTabClick(event)" oncontextmenu="tmShowAllDocTabContextMenu(event)" ontouchstart="tmAllDocTabPressStart(event)" ontouchmove="tmAllDocTabPressMove(event)" ontouchend="tmAllDocTabPressEnd(event)" ontouchcancel="tmAllDocTabPressEnd(event)"${__tmBuildTooltipAttrs(`${__tmGetViewProfileSourceLabel(__tmGetEffectiveViewProfileForContext('all', currentGroupId).source)}: ${__tmDescribeViewProfile(__tmGetEffectiveViewProfileForContext('all', currentGroupId).profile)} ｜ 右键或长按查看当前分组全部页签`, { side: 'bottom', ariaLabel: false })}>全部</div>
+                        <div class="tm-doc-tab tm-doc-tab--all ${state.activeDocId === 'all' ? 'active' : ''}" onclick="tmHandleAllDocTabClick(event)" oncontextmenu="tmShowAllDocTabContextMenu(event)"${__tmBuildTooltipAttrs(`${__tmGetViewProfileSourceLabel(__tmGetEffectiveViewProfileForContext('all', currentGroupId).source)}: ${__tmDescribeViewProfile(__tmGetEffectiveViewProfileForContext('all', currentGroupId).profile)} ｜ 右键或长按查看当前分组全部页签`, { side: 'bottom', ariaLabel: false })}>全部</div>
                         ${(() => {
                             const id = String(SettingsStore.data.newTaskDocId || '').trim();
                             if (__tmIsDocExcludedInGroup(id, currentGroupId)) return '';
@@ -41004,7 +41048,7 @@ async function __tmRefreshAfterWake(reason) {
                 </div>
                 ${whiteboardMobileDetailSheetHtml}
                 ${showMobileBottomViewBar ? `
-                    <div class="tm-mobile-bottom-viewbar ${mobileBottomViewbarActive ? 'tm-mobile-bottom-viewbar--active' : ''}" onpointerdown="tmTouchMobileBottomViewbar(event)" ontouchstart="tmTouchMobileBottomViewbar(event)" onclick="tmTouchMobileBottomViewbar(event)">
+                    <div class="tm-mobile-bottom-viewbar ${mobileBottomViewbarActive ? 'tm-mobile-bottom-viewbar--active' : ''}" onpointerdown="tmTouchMobileBottomViewbar(event)" onclick="tmTouchMobileBottomViewbar(event)">
                         <div class="tm-mobile-bottom-viewbar__inner">
                             <div class="tm-view-segmented bc-tabs-list tm-mobile-bottom-view-switcher" role="tablist" aria-label="视图">
                                 ${__tmRenderViewSwitcherButtons({ compact: true })}
@@ -73857,15 +73901,13 @@ async function __tmRefreshAfterWake(reason) {
         try { __tmHideDocTabMenu?.(); } catch (e) {}
         try {
             const h = state.docTabTouchDelegationHandlers;
-            const opts = state.docTabTouchDelegationOptions || { passive: true };
             if (h) {
-                try { document.removeEventListener('touchstart', h.start, opts); } catch (e2) {}
-                try { document.removeEventListener('touchmove', h.move, opts); } catch (e2) {}
-                try { document.removeEventListener('touchend', h.end, opts); } catch (e2) {}
-                try { document.removeEventListener('touchcancel', h.end, opts); } catch (e2) {}
+                try { document.removeEventListener('touchstart', h.start); } catch (e2) {}
+                try { document.removeEventListener('touchmove', h.move); } catch (e2) {}
+                try { document.removeEventListener('touchend', h.end); } catch (e2) {}
+                try { document.removeEventListener('touchcancel', h.end); } catch (e2) {}
             }
             state.docTabTouchDelegationHandlers = null;
-            state.docTabTouchDelegationOptions = null;
             state.docTabTouchDelegationBound = false;
             state.docTabTouchActive = false;
             state.docTabTouchActiveDocId = null;
@@ -73877,6 +73919,18 @@ async function __tmRefreshAfterWake(reason) {
         } catch (e) {}
 
         try {
+            const h = state.allDocTabTouchDelegationHandlers;
+            if (h) {
+                try { document.removeEventListener('touchstart', h.start); } catch (e2) {}
+                try { document.removeEventListener('touchmove', h.move); } catch (e2) {}
+                try { document.removeEventListener('touchend', h.end); } catch (e2) {}
+                try { document.removeEventListener('touchcancel', h.end); } catch (e2) {}
+            }
+            state.allDocTabTouchDelegationHandlers = null;
+            state.allDocTabTouchDelegationBound = false;
+        } catch (e) {}
+
+        try {
             __tmClearAllDocTabLongPressTimer();
             state.allDocTabLongPressFired = false;
             state.allDocTabLongPressMoved = false;
@@ -73885,6 +73939,18 @@ async function __tmRefreshAfterWake(reason) {
             state.allDocTabLongPressStartY = 0;
             state.allDocTabSuppressClickUntil = 0;
             state.allDocTabIgnoreContextMenuUntil = 0;
+        } catch (e) {}
+
+        try {
+            const h = state.topbarManagerIconTouchDelegationHandlers;
+            if (h) {
+                try { document.removeEventListener('touchstart', h.start); } catch (e2) {}
+                try { document.removeEventListener('touchmove', h.move); } catch (e2) {}
+                try { document.removeEventListener('touchend', h.end); } catch (e2) {}
+                try { document.removeEventListener('touchcancel', h.end); } catch (e2) {}
+            }
+            state.topbarManagerIconTouchDelegationHandlers = null;
+            state.topbarManagerIconTouchDelegationBound = false;
         } catch (e) {}
 
         try {
