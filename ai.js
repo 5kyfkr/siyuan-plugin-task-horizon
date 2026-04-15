@@ -2605,8 +2605,22 @@
                         calendarId: 'default',
                         durationMin: Math.max(15, Math.round((end.getTime() - start.getTime()) / 60000)),
                         allDay: !!input?.allDay,
+                        refresh: false,
                     });
-                    try { await cal.refreshInPlace?.({ silent: false }); } catch (e) {}
+                    try {
+                        if (typeof cal.requestRefresh === 'function') {
+                            await cal.requestRefresh({
+                                reason: 'ai-write-schedule-tool',
+                                main: true,
+                                side: true,
+                                flushTaskPanel: true,
+                                rangeStart: item?.start,
+                                rangeEnd: item?.end,
+                            });
+                        } else {
+                            await cal.refreshInPlace?.({ silent: false });
+                        }
+                    } catch (e) {}
                     return {
                         scheduleId: String(item?.id || '').trim(),
                         taskId: String(task?.id || '').trim(),
@@ -3585,9 +3599,21 @@
                     calendarId: 'default',
                     durationMin: Math.max(15, Math.round((end.getTime() - start.getTime()) / 60000)),
                     allDay: !!item.allDay,
+                    refresh: false,
                 });
             }
-            try { await cal.refreshInPlace?.({ silent: false }); } catch (e) {}
+            try {
+                if (typeof cal.requestRefresh === 'function') {
+                    await cal.requestRefresh({
+                        reason: 'ai-apply-schedule',
+                        main: true,
+                        side: true,
+                        flushTaskPanel: true,
+                    });
+                } else {
+                    await cal.refreshInPlace?.({ silent: false });
+                }
+            } catch (e) {}
             toast('✅ 已写入日历', 'success');
             closeModal();
         });
@@ -4381,9 +4407,21 @@
                 calendarId: 'default',
                 durationMin: Math.max(15, Math.round((end.getTime() - start.getTime()) / 60000)),
                 allDay: !!item.allDay,
+                refresh: false,
             });
         }
-        try { await cal.refreshInPlace?.({ silent: false }); } catch (e) {}
+        try {
+            if (typeof cal.requestRefresh === 'function') {
+                await cal.requestRefresh({
+                    reason: 'ai-conversation-schedule',
+                    main: true,
+                    side: true,
+                    flushTaskPanel: true,
+                });
+            } else {
+                await cal.refreshInPlace?.({ silent: false });
+            }
+        } catch (e) {}
         const refreshed = await loadExistingSchedulesByRange(plan?.planDate || todayKey(), plan?.planDateTo || plan?.planDate || todayKey());
         await updateConversation(session.id, { lastResult: { ...(session.lastResult || {}), existingSchedules: refreshed } });
         toast('✅ 已写入日历', 'success');

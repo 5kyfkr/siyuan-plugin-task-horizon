@@ -32,6 +32,73 @@
     min-height: 0;
 }
 
+.tm-calendar-root--month-view,
+.tm-body.tm-body--calendar.tm-calendar-root--month-view {
+    overflow-y: auto;
+    scroll-padding-bottom: var(--tm-view-bottom-inset, 0px);
+}
+
+.tm-calendar-root--month-view .tm-calendar-wrap {
+    flex: 0 0 auto;
+    min-height: 100%;
+    height: auto;
+    padding-bottom: var(--tm-view-bottom-inset, 0px);
+    box-sizing: border-box;
+}
+
+.tm-calendar-root--month-view .tm-calendar-layout {
+    min-height: 100%;
+    height: auto;
+}
+
+.tm-calendar-root--month-view .tm-calendar-wrap:not(.tm-calendar-wrap--mobile) .tm-calendar-sidebar,
+.tm-calendar-root--month-view .tm-calendar-wrap:not(.tm-calendar-wrap--mobile) .tm-calendar-sidebar-resizer {
+    position: sticky;
+    top: 0;
+    align-self: flex-start;
+    height: var(--tm-calendar-month-viewport-height, 100%);
+    max-height: var(--tm-calendar-month-viewport-height, 100%);
+}
+
+.tm-calendar-root--month-view .tm-calendar-wrap:not(.tm-calendar-wrap--mobile) .tm-calendar-sidebar {
+    overflow: hidden;
+    z-index: 1;
+}
+
+.tm-calendar-root--month-view .tm-calendar-wrap:not(.tm-calendar-wrap--mobile) .tm-calendar-sidebar-inner {
+    height: 100%;
+    min-height: 0;
+}
+
+.tm-calendar-root--month-view .tm-calendar-host,
+.tm-calendar-root--month-view .tm-calendar-host .fc,
+.tm-calendar-root--month-view .tm-calendar-host.fc,
+.tm-calendar-root--month-view .tm-calendar-host .fc .fc-view-harness,
+.tm-calendar-root--month-view .tm-calendar-host .fc .fc-view-harness-active,
+.tm-calendar-root--month-view .tm-calendar-host .fc .fc-scrollgrid,
+.tm-calendar-root--month-view .tm-calendar-host .fc .fc-scrollgrid table,
+.tm-calendar-root--month-view .tm-calendar-host .fc .fc-scroller-harness,
+.tm-calendar-root--month-view .tm-calendar-host .fc .fc-scroller-harness-liquid,
+.tm-calendar-root--month-view .tm-calendar-host .fc .fc-scroller-harness-liquid > .fc-scroller,
+.tm-calendar-root--month-view .tm-calendar-host .fc .fc-scroller,
+.tm-calendar-root--month-view .tm-calendar-host .fc .fc-scroller-liquid-absolute {
+    height: auto !important;
+    min-height: 0 !important;
+    max-height: none !important;
+}
+
+.tm-calendar-root--month-view .tm-calendar-host .fc .fc-scroller,
+.tm-calendar-root--month-view .tm-calendar-host .fc .fc-scroller-harness,
+.tm-calendar-root--month-view .tm-calendar-host .fc .fc-scroller-harness-liquid {
+    overflow: visible !important;
+}
+
+.tm-calendar-root--month-view .tm-calendar-host .fc .fc-scroller-liquid-absolute {
+    position: static !important;
+    inset: auto !important;
+    overflow: visible !important;
+}
+
 @media (max-width: 768px) {
     .tm-calendar-wrap--mobile .tm-calendar-sidebar-resizer {
         display: none;
@@ -1800,6 +1867,12 @@
     --tm-calendar-half-hour-slot-height: 29px;
     --tm-calendar-now-indicator-dot-size: 10px;
     --tm-calendar-now-indicator-line-width: 2px;
+    --tm-calendar-month-visible-events: 3;
+    --tm-calendar-month-event-line-height: 24px;
+    --tm-calendar-month-more-link-height: 18px;
+    --tm-calendar-month-day-header-height: 28px;
+    --tm-calendar-month-day-vertical-padding: 10px;
+    --tm-calendar-month-day-min-height: calc(var(--tm-calendar-month-day-header-height) + (var(--tm-calendar-month-event-line-height) * var(--tm-calendar-month-visible-events)) + var(--tm-calendar-month-more-link-height) + var(--tm-calendar-month-day-vertical-padding));
     --tm-cal-allday-summary-bg: color-mix(in srgb, var(--tm-section-bg) 82%, var(--tm-bg-color) 18%);
     --tm-cal-allday-summary-hover-bg: color-mix(in srgb, var(--tm-section-bg) 64%, var(--tm-bg-color) 36%);
     --fc-slot-min-height: 29px;
@@ -2808,18 +2881,37 @@
     overflow: hidden !important;
 }
 
+/* Let touch drags on event blocks continue scrolling the time axis until a long press actually starts dragging the event. */
 .tm-calendar-wrap--mobile .fc .fc-timegrid-event,
 .tm-calendar-wrap--mobile .fc .fc-timegrid-event-harness,
 .tm-calendar-wrap--mobile .fc .fc-timegrid-event .fc-event-main,
 .tm-calendar-wrap--mobile .fc .fc-timegrid-event .fc-event-main-frame,
-.tm-calendar-wrap--mobile .fc .fc-event-resizer,
 #tmCalendarSideDockTimeline .fc .fc-timegrid-event,
 #tmCalendarSideDockTimeline .fc .fc-timegrid-event-harness,
 #tmCalendarSideDockTimeline .fc .fc-timegrid-event .fc-event-main,
-#tmCalendarSideDockTimeline .fc .fc-timegrid-event .fc-event-main-frame,
+#tmCalendarSideDockTimeline .fc .fc-timegrid-event .fc-event-main-frame {
+    touch-action: pan-y;
+    -ms-touch-action: pan-y;
+}
+
+.tm-calendar-wrap--mobile .fc .fc-event-resizer,
 #tmCalendarSideDockTimeline .fc .fc-event-resizer {
     touch-action: none;
     -ms-touch-action: none;
+}
+
+.tm-calendar-host.tm-cal-touch-gesture-lock .fc .fc-timegrid-event,
+.tm-calendar-host.tm-cal-touch-gesture-lock .fc .fc-timegrid-event-harness,
+.tm-calendar-host.tm-cal-touch-gesture-lock .fc .fc-timegrid-event .fc-event-main,
+.tm-calendar-host.tm-cal-touch-gesture-lock .fc .fc-timegrid-event .fc-event-main-frame,
+.tm-calendar-host.tm-cal-touch-gesture-lock .fc .fc-event-resizer,
+#tmCalendarSideDockTimeline.tm-cal-touch-gesture-lock .fc .fc-timegrid-event,
+#tmCalendarSideDockTimeline.tm-cal-touch-gesture-lock .fc .fc-timegrid-event-harness,
+#tmCalendarSideDockTimeline.tm-cal-touch-gesture-lock .fc .fc-timegrid-event .fc-event-main,
+#tmCalendarSideDockTimeline.tm-cal-touch-gesture-lock .fc .fc-timegrid-event .fc-event-main-frame,
+#tmCalendarSideDockTimeline.tm-cal-touch-gesture-lock .fc .fc-event-resizer {
+    touch-action: none !important;
+    -ms-touch-action: none !important;
 }
 
 .tm-calendar-host.tm-cal-touch-gesture-lock .fc .fc-scroller,
@@ -3062,6 +3154,30 @@
 
 .tm-calendar-host .fc .fc-daygrid-day-frame {
     position: relative;
+}
+
+.tm-calendar-root--month-view .tm-calendar-host .fc .fc-daygrid-body tr,
+.tm-calendar-root--month-view .tm-calendar-host .fc .fc-daygrid-body td,
+.tm-calendar-root--month-view .tm-calendar-host .fc .fc-daygrid-day,
+.tm-calendar-root--month-view .tm-calendar-host .fc .fc-scrollgrid-sync-inner,
+.tm-calendar-root--month-view .tm-calendar-host .fc .fc-daygrid-day-frame {
+    height: auto !important;
+}
+
+.tm-calendar-root--month-view .tm-calendar-host .fc .fc-daygrid-day-frame {
+    min-height: var(--tm-calendar-month-day-min-height);
+}
+
+.tm-calendar-root--month-view .tm-calendar-host .fc .fc-daygrid-day-top {
+    min-height: var(--tm-calendar-month-day-header-height);
+}
+
+.tm-calendar-root--month-view .tm-calendar-host .fc .fc-daygrid-day-events {
+    min-height: calc(var(--tm-calendar-month-event-line-height) * var(--tm-calendar-month-visible-events));
+}
+
+.tm-calendar-root--month-view .tm-calendar-host .fc .fc-daygrid-day-bottom {
+    min-height: var(--tm-calendar-month-more-link-height);
 }
 
 .tm-calendar-host .fc .fc-daygrid-day.tm-cal-drop-target {

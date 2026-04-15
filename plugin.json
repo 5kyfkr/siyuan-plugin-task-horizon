@@ -2,8 +2,8 @@
     "name": "siyuan-plugin-task-horizon",
     "author": "5kyfkr",
     "url": "https://github.com/5kyfkr/siyuan-plugin-task-horizon",
-    "version": "2.2.3",
-    "minAppVersion": "3.5.10",
+    "version": "2.2.4",
+    "minAppVersion": "3.6.4",
     "disabledInPublish": true,
     "backends": [
         "all"

@@ -91,8 +91,8 @@
     // ==================== 任务管理器状态选项缓存 ====================
     let taskStatusOptions = [
         { id: 'todo', name: '待办', color: '#757575' },
-        { id: 'in_progress', name: '进行中', color: '#2196F3' },
         { id: 'done', name: '已完成', color: '#4CAF50' },
+        { id: 'cancelled', name: '已取消', color: '#9E9E9E' },
         { id: 'blocked', name: '阻塞', color: '#F44336' },
         { id: 'review', name: '待审核', color: '#FF9800' }
     ];
@@ -229,8 +229,8 @@
             ? taskStatusOptions
             : [
                 { id: 'todo', name: '待办', color: '#757575' },
-                { id: 'in_progress', name: '进行中', color: '#2196F3' },
                 { id: 'done', name: '已完成', color: '#4CAF50' },
+                { id: 'cancelled', name: '已取消', color: '#9E9E9E' },
                 { id: 'blocked', name: '阻塞', color: '#F44336' },
                 { id: 'review', name: '待审核', color: '#FF9800' }
             ];
@@ -250,6 +250,19 @@
         const todoExists = statusOptions.some((item) => String(item?.id || '').trim() === 'todo');
         if (todoExists) return 'todo';
         return String(statusOptions[0]?.id || '').trim() || 'todo';
+    }
+
+    async function getManagedTaskStatusSnapshot(taskIdOrBlockId) {
+        const rawId = String(taskIdOrBlockId || '').trim();
+        if (!rawId) return null;
+        const getter = globalThis?.['siyuan-plugin-task-horizon']?.getTaskStatusDisplayByAnyId;
+        if (typeof getter !== 'function') return null;
+        try {
+            const result = await getter(rawId);
+            return result && typeof result === 'object' ? result : null;
+        } catch (e) {
+            return null;
+        }
     }
 
     function isInlineMetaScopeStorageKey(key) {
@@ -1150,10 +1163,24 @@
                 height: 14px;
                 display: block;
             }
+            .sy-custom-props-floatbar__action .sy-custom-props-floatbar__action-text {
+                max-width: 108px;
+                overflow: hidden;
+                text-overflow: ellipsis;
+                white-space: nowrap;
+                font-size: 12px;
+                font-weight: 600;
+                line-height: 1;
+            }
             .sy-custom-props-floatbar__action.is-wide {
                 width: auto;
                 padding: 0 6px;
                 gap: 4px;
+            }
+            .sy-custom-props-floatbar__action.is-active {
+                color: var(--b3-theme-primary);
+                border-color: color-mix(in srgb, var(--b3-theme-primary) 58%, var(--b3-border-color) 42%);
+                background: color-mix(in srgb, var(--b3-theme-primary-light, var(--b3-theme-surface-light)) 70%, var(--b3-theme-background) 30%);
             }
             .sy-custom-props-floatbar__action:hover {
                 background: var(--b3-theme-background);
@@ -1348,6 +1375,8 @@
         let currentTaskId = '';
         let currentTaskName = '';
         let currentProps = {};  // 当前块的所有自定义属性值
+        let currentReminderSnapshot = null;
+        let currentReminderRefreshToken = 0;
         let activePropConfig = null;  // 当前编辑的属性配置
         let inputResolve = null;  // 输入框Promise解析器
 
@@ -1520,6 +1549,7 @@
                     Promise.resolve(window.tmReminder(fallbackTaskId)).catch(() => {
                         showMessage('未检测到提醒功能，请确认番茄插件已启用', true, 2000);
                     });
+                    scheduleCurrentReminderSnapshotRefresh(true);
                     return;
                 }
                 showMessage('未检测到提醒功能，请确认番茄插件已启用', true, 2000);
@@ -1575,7 +1605,10 @@
                 for (let attempt = 0; attempt < 2; attempt += 1) {
                     try { showDialog(candidateId, name); } catch (e) {}
                     await wait(attempt === 0 ? 120 : 180);
-                    if (hasReminderDialog()) return;
+                    if (hasReminderDialog()) {
+                        scheduleCurrentReminderSnapshotRefresh(true);
+                        return;
+                    }
                 }
             }
 
@@ -1716,6 +1749,29 @@
             const id = String(blockId || '').trim();
             const key = String(attrKey || '').trim();
             if (!id || !key) return { success: false, viaSharedApi: false };
+            if (key === 'custom-status') {
+                const applier = globalThis?.['siyuan-plugin-task-horizon']?.applyTaskStatus;
+                if (typeof applier === 'function') {
+                    try {
+                        const nextStatus = value == null ? '' : String(value);
+                        await applier(id, nextStatus, {
+                            source: 'quickbar-status',
+                            label: String(options?.label || '状态'),
+                            refresh: false,
+                            refreshCalendar: false,
+                            withFilters: false,
+                            broadcast: true,
+                            recordUndo: true,
+                        });
+                        return {
+                            success: true,
+                            changed: true,
+                            viaSharedApi: true,
+                            value: nextStatus,
+                        };
+                    } catch (e) {}
+                }
+            }
             if (key === 'custom-start-date' || key === 'custom-completion-time') {
                 const updater = globalThis.tmUpdateTaskDates;
                 if (typeof updater === 'function') {
@@ -1939,8 +1995,60 @@
                 'custom-start-date': data['custom-start-date'] || '',
                 'custom-duration': data['custom-duration'] || '',
                 'custom-remark': data['custom-remark'] || '',
-                'custom-pinned': data['custom-pinned'] || ''
+                'custom-pinned': data['custom-pinned'] || '',
+                'bookmark': data['bookmark'] || ''
             };
+        }
+
+        function isReminderRelatedAttrKey(attrKey) {
+            const key = String(attrKey || '').trim();
+            return !key
+                || key === 'bookmark'
+                || key === 'custom-reminder'
+                || key === 'custom-start-date'
+                || key === 'custom-completion-time'
+                || key === 'custom-task-repeat-rule'
+                || key === 'custom-task-repeat-state';
+        }
+
+        async function refreshCurrentReminderSnapshot(force = false) {
+            const getter = globalThis?.['siyuan-plugin-task-horizon']?.getTaskReminderSnapshotByAnyId;
+            const lookupId = String(currentBlockId || resolveCurrentTaskId() || '').trim();
+            const token = ++currentReminderRefreshToken;
+            if (!lookupId || typeof getter !== 'function') {
+                if (token === currentReminderRefreshToken) currentReminderSnapshot = null;
+                return null;
+            }
+            try {
+                const snapshot = await getter(lookupId, { force: !!force });
+                if (token !== currentReminderRefreshToken) return currentReminderSnapshot;
+                currentReminderSnapshot = snapshot && typeof snapshot === 'object' ? snapshot : null;
+                return currentReminderSnapshot;
+            } catch (e) {
+                if (token === currentReminderRefreshToken) currentReminderSnapshot = null;
+                return null;
+            }
+        }
+
+        function scheduleCurrentReminderSnapshotRefresh(force = false) {
+            const expectedBlockId = String(currentBlockId || '').trim();
+            const expectedTaskId = String(resolveCurrentTaskId() || '').trim();
+            const plan = [180, 760, 1800, 3600];
+            plan.forEach((delay) => {
+                try {
+                    setTimeout(async () => {
+                        if (!floatBar || floatBar.style.display === 'none') return;
+                        const liveBlockId = String(currentBlockId || '').trim();
+                        const liveTaskId = String(resolveCurrentTaskId() || '').trim();
+                        if (expectedBlockId && liveBlockId && liveBlockId !== expectedBlockId) return;
+                        if (expectedTaskId && liveTaskId && liveTaskId !== expectedTaskId) return;
+                        await refreshCurrentReminderSnapshot(force);
+                        if (!floatBar || floatBar.style.display === 'none') return;
+                        renderFloatBar();
+                        updatePosition();
+                    }, delay);
+                } catch (e) {}
+            });
         }
 
         function getInlineFieldConfig(attrKey) {
@@ -2026,6 +2134,13 @@
             if (!forceRefresh && inlineMetaCache.has(id)) return inlineMetaCache.get(id);
             const attrs = await getBlockCustomAttrs(id);
             const props = normalizeCustomProps(attrs);
+            try {
+                const statusSnapshot = await getManagedTaskStatusSnapshot(id);
+                if (statusSnapshot && typeof statusSnapshot === 'object') {
+                    const statusValue = String(statusSnapshot.value || '').trim();
+                    if (statusValue) props['custom-status'] = statusValue;
+                }
+            } catch (e) {}
             inlineMetaCache.set(id, props);
             return props;
         }
@@ -2120,7 +2235,16 @@
                 mainProps.push(`<button class="sy-custom-props-floatbar__action" data-action="ai-title"${buildTooltipAttrs('AI 优化任务名称')}><span class="qb-icon">${renderPhosphorBoldIcon('sparkle')}</span></button>`);
             }
             if (visibleSet.has('action-reminder')) {
-                mainProps.push(`<button class="sy-custom-props-floatbar__action" data-action="reminder"${buildTooltipAttrs('添加提醒')}><span class="qb-icon">${renderPhosphorBoldIcon('alarm-clock')}</span></button>`);
+                const hasReminder = !!(currentReminderSnapshot?.hasReminder || String(currentProps?.bookmark || '').includes('⏰'));
+                const reminderText = hasReminder ? String(currentReminderSnapshot?.displayText || '').trim() : '';
+                const reminderTooltip = hasReminder
+                    ? (String(currentReminderSnapshot?.tooltip || '').trim() || '已添加提醒')
+                    : '添加提醒';
+                mainProps.push(`
+                    <button class="sy-custom-props-floatbar__action ${hasReminder ? 'is-active' : ''} ${reminderText ? 'is-wide' : ''}" data-action="reminder"${buildTooltipAttrs(reminderTooltip)}>
+                        <span class="qb-icon">${renderPhosphorBoldIcon('alarm-clock')}</span>${reminderText ? `<span class="sy-custom-props-floatbar__action-text">${esc(reminderText)}</span>` : ''}
+                    </button>
+                `.trim());
             }
             if (visibleSet.has('action-more')) {
                 mainProps.push(`<button class="sy-custom-props-floatbar__action" data-action="more"${buildTooltipAttrs('更多')}><span class="qb-icon">${renderPhosphorBoldIcon('dots-three')}</span></button>`);
@@ -2764,6 +2888,7 @@
 
             // 读取当前块的自定义属性
             await refreshBlockAttrs();
+            await refreshCurrentReminderSnapshot(true);
 
             // 渲染悬浮条
             renderFloatBar();
@@ -2783,6 +2908,8 @@
             currentTaskId = '';
             currentTaskName = '';
             currentProps = {};
+            currentReminderSnapshot = null;
+            currentReminderRefreshToken += 1;
         }
 
         function removeInlineMetaNodes() {
@@ -3837,6 +3964,7 @@
         let quickbarStarted = false;
         let storageHandler = null;
         let closePopupsHandler = null;
+        let taskAttrUpdatedHandler = null;
         let selectionChangeHandler = null;  // 新增：文字选择变化监听器
         let mouseUpHandler = null;
 
@@ -3910,6 +4038,31 @@
                 hideAllPopups();
             };
             document.addEventListener('pointerdown', closePopupsHandler, true);
+
+            taskAttrUpdatedHandler = async (e) => {
+                if (!e?.detail || !isReminderRelatedAttrKey(e.detail.attrKey)) return;
+                if (!floatBar || floatBar.style.display === 'none') return;
+                const incomingTaskId = String(e.detail.taskId || '').trim();
+                const incomingAttrHostId = String(e.detail.attrHostId || '').trim();
+                const currentIds = new Set([
+                    String(currentBlockId || '').trim(),
+                    String(currentTaskId || '').trim(),
+                    String(resolveCurrentTaskId() || '').trim(),
+                ].filter(Boolean));
+                if (!currentIds.has(incomingTaskId) && !currentIds.has(incomingAttrHostId)) return;
+                if (String(e.detail.attrKey || '').trim() === 'bookmark') {
+                    currentProps = normalizeCustomProps({ ...currentProps, bookmark: String(e.detail.value || '') });
+                } else if (currentBlockId) {
+                    try {
+                        currentProps = await getTaskCustomProps(currentBlockId, true);
+                    } catch (err) {}
+                }
+                await refreshCurrentReminderSnapshot(true);
+                if (!floatBar || floatBar.style.display === 'none') return;
+                renderFloatBar();
+                updatePosition();
+            };
+            window.addEventListener('tm-task-attr-updated', taskAttrUpdatedHandler);
         }
 
         function stopQuickbar() {
@@ -3921,6 +4074,8 @@
             try { window.removeEventListener('resize', updatePosition, true); } catch (e) {}
             try { if (closePopupsHandler) document.removeEventListener('pointerdown', closePopupsHandler, true); } catch (e) {}
             closePopupsHandler = null;
+            try { if (taskAttrUpdatedHandler) window.removeEventListener('tm-task-attr-updated', taskAttrUpdatedHandler); } catch (e) {}
+            taskAttrUpdatedHandler = null;
 
             // ========== 新增：移除文字选择变化监听 ==========
             try { if (selectionChangeHandler) document.removeEventListener('selectionchange', selectionChangeHandler); } catch (e) {}
