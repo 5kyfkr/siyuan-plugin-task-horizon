@@ -3,6 +3,7 @@ const { Plugin, openTab, openMobileFileById, platformUtils } = require("siyuan")
 const PLUGIN_ID = "siyuan-plugin-task-horizon";
 const TASK_SCRIPT_PATH = `/data/plugins/${PLUGIN_ID}/task.js`;
 const AI_SCRIPT_PATH = `/data/plugins/${PLUGIN_ID}/ai.js`;
+const HOMEPAGE_SCRIPT_PATH = `/data/plugins/${PLUGIN_ID}/homepage.js`;
 const QUICKBAR_SCRIPT_PATH = `/data/plugins/${PLUGIN_ID}/quickbar.js`;
 const XLSX_VENDOR_SCRIPT_PATH = `/data/plugins/${PLUGIN_ID}/src/vendor/xlsx.full.min.js`;
 const FULLCALENDAR_MIN_SCRIPT_PATH = `/data/plugins/${PLUGIN_ID}/src/fullcalendar/index.global.min.js`;
@@ -387,6 +388,7 @@ module.exports = class TaskHorizonPlugin extends Plugin {
         globalThis.__taskHorizonTabType = TAB_TYPE;
         globalThis.__taskHorizonMountToken = mountToken;
         globalThis.__taskHorizonEnsureAiModuleLoaded = () => ensureDeferredScriptText("ai", AI_SCRIPT_PATH, "ai.js", hasAiRuntime);
+        globalThis.__taskHorizonEnsureHomepageModuleLoaded = () => ensureDeferredScriptText("homepage", HOMEPAGE_SCRIPT_PATH, "homepage.js", () => !!globalThis.__tmHomepage?.loaded);
         globalThis.__taskHorizonEnsureXlsxModuleLoaded = () => ensureDeferredScriptText("xlsx", XLSX_VENDOR_SCRIPT_PATH, "vendor/xlsx.full.min.js", hasXlsxRuntime);
         globalThis.__taskHorizonPluginManifest = await loadPluginManifest(this);
         try { this.addIcons(ICON_SYMBOL); } catch (e) {}
@@ -412,6 +414,12 @@ module.exports = class TaskHorizonPlugin extends Plugin {
         await loadStyleText(CALENDAR_VIEW_CSS_PATH, "calendar-view.css");
         this.mountExistingTabs();
         this.scheduleTaskDockRecovery("post-load", { delayMs: 60 });
+        this.addIcons(`
+            <symbol id="iconTaskCancelled" viewBox="0 0 32 32">
+                <path d="M28.444 0h-24.889c-1.956 0-3.556 1.6-3.556 3.556v24.889c0 1.956 1.6 3.556 3.556 3.556h24.889c1.956 0 3.556-1.6 3.556-3.556v-24.889c0-1.956-1.6-3.556-3.556-3.556zM28.444 28.445h-24.889v-24.889h24.889v24.889z"></path>
+                <path d="M24.485 10.343l-2.828-2.828-5.657 5.657-5.657-5.657-2.828 2.828 5.657 5.657-5.657 5.657 2.828 2.828 5.657-5.657 5.657 5.657 2.828-2.828-5.657-5.657z"></path>
+            </symbol>
+        `);
     }
 
     ensureCustomTab() {

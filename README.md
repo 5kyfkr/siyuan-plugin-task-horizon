@@ -72,10 +72,16 @@
     <a href="https://ld246.com/member/Afterglow" style="font-size:12px;color:var(--b3-theme-on-surface);text-decoration:none;padding:4px 10px;background:var(--b3-theme-surface);border:1px solid var(--b3-border-color);border-radius:18px;">Afterglow</a>
     <a href="https://ld246.com/member/jahzeds" style="font-size:12px;color:var(--b3-theme-on-surface);text-decoration:none;padding:4px 10px;background:var(--b3-theme-surface);border:1px solid var(--b3-border-color);border-radius:18px;">jahzeds</a>
     <a href="https://ld246.com/member/Dilyar" style="font-size:12px;color:var(--b3-theme-on-surface);text-decoration:none;padding:4px 10px;background:var(--b3-theme-surface);border:1px solid var(--b3-border-color);border-radius:18px;">Dilyar</a>
+    <a href="https://github.com/bytemain" style="font-size:12px;color:var(--b3-theme-on-surface);text-decoration:none;padding:4px 10px;background:var(--b3-theme-surface);border:1px solid var(--b3-border-color);border-radius:18px;">bytemain</a>
   </div>
 </div>
 
 # 更新记录
+
+## 2.2.6更新内容  4/17
+**新增：主页总览，点击顶栏左上角主页图标即可进入，可查看文档分区的任务完成统计情况、完成趋势、完成热力图、文档分布、最近完成、逾期风险任务**
+优化：日历里勾选循环日程时只冻结当前这一次日程，点击完成不把任务本体一起完成
+优化：适配思源默认主题支持文档内放弃状态复选框内部为X(需状态设置自行添加放弃状态-[-])，PR贡献:bytemain
 
 ## 2.2.5更新内容  4/16
 - **新增：适配思源3.6.4版 - [ ] 自定义任务复选框格式**

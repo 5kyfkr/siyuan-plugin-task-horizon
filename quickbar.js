@@ -4134,6 +4134,7 @@
             quickbarDisposed = true;
             try { stopQuickbar(); } catch (e) {}
             try { stopInlineMeta(); } catch (e) {}
+            try { stopTaskIconPatch(); } catch (e) {}
             try { if (__tmQBStatusRenderStorageHandler) window.removeEventListener('storage', __tmQBStatusRenderStorageHandler); } catch (e) {}
             __tmQBStatusRenderStorageHandler = null;
             try { document.removeEventListener('contextmenu', __tmQBOnContextmenuCapture, true); } catch (e) {}
@@ -4151,6 +4152,116 @@
         else stopQuickbar();
         refreshInlineMetaMode(true);
     }
+
+    // ==================== Task Icon Patch ====================
+    // data-task="-" 的任务项，图标应显示为 iconTaskCancelled 而非 iconCheck
+    const taskIconMap = {
+        '-': 'iconTaskCancelled',
+    };
+    let taskIconPatchObserver = null;
+    let taskIconPatchEbHandlers = [];
+
+    function patchTaskIcons(root) {
+        const scope = root || document;
+        try {
+            scope.querySelectorAll('.li[data-task]').forEach((li) => {
+                const targetIcon = taskIconMap[li.getAttribute('data-task')];
+                if (!targetIcon) return;
+                const use = li.querySelector(':scope > .protyle-action--task use');
+                if (use && use.getAttribute('xlink:href') !== '#' + targetIcon) {
+                    use.setAttribute('xlink:href', '#' + targetIcon);
+                }
+            });
+        } catch (e) {}
+    }
+
+    let _patchTimer = null;
+    function schedulePatchTaskIcons(root, delay = 0) {
+        clearTimeout(_patchTimer);
+        _patchTimer = setTimeout(() => patchTaskIcons(root), delay);
+    }
+
+    function startTaskIconPatch() {
+        patchTaskIcons(document);
+        try {
+            taskIconPatchObserver = new MutationObserver((mutations) => {
+                let needPatch = false;
+                for (const m of mutations) {
+                    if (m.type === 'attributes' && m.attributeName === 'data-task') {
+                        needPatch = true;
+                        break;
+                    }
+                    if (m.type === 'childList') {
+                        const nodes = [...m.addedNodes];
+                        if (nodes.some((n) => n.nodeType === Node.ELEMENT_NODE && (n.matches?.('[data-task]') || n.querySelector?.('[data-task]')))) {
+                            needPatch = true;
+                            break;
+                        }
+                    }
+                }
+                if (needPatch) {
+                    // 延迟执行，确保在思源完成所有 DOM 操作（如重写 <use> href）之后
+                    schedulePatchTaskIcons(document, 0);
+                }
+            });
+            document.querySelectorAll('.protyle-wysiwyg').forEach((root) => {
+                taskIconPatchObserver.observe(root, { childList: true, subtree: true, attributes: true, attributeFilter: ['data-task'] });
+            });
+        } catch (e) {}
+        try {
+            const eb = globalThis.__taskHorizonPluginInstance?.eventBus || window.siyuan?.eventBus;
+            if (eb && typeof eb.on === 'function') {
+                const onStatic = (e) => {
+                    const protyle = e?.protyle || e?.detail?.protyle;
+                    const root = protyle?.wysiwyg?.element;
+                    schedulePatchTaskIcons(root || document, 20);
+                };
+                const onDynamic = (e) => {
+                    const protyle = e?.protyle || e?.detail?.protyle;
+                    const root = protyle?.wysiwyg?.element;
+                    schedulePatchTaskIcons(root || document, 20);
+                };
+                const onWsMain = (msg) => {
+                    const cmd = msg?.detail?.cmd || msg?.cmd;
+                    if (cmd !== 'transactions') return;
+                    try {
+                        const data = msg?.detail?.data || msg?.data;
+                        const txs = Array.isArray(data) ? data : (data ? [data] : []);
+                        let hasUpdate = false;
+                        for (const tx of txs) {
+                            const ops = tx?.doOperations || tx?.operations || [];
+                            for (const op of ops) {
+                                if (op?.action === 'update') { hasUpdate = true; break; }
+                            }
+                            if (hasUpdate) break;
+                        }
+                        if (!hasUpdate) return;
+                    } catch (e) {}
+                    schedulePatchTaskIcons(document, 60);
+                };
+                eb.on('loaded-protyle-static', onStatic);
+                eb.on('loaded-protyle-dynamic', onDynamic);
+                eb.on('ws-main', onWsMain);
+                taskIconPatchEbHandlers.push({ eb, event: 'loaded-protyle-static', handler: onStatic });
+                taskIconPatchEbHandlers.push({ eb, event: 'loaded-protyle-dynamic', handler: onDynamic });
+                taskIconPatchEbHandlers.push({ eb, event: 'ws-main', handler: onWsMain });
+            }
+        } catch (e) {}
+    }
+
+    function stopTaskIconPatch() {
+        clearTimeout(_patchTimer);
+        _patchTimer = null;
+        try { taskIconPatchObserver?.disconnect?.(); } catch (e) {}
+        taskIconPatchObserver = null;
+        taskIconPatchEbHandlers.forEach(({ eb, event, handler }) => {
+            try { eb.off(event, handler); } catch (e) {}
+        });
+        taskIconPatchEbHandlers = [];
+    }
+
+    // 启动 task icon patch
+    startTaskIconPatch();
 
     // 思源笔记 API 请求封装
     async function requestApi(url, data, method = 'POST') {

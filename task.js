@@ -1,5 +1,5 @@
 // @name         思源笔记任务管理器
-// @version      2.2.5
+// @version      2.2.6
 // @description  任务管理器，支持自定义筛选规则分组和排序
 // @author       5KYFKR
 
@@ -17709,6 +17709,7 @@
         rulesModal: null,
         priorityModal: null,
         semanticDateConfirmModal: null,
+        homepageOpen: !!Storage.get('tm_homepage_open', false),
         aiSidebarOpen: !!Storage.get('tm_ai_sidebar_open', false),
         aiSidebarWidth: Math.max(320, Math.min(720, Math.round(Number(Storage.get('tm_ai_sidebar_width', 380)) || 380))),
         aiMobilePanelOpen: false,
@@ -20954,6 +20955,7 @@
             multiSelectedTaskIds: Array.isArray(state.multiSelectedTaskIds) ? state.multiSelectedTaskIds.slice() : [],
             multiBulkEditFieldKey: String(state.multiBulkEditFieldKey || ''),
             docTabsHidden: !!state.docTabsHidden,
+            homepageOpen: !!state.homepageOpen,
             aiSidebarOpen: !!state.aiSidebarOpen,
             aiMobilePanelOpen: !!state.aiMobilePanelOpen,
             calendarDockDate: String(state.calendarDockDate || ''),
@@ -20984,6 +20986,7 @@
             : [];
         state.multiBulkEditFieldKey = String(snap.multiBulkEditFieldKey || '').trim();
         state.docTabsHidden = !!snap.docTabsHidden;
+        state.homepageOpen = !!snap.homepageOpen;
         state.aiSidebarOpen = !!snap.aiSidebarOpen;
         state.aiMobilePanelOpen = !!snap.aiMobilePanelOpen;
         state.calendarDockDate = String(snap.calendarDockDate || '');
@@ -20993,7 +20996,7 @@
     }
 
     function __tmIsMultiSelectSupportedView(mode) {
-        const viewMode = String(mode || state.viewMode || '').trim();
+        const viewMode = String(mode || (state.homepageOpen ? 'home' : state.viewMode) || '').trim();
         if (viewMode === 'whiteboard') return __tmIsWhiteboardAllTabsStreamMode();
         return viewMode === 'list' || viewMode === 'checklist' || viewMode === 'timeline' || viewMode === 'kanban';
     }
@@ -22333,6 +22336,114 @@
         } catch (e) {
             return false;
         }
+    }
+
+    async function __tmEnsureHomepageRuntimeLoaded() {
+        try {
+            if (globalThis.__tmHomepage?.loaded) return true;
+        } catch (e) {}
+        const loader = globalThis.__taskHorizonEnsureHomepageModuleLoaded;
+        if (typeof loader !== 'function') return !!globalThis.__tmHomepage?.loaded;
+        try {
+            const ok = await loader();
+            return !!(ok && globalThis.__tmHomepage?.loaded);
+        } catch (e) {
+            return false;
+        }
+    }
+
+    function __tmCollectHomepageTasks() {
+        const out = [];
+        const seen = new Set();
+        const activeDocId = String(state.activeDocId || 'all').trim() || 'all';
+        const pushTask = (task) => {
+            if (!task || typeof task !== 'object') return;
+            const taskDocId = String(task?.root_id || task?.docId || '').trim();
+            if (!__tmIsOtherBlockTabId(activeDocId) && activeDocId !== 'all' && taskDocId && taskDocId !== activeDocId) return;
+            const id = String(task.id || '').trim();
+            if (id && seen.has(id)) return;
+            if (id) seen.add(id);
+            out.push(task);
+        };
+        const appendWalk = (items) => {
+            (Array.isArray(items) ? items : []).forEach((task) => {
+                if (!task || typeof task !== 'object') return;
+                pushTask(task);
+                if (Array.isArray(task.children) && task.children.length) appendWalk(task.children);
+            });
+        };
+        if (__tmIsOtherBlockTabId(activeDocId)) {
+            (Array.isArray(state.otherBlocks) ? state.otherBlocks : []).forEach(pushTask);
+            return out;
+        }
+        const flatTasks = (state.flatTasks && typeof state.flatTasks === 'object')
+            ? Object.values(state.flatTasks)
+            : [];
+        if (flatTasks.length) {
+            flatTasks.forEach(pushTask);
+            return out;
+        }
+        (Array.isArray(state.taskTree) ? state.taskTree : []).forEach((doc) => {
+            const docId = String(doc?.id || '').trim();
+            if (activeDocId !== 'all' && docId !== activeDocId) return;
+            appendWalk(doc?.tasks || []);
+        });
+        return out;
+    }
+
+    function __tmBuildHomepageCtx(rootEl = null) {
+        const currentGroupId = String(SettingsStore.data.currentGroupId || 'all').trim() || 'all';
+        const groups = Array.isArray(SettingsStore.data.docGroups) ? SettingsStore.data.docGroups : [];
+        const currentGroup = currentGroupId === 'all' ? null : groups.find((group) => String(group?.id || '').trim() === currentGroupId);
+        const activeDocId = String(state.activeDocId || 'all').trim() || 'all';
+        const docName = activeDocId === 'all'
+            ? ''
+            : String((Array.isArray(state.taskTree) ? state.taskTree : []).find((doc) => String(doc?.id || '').trim() === activeDocId)?.name || '').trim();
+        const currentRule = state.currentRule
+            ? (Array.isArray(state.filterRules) ? state.filterRules.find((rule) => String(rule?.id || '').trim() === String(state.currentRule || '').trim()) : null)
+            : null;
+        const width = rootEl instanceof HTMLElement ? Math.round(rootEl.clientWidth || 0) : 0;
+        const height = rootEl instanceof HTMLElement ? Math.round(rootEl.clientHeight || 0) : 0;
+        return {
+            tasks: __tmCollectHomepageTasks(),
+            stats: { ...(state.stats || {}) },
+            currentGroupId,
+            currentGroupName: currentGroupId === 'all' ? '全部文档' : __tmResolveDocGroupName(currentGroup),
+            currentRuleId: String(currentRule?.id || '').trim(),
+            currentRuleName: String(currentRule?.name || '').trim(),
+            currentDocId: activeDocId,
+            currentDocName: docName,
+            aiEnabled: __tmIsAiFeatureEnabled(),
+            isDockHost: __tmIsDockHost(),
+            isMobileDevice: __tmIsMobileDevice(),
+            hostUsesMobileUI: __tmHostUsesMobileUI(),
+            containerWidth: width,
+            containerHeight: height,
+            todayKey: __tmNormalizeDateOnly(new Date()),
+            onOpenTask(taskId) {
+                try { window.tmOpenTaskDetail?.(taskId); } catch (e) {}
+            },
+        };
+    }
+
+    async function __tmMountHomepageRoot() {
+        const root = state.modal?.querySelector?.('#tmHomepageRoot');
+        if (!(root instanceof HTMLElement)) return false;
+        const ready = await __tmEnsureHomepageRuntimeLoaded();
+        if (!ready || !globalThis.__tmHomepage || typeof globalThis.__tmHomepage.mount !== 'function') {
+            root.innerHTML = `<div style="padding:12px;color:var(--tm-secondary-text);">主页模块未加载。</div>`;
+            return false;
+        }
+        return !!globalThis.__tmHomepage.mount(root, __tmBuildHomepageCtx(root));
+    }
+
+    async function __tmRefreshHomepageInPlace() {
+        const root = state.modal?.querySelector?.('#tmHomepageRoot');
+        if (!(root instanceof HTMLElement)) return false;
+        if (!globalThis.__tmHomepage || typeof globalThis.__tmHomepage.update !== 'function') {
+            return await __tmMountHomepageRoot();
+        }
+        return !!globalThis.__tmHomepage.update(__tmBuildHomepageCtx(root));
     }
 
     function __tmOpenManagerFromTopbarEntry() {
@@ -24457,6 +24568,9 @@ async function __tmRefreshAfterWake(reason) {
     function __tmResolveDockTopbarScrollTarget(modalEl) {
         const modal = modalEl instanceof Element ? modalEl : state.modal;
         if (!(modal instanceof Element)) return null;
+        if (state.homepageOpen) {
+            return modal.querySelector('.tm-body.tm-body--homepage');
+        }
         if (state.viewMode === 'timeline') {
             return __tmGetTimelineGlobalScrollHost(modal) || modal.querySelector('#tmTimelineLeftBody');
         }
@@ -24744,7 +24858,9 @@ async function __tmRefreshAfterWake(reason) {
     }
 
     const __tmRenderViewSwitcherButtons = (opts = {}) => {
-        const activeMode = __tmGetSafeViewMode(state.viewMode || SettingsStore.data.defaultViewMode || 'checklist');
+        const activeMode = state.homepageOpen
+            ? ''
+            : __tmGetSafeViewMode(state.viewMode || SettingsStore.data.defaultViewMode || 'checklist');
         const buttonStyle = opts.compact ? ' style="line-height:28px; padding:0 10px;"' : '';
         const buttons = __tmGetEnabledViews().map((viewId) => {
             const view = __TM_ALL_VIEWS.find(v => v.id === viewId);
@@ -27443,7 +27559,15 @@ async function __tmRefreshAfterWake(reason) {
     function __tmRerenderCurrentViewInPlace(modalEl) {
         const modal = modalEl instanceof Element ? modalEl : state.modal;
         if (!(modal instanceof Element)) return false;
+        if (state.homepageOpen) {
+            try { __tmRefreshHomepageInPlace().catch(() => null); } catch (e) {}
+            return true;
+        }
         if (state.viewMode === 'calendar') {
+            if (__tmHasCalendarSidebarChecklist(modal)) {
+                __tmRefreshCalendarSidebarChecklistPreserveScroll();
+                return true;
+            }
             try {
                 if (globalThis.__tmCalendar?.requestRefresh || globalThis.__tmCalendar?.refreshInPlace) {
                     __tmRequestCalendarRefresh({
@@ -36710,6 +36834,11 @@ async function __tmRefreshAfterWake(reason) {
         return `<svg viewBox="0 0 24 24" width="${iconSize}" height="${iconSize}" aria-hidden="true" style="display:block;fill:none;flex:0 0 auto;"><use href="#iconTaskHorizon" xlink:href="#iconTaskHorizon"></use></svg>`;
     }
 
+    function __tmRenderHomepageEntryIcon(size = 16) {
+        const iconSize = Math.max(1, Number(size) || 16);
+        return `<svg xmlns="http://www.w3.org/2000/svg" width="${iconSize}" height="${iconSize}" viewBox="0 0 256 256" aria-hidden="true" style="display:block;fill:currentColor;flex:0 0 auto;"><path d="M240,204H228V144a12,12,0,0,0,12.49-19.78L142.14,25.85a20,20,0,0,0-28.28,0L15.51,124.2A12,12,0,0,0,28,144v60H16a12,12,0,0,0,0,24H240a12,12,0,0,0,0-24ZM52,121.65l76-76,76,76V204H164V152a12,12,0,0,0-12-12H104a12,12,0,0,0-12,12v52H52ZM140,204H116V164h24Z"></path></svg>`;
+    }
+
     window.tmHandleManagerTitleClick = function(ev) {
         try { ev?.stopPropagation?.(); } catch (e) {}
         try { ev?.preventDefault?.(); } catch (e) {}
@@ -36832,6 +36961,7 @@ async function __tmRefreshAfterWake(reason) {
         const prevWasKanban = !!(prevModalSnapshot && prevModalSnapshot.querySelector && prevModalSnapshot.querySelector('.tm-body.tm-body--kanban'));
         const prevWasWhiteboard = !!(prevModalSnapshot && prevModalSnapshot.querySelector && prevModalSnapshot.querySelector('.tm-body.tm-body--whiteboard'));
         const prevWasChecklist = !!(prevModalSnapshot && prevModalSnapshot.querySelector && prevModalSnapshot.querySelector('.tm-checklist-scroll'));
+        const prevWasHomepage = !!(prevModalSnapshot && prevModalSnapshot.querySelector && prevModalSnapshot.querySelector('#tmHomepageRoot'));
         const __tmGetKanbanColScrollKey = (colEl) => {
             if (!(colEl instanceof Element)) return '';
             const status = String(colEl.getAttribute('data-status') || '').trim();
@@ -36857,6 +36987,8 @@ async function __tmRefreshAfterWake(reason) {
         let savedWhiteboardSidebarScrollTop = 0;
         let savedWhiteboardBodyScrollTop = 0;
         let savedWhiteboardBodyScrollLeft = 0;
+        let savedHomepageScrollTop = 0;
+        let savedHomepageScrollLeft = 0;
         let savedDocTabsScrollLeft = Number(state.docTabsScrollLeft) || 0;
         if (prevModalSnapshot) {
             prevModalEl = prevModalSnapshot;
@@ -36913,6 +37045,12 @@ async function __tmRefreshAfterWake(reason) {
                     savedScrollLeft = Number(pane.scrollLeft) || 0;
                 }
                 savedChecklistDetailScrollSnapshot = __tmCaptureChecklistDetailScrollSnapshot(prevModalSnapshot);
+            } else if (prevWasHomepage) {
+                const body = prevModalSnapshot.querySelector('.tm-body.tm-body--homepage');
+                if (body) {
+                    savedHomepageScrollTop = Number(body.scrollTop) || 0;
+                    savedHomepageScrollLeft = Number(body.scrollLeft) || 0;
+                }
             } else {
                 const body = prevModalSnapshot.querySelector('.tm-body');
                 if (body) {
@@ -36932,6 +37070,7 @@ async function __tmRefreshAfterWake(reason) {
                     left: Number(savedWhiteboardBodyScrollLeft) || 0,
                 };
                 else if (prevWasCalendar) state.viewScroll.calendar = { top: Number(savedCalendarScrollTop) || 0, left: Number(savedCalendarScrollLeft) || 0 };
+                else if (prevWasHomepage) state.viewScroll.home = { top: Number(savedHomepageScrollTop) || 0, left: Number(savedHomepageScrollLeft) || 0 };
                 else state.viewScroll.list = { top: Number(savedScrollTop) || 0, left: Number(savedScrollLeft) || 0 };
             }
         } catch (e) {}
@@ -39870,23 +40009,26 @@ async function __tmRefreshAfterWake(reason) {
         state.renderKanbanBodyHtml = __tmRenderKanbanBodyHtml;
         state.renderWhiteboardBodyHtml = __tmRenderWhiteboardBodyHtml;
 
-        const __tmTimelineRowModel = state.viewMode === 'timeline' ? __tmBuildTaskRowModel() : null;
-        const mainBodyHtml = state.viewMode === 'calendar'
+        const renderMode = state.homepageOpen ? 'home' : String(state.viewMode || '').trim();
+        const __tmTimelineRowModel = renderMode === 'timeline' ? __tmBuildTaskRowModel() : null;
+        const mainBodyHtml = renderMode === 'home'
+            ? `<div class="tm-body tm-body--homepage${bodyAnimClass}" style="display:flex;flex-direction:column;min-height:0;"><div id="tmHomepageRoot" style="flex:1;min-height:0;"></div></div>`
+            : renderMode === 'calendar'
             ? __tmRenderCalendarBodyHtml()
-            : state.viewMode === 'whiteboard'
+            : renderMode === 'whiteboard'
                 ? __tmRenderWhiteboardBodyHtml()
-            : state.viewMode === 'checklist'
+            : renderMode === 'checklist'
                 ? __tmRenderChecklistBodyHtml()
-            : state.viewMode === 'timeline'
+            : renderMode === 'timeline'
                 ? __tmRenderTimelineBodyHtml(__tmTimelineRowModel)
-                : state.viewMode === 'kanban'
+                : renderMode === 'kanban'
                     ? __tmRenderKanbanBodyHtml()
                     : __tmRenderListBodyHtml();
-        const showCalendarSideDock = __tmShouldShowCalendarSideDock() && !isMobile;
+        const showCalendarSideDock = !state.homepageOpen && __tmShouldShowCalendarSideDock() && !isMobile;
         const showAiSideDock = __tmShouldShowAiSidebar() && !!state.aiSidebarOpen && !isMobile;
         const calendarSideDockWidth = Math.max(260, Math.min(760, Math.round(Number(SettingsStore.data.calendarSideDockWidth) || 340)));
         const aiSideDockWidth = Math.max(320, Math.min(720, Math.round(Number(state.aiSidebarWidth) || 380)));
-        const showWhiteboardMobileDetailSheet = state.viewMode === 'whiteboard' && (__tmIsMobileDevice() || __tmHostUsesMobileUI()) && __tmChecklistUseSheetMode();
+        const showWhiteboardMobileDetailSheet = renderMode === 'whiteboard' && (__tmIsMobileDevice() || __tmHostUsesMobileUI()) && __tmChecklistUseSheetMode();
         const whiteboardDetailTaskId = String(state.detailTaskId || '').trim();
         const whiteboardDetailTask = showWhiteboardMobileDetailSheet && whiteboardDetailTaskId ? (state.flatTasks?.[whiteboardDetailTaskId] || null) : null;
         const whiteboardDetailHtml = whiteboardDetailTask
@@ -39900,21 +40042,21 @@ async function __tmRefreshAfterWake(reason) {
         const topbarPadding = useCompactTopbar ? '5px 10px' : '10px 10px';
         const topbarHeightStyle = useCompactTopbar ? 'min-height:42px;max-height:42px;height:42px;' : '';
         const whiteboardActiveDocId = String(state.activeDocId || 'all').trim() || 'all';
-        const showWhiteboardAllTabsModeToggle = state.viewMode === 'whiteboard' && whiteboardActiveDocId === 'all';
+        const showWhiteboardAllTabsModeToggle = renderMode === 'whiteboard' && whiteboardActiveDocId === 'all';
         const whiteboardAllTabsLayoutMode = __tmGetWhiteboardAllTabsLayoutMode();
-        const showWhiteboardMobileLayoutModeToggle = state.viewMode === 'whiteboard';
+        const showWhiteboardMobileLayoutModeToggle = renderMode === 'whiteboard';
         const whiteboardMobileMenuLayoutMode = showWhiteboardAllTabsModeToggle ? whiteboardAllTabsLayoutMode : 'board';
         const showInlineDocGroupQuickSelect = isMobile || isDockHost;
         const showAdaptiveTabDocGroupQuickSelect = !!(__tmMountEl && !isMobile && !isDockHost);
-        const showMobileTimelineFloatingToolbar = !!(isMobile && !isDockHost && !isLandscape && state.viewMode === 'timeline');
-        const showDockTimelineFloatingToolbar = !!(isDockHost && state.viewMode === 'timeline');
+        const showMobileTimelineFloatingToolbar = !!(isMobile && !isDockHost && !isLandscape && renderMode === 'timeline');
+        const showDockTimelineFloatingToolbar = !!(isDockHost && renderMode === 'timeline');
         const showTimelineFloatingToolbar = !!(showMobileTimelineFloatingToolbar || showDockTimelineFloatingToolbar);
-        const showMobileLandscapeTimelineTopbar = !!(isMobile && !isDockHost && isLandscape && state.viewMode === 'timeline');
-        const showDesktopNarrowTimelineTopbar = !!(!isMobile && !isDockHost && isDesktopNarrow && state.viewMode === 'timeline');
-        const showTopbarTimelineToolbar = !!(state.viewMode === 'timeline' && !showTimelineFloatingToolbar);
+        const showMobileLandscapeTimelineTopbar = !!(isMobile && !isDockHost && isLandscape && renderMode === 'timeline');
+        const showDesktopNarrowTimelineTopbar = !!(!isMobile && !isDockHost && isDesktopNarrow && renderMode === 'timeline');
+        const showTopbarTimelineToolbar = !!(renderMode === 'timeline' && !showTimelineFloatingToolbar);
         const topbarAddBtnHtml = `<button class="tm-btn tm-btn-info tm-topbar-add-btn bc-btn bc-btn--sm" onclick="tmAdd()" aria-label="新建任务" data-tm-floating-tooltip-label="新建任务" data-tm-tooltip-side="bottom" data-tm-tooltip-align="center" style="padding: 0; width: 30px; height: 30px; min-width: 30px; min-height: 30px; display: inline-flex; align-items: center; justify-content: center;">${__tmRenderLucideIcon('plus')}</button>`;
         const timelineSidebarToggleLabel = SettingsStore.data.timelineSidebarCollapsed ? '展开时间轴侧栏' : '隐藏时间轴侧栏';
-        const timelineSidebarToggleButtonHtml = state.viewMode === 'timeline'
+        const timelineSidebarToggleButtonHtml = renderMode === 'timeline'
             ? `<button class="tm-btn tm-btn-info tm-timeline-toolbar-btn bc-btn bc-btn--sm" onclick="tmTimelineToggleSidebar(event)" style="padding: 0; width: 30px; min-width: 30px; height: 30px; display: inline-flex; align-items: center; justify-content: center;"${__tmBuildTooltipAttrs(timelineSidebarToggleLabel, { side: 'bottom' })}>${__tmRenderLucideIcon('panel-left')}</button>`
             : '';
         const __tmRenderTimelineToolbarButtons = ({ buttonClass = '', buttonStyle = '', interactionAttrs = '', clickPrefix = '' } = {}) => {
@@ -40032,6 +40174,7 @@ async function __tmRefreshAfterWake(reason) {
                                     onmouseleave="tmTopbarManagerIconPressEnd(event)"
                                     ${__tmBuildTooltipAttrs(managerIconTooltip, { side: 'bottom' })}
                                 >${__tmRenderTaskHorizonTopbarIcon(16)}</button>
+                                ${`<button type="button" class="tm-btn tm-btn-info tm-homepage-entry-btn bc-btn bc-btn--sm ${state.homepageOpen ? 'is-active' : ''}" onclick="tmToggleHomepage(event)" style="padding: 0; width: 30px; min-width: 30px; height: 30px; display: inline-flex; align-items: center; justify-content: center;"${__tmBuildTooltipAttrs(state.homepageOpen ? '返回工作区' : '主页总览', { side: 'bottom' })}>${__tmRenderHomepageEntryIcon(15)}</button>`}
                                 ${useCompactTopbarBrand ? '' : `<span class="tm-manager-title-label" onclick="tmHandleManagerTitleClick(event)">任务管理器</span>`}
                             </div>
                             ${showInlineDocGroupQuickSelect || showAdaptiveTabDocGroupQuickSelect ? __tmRenderTopbarSelect({
@@ -40041,8 +40184,8 @@ async function __tmRefreshAfterWake(reason) {
                                 className: `tm-topbar-doc-quick-select${showAdaptiveTabDocGroupQuickSelect ? ' tm-topbar-doc-quick-select--tab-adaptive' : ''}`,
                                 tooltip: '切换文档分组'
                             }) : ''}
-                            ${isMobile && state.viewMode === 'timeline' ? timelineSidebarToggleButtonHtml : ''}
-                            ${isMobile && state.viewMode === 'calendar' ? `<button class="tm-btn tm-btn-info bc-btn bc-btn--sm" onclick="tmCalendarToggleSidebar()" style="padding: 0 10px; height: 30px; display: inline-flex; align-items: center; justify-content: center;"${__tmBuildTooltipAttrs('日历侧边栏', { side: 'bottom' })}>${__tmRenderLucideIcon('calendar-days')}</button>` : ''}
+                            ${isMobile && renderMode === 'timeline' ? timelineSidebarToggleButtonHtml : ''}
+                            ${isMobile && renderMode === 'calendar' ? `<button class="tm-btn tm-btn-info bc-btn bc-btn--sm" onclick="tmCalendarToggleSidebar()" style="padding: 0 10px; height: 30px; display: inline-flex; align-items: center; justify-content: center;"${__tmBuildTooltipAttrs('日历侧边栏', { side: 'bottom' })}>${__tmRenderLucideIcon('calendar-days')}</button>` : ''}
                             ${showDesktopNarrowTimelineTopbar ? timelineInlineToolbarGroupHtml : ''}
                         </div>
 
@@ -40075,8 +40218,8 @@ async function __tmRefreshAfterWake(reason) {
                                 <button class="tm-btn tm-btn-info tm-compact-topbar-action tm-compact-topbar-action--settings bc-btn bc-btn--sm" onclick="showSettings()" style="padding: 0; width: 30px; min-width: 30px; height: 30px; align-items: center; justify-content: center;"${__tmBuildTooltipAttrs('设置', { side: 'bottom' })}>${__tmRenderLucideIcon('settings')}</button>
                             </div>
                             ` : ''}
-                            ${!isMobile && state.viewMode === 'timeline' && !showDesktopNarrowTimelineTopbar && !showTopbarTimelineToolbar ? timelineSidebarToggleButtonHtml : ''}
-                            ${!isMobile && state.viewMode === 'calendar' ? `<button class="tm-btn tm-btn-info tm-calendar-sidebar-toggle-compact bc-btn bc-btn--sm" onclick="tmCalendarToggleSidebar()" style="padding: 0; width: 30px; min-width: 30px; height: 30px; align-items: center; justify-content: center;"${__tmBuildTooltipAttrs('日历侧边栏', { side: 'bottom' })}>${__tmRenderLucideIcon('calendar-days')}</button>` : ''}
+                            ${!isMobile && renderMode === 'timeline' && !showDesktopNarrowTimelineTopbar && !showTopbarTimelineToolbar ? timelineSidebarToggleButtonHtml : ''}
+                            ${!isMobile && renderMode === 'calendar' ? `<button class="tm-btn tm-btn-info tm-calendar-sidebar-toggle-compact bc-btn bc-btn--sm" onclick="tmCalendarToggleSidebar()" style="padding: 0; width: 30px; min-width: 30px; height: 30px; align-items: center; justify-content: center;"${__tmBuildTooltipAttrs('日历侧边栏', { side: 'bottom' })}>${__tmRenderLucideIcon('calendar-days')}</button>` : ''}
 
                         <!-- 移动端菜单按钮 -->
                             <div class="tm-mobile-menu-btn" style="display:${isMobile ? 'flex' : 'none'};">
@@ -40096,7 +40239,7 @@ async function __tmRefreshAfterWake(reason) {
                     
                     <!-- 桌面端搜索栏 -->
                     <div class="tm-search-box tm-desktop-toolbar" style="display:${isMobile ? 'none' : 'flex'}; flex-wrap: nowrap;">
-                        ${state.viewMode === 'kanban' ? `
+                        ${renderMode === 'kanban' ? `
                             <div class="tm-view-segmented tm-kanban-mode-segmented bc-tabs-list" role="tablist" aria-label="看板模式">
                                 <button class="tm-view-seg-item bc-tabs-trigger ${!SettingsStore.data.kanbanHeadingGroupMode ? 'tm-view-seg-item--active' : ''}" data-state="${!SettingsStore.data.kanbanHeadingGroupMode ? 'active' : 'inactive'}" onclick="tmSetKanbanHeadingGroupMode('status', event)" role="tab" aria-selected="${!SettingsStore.data.kanbanHeadingGroupMode ? 'true' : 'false'}"${__tmBuildTooltipAttrs('状态看板', { side: 'bottom', ariaLabel: false })}>状态</button>
                                 <button class="tm-view-seg-item bc-tabs-trigger ${SettingsStore.data.kanbanHeadingGroupMode ? 'tm-view-seg-item--active' : ''}" data-state="${SettingsStore.data.kanbanHeadingGroupMode ? 'active' : 'inactive'}" onclick="tmSetKanbanHeadingGroupMode('heading', event)" role="tab" aria-selected="${SettingsStore.data.kanbanHeadingGroupMode ? 'true' : 'false'}"${__tmBuildTooltipAttrs('标题看板', { side: 'bottom', ariaLabel: false })}>标题</button>
@@ -40110,7 +40253,7 @@ async function __tmRefreshAfterWake(reason) {
                         ${showTopbarTimelineToolbar ? `
                             ${timelineCompactToolbarGroupHtml}
                         ` : ''}
-                        ${!isMobile && state.viewMode === 'calendar' ? `<button class="tm-btn tm-btn-info bc-btn bc-btn--sm" onclick="tmCalendarToggleSidebar()" style="padding: 0; width: 30px; min-width: 30px; height: 30px; display: inline-flex; align-items: center; justify-content: center;"${__tmBuildTooltipAttrs('日历侧边栏', { side: 'bottom' })}>${__tmRenderLucideIcon('calendar-days')}</button>` : ''}
+                        ${!isMobile && renderMode === 'calendar' ? `<button class="tm-btn tm-btn-info bc-btn bc-btn--sm" onclick="tmCalendarToggleSidebar()" style="padding: 0; width: 30px; min-width: 30px; height: 30px; display: inline-flex; align-items: center; justify-content: center;"${__tmBuildTooltipAttrs('日历侧边栏', { side: 'bottom' })}>${__tmRenderLucideIcon('calendar-days')}</button>` : ''}
                         ${!showMobileBottomViewBar ? `
                         <div class="tm-view-segmented bc-tabs-list" role="tablist" aria-label="视图">
                             ${__tmRenderViewSwitcherButtons()}
@@ -40138,7 +40281,7 @@ async function __tmRefreshAfterWake(reason) {
                                         </div>
                                     </div>
                                 </div>
-                                ${state.viewMode === 'kanban' ? `
+                                ${renderMode === 'kanban' ? `
                                 <div class="tm-mobile-only-item" style="display:flex; flex-direction:column; gap:6px; align-items:stretch;">
                                     <span style="color:var(--tm-text-color);">看板模式:</span>
                                     <div class="tm-view-segmented tm-kanban-mode-segmented bc-tabs-list" role="tablist" aria-label="看板模式" style="width:100%;">
@@ -40178,7 +40321,7 @@ async function __tmRefreshAfterWake(reason) {
                                         <span style="display:inline-flex;align-items:center;gap:6px;">${__tmRenderLucideIcon('file-text')}<span>摘要</span></span>
                                     </button>
                                 </div>
-                                ${state.viewMode === 'list' ? `
+                                ${renderMode === 'list' ? `
                                 <div class="tm-mobile-only-item" style="display:flex; gap:10px; align-items:center;">
                                     <button class="tm-btn tm-btn-info bc-btn bc-btn--sm" onclick="tmExportCurrentTableExcel(); tmHideMobileMenu();" style="flex:1; padding: 6px;">
                                         <span style="display:inline-flex;align-items:center;gap:6px;">${__tmRenderLucideIcon('chart-column')}<span>导出 Excel</span></span>
@@ -41066,8 +41209,8 @@ async function __tmRefreshAfterWake(reason) {
                 ` : ''}
             </div>
         `;
-        try { if (state.viewMode === 'kanban') __tmBindKanbanPan(state.modal); } catch (e) {}
-        try { if (state.viewMode === 'whiteboard') __tmBindWhiteboardViewportInput(state.modal); } catch (e) {}
+        try { if (renderMode === 'kanban') __tmBindKanbanPan(state.modal); } catch (e) {}
+        try { if (renderMode === 'whiteboard') __tmBindWhiteboardViewportInput(state.modal); } catch (e) {}
         const finalMountRoot = nextMountRoot || __tmGetMountRoot();
         finalMountRoot.appendChild(state.modal);
         try { __tmSyncInlineLoadingOverlay(state.modal); } catch (e) {}
@@ -41081,11 +41224,11 @@ async function __tmRefreshAfterWake(reason) {
         try { __tmRestoreDocTabScroll(state.modal, savedDocTabsScrollLeft); } catch (e) {}
         try { __tmBindMultiSelectPointerSweep(state.modal); } catch (e) {}
         try { __tmBindDockPointerTaskDrag(state.modal); } catch (e) {}
-        try { if (state.viewMode === 'list') __tmBindListScrollVisibility(state.modal); } catch (e) {}
-        try { if (state.viewMode === 'checklist') __tmBindChecklistScrollVisibility(state.modal); } catch (e) {}
+        try { if (renderMode === 'list') __tmBindListScrollVisibility(state.modal); } catch (e) {}
+        try { if (renderMode === 'checklist') __tmBindChecklistScrollVisibility(state.modal); } catch (e) {}
         try { __tmBindMobileViewportAutoRefresh(state.modal); } catch (e) {}
         try {
-            if (state.viewMode === 'checklist') {
+            if (renderMode === 'checklist') {
                 __tmRefreshChecklistSelectionInPlace(state.modal);
             }
         } catch (e) {}
@@ -41094,7 +41237,7 @@ async function __tmRefreshAfterWake(reason) {
         try { __tmApplyTodayScheduledTaskNameMarks(state.modal); } catch (e) {}
         try { __tmScheduleTodayScheduledTaskNameMarksRefresh(state.modal); } catch (e) {}
         try {
-            if (state.viewMode === 'calendar') {
+            if (renderMode === 'calendar') {
                 const el = state.modal.querySelector('#tmCalendarRoot');
                 if (el) {
                     if (!SettingsStore.data.calendarEnabled) {
@@ -41109,7 +41252,7 @@ async function __tmRefreshAfterWake(reason) {
                     }
                 }
             }
-            if (state.viewMode === 'whiteboard') {
+            if (renderMode === 'whiteboard') {
                 __tmApplyWhiteboardTransform();
                 __tmScheduleWhiteboardEdgeRedraw();
             }
@@ -41121,17 +41264,25 @@ async function __tmRefreshAfterWake(reason) {
             if ((showAiSideDock || (isMobile && state.aiMobilePanelOpen && __tmIsAiFeatureEnabled()))) {
                 try { __tmMountAiSidebarHost(); } catch (e) {}
             }
+            if (state.homepageOpen) {
+                try { __tmMountHomepageRoot(); } catch (e) {}
+            } else {
+                try { globalThis.__tmHomepage?.unmount?.(); } catch (e) {}
+            }
         } catch (e) {}
 
         // 恢复滚动位置
         try {
-            const isTimeline = state.viewMode === 'timeline';
-            const isChecklist = state.viewMode === 'checklist';
-            const isKanban = state.viewMode === 'kanban';
-            const isWhiteboard = state.viewMode === 'whiteboard';
+            const isHomepage = renderMode === 'home';
+            const isTimeline = renderMode === 'timeline';
+            const isChecklist = renderMode === 'checklist';
+            const isKanban = renderMode === 'kanban';
+            const isWhiteboard = renderMode === 'whiteboard';
             const pickNum = (v, fallback = 0) => (typeof v === 'number' && Number.isFinite(v) ? v : fallback);
             const listTop = pickNum(state.viewScroll?.list?.top, 0);
             const listLeft = pickNum(state.viewScroll?.list?.left, 0);
+            const homeTop = pickNum(state.viewScroll?.home?.top, 0);
+            const homeLeft = pickNum(state.viewScroll?.home?.left, 0);
             const timelineTop = pickNum(state.viewScroll?.timeline?.top, 0);
             const timelineLeft = pickNum(state.viewScroll?.timeline?.left, 0);
             const calendarTop = pickNum(state.viewScroll?.calendar?.top, 0);
@@ -41143,10 +41294,32 @@ async function __tmRefreshAfterWake(reason) {
             const wbSidebarTop = pickNum(state.viewScroll?.whiteboard?.sidebarTop, 0);
             const wbBodyTop = pickNum(state.viewScroll?.whiteboard?.top, 0);
             const wbBodyLeft = pickNum(state.viewScroll?.whiteboard?.left, 0);
-            const desiredTop = prevWasTimeline ? timelineTop : listTop;
-            const desiredLeft = isTimeline ? timelineLeft : listLeft;
+            const desiredTop = isHomepage ? homeTop : (prevWasTimeline ? timelineTop : listTop);
+            const desiredLeft = isHomepage ? homeLeft : (isTimeline ? timelineLeft : listLeft);
             
-            if (isTimeline) {
+            if (isHomepage) {
+                const body = state.modal.querySelector('.tm-body.tm-body--homepage');
+                const apply = () => {
+                    try {
+                        if (body) {
+                            body.scrollTop = desiredTop;
+                            body.scrollLeft = desiredLeft;
+                        }
+                    } catch (e) {}
+                };
+                apply();
+                requestAnimationFrame(() => requestAnimationFrame(apply));
+                requestAnimationFrame(() => requestAnimationFrame(() => {
+                    try { __tmRunFlipAnimation(state.modal); } catch (e) {}
+                    if (useSoftSwap) {
+                        try { state.modal.style.opacity = '1'; } catch (e) {}
+                        try { state.modal.style.pointerEvents = ''; } catch (e) {}
+                        if (prevModalEl) {
+                            setTimeout(() => { try { prevModalEl.remove(); } catch (e2) {} }, 340);
+                        }
+                    }
+                }));
+            } else if (isTimeline) {
                 const leftBody = state.modal.querySelector('#tmTimelineLeftBody');
                 const ganttBody = state.modal.querySelector('#tmGanttBody');
                 const ganttHeader = state.modal.querySelector('#tmGanttHeader');
@@ -41689,6 +41862,7 @@ async function __tmRefreshAfterWake(reason) {
             multiSelectedTaskIds: Array.isArray(state.multiSelectedTaskIds) ? state.multiSelectedTaskIds.slice() : [],
             multiBulkEditFieldKey: String(state.multiBulkEditFieldKey || '').trim(),
             docTabsHidden: !!state.docTabsHidden,
+            homepageOpen: !!state.homepageOpen,
             aiSidebarOpen: !!state.aiSidebarOpen,
             aiMobilePanelOpen: !!state.aiMobilePanelOpen,
             calendarDockDate: String(state.calendarDockDate || '').trim(),
@@ -41722,6 +41896,7 @@ async function __tmRefreshAfterWake(reason) {
             : [];
         state.multiBulkEditFieldKey = String(saved.multiBulkEditFieldKey || '').trim();
         state.docTabsHidden = !!saved.docTabsHidden;
+        state.homepageOpen = !!saved.homepageOpen;
         state.aiSidebarOpen = !!saved.aiSidebarOpen;
         state.aiMobilePanelOpen = !!saved.aiMobilePanelOpen;
         state.calendarDockDate = String(saved.calendarDockDate || '').trim();
@@ -41925,6 +42100,7 @@ async function __tmRefreshAfterWake(reason) {
     };
 
     function __tmShouldShowCalendarSideDock() {
+        if (state.homepageOpen) return false;
         const mode = String(state.viewMode || '').trim();
         if (!SettingsStore.data.calendarSideDockEnabled) return false;
         return mode === 'list' || mode === 'checklist' || mode === 'timeline' || mode === 'kanban' || mode === 'whiteboard';
@@ -42091,6 +42267,7 @@ async function __tmRefreshAfterWake(reason) {
     function __tmShouldShowAiSidebar() {
         if (!__tmIsAiFeatureEnabled()) return false;
         if (!SettingsStore.data.aiSideDockEnabled) return false;
+        if (state.homepageOpen) return true;
         const mode = String(state.viewMode || '').trim();
         return mode === 'list' || mode === 'checklist' || mode === 'timeline' || mode === 'kanban' || mode === 'whiteboard' || mode === 'calendar';
     }
@@ -42186,6 +42363,34 @@ async function __tmRefreshAfterWake(reason) {
         return true;
     };
 
+    window.tmOpenHomepage = async function() {
+        state.homepageOpen = true;
+        try { Storage.set('tm_homepage_open', true); } catch (e) {}
+        const canRenderInCurrentDockHost = __tmIsDockHost()
+            && state.modal
+            && document.body.contains(state.modal);
+        if (!canRenderInCurrentDockHost) {
+            await openManager({ preserveViewMode: true, skipLoadingHint: true });
+        }
+        try { render(); } catch (e) {}
+        try { await __tmMountHomepageRoot(); } catch (e) {}
+        return true;
+    };
+
+    window.tmCloseHomepage = function() {
+        state.homepageOpen = false;
+        try { Storage.set('tm_homepage_open', false); } catch (e) {}
+        render();
+        return false;
+    };
+
+    window.tmToggleHomepage = async function(ev) {
+        try { ev?.preventDefault?.(); } catch (e) {}
+        try { ev?.stopPropagation?.(); } catch (e) {}
+        if (state.homepageOpen) return window.tmCloseHomepage();
+        return await window.tmOpenHomepage();
+    };
+
     window.tmHandleCalendarViewButtonContextMenu = async function(ev) {
         try { ev?.preventDefault?.(); } catch (e) {}
         try { ev?.stopPropagation?.(); } catch (e) {}
@@ -42196,7 +42401,16 @@ async function __tmRefreshAfterWake(reason) {
     window.tmSwitchViewMode = function(mode) {
         const next = __tmGetSafeViewMode(mode);
         const prev = String(state.viewMode || '').trim();
-        if (prev === next) return;
+        if (state.homepageOpen) {
+            state.homepageOpen = false;
+            try { Storage.set('tm_homepage_open', false); } catch (e) {}
+            if (prev === next) {
+                render();
+                return;
+            }
+        } else if (prev === next) {
+            return;
+        }
         const enabledViews = __tmGetEnabledViews();
         const prevIdx = enabledViews.indexOf(prev);
         const nextIdx = enabledViews.indexOf(next);
@@ -46734,6 +46948,29 @@ async function __tmRefreshAfterWake(reason) {
             if (resolvedResetTaskId) resetTaskId = String(resolvedResetTaskId || '').trim() || resetTaskId;
         } catch (e) {}
         if (!resetTaskId) resetTaskId = String(task.id || '').trim();
+        const __tmSyncRecurringMainTaskDoneState = (nextDone) => {
+            const value = !!nextDone;
+            const syncIds = Array.from(new Set([
+                String(resetTaskId || '').trim(),
+                String(task?.id || '').trim(),
+            ].filter(Boolean)));
+            try {
+                if (task && typeof task === 'object') task.done = value;
+            } catch (e) {}
+            syncIds.forEach((targetId) => {
+                try {
+                    if (state.flatTasks?.[targetId]) state.flatTasks[targetId].done = value;
+                } catch (e) {}
+                try {
+                    if (state.pendingInsertedTasks?.[targetId]) state.pendingInsertedTasks[targetId].done = value;
+                } catch (e) {}
+                try {
+                    if (!state.doneOverrides || typeof state.doneOverrides !== 'object') state.doneOverrides = {};
+                    state.doneOverrides[targetId] = value;
+                } catch (e) {}
+                try { MetaStore.set(targetId, { done: value }); } catch (e) {}
+            });
+        };
         let resetDoneOk = false;
         try {
             await __tmSetDoneKernel(resetTaskId, false, null, {
@@ -46747,6 +46984,9 @@ async function __tmRefreshAfterWake(reason) {
             const latest = state.flatTasks?.[resetTaskId] || state.flatTasks?.[task.id] || null;
             resetDoneOk = !!latest && latest.done !== true;
         } catch (e) {}
+        if (resetDoneOk) {
+            __tmSyncRecurringMainTaskDoneState(false);
+        }
         if (!resetDoneOk) {
             try {
                 resetDoneOk = await __tmSetDoneByIdStateless(resetTaskId, false);
@@ -46754,18 +46994,7 @@ async function __tmRefreshAfterWake(reason) {
                 resetDoneOk = false;
             }
             if (resetDoneOk) {
-                try { task.done = false; } catch (e) {}
-                try {
-                    if (state.flatTasks?.[resetTaskId]) state.flatTasks[resetTaskId].done = false;
-                    if (state.flatTasks?.[task.id]) state.flatTasks[task.id].done = false;
-                } catch (e) {}
-                try {
-                    if (!state.doneOverrides || typeof state.doneOverrides !== 'object') state.doneOverrides = {};
-                    state.doneOverrides[String(resetTaskId || '').trim()] = false;
-                    state.doneOverrides[String(task.id || '').trim()] = false;
-                } catch (e) {}
-                try { MetaStore.set(resetTaskId, { done: false }); } catch (e) {}
-                try { MetaStore.set(task.id, { done: false }); } catch (e) {}
+                __tmSyncRecurringMainTaskDoneState(false);
             }
         }
         if (!resetDoneOk) {
@@ -48862,6 +49091,7 @@ async function __tmRefreshAfterWake(reason) {
             ${showTopbarSelectorsInMenu ? renderDesktopMenuSelect('文档', __tmRenderTopbarSelect({ id: 'tmDesktopDocSelect', label: '文档', options: docGroupMenuOptions, style: 'flex:1;' })) : ''}
             ${showTopbarSelectorsInMenu ? renderDesktopMenuSelect('规则', __tmRenderTopbarSelect({ id: 'tmDesktopRuleSelect', label: '规则', options: ruleMenuOptions, style: 'flex:1;' })) : ''}
             ${showTopbarSelectorsInMenu ? renderDesktopMenuSelect('分组', __tmRenderTopbarSelect({ id: 'tmDesktopGroupModeSelect', label: '分组', options: groupModeMenuOptions, style: 'flex:1;' })) : ''}
+            ${renderDesktopMenuButton(`${__tmRenderHomepageEntryIcon(14)}<span>${state.homepageOpen ? '返回工作区' : '主页总览'}</span>`, `tmToggleHomepage(); tmCloseDesktopMenu()`) }
             ${renderDesktopMenuButton(`${__tmRenderLucideIcon('search')}<span>搜索${state.searchKeyword ? ` (${esc(String(state.searchKeyword || '').trim())})` : ''}</span>`, `tmShowSearchModal(); tmCloseDesktopMenu()`)}
             ${renderDesktopMenuButton(`${__tmRenderLucideIcon('file-text')}<span>摘要</span>`, `tmShowSummaryModal(); tmCloseDesktopMenu()`)}
             ${String(state.viewMode || '').trim() === 'list' ? renderDesktopMenuButton(`${__tmRenderLucideIcon('chart-column')}<span>导出 Excel</span>`, `tmExportCurrentTableExcel(); tmCloseDesktopMenu()`) : ''}
@@ -58951,6 +59181,8 @@ async function __tmRefreshAfterWake(reason) {
             }
 
             recalcStats();
+            const shouldPreserveCalendarSidebarChecklistScroll = String(state.viewMode || '').trim() === 'calendar'
+                && __tmHasCalendarSidebarChecklist(state.modal);
             if (useCalendarLocalRefresh) {
                 try { globalThis.__tmCalendar?.syncTaskDoneInPlace?.(id, !!actualDone, { allowRefetch: true }); } catch (e) {}
                 __tmRestoreChecklistDetailScrollSnapshot(detailScrollSnapshot);
@@ -58958,7 +59190,8 @@ async function __tmRefreshAfterWake(reason) {
                 // 延迟 render() 确保思源原生处理完成
                 requestAnimationFrame(() => {
                     requestAnimationFrame(() => {
-                        render();
+                        if (shouldPreserveCalendarSidebarChecklistScroll) __tmRefreshCalendarSidebarChecklistPreserveScroll();
+                        else render();
                         __tmRestoreChecklistDetailScrollSnapshot(detailScrollSnapshot);
                     });
                 });
@@ -59012,12 +59245,15 @@ async function __tmRefreshAfterWake(reason) {
             }
 
             recalcStats();
+            const shouldPreserveCalendarSidebarChecklistScroll = String(state.viewMode || '').trim() === 'calendar'
+                && __tmHasCalendarSidebarChecklist(state.modal);
             if (useCalendarLocalRefresh) {
                 try { globalThis.__tmCalendar?.syncTaskDoneInPlace?.(id, originalDone, { allowRefetch: true }); } catch (e) {}
                 __tmRestoreChecklistDetailScrollSnapshot(detailScrollSnapshot);
             } else {
                 try { applyFilters(); } catch (e) {}
-                render();
+                if (shouldPreserveCalendarSidebarChecklistScroll) __tmRefreshCalendarSidebarChecklistPreserveScroll();
+                else render();
                 __tmRestoreChecklistDetailScrollSnapshot(detailScrollSnapshot);
             }
             if (opts.suppressHint !== true) hint(`❌ 操作失败: ${err.message}`, 'error');
@@ -73483,6 +73719,7 @@ async function __tmRefreshAfterWake(reason) {
 
     // 插件卸载清理
     function __tmCleanup() {
+        try { globalThis.__tmHomepage?.unmount?.(); } catch (e) {}
         try {
             if (__tmModalStackEscHandler) {
                 document.removeEventListener('keydown', __tmModalStackEscHandler, true);

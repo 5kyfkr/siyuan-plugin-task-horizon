@@ -4841,6 +4841,7 @@
             const repeatUntil0 = getScheduleRepeatUntil(base);
             const repeatMonthlyMode0 = getScheduleRepeatMonthlyMode(base, repeatType0);
             const notificationSchedules0 = sanitizeScheduleNotificationSchedules(base.notificationSchedules);
+            const completedOccurrences0 = normalizeScheduleCompletedOccurrences(base.completedOccurrences);
             if (String(base.reminderMode || '').trim() !== reminderMode0) changed = true;
             if (getScheduleRepeatType({
                 repeatType: base.repeatType,
@@ -4870,6 +4871,7 @@
                 recurrence: base.recurrence,
             }, repeatType0) !== repeatMonthlyMode0) changed = true;
             if (JSON.stringify(base.notificationSchedules || {}) !== JSON.stringify(notificationSchedules0)) changed = true;
+            if (JSON.stringify(Array.isArray(base.completedOccurrences) ? base.completedOccurrences : []) !== JSON.stringify(completedOccurrences0)) changed = true;
             return {
                 ...base,
                 id,
@@ -4883,6 +4885,7 @@
                 repeatUntil: repeatUntil0,
                 repeatMonthlyMode: repeatMonthlyMode0,
                 notificationSchedules: notificationSchedules0,
+                completedOccurrences: completedOccurrences0,
             };
         });
         return { out, changed };
@@ -4979,6 +4982,44 @@
             ?? (base.recurrence && typeof base.recurrence === 'object' ? base.recurrence.until : '')
         );
         return normalizeScheduleRepeatUntil(raw);
+    }
+
+    function normalizeScheduleCompletedOccurrenceKey(value) {
+        const n = Math.trunc(Number(value));
+        if (!Number.isFinite(n) || n <= 0) return '';
+        return String(n);
+    }
+
+    function normalizeScheduleCompletedOccurrences(value) {
+        const list = Array.isArray(value) ? value : [];
+        const out = [];
+        const seen = new Set();
+        for (const entry of list) {
+            const key = normalizeScheduleCompletedOccurrenceKey(
+                entry?.startMs
+                ?? entry?.occurrenceStartMs
+                ?? entry?.time
+                ?? entry
+            );
+            if (!key || seen.has(key)) continue;
+            seen.add(key);
+            out.push(key);
+        }
+        out.sort((a, b) => Number(a) - Number(b));
+        return out;
+    }
+
+    function getScheduleCompletedOccurrenceSet(item) {
+        const set = new Set();
+        const arr = normalizeScheduleCompletedOccurrences(item?.completedOccurrences);
+        for (const key of arr) set.add(key);
+        return set;
+    }
+
+    function isScheduleOccurrenceDone(item, occurrenceStartMs) {
+        const key = normalizeScheduleCompletedOccurrenceKey(occurrenceStartMs);
+        if (!key) return false;
+        return getScheduleCompletedOccurrenceSet(item).has(key);
     }
 
     function getScheduleWeekdayLabel(weekday) {
@@ -6015,6 +6056,7 @@
         for (const occurrence of occurrences) {
             const occurrenceStartMs = Number(occurrence?.startMs);
             if (!Number.isFinite(occurrenceStartMs)) continue;
+            if (isScheduleOccurrenceDone(item, occurrenceStartMs)) continue;
             const atMs = occurrenceStartMs - offsetMin * 60000;
             if (atMs <= now) continue;
             const entry = buildScheduleNotificationEntry(atMs, item?.id);
@@ -6075,6 +6117,7 @@
                 limit: getScheduleRepeatType(item) === 'none' ? 1 : SCHEDULE_ALL_DAY_MOBILE_WINDOW_DAYS + 6,
             });
             for (const occurrence of occurrences) {
+                if (isScheduleOccurrenceDone(item, occurrence?.startMs)) continue;
                 const sDay = occurrence?.start instanceof Date ? new Date(occurrence.start.getTime()) : null;
                 const eDay = occurrence?.end instanceof Date ? new Date(occurrence.end.getTime()) : null;
                 if (!(sDay instanceof Date) || !(eDay instanceof Date)) continue;
@@ -6686,6 +6729,7 @@
                     limit: getScheduleRepeatType(it) === 'none' ? 1 : 8,
                 });
                 for (const occurrence of occurrences) {
+                    if (isScheduleOccurrenceDone(it, occurrence?.startMs)) continue;
                     const sDay = occurrence?.start instanceof Date ? new Date(occurrence.start.getTime()) : null;
                     const eDay = occurrence?.end instanceof Date ? new Date(occurrence.end.getTime()) : null;
                     if (!(sDay instanceof Date) || !(eDay instanceof Date)) continue;
@@ -6726,6 +6770,7 @@
             for (const occurrence of occurrences) {
                 const occurrenceStartMs = Number(occurrence?.startMs);
                 if (!Number.isFinite(occurrenceStartMs)) continue;
+                if (isScheduleOccurrenceDone(it, occurrenceStartMs)) continue;
                 const atMs = occurrenceStartMs - offsetMin * 60000;
                 if (atMs <= now || atMs >= windowEnd) continue;
                 const dt = new Date(atMs);
@@ -7191,6 +7236,52 @@
         return item;
     }
 
+    async function setScheduleOccurrenceDone(scheduleId, occurrenceStartMs, done, options = {}) {
+        const sid = String(scheduleId || '').trim();
+        const occurrenceKey = normalizeScheduleCompletedOccurrenceKey(occurrenceStartMs);
+        if (!sid || !occurrenceKey) throw new Error('invalid schedule occurrence payload');
+        const list = await loadScheduleAll();
+        const idx = list.findIndex((item) => String(item?.id || '').trim() === sid);
+        if (idx < 0) throw new Error('未找到日程');
+        const prevItem = (list[idx] && typeof list[idx] === 'object') ? list[idx] : {};
+        if (normalizeScheduleRepeatType(getScheduleRepeatType(prevItem)) === 'none') return false;
+        const nextDone = done === true;
+        const completedSet = getScheduleCompletedOccurrenceSet(prevItem);
+        if (nextDone) completedSet.add(occurrenceKey);
+        else completedSet.delete(occurrenceKey);
+        const nextCompletedOccurrences = Array.from(completedSet).sort((a, b) => Number(a) - Number(b));
+        const prevCompletedOccurrences = normalizeScheduleCompletedOccurrences(prevItem.completedOccurrences);
+        if (JSON.stringify(prevCompletedOccurrences) === JSON.stringify(nextCompletedOccurrences)) return true;
+        const nextItem = {
+            ...prevItem,
+            completedOccurrences: nextCompletedOccurrences,
+        };
+        list[idx] = nextItem;
+        const opt = (options && typeof options === 'object') ? options : {};
+        await saveScheduleAll(list, {
+            reason: 'schedule-occurrence-done',
+            source: String(opt.source || 'schedule-occurrence').trim() || 'schedule-occurrence',
+            op: 'update',
+            scheduleId: sid,
+            scheduleIds: [sid],
+            rangeStart: nextItem.start,
+            rangeEnd: nextItem.end,
+        });
+        if (opt.refresh !== false) {
+            scheduleCalendarRefresh({
+                reason: 'schedule-occurrence-done',
+                main: true,
+                side: true,
+                flushTaskPanel: false,
+                hard: false,
+                rangeStart: nextItem.start,
+                rangeEnd: nextItem.end,
+                version: Number(state.calendarMutationVersion) || 0,
+            });
+        }
+        return true;
+    }
+
     function parseTaskDurationMinutes(raw) {
         const s = String(raw || '').trim().toLowerCase();
         if (!s) return 60;
@@ -7374,13 +7465,65 @@
         try { el.style.setProperty('background-repeat', 'no-repeat, no-repeat', 'important'); } catch (e) {}
     }
 
-    function resolveCalendarEventDoneState(ext) {
+    function isRecurringScheduleEventExt(ext) {
+        return String(ext?.__tmSource || '').trim() === 'schedule'
+            && normalizeScheduleRepeatType(ext?.__tmRepeatType) !== 'none'
+            && !!String(ext?.__tmScheduleId || '').trim()
+            && !!normalizeScheduleCompletedOccurrenceKey(ext?.__tmOccurrenceStartMs);
+    }
+
+    function resolveCalendarEventDoneState(ext, options = {}) {
         const source = String(ext?.__tmSource || '').trim();
         if (!(source === 'taskdate' || source === 'schedule')) return false;
         const tid = String(ext?.__tmTaskId || ext?.__tmBlockId || '').trim();
-        if (!tid) return false;
-        if (typeof window.tmIsTaskDone !== 'function') return false;
-        try { return !!window.tmIsTaskDone(tid); } catch (e) { return false; }
+        const opt = (options && typeof options === 'object') ? options : {};
+        let taskDone = false;
+        if (Object.prototype.hasOwnProperty.call(opt, 'taskDoneOverride')) {
+            taskDone = !!opt.taskDoneOverride;
+        } else if (tid && typeof window.tmIsTaskDone === 'function') {
+            try { taskDone = !!window.tmIsTaskDone(tid); } catch (e) { taskDone = false; }
+        }
+        if (taskDone) return true;
+        if (source === 'schedule' && isRecurringScheduleEventExt(ext)) {
+            return ext?.__tmScheduleOccurrenceDone === true;
+        }
+        return false;
+    }
+
+    async function handleCalendarEventCheckboxToggle(cb, wrapEl, titleText, ext, taskId) {
+        if (!(cb instanceof HTMLInputElement)) return false;
+        const source = String(ext?.__tmSource || '').trim();
+        const tid = String(taskId || '').trim();
+        const nextDone = cb.checked === true;
+        applyTaskDoneVisual(wrapEl, titleText, nextDone);
+        try {
+            if (source === 'schedule' && isRecurringScheduleEventExt(ext)) {
+                const scheduleId = String(ext?.__tmScheduleId || '').trim();
+                const occurrenceStartMs = Number(ext?.__tmOccurrenceStartMs);
+                const setter = globalThis.__tmCalendar?.setScheduleOccurrenceDone;
+                if (!scheduleId || !Number.isFinite(occurrenceStartMs) || typeof setter !== 'function') {
+                    throw new Error('循环日程实例状态接口不可用');
+                }
+                const result = setter(scheduleId, occurrenceStartMs, nextDone, {
+                    source: 'calendar-checkbox',
+                });
+                if (result && typeof result.then === 'function') await result;
+                return true;
+            }
+            if (!tid || typeof window.tmSetDone !== 'function') {
+                throw new Error('任务完成接口不可用');
+            }
+            const scheduleId = source === 'schedule'
+                ? String(ext?.__tmScheduleId || '').trim()
+                : '';
+            const result = window.tmSetDone(tid, nextDone, null, { source: 'calendar', scheduleId });
+            if (result && typeof result.then === 'function') await result;
+            return true;
+        } catch (e) {
+            cb.checked = !nextDone;
+            applyTaskDoneVisual(wrapEl, titleText, !nextDone);
+            throw e;
+        }
     }
 
     function isOtherBlockCalendarEvent(ext) {
@@ -8211,18 +8354,10 @@
                         }
                         cb.onchange = async (ev) => {
                             try { ev.stopPropagation(); } catch (e) {}
-                            if (!tid || typeof window.tmSetDone !== 'function') return;
-                            const nextDone = cb.checked === true;
-                            applyTaskDoneVisual(wrapEl, titleText, nextDone);
                             try {
-                                const scheduleId = source === 'schedule'
-                                    ? String(ext.__tmScheduleId || '').trim()
-                                    : '';
-                                const r = window.tmSetDone(tid, nextDone, null, { source: 'calendar', scheduleId });
-                                if (r && typeof r.then === 'function') await r;
+                                await handleCalendarEventCheckboxToggle(cb, wrapEl, titleText, ext, tid);
                             } catch (e) {
-                                cb.checked = !nextDone;
-                                applyTaskDoneVisual(wrapEl, titleText, !nextDone);
+                                return;
                             }
                         };
                     }
@@ -9007,6 +9142,7 @@
             const repeatEvery = getScheduleRepeatEvery(it, repeatType);
             const repeatUntil = getScheduleRepeatUntil(it);
             const repeatMonthlyMode = getScheduleRepeatMonthlyMode(it, repeatType);
+            const completedOccurrenceSet = getScheduleCompletedOccurrenceSet(it);
             const occurrences = collectScheduleOccurrencesInRange(it, rangeStart, rangeEnd, {
                 limit: String(repeatType || 'none') === 'none' ? 1 : 300,
             });
@@ -9015,6 +9151,7 @@
                 const occEnd = occurrence?.end instanceof Date ? occurrence.end : end;
                 const allDay = allDayBase || isAllDayRange(occStart, occEnd);
                 const occStartMs = Number(occurrence?.startMs || occStart.getTime());
+                const occurrenceDone = Number.isFinite(occStartMs) && completedOccurrenceSet.has(String(Math.trunc(occStartMs)));
                 out.push({
                     id: repeatType === 'none' ? String(it?.id || uuid()) : `${String(it?.id || uuid())}:${occStartMs}`,
                     title: titleBase,
@@ -9045,6 +9182,7 @@
                         __tmScheduleBaseStart: safeISO(start),
                         __tmScheduleBaseEnd: safeISO(end),
                         __tmOccurrenceStartMs: occStartMs,
+                        __tmScheduleOccurrenceDone: occurrenceDone,
                         __tmDocId: linkedDocId,
                         calendarId,
                     },
@@ -9100,6 +9238,7 @@
             '__tmScheduleBaseStart',
             '__tmScheduleBaseEnd',
             '__tmOccurrenceStartMs',
+            '__tmScheduleOccurrenceDone',
             '__tmDocId',
             'calendarId',
         ];
@@ -9109,12 +9248,53 @@
         return true;
     }
 
+    function __tmFindCalendarEventsByScheduleId(calendar, scheduleId) {
+        const cal = calendar || null;
+        const sid = String(scheduleId || '').trim();
+        if (!cal || !sid || typeof cal.getEvents !== 'function') return [];
+        try {
+            return cal.getEvents().filter((eventApi) => {
+                const ext = eventApi?.extendedProps || {};
+                return String(ext.__tmScheduleId || '').trim() === sid;
+            });
+        } catch (e) {
+            return [];
+        }
+    }
+
+    function __tmSyncCalendarUiAfterDirectEventMutation(calendar) {
+        const cal = calendar || null;
+        if (!cal) return false;
+        if (cal === state.calendar) {
+            try { scheduleSyncTimeGridAllDayCollapseUi(state.calendarEl, cal); } catch (e) {}
+            try { scheduleMainCalendarLayoutRefresh(state.wrapEl, state.calendarEl, cal, { updateSize: false }); } catch (e) {}
+            return true;
+        }
+        if (cal === state.sideDay?.calendar) {
+            try { scheduleSyncTimeGridAllDayCollapseUi(state.sideDay.rootEl, cal); } catch (e) {}
+            try { refreshSideDayLayout(); } catch (e) {}
+            return true;
+        }
+        return false;
+    }
+
     function __tmPatchVisibleSingleScheduleInCalendar(calendar, item, action, settings) {
         const cal = calendar || null;
         const scheduleId = String(item?.id || '').trim();
         if (!cal || !scheduleId) return { touched: false, needsRefresh: false };
         if (String(getScheduleRepeatType(item)).trim() !== 'none') {
-            return { touched: false, needsRefresh: action === 'delete' ? !!cal.getEventById?.(scheduleId) : true };
+            if (action === 'delete') {
+                const recurringEvents = __tmFindCalendarEventsByScheduleId(cal, scheduleId);
+                if (recurringEvents.length > 0) {
+                    recurringEvents.forEach((eventApi) => {
+                        try { eventApi.remove?.(); } catch (e) {}
+                    });
+                    __tmSyncCalendarUiAfterDirectEventMutation(cal);
+                    return { touched: true, needsRefresh: false };
+                }
+                return { touched: false, needsRefresh: false };
+            }
+            return { touched: false, needsRefresh: true };
         }
         const visibleRange = __tmGetCalendarVisibleRange(cal);
         const overlaps = !!(visibleRange && hasScheduleOccurrenceInRange(item, visibleRange.start, visibleRange.end));
@@ -9122,6 +9302,7 @@
         if (action === 'delete') {
             if (eventApi) {
                 try { eventApi.remove?.(); } catch (e) {}
+                __tmSyncCalendarUiAfterDirectEventMutation(cal);
                 return { touched: true, needsRefresh: false };
             }
             return { touched: false, needsRefresh: overlaps };
@@ -9133,6 +9314,7 @@
             .find((entry) => String(entry?.id || '').trim() === scheduleId) || null;
         if (!nextEvent) {
             try { eventApi.remove?.(); } catch (e) {}
+            __tmSyncCalendarUiAfterDirectEventMutation(cal);
             return { touched: true, needsRefresh: false };
         }
         try { eventApi.setProp?.('title', String(nextEvent.title || '').trim() || '日程'); } catch (e) {}
@@ -11595,7 +11777,8 @@
                     }
                     return;
                 }
-                if (applyRenderedEventDoneStateById(eventApi?.id, nextDone)) touched = true;
+                const resolvedDone = resolveCalendarEventDoneState(ext, { taskDoneOverride: nextDone });
+                if (applyRenderedEventDoneStateById(eventApi?.id, resolvedDone)) touched = true;
             });
         });
         if (state.wrapEl instanceof HTMLElement) {
@@ -11938,18 +12121,10 @@
                         }
                         cb.onchange = async (ev) => {
                             try { ev.stopPropagation(); } catch (e) {}
-                            if (!tid || typeof window.tmSetDone !== 'function') return;
-                            const nextDone = cb.checked === true;
-                            applyTaskDoneVisual(wrapEl, titleText, nextDone);
                             try {
-                                const scheduleId = source === 'schedule'
-                                    ? String(ext.__tmScheduleId || '').trim()
-                                    : '';
-                                const r = window.tmSetDone(tid, nextDone, null, { source: 'calendar', scheduleId });
-                                if (r && typeof r.then === 'function') await r;
+                                await handleCalendarEventCheckboxToggle(cb, wrapEl, titleText, ext, tid);
                             } catch (e) {
-                                cb.checked = !nextDone;
-                                applyTaskDoneVisual(wrapEl, titleText, !nextDone);
+                                return;
                             }
                         };
                     }
@@ -13993,6 +14168,7 @@
         const idx = list.findIndex((item) => String(item?.id || '').trim() === id);
         if (idx < 0) return false;
         const prevItem = (list[idx] && typeof list[idx] === 'object') ? list[idx] : {};
+        if (normalizeScheduleRepeatType(getScheduleRepeatType(prevItem)) !== 'none') return true;
         list[idx] = {
             ...prevItem,
             taskId,
@@ -14162,6 +14338,7 @@
         getSideDayDate,
         relayoutSideDayDate,
         addTaskSchedule,
+        setScheduleOccurrenceDone,
         listTaskSchedulesByDay,
         openScheduleEditor,
         openScheduleEditorById,
