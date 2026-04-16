@@ -4165,19 +4165,20 @@
         const scope = root || document;
         try {
             scope.querySelectorAll('.li[data-task]').forEach((li) => {
-                const marker = li.getAttribute('data-task');
-                const targetIcon = taskIconMap[marker];
+                const targetIcon = taskIconMap[li.getAttribute('data-task')];
+                if (!targetIcon) return;
                 const use = li.querySelector(':scope > .protyle-action--task use');
-                if (!use) return;
-                const current = use.getAttribute('xlink:href');
-                if (targetIcon) {
-                    if (current !== '#' + targetIcon) use.setAttribute('xlink:href', '#' + targetIcon);
-                } else {
-                    const isPatched = Object.values(taskIconMap).some((icon) => current === '#' + icon);
-                    if (isPatched) use.setAttribute('xlink:href', marker === ' ' ? '#iconUncheck' : '#iconCheck');
+                if (use && use.getAttribute('xlink:href') !== '#' + targetIcon) {
+                    use.setAttribute('xlink:href', '#' + targetIcon);
                 }
             });
         } catch (e) {}
+    }
+
+    let _patchTimer = null;
+    function schedulePatchTaskIcons(root, delay = 0) {
+        clearTimeout(_patchTimer);
+        _patchTimer = setTimeout(() => patchTaskIcons(root), delay);
     }
 
     function startTaskIconPatch() {
@@ -4198,7 +4199,10 @@
                         }
                     }
                 }
-                if (needPatch) patchTaskIcons(document);
+                if (needPatch) {
+                    // 延迟执行，确保在思源完成所有 DOM 操作（如重写 <use> href）之后
+                    schedulePatchTaskIcons(document, 0);
+                }
             });
             document.querySelectorAll('.protyle-wysiwyg').forEach((root) => {
                 taskIconPatchObserver.observe(root, { childList: true, subtree: true, attributes: true, attributeFilter: ['data-task'] });
@@ -4210,22 +4214,44 @@
                 const onStatic = (e) => {
                     const protyle = e?.protyle || e?.detail?.protyle;
                     const root = protyle?.wysiwyg?.element;
-                    setTimeout(() => patchTaskIcons(root || document), 20);
+                    schedulePatchTaskIcons(root || document, 20);
                 };
                 const onDynamic = (e) => {
                     const protyle = e?.protyle || e?.detail?.protyle;
                     const root = protyle?.wysiwyg?.element;
-                    setTimeout(() => patchTaskIcons(root || document), 20);
+                    schedulePatchTaskIcons(root || document, 20);
+                };
+                const onWsMain = (msg) => {
+                    const cmd = msg?.detail?.cmd || msg?.cmd;
+                    if (cmd !== 'transactions') return;
+                    try {
+                        const data = msg?.detail?.data || msg?.data;
+                        const txs = Array.isArray(data) ? data : (data ? [data] : []);
+                        let hasUpdate = false;
+                        for (const tx of txs) {
+                            const ops = tx?.doOperations || tx?.operations || [];
+                            for (const op of ops) {
+                                if (op?.action === 'update') { hasUpdate = true; break; }
+                            }
+                            if (hasUpdate) break;
+                        }
+                        if (!hasUpdate) return;
+                    } catch (e) {}
+                    schedulePatchTaskIcons(document, 60);
                 };
                 eb.on('loaded-protyle-static', onStatic);
                 eb.on('loaded-protyle-dynamic', onDynamic);
+                eb.on('ws-main', onWsMain);
                 taskIconPatchEbHandlers.push({ eb, event: 'loaded-protyle-static', handler: onStatic });
                 taskIconPatchEbHandlers.push({ eb, event: 'loaded-protyle-dynamic', handler: onDynamic });
+                taskIconPatchEbHandlers.push({ eb, event: 'ws-main', handler: onWsMain });
             }
         } catch (e) {}
     }
 
     function stopTaskIconPatch() {
+        clearTimeout(_patchTimer);
+        _patchTimer = null;
         try { taskIconPatchObserver?.disconnect?.(); } catch (e) {}
         taskIconPatchObserver = null;
         taskIconPatchEbHandlers.forEach(({ eb, event, handler }) => {
