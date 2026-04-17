@@ -1,5 +1,5 @@
 // @name         思源笔记任务管理器
-// @version      2.2.6
+// @version      2.2.7
 // @description  任务管理器，支持自定义筛选规则分组和排序
 // @author       5KYFKR
 
@@ -6874,7 +6874,8 @@
         .tm-checklist-meta-compact-doc,
         .tm-checklist-meta-compact-time,
         .tm-checklist-meta-compact-start,
-        .tm-checklist-meta-compact-remaining {
+        .tm-checklist-meta-compact-remaining,
+        .tm-checklist-meta-compact-duration {
             overflow: hidden;
             text-overflow: ellipsis;
             white-space: nowrap;
@@ -6882,7 +6883,8 @@
 
         .tm-checklist-meta-compact-time,
         .tm-checklist-meta-compact-start,
-        .tm-checklist-meta-compact-remaining {
+        .tm-checklist-meta-compact-remaining,
+        .tm-checklist-meta-compact-duration {
             flex: 0 0 auto;
             overflow: visible;
             text-overflow: clip;
@@ -11337,7 +11339,7 @@
         if (raw === 'h2') return __tmGetTaskHeadingColumnLabel();
         if (raw === 'priority') return '重要性';
         if (raw === 'startDate') return '开始日期';
-        if (raw === 'completionTime') return '完成日期';
+        if (raw === 'completionTime') return '截止日期';
         if (raw === 'remainingTime') return '剩余时间';
         if (raw === 'duration') return '时长';
         if (raw === 'spent') return '耗时';
@@ -11358,7 +11360,7 @@
             { key: 'h2', label: __tmGetTaskHeadingColumnLabel(), kind: 'builtin' },
             { key: 'priority', label: '重要性', kind: 'builtin' },
             { key: 'startDate', label: '开始日期', kind: 'builtin' },
-            { key: 'completionTime', label: '完成日期', kind: 'builtin' },
+            { key: 'completionTime', label: '截止日期', kind: 'builtin' },
             { key: 'remainingTime', label: '剩余时间', kind: 'builtin' },
             { key: 'duration', label: '时长', kind: 'builtin' },
             { key: 'spent', label: '耗时', kind: 'builtin' },
@@ -11611,6 +11613,7 @@
             const dbHasDuration = isValidValue(task.duration);
             const dbHasRemark = isValidValue(task.remark);
             const dbHasCompletionTime = isValidValue(task.completionTime) || isValidValue(task.completion_time);
+            const dbHasTaskCompleteAt = isValidValue(task.taskCompleteAt) || isValidValue(task.task_complete_at);
             const dbHasCustomTime = isValidValue(task.customTime) || isValidValue(task.custom_time);
             const dbHasCustomStatus = isValidValue(task.customStatus) || isValidValue(task.custom_status);
 
@@ -11621,6 +11624,7 @@
             if (!dbHasDuration && 'duration' in v && isValidValue(v.duration)) task.duration = v.duration;
             if (!dbHasRemark && 'remark' in v && isValidValue(v.remark)) task.remark = v.remark;
             if (!dbHasCompletionTime && allowVisibleDateFallback && 'completionTime' in v && isValidValue(v.completionTime)) task.completionTime = v.completionTime;
+            if (!dbHasTaskCompleteAt && 'taskCompleteAt' in v && isValidValue(v.taskCompleteAt)) task.taskCompleteAt = v.taskCompleteAt;
             if (!dbHasCustomTime && allowVisibleDateFallback && 'customTime' in v && isValidValue(v.customTime)) task.customTime = v.customTime;
             if (!dbHasCustomStatus && 'customStatus' in v && isValidValue(v.customStatus)) task.customStatus = v.customStatus;
             if (Object.prototype.hasOwnProperty.call(v, 'repeatRule')) task.repeatRule = __tmNormalizeTaskRepeatRule(v.repeatRule, {
@@ -11648,6 +11652,7 @@
             if (task.duration) candidate.duration = task.duration;
             if (task.remark) candidate.remark = task.remark;
             if (task.completionTime) candidate.completionTime = task.completionTime;
+            if (task.taskCompleteAt) candidate.taskCompleteAt = task.taskCompleteAt;
             if (task.customTime) candidate.customTime = task.customTime;
             if (task.customStatus) candidate.customStatus = task.customStatus;
             if (task.repeatRule && typeof task.repeatRule === 'object') candidate.repeatRule = __tmNormalizeTaskRepeatRule(task.repeatRule, {
@@ -13697,7 +13702,8 @@
                     optionLabels: statusOptionLabels,
                     emptyLabel: '未设置',
                 },
-                { value: 'completionTime', label: '完成日期', type: 'datetime' },
+                { value: 'completionTime', label: '截止日期', type: 'datetime' },
+                { value: 'taskCompleteAt', label: '完成时间', type: 'datetime' },
                 { value: 'created', label: '创建时间', type: 'datetime' },
                 { value: 'updated', label: '更新时间', type: 'datetime' },
                 { value: 'duration', label: '任务时长', type: 'text' },
@@ -13713,12 +13719,26 @@
             return this.getAvailableFields().find((field) => String(field?.value || '').trim() === key) || null;
         },
 
+        isTimeField(fieldValue) {
+            const fieldInfo = (fieldValue && typeof fieldValue === 'object') ? fieldValue : this.getFieldInfo(fieldValue);
+            const key = String(fieldInfo?.value || fieldValue || '').trim();
+            if (!key) return false;
+            return String(fieldInfo?.type || '').trim() === 'datetime'
+                || key === 'startDate'
+                || key === 'created'
+                || key === 'updated'
+                || key.includes('Time');
+        },
+
         getTaskFieldValue(task, fieldValue) {
             const fieldInfo = (fieldValue && typeof fieldValue === 'object') ? fieldValue : this.getFieldInfo(fieldValue);
             const key = String(fieldInfo?.value || fieldValue || '').trim();
             const customFieldId = String(fieldInfo?.customFieldId || __tmParseCustomFieldColumnKey(key) || '').trim();
             if (customFieldId) return __tmGetTaskCustomFieldValue(task, customFieldId);
             if (key === 'customStatus') return __tmResolveTaskStatusId(task);
+            if (key === 'startDate') return task?.startDate ?? task?.start_date;
+            if (key === 'completionTime') return task?.completionTime ?? task?.completion_time;
+            if (key === 'taskCompleteAt') return task?.taskCompleteAt ?? task?.task_complete_at;
             return task ? task[key] : undefined;
         },
 
@@ -13826,7 +13846,8 @@
                 { value: 'customStatus', label: '状态' },
                 { value: 'docSeq', label: '文档出现顺序' },
                 { value: 'startDate', label: '开始日期' },
-                { value: 'completionTime', label: '完成日期' },
+                { value: 'completionTime', label: '截止日期' },
+                { value: 'taskCompleteAt', label: '完成时间' },
                 { value: 'created', label: '创建时间' },
                 { value: 'updated', label: '更新时间' },
                 { value: 'content', label: '任务内容' },
@@ -13985,7 +14006,7 @@
             }
 
             // 处理时间字段
-            if (field.includes('Time') || field === 'created' || field === 'updated') {
+            if (this.isTimeField(fieldInfo || field)) {
                 return this.evaluateTimeCondition(taskValue, operator, value);
             }
 
@@ -14151,7 +14172,7 @@
             }
             
             // 处理时间比较
-            if (field === 'startDate' || field.includes('Time') || field === 'created' || field === 'updated') {
+            if (this.isTimeField(info || field)) {
                 const timeA = a ? __tmParseTimeToTs(a) : 0;
                 const timeB = b ? __tmParseTimeToTs(b) : 0;
                 // 空日期（返回0）视为最大，这样升序时会排在最后面
@@ -14192,6 +14213,9 @@
     let __tmLocalTimeTxSuppressUntil = 0;
     const __tmLocalTimeTxSuppressTaskIds = new Set();
     const __tmLocalTimeTxSuppressDocIds = new Set();
+    let __tmLocalDoneTxSuppressUntil = 0;
+    const __tmLocalDoneTxSuppressBlockIds = new Set();
+    const __tmLocalDoneTxSuppressDocIds = new Set();
     const __tmRecentVisibleDateFallbackTasks = new Map();
 
     function __tmIsVisibleDateAttrKey(key) {
@@ -14344,6 +14368,10 @@
             const attrKey = String(update?.key || '').trim();
             const attrValue = String(update?.value ?? '');
             if (!taskId || !attrKey) return;
+            if (__tmMutationEngine.isTaskSuppressed(taskId)) {
+                applied = true;
+                return;
+            }
             const ok = __tmApplyQuickbarAttrUpdateInState(taskId, attrKey, attrValue);
             if (ok) {
                 applied = true;
@@ -14352,12 +14380,24 @@
             unresolved.push({ taskId, attrKey, attrValue });
         });
         const refreshView = () => {
-            try { applyFilters(); } catch (e) {}
-            try {
-                if (__tmIsPluginVisibleNow()) {
-                    __tmRefreshMainViewInPlace({ withFilters: false });
-                }
-            } catch (e) {}
+            const mergedByTask = new Map();
+            updates.forEach((update) => {
+                const taskId = String(update?.taskId || '').trim();
+                const patch = __tmChangeFeed.buildPatchFromAttr(update?.key, update?.value);
+                if (!taskId || !patch) return;
+                mergedByTask.set(taskId, __tmWritePlanner.mergeTaskPatches(mergedByTask.get(taskId) || {}, patch));
+            });
+            if (mergedByTask.size === 0) return;
+            mergedByTask.forEach((patch, taskId) => {
+                try {
+                    __tmRefreshTaskFieldsAcrossViews(taskId, patch, {
+                        withFilters: true,
+                        reason: 'tx-attr-update',
+                        forceProjectionRefresh: __tmDoesPatchAffectProjection(taskId, patch),
+                        fallback: true,
+                    });
+                } catch (e) {}
+            });
         };
         if (applied) refreshView();
         if (unresolved.length) {
@@ -14407,6 +14447,122 @@
         __tmLocalTimeTxSuppressDocIds.clear();
     }
 
+    function __tmMarkLocalDoneTxSuppressionIds(ids = [], docIds = [], ttlMs = 1600) {
+        (Array.isArray(ids) ? ids : []).forEach((id) => {
+            const bid = String(id || '').trim();
+            if (bid && __tmIsLikelyBlockId(bid)) __tmLocalDoneTxSuppressBlockIds.add(bid);
+        });
+        (Array.isArray(docIds) ? docIds : []).forEach((docId) => {
+            const did = String(docId || '').trim();
+            if (did && __tmIsLikelyBlockId(did)) __tmLocalDoneTxSuppressDocIds.add(did);
+        });
+        __tmLocalDoneTxSuppressUntil = Date.now() + Math.max(300, Number(ttlMs) || 1600);
+    }
+
+    function __tmMarkLocalDoneTxSuppressionForTask(taskLike, ids = [], ttlMs = 1600) {
+        const task = (taskLike && typeof taskLike === 'object') ? taskLike : {};
+        const nextIds = Array.from(new Set([
+            String(task?.id || '').trim(),
+            String(task?.attrHostId || '').trim(),
+            String(task?.attr_host_id || '').trim(),
+            ...(Array.isArray(ids) ? ids.map((id) => String(id || '').trim()) : []),
+        ].filter(Boolean)));
+        const docIds = Array.from(new Set([
+            String(task?.root_id || '').trim(),
+            String(task?.docId || '').trim(),
+        ].filter(Boolean)));
+        __tmMarkLocalDoneTxSuppressionIds(nextIds, docIds, ttlMs);
+    }
+
+    function __tmClearLocalDoneTxSuppression() {
+        __tmLocalDoneTxSuppressUntil = 0;
+        __tmLocalDoneTxSuppressBlockIds.clear();
+        __tmLocalDoneTxSuppressDocIds.clear();
+    }
+
+    function __tmShouldSuppressLocalDoneTx(payload) {
+        try {
+            const until = Number(__tmLocalDoneTxSuppressUntil || 0);
+            if (!until || Date.now() > until) {
+                __tmClearLocalDoneTxSuppression();
+                return false;
+            }
+            const blockIds = Array.from(__tmExtractBlockIdsFromTx(payload) || [])
+                .map((id) => String(id || '').trim())
+                .filter(Boolean);
+            const docIds = Array.from(__tmExtractDocIdsFromTx(payload) || [])
+                .map((id) => String(id || '').trim())
+                .filter(Boolean);
+            const updates = __tmExtractAttrUpdatesFromTx(payload);
+            const keys = updates.map((update) => String(update?.key || '').trim()).filter(Boolean);
+            const hasMatchingBlockId = blockIds.some((id) => __tmLocalDoneTxSuppressBlockIds.has(id));
+            const hasMatchingDocIds = docIds.length > 0 && docIds.every((id) => __tmLocalDoneTxSuppressDocIds.has(id));
+            if (!updates.length) {
+                if (hasMatchingBlockId || hasMatchingDocIds) {
+                    try {
+                        __tmPushRefreshDebug('local-done-tx-check', {
+                            ok: true,
+                            reason: hasMatchingBlockId ? 'matched-block-no-updates' : 'matched-doc-no-updates',
+                            blockIds,
+                            docIds,
+                        });
+                    } catch (e) {}
+                    return true;
+                }
+                try { __tmPushRefreshDebug('local-done-tx-check', { ok: false, reason: 'no-updates-no-match', blockIds, docIds }); } catch (e) {}
+                return false;
+            }
+            const allowed = new Set([
+                'custom-status',
+                __TM_TASK_COMPLETE_AT_ATTR,
+            ]);
+            if (updates.length && !updates.every((update) => allowed.has(String(update?.key || '').trim()))) {
+                try { __tmPushRefreshDebug('local-done-tx-check', { ok: false, reason: 'contains-non-done-key', keys }); } catch (e) {}
+                return false;
+            }
+            const candidateIds = Array.from(new Set([
+                ...blockIds,
+                ...updates.map((update) => String(update?.taskId || '').trim()).filter(Boolean),
+            ]));
+            const hasMatchingCandidateBlockId = candidateIds.some((id) => __tmLocalDoneTxSuppressBlockIds.has(id));
+            if (!hasMatchingCandidateBlockId) {
+                try {
+                    __tmPushRefreshDebug('local-done-tx-check', {
+                        ok: false,
+                        reason: 'block-id-miss',
+                        blockIds: candidateIds,
+                        localIds: Array.from(__tmLocalDoneTxSuppressBlockIds),
+                    });
+                } catch (e) {}
+                return false;
+            }
+            if (docIds.length && !docIds.every((id) => __tmLocalDoneTxSuppressDocIds.has(id))) {
+                try {
+                    __tmPushRefreshDebug('local-done-tx-check', {
+                        ok: false,
+                        reason: 'doc-id-miss',
+                        docIds,
+                        localDocIds: Array.from(__tmLocalDoneTxSuppressDocIds),
+                    });
+                } catch (e) {}
+                return false;
+            }
+            try {
+                __tmPushRefreshDebug('local-done-tx-check', {
+                    ok: true,
+                    reason: 'matched',
+                    keys,
+                    blockIds: candidateIds,
+                    docIds,
+                });
+            } catch (e) {}
+            return true;
+        } catch (e) {
+            try { __tmPushRefreshDebug('local-done-tx-check', { ok: false, reason: 'exception', error: String(e?.message || e || '') }); } catch (e2) {}
+            return false;
+        }
+    }
+
     function __tmShouldSuppressLocalTimeTx(payload) {
         try {
             if (String(state.viewMode || '').trim() === 'calendar') return false;
@@ -14423,6 +14579,7 @@
             const allowed = new Set([
                 'custom-start-date',
                 'custom-completion-time',
+                __TM_TASK_COMPLETE_AT_ATTR,
                 'custom-duration',
                 'custom-time',
                 'custom-status',
@@ -14484,6 +14641,7 @@
             const allowed = new Set([
                 'custom-start-date',
                 'custom-completion-time',
+                __TM_TASK_COMPLETE_AT_ATTR,
                 'custom-duration',
                 'custom-time',
                 'custom-status',
@@ -14536,6 +14694,7 @@
             'custom-remark',
             'custom-start-date',
             'custom-completion-time',
+            __TM_TASK_COMPLETE_AT_ATTR,
             'custom-milestone-event',
             'custom-time',
             'custom-status',
@@ -14665,6 +14824,11 @@
             const value = String(row['custom-completion-time'] ?? '');
             target.completionTime = value;
             target.completion_time = value;
+        }
+        if (Object.prototype.hasOwnProperty.call(row, __TM_TASK_COMPLETE_AT_ATTR)) {
+            const value = String(row[__TM_TASK_COMPLETE_AT_ATTR] ?? '');
+            target.taskCompleteAt = value;
+            target.task_complete_at = value;
         }
         if (Object.prototype.hasOwnProperty.call(row, 'custom-milestone-event')) {
             const value = String(row['custom-milestone-event'] ?? '');
@@ -15539,16 +15703,22 @@
                     });
                 } catch (e) {}
                 const suppressLocalTimeTx = __tmShouldSuppressLocalTimeTx(msg);
-                if (!suppressLocalTimeTx) {
+                const suppressLocalDoneTx = !suppressLocalTimeTx && __tmShouldSuppressLocalDoneTx(msg);
+                if (!suppressLocalTimeTx && !suppressLocalDoneTx) {
                     __tmMarkExternalTaskTxDirty();
                     try { __tmApplyTxAttrUpdatesInState(msg); } catch (e) {}
                 } else {
-                    try { __tmPushRefreshDebug('ws-main-suppressed-local-time', {}); } catch (e) {}
+                    if (suppressLocalTimeTx) {
+                        try { __tmPushRefreshDebug('ws-main-suppressed-local-time', {}); } catch (e) {}
+                    }
+                    if (suppressLocalDoneTx) {
+                        try { __tmPushRefreshDebug('ws-main-suppressed-local-done', {}); } catch (e) {}
+                    }
                 }
                 const docIds = __tmExtractDocIdsFromTx(msg);
                 if (docIds && docIds.size > 0) docIds.forEach((d) => __tmInvalidateTasksQueryCacheByDocId(d));
                 else __tmInvalidateAllSqlCaches();
-                if (suppressLocalTimeTx) return;
+                if (suppressLocalTimeTx || suppressLocalDoneTx) return;
                 __tmScheduleTaskIncrementalRefreshFromTx(msg);
                 const skipCalendarTxRefresh = __tmShouldSkipCalendarTxRefreshForTimeEdit(msg);
                 try {
@@ -16118,6 +16288,7 @@
                 'custom-remark',
                 'custom-start-date',
                 'custom-completion-time',
+                __TM_TASK_COMPLETE_AT_ATTR,
                 'custom-milestone-event',
                 'custom-time',
                 'custom-status',
@@ -16155,6 +16326,7 @@
                     attr.remark,
                     attr.start_date,
                     attr.completion_time,
+                    attr.task_complete_at,
                     attr.milestone,
                     attr.time as custom_time,
                     attr.custom_status,
@@ -16179,6 +16351,7 @@
                         MAX(CASE WHEN a.name = 'custom-remark' THEN a.value ELSE NULL END) as remark,
                         MAX(CASE WHEN a.name = 'custom-start-date' THEN a.value ELSE NULL END) as start_date,
                         MAX(CASE WHEN a.name = 'custom-completion-time' THEN a.value ELSE NULL END) as completion_time,
+                        MAX(CASE WHEN a.name = '${__TM_TASK_COMPLETE_AT_ATTR}' THEN a.value ELSE NULL END) as task_complete_at,
                         MAX(CASE WHEN a.name = 'custom-milestone-event' THEN a.value ELSE NULL END) as milestone,
                         MAX(CASE WHEN a.name = 'custom-time' THEN a.value ELSE NULL END) as time,
                         MAX(CASE WHEN a.name = 'custom-status' THEN a.value ELSE NULL END) as custom_status,
@@ -16262,6 +16435,7 @@
                 'custom-remark',
                 'custom-start-date',
                 'custom-completion-time',
+                __TM_TASK_COMPLETE_AT_ATTR,
                 'custom-milestone-event',
                 'custom-time',
                 'custom-status',
@@ -16311,6 +16485,7 @@
                         MAX(CASE WHEN a.name = 'custom-remark' THEN a.value ELSE NULL END) AS remark,
                         MAX(CASE WHEN a.name = 'custom-start-date' THEN a.value ELSE NULL END) AS start_date,
                         MAX(CASE WHEN a.name = 'custom-completion-time' THEN a.value ELSE NULL END) AS completion_time,
+                        MAX(CASE WHEN a.name = '${__TM_TASK_COMPLETE_AT_ATTR}' THEN a.value ELSE NULL END) AS task_complete_at,
                         MAX(CASE WHEN a.name = 'custom-milestone-event' THEN a.value ELSE NULL END) AS milestone,
                         MAX(CASE WHEN a.name = 'custom-time' THEN a.value ELSE NULL END) AS time,
                         MAX(CASE WHEN a.name = 'custom-status' THEN a.value ELSE NULL END) AS custom_status,
@@ -16343,6 +16518,7 @@
                     attr.remark,
                     attr.start_date,
                     attr.completion_time,
+                    attr.task_complete_at,
                     attr.milestone,
                     attr.time AS custom_time,
                     attr.custom_status,
@@ -16414,6 +16590,7 @@
                     attr.remark,
                     attr.start_date,
                     attr.completion_time,
+                    attr.task_complete_at,
                     attr.milestone,
                     attr.time as custom_time,
                     attr.custom_status,
@@ -16430,6 +16607,7 @@
                         MAX(CASE WHEN name = 'custom-remark' THEN value ELSE NULL END) as remark,
                         MAX(CASE WHEN name = 'custom-start-date' THEN value ELSE NULL END) as start_date,
                         MAX(CASE WHEN name = 'custom-completion-time' THEN value ELSE NULL END) as completion_time,
+                        MAX(CASE WHEN name = '${__TM_TASK_COMPLETE_AT_ATTR}' THEN value ELSE NULL END) as task_complete_at,
                         MAX(CASE WHEN name = 'custom-milestone-event' THEN value ELSE NULL END) as milestone,
                         MAX(CASE WHEN name = 'custom-time' THEN value ELSE NULL END) as time,
                         MAX(CASE WHEN name = 'custom-status' THEN value ELSE NULL END) as custom_status,
@@ -17304,6 +17482,9 @@
     const __TM_TASK_REPEAT_RULE_ATTR = 'custom-task-repeat-rule';
     const __TM_TASK_REPEAT_STATE_ATTR = 'custom-task-repeat-state';
     const __TM_TASK_REPEAT_HISTORY_ATTR = 'custom-task-repeat-history';
+    const __TM_TASK_COMPLETE_AT_ATTR = 'custom-task-complete-at';
+    const __TM_CHINA_TZ_OFFSET_MINUTES = 8 * 60;
+    const __TM_CHINA_TZ_SUFFIX = '+08:00';
 
     const __tmMetaAttrMap = {
         priority: 'custom-priority',
@@ -17311,6 +17492,7 @@
         remark: 'custom-remark',
         startDate: 'custom-start-date',
         completionTime: 'custom-completion-time',
+        taskCompleteAt: __TM_TASK_COMPLETE_AT_ATTR,
         milestone: 'custom-milestone-event',
         customTime: 'custom-time',
         customStatus: 'custom-status',
@@ -17319,6 +17501,37 @@
         repeatState: __TM_TASK_REPEAT_STATE_ATTR,
         repeatHistory: __TM_TASK_REPEAT_HISTORY_ATTR,
     };
+
+    function __tmFormatTsToChinaTimezoneIso(ts) {
+        const num = Number(ts);
+        if (!Number.isFinite(num) || num <= 0) return '';
+        const dt = new Date(num + __TM_CHINA_TZ_OFFSET_MINUTES * 60000);
+        if (Number.isNaN(dt.getTime())) return '';
+        const pad = (value, size = 2) => String(value).padStart(size, '0');
+        return `${dt.getUTCFullYear()}-${pad(dt.getUTCMonth() + 1)}-${pad(dt.getUTCDate())}T${pad(dt.getUTCHours())}:${pad(dt.getUTCMinutes())}:${pad(dt.getUTCSeconds())}.${pad(dt.getUTCMilliseconds(), 3)}${__TM_CHINA_TZ_SUFFIX}`;
+    }
+
+    function __tmNowInChinaTimezoneIso() {
+        return __tmFormatTsToChinaTimezoneIso(Date.now());
+    }
+
+    function __tmNormalizeTaskCompleteAtValue(value) {
+        const raw = String(value ?? '').trim();
+        if (!raw) return '';
+        const ts = __tmParseTimeToTs(raw);
+        if (Number.isFinite(ts) && ts > 0) {
+            try {
+                const normalized = __tmFormatTsToChinaTimezoneIso(ts);
+                if (normalized) return normalized;
+            } catch (e) {}
+        }
+        return raw;
+    }
+
+    function __tmBuildTaskCompleteAtPatch(value = '') {
+        const normalized = __tmNormalizeTaskCompleteAtValue(String(value ?? '').trim() || __tmNowInChinaTimezoneIso());
+        return normalized ? { taskCompleteAt: normalized } : {};
+    }
 
     function __tmFormatStatusMarkerText(marker) {
         const normalized = __tmNormalizeTaskStatusMarker(marker, ' ');
@@ -17641,7 +17854,9 @@
                 await API.setAttrs(attrTargetId, attrs);
                 if (opts.skipFlush !== true) {
                     try { await API.call('/api/sqlite/flushTransaction', {}); } catch (e) {}
-                    try { await MetaStore.saveNow(); } catch (e) {}
+                    if (opts.saveMetaNow !== false) {
+                        try { await MetaStore.saveNow(); } catch (e) {}
+                    }
                 }
                 return true;
             } catch (e) {
@@ -17654,6 +17869,7 @@
 
     function __tmQueueAttrPatch(taskId, patch, options = {}) {
         const tid = String(taskId || '').trim();
+        const opts = (options && typeof options === 'object') ? options : {};
         const nextPatch = (patch && typeof patch === 'object') ? patch : {};
         if (!tid || !Object.keys(nextPatch).length) return Promise.resolve(false);
         const task = state.flatTasks?.[tid] || state.pendingInsertedTasks?.[tid] || null;
@@ -17668,17 +17884,18 @@
                 taskId: tid,
                 patch: { ...nextPatch },
                 docId,
-                skipFlush: options.skipFlush !== false,
-                renderOptimistic: options.renderOptimistic !== false,
-                withFilters: options.withFilters !== false,
+                skipFlush: opts.skipFlush !== false,
+                renderOptimistic: opts.renderOptimistic !== false,
+                withFilters: opts.withFilters !== false,
             },
             inversePatch,
-        }, { wait: !!options.wait });
+        }, { wait: !!opts.wait });
     }
 
-    function __tmPersistMetaAndAttrs(id, patch) {
+    function __tmPersistMetaAndAttrs(id, patch, options = {}) {
         if (!id || !patch || typeof patch !== 'object') return;
-        __tmQueueAttrPatch(id, patch, { wait: false, skipFlush: true }).catch(() => null);
+        const opts = (options && typeof options === 'object') ? options : {};
+        __tmQueueAttrPatch(id, patch, { ...opts, wait: false, skipFlush: true }).catch(() => null);
     }
 
     async function __tmPersistMetaAndAttrsAsync(id, patch, options = {}) {
@@ -17910,7 +18127,7 @@
             });
             return out;
         }
-        if (key === 'priority' || key === 'customStatus' || key === 'duration' || key === 'startDate' || key === 'completionTime' || key === 'customTime') {
+        if (key === 'priority' || key === 'customStatus' || key === 'duration' || key === 'startDate' || key === 'completionTime' || key === 'customTime' || key === 'taskCompleteAt') {
             return String(value ?? '').trim();
         }
         return value;
@@ -18092,6 +18309,10 @@
                         target.completionTime = String(value ?? '').trim();
                         target.completion_time = target.completionTime;
                         break;
+                    case 'taskCompleteAt':
+                        target.taskCompleteAt = __tmNormalizeTaskCompleteAtValue(value);
+                        target.task_complete_at = target.taskCompleteAt;
+                        break;
                     case 'customTime':
                         target.customTime = String(value ?? '').trim();
                         target.custom_time = target.customTime;
@@ -18205,6 +18426,10 @@
                     case 'completionTime':
                         target.completionTime = String(value ?? '').trim();
                         target.completion_time = target.completionTime;
+                        break;
+                    case 'taskCompleteAt':
+                        target.taskCompleteAt = __tmNormalizeTaskCompleteAtValue(value);
+                        target.task_complete_at = target.taskCompleteAt;
                         break;
                     case 'customTime':
                         target.customTime = String(value ?? '').trim();
@@ -19289,9 +19514,9 @@
                             calendarEligible,
                             actionLabel: suggestion.hasTime
                                 ? (calendarEligible
-                                    ? '写入完成时间并添加到日历'
-                                    : (scheduleExists ? '写入完成时间（该任务已有日历）' : '写入完成时间（日历模块未加载）'))
-                                : '写入完成时间',
+                                    ? '写入截止日期并添加到日历'
+                                    : (scheduleExists ? '写入截止日期（该任务已有日历）' : '写入截止日期（日历模块未加载）'))
+                                : '写入截止日期',
                         });
                         if (maxSuggestions > 0 && out.length >= maxSuggestions) {
                             truncated = true;
@@ -19430,7 +19655,7 @@
                 completionApplied += 1;
                 appliedItems.push(item);
             } catch (e) {
-                failures.push(`${taskTitle}：完成时间写入失败（${String(e?.message || e || '未知错误')}）`);
+                failures.push(`${taskTitle}：截止日期写入失败（${String(e?.message || e || '未知错误')}）`);
                 continue;
             }
             if (item?.calendarEligible && item?.start instanceof Date && !Number.isNaN(item.start.getTime())) {
@@ -19542,9 +19767,9 @@
                             <input type="checkbox" data-tm-semantic-item="${index}" checked style="margin-top:2px;">
                             <div style="flex:1;min-width:0;">
                                 <div style="font-size:14px;font-weight:600;line-height:1.5;word-break:break-word;">${esc(item.content || '未命名任务')}</div>
-                                <div style="font-size:12px;color:var(--tm-secondary-text);line-height:1.6;">当前完成时间：${esc(item.currentCompletionTime || '未设置')}</div>
+                                <div style="font-size:12px;color:var(--tm-secondary-text);line-height:1.6;">当前截止日期：${esc(item.currentCompletionTime || '未设置')}</div>
                                 <div style="font-size:12px;color:var(--tm-secondary-text);line-height:1.6;">识别结果：${esc(item.completionValue || '')}</div>
-                                <div style="font-size:12px;color:var(--tm-secondary-text);line-height:1.6;">将执行：${esc(item.actionLabel || '写入完成时间')}</div>
+                                <div style="font-size:12px;color:var(--tm-secondary-text);line-height:1.6;">将执行：${esc(item.actionLabel || '写入截止日期')}</div>
                                 <div style="font-size:12px;color:var(--tm-secondary-text);line-height:1.6;">依据：${esc(item.reason || '识别到日期表达')}</div>
                             </div>
                         </label>
@@ -19596,7 +19821,7 @@
                     __tmMarkSemanticDateSuggestionsRecognized(result.appliedItems);
                 }
                 if (result.completionApplied > 0 || result.calendarApplied > 0) {
-                    hint(`✅ 已写入 ${result.completionApplied} 条完成时间${result.calendarApplied > 0 ? `，新增 ${result.calendarApplied} 条日历` : ''}`, 'success');
+                    hint(`✅ 已写入 ${result.completionApplied} 条截止日期${result.calendarApplied > 0 ? `，新增 ${result.calendarApplied} 条日历` : ''}`, 'success');
                 }
                 if (result.failures.length > 0) {
                     try { console.warn('[task-horizon] semantic date apply failures:', result.failures); } catch (e2) {}
@@ -21058,7 +21283,7 @@
         const refreshed = __tmRefreshMultiSelectedRowsInPlace(modal);
         try { __tmRefreshMultiSelectBarInPlace(modal); } catch (e) {}
         if (String(state.viewMode || '').trim() === 'checklist') {
-            try { __tmRefreshChecklistSelectionInPlace(modal); } catch (e) {}
+            try { __tmRefreshChecklistSelectionInPlace(modal, 'multi-select-ui'); } catch (e) {}
         } else if (!refreshed && options.renderFallback !== false) {
             try { __tmScheduleViewRefresh({ mode: 'current', withFilters: false, reason: 'multi-select-ui-fallback' }); } catch (e) {}
         }
@@ -21231,7 +21456,8 @@
         if (key === 'custom-status') return '状态';
         if (key === 'custom-priority') return '优先级';
         if (key === 'custom-start-date') return '开始日期';
-        if (key === 'custom-completion-time') return '完成时间';
+        if (key === 'custom-completion-time') return '截止日期';
+        if (key === __TM_TASK_COMPLETE_AT_ATTR) return '截止时间';
         if (key === 'custom-duration') return '时长';
         if (key === 'custom-remark') return '备注';
         if (key === __TM_TASK_REPEAT_RULE_ATTR) return '循环规则';
@@ -21257,7 +21483,7 @@
             const key = keys[0];
             if (key === 'customStatus') return '状态';
             if (key === 'startDate') return '开始日期';
-            if (key === 'completionTime') return '完成时间';
+            if (key === 'completionTime') return '截止日期';
             if (key === 'duration') return '时长';
             if (key === 'remark') return '备注';
             if (key === 'repeatRule') return '循环规则';
@@ -21276,6 +21502,10 @@
         if (key === 'custom-priority') return { patch: { priority: trimmedValue }, attrValue: trimmedValue };
         if (key === 'custom-start-date') return { patch: { startDate: trimmedValue }, attrValue: trimmedValue };
         if (key === 'custom-completion-time') return { patch: { completionTime: trimmedValue }, attrValue: trimmedValue };
+        if (key === __TM_TASK_COMPLETE_AT_ATTR) {
+            const normalizedValue = __tmNormalizeTaskCompleteAtValue(trimmedValue);
+            return { patch: { taskCompleteAt: normalizedValue }, attrValue: normalizedValue };
+        }
         if (key === 'custom-duration') return { patch: { duration: trimmedValue }, attrValue: trimmedValue };
         if (key === 'custom-remark') return { patch: { remark: rawValue }, attrValue: rawValue };
         if (key === __TM_TASK_REPEAT_RULE_ATTR) return { patch: { repeatRule: __tmNormalizeTaskRepeatRule(rawValue) }, attrValue: rawValue };
@@ -21389,6 +21619,13 @@
             } catch (e) {}
         }
         if (!calendarOnly) {
+            if (state.homepageOpen) {
+                try {
+                    __tmScheduleHomepageRefresh(String(opts.reason || 'task-mutation').trim() || 'task-mutation');
+                    refreshed = true;
+                } catch (e) {}
+                return;
+            }
             try {
                 __tmRefreshMainViewInPlace({ withFilters: opts.withFilters !== false });
                 refreshed = true;
@@ -21443,12 +21680,37 @@
             else __tmInvalidateAllSqlCaches();
         } catch (e) {}
         try { window.__tmCalendarAllTasksCache = null; } catch (e) {}
-        __tmRefreshViewsAfterTaskMutation({
-            refresh: opts.refresh !== false,
-            refreshCalendar: opts.refreshCalendar !== false,
-            withFilters: opts.withFilters !== false,
-            hard: opts.hard === true,
-        });
+        if (opts.refresh !== false) {
+            try {
+                __tmRefreshTaskFieldsAcrossViews(context.persistId, nextPatch, {
+                    withFilters: opts.withFilters !== false,
+                    reason: String(opts.source || 'attr-patch').trim() || 'attr-patch',
+                    forceProjectionRefresh: __tmDoesPatchAffectProjection(context.persistId, nextPatch),
+                    fallback: true,
+                });
+            } catch (e) {
+                try {
+                    __tmRefreshViewsAfterTaskMutation({
+                        refresh: true,
+                        refreshCalendar: false,
+                        withFilters: opts.withFilters !== false,
+                        hard: opts.hard === true,
+                        reason: String(opts.source || 'attr-patch').trim() || 'attr-patch',
+                    });
+                } catch (e2) {}
+            }
+        }
+        if (opts.refreshCalendar !== false && __tmPatchAffectsCalendar(nextPatch)) {
+            try {
+                __tmRequestCalendarRefresh({
+                    reason: String(opts.source || 'attr-patch').trim() || 'attr-patch',
+                    main: String(state.viewMode || '').trim() === 'calendar',
+                    side: __tmShouldShowCalendarSideDock(),
+                    flushTaskPanel: true,
+                    hard: opts.hard === true,
+                }, { hard: opts.hard === true });
+            } catch (e) {}
+        }
         try {
             if (Object.prototype.hasOwnProperty.call(nextPatch, 'startDate') || Object.prototype.hasOwnProperty.call(nextPatch, 'completionTime')) {
                 __tmPushRefreshDebug('meta-patch-date-end', {
@@ -21645,13 +21907,19 @@
         }
 
         let markerResult = null;
+        const completeAtPatch = nextDone ? __tmBuildTaskCompleteAtPatch() : null;
+        const persistPatch = {
+            customStatus: nextStatusId,
+            ...((completeAtPatch && typeof completeAtPatch === 'object') ? completeAtPatch : {}),
+        };
         try {
             __tmMarkNativeDocCheckboxStatusSyncIgnored(context.persistId, nextStatusId, nextMarker, 1600);
             markerResult = await __tmUpdateTaskListItemMarkerWithFallback(context.persistId, nextMarker);
-            await __tmPersistMetaAndAttrsAsync(context.persistId, { customStatus: nextStatusId }, {
+            await __tmPersistMetaAndAttrsAsync(context.persistId, persistPatch, {
                 queued: opts.queued === true,
                 background: opts.background === true,
                 skipFlush: opts.skipFlush,
+                saveMetaNow: false,
                 docId: context.docId,
                 renderOptimistic: false,
                 withFilters: opts.withFilters,
@@ -21663,22 +21931,51 @@
             throw e;
         }
 
-        try { __tmApplyAttrPatchLocally(context.persistId, { customStatus: nextStatusId }, { render: false, withFilters: false }); } catch (e) {}
+        try { __tmApplyAttrPatchLocally(context.persistId, persistPatch, { render: false, withFilters: false }); } catch (e) {}
         try { __tmApplyTaskStatusLocalState(context.persistId, nextStatusId, nextMarker, { markdown: markerResult?.markdown || '' }); } catch (e) {}
         try {
             if (context.docId) __tmInvalidateTasksQueryCacheByDocId(context.docId);
             else __tmInvalidateAllSqlCaches();
         } catch (e) {}
         try { window.__tmCalendarAllTasksCache = null; } catch (e) {}
-        __tmRefreshViewsAfterTaskMutation({
-            refresh: opts.refresh !== false,
-            refreshCalendar: opts.refreshCalendar !== false,
-            withFilters: opts.withFilters !== false,
-            hard: opts.hard === true,
-            reason: String(opts.source || 'task-status').trim() || 'task-status',
-        });
+        const settledPatch = {
+            customStatus: nextStatusId,
+            done: nextDone,
+            ...((completeAtPatch && typeof completeAtPatch === 'object') ? completeAtPatch : {}),
+        };
+        if (opts.refresh !== false) {
+            try {
+                __tmRefreshTaskFieldsAcrossViews(context.persistId, settledPatch, {
+                    withFilters: opts.withFilters !== false,
+                    reason: String(opts.source || 'task-status').trim() || 'task-status',
+                    forceProjectionRefresh: __tmDoesPatchAffectProjection(context.persistId, settledPatch),
+                    fallback: true,
+                });
+            } catch (e) {
+                try {
+                    __tmRefreshViewsAfterTaskMutation({
+                        refresh: true,
+                        refreshCalendar: false,
+                        withFilters: opts.withFilters !== false,
+                        hard: opts.hard === true,
+                        reason: String(opts.source || 'task-status').trim() || 'task-status',
+                    });
+                } catch (e2) {}
+            }
+        }
+        if (opts.refreshCalendar !== false && __tmPatchAffectsCalendar(settledPatch)) {
+            try {
+                __tmRequestCalendarRefresh({
+                    reason: String(opts.source || 'task-status').trim() || 'task-status',
+                    main: String(state.viewMode || '').trim() === 'calendar',
+                    side: __tmShouldShowCalendarSideDock(),
+                    flushTaskPanel: true,
+                    hard: opts.hard === true,
+                }, { hard: opts.hard === true });
+            } catch (e) {}
+        }
         if (opts.broadcast !== false) {
-            __tmDispatchTaskAttrPatchUpdated(opts.broadcastTaskId || context.requestedId || context.persistId, { customStatus: nextStatusId }, {
+            __tmDispatchTaskAttrPatchUpdated(opts.broadcastTaskId || context.requestedId || context.persistId, persistPatch, {
                 resolvedTaskId: context.persistId,
                 source: String(opts.source || '').trim(),
             });
@@ -21714,117 +22011,11 @@
         const statusOption = __tmFindStatusOptionById(requestedStatusId, statusOptions);
         if (!statusOption) throw new Error('状态不存在，请先在设置中配置');
         const nextStatusId = String(statusOption.id || requestedStatusId).trim();
-        const nextMarker = __tmNormalizeTaskStatusMarker(statusOption.marker, __tmGuessStatusOptionDefaultMarker(statusOption));
-        const nextDone = __tmIsTaskMarkerDone(nextMarker);
-
-        const contexts = [];
-        for (const id of ids) {
-            const context = await __tmResolveTaskMutationContext(id);
-            if (!context?.persistId) {
-                contexts.push({
-                    requestedId: id,
-                    persistId: '',
-                    docId: '',
-                    task: null,
-                    prevStatusId: '',
-                    prevMarker: ' ',
-                    prevDone: false,
-                    skip: true,
-                    error: new Error('未找到任务'),
-                });
-                continue;
-            }
-            const task = context.task || state.flatTasks?.[context.persistId] || state.pendingInsertedTasks?.[context.persistId] || null;
-            const prevStatusId = __tmResolveTaskStatusId(task, statusOptions);
-            const prevMarker = __tmResolveTaskMarker(task, statusOptions);
-            const prevDone = __tmIsTaskMarkerDone(prevMarker);
-            contexts.push({
-                ...context,
-                task,
-                prevStatusId,
-                prevMarker,
-                prevDone,
-                skip: prevStatusId === nextStatusId && prevMarker === nextMarker,
-            });
-        }
-
-        const markerPayload = contexts
-            .filter((item) => !item.skip && item.persistId)
-            .map((item) => ({ id: item.persistId, marker: nextMarker }));
-        const markerUpdate = await __tmBatchUpdateTaskListItemMarkersWithFallback(markerPayload);
-        const failures = [];
-        const successTasks = [];
-
-        contexts.forEach((item) => {
-            if (item.skip) {
-                if (item.error) {
-                    failures.push({ id: item.requestedId || item.persistId || '', error: item.error });
-                }
-                return;
-            }
-            if (!markerUpdate.successMap.has(item.persistId)) {
-                const failure = markerUpdate.failures.find((row) => String(row?.id || '').trim() === item.persistId);
-                failures.push({
-                    id: item.requestedId || item.persistId,
-                    error: failure?.error || new Error('更新任务状态标记失败'),
-                });
-                return;
-            }
-            successTasks.push(item);
-        });
-
-        let successCount = contexts.filter((item) => item.skip && !item.error).length;
-        for (const item of successTasks) {
-            try {
-                await __tmPersistMetaAndAttrsAsync(item.persistId, { customStatus: nextStatusId }, {
-                    queued: false,
-                    background: false,
-                    skipFlush: true,
-                    docId: item.docId,
-                    renderOptimistic: false,
-                    withFilters: false,
-                });
-                const markerResult = markerUpdate.successMap.get(item.persistId) || null;
-                try { __tmApplyAttrPatchLocally(item.persistId, { customStatus: nextStatusId }, { render: false, withFilters: false }); } catch (e) {}
-                try { __tmApplyTaskStatusLocalState(item.persistId, nextStatusId, nextMarker, { markdown: markerResult?.markdown || '' }); } catch (e) {}
-                if (opts.recordUndo !== false && !__tmUndoState.applying) {
-                    __tmPushUndoRecord({
-                        type: 'taskStatus',
-                        taskId: item.persistId,
-                        requestedTaskId: item.requestedId,
-                        patch: { customStatus: nextStatusId, done: nextDone },
-                        inversePatch: { customStatus: item.prevStatusId, done: item.prevDone },
-                        label: __tmGetUndoLabel(opts.label, '状态'),
-                        source: String(opts.source || '').trim(),
-                    });
-                }
-                successCount += 1;
-            } catch (e) {
-                try { await __tmUpdateTaskListItemMarkerWithFallback(item.persistId, item.prevMarker); } catch (rollbackErr) {}
-                failures.push({
-                    id: item.requestedId || item.persistId,
-                    error: e instanceof Error ? e : new Error(String(e || '保存状态失败')),
-                });
-            }
-        }
-
-        try { await API.call('/api/sqlite/flushTransaction', {}); } catch (e) {}
-        try { await MetaStore.saveNow(); } catch (e) {}
-        const failureCount = failures.length;
-        try {
-            const docIds = new Set(successTasks.map((item) => String(item.docId || '').trim()).filter(Boolean));
-            if (docIds.size > 0) docIds.forEach((docId) => __tmInvalidateTasksQueryCacheByDocId(docId));
-            else __tmInvalidateAllSqlCaches();
-        } catch (e) {}
-        try { window.__tmCalendarAllTasksCache = null; } catch (e) {}
-        __tmRefreshViewsAfterTaskMutation({
-            refresh: opts.refresh !== false,
-            refreshCalendar: opts.refreshCalendar !== false,
-            withFilters: opts.withFilters !== false,
-            hard: opts.hard === true,
+        return await __tmMutationEngine.requestTaskPatchBatch(ids, { customStatus: nextStatusId }, {
+            source: String(opts.source || 'task-status-batch').trim() || 'task-status-batch',
+            label: __tmGetUndoLabel(opts.label, '状态'),
             reason: String(opts.source || 'task-status-batch').trim() || 'task-status-batch',
         });
-        return { successCount, failureCount, failures };
     }
 
     async function __tmUndoLastMutation(options = {}) {
@@ -22424,6 +22615,26 @@
                 try { window.tmOpenTaskDetail?.(taskId); } catch (e) {}
             },
         };
+    }
+
+    let __tmHomepageRefreshTimer = 0;
+    let __tmHomepageRefreshReason = '';
+
+    function __tmScheduleHomepageRefresh(reason = '', delayMs = 96) {
+        const nextReason = String(reason || '').trim() || 'homepage-refresh';
+        __tmHomepageRefreshReason = nextReason;
+        try {
+            if (__tmHomepageRefreshTimer) clearTimeout(__tmHomepageRefreshTimer);
+        } catch (e) {}
+        __tmHomepageRefreshTimer = setTimeout(() => {
+            __tmHomepageRefreshTimer = 0;
+            const currentReason = __tmHomepageRefreshReason;
+            __tmHomepageRefreshReason = '';
+            try { __tmPushRefreshDebug('homepage-refresh-scheduled', { reason: currentReason }); } catch (e) {}
+            if (!state.homepageOpen) return;
+            try { __tmRefreshHomepageInPlace().catch(() => null); } catch (e) {}
+        }, Math.max(0, Number(delayMs) || 96));
+        return true;
     }
 
     async function __tmMountHomepageRoot() {
@@ -24238,8 +24449,9 @@ async function __tmRefreshAfterWake(reason) {
     const __TM_CHECKLIST_COMPACT_META_FIELD_OPTIONS = Object.freeze([
         { key: 'docName', label: '文档名' },
         { key: 'startDate', label: '开始时间' },
-        { key: 'completionTime', label: '完成时间' },
+        { key: 'completionTime', label: '截止日期' },
         { key: 'remainingTime', label: '剩余时间' },
+        { key: 'duration', label: '时长' },
         { key: 'status', label: '状态标签' },
     ]);
 
@@ -27434,7 +27646,7 @@ async function __tmRefreshAfterWake(reason) {
         __tmCleanupChecklistScrollFxForEl(pane);
         try { body.replaceWith(nextBody); } catch (e) { return false; }
         try { __tmBindChecklistScrollVisibility(modal); } catch (e) {}
-        try { __tmRefreshChecklistSelectionInPlace(modal); } catch (e) {}
+        try { __tmRefreshChecklistSelectionInPlace(modal, 'checklist-rerender'); } catch (e) {}
         try { __tmApplyReminderTaskNameMarks(modal); } catch (e) {}
         try { __tmScheduleReminderTaskNameMarksRefresh(modal); } catch (e) {}
         try { __tmApplyTodayScheduledTaskNameMarks(modal); } catch (e) {}
@@ -27534,7 +27746,7 @@ async function __tmRefreshAfterWake(reason) {
         if (!(nextBody instanceof HTMLElement)) return false;
         try { body.replaceWith(nextBody); } catch (e) { return false; }
         try { __tmBindWhiteboardViewportInput(modal); } catch (e) {}
-        try { __tmRefreshChecklistSelectionInPlace(modal); } catch (e) {}
+        try { __tmRefreshChecklistSelectionInPlace(modal, 'whiteboard-rerender'); } catch (e) {}
         const restore = () => {
             try {
                 const nextBodyEl = modal.querySelector('.tm-body.tm-body--whiteboard');
@@ -27549,7 +27761,7 @@ async function __tmRefreshAfterWake(reason) {
                     nextSidebar.scrollTop = sidebarTop;
                 }
             } catch (e) {}
-            try { __tmRefreshChecklistSelectionInPlace(modal); } catch (e) {}
+            try { __tmRefreshChecklistSelectionInPlace(modal, 'whiteboard-rerender-restore'); } catch (e) {}
         };
         try { restore(); } catch (e) {}
         try { requestAnimationFrame(restore); } catch (e) {}
@@ -28511,7 +28723,6 @@ async function __tmRefreshAfterWake(reason) {
         const selectors = [
             `#tmTaskTable tbody tr[data-id="${escaped}"]`,
             `#tmTimelineLeftTable tbody tr[data-id="${escaped}"]`,
-            `.tm-checklist-item[data-id="${escaped}"]`,
             `.tm-kanban-card[data-id="${escaped}"]`,
             `.tm-whiteboard-stream-task-head[data-id="${escaped}"]`,
             `.tm-whiteboard-stream-task-node[data-id="${escaped}"]`,
@@ -28982,7 +29193,15 @@ async function __tmRefreshAfterWake(reason) {
     function __tmFindRuleById(ruleId) {
         const id = String(ruleId || '').trim();
         if (!id) return null;
-        return (Array.isArray(state.filterRules) ? state.filterRules : []).find((rule) => String(rule?.id || '').trim() === id) || null;
+        const sources = [
+            Array.isArray(state.filterRules) ? state.filterRules : [],
+            Array.isArray(SettingsStore?.data?.filterRules) ? SettingsStore.data.filterRules : []
+        ];
+        for (const list of sources) {
+            const found = list.find((rule) => String(rule?.id || '').trim() === id);
+            if (found) return found;
+        }
+        return null;
     }
 
     function __tmRuleNeedsDoneOnly(ruleOrId) {
@@ -29117,6 +29336,7 @@ async function __tmRefreshAfterWake(reason) {
     }
 
     async function __tmApplyCurrentContextViewProfile() {
+        try { await __tmEnsureFilterRulesLoaded(); } catch (e) {}
         const resolved = __tmGetEffectiveViewProfileForContext();
         const applied = __tmApplyViewProfileToRuntime(resolved.profile);
         try { SettingsStore.syncToLocal(); } catch (e) {}
@@ -29264,6 +29484,9 @@ async function __tmRefreshAfterWake(reason) {
         const top = Number(pane?.scrollTop || 0);
         const left = Number(pane?.scrollLeft || 0);
         try { __tmPushRefreshDebug('checklist-render-preserve-scroll', { top, left }); } catch (e) {}
+        try {
+            if (modal && __tmRerenderChecklistInPlace(modal)) return;
+        } catch (e) {}
         render();
         try {
             requestAnimationFrame(() => {
@@ -29384,7 +29607,7 @@ async function __tmRefreshAfterWake(reason) {
         if (!__tmHasCalendarSidebarChecklist(modal)) return false;
         try { __tmBindChecklistScrollVisibility(modal); } catch (e) {}
         try { __tmBindFloatingTooltips(modal); } catch (e) {}
-        try { __tmRefreshChecklistSelectionInPlace(modal); } catch (e) {}
+        try { __tmRefreshChecklistSelectionInPlace(modal, 'calendar-sidebar-after-render'); } catch (e) {}
         try { __tmApplyReminderTaskNameMarks(modal); } catch (e) {}
         try { __tmScheduleReminderTaskNameMarksRefresh(modal); } catch (e) {}
         try { __tmApplyTodayScheduledTaskNameMarks(modal); } catch (e) {}
@@ -30725,43 +30948,15 @@ async function __tmRefreshAfterWake(reason) {
             hint('⚠ 未找到可批量更新的内容', 'warning');
             return { successCount: 0, failureCount: 0, failures: [] };
         }
-        const failures = [];
-        let successCount = 0;
-        for (const id of targetIds) {
-            const inversePatch = __tmCaptureTaskPatchInverse(id, nextPatch);
-            try { __tmApplyAttrPatchLocally(id, nextPatch, { render: false, withFilters: false }); } catch (e) {}
-            try {
-                await __tmPersistMetaAndAttrsAsync(id, nextPatch, {
-                    skipFlush: true,
-                    renderOptimistic: false,
-                    withFilters: false,
-                });
-                successCount += 1;
-            } catch (e) {
-                failures.push({
-                    id,
-                    error: e instanceof Error ? e : new Error(String(e || '更新失败'))
-                });
-                try { __tmRollbackAttrPatchLocally(id, inversePatch, { render: false, withFilters: false }); } catch (e2) {}
-            }
-        }
-        try { await API.call('/api/sqlite/flushTransaction', {}); } catch (e) {}
-        try { await MetaStore.saveNow(); } catch (e) {}
-        try {
-            if (!__tmRerenderCurrentViewInPlace(state.modal)) render();
-            else {
-                __tmRefreshMultiSelectedRowsInPlace(state.modal);
-                if (String(state.viewMode || '').trim() === 'checklist') {
-                    __tmRefreshChecklistSelectionInPlace(state.modal);
-                }
-            }
-        } catch (e) {
-            try { render(); } catch (e2) {}
-        }
-        const failureCount = failures.length;
+        const result = await __tmMutationEngine.requestTaskPatchBatch(targetIds, nextPatch, {
+            source: String(options?.source || 'batch-attr').trim() || 'batch-attr',
+            label: String(options?.actionLabel || '批量更新').trim() || '批量更新',
+            reason: String(options?.source || 'batch-attr').trim() || 'batch-attr',
+        });
+        const failureCount = Number(result?.failureCount) || 0;
         const actionLabel = String(options.actionLabel || '批量更新').trim() || '批量更新';
-        hint(__tmBuildBatchResultHint({ successCount, failureCount }, actionLabel), (successCount > 0 && failureCount <= 0) ? 'success' : (successCount > 0 ? 'warning' : 'error'));
-        return { successCount, failureCount, failures };
+        hint(__tmBuildBatchResultHint(result, actionLabel), (Number(result?.successCount) > 0 && failureCount <= 0) ? 'success' : (Number(result?.successCount) > 0 ? 'warning' : 'error'));
+        return result;
     }
 
     function __tmBuildBatchCustomFieldPromptText(field) {
@@ -30788,10 +30983,10 @@ async function __tmRefreshAfterWake(reason) {
     async function __tmBatchSetCompletionDate() {
         state.multiBulkEditFieldKey = 'completionTime';
         try {
-            const next = await showDatePrompt('批量设置完成日期', '');
+            const next = await showDatePrompt('批量设置截止日期', '');
             if (next === null) return;
             await __tmApplyBatchAttrPatch({ completionTime: String(next || '').trim() }, {
-                actionLabel: String(next || '').trim() ? '批量设置完成日期' : '批量清空完成日期'
+                actionLabel: String(next || '').trim() ? '批量设置截止日期' : '批量清空截止日期'
             });
         } finally {
             state.multiBulkEditFieldKey = '';
@@ -30833,13 +31028,10 @@ async function __tmRefreshAfterWake(reason) {
             const next = await showSelectPrompt('批量设置状态', options, __tmGetDefaultUndoneStatusId(statusOptions));
             if (next === null) return;
             const targetIds = __tmGetMultiSelectTargetIds();
-            const result = await __tmApplyTaskStatusBatch(targetIds, String(next || '').trim(), {
+            const result = await __tmMutationEngine.requestTaskPatchBatch(targetIds, { customStatus: String(next || '').trim() }, {
                 source: 'multi-status',
                 label: '状态',
-                refresh: true,
-                refreshCalendar: true,
-                withFilters: true,
-                recordUndo: true,
+                reason: 'multi-status',
             });
             hint(__tmBuildBatchResultHint(result, '批量设置状态'), (result.successCount > 0 && result.failureCount <= 0) ? 'success' : (result.successCount > 0 ? 'warning' : 'error'));
         } finally {
@@ -30863,10 +31055,10 @@ async function __tmRefreshAfterWake(reason) {
     async function __tmBatchSetCompletionDateTime() {
         state.multiBulkEditFieldKey = 'completionDateTime';
         try {
-            const next = await showDateTimePrompt('批量设置完成时间', '');
+            const next = await showDateTimePrompt('批量设置截止日期', '');
             if (next === null) return;
             await __tmApplyBatchAttrPatch({ completionTime: String(next || '').trim() }, {
-                actionLabel: String(next || '').trim() ? '批量设置完成时间' : '批量清空完成时间'
+                actionLabel: String(next || '').trim() ? '批量设置截止日期' : '批量清空截止日期'
             });
         } finally {
             state.multiBulkEditFieldKey = '';
@@ -30886,82 +31078,16 @@ async function __tmRefreshAfterWake(reason) {
             return { successCount: 0, failureCount: 0, failures: [] };
         }
         const targetDone = !!done;
-        const failures = [];
-        let successCount = 0;
-        for (const id of targetIds) {
-            let task = state.flatTasks?.[id] || null;
-            if (!task) {
-                try { task = await __tmEnsureTaskInStateById(id); } catch (e) { task = null; }
-            }
-            const statusPatch = task ? __tmBuildCheckboxStatusPatch(task, targetDone) : null;
-            const inversePatch = {
-                done: !!task?.done,
-                ...((statusPatch && Object.keys(statusPatch).length > 0) ? __tmCaptureTaskPatchInverse(id, statusPatch) : {}),
-            };
-            if (task && !!task.done === targetDone && !(statusPatch && Object.keys(statusPatch).length > 0)) {
-                successCount += 1;
-                continue;
-            }
-            try {
-                if (task && __tmIsCollectedOtherBlockTask(task)) {
-                    const ok = await __tmSetCollectedOtherBlockDone(task, targetDone);
-                    if (!ok) throw new Error('更新完成状态失败');
-                    if (statusPatch && Object.keys(statusPatch).length > 0) {
-                        await __tmPersistMetaAndAttrsKernel(id, statusPatch, {
-                            touchMetaStore: false,
-                            skipFlush: true,
-                        });
-                        __tmApplyAttrPatchLocally(id, statusPatch, { render: false, withFilters: false });
-                    }
-                } else {
-                    if (task) __tmApplyDoneOptimisticLocal(id, targetDone, statusPatch);
-                    const ok = await __tmSetDoneByIdStateless(id, targetDone);
-                    if (!ok) throw new Error('更新完成状态失败');
-                    if (statusPatch && Object.keys(statusPatch).length > 0) {
-                        await __tmPersistMetaAndAttrsKernel(id, statusPatch, {
-                            touchMetaStore: false,
-                            skipFlush: true,
-                        });
-                    }
-                }
-                successCount += 1;
-                try {
-                    const docId = String(task?.root_id || task?.docId || '').trim();
-                    if (docId) __tmInvalidateTasksQueryCacheByDocId(docId);
-                } catch (e) {}
-            } catch (e) {
-                failures.push({
-                    id,
-                    error: e instanceof Error ? e : new Error(String(e || '更新完成状态失败'))
-                });
-                if (task && !__tmIsCollectedOtherBlockTask(task)) {
-                    try { __tmRollbackDoneOptimisticLocal(id, inversePatch); } catch (e2) {}
-                } else if (task && __tmIsCollectedOtherBlockTask(task)) {
-                    try { task.done = !!inversePatch.done; } catch (e2) {}
-                    try {
-                        if (!state.doneOverrides || typeof state.doneOverrides !== 'object') state.doneOverrides = {};
-                        state.doneOverrides[String(id)] = !!inversePatch.done;
-                    } catch (e2) {}
-                    try {
-                        if (Object.prototype.hasOwnProperty.call(inversePatch, 'customStatus')) {
-                            __tmRollbackAttrPatchLocally(id, { customStatus: inversePatch.customStatus }, { render: false, withFilters: false });
-                        }
-                    } catch (e2) {}
-                }
-            }
-        }
-        try { await API.call('/api/sqlite/flushTransaction', {}); } catch (e) {}
-        try { await MetaStore.saveNow(); } catch (e) {}
-        try {
-            if (!__tmRerenderCurrentViewInPlace(state.modal)) render();
-            else __tmRefreshMultiSelectUiInPlace(state.modal, { renderFallback: false });
-        } catch (e) {
-            try { render(); } catch (e2) {}
-        }
-        const failureCount = failures.length;
+        const result = await __tmMutationEngine.requestTaskPatchBatch(targetIds, { done: targetDone }, {
+            source: 'multi-done',
+            label: targetDone ? '批量完成' : '批量取消完成',
+            reason: 'multi-done',
+            suppressHint: true,
+        });
+        try { __tmRefreshMultiSelectUiInPlace(state.modal, { renderFallback: false }); } catch (e) {}
         const actionLabel = targetDone ? '批量完成' : '批量取消完成';
-        hint(__tmBuildBatchResultHint({ successCount, failureCount }, actionLabel), (successCount > 0 && failureCount <= 0) ? 'success' : (successCount > 0 ? 'warning' : 'error'));
-        return { successCount, failureCount, failures };
+        hint(__tmBuildBatchResultHint(result, actionLabel), (result.successCount > 0 && result.failureCount <= 0) ? 'success' : (result.successCount > 0 ? 'warning' : 'error'));
+        return result;
     }
 
     async function __tmBatchSetDoneStatus() {
@@ -31190,7 +31316,7 @@ async function __tmRefreshAfterWake(reason) {
                 
                 <div class="tm-rules-body">
                     <div style="display:flex; align-items:center; justify-content:space-between; gap:10px; padding:10px 12px; border-bottom:1px solid var(--tm-border-color); background: var(--tm-bg-color);">
-                        <div style="font-size:13px; color: var(--tm-text-color);">时间轴强制按完成日期排序（越近今天越靠前）</div>
+                        <div style="font-size:13px; color: var(--tm-text-color);">时间轴强制按截止日期排序（越近今天越靠前）</div>
                         <input class="b3-switch fn__flex-center" type="checkbox" ${SettingsStore.data.timelineForceSortByCompletionNearToday ? 'checked' : ''} onchange="tmToggleTimelineForceSortByCompletionNearToday(this.checked)">
                     </div>
                     ${renderRulesList()}
@@ -31816,7 +31942,7 @@ async function __tmRefreshAfterWake(reason) {
                         <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:10px;">
                             <label style="display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap;">重要性 <input class="tm-input" style="width:120px;max-width:100%;" type="number" value="${Number(cfg.weights.importance) || 1}" data-tm-call="tmSetPriorityWeight" data-tm-args='["importance"]'></label>
                             <label style="display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap;">状态 <input class="tm-input" style="width:120px;max-width:100%;" type="number" value="${Number(cfg.weights.status) || 1}" data-tm-call="tmSetPriorityWeight" data-tm-args='["status"]'></label>
-                            <label style="display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap;">完成日期 <input class="tm-input" style="width:120px;max-width:100%;" type="number" value="${Number(cfg.weights.due) || 1}" data-tm-call="tmSetPriorityWeight" data-tm-args='["due"]'></label>
+                            <label style="display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap;">截止日期 <input class="tm-input" style="width:120px;max-width:100%;" type="number" value="${Number(cfg.weights.due) || 1}" data-tm-call="tmSetPriorityWeight" data-tm-args='["due"]'></label>
                             <label style="display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap;">时长 <input class="tm-input" style="width:120px;max-width:100%;" type="number" value="${Number(cfg.weights.duration) || 1}" data-tm-call="tmSetPriorityWeight" data-tm-args='["duration"]'></label>
                             <label style="display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap;">文档 <input class="tm-input" style="width:120px;max-width:100%;" type="number" value="${Number(cfg.weights.doc) || 1}" data-tm-call="tmSetPriorityWeight" data-tm-args='["doc"]'></label>
                         </div>
@@ -31849,7 +31975,7 @@ async function __tmRefreshAfterWake(reason) {
 
                     <div class="tm-rule-section" style="margin-bottom:0;">
                         <div style="display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:10px;">
-                            <div style="font-weight: 700;">完成日期接近度（按“≤ 天数”匹配）</div>
+                            <div style="font-weight: 700;">截止日期接近度（按“≤ 天数”匹配）</div>
                             <button class="tm-btn tm-btn-secondary" data-tm-call="tmAddPriorityDueRange">+ 添加</button>
                         </div>
                         ${dueRows || '<div style="color: var(--tm-secondary-text);">暂无配置</div>'}
@@ -31908,7 +32034,7 @@ async function __tmRefreshAfterWake(reason) {
                         <div style="display:flex;gap:10px;flex-wrap:wrap;">
                             <label style="display:flex;align-items:center;gap:6px;">重要性 <input class="tm-input" style="width:90px;" type="number" value="${Number(cfg.weights.importance) || 1}" data-tm-call="tmSetPriorityWeight" data-tm-args='["importance"]'></label>
                             <label style="display:flex;align-items:center;gap:6px;">状态 <input class="tm-input" style="width:90px;" type="number" value="${Number(cfg.weights.status) || 1}" data-tm-call="tmSetPriorityWeight" data-tm-args='["status"]'></label>
-                            <label style="display:flex;align-items:center;gap:6px;">完成日期 <input class="tm-input" style="width:90px;" type="number" value="${Number(cfg.weights.due) || 1}" data-tm-call="tmSetPriorityWeight" data-tm-args='["due"]'></label>
+                            <label style="display:flex;align-items:center;gap:6px;">截止日期 <input class="tm-input" style="width:90px;" type="number" value="${Number(cfg.weights.due) || 1}" data-tm-call="tmSetPriorityWeight" data-tm-args='["due"]'></label>
                             <label style="display:flex;align-items:center;gap:6px;">时长 <input class="tm-input" style="width:90px;" type="number" value="${Number(cfg.weights.duration) || 1}" data-tm-call="tmSetPriorityWeight" data-tm-args='["duration"]'></label>
                             <label style="display:flex;align-items:center;gap:6px;">文档 <input class="tm-input" style="width:90px;" type="number" value="${Number(cfg.weights.doc) || 1}" data-tm-call="tmSetPriorityWeight" data-tm-args='["doc"]'></label>
                         </div>
@@ -31938,7 +32064,7 @@ async function __tmRefreshAfterWake(reason) {
 
                     <div style="margin-bottom: 14px;">
                         <div style="display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:8px;">
-                            <div style="font-weight: 700;">完成日期接近度（按“≤ 天数”匹配）</div>
+                            <div style="font-weight: 700;">截止日期接近度（按“≤ 天数”匹配）</div>
                             <button class="tm-btn tm-btn-secondary" data-tm-call="tmAddPriorityDueRange">+ 添加</button>
                         </div>
                         ${dueRows || '<div style="color: var(--tm-secondary-text);">暂无配置</div>'}
@@ -32079,7 +32205,7 @@ async function __tmRefreshAfterWake(reason) {
                             <div>${esc(importanceNames)}</div>
                         </div>
                         <div style="padding: 8px; background: var(--tm-section-bg); border-radius: 4px;">
-                            <div style="color: var(--tm-secondary-text); font-size: 11px; margin-bottom: 4px;">完成日期</div>
+                            <div style="color: var(--tm-secondary-text); font-size: 11px; margin-bottom: 4px;">截止日期</div>
                             <div>${esc(timeRangeNames)}</div>
                         </div>
                     </div>
@@ -32098,7 +32224,7 @@ async function __tmRefreshAfterWake(reason) {
                 <div style="font-weight: 600; margin-bottom: 8px;">📌 使用说明</div>
                 <ul style="margin: 0; padding-left: 16px;">
                     <li>在顶部工具栏启用「四象限分组」即可按此规则分组显示</li>
-                    <li>任务会根据「重要性」和「完成日期」自动分配到对应象限</li>
+                    <li>任务会根据「重要性」和「截止日期」自动分配到对应象限</li>
                     <li>点击「编辑规则」可自定义每个象限的条件</li>
                     <li>点击「重置」可恢复该象限的默认配置</li>
                 </ul>
@@ -32182,7 +32308,7 @@ async function __tmRefreshAfterWake(reason) {
                         ${importanceCheckboxes}
                     </div>
                     <div>
-                        <div style="font-size: 13px; font-weight: 500; margin-bottom: 6px;">完成日期范围（可多选）</div>
+                        <div style="font-size: 13px; font-weight: 500; margin-bottom: 6px;">截止日期范围（可多选）</div>
                         ${timeRangeCheckboxes}
                     </div>
                 </div>
@@ -35704,7 +35830,7 @@ async function __tmRefreshAfterWake(reason) {
             dateEl.style.marginTop = '6px';
             dateEl.style.fontSize = '11px';
             dateEl.style.opacity = '0.78';
-            dateEl.textContent = `当前完成日期 ${dateText}`;
+            dateEl.textContent = `当前截止日期 ${dateText}`;
             ghost.appendChild(dateEl);
         }
         try { document.body.appendChild(ghost); } catch (e) { return null; }
@@ -36020,7 +36146,7 @@ async function __tmRefreshAfterWake(reason) {
                 try { await __tmWarmKanbanDocHeadings([docId], { force: true }); } catch (e) {}
             }
             state.detailTaskId = id;
-            if (!__tmRefreshChecklistSelectionInPlace(state.modal)) render();
+            if (!__tmRefreshChecklistSelectionInPlace(state.modal, 'row-click')) render();
             return;
         }
         const task = state.flatTasks?.[id];
@@ -36035,7 +36161,7 @@ async function __tmRefreshAfterWake(reason) {
         const id = String(taskId || '').trim();
         if (!id) return;
         const target = ev?.target;
-        if (target?.closest?.('input,button,select,textarea,a,.tm-tree-toggle')) return;
+        if (target?.closest?.('input,button,select,textarea,a,.tm-tree-toggle,.tm-task-checkbox,.tm-task-checkbox-wrap')) return;
         if (__tmIsMultiSelectActive('checklist')) {
             __tmToggleTaskMultiSelection(id);
             return;
@@ -36062,7 +36188,7 @@ async function __tmRefreshAfterWake(reason) {
         state.detailTaskId = id;
         state.checklistDetailDismissed = false;
         if (__tmChecklistUseSheetMode(state.modal)) state.checklistDetailSheetOpen = true;
-        const refreshed = __tmRefreshChecklistSelectionInPlace(state.modal);
+        const refreshed = __tmRefreshChecklistSelectionInPlace(state.modal, 'checklist-select');
         if (!refreshed) render();
     };
 
@@ -36468,7 +36594,7 @@ async function __tmRefreshAfterWake(reason) {
             state.detailTaskId = id;
             state.checklistDetailDismissed = false;
             state.checklistDetailSheetOpen = true;
-            if (!__tmRefreshChecklistSelectionInPlace(state.modal)) render();
+            if (!__tmRefreshChecklistSelectionInPlace(state.modal, 'whiteboard-title-click')) render();
             return true;
         }
         return window.tmJumpToTask(id, ev);
@@ -36502,7 +36628,7 @@ async function __tmRefreshAfterWake(reason) {
             state.detailTaskId = id;
             state.checklistDetailDismissed = false;
             state.checklistDetailSheetOpen = true;
-            if (!__tmRefreshChecklistSelectionInPlace(state.modal)) render();
+            if (!__tmRefreshChecklistSelectionInPlace(state.modal, 'whiteboard-head-click')) render();
             return true;
         }
         return window.tmJumpToTask(id, ev);
@@ -36524,7 +36650,7 @@ async function __tmRefreshAfterWake(reason) {
         } catch (e) {}
         state.checklistDetailDismissed = true;
         state.checklistDetailSheetOpen = false;
-        __tmRefreshChecklistSelectionInPlace(state.modal);
+        __tmRefreshChecklistSelectionInPlace(state.modal, 'checklist-close-sheet');
     };
 
     let __tmChecklistSheetLastTouchStartAt = 0;
@@ -36592,7 +36718,7 @@ async function __tmRefreshAfterWake(reason) {
                 window.tmChecklistCloseSheet(e2);
                 return;
             }
-            __tmRefreshChecklistSelectionInPlace(state.modal);
+            __tmRefreshChecklistSelectionInPlace(state.modal, 'checklist-sheet-drag-end');
         };
         if (source === 'touch') {
             try { window.addEventListener('touchmove', onMove, { capture: true, passive: false }); } catch (e) {}
@@ -36929,6 +37055,27 @@ async function __tmRefreshAfterWake(reason) {
 
     // 修改渲染函数以显示规则信息
     function render() {
+        try {
+            const guardUntil = Number(state.__tmChecklistRenderGuardUntil || 0);
+            const guardReason = String(state.__tmChecklistRenderGuardReason || '').trim();
+            if (guardUntil && Date.now() < guardUntil && String(state.viewMode || '').trim() === 'checklist'
+                && state.modal instanceof Element && document.body.contains(state.modal)) {
+                state.__tmChecklistRenderGuardUntil = 0;
+                state.__tmChecklistRenderGuardReason = '';
+                try {
+                    __tmPushRefreshDebug('render:checklist-guard-skip', {
+                        guardReason,
+                        now: Date.now(),
+                        until: guardUntil,
+                    });
+                } catch (e) {}
+                return;
+            }
+            if (guardUntil && Date.now() >= guardUntil) {
+                state.__tmChecklistRenderGuardUntil = 0;
+                state.__tmChecklistRenderGuardReason = '';
+            }
+        } catch (e) {}
         try { __tmEnsureDocTabTouchDelegation(); } catch (e) {}
         try { __tmEnsureAllDocTabTouchDelegation(); } catch (e) {}
         try { __tmEnsureTopbarManagerIconTouchDelegation(); } catch (e) {}
@@ -37575,6 +37722,10 @@ async function __tmRefreshAfterWake(reason) {
                     ? String(__tmGetTaskRemainingTimeLabel(task) || '').trim()
                     : '';
                 const showCompactRemainingTime = !!compactRemainingTimeLabel && !!(String(task?.startDate || '').trim() || String(task?.completionTime || '').trim());
+                const compactDurationText = checklistCompact && compactChecklistMetaFieldSet.has('duration')
+                    ? String(task.duration || '').trim()
+                    : '';
+                const showCompactDuration = !!compactDurationText;
                 const showCompactStatusTag = !checklistCompact || compactChecklistMetaFieldSet.has('status');
                 const meta = [];
                 const priorityIcon = __tmRenderPriorityJira(task.priority, false);
@@ -37589,6 +37740,7 @@ async function __tmRefreshAfterWake(reason) {
                 if (showCompactStartDate) compactMetaParts.push(`<span class="tm-checklist-meta-compact-start" data-tm-task-time-field="startDateCompact">${esc(__tmFormatTaskTimeCompact(task.startDate))}</span>`);
                 if (showCompactCompletionTime) compactMetaParts.push(`<span class="tm-checklist-meta-compact-time" data-tm-task-time-field="completionTimeCompact">${esc(__tmFormatTaskTimeCompact(task.completionTime))}</span>`);
                 if (showCompactRemainingTime) compactMetaParts.push(`<span class="tm-checklist-meta-compact-remaining" data-tm-task-time-field="remainingTimeCompact">${esc(compactRemainingTimeLabel)}</span>`);
+                if (showCompactDuration) compactMetaParts.push(`<span class="tm-checklist-meta-compact-duration" data-tm-task-time-field="durationCompact">${esc(compactDurationText)}</span>`);
                 const hasCompactMeta = compactMetaParts.length > 0;
                 const compactMeta = hasCompactMeta
                     ? `<div class="tm-checklist-meta-compact">${compactMetaParts.join('')}</div>`
@@ -37616,9 +37768,9 @@ async function __tmRefreshAfterWake(reason) {
                         </div>
                         <div class="tm-checklist-item-main">
                             <div class="${titleRowClass}">
-                                <div class="tm-checklist-title-main"><div class="tm-checklist-title"><span class="tm-checklist-title-button"><span ${titleDragAttrs} onclick="tmChecklistTitleClick('${escSq(String(task.id || ''))}', event)"${__tmBuildTooltipAttrs(String(task.content || '').trim() || '(无内容)', { side: 'bottom', ariaLabel: false })}>${API.renderTaskContentHtml(task.markdown, String(task.content || '').trim() || '(无内容)')}${__tmRenderRecurringTaskInlineIcon(task)}${__tmRenderRecurringInstanceBadge(task, { className: 'tm-recurring-instance-badge--inline' })}</span></span>${reminderHtml}${remarkIconHtml}</div></div>
+                                <div class="tm-checklist-title-main"><div class="tm-checklist-title"><span class="tm-checklist-title-button"><span ${titleDragAttrs} onclick="tmChecklistTitleClick('${escSq(String(task.id || ''))}', event)"${__tmBuildTooltipAttrs(String(task.content || '').trim() || '(无内容)', { side: 'bottom', ariaLabel: false })}>${API.renderTaskContentHtml(task.markdown, String(task.content || '').trim() || '(无内容)')}${__tmRenderRecurringTaskInlineIcon(task)}${__tmRenderRecurringInstanceBadge(task, { className: 'tm-recurring-instance-badge--inline' })}</span></span>${reminderHtml}<span data-tm-field="remarkIcon">${remarkIconHtml}</span></div></div>
                                 ${compactMeta}
-                                ${showCompactStatusTag ? `<span class="tm-status-tag" style="${statusChipStyle}">${esc(String(statusOption?.name || statusOption?.id || ''))}</span>` : ''}
+                                ${showCompactStatusTag ? `<span class="tm-status-tag" data-tm-field="status" style="${statusChipStyle}">${esc(String(statusOption?.name || statusOption?.id || ''))}</span>` : ''}
                                 ${task.pinned ? `<span class="tm-checklist-meta-chip" title="置顶">${__tmRenderLucideIcon('pin')}</span>` : ''}
                                 ${hasChildren ? `<span class="tm-checklist-mobile-toggle" onclick="tmToggleCollapse('${escSq(String(task.id || ''))}', event)" style="opacity:1;pointer-events:auto;">${__tmRenderToggleIcon(16, collapsed ? 0 : 90, 'tm-tree-toggle-icon')}</span>` : ''}
                             </div>
@@ -37955,7 +38107,7 @@ async function __tmRefreshAfterWake(reason) {
                                         <tr>
                                             <th style="width:${timelineContentWidth}px; min-width:${timelineContentWidth}px; max-width:${timelineContentWidth}px;">任务内容<span class="tm-col-resize" onmousedown="tmStartTimelineContentResize(event)"></span></th>
                                             <th style="width:${timelineStartW}px; min-width:${timelineStartW}px; max-width:${timelineStartW}px;">开始日期</th>
-                                            <th style="width:${timelineEndW}px; min-width:${timelineEndW}px; max-width:${timelineEndW}px;">完成日期</th>
+                                            <th style="width:${timelineEndW}px; min-width:${timelineEndW}px; max-width:${timelineEndW}px;">截止日期</th>
                                         </tr>
                                     </thead>
                                     <tbody>
@@ -40137,7 +40289,7 @@ async function __tmRefreshAfterWake(reason) {
                         </div>
                         <div class="tm-multi-bulkbar__actions">
                             <button class="tm-btn tm-btn-info bc-btn bc-btn--sm tm-multi-bulkbar__btn tm-multi-bulkbar__btn--icon" type="button" data-tm-multi-action="1" onclick="tmMultiSelectBatchSetStartDate()"${multiSelectActionDisabledAttr}${__tmBuildTooltipAttrs('批量设置开始日期', { side: 'top' })}><span class="tm-multi-bulkbar__icon">${__tmPhosphorBoldSvg('calendar-plus-2', { size: 14, className: 'tm-multi-bulkbar__icon-svg' })}</span></button>
-                            <button class="tm-btn tm-btn-info bc-btn bc-btn--sm tm-multi-bulkbar__btn tm-multi-bulkbar__btn--icon" type="button" data-tm-multi-action="1" onclick="tmMultiSelectBatchSetCompletionDate()"${multiSelectActionDisabledAttr}${__tmBuildTooltipAttrs('批量设置完成日期', { side: 'top' })}><span class="tm-multi-bulkbar__icon">${__tmPhosphorBoldSvg('calendar-check', { size: 14, className: 'tm-multi-bulkbar__icon-svg' })}</span></button>
+                            <button class="tm-btn tm-btn-info bc-btn bc-btn--sm tm-multi-bulkbar__btn tm-multi-bulkbar__btn--icon" type="button" data-tm-multi-action="1" onclick="tmMultiSelectBatchSetCompletionDate()"${multiSelectActionDisabledAttr}${__tmBuildTooltipAttrs('批量设置截止日期', { side: 'top' })}><span class="tm-multi-bulkbar__icon">${__tmPhosphorBoldSvg('calendar-check', { size: 14, className: 'tm-multi-bulkbar__icon-svg' })}</span></button>
                             <button class="tm-btn tm-btn-info bc-btn bc-btn--sm tm-multi-bulkbar__btn tm-multi-bulkbar__btn--icon" type="button" data-tm-multi-action="1" onclick="tmMultiSelectBatchSetPriority()"${multiSelectActionDisabledAttr}${__tmBuildTooltipAttrs('批量设置重要性', { side: 'top' })}><span class="tm-multi-bulkbar__icon">${__tmPhosphorBoldSvg('flag', { size: 14, className: 'tm-multi-bulkbar__icon-svg' })}</span></button>
                             <button class="tm-btn tm-btn-info bc-btn bc-btn--sm tm-multi-bulkbar__btn tm-multi-bulkbar__btn--icon" type="button" data-tm-multi-action="1" onclick="tmMultiSelectBatchSetStatus()"${multiSelectActionDisabledAttr}${__tmBuildTooltipAttrs('批量设置状态', { side: 'top' })}><span class="tm-multi-bulkbar__icon">${__tmPhosphorBoldSvg('circle-dot', { size: 14, className: 'tm-multi-bulkbar__icon-svg' })}</span></button>
                             <button class="tm-btn tm-btn-info bc-btn bc-btn--sm tm-multi-bulkbar__btn tm-multi-bulkbar__btn--icon" type="button" data-tm-multi-action="1" data-tm-multi-more-btn="1" onclick="tmMultiSelectToggleMoreMenu(event)"${multiSelectActionDisabledAttr}${__tmBuildTooltipAttrs('更多批量操作', { side: 'top' })}><span class="tm-multi-bulkbar__icon">${__tmPhosphorBoldSvg('dots-three', { size: 14, className: 'tm-multi-bulkbar__icon-svg' })}</span></button>
@@ -41229,7 +41381,24 @@ async function __tmRefreshAfterWake(reason) {
         try { __tmBindMobileViewportAutoRefresh(state.modal); } catch (e) {}
         try {
             if (renderMode === 'checklist') {
-                __tmRefreshChecklistSelectionInPlace(state.modal);
+                const selectedId = String(state.detailTaskId || '').trim();
+                const detailPanel = __tmResolveChecklistDetailPanel(state.modal).panel;
+                const selectedTask = selectedId ? (state.flatTasks?.[selectedId] || null) : null;
+                if (detailPanel instanceof HTMLElement && selectedTask) {
+                    try { detailPanel.__tmTaskDetailTask = selectedTask; } catch (e) {}
+                    try { detailPanel.dataset.tmDetailTaskId = selectedId; } catch (e) {}
+                    __tmBindTaskDetailEditor(detailPanel, selectedId, {
+                        embedded: true,
+                        task: selectedTask,
+                        onClose: () => {
+                            state.detailTaskId = '';
+                            state.checklistDetailDismissed = true;
+                            state.checklistDetailSheetOpen = false;
+                            if (!__tmRefreshChecklistSelectionInPlace(state.modal, 'detail-close')) render();
+                        }
+                    });
+                    try { __tmPushRefreshDebug('render-checklist-post-bind:bind-detail', { selectedId }); } catch (e) {}
+                }
             }
         } catch (e) {}
         try { __tmApplyReminderTaskNameMarks(state.modal); } catch (e) {}
@@ -46886,7 +47055,7 @@ async function __tmRefreshAfterWake(reason) {
         if (!task?.id || !task.done) return false;
         const repeatRule = __tmGetTaskRepeatRule(task);
         if (!repeatRule.enabled || repeatRule.type === 'none') return false;
-        const completedAt = String(opts.completedAt || new Date().toISOString()).trim() || new Date().toISOString();
+        const completedAt = String(opts.completedAt || __tmNowInChinaTimezoneIso()).trim() || __tmNowInChinaTimezoneIso();
         const nextPatch = __tmBuildTaskRepeatAdvancePatch(task, repeatRule, { completedAt });
         if (!nextPatch) return false;
         const nextHistory = __tmNormalizeTaskRepeatHistory([
@@ -46978,6 +47147,7 @@ async function __tmRefreshAfterWake(reason) {
                 suppressHint: true,
                 source: 'task-repeat-advance',
                 recordUndo: false,
+                refreshMode: 'local',
             });
         } catch (e) {}
         try {
@@ -47006,12 +47176,33 @@ async function __tmRefreshAfterWake(reason) {
         try {
             const calendarOnlyRefresh = String(opts?.source || '').trim() === 'calendar'
                 && String(state.viewMode || '').trim() === 'calendar';
-            __tmRefreshViewsAfterTaskMutation({
-                refresh: true,
-                refreshCalendar: true,
+            const shouldRefreshCalendarSide = !!(calendarOnlyRefresh || __tmShouldShowCalendarSideDock());
+            if (globalThis.__tmCalendar && (typeof globalThis.__tmCalendar.requestRefresh === 'function' || typeof globalThis.__tmCalendar.refreshInPlace === 'function')) {
+                __tmRequestCalendarRefresh({
+                    reason: 'task-repeat-advance',
+                    main: calendarOnlyRefresh,
+                    side: shouldRefreshCalendarSide,
+                    flushTaskPanel: true,
+                    hard: false,
+                }, { hard: false });
+            }
+        } catch (e) {}
+        try {
+            __tmRefreshTaskFieldsAcrossViews(resetTaskId, {
+                done: false,
+                startDate: nextPatch.startDate,
+                completionTime: nextPatch.completionTime,
+                repeatState: nextPatch.repeatState,
+                repeatHistory: nextPatch.repeatHistory,
+            }, {
                 withFilters: true,
-                hard: false,
-                calendarOnly: calendarOnlyRefresh,
+                reason: 'task-repeat-advance',
+                forceProjectionRefresh: __tmDoesPatchAffectProjection(resetTaskId, {
+                    done: false,
+                    startDate: nextPatch.startDate,
+                    completionTime: nextPatch.completionTime,
+                }),
+                fallback: true,
             });
         } catch (e) {}
         try {
@@ -48495,37 +48686,34 @@ async function __tmRefreshAfterWake(reason) {
         }
 
         const isDoneCol = st === '__done__';
-        for (const id of ids) {
-            const t0 = state.flatTasks[id];
-            if (!t0) continue;
-
+        try {
             if (isDoneCol) {
-                if (!t0.done) {
-                    const ok0 = await __tmKanbanWaitForUnlock();
-                    if (!ok0) break;
-                    await tmSetDone(id, true);
-                    await __tmKanbanWaitForUnlock();
+                const result = await __tmMutationEngine.requestTaskPatchBatch(ids, (id) => {
+                    const task = state.flatTasks?.[String(id || '').trim()] || null;
+                    if (task && !!task.done) return {};
+                    return { done: true };
+                }, {
+                    source: 'kanban-drop-status',
+                    label: '完成状态',
+                    reason: 'kanban-drop-status',
+                    suppressHint: true,
+                });
+                if (Number(result?.failureCount) > 0) {
+                    hint(`⚠ 批量更新完成状态存在失败项（${Number(result?.failureCount) || 0}）`, 'warning');
                 }
-                continue;
-            }
-
-            try {
-                await __tmApplyTaskStatus(id, st, {
+            } else {
+                const result = await __tmMutationEngine.requestTaskPatchBatch(ids, { customStatus: st }, {
                     source: 'kanban-drop-status',
                     label: '状态',
-                    refresh: false,
-                    refreshCalendar: false,
-                    withFilters: true,
+                    reason: 'kanban-drop-status',
                 });
-            } catch (e) {
-                hint(`❌ 状态更新失败: ${e.message}`, 'error');
-                return;
+                if (Number(result?.failureCount) > 0) {
+                    hint(`⚠ 批量设置状态存在失败项（${Number(result?.failureCount) || 0}）`, 'warning');
+                }
             }
-        }
-
-        if (opt.skipRender !== true) {
-            applyFilters();
-            render();
+        } catch (e) {
+            hint(`❌ 状态更新失败: ${e.message}`, 'error');
+            return;
         }
     }
 
@@ -50037,12 +50225,14 @@ async function __tmRefreshAfterWake(reason) {
         const compactStartText = __tmFormatTaskTimeCompact(task.startDate);
         const compactCompletionText = __tmFormatTaskTimeCompact(task.completionTime);
         const compactRemainingText = String(__tmGetTaskRemainingTimeLabel(task) || '').trim();
+        const compactDurationText = String(task.duration || '').trim();
 
         if (!syncNode('completionTime', esc(completionText), { html: true, shouldExist: !!task.completionTime })) valid = false;
         if (!syncNode('duration', `${__tmRenderLucideIcon('timer')} ${esc(durationText)}`, { html: true, shouldExist: !!durationText })) valid = false;
         if (!syncNode('startDateCompact', compactStartText, { shouldExist: !!compactStartText })) valid = false;
         if (!syncNode('completionTimeCompact', compactCompletionText, { shouldExist: !!compactCompletionText })) valid = false;
         if (!syncNode('remainingTimeCompact', compactRemainingText, { shouldExist: !!compactRemainingText })) valid = false;
+        if (!syncNode('durationCompact', compactDurationText, { shouldExist: !!compactDurationText })) valid = false;
         return valid && (touched || !sawNode);
     }
 
@@ -50265,6 +50455,7 @@ async function __tmRefreshAfterWake(reason) {
         task.duration = isValidValue(task.duration) ? String(task.duration) : (isValidValue(task.custom_duration) ? String(task.custom_duration) : '');
         task.remark = isValidValue(task.remark) ? String(task.remark) : (isValidValue(task.custom_remark) ? String(task.custom_remark) : '');
         task.completionTime = isValidValue(task.completionTime) ? String(task.completionTime) : (isValidValue(task.completion_time) ? String(task.completion_time) : '');
+        task.taskCompleteAt = isValidValue(task.taskCompleteAt) ? String(task.taskCompleteAt) : (isValidValue(task.task_complete_at) ? String(task.task_complete_at) : '');
         task.startDate = isValidValue(task.startDate) ? String(task.startDate) : (isValidValue(task.start_date) ? String(task.start_date) : '');
         task.customTime = isValidValue(task.customTime) ? String(task.customTime) : (isValidValue(task.custom_time) ? String(task.custom_time) : '');
         task.customStatus = isValidValue(task.custom_status) ? String(task.custom_status) : (isValidValue(task.customStatus) ? String(task.customStatus) : '');
@@ -50331,6 +50522,7 @@ async function __tmRefreshAfterWake(reason) {
             if (!isValidValue(task.duration) && isValidValue(meta.duration)) task.duration = meta.duration;
             if (!isValidValue(task.remark) && isValidValue(meta.remark)) task.remark = meta.remark;
             if (!isValidValue(task.completionTime) && allowVisibleDateFallback && isValidValue(meta.completionTime)) task.completionTime = meta.completionTime;
+            if (!isValidValue(task.taskCompleteAt) && isValidValue(meta.taskCompleteAt)) task.taskCompleteAt = meta.taskCompleteAt;
             if (!isValidValue(task.startDate) && allowVisibleDateFallback && isValidValue(meta.startDate)) task.startDate = meta.startDate;
             if (!isValidValue(task.customTime) && allowVisibleDateFallback && isValidValue(meta.customTime)) task.customTime = meta.customTime;
             if (!isValidValue(task.customStatus) && isValidValue(meta.customStatus)) task.customStatus = meta.customStatus;
@@ -50356,6 +50548,8 @@ async function __tmRefreshAfterWake(reason) {
         task.repeat_history = task.repeatHistory;
         task.customFieldValues = __tmNormalizeTaskCustomFieldValues(rawCustomFieldValues, meta?.customFieldValues);
         try { __tmMaybeBackfillTaskCustomFieldAttrs(task, meta); } catch (e) {}
+        task.taskCompleteAt = __tmNormalizeTaskCompleteAtValue(task.taskCompleteAt);
+        task.task_complete_at = task.taskCompleteAt;
 
         const rawDocName = String(task.rawDocName || task.raw_doc_name || task.doc_name || task.docName || docNameFallback || '未知文档').trim() || '未知文档';
         task.rawDocName = rawDocName;
@@ -50807,7 +51001,7 @@ async function __tmRefreshAfterWake(reason) {
         try { applyFilters(); } catch (e) {}
         try {
             if (String(state.viewMode || '').trim() === 'checklist') {
-                __tmRefreshChecklistSelectionInPlace(state.modal);
+                __tmRefreshChecklistSelectionInPlace(state.modal, 'other-block-done');
             }
         } catch (e) {}
         try { if (state.modal) render(); } catch (e) {}
@@ -52881,6 +53075,909 @@ async function __tmRefreshAfterWake(reason) {
         render();
     }
 
+    const __tmFieldSpecs = {
+        done: {
+            key: 'done',
+            storageKind: 'marker+attr',
+            requiresBlockUpdate: true,
+            requiresAttrWrite: false,
+            affectsProjection: true,
+            supportsLocalPatch: true,
+            coalesceKey: 'done',
+        },
+        customStatus: {
+            key: 'customStatus',
+            storageKind: 'marker+attr',
+            requiresBlockUpdate: true,
+            requiresAttrWrite: true,
+            affectsProjection: true,
+            supportsLocalPatch: true,
+            coalesceKey: 'status',
+        },
+        priority: {
+            key: 'priority',
+            storageKind: 'attr-only',
+            requiresBlockUpdate: false,
+            requiresAttrWrite: true,
+            affectsProjection: true,
+            supportsLocalPatch: true,
+            coalesceKey: 'priority',
+        },
+        startDate: {
+            key: 'startDate',
+            storageKind: 'attr-only',
+            requiresBlockUpdate: false,
+            requiresAttrWrite: true,
+            affectsProjection: true,
+            supportsLocalPatch: true,
+            coalesceKey: 'time',
+        },
+        completionTime: {
+            key: 'completionTime',
+            storageKind: 'attr-only',
+            requiresBlockUpdate: false,
+            requiresAttrWrite: true,
+            affectsProjection: true,
+            supportsLocalPatch: true,
+            coalesceKey: 'time',
+        },
+        duration: {
+            key: 'duration',
+            storageKind: 'attr-only',
+            requiresBlockUpdate: false,
+            requiresAttrWrite: true,
+            affectsProjection: false,
+            supportsLocalPatch: true,
+            coalesceKey: 'time',
+        },
+        remark: {
+            key: 'remark',
+            storageKind: 'attr-only',
+            requiresBlockUpdate: false,
+            requiresAttrWrite: true,
+            affectsProjection: false,
+            supportsLocalPatch: true,
+            coalesceKey: 'remark',
+        },
+        customFieldValues: {
+            key: 'customFieldValues',
+            storageKind: 'attr-only',
+            requiresBlockUpdate: false,
+            requiresAttrWrite: true,
+            affectsProjection: true,
+            supportsLocalPatch: true,
+            coalesceKey: 'customFieldValues',
+        },
+    };
+
+    const __tmTaskStateKernel = {
+        getTask(taskId) {
+            const tid = String(taskId || '').trim();
+            if (!tid) return null;
+            return state.flatTasks?.[tid] || state.pendingInsertedTasks?.[tid] || null;
+        },
+        snapshotTask(taskId) {
+            const task = this.getTask(taskId);
+            if (!task || typeof task !== 'object') return null;
+            try {
+                return JSON.parse(JSON.stringify(task));
+            } catch (e) {
+                return { ...task };
+            }
+        },
+        patchTaskLocal(taskId, patch, options = {}) {
+            const tid = String(taskId || '').trim();
+            const nextPatch = (patch && typeof patch === 'object') ? patch : {};
+            if (!tid || !Object.keys(nextPatch).length) return false;
+            if (Object.prototype.hasOwnProperty.call(nextPatch, 'done')) {
+                const doneValue = !!nextPatch.done;
+                const statusPatch = Object.prototype.hasOwnProperty.call(nextPatch, 'customStatus')
+                    ? { customStatus: String(nextPatch.customStatus || '').trim() }
+                    : null;
+                __tmApplyDoneOptimisticLocal(tid, doneValue, statusPatch, String(options.source || '').trim());
+                const restPatch = { ...nextPatch };
+                delete restPatch.done;
+                if (Object.keys(restPatch).length > 0) {
+                    __tmApplyAttrPatchLocally(tid, restPatch, { render: false, withFilters: false });
+                }
+                return true;
+            }
+            if (Object.prototype.hasOwnProperty.call(nextPatch, 'customStatus')) {
+                const statusId = String(nextPatch.customStatus || '').trim();
+                if (statusId) {
+                    const statusOption = __tmFindStatusOptionById(statusId);
+                    const marker = __tmNormalizeTaskStatusMarker(statusOption?.marker, __tmGuessStatusOptionDefaultMarker(statusOption));
+                    __tmApplyTaskStatusLocalState(tid, statusId, marker);
+                }
+                const restPatch = { ...nextPatch };
+                delete restPatch.customStatus;
+                if (Object.keys(restPatch).length > 0) {
+                    __tmApplyAttrPatchLocally(tid, restPatch, { render: false, withFilters: false });
+                }
+                return true;
+            }
+            __tmApplyAttrPatchLocally(tid, nextPatch, { render: false, withFilters: false });
+            return true;
+        },
+        rollbackTaskLocal(taskId, inversePatch, options = {}) {
+            const tid = String(taskId || '').trim();
+            const prevPatch = (inversePatch && typeof inversePatch === 'object') ? inversePatch : {};
+            if (!tid || !Object.keys(prevPatch).length) return false;
+            if (Object.prototype.hasOwnProperty.call(prevPatch, 'done')) {
+                __tmRollbackDoneOptimisticLocal(tid, prevPatch, String(options.source || '').trim());
+                const restPatch = { ...prevPatch };
+                delete restPatch.done;
+                if (Object.keys(restPatch).length > 0) {
+                    __tmRollbackAttrPatchLocally(tid, restPatch, { render: false, withFilters: false });
+                }
+                return true;
+            }
+            if (Object.prototype.hasOwnProperty.call(prevPatch, 'customStatus')) {
+                const statusId = String(prevPatch.customStatus || '').trim();
+                if (statusId) {
+                    const statusOption = __tmFindStatusOptionById(statusId);
+                    const marker = __tmNormalizeTaskStatusMarker(statusOption?.marker, __tmGuessStatusOptionDefaultMarker(statusOption));
+                    __tmApplyTaskStatusLocalState(tid, statusId, marker);
+                }
+                const restPatch = { ...prevPatch };
+                delete restPatch.customStatus;
+                if (Object.keys(restPatch).length > 0) {
+                    __tmRollbackAttrPatchLocally(tid, restPatch, { render: false, withFilters: false });
+                }
+                return true;
+            }
+            __tmRollbackAttrPatchLocally(tid, prevPatch, { render: false, withFilters: false });
+            return true;
+        },
+    };
+
+    function __tmGetPatchFieldKeys(patch = {}) {
+        const nextPatch = (patch && typeof patch === 'object') ? patch : {};
+        return Object.keys(nextPatch).filter((key) => Object.prototype.hasOwnProperty.call(nextPatch, key));
+    }
+
+    function __tmGetFieldSpec(key) {
+        const normalized = String(key || '').trim();
+        if (!normalized) return null;
+        return __tmFieldSpecs[normalized] || null;
+    }
+
+    function __tmIsSimpleProjectionContext() {
+        if (state.currentRule) return false;
+        if (state.groupByTime || state.groupByTaskName || state.quadrantEnabled) return false;
+        return true;
+    }
+
+    function __tmDoesPatchAffectProjection(taskId, patch = {}) {
+        const keys = __tmGetPatchFieldKeys(patch);
+        if (!keys.length) return false;
+        if (!__tmIsSimpleProjectionContext()) {
+            return keys.some((key) => __tmGetFieldSpec(key)?.affectsProjection === true);
+        }
+        return false;
+    }
+
+    function __tmDoesPatchAffectCurrentSort(taskId, patch = {}) {
+        const keys = __tmGetPatchFieldKeys(patch);
+        if (!keys.length) return false;
+        if (state.currentRule) return true;
+        return !!(state.groupByTime || state.groupByTaskName || state.quadrantEnabled);
+    }
+
+    function __tmDoesPatchAffectCurrentGroup(taskId, patch = {}) {
+        return __tmDoesPatchAffectCurrentSort(taskId, patch);
+    }
+
+    function __tmDoesPatchAffectCurrentFilter(taskId, patch = {}) {
+        return __tmDoesPatchAffectProjection(taskId, patch);
+    }
+
+    function __tmPatchAffectsCalendar(patch = {}) {
+        const keys = __tmGetPatchFieldKeys(patch);
+        if (!keys.length) return false;
+        const calendarKeys = new Set([
+            'done',
+            'customStatus',
+            'startDate',
+            'completionTime',
+            'taskCompleteAt',
+            'customTime',
+            'repeatRule',
+            'repeatState',
+            'repeatHistory',
+        ]);
+        return keys.some((key) => calendarKeys.has(String(key || '').trim()));
+    }
+
+    function __tmArmChecklistRenderGuard(reason = '', ttlMs = 420) {
+        const mode = String(state.viewMode || '').trim();
+        if (mode !== 'checklist') return false;
+        if (!(state.modal instanceof Element) || !document.body.contains(state.modal)) return false;
+        state.__tmChecklistRenderGuardUntil = Date.now() + Math.max(120, Number(ttlMs) || 420);
+        state.__tmChecklistRenderGuardReason = String(reason || '').trim() || 'unknown';
+        try {
+            __tmPushRefreshDebug('checklist-render-guard-arm', {
+                until: Number(state.__tmChecklistRenderGuardUntil || 0),
+                reason: String(state.__tmChecklistRenderGuardReason || '').trim(),
+            });
+        } catch (e) {}
+        return true;
+    }
+
+    function __tmShouldFallbackTaskFieldPatch(taskId, patch = {}, options = {}) {
+        const opts = (options && typeof options === 'object') ? options : {};
+        const patchKeys = __tmGetPatchFieldKeys(patch);
+        const viewMode = String(state.viewMode || '').trim();
+        const checklistOrListSimpleDonePatch = (viewMode === 'checklist' || viewMode === 'list')
+            && patchKeys.length > 0
+            && patchKeys.every((key) => key === 'done' || key === 'customStatus' || key === 'taskCompleteAt')
+            && !state.groupByTime
+            && !state.groupByTaskName
+            && !state.quadrantEnabled;
+        if (checklistOrListSimpleDonePatch) {
+            try {
+                __tmPushRefreshDebug('task-field-fallback-bypass', {
+                    taskId: String(taskId || '').trim(),
+                    patchKeys,
+                    viewMode,
+                    currentRule: String(state.currentRule || '').trim(),
+                });
+            } catch (e) {}
+            return false;
+        }
+        if (opts.forceProjectionRefresh === true) return true;
+        if (__tmDoesPatchAffectProjection(taskId, patch)) return true;
+        return false;
+    }
+
+    function __tmBuildMergedAttrPatch(taskId, patch = {}, options = {}) {
+        const task = __tmTaskStateKernel.getTask(taskId);
+        const nextPatch = (patch && typeof patch === 'object') ? patch : {};
+        const merged = { ...nextPatch };
+        if (Object.prototype.hasOwnProperty.call(nextPatch, 'done') && !Object.prototype.hasOwnProperty.call(nextPatch, 'customStatus')) {
+            const statusPatch = __tmBuildCheckboxStatusPatch(task, !!nextPatch.done, options?.statusPatch);
+            if (statusPatch && Object.keys(statusPatch).length > 0) Object.assign(merged, statusPatch);
+        }
+        return merged;
+    }
+
+    const __tmWritePlanner = {
+        normalizePatch(taskId, patch = {}, options = {}) {
+            const merged = __tmBuildMergedAttrPatch(taskId, patch, options);
+            const normalized = {};
+            Object.entries(merged || {}).forEach(([key, value]) => {
+                normalized[key] = __tmNormalizeQueueTaskValue(key, value);
+            });
+            return normalized;
+        },
+        splitPatchByStorage(taskId, patch = {}, options = {}) {
+            const normalized = this.normalizePatch(taskId, patch, options);
+            const statusPatch = {};
+            const timePatch = {};
+            const attrPatch = {};
+            let doneValue = null;
+            Object.entries(normalized).forEach(([key, value]) => {
+                if (key === 'done') {
+                    doneValue = !!value;
+                    return;
+                }
+                if (key === 'customStatus') {
+                    statusPatch.customStatus = String(value || '').trim();
+                    return;
+                }
+                if (key === 'startDate' || key === 'completionTime' || key === 'duration' || key === 'customTime') {
+                    timePatch[key] = value;
+                    return;
+                }
+                attrPatch[key] = value;
+            });
+            return { normalized, doneValue, statusPatch, timePatch, attrPatch };
+        },
+        mergeTaskPatches(prev = {}, next = {}) {
+            const left = (prev && typeof prev === 'object') ? prev : {};
+            const right = (next && typeof next === 'object') ? next : {};
+            const merged = { ...left, ...right };
+            if (left.customFieldValues || right.customFieldValues) {
+                merged.customFieldValues = {
+                    ...((left.customFieldValues && typeof left.customFieldValues === 'object') ? left.customFieldValues : {}),
+                    ...((right.customFieldValues && typeof right.customFieldValues === 'object') ? right.customFieldValues : {}),
+                };
+            }
+            return merged;
+        },
+        buildWritePlan(taskId, patch = {}, options = {}) {
+            const parts = this.splitPatchByStorage(taskId, patch, options);
+            const fieldKeys = __tmGetPatchFieldKeys(parts.normalized);
+            return {
+                taskId: String(taskId || '').trim(),
+                originalPatch: { ...(patch && typeof patch === 'object' ? patch : {}) },
+                normalizedPatch: parts.normalized,
+                fieldKeys,
+                doneValue: parts.doneValue,
+                statusPatch: parts.statusPatch,
+                timePatch: parts.timePatch,
+                attrPatch: parts.attrPatch,
+                affectsProjection: __tmDoesPatchAffectProjection(taskId, parts.normalized),
+                supportsLocalPatch: fieldKeys.every((key) => __tmGetFieldSpec(key)?.supportsLocalPatch !== false),
+            };
+        },
+    };
+
+    const __tmWriteExecutor = {
+        lanes: new Map(),
+        runInTaskLane(taskId, runner) {
+            const tid = String(taskId || '').trim();
+            const job = typeof runner === 'function' ? runner : async () => null;
+            const prev = this.lanes.get(tid) || Promise.resolve();
+            const next = prev.catch(() => null).then(job);
+            this.lanes.set(tid, next.finally(() => {
+                if (this.lanes.get(tid) === next) this.lanes.delete(tid);
+            }));
+            return next;
+        },
+        async executePlan(plan, options = {}) {
+            const taskId = String(plan?.taskId || '').trim();
+            if (!taskId) throw new Error('缺少任务 ID');
+            const opts = (options && typeof options === 'object') ? options : {};
+            return await this.runInTaskLane(taskId, async () => {
+                if (plan.doneValue !== null) {
+                    await __tmSetDoneKernel(taskId, !!plan.doneValue, null, {
+                        force: true,
+                        suppressHint: opts.suppressHint === true,
+                        source: String(opts.source || '').trim(),
+                        statusPatch: plan.statusPatch,
+                        refreshMode: 'local',
+                        scheduleId: String(opts.scheduleId || '').trim(),
+                    });
+                } else if (plan.statusPatch && Object.keys(plan.statusPatch).length > 0) {
+                    await __tmApplyTaskStatus(taskId, String(plan.statusPatch.customStatus || '').trim(), {
+                        source: String(opts.source || 'task-status').trim() || 'task-status',
+                        label: String(opts.label || '状态').trim() || '状态',
+                        refresh: false,
+                        refreshCalendar: false,
+                        withFilters: false,
+                    });
+                }
+                if (plan.timePatch && Object.keys(plan.timePatch).length > 0) {
+                    await __tmCommitTaskTimeFields(taskId, plan.timePatch, {
+                        source: String(opts.source || 'task-fields').trim() || 'task-fields',
+                        label: String(opts.label || '任务字段').trim() || '任务字段',
+                    });
+                }
+                if (plan.attrPatch && Object.keys(plan.attrPatch).length > 0) {
+                    await __tmApplyTaskMetaPatchWithUndo(taskId, plan.attrPatch, {
+                        source: String(opts.source || 'task-fields').trim() || 'task-fields',
+                        label: String(opts.label || '任务字段').trim() || '任务字段',
+                        refresh: false,
+                        refreshCalendar: false,
+                        withFilters: false,
+                    });
+                }
+                return __tmTaskStateKernel.getTask(taskId);
+            });
+        },
+    };
+
+    function __tmUpdateTaskStatusTagInDOM(container, task) {
+        const root = container instanceof Element ? container : null;
+        const taskLike = (task && typeof task === 'object') ? task : null;
+        if (!(root instanceof Element) || !taskLike) return false;
+        const tag = root.querySelector('[data-tm-field="status"] .tm-status-tag, .tm-status-tag[data-tm-field="status"], [data-tm-field="status"]');
+        if (!(tag instanceof HTMLElement)) return false;
+        const statusOption = __tmResolveTaskStatusDisplayOption(taskLike, __tmGetStatusOptions(SettingsStore.data.customStatusOptions || []), { fallbackColor: '#757575' });
+        tag.setAttribute('style', __tmBuildStatusChipStyle(statusOption.color));
+        tag.textContent = String(statusOption.name || statusOption.id || '').trim();
+        return true;
+    }
+
+    function __tmUpdateTaskPriorityInDOM(container, task) {
+        const root = container instanceof Element ? container : null;
+        const taskLike = (task && typeof task === 'object') ? task : null;
+        if (!(root instanceof Element) || !taskLike) return false;
+        const cell = root.querySelector('[data-tm-field="priority"]');
+        if (!(cell instanceof HTMLElement)) return false;
+        cell.innerHTML = __tmRenderPriorityJira(String(taskLike.priority || '').trim(), false);
+        return true;
+    }
+
+    function __tmUpdateTaskRemarkInDOM(container, task) {
+        const root = container instanceof Element ? container : null;
+        const taskLike = (task && typeof task === 'object') ? task : null;
+        if (!(root instanceof Element) || !taskLike) return false;
+        let touched = false;
+        const remarkCell = root.querySelector('[data-tm-field="remark"]');
+        if (remarkCell instanceof HTMLElement) {
+            const text = String(taskLike.remark || '');
+            remarkCell.setAttribute('title', text);
+            const textEl = remarkCell.querySelector('.tm-task-remark-text');
+            if (textEl instanceof HTMLElement) textEl.textContent = text;
+            else remarkCell.innerHTML = `<span class="tm-task-remark-text">${esc(text)}</span>`;
+            touched = true;
+        }
+        const remarkIconSlot = root.querySelector('[data-tm-field="remarkIcon"]');
+        if (remarkIconSlot instanceof HTMLElement) {
+            remarkIconSlot.innerHTML = __tmRenderRemarkIcon(taskLike.remark);
+            touched = true;
+        }
+        return touched;
+    }
+
+    function __tmUpdateTaskCustomFieldsInDOM(container, task, patch = {}) {
+        const root = container instanceof Element ? container : null;
+        const taskLike = (task && typeof task === 'object') ? task : null;
+        if (!(root instanceof Element) || !taskLike) return false;
+        const fieldValues = (patch && typeof patch.customFieldValues === 'object' && patch.customFieldValues)
+            ? patch.customFieldValues
+            : ((taskLike.customFieldValues && typeof taskLike.customFieldValues === 'object') ? taskLike.customFieldValues : {});
+        let touched = false;
+        Object.keys(fieldValues || {}).forEach((fieldId) => {
+            const cell = root.querySelector(`[data-tm-custom-field-cell="${CSS.escape(String(fieldId || '').trim())}"] .tm-custom-field-cell`);
+            if (!(cell instanceof HTMLElement)) return;
+            const field = __tmGetCustomFieldDefMap().get(String(fieldId || '').trim());
+            const value = __tmGetTaskCustomFieldValue(taskLike, fieldId);
+            cell.innerHTML = __tmBuildCustomFieldDisplayHtml(field, value, {
+                allowEmpty: false,
+                maxTags: String(field?.type || '').trim() === 'multi' ? 2 : 1,
+            });
+            touched = true;
+        });
+        return touched;
+    }
+
+    function __tmUpdateTaskDoneInDOM(container, task) {
+        const root = container instanceof Element ? container : null;
+        const taskLike = (task && typeof task === 'object') ? task : null;
+        if (!(root instanceof Element) || !taskLike) return false;
+        let touched = false;
+        const checkbox = root.querySelector('.tm-task-checkbox');
+        if (checkbox instanceof HTMLInputElement) {
+            checkbox.checked = !!taskLike.done;
+            touched = true;
+        }
+        root.classList?.toggle?.('tm-checklist-item--done', !!taskLike.done);
+        const taskText = root.querySelector('.tm-task-text');
+        if (taskText instanceof HTMLElement) {
+            taskText.classList.toggle('tm-task-done', !!taskLike.done);
+            touched = true;
+        }
+        return touched;
+    }
+
+    const __tmViewControllers = {
+        list: {
+            findRow(taskId) {
+                const tid = String(taskId || '').trim();
+                if (!tid || !(state.modal instanceof Element)) return null;
+                return state.modal.querySelector(`#tmTaskTable tbody tr[data-id="${CSS.escape(tid)}"]`);
+            },
+            patchTask(taskId, patch = {}) {
+                const row = this.findRow(taskId);
+                const task = __tmTaskStateKernel.getTask(taskId);
+                if (!(row instanceof HTMLElement) || !task) return false;
+                let touched = false;
+                if (Object.prototype.hasOwnProperty.call(patch, 'done')) {
+                    touched = !!__tmUpdateTaskDoneInDOM(row, task) || touched;
+                    touched = !!__tmUpdateTaskStatusTagInDOM(row, task) || touched;
+                }
+                if (Object.prototype.hasOwnProperty.call(patch, 'customStatus')) {
+                    touched = !!__tmUpdateTaskStatusTagInDOM(row, task) || touched;
+                    touched = !!__tmUpdateTaskDoneInDOM(row, task) || touched;
+                }
+                if (Object.prototype.hasOwnProperty.call(patch, 'priority')) touched = !!__tmUpdateTaskPriorityInDOM(row, task) || touched;
+                if (Object.prototype.hasOwnProperty.call(patch, 'remark')) touched = !!__tmUpdateTaskRemarkInDOM(row, task) || touched;
+                if (Object.prototype.hasOwnProperty.call(patch, 'customFieldValues')) touched = !!__tmUpdateTaskCustomFieldsInDOM(row, task, patch) || touched;
+                if (Object.prototype.hasOwnProperty.call(patch, 'startDate')
+                    || Object.prototype.hasOwnProperty.call(patch, 'completionTime')
+                    || Object.prototype.hasOwnProperty.call(patch, 'duration')
+                    || Object.prototype.hasOwnProperty.call(patch, 'customTime')
+                    || Object.prototype.hasOwnProperty.call(patch, 'done')) {
+                    touched = !!__tmUpdateListTaskTimeInDOM(taskId) || touched;
+                }
+                return touched;
+            },
+        },
+        checklist: {
+            findItem(taskId) {
+                const tid = String(taskId || '').trim();
+                if (!tid || !(state.modal instanceof Element)) return null;
+                return state.modal.querySelector(`.tm-checklist-item[data-id="${CSS.escape(tid)}"]`);
+            },
+            patchTask(taskId, patch = {}) {
+                const item = this.findItem(taskId);
+                const task = __tmTaskStateKernel.getTask(taskId);
+                if (!(item instanceof HTMLElement) || !task) return false;
+                let touched = false;
+                if (Object.prototype.hasOwnProperty.call(patch, 'done')) {
+                    touched = !!__tmUpdateTaskDoneInDOM(item, task) || touched;
+                    touched = !!__tmUpdateTaskStatusTagInDOM(item, task) || touched;
+                }
+                if (Object.prototype.hasOwnProperty.call(patch, 'customStatus')) {
+                    touched = !!__tmUpdateTaskStatusTagInDOM(item, task) || touched;
+                    touched = !!__tmUpdateTaskDoneInDOM(item, task) || touched;
+                }
+                if (Object.prototype.hasOwnProperty.call(patch, 'remark')) touched = !!__tmUpdateTaskRemarkInDOM(item, task) || touched;
+                if (Object.prototype.hasOwnProperty.call(patch, 'startDate')
+                    || Object.prototype.hasOwnProperty.call(patch, 'completionTime')
+                    || Object.prototype.hasOwnProperty.call(patch, 'duration')
+                    || Object.prototype.hasOwnProperty.call(patch, 'customTime')
+                    || Object.prototype.hasOwnProperty.call(patch, 'done')) {
+                    touched = !!__tmUpdateChecklistTaskTimeInDOM(taskId) || touched;
+                }
+                return touched;
+            },
+        },
+        detail: {
+            patchTask(taskId) {
+                return !!__tmRefreshVisibleTaskDetailForTask(taskId);
+            },
+        },
+        timeline: {
+            patchTask(taskId, patch = {}) {
+                const tid = String(taskId || '').trim();
+                const task = __tmTaskStateKernel.getTask(tid);
+                if (!tid || !task || !(state.modal instanceof Element)) return false;
+                if (String(state.viewMode || '').trim() !== 'timeline') return false;
+                let touched = false;
+                const row = state.modal.querySelector(`#tmTimelineLeftTable tbody tr[data-id="${CSS.escape(tid)}"]`);
+                if (row instanceof HTMLElement) {
+                    if (Object.prototype.hasOwnProperty.call(patch, 'done')) {
+                        const checkbox = row.querySelector('.tm-task-checkbox');
+                        if (checkbox instanceof HTMLInputElement) checkbox.checked = !!task.done;
+                        const textEl = row.querySelector('.tm-task-text');
+                        if (textEl instanceof HTMLElement) textEl.classList.toggle('tm-task-done', !!task.done);
+                        touched = true;
+                    }
+                    if (Object.prototype.hasOwnProperty.call(patch, 'startDate') || Object.prototype.hasOwnProperty.call(patch, 'completionTime')) {
+                        touched = !!__tmUpdateTimelineTaskInDOM(tid) || touched;
+                    }
+                }
+                return touched;
+            },
+        },
+        kanban: {
+            findCard(taskId) {
+                const tid = String(taskId || '').trim();
+                if (!tid || !(state.modal instanceof Element)) return null;
+                return state.modal.querySelector(`.tm-kanban-card[data-id="${CSS.escape(tid)}"]`);
+            },
+            patchTask(taskId, patch = {}) {
+                const tid = String(taskId || '').trim();
+                const task = __tmTaskStateKernel.getTask(tid);
+                const card = this.findCard(tid);
+                if (!(card instanceof HTMLElement) || !task) return false;
+                let touched = false;
+                if (Object.prototype.hasOwnProperty.call(patch, 'done')) {
+                    card.classList.toggle('tm-kanban-card--done', !!task.done);
+                    const checkbox = card.querySelector('.tm-task-checkbox');
+                    if (checkbox instanceof HTMLInputElement) checkbox.checked = !!task.done;
+                    const title = card.querySelector('.tm-task-content-clickable');
+                    if (title instanceof HTMLElement) title.classList.toggle('tm-task-done', !!task.done);
+                    touched = true;
+                }
+                if (Object.prototype.hasOwnProperty.call(patch, 'priority')) {
+                    const chip = card.querySelector('.tm-kanban-priority-chip');
+                    if (chip instanceof HTMLElement) {
+                        chip.setAttribute('style', __tmBuildPriorityChipStyle(task?.priority));
+                        chip.innerHTML = __tmRenderPriorityJira(task?.priority, false);
+                        touched = true;
+                    }
+                }
+                if (Object.prototype.hasOwnProperty.call(patch, 'customStatus')) {
+                    const chip = card.querySelector('.tm-status-tag');
+                    if (chip instanceof HTMLElement) {
+                        const opt = __tmResolveTaskStatusDisplayOption(task, __tmGetStatusOptions(SettingsStore.data.customStatusOptions || []), {
+                            fallbackColor: task?.done ? '#9e9e9e' : '#757575',
+                            fallbackName: task?.done ? '完成' : '待办',
+                        });
+                        chip.setAttribute('style', __tmBuildStatusChipStyle(opt.color));
+                        chip.textContent = String(opt.name || opt.id || '').trim();
+                        touched = true;
+                    }
+                }
+                if (Object.prototype.hasOwnProperty.call(patch, 'completionTime') || Object.prototype.hasOwnProperty.call(patch, 'startDate')) {
+                    touched = !!__tmUpdateKanbanTaskTimeInDOM(tid) || touched;
+                }
+                if (Object.prototype.hasOwnProperty.call(patch, 'remark')) {
+                    const nextRemark = __tmRenderTaskCardRemark(task);
+                    let remarkEl = card.querySelector('.tm-task-card-remark');
+                    card.classList.toggle('tm-kanban-card--has-remark', !!nextRemark);
+                    if (nextRemark) {
+                        if (remarkEl instanceof HTMLElement) remarkEl.outerHTML = nextRemark;
+                        else card.insertAdjacentHTML('beforeend', nextRemark);
+                        touched = true;
+                    } else if (remarkEl instanceof HTMLElement) {
+                        remarkEl.remove();
+                        touched = true;
+                    }
+                }
+                return touched;
+            },
+        },
+        whiteboard: {
+            patchTask(taskId, patch = {}) {
+                const tid = String(taskId || '').trim();
+                const task = __tmTaskStateKernel.getTask(tid);
+                if (!tid || !task || !(state.modal instanceof Element)) return false;
+                let touched = false;
+                const nodes = state.modal.querySelectorAll(
+                    `.tm-whiteboard-stream-task-head[data-task-id="${CSS.escape(tid)}"],` +
+                    `.tm-whiteboard-stream-task-node[data-task-id="${CSS.escape(tid)}"],` +
+                    `.tm-whiteboard-node[data-task-id="${CSS.escape(tid)}"]`
+                );
+                nodes.forEach((node) => {
+                    if (!(node instanceof HTMLElement)) return;
+                    if (Object.prototype.hasOwnProperty.call(patch, 'done')) {
+                        const checkbox = node.querySelector('.tm-task-checkbox');
+                        if (checkbox instanceof HTMLInputElement) checkbox.checked = !!task.done;
+                        const title = node.querySelector('.tm-whiteboard-stream-task-title, .tm-task-content-clickable, .tm-task-text');
+                        if (title instanceof HTMLElement) title.classList.toggle('tm-task-done', !!task.done);
+                        touched = true;
+                    }
+                    if (Object.prototype.hasOwnProperty.call(patch, 'completionTime') || Object.prototype.hasOwnProperty.call(patch, 'startDate')) {
+                        touched = !!__tmUpdateWhiteboardTaskTimeInDOM(tid) || touched;
+                    }
+                });
+                return touched;
+            },
+        },
+    };
+
+    function __tmRefreshTaskFieldsAcrossViews(taskId, patch = {}, options = {}) {
+        const tid = String(taskId || '').trim();
+        const nextPatch = (patch && typeof patch === 'object') ? patch : {};
+        if (!tid || !Object.keys(nextPatch).length) return false;
+        const opts = (options && typeof options === 'object') ? options : {};
+        if (state.homepageOpen) {
+            try {
+                __tmScheduleHomepageRefresh(String(opts.reason || 'homepage-field-patch').trim() || 'homepage-field-patch');
+            } catch (e) {}
+            return true;
+        }
+        if (__tmShouldFallbackTaskFieldPatch(tid, nextPatch, opts)) {
+            try {
+                __tmPushRefreshDebug('task-field-force-fallback', {
+                    taskId: tid,
+                    patchKeys: Object.keys(nextPatch),
+                    viewMode: String(state.viewMode || '').trim(),
+                    currentRule: String(state.currentRule || '').trim(),
+                    groupByTime: !!state.groupByTime,
+                    groupByTaskName: !!state.groupByTaskName,
+                    quadrantEnabled: !!state.quadrantEnabled,
+                    forceProjectionRefresh: opts.forceProjectionRefresh === true,
+                });
+            } catch (e) {}
+            __tmScheduleViewRefresh({
+                mode: 'current',
+                withFilters: opts.withFilters !== false,
+                reason: String(opts.reason || 'task-field-projection').trim() || 'task-field-projection',
+            });
+            return false;
+        }
+        let refreshed = false;
+        const viewMode = String(state.viewMode || '').trim();
+        if (viewMode === 'list') refreshed = !!__tmViewControllers.list.patchTask(tid, nextPatch) || refreshed;
+        if (viewMode === 'checklist') {
+            const checklistPatched = !!__tmViewControllers.checklist.patchTask(tid, nextPatch);
+            try {
+                __tmPushRefreshDebug('checklist-item-patch', {
+                    taskId: tid,
+                    patchKeys: Object.keys(nextPatch),
+                    patched: checklistPatched,
+                    activeDetailTaskId: String(state.detailTaskId || '').trim(),
+                });
+            } catch (e) {}
+            refreshed = checklistPatched || refreshed;
+            if (checklistPatched) {
+                try {
+                    __tmArmChecklistRenderGuard(String(opts.reason || 'task-field-checklist-patch').trim() || 'task-field-checklist-patch');
+                } catch (e) {}
+            }
+        }
+        if (viewMode === 'timeline') refreshed = !!__tmViewControllers.timeline.patchTask(tid, nextPatch) || refreshed;
+        if (viewMode === 'kanban') refreshed = !!__tmViewControllers.kanban.patchTask(tid, nextPatch) || refreshed;
+        if (viewMode === 'whiteboard') refreshed = !!__tmViewControllers.whiteboard.patchTask(tid, nextPatch) || refreshed;
+        if (opts.skipDetailPatch !== true) refreshed = !!__tmViewControllers.detail.patchTask(tid) || refreshed;
+        try {
+            __tmPushRefreshDebug('task-fields-across-views', {
+                taskId: tid,
+                patchKeys: Object.keys(nextPatch),
+                refreshed,
+                viewMode,
+                fallbackAllowed: opts.fallback !== false,
+                forceProjectionRefresh: opts.forceProjectionRefresh === true,
+                skipDetailPatch: opts.skipDetailPatch === true,
+            });
+        } catch (e) {}
+        if (!refreshed && opts.fallback !== false) {
+            try {
+                __tmPushRefreshDebug('task-fields-across-views-fallback', {
+                    taskId: tid,
+                    patchKeys: Object.keys(nextPatch),
+                    viewMode,
+                });
+            } catch (e) {}
+            __tmScheduleViewRefresh({
+                mode: 'current',
+                withFilters: opts.withFilters !== false,
+                reason: String(opts.reason || 'task-field-patch-fallback').trim() || 'task-field-patch-fallback',
+            });
+        }
+        return refreshed;
+    }
+
+    const __tmMutationEngine = {
+        __changeFeedSuspended: false,
+        __suppressedTaskDepth: new Map(),
+        isTaskSuppressed(taskId) {
+            const tid = String(taskId || '').trim();
+            return !!tid && Number(this.__suppressedTaskDepth.get(tid) || 0) > 0;
+        },
+        withSuppressedTasks(taskIds, handler) {
+            const ids = Array.from(new Set((Array.isArray(taskIds) ? taskIds : []).map((id) => String(id || '').trim()).filter(Boolean)));
+            ids.forEach((id) => {
+                const count = Number(this.__suppressedTaskDepth.get(id) || 0);
+                this.__suppressedTaskDepth.set(id, count + 1);
+            });
+            const done = () => {
+                ids.forEach((id) => {
+                    const count = Math.max(0, Number(this.__suppressedTaskDepth.get(id) || 0) - 1);
+                    if (count > 0) this.__suppressedTaskDepth.set(id, count);
+                    else this.__suppressedTaskDepth.delete(id);
+                });
+            };
+            try {
+                const result = handler?.();
+                if (result && typeof result.then === 'function') {
+                    return result.finally(done);
+                }
+                done();
+                return result;
+            } catch (e) {
+                done();
+                throw e;
+            }
+        },
+        suspendChangeFeed(handler) {
+            this.__changeFeedSuspended = true;
+            const done = () => { this.__changeFeedSuspended = false; };
+            try {
+                const result = handler?.();
+                if (result && typeof result.then === 'function') {
+                    return result.finally(done);
+                }
+                done();
+                return result;
+            } catch (e) {
+                done();
+                throw e;
+            }
+        },
+        requestTaskPatch(taskId, patch = {}, options = {}) {
+            const tid = String(taskId || '').trim();
+            const nextPatch = (patch && typeof patch === 'object') ? patch : {};
+            const opts = (options && typeof options === 'object') ? options : {};
+            if (!tid || !Object.keys(nextPatch).length) return Promise.resolve(false);
+            const plan = __tmWritePlanner.buildWritePlan(tid, nextPatch, opts);
+            const inversePatch = __tmCaptureTaskPatchInverse(tid, plan.normalizedPatch);
+            if (__tmIsPatchNoop(plan.normalizedPatch, inversePatch)) return Promise.resolve(false);
+            const taskLike = __tmTaskStateKernel.getTask(tid);
+            const suppressionIds = Array.from(new Set([
+                tid,
+                String(taskLike?.attrHostId || '').trim(),
+                String(taskLike?.attr_host_id || '').trim(),
+            ].filter(Boolean)));
+            const optimisticSkipDetailPatch = opts.optimisticSkipDetailPatch === true
+                || (((String(state.viewMode || '').trim() === 'checklist') || __tmHasCalendarSidebarChecklist(state.modal))
+                    && String(state.detailTaskId || '').trim() === tid
+                    && (Object.prototype.hasOwnProperty.call(plan.normalizedPatch, 'done')
+                        || Object.prototype.hasOwnProperty.call(plan.normalizedPatch, 'customStatus')));
+            __tmTaskStateKernel.patchTaskLocal(tid, plan.normalizedPatch, opts);
+            __tmRefreshTaskFieldsAcrossViews(tid, plan.normalizedPatch, {
+                withFilters: false,
+                reason: String(opts.reason || opts.source || 'task-field-optimistic').trim() || 'task-field-optimistic',
+                forceProjectionRefresh: false,
+                fallback: false,
+                skipDetailPatch: opts.skipDetailPatch === true || optimisticSkipDetailPatch,
+            });
+            return this.withSuppressedTasks(suppressionIds, () => __tmWriteExecutor.executePlan(plan, opts)).then((result) => {
+                __tmRefreshTaskFieldsAcrossViews(tid, plan.normalizedPatch, {
+                    withFilters: true,
+                    reason: String(opts.reason || opts.source || 'task-field-settled').trim() || 'task-field-settled',
+                    forceProjectionRefresh: plan.affectsProjection,
+                    fallback: true,
+                    skipDetailPatch: opts.skipDetailPatch === true,
+                });
+                return result || true;
+            }).catch((error) => {
+                __tmTaskStateKernel.rollbackTaskLocal(tid, inversePatch, opts);
+                __tmRefreshTaskFieldsAcrossViews(tid, inversePatch, {
+                    withFilters: true,
+                    reason: String(opts.reason || opts.source || 'task-field-rollback').trim() || 'task-field-rollback',
+                    forceProjectionRefresh: plan.affectsProjection,
+                    fallback: true,
+                    skipDetailPatch: opts.skipDetailPatch === true,
+                });
+                throw error;
+            });
+        },
+        async requestTaskPatchBatch(taskIds, patchFactory, options = {}) {
+            const ids = Array.from(new Set((Array.isArray(taskIds) ? taskIds : []).map((id) => String(id || '').trim()).filter(Boolean)));
+            const opts = (options && typeof options === 'object') ? options : {};
+            const failures = [];
+            let successCount = 0;
+            let needProjectionRefresh = false;
+            await this.suspendChangeFeed(async () => {
+                for (const id of ids) {
+                    const patch = typeof patchFactory === 'function' ? patchFactory(id) : patchFactory;
+                    const nextPatch = (patch && typeof patch === 'object') ? patch : {};
+                    if (!Object.keys(nextPatch).length) continue;
+                    try {
+                        await this.requestTaskPatch(id, nextPatch, {
+                            ...opts,
+                            withFilters: false,
+                            fallback: false,
+                        });
+                        if (__tmDoesPatchAffectProjection(id, nextPatch)) needProjectionRefresh = true;
+                        successCount += 1;
+                    } catch (e) {
+                        failures.push({
+                            id,
+                            error: e instanceof Error ? e : new Error(String(e || '批量更新失败')),
+                        });
+                    }
+                }
+            });
+            try {
+                if (needProjectionRefresh) {
+                    __tmScheduleViewRefresh({
+                        mode: 'current',
+                        withFilters: true,
+                        reason: String(opts.reason || 'batch-task-patch').trim() || 'batch-task-patch',
+                    });
+                } else {
+                    try { __tmRefreshMultiSelectUiInPlace(state.modal, { renderFallback: false }); } catch (e) {}
+                }
+            } catch (e) {}
+            return {
+                successCount,
+                failureCount: failures.length,
+                failures,
+            };
+        },
+    };
+
+    const __tmChangeFeed = {
+        buildPatchFromAttr(attrKey, attrValue) {
+            const meta = __tmBuildMetaPatchFromAttrUpdate(attrKey, attrValue);
+            return meta?.patch && typeof meta.patch === 'object' ? meta.patch : null;
+        },
+        handleAttrUpdate(taskId, attrKey, attrValue, options = {}) {
+            const tid = String(taskId || '').trim();
+            const patch = this.buildPatchFromAttr(attrKey, attrValue);
+            const opts = (options && typeof options === 'object') ? options : {};
+            if (!tid || !patch) return false;
+            if (__tmMutationEngine.isTaskSuppressed(tid)) return true;
+            const applied = __tmApplyQuickbarAttrUpdateInState(tid, attrKey, attrValue);
+            if (!applied) return false;
+            try {
+                __tmRefreshTaskFieldsAcrossViews(tid, patch, {
+                    withFilters: true,
+                    reason: String(opts.reason || 'change-feed-attr').trim() || 'change-feed-attr',
+                    forceProjectionRefresh: __tmDoesPatchAffectProjection(tid, patch),
+                    fallback: true,
+                });
+            } catch (e) {}
+            return true;
+        },
+        shouldDeferToAutoRefresh(taskId, attrKey, attrValue) {
+            if (__tmMutationEngine.__changeFeedSuspended === true) return false;
+            if (!__tmIsPluginVisibleNow()) return true;
+            const patch = this.buildPatchFromAttr(attrKey, attrValue);
+            if (!patch) return true;
+            return __tmDoesPatchAffectProjection(taskId, patch);
+        },
+    };
+
     function __tmCloseCellEditor(shouldRerender) {
         const last = __tmCellEditorState;
         if (__tmCellEditorState?.cleanup) {
@@ -52910,31 +54007,36 @@ async function __tmRefreshAfterWake(reason) {
             const customField = customFieldId ? __tmGetCustomFieldDefMap().get(customFieldId) : null;
             if (customField && String(customField.type || '').trim() === 'text') {
                 const next = String(__tmNormalizeCustomFieldValue(customField, value) || '').trim();
-                __tmApplyTaskCustomFieldValueLocally(task, customField, next);
-                __tmPersistMetaAndAttrs(id, { customFieldValues: { [customFieldId]: next } });
+                await __tmMutationEngine.requestTaskPatch(id, {
+                    customFieldValues: { [customFieldId]: next }
+                }, {
+                    source: 'cell-edit-custom-field',
+                    label: String(customField.name || '文本列').trim() || '文本列',
+                });
                 hint(`✅ ${String(customField.name || '文本列').trim() || '文本列'}已更新`, 'success');
                 return;
             }
             if (field === 'priority') {
                 const next = value === 'high' || value === 'medium' || value === 'low' ? value : '';
-                task.priority = next;
-                __tmPersistMetaAndAttrs(id, { priority: next });
+                await __tmMutationEngine.requestTaskPatch(id, { priority: next }, {
+                    source: 'cell-edit-priority',
+                    label: '优先级',
+                });
                 hint('✅ 优先级已更新', 'success');
                 return;
             }
             if (field === 'duration') {
                 const next = String(value || '').trim();
-                await __tmCommitTaskTimeFields(id, { duration: next }, {
+                await __tmMutationEngine.requestTaskPatch(id, { duration: next }, {
                     source: 'cell-edit-time',
                     label: '时长',
                 });
-                __tmRefreshTaskTimeAcrossViews(id, { withFilters: true, reason: 'cell-edit-time', patch: { duration: next } });
                 hint('✅ 时长已更新', 'success');
                 return;
             }
             if (field === 'remark') {
                 const next = __tmNormalizeRemarkMarkdown(value);
-                await __tmApplyTaskMetaPatchWithUndo(id, { remark: next }, {
+                await __tmMutationEngine.requestTaskPatch(id, { remark: next }, {
                     source: 'cell-edit',
                     label: '备注',
                 });
@@ -52944,22 +54046,20 @@ async function __tmRefreshAfterWake(reason) {
             if (field === 'completionTime') {
                 const raw = String(value || '').trim();
                 const next = raw ? __tmNormalizeDateOnly(raw) : '';
-                await __tmCommitTaskTimeFields(id, { completionTime: next }, {
+                await __tmMutationEngine.requestTaskPatch(id, { completionTime: next }, {
                     source: 'cell-edit-time',
-                    label: '完成时间',
+                    label: '截止日期',
                 });
-                __tmRefreshTaskTimeAcrossViews(id, { withFilters: true, reason: 'cell-edit-time', patch: { completionTime: next } });
-                hint(next ? '✅ 完成日期已更新' : '✅ 完成日期已清空', 'success');
+                hint(next ? '✅ 截止日期已更新' : '✅ 截止日期已清空', 'success');
                 return;
             }
             if (field === 'startDate') {
                 const raw = String(value || '').trim();
                 const next = raw ? __tmNormalizeDateOnly(raw) : '';
-                await __tmCommitTaskTimeFields(id, { startDate: next }, {
+                await __tmMutationEngine.requestTaskPatch(id, { startDate: next }, {
                     source: 'cell-edit-time',
                     label: '开始日期',
                 });
-                __tmRefreshTaskTimeAcrossViews(id, { withFilters: true, reason: 'cell-edit-time', patch: { startDate: next } });
                 hint(next ? '✅ 开始日期已更新' : '✅ 开始日期已清空', 'success');
                 return;
             }
@@ -53425,10 +54525,11 @@ async function __tmRefreshAfterWake(reason) {
             select.onchange = async () => {
                 const next = String(select.value || '');
                 try {
-                    task.priority = next;
-                    __tmPersistMetaAndAttrs(id, { priority: next });
+                    await __tmMutationEngine.requestTaskPatch(id, { priority: next }, {
+                        source: 'inline-priority-editor',
+                        label: '优先级',
+                    });
                     close();
-                    __tmRefreshMainViewInPlace({ withFilters: true });
                     hint('✅ 优先级已更新', 'success');
                 } catch (e) {
                     hint(`❌ 更新失败: ${e.message}`, 'error');
@@ -53450,10 +54551,11 @@ async function __tmRefreshAfterWake(reason) {
             const { wrap } = __tmBuildActions('保存', async () => {
                 const next = String(input.value || '').trim();
                 try {
-                    task.duration = next;
-                    __tmPersistMetaAndAttrs(id, { duration: next });
+                    await __tmMutationEngine.requestTaskPatch(id, { duration: next }, {
+                        source: 'inline-duration-editor',
+                        label: '时长',
+                    });
                     close();
-                    __tmRefreshMainViewInPlace({ withFilters: true });
                     hint('✅ 时长已更新', 'success');
                 } catch (e) {
                     hint(`❌ 更新失败: ${e.message}`, 'error');
@@ -53478,10 +54580,11 @@ async function __tmRefreshAfterWake(reason) {
             const { wrap } = __tmBuildActions('保存', async () => {
                 const next = __tmNormalizeRemarkMarkdown(input.value);
                 try {
-                    task.remark = next;
-                    __tmPersistMetaAndAttrs(id, { remark: next });
+                    await __tmMutationEngine.requestTaskPatch(id, { remark: next }, {
+                        source: 'inline-remark-editor',
+                        label: '备注',
+                    });
                     close();
-                    __tmRefreshMainViewInPlace({ withFilters: true });
                     hint('✅ 备注已更新', 'success');
                 } catch (e) {
                     hint(`❌ 更新失败: ${e.message}`, 'error');
@@ -53508,11 +54611,12 @@ async function __tmRefreshAfterWake(reason) {
             clearBtn.textContent = '清空';
             clearBtn.onclick = async () => {
                 try {
-                    task.completionTime = '';
-                    __tmPersistMetaAndAttrs(id, { completionTime: '' });
+                    await __tmMutationEngine.requestTaskPatch(id, { completionTime: '' }, {
+                        source: 'inline-completion-editor',
+                        label: '截止日期',
+                    });
                     close();
-                    __tmRefreshMainViewInPlace({ withFilters: true });
-                    hint('✅ 完成日期已清空', 'success');
+                    hint('✅ 截止日期已清空', 'success');
                 } catch (e) {
                     hint(`❌ 更新失败: ${e.message}`, 'error');
                 }
@@ -53522,11 +54626,12 @@ async function __tmRefreshAfterWake(reason) {
                 const raw = String(input.value || '').trim();
                 const next = raw ? __tmNormalizeDateOnly(raw) : '';
                 try {
-                    task.completionTime = next;
-                    __tmPersistMetaAndAttrs(id, { completionTime: next });
+                    await __tmMutationEngine.requestTaskPatch(id, { completionTime: next }, {
+                        source: 'inline-completion-editor',
+                        label: '截止日期',
+                    });
                     close();
-                    __tmRefreshMainViewInPlace({ withFilters: true });
-                    hint('✅ 完成日期已更新', 'success');
+                    hint('✅ 截止日期已更新', 'success');
                 } catch (e) {
                     hint(`❌ 更新失败: ${e.message}`, 'error');
                 }
@@ -53790,14 +54895,14 @@ async function __tmRefreshAfterWake(reason) {
     window.tmEditCompletionTime = async function(id) {
         const task = state.flatTasks[id];
         if (!task) return;
-        const next = await showDateTimePrompt('设置完成日期', task.completionTime || '');
+        const next = await showDateTimePrompt('设置截止日期', task.completionTime || '');
         if (next == null) return;
         try {
             task.completionTime = next;
             __tmPersistMetaAndAttrs(id, { completionTime: String(next || '').trim() });
             applyFilters();
             render();
-            hint('✅ 完成日期已更新', 'success');
+            hint('✅ 截止日期已更新', 'success');
         } catch (e) {
             hint(`❌ 更新失败: ${e.message}`, 'error');
         }
@@ -55256,7 +56361,7 @@ async function __tmRefreshAfterWake(reason) {
                     state.checklistDetailDismissed = false;
                     state.checklistDetailSheetOpen = true;
                 }
-                if (!__tmRefreshChecklistSelectionInPlace(state.modal)) render();
+                if (!__tmRefreshChecklistSelectionInPlace(state.modal, 'detail-open-child')) render();
                 return;
             }
             if (embedded && String(state.viewMode || '').trim() === 'kanban') {
@@ -55753,28 +56858,19 @@ async function __tmRefreshAfterWake(reason) {
                 if (!__tmIsCollectedOtherBlockTask(task) && diff.contentChanged) {
                     await __tmUpdateTaskContentBlock(task, nextContent, { background: true });
                 }
-                if (diff.statusChanged) {
-                    await __tmApplyTaskStatus(task.id, nextStatus, {
-                        source: 'detail',
-                        label: '状态',
-                        refresh: false,
-                        refreshCalendar: false,
-                        withFilters: false,
-                    });
-                }
-                if (Object.keys(diff.timePatch).length > 0) {
-                    await __tmCommitTaskTimeFields(task.id, diff.timePatch, {
-                        source: 'detail-time',
-                        label: '时间字段',
-                    });
-                }
-                if (Object.keys(diff.metaPatch).length > 0) {
-                    await __tmApplyTaskMetaPatchWithUndo(task.id, diff.metaPatch, {
+                const fieldPatch = {
+                    ...(diff.statusChanged ? { customStatus: nextStatus } : {}),
+                    ...((diff.timePatch && typeof diff.timePatch === 'object') ? diff.timePatch : {}),
+                    ...((diff.metaPatch && typeof diff.metaPatch === 'object') ? diff.metaPatch : {}),
+                };
+                if (Object.keys(fieldPatch).length > 0) {
+                    await __tmMutationEngine.requestTaskPatch(task.id, fieldPatch, {
                         source: 'detail',
                         label: '任务字段',
-                        refresh: false,
-                        refreshCalendar: false,
-                        withFilters: false,
+                        withFilters: true,
+                        reason: diff.pureTimeOnly ? 'detail-time-save' : 'detail-save',
+                        forceProjectionRefresh: __tmDoesPatchAffectProjection(task.id, fieldPatch),
+                        skipDetailPatch: true,
                     });
                 }
                 const latestTask = state.flatTasks?.[String(task.id || '').trim()] || task;
@@ -55785,22 +56881,9 @@ async function __tmRefreshAfterWake(reason) {
                 try { __tmInvalidateTasksQueryCacheByDocId(task.root_id || task.docId); } catch (e) {}
                 lastSerialized = serialized;
                 syncSerializedSnapshot();
-                try { applyFilters(); } catch (e) {}
                 try { root.__tmTaskDetailCloseInlinePopover?.(); } catch (e) {}
-                if (diff.pureTimeOnly) {
-                    __tmRefreshTaskTimeAcrossViews(task.id, {
-                        withFilters: true,
-                        reason: 'detail-time-save',
-                        patch: { ...diff.timePatch },
-                    });
-                } else if (!skipRerender && (showHint || closeAfterSave || !preserveFocus || !isDetailEditorFocused())) {
-                    if (String(state.viewMode || '').trim() === 'checklist' && embedded) {
-                        rerenderChecklistPreserveScroll();
-                    } else if (state.modal && document.body.contains(state.modal)) {
-                        if (!__tmRerenderCurrentViewInPlace(state.modal)) render();
-                    } else {
-                        render();
-                    }
+                if (!skipRerender && !embedded && !closeAfterSave && String(state.viewMode || '').trim() !== 'list' && String(state.viewMode || '').trim() !== 'checklist') {
+                    try { __tmViewControllers.detail.patchTask(String(task.id || '').trim()); } catch (e) {}
                 }
                 if (showHint) hint('✅ 已保存', 'success');
                 if (!embedded && closeAfterSave) close();
@@ -56542,14 +57625,25 @@ async function __tmRefreshAfterWake(reason) {
                 try { trigger.focus(); } catch (e) {}
             });
             optionButtons.forEach((btn) => {
-                on(btn, 'click', (ev) => {
+                on(btn, 'click', async (ev) => {
                     try { ev.preventDefault(); } catch (e) {}
                     try { ev.stopPropagation(); } catch (e) {}
-                    hiddenInput.value = String(btn.getAttribute('data-value') || '').trim();
+                    const nextValue = String(btn.getAttribute('data-value') || '').trim();
+                    const prevValue = String(hiddenInput.value || '').trim();
+                    hiddenInput.value = nextValue;
                     syncStatusUi();
                     closeMenu();
                     try { trigger.focus(); } catch (e) {}
-                    scheduleAutoSave();
+                    if (nextValue === prevValue) return;
+                    const ok = await flushAutoSaveNow({
+                        showHint: false,
+                        closeAfterSave: false,
+                        preserveFocus: true,
+                        skipRerender: !embedded,
+                    });
+                    if (ok === false) {
+                        try { hint('❌ 状态更新失败', 'error'); } catch (e) {}
+                    }
                 });
             });
             syncStatusUi();
@@ -56616,13 +57710,24 @@ async function __tmRefreshAfterWake(reason) {
                 try { trigger.focus(); } catch (e) {}
             });
             optionButtons.forEach((btn) => {
-                on(btn, 'click', (ev) => {
+                on(btn, 'click', async (ev) => {
                     try { ev.preventDefault(); } catch (e) {}
                     try { ev.stopPropagation(); } catch (e) {}
-                    hiddenInput.value = String(btn.getAttribute('data-value') || '').trim();
+                    const nextValue = String(btn.getAttribute('data-value') || '').trim();
+                    const prevValue = String(hiddenInput.value || '').trim();
+                    hiddenInput.value = nextValue;
                     syncPriorityUi();
                     closeMenu();
-                    scheduleAutoSave();
+                    if (nextValue === prevValue) return;
+                    const ok = await flushAutoSaveNow({
+                        showHint: false,
+                        closeAfterSave: false,
+                        preserveFocus: true,
+                        skipRerender: !embedded,
+                    });
+                    if (ok === false) {
+                        try { hint('❌ 重要性更新失败', 'error'); } catch (e) {}
+                    }
                 });
             });
             syncPriorityUi();
@@ -56692,12 +57797,24 @@ async function __tmRefreshAfterWake(reason) {
                     scheduleReminderButtonStateRefresh();
                 }
             });
-            on(root.querySelector('[data-tm-detail-pinned-toggle]'), 'click', (ev) => {
+            on(root.querySelector('[data-tm-detail-pinned-toggle]'), 'click', async (ev) => {
                 try { ev.preventDefault(); } catch (e) {}
                 try { ev.stopPropagation(); } catch (e) {}
-                setHiddenInputValue('pinned', readPinnedValue() ? '' : '1');
+                const prevValue = readPinnedValue() ? '1' : '';
+                const nextValue = prevValue ? '' : '1';
+                setHiddenInputValue('pinned', nextValue);
                 syncMetaChipFaces();
-                scheduleAutoSave();
+                const ok = await flushAutoSaveNow({
+                    showHint: false,
+                    closeAfterSave: false,
+                    preserveFocus: true,
+                    skipRerender: !embedded,
+                });
+                if (ok === false) {
+                    setHiddenInputValue('pinned', prevValue);
+                    syncMetaChipFaces();
+                    try { hint('❌ 置顶状态更新失败', 'error'); } catch (e) {}
+                }
             });
             root.querySelectorAll('[data-tm-detail-open-child]').forEach((btn) => {
                 if (!(btn instanceof HTMLButtonElement)) return;
@@ -57152,11 +58269,36 @@ async function __tmRefreshAfterWake(reason) {
         });
     }
 
-    function __tmRefreshChecklistSelectionInPlace(modalEl) {
+    function __tmBuildChecklistSelectionSignature(task, options = {}) {
+        const taskLike = (task && typeof task === 'object') ? task : null;
+        const opts = (options && typeof options === 'object') ? options : {};
+        const customValues = (taskLike?.customFieldValues && typeof taskLike.customFieldValues === 'object' && !Array.isArray(taskLike.customFieldValues))
+            ? taskLike.customFieldValues
+            : {};
+        let customSig = '';
+        try { customSig = JSON.stringify(customValues); } catch (e) { customSig = String(Object.keys(customValues).length || 0); }
+        return JSON.stringify({
+            selectedId: String(taskLike?.id || '').trim(),
+            done: !!taskLike?.done,
+            customStatus: String(taskLike?.customStatus || taskLike?.custom_status || '').trim(),
+            priority: String(taskLike?.priority || '').trim(),
+            startDate: String(taskLike?.startDate || '').trim(),
+            completionTime: String(taskLike?.completionTime || '').trim(),
+            duration: String(taskLike?.duration || '').trim(),
+            pinned: !!taskLike?.pinned,
+            remark: String(taskLike?.remark || ''),
+            customSig,
+            sheetOpen: !!opts.sheetOpen,
+            dismissed: !!opts.dismissed,
+        });
+    }
+
+    function __tmRefreshChecklistSelectionInPlace(modalEl, source = '') {
         const modal = modalEl instanceof Element ? modalEl : state.modal;
         if (!(modal instanceof Element)) return false;
         if (!__tmIsChecklistSelectionContext(modal)) return false;
         const selectedId = String(state.detailTaskId || '').trim();
+        try { __tmPushRefreshDebug('checklist-selection-rebuild:start', { selectedId, source: String(source || '').trim() || 'unknown' }); } catch (e) {}
         const multiSelectedSet = __tmGetMultiSelectedTaskIdSet();
         const panelState = __tmResolveChecklistDetailPanel(modal, { preferSheetMode: __tmChecklistUseSheetMode(modal) });
         const sheetMode = !!panelState.sheetMode;
@@ -57178,18 +58320,62 @@ async function __tmRefreshAfterWake(reason) {
             }
             : null;
         const task = selectedId ? (state.flatTasks?.[selectedId] || null) : null;
-        panel.innerHTML = task
-            ? __tmBuildTaskDetailInnerHtml(task, { embedded: true, closeable: true })
-            : `<div class="tm-checklist-empty-detail">选择左侧任务后，这里会显示可编辑的详情。</div>`;
-        if (task) __tmBindTaskDetailEditor(panel, selectedId, {
-            embedded: true,
-            onClose: () => {
-                state.detailTaskId = '';
-                state.checklistDetailDismissed = true;
-                state.checklistDetailSheetOpen = false;
-                if (!__tmRefreshChecklistSelectionInPlace(state.modal)) render();
-            }
+        const nextSignature = __tmBuildChecklistSelectionSignature(task, {
+            sheetOpen: state.checklistDetailSheetOpen,
+            dismissed: state.checklistDetailDismissed,
         });
+        const prevSignature = String(modal.__tmChecklistSelectionSignature || '').trim();
+        const canSkipPanelWork = !!task
+            && !!selectedId
+            && prevTaskId === selectedId
+            && panel.childElementCount > 0
+            && prevSignature
+            && prevSignature === nextSignature;
+        const keepExistingDetail = !!task
+            && !!selectedId
+            && prevTaskId === selectedId
+            && panel.childElementCount > 0;
+        if (canSkipPanelWork) {
+            const backdrop = modal.querySelector('#tmChecklistSheetBackdrop');
+            const sheet = modal.querySelector('#tmChecklistSheet');
+            if (backdrop instanceof HTMLElement) backdrop.classList.toggle('tm-checklist-sheet-backdrop--open', !!(sheetMode && state.checklistDetailSheetOpen && task));
+            if (sheet instanceof HTMLElement) sheet.classList.toggle('tm-checklist-sheet--open', !!(sheetMode && state.checklistDetailSheetOpen && task));
+            try { __tmPushRefreshDebug('checklist-selection-rebuild:skip', { selectedId, source: String(source || '').trim() || 'unknown' }); } catch (e) {}
+            return true;
+        }
+        if (keepExistingDetail) {
+            try {
+                __tmPatchTaskDetailPanelInPlace(panel, selectedId, {
+                    done: true,
+                    customStatus: true,
+                    priority: true,
+                    startDate: true,
+                    completionTime: true,
+                    duration: true,
+                    pinned: true,
+                    remark: true,
+                    customFieldValues: true,
+                });
+            } catch (e) {}
+        } else {
+            panel.innerHTML = task
+                ? __tmBuildTaskDetailInnerHtml(task, { embedded: true, closeable: true })
+                : `<div class="tm-checklist-empty-detail">选择左侧任务后，这里会显示可编辑的详情。</div>`;
+            try { panel.__tmTaskDetailTask = task || null; } catch (e) {}
+            try {
+                if (task) panel.dataset.tmDetailTaskId = selectedId;
+                else delete panel.dataset.tmDetailTaskId;
+            } catch (e) {}
+            if (task) __tmBindTaskDetailEditor(panel, selectedId, {
+                embedded: true,
+                onClose: () => {
+                    state.detailTaskId = '';
+                    state.checklistDetailDismissed = true;
+                    state.checklistDetailSheetOpen = false;
+                    if (!__tmRefreshChecklistSelectionInPlace(state.modal, 'detail-close')) render();
+                }
+            });
+        }
         const backdrop = modal.querySelector('#tmChecklistSheetBackdrop');
         const sheet = modal.querySelector('#tmChecklistSheet');
         if (backdrop instanceof HTMLElement) backdrop.classList.toggle('tm-checklist-sheet-backdrop--open', !!(sheetMode && state.checklistDetailSheetOpen && task));
@@ -57197,7 +58383,120 @@ async function __tmRefreshAfterWake(reason) {
         if (detailScrollSnapshot) {
             try { __tmRestoreChecklistDetailScrollSnapshot(detailScrollSnapshot, modal); } catch (e) {}
         }
+        try { modal.__tmChecklistSelectionSignature = nextSignature; } catch (e) {}
+        try { __tmPushRefreshDebug('checklist-selection-rebuild:end', { selectedId, hasTask: !!task, source: String(source || '').trim() || 'unknown', keepExistingDetail }); } catch (e) {}
         return true;
+    }
+
+    function __tmPatchTaskDetailPanelInPlace(panelEl, taskId, patch = {}) {
+        const panel = panelEl instanceof Element ? panelEl : null;
+        const tid = String(taskId || '').trim();
+        const nextPatch = (patch && typeof patch === 'object') ? patch : {};
+        const task = tid ? (__tmTaskStateKernel.getTask(tid) || null) : null;
+        if (!(panel instanceof Element) || !tid || !task) return false;
+        const currentId = String(panel.__tmTaskDetailTask?.id || panel.dataset?.tmDetailTaskId || '').trim();
+        if (currentId && currentId !== tid) return false;
+        let touched = false;
+
+        try { panel.__tmTaskDetailTask = task; } catch (e) {}
+        try { panel.dataset.tmDetailTaskId = tid; } catch (e) {}
+
+        if (Object.prototype.hasOwnProperty.call(nextPatch, 'customStatus') || Object.prototype.hasOwnProperty.call(nextPatch, 'done')) {
+            const statusOpt = __tmResolveTaskStatusDisplayOption(task, __tmGetStatusOptions(SettingsStore.data.customStatusOptions || []), {
+                fallbackColor: task?.done ? '#9e9e9e' : '#757575',
+                fallbackName: task?.done ? '完成' : '待办',
+            });
+            const statusInput = panel.querySelector('input[type="hidden"][data-tm-detail="status"]');
+            if (statusInput instanceof HTMLInputElement) statusInput.value = String(statusOpt.id || '').trim();
+            const trigger = panel.querySelector('[data-tm-detail-status-trigger]');
+            if (trigger instanceof HTMLElement) {
+                trigger.setAttribute('style', __tmBuildStatusChipStyle(statusOpt.color));
+                const labelEl = trigger.querySelector('.tm-task-detail-status-trigger__value');
+                if (labelEl instanceof HTMLElement) labelEl.textContent = String(statusOpt.name || statusOpt.id || '').trim();
+                touched = true;
+            }
+        }
+
+        if (Object.prototype.hasOwnProperty.call(nextPatch, 'priority')) {
+            const priorityInput = panel.querySelector('input[type="hidden"][data-tm-detail="priority"]');
+            if (priorityInput instanceof HTMLInputElement) priorityInput.value = String(task?.priority || '').trim();
+            const trigger = panel.querySelector('[data-tm-detail-priority-trigger]');
+            if (trigger instanceof HTMLElement) {
+                trigger.setAttribute('style', __tmBuildPriorityChipStyle(String(task?.priority || '').trim() || 'none'));
+                const valueEl = trigger.querySelector('.tm-task-detail-priority-trigger__value');
+                if (valueEl instanceof HTMLElement) valueEl.innerHTML = __tmRenderPriorityJira(String(task?.priority || '').trim() || 'none', false);
+                touched = true;
+            }
+        }
+
+        const syncChipField = (field, value, kind = field) => {
+            const input = panel.querySelector(`input[type="hidden"][data-tm-detail="${field}"]`);
+            if (input instanceof HTMLInputElement) input.value = String(value || '').trim();
+            const btn = field === 'duration'
+                ? panel.querySelector('[data-tm-detail-duration-trigger]')
+                : panel.querySelector(`[data-tm-detail-date-trigger="${field}"]`);
+            if (btn instanceof HTMLElement) {
+                btn.classList.toggle('has-value', !!String(value || '').trim());
+            }
+            const face = panel.querySelector(`[data-tm-detail-chip-face="${field}"]`);
+            if (face instanceof HTMLElement) {
+                face.innerHTML = __tmBuildTaskDetailCoreChipFace(kind, value);
+                touched = true;
+            }
+        };
+
+        if (Object.prototype.hasOwnProperty.call(nextPatch, 'startDate')) syncChipField('startDate', String(task?.startDate || '').trim(), 'startDate');
+        if (Object.prototype.hasOwnProperty.call(nextPatch, 'completionTime')) syncChipField('completionTime', String(task?.completionTime || '').trim(), 'completionTime');
+        if (Object.prototype.hasOwnProperty.call(nextPatch, 'duration')) syncChipField('duration', String(task?.duration || '').trim(), 'duration');
+
+        if (Object.prototype.hasOwnProperty.call(nextPatch, 'pinned')) {
+            const pinnedValue = !!task?.pinned;
+            const pinnedInput = panel.querySelector('input[type="hidden"][data-tm-detail="pinned"]');
+            if (pinnedInput instanceof HTMLInputElement) pinnedInput.value = pinnedValue ? '1' : '';
+            const pinnedBtn = panel.querySelector('[data-tm-detail-pinned-toggle]');
+            if (pinnedBtn instanceof HTMLElement) {
+                pinnedBtn.classList.toggle('is-active', pinnedValue);
+                const face = pinnedBtn.querySelector('[data-tm-detail-chip-face="pinned"]');
+                if (face instanceof HTMLElement) face.innerHTML = __tmBuildTaskDetailCoreChipFace('pinned', pinnedValue ? '1' : '');
+                touched = true;
+            }
+        }
+
+        if (Object.prototype.hasOwnProperty.call(nextPatch, 'remark')) {
+            const remarkValue = __tmNormalizeRemarkMarkdown(task?.remark || '');
+            const textarea = panel.querySelector('textarea[data-tm-detail="remark"]');
+            if (textarea instanceof HTMLTextAreaElement && textarea !== document.activeElement) textarea.value = remarkValue;
+            const preview = panel.querySelector('[data-tm-detail-remark-preview]');
+            if (preview instanceof HTMLElement) {
+                preview.innerHTML = __tmRenderRemarkMarkdown(remarkValue);
+                touched = true;
+            }
+        }
+
+        if (Object.prototype.hasOwnProperty.call(nextPatch, 'customFieldValues')) {
+            const customValues = (nextPatch.customFieldValues && typeof nextPatch.customFieldValues === 'object') ? nextPatch.customFieldValues : {};
+            Object.keys(customValues).forEach((fieldId) => {
+                const fid = String(fieldId || '').trim();
+                if (!fid) return;
+                const field = __tmGetCustomFieldDefMap().get(fid);
+                if (!field) return;
+                const valueWrap = panel.querySelector(`[data-tm-detail-custom-field="${fid}"] .tm-task-detail-custom-field-value`);
+                if (valueWrap instanceof HTMLElement) {
+                    valueWrap.innerHTML = __tmBuildCustomFieldDisplayHtml(field, __tmGetTaskCustomFieldValue(task, fid), {
+                        allowEmpty: false,
+                        maxTags: String(field?.type || '').trim() === 'multi' ? 2 : 1,
+                    });
+                    touched = true;
+                }
+                const textarea = panel.querySelector(`textarea[data-tm-detail-custom-text-field="${fid}"]`);
+                if (textarea instanceof HTMLTextAreaElement && textarea !== document.activeElement) {
+                    textarea.value = String(__tmNormalizeCustomFieldValue(field, __tmGetTaskCustomFieldValue(task, fid)) || '').trim();
+                    touched = true;
+                }
+            });
+        }
+
+        return touched;
     }
 
     function __tmRefreshVisibleTaskDetailForTask(taskId) {
@@ -57205,7 +58504,26 @@ async function __tmRefreshAfterWake(reason) {
         if (!tid) return false;
         let refreshed = false;
         if (__tmIsChecklistSelectionContext(state.modal) && String(state.detailTaskId || '').trim() === tid) {
-            refreshed = !!__tmRefreshChecklistSelectionInPlace(state.modal) || refreshed;
+            try {
+                const panel = __tmResolveChecklistDetailPanel(state.modal).panel;
+                const detailPatched = !!__tmPatchTaskDetailPanelInPlace(panel, tid, {
+                    done: true,
+                    customStatus: true,
+                    priority: true,
+                    startDate: true,
+                    completionTime: true,
+                    duration: true,
+                    pinned: true,
+                    remark: true,
+                    customFieldValues: true,
+                });
+                try { __tmPushRefreshDebug('checklist-detail-patch', { taskId: tid, patched: detailPatched }); } catch (e) {}
+                refreshed = detailPatched || refreshed;
+            } catch (e) {}
+            if (!refreshed) {
+                try { __tmPushRefreshDebug('checklist-detail-patch:fallback-rebuild', { taskId: tid }); } catch (e) {}
+                refreshed = !!__tmRefreshChecklistSelectionInPlace(state.modal, 'visible-task-detail-fallback') || refreshed;
+            }
         }
         if (String(state.viewMode || '').trim() === 'kanban' && String(state.kanbanDetailTaskId || '').trim() === tid) {
             refreshed = !!__tmRefreshKanbanDetailInPlace(state.modal) || refreshed;
@@ -57682,7 +59000,7 @@ async function __tmRefreshAfterWake(reason) {
                     return `<td class="tm-task-meta-cell" style="${tableLayout.cellStyle('score', 'text-align: center; font-variant-numeric: inherit;')}">${v}</td>`;
                 },
                 priority: () => {
-                    return `<td class="tm-cell-editable tm-task-meta-cell" style="${tableLayout.cellStyle('priority', 'text-align: center;')}" onclick="tmPickPriority('${task.id}', this, event)">${__tmRenderPriorityJira(priority, false)}</td>`;
+                    return `<td class="tm-cell-editable tm-task-meta-cell" data-tm-field="priority" style="${tableLayout.cellStyle('priority', 'text-align: center;')}" onclick="tmPickPriority('${task.id}', this, event)">${__tmRenderPriorityJira(priority, false)}</td>`;
                 },
                 startDate: () => `
                     <td class="tm-cell-editable tm-task-meta-cell" data-tm-task-time-field="startDate" style="${tableLayout.cellStyle('startDate')}" onclick="tmBeginCellEdit('${task.id}','startDate',this,event)">${__tmFormatTaskTime(startDate)}</td>`,
@@ -57702,13 +59020,13 @@ async function __tmRefreshAfterWake(reason) {
                     return `<td class="tm-task-meta-cell" style="${tableLayout.cellStyle('spent', 'text-align:center; font-variant-numeric: inherit;')}">${esc(txt)}</td>`;
                 },
                 remark: () => `
-                    <td class="tm-cell-editable tm-task-meta-cell" style="${tableLayout.cellStyle('remark')}" title="${esc(remark || '')}" onclick="tmBeginCellEdit('${task.id}','remark',this,event)"><span class="tm-task-remark-text">${esc(remark || '')}</span></td>`,
+                    <td class="tm-cell-editable tm-task-meta-cell" data-tm-field="remark" style="${tableLayout.cellStyle('remark')}" title="${esc(remark || '')}" onclick="tmBeginCellEdit('${task.id}','remark',this,event)"><span class="tm-task-remark-text">${esc(remark || '')}</span></td>`,
                 status: () => {
                      const statusOptions = __tmGetStatusOptions(SettingsStore.data.customStatusOptions || []);
                      const statusOption = __tmResolveTaskStatusDisplayOption(task, statusOptions, { fallbackColor: '#757575' });
                      const chipStyle = __tmBuildStatusChipStyle(statusOption.color);
                      return `
-                        <td class="tm-status-cell tm-task-meta-cell" style="${tableLayout.cellStyle('status', 'text-align: center;')}" onclick="tmOpenStatusSelect('${task.id}', event)">
+                        <td class="tm-status-cell tm-task-meta-cell" data-tm-field="status" style="${tableLayout.cellStyle('status', 'text-align: center;')}" onclick="tmOpenStatusSelect('${task.id}', event)">
                             <span class="tm-status-cell-inner">
                                 <span class="tm-status-tag" style="${chipStyle}">
                                     ${esc(statusOption.name)}
@@ -57736,7 +59054,7 @@ async function __tmRefreshAfterWake(reason) {
                         ? `tmBeginCellEdit('${task.id}','${colKey}',this,event)`
                         : `tmOpenCustomFieldSelect('${task.id}', '${fieldId}', event, this)`;
                     return `
-                        <td class="tm-cell-editable tm-task-meta-cell" style="${tableLayout.cellStyle(colKey)}" ${textValue ? `title="${esc(textValue)}"` : ''} onclick="${onClick}">
+                        <td class="tm-cell-editable tm-task-meta-cell" data-tm-custom-field-cell="${esc(fieldId)}" style="${tableLayout.cellStyle(colKey)}" ${textValue ? `title="${esc(textValue)}"` : ''} onclick="${onClick}">
                             <div class="tm-custom-field-cell">${displayHtml}</div>
                         </td>
                     `;
@@ -58510,6 +59828,11 @@ async function __tmRefreshAfterWake(reason) {
                 task.completion_time = trimmedValue;
                 metaPatch = { completionTime: trimmedValue };
                 break;
+            case __TM_TASK_COMPLETE_AT_ATTR:
+                task.taskCompleteAt = __tmNormalizeTaskCompleteAtValue(trimmedValue);
+                task.task_complete_at = task.taskCompleteAt;
+                metaPatch = { taskCompleteAt: task.taskCompleteAt };
+                break;
             case 'custom-duration':
                 task.duration = trimmedValue;
                 metaPatch = { duration: trimmedValue };
@@ -58695,6 +60018,8 @@ async function __tmRefreshAfterWake(reason) {
             start_date: String(attrs['custom-start-date'] || '').trim(),
             completionTime: String(attrs['custom-completion-time'] || '').trim(),
             completion_time: String(attrs['custom-completion-time'] || '').trim(),
+            taskCompleteAt: String(attrs[__TM_TASK_COMPLETE_AT_ATTR] || '').trim(),
+            task_complete_at: String(attrs[__TM_TASK_COMPLETE_AT_ATTR] || '').trim(),
             customStatus: String(attrs['custom-status'] || '').trim(),
             custom_status: String(attrs['custom-status'] || '').trim(),
             pinned: String(attrs['custom-pinned'] || '').trim(),
@@ -58736,12 +60061,25 @@ async function __tmRefreshAfterWake(reason) {
         }
         if (nextMd === kramdown) return true;
         try {
+            try {
+                const task0 = state.flatTasks?.[tid] || state.pendingInsertedTasks?.[tid] || null;
+                __tmMarkLocalDoneTxSuppressionForTask(task0, [tid]);
+            } catch (e) {}
             const res = await API.call('/api/block/updateBlock', {
                 dataType: 'markdown',
                 data: nextMd,
                 id: tid
             });
-            return !!(res && res.code === 0);
+            if (!(res && res.code === 0)) return false;
+            if (targetDone) {
+                try {
+                    await __tmPersistMetaAndAttrsKernel(tid, __tmBuildTaskCompleteAtPatch(), {
+                        touchMetaStore: false,
+                        skipFlush: false,
+                    });
+                } catch (e) {}
+            }
+            return true;
         } catch (e) {
             return false;
         }
@@ -58804,19 +60142,11 @@ async function __tmRefreshAfterWake(reason) {
 
         const val = !!pinned;
         try {
-            // Update state
-            task.pinned = val;
-            
-            // Update MetaStore (fast cache)
-            __tmPersistMetaAndAttrs(id, { pinned: val });
-
-            try {
-                const docId = String(task?.root_id || '').trim();
-                if (docId) __tmInvalidateTasksQueryCacheByDocId(docId);
-                else __tmInvalidateAllSqlCaches();
-            } catch (e) {}
-
-            __tmScheduleRender({ withFilters: true });
+            await __tmMutationEngine.requestTaskPatch(String(id || '').trim(), { pinned: val ? '1' : '' }, {
+                source: 'toggle-pinned',
+                label: val ? '置顶' : '取消置顶',
+                withFilters: true,
+            });
             hint(`✅ ${val ? '已置顶' : '已取消置顶'}`, 'success');
         } catch (e) {
             hint(`❌ 操作失败: ${e.message}`, 'error');
@@ -58828,6 +60158,7 @@ async function __tmRefreshAfterWake(reason) {
         const opts = (options && typeof options === 'object') ? options : {};
         const targetDone = !!done;
         const useCalendarLocalRefresh = __tmShouldSyncCalendarDoneInPlace(opts.source);
+        const useLocalRefreshMode = String(opts.refreshMode || '').trim() === 'local';
         if (ev) {
             ev.stopPropagation();
             ev.preventDefault();
@@ -58853,6 +60184,11 @@ async function __tmRefreshAfterWake(reason) {
             return;
         }
         const statusPatch = __tmBuildCheckboxStatusPatch(task, targetDone, opts.statusPatch);
+        const completeAtPatch = targetDone ? __tmBuildTaskCompleteAtPatch() : null;
+        const touchPatch = {
+            ...((statusPatch && typeof statusPatch === 'object') ? statusPatch : {}),
+            ...((completeAtPatch && typeof completeAtPatch === 'object') ? completeAtPatch : {}),
+        };
         if (!task) {
             const ok = await __tmSetDoneByIdStateless(id, done);
             if (ok) {
@@ -58862,10 +60198,15 @@ async function __tmRefreshAfterWake(reason) {
                             touchMetaStore: false,
                             skipFlush: false,
                         });
-                        MetaStore.set(String(id || '').trim(), statusPatch);
+                        MetaStore.set(String(id || '').trim(), {
+                            ...statusPatch,
+                            ...((targetDone && completeAtPatch) ? completeAtPatch : {}),
+                        });
                     } catch (statusErr) {
                         try { console.error('[完成状态] 状态联动保存失败:', statusErr); } catch (e) {}
                     }
+                } else if (targetDone && completeAtPatch) {
+                    try { MetaStore.set(String(id || '').trim(), completeAtPatch); } catch (e) {}
                 }
                 try {
                     if (!state.doneOverrides || typeof state.doneOverrides !== 'object') state.doneOverrides = {};
@@ -58880,7 +60221,7 @@ async function __tmRefreshAfterWake(reason) {
                     try {
                         __tmScheduleRecurringTaskAdvanceAfterCompletion(id, {
                             source: opts.source,
-                            completedAt: new Date().toISOString(),
+                            completedAt: __tmNowInChinaTimezoneIso(),
                             scheduleId: String(opts.scheduleId || '').trim(),
                         });
                     } catch (e) {}
@@ -58889,8 +60230,18 @@ async function __tmRefreshAfterWake(reason) {
                 }
                 if (useCalendarLocalRefresh) {
                     try { globalThis.__tmCalendar?.syncTaskDoneInPlace?.(id, !!done, { allowRefetch: true }); } catch (e) {}
-                } else {
-                    try { globalThis.__tmCalendar?.refreshInPlace?.({ hard: false }); } catch (e) {}
+                } else if (!useLocalRefreshMode) {
+                    try {
+                        __tmScheduleViewRefresh({
+                            mode: 'current',
+                            withFilters: true,
+                            reason: 'set-done-stateless',
+                        });
+                    } catch (e) {
+                        try { __tmRefreshMainViewInPlace({ withFilters: true }); } catch (e2) {
+                            try { render(); } catch (e3) {}
+                        }
+                    }
                 }
                 return;
             }
@@ -58973,6 +60324,7 @@ async function __tmRefreshAfterWake(reason) {
         // render() 会在从DOM读取实际状态后调用
 
         try {
+            try { __tmMarkLocalDoneTxSuppressionForTask(task, [String(id || '').trim()]); } catch (e) {}
             // 优先尝试 API 更新（解决文档未打开无法操作的问题）
             let apiSuccess = false;
             let clickSuccess = false;
@@ -59129,18 +60481,18 @@ async function __tmRefreshAfterWake(reason) {
             }
 
             let statusSyncError = null;
-            if (statusPatch && Object.keys(statusPatch).length > 0) {
+            if (touchPatch && Object.keys(touchPatch).length > 0) {
                 try {
-                    await __tmPersistMetaAndAttrsKernel(id, statusPatch, {
+                    await __tmPersistMetaAndAttrsKernel(id, touchPatch, {
                         touchMetaStore: false,
                         skipFlush: false,
                     });
-                    __tmApplyAttrPatchLocally(id, statusPatch, { render: false, withFilters: false });
+                    __tmApplyAttrPatchLocally(id, touchPatch, { render: false, withFilters: false });
                 } catch (statusErr) {
                     statusSyncError = statusErr;
                     try { console.error('[完成状态] 状态联动保存失败:', statusErr); } catch (e) {}
                     const restorePatch = {};
-                    if (Object.prototype.hasOwnProperty.call(statusPatch, 'customStatus')) restorePatch.customStatus = originalCustomStatus;
+                    if (Object.prototype.hasOwnProperty.call(touchPatch, 'customStatus')) restorePatch.customStatus = originalCustomStatus;
                     if (Object.keys(restorePatch).length > 0) {
                         try { __tmApplyAttrPatchLocally(id, restorePatch, { render: false, withFilters: false }); } catch (e) {}
                     }
@@ -59156,11 +60508,16 @@ async function __tmRefreshAfterWake(reason) {
                 customTime: task.customTime || '',
                 customStatus: task.customStatus || '',
                 done: actualDone,
-                content: task.content
+                content: task.content,
+                ...((actualDone && completeAtPatch) ? completeAtPatch : {}),
             });
 
             // 更新本地状态
             task.done = actualDone;
+            if (actualDone && completeAtPatch) {
+                task.taskCompleteAt = String(completeAtPatch.taskCompleteAt || '').trim();
+                task.task_complete_at = task.taskCompleteAt;
+            }
             state.flatTasks[id] = task;
             try {
                 if (!state.doneOverrides || typeof state.doneOverrides !== 'object') state.doneOverrides = {};
@@ -59186,15 +60543,29 @@ async function __tmRefreshAfterWake(reason) {
             if (useCalendarLocalRefresh) {
                 try { globalThis.__tmCalendar?.syncTaskDoneInPlace?.(id, !!actualDone, { allowRefetch: true }); } catch (e) {}
                 __tmRestoreChecklistDetailScrollSnapshot(detailScrollSnapshot);
-            } else {
-                // 延迟 render() 确保思源原生处理完成
-                requestAnimationFrame(() => {
-                    requestAnimationFrame(() => {
-                        if (shouldPreserveCalendarSidebarChecklistScroll) __tmRefreshCalendarSidebarChecklistPreserveScroll();
-                        else render();
-                        __tmRestoreChecklistDetailScrollSnapshot(detailScrollSnapshot);
+            } else if (!useLocalRefreshMode) {
+                try {
+                    __tmScheduleViewRefresh({
+                        mode: 'current',
+                        withFilters: true,
+                        reason: 'set-done-success',
                     });
-                });
+                } catch (e) {
+                    try {
+                        if (shouldPreserveCalendarSidebarChecklistScroll) __tmRefreshCalendarSidebarChecklistPreserveScroll();
+                        else __tmRefreshMainViewInPlace({ withFilters: true });
+                    } catch (e2) {
+                        try { render(); } catch (e3) {}
+                    }
+                }
+                try { __tmRestoreChecklistDetailScrollSnapshot(detailScrollSnapshot); } catch (e) {}
+                try {
+                    requestAnimationFrame(() => {
+                        try { __tmRestoreChecklistDetailScrollSnapshot(detailScrollSnapshot); } catch (e2) {}
+                    });
+                } catch (e) {}
+            } else {
+                try { __tmRestoreChecklistDetailScrollSnapshot(detailScrollSnapshot); } catch (e) {}
             }
 
             try {
@@ -59211,7 +60582,7 @@ async function __tmRefreshAfterWake(reason) {
                 try {
                     __tmScheduleRecurringTaskAdvanceAfterCompletion(id, {
                         source: opts.source,
-                        completedAt: new Date().toISOString(),
+                        completedAt: __tmNowInChinaTimezoneIso(),
                         scheduleId: String(opts.scheduleId || '').trim(),
                     });
                 } catch (e) {}
@@ -59250,11 +60621,29 @@ async function __tmRefreshAfterWake(reason) {
             if (useCalendarLocalRefresh) {
                 try { globalThis.__tmCalendar?.syncTaskDoneInPlace?.(id, originalDone, { allowRefetch: true }); } catch (e) {}
                 __tmRestoreChecklistDetailScrollSnapshot(detailScrollSnapshot);
+            } else if (!useLocalRefreshMode) {
+                try {
+                    __tmScheduleViewRefresh({
+                        mode: 'current',
+                        withFilters: true,
+                        reason: 'set-done-rollback',
+                    });
+                } catch (e) {
+                    try {
+                        if (shouldPreserveCalendarSidebarChecklistScroll) __tmRefreshCalendarSidebarChecklistPreserveScroll();
+                        else __tmRefreshMainViewInPlace({ withFilters: true });
+                    } catch (e2) {
+                        try { render(); } catch (e3) {}
+                    }
+                }
+                try { __tmRestoreChecklistDetailScrollSnapshot(detailScrollSnapshot); } catch (e) {}
+                try {
+                    requestAnimationFrame(() => {
+                        try { __tmRestoreChecklistDetailScrollSnapshot(detailScrollSnapshot); } catch (e2) {}
+                    });
+                } catch (e) {}
             } else {
-                try { applyFilters(); } catch (e) {}
-                if (shouldPreserveCalendarSidebarChecklistScroll) __tmRefreshCalendarSidebarChecklistPreserveScroll();
-                else render();
-                __tmRestoreChecklistDetailScrollSnapshot(detailScrollSnapshot);
+                try { __tmRestoreChecklistDetailScrollSnapshot(detailScrollSnapshot); } catch (e) {}
             }
             if (opts.suppressHint !== true) hint(`❌ 操作失败: ${err.message}`, 'error');
         } finally {
@@ -59269,6 +60658,15 @@ async function __tmRefreshAfterWake(reason) {
 
     window.tmSetDone = async function(id, done, ev, options = {}) {
         const opts = (options && typeof options === 'object') ? options : {};
+        try {
+            __tmPushRefreshDebug('tmSetDone:start', {
+                taskId: String(id || '').trim(),
+                nextDone: !!done,
+                source: String(opts.source || '').trim(),
+                viewMode: String(state.viewMode || '').trim(),
+                detailTaskId: String(state.detailTaskId || '').trim(),
+            });
+        } catch (e) {}
         if (ev) {
             try { ev.stopPropagation(); } catch (e) {}
             try { ev.preventDefault(); } catch (e) {}
@@ -59290,45 +60688,31 @@ async function __tmRefreshAfterWake(reason) {
         }
         const targetDone = !!done;
         if (!!task.done === targetDone) return;
-        const statusPatch = __tmBuildCheckboxStatusPatch(task, targetDone, opts.statusPatch);
-        const inversePatch = {
-            done: !!task.done,
-            ...((statusPatch && Object.keys(statusPatch).length > 0) ? __tmCaptureTaskPatchInverse(tid, statusPatch) : {}),
-        };
         try {
-            await __tmEnqueueQueuedOp({
-                type: 'setDone',
-                docId: String(task.root_id || task.docId || '').trim(),
-                laneKey: 'setDone:global',
-                coalesceKey: `setDone:${tid}`,
-                data: {
+            await __tmMutationEngine.requestTaskPatch(tid, { done: targetDone }, {
+                source: String(opts.source || '').trim(),
+                label: __tmGetUndoLabel(opts.label, '完成状态'),
+                suppressHint: opts.suppressHint === true,
+                statusPatch: opts.statusPatch,
+                scheduleId: String(opts.scheduleId || '').trim(),
+            });
+            try {
+                __tmPushRefreshDebug('tmSetDone:success', {
                     taskId: tid,
-                    done: targetDone,
-                    docId: String(task.root_id || task.docId || '').trim(),
-                    statusPatch: statusPatch && Object.keys(statusPatch).length > 0 ? { ...statusPatch } : null,
-                    suppressHint: opts.suppressHint === true,
-                    source: String(opts.source || '').trim(),
-                    scheduleId: String(opts.scheduleId || '').trim(),
-                },
-                inversePatch,
-            }, { wait: true });
-            if (opts.recordUndo !== false && !__tmUndoState.applying) {
-                __tmPushUndoRecord({
-                    type: 'setDone',
-                    taskId: tid,
-                    requestedTaskId: tid,
-                    patch: {
-                        done: targetDone,
-                        ...((statusPatch && Object.keys(statusPatch).length > 0) ? statusPatch : {}),
-                    },
-                    inversePatch,
-                    label: __tmGetUndoLabel(opts.label, '完成状态'),
-                    source: String(opts.source || '').trim(),
+                    nextDone: targetDone,
+                    detailTaskId: String(state.detailTaskId || '').trim(),
                 });
-            }
+            } catch (e) {}
             if (targetDone) __tmQueueTaskDoneDelight(tid, { done: true, suppressHint: opts.suppressHint, source: opts.source });
             if (opts.suppressHint === true) return true;
         } catch (e) {
+            try {
+                __tmPushRefreshDebug('tmSetDone:error', {
+                    taskId: tid,
+                    nextDone: targetDone,
+                    error: String(e?.message || e || ''),
+                });
+            } catch (e2) {}
             hint(`❌ 操作失败: ${e.message}`, 'error');
             if (ev?.target) ev.target.checked = !targetDone;
         }
@@ -59738,10 +61122,11 @@ async function __tmRefreshAfterWake(reason) {
                 b.innerHTML = __tmRenderPriorityJira(value, true);
                 b.onclick = async () => {
                     try {
-                        task.priority = value;
-                        __tmPersistMetaAndAttrs(id, { priority: value || '' });
+                        await __tmMutationEngine.requestTaskPatch(id, { priority: value || '' }, {
+                            source: 'inline-priority',
+                            label: '重要性',
+                        });
                         close();
-                        __tmRefreshMainViewInPlace({ withFilters: true });
                     } catch (e) {
                         hint(`❌ 更新失败: ${e.message}`, 'error');
                     }
@@ -59787,13 +61172,12 @@ async function __tmRefreshAfterWake(reason) {
                 chip.textContent = String(opt?.name || opt?.id || '');
                 b.appendChild(chip);
                 b.onclick = async () => {
+                    close();
                     try {
-                        await __tmApplyTaskStatus(id, opt.id, {
+                        await __tmMutationEngine.requestTaskPatch(id, { customStatus: opt.id }, {
                             source: 'inline-status',
                             label: '状态',
                         });
-                        close();
-                        __tmRefreshMainViewInPlace({ withFilters: true });
                     } catch (e) {
                         hint(`❌ 更新失败: ${e.message}`, 'error');
                     }
@@ -59839,34 +61223,16 @@ async function __tmRefreshAfterWake(reason) {
         const field = __tmGetCustomFieldDefMap().get(fid);
         if (!tid || !task || !field) return false;
         const normalized = __tmNormalizeCustomFieldValue(field, nextValue);
-        const prevValueRaw = __tmGetTaskCustomFieldValue(task, fid);
-        const prevValue = __tmNormalizeCustomFieldValue(field, Array.isArray(prevValueRaw) ? [...prevValueRaw] : prevValueRaw);
-        __tmApplyTaskCustomFieldValueLocally(task, field, normalized);
-        try {
-            const pending = state.pendingInsertedTasks?.[tid];
-            if (pending && typeof pending === 'object') __tmApplyTaskCustomFieldValueLocally(pending, field, normalized);
-        } catch (e) {}
-        try { MetaStore.set(tid, { customFieldValues: { [fid]: normalized } }); } catch (e) {}
         const opts = (options && typeof options === 'object') ? options : {};
-        try {
-            await __tmPersistMetaAndAttrsAsync(tid, { customFieldValues: { [fid]: normalized } }, {
-                queued: false,
-                skipFlush: false,
-                touchMetaStore: false,
-            });
-        } catch (e) {
-            try { __tmApplyTaskCustomFieldValueLocally(task, field, prevValue); } catch (err) {}
-            try {
-                const pending = state.pendingInsertedTasks?.[tid];
-                if (pending && typeof pending === 'object') __tmApplyTaskCustomFieldValueLocally(pending, field, prevValue);
-            } catch (err) {}
-            try { MetaStore.set(tid, { customFieldValues: { [fid]: prevValue } }); } catch (err) {}
-            throw e;
-        }
+        await __tmMutationEngine.requestTaskPatch(tid, {
+            customFieldValues: { [fid]: normalized }
+        }, {
+            source: String(opts.source || 'custom-field').trim() || 'custom-field',
+            label: String(field?.name || '自定义列').trim() || '自定义列',
+            withFilters: opts.withFilters !== false,
+        });
         if (typeof opts.onAfterSave === 'function') {
             try { opts.onAfterSave(normalized, field); } catch (e) {}
-        } else if (opts.refresh !== false) {
-            try { __tmRefreshMainViewInPlace({ withFilters: opts.withFilters !== false }); } catch (e) {}
         }
         return true;
     }
@@ -60058,13 +61424,12 @@ async function __tmRefreshAfterWake(reason) {
                 chip.textContent = String(opt?.name || opt?.id || '');
                 b.appendChild(chip);
                 b.onclick = async () => {
+                    close();
                     try {
-                        await __tmApplyTaskStatus(id, opt.id, {
+                        await __tmMutationEngine.requestTaskPatch(id, { customStatus: opt.id }, {
                             source: 'kanban-status',
                             label: '状态',
                         });
-                        close();
-                        __tmRefreshMainViewInPlace({ withFilters: true });
                     } catch (e) {
                         hint(`❌ 更新失败: ${e.message}`, 'error');
                     }
@@ -61316,9 +62681,7 @@ async function __tmRefreshAfterWake(reason) {
         try { recalcStats(); } catch (e) {}
         if (__tmShouldSyncCalendarDoneInPlace(source)) {
             try { globalThis.__tmCalendar.syncTaskDoneInPlace(tid, !!done, { allowRefetch: true }); } catch (e) {}
-            return true;
         }
-        try { __tmScheduleRender({ withFilters: true }); } catch (e) {}
         return true;
     }
 
@@ -61344,7 +62707,17 @@ async function __tmRefreshAfterWake(reason) {
             try { globalThis.__tmCalendar.syncTaskDoneInPlace(tid, prevDone, { allowRefetch: true }); } catch (e) {}
             return true;
         }
-        try { __tmScheduleRender({ withFilters: true }); } catch (e) {}
+        try {
+            __tmScheduleViewRefresh({
+                mode: 'current',
+                withFilters: true,
+                reason: 'rollback-done-optimistic',
+            });
+        } catch (e) {
+            try { __tmRefreshMainViewInPlace({ withFilters: true }); } catch (e2) {
+                try { render(); } catch (e3) {}
+            }
+        }
         return true;
     }
 
@@ -61981,7 +63354,28 @@ async function __tmRefreshAfterWake(reason) {
     // 注册全局刷新回调，供悬浮条调用
     globalThis.__taskHorizonRefresh = () => {
         try {
-            // 悬浮条触发时优先走静默就地刷新，避免出现整页重载感。
+            const modifiedIds = Array.from(__tmModifiedTaskIds || []).map((id) => String(id || '').trim()).filter(Boolean);
+            if (__tmIsPluginVisibleNow()) {
+                if (modifiedIds.length > 0) {
+                    modifiedIds.forEach((taskId) => {
+                        try { __tmViewControllers.detail.patchTask(taskId); } catch (e) {}
+                    });
+                }
+                try {
+                    if (state.modal && document.body.contains(state.modal)) {
+                        if (!__tmRerenderCurrentViewInPlace(state.modal)) {
+                            __tmScheduleViewRefresh({
+                                mode: 'current',
+                                withFilters: true,
+                                reason: 'quickbar-refresh-visible',
+                            });
+                        }
+                    }
+                } catch (e) {}
+                try { __tmModifiedTaskIds.clear(); } catch (e) {}
+                return;
+            }
+            // 不可见时再退回静默就地刷新，避免切回页面后数据过旧。
             if (state.isRefreshing) {
                 setTimeout(() => { try { __tmSilentRefreshAfterQuickbarUpdate(); } catch (e) {} }, 500);
                 return;
@@ -62101,7 +63495,7 @@ async function __tmRefreshAfterWake(reason) {
                             <!-- 桌面端/移动端通用的日期选择器 -->
                             <div style="position:relative; display:inline-block; max-width:100%;">
                                 <button class="tm-btn tm-btn-secondary" onclick="tmQuickAddOpenDatePicker()" style="padding: 6px 12px; font-size: 13px; display:flex; align-items:center; gap:4px; max-width:100%;">
-                                    🗓 <span id="tmQuickAddDateLabel" style="display:inline-block; max-width:120px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">完成日期</span>
+                                    🗓 <span id="tmQuickAddDateLabel" style="display:inline-block; max-width:120px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">截止日期</span>
                                 </button>
                                 <input type="date" id="tmQuickAddDateInput" oninput="tmQuickAddDateChanged(this.value)" onchange="tmQuickAddDateChanged(this.value)" 
                                        style="position:absolute; opacity:0; width:1px; height:1px; left:0; bottom:0; pointer-events:none; border:0; padding:0; margin:0; overflow:hidden; z-index:-1;">
@@ -62223,7 +63617,7 @@ async function __tmRefreshAfterWake(reason) {
             const dateLabel = document.getElementById('tmQuickAddDateLabel');
             const dateInput = document.getElementById('tmQuickAddDateInput');
             if (dateLabel && dateInput) {
-                const ct = qa.completionTime ? __tmFormatTaskTime(qa.completionTime) : '完成日期';
+                const ct = qa.completionTime ? __tmFormatTaskTime(qa.completionTime) : '截止日期';
                 dateLabel.textContent = ct;
                 dateInput.value = qa.completionTime ? __tmNormalizeDateOnly(qa.completionTime) : '';
 
@@ -62341,7 +63735,7 @@ async function __tmRefreshAfterWake(reason) {
         if (!qa) return;
         const input = document.getElementById('tmQuickAddDateInput');
         if (__tmIsMobileDevice()) {
-            const next = await showDatePrompt('设置完成日期', __tmNormalizeDateOnly(String(qa.completionTime || '')));
+            const next = await showDatePrompt('设置截止日期', __tmNormalizeDateOnly(String(qa.completionTime || '')));
             if (next === null) return;
             qa.completionTime = String(next || '').trim();
             window.tmQuickAddRenderMeta?.();
@@ -62368,7 +63762,7 @@ async function __tmRefreshAfterWake(reason) {
     window.tmQuickAddPickCompletion = async function() {
         const qa = state.quickAdd;
         if (!qa) return;
-        const v = await showPrompt('完成日期', '输入日期，如 2026-02-07（留空清除）', String(qa.completionTime || ''));
+        const v = await showPrompt('截止日期', '输入日期，如 2026-02-07（留空清除）', String(qa.completionTime || ''));
         if (v === null) return;
         qa.completionTime = String(v || '').trim();
         window.tmQuickAddRenderMeta?.();
@@ -62742,6 +64136,8 @@ async function __tmRefreshAfterWake(reason) {
             done = otherBlocks.filter((task) => !!task?.done).length;
             state.stats.totalTasks = total;
             state.stats.doneTasks = done;
+            state.stats.todoTasks = Math.max(0, total - done);
+            try { __tmScheduleHomepageRefresh('stats-recalc-other'); } catch (e) {}
             return;
         }
         const traverse = (tasks) => {
@@ -62758,6 +64154,8 @@ async function __tmRefreshAfterWake(reason) {
         });
         state.stats.totalTasks = total;
         state.stats.doneTasks = done;
+        state.stats.todoTasks = Math.max(0, total - done);
+        try { __tmScheduleHomepageRefresh('stats-recalc'); } catch (e) {}
     }
 
     // 解析文档分组中的所有文档ID
@@ -64089,6 +65487,10 @@ async function __tmRefreshAfterWake(reason) {
                     ? String(__tmGetTaskRemainingTimeLabel(task) || '').trim()
                     : '';
                 const showCompactRemainingTime = !!compactRemainingTimeLabel && !!(String(task?.startDate || '').trim() || String(task?.completionTime || '').trim());
+                const compactDurationText = checklistCompact && compactChecklistMetaFieldSet.has('duration')
+                    ? String(task.duration || '').trim()
+                    : '';
+                const showCompactDuration = !!compactDurationText;
                 const showCompactStatusTag = !checklistCompact || compactChecklistMetaFieldSet.has('status');
                 const meta = [];
                 if (showTaskDocName && task.docName) meta.push(`<span class="tm-checklist-meta-chip">${__tmRenderLucideIcon('file-text')} ${esc(String(task.docName || ''))}</span>`);
@@ -64101,6 +65503,7 @@ async function __tmRefreshAfterWake(reason) {
                 if (showCompactStartDate) compactMetaParts.push(`<span class="tm-checklist-meta-compact-start" data-tm-task-time-field="startDateCompact">${esc(__tmFormatTaskTimeCompact(task.startDate))}</span>`);
                 if (showCompactCompletionTime) compactMetaParts.push(`<span class="tm-checklist-meta-compact-time" data-tm-task-time-field="completionTimeCompact">${esc(__tmFormatTaskTimeCompact(task.completionTime))}</span>`);
                 if (showCompactRemainingTime) compactMetaParts.push(`<span class="tm-checklist-meta-compact-remaining" data-tm-task-time-field="remainingTimeCompact">${esc(compactRemainingTimeLabel)}</span>`);
+                if (showCompactDuration) compactMetaParts.push(`<span class="tm-checklist-meta-compact-duration" data-tm-task-time-field="durationCompact">${esc(compactDurationText)}</span>`);
                 const hasCompactMeta = compactMetaParts.length > 0;
                 const compactMeta = hasCompactMeta
                     ? `<div class="tm-checklist-meta-compact">${compactMetaParts.join('')}</div>`
@@ -64132,9 +65535,9 @@ async function __tmRefreshAfterWake(reason) {
                         </div>
                         <div class="tm-checklist-item-main" ondblclick="tmChecklistItemDblClick('${escSq(String(task.id || ''))}', event)">
                             <div class="${titleRowClass}">
-                                <div class="tm-checklist-title-main"><div class="tm-checklist-title"><span class="tm-checklist-title-button"><span${titleDragAttrs} onclick="tmChecklistTitleClick('${escSq(String(task.id || ''))}', event)"${__tmBuildTooltipAttrs(String(task.content || '').trim() || '(无内容)', { side: 'bottom', ariaLabel: false })}>${esc(String(task.content || '').trim() || '(无内容)')}${__tmRenderRecurringTaskInlineIcon(task)}${__tmRenderRecurringInstanceBadge(task, { className: 'tm-recurring-instance-badge--inline' })}</span></span>${reminderHtml}${remarkIconHtml}</div></div>
+                                <div class="tm-checklist-title-main"><div class="tm-checklist-title"><span class="tm-checklist-title-button"><span${titleDragAttrs} onclick="tmChecklistTitleClick('${escSq(String(task.id || ''))}', event)"${__tmBuildTooltipAttrs(String(task.content || '').trim() || '(无内容)', { side: 'bottom', ariaLabel: false })}>${esc(String(task.content || '').trim() || '(无内容)')}${__tmRenderRecurringTaskInlineIcon(task)}${__tmRenderRecurringInstanceBadge(task, { className: 'tm-recurring-instance-badge--inline' })}</span></span>${reminderHtml}<span data-tm-field="remarkIcon">${remarkIconHtml}</span></div></div>
                                 ${compactMeta}
-                                ${showCompactStatusTag ? `<span class="tm-status-tag" style="${statusChipStyle}">${esc(String(statusOption?.name || statusOption?.id || ''))}</span>` : ''}
+                                ${showCompactStatusTag ? `<span class="tm-status-tag" data-tm-field="status" style="${statusChipStyle}">${esc(String(statusOption?.name || statusOption?.id || ''))}</span>` : ''}
                                 ${task.pinned ? `<span class="tm-checklist-meta-chip" title="置顶">${__tmRenderLucideIcon('pin')}</span>` : ''}
                                 ${hasChildren ? `<span class="tm-checklist-mobile-toggle" onclick="tmToggleCollapse('${escSq(String(task.id || ''))}', event)" style="opacity:1;pointer-events:auto;">${__tmRenderToggleIcon(16, collapsed ? 0 : 90, 'tm-tree-toggle-icon')}</span>` : ''}
                             </div>
@@ -64534,7 +65937,7 @@ async function __tmRefreshAfterWake(reason) {
                                 </div>
                             </div>
                             <div style="display:flex; align-items:center; justify-content:space-between; gap:10px; padding:10px 12px; border:1px solid var(--tm-border-color); border-radius:8px; background: var(--tm-card-bg); margin-bottom: 12px;">
-                                <div style="font-size:13px; color: var(--tm-text-color);">时间轴强制按完成日期排序（越近今天越靠前）</div>
+                                <div style="font-size:13px; color: var(--tm-text-color);">时间轴强制按截止日期排序（越近今天越靠前）</div>
                                 <input class="b3-switch fn__flex-center" type="checkbox" ${SettingsStore.data.timelineForceSortByCompletionNearToday ? 'checked' : ''} onchange="tmToggleTimelineForceSortByCompletionNearToday(this.checked)">
                             </div>
                             <div id="tm-rules-list" style="display: flex; flex-direction: column; gap: 8px;">
@@ -64562,7 +65965,7 @@ async function __tmRefreshAfterWake(reason) {
                         <div class="tm-settings-panel">
                             <div style="font-weight: 600; margin-bottom: 12px;">📊 四象限分组规则</div>
                             <div style="font-size: 12px; color: var(--tm-secondary-text); margin-bottom: 12px;">
-                                根据任务的「重要性」和「完成日期」自动将任务分配到四个象限。
+                                根据任务的「重要性」和「截止日期」自动将任务分配到四个象限。
                             </div>
                             ${renderQuadrantSettings()}
                         </div>
@@ -64813,7 +66216,7 @@ async function __tmRefreshAfterWake(reason) {
                         <div style="margin-bottom:10px;">
                             ${renderSingleFieldSetting(
                                 'Dock 及移动端紧凑右侧字段',
-                                '控制 Dock 侧边栏、移动端清单紧凑视图，以及日历视图侧边栏任务清单里任务右侧显示哪些信息。默认显示完成时间和状态标签。',
+                                '控制 Dock 侧边栏、移动端清单紧凑视图，以及日历视图侧边栏任务清单里任务右侧显示哪些信息。默认显示截止日期和状态标签。',
                                 (() => {
                                     const selected = new Set(__tmNormalizeCompactChecklistMetaFields(SettingsStore.data.dockChecklistCompactMetaFields));
                                     return `<div style="display:flex;gap:8px;flex-wrap:wrap;">${__TM_CHECKLIST_COMPACT_META_FIELD_OPTIONS.map((item) => `
@@ -64827,7 +66230,7 @@ async function __tmRefreshAfterWake(reason) {
                         </div>
                         ${renderSingleFieldSetting(
                             '桌面端紧凑右侧字段',
-                            '控制桌面端清单紧凑视图里任务右侧显示哪些信息。默认显示完成时间和状态标签，文档名仅在全部页签下显示。',
+                            '控制桌面端清单紧凑视图里任务右侧显示哪些信息。默认显示截止日期和状态标签，文档名仅在全部页签下显示。',
                             (() => {
                                 const selected = new Set(__tmNormalizeCompactChecklistMetaFields(SettingsStore.data.desktopChecklistCompactMetaFields));
                                 return `<div style="display:flex;gap:8px;flex-wrap:wrap;">${__TM_CHECKLIST_COMPACT_META_FIELD_OPTIONS.map((item) => `
@@ -64886,7 +66289,7 @@ async function __tmRefreshAfterWake(reason) {
                         )}
                         ${renderSingleSwitchSetting(
                             '清单紧凑模式',
-                            '单行任务，右侧显示文档和完成时间。',
+                            '单行任务，右侧显示文档和截止日期。',
                             `<input class="b3-switch fn__flex-center" type="checkbox" ${SettingsStore.data.checklistCompactMode ? 'checked' : ''} onchange="updateChecklistCompactMode(this.checked)">`,
                             { style: 'margin-bottom:10px;' }
                         )}
@@ -65007,7 +66410,7 @@ async function __tmRefreshAfterWake(reason) {
                         )}
                         ${renderSingleSwitchSetting(
                             '自动识别语义日期（全量分批）',
-                            '开启后，刷新任务后会分批扫描全部任务里的“明天/下周五/今晚8点”等表达，并弹窗确认写入完成时间。默认开启，如需避免同步后自动弹窗可关闭。',
+                            '开启后，刷新任务后会分批扫描全部任务里的“明天/下周五/今晚8点”等表达，并弹窗确认写入截止日期。默认开启，如需避免同步后自动弹窗可关闭。',
                             `<input class="b3-switch fn__flex-center" type="checkbox" ${SettingsStore.data.semanticDateAutoPromptEnabled ? 'checked' : ''} onchange="updateSemanticDateAutoPromptEnabled(this.checked)">`,
                             { style: 'margin-bottom:10px;' }
                         )}
@@ -65089,7 +66492,7 @@ async function __tmRefreshAfterWake(reason) {
                                         { key: 'custom-status', label: '状态' },
                                         { key: 'custom-priority', label: '重要性' },
                                         { key: 'custom-start-date', label: '开始日期' },
-                                        { key: 'custom-completion-time', label: '完成日期' },
+                                        { key: 'custom-completion-time', label: '截止日期' },
                                         { key: 'custom-duration', label: '时长' },
                                         { key: 'custom-remark', label: '备注' },
                                         { key: 'action-ai-title', label: 'AI 优化' },
@@ -65109,11 +66512,11 @@ async function __tmRefreshAfterWake(reason) {
                         <div style="margin-top:10px;opacity:${SettingsStore.data.enableQuickbarInlineMeta ? 1 : 0.6};">
                             ${renderSingleFieldSetting(
                                 '常驻显示字段',
-                                '默认显示状态和完成时间，字段越多越容易挤占任务正文空间。',
+                                '默认显示状态和截止日期，字段越多越容易挤占任务正文空间。',
                                 `<div style="display:flex;gap:8px;flex-wrap:wrap;">
                                     ${[
                                         { key: 'custom-status', label: '状态' },
-                                        { key: 'custom-completion-time', label: '完成时间' },
+                                        { key: 'custom-completion-time', label: '截止日期' },
                                         { key: 'custom-priority', label: '重要性' },
                                         { key: 'custom-start-date', label: '开始日期' },
                                         { key: 'custom-duration', label: '时长' },
@@ -66988,7 +68391,7 @@ async function __tmRefreshAfterWake(reason) {
 
         const desc = document.createElement('div');
         desc.style.cssText = 'padding: 2px 0 10px; color: var(--tm-secondary-text); font-size: 13px; line-height: 1.7;';
-        desc.textContent = '按 List Name 创建文档，按 Column Name 创建二级标题，Title 创建任务，Start Date / Due Date 写入开始日期和完成日期，Priority 映射重要性；可选择是否导入 Status=1 的已完成任务和 Status=2 的归档任务，并按文档并行写入。';
+        desc.textContent = '按 List Name 创建文档，按 Column Name 创建二级标题，Title 创建任务，Start Date / Due Date 写入开始日期和截止日期，Priority 映射重要性；可选择是否导入 Status=1 的已完成任务和 Status=2 的归档任务，并按文档并行写入。';
         box.appendChild(desc);
 
         const notebookRow = document.createElement('label');
@@ -68473,7 +69876,7 @@ async function __tmRefreshAfterWake(reason) {
     }
 
     function __tmSummaryTaskDate(task) {
-        const ts = __tmParseTimeToTs(task?.updated || '');
+        const ts = __tmParseTimeToTs(task?.taskCompleteAt || task?.task_complete_at || task?.updated || '');
         return __tmSummaryDateKeyFromTs(ts);
     }
 
@@ -69488,7 +70891,7 @@ async function __tmRefreshAfterWake(reason) {
             },
             completionTime: {
                 key: 'completionTime',
-                label: '完成日期',
+                label: '截止日期',
                 kind: 'date',
                 wch: pxToWch(widthMap.completionTime, 14),
                 value: (task) => String(task?.completionTime || '').trim()
@@ -72422,7 +73825,7 @@ async function __tmRefreshAfterWake(reason) {
             }
             menu.addItem({
                 icon: 'iconTaskHorizon',
-                label: '语义识别完成日期',
+                label: '语义识别截止日期',
                 click: () => {
                     try { window.tmAiSemanticCompletionPreview?.(docId); } catch (e) {}
                 }
@@ -72463,7 +73866,7 @@ async function __tmRefreshAfterWake(reason) {
                     });
                     menu.addItem({
                         icon: 'iconTaskHorizon',
-                        label: '语义识别完成日期',
+                        label: '语义识别截止日期',
                         click: () => {
                             try { window.tmAiSemanticCompletionPreview?.(docId); } catch (e) {}
                         }
@@ -72575,7 +73978,7 @@ async function __tmRefreshAfterWake(reason) {
                         });
                         __tmInsertMenuItem(menuItems, scheduleItem);
                     }
-                    const semanticItem = __tmCreateNativeMenuItem('语义识别完成日期', async () => {
+                    const semanticItem = __tmCreateNativeMenuItem('语义识别截止日期', async () => {
                         await window.tmAiSemanticCompletionPreview?.(docId);
                     });
                     __tmInsertMenuItem(menuItems, semanticItem);
@@ -72814,7 +74217,7 @@ async function __tmRefreshAfterWake(reason) {
 
     async function __tmReadDocCheckboxBlockAttrs(blockId) {
         const rawId = String(blockId || '').trim();
-        if (!rawId) return null;
+        if (!rawId) return { status: '', taskCompleteAt: '' };
         let attrTargetId = rawId;
         try {
             const resolvedAttrId = await __tmResolveTaskAttrHostIdFromAnyBlockId(rawId);
@@ -72822,50 +74225,63 @@ async function __tmRefreshAfterWake(reason) {
         } catch (e) {}
         try {
             const res = await API.call('/api/attr/getBlockAttrs', { id: attrTargetId });
-            if (!(res && res.code === 0 && res.data && typeof res.data === 'object')) return null;
+            if (!(res && res.code === 0 && res.data && typeof res.data === 'object')) return { status: '', taskCompleteAt: '' };
             const attrs = res.data;
-            return String(attrs['custom-status'] || '').trim();
+            return {
+                status: String(attrs['custom-status'] || '').trim(),
+                taskCompleteAt: __tmNormalizeTaskCompleteAtValue(attrs[__TM_TASK_COMPLETE_AT_ATTR] || ''),
+            };
         } catch (e) {
-            return '';
+            return { status: '', taskCompleteAt: '' };
         }
     }
 
-    async function __tmReconcileNativeDocCheckboxStatus(blockId, taskId, statusPatch, expectedDone, syncVersion = 0) {
+    async function __tmReconcileNativeDocCheckboxStatus(blockId, taskId, attrPatch, expectedDone, syncVersion = 0) {
         const rawId = String(blockId || '').trim();
         const tid = String(taskId || '').trim();
-        const expectedStatus = String(statusPatch?.customStatus || '').trim();
+        const expectedStatus = String(attrPatch?.customStatus || '').trim();
+        const expectedCompleteAt = __tmNormalizeTaskCompleteAtValue(attrPatch?.taskCompleteAt || '');
         const done = !!expectedDone;
-        if (!rawId || !tid || !expectedStatus || !__tmIsNativeDocCheckboxReconcileVersionCurrent(rawId, syncVersion)) return false;
+        if (!rawId || !tid || (!expectedStatus && !expectedCompleteAt) || !__tmIsNativeDocCheckboxReconcileVersionCurrent(rawId, syncVersion)) return false;
         const domDone = __tmReadNativeDocTaskDoneFromDom(rawId);
-        const beforeStatus = await __tmReadDocCheckboxBlockAttrs(tid);
+        const beforeAttrs = await __tmReadDocCheckboxBlockAttrs(tid);
+        const beforeStatus = String(beforeAttrs?.status || '').trim();
+        const beforeCompleteAt = String(beforeAttrs?.taskCompleteAt || '').trim();
         if (!__tmIsNativeDocCheckboxReconcileVersionCurrent(rawId, syncVersion)) return false;
-        if (domDone !== done || beforeStatus === expectedStatus) return false;
-        __tmMirrorNativeDocTaskStatusAttr([rawId, tid], expectedStatus);
-        await __tmPersistMetaAndAttrsKernel(tid, statusPatch, {
+        const statusMatchedBefore = !expectedStatus || beforeStatus === expectedStatus;
+        const completeAtMatchedBefore = !expectedCompleteAt || beforeCompleteAt === expectedCompleteAt;
+        if (domDone !== done || (statusMatchedBefore && completeAtMatchedBefore)) return false;
+        if (expectedStatus) __tmMirrorNativeDocTaskStatusAttr([rawId, tid], expectedStatus);
+        await __tmPersistMetaAndAttrsKernel(tid, attrPatch, {
             touchMetaStore: false,
             skipFlush: false,
+            saveMetaNow: false,
         });
         if (!__tmIsNativeDocCheckboxReconcileVersionCurrent(rawId, syncVersion)) return false;
-        const afterStatus = await __tmReadDocCheckboxBlockAttrs(tid);
-        return afterStatus === expectedStatus;
+        const afterAttrs = await __tmReadDocCheckboxBlockAttrs(tid);
+        const afterStatus = String(afterAttrs?.status || '').trim();
+        const afterCompleteAt = String(afterAttrs?.taskCompleteAt || '').trim();
+        return (!expectedStatus || afterStatus === expectedStatus)
+            && (!expectedCompleteAt || afterCompleteAt === expectedCompleteAt);
     }
 
-    function __tmScheduleNativeDocCheckboxStatusReconcile(blockId, taskId, statusPatch, expectedDone, syncVersion) {
+    function __tmScheduleNativeDocCheckboxStatusReconcile(blockId, taskId, attrPatch, expectedDone, syncVersion) {
         const rawId = String(blockId || '').trim();
         const tid = String(taskId || '').trim();
-        if (!rawId || !tid || !statusPatch || typeof statusPatch !== 'object') return;
+        if (!rawId || !tid || !attrPatch || typeof attrPatch !== 'object') return;
         __tmClearNativeDocCheckboxReconcileTimers(rawId);
         const timers = [260, 900].map((delayMs) => setTimeout(() => {
             if (!__tmIsNativeDocCheckboxReconcileVersionCurrent(rawId, syncVersion)) return;
-            __tmReconcileNativeDocCheckboxStatus(rawId, tid, statusPatch, expectedDone, syncVersion).catch(() => null);
+            __tmReconcileNativeDocCheckboxStatus(rawId, tid, attrPatch, expectedDone, syncVersion).catch(() => null);
         }, delayMs));
         __tmNativeDocCheckboxReconcileTimers.set(rawId, timers);
     }
 
-    function __tmApplyNativeDocCheckboxLocalState(taskId, done, statusValue = '', taskLike = null) {
+    function __tmApplyNativeDocCheckboxLocalState(taskId, done, statusValue = '', taskLike = null, taskCompleteAtValue = '') {
         const tid = String(taskId || '').trim();
         const nextDone = !!done;
         const nextStatus = String(statusValue || '').trim();
+        const nextTaskCompleteAt = __tmNormalizeTaskCompleteAtValue(taskCompleteAtValue);
         if (!tid) return false;
         try {
             const liveTask = state.flatTasks?.[tid];
@@ -72874,6 +74290,10 @@ async function __tmRefreshAfterWake(reason) {
                 if (nextStatus) {
                     liveTask.customStatus = nextStatus;
                     liveTask.custom_status = nextStatus;
+                }
+                if (nextTaskCompleteAt) {
+                    liveTask.taskCompleteAt = nextTaskCompleteAt;
+                    liveTask.task_complete_at = nextTaskCompleteAt;
                 }
             }
         } catch (e) {}
@@ -72885,6 +74305,10 @@ async function __tmRefreshAfterWake(reason) {
                     pendingTask.customStatus = nextStatus;
                     pendingTask.custom_status = nextStatus;
                 }
+                if (nextTaskCompleteAt) {
+                    pendingTask.taskCompleteAt = nextTaskCompleteAt;
+                    pendingTask.task_complete_at = nextTaskCompleteAt;
+                }
             }
         } catch (e) {}
         try {
@@ -72895,6 +74319,7 @@ async function __tmRefreshAfterWake(reason) {
             const content = String(taskLike?.content || state.flatTasks?.[tid]?.content || state.pendingInsertedTasks?.[tid]?.content || '').trim();
             const metaPatch = { done: nextDone, content };
             if (nextStatus) metaPatch.customStatus = nextStatus;
+            if (nextTaskCompleteAt) metaPatch.taskCompleteAt = nextTaskCompleteAt;
             MetaStore.set(tid, metaPatch);
         } catch (e) {}
         return true;
@@ -72926,14 +74351,18 @@ async function __tmRefreshAfterWake(reason) {
         }
         if (!task || typeof task !== 'object') return false;
         try { normalizeTaskFields(task, String(task.doc_name || task.docName || '').trim()); } catch (e) {}
+        try { __tmMarkLocalDoneTxSuppressionForTask(task, [rawId, tid], 1800); } catch (e) {}
 
         const statusOptions = Array.isArray(SettingsStore?.data?.customStatusOptions) ? SettingsStore.data.customStatusOptions : [];
         const expectedStatus = String(__tmResolveCheckboxLinkedStatusId(!!domDone, statusOptions) || '').trim();
         const currentStatus = String(task.customStatus || '').trim();
+        const currentTaskCompleteAt = String(task.taskCompleteAt || task.task_complete_at || '').trim();
+        const taskDoneBefore = !!task.done;
         const ignoredSync = __tmConsumeNativeDocCheckboxStatusSyncIgnore(rawId, !!domDone);
         if (ignoredSync) {
             const preservedStatus = String(ignoredSync.expectedStatus || currentStatus || '').trim();
-            __tmApplyNativeDocCheckboxLocalState(tid, !!domDone, preservedStatus, task);
+            const preservedTaskCompleteAt = String(task.taskCompleteAt || task.task_complete_at || '').trim();
+            __tmApplyNativeDocCheckboxLocalState(tid, !!domDone, preservedStatus, task, preservedTaskCompleteAt);
             try {
                 const liveTask = state.flatTasks?.[tid];
                 if (liveTask && typeof liveTask === 'object') {
@@ -72945,22 +74374,46 @@ async function __tmRefreshAfterWake(reason) {
             } catch (e) {}
             return true;
         }
-        const persistedStatusBefore = String(await __tmReadDocCheckboxBlockAttrs(tid) || '').trim();
+        const persistedAttrsBefore = await __tmReadDocCheckboxBlockAttrs(tid);
+        const persistedStatusBefore = String(persistedAttrsBefore?.status || '').trim();
+        const persistedTaskCompleteAtBefore = String(persistedAttrsBefore?.taskCompleteAt || '').trim();
         const shouldApplyExpectedStatus = !!domDone || __tmShouldApplyUndoneStatusFallback(task, expectedStatus, currentStatus, persistedStatusBefore, statusOptions);
         const targetStatus = String(shouldApplyExpectedStatus ? expectedStatus : (persistedStatusBefore || currentStatus || '')).trim();
         const shouldPersistStatus = !!targetStatus && persistedStatusBefore !== targetStatus;
         const shouldSyncLocalStatus = !!targetStatus && currentStatus !== targetStatus;
         const statusPatch = shouldPersistStatus ? { customStatus: targetStatus } : (shouldSyncLocalStatus ? { customStatus: targetStatus } : null);
-        if (!statusPatch || Object.keys(statusPatch).length === 0) {
+        const completeAtPatch = (!!domDone && (!taskDoneBefore || !persistedTaskCompleteAtBefore)) ? __tmBuildTaskCompleteAtPatch() : null;
+        const attrPatch = {
+            ...((statusPatch && typeof statusPatch === 'object') ? statusPatch : {}),
+            ...((completeAtPatch && typeof completeAtPatch === 'object') ? completeAtPatch : {}),
+        };
+        const resolvedTaskCompleteAt = String(
+            (completeAtPatch && typeof completeAtPatch === 'object' ? completeAtPatch.taskCompleteAt : '')
+            || persistedTaskCompleteAtBefore
+            || currentTaskCompleteAt
+            || ''
+        ).trim();
+        const buildViewPatch = (statusValue, taskCompleteAtValue) => ({
+            done: !!domDone,
+            ...(statusValue ? { customStatus: statusValue } : {}),
+            ...(taskCompleteAtValue ? { taskCompleteAt: taskCompleteAtValue } : {}),
+        });
+        if (Object.keys(attrPatch).length === 0) {
             const resolvedStatus = String(targetStatus || expectedStatus || persistedStatusBefore || currentStatus || '').trim();
-            __tmApplyNativeDocCheckboxLocalState(tid, !!domDone, resolvedStatus, task);
+            const viewPatch = buildViewPatch(resolvedStatus, resolvedTaskCompleteAt);
+            __tmApplyNativeDocCheckboxLocalState(tid, !!domDone, resolvedStatus, task, resolvedTaskCompleteAt);
             try {
                 const docId = String(task.root_id || task.docId || '').trim();
                 if (docId) __tmInvalidateTasksQueryCacheByDocId(docId);
             } catch (e) {}
             try {
                 if (typeof __tmIsPluginVisibleNow === 'function' && __tmIsPluginVisibleNow()) {
-                    __tmScheduleRender({ withFilters: true });
+                    __tmRefreshTaskFieldsAcrossViews(tid, viewPatch, {
+                        withFilters: true,
+                        reason: 'native-doc-checkbox-sync',
+                        forceProjectionRefresh: __tmDoesPatchAffectProjection(tid, viewPatch),
+                        fallback: true,
+                    });
                 }
             } catch (e) {}
             try { globalThis.__taskHorizonQuickbarRefreshInline?.(); } catch (e) {}
@@ -72969,7 +74422,7 @@ async function __tmRefreshAfterWake(reason) {
                 try {
                     __tmScheduleRecurringTaskAdvanceAfterCompletion(tid, {
                         source: 'native-doc-checkbox-sync',
-                        completedAt: new Date().toISOString(),
+                        completedAt: resolvedTaskCompleteAt || __tmNowInChinaTimezoneIso(),
                     });
                 } catch (e) {}
             } else {
@@ -72979,37 +74432,59 @@ async function __tmRefreshAfterWake(reason) {
         }
 
         let persistedStatus = persistedStatusBefore;
-        if (shouldPersistStatus) {
-            __tmMirrorNativeDocTaskStatusAttr([rawId, tid], String(statusPatch.customStatus || '').trim());
-            await __tmPersistMetaAndAttrsKernel(tid, statusPatch, {
+        let persistedTaskCompleteAt = persistedTaskCompleteAtBefore;
+        if (shouldPersistStatus || !!(completeAtPatch && Object.keys(completeAtPatch).length > 0)) {
+            const mirroredStatus = String(attrPatch.customStatus || '').trim();
+            if (mirroredStatus) __tmMirrorNativeDocTaskStatusAttr([rawId, tid], mirroredStatus);
+            await __tmPersistMetaAndAttrsKernel(tid, attrPatch, {
                 touchMetaStore: false,
                 skipFlush: false,
+                saveMetaNow: false,
             });
-            persistedStatus = await __tmReadDocCheckboxBlockAttrs(tid);
-            if (persistedStatus !== targetStatus && __tmIsNativeDocCheckboxReconcileVersionCurrent(rawId, syncVersion)) {
-                await __tmReconcileNativeDocCheckboxStatus(rawId, tid, statusPatch, !!domDone, syncVersion);
-                persistedStatus = await __tmReadDocCheckboxBlockAttrs(tid);
+            let persistedAttrs = await __tmReadDocCheckboxBlockAttrs(tid);
+            persistedStatus = String(persistedAttrs?.status || '').trim();
+            persistedTaskCompleteAt = String(persistedAttrs?.taskCompleteAt || '').trim();
+            const expectedTaskCompleteAt = String(completeAtPatch?.taskCompleteAt || '').trim();
+            const shouldReconcileStatus = !!targetStatus && shouldPersistStatus && persistedStatus !== targetStatus;
+            const shouldReconcileTaskCompleteAt = !!expectedTaskCompleteAt && persistedTaskCompleteAt !== expectedTaskCompleteAt;
+            if ((shouldReconcileStatus || shouldReconcileTaskCompleteAt) && __tmIsNativeDocCheckboxReconcileVersionCurrent(rawId, syncVersion)) {
+                await __tmReconcileNativeDocCheckboxStatus(rawId, tid, attrPatch, !!domDone, syncVersion);
+                persistedAttrs = await __tmReadDocCheckboxBlockAttrs(tid);
+                persistedStatus = String(persistedAttrs?.status || '').trim();
+                persistedTaskCompleteAt = String(persistedAttrs?.taskCompleteAt || '').trim();
             }
         }
+        const finalTaskCompleteAt = String(
+            (completeAtPatch && typeof completeAtPatch === 'object' ? completeAtPatch.taskCompleteAt : '')
+            || persistedTaskCompleteAt
+            || resolvedTaskCompleteAt
+            || ''
+        ).trim();
         try {
-            __tmApplyAttrPatchLocally(tid, statusPatch, {
+            __tmApplyAttrPatchLocally(tid, attrPatch, {
                 render: false,
                 withFilters: false,
             });
-            __tmMirrorDocCheckboxStatusPatch(tid, statusPatch);
+            if (statusPatch) __tmMirrorDocCheckboxStatusPatch(tid, statusPatch);
         } catch (e) {}
-        __tmApplyNativeDocCheckboxLocalState(tid, !!domDone, targetStatus, task);
+        __tmApplyNativeDocCheckboxLocalState(tid, !!domDone, targetStatus, task, finalTaskCompleteAt);
         try {
             const docId = String(task.root_id || task.docId || '').trim();
             if (docId) __tmInvalidateTasksQueryCacheByDocId(docId);
         } catch (e) {}
         try {
             if (typeof __tmIsPluginVisibleNow === 'function' && __tmIsPluginVisibleNow()) {
-                __tmScheduleRender({ withFilters: true });
+                const viewPatch = buildViewPatch(targetStatus, finalTaskCompleteAt);
+                __tmRefreshTaskFieldsAcrossViews(tid, viewPatch, {
+                    withFilters: true,
+                    reason: 'native-doc-checkbox-sync',
+                    forceProjectionRefresh: __tmDoesPatchAffectProjection(tid, viewPatch),
+                    fallback: true,
+                });
             }
         } catch (e) {}
         try {
-            __tmDispatchTaskAttrPatchUpdated(rawId, statusPatch, {
+            __tmDispatchTaskAttrPatchUpdated(rawId, attrPatch, {
                 resolvedTaskId: tid,
                 source: 'native-doc-checkbox-sync',
             });
@@ -73020,13 +74495,13 @@ async function __tmRefreshAfterWake(reason) {
             try {
                 __tmScheduleRecurringTaskAdvanceAfterCompletion(tid, {
                     source: 'native-doc-checkbox-sync',
-                    completedAt: new Date().toISOString(),
+                    completedAt: finalTaskCompleteAt || __tmNowInChinaTimezoneIso(),
                 });
             } catch (e) {}
         } else {
             try { __tmClearRecurringTaskAdvanceTimer(tid); } catch (e) {}
         }
-        __tmScheduleNativeDocCheckboxStatusReconcile(rawId, tid, statusPatch, !!domDone, syncVersion);
+        __tmScheduleNativeDocCheckboxStatusReconcile(rawId, tid, attrPatch, !!domDone, syncVersion);
         return true;
     }
 
@@ -73193,30 +74668,33 @@ async function __tmRefreshAfterWake(reason) {
                 if (__tmIsVisibleDateAttrKey(attrKey)) {
                     __tmMarkVisibleDateFallbackTask(taskId);
                 }
-                
-                // 使用 localStorage 持久化存储，以便在插件重新加载后仍能检测到
-                try {
-                    const stored = JSON.parse(localStorage.getItem('__tmQuickbarModifiedTasks') || '[]');
-                    if (!stored.includes(taskId)) {
-                        stored.push(taskId);
-                        localStorage.setItem('__tmQuickbarModifiedTasks', JSON.stringify(stored));
-                    }
-                } catch (ex) {}
-                
-                // 同时更新内存中的状态
-                state.quickbarModifiedTaskIds.add(taskId);
-                state.lastQuickbarUpdateTime = Date.now();
+                let handledInline = false;
                 if (attrKey) {
-                    const applied = __tmApplyQuickbarAttrUpdateInState(taskId, attrKey, attrValue);
-                    if (!applied) {
+                    handledInline = __tmChangeFeed.handleAttrUpdate(taskId, attrKey, attrValue, {
+                        reason: 'quickbar-attr-update',
+                    });
+                    if (!handledInline) {
                         Promise.resolve(__tmResolveTaskIdFromAnyBlockId(taskId))
                             .then((resolvedTaskId) => {
                                 const nextTaskId = String(resolvedTaskId || '').trim();
                                 if (!nextTaskId || nextTaskId === taskId) return;
-                                __tmApplyQuickbarAttrUpdateInState(nextTaskId, attrKey, attrValue);
+                                handledInline = !!__tmChangeFeed.handleAttrUpdate(nextTaskId, attrKey, attrValue, {
+                                    reason: 'quickbar-attr-update',
+                                }) || handledInline;
                             })
                             .catch(() => null);
                     }
+                }
+                if (!handledInline || __tmChangeFeed.shouldDeferToAutoRefresh(taskId, attrKey, attrValue)) {
+                    try {
+                        const stored = JSON.parse(localStorage.getItem('__tmQuickbarModifiedTasks') || '[]');
+                        if (!stored.includes(taskId)) {
+                            stored.push(taskId);
+                            localStorage.setItem('__tmQuickbarModifiedTasks', JSON.stringify(stored));
+                        }
+                    } catch (ex) {}
+                    state.quickbarModifiedTaskIds.add(taskId);
+                    state.lastQuickbarUpdateTime = Date.now();
                 }
                 if (attrKey === 'bookmark') {
                     try { __tmClearReminderSnapshotCache(taskId); } catch (ex) {}
@@ -76026,7 +77504,7 @@ async function __tmRefreshAfterWake(reason) {
                         try {
                             const endDate = String(task?.completionTime || '').trim();
                             if (!endDate) {
-                                hint('⚠️ 请先设置完成日期后再设为里程碑', 'error');
+                                hint('⚠️ 请先设置截止日期后再设为里程碑', 'error');
                                 return;
                             }
                             await onUpdateTaskMeta(String(taskIdText), { milestone: true });
@@ -76425,7 +77903,7 @@ async function __tmRefreshAfterWake(reason) {
 
                 try {
                     await onUpdateTaskDates(String(taskId), { startDate, completionTime });
-                    try { hint(`✅ 完成日期：${completionTime}`, 'success'); } catch (e3) {}
+                    try { hint(`✅ 截止日期：${completionTime}`, 'success'); } catch (e3) {}
                 } catch (e2) {}
             };
 

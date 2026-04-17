@@ -43,7 +43,7 @@
                 defaultValue: ''
             },
             {
-                name: '完成日期',
+                name: '截止日期',
                 attrKey: 'custom-completion-time',
                 type: 'date',
                 defaultValue: ''
@@ -98,7 +98,7 @@
     ];
     const quickbarInlineFieldDefs = [
         { attrKey: 'custom-status', name: '状态', type: 'select' },
-        { attrKey: 'custom-completion-time', name: '完成时间', type: 'date' },
+        { attrKey: 'custom-completion-time', name: '截止日期', type: 'date' },
         { attrKey: 'custom-priority', name: '重要性', type: 'select' },
         { attrKey: 'custom-start-date', name: '开始日期', type: 'date' },
         { attrKey: 'custom-duration', name: '时长', type: 'text', placeholder: '输入时长' },
@@ -1520,6 +1520,15 @@
             } catch (e) {}
         }
 
+        function getTaskHorizonSharedApi() {
+            try {
+                const api = globalThis?.['siyuan-plugin-task-horizon'];
+                return api && typeof api === 'object' ? api : null;
+            } catch (e) {
+                return null;
+            }
+        }
+
         function resolveCurrentTaskName() {
             if (String(currentTaskName || '').trim()) return String(currentTaskName).trim();
             const blockEl = currentBlockEl || getBlockElById(currentBlockId) || null;
@@ -1738,10 +1747,16 @@
                         inlineMetaCache.set(id, normalizeCustomProps({ ...prev, ...attrs }));
                     }
                 }
-                return result?.code === 0;
+                return {
+                    success: result?.code === 0,
+                    attrs: attrs,
+                };
             } catch (e) {
                 console.error('设置块属性失败:', e);
-                return false;
+                return {
+                    success: false,
+                    attrs: attrs,
+                };
             }
         }
 
@@ -1749,8 +1764,9 @@
             const id = String(blockId || '').trim();
             const key = String(attrKey || '').trim();
             if (!id || !key) return { success: false, viaSharedApi: false };
+            const sharedApi = getTaskHorizonSharedApi();
             if (key === 'custom-status') {
-                const applier = globalThis?.['siyuan-plugin-task-horizon']?.applyTaskStatus;
+                const applier = sharedApi?.applyTaskStatus;
                 if (typeof applier === 'function') {
                     try {
                         const nextStatus = value == null ? '' : String(value);
@@ -1788,10 +1804,31 @@
                     } catch (e) {}
                 }
             }
-            const success = await setBlockCustomAttrs(id, { [key]: value });
+            const genericApplier = sharedApi?.applyTaskAttrUpdateWithUndo;
+            if (typeof genericApplier === 'function') {
+                try {
+                    const nextValue = value == null ? '' : String(value);
+                    await genericApplier(id, key, nextValue, {
+                        source: 'quickbar-attr',
+                        label: String(options?.label || ''),
+                        refresh: false,
+                        refreshCalendar: false,
+                        withFilters: false,
+                        broadcast: true,
+                        recordUndo: true,
+                    });
+                    return {
+                        success: true,
+                        changed: true,
+                        viaSharedApi: true,
+                        value: nextValue,
+                    };
+                } catch (e) {}
+            }
+            const result = await setBlockCustomAttrs(id, { [key]: value });
             return {
-                success,
-                changed: success,
+                success: !!result?.success,
+                changed: !!result?.success,
                 viaSharedApi: false,
                 value: value == null ? '' : String(value),
             };

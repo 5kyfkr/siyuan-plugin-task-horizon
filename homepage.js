@@ -273,9 +273,9 @@
 
 .tm-homepage-overview-summary {
     display: grid;
-    grid-template-columns: minmax(110px, 126px) minmax(0, 1fr);
+    grid-template-columns: minmax(86px, max-content) minmax(0, 1fr);
     align-items: center;
-    gap: 12px;
+    gap: 10px;
     min-width: 0;
     padding: 8px 12px;
     border: 1px solid var(--tm-home-border-soft);
@@ -476,10 +476,27 @@
 }
 
 .tm-homepage-summary-row-value {
-    font-size: 21px;
+    display: inline-flex;
+    align-items: baseline;
+    gap: 6px;
+    white-space: nowrap;
+    line-height: 1;
+    color: var(--tm-home-text);
+}
+
+.tm-homepage-summary-row-number {
+    font-size: 34px;
     line-height: 1;
     font-weight: 800;
-    color: var(--tm-home-text);
+    letter-spacing: -0.04em;
+    color: inherit;
+}
+
+.tm-homepage-summary-row-unit {
+    font-size: 17px;
+    line-height: 1;
+    font-weight: 700;
+    color: inherit;
 }
 
 .tm-homepage-summary-row-note {
@@ -1179,8 +1196,17 @@
 }
 
 .tm-homepage--mobile .tm-homepage-overview-summary {
-    grid-template-columns: 1fr;
-    align-items: stretch;
+    grid-template-columns: minmax(74px, max-content) minmax(0, 1fr);
+    align-items: center;
+    gap: 8px;
+}
+
+.tm-homepage--mobile .tm-homepage-overview-total {
+    gap: 3px;
+}
+
+.tm-homepage--mobile .tm-homepage-overview-total-value {
+    font-size: 26px;
 }
 
 .tm-homepage--mobile .tm-homepage-summary-layout {
@@ -1240,6 +1266,14 @@
     justify-self: end;
 }
 
+.tm-homepage--mobile .tm-homepage-summary-row-number {
+    font-size: 32px;
+}
+
+.tm-homepage--mobile .tm-homepage-summary-row-unit {
+    font-size: 16px;
+}
+
 .tm-homepage--mobile .tm-homepage-summary-row-note {
     grid-column: 1 / -1;
     padding-top: 1px;
@@ -1258,8 +1292,12 @@
     font-size: 30px;
 }
 
-.tm-homepage--mobile .tm-homepage-summary-row-value {
-    font-size: 20px;
+.tm-homepage--mobile .tm-homepage-summary-row-number {
+    font-size: 30px;
+}
+
+.tm-homepage--mobile .tm-homepage-summary-row-unit {
+    font-size: 15px;
 }
 
 .tm-homepage--mobile .tm-homepage-trend-wrap {
@@ -1352,8 +1390,8 @@
         grid-template-columns: minmax(0, 1fr) auto;
     }
 
-    .tm-homepage--mobile .tm-homepage-summary-row-value {
-        font-size: 18px;
+    .tm-homepage--mobile .tm-homepage-summary-row-number {
+        font-size: 30px;
     }
 }
 
@@ -1499,8 +1537,47 @@
         return String(task?.doc_name || task?.docName || task?.root_name || task?.groupName || "").trim() || "未命名文档";
     }
 
+    function resolveTaskDoneValue(task) {
+        return String(
+            task?.["custom-task-complete-at"]
+            || task?.taskCompleteAt
+            || task?.task_complete_at
+            || task?.completedAt
+            || task?.updated
+            || task?.updatedAt
+            || task?.completionTime
+            || ""
+        ).trim();
+    }
+
+    function resolveTaskDoneTs(task) {
+        const raw = resolveTaskDoneValue(task);
+        if (!raw) return 0;
+        const ts = new Date(raw).getTime();
+        if (Number.isFinite(ts) && ts > 0) return ts;
+        const key = normalizeDateKey(raw);
+        const dt = buildDateFromKey(key);
+        return dt instanceof Date ? dt.getTime() : 0;
+    }
+
     function resolveTaskDoneKey(task) {
-        return normalizeDateKey(task?.updated || task?.updatedAt || task?.completedAt || task?.completionTime || "");
+        return normalizeDateKey(resolveTaskDoneValue(task));
+    }
+
+    function resolveTaskDoneMetricValue(task) {
+        return String(
+            task?.["custom-task-complete-at"]
+            || task?.taskCompleteAt
+            || task?.task_complete_at
+            || task?.updated
+            || task?.updatedAt
+            || task?.completedAt
+            || ""
+        ).trim();
+    }
+
+    function resolveTaskDoneMetricKey(task) {
+        return normalizeDateKey(resolveTaskDoneMetricValue(task));
     }
 
     function resolveTaskDueKey(task) {
@@ -1560,7 +1637,7 @@
         const allowKeys = new Set(days);
         tasks.forEach((task) => {
             if (!task?.done) return;
-            const key = resolveTaskDoneKey(task);
+            const key = resolveTaskDoneMetricKey(task);
             if (!key || isFutureDateKey(key, todayKey) || !allowKeys.has(key)) return;
             doneMap.set(key, (doneMap.get(key) || 0) + 1);
         });
@@ -1580,7 +1657,7 @@
         const doneSet = new Set();
         tasks.forEach((task) => {
             if (!task?.done) return;
-            const key = resolveTaskDoneKey(task);
+            const key = resolveTaskDoneMetricKey(task);
             if (key && !isFutureDateKey(key, todayKey)) doneSet.add(key);
         });
         let streak = 0;
@@ -1596,7 +1673,7 @@
         const doneMap = new Map();
         tasks.forEach((task) => {
             if (!task?.done) return;
-            const key = resolveTaskDoneKey(task);
+            const key = resolveTaskDoneMetricKey(task);
             if (!key || isFutureDateKey(key, todayKey)) return;
             doneMap.set(key, (doneMap.get(key) || 0) + 1);
         });
@@ -1676,9 +1753,13 @@
                 title: resolveTaskTitle(task),
                 doc: resolveTaskDoc(task),
                 dateKey: resolveTaskDoneKey(task),
+                doneTs: resolveTaskDoneTs(task),
             }))
             .filter((item) => item.dateKey && !isFutureDateKey(item.dateKey, todayKey))
-            .sort((a, b) => dayDiff(a.dateKey, b.dateKey))
+            .sort((a, b) => {
+                if (b.doneTs !== a.doneTs) return b.doneTs - a.doneTs;
+                return dayDiff(a.dateKey, b.dateKey);
+            })
             .slice(0, 6);
     }
 
@@ -2061,12 +2142,14 @@
             {
                 label: "本周完成",
                 value: overview?.kpis?.weekDone || 0,
+                unit: "",
                 note: `当前范围共 ${overview?.kpis?.total || 0} 项`,
                 tone: "",
             },
             {
                 label: "连续完成",
-                value: `${Number(overview?.kpis?.streak) || 0} 天`,
+                value: Number(overview?.kpis?.streak) || 0,
+                unit: "天",
                 note: Number(overview?.kpis?.streak) > 0 ? "最近保持连续完成" : "最近还没有形成连续完成",
                 tone: Number(overview?.kpis?.streak) > 0 ? "is-success" : "",
             },
@@ -2089,7 +2172,10 @@
                         ${rows.map((item) => `
                             <div class="tm-homepage-summary-row ${item.tone}">
                                 <div class="tm-homepage-summary-row-label">${esc(item.label)}</div>
-                                <div class="tm-homepage-summary-row-value">${esc(item.value)}</div>
+                                <div class="tm-homepage-summary-row-value">
+                                    <span class="tm-homepage-summary-row-number">${esc(item.value)}</span>
+                                    ${item.unit ? `<span class="tm-homepage-summary-row-unit">${esc(item.unit)}</span>` : ""}
+                                </div>
                                 <div class="tm-homepage-summary-row-note">${esc(item.note)}</div>
                             </div>
                         `).join("")}
