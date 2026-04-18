@@ -174,6 +174,34 @@
         }
     }
 
+    function normalizeDurationPresetValue(value) {
+        const source = (value && typeof value === 'object' && !Array.isArray(value))
+            ? (value.value ?? value.name ?? value.label)
+            : value;
+        const raw = String(source ?? '').trim();
+        if (!raw) return '';
+        const matched = raw.match(/-?\d+(?:\.\d+)?/);
+        return matched ? String(matched[0] || '').trim() : '';
+    }
+
+    function getQuickbarDurationPresetOptions() {
+        try {
+            const rawItems = JSON.parse(localStorage.getItem('tm_custom_duration_options') || 'null');
+            const items = Array.isArray(rawItems) ? rawItems : [];
+            const seen = new Set();
+            return items
+                .map(normalizeDurationPresetValue)
+                .filter((value) => {
+                    const key = String(value || '').trim().toLowerCase();
+                    if (!key || seen.has(key)) return false;
+                    seen.add(key);
+                    return true;
+                });
+        } catch (e) {
+            return [];
+        }
+    }
+
     function clearInlineMetaBootstrapTimers() {
         if (!Array.isArray(inlineMetaBootstrapTimers) || !inlineMetaBootstrapTimers.length) return;
         inlineMetaBootstrapTimers.forEach((timer) => {
@@ -965,6 +993,24 @@
                 min-width: min(72vw, 240px);
                 max-width: calc(100vw - 12px);
             }
+            .sy-custom-props-floatbar__input-editor.is-duration {
+                width: auto;
+                min-width: 0;
+                max-width: calc(100vw - 12px);
+            }
+            .sy-custom-props-floatbar__input-editor.is-duration .sy-custom-props-floatbar__input {
+                width: 124px;
+                max-width: 100%;
+            }
+            .sy-custom-props-floatbar__input-editor.is-duration .sy-custom-props-floatbar__input-extra {
+                width: 124px;
+                max-width: 100%;
+                align-items: flex-start;
+            }
+            .sy-custom-props-floatbar__input-editor.is-duration .sy-custom-props-floatbar__input-extra-row {
+                width: 124px;
+                max-width: 100%;
+            }
             .sy-custom-props-floatbar__remark-toolbar {
                 display: none;
                 align-items: center;
@@ -1061,6 +1107,11 @@
             }
             .sy-custom-props-floatbar__input-extra.is-visible {
                 display: flex;
+            }
+            .sy-custom-props-floatbar__duration-helper {
+                font-size: 11px;
+                color: var(--b3-theme-on-surface);
+                margin-top: -2px;
             }
             .sy-custom-props-floatbar__input-extra-row {
                 width: 100%;
@@ -1457,6 +1508,7 @@
                 textarea.onkeydown = null;
             }
             inputEditor.classList.toggle('is-remark', useTextarea);
+            inputEditor.classList.remove('is-duration');
             if (remarkToolbar instanceof HTMLElement) {
                 remarkToolbar.classList.remove('is-open');
                 remarkToolbar.hidden = true;
@@ -2715,6 +2767,8 @@
         // 显示文本编辑器
         function showTextEditor(anchorEl, config, currentValue) {
             const isRemark = String(config?.attrKey || '').trim() === 'custom-remark';
+            const isDuration = String(config?.attrKey || '').trim() === 'custom-duration';
+            const durationPresetOptions = isDuration ? getQuickbarDurationPresetOptions() : [];
             const remarkTools = getRemarkMarkdownTools();
             const editorControl = setInputEditorMode(isRemark ? 'textarea' : 'input');
             const input = editorControl instanceof HTMLInputElement ? editorControl : null;
@@ -2722,15 +2776,69 @@
             const valueSource = isRemark ? textarea : input;
             const remarkToolbar = inputEditor.querySelector('[data-remark-toolbar]');
             const remarkToolsBtn = inputEditor.querySelector('[data-action="remark-tools"]');
+            const extraPanel = inputEditor.querySelector('[data-input-extra]');
             if (!valueSource) return;
+            if (isDuration) inputEditor.classList.add('is-duration');
             if (input instanceof HTMLInputElement) {
                 input.type = 'text';
                 input.value = currentValue || '';
                 input.placeholder = config.placeholder || '输入内容...';
+                input.classList.toggle('sy-custom-props-floatbar__input--duration', isDuration);
             }
             if (textarea instanceof HTMLTextAreaElement) {
                 textarea.value = currentValue || '';
                 textarea.placeholder = config.placeholder || '输入内容...';
+            }
+            const blockIdAtOpen = String(currentBlockId || '').trim();
+
+            const applySaveResult = (newValue, result) => {
+                if (result.success) {
+                    currentProps[config.attrKey] = newValue;
+                    renderFloatBar();
+                    patchInlineMetaCache(blockIdAtOpen, { [config.attrKey]: newValue });
+                    refreshInlineMetaByTaskId(blockIdAtOpen, false);
+                    if (newValue) showMessage(`已更新${config.name}`, false, 1500);
+                    else showMessage(`已清除${config.name}`, false, 1500);
+                    if (!result.viaSharedApi) {
+                        dispatchTaskAttrUpdated(blockIdAtOpen, config.attrKey, newValue);
+                    }
+                    return true;
+                }
+                showMessage('更新失败', true, 2000);
+                return false;
+            };
+
+            const saveDurationPreset = async (rawValue) => {
+                const newValue = String(rawValue || '').trim();
+                const result = await saveTaskAttrWithUndo(blockIdAtOpen, config.attrKey, newValue, {
+                    label: config.name,
+                });
+                if (applySaveResult(newValue, result)) {
+                    inputEditor.classList.remove('is-visible');
+                }
+            };
+
+            if (extraPanel instanceof HTMLElement) {
+                if (isDuration && durationPresetOptions.length) {
+                    extraPanel.innerHTML = `
+                        <div class="sy-custom-props-floatbar__duration-helper">可选预设，也可直接填写自定义时长</div>
+                        ${durationPresetOptions.map((value) => `
+                            <button type="button" class="sy-custom-props-floatbar__input-extra-row" data-duration-preset-value="${esc(value)}">
+                                <span class="sy-custom-props-floatbar__input-extra-main">
+                                    <span class="sy-custom-props-floatbar__input-extra-icon">${renderPhosphorBoldIcon('timer', 14)}</span>
+                                    <span class="sy-custom-props-floatbar__input-extra-text">
+                                        <span class="sy-custom-props-floatbar__input-extra-title">${esc(value)}</span>
+                                    </span>
+                                </span>
+                                <span class="sy-custom-props-floatbar__input-extra-tail">${renderPhosphorBoldIcon('check', 12)}</span>
+                            </button>
+                        `).join('')}
+                    `.trim();
+                    extraPanel.classList.add('is-visible');
+                } else {
+                    extraPanel.classList.remove('is-visible');
+                    extraPanel.innerHTML = '';
+                }
             }
 
             // 计算位置
@@ -2760,25 +2868,12 @@
                     ? normalizeRemarkMarkdown(valueSource.value || '')
                     : String(valueSource.value || '').trim();
 
-                const result = await saveTaskAttrWithUndo(currentBlockId, config.attrKey, newValue, {
+                const result = await saveTaskAttrWithUndo(blockIdAtOpen, config.attrKey, newValue, {
                     label: config.name,
                 });
 
-                if (result.success) {
-                    currentProps[config.attrKey] = newValue;
-                    renderFloatBar();
-                    patchInlineMetaCache(currentBlockId, { [config.attrKey]: newValue });
-                    refreshInlineMetaByTaskId(currentBlockId, false);
-                    if (newValue) {
-                        showMessage(`已更新${config.name}`, false, 1500);
-                    } else {
-                        showMessage(`已清除${config.name}`, false, 1500);
-                    }
-                    if (!result.viaSharedApi) {
-                        dispatchTaskAttrUpdated(currentBlockId, config.attrKey, newValue);
-                    }
-                } else {
-                    showMessage('更新失败', true, 2000);
+                if (!applySaveResult(newValue, result)) {
+                    return;
                 }
 
                 inputEditor.classList.remove('is-visible');
@@ -2868,6 +2963,22 @@
             } else if (remarkToolsBtn instanceof HTMLButtonElement) {
                 remarkToolsBtn.onclick = null;
                 remarkToolsBtn.onmousedown = null;
+            }
+
+            if (extraPanel instanceof HTMLElement && isDuration && durationPresetOptions.length) {
+                extraPanel.querySelectorAll('[data-duration-preset-value]').forEach((button) => {
+                    if (!(button instanceof HTMLButtonElement)) return;
+                    button.onmousedown = (e) => {
+                        e.preventDefault();
+                    };
+                    button.onclick = async (e) => {
+                        e.preventDefault();
+                        const nextValue = normalizeDurationPresetValue(button.dataset.durationPresetValue || '');
+                        if (!nextValue) return;
+                        if (input instanceof HTMLInputElement) input.value = nextValue;
+                        await saveDurationPreset(nextValue);
+                    };
+                });
             }
 
             inputEditor.querySelector('[data-action="save"]').onclick = saveText;
