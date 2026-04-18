@@ -141,6 +141,14 @@
     let inlineMetaScopeDocIds = null;
     let inlineMetaScopeDocIdsTs = 0;
     let inlineMetaScopeDocIdsPromise = null;
+    let inlineMetaWakeTimer = null;
+    let inlineMetaWakeForceRefresh = false;
+    let inlineMetaWakeBootstrap = false;
+    let inlineMetaWakeClearLayout = false;
+    let inlineMetaEbHandlers = [];
+    let inlineMetaVisibilityHandler = null;
+    let inlineMetaFocusHandler = null;
+    let inlineMetaPageShowHandler = null;
 
     // ==================== 辅助函数 ====================
     function getQuickbarInlineSettings() {
@@ -208,6 +216,40 @@
             try { clearTimeout(timer); } catch (e) {}
         });
         inlineMetaBootstrapTimers = [];
+    }
+
+    function clearInlineMetaWakeTimer(resetFlags = true) {
+        if (inlineMetaWakeTimer) {
+            try { clearTimeout(inlineMetaWakeTimer); } catch (e) {}
+        }
+        inlineMetaWakeTimer = null;
+        if (!resetFlags) return;
+        inlineMetaWakeForceRefresh = false;
+        inlineMetaWakeBootstrap = false;
+        inlineMetaWakeClearLayout = false;
+    }
+
+    function scheduleInlineMetaWake(forceRefresh = true, options = {}) {
+        const delayMs = Math.max(0, Number(options.delayMs) || 0);
+        inlineMetaWakeForceRefresh = inlineMetaWakeForceRefresh || !!forceRefresh;
+        inlineMetaWakeBootstrap = inlineMetaWakeBootstrap || options.includeBootstrap !== false;
+        inlineMetaWakeClearLayout = inlineMetaWakeClearLayout || options.clearLayout !== false;
+        if (inlineMetaWakeTimer) {
+            try { clearTimeout(inlineMetaWakeTimer); } catch (e) {}
+        }
+        inlineMetaWakeTimer = setTimeout(() => {
+            const nextForceRefresh = !!inlineMetaWakeForceRefresh;
+            const nextBootstrap = !!inlineMetaWakeBootstrap;
+            const nextClearLayout = !!inlineMetaWakeClearLayout;
+            clearInlineMetaWakeTimer();
+            if (!inlineMetaStarted || !isInlineMetaEnabled()) return;
+            if (nextClearLayout) inlineMetaLayoutCache.clear();
+            inlineMetaNeedSyncBlocks = true;
+            try { requestInlineMetaRender(nextForceRefresh); } catch (e) {}
+            if (nextBootstrap) {
+                try { scheduleInlineMetaBootstrapRenders(nextForceRefresh); } catch (e) {}
+            }
+        }, delayMs);
     }
 
     function hasInlineMetaReadyHosts() {
@@ -3618,6 +3660,74 @@
             rebindInlineMetaObservers();
         }
 
+        function unbindInlineMetaWakeEvents() {
+            inlineMetaEbHandlers.forEach(({ eb, event, handler }) => {
+                try { eb.off(event, handler); } catch (e) {}
+            });
+            inlineMetaEbHandlers = [];
+            try { if (inlineMetaVisibilityHandler) document.removeEventListener('visibilitychange', inlineMetaVisibilityHandler, true); } catch (e) {}
+            try { if (inlineMetaFocusHandler) window.removeEventListener('focus', inlineMetaFocusHandler, true); } catch (e) {}
+            try { if (inlineMetaPageShowHandler) window.removeEventListener('pageshow', inlineMetaPageShowHandler, true); } catch (e) {}
+            inlineMetaVisibilityHandler = null;
+            inlineMetaFocusHandler = null;
+            inlineMetaPageShowHandler = null;
+        }
+
+        function bindInlineMetaWakeEvents() {
+            unbindInlineMetaWakeEvents();
+            try {
+                const eb = globalThis.__taskHorizonPluginInstance?.eventBus || window.siyuan?.eventBus;
+                if (eb && typeof eb.on === 'function') {
+                    const wakeFromProtyleEvent = (delayMs = 40) => {
+                        scheduleInlineMetaWake(true, {
+                            delayMs,
+                            includeBootstrap: true,
+                            clearLayout: true,
+                        });
+                    };
+                    const onStatic = () => wakeFromProtyleEvent(24);
+                    const onDynamic = () => wakeFromProtyleEvent(40);
+                    const onSwitch = () => wakeFromProtyleEvent(32);
+                    const onSwitchMode = () => wakeFromProtyleEvent(32);
+                    eb.on('loaded-protyle-static', onStatic);
+                    eb.on('loaded-protyle-dynamic', onDynamic);
+                    eb.on('switch-protyle', onSwitch);
+                    eb.on('switch-protyle-mode', onSwitchMode);
+                    inlineMetaEbHandlers.push({ eb, event: 'loaded-protyle-static', handler: onStatic });
+                    inlineMetaEbHandlers.push({ eb, event: 'loaded-protyle-dynamic', handler: onDynamic });
+                    inlineMetaEbHandlers.push({ eb, event: 'switch-protyle', handler: onSwitch });
+                    inlineMetaEbHandlers.push({ eb, event: 'switch-protyle-mode', handler: onSwitchMode });
+                }
+            } catch (e) {}
+            inlineMetaVisibilityHandler = () => {
+                try {
+                    if (document.visibilityState !== 'visible') return;
+                } catch (e) {}
+                scheduleInlineMetaWake(true, {
+                    delayMs: 48,
+                    includeBootstrap: true,
+                    clearLayout: true,
+                });
+            };
+            inlineMetaFocusHandler = () => {
+                scheduleInlineMetaWake(true, {
+                    delayMs: 48,
+                    includeBootstrap: true,
+                    clearLayout: true,
+                });
+            };
+            inlineMetaPageShowHandler = () => {
+                scheduleInlineMetaWake(true, {
+                    delayMs: 48,
+                    includeBootstrap: true,
+                    clearLayout: true,
+                });
+            };
+            try { document.addEventListener('visibilitychange', inlineMetaVisibilityHandler, true); } catch (e) {}
+            try { window.addEventListener('focus', inlineMetaFocusHandler, true); } catch (e) {}
+            try { window.addEventListener('pageshow', inlineMetaPageShowHandler, true); } catch (e) {}
+        }
+
         function layoutInlineMetaHost(blockEl, host, taskId, textAnchor, html, forceRefresh = false, visibilityBuffer = 0) {
             if (!blockEl || !host || !taskId || !textAnchor) return false;
             if (inlineMetaIsComposing && isInlineMetaEditingBlock(blockEl)) {
@@ -3901,6 +4011,7 @@
             inlineMetaScrollDirection = 0;
             inlineMetaLastScrollPos = getInlineScrollPositionFromEventTarget(window);
             rebindInlineMetaObservers();
+            bindInlineMetaWakeEvents();
             inlineMetaScrollHandler = (e) => {
                 if (!shouldHandleInlineMetaViewportEvent(e?.target || document.documentElement)) return;
                 if (!hasInlineMetaActiveTargets()) {
@@ -3991,6 +4102,7 @@
         function stopInlineMeta() {
             inlineMetaStarted = false;
             clearInlineMetaBootstrapTimers();
+            clearInlineMetaWakeTimer();
             if (inlineMetaRenderTimer) clearTimeout(inlineMetaRenderTimer);
             inlineMetaRenderTimer = null;
             if (inlineMetaRafId) cancelAnimationFrame(inlineMetaRafId);
@@ -4003,6 +4115,7 @@
             try { inlineMetaObserver?.disconnect?.(); } catch (e) {}
             inlineMetaObserver = null;
             inlineMetaObservedRoots = [];
+            unbindInlineMetaWakeEvents();
             try { if (inlineMetaScrollHandler) document.removeEventListener('scroll', inlineMetaScrollHandler, true); } catch (e) {}
             try { if (inlineMetaScrollHandler) window.removeEventListener('resize', inlineMetaScrollHandler, true); } catch (e) {}
             inlineMetaScrollHandler = null;
