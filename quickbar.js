@@ -1581,6 +1581,17 @@
             }
         }
 
+        function suppressTaskHorizonMobileTopbarOpen(ttl = 1200) {
+            try {
+                if (!isMobileDevice()) return;
+                const until = Date.now() + Math.max(200, Number(ttl) || 1200);
+                globalThis.__taskHorizonSuppressMobileTopbarOpenUntil = Math.max(
+                    Number(globalThis.__taskHorizonSuppressMobileTopbarOpenUntil || 0),
+                    until
+                );
+            } catch (e) {}
+        }
+
         function resolveCurrentTaskName() {
             if (String(currentTaskName || '').trim()) return String(currentTaskName).trim();
             const blockEl = currentBlockEl || getBlockElById(currentBlockId) || null;
@@ -1822,6 +1833,7 @@
                 if (typeof applier === 'function') {
                     try {
                         const nextStatus = value == null ? '' : String(value);
+                        suppressTaskHorizonMobileTopbarOpen();
                         await applier(id, nextStatus, {
                             source: 'quickbar-status',
                             label: String(options?.label || '状态'),
@@ -1844,6 +1856,7 @@
                 const updater = globalThis.tmUpdateTaskDates;
                 if (typeof updater === 'function') {
                     try {
+                        suppressTaskHorizonMobileTopbarOpen();
                         await updater(id, key === 'custom-start-date'
                             ? { startDate: value == null ? '' : String(value) }
                             : { completionTime: value == null ? '' : String(value) }, { refresh: false });
@@ -1860,14 +1873,15 @@
             if (typeof genericApplier === 'function') {
                 try {
                     const nextValue = value == null ? '' : String(value);
+                    suppressTaskHorizonMobileTopbarOpen();
                     await genericApplier(id, key, nextValue, {
                         source: 'quickbar-attr',
                         label: String(options?.label || ''),
                         refresh: false,
                         refreshCalendar: false,
                         withFilters: false,
-                        broadcast: true,
-                        recordUndo: true,
+                        broadcast: false,
+                        recordUndo: false,
                     });
                     return {
                         success: true,

@@ -21951,84 +21951,87 @@
                 inversePatch,
             };
         }
-        await __tmPersistMetaAndAttrsAsync(context.persistId, nextPatch, {
-            queued: opts.queued === true,
-            background: opts.background === true,
-            skipFlush: opts.skipFlush,
-            docId: context.docId,
-            renderOptimistic: opts.renderOptimistic,
-            withFilters: opts.withFilters,
-        });
-        __tmApplyAttrPatchLocally(context.persistId, nextPatch, { render: false, withFilters: opts.withFilters !== false });
-        try {
-            if (context.docId) __tmInvalidateTasksQueryCacheByDocId(context.docId);
-            else __tmInvalidateAllSqlCaches();
-        } catch (e) {}
-        try { window.__tmCalendarAllTasksCache = null; } catch (e) {}
-        if (opts.refresh !== false) {
+        const suppressionIds = __tmGetTaskSuppressionIds(context.persistId, context.task);
+        return await __tmMutationEngine.withSuppressedTasks(suppressionIds, async () => {
+            await __tmPersistMetaAndAttrsAsync(context.persistId, nextPatch, {
+                queued: opts.queued === true,
+                background: opts.background === true,
+                skipFlush: opts.skipFlush,
+                docId: context.docId,
+                renderOptimistic: opts.renderOptimistic,
+                withFilters: opts.withFilters,
+            });
+            __tmApplyAttrPatchLocally(context.persistId, nextPatch, { render: false, withFilters: opts.withFilters !== false });
             try {
-                __tmRefreshTaskFieldsAcrossViews(context.persistId, nextPatch, {
-                    withFilters: opts.withFilters !== false,
-                    reason: String(opts.source || 'attr-patch').trim() || 'attr-patch',
-                    forceProjectionRefresh: __tmDoesPatchAffectProjection(context.persistId, nextPatch),
-                    fallback: true,
-                });
-            } catch (e) {
-                try {
-                    __tmRefreshViewsAfterTaskMutation({
-                        refresh: true,
-                        refreshCalendar: false,
-                        withFilters: opts.withFilters !== false,
-                        hard: opts.hard === true,
-                        reason: String(opts.source || 'attr-patch').trim() || 'attr-patch',
-                    });
-                } catch (e2) {}
-            }
-        }
-        if (opts.refreshCalendar !== false && __tmPatchAffectsCalendar(nextPatch)) {
-            try {
-                __tmRequestCalendarRefresh({
-                    reason: String(opts.source || 'attr-patch').trim() || 'attr-patch',
-                    main: String(state.viewMode || '').trim() === 'calendar',
-                    side: __tmShouldShowCalendarSideDock(),
-                    flushTaskPanel: true,
-                    hard: opts.hard === true,
-                }, { hard: opts.hard === true });
+                if (context.docId) __tmInvalidateTasksQueryCacheByDocId(context.docId);
+                else __tmInvalidateAllSqlCaches();
             } catch (e) {}
-        }
-        try {
-            if (Object.prototype.hasOwnProperty.call(nextPatch, 'startDate') || Object.prototype.hasOwnProperty.call(nextPatch, 'completionTime')) {
-                __tmPushRefreshDebug('meta-patch-date-end', {
-                    taskId: context.persistId,
+            try { window.__tmCalendarAllTasksCache = null; } catch (e) {}
+            if (opts.refresh !== false) {
+                try {
+                    __tmRefreshTaskFieldsAcrossViews(context.persistId, nextPatch, {
+                        withFilters: opts.withFilters !== false,
+                        reason: String(opts.source || 'attr-patch').trim() || 'attr-patch',
+                        forceProjectionRefresh: __tmDoesPatchAffectProjection(context.persistId, nextPatch),
+                        fallback: true,
+                    });
+                } catch (e) {
+                    try {
+                        __tmRefreshViewsAfterTaskMutation({
+                            refresh: true,
+                            refreshCalendar: false,
+                            withFilters: opts.withFilters !== false,
+                            hard: opts.hard === true,
+                            reason: String(opts.source || 'attr-patch').trim() || 'attr-patch',
+                        });
+                    } catch (e2) {}
+                }
+            }
+            if (opts.refreshCalendar !== false && __tmPatchAffectsCalendar(nextPatch)) {
+                try {
+                    __tmRequestCalendarRefresh({
+                        reason: String(opts.source || 'attr-patch').trim() || 'attr-patch',
+                        main: String(state.viewMode || '').trim() === 'calendar',
+                        side: __tmShouldShowCalendarSideDock(),
+                        flushTaskPanel: true,
+                        hard: opts.hard === true,
+                    }, { hard: opts.hard === true });
+                } catch (e) {}
+            }
+            try {
+                if (Object.prototype.hasOwnProperty.call(nextPatch, 'startDate') || Object.prototype.hasOwnProperty.call(nextPatch, 'completionTime')) {
+                    __tmPushRefreshDebug('meta-patch-date-end', {
+                        taskId: context.persistId,
+                        source: String(opts.source || '').trim(),
+                    });
+                }
+            } catch (e) {}
+            if (opts.broadcast !== false) {
+                __tmDispatchTaskAttrPatchUpdated(opts.broadcastTaskId || context.requestedId || context.persistId, nextPatch, {
+                    resolvedTaskId: context.persistId,
                     source: String(opts.source || '').trim(),
                 });
             }
-        } catch (e) {}
-        if (opts.broadcast !== false) {
-            __tmDispatchTaskAttrPatchUpdated(opts.broadcastTaskId || context.requestedId || context.persistId, nextPatch, {
-                resolvedTaskId: context.persistId,
-                source: String(opts.source || '').trim(),
-            });
-        }
-        if (opts.recordUndo !== false && !__tmUndoState.applying) {
-            __tmPushUndoRecord({
-                type: 'attrPatch',
+            if (opts.recordUndo !== false && !__tmUndoState.applying) {
+                __tmPushUndoRecord({
+                    type: 'attrPatch',
+                    taskId: context.persistId,
+                    requestedTaskId: context.requestedId,
+                    patch: nextPatch,
+                    inversePatch,
+                    label: __tmGetUndoLabel(opts.label, '任务字段'),
+                    source: String(opts.source || '').trim(),
+                });
+            }
+            return {
+                ok: true,
+                changed: true,
                 taskId: context.persistId,
                 requestedTaskId: context.requestedId,
-                patch: nextPatch,
+                patch: __tmCloneUndoValue(nextPatch),
                 inversePatch,
-                label: __tmGetUndoLabel(opts.label, '任务字段'),
-                source: String(opts.source || '').trim(),
-            });
-        }
-        return {
-            ok: true,
-            changed: true,
-            taskId: context.persistId,
-            requestedTaskId: context.requestedId,
-            patch: __tmCloneUndoValue(nextPatch),
-            inversePatch,
-        };
+            };
+        });
     }
 
     async function __tmApplyTaskAttrUpdateWithUndo(taskId, attrKey, attrValue, options = {}) {
@@ -22197,93 +22200,96 @@
             customStatus: nextStatusId,
             ...((completeAtPatch && typeof completeAtPatch === 'object') ? completeAtPatch : {}),
         };
-        try {
-            __tmMarkNativeDocCheckboxStatusSyncIgnored(context.persistId, nextStatusId, nextMarker, 1600);
-            markerResult = await __tmUpdateTaskListItemMarkerWithFallback(context.persistId, nextMarker);
-            await __tmPersistMetaAndAttrsAsync(context.persistId, persistPatch, {
-                queued: opts.queued === true,
-                background: opts.background === true,
-                skipFlush: opts.skipFlush,
-                saveMetaNow: false,
-                docId: context.docId,
-                renderOptimistic: false,
-                withFilters: opts.withFilters,
-            });
-        } catch (e) {
-            if (markerResult && prevMarker !== nextMarker) {
-                try { await __tmUpdateTaskListItemMarkerWithFallback(context.persistId, prevMarker); } catch (rollbackErr) {}
-            }
-            throw e;
-        }
-
-        try { __tmApplyAttrPatchLocally(context.persistId, persistPatch, { render: false, withFilters: false }); } catch (e) {}
-        try { __tmApplyTaskStatusLocalState(context.persistId, nextStatusId, nextMarker, { markdown: markerResult?.markdown || '' }); } catch (e) {}
-        try {
-            if (context.docId) __tmInvalidateTasksQueryCacheByDocId(context.docId);
-            else __tmInvalidateAllSqlCaches();
-        } catch (e) {}
-        try { window.__tmCalendarAllTasksCache = null; } catch (e) {}
-        const settledPatch = {
-            customStatus: nextStatusId,
-            done: nextDone,
-            ...((completeAtPatch && typeof completeAtPatch === 'object') ? completeAtPatch : {}),
-        };
-        if (opts.refresh !== false) {
+        const suppressionIds = __tmGetTaskSuppressionIds(context.persistId, task);
+        return await __tmMutationEngine.withSuppressedTasks(suppressionIds, async () => {
             try {
-                __tmRefreshTaskFieldsAcrossViews(context.persistId, settledPatch, {
-                    withFilters: opts.withFilters !== false,
-                    reason: String(opts.source || 'task-status').trim() || 'task-status',
-                    forceProjectionRefresh: __tmDoesPatchAffectProjection(context.persistId, settledPatch),
-                    fallback: true,
+                __tmMarkNativeDocCheckboxStatusSyncIgnored(context.persistId, nextStatusId, nextMarker, 1600);
+                markerResult = await __tmUpdateTaskListItemMarkerWithFallback(context.persistId, nextMarker);
+                await __tmPersistMetaAndAttrsAsync(context.persistId, persistPatch, {
+                    queued: opts.queued === true,
+                    background: opts.background === true,
+                    skipFlush: opts.skipFlush,
+                    saveMetaNow: false,
+                    docId: context.docId,
+                    renderOptimistic: false,
+                    withFilters: opts.withFilters,
                 });
             } catch (e) {
-                try {
-                    __tmRefreshViewsAfterTaskMutation({
-                        refresh: true,
-                        refreshCalendar: false,
-                        withFilters: opts.withFilters !== false,
-                        hard: opts.hard === true,
-                        reason: String(opts.source || 'task-status').trim() || 'task-status',
-                    });
-                } catch (e2) {}
+                if (markerResult && prevMarker !== nextMarker) {
+                    try { await __tmUpdateTaskListItemMarkerWithFallback(context.persistId, prevMarker); } catch (rollbackErr) {}
+                }
+                throw e;
             }
-        }
-        if (opts.refreshCalendar !== false && __tmPatchAffectsCalendar(settledPatch)) {
+
+            try { __tmApplyAttrPatchLocally(context.persistId, persistPatch, { render: false, withFilters: false }); } catch (e) {}
+            try { __tmApplyTaskStatusLocalState(context.persistId, nextStatusId, nextMarker, { markdown: markerResult?.markdown || '' }); } catch (e) {}
             try {
-                __tmRequestCalendarRefresh({
-                    reason: String(opts.source || 'task-status').trim() || 'task-status',
-                    main: String(state.viewMode || '').trim() === 'calendar',
-                    side: __tmShouldShowCalendarSideDock(),
-                    flushTaskPanel: true,
-                    hard: opts.hard === true,
-                }, { hard: opts.hard === true });
+                if (context.docId) __tmInvalidateTasksQueryCacheByDocId(context.docId);
+                else __tmInvalidateAllSqlCaches();
             } catch (e) {}
-        }
-        if (opts.broadcast !== false) {
-            __tmDispatchTaskAttrPatchUpdated(opts.broadcastTaskId || context.requestedId || context.persistId, persistPatch, {
-                resolvedTaskId: context.persistId,
-                source: String(opts.source || '').trim(),
-            });
-        }
-        if (opts.recordUndo !== false && !__tmUndoState.applying) {
-            __tmPushUndoRecord({
-                type: 'taskStatus',
+            try { window.__tmCalendarAllTasksCache = null; } catch (e) {}
+            const settledPatch = {
+                customStatus: nextStatusId,
+                done: nextDone,
+                ...((completeAtPatch && typeof completeAtPatch === 'object') ? completeAtPatch : {}),
+            };
+            if (opts.refresh !== false) {
+                try {
+                    __tmRefreshTaskFieldsAcrossViews(context.persistId, settledPatch, {
+                        withFilters: opts.withFilters !== false,
+                        reason: String(opts.source || 'task-status').trim() || 'task-status',
+                        forceProjectionRefresh: __tmDoesPatchAffectProjection(context.persistId, settledPatch),
+                        fallback: true,
+                    });
+                } catch (e) {
+                    try {
+                        __tmRefreshViewsAfterTaskMutation({
+                            refresh: true,
+                            refreshCalendar: false,
+                            withFilters: opts.withFilters !== false,
+                            hard: opts.hard === true,
+                            reason: String(opts.source || 'task-status').trim() || 'task-status',
+                        });
+                    } catch (e2) {}
+                }
+            }
+            if (opts.refreshCalendar !== false && __tmPatchAffectsCalendar(settledPatch)) {
+                try {
+                    __tmRequestCalendarRefresh({
+                        reason: String(opts.source || 'task-status').trim() || 'task-status',
+                        main: String(state.viewMode || '').trim() === 'calendar',
+                        side: __tmShouldShowCalendarSideDock(),
+                        flushTaskPanel: true,
+                        hard: opts.hard === true,
+                    }, { hard: opts.hard === true });
+                } catch (e) {}
+            }
+            if (opts.broadcast !== false) {
+                __tmDispatchTaskAttrPatchUpdated(opts.broadcastTaskId || context.requestedId || context.persistId, persistPatch, {
+                    resolvedTaskId: context.persistId,
+                    source: String(opts.source || '').trim(),
+                });
+            }
+            if (opts.recordUndo !== false && !__tmUndoState.applying) {
+                __tmPushUndoRecord({
+                    type: 'taskStatus',
+                    taskId: context.persistId,
+                    requestedTaskId: context.requestedId,
+                    patch: { customStatus: nextStatusId, done: nextDone },
+                    inversePatch: { customStatus: prevStatusId, done: prevDone },
+                    label: __tmGetUndoLabel(opts.label, '状态'),
+                    source: String(opts.source || '').trim(),
+                });
+            }
+            return {
+                ok: true,
+                changed: true,
                 taskId: context.persistId,
                 requestedTaskId: context.requestedId,
                 patch: { customStatus: nextStatusId, done: nextDone },
                 inversePatch: { customStatus: prevStatusId, done: prevDone },
-                label: __tmGetUndoLabel(opts.label, '状态'),
-                source: String(opts.source || '').trim(),
-            });
-        }
-        return {
-            ok: true,
-            changed: true,
-            taskId: context.persistId,
-            requestedTaskId: context.requestedId,
-            patch: { customStatus: nextStatusId, done: nextDone },
-            inversePatch: { customStatus: prevStatusId, done: prevDone },
-        };
+            };
+        });
     }
 
     async function __tmApplyTaskStatusBatch(taskIds, statusId, options = {}) {
@@ -22943,6 +22949,10 @@
     }
 
     function __tmOpenManagerFromTopbarEntry() {
+        try {
+            const suppressUntil = Number(globalThis.__taskHorizonSuppressMobileTopbarOpenUntil || 0);
+            if (suppressUntil > Date.now()) return false;
+        } catch (e) {}
         const options = { preserveViewMode: true };
         try {
             if (!__tmIsRuntimeMobileClient()) options.forceOpenTab = true;
@@ -22976,6 +22986,10 @@
         if (__tmTopBarDocumentCaptureHandler) return;
         __tmTopBarDocumentCaptureHandler = (e) => {
             if (__tmTopBarClickInFlight) return;
+            try {
+                const suppressUntil = Number(globalThis.__taskHorizonSuppressMobileTopbarOpenUntil || 0);
+                if (suppressUntil > Date.now()) return;
+            } catch (e2) {}
             const trigger = __tmFindMobileTopBarTriggerFromEventTarget(e?.target);
             if (!trigger) return;
             __tmTopBarClickInFlight = true;
@@ -54200,6 +54214,16 @@ async function __tmRefreshAfterWake(reason) {
         const nextPatch = (patch && typeof patch === 'object') ? patch : {};
         if (!tid || !Object.keys(nextPatch).length) return false;
         const opts = (options && typeof options === 'object') ? options : {};
+        if (!__tmIsPluginVisibleNow()) {
+            try {
+                __tmPushRefreshDebug('task-fields-across-views-skipped-hidden', {
+                    taskId: tid,
+                    patchKeys: Object.keys(nextPatch),
+                    reason: String(opts.reason || '').trim(),
+                });
+            } catch (e) {}
+            return false;
+        }
         if (state.homepageOpen) {
             try {
                 __tmScheduleHomepageRefresh(String(opts.reason || 'homepage-field-patch').trim() || 'homepage-field-patch');
@@ -54276,6 +54300,18 @@ async function __tmRefreshAfterWake(reason) {
             });
         }
         return refreshed;
+    }
+
+    function __tmGetTaskSuppressionIds(taskId, taskLike = null) {
+        const tid = String(taskId || '').trim();
+        const task = (taskLike && typeof taskLike === 'object')
+            ? taskLike
+            : (state.flatTasks?.[tid] || state.pendingInsertedTasks?.[tid] || null);
+        return Array.from(new Set([
+            tid,
+            String(task?.attrHostId || '').trim(),
+            String(task?.attr_host_id || '').trim(),
+        ].filter(Boolean)));
     }
 
     const __tmMutationEngine = {
@@ -74067,6 +74103,10 @@ async function __tmRefreshAfterWake(reason) {
         if (!__tmTopBarClickCaptureHandler) {
             __tmTopBarClickCaptureHandler = (e) => {
                 if (__tmTopBarClickInFlight) return;
+                try {
+                    const suppressUntil = Number(globalThis.__taskHorizonSuppressMobileTopbarOpenUntil || 0);
+                    if (suppressUntil > Date.now()) return;
+                } catch (e2) {}
                 __tmTopBarClickInFlight = true;
                 try {
                     try { e.preventDefault?.(); } catch (e2) {}
