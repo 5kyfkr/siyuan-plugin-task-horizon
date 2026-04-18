@@ -1,5 +1,5 @@
 // @name         思源笔记任务管理器
-// @version      2.2.7
+// @version      2.2.8
 // @description  任务管理器，支持自定义筛选规则分组和排序
 // @author       5KYFKR
 
@@ -53462,11 +53462,35 @@ async function __tmRefreshAfterWake(reason) {
         const root = container instanceof Element ? container : null;
         const taskLike = (task && typeof task === 'object') ? task : null;
         if (!(root instanceof Element) || !taskLike) return false;
-        const tag = root.querySelector('[data-tm-field="status"] .tm-status-tag, .tm-status-tag[data-tm-field="status"], [data-tm-field="status"]');
-        if (!(tag instanceof HTMLElement)) return false;
         const statusOption = __tmResolveTaskStatusDisplayOption(taskLike, __tmGetStatusOptions(SettingsStore.data.customStatusOptions || []), { fallbackColor: '#757575' });
-        tag.setAttribute('style', __tmBuildStatusChipStyle(statusOption.color));
-        tag.textContent = String(statusOption.name || statusOption.id || '').trim();
+        const chipStyle = __tmBuildStatusChipStyle(statusOption.color);
+        const chipText = String(statusOption.name || statusOption.id || '').trim();
+        const tag = root.querySelector('.tm-status-tag[data-tm-field="status"], [data-tm-field="status"] .tm-status-tag');
+        if (tag instanceof HTMLElement) {
+            tag.setAttribute('style', chipStyle);
+            tag.textContent = chipText;
+            return true;
+        }
+        const statusField = root.querySelector('[data-tm-field="status"]');
+        if (!(statusField instanceof HTMLElement)) return false;
+        if (statusField.classList.contains('tm-status-tag')) {
+            statusField.setAttribute('style', chipStyle);
+            statusField.textContent = chipText;
+            return true;
+        }
+        let inner = statusField.querySelector('.tm-status-cell-inner');
+        if (!(inner instanceof HTMLElement)) {
+            inner = document.createElement('span');
+            inner.className = 'tm-status-cell-inner';
+            statusField.replaceChildren(inner);
+        } else {
+            inner.replaceChildren();
+        }
+        const chip = document.createElement('span');
+        chip.className = 'tm-status-tag';
+        chip.setAttribute('style', chipStyle);
+        chip.textContent = chipText;
+        inner.appendChild(chip);
         return true;
     }
 
