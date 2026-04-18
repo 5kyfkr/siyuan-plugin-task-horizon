@@ -1,5 +1,5 @@
 // @name         思源笔记任务管理器
-// @version      2.2.8
+// @version      2.2.9
 // @description  任务管理器，支持自定义筛选规则分组和排序
 // @author       5KYFKR
 
@@ -468,6 +468,112 @@
             justify-content: flex-end;
             gap: 8px;
             margin-top: 10px;
+        }
+
+        .tm-inline-editor--duration {
+            min-width: 0;
+            width: auto;
+            max-width: calc(100vw - 24px);
+        }
+
+        .tm-inline-editor--duration .tm-duration-editor-input {
+            width: 124px;
+            max-width: 100%;
+        }
+
+        .tm-inline-editor--duration .tm-duration-preset-list,
+        .tm-task-detail-inline-popover--duration .tm-duration-preset-list,
+        .tm-prompt-box--duration .tm-duration-preset-list {
+            width: 124px;
+            max-width: 100%;
+            align-self: flex-start;
+        }
+
+        .tm-duration-preset-list {
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+            max-height: 220px;
+            overflow: auto;
+        }
+
+        .tm-duration-preset-list--compact {
+            max-height: 168px;
+        }
+
+        .tm-duration-preset-option {
+            width: 100%;
+            min-height: 42px;
+            border: 1px solid var(--tm-border-color);
+            border-radius: 12px;
+            background: var(--tm-card-bg);
+            color: var(--tm-text-color);
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 10px;
+            padding: 10px 12px;
+            box-sizing: border-box;
+            cursor: pointer;
+            text-align: left;
+        }
+
+        .tm-duration-preset-option:hover,
+        .tm-duration-preset-option:focus-visible {
+            border-color: color-mix(in srgb, var(--primary) 42%, var(--border) 58%);
+            outline: none;
+        }
+
+        .tm-duration-preset-option.is-selected {
+            border-color: color-mix(in srgb, var(--primary) 54%, var(--border) 46%);
+            background: color-mix(in srgb, var(--accent) 72%, var(--input) 28%);
+        }
+
+        .tm-duration-preset-option__main {
+            min-width: 0;
+            display: flex;
+            flex-direction: column;
+            gap: 2px;
+            flex: 1 1 auto;
+        }
+
+        .tm-duration-preset-option__title {
+            font-size: 13px;
+            font-weight: 600;
+            color: var(--tm-text-color);
+        }
+
+        .tm-duration-preset-option__desc {
+            font-size: 12px;
+            color: var(--tm-secondary-text);
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+
+        .tm-duration-preset-option__check {
+            flex: 0 0 auto;
+            color: var(--primary);
+            opacity: 0;
+            font-weight: 700;
+        }
+
+        .tm-duration-preset-option.is-selected .tm-duration-preset-option__check {
+            opacity: 1;
+        }
+
+        .tm-duration-preset-helper {
+            font-size: 12px;
+            color: var(--tm-secondary-text);
+        }
+
+        .tm-prompt-box--duration .tm-duration-editor-input {
+            width: 124px;
+            max-width: 100%;
+        }
+
+        .tm-prompt-box--duration .tm-prompt-buttons {
+            flex-wrap: wrap;
         }
 
         .protyle-toolbar,
@@ -3222,6 +3328,7 @@
             opacity: 0;
             transition: opacity 0.18s ease;
             z-index: 24;
+            contain: layout paint style;
         }
 
         .tm-table-scrollbar.tm-table-scrollbar--visible {
@@ -3235,7 +3342,8 @@
             min-height: 24px;
             border-radius: 999px;
             background: color-mix(in srgb, var(--tm-secondary-text) 28%, transparent);
-            transform: translateY(0);
+            transform: translate3d(0, 0, 0);
+            will-change: transform, height;
         }
 
         .tm-body.tm-body--timeline {
@@ -6297,6 +6405,16 @@
             gap: 12px;
         }
 
+        .tm-task-detail-inline-popover--duration {
+            width: auto;
+            max-width: calc(100vw - 20px);
+        }
+
+        .tm-task-detail-inline-popover--duration .tm-duration-editor-input {
+            width: 124px;
+            max-width: 100%;
+        }
+
         .tm-task-detail-inline-popover__section {
             display: flex;
             flex-direction: column;
@@ -6601,6 +6719,7 @@
             opacity: 0;
             transition: opacity 0.18s ease;
             z-index: 4;
+            contain: layout paint style;
         }
 
         .tm-checklist-scrollbar.tm-checklist-scrollbar--visible {
@@ -6614,6 +6733,8 @@
             min-height: 24px;
             border-radius: 999px;
             background: color-mix(in srgb, var(--tm-secondary-text) 28%, transparent);
+            transform: translate3d(0, 0, 0);
+            will-change: transform, height;
         }
 
         .tm-checklist-items {
@@ -6722,6 +6843,15 @@
             border-color: color-mix(in srgb, var(--tm-border-color) 72%, var(--tm-text-color) 28%);
             box-shadow: 0 10px 22px rgba(0, 0, 0, 0.08);
             transform: translateY(-1px);
+        }
+
+        .tm-checklist-scroll.tm-scroll-active .tm-checklist-item {
+            transition: none !important;
+        }
+
+        .tm-checklist-scroll.tm-scroll-active .tm-checklist-item:hover {
+            box-shadow: none;
+            transform: none;
         }
 
         .tm-checklist-item--active {
@@ -8840,6 +8970,25 @@
             background: var(--tm-hover-bg);
         }
 
+        .tm-body.tm-body--list.tm-scroll-active .tm-table tbody tr:not(.tm-group-row):hover {
+            background: transparent;
+        }
+
+        .tm-body.tm-body--list.tm-scroll-active .tm-table tr.tm-timer-dim {
+            opacity: 1;
+        }
+
+        .tm-body.tm-body--list.tm-scroll-active .tm-table tr.tm-timer-focus {
+            background: transparent;
+        }
+
+        .tm-body.tm-body--list.tm-scroll-active .tm-table tr.tm-timer-focus > td,
+        .tm-body.tm-body--list.tm-scroll-active .tm-table tr.tm-timer-focus > td:first-child,
+        .tm-body.tm-body--list.tm-scroll-active .tm-table tr.tm-timer-focus > td:last-child {
+            border-right-color: var(--tm-table-border-color);
+            box-shadow: inset 0 -1px 0 var(--tm-table-border-color);
+        }
+
         .tm-table tbody tr.tm-task-row--multi-selected td,
         #tmTimelineLeftTable tbody tr.tm-task-row--multi-selected td {
             box-shadow:
@@ -8866,31 +9015,18 @@
         }
 
         .tm-table tr.tm-timer-focus > td {
-            border-right-color: transparent;
-            box-shadow:
-                inset -1px 0 0 var(--tm-table-border-color),
-                inset 0 2px 0 var(--tm-primary-color),
-                inset 0 -2px 0 var(--tm-primary-color),
-                inset 0 -1px 0 var(--tm-table-border-color);
+            border-right-color: var(--tm-table-border-color);
+            box-shadow: inset 0 -1px 0 var(--tm-table-border-color);
         }
 
         .tm-table tr.tm-timer-focus > td:first-child {
-            border-right-color: transparent;
             box-shadow:
                 inset 2px 0 0 var(--tm-primary-color),
-                inset -1px 0 0 var(--tm-table-border-color),
-                inset 0 2px 0 var(--tm-primary-color),
-                inset 0 -2px 0 var(--tm-primary-color),
                 inset 0 -1px 0 var(--tm-table-border-color);
         }
 
         .tm-table tr.tm-timer-focus > td:last-child {
-            border-right-color: transparent;
-            box-shadow:
-                inset -2px 0 0 var(--tm-primary-color),
-                inset 0 2px 0 var(--tm-primary-color),
-                inset 0 -2px 0 var(--tm-primary-color),
-                inset 0 -1px 0 var(--tm-table-border-color);
+            box-shadow: inset 0 -1px 0 var(--tm-table-border-color);
         }
 
         .tm-table tr.tm-timer-focus:hover {
@@ -8906,12 +9042,12 @@
             --tm-checklist-item-border-color: var(--tm-primary-color);
             border-color: var(--tm-primary-color);
             background: color-mix(in srgb, var(--tm-bg-color) 88%, var(--tm-primary-color) 12%);
-            box-shadow: inset 0 0 0 1px var(--tm-primary-color), 0 12px 24px color-mix(in srgb, var(--tm-primary-color) 16%, transparent);
+            box-shadow: inset 0 0 0 1px var(--tm-primary-color);
         }
 
         .tm-checklist-item.tm-timer-focus:hover {
             background: color-mix(in srgb, var(--tm-bg-color) 84%, var(--tm-primary-color) 16%);
-            box-shadow: inset 0 0 0 1px var(--tm-primary-color), 0 14px 28px color-mix(in srgb, var(--tm-primary-color) 20%, transparent);
+            box-shadow: inset 0 0 0 1px var(--tm-primary-color);
         }
 
         .tm-checklist-pane--compact .tm-checklist-item.tm-timer-focus {
@@ -8927,6 +9063,21 @@
         .tm-checklist-pane--compact .tm-checklist-item.tm-timer-focus:hover {
             background-color: color-mix(in srgb, var(--tm-bg-color) 84%, var(--tm-primary-color) 12%) !important;
             box-shadow: inset 0 0 0 1px var(--tm-primary-color);
+        }
+
+        .tm-checklist-scroll.tm-scroll-active .tm-checklist-item.tm-timer-dim {
+            opacity: 1;
+        }
+
+        .tm-checklist-scroll.tm-scroll-active .tm-checklist-item.tm-timer-focus,
+        .tm-checklist-scroll.tm-scroll-active .tm-checklist-item.tm-timer-focus:hover,
+        .tm-checklist-scroll.tm-scroll-active .tm-checklist-pane--compact .tm-checklist-item.tm-timer-focus,
+        .tm-checklist-scroll.tm-scroll-active .tm-checklist-pane--compact .tm-checklist-item.tm-timer-focus:hover {
+            --tm-checklist-item-border-color: var(--tm-border-color);
+            border-color: var(--tm-border-color);
+            background: color-mix(in srgb, var(--tm-bg-color) 92%, var(--tm-section-bg));
+            background-color: color-mix(in srgb, var(--tm-bg-color) 92%, var(--tm-section-bg)) !important;
+            box-shadow: none;
         }
 
         /* 列宽调整手柄 */
@@ -9145,6 +9296,15 @@
         .tm-subtask-create-btn:active {
             opacity: 1;
             transform: translateX(0);
+        }
+
+        .tm-body.tm-body--list.tm-scroll-active .tm-subtask-create-btn {
+            transition: none !important;
+        }
+
+        .tm-body.tm-body--list.tm-scroll-active .tm-task-cell:hover .tm-subtask-create-btn {
+            opacity: 0;
+            transform: translateX(2px);
         }
 
         .tm-subtask-create-btn:hover,
@@ -9435,6 +9595,13 @@
             opacity: 1;
             pointer-events: auto;
             color: var(--tm-text-color);
+        }
+
+        .tm-body.tm-body--list.tm-scroll-active .tm-task-cell:hover .tm-tree-toggle,
+        .tm-body.tm-body--list.tm-scroll-active .tm-task-leading:hover .tm-tree-toggle,
+        .tm-body.tm-body--list.tm-scroll-active .tm-task-leading:focus-within .tm-tree-toggle {
+            opacity: 0;
+            pointer-events: none;
         }
 
         /* 分组折叠指示器样式 */
@@ -11883,6 +12050,7 @@
                 { id: 'blocked', name: '阻塞', color: '#F44336', marker: ' ' },
                 { id: 'review', name: '待审核', color: '#FF9800', marker: ' ' }
             ],
+            customDurationOptions: [],
             checkboxDoneStatusId: 'done',
             checkboxUndoneStatusId: 'todo',
             customFieldDefs: [],
@@ -12329,6 +12497,7 @@
                                 if (typeof cloudData.tableBorderColorLight === 'string') this.data.tableBorderColorLight = cloudData.tableBorderColorLight;
                                 if (typeof cloudData.tableBorderColorDark === 'string') this.data.tableBorderColorDark = cloudData.tableBorderColorDark;
                                 if (Array.isArray(cloudData.customStatusOptions)) this.data.customStatusOptions = cloudData.customStatusOptions;
+                                if (Array.isArray(cloudData.customDurationOptions)) this.data.customDurationOptions = cloudData.customDurationOptions;
                                 if (typeof cloudData.checkboxDoneStatusId === 'string') this.data.checkboxDoneStatusId = cloudData.checkboxDoneStatusId;
                                 if (typeof cloudData.checkboxUndoneStatusId === 'string') this.data.checkboxUndoneStatusId = cloudData.checkboxUndoneStatusId;
                                 if (Array.isArray(cloudData.customFieldDefs)) this.data.customFieldDefs = cloudData.customFieldDefs;
@@ -12643,6 +12812,7 @@
             this.data.docPinnedByGroup = Storage.get('tm_doc_pinned_by_group', this.data.docPinnedByGroup) || {};
             this.data.currentGroupId = Storage.get('tm_current_group_id', 'all');
             this.data.customStatusOptions = Storage.get('tm_custom_status_options', this.data.customStatusOptions);
+            this.data.customDurationOptions = Storage.get('tm_custom_duration_options', this.data.customDurationOptions);
             this.data.checkboxDoneStatusId = String(Storage.get('tm_checkbox_done_status_id', this.data.checkboxDoneStatusId) || this.data.checkboxDoneStatusId || '');
             this.data.checkboxUndoneStatusId = String(Storage.get('tm_checkbox_undone_status_id', this.data.checkboxUndoneStatusId) || this.data.checkboxUndoneStatusId || '');
             this.data.customFieldDefs = Storage.get('tm_custom_field_defs', this.data.customFieldDefs) || this.data.customFieldDefs;
@@ -12729,6 +12899,7 @@
             }
             this.data.otherBlockRefs = __tmNormalizeOtherBlockRefs(this.data.otherBlockRefs);
             __tmNormalizeCheckboxStatusBindingConfig(this.data);
+            this.data.customDurationOptions = __tmNormalizeCustomDurationOptions(this.data.customDurationOptions);
             const validModes = new Set(['none', 'doc', 'time', 'quadrant', 'task']);
             if (!validModes.has(String(this.data.groupMode || ''))) {
                 // groupMode 无效时，根据标志位推导模式
@@ -12972,6 +13143,8 @@
             Storage.set('tm_current_group_id', this.data.currentGroupId);
             __tmNormalizeCheckboxStatusBindingConfig(this.data);
             Storage.set('tm_custom_status_options', this.data.customStatusOptions);
+            this.data.customDurationOptions = __tmNormalizeCustomDurationOptions(this.data.customDurationOptions);
+            Storage.set('tm_custom_duration_options', this.data.customDurationOptions);
             Storage.set('tm_checkbox_done_status_id', String(this.data.checkboxDoneStatusId || '').trim());
             Storage.set('tm_checkbox_undone_status_id', String(this.data.checkboxUndoneStatusId || '').trim());
             Storage.set('tm_custom_field_defs', Array.isArray(this.data.customFieldDefs) ? this.data.customFieldDefs : []);
@@ -17602,6 +17775,118 @@
             ];
     }
 
+    function __tmNormalizeDurationPresetValue(value) {
+        const raw = String(value ?? '').trim();
+        if (!raw) return '';
+        const matched = raw.match(/-?\d+(?:\.\d+)?/);
+        return matched ? String(matched[0] || '').trim() : '';
+    }
+
+    function __tmNormalizeCustomDurationOption(option) {
+        const source = (option && typeof option === 'object' && !Array.isArray(option)) ? option : null;
+        return __tmNormalizeDurationPresetValue(source ? (source.value ?? source.name ?? source.label) : option);
+    }
+
+    function __tmNormalizeCustomDurationOptions(optionsInput) {
+        const list = Array.isArray(optionsInput) ? optionsInput : [];
+        const out = [];
+        const seen = new Set();
+        list.forEach((item) => {
+            const normalized = __tmNormalizeCustomDurationOption(item);
+            const value = String(normalized || '').trim().toLowerCase();
+            if (!value || seen.has(value)) return;
+            seen.add(value);
+            out.push(normalized);
+        });
+        return out;
+    }
+
+    function __tmGetDurationPresetOptions(optionsInput = null) {
+        const durationOptions = Array.isArray(optionsInput)
+            ? optionsInput
+            : (Array.isArray(SettingsStore?.data?.customDurationOptions) ? SettingsStore.data.customDurationOptions : []);
+        return __tmNormalizeCustomDurationOptions(durationOptions);
+    }
+
+    function __tmBuildDurationPresetOptionsHtml(selectedValue, optionsInput = null) {
+        const options = __tmGetDurationPresetOptions(optionsInput);
+        const selected = __tmNormalizeDurationPresetValue(selectedValue).toLowerCase();
+        return options.map((item) => {
+            const value = __tmNormalizeDurationPresetValue(item);
+            const active = !!selected && value.toLowerCase() === selected;
+            return `
+                <button type="button" class="tm-duration-preset-option ${active ? 'is-selected' : ''}" data-tm-duration-preset-value="${esc(value)}" aria-pressed="${active ? 'true' : 'false'}">
+                    <span class="tm-duration-preset-option__main">
+                        <span class="tm-duration-preset-option__title">${esc(value)}</span>
+                    </span>
+                    <span class="tm-duration-preset-option__check" aria-hidden="true">✓</span>
+                </button>
+            `;
+        }).join('');
+    }
+
+    function __tmBindDurationPresetSelection(root, input, options = {}) {
+        if (!(root instanceof Element) || !(input instanceof HTMLInputElement || input instanceof HTMLTextAreaElement)) {
+            return {
+                sync() {},
+                getValue() {
+                    return '';
+                },
+                setValue() {},
+            };
+        }
+        const opts = (options && typeof options === 'object') ? options : {};
+        const bind = (target, type, handler, listenerOptions) => {
+            if (!target?.addEventListener) return;
+            try {
+                target.addEventListener(type, handler, listenerOptions || false);
+            } catch (e) {
+                try { target.addEventListener(type, handler); } catch (e2) {}
+            }
+        };
+        const buttons = Array.from(root.querySelectorAll('[data-tm-duration-preset-value]')).filter((el) => el instanceof HTMLButtonElement);
+        const normalize = (value) => __tmNormalizeDurationPresetValue(value).toLowerCase();
+        const sync = () => {
+            const current = normalize(input.value);
+            buttons.forEach((btn) => {
+                const value = normalize(btn.getAttribute('data-tm-duration-preset-value') || '');
+                const selected = !!current && current === value;
+                btn.classList.toggle('is-selected', selected);
+                btn.setAttribute('aria-pressed', selected ? 'true' : 'false');
+            });
+        };
+        buttons.forEach((btn) => {
+            bind(btn, 'click', async (ev) => {
+                try { ev.preventDefault(); } catch (e) {}
+                try { ev.stopPropagation(); } catch (e) {}
+                input.value = __tmNormalizeDurationPresetValue(btn.getAttribute('data-tm-duration-preset-value') || '');
+                sync();
+                if (typeof opts.onSelect === 'function') {
+                    try { await opts.onSelect(input.value, btn); } catch (e) {}
+                }
+                if (opts.focusInputOnSelect !== false) {
+                    try {
+                        input.focus();
+                        if (opts.selectInput !== false) input.select?.();
+                    } catch (e) {}
+                }
+            });
+        });
+        bind(input, 'input', sync);
+        bind(input, 'change', sync);
+        sync();
+        return {
+            sync,
+            getValue() {
+                return String(input.value || '').trim();
+            },
+            setValue(nextValue) {
+                input.value = __tmNormalizeDurationPresetValue(nextValue);
+                sync();
+            },
+        };
+    }
+
     function __tmGetStatusOptions(statusOptionsInput = null) {
         const statusOptions = Array.isArray(statusOptionsInput)
             ? statusOptionsInput
@@ -21656,7 +21941,7 @@
         const context = await __tmResolveTaskMutationContext(taskId);
         if (!context?.persistId) throw new Error('未找到任务');
         const inversePatch = __tmCaptureTaskPatchInverse(context.persistId, nextPatch);
-        if (__tmIsPatchNoop(nextPatch, inversePatch)) {
+        if (opts.skipNoopCheck !== true && __tmIsPatchNoop(nextPatch, inversePatch)) {
             return {
                 ok: true,
                 changed: false,
@@ -27596,6 +27881,20 @@ async function __tmRefreshAfterWake(reason) {
             paneEl.__tmChecklistScrollResizeObserver?.disconnect?.();
             paneEl.__tmChecklistScrollResizeObserver = null;
         } catch (e) {}
+        try {
+            if (paneEl.__tmChecklistScrollStateTimer) {
+                clearTimeout(paneEl.__tmChecklistScrollStateTimer);
+                paneEl.__tmChecklistScrollStateTimer = 0;
+            }
+        } catch (e) {}
+        try {
+            if (paneEl.__tmChecklistScrollFxRaf) {
+                cancelAnimationFrame(paneEl.__tmChecklistScrollFxRaf);
+                paneEl.__tmChecklistScrollFxRaf = 0;
+            }
+        } catch (e) {}
+        try { paneEl.__tmVerticalScrollNeedsMeasure = false; } catch (e) {}
+        try { paneEl.classList.remove('tm-scroll-active'); } catch (e) {}
     }
 
     function __tmSyncSegmentButtonState(btn, active) {
@@ -29615,55 +29914,150 @@ async function __tmRefreshAfterWake(reason) {
         return true;
     };
 
+    function __tmBindVerticalScrollVisibility(pane, track, thumb, options = {}) {
+        if (!(pane instanceof HTMLElement) || !(track instanceof HTMLElement) || !(thumb instanceof HTMLElement)) return false;
+        const opts = (options && typeof options === 'object') ? options : {};
+        const boundKey = String(opts.boundKey || '__tmVerticalScrollFxBound').trim() || '__tmVerticalScrollFxBound';
+        if (pane[boundKey]) return true;
+        pane[boundKey] = true;
+        const visibleClass = String(opts.visibleClass || '').trim();
+        const resizeObserverKey = String(opts.resizeObserverKey || '').trim();
+        const resizeTargets = Array.isArray(opts.resizeTargets) ? opts.resizeTargets : [];
+        const updateKey = String(opts.updateKey || '__tmVerticalScrollUpdateThumb').trim() || '__tmVerticalScrollUpdateThumb';
+        const timerKey = String(opts.timerKey || '__tmVerticalScrollFxTimer').trim() || '__tmVerticalScrollFxTimer';
+        const stateTimerKey = String(opts.stateTimerKey || '__tmVerticalScrollStateTimer').trim() || '__tmVerticalScrollStateTimer';
+        const rafKey = String(opts.rafKey || '__tmVerticalScrollFxRaf').trim() || '__tmVerticalScrollFxRaf';
+        const scrollClass = String(opts.scrollClass || 'tm-scroll-active').trim() || 'tm-scroll-active';
+        const hideDelay = Math.max(120, Number(opts.hideDelay) || 600);
+        const scrollStateDelay = Math.max(80, Number(opts.scrollStateDelay) || 160);
+        const thumbMin = Math.max(16, Number(opts.thumbMin) || 24);
+        let measured = false;
+        let metrics = {
+            viewport: 0,
+            total: 0,
+            trackSize: 0,
+            maxScroll: 0,
+            thumbSize: 0,
+            maxTop: 0,
+            visible: false,
+        };
+        const setVisible = (visible) => {
+            if (!visibleClass) return;
+            try { track.classList.toggle(visibleClass, !!visible); } catch (e) {}
+        };
+        const measure = () => {
+            measured = true;
+            const viewport = Number(pane.clientHeight || 0);
+            const total = Number(pane.scrollHeight || 0);
+            const trackSize = Number(track.clientHeight || 0);
+            const visible = !!viewport && !!total && total > viewport + 1 && !!trackSize;
+            if (!visible) {
+                metrics = {
+                    viewport,
+                    total,
+                    trackSize,
+                    maxScroll: 0,
+                    thumbSize: 0,
+                    maxTop: 0,
+                    visible: false,
+                };
+                try { thumb.style.height = '0px'; } catch (e) {}
+                try { thumb.style.transform = 'translate3d(0, 0, 0)'; } catch (e) {}
+                setVisible(false);
+                return;
+            }
+            const ratio = Math.min(1, viewport / total);
+            const thumbSize = Math.max(thumbMin, Math.round(trackSize * ratio));
+            metrics = {
+                viewport,
+                total,
+                trackSize,
+                maxScroll: Math.max(1, total - viewport),
+                thumbSize,
+                maxTop: Math.max(0, trackSize - thumbSize),
+                visible: true,
+            };
+            try { thumb.style.height = `${thumbSize}px`; } catch (e) {}
+        };
+        const paint = () => {
+            if (!measured) measure();
+            if (!metrics.visible) return;
+            const progress = Math.min(1, Math.max(0, Number(pane.scrollTop || 0) / Math.max(1, metrics.maxScroll)));
+            const top = Math.round(metrics.maxTop * progress);
+            try { thumb.style.transform = `translate3d(0, ${top}px, 0)`; } catch (e) {}
+        };
+        const flush = (forceMeasure = false) => {
+            if (forceMeasure || !measured) measure();
+            paint();
+        };
+        const schedule = (forceMeasure = false) => {
+            if (forceMeasure) pane.__tmVerticalScrollNeedsMeasure = true;
+            if (pane[rafKey]) return;
+            try {
+                pane[rafKey] = requestAnimationFrame(() => {
+                    const needMeasure = !!pane.__tmVerticalScrollNeedsMeasure;
+                    pane.__tmVerticalScrollNeedsMeasure = false;
+                    pane[rafKey] = 0;
+                    flush(needMeasure);
+                });
+            } catch (e) {
+                const needMeasure = !!pane.__tmVerticalScrollNeedsMeasure;
+                pane.__tmVerticalScrollNeedsMeasure = false;
+                pane[rafKey] = 0;
+                flush(needMeasure);
+            }
+        };
+        const markScrollActive = () => {
+            try { pane.classList.add(scrollClass); } catch (e) {}
+            try { clearTimeout(pane[stateTimerKey]); } catch (e) {}
+            pane[stateTimerKey] = setTimeout(() => {
+                pane[stateTimerKey] = 0;
+                try { pane.classList.remove(scrollClass); } catch (e2) {}
+            }, scrollStateDelay);
+        };
+        const onScroll = () => {
+            markScrollActive();
+            setVisible(true);
+            try { clearTimeout(pane[timerKey]); } catch (e) {}
+            pane[timerKey] = setTimeout(() => {
+                pane[timerKey] = 0;
+                setVisible(false);
+            }, hideDelay);
+            schedule(false);
+        };
+        pane.addEventListener('scroll', onScroll, { passive: true });
+        pane[updateKey] = () => {
+            schedule(true);
+        };
+        try {
+            const ro = new ResizeObserver(() => schedule(true));
+            ro.observe(pane);
+            resizeTargets.forEach((target) => {
+                if (target instanceof HTMLElement) ro.observe(target);
+            });
+            if (resizeObserverKey) pane[resizeObserverKey] = ro;
+        } catch (e) {}
+        schedule(true);
+        return true;
+    }
+
     function __tmBindChecklistScrollVisibility(modalEl) {
         const modal = modalEl instanceof Element ? modalEl : state.modal;
         const pane = modal?.querySelector?.('.tm-checklist-scroll');
         const track = modal?.querySelector?.('.tm-checklist-scrollbar');
         const thumb = track?.querySelector?.('.tm-checklist-scrollbar-thumb');
-        if (!(pane instanceof HTMLElement)) return;
-        if (pane.__tmChecklistScrollFxBound) return;
-        pane.__tmChecklistScrollFxBound = true;
-        const updateThumb = () => {
-            if (!(track instanceof HTMLElement) || !(thumb instanceof HTMLElement)) return;
-            const viewport = Number(pane.clientHeight || 0);
-            const total = Number(pane.scrollHeight || 0);
-            const trackHeight = Number(track.clientHeight || 0);
-            if (!viewport || !total || total <= viewport + 1 || !trackHeight) {
-                track.classList.remove('tm-checklist-scrollbar--visible');
-                thumb.style.height = '0px';
-                thumb.style.transform = 'translateY(0)';
-                return;
-            }
-            const ratio = Math.min(1, viewport / total);
-            const thumbHeight = Math.max(24, Math.round(trackHeight * ratio));
-            const maxTop = Math.max(0, trackHeight - thumbHeight);
-            const progress = Math.min(1, Math.max(0, Number(pane.scrollTop || 0) / Math.max(1, total - viewport)));
-            const top = Math.round(maxTop * progress);
-            thumb.style.height = `${thumbHeight}px`;
-            thumb.style.transform = `translateY(${top}px)`;
-        };
-        pane.__tmChecklistScrollUpdateThumb = updateThumb;
-        const show = () => {
-            try { pane.__tmChecklistLastScrollAt = Date.now(); } catch (e) {}
-            updateThumb();
-            track?.classList?.add('tm-checklist-scrollbar--visible');
-            try { clearTimeout(pane.__tmChecklistScrollFxTimer); } catch (e) {}
-            pane.__tmChecklistScrollFxTimer = setTimeout(() => {
-                try { track?.classList?.remove('tm-checklist-scrollbar--visible'); } catch (e2) {}
-            }, 600);
-        };
-        pane.addEventListener('scroll', show, { passive: true });
-        pane.addEventListener('scroll', updateThumb, { passive: true });
-        try {
-            const ro = new ResizeObserver(() => updateThumb());
-            ro.observe(pane);
-            const items = pane.querySelector('.tm-checklist-items');
-            if (items instanceof HTMLElement) ro.observe(items);
-            pane.__tmChecklistScrollResizeObserver = ro;
-        } catch (e) {}
-        try {
-            requestAnimationFrame(() => updateThumb());
-        } catch (e) {}
+        if (!(pane instanceof HTMLElement) || !(track instanceof HTMLElement) || !(thumb instanceof HTMLElement)) return;
+        __tmBindVerticalScrollVisibility(pane, track, thumb, {
+            boundKey: '__tmChecklistScrollFxBound',
+            visibleClass: 'tm-checklist-scrollbar--visible',
+            resizeObserverKey: '__tmChecklistScrollResizeObserver',
+            resizeTargets: [pane.querySelector('.tm-checklist-items')],
+            updateKey: '__tmChecklistScrollUpdateThumb',
+            timerKey: '__tmChecklistScrollFxTimer',
+            stateTimerKey: '__tmChecklistScrollStateTimer',
+            rafKey: '__tmChecklistScrollFxRaf',
+            scrollClass: 'tm-scroll-active',
+        });
     }
 
     function __tmBindListScrollVisibility(modalEl) {
@@ -29671,49 +30065,18 @@ async function __tmRefreshAfterWake(reason) {
         const pane = modal?.querySelector?.('.tm-body.tm-body--list');
         const track = modal?.querySelector?.('.tm-table-scrollbar');
         const thumb = track?.querySelector?.('.tm-table-scrollbar-thumb');
-        if (!(pane instanceof HTMLElement)) return;
-        if (!(track instanceof HTMLElement) || !(thumb instanceof HTMLElement)) return;
-        if (pane.__tmTableScrollFxBound) return;
-        pane.__tmTableScrollFxBound = true;
-        const updateThumb = () => {
-            const viewport = Number(pane.clientHeight || 0);
-            const total = Number(pane.scrollHeight || 0);
-            const trackHeight = Number(track.clientHeight || 0);
-            if (!viewport || !total || total <= viewport + 1 || !trackHeight) {
-                track.classList.remove('tm-table-scrollbar--visible');
-                thumb.style.height = '0px';
-                thumb.style.transform = 'translateY(0)';
-                return;
-            }
-            const ratio = Math.min(1, viewport / total);
-            const thumbHeight = Math.max(24, Math.round(trackHeight * ratio));
-            const maxTop = Math.max(0, trackHeight - thumbHeight);
-            const progress = Math.min(1, Math.max(0, Number(pane.scrollTop || 0) / Math.max(1, total - viewport)));
-            const top = Math.round(maxTop * progress);
-            thumb.style.height = `${thumbHeight}px`;
-            thumb.style.transform = `translateY(${top}px)`;
-        };
-        pane.__tmTableScrollUpdateThumb = updateThumb;
-        const show = () => {
-            updateThumb();
-            track.classList.add('tm-table-scrollbar--visible');
-            try { clearTimeout(pane.__tmTableScrollFxTimer); } catch (e) {}
-            pane.__tmTableScrollFxTimer = setTimeout(() => {
-                try { track.classList.remove('tm-table-scrollbar--visible'); } catch (e2) {}
-            }, 600);
-        };
-        pane.addEventListener('scroll', show, { passive: true });
-        pane.addEventListener('scroll', updateThumb, { passive: true });
-        try {
-            const ro = new ResizeObserver(() => updateThumb());
-            ro.observe(pane);
-            const table = pane.querySelector('#tmTaskTable');
-            if (table instanceof HTMLElement) ro.observe(table);
-            pane.__tmTableScrollResizeObserver = ro;
-        } catch (e) {}
-        try {
-            requestAnimationFrame(() => updateThumb());
-        } catch (e) {}
+        if (!(pane instanceof HTMLElement) || !(track instanceof HTMLElement) || !(thumb instanceof HTMLElement)) return;
+        __tmBindVerticalScrollVisibility(pane, track, thumb, {
+            boundKey: '__tmTableScrollFxBound',
+            visibleClass: 'tm-table-scrollbar--visible',
+            resizeObserverKey: '__tmTableScrollResizeObserver',
+            resizeTargets: [pane.querySelector('#tmTaskTable')],
+            updateKey: '__tmTableScrollUpdateThumb',
+            timerKey: '__tmTableScrollFxTimer',
+            stateTimerKey: '__tmTableScrollStateTimer',
+            rafKey: '__tmTableScrollFxRaf',
+            scrollClass: 'tm-scroll-active',
+        });
     }
 
     function __tmBindDocTabWheelScroll(modalEl) {
@@ -29937,6 +30300,87 @@ async function __tmRefreshAfterWake(reason) {
                 removeFromStack();
                 modal.remove();
                 resolve(false);
+            };
+            modal.onclick = (e) => {
+                if (e.target === modal) cancelBtn.click();
+            };
+        });
+    }
+
+    function showDurationPrompt(title, defaultValue) {
+        const initialValue = __tmNormalizeDurationPresetValue(defaultValue);
+        const presets = __tmGetDurationPresetOptions();
+        if (!presets.length) {
+            return showPrompt(title, '例如：30 或 30m', initialValue);
+        }
+        return new Promise((resolve) => {
+            const existing = document.querySelector('.tm-prompt-modal');
+            if (existing) existing.remove();
+
+            const modal = document.createElement('div');
+            modal.className = 'tm-prompt-modal';
+            modal.innerHTML = `
+                <div class="tm-prompt-box tm-prompt-box--duration" style="width:auto;max-width:min(92vw,220px);">
+                    <div class="tm-prompt-title">${esc(String(title || '设置时长').trim() || '设置时长')}</div>
+                    <div class="tm-duration-preset-list" style="margin-bottom:10px;">
+                        ${__tmBuildDurationPresetOptionsHtml(initialValue, presets)}
+                    </div>
+                    <div class="tm-duration-preset-helper" style="margin-bottom:8px;">可选预设，也可直接填写自定义时长</div>
+                    <input class="tm-prompt-input tm-duration-editor-input" data-tm-duration-prompt-input type="text" value="${esc(initialValue)}" placeholder="例如：30 或 30m">
+                    <div class="tm-prompt-buttons">
+                        <button class="tm-prompt-btn tm-prompt-btn-secondary" id="tm-duration-cancel">取消</button>
+                        <button class="tm-prompt-btn tm-prompt-btn-secondary" id="tm-duration-clear">清空</button>
+                        <button class="tm-prompt-btn tm-prompt-btn-primary" id="tm-duration-ok">确定</button>
+                    </div>
+                </div>
+            `;
+
+            document.body.appendChild(modal);
+            __tmApplyPopupOpenAnimation(modal, modal.querySelector('.tm-prompt-box'));
+            const input = modal.querySelector('[data-tm-duration-prompt-input]');
+            const okBtn = modal.querySelector('#tm-duration-ok');
+            const clearBtn = modal.querySelector('#tm-duration-clear');
+            const cancelBtn = modal.querySelector('#tm-duration-cancel');
+            if (!(input instanceof HTMLInputElement) || !(okBtn instanceof HTMLButtonElement) || !(clearBtn instanceof HTMLButtonElement) || !(cancelBtn instanceof HTMLButtonElement)) {
+                modal.remove();
+                resolve(null);
+                return;
+            }
+            __tmBindDurationPresetSelection(modal, input);
+
+            const removeFromStack = __tmModalStackBind(() => cancelBtn.click());
+            const commit = (value) => {
+                removeFromStack();
+                modal.remove();
+                resolve(__tmNormalizeDurationPresetValue(value));
+            };
+            const focusInput = () => {
+                try {
+                    input.focus({ preventScroll: true });
+                } catch (e) {
+                    try { input.focus(); } catch (e2) {}
+                }
+                try { input.select?.(); } catch (e) {}
+            };
+            focusInput();
+            try { requestAnimationFrame(() => focusInput()); } catch (e) {}
+            setTimeout(() => focusInput(), 30);
+
+            okBtn.onclick = () => commit(input.value);
+            clearBtn.onclick = () => commit('');
+            cancelBtn.onclick = () => {
+                removeFromStack();
+                modal.remove();
+                resolve(null);
+            };
+            input.onkeydown = (e) => {
+                if (e.key === 'Escape') {
+                    cancelBtn.click();
+                    return;
+                }
+                if (e.key === 'Enter') {
+                    okBtn.click();
+                }
             };
             modal.onclick = (e) => {
                 if (e.target === modal) cancelBtn.click();
@@ -46918,6 +47362,7 @@ async function __tmRefreshAfterWake(reason) {
             refresh: false,
             refreshCalendar: false,
             withFilters: false,
+            skipNoopCheck: opts.skipNoopCheck === true,
             hard: opts.hard === true,
         });
         try {
@@ -50300,6 +50745,7 @@ async function __tmRefreshAfterWake(reason) {
             await window.tmUpdateTaskDates(tid, datePatch, {
                 source: String(opts.source || 'task-time').trim() || 'task-time',
                 refresh: false,
+                skipNoopCheck: opts.skipNoopCheck === true,
                 hard: opts.hard === true,
             });
             changed = true;
@@ -50311,6 +50757,7 @@ async function __tmRefreshAfterWake(reason) {
                 refresh: false,
                 refreshCalendar: false,
                 withFilters: false,
+                skipNoopCheck: opts.skipNoopCheck === true,
                 hard: opts.hard === true,
             });
             changed = true;
@@ -53442,6 +53889,7 @@ async function __tmRefreshAfterWake(reason) {
                     await __tmCommitTaskTimeFields(taskId, plan.timePatch, {
                         source: String(opts.source || 'task-fields').trim() || 'task-fields',
                         label: String(opts.label || '任务字段').trim() || '任务字段',
+                        skipNoopCheck: true,
                     });
                 }
                 if (plan.attrPatch && Object.keys(plan.attrPatch).length > 0) {
@@ -53451,6 +53899,7 @@ async function __tmRefreshAfterWake(reason) {
                         refresh: false,
                         refreshCalendar: false,
                         withFilters: false,
+                        skipNoopCheck: true,
                     });
                 }
                 return __tmTaskStateKernel.getTask(taskId);
@@ -54150,6 +54599,69 @@ async function __tmRefreshAfterWake(reason) {
             finish(rerender);
         };
 
+        if (field === 'duration' && __tmGetDurationPresetOptions().length) {
+            let anchorRect = null;
+            try {
+                const rect = td.getBoundingClientRect();
+                if (rect) {
+                    anchorRect = {
+                        left: Number(rect.left) || 0,
+                        top: Number(rect.top) || 0,
+                        right: Number(rect.right) || 0,
+                        bottom: Number(rect.bottom) || 0,
+                        width: Number(rect.width) || 0,
+                        height: Number(rect.height) || 0,
+                    };
+                }
+            } catch (e) {}
+            finish(false);
+            __tmOpenInlineEditor(td, ({ editor, close }) => {
+                try { editor.classList.add('tm-inline-editor--duration'); } catch (e) {}
+                const presets = __tmGetDurationPresetOptions();
+                const saveDuration = async (rawValue) => {
+                    await __tmCommitCellEdit(id, 'duration', rawValue);
+                    close();
+                };
+                const presetWrap = document.createElement('div');
+                presetWrap.className = 'tm-duration-preset-list tm-duration-preset-list--compact';
+                presetWrap.innerHTML = __tmBuildDurationPresetOptionsHtml(String(task.duration || ''), presets);
+                editor.appendChild(presetWrap);
+
+                const helper = document.createElement('div');
+                helper.className = 'tm-duration-preset-helper';
+                helper.textContent = '可选预设，也可继续直接填写自定义时长';
+                editor.appendChild(helper);
+
+                const input = document.createElement('input');
+                input.type = 'text';
+                input.className = 'tm-duration-editor-input';
+                input.placeholder = '例如：30 或 30m';
+                input.value = String(task.duration || '');
+                editor.appendChild(input);
+
+                __tmBindDurationPresetSelection(editor, input, {
+                    onSelect: async (nextValue) => {
+                        await saveDuration(nextValue);
+                    },
+                    focusInputOnSelect: false,
+                    selectInput: false,
+                });
+
+                const { wrap } = __tmBuildActions('保存', async () => {
+                    await saveDuration(input.value);
+                }, close);
+                editor.appendChild(wrap);
+                try {
+                    input.focus();
+                    input.select?.();
+                } catch (e) {}
+                input.onkeydown = (e) => {
+                    if (e.key === 'Enter') wrap.querySelector('button.tm-btn-primary')?.click?.();
+                };
+            }, { anchorRect });
+            return;
+        }
+
         td.innerHTML = '';
 
         if (field === 'priority') {
@@ -54435,9 +54947,10 @@ async function __tmRefreshAfterWake(reason) {
         return maxZ;
     }
 
-    function __tmOpenInlineEditor(anchorEl, build) {
+    function __tmOpenInlineEditor(anchorEl, build, options = {}) {
         if (!anchorEl) return null;
         __tmCloseInlineEditor();
+        const opts = (options && typeof options === 'object') ? options : {};
 
         const editor = document.createElement('div');
         editor.className = 'tm-inline-editor';
@@ -54465,7 +54978,8 @@ async function __tmRefreshAfterWake(reason) {
 
         build(api);
 
-        const rect = anchorEl.getBoundingClientRect();
+        const customRect = opts.anchorRect && typeof opts.anchorRect === 'object' ? opts.anchorRect : null;
+        const rect = customRect || anchorEl.getBoundingClientRect();
         const vw = window.innerWidth || document.documentElement.clientWidth || 0;
         const vh = window.innerHeight || document.documentElement.clientHeight || 0;
 
@@ -54567,13 +55081,9 @@ async function __tmRefreshAfterWake(reason) {
         const task = state.flatTasks[id];
         if (!task) return;
         __tmOpenInlineEditor(el, ({ editor, close }) => {
-            const input = document.createElement('input');
-            input.type = 'text';
-            input.placeholder = '例如：30 或 30m';
-            input.value = String(task.duration || '');
-            editor.appendChild(input);
-            const { wrap } = __tmBuildActions('保存', async () => {
-                const next = String(input.value || '').trim();
+            try { editor.classList.add('tm-inline-editor--duration'); } catch (e) {}
+            const saveDuration = async (rawValue) => {
+                const next = String(rawValue || '').trim();
                 try {
                     await __tmMutationEngine.requestTaskPatch(id, { duration: next }, {
                         source: 'inline-duration-editor',
@@ -54584,8 +55094,42 @@ async function __tmRefreshAfterWake(reason) {
                 } catch (e) {
                     hint(`❌ 更新失败: ${e.message}`, 'error');
                 }
+            };
+            const presets = __tmGetDurationPresetOptions();
+            if (presets.length) {
+                const presetWrap = document.createElement('div');
+                presetWrap.className = 'tm-duration-preset-list tm-duration-preset-list--compact';
+                presetWrap.innerHTML = __tmBuildDurationPresetOptionsHtml(String(task.duration || ''), presets);
+                editor.appendChild(presetWrap);
+
+                const helper = document.createElement('div');
+                helper.className = 'tm-duration-preset-helper';
+                helper.textContent = '可选预设，也可继续直接填写自定义时长';
+                editor.appendChild(helper);
+            }
+            const input = document.createElement('input');
+            input.type = 'text';
+            input.className = 'tm-duration-editor-input';
+            input.placeholder = '例如：30 或 30m';
+            input.value = String(task.duration || '');
+            editor.appendChild(input);
+            if (presets.length) {
+                __tmBindDurationPresetSelection(editor, input, {
+                    onSelect: async (nextValue) => {
+                        await saveDuration(nextValue);
+                    },
+                    focusInputOnSelect: false,
+                    selectInput: false,
+                });
+            }
+            const { wrap } = __tmBuildActions('保存', async () => {
+                await saveDuration(input.value);
             }, close);
             editor.appendChild(wrap);
+            try {
+                input.focus();
+                input.select?.();
+            } catch (e) {}
             input.onkeydown = (e) => {
                 if (e.key === 'Enter') wrap.querySelector('button.tm-btn-primary')?.click?.();
             };
@@ -54887,7 +55431,7 @@ async function __tmRefreshAfterWake(reason) {
     window.tmEditDuration = async function(id) {
         const task = state.flatTasks[id];
         if (!task) return;
-        const next = await showPrompt('设置时长', '例如：30 或 30m', String(task.duration || ''));
+        const next = await showDurationPrompt('设置时长', String(task.duration || ''));
         if (next == null) return;
         try {
             task.duration = next;
@@ -57022,11 +57566,20 @@ async function __tmRefreshAfterWake(reason) {
             const title = String(config.title || '').trim();
             const value = String(config.value || '').trim();
             const placeholder = String(config.placeholder || '').trim();
+            const durationPresets = mode === 'duration' ? __tmGetDurationPresetOptions() : [];
             const popover = document.createElement('div');
-            popover.className = 'tm-task-detail-inline-popover';
+            popover.className = `tm-task-detail-inline-popover${mode === 'duration' && durationPresets.length ? ' tm-task-detail-inline-popover--duration' : ''}`;
             popover.innerHTML = `
                 ${title ? `<div class="tm-task-detail-inline-popover__title">${esc(title)}</div>` : ''}
-                <input class="tm-input tm-task-detail-inline-popover__input" data-tm-detail-inline-popover-input type="${mode === 'date' ? 'date' : 'text'}" value="${esc(value)}" ${placeholder ? `placeholder="${esc(placeholder)}"` : ''}>
+                ${mode === 'duration' && durationPresets.length ? `
+                    <div class="tm-task-detail-inline-popover__section">
+                        <div class="tm-duration-preset-list tm-duration-preset-list--compact">
+                            ${__tmBuildDurationPresetOptionsHtml(value, durationPresets)}
+                        </div>
+                        <div class="tm-duration-preset-helper">可选预设，也可直接填写自定义时长</div>
+                    </div>
+                ` : ''}
+                <input class="tm-input tm-task-detail-inline-popover__input${mode === 'duration' ? ' tm-duration-editor-input' : ''}" data-tm-detail-inline-popover-input type="${mode === 'date' ? 'date' : 'text'}" value="${esc(value)}" ${placeholder ? `placeholder="${esc(placeholder)}"` : ''}>
                 <div class="tm-task-detail-inline-popover__actions">
                     <button type="button" class="tm-btn tm-btn-secondary" data-tm-detail-inline-popover-clear>清空</button>
                     <button type="button" class="tm-btn tm-btn-primary" data-tm-detail-inline-popover-apply>确定</button>
@@ -57070,6 +57623,17 @@ async function __tmRefreshAfterWake(reason) {
                     setInlinePopoverBusyState(false);
                 }
             };
+            if (mode === 'duration' && input instanceof HTMLInputElement && durationPresets.length) {
+                __tmBindDurationPresetSelection(popover, input, {
+                    onSelect: async (nextValue) => {
+                        if (config.commitPresetOnSelect === true) {
+                            await commit(nextValue);
+                        }
+                    },
+                    focusInputOnSelect: config.commitPresetOnSelect !== true,
+                    selectInput: config.commitPresetOnSelect !== true,
+                });
+            }
             if (input instanceof HTMLInputElement) {
                 on(input, 'keydown', async (ev) => {
                     if (ev.key === 'Escape') {
@@ -57795,10 +58359,11 @@ async function __tmRefreshAfterWake(reason) {
                 try { ev.preventDefault(); } catch (e) {}
                 try { ev.stopPropagation(); } catch (e) {}
                 openInlinePopover(ev.currentTarget, {
-                    mode: 'text',
+                    mode: 'duration',
                     title: '时长',
                     value: readHiddenInputValue('duration'),
                     placeholder: '1h / 30min',
+                    commitPresetOnSelect: true,
                     normalize: (raw) => String(raw || '').trim(),
                     onCommit: async (nextValue) => {
                         setHiddenInputValue('duration', nextValue);
@@ -66391,6 +66956,14 @@ async function __tmRefreshAfterWake(reason) {
                                 <option value="minutes" ${String(SettingsStore.data.durationFormat || '') === 'minutes' ? 'selected' : ''}>分钟 (如 90min)</option>
                             </select>`
                         )}
+                        <div style="margin-top:12px;padding-top:12px;border-top:1px solid var(--tm-border-color);">
+                            <div style="font-size:13px;font-weight:600;margin-bottom:6px;">时长预设</div>
+                            <div style="font-size:12px;color:var(--tm-secondary-text);margin-bottom:10px;">用于任务详情、悬浮条和表格视图的时长快捷选择。仍支持直接填写自定义数值；如果这里不添加任何预设，就继续使用当前的自由输入方式。预设里即使写了 h、min 等字符，也只会取数字部分。</div>
+                            <div id="tm-duration-options-list">
+                                ${renderDurationOptionsList()}
+                            </div>
+                            <button class="tm-btn tm-btn-primary" data-tm-action="addDurationOption" style="margin-top: 8px; font-size: 12px;">+ 添加时长预设</button>
+                        </div>
                     </div>
 
                     <div class="tm-settings-panel" data-tm-settings-section="search">
@@ -68932,6 +69505,26 @@ async function __tmRefreshAfterWake(reason) {
         `).join('');
     };
 
+    window.renderDurationOptionsList = function() {
+        const options = __tmGetDurationPresetOptions();
+        if (!options.length) {
+            return '<div style="color: var(--tm-secondary-text); font-size: 12px;">暂无时长预设，编辑时会继续使用自定义填写。</div>';
+        }
+        return options.map((value, index) => {
+            const normalized = __tmNormalizeDurationPresetValue(value);
+            return `
+                <div style="display:flex;align-items:center;gap:6px;margin-bottom:6px;flex-wrap:wrap;">
+                    <input type="text" data-tm-duration-option-input="${index}" value="${esc(normalized)}" onchange="updateDurationOption(${index}, this.value)" placeholder="例如 0.5 / 1 / 30" style="width: 200px; padding: 4px; border: 1px solid var(--tm-input-border); background: var(--tm-input-bg); color: var(--tm-text-color); border-radius: 4px; font-size: 12px; font-family: monospace;" title="时长值（只取数字部分）">
+                    <div style="display:flex;gap:2px;">
+                        <button class="tm-btn" onclick="moveDurationOption(${index}, -1)" ${index === 0 ? 'disabled' : ''} style="padding: 2px 6px; font-size: 11px;">↑</button>
+                        <button class="tm-btn" onclick="moveDurationOption(${index}, 1)" ${index === options.length - 1 ? 'disabled' : ''} style="padding: 2px 6px; font-size: 11px;">↓</button>
+                    </div>
+                    <button class="tm-btn tm-btn-danger" onclick="deleteDurationOption(${index})" style="padding: 2px 6px; font-size: 11px;">删除</button>
+                </div>
+            `;
+        }).join('');
+    };
+
     window.tmPickStatusOptionColor = function(index) {
         const options = SettingsStore.data.customStatusOptions || [];
         const option = options[index];
@@ -68964,6 +69557,25 @@ async function __tmRefreshAfterWake(reason) {
         render();
         try { window.tmQuickAddRefreshStatusSelect?.(); } catch (e) {}
         try { window.tmQuickAddRenderMeta?.(); } catch (e) {}
+    };
+
+    window.addDurationOption = async function() {
+        const rawValue = await showPrompt('添加时长预设', '请输入时长值，例如 0.5 / 1 / 30；若写 1h / 30min 也只会取数字', '');
+        if (rawValue == null) return;
+        const value = __tmNormalizeDurationPresetValue(rawValue);
+        if (!value) {
+            hint('时长值不能为空', 'warning');
+            return;
+        }
+        const options = __tmGetDurationPresetOptions();
+        if (options.some((item) => __tmNormalizeDurationPresetValue(item).toLowerCase() === value.toLowerCase())) {
+            hint('时长值已存在，请使用其他值', 'warning');
+            return;
+        }
+        options.push(value);
+        SettingsStore.data.customDurationOptions = options;
+        await SettingsStore.save();
+        showSettings();
     };
 
     // 绑定添加规则函数
@@ -69198,6 +69810,30 @@ async function __tmRefreshAfterWake(reason) {
         try { window.tmQuickAddRenderMeta?.(); } catch (e) {}
     };
 
+    window.updateDurationOption = async function(index, value) {
+        const options = __tmGetDurationPresetOptions();
+        if (!options[index]) return;
+        const nextValue = __tmNormalizeDurationPresetValue(value);
+        if (!nextValue) {
+            hint('时长值不能为空', 'warning');
+            showSettings();
+            return;
+        }
+        if (options.some((item, itemIndex) => itemIndex !== index && __tmNormalizeDurationPresetValue(item).toLowerCase() === nextValue.toLowerCase())) {
+            hint('时长值已存在，请使用其他值', 'warning');
+            showSettings();
+            return;
+        }
+        options[index] = nextValue;
+        SettingsStore.data.customDurationOptions = options;
+        await SettingsStore.save();
+        try {
+            document.querySelectorAll(`[data-tm-duration-option-input="${index}"]`).forEach((el) => {
+                if (el instanceof HTMLInputElement) el.value = nextValue;
+            });
+        } catch (e) {}
+    };
+
     window.moveStatusOption = async function(index, direction) {
         const options = [...(SettingsStore.data.customStatusOptions || [])];
         const newIndex = index + direction;
@@ -69209,6 +69845,16 @@ async function __tmRefreshAfterWake(reason) {
         render();
         try { window.tmQuickAddRefreshStatusSelect?.(); } catch (e) {}
         try { window.tmQuickAddRenderMeta?.(); } catch (e) {}
+    };
+
+    window.moveDurationOption = async function(index, direction) {
+        const options = __tmGetDurationPresetOptions();
+        const newIndex = index + direction;
+        if (newIndex < 0 || newIndex >= options.length) return;
+        [options[index], options[newIndex]] = [options[newIndex], options[index]];
+        SettingsStore.data.customDurationOptions = options;
+        await SettingsStore.save();
+        showSettings();
     };
 
     window.deleteStatusOption = async function(index) {
@@ -69223,6 +69869,16 @@ async function __tmRefreshAfterWake(reason) {
         render(); // 刷新主界面
         try { window.tmQuickAddRefreshStatusSelect?.(); } catch (e) {}
         try { window.tmQuickAddRenderMeta?.(); } catch (e) {}
+    };
+
+    window.deleteDurationOption = async function(index) {
+        const ok = await showConfirm('删除时长预设', '确定删除这个时长预设吗？');
+        if (!ok) return;
+        const options = __tmGetDurationPresetOptions();
+        options.splice(index, 1);
+        SettingsStore.data.customDurationOptions = options;
+        await SettingsStore.save();
+        showSettings();
     };
 
     window.tmDeleteCustomFieldById = async function(fieldId) {
@@ -76533,6 +77189,7 @@ async function __tmRefreshAfterWake(reason) {
                 'tm_doc_groups',
                 'tm_current_group_id',
                 'tm_custom_status_options',
+                'tm_custom_duration_options',
                 'tm_column_widths',
                 'tm_column_order',
                 'tm_topbar_gradient_light_start',
