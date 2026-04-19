@@ -149,9 +149,27 @@
     let inlineMetaVisibilityHandler = null;
     let inlineMetaFocusHandler = null;
     let inlineMetaPageShowHandler = null;
+    let quickbarInlineSettingsCache = null;
+    let quickbarInlineSettingsCacheDirty = true;
+    let inlineMetaActiveTargetsCacheTs = 0;
+    let inlineMetaActiveTargetsCacheValue = false;
+    let inlineMetaPendingForceRefresh = false;
 
     // ==================== 辅助函数 ====================
-    function getQuickbarInlineSettings() {
+    function invalidateQuickbarInlineSettingsCache() {
+        quickbarInlineSettingsCache = null;
+        quickbarInlineSettingsCacheDirty = true;
+    }
+
+    function invalidateInlineMetaActiveTargetsCache() {
+        inlineMetaActiveTargetsCacheTs = 0;
+        inlineMetaActiveTargetsCacheValue = false;
+    }
+
+    function getQuickbarInlineSettings(forceRefresh = false) {
+        if (!forceRefresh && !quickbarInlineSettingsCacheDirty && quickbarInlineSettingsCache) {
+            return quickbarInlineSettingsCache;
+        }
         const fallbackFields = ['custom-status', 'custom-completion-time'];
         try {
             const enabled = !!JSON.parse(localStorage.getItem('tm_enable_quickbar_inline_meta') || 'false');
@@ -160,13 +178,17 @@
             const fields = Array.isArray(rawFields)
                 ? rawFields.map(v => String(v || '').trim()).filter(v => quickbarInlineFieldAllowSet.has(v))
                 : fallbackFields.slice();
-            return {
+            quickbarInlineSettingsCache = {
                 enabled,
                 showOnMobile,
                 fields: fields.length ? fields : fallbackFields.slice()
             };
+            quickbarInlineSettingsCacheDirty = false;
+            return quickbarInlineSettingsCache;
         } catch (e) {
-            return { enabled: false, showOnMobile: false, fields: fallbackFields.slice() };
+            quickbarInlineSettingsCache = { enabled: false, showOnMobile: false, fields: fallbackFields.slice() };
+            quickbarInlineSettingsCacheDirty = false;
+            return quickbarInlineSettingsCache;
         }
     }
 
@@ -430,6 +452,7 @@
         }
         if (!host) return;
         try { host.remove(); } catch (e) {}
+        invalidateInlineMetaActiveTargetsCache();
     }
 
     function esc(value) {
@@ -1470,6 +1493,7 @@
         let currentProps = {};  // 当前块的所有自定义属性值
         let currentReminderSnapshot = null;
         let currentReminderRefreshToken = 0;
+        let currentFloatBarLoadToken = 0;
         let activePropConfig = null;  // 当前编辑的属性配置
         let inputResolve = null;  // 输入框Promise解析器
 
@@ -1638,6 +1662,23 @@
             if (String(currentTaskName || '').trim()) return String(currentTaskName).trim();
             const blockEl = currentBlockEl || getBlockElById(currentBlockId) || null;
             return getTaskTitleFromBlockEl(blockEl);
+        }
+
+        function isCurrentFloatBarContext(expectedBlockId = '', expectedTaskId = '', token = currentFloatBarLoadToken) {
+            if (token !== currentFloatBarLoadToken) return false;
+            if (!floatBar || floatBar.style.display === 'none') return false;
+            const liveBlockId = String(currentBlockId || '').trim();
+            const liveTaskId = String(resolveCurrentTaskId() || '').trim();
+            if (expectedBlockId && liveBlockId && expectedBlockId !== liveBlockId) return false;
+            if (expectedTaskId && liveTaskId && expectedTaskId !== liveTaskId) return false;
+            return true;
+        }
+
+        function rerenderFloatBarIfCurrent(expectedBlockId = '', expectedTaskId = '', token = currentFloatBarLoadToken) {
+            if (!isCurrentFloatBarContext(expectedBlockId, expectedTaskId, token)) return false;
+            renderFloatBar();
+            updatePosition();
+            return true;
         }
 
         function normalizeReminderTaskName(value) {
@@ -2349,9 +2390,15 @@
         }
 
         // 获取或更新当前块的所有自定义属性
-        async function refreshBlockAttrs() {
-            if (!currentBlockId) return;
-            currentProps = await getTaskCustomProps(currentBlockId, true);
+        async function refreshBlockAttrs(blockId = currentBlockId, forceRefresh = true) {
+            const id = String(blockId || currentBlockId || '').trim();
+            if (!id) {
+                currentProps = normalizeCustomProps();
+                return currentProps;
+            }
+            const props = await getTaskCustomProps(id, !!forceRefresh);
+            if (String(currentBlockId || '').trim() === id) currentProps = props;
+            return props;
         }
 
         function shouldSplitRemarkIntoOwnRow(visibleSet) {
@@ -3089,10 +3136,14 @@
         // 显示悬浮条
         async function showFloatBar(blockEl) {
             updateCurrentTaskContext(blockEl);
+            const blockIdAtOpen = String(currentBlockId || '').trim();
+            const taskIdAtOpen = String(resolveCurrentTaskId() || '').trim();
+            const loadToken = ++currentFloatBarLoadToken;
 
-            // 读取当前块的自定义属性
-            await refreshBlockAttrs();
-            await refreshCurrentReminderSnapshot(true);
+            // 先用缓存/默认值立即显示，避免被异步属性或提醒查询阻塞。
+            currentProps = getInlineCachedProps(blockIdAtOpen);
+            currentReminderSnapshot = null;
+            currentReminderRefreshToken += 1;
 
             // 渲染悬浮条
             renderFloatBar();
@@ -3101,10 +3152,27 @@
             floatBar.style.display = 'flex';
             hideAllPopups();
             updatePosition();
+
+            if (!blockIdAtOpen) return;
+
+            Promise.resolve(refreshBlockAttrs(blockIdAtOpen, true))
+                .then((props) => {
+                    if (!props || !isCurrentFloatBarContext(blockIdAtOpen, taskIdAtOpen, loadToken)) return;
+                    currentProps = normalizeCustomProps(props);
+                    rerenderFloatBarIfCurrent(blockIdAtOpen, taskIdAtOpen, loadToken);
+                })
+                .catch(() => null);
+
+            Promise.resolve(refreshCurrentReminderSnapshot(true))
+                .then(() => {
+                    rerenderFloatBarIfCurrent(blockIdAtOpen, taskIdAtOpen, loadToken);
+                })
+                .catch(() => null);
         }
 
         // 隐藏悬浮条
         function hideFloatBar() {
+            currentFloatBarLoadToken += 1;
             floatBar.style.display = 'none';
             hideAllPopups();
             currentBlockEl = null;
@@ -3119,6 +3187,7 @@
         function removeInlineMetaNodes() {
             try { document.querySelectorAll('.sy-custom-props-inline-layer').forEach((el) => el.remove()); } catch (e) {}
             inlineMetaLayer = null;
+            invalidateInlineMetaActiveTargetsCache();
         }
 
         function ensureInlineMetaLayer(blockEl) {
@@ -3344,6 +3413,7 @@
                 host.setAttribute('contenteditable', 'false');
                 host.setAttribute('data-inline-meta-host', 'true');
                 host.setAttribute('data-block-id', blockId);
+                invalidateInlineMetaActiveTargetsCache();
                 host.addEventListener('pointerdown', async (e) => {
                     const rawTarget = e.target;
                     const targetEl = rawTarget instanceof Element ? rawTarget : rawTarget?.parentElement;
@@ -3426,10 +3496,13 @@
         }
 
         function requestInlineMetaRender(forceRefresh = false) {
+            if (forceRefresh) inlineMetaPendingForceRefresh = true;
             if (inlineMetaRafId) return;
             inlineMetaRafId = requestAnimationFrame(() => {
+                const nextForceRefresh = inlineMetaPendingForceRefresh;
+                inlineMetaPendingForceRefresh = false;
                 inlineMetaRafId = 0;
-                try { scheduleInlineMetaRender(forceRefresh, true); } catch (e) {}
+                try { scheduleInlineMetaRender(nextForceRefresh, true); } catch (e) {}
             });
         }
 
@@ -3480,12 +3553,22 @@
         }
 
         function hasInlineMetaActiveTargets() {
-            if (inlineMetaObservedTaskBlocks.size > 0 || inlineMetaVisibleTaskBlocks.size > 0) return true;
+            if (inlineMetaObservedTaskBlocks.size > 0 || inlineMetaVisibleTaskBlocks.size > 0) {
+                inlineMetaActiveTargetsCacheValue = true;
+                inlineMetaActiveTargetsCacheTs = Date.now();
+                return true;
+            }
+            const now = Date.now();
+            if ((now - inlineMetaActiveTargetsCacheTs) < 120) {
+                return inlineMetaActiveTargetsCacheValue;
+            }
             const layer = inlineMetaLayer && inlineMetaLayer.isConnected
                 ? inlineMetaLayer
                 : document.querySelector('.sy-custom-props-inline-layer');
-            if (!layer) return false;
-            return !!layer.querySelector('.sy-custom-props-inline-host');
+            const nextValue = !!(layer && layer.querySelector('.sy-custom-props-inline-host'));
+            inlineMetaActiveTargetsCacheValue = nextValue;
+            inlineMetaActiveTargetsCacheTs = now;
+            return nextValue;
         }
 
         function hasTaskBlockInRoot(root) {
@@ -3581,6 +3664,7 @@
             });
             inlineMetaObservedTaskBlocks = nextBlocks;
             if (!io) inlineMetaVisibleTaskBlocks = new Map(nextBlocks);
+            invalidateInlineMetaActiveTargetsCache();
         }
 
         function cleanupInlineMetaTaskBlocks() {
@@ -3594,6 +3678,7 @@
             inlineMetaObservedTaskBlocks = new Map();
             inlineMetaVisibleTaskBlocks = new Map();
             inlineMetaNeedSyncBlocks = true;
+            invalidateInlineMetaActiveTargetsCache();
         }
 
         function rebindInlineMetaObservers() {
@@ -4015,6 +4100,7 @@
             inlineMetaScrollHandler = (e) => {
                 if (!shouldHandleInlineMetaViewportEvent(e?.target || document.documentElement)) return;
                 if (!hasInlineMetaActiveTargets()) {
+                    if (!inlineMetaNeedSyncBlocks) return;
                     const now = Date.now();
                     if ((now - inlineMetaLastScrollRenderTs) > 220) {
                         inlineMetaLastScrollRenderTs = now;
@@ -4136,7 +4222,9 @@
         }
 
         function refreshInlineMetaMode(forceRefresh = true) {
+            invalidateQuickbarInlineSettingsCache();
             if (forceRefresh) clearInlineMetaScopeDocCache();
+            invalidateInlineMetaActiveTargetsCache();
             if (isInlineMetaEnabled()) {
                 startInlineMeta();
                 scheduleInlineMetaBootstrapRenders(!!forceRefresh);

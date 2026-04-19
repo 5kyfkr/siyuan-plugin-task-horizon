@@ -793,6 +793,10 @@
 
 .tm-floating-mini-cal__panel {
     position: absolute;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 8px;
     width: min(320px, calc(100vw - 32px));
     max-width: 320px;
     padding: 0;
@@ -808,6 +812,97 @@
 .tm-floating-mini-cal.is-open .tm-floating-mini-cal__panel {
     opacity: 1;
     transform: translateY(0) scale(1);
+}
+
+.tm-floating-mini-cal__priority-bar {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    width: auto;
+    max-width: 100%;
+    align-self: center;
+    padding: 0;
+}
+
+.tm-floating-mini-cal__priority-btn {
+    width: 30px;
+    height: 30px;
+    min-width: 30px;
+    padding: 0;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: var(--tm-topbar-control-radius);
+    border: var(--tm-topbar-control-border-width) solid var(--tm-topbar-control-border);
+    background: var(--tm-topbar-control-bg);
+    color: var(--tm-topbar-control-text);
+    box-shadow: var(--tm-topbar-control-shadow);
+    cursor: pointer;
+    transition: background-color 0.16s ease, border-color 0.16s ease, color 0.16s ease, box-shadow 0.16s ease, transform 0.16s ease;
+}
+
+.tm-floating-mini-cal__priority-btn svg {
+    width: 16px;
+    height: 16px;
+    stroke: currentColor;
+    fill: none;
+    stroke-linecap: round;
+    stroke-linejoin: round;
+}
+
+.tm-floating-mini-cal__priority-btn--none {
+    color: var(--tm-secondary-text);
+}
+
+.tm-floating-mini-cal__priority-btn--high {
+    color: #de350b;
+}
+
+.tm-floating-mini-cal__priority-btn--medium {
+    color: #ff991f;
+}
+
+.tm-floating-mini-cal__priority-btn--low {
+    color: #1d7afc;
+}
+
+.tm-floating-mini-cal__priority-btn:hover,
+.tm-floating-mini-cal__priority-btn:active,
+.tm-floating-mini-cal__priority-btn.is-drop-target {
+    background: var(--tm-topbar-control-hover);
+    border-color: var(--tm-topbar-control-border);
+    transform: translateY(-1px);
+}
+
+.tm-floating-mini-cal__priority-btn.is-current {
+    background: color-mix(in srgb, var(--tm-topbar-control-hover) 72%, transparent);
+    border-color: color-mix(in srgb, currentColor 44%, var(--tm-topbar-control-border));
+}
+
+.tm-floating-mini-cal__tooltip {
+    position: fixed;
+    left: 0;
+    top: 0;
+    max-width: min(240px, calc(100vw - 24px));
+    padding: 6px 8px;
+    border: 1px solid var(--border);
+    border-radius: calc(var(--radius) - 2px);
+    background: var(--popover);
+    color: var(--popover-foreground);
+    box-shadow: var(--shadow-sm);
+    font-size: 12px;
+    font-weight: 600;
+    line-height: 1.35;
+    white-space: normal;
+    word-break: break-word;
+    pointer-events: none;
+    opacity: 0;
+    transition: opacity 120ms ease;
+}
+
+.tm-floating-mini-cal__tooltip.is-open {
+    opacity: 1;
 }
 
 .tm-floating-mini-cal__header {
@@ -843,6 +938,8 @@
 
 .tm-floating-mini-cal__calendar {
     border-radius: 14px;
+    width: 100%;
+    box-sizing: border-box;
 }
 
 .tm-floating-mini-cal--mobile {

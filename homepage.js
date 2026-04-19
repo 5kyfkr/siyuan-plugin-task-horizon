@@ -1661,7 +1661,8 @@
             if (key && !isFutureDateKey(key, todayKey)) doneSet.add(key);
         });
         let streak = 0;
-        let cursor = todayKey;
+        // 连续完成按“上一天”为统计截止点，避免今天还没结束时提前拉长 streak。
+        let cursor = shiftDateKey(todayKey, -1);
         while (doneSet.has(cursor)) {
             streak += 1;
             cursor = shiftDateKey(cursor, -1);

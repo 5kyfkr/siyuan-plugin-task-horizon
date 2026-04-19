@@ -189,6 +189,8 @@
             overlayEl: null,
             panelEl: null,
             hostEl: null,
+            priorityTooltipEl: null,
+            priorityTooltipHideTimer: null,
             containerRect: null,
             monthKey: '',
             selectedDateKey: '',
@@ -196,6 +198,8 @@
             hoverDateKey: '',
             dragTaskId: '',
             dragPayload: null,
+            dragPriorityKey: 'none',
+            priorityHoverKey: '',
             abort: null,
             autoFlipTimer: null,
             autoFlipAction: '',
@@ -3733,6 +3737,217 @@
         }, { signal: abort.signal });
     }
 
+    const FLOATING_MINI_PRIORITY_OPTIONS = Object.freeze([
+        { key: 'high', label: '高' },
+        { key: 'medium', label: '中' },
+        { key: 'low', label: '低' },
+        { key: 'none', label: '无' },
+    ]);
+
+    function normalizeFloatingMiniPriorityKey(value) {
+        const raw = String(value || '').trim().toLowerCase();
+        if (raw === 'a' || raw === 'high' || raw === '高') return 'high';
+        if (raw === 'b' || raw === 'medium' || raw === '中') return 'medium';
+        if (raw === 'c' || raw === 'low' || raw === '低') return 'low';
+        return 'none';
+    }
+
+    function getFloatingMiniPriorityLabel(priorityKey) {
+        const key = normalizeFloatingMiniPriorityKey(priorityKey);
+        if (key === 'high') return '高';
+        if (key === 'medium') return '中';
+        if (key === 'low') return '低';
+        return '无';
+    }
+
+    function renderFloatingMiniPriorityIcon(priorityKey) {
+        const key = normalizeFloatingMiniPriorityKey(priorityKey);
+        if (key === 'high') {
+            return '<svg viewBox="0 0 18 18" aria-hidden="true"><polyline points="2.5,10.1 9,6.1 15.5,10.1" fill="none" stroke="currentColor" stroke-width="2.8" stroke-linecap="round" stroke-linejoin="round"/></svg>';
+        }
+        if (key === 'medium') {
+            return '<svg viewBox="0 0 18 18" aria-hidden="true"><line x1="2.5" y1="5.6" x2="15.5" y2="5.6" stroke="currentColor" stroke-width="2.8" stroke-linecap="round"/><line x1="2.5" y1="10.6" x2="15.5" y2="10.6" stroke="currentColor" stroke-width="2.8" stroke-linecap="round"/></svg>';
+        }
+        if (key === 'low') {
+            return '<svg viewBox="0 0 18 18" aria-hidden="true"><polyline points="2.5,7.1 9,11.1 15.5,7.1" fill="none" stroke="currentColor" stroke-width="2.8" stroke-linecap="round" stroke-linejoin="round"/></svg>';
+        }
+        return '<svg viewBox="0 0 18 18" aria-hidden="true"><circle cx="9" cy="9" r="5.2" fill="none" stroke="currentColor" stroke-width="2.6"/></svg>';
+    }
+
+    function clearFloatingMiniPriorityTooltipTimer() {
+        if (state.floatingMini.priorityTooltipHideTimer) {
+            try { clearTimeout(state.floatingMini.priorityTooltipHideTimer); } catch (e) {}
+            state.floatingMini.priorityTooltipHideTimer = null;
+        }
+    }
+
+    function removeFloatingMiniPriorityTooltip() {
+        clearFloatingMiniPriorityTooltipTimer();
+        const tooltipEl = state.floatingMini.priorityTooltipEl;
+        if (tooltipEl instanceof HTMLElement) {
+            try { tooltipEl.remove(); } catch (e) {}
+        }
+        state.floatingMini.priorityTooltipEl = null;
+    }
+
+    function ensureFloatingMiniPriorityTooltip() {
+        let tooltipEl = state.floatingMini.priorityTooltipEl;
+        if (tooltipEl instanceof HTMLElement) return tooltipEl;
+        tooltipEl = document.createElement('div');
+        tooltipEl.className = 'tm-floating-mini-cal__tooltip';
+        document.body.appendChild(tooltipEl);
+        state.floatingMini.priorityTooltipEl = tooltipEl;
+        return tooltipEl;
+    }
+
+    function positionFloatingMiniPriorityTooltip(priorityKey, targetEl) {
+        const tooltipEl = state.floatingMini.priorityTooltipEl;
+        const panel = state.floatingMini.panelEl;
+        const key = normalizeFloatingMiniPriorityKey(priorityKey);
+        const button = targetEl instanceof HTMLElement
+            ? targetEl
+            : panel?.querySelector?.(`[data-tm-mini-priority="${key}"]`);
+        if (!(button instanceof HTMLElement) || !(tooltipEl instanceof HTMLElement)) return false;
+        const margin = 8;
+        const gap = 8;
+        const rect = button.getBoundingClientRect();
+        const tipRect = tooltipEl.getBoundingClientRect();
+        let left = rect.left + ((rect.width - tipRect.width) / 2);
+        let top = rect.top - tipRect.height - gap;
+        if (top < margin) {
+            top = Math.min(window.innerHeight - margin - tipRect.height, rect.bottom + gap);
+        }
+        if (left < margin) left = margin;
+        if (left + tipRect.width > window.innerWidth - margin) {
+            left = Math.max(margin, window.innerWidth - margin - tipRect.width);
+        }
+        tooltipEl.style.left = `${Math.round(left)}px`;
+        tooltipEl.style.top = `${Math.round(top)}px`;
+        tooltipEl.style.zIndex = String(getOverlayZIndex(panel, 200120) + 1);
+        return true;
+    }
+
+    function showFloatingMiniPriorityTooltip(priorityKey, targetEl = null) {
+        const key = normalizeFloatingMiniPriorityKey(priorityKey);
+        const label = getFloatingMiniPriorityLabel(key);
+        if (!label) return false;
+        clearFloatingMiniPriorityTooltipTimer();
+        const tooltipEl = ensureFloatingMiniPriorityTooltip();
+        if (!(tooltipEl instanceof HTMLElement)) return false;
+        tooltipEl.textContent = label;
+        tooltipEl.classList.remove('is-open');
+        positionFloatingMiniPriorityTooltip(key, targetEl);
+        try {
+            requestAnimationFrame(() => {
+                if (state.floatingMini.priorityTooltipEl !== tooltipEl) return;
+                positionFloatingMiniPriorityTooltip(key, targetEl);
+                tooltipEl.classList.add('is-open');
+            });
+        } catch (e) {
+            positionFloatingMiniPriorityTooltip(key, targetEl);
+            tooltipEl.classList.add('is-open');
+        }
+        return true;
+    }
+
+    function hideFloatingMiniPriorityTooltip(immediate = false) {
+        const tooltipEl = state.floatingMini.priorityTooltipEl;
+        if (!(tooltipEl instanceof HTMLElement)) {
+            clearFloatingMiniPriorityTooltipTimer();
+            return false;
+        }
+        clearFloatingMiniPriorityTooltipTimer();
+        if (immediate) {
+            removeFloatingMiniPriorityTooltip();
+            return true;
+        }
+        tooltipEl.classList.remove('is-open');
+        state.floatingMini.priorityTooltipHideTimer = setTimeout(() => {
+            if (state.floatingMini.priorityTooltipEl === tooltipEl) {
+                removeFloatingMiniPriorityTooltip();
+            }
+        }, 120);
+        return true;
+    }
+
+    function renderFloatingMiniPriorityBar() {
+        const panel = state.floatingMini.panelEl;
+        const bar = panel?.querySelector?.('[data-tm-floating-mini-role="priority-bar"]');
+        if (!(bar instanceof HTMLElement)) return false;
+        const currentKey = normalizeFloatingMiniPriorityKey(state.floatingMini.dragPriorityKey);
+        const hoverKey = String(state.floatingMini.priorityHoverKey || '').trim()
+            ? normalizeFloatingMiniPriorityKey(state.floatingMini.priorityHoverKey)
+            : '';
+        bar.innerHTML = FLOATING_MINI_PRIORITY_OPTIONS.map((item) => {
+            const key = normalizeFloatingMiniPriorityKey(item.key);
+            const classes = [
+                'tm-floating-mini-cal__priority-btn',
+                `tm-floating-mini-cal__priority-btn--${key}`,
+                currentKey === key ? 'is-current' : '',
+                hoverKey === key ? 'is-drop-target' : '',
+            ].filter(Boolean).join(' ');
+            return `<button class="${classes}" type="button" data-tm-mini-priority="${esc(key)}" aria-label="设置重要性为${esc(item.label)}">${renderFloatingMiniPriorityIcon(key)}</button>`;
+        }).join('');
+        bar.querySelectorAll('[data-tm-mini-priority]').forEach((el) => {
+            if (!(el instanceof HTMLElement) || el.__tmFloatingMiniPriorityTipBound) return;
+            const show = () => {
+                const key = normalizeFloatingMiniPriorityKey(el.getAttribute('data-tm-mini-priority') || '');
+                showFloatingMiniPriorityTooltip(key, el);
+            };
+            const hide = () => {
+                hideFloatingMiniPriorityTooltip();
+            };
+            el.addEventListener('mouseenter', show);
+            el.addEventListener('focus', show, true);
+            el.addEventListener('mouseleave', hide);
+            el.addEventListener('blur', hide, true);
+            el.addEventListener('pointerdown', () => hideFloatingMiniPriorityTooltip(true), true);
+            el.__tmFloatingMiniPriorityTipBound = true;
+        });
+        return true;
+    }
+
+    function setFloatingMiniPriorityHover(priorityKey) {
+        const nextKey = String(priorityKey || '').trim() ? normalizeFloatingMiniPriorityKey(priorityKey) : '';
+        if (String(state.floatingMini.priorityHoverKey || '').trim() === nextKey) return false;
+        state.floatingMini.priorityHoverKey = nextKey;
+        const rendered = renderFloatingMiniPriorityBar();
+        if (nextKey) showFloatingMiniPriorityTooltip(nextKey);
+        else hideFloatingMiniPriorityTooltip(true);
+        return rendered;
+    }
+
+    async function applyFloatingMiniTaskPriority(taskId, priorityKey) {
+        const id = String(taskId || state.floatingMini.dragTaskId || '').trim();
+        if (!id) {
+            toast('⚠ 未识别到拖拽任务', 'warning');
+            return false;
+        }
+        if (typeof window.tmSetTaskPriority !== 'function') {
+            toast('⚠ 未找到重要性更新接口', 'warning');
+            return false;
+        }
+        const nextKey = normalizeFloatingMiniPriorityKey(priorityKey);
+        try {
+            await window.tmSetTaskPriority(id, nextKey === 'none' ? '' : nextKey, {
+                silent: true,
+                source: 'floating-mini-priority',
+            });
+            state.floatingMini.dragPriorityKey = nextKey;
+            state.floatingMini.priorityHoverKey = '';
+            if (state.floatingMini.dragPayload && typeof state.floatingMini.dragPayload === 'object') {
+                try { state.floatingMini.dragPayload.priority = nextKey === 'none' ? '' : nextKey; } catch (e) {}
+            }
+            hideFloatingMiniPriorityTooltip(true);
+            toast(`✅ 重要性已更新为${getFloatingMiniPriorityLabel(nextKey)}`, 'success');
+            hideFloatingMiniCalendar();
+            return true;
+        } catch (e) {
+            toast(`❌ 更新重要性失败：${String(e?.message || e || '')}`, 'error');
+            return false;
+        }
+    }
+
     function clearFloatingMiniAutoFlipTimer() {
         if (state.floatingMini.autoFlipTimer) {
             try { clearTimeout(state.floatingMini.autoFlipTimer); } catch (e) {}
@@ -3951,6 +4166,7 @@
         overlay.innerHTML = `
             <div class="tm-floating-mini-cal__backdrop" data-tm-floating-mini-action="close"></div>
             <div class="tm-floating-mini-cal__panel">
+                <div class="tm-floating-mini-cal__priority-bar" data-tm-floating-mini-role="priority-bar"></div>
                 <div class="tm-calendar-mini tm-floating-mini-cal__calendar" data-tm-floating-mini-role="calendar"></div>
             </div>
         `;
@@ -3970,6 +4186,14 @@
         state.floatingMini.mode = nextMode;
 
         overlay.addEventListener('click', (e) => {
+            const priorityEl = e?.target?.closest?.('[data-tm-mini-priority]');
+            const priorityKey = normalizeFloatingMiniPriorityKey(priorityEl?.getAttribute?.('data-tm-mini-priority') || '');
+            if (priorityEl instanceof HTMLElement) {
+                try { e.preventDefault(); } catch (e2) {}
+                try { e.stopPropagation(); } catch (e2) {}
+                void applyFloatingMiniTaskPriority('', priorityKey);
+                return;
+            }
             const action = String(e?.target?.closest?.('[data-tm-floating-mini-action]')?.getAttribute?.('data-tm-floating-mini-action') || '').trim();
             if (action === 'close') {
                 hideFloatingMiniCalendar();
@@ -4009,6 +4233,7 @@
         overlay.addEventListener('dragleave', (e) => {
             const rel = e?.relatedTarget instanceof Element ? e.relatedTarget : null;
             if (rel && overlay.contains(rel)) return;
+            setFloatingMiniPriorityHover('');
             clearFloatingMiniCalendarHover();
         }, { signal: abort.signal });
 
@@ -4019,13 +4244,17 @@
                 clientY: e?.clientY,
                 target: e?.target,
             });
-            if (!info.dateKey) return;
             const payload = parseTaskDropPayload(e, null, null) || state.floatingMini.dragPayload || null;
             const taskId = String(payload?.taskId || state.floatingMini.dragTaskId || '').trim();
             if (!taskId) {
                 toast('⚠ 未识别到拖拽任务', 'warning');
                 return;
             }
+            if (info.action === 'priority') {
+                await applyFloatingMiniTaskPriority(taskId, info.priorityKey);
+                return;
+            }
+            if (!info.dateKey) return;
             await applyFloatingMiniCalendarDate(taskId, info.dateKey);
         }, { signal: abort.signal });
 
@@ -4035,6 +4264,7 @@
     function renderFloatingMiniCalendarPanel() {
         const host = state.floatingMini.hostEl;
         if (!(host instanceof HTMLElement) || !state.floatingMini.open) return false;
+        try { renderFloatingMiniPriorityBar(); } catch (e) {}
         const selectedDateKey = String(state.floatingMini.selectedDateKey || '').trim();
         const sourceDateKey = String(state.floatingMini.sourceDateKey || '').trim();
         const hoverDateKey = String(state.floatingMini.hoverDateKey || '').trim();
@@ -4125,22 +4355,27 @@
         const overlay = state.floatingMini.overlayEl;
         const el = target instanceof Element ? target : null;
         if (!(overlay instanceof HTMLElement) || !(el instanceof Element)) {
-            return { overFloatingMini: false, action: '', dateKey: '', targetEl: null };
+            return { overFloatingMini: false, action: '', dateKey: '', priorityKey: '', targetEl: null };
         }
         if (!overlay.contains(el)) {
-            return { overFloatingMini: false, action: '', dateKey: '', targetEl: el };
+            return { overFloatingMini: false, action: '', dateKey: '', priorityKey: '', targetEl: el };
+        }
+        const priorityEl = el.closest('[data-tm-mini-priority]');
+        const priorityKey = normalizeFloatingMiniPriorityKey(priorityEl?.getAttribute?.('data-tm-mini-priority') || '');
+        if (priorityEl instanceof HTMLElement) {
+            return { overFloatingMini: true, action: 'priority', dateKey: '', priorityKey, targetEl: priorityEl };
         }
         const actionEl = el.closest('[data-tm-mini-action]');
         const action = String(actionEl?.getAttribute?.('data-tm-mini-action') || '').trim();
         if (action === 'prev' || action === 'next') {
-            return { overFloatingMini: true, action, dateKey: '', targetEl: actionEl };
+            return { overFloatingMini: true, action, dateKey: '', priorityKey: '', targetEl: actionEl };
         }
         const dateEl = el.closest('[data-tm-mini-date]');
         const dateKey = String(dateEl?.getAttribute?.('data-tm-mini-date') || '').trim();
         if (dateKey) {
-            return { overFloatingMini: true, action: '', dateKey, targetEl: dateEl };
+            return { overFloatingMini: true, action: '', dateKey, priorityKey: '', targetEl: dateEl };
         }
-        return { overFloatingMini: true, action: '', dateKey: '', targetEl: el };
+        return { overFloatingMini: true, action: '', dateKey: '', priorityKey: '', targetEl: el };
     }
 
     function isPointInsideRect(x, y, rect) {
@@ -4156,37 +4391,51 @@
         const x = Number(clientX);
         const y = Number(clientY);
         if (!Number.isFinite(x) || !Number.isFinite(y)) {
-            return { overFloatingMini: false, action: '', dateKey: '', targetEl: null };
+            return { overFloatingMini: false, action: '', dateKey: '', priorityKey: '', targetEl: null };
         }
         const panel = state.floatingMini.panelEl;
         const host = state.floatingMini.hostEl;
         if (!(panel instanceof HTMLElement)) {
-            return { overFloatingMini: false, action: '', dateKey: '', targetEl: null };
+            return { overFloatingMini: false, action: '', dateKey: '', priorityKey: '', targetEl: null };
         }
         const panelRect = panel.getBoundingClientRect();
         if (!isPointInsideRect(x, y, panelRect)) {
-            return { overFloatingMini: false, action: '', dateKey: '', targetEl: null };
+            return { overFloatingMini: false, action: '', dateKey: '', priorityKey: '', targetEl: null };
         }
-        if (host instanceof HTMLElement) {
-            const actionNodes = host.querySelectorAll('[data-tm-mini-action]');
+        if (panel instanceof HTMLElement) {
+            const priorityNodes = panel.querySelectorAll('[data-tm-mini-priority]');
+            for (const node of priorityNodes) {
+                if (!(node instanceof HTMLElement)) continue;
+                if (!isPointInsideRect(x, y, node.getBoundingClientRect())) continue;
+                return {
+                    overFloatingMini: true,
+                    action: 'priority',
+                    dateKey: '',
+                    priorityKey: normalizeFloatingMiniPriorityKey(node.getAttribute('data-tm-mini-priority') || ''),
+                    targetEl: node,
+                };
+            }
+            const actionNodes = panel.querySelectorAll('[data-tm-mini-action]');
             for (const node of actionNodes) {
                 if (!(node instanceof HTMLElement)) continue;
                 if (isPointInsideRect(x, y, node.getBoundingClientRect())) {
                     const action = String(node.getAttribute('data-tm-mini-action') || '').trim();
                     if (action === 'prev' || action === 'next') {
-                        return { overFloatingMini: true, action, dateKey: '', targetEl: node };
+                        return { overFloatingMini: true, action, dateKey: '', priorityKey: '', targetEl: node };
                     }
                 }
             }
+        }
+        if (host instanceof HTMLElement) {
             const dateNodes = host.querySelectorAll('[data-tm-mini-date]');
             for (const node of dateNodes) {
                 if (!(node instanceof HTMLElement)) continue;
                 if (!isPointInsideRect(x, y, node.getBoundingClientRect())) continue;
                 const dateKey = String(node.getAttribute('data-tm-mini-date') || '').trim();
-                return { overFloatingMini: true, action: '', dateKey, targetEl: node };
+                return { overFloatingMini: true, action: '', dateKey, priorityKey: '', targetEl: node };
             }
         }
-        return { overFloatingMini: true, action: '', dateKey: '', targetEl: panel };
+        return { overFloatingMini: true, action: '', dateKey: '', priorityKey: '', targetEl: panel };
     }
 
     function updateFloatingMiniCalendarDrag(opts) {
@@ -4207,16 +4456,25 @@
             hit = getFloatingMiniHitFromPoint(clientX, clientY);
         }
         if (!hit.overFloatingMini) {
+            setFloatingMiniPriorityHover('');
             clearFloatingMiniCalendarHover();
             return hit;
         }
         markFloatingMiniPanelEntered();
-        if (hit.action) {
+        if (hit.action === 'priority') {
+            clearFloatingMiniAutoFlipTimer();
+            clearFloatingMiniCalendarHover();
+            setFloatingMiniPriorityHover(hit.priorityKey);
+            return hit;
+        }
+        if (hit.action === 'prev' || hit.action === 'next') {
+            setFloatingMiniPriorityHover('');
             clearFloatingMiniCalendarHover({ preserveAutoFlip: true });
             scheduleFloatingMiniMonthFlip(hit.action);
             return hit;
         }
         clearFloatingMiniAutoFlipTimer();
+        setFloatingMiniPriorityHover('');
         if (hit.dateKey) {
             setFloatingMiniCalendarHover(hit.dateKey);
             return hit;
@@ -4264,9 +4522,12 @@
         const isMobileDrop = String(options.mode || state.floatingMini.mode || '').trim() === 'mobile';
         try {
             const hit = updateFloatingMiniCalendarDrag(options);
+            const taskId = String(options.taskId || options.dragTaskId || state.floatingMini.dragTaskId || '').trim();
+            if (hit?.action === 'priority') {
+                return applyFloatingMiniTaskPriority(taskId, hit.priorityKey);
+            }
             const dateKey = String(hit?.dateKey || state.floatingMini.hoverDateKey || '').trim();
             if (!dateKey) return false;
-            const taskId = String(options.taskId || options.dragTaskId || state.floatingMini.dragTaskId || '').trim();
             return await applyFloatingMiniCalendarDate(taskId, dateKey);
         } finally {
             if (isMobileDrop) {
@@ -4290,9 +4551,11 @@
         state.floatingMini.open = true;
         state.floatingMini.dragTaskId = taskId;
         state.floatingMini.dragPayload = options.dragPayload || meta || null;
+        state.floatingMini.dragPriorityKey = normalizeFloatingMiniPriorityKey(meta?.priority || options.priority || '');
         state.floatingMini.selectedDateKey = selectedDateKey;
         state.floatingMini.sourceDateKey = selectedDateKey;
         state.floatingMini.hoverDateKey = '';
+        state.floatingMini.priorityHoverKey = '';
         state.floatingMini.containerRect = normalizeFloatingMiniContainerRect(options.containerRect);
         state.floatingMini.monthKey = String(options.monthKey || '').trim() || miniMonthKeyFromDate(fallbackDate);
         state.floatingMini.pointerClientX = Number(options.clientX);
@@ -4311,6 +4574,7 @@
         clearFloatingMiniAutoFlipTimer();
         clearFloatingMiniIdleHideTimer();
         clearFloatingMiniAbort();
+        removeFloatingMiniPriorityTooltip();
         const overlay = state.floatingMini.overlayEl;
         if (overlay instanceof HTMLElement) {
             try { overlay.remove(); } catch (e) {}
@@ -4319,6 +4583,7 @@
         state.floatingMini.overlayEl = null;
         state.floatingMini.panelEl = null;
         state.floatingMini.hostEl = null;
+        state.floatingMini.priorityTooltipEl = null;
         state.floatingMini.containerRect = null;
         state.floatingMini.monthKey = '';
         state.floatingMini.selectedDateKey = '';
@@ -4326,6 +4591,8 @@
         state.floatingMini.hoverDateKey = '';
         state.floatingMini.dragTaskId = '';
         state.floatingMini.dragPayload = null;
+        state.floatingMini.dragPriorityKey = 'none';
+        state.floatingMini.priorityHoverKey = '';
         state.floatingMini.pointerClientX = NaN;
         state.floatingMini.pointerClientY = NaN;
         state.floatingMini.enteredPanel = false;
