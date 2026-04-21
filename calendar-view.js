@@ -2386,6 +2386,7 @@
             taskDateAllDayReminderEnabled: readStoredBool('tm_calendar_taskdate_all_day_reminder_enabled', typeof s.calendarTaskDateAllDayReminderEnabled === 'boolean' ? !!s.calendarTaskDateAllDayReminderEnabled : undefined),
             allDaySummaryIncludeExtras: s.calendarAllDaySummaryIncludeExtras !== false,
             taskDateColorMode: String(s.calendarTaskDateColorMode || 'group').trim() || 'group',
+            priorityIconStyle: normalizeFloatingMiniPriorityIconStyle(readStoredString('tm_priority_icon_style', s.priorityIconStyle).trim() || 'jira'),
             scheduleFollowDocColor: readStoredBool('tm_calendar_schedule_follow_doc_color', typeof s.calendarScheduleFollowDocColor === 'boolean' ? !!s.calendarScheduleFollowDocColor : undefined),
             scheduleColor: String(s.calendarScheduleColor || '').trim(),
             taskDatesColor: String(s.calendarTaskDatesColor || '').trim(),
@@ -3584,6 +3585,8 @@
 
         const first = new Date(y, m - 1, 1, 12, 0, 0);
         const firstDow = (first.getDay() - firstDay + 7) % 7;
+        const daysInMonth = new Date(y, m, 0, 12, 0, 0).getDate();
+        const visibleCellCount = Math.max(35, Math.ceil((firstDow + daysInMonth) / 7) * 7);
         const start = new Date(first.getTime());
         start.setDate(first.getDate() - firstDow);
         const todayKey = formatDateKey(new Date());
@@ -3592,7 +3595,7 @@
             : ['一', '二', '三', '四', '五', '六', '日'];
         const cells = [];
 
-        for (let i = 0; i < 42; i += 1) {
+        for (let i = 0; i < visibleCellCount; i += 1) {
             const d = new Date(start.getTime());
             d.setDate(start.getDate() + i);
             const key = formatDateKey(d);
@@ -3608,7 +3611,7 @@
             });
         }
 
-        return { monthKey, title, dows, cells };
+        return { monthKey, title, dows, cells, weekRows: visibleCellCount / 7 };
     }
 
     function buildMiniCalendarHtml(model, opts) {
@@ -3752,6 +3755,10 @@
         return 'none';
     }
 
+    function normalizeFloatingMiniPriorityIconStyle(value) {
+        return String(value || '').trim().toLowerCase() === 'flag' ? 'flag' : 'jira';
+    }
+
     function getFloatingMiniPriorityLabel(priorityKey) {
         const key = normalizeFloatingMiniPriorityKey(priorityKey);
         if (key === 'high') return '高';
@@ -3762,6 +3769,10 @@
 
     function renderFloatingMiniPriorityIcon(priorityKey) {
         const key = normalizeFloatingMiniPriorityKey(priorityKey);
+        const iconStyle = normalizeFloatingMiniPriorityIconStyle(getSettings()?.priorityIconStyle);
+        if (iconStyle === 'flag') {
+            return '<svg viewBox="0 0 256 256" aria-hidden="true"><path fill="currentColor" stroke="none" d="M40.14,46.88A12,12,0,0,0,36,56V224a12,12,0,0,0,24,0V181.72c22.84-17.12,42.1-9.12,70.68,5,16.23,8,34.74,17.2,54.8,17.2,14.72,0,30.28-4.94,46.38-18.88A12,12,0,0,0,236,176V56a12,12,0,0,0-19.86-9.07c-24.71,21.41-44.53,13.31-74.82-1.68C113.19,31.27,78.17,13.94,40.14,46.88ZM212,170.26c-22.84,17.13-42.1,9.11-70.68-5C118.16,153.76,90.33,140,60,153.87V61.69c22.84-17.12,42.1-9.12,70.68,5,16.23,8,34.74,17.2,54.8,17.2A63,63,0,0,0,212,78.08Z"></path></svg>';
+        }
         if (key === 'high') {
             return '<svg viewBox="0 0 18 18" aria-hidden="true"><polyline points="2.5,10.1 9,6.1 15.5,10.1" fill="none" stroke="currentColor" stroke-width="2.8" stroke-linecap="round" stroke-linejoin="round"/></svg>';
         }
@@ -3878,11 +3889,13 @@
         const hoverKey = String(state.floatingMini.priorityHoverKey || '').trim()
             ? normalizeFloatingMiniPriorityKey(state.floatingMini.priorityHoverKey)
             : '';
+        const isFlagStyle = normalizeFloatingMiniPriorityIconStyle(getSettings()?.priorityIconStyle) === 'flag';
         bar.innerHTML = FLOATING_MINI_PRIORITY_OPTIONS.map((item) => {
             const key = normalizeFloatingMiniPriorityKey(item.key);
             const classes = [
                 'tm-floating-mini-cal__priority-btn',
                 `tm-floating-mini-cal__priority-btn--${key}`,
+                isFlagStyle ? 'is-flag-style' : '',
                 currentKey === key ? 'is-current' : '',
                 hoverKey === key ? 'is-drop-target' : '',
             ].filter(Boolean).join(' ');
