@@ -3973,16 +3973,27 @@
     function scheduleFloatingMiniIdleHideTimer() {
         clearFloatingMiniIdleHideTimer();
         if (!state.floatingMini.open) return false;
-        if (state.floatingMini.mode !== 'mobile') return false;
         if (state.floatingMini.enteredPanel) return false;
         state.floatingMini.idleHideTimer = setTimeout(() => {
             state.floatingMini.idleHideTimer = null;
             if (!state.floatingMini.open) return;
-            if (state.floatingMini.mode !== 'mobile') return;
             if (state.floatingMini.enteredPanel) return;
             hideFloatingMiniCalendar();
-        }, 2000);
+        }, 3000);
         return true;
+    }
+
+    function shouldMarkFloatingMiniPanelEntered(hit) {
+        const targetEl = hit?.targetEl instanceof Element ? hit.targetEl : null;
+        if (!(targetEl instanceof Element)) return false;
+        const action = String(hit?.action || '').trim();
+        if (action === 'priority' || action === 'prev' || action === 'next') return true;
+        if (String(hit?.dateKey || '').trim()) return true;
+        try {
+            return !!targetEl.closest?.('[data-tm-floating-mini-role="calendar"], [data-tm-floating-mini-role="priority-bar"]');
+        } catch (e) {
+            return false;
+        }
     }
 
     function clearFloatingMiniAbort() {
@@ -4460,7 +4471,9 @@
             clearFloatingMiniCalendarHover();
             return hit;
         }
-        markFloatingMiniPanelEntered();
+        if (shouldMarkFloatingMiniPanelEntered(hit)) {
+            markFloatingMiniPanelEntered();
+        }
         if (hit.action === 'priority') {
             clearFloatingMiniAutoFlipTimer();
             clearFloatingMiniCalendarHover();
@@ -4567,6 +4580,7 @@
             state.floatingMini.overlayEl?.classList?.add?.('is-open');
         } catch (e) {}
         try { syncFloatingMiniPanelPosition(options); } catch (e) {}
+        scheduleFloatingMiniIdleHideTimer();
         return true;
     }
 

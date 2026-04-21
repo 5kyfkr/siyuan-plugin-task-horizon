@@ -1319,13 +1319,13 @@
 
 .tm-homepage--mobile .tm-homepage-list-item {
     align-items: flex-start;
-    flex-direction: column;
-    justify-content: flex-start;
+    flex-direction: row;
+    justify-content: space-between;
 }
 
-.tm-homepage--mobile .tm-homepage-list-main,
-.tm-homepage--mobile .tm-homepage-list-side {
-    width: 100%;
+.tm-homepage--mobile .tm-homepage-list-main {
+    flex: 1 1 auto;
+    width: auto;
     min-width: 0;
 }
 
@@ -1339,17 +1339,20 @@
 
 .tm-homepage--mobile .tm-homepage-list-side {
     display: flex;
-    justify-content: flex-start;
+    flex: 0 0 auto;
+    width: auto;
+    min-width: max-content;
+    margin-left: 8px;
+    justify-content: flex-end;
+    align-self: flex-start;
 }
 
 .tm-homepage--mobile .tm-homepage-list-date,
 .tm-homepage--mobile .tm-homepage-list-badge {
-    max-width: 100%;
-    white-space: normal;
-    word-break: break-word;
-    line-height: 1.35;
-    padding-top: 6px;
-    padding-bottom: 6px;
+    max-width: none;
+    white-space: nowrap;
+    word-break: normal;
+    flex-shrink: 0;
 }
 
 @media (max-width: 420px) {
@@ -2081,7 +2084,7 @@
             <div class="tm-homepage-list">
                 ${items.map((item) => {
                     const meta = kind === "risk"
-                        ? (item.diffDays < 0 ? `已逾期 ${Math.abs(item.diffDays)} 天` : (item.diffDays === 0 ? "今天到期" : `${item.diffDays} 天后到期`))
+                        ? (item.diffDays < 0 ? `逾期 ${Math.abs(item.diffDays)} 天` : (item.diffDays === 0 ? "今天到期" : `${item.diffDays} 天后到期`))
                         : formatListDate(item.dateKey);
                     const badge = kind === "risk"
                         ? `<span class="tm-homepage-list-badge ${item.diffDays < 0 ? "is-danger" : "is-warning"}">${esc(meta)}</span>`

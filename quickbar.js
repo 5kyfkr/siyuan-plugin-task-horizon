@@ -1019,6 +1019,15 @@
                 height: 18px;
                 display: block;
             }
+            .sy-custom-props-floatbar__priority-chip.is-flag-style .sy-custom-props-floatbar__priority-icon,
+            .sy-custom-props-floatbar__option-label--priority.is-flag-style .sy-custom-props-floatbar__priority-icon {
+                width: 14px;
+            }
+            .sy-custom-props-floatbar__priority-chip.is-flag-style .sy-custom-props-floatbar__priority-icon svg,
+            .sy-custom-props-floatbar__option-label--priority.is-flag-style .sy-custom-props-floatbar__priority-icon svg {
+                width: 14px;
+                height: 14px;
+            }
             .sy-custom-props-floatbar__priority-text {
                 line-height: 1;
             }
@@ -2016,6 +2025,7 @@
         function renderPhosphorBoldIcon(iconName, size = 14) {
             const name = String(iconName || '').trim().toLowerCase();
             const official = {
+                flag: 'M40.14,46.88A12,12,0,0,0,36,56V224a12,12,0,0,0,24,0V181.72c22.84-17.12,42.1-9.12,70.68,5,16.23,8,34.74,17.2,54.8,17.2,14.72,0,30.28-4.94,46.38-18.88A12,12,0,0,0,236,176V56a12,12,0,0,0-19.86-9.07c-24.71,21.41-44.53,13.31-74.82-1.68C113.19,31.27,78.17,13.94,40.14,46.88ZM212,170.26c-22.84,17.13-42.1,9.11-70.68-5C118.16,153.76,90.33,140,60,153.87V61.69c22.84-17.12,42.1-9.12,70.68,5,16.23,8,34.74,17.2,54.8,17.2A63,63,0,0,0,212,78.08Z',
                 sparkle: 'M199,125.31l-49.88-18.39L130.69,57a19.92,19.92,0,0,0-37.38,0L74.92,106.92,25,125.31a19.92,19.92,0,0,0,0,37.38l49.88,18.39L93.31,231a19.92,19.92,0,0,0,37.38,0l18.39-49.88L199,162.69a19.92,19.92,0,0,0,0-37.38Zm-63.38,35.16a12,12,0,0,0-7.11,7.11L112,212.28l-16.47-44.7a12,12,0,0,0-7.11-7.11L43.72,144l44.7-16.47a12,12,0,0,0,7.11-7.11L112,75.72l16.47,44.7a12,12,0,0,0,7.11,7.11L180.28,144ZM140,40a12,12,0,0,1,12-12h12V16a12,12,0,0,1,24,0V28h12a12,12,0,0,1,0,24H188V64a12,12,0,0,1-24,0V52H152A12,12,0,0,1,140,40ZM252,88a12,12,0,0,1-12,12h-4v4a12,12,0,0,1-24,0v-4h-4a12,12,0,0,1,0-24h4V72a12,12,0,0,1,24,0v4h4A12,12,0,0,1,252,88Z',
                 repeat: 'M20,128A76.08,76.08,0,0,1,96,52h99l-3.52-3.51a12,12,0,1,1,17-17l24,24a12,12,0,0,1,0,17l-24,24a12,12,0,0,1-17-17L195,76H96a52.06,52.06,0,0,0-52,52,12,12,0,0,1-24,0Zm204-12a12,12,0,0,0-12,12,52.06,52.06,0,0,1-52,52H61l3.52-3.51a12,12,0,1,0-17-17l-24,24a12,12,0,0,0,0,17l24,24a12,12,0,1,0,17-17L61,204h99a76.08,76.08,0,0,0,76-76A12,12,0,0,0,224,116Z',
                 'alarm-clock': 'M128,36A100,100,0,1,0,228,136,100.11,100.11,0,0,0,128,36Zm0,176a76,76,0,1,1,76-76A76.08,76.08,0,0,1,128,212ZM32.49,72.49a12,12,0,1,1-17-17l32-32a12,12,0,1,1,17,17Zm208,0a12,12,0,0,1-17,0l-32-32a12,12,0,1,1,17-17l32,32A12,12,0,0,1,240.49,72.49ZM176,124a12,12,0,0,1,0,24H128a12,12,0,0,1-12-12V88a12,12,0,0,1,24,0v36Z',
@@ -2030,6 +2040,7 @@
             }
             const body = (() => {
                 switch (name) {
+                    case 'flag': return '<path d="M6 21V4.5" /><path d="M6 5.5c1.4-1.2 2.8-1.75 4.25-1.75 2.5 0 4.3 1.5 6.25 1.5.75 0 1.5-.12 2.25-.5v8.5c-.75.38-1.5.5-2.25.5-1.95 0-3.75-1.5-6.25-1.5-1.45 0-2.85.55-4.25 1.75" />';
                     case 'caret-double-up': return '<path d="m6 15 6-6 6 6" /><path d="m6 20 6-6 6 6" />';
                     case 'caret-double-down': return '<path d="m6 4 6 6 6-6" /><path d="m6 10 6 6 6-6" />';
                     case 'minus': return '<path d="M6 12h12" />';
@@ -2048,8 +2059,23 @@
             return { key: 'none', label: '无', iconType: 'none', color: '#9e9e9e', bg: 'rgba(158,158,158,0.12)', border: 'rgba(158,158,158,0.3)' };
         }
 
+        function getPriorityIconStyle() {
+            try {
+                const raw = localStorage.getItem('tm_priority_icon_style');
+                const parsed = raw == null ? '' : (() => {
+                    try { return JSON.parse(raw); } catch (e) { return raw; }
+                })();
+                return String(parsed || '').trim().toLowerCase() === 'flag' ? 'flag' : 'jira';
+            } catch (e) {
+                return 'jira';
+            }
+        }
+
         function getPriorityJiraIconSvg(iconType) {
             const t = String(iconType || '').trim();
+            if (getPriorityIconStyle() === 'flag') {
+                return renderPhosphorBoldIcon('flag', 16);
+            }
             if (t === 'high') {
                 return `<svg viewBox="0 0 18 18" aria-hidden="true"><polyline points="2.5,10.1 9,6.1 15.5,10.1" fill="none" stroke="currentColor" stroke-width="2.8" stroke-linecap="round" stroke-linejoin="round"/></svg>`;
             }
@@ -2069,9 +2095,10 @@
 
         function renderPriorityChip(value, mode) {
             const info = getPriorityJiraInfo(value);
+            const isFlagStyle = getPriorityIconStyle() === 'flag';
             const cls = mode === 'option'
-                ? 'sy-custom-props-floatbar__option-label sy-custom-props-floatbar__option-label--priority'
-                : 'sy-custom-props-floatbar__prop-value sy-custom-props-floatbar__priority-chip';
+                ? `sy-custom-props-floatbar__option-label sy-custom-props-floatbar__option-label--priority${isFlagStyle ? ' is-flag-style' : ''}`
+                : `sy-custom-props-floatbar__prop-value sy-custom-props-floatbar__priority-chip${isFlagStyle ? ' is-flag-style' : ''}`;
             const text = mode === 'option'
                 ? `<span class="sy-custom-props-floatbar__priority-text">${info.label}</span>`
                 : '';
@@ -2347,7 +2374,15 @@
                 requestInlineMetaRender(!!forceRefresh);
                 return;
             }
-            Promise.resolve(renderInlineMetaForBlock(blockEl, !!forceRefresh, 420)).catch(() => null);
+            Promise.resolve(renderInlineMetaForBlock(blockEl, !!forceRefresh, 420))
+                .then(() => {
+                    // Follow up with a queued render so host pruning/layout reuse
+                    // sees the same owner id mapping as the immediate refresh path.
+                    requestInlineMetaRender(!!forceRefresh);
+                })
+                .catch(() => {
+                    requestInlineMetaRender(!!forceRefresh);
+                });
         }
 
         function getInlineCachedProps(blockId) {
@@ -3483,8 +3518,28 @@
             return Number(window.scrollY || document.documentElement?.scrollTop || 0);
         }
 
+        function collectInlineMetaOwnerIds(blockEl) {
+            const ids = new Set();
+            if (!(blockEl instanceof Element)) return ids;
+            try {
+                const binding = resolveTaskBindingFromBlockEl(blockEl);
+                const taskId = String(binding?.taskId || '').trim();
+                const attrHostId = String(binding?.attrHostId || '').trim();
+                if (taskId) ids.add(taskId);
+                if (attrHostId) ids.add(attrHostId);
+            } catch (e) {}
+            try {
+                const directId = String(blockEl?.dataset?.nodeId || blockEl?.getAttribute?.('data-node-id') || '').trim();
+                if (directId) ids.add(directId);
+            } catch (e) {}
+            return ids;
+        }
+
         function pruneInlineMetaOutsideViewport(keepBlocks) {
-            const keepIds = new Set((keepBlocks || []).map((el) => String(el?.dataset?.nodeId || '').trim()).filter(Boolean));
+            const keepIds = new Set();
+            (keepBlocks || []).forEach((blockEl) => {
+                collectInlineMetaOwnerIds(blockEl).forEach((id) => keepIds.add(id));
+            });
             try {
                 document.querySelectorAll('.sy-custom-props-inline-host').forEach((host) => {
                     const owner = String(host?.dataset?.blockId || '').trim();
