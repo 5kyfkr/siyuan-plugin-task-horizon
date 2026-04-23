@@ -8,6 +8,7 @@
         profile: "desktop",
         clickHandler: null,
         resizeObserver: null,
+        resizeHost: null,
         resizeRaf: 0,
     };
 
@@ -1424,6 +1425,30 @@
         return Number.isFinite(num) ? num : fallback;
     };
 
+    // Measure the homepage viewport instead of the content root itself to avoid resize/render loops.
+    function getMeasureHost(root) {
+        if (!(root instanceof HTMLElement)) return null;
+        const host = root.closest(".tm-body.tm-body--homepage");
+        if (host instanceof HTMLElement) return host;
+        if (root.parentElement instanceof HTMLElement) return root.parentElement;
+        return root;
+    }
+
+    function readContainerSize(root) {
+        const host = getMeasureHost(root);
+        if (!(host instanceof HTMLElement)) {
+            return {
+                host: root instanceof HTMLElement ? root : null,
+                width: root instanceof HTMLElement ? Math.round(root.clientWidth || 0) : 0,
+                height: root instanceof HTMLElement ? Math.round(root.clientHeight || 0) : 0,
+            };
+        }
+        const rect = typeof host.getBoundingClientRect === "function" ? host.getBoundingClientRect() : null;
+        const width = Math.round((rect?.width || host.clientWidth || 0));
+        const height = Math.round((rect?.height || host.clientHeight || 0));
+        return { host, width, height };
+    }
+
     function ensureHomepageStyle() {
         let styleEl = document.querySelector('style[data-tm-homepage-style="1"]');
         if (!(styleEl instanceof HTMLStyleElement)) {
@@ -2343,31 +2368,32 @@
 
     function bindResizeObserver() {
         if (!(runtime.root instanceof HTMLElement) || typeof ResizeObserver !== "function") return;
+        const measure = readContainerSize(runtime.root);
+        const host = measure.host instanceof HTMLElement ? measure.host : runtime.root;
         try { runtime.resizeObserver?.disconnect?.(); } catch (e) {}
-        runtime.resizeObserver = new ResizeObserver((entries) => {
-            const rect = entries?.[0]?.contentRect;
-            if (!rect) return;
+        runtime.resizeHost = host;
+        runtime.resizeObserver = new ResizeObserver(() => {
             if (runtime.resizeRaf) {
                 try { cancelAnimationFrame(runtime.resizeRaf); } catch (e) {}
             }
             runtime.resizeRaf = requestAnimationFrame(() => {
                 runtime.resizeRaf = 0;
-                const nextWidth = Math.round(rect.width || 0);
-                const nextHeight = Math.round(rect.height || 0);
+                const currentMeasure = readContainerSize(runtime.root);
+                const nextWidth = currentMeasure.width;
+                const nextHeight = currentMeasure.height;
                 const prevProfile = runtime.profile;
                 const prevWidth = Math.round(toNumber(runtime.ctx?.containerWidth, 0));
-                const prevHeight = Math.round(toNumber(runtime.ctx?.containerHeight, 0));
                 runtime.ctx = {
                     ...(runtime.ctx || {}),
                     containerWidth: nextWidth,
                     containerHeight: nextHeight,
                 };
-                if (resolveProfile(runtime.ctx) !== prevProfile || Math.abs(nextWidth - prevWidth) > 8 || Math.abs(nextHeight - prevHeight) > 8) {
+                if (resolveProfile(runtime.ctx) !== prevProfile || Math.abs(nextWidth - prevWidth) > 8) {
                     doRender();
                 }
             });
         });
-        runtime.resizeObserver.observe(runtime.root);
+        runtime.resizeObserver.observe(host);
     }
 
     function unmount() {
@@ -2377,6 +2403,7 @@
         }
         try { runtime.resizeObserver?.disconnect?.(); } catch (e) {}
         runtime.resizeObserver = null;
+        runtime.resizeHost = null;
         if (runtime.root instanceof HTMLElement && runtime.clickHandler) {
             try { runtime.root.removeEventListener("click", runtime.clickHandler); } catch (e) {}
         }
@@ -2392,11 +2419,13 @@
         if (!(root instanceof HTMLElement)) return false;
         if (runtime.root && runtime.root !== root) unmount();
         ensureHomepageStyle();
+        const measure = readContainerSize(root);
         runtime.root = root;
+        runtime.resizeHost = measure.host instanceof HTMLElement ? measure.host : root;
         runtime.ctx = {
             ...(ctx && typeof ctx === "object" ? ctx : {}),
-            containerWidth: Math.round(root.clientWidth || 0),
-            containerHeight: Math.round(root.clientHeight || 0),
+            containerWidth: measure.width,
+            containerHeight: measure.height,
         };
         doRender();
         bindInteractions();
@@ -2406,12 +2435,16 @@
 
     function update(ctx = {}) {
         if (!(runtime.root instanceof HTMLElement)) return false;
+        const measure = readContainerSize(runtime.root);
         runtime.ctx = {
             ...(runtime.ctx || {}),
             ...(ctx && typeof ctx === "object" ? ctx : {}),
-            containerWidth: Math.round(runtime.root.clientWidth || toNumber(ctx?.containerWidth, 0)),
-            containerHeight: Math.round(runtime.root.clientHeight || toNumber(ctx?.containerHeight, 0)),
+            containerWidth: measure.width || Math.round(toNumber(ctx?.containerWidth, 0)),
+            containerHeight: measure.height || Math.round(toNumber(ctx?.containerHeight, 0)),
         };
+        if (measure.host instanceof HTMLElement && measure.host !== runtime.resizeHost) {
+            bindResizeObserver();
+        }
         return doRender();
     }
 

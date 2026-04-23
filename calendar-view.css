@@ -3278,20 +3278,58 @@
     height: auto !important;
 }
 
+.tm-calendar-root--month-view .tm-calendar-host .fc .fc-daygrid-body td,
+.tm-calendar-root--month-view .tm-calendar-host .fc .fc-daygrid-day,
+.tm-calendar-root--month-view .tm-calendar-host .fc .fc-scrollgrid-sync-inner {
+    min-height: var(--tm-calendar-month-day-min-height);
+}
+
 .tm-calendar-root--month-view .tm-calendar-host .fc .fc-daygrid-day-frame {
     min-height: var(--tm-calendar-month-day-min-height);
+    display: flex;
+    flex-direction: column;
 }
 
 .tm-calendar-root--month-view .tm-calendar-host .fc .fc-daygrid-day-top {
     min-height: var(--tm-calendar-month-day-header-height);
+    flex: 0 0 auto;
 }
 
 .tm-calendar-root--month-view .tm-calendar-host .fc .fc-daygrid-day-events {
     min-height: calc(var(--tm-calendar-month-event-line-height) * var(--tm-calendar-month-visible-events));
+    flex: 1 0 auto;
 }
 
 .tm-calendar-root--month-view .tm-calendar-host .fc .fc-daygrid-day-bottom {
     min-height: var(--tm-calendar-month-more-link-height);
+    flex: 0 0 auto;
+}
+
+.tm-calendar-host .fc .fc-dayGridMonth-view .fc-daygrid-day-frame {
+    min-height: var(--tm-calendar-month-day-min-height);
+    display: flex;
+    flex-direction: column;
+    box-sizing: border-box;
+}
+
+.tm-calendar-host .fc .fc-dayGridMonth-view .fc-daygrid-day-top {
+    min-height: var(--tm-calendar-month-day-header-height);
+    flex: 0 0 auto;
+}
+
+.tm-calendar-host .fc .fc-dayGridMonth-view .fc-daygrid-day-events {
+    min-height: calc((var(--tm-calendar-month-event-line-height) * var(--tm-calendar-month-visible-events)) + var(--tm-calendar-month-more-link-height));
+    display: flex;
+    flex-direction: column;
+    justify-content: flex-start;
+    box-sizing: border-box;
+}
+
+.tm-calendar-host .fc .fc-dayGridMonth-view .fc-daygrid-day-bottom {
+    margin-top: auto !important;
+    min-height: var(--tm-calendar-month-more-link-height);
+    padding-top: 0 !important;
+    line-height: 1;
 }
 
 .tm-calendar-host .fc .fc-daygrid-day.tm-cal-drop-target {

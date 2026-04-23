@@ -1629,21 +1629,136 @@
             return String(currentBlockId || '').trim();
         }
 
-        function dispatchTaskAttrUpdated(attrHostId, attrKey, value) {
+        const __TM_TASK_HORIZON_DEBUG_RELAY_STORAGE_KEY = '__tmTaskHorizonDebugRelay';
+        const __TM_TASK_HORIZON_ATTR_RELAY_STORAGE_KEY = '__tmTaskHorizonAttrRelay';
+        let __tmTaskHorizonRelaySeq = 0;
+
+        function relayTaskHorizonPayloadToStorage(storageKey, kind, detail = {}) {
+            const key = String(storageKey || '').trim();
+            const relayKind = String(kind || '').trim();
+            if (!key || !relayKind) return null;
+            const relayDetail = (detail && typeof detail === 'object' && !Array.isArray(detail)) ? detail : {};
+            const entry = {
+                kind: relayKind,
+                source: 'quickbar',
+                time: new Date().toISOString(),
+                ts: Date.now(),
+                seq: (__tmTaskHorizonRelaySeq = (Number(__tmTaskHorizonRelaySeq || 0) + 1)),
+                detail: relayDetail,
+            };
+            try {
+                localStorage.setItem(key, JSON.stringify(entry));
+                return entry;
+            } catch (e) {
+                return null;
+            }
+        }
+
+        function pushTaskHorizonDebug(channel, tag, payload = {}) {
+            const nextChannel = String(channel || '').trim();
+            const nextTag = String(tag || '').trim();
+            const nextPayload = (payload && typeof payload === 'object' && !Array.isArray(payload))
+                ? payload
+                : { value: payload };
+            try {
+                const sharedApi = getTaskHorizonSharedApi();
+                const bridgePush = sharedApi?.quickbarBridge?.debugPush;
+                if (typeof bridgePush === 'function') {
+                    return bridgePush(nextChannel, nextTag, nextPayload);
+                }
+            } catch (e) {}
+            try {
+                relayTaskHorizonPayloadToStorage(__TM_TASK_HORIZON_DEBUG_RELAY_STORAGE_KEY, 'debug', {
+                    channel: nextChannel,
+                    tag: nextTag,
+                    payload: nextPayload,
+                });
+            } catch (e) {}
+            try {
+                return globalThis.__tmTaskHorizonDebugPush?.(nextChannel, nextTag, nextPayload);
+            } catch (e) {
+                return null;
+            }
+        }
+
+        function dispatchTaskAttrUpdated(attrHostId, attrKey, value, options = {}) {
             const key = String(attrKey || '').trim();
             const hostId = String(attrHostId || currentBlockId || '').trim();
+            const opts = (options && typeof options === 'object') ? options : {};
+            const explicitTaskId = String(opts.taskId || opts.resolvedTaskId || '').trim();
+            const requestedTaskId = String(opts.requestedTaskId || hostId || '').trim();
             const blockEl = getBlockElById(hostId) || currentBlockEl || null;
-            const taskId = String(resolveTaskNodeIdForDetail(blockEl) || resolveCurrentTaskId() || hostId).trim();
+            const taskId = String(explicitTaskId || resolveTaskNodeIdForDetail(blockEl) || resolveCurrentTaskId() || requestedTaskId || hostId).trim();
+            const nextValue = value == null ? '' : String(value);
             if (!key || (!taskId && !hostId)) return;
+            const detail = {
+                taskId: taskId || hostId,
+                requestedTaskId: requestedTaskId || taskId || hostId,
+                attrHostId: hostId || taskId,
+                attrKey: key,
+                value: nextValue,
+                source: 'quickbar',
+            };
+            const sharedApi = getTaskHorizonSharedApi();
+            const quickbarBridge = sharedApi?.quickbarBridge || null;
+            pushTaskHorizonDebug('refresh', 'quickbar-dispatch', {
+                taskId: taskId || hostId,
+                requestedTaskId: requestedTaskId || taskId || hostId,
+                attrHostId: hostId || taskId,
+                attrKey: key,
+                value: nextValue,
+                hasNamespaceNotifyHook: typeof quickbarBridge?.notifyAttrUpdated === 'function',
+                hasNamespaceMarkHook: typeof quickbarBridge?.markModified === 'function',
+                hasNamespaceRefreshHook: typeof quickbarBridge?.refresh === 'function',
+                hasMarkModifiedHook: typeof globalThis.__taskHorizonMarkModified === 'function',
+                hasRefreshHook: typeof globalThis.__taskHorizonRefresh === 'function',
+            });
+            try {
+                const bridgeNotify = quickbarBridge?.notifyAttrUpdated;
+                if (typeof bridgeNotify === 'function') {
+                    const handled = bridgeNotify(detail);
+                    if (handled !== false) {
+                        pushTaskHorizonDebug('refresh', 'quickbar-dispatch:namespace-bridge', {
+                            taskId: taskId || hostId,
+                            attrHostId: hostId || taskId,
+                            attrKey: key,
+                        });
+                        return;
+                    }
+                }
+            } catch (e) {}
             try {
                 window.dispatchEvent(new CustomEvent('tm-task-attr-updated', {
-                    detail: {
+                    detail
+                }));
+            } catch (e) {}
+            try {
+                relayTaskHorizonPayloadToStorage(__TM_TASK_HORIZON_ATTR_RELAY_STORAGE_KEY, 'attr-updated', detail);
+            } catch (e) {}
+            try {
+                if (taskId) {
+                    globalThis.__taskHorizonMarkModified?.(taskId);
+                    pushTaskHorizonDebug('refresh', 'quickbar-dispatch:mark-modified', {
+                        taskId,
+                        attrHostId: hostId || taskId,
+                        attrKey: key,
+                    });
+                }
+            } catch (e) {}
+            try {
+                pushTaskHorizonDebug('refresh', 'quickbar-dispatch:refresh-scheduled', {
+                    taskId: taskId || hostId,
+                    attrHostId: hostId || taskId,
+                    attrKey: key,
+                });
+                setTimeout(() => {
+                    pushTaskHorizonDebug('refresh', 'quickbar-dispatch:refresh-fire', {
                         taskId: taskId || hostId,
                         attrHostId: hostId || taskId,
                         attrKey: key,
-                        value: value == null ? '' : String(value),
-                    }
-                }));
+                    });
+                    try { globalThis.__taskHorizonRefresh?.(); } catch (e) {}
+                }, 0);
             } catch (e) {}
         }
 
@@ -1919,6 +2034,12 @@
             const id = String(blockId || '').trim();
             const key = String(attrKey || '').trim();
             if (!id || !key) return { success: false, viaSharedApi: false };
+            pushTaskHorizonDebug('refresh', 'quickbar-save:start', {
+                taskId: id,
+                attrKey: key,
+                value: value == null ? '' : String(value),
+                label: String(options?.label || '').trim(),
+            });
             const sharedApi = getTaskHorizonSharedApi();
             if (key === 'custom-status') {
                 const applier = sharedApi?.applyTaskStatus;
@@ -1926,21 +2047,34 @@
                     try {
                         const nextStatus = value == null ? '' : String(value);
                         suppressTaskHorizonMobileTopbarOpen();
-                        await applier(id, nextStatus, {
+                        const apiResult = await applier(id, nextStatus, {
                             source: 'quickbar-status',
                             label: String(options?.label || '状态'),
                             refresh: false,
                             refreshCalendar: false,
                             withFilters: false,
-                            broadcast: true,
+                            broadcast: false,
                             recordUndo: true,
                         });
-                        return {
+                        const result = {
                             success: true,
                             changed: true,
                             viaSharedApi: true,
+                            taskId: String(apiResult?.taskId || apiResult?.id || id).trim() || id,
+                            requestedTaskId: String(apiResult?.requestedTaskId || id).trim() || id,
                             value: nextStatus,
                         };
+                        pushTaskHorizonDebug('refresh', 'quickbar-save:end', {
+                            taskId: result.taskId,
+                            requestedTaskId: result.requestedTaskId,
+                            attrKey: key,
+                            value: nextStatus,
+                            label: String(options?.label || '状态').trim(),
+                            viaSharedApi: true,
+                            success: true,
+                            source: 'quickbar-status',
+                        });
+                        return result;
                     } catch (e) {}
                 }
             }
@@ -1949,15 +2083,32 @@
                 if (typeof updater === 'function') {
                     try {
                         suppressTaskHorizonMobileTopbarOpen();
-                        await updater(id, key === 'custom-start-date'
+                        const apiResult = await updater(id, key === 'custom-start-date'
                             ? { startDate: value == null ? '' : String(value) }
-                            : { completionTime: value == null ? '' : String(value) }, { refresh: false });
-                        return {
+                            : { completionTime: value == null ? '' : String(value) }, {
+                            refresh: false,
+                            broadcast: false,
+                        });
+                        const nextValue = value == null ? '' : String(value);
+                        const result = {
                             success: true,
                             changed: true,
                             viaSharedApi: true,
-                            value: value == null ? '' : String(value),
+                            taskId: String(apiResult?.taskId || apiResult?.id || id).trim() || id,
+                            requestedTaskId: String(apiResult?.requestedTaskId || id).trim() || id,
+                            value: nextValue,
                         };
+                        pushTaskHorizonDebug('refresh', 'quickbar-save:end', {
+                            taskId: result.taskId,
+                            requestedTaskId: result.requestedTaskId,
+                            attrKey: key,
+                            value: nextValue,
+                            label: String(options?.label || '').trim(),
+                            viaSharedApi: true,
+                            success: true,
+                            source: 'quickbar-date',
+                        });
+                        return result;
                     } catch (e) {}
                 }
             }
@@ -1966,7 +2117,7 @@
                 try {
                     const nextValue = value == null ? '' : String(value);
                     suppressTaskHorizonMobileTopbarOpen();
-                    await genericApplier(id, key, nextValue, {
+                    const apiResult = await genericApplier(id, key, nextValue, {
                         source: 'quickbar-attr',
                         label: String(options?.label || ''),
                         refresh: false,
@@ -1975,21 +2126,47 @@
                         broadcast: false,
                         recordUndo: false,
                     });
-                    return {
+                    const result = {
                         success: true,
                         changed: true,
                         viaSharedApi: true,
+                        taskId: String(apiResult?.taskId || apiResult?.id || id).trim() || id,
+                        requestedTaskId: String(apiResult?.requestedTaskId || id).trim() || id,
                         value: nextValue,
                     };
+                    pushTaskHorizonDebug('refresh', 'quickbar-save:end', {
+                        taskId: result.taskId,
+                        requestedTaskId: result.requestedTaskId,
+                        attrKey: key,
+                        value: nextValue,
+                        label: String(options?.label || '').trim(),
+                        viaSharedApi: true,
+                        success: true,
+                        source: 'quickbar-attr',
+                    });
+                    return result;
                 } catch (e) {}
             }
             const result = await setBlockCustomAttrs(id, { [key]: value });
-            return {
+            const finalResult = {
                 success: !!result?.success,
                 changed: !!result?.success,
                 viaSharedApi: false,
+                taskId: id,
+                requestedTaskId: id,
                 value: value == null ? '' : String(value),
             };
+            pushTaskHorizonDebug('refresh', 'quickbar-save:end', {
+                taskId: finalResult.taskId,
+                requestedTaskId: finalResult.requestedTaskId,
+                attrKey: key,
+                value: value == null ? '' : String(value),
+                label: String(options?.label || '').trim(),
+                viaSharedApi: false,
+                success: finalResult.success === true,
+                source: 'set-block-custom-attrs',
+            });
+            return finalResult;
         }
 
         // 格式化日期（YYYY-MM-DD / ISO / 时间戳 -> YYYY-MM-DD）
@@ -2715,14 +2892,17 @@
                 });
 
                 if (result.success) {
+                    const dispatchTaskId = String(result?.taskId || result?.id || currentBlockId).trim() || currentBlockId;
+                    const dispatchRequestedTaskId = String(result?.requestedTaskId || currentBlockId).trim() || currentBlockId;
                     currentProps[config.attrKey] = newValue;
                     renderFloatBar();
                     patchInlineMetaCache(currentBlockId, { [config.attrKey]: newValue });
                     refreshInlineMetaByTaskId(currentBlockId, false);
                     showMessage(`已更新${config.name}`, false, 1500);
-                    if (!result.viaSharedApi) {
-                        dispatchTaskAttrUpdated(currentBlockId, config.attrKey, newValue);
-                    }
+                    dispatchTaskAttrUpdated(currentBlockId, config.attrKey, newValue, {
+                        taskId: dispatchTaskId,
+                        requestedTaskId: dispatchRequestedTaskId,
+                    });
                 } else {
                     showMessage('更新失败', true, 2000);
                 }
@@ -2746,6 +2926,8 @@
                     label: config.name,
                 });
                 if (result.success) {
+                    const dispatchTaskId = String(result?.taskId || result?.id || blockIdAtOpen).trim() || blockIdAtOpen;
+                    const dispatchRequestedTaskId = String(result?.requestedTaskId || blockIdAtOpen).trim() || blockIdAtOpen;
                     if (String(currentBlockId || '').trim() === blockIdAtOpen) {
                         currentProps[config.attrKey] = newValue;
                         renderFloatBar();
@@ -2753,9 +2935,10 @@
                     patchInlineMetaCache(blockIdAtOpen, { [config.attrKey]: newValue });
                     refreshInlineMetaByTaskId(blockIdAtOpen, false);
                     showMessage(`已更新${config.name}`, false, 1500);
-                    if (!result.viaSharedApi) {
-                        dispatchTaskAttrUpdated(blockIdAtOpen, config.attrKey, newValue);
-                    }
+                    dispatchTaskAttrUpdated(blockIdAtOpen, config.attrKey, newValue, {
+                        taskId: dispatchTaskId,
+                        requestedTaskId: dispatchRequestedTaskId,
+                    });
                 } else {
                     showMessage('更新失败', true, 2000);
                 }
@@ -2931,15 +3114,18 @@
 
             const applySaveResult = (newValue, result) => {
                 if (result.success) {
+                    const dispatchTaskId = String(result?.taskId || result?.id || blockIdAtOpen).trim() || blockIdAtOpen;
+                    const dispatchRequestedTaskId = String(result?.requestedTaskId || blockIdAtOpen).trim() || blockIdAtOpen;
                     currentProps[config.attrKey] = newValue;
                     renderFloatBar();
                     patchInlineMetaCache(blockIdAtOpen, { [config.attrKey]: newValue });
                     refreshInlineMetaByTaskId(blockIdAtOpen, false);
                     if (newValue) showMessage(`已更新${config.name}`, false, 1500);
                     else showMessage(`已清除${config.name}`, false, 1500);
-                    if (!result.viaSharedApi) {
-                        dispatchTaskAttrUpdated(blockIdAtOpen, config.attrKey, newValue);
-                    }
+                    dispatchTaskAttrUpdated(blockIdAtOpen, config.attrKey, newValue, {
+                        taskId: dispatchTaskId,
+                        requestedTaskId: dispatchRequestedTaskId,
+                    });
                     return true;
                 }
                 showMessage('更新失败', true, 2000);

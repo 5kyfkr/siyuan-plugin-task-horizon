@@ -334,6 +334,7 @@
         dayGridMonth: {
             type: 'dayGridMonth',
             titleFormat: { month: 'numeric' },
+            fixedWeekCount: false,
         },
     };
 
@@ -1968,6 +1969,50 @@
         return isMonthView;
     }
 
+    function applyMainCalendarMonthCellMinHeightLayout(host, calendar) {
+        const targetHost = (host instanceof HTMLElement) ? host : (state.calendarEl instanceof HTMLElement ? state.calendarEl : null);
+        const targetCalendar = calendar || state.calendar || null;
+        const viewType = String(targetCalendar?.view?.type || '').trim();
+        if (!(targetHost instanceof HTMLElement) || viewType !== 'dayGridMonth') return false;
+        const monthViewRoot = targetHost.querySelector('.fc-dayGridMonth-view.fc-view.fc-daygrid, .fc-dayGridMonth-view');
+        if (!(monthViewRoot instanceof HTMLElement)) return false;
+
+        const setImportant = (node, prop, value) => {
+            if (!(node instanceof HTMLElement)) return;
+            try { node.style.setProperty(prop, value, 'important'); } catch (e) {}
+        };
+
+        monthViewRoot.querySelectorAll('.fc-daygrid-day-frame').forEach((node) => {
+            setImportant(node, 'height', 'auto');
+            setImportant(node, 'min-height', 'var(--tm-calendar-month-day-min-height)');
+            setImportant(node, 'display', 'flex');
+            setImportant(node, 'flex-direction', 'column');
+            setImportant(node, 'box-sizing', 'border-box');
+        });
+
+        monthViewRoot.querySelectorAll('.fc-daygrid-day-top').forEach((node) => {
+            setImportant(node, 'min-height', 'var(--tm-calendar-month-day-header-height)');
+            setImportant(node, 'flex', '0 0 auto');
+        });
+
+        monthViewRoot.querySelectorAll('.fc-daygrid-day-events').forEach((node) => {
+            setImportant(node, 'min-height', 'calc((var(--tm-calendar-month-event-line-height) * var(--tm-calendar-month-visible-events)) + var(--tm-calendar-month-more-link-height))');
+            setImportant(node, 'display', 'flex');
+            setImportant(node, 'flex-direction', 'column');
+            setImportant(node, 'justify-content', 'flex-start');
+            setImportant(node, 'box-sizing', 'border-box');
+        });
+
+        monthViewRoot.querySelectorAll('.fc-daygrid-day-bottom').forEach((node) => {
+            setImportant(node, 'margin-top', 'auto');
+            setImportant(node, 'min-height', 'var(--tm-calendar-month-more-link-height)');
+            setImportant(node, 'padding-top', '0');
+            setImportant(node, 'line-height', '1');
+        });
+
+        return true;
+    }
+
     function applyMainCalendarSlotHeightLayout(rootEl, settings) {
         return __tmApplyTimeGridHeightLayout(rootEl, settings);
     }
@@ -3350,6 +3395,7 @@
                 state.mainLayoutNeedsUpdateSize = false;
                 if (!(nextWrap instanceof Element) || !nextCalendar) return;
                 try { syncMainCalendarMonthViewLayout(nextWrap, nextHost, nextCalendar, getSettings()); } catch (e) {}
+                try { applyMainCalendarMonthCellMinHeightLayout(nextHost, nextCalendar); } catch (e) {}
                 try { applyMainCalendarSlotHeightLayout(nextWrap, getSettings()); } catch (e) {}
                 try { if (nextHost instanceof Element) applyTimeAxisColumnLayout(nextHost, 40); } catch (e) {}
                 if (needUpdateSize) {
@@ -3366,6 +3412,7 @@
             state.mainLayoutRaf = null;
             state.mainLayoutNeedsUpdateSize = false;
             try { syncMainCalendarMonthViewLayout(targetWrap, targetHost, targetCalendar, getSettings()); } catch (e2) {}
+            try { applyMainCalendarMonthCellMinHeightLayout(targetHost, targetCalendar); } catch (e2) {}
             try { applyMainCalendarSlotHeightLayout(targetWrap, getSettings()); } catch (e2) {}
             try { if (targetHost instanceof Element) applyTimeAxisColumnLayout(targetHost, 40); } catch (e2) {}
             try { if (options.updateSize === true) targetCalendar.updateSize(); } catch (e2) {}
@@ -11963,6 +12010,7 @@
         const hard = !!opt?.hard;
         const run = () => {
             try { cal.updateSize(); } catch (e3) {}
+            try { applyMainCalendarMonthCellMinHeightLayout(state.calendarEl, cal); } catch (e3) {}
             try { applyMainCalendarSlotHeightLayout(wrap, getSettings()); } catch (e3) {}
             try { scheduleSyncTimeGridAllDayCollapseUi(state.calendarEl, cal); } catch (e3) {}
             try { applyCnHolidayDots(wrap); } catch (e3) {}
