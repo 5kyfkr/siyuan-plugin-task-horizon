@@ -2,6 +2,9 @@ const { Plugin, openTab, openMobileFileById, platformUtils } = require("siyuan")
 
 const PLUGIN_ID = "siyuan-plugin-task-horizon";
 const TASK_SCRIPT_PATH = `/data/plugins/${PLUGIN_ID}/task.js`;
+const TASK_MAIN_STYLE_PATH = `/data/plugins/${PLUGIN_ID}/task-horizon.css`;
+const TASK_DEV_MANIFEST_PATH = `/data/plugins/${PLUGIN_ID}/src/task-horizon/manifest.main.json`;
+const TASK_DEV_SOURCE_ROOT = `/data/plugins/${PLUGIN_ID}/src/task-horizon`;
 const AI_SCRIPT_PATH = `/data/plugins/${PLUGIN_ID}/ai.js`;
 const HOMEPAGE_SCRIPT_PATH = `/data/plugins/${PLUGIN_ID}/homepage.js`;
 const QUICKBAR_SCRIPT_PATH = `/data/plugins/${PLUGIN_ID}/quickbar.js`;
@@ -184,6 +187,42 @@ const getDockPlacementFromCurrentUiLayout = (type) => {
     return null;
 };
 
+const resolveDockHostElement = (element) => {
+    if (!(element instanceof HTMLElement)) return null;
+    try {
+        return element.closest(".dock__item, .dock__panel") || element;
+    } catch (e) {
+        return element;
+    }
+};
+
+const getDockContainmentHosts = (element) => {
+    const out = [];
+    const seen = new Set();
+    const push = (host) => {
+        if (!(host instanceof HTMLElement) || seen.has(host)) return;
+        seen.add(host);
+        out.push(host);
+    };
+    push(element?.parentElement || null);
+    push(resolveDockHostElement(element));
+    return out;
+};
+
+const getDockHostsByType = (type) => {
+    try {
+        const nodes = Array.from(document.querySelectorAll(`[data-type="${type}"]`));
+        const set = new Set();
+        nodes.forEach((node) => {
+            const host = resolveDockHostElement(node);
+            if (host) set.add(host);
+        });
+        return Array.from(set);
+    } catch (e) {
+        return [];
+    }
+};
+
 const fetchText = async (url, data) => {
     const res = await fetch(url, {
         method: "POST",
@@ -273,9 +312,183 @@ const loadPluginManifest = async (pluginInstance) => {
     return normalizePluginManifest(null);
 };
 
+const createTaskHorizonHostBridge = (pluginInstance) => ({
+    plugin: pluginInstance || null,
+    app: pluginInstance?.app || null,
+    eventBus: pluginInstance?.eventBus || null,
+    platformUtils: platformUtils || null,
+    openTab: typeof openTab === "function" ? openTab : null,
+    openMobileFileById: typeof openMobileFileById === "function" ? openMobileFileById : null,
+    openTaskTab: (...args) => {
+        try {
+            return pluginInstance?.openTaskHorizonTab?.(...args);
+        } catch (e) {
+            return false;
+        }
+    },
+    getAllModels: () => {
+        try {
+            return typeof window?.siyuan?.getAllModels === "function" ? window.siyuan.getAllModels() : null;
+        } catch (e) {
+            return null;
+        }
+    },
+    isMobileRuntime: () => {
+        try {
+            return pluginInstance?.isRuntimeMobileClient?.() === true;
+        } catch (e) {
+            return false;
+        }
+    },
+    isNativeMobileRuntime: () => {
+        try {
+            return isNativeMobileRuntimeClient();
+        } catch (e) {
+            return false;
+        }
+    },
+    getRuntimeClientKind: () => {
+        try {
+            return getRuntimeClientKind();
+        } catch (e) {
+            return "";
+        }
+    },
+    loadData: (...args) => {
+        try {
+            return pluginInstance?.loadData?.(...args);
+        } catch (e) {
+            return null;
+        }
+    },
+    saveData: (...args) => {
+        try {
+            return pluginInstance?.saveData?.(...args);
+        } catch (e) {
+            return null;
+        }
+    },
+    removeData: (...args) => {
+        try {
+            return pluginInstance?.removeData?.(...args);
+        } catch (e) {
+            return null;
+        }
+    },
+});
+
+const normalizeTaskDevScriptPath = (value) => {
+    const raw = String(value || "").replace(/\\/g, "/").trim();
+    if (!raw) return "";
+    const parts = raw.split("/").filter(Boolean);
+    if (!parts.length) return "";
+    for (const part of parts) {
+        if (part === "." || part === "..") return "";
+    }
+    return parts.join("/");
+};
+
+const TASK_GLOBAL_EXPORT_PATTERN = /(?:window|globalThis)\.([A-Za-z0-9_]+)\s*=(?!=)/g;
+
+const extractTaskWindowExportKeys = (code) => {
+    const text = String(code || "");
+    if (!text) return [];
+    const keys = [];
+    const seen = new Set();
+    TASK_GLOBAL_EXPORT_PATTERN.lastIndex = 0;
+    let match = TASK_GLOBAL_EXPORT_PATTERN.exec(text);
+    while (match) {
+        const key = String(match[1] || "").trim();
+        if (key && !seen.has(key)) {
+            seen.add(key);
+            keys.push(key);
+        }
+        match = TASK_GLOBAL_EXPORT_PATTERN.exec(text);
+    }
+    TASK_GLOBAL_EXPORT_PATTERN.lastIndex = 0;
+    return keys;
+};
+
+const rememberTaskWindowExportKeys = (code) => {
+    const keys = extractTaskWindowExportKeys(code);
+    try {
+        globalThis.__taskHorizonExplicitWindowExportKeys = keys;
+    } catch (e) {}
+    return keys;
+};
+
+const buildTaskDevCombinedCode = async (scripts) => {
+    const chunks = [];
+    for (const scriptPath of scripts) {
+        const fullPath = `${TASK_DEV_SOURCE_ROOT}/${scriptPath}`;
+        try {
+            const code = await fetchPluginResourceText(fullPath);
+            chunks.push(`/* task-horizon dev: begin ${scriptPath} */\n${code}\n/* task-horizon dev: end ${scriptPath} */\n`);
+        } catch (e) {
+            console.error("[task-horizon] load task dev script failed", scriptPath, e);
+            return "";
+        }
+    }
+    return chunks.join("\n");
+};
+
+const loadTaskDevManifestScripts = async () => {
+    let text = "";
+    try {
+        text = await fetchPluginResourceText(TASK_DEV_MANIFEST_PATH);
+    } catch (e) {
+        const msg = String(e?.message || e || "");
+        if (msg.includes("getFile error: 404") || msg.includes("file does not exist")) {
+            return { status: "missing", scripts: [] };
+        }
+        console.error("[task-horizon] load task dev manifest failed", e);
+        return { status: "error", scripts: [] };
+    }
+    try {
+        const parsed = JSON.parse(text);
+        const scripts = Array.isArray(parsed?.scripts) ? parsed.scripts.map(normalizeTaskDevScriptPath).filter(Boolean) : [];
+        if (!scripts.length) {
+            console.error("[task-horizon] task dev manifest has no scripts");
+            return { status: "error", scripts: [] };
+        }
+        const combinedCode = await buildTaskDevCombinedCode(scripts);
+        if (!combinedCode) {
+            return { status: "error", scripts };
+        }
+        rememberTaskWindowExportKeys(combinedCode);
+        const script = document.createElement("script");
+        script.textContent = combinedCode + `\n//# sourceURL=task-horizon.dev-main.js`;
+        try {
+            document.head.appendChild(script);
+        } finally {
+            try { script.remove(); } catch (e) {}
+        }
+        return { status: "loaded", scripts };
+    } catch (e) {
+        console.error("[task-horizon] parse task dev manifest failed", e);
+        return { status: "error", scripts: [] };
+    }
+};
+
+const ensureTaskMainLoaded = async () => {
+    const devLoad = await loadTaskDevManifestScripts();
+    if (devLoad.status === "loaded") {
+        console.info("[task-horizon] loaded task main from src/task-horizon manifest", devLoad.scripts);
+        return true;
+    }
+    if (devLoad.status === "missing") {
+        return await loadScriptText(TASK_SCRIPT_PATH, "task.js");
+    }
+    console.error("[task-horizon] task main load aborted; skip task.js fallback to avoid duplicate runtime");
+    return false;
+};
+
 const loadScriptText = async (path, sourceName) => {
     try {
         const code = await fetchPluginResourceText(path);
+        if (path === TASK_SCRIPT_PATH) {
+            rememberTaskWindowExportKeys(code);
+        }
 
         const script = document.createElement("script");
         script.textContent = code + `\n//# sourceURL=${sourceName}`;
@@ -369,6 +582,7 @@ module.exports = class TaskHorizonPlugin extends Plugin {
 
     async onload() {
         clearPluginResourceTextCache();
+        try { delete globalThis.__taskHorizonExplicitWindowExportKeys; } catch (e) {}
         const mountToken = String(Date.now());
         const runtimeMobile = this.isRuntimeMobileClient();
         const runtimeNativeMobile = isNativeMobileRuntimeClient();
@@ -384,6 +598,7 @@ module.exports = class TaskHorizonPlugin extends Plugin {
         globalThis.__taskHorizonOpenMobileFileById = typeof openMobileFileById === "function" ? openMobileFileById : null;
         globalThis.__taskHorizonPlatformUtils = platformUtils || null;
         globalThis.__taskHorizonOpenTabView = this.openTaskHorizonTab.bind(this);
+        globalThis.__taskHorizonHostBridge = createTaskHorizonHostBridge(this);
         globalThis.__taskHorizonCustomTabId = CUSTOM_TAB_ID;
         globalThis.__taskHorizonTabType = TAB_TYPE;
         globalThis.__taskHorizonMountToken = mountToken;
@@ -404,8 +619,10 @@ module.exports = class TaskHorizonPlugin extends Plugin {
         try {
             delete globalThis.__tmCalendar;
         } catch (e) {}
+        await loadStyleText(TASK_MAIN_STYLE_PATH, "task-horizon.css");
         await loadScriptText(BASECOAT_SCRIPT_PATH, "basecoat/basecoat.js");
-        await loadScriptText(TASK_SCRIPT_PATH, "task.js");
+        const mainLoaded = await ensureTaskMainLoaded();
+        if (!mainLoaded) return;
         await loadScriptText(QUICKBAR_SCRIPT_PATH, "quickbar.js");
         await loadStyleText(BASECOAT_CSS_PATH, "basecoat/basecoat.css");
         await loadScriptText(FULLCALENDAR_MIN_SCRIPT_PATH, "fullcalendar/index.global.min.js");
@@ -825,17 +1042,7 @@ module.exports = class TaskHorizonPlugin extends Plugin {
     }
 
     getTaskDockHosts() {
-        try {
-            const nodes = Array.from(document.querySelectorAll(`[data-type="${TASK_DOCK_TYPE}"]`));
-            const set = new Set();
-            nodes.forEach((node) => {
-                const host = node.closest(".dock__item, .dock__panel") || node;
-                if (host) set.add(host);
-            });
-            return Array.from(set);
-        } catch (e) {
-            return [];
-        }
+        return getDockHostsByType(TASK_DOCK_TYPE);
     }
 
     syncTaskDockVisibility() {
@@ -929,14 +1136,8 @@ module.exports = class TaskHorizonPlugin extends Plugin {
             element.style.overscrollBehavior = "none";
         } catch (e) {}
         try {
-            const containmentHosts = [
-                element.parentElement,
-                element.closest(".dock__panel"),
-            ];
-            const seen = new Set();
+            const containmentHosts = getDockContainmentHosts(element);
             containmentHosts.forEach((host) => {
-                if (!(host instanceof HTMLElement) || seen.has(host)) return;
-                seen.add(host);
                 host.style.minWidth = "0";
                 host.style.minHeight = "0";
                 host.style.overflow = "hidden";
@@ -1112,12 +1313,14 @@ module.exports = class TaskHorizonPlugin extends Plugin {
         try { delete globalThis.__taskHorizonOpenTab; } catch (e) {}
         try { delete globalThis.__taskHorizonOpenMobileFileById; } catch (e) {}
         try { delete globalThis.__taskHorizonPlatformUtils; } catch (e) {}
+        try { delete globalThis.__taskHorizonHostBridge; } catch (e) {}
         try { delete globalThis.__taskHorizonOpenTabView; } catch (e) {}
         try { delete globalThis.__taskHorizonCustomTabId; } catch (e) {}
         try { delete globalThis.__taskHorizonTabElement; } catch (e) {}
         try { delete globalThis.__taskHorizonQuickbarLoaded; } catch (e) {}
         try { delete globalThis.__taskHorizonQuickbarToggle; } catch (e) {}
         try { delete globalThis.__taskHorizonQuickbarCleanup; } catch (e) {}
+        try { delete globalThis.__taskHorizonExplicitWindowExportKeys; } catch (e) {}
         try { delete globalThis.__taskHorizonAiCleanup; } catch (e) {}
         try { delete globalThis.__taskHorizonEnsureAiModuleLoaded; } catch (e) {}
         try { delete globalThis.__taskHorizonEnsureXlsxModuleLoaded; } catch (e) {}
@@ -1125,6 +1328,13 @@ module.exports = class TaskHorizonPlugin extends Plugin {
         try { delete globalThis.__TaskManagerCleanup; } catch (e) {}
         try { delete globalThis.__taskHorizonMountToken; } catch (e) {}
         try { delete globalThis.__taskHorizonTabType; } catch (e) {}
+        try { delete globalThis.__tmHost; } catch (e) {}
+        try { delete globalThis.__tmCompat; } catch (e) {}
+        try { delete globalThis.__tmCaps; } catch (e) {}
+        try { delete globalThis.__tmRuntimeHost; } catch (e) {}
+        try { delete globalThis.__tmViewPolicy; } catch (e) {}
+        try { delete globalThis.__tmRuntimeState; } catch (e) {}
+        try { delete globalThis.__tmRuntimeEvents; } catch (e) {}
     }
 
     async uninstall() {

@@ -9,6 +9,76 @@ if ([string]::IsNullOrWhiteSpace($pluginName)) { throw 'plugin.json name missing
 $tempDir = Join-Path ([System.IO.Path]::GetTempPath()) ('plugin_build_' + [System.Guid]::NewGuid().ToString('N'))
 New-Item -ItemType Directory -Path $tempDir | Out-Null
 
+function Resolve-TaskHorizonManifestScriptPaths {
+    param(
+        [Parameter(Mandatory = $true)][string]$ManifestPath,
+        [Parameter(Mandatory = $true)][string]$SourceRoot
+    )
+
+    $manifest = Get-Content -Raw -Encoding UTF8 -LiteralPath $ManifestPath | ConvertFrom-Json
+    $scripts = @($manifest.scripts)
+    if (-not $scripts.Count) {
+        throw 'src/task-horizon/manifest.main.json scripts missing'
+    }
+
+    $resolvedRoot = (Resolve-Path -LiteralPath $SourceRoot).Path
+    $resolvedFiles = New-Object System.Collections.Generic.List[string]
+    foreach ($item in $scripts) {
+        $raw = [string]$item
+        if ([string]::IsNullOrWhiteSpace($raw)) { continue }
+        $normalized = ($raw -replace '\\', '/').Trim()
+        if ([string]::IsNullOrWhiteSpace($normalized)) { continue }
+        $segments = $normalized.Split('/', [System.StringSplitOptions]::RemoveEmptyEntries)
+        if (-not $segments.Length) { continue }
+        if ($segments -contains '.' -or $segments -contains '..') {
+            throw "Invalid src/task-horizon manifest script path: $raw"
+        }
+        $candidate = Join-Path $SourceRoot ($segments -join [System.IO.Path]::DirectorySeparatorChar)
+        if (-not (Test-Path -LiteralPath $candidate -PathType Leaf)) {
+            throw "Missing src/task-horizon manifest script: $raw"
+        }
+        $resolvedCandidate = (Resolve-Path -LiteralPath $candidate).Path
+        if (-not $resolvedCandidate.StartsWith($resolvedRoot, [System.StringComparison]::OrdinalIgnoreCase)) {
+            throw "Manifest script escaped src/task-horizon root: $raw"
+        }
+        $resolvedFiles.Add($resolvedCandidate)
+    }
+
+    if (-not $resolvedFiles.Count) {
+        throw 'src/task-horizon/manifest.main.json scripts empty after normalization'
+    }
+
+    return $resolvedFiles
+}
+
+function Build-TaskHorizonMainFromManifest {
+    param(
+        [Parameter(Mandatory = $true)][string]$TempPluginDir
+    )
+
+    $sourceRoot = Join-Path $TempPluginDir 'src\task-horizon'
+    $manifestPath = Join-Path $sourceRoot 'manifest.main.json'
+    if (-not (Test-Path -LiteralPath $manifestPath -PathType Leaf)) {
+        return
+    }
+
+    $builder = New-Object System.Text.StringBuilder
+    $utf8NoBom = New-Object System.Text.UTF8Encoding($false)
+    $scriptPaths = Resolve-TaskHorizonManifestScriptPaths -ManifestPath $manifestPath -SourceRoot $sourceRoot
+    $resolvedRoot = (Resolve-Path -LiteralPath $sourceRoot).Path.TrimEnd('\', '/')
+    foreach ($scriptPath in $scriptPaths) {
+        $relativePath = $scriptPath.Substring($resolvedRoot.Length).TrimStart('\', '/').Replace('\', '/')
+        $null = $builder.AppendLine("/* task-horizon build: begin $relativePath */")
+        $null = $builder.AppendLine((Get-Content -Raw -Encoding UTF8 -LiteralPath $scriptPath))
+        $null = $builder.AppendLine()
+        $null = $builder.AppendLine("/* task-horizon build: end $relativePath */")
+        $null = $builder.AppendLine()
+    }
+
+    [System.IO.File]::WriteAllText((Join-Path $TempPluginDir 'task.js'), $builder.ToString(), $utf8NoBom)
+    Remove-Item -LiteralPath $sourceRoot -Recurse -Force
+}
+
 try {
     $excludePaths = @(
         '.git',
@@ -32,6 +102,7 @@ try {
     )
 
     Get-ChildItem -Path $pluginDir -Exclude $excludePaths | Copy-Item -Destination $tempDir -Recurse -Force
+    Build-TaskHorizonMainFromManifest -TempPluginDir $tempDir
 
     Get-ChildItem -Path $tempDir -Filter '*.zip' -File -ErrorAction SilentlyContinue | ForEach-Object {
         try { Remove-Item -LiteralPath $_.FullName -Force } catch {}

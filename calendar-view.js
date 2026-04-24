@@ -7815,6 +7815,7 @@
 
     function resolveCalendarEventDoneState(ext, options = {}) {
         const source = String(ext?.__tmSource || '').trim();
+        if (source === 'reminder') return ext?.__tmReminderDone === true;
         if (!(source === 'taskdate' || source === 'schedule')) return false;
         const tid = String(ext?.__tmTaskId || ext?.__tmBlockId || '').trim();
         const opt = (options && typeof options === 'object') ? options : {};
@@ -8736,12 +8737,16 @@
                     return { domNodes: [wrapEl] };
                 }
                 if (source === 'reminder') {
+                    const done = resolveCalendarEventDoneState(ext);
+                    const isAllDay = arg?.event?.allDay === true;
                     const wrapEl = document.createElement('span');
-                    wrapEl.className = source === 'schedule' ? 'tm-cal-task-event tm-cal-task-event--schedule' : 'tm-cal-task-event';
+                    wrapEl.className = 'tm-cal-task-event';
                     const tid = String(ext.__tmReminderBlockId || '').trim();
                     const { title, titleText } = buildTaskEventTitleNode(String(arg?.event?.title || '').trim() || '任务提醒');
+                    if (isBlockLike) wrapEl.classList.add('tm-cal-task-event--block');
+                    if (isAllDay) wrapEl.classList.add('tm-cal-task-event--allday');
                     applyTaskEventTitleClamp(wrapEl, title);
-                    applyTaskDoneVisual(wrapEl, titleText, !!ext.__tmReminderDone);
+                    applyTaskDoneVisual(wrapEl, titleText, done);
                     titleText.onclick = (ev) => {
                         try { ev.stopPropagation(); } catch (e) {}
                         try { ev.preventDefault(); } catch (e) {}
@@ -8787,7 +8792,7 @@
                         if (eid) el.setAttribute('data-tm-cal-event-id', eid);
                         if (source) el.setAttribute('data-tm-cal-source', source);
                         if (source === 'schedule' || source === 'tomato' || arg?.isMirror) applyScheduleEventColorVars(el, String(arg?.event?.backgroundColor || arg?.event?.borderColor || 'var(--tm-primary-color)'));
-                        if ((source === 'schedule' || source === 'taskdate') && arg?.event?.allDay === true) applyAllDaySoftEventColorVars(el, String(arg?.event?.backgroundColor || arg?.event?.borderColor || 'var(--tm-primary-color)'));
+                        if ((source === 'schedule' || source === 'taskdate' || source === 'reminder') && arg?.event?.allDay === true) applyAllDaySoftEventColorVars(el, String(arg?.event?.backgroundColor || arg?.event?.borderColor || 'var(--tm-primary-color)'));
                         try {
                             const wrapEl = el.querySelector?.('.tm-cal-task-event');
                             const titleEl = wrapEl?.querySelector?.('.tm-cal-task-event-title-text') || wrapEl?.querySelector?.('.tm-cal-task-event-title') || null;
@@ -12515,12 +12520,16 @@
                     return { domNodes: [wrapEl] };
                 }
                 if (source === 'reminder') {
+                    const done = resolveCalendarEventDoneState(ext);
+                    const isAllDay = arg?.event?.allDay === true;
                     const wrapEl = document.createElement('span');
-                    wrapEl.className = source === 'schedule' ? 'tm-cal-task-event tm-cal-task-event--schedule' : 'tm-cal-task-event';
+                    wrapEl.className = 'tm-cal-task-event';
                     const tid = String(ext.__tmReminderBlockId || '').trim();
                     const { title, titleText } = buildTaskEventTitleNode(String(arg?.event?.title || '').trim() || '任务提醒');
+                    if (isBlockLike) wrapEl.classList.add('tm-cal-task-event--block');
+                    if (isAllDay) wrapEl.classList.add('tm-cal-task-event--allday');
                     applyTaskEventTitleClamp(wrapEl, title);
-                    applyTaskDoneVisual(wrapEl, titleText, !!ext.__tmReminderDone);
+                    applyTaskDoneVisual(wrapEl, titleText, done);
                     titleText.onclick = (ev) => {
                         try { ev.stopPropagation(); } catch (e) {}
                         try { ev.preventDefault(); } catch (e) {}
@@ -12576,7 +12585,7 @@
                             if (eid) el.setAttribute('data-tm-cal-event-id', eid);
                             if (source) el.setAttribute('data-tm-cal-source', source);
                             if (source === 'schedule' || source === 'tomato' || arg?.isMirror) applyScheduleEventColorVars(el, String(arg?.event?.backgroundColor || arg?.event?.borderColor || 'var(--tm-primary-color)'));
-                            if ((source === 'schedule' || source === 'taskdate') && arg?.event?.allDay === true) applyAllDaySoftEventColorVars(el, String(arg?.event?.backgroundColor || arg?.event?.borderColor || 'var(--tm-primary-color)'));
+                            if ((source === 'schedule' || source === 'taskdate' || source === 'reminder') && arg?.event?.allDay === true) applyAllDaySoftEventColorVars(el, String(arg?.event?.backgroundColor || arg?.event?.borderColor || 'var(--tm-primary-color)'));
                             try {
                                 const wrapEl = el.querySelector?.('.tm-cal-task-event');
                                 const titleEl = wrapEl?.querySelector?.('.tm-cal-task-event-title-text') || wrapEl?.querySelector?.('.tm-cal-task-event-title') || null;

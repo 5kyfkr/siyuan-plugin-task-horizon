@@ -10,6 +10,8 @@
         resizeObserver: null,
         resizeHost: null,
         resizeRaf: 0,
+        settleUntil: 0,
+        settleTimer: 0,
     };
 
     const HOMEPAGE_STYLE_SOURCE = "homepage.css";
@@ -144,7 +146,6 @@
     justify-content: space-between;
     gap: 12px;
     flex-wrap: wrap;
-    animation: tm-home-fade-up 420ms cubic-bezier(0.22, 1, 0.36, 1) both;
 }
 
 .tm-homepage-title-wrap {
@@ -576,8 +577,6 @@
 .tm-homepage-card.tm-homepage-card--trend {
     gap: 10px;
     background: color-mix(in srgb, var(--tm-home-surface) 98%, var(--tm-home-bg) 2%);
-    animation: tm-home-fade-up 520ms cubic-bezier(0.22, 1, 0.36, 1) both;
-    animation-delay: 120ms;
 }
 
 .tm-homepage-trend-head {
@@ -777,18 +776,27 @@
     gap: var(--tm-home-gap);
 }
 
-.tm-homepage-hero-grid > .tm-homepage-card,
-.tm-homepage-middle-grid > .tm-homepage-card,
-.tm-homepage-bottom-grid > .tm-homepage-card {
+#tmHomepageRoot[data-tm-homepage-animate="1"] .tm-homepage-header {
+    animation: tm-home-fade-up 420ms cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+#tmHomepageRoot[data-tm-homepage-animate="1"] .tm-homepage-card.tm-homepage-card--trend {
+    animation: tm-home-fade-up 520ms cubic-bezier(0.22, 1, 0.36, 1) both;
+    animation-delay: 120ms;
+}
+
+#tmHomepageRoot[data-tm-homepage-animate="1"] .tm-homepage-hero-grid > .tm-homepage-card,
+#tmHomepageRoot[data-tm-homepage-animate="1"] .tm-homepage-middle-grid > .tm-homepage-card,
+#tmHomepageRoot[data-tm-homepage-animate="1"] .tm-homepage-bottom-grid > .tm-homepage-card {
     animation: tm-home-fade-up 520ms cubic-bezier(0.22, 1, 0.36, 1) both;
 }
 
-.tm-homepage-hero-grid > .tm-homepage-card--overview { animation-delay: 90ms; }
-.tm-homepage-hero-grid > .tm-homepage-card--summary { animation-delay: 130ms; }
-.tm-homepage-middle-grid > .tm-homepage-card:nth-child(1) { animation-delay: 180ms; }
-.tm-homepage-middle-grid > .tm-homepage-card:nth-child(2) { animation-delay: 230ms; }
-.tm-homepage-bottom-grid > .tm-homepage-card:nth-child(1) { animation-delay: 260ms; }
-.tm-homepage-bottom-grid > .tm-homepage-card:nth-child(2) { animation-delay: 310ms; }
+#tmHomepageRoot[data-tm-homepage-animate="1"] .tm-homepage-hero-grid > .tm-homepage-card--overview { animation-delay: 90ms; }
+#tmHomepageRoot[data-tm-homepage-animate="1"] .tm-homepage-hero-grid > .tm-homepage-card--summary { animation-delay: 130ms; }
+#tmHomepageRoot[data-tm-homepage-animate="1"] .tm-homepage-middle-grid > .tm-homepage-card:nth-child(1) { animation-delay: 180ms; }
+#tmHomepageRoot[data-tm-homepage-animate="1"] .tm-homepage-middle-grid > .tm-homepage-card:nth-child(2) { animation-delay: 230ms; }
+#tmHomepageRoot[data-tm-homepage-animate="1"] .tm-homepage-bottom-grid > .tm-homepage-card:nth-child(1) { animation-delay: 260ms; }
+#tmHomepageRoot[data-tm-homepage-animate="1"] .tm-homepage-bottom-grid > .tm-homepage-card:nth-child(2) { animation-delay: 310ms; }
 
 .tm-homepage-heatmap-grid {
     display: flex;
@@ -2343,6 +2351,21 @@
         return doRender();
     }
 
+    function scheduleSettledRender() {
+        if (!(runtime.root instanceof HTMLElement)) return false;
+        if (runtime.settleTimer) {
+            try { clearTimeout(runtime.settleTimer); } catch (e) {}
+            runtime.settleTimer = 0;
+        }
+        const waitMs = Math.max(0, Number(runtime.settleUntil || 0) - Date.now());
+        runtime.settleTimer = setTimeout(() => {
+            runtime.settleTimer = 0;
+            if (!(runtime.root instanceof HTMLElement)) return;
+            doRender();
+        }, waitMs);
+        return true;
+    }
+
     function bindInteractions() {
         if (!(runtime.root instanceof HTMLElement)) return;
         if (runtime.clickHandler) {
@@ -2389,6 +2412,10 @@
                     containerHeight: nextHeight,
                 };
                 if (resolveProfile(runtime.ctx) !== prevProfile || Math.abs(nextWidth - prevWidth) > 8) {
+                    if (Date.now() < Number(runtime.settleUntil || 0)) {
+                        scheduleSettledRender();
+                        return;
+                    }
                     doRender();
                 }
             });
@@ -2401,14 +2428,20 @@
             try { cancelAnimationFrame(runtime.resizeRaf); } catch (e) {}
             runtime.resizeRaf = 0;
         }
+        if (runtime.settleTimer) {
+            try { clearTimeout(runtime.settleTimer); } catch (e) {}
+            runtime.settleTimer = 0;
+        }
         try { runtime.resizeObserver?.disconnect?.(); } catch (e) {}
         runtime.resizeObserver = null;
         runtime.resizeHost = null;
+        runtime.settleUntil = 0;
         if (runtime.root instanceof HTMLElement && runtime.clickHandler) {
             try { runtime.root.removeEventListener("click", runtime.clickHandler); } catch (e) {}
         }
         runtime.clickHandler = null;
         if (runtime.root instanceof HTMLElement) {
+            try { delete runtime.root.dataset.tmHomepageAnimate; } catch (e) {}
             try { runtime.root.innerHTML = ""; } catch (e) {}
         }
         runtime.root = null;
@@ -2421,13 +2454,27 @@
         ensureHomepageStyle();
         const measure = readContainerSize(root);
         runtime.root = root;
+        runtime.settleUntil = Date.now() + 220;
         runtime.resizeHost = measure.host instanceof HTMLElement ? measure.host : root;
         runtime.ctx = {
             ...(ctx && typeof ctx === "object" ? ctx : {}),
             containerWidth: measure.width,
             containerHeight: measure.height,
         };
+        const animateOnMount = runtime.ctx?.animateOnMount !== false;
+        try { runtime.root.dataset.tmHomepageAnimate = animateOnMount ? "1" : "0"; } catch (e) {}
         doRender();
+        if (animateOnMount) {
+            try {
+                requestAnimationFrame(() => {
+                    if (runtime.root === root) runtime.root.dataset.tmHomepageAnimate = "0";
+                });
+            } catch (e) {
+                try {
+                    if (runtime.root === root) runtime.root.dataset.tmHomepageAnimate = "0";
+                } catch (e2) {}
+            }
+        }
         bindInteractions();
         bindResizeObserver();
         return true;
@@ -2435,6 +2482,7 @@
 
     function update(ctx = {}) {
         if (!(runtime.root instanceof HTMLElement)) return false;
+        try { runtime.root.dataset.tmHomepageAnimate = "0"; } catch (e) {}
         const measure = readContainerSize(runtime.root);
         runtime.ctx = {
             ...(runtime.ctx || {}),
@@ -2444,6 +2492,10 @@
         };
         if (measure.host instanceof HTMLElement && measure.host !== runtime.resizeHost) {
             bindResizeObserver();
+        }
+        if (Date.now() < Number(runtime.settleUntil || 0)) {
+            scheduleSettledRender();
+            return true;
         }
         return doRender();
     }
