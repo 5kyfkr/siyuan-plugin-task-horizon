@@ -6472,10 +6472,12 @@ select.tm-btn-secondary {
 }
 
 .tm-task-attachment-empty {
+    grid-column: 1 / -1;
     border: 1px dashed color-mix(in srgb, var(--tm-border-color) 68%, transparent);
     border-radius: 14px;
     padding: 14px;
     font-size: 13px;
+    text-align: center;
     color: var(--tm-secondary-text);
     background: color-mix(in srgb, var(--tm-hover-bg) 56%, var(--tm-bg-color) 44%);
 }
@@ -7483,6 +7485,7 @@ select.tm-btn-secondary {
 }
 
 .tm-checklist-pane--compact .tm-checklist-group-card .tm-checklist-item {
+    --tm-checklist-compact-divider-start: calc(var(--tm-checklist-card-divider-start) + var(--tm-checklist-compact-indent, 0px) + 24px);
     min-height: var(--tm-checklist-compact-row-height);
     padding-top: 0;
     padding-bottom: 0;
@@ -7498,13 +7501,17 @@ select.tm-btn-secondary {
 .tm-checklist-pane--compact .tm-checklist-group-card .tm-checklist-item::after {
     content: '';
     position: absolute;
-    left: var(--tm-checklist-card-divider-start);
+    left: var(--tm-checklist-compact-divider-start);
     right: var(--tm-checklist-card-divider-right);
     top: 0;
     height: 1px;
-    background: color-mix(in srgb, var(--tm-border-color) 92%, transparent);
+    background: color-mix(in srgb, var(--tm-border-color) 75%, transparent);
     display: block;
     pointer-events: none;
+}
+
+.tm-checklist-pane--compact .tm-checklist-group-card .tm-checklist-item:has(> .tm-checklist-leading--branch) {
+    --tm-checklist-compact-divider-start: calc(var(--tm-checklist-card-divider-start) + var(--tm-checklist-compact-indent, 0px) + 2px);
 }
 
 .tm-checklist-pane--compact .tm-checklist-group-card .tm-checklist-group-card-items > .tm-checklist-item:first-child::after {
@@ -7598,6 +7605,11 @@ select.tm-btn-secondary {
     width: 18px;
     min-width: 18px;
     flex-basis: 18px;
+}
+
+.tm-modal.tm-modal--mobile .tm-checklist-pane--compact .tm-checklist-group-card .tm-checklist-item,
+.tm-modal.tm-modal--dock .tm-checklist-pane--compact .tm-checklist-group-card .tm-checklist-item {
+    --tm-checklist-compact-divider-start: calc(var(--tm-checklist-card-divider-start) + var(--tm-checklist-compact-indent, 0px) + 2px);
 }
 
 .tm-modal.tm-modal--mobile .tm-checklist-pane--compact .tm-checklist-leading .tm-tree-toggle,

@@ -2468,6 +2468,69 @@
             on(root, 'dragend', () => {
                 clearAttachmentDropActive();
             });
+            let attachmentPasteContextAt = 0;
+            const markAttachmentPasteContext = () => {
+                attachmentPasteContextAt = Date.now();
+            };
+            const isAttachmentPasteContextActive = (ev) => {
+                if (ev?.__tmTaskDetailAttachmentPasteHandled === true) return false;
+                if (!isSessionActive()) return false;
+                const target = ev?.target instanceof Element ? ev.target : null;
+                if (target && root.contains(target)) return true;
+                const active = document.activeElement instanceof Element ? document.activeElement : null;
+                if (active && root.contains(active)) return true;
+                try {
+                    if (root.matches?.(':hover')) return true;
+                } catch (e) {}
+                return Date.now() - attachmentPasteContextAt < 8000;
+            };
+            const handleDetailAttachmentPaste = async (ev) => {
+                if (!isAttachmentPasteContextActive(ev)) return;
+                const clipboardData = ev?.clipboardData || null;
+                if (!clipboardData) return;
+                const clipboardFiles = __tmBuildTaskAttachmentClipboardFiles(clipboardData);
+                const text = clipboardFiles.length ? '' : String(clipboardData.getData?.('text/plain') || '').trim();
+                const textLooksImportable = !clipboardFiles.length && (
+                    __tmParseTaskAttachmentAssetPathsFromText(text).length > 0
+                    || __tmParseTaskAttachmentBlockIdsFromText(text).length > 0
+                );
+                if (!clipboardFiles.length && !textLooksImportable) return;
+                try { ev.__tmTaskDetailAttachmentPasteHandled = true; } catch (e) {}
+                try { ev.preventDefault(); } catch (e) {}
+                try { ev.stopPropagation(); } catch (e) {}
+                if (attachmentActionPending) return;
+                const task = getBoundTask();
+                if (!task?.id) return;
+                try {
+                    attachmentActionPending = true;
+                    const resolvedPaths = clipboardFiles.length
+                        ? await __tmUploadTaskAttachmentFiles(clipboardFiles, { assetsDirPath: '/assets/' })
+                        : await __tmResolveTaskAttachmentTextItems(text);
+                    if (!resolvedPaths.length) return;
+                    const latestPaths = __tmGetTaskAttachmentPaths(getBoundTask() || task);
+                    const nextPaths = __tmNormalizeTaskAttachmentPaths(latestPaths.concat(resolvedPaths));
+                    if (JSON.stringify(nextPaths) === JSON.stringify(latestPaths)) {
+                        try { hint('⚠ 剪贴板里的内容已经在当前任务附件中', 'warning'); } catch (e) {}
+                        return;
+                    }
+                    await __tmUpdateTaskAttachmentsField(task.id, nextPaths, { source: 'detail-attachment-paste' });
+                    syncAttachmentSection(getBoundTask());
+                    try { hint(`✅ 已添加 ${nextPaths.length - latestPaths.length} 个附件`, 'success'); } catch (e) {}
+                } catch (e) {
+                    try { hint(`❌ 粘贴添加附件失败: ${String(e?.message || e || '')}`, 'error'); } catch (e2) {}
+                } finally {
+                    attachmentActionPending = false;
+                }
+            };
+            on(document, 'pointerdown', (ev) => {
+                const target = ev?.target instanceof Element ? ev.target : null;
+                if (target && root.contains(target)) markAttachmentPasteContext();
+                else attachmentPasteContextAt = 0;
+            }, { capture: true });
+            on(root, 'focusin', markAttachmentPasteContext);
+            on(root, 'mouseenter', markAttachmentPasteContext);
+            on(root, 'paste', handleDetailAttachmentPaste);
+            on(document, 'paste', handleDetailAttachmentPaste, { capture: true });
             on(root, 'drop', async (ev) => {
                 const section = getAttachmentSection();
                 const dropZone = ev.target instanceof Element ? ev.target.closest('[data-tm-detail-attachment-section]') : null;

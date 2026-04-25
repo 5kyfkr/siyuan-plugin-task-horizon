@@ -377,6 +377,66 @@ const createTaskHorizonHostBridge = (pluginInstance) => ({
     },
 });
 
+const normalizeTaskHorizonAssetPath = (assetPath) => String(assetPath || "")
+    .trim()
+    .replace(/\\/g, "/")
+    .replace(/^\/+/, "");
+
+const joinTaskHorizonPath = (...parts) => {
+    const normalized = parts
+        .map((part) => String(part || "").trim().replace(/\\/g, "/"))
+        .filter(Boolean);
+    if (!normalized.length) return "";
+    const first = normalized.shift().replace(/\/+$/, "");
+    const rest = normalized.map((part) => part.replace(/^\/+|\/+$/g, ""));
+    return [first, ...rest].filter(Boolean).join("/");
+};
+
+const getTaskHorizonWorkspaceDir = () => {
+    const candidates = [
+        window?.siyuan?.config?.system?.workspaceDir,
+        window?.siyuan?.config?.system?.workspace,
+        window?.siyuan?.config?.system?.homeDir,
+    ];
+    for (const item of candidates) {
+        const value = String(item || "").trim();
+        if (value) return value;
+    }
+    return "";
+};
+
+const openTaskHorizonSystemPath = async (absolutePath) => {
+    const path = String(absolutePath || "").trim();
+    if (!path) return false;
+    const utils = platformUtils || null;
+    const methods = ["openPath", "openFile", "openBy", "openExternal"];
+    for (const name of methods) {
+        const fn = utils && typeof utils[name] === "function" ? utils[name] : null;
+        if (!fn) continue;
+        try {
+            const result = await fn(path);
+            if (result === false || typeof result === "string") continue;
+            return true;
+        } catch (e) {}
+    }
+    try {
+        const electron = require("electron");
+        if (electron?.shell && typeof electron.shell.openPath === "function") {
+            const result = await electron.shell.openPath(path);
+            if (!result) return true;
+        }
+    } catch (e) {}
+    return false;
+};
+
+const openTaskHorizonAssetWithSystem = async (assetPath) => {
+    const normalized = normalizeTaskHorizonAssetPath(assetPath);
+    if (!normalized || !/^assets\//i.test(normalized)) return false;
+    const workspaceDir = getTaskHorizonWorkspaceDir();
+    if (!workspaceDir) return false;
+    return await openTaskHorizonSystemPath(joinTaskHorizonPath(workspaceDir, "data", normalized));
+};
+
 const normalizeTaskDevScriptPath = (value) => {
     const raw = String(value || "").replace(/\\/g, "/").trim();
     if (!raw) return "";
@@ -597,6 +657,7 @@ module.exports = class TaskHorizonPlugin extends Plugin {
         globalThis.__taskHorizonOpenTab = typeof openTab === "function" ? openTab : null;
         globalThis.__taskHorizonOpenMobileFileById = typeof openMobileFileById === "function" ? openMobileFileById : null;
         globalThis.__taskHorizonPlatformUtils = platformUtils || null;
+        globalThis.__taskHorizonOpenAssetWithSystem = openTaskHorizonAssetWithSystem;
         globalThis.__taskHorizonOpenTabView = this.openTaskHorizonTab.bind(this);
         globalThis.__taskHorizonHostBridge = createTaskHorizonHostBridge(this);
         globalThis.__taskHorizonCustomTabId = CUSTOM_TAB_ID;
@@ -1313,6 +1374,7 @@ module.exports = class TaskHorizonPlugin extends Plugin {
         try { delete globalThis.__taskHorizonOpenTab; } catch (e) {}
         try { delete globalThis.__taskHorizonOpenMobileFileById; } catch (e) {}
         try { delete globalThis.__taskHorizonPlatformUtils; } catch (e) {}
+        try { delete globalThis.__taskHorizonOpenAssetWithSystem; } catch (e) {}
         try { delete globalThis.__taskHorizonHostBridge; } catch (e) {}
         try { delete globalThis.__taskHorizonOpenTabView; } catch (e) {}
         try { delete globalThis.__taskHorizonCustomTabId; } catch (e) {}

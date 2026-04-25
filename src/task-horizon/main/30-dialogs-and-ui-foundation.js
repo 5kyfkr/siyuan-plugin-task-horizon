@@ -8916,6 +8916,9 @@
         }
         try { await API.call('/api/sqlite/flushTransaction', {}); } catch (e) {}
         try {
+            [fromDocId, did].filter(Boolean).forEach((docId) => __tmInvalidateTasksQueryCacheByDocId(docId));
+        } catch (e) {}
+        try {
             if (t) {
                 t.root_id = did;
                 t.docId = did;
@@ -8984,6 +8987,9 @@
         }
 
         try { await API.call('/api/sqlite/flushTransaction', {}); } catch (e) {}
+        try {
+            [fromDocId, did].filter(Boolean).forEach((docId) => __tmInvalidateTasksQueryCacheByDocId(docId));
+        } catch (e) {}
         try {
             if (t) {
                 t.root_id = did;
@@ -9054,6 +9060,9 @@
         }
 
         try { await API.call('/api/sqlite/flushTransaction', {}); } catch (e) {}
+        try {
+            [fromDocId, did].filter(Boolean).forEach((docId) => __tmInvalidateTasksQueryCacheByDocId(docId));
+        } catch (e) {}
         try {
             if (t) {
                 t.root_id = did;
@@ -10304,7 +10313,7 @@
 
     function __tmIsTouchLikeChecklistPointer(ev) {
         const pType = String(ev?.pointerType || '').trim().toLowerCase();
-        if (__tmShouldUseBrowserTouchTaskDrag()) return true;
+        if (__tmShouldUseCustomTouchTaskDrag()) return true;
         return pType === 'touch' || pType === 'pen' || (!pType && __tmIsRuntimeMobileClient());
     }
 
@@ -10320,7 +10329,7 @@
     }
 
     function __tmStartTouchTaskDrag(ev, taskId) {
-        if (!__tmShouldUseBrowserTouchTaskDrag()) return false;
+        if (!__tmShouldUseCustomTouchTaskDrag()) return false;
         if (__tmIsMultiSelectActive()) return false;
         if (!__tmIsTouchLikeChecklistPointer(ev)) return false;
         if (ev && typeof ev.button === 'number' && ev.button !== 0) return false;
@@ -10421,6 +10430,10 @@
             try { e2?.stopPropagation?.(); } catch (e) {}
             return false;
         };
+        const preventTouchDragScroll = (e2) => {
+            if (ended || !dragging) return;
+            try { e2?.preventDefault?.(); } catch (e) {}
+        };
         const resolvePointTarget = (x, y) => {
             if (!Number.isFinite(x) || !Number.isFinite(y)) return null;
             try {
@@ -10489,6 +10502,8 @@
             try { document.removeEventListener('touchmove', onTouchMove, true); } catch (e) {}
             try { document.removeEventListener('touchend', onTouchEnd, true); } catch (e) {}
             try { document.removeEventListener('touchcancel', onTouchEnd, true); } catch (e) {}
+            try { window.removeEventListener('touchmove', preventTouchDragScroll, true); } catch (e) {}
+            try { window.removeEventListener('pointermove', preventTouchDragScroll, true); } catch (e) {}
             try { document.removeEventListener('contextmenu', onContextMenu, true); } catch (e) {}
             try { sourceEl.removeEventListener('dragstart', onNativeDragStart, true); } catch (e) {}
             try { activeEl?.removeEventListener?.('dragstart', onNativeDragStart, true); } catch (e) {}
@@ -10667,7 +10682,7 @@
             await finalizeDrag();
         };
         const onPointerCancel = (e2) => {
-            if (!__tmShouldUseBrowserTouchTaskDrag()) {
+            if (!__tmShouldUseCustomTouchTaskDrag()) {
                 onUp(e2);
             }
         };
@@ -10686,6 +10701,8 @@
         document.addEventListener('touchmove', onTouchMove, { capture: true, passive: false });
         document.addEventListener('touchend', onTouchEnd, { capture: true, passive: false });
         document.addEventListener('touchcancel', onTouchEnd, { capture: true, passive: false });
+        window.addEventListener('touchmove', preventTouchDragScroll, { capture: true, passive: false });
+        window.addEventListener('pointermove', preventTouchDragScroll, { capture: true, passive: false });
         document.addEventListener('contextmenu', onContextMenu, true);
         rememberDraggableState(sourceEl);
         rememberDraggableState(activeEl);

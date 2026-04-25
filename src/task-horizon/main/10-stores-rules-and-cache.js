@@ -2213,8 +2213,6 @@
             } catch (e) {
                 payload = { ...(this.data || {}) };
             }
-            try { delete payload.aiMiniMaxApiKey; } catch (e) {}
-            try { delete payload.aiDeepSeekApiKey; } catch (e) {}
             return payload;
         },
 
@@ -2531,8 +2529,10 @@
                                 if (typeof cloudData.docDisplayNameMode === 'string') this.data.docDisplayNameMode = cloudData.docDisplayNameMode;
                                 if (typeof cloudData.aiEnabled === 'boolean') this.data.aiEnabled = cloudData.aiEnabled;
                                 if (typeof cloudData.aiProvider === 'string') this.data.aiProvider = cloudData.aiProvider;
+                                if (typeof cloudData.aiMiniMaxApiKey === 'string') this.data.aiMiniMaxApiKey = cloudData.aiMiniMaxApiKey;
                                 if (typeof cloudData.aiMiniMaxBaseUrl === 'string') this.data.aiMiniMaxBaseUrl = cloudData.aiMiniMaxBaseUrl;
                                 if (typeof cloudData.aiMiniMaxModel === 'string') this.data.aiMiniMaxModel = cloudData.aiMiniMaxModel;
+                                if (typeof cloudData.aiDeepSeekApiKey === 'string') this.data.aiDeepSeekApiKey = cloudData.aiDeepSeekApiKey;
                                 if (typeof cloudData.aiDeepSeekBaseUrl === 'string') this.data.aiDeepSeekBaseUrl = cloudData.aiDeepSeekBaseUrl;
                                 if (typeof cloudData.aiDeepSeekModel === 'string') this.data.aiDeepSeekModel = cloudData.aiDeepSeekModel;
                                 if (typeof cloudData.aiMiniMaxTemperature === 'number') this.data.aiMiniMaxTemperature = cloudData.aiMiniMaxTemperature;

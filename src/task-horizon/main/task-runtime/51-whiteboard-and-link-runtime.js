@@ -2050,6 +2050,116 @@
         return types.includes('Files') || types.includes('application/x-moz-file');
     }
 
+    function __tmBuildTaskAttachmentPasteTimestamp() {
+        const now = new Date();
+        const pad = (value) => String(value).padStart(2, '0');
+        return `${now.getFullYear()}${pad(now.getMonth() + 1)}${pad(now.getDate())}${pad(now.getHours())}${pad(now.getMinutes())}${pad(now.getSeconds())}`;
+    }
+
+    function __tmBuildTaskAttachmentClipboardFiles(clipboardData) {
+        const items = Array.from(clipboardData?.items || []);
+        if (!items.length) return [];
+        const extByMime = {
+            'image/png': 'png',
+            'image/jpeg': 'jpg',
+            'image/webp': 'webp',
+            'image/gif': 'gif',
+            'image/svg+xml': 'svg',
+            'image/avif': 'avif',
+            'image/bmp': 'bmp',
+            'application/pdf': 'pdf',
+            'text/plain': 'txt',
+            'text/markdown': 'md',
+            'text/csv': 'csv',
+            'application/zip': 'zip',
+            'application/json': 'json',
+        };
+        const timestamp = __tmBuildTaskAttachmentPasteTimestamp();
+        return items.map((item, index) => {
+            if (String(item?.kind || '').trim() !== 'file') return null;
+            const mime = String(item?.type || '').trim().toLowerCase();
+            const rawFile = item?.getAsFile?.();
+            if (!(rawFile instanceof Blob)) return null;
+            const ext = extByMime[mime] || (mime.startsWith('image/') ? 'png' : 'bin');
+            let nextName = rawFile instanceof File ? String(rawFile.name || '').trim() : '';
+            if (!nextName) nextName = `clipboard-file-${timestamp}-${String(index + 1).padStart(2, '0')}.${ext}`;
+            if (!/\.[A-Za-z0-9]+$/.test(nextName)) nextName = `${nextName}.${ext}`;
+            try {
+                return new File([rawFile], nextName, { type: mime || rawFile.type || 'application/octet-stream' });
+            } catch (e) {
+                return null;
+            }
+        }).filter((file) => file instanceof File);
+    }
+
+    function __tmBuildTaskAttachmentClipboardImageFiles(clipboardData) {
+        return __tmBuildTaskAttachmentClipboardFiles(clipboardData).filter((file) => String(file?.type || '').toLowerCase().startsWith('image/'));
+    }
+
+    function __tmParseTaskAttachmentAssetPathsFromText(text) {
+        const source = String(text || '');
+        if (!source.trim()) return [];
+        const out = [];
+        const seen = new Set();
+        const pushPath = (rawValue) => {
+            const normalized = __tmNormalizeTaskAttachmentPath(rawValue);
+            if (!normalized || !/^assets\//i.test(normalized) || seen.has(normalized)) return;
+            seen.add(normalized);
+            out.push(normalized);
+        };
+        let match;
+        const markdownPattern = /!\[[^\]]*]\((assets\/[^)\s"'<>]+)\)/gi;
+        while ((match = markdownPattern.exec(source))) pushPath(match[1]);
+        const plainPattern = /\bassets\/[^\s)"'<>]+/gi;
+        while ((match = plainPattern.exec(source))) pushPath(match[0]);
+        return out;
+    }
+
+    function __tmParseTaskAttachmentBlockIdsFromText(text) {
+        const source = String(text || '').trim();
+        if (!source) return [];
+        const out = [];
+        const seen = new Set();
+        const pushId = (rawValue) => {
+            const id = __tmNormalizeTaskAttachmentBlockId(rawValue, { loose: true });
+            if (!id || seen.has(id)) return;
+            seen.add(id);
+            out.push(id);
+        };
+        pushId(source);
+        let match;
+        const blockUrlPattern = /siyuan:\/\/blocks\/([0-9]{14}-[A-Za-z0-9]+)/gi;
+        while ((match = blockUrlPattern.exec(source))) pushId(match[1]);
+        const blockRefPattern = /\(\(\s*([0-9]{14}-[A-Za-z0-9]+)/g;
+        while ((match = blockRefPattern.exec(source))) pushId(match[1]);
+        return out;
+    }
+
+    async function __tmResolveTaskAttachmentTextItems(rawText) {
+        const text = String(rawText || '').trim();
+        if (!text) return [];
+        const assetPaths = __tmParseTaskAttachmentAssetPathsFromText(text);
+        if (assetPaths.length) return assetPaths;
+        const blockIds = __tmParseTaskAttachmentBlockIdsFromText(text);
+        if (!blockIds.length) return [];
+        let rows = [];
+        try { rows = await API.getOtherBlocksByIds(blockIds); } catch (e) { rows = []; }
+        const rowMap = new Map();
+        (Array.isArray(rows) ? rows : []).forEach((row) => {
+            const id = __tmNormalizeTaskAttachmentBlockId(row?.id || '');
+            if (!id) return;
+            rowMap.set(id, row);
+        });
+        const nextItems = [];
+        blockIds.forEach((id) => {
+            const row = rowMap.get(id);
+            if (!row || !__tmIsTaskAttachmentSupportedBlockType(row?.type, row?.subtype)) return;
+            try { __tmPrimeTaskAttachmentBlockMeta(row); } catch (e) {}
+            nextItems.push(__tmBuildTaskAttachmentBlockToken(id));
+        });
+        return __tmNormalizeTaskAttachmentPaths(nextItems);
+    }
+
     async function __tmUploadTaskAttachmentFiles(files, options = {}) {
         const list = __tmGetTaskAttachmentFiles(files);
         if (!list.length) return [];
@@ -2243,31 +2353,21 @@
         }).catch(() => null);
     }
 
-    async function __tmOpenTaskAttachmentBlockRef(blockId, event) {
-        const id = __tmNormalizeTaskAttachmentBlockId(blockId, { loose: true });
-        if (!id) return false;
-        try { event?.preventDefault?.(); } catch (e) {}
-        try { event?.stopPropagation?.(); } catch (e) {}
+    const __tmBuildNativeOpenAction = (options = {}) => (
+        options?.focus ? ['cb-get-focus'] : ['cb-get-hl', 'cb-get-context']
+    );
 
-        let meta = __tmGetTaskAttachmentBlockMeta(id);
-        if (!meta) {
-            try {
-                const rows = await API.getOtherBlocksByIds([id]);
-                const row = Array.isArray(rows) && rows.length ? rows[0] : null;
-                if (row) meta = __tmPrimeTaskAttachmentBlockMeta(row);
-            } catch (e) {}
-        }
-        const docId = String(meta?.docId || (meta?.isDocBlock ? id : '') || id).trim() || id;
+    async function __tmOpenSiyuanBlockNative(blockId, options = {}) {
+        const id = String(blockId || '').trim();
+        if (!id) return false;
         const nav = __tmGetNavigationRuntime();
         const app = nav.app;
-        const isNativeMobile = nav.nativeMobileClient === true;
-        const topWin = nav.topWin || window;
-        const topDoc = nav.topDoc || document;
+        const action = __tmBuildNativeOpenAction(options);
         const openMobile = getOpenMobileFn();
-        if (isNativeMobile && typeof openMobile === 'function') {
+        if ((nav.nativeMobileClient === true || nav.runtimeMobileClient === true) && typeof openMobile === 'function') {
             try {
-                openMobile(app, docId);
-                if (docId !== id) setTimeout(() => __tmScheduleScrollToBlock(id, 24), 650);
+                openMobile(app, id, action);
+                __tmScheduleNativeOpenHighlight(id, options);
                 nav.closeAfterMobileAction?.();
                 return true;
             } catch (e) {}
@@ -2275,14 +2375,25 @@
         const openTab = getOpenTabFn();
         if (typeof openTab === 'function') {
             try {
-                const params = { app, doc: { id: docId } };
-                if (docId !== id) params.block = { id, mode: 0 };
-                openTab(params);
-                if (docId !== id) __tmScheduleScrollToBlock(id);
+                await openTab({ app, doc: { id, action } });
+                __tmScheduleNativeOpenHighlight(id, options);
                 nav.closeAfterMobileAction?.();
                 return true;
             } catch (e) {}
         }
+        return false;
+    }
+
+    async function __tmOpenTaskAttachmentBlockRef(blockId, event) {
+        const id = __tmNormalizeTaskAttachmentBlockId(blockId, { loose: true });
+        if (!id) return false;
+        try { event?.preventDefault?.(); } catch (e) {}
+        try { event?.stopPropagation?.(); } catch (e) {}
+
+        const nav = __tmGetNavigationRuntime();
+        const topWin = nav.topWin || window;
+        const topDoc = nav.topDoc || document;
+        if (await __tmOpenSiyuanBlockNative(id)) return true;
         try {
             const tempSpan = topDoc.createElement('span');
             tempSpan.setAttribute('data-type', 'block-ref');
@@ -2305,12 +2416,13 @@
             setTimeout(() => {
                 try { tempSpan.remove(); } catch (e) {}
             }, 100);
-            if (docId !== id) setTimeout(() => __tmScheduleScrollToBlock(id, 24), 500);
+            __tmScheduleNativeOpenHighlight(id);
             nav.closeAfterMobileAction?.();
             return true;
         } catch (e) {}
         try {
             topWin.open(`siyuan://blocks/${id}`);
+            __tmScheduleNativeOpenHighlight(id);
             nav.closeAfterMobileAction?.();
             return true;
         } catch (e) {}
@@ -2377,6 +2489,7 @@
         }
         const opts = (options && typeof options === 'object') ? options : {};
         const assetHref = __tmResolveTaskAttachmentHref(normalizedPath);
+        const kind = __tmGetTaskAttachmentKind(normalizedPath);
         const openFallback = () => {
             try {
                 const openTab = globalThis.__taskHorizonOpenTab;
@@ -2385,7 +2498,7 @@
                     openTab({
                         app,
                         keepCursor: opts.keepCursor === true,
-                        asset: { path: normalizedPath },
+                        ...(kind === 'pdf' ? { pdf: { path: normalizedPath } } : { asset: { path: normalizedPath } }),
                     });
                     return true;
                 }
@@ -2396,7 +2509,18 @@
             } catch (e) {}
             return false;
         };
-        if (__tmGetTaskAttachmentKind(normalizedPath) === 'image') {
+        const openWithSystem = () => {
+            const opener = globalThis.__taskHorizonOpenAssetWithSystem;
+            if (typeof opener !== 'function') return false;
+            Promise.resolve(opener(normalizedPath)).then((opened) => {
+                if (opened) return;
+                openFallback();
+            }).catch(() => {
+                openFallback();
+            });
+            return true;
+        };
+        if (kind === 'image') {
             void __tmOpenTaskAttachmentImageViewer(normalizedPath, {
                 galleryPaths: opts.galleryPaths,
             }).then((opened) => {
@@ -2407,6 +2531,7 @@
             });
             return true;
         }
+        if (kind !== 'pdf') return openWithSystem() || openFallback();
         return openFallback();
     }
 
@@ -4963,192 +5088,82 @@
         );
     };
 
-    const __tmFindBlockElement = (blockId) => {
-        if (!blockId) return null;
-        const active = __tmFindActiveProtyle();
-        const root = active?.querySelector?.('.protyle-wysiwyg') || active || document;
+    const __tmEscapeDataNodeIdSelector = (id) => {
+        const raw = String(id || '');
+        try {
+            if (typeof CSS !== 'undefined' && typeof CSS.escape === 'function') return CSS.escape(raw);
+        } catch (e) {}
+        return raw.replace(/\\/g, '\\\\').replace(/"/g, '\\"');
+    };
+
+    const __tmFindNativeOpenHighlightElement = (blockId) => {
+        const id = String(blockId || '').trim();
+        if (!id) return null;
+        const escapedId = __tmEscapeDataNodeIdSelector(id);
         const selectors = [
-            `[data-node-id="${blockId}"]`,
-            `.li[data-node-id="${blockId}"]`,
-            `.p[data-node-id="${blockId}"]`
+            `.protyle-wysiwyg [data-node-id="${escapedId}"]`,
+            `.protyle-title[data-node-id="${escapedId}"]`,
+            `[data-node-id="${escapedId}"]`,
         ];
-        for (const sel of selectors) {
-            const el = root.querySelector(sel) || document.querySelector(sel);
-            if (el) return el;
-        }
-        return null;
-    };
-
-    const __tmFindBlockScrollContainer = (el) => {
-        if (!(el instanceof HTMLElement)) return null;
+        const docs = [];
+        const pushDoc = (doc) => {
+            if (doc && typeof doc.querySelector === 'function' && !docs.includes(doc)) docs.push(doc);
+        };
+        try { pushDoc(__tmGetNavigationRuntime()?.topDoc); } catch (e) {}
+        try { pushDoc(document); } catch (e) {}
         try {
-            const protyleContent = el.closest?.('.protyle-content');
-            if (protyleContent instanceof HTMLElement) return protyleContent;
-        } catch (e) {}
-        let current = el.parentElement;
-        while (current instanceof HTMLElement) {
-            try {
-                const style = window.getComputedStyle(current);
-                const overflowY = String(style?.overflowY || '').toLowerCase();
-                if ((overflowY === 'auto' || overflowY === 'scroll' || overflowY === 'overlay')
-                    && current.scrollHeight > current.clientHeight + 4) {
-                    return current;
+            const active = __tmFindActiveProtyle();
+            if (active instanceof HTMLElement) {
+                for (const selector of selectors) {
+                    const el = active.querySelector(selector);
+                    if (el instanceof HTMLElement) return el;
                 }
-            } catch (e) {}
-            current = current.parentElement;
-        }
-        try {
-            const scrolling = document.scrollingElement;
-            return scrolling instanceof HTMLElement ? scrolling : null;
+            }
         } catch (e) {}
+        for (const doc of docs) {
+            for (const selector of selectors) {
+                try {
+                    const el = doc.querySelector(selector);
+                    if (el instanceof HTMLElement) return el;
+                } catch (e) {}
+            }
+        }
         return null;
     };
 
-    const __tmGetScrollViewportRect = (scroller) => {
-        const scrolling = (() => {
-            try { return document.scrollingElement; } catch (e) { return null; }
-        })();
-        if (!(scroller instanceof HTMLElement) || scroller === scrolling || scroller === document.body || scroller === document.documentElement) {
-            const width = Number(window.innerWidth || document.documentElement?.clientWidth || 0);
-            const height = Number(window.innerHeight || document.documentElement?.clientHeight || 0);
-            return {
-                top: 0,
-                bottom: height,
-                left: 0,
-                right: width,
-                height,
-                width,
-            };
-        }
-        try {
-            const rect = scroller.getBoundingClientRect();
-            return {
-                top: Number(rect.top || 0),
-                bottom: Number(rect.bottom || 0),
-                left: Number(rect.left || 0),
-                right: Number(rect.right || 0),
-                height: Number(rect.height || 0),
-                width: Number(rect.width || 0),
-            };
-        } catch (e) {
-            const width = Number(window.innerWidth || document.documentElement?.clientWidth || 0);
-            const height = Number(window.innerHeight || document.documentElement?.clientHeight || 0);
-            return {
-                top: 0,
-                bottom: height,
-                left: 0,
-                right: width,
-                height,
-                width,
-            };
-        }
-    };
-
-    const __tmIsBlockElementInView = (el, scroller) => {
+    const __tmApplyNativeOpenHighlight = (blockId) => {
+        const el = __tmFindNativeOpenHighlightElement(blockId);
         if (!(el instanceof HTMLElement)) return false;
-        try {
-            const rect = el.getBoundingClientRect();
-            const viewport = __tmGetScrollViewportRect(scroller);
-            const viewportHeight = Math.max(1, Number(viewport.height || 0));
-            const topInset = Math.min(220, Math.max(72, Math.round(viewportHeight * 0.18)));
-            const bottomInset = Math.min(140, Math.max(40, Math.round(viewportHeight * 0.12)));
-            const centerY = rect.top + (rect.height / 2);
-            return centerY >= (viewport.top + topInset) && centerY <= (viewport.bottom - bottomInset);
-        } catch (e) {
-            return false;
-        }
-    };
-
-    const __tmForceScrollBlockIntoView = (el, scroller) => {
-        if (!(el instanceof HTMLElement)) return;
-        try {
-            el.scrollIntoView({ behavior: 'auto', block: 'center', inline: 'nearest' });
-        } catch (e) {
-            try { el.scrollIntoView(true); } catch (e2) {}
-        }
-        if (__tmIsBlockElementInView(el, scroller)) return;
-        if (!(scroller instanceof HTMLElement)) return;
-        try {
-            const rect = el.getBoundingClientRect();
-            const viewport = __tmGetScrollViewportRect(scroller);
-            const currentTop = Number(scroller.scrollTop || 0);
-            const desiredTop = currentTop + (rect.top - viewport.top) - Math.max(72, Math.round((Number(viewport.height || scroller.clientHeight || 0) - rect.height) / 2));
-            const maxTop = Math.max(0, Number(scroller.scrollHeight || 0) - Number(scroller.clientHeight || 0));
-            const nextTop = Math.max(0, Math.min(maxTop, desiredTop));
-            if (typeof scroller.scrollTo === 'function') scroller.scrollTo({ top: nextTop, behavior: 'auto' });
-            else scroller.scrollTop = nextTop;
-        } catch (e) {}
-    };
-
-    const __tmHighlightBlockElement = (el) => {
-        if (!(el instanceof HTMLElement)) return;
+        try { el.classList.remove('tm-block-highlight'); } catch (e) {}
+        try { void el.offsetWidth; } catch (e) {}
         try { el.classList.add('tm-block-highlight'); } catch (e) {}
         setTimeout(() => {
             try { el.classList.remove('tm-block-highlight'); } catch (e) {}
         }, 1200);
+        return true;
     };
 
-    const __tmScrollToBlock = (blockId) => {
-        if (!blockId) return { found: false, aligned: false };
-        try {
-            globalThis.__tmCompat?.scrollToBlockLegacy?.(blockId);
-        } catch (e) {}
-        const el = __tmFindBlockElement(blockId);
-        if (!(el instanceof HTMLElement)) return { found: false, aligned: false };
-        const scroller = __tmFindBlockScrollContainer(el);
-        if (!__tmIsBlockElementInView(el, scroller)) {
-            __tmForceScrollBlockIntoView(el, scroller);
-        }
-        __tmHighlightBlockElement(el);
-        return {
-            found: true,
-            aligned: __tmIsBlockElementInView(el, scroller),
-        };
-    };
-
-    const __tmScheduleScrollToBlock = (blockId, retries = 24) => {
+    const __tmScheduleNativeOpenHighlight = (blockId, options = {}) => {
+        if (options?.highlight === false) return;
+        const id = String(blockId || '').trim();
+        if (!id) return;
         let attempt = 0;
-        let stableHits = 0;
+        const maxAttempts = Math.max(1, Math.min(18, Math.round(Number(options?.highlightAttempts) || 10)));
         const run = () => {
             attempt += 1;
-            const result = __tmScrollToBlock(blockId);
-            stableHits = result.aligned ? (stableHits + 1) : 0;
-            // 大文档/重负载时，目标块会先出现再继续位移；连续两次命中才认为真正滚到位。
-            if ((stableHits < 2 || !result.found) && attempt < retries) {
-                const delay = result.found ? (result.aligned ? 180 : 320) : 360;
-                setTimeout(run, delay);
-            }
+            if (__tmApplyNativeOpenHighlight(id)) return;
+            if (attempt < maxAttempts) setTimeout(run, attempt < 3 ? 180 : 320);
         };
-        setTimeout(run, 220);
+        setTimeout(run, Math.max(0, Math.round(Number(options?.highlightDelayMs) || 260)));
     };
 
     window.tmOpenDocById = async function(docId) {
         const id = String(docId || '').trim();
         if (!id || id === 'all') return false;
         const nav = __tmGetNavigationRuntime();
-        const app = nav.app;
-        const isNativeMobile = nav.nativeMobileClient === true;
         const topWin = nav.topWin || window;
 
-        if (isNativeMobile) {
-            const openMobile = getOpenMobileFn();
-            if (typeof openMobile === 'function') {
-                try {
-                    openMobile(app, id);
-                    nav.closeAfterMobileAction?.();
-                    return true;
-                } catch (e) {}
-            }
-        }
-
-        const openTab = getOpenTabFn();
-        if (typeof openTab === 'function') {
-            try {
-                openTab({ app, doc: { id } });
-                nav.closeAfterMobileAction?.();
-                return true;
-            } catch (e) {}
-        }
+        if (await __tmOpenSiyuanBlockNative(id)) return true;
 
         try {
             topWin.open(`siyuan://blocks/${id}`);
@@ -5185,57 +5200,15 @@
             }
         }
         const nav = __tmGetNavigationRuntime();
-        const app = nav.app;
-        const isNativeMobile = nav.nativeMobileClient === true;
         const topWin = nav.topWin || window;
         const topDoc = nav.topDoc || document;
 
-        const openMobile = getOpenMobileFn();
-        if (isNativeMobile && typeof openMobile === 'function') {
-            try {
-                let docId = targetTaskId;
-                try {
-                    const sql = `SELECT root_id FROM blocks WHERE id = '${targetTaskId}' LIMIT 1`;
-                    const res = await API.call('/api/query/sql', { stmt: sql });
-                    const rows = (res && res.code === 0) ? res.data : [];
-                    docId = (rows && rows[0] && rows[0].root_id) ? rows[0].root_id : targetTaskId;
-                } catch (e) {}
-                openMobile(app, docId);
-                setTimeout(() => __tmScheduleScrollToBlock(targetTaskId, 24), 650);
-                nav.closeAfterMobileAction?.();
-                return true;
-            } catch (e) {}
-        }
-
-        const openTab = getOpenTabFn();
-        if (typeof openTab === 'function') {
-            try {
-                const sql = `SELECT root_id FROM blocks WHERE id = '${targetTaskId}' LIMIT 1`;
-                const res = await API.call('/api/query/sql', { stmt: sql });
-                const rows = (res && res.code === 0) ? res.data : [];
-                const docId = (rows && rows[0]) ? rows[0].root_id : targetTaskId;
-
-                const params = {
-                    app,
-                    doc: { id: docId }
-                };
-
-                if (docId !== targetTaskId) {
-                    params.block = { id: targetTaskId, mode: 0 };
-                }
-
-                openTab(params);
-                __tmScheduleScrollToBlock(targetTaskId);
-                nav.closeAfterMobileAction?.();
-
-                return true;
-            } catch (e) {}
-        }
+        if (await __tmOpenSiyuanBlockNative(targetTaskId)) return true;
 
         try {
             const tempSpan = topDoc.createElement('span');
             tempSpan.setAttribute('data-type', 'block-ref');
-            tempSpan.setAttribute('data-id', taskId);
+            tempSpan.setAttribute('data-id', targetTaskId);
             tempSpan.style.position = 'fixed';
             tempSpan.style.top = '-9999px';
             tempSpan.style.left = '-9999px';
@@ -5254,13 +5227,15 @@
             tempSpan.dispatchEvent(new MouseEvent('click', opts));
 
             setTimeout(() => tempSpan.remove(), 100);
+            __tmScheduleNativeOpenHighlight(targetTaskId);
             nav.closeAfterMobileAction?.();
             return true;
         } catch (e) {}
 
         try {
-            topWin.open(`siyuan://blocks/${taskId}`);
-            closeAfterJump();
+            topWin.open(`siyuan://blocks/${targetTaskId}`);
+            __tmScheduleNativeOpenHighlight(targetTaskId);
+            nav.closeAfterMobileAction?.();
             return true;
         } catch (e) {}
         return false;
@@ -6030,79 +6005,6 @@
                 }
                 setHelperText(fileCount > 1 ? `松手后上传 ${fileCount} 个文件到思源附件` : '松手后上传文件到思源附件');
             };
-            const buildPasteTimestamp = () => {
-                const now = new Date();
-                const pad = (value) => String(value).padStart(2, '0');
-                return `${now.getFullYear()}${pad(now.getMonth() + 1)}${pad(now.getDate())}${pad(now.getHours())}${pad(now.getMinutes())}${pad(now.getSeconds())}`;
-            };
-            const parseAssetPathsFromText = (text) => {
-                const source = String(text || '');
-                if (!source.trim()) return [];
-                const out = [];
-                const seen = new Set();
-                const pushPath = (rawValue) => {
-                    const normalized = __tmNormalizeTaskAttachmentPath(rawValue);
-                    if (!normalized || !/^assets\//i.test(normalized) || seen.has(normalized)) return;
-                    seen.add(normalized);
-                    out.push(normalized);
-                };
-                let match;
-                const markdownPattern = /!\[[^\]]*]\((assets\/[^)\s"'<>]+)\)/gi;
-                while ((match = markdownPattern.exec(source))) pushPath(match[1]);
-                const plainPattern = /\bassets\/[^\s)"'<>]+/gi;
-                while ((match = plainPattern.exec(source))) pushPath(match[0]);
-                return out;
-            };
-            const parseBlockIdsFromText = (text) => {
-                const source = String(text || '').trim();
-                if (!source) return [];
-                const out = [];
-                const seen = new Set();
-                const pushId = (rawValue) => {
-                    const id = __tmNormalizeTaskAttachmentBlockId(rawValue, { loose: true });
-                    if (!id || seen.has(id)) return;
-                    seen.add(id);
-                    out.push(id);
-                };
-                pushId(source);
-                let match;
-                const blockUrlPattern = /siyuan:\/\/blocks\/([0-9]{14}-[A-Za-z0-9]+)/gi;
-                while ((match = blockUrlPattern.exec(source))) pushId(match[1]);
-                const blockRefPattern = /\(\(\s*([0-9]{14}-[A-Za-z0-9]+)/g;
-                while ((match = blockRefPattern.exec(source))) pushId(match[1]);
-                return out;
-            };
-            const buildClipboardImageFiles = (clipboardData) => {
-                const items = Array.from(clipboardData?.items || []);
-                if (!items.length) return [];
-                const extByMime = {
-                    'image/png': 'png',
-                    'image/jpeg': 'jpg',
-                    'image/webp': 'webp',
-                    'image/gif': 'gif',
-                    'image/svg+xml': 'svg',
-                    'image/avif': 'avif',
-                    'image/bmp': 'bmp',
-                };
-                const timestamp = buildPasteTimestamp();
-                return items.map((item, index) => {
-                    if (String(item?.kind || '').trim() !== 'file') return null;
-                    const mime = String(item?.type || '').trim().toLowerCase();
-                    if (!mime.startsWith('image/')) return null;
-                    const rawFile = item?.getAsFile?.();
-                    if (!(rawFile instanceof Blob)) return null;
-                    const ext = extByMime[mime] || 'png';
-                    let nextName = rawFile instanceof File ? String(rawFile.name || '').trim() : '';
-                    if (!nextName) nextName = `clipboard-${timestamp}-${String(index + 1).padStart(2, '0')}.${ext}`;
-                    if (!/\.[A-Za-z0-9]+$/.test(nextName)) nextName = `${nextName}.${ext}`;
-                    try {
-                        return new File([rawFile], nextName, { type: mime || rawFile.type || 'image/png' });
-                    } catch (e) {
-                        return null;
-                    }
-                }).filter((file) => file instanceof File);
-            };
-
             const removeFromStack = __tmModalStackBind(() => {
                 try { cancelBtn?.click?.(); } catch (e) {}
             });
@@ -6141,33 +6043,8 @@
                 return false;
             };
 
-            const resolveTextAttachments = async (rawText) => {
-                const text = String(rawText || '').trim();
-                if (!text) return [];
-                const assetPaths = parseAssetPathsFromText(text);
-                if (assetPaths.length) return assetPaths;
-                const blockIds = parseBlockIdsFromText(text);
-                if (!blockIds.length) return [];
-                let rows = [];
-                try { rows = await API.getOtherBlocksByIds(blockIds); } catch (e) { rows = []; }
-                const rowMap = new Map();
-                (Array.isArray(rows) ? rows : []).forEach((row) => {
-                    const id = __tmNormalizeTaskAttachmentBlockId(row?.id || '');
-                    if (!id) return;
-                    rowMap.set(id, row);
-                });
-                const nextItems = [];
-                blockIds.forEach((id) => {
-                    const row = rowMap.get(id);
-                    if (!row || !__tmIsTaskAttachmentSupportedBlockType(row?.type, row?.subtype)) return;
-                    try { __tmPrimeTaskAttachmentBlockMeta(row); } catch (e) {}
-                    nextItems.push(__tmBuildTaskAttachmentBlockToken(id));
-                });
-                return __tmNormalizeTaskAttachmentPaths(nextItems);
-            };
-
             const importTextAttachments = async (rawText, options = {}) => {
-                const resolvedItems = await resolveTextAttachments(rawText);
+                const resolvedItems = await __tmResolveTaskAttachmentTextItems(rawText);
                 if (resolvedItems.length) return finalizeResolvedAttachments(resolvedItems, {
                     hintOnDuplicate: options.hintOnDuplicate === true,
                 });
@@ -6195,14 +6072,15 @@
             const handlePasteImport = async (ev) => {
                 const clipboardData = ev?.clipboardData || null;
                 if (!clipboardData) return false;
-                const imageFiles = buildClipboardImageFiles(clipboardData);
-                if (imageFiles.length) {
+                const clipboardFiles = __tmBuildTaskAttachmentClipboardFiles(clipboardData);
+                if (clipboardFiles.length) {
                     try { ev.preventDefault(); } catch (e) {}
-                    return await uploadPickedFiles(imageFiles, '导入图片...');
+                    const imageOnly = clipboardFiles.every((file) => String(file?.type || '').toLowerCase().startsWith('image/'));
+                    return await uploadPickedFiles(clipboardFiles, imageOnly ? '导入图片...' : '导入文件...');
                 }
                 const text = String(clipboardData.getData?.('text/plain') || '').trim();
-                const directAssets = parseAssetPathsFromText(text);
-                const directBlocks = parseBlockIdsFromText(text);
+                const directAssets = __tmParseTaskAttachmentAssetPathsFromText(text);
+                const directBlocks = __tmParseTaskAttachmentBlockIdsFromText(text);
                 if (!directAssets.length && !directBlocks.length) return false;
                 try { ev.preventDefault(); } catch (e) {}
                 return await importTextAttachments(text, { hintOnDuplicate: true, hintOnMiss: false });
@@ -6243,8 +6121,8 @@
                     syncAddButton();
                     return;
                 }
-                const directAssetPaths = parseAssetPathsFromText(query);
-                const directBlockIds = parseBlockIdsFromText(query);
+                const directAssetPaths = __tmParseTaskAttachmentAssetPathsFromText(query);
+                const directBlockIds = __tmParseTaskAttachmentBlockIdsFromText(query);
                 if (directAssetPaths.length || directBlockIds.length) {
                     results = [];
                     setHelperText('检测到可直接导入的附件路径或块链接，按回车即可添加。');
@@ -6298,8 +6176,8 @@
                     if (ev.key === 'Enter') {
                         const query = getInputText();
                         if (!query) return;
-                        const directAssetPaths = parseAssetPathsFromText(query);
-                        const directBlockIds = parseBlockIdsFromText(query);
+                        const directAssetPaths = __tmParseTaskAttachmentAssetPathsFromText(query);
+                        const directBlockIds = __tmParseTaskAttachmentBlockIdsFromText(query);
                         if (!directAssetPaths.length && !directBlockIds.length) return;
                         try { ev.preventDefault(); } catch (e) {}
                         await importTextAttachments(query, { hintOnDuplicate: true, hintOnMiss: false });
@@ -6433,7 +6311,7 @@
                     </div>
                 </article>
             `).join('')
-            : `<div class="tm-task-attachment-empty">还没有附件，可拖拽/上传本地文件，搜索思源附件，或直接 Ctrl+V 粘贴图片/附件链接。</div>`;
+            : `<div class="tm-task-attachment-empty">可拖拽至此处添加附件，也可Ctrl+V粘贴。</div>`;
         return `
             <section class="tm-task-detail-section" data-tm-detail-attachment-section data-tm-expanded="${expanded ? 'true' : 'false'}" data-tm-attachment-count="${entries.length}">
                 <div class="tm-task-detail-section-head">

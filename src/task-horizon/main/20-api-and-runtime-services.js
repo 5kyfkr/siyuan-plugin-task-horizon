@@ -234,14 +234,13 @@
                             flowRankMap.set(tid, flowRank);
                         }
                         const currentHeading = headingStack[lvNum];
-                        if (!currentHeading) return;
                         headingContextMap.set(tid, {
-                            id: String(currentHeading.id || '').trim(),
-                            content: String(currentHeading.content || '').trim(),
+                            id: String(currentHeading?.id || '').trim(),
+                            content: String(currentHeading?.content || '').trim(),
                             path: '',
                             sort: Number.NaN,
                             created: '',
-                            rank: Number(currentHeading.rank),
+                            rank: Number(currentHeading?.rank),
                         });
                     });
                 }
@@ -387,7 +386,7 @@
                         const fallbackH2 = await this.fetchH2ContextsLegacy(missingH2Ids, {
                             taskDocMap,
                             skipHeadingOrderFetch: true,
-                            skipKramdownRealign: true,
+                            skipKramdownRealign: false,
                         });
                         perfMeta.fallbackH2RecoveredCount = fallbackH2 instanceof Map ? fallbackH2.size : 0;
                         fallbackH2.forEach((ctx, taskId) => {
@@ -10870,6 +10869,11 @@ async function __tmRefreshAfterWake(reason) {
 
     const __tmShouldUseBrowserTouchTaskDrag = () => __tmGetRuntimeClientKind() === 'mobile-browser';
 
+    const __tmShouldUseCustomTouchTaskDrag = () => {
+        const kind = __tmGetRuntimeClientKind();
+        return kind === 'mobile-browser' || kind === 'android-app';
+    };
+
     const __tmResolveNavigationTopWindow = (isDockHost = __tmIsDockHost()) => {
         if (!isDockHost) return window;
         try { return window.parent || window.top || window; } catch (e) {}
@@ -10934,6 +10938,7 @@ async function __tmRefreshAfterWake(reason) {
         shouldUseDesktopTaskDragLogic: __tmShouldUseDesktopTaskDragLogic,
         getFloatingMiniDragMode: __tmGetFloatingMiniDragMode,
         shouldUseBrowserTouchTaskDrag: __tmShouldUseBrowserTouchTaskDrag,
+        shouldUseCustomTouchTaskDrag: __tmShouldUseCustomTouchTaskDrag,
         getInfo: __tmGetRuntimeHostInfo,
         getNavigationContext: __tmGetNavigationContext,
     };

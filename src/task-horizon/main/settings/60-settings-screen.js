@@ -273,7 +273,7 @@
                     )}
                     ${renderSingleFieldSetting(
                         'API Key',
-                        provider === 'deepseek' ? 'DeepSeek 控制台创建的 API Key，仅本地保存。' : 'MiniMax 控制台创建的 API Key，仅本地保存。',
+                        provider === 'deepseek' ? 'DeepSeek 控制台创建的 API Key，会随插件设置保存。' : 'MiniMax 控制台创建的 API Key，会随插件设置保存。',
                         `<input class="b3-text-field" type="password" value="${apiKey}" placeholder="请输入 ${providerLabel} API Key" onchange="tmUpdateAiApiKey(this.value)" style="width:100%;">`
                     )}
                     ${renderSingleFieldSetting(

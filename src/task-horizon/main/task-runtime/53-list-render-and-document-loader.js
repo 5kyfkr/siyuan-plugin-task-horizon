@@ -45,7 +45,7 @@
         const statusOptions = Array.isArray(context.statusOptions) ? context.statusOptions : __tmGetStatusOptions(SettingsStore.data.customStatusOptions || []);
         const customFieldColumns = Array.isArray(context.customFieldColumns) ? context.customFieldColumns : [];
         const customFieldColumnsByKey = new Map(customFieldColumns.map((item) => [String(item?.colKey || '').trim(), item]).filter(([key]) => !!key));
-        const useBrowserTouchTaskDrag = __tmShouldUseBrowserTouchTaskDrag();
+        const useCustomTouchTaskDrag = __tmShouldUseCustomTouchTaskDrag();
         const tomatoIntegrationEnabled = !!SettingsStore.data.enableTomatoIntegration;
         const tomatoSpentAttrMode = String(SettingsStore.data.tomatoSpentAttrMode || 'minutes').trim() || 'minutes';
         const useTomatoSpentHours = tomatoIntegrationEnabled && tomatoSpentAttrMode === 'hours';
@@ -246,7 +246,7 @@
                     : (tomatoFocusModeEnabled ? 'tm-timer-dim' : ''))
                 : '';
             const finalRowClass = [rowClass, isMultiSelected ? 'tm-task-row--multi-selected' : ''].filter(Boolean).join(' ');
-            const touchDragAttr = useBrowserTouchTaskDrag
+            const touchDragAttr = useCustomTouchTaskDrag
                 ? ` onpointerdown="tmTaskTouchDragStart(event, '${taskId}')"`
                 : '';
             let rowHtml = `<tr data-id="${taskId}" data-depth="${depth}" class="${finalRowClass}" ${groupBg ? `style="background-color:${groupBg};"` : ''} draggable="true" ondragstart="tmDragTaskStart(event, '${taskId}')" ondragend="tmDragTaskEnd(event)" ondragenter="tmTaskRowDragOver(event, '${taskId}')" ondragover="tmTaskRowDragOver(event, '${taskId}')" ondragleave="tmTaskRowDragLeave(event, '${taskId}')" ondrop="tmTaskRowDrop(event, '${taskId}')"${touchDragAttr} onclick="tmRowClick(event, '${taskId}')" oncontextmenu="tmShowTaskContextMenu(event, '${taskId}')">`;
@@ -957,19 +957,33 @@
 
         // 恢复折叠状态（基于ID映射）
         restoreCollapsedState() {
-            const newCollapsed = new Set();
+            if (!(this.collapsedState instanceof Map) || this.collapsedState.size === 0) return;
+            const nextCollapsed = new Set(state.collapsedTaskIds || SettingsStore.data.collapsedTaskIds || []);
+            let changed = false;
             for (const [oldId, wasCollapsed] of this.collapsedState.entries()) {
+                const oldKey = String(oldId || '').trim();
+                if (!oldKey || !this.idMapping.has(oldKey)) continue;
+                const newId = String(this.idMapping.get(oldKey) || oldKey).trim();
+                if (newId && newId !== oldKey && nextCollapsed.delete(oldKey)) changed = true;
                 if (wasCollapsed) {
-                    // 查找新ID
-                    const newId = this.idMapping.get(oldId);
-                    if (newId) {
-                        newCollapsed.add(newId);
+                    if (newId && !nextCollapsed.has(newId)) {
+                        nextCollapsed.add(newId);
+                        changed = true;
                     }
+                } else if (newId && nextCollapsed.delete(newId)) {
+                    changed = true;
                 }
             }
-            state.collapsedTaskIds = newCollapsed;
-            SettingsStore.data.collapsedTaskIds = [...newCollapsed];
-            SettingsStore.save();
+            state.collapsedTaskIds = nextCollapsed;
+            SettingsStore.data.collapsedTaskIds = [...nextCollapsed];
+            if (changed) {
+                try { __tmMarkCollapseStateChanged(); } catch (e) {}
+                try { Storage.set('tm_collapsed_task_ids', SettingsStore.data.collapsedTaskIds); } catch (e) {}
+                try {
+                    const p = SettingsStore.save();
+                    if (p && typeof p.catch === 'function') p.catch(() => null);
+                } catch (e) {}
+            }
         },
 
         clear() {
@@ -2645,6 +2659,7 @@
 
         // 4. 恢复折叠状态
         TreeProtector.restoreCollapsedState();
+        TreeProtector.clear();
 
         // 5. 更新状态
         const docIndex = state.taskTree.findIndex(d => d.id === docId);
@@ -3948,8 +3963,8 @@
             }
         }
 
-        menu.appendChild(createItem(__tmRenderContextMenuLabel('plus', '新建子任务'), () => tmCreateSubtask(taskId)));
-        menu.appendChild(createItem(__tmRenderContextMenuLabel('plus', '新建同级任务'), () => tmCreateSiblingTask(taskId)));
+        menu.appendChild(createItem(__tmRenderContextMenuLabel('text-indent', '新建子任务'), () => tmCreateSubtask(taskId)));
+        menu.appendChild(createItem(__tmRenderContextMenuLabel('list-bullets', '新建同级任务'), () => tmCreateSiblingTask(taskId)));
         menu.appendChild(createItem(__tmRenderContextMenuLabel('pin', task?.pinned ? '取消置顶' : '置顶'), () => tmSetPinned(taskId, !task?.pinned)));
         if (hasChildren) {
             menu.appendChild(createItem(__tmRenderContextMenuLabel(showCompletedSubtasks ? 'check-circle-2' : 'circle-dot', showCompletedSubtasks ? '隐藏已完成子任务' : '显示已完成子任务'), () => {

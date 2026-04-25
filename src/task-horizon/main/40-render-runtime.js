@@ -2819,7 +2819,7 @@
 
     function __tmIsKanbanTouchPointer(ev) {
         const pType = String(ev?.pointerType || '').trim().toLowerCase();
-        if (__tmShouldUseBrowserTouchTaskDrag()) return true;
+        if (__tmShouldUseCustomTouchTaskDrag()) return true;
         return pType === 'touch' || pType === 'pen' || (!pType && __tmIsRuntimeMobileClient());
     }
 
@@ -2989,6 +2989,10 @@
         let dragStartY = NaN;
         let floatingMiniVisible = false;
         let floatingMiniRevealTimer = null;
+        const preventTouchGestureScroll = (e2) => {
+            if (ended || (mode !== 'drag' && mode !== 'pan' && mode !== 'scroll')) return;
+            try { e2?.preventDefault?.(); } catch (e3) {}
+        };
 
         const samePointer = (e2) => {
             if (!Number.isFinite(pointerId)) return true;
@@ -3182,6 +3186,8 @@
             try { document.removeEventListener('pointermove', onMove, true); } catch (e2) {}
             try { document.removeEventListener('pointerup', onUp, true); } catch (e2) {}
             try { document.removeEventListener('pointercancel', onUp, true); } catch (e2) {}
+            try { window.removeEventListener('touchmove', preventTouchGestureScroll, true); } catch (e2) {}
+            try { window.removeEventListener('pointermove', preventTouchGestureScroll, true); } catch (e2) {}
             try { window.removeEventListener('blur', onUp, true); } catch (e2) {}
             if (captured && Number.isFinite(pointerId) && typeof cardEl.releasePointerCapture === 'function') {
                 try { cardEl.releasePointerCapture(pointerId); } catch (e2) {}
@@ -3283,6 +3289,8 @@
         try { document.addEventListener('pointermove', onMove, true); } catch (e2) {}
         try { document.addEventListener('pointerup', onUp, true); } catch (e2) {}
         try { document.addEventListener('pointercancel', onUp, true); } catch (e2) {}
+        try { window.addEventListener('touchmove', preventTouchGestureScroll, { capture: true, passive: false }); } catch (e2) {}
+        try { window.addEventListener('pointermove', preventTouchGestureScroll, { capture: true, passive: false }); } catch (e2) {}
         try { window.addEventListener('blur', onUp, true); } catch (e2) {}
     };
 

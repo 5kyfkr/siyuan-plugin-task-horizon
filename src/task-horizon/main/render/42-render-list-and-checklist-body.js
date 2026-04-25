@@ -324,7 +324,7 @@
                 const itemContextMenuAttr = useDesktopTaskDragLogic
                     ? `oncontextmenu="tmShowTaskContextMenu(event, '${escSq(String(task.id || ''))}')"`
                     : 'oncontextmenu="event.preventDefault();event.stopPropagation();return false;"';
-                const touchDragAttr = __tmShouldUseBrowserTouchTaskDrag()
+                const touchDragAttr = __tmShouldUseCustomTouchTaskDrag()
                     ? `onpointerdown="tmTaskTouchDragStart(event, '${escSq(String(task.id || ''))}')"`
                     : '';
                 renderedChecklistTaskCount += 1;
