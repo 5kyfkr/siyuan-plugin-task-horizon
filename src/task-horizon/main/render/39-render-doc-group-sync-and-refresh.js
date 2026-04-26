@@ -461,7 +461,6 @@
             collapsedGroups: Array.from(state?.collapsedGroups || []),
             kanbanCollapsedTaskIds: Array.isArray(SettingsStore?.data?.kanbanCollapsedTaskIds) ? SettingsStore.data.kanbanCollapsedTaskIds.slice() : [],
             collapseStateUpdatedAt: __tmGetCollapsedSessionUpdatedAt(SettingsStore?.data),
-            viewProfiles: __tmSafeCloneJson(SettingsStore?.data?.viewProfiles || {}, {}),
             groupMode: String(SettingsStore?.data?.groupMode || 'none').trim() || 'none',
             groupByDocName: !!SettingsStore?.data?.groupByDocName,
             groupByTime: !!SettingsStore?.data?.groupByTime,
@@ -479,7 +478,6 @@
         SettingsStore.data.kanbanCollapsedTaskIds = Array.isArray(saved.kanbanCollapsedTaskIds) ? saved.kanbanCollapsedTaskIds.slice() : [];
         SettingsStore.data.collapseStateUpdatedAt = __tmParseUpdatedAtNumber(saved.collapseStateUpdatedAt)
             || __tmGetCollapsedSessionUpdatedAt(SettingsStore.data);
-        SettingsStore.data.viewProfiles = __tmSafeCloneJson(saved.viewProfiles || {}, SettingsStore.data.viewProfiles || {});
         SettingsStore.data.groupMode = String(saved.groupMode || 'none').trim() || 'none';
         SettingsStore.data.groupByDocName = !!saved.groupByDocName;
         SettingsStore.data.groupByTime = !!saved.groupByTime;

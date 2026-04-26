@@ -3295,8 +3295,13 @@
             __tmMarkTaskDetailRootClosed(overlay);
             try { overlay.remove(); } catch (e) {}
         };
+        let overlayPointerStartedOnBackdrop = false;
+        overlay.addEventListener('pointerdown', (e) => {
+            overlayPointerStartedOnBackdrop = e.target === overlay;
+        }, true);
         overlay.addEventListener('click', (e) => {
-            if (e.target === overlay) close().catch(() => null);
+            if (e.target === overlay && overlayPointerStartedOnBackdrop) close().catch(() => null);
+            overlayPointerStartedOnBackdrop = false;
         });
         document.body.appendChild(overlay);
         try { overlay.__tmTaskDetailOnClose = close; } catch (e) {}
@@ -4368,6 +4373,39 @@
         return list;
     }
 
+    function __tmReorderLoadedDocsByResolvedFlow(docIds) {
+        const ids = docIds instanceof Set
+            ? Array.from(docIds)
+            : (Array.isArray(docIds) ? docIds : [docIds]);
+        const wanted = new Set(ids.map((id) => String(id || '').trim()).filter(Boolean));
+        if (wanted.size <= 0) return false;
+        const hasFlowRank = (tasks) => {
+            return (Array.isArray(tasks) ? tasks : []).some((task) => {
+                const rank = Number(task?.resolvedFlowRank ?? task?.resolved_flow_rank ?? task?.__tmResolvedFlowRank);
+                return Number.isFinite(rank) || hasFlowRank(task?.children);
+            });
+        };
+        const calcLevel = (tasks, level) => {
+            (Array.isArray(tasks) ? tasks : []).forEach((task) => {
+                if (!task || typeof task !== 'object') return;
+                task.level = level;
+                if (Array.isArray(task.children) && task.children.length > 0) calcLevel(task.children, level + 1);
+            });
+        };
+        let changed = false;
+        (Array.isArray(state.taskTree) ? state.taskTree : []).forEach((doc) => {
+            const docId = String(doc?.id || '').trim();
+            if (!docId || !wanted.has(docId) || !Array.isArray(doc?.tasks) || doc.tasks.length <= 0) return;
+            if (!__tmShouldUseResolvedFlowRankForDoc(docId) || !hasFlowRank(doc.tasks)) return;
+            __tmSortTaskTreeByDocFlow(doc.tasks);
+            calcLevel(doc.tasks, 0);
+            __tmAssignDocSeqByTree(doc.tasks, 0);
+            changed = true;
+        });
+        if (changed) __tmInvalidateFilteredTaskDerivedStateCache();
+        return changed;
+    }
+
     function __tmCompareSiblingTasksByBlockOrder(a, b) {
         // A parent task can own multiple child NodeList blocks. When their per-list
         // sibling ranks collide, we must fall back to full document flow instead of
@@ -5325,7 +5363,6 @@
         if (!pid) throw new Error('未找到父任务');
         if (!text) throw new Error('请输入子任务内容');
         const hooks = (options && typeof options === 'object') ? options : {};
-        try { hooks.onQueued?.(); } catch (e) {}
         const tempId = __tmGenerateTempTaskId('subtask');
         const task = globalThis.__tmRuntimeState?.getFlatTaskById?.(pid) || state.flatTasks?.[pid];
         const docId = String(task?.docId || task?.root_id || '').trim();
@@ -5340,6 +5377,7 @@
                 docId,
             },
         }, { wait: true });
+        try { hooks.onQueued?.(tempId); } catch (e) {}
         opPromise.then((result) => {
             try { state.collapsedTaskIds?.delete?.(pid); } catch (e) {}
             try { hooks.onSuccess?.(String(result?.realId || tempId).trim() || tempId); } catch (e) {}
@@ -7119,7 +7157,12 @@
                 const h2StrictNeeded = !!ruleNeedsH2Sort || docHeadingSubgroupActive || kanbanHeadingGroupingActive;
                 const preferAsyncEnhance = !!(loadBudget.enabled || preferFastFirstPaint);
                 const deferH2Enhance = !!needH2 && !h2StrictNeeded && (deferEnhance || preferAsyncEnhance);
-                const deferFlowEnhance = !!needFlowRank && !ruleNeedsFlowRank && (deferEnhance || preferAsyncEnhance);
+                const syncFlowBeforeFirstRender = (sourceLabel === 'openManager' && !skipRender) || shouldForceFreshColdAllDocsLoad;
+                const deferFlowEnhance = !!needFlowRank
+                    && !ruleNeedsFlowRank
+                    && !forceFreshTasks
+                    && !syncFlowBeforeFirstRender
+                    && (deferEnhance || preferAsyncEnhance);
                 normalizeMetrics.enhancePlanMs += (__tmPerfNow() - perfMark);
                 let h2ContextMap = new Map();
                 let taskFlowRankMap = new Map();
@@ -7617,6 +7660,7 @@
                         }
                         if (!(runtimeState?.isCurrentOpenToken?.(deferredToken) ?? deferredToken === (Number(state.openToken) || 0))) return;
                         let changed = false;
+                        const flowChangedDocIds = new Set();
                         deferredTaskIds.forEach((id) => {
                             const tid = String(id || '').trim();
                             if (!tid) return;
@@ -7626,6 +7670,7 @@
                                 const flowRank = Number(flowMap.get(tid));
                                 const docId = String(task?.root_id || task?.docId || '').trim();
                                 if (__tmApplyResolvedFlowRankIfNeeded(task, flowRank)) {
+                                    if (docId) flowChangedDocIds.add(docId);
                                     changed = true;
                                 }
                             }
@@ -7653,6 +7698,9 @@
                                 }
                             }
                         });
+                        if (deferFlowEnhance && flowChangedDocIds.size > 0 && __tmReorderLoadedDocsByResolvedFlow(flowChangedDocIds)) {
+                            changed = true;
+                        }
                         if (!changed || !(runtimeState?.isCurrentOpenToken?.(deferredToken) ?? deferredToken === (Number(state.openToken) || 0))) return;
                         applyFilters();
                         const deferredModal = getActiveModal();

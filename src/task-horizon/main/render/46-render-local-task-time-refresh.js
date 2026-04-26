@@ -258,8 +258,9 @@
         const card = state.modal.querySelector(`.tm-kanban-card[data-id="${CSS.escape(id)}"]`);
         if (!(card instanceof HTMLElement)) return false;
         const dateNode = card.querySelector('[data-tm-task-time-field="date"]');
-        if (!(dateNode instanceof HTMLElement)) return true;
-        dateNode.textContent = String(task?.completionTime || task?.startDate || '').trim() || '日期';
+        if (!(dateNode instanceof HTMLElement)) return !__tmShouldRenderTaskCardDate(task);
+        if (!__tmShouldRenderTaskCardDate(task)) return false;
+        dateNode.textContent = __tmGetTaskCardDateValue(task) || '日期';
         return true;
     }
 
@@ -273,8 +274,9 @@
             `.tm-whiteboard-stream-task-head[data-id="${CSS.escape(id)}"] [data-tm-task-time-field="date"], ` +
             `.tm-whiteboard-stream-task-node[data-id="${CSS.escape(id)}"] [data-tm-task-time-field="date"]`
         );
-        if (!nodes.length) return true;
-        const text = String(task?.completionTime || task?.startDate || '').trim() || '日期';
+        if (!nodes.length) return !__tmShouldRenderTaskCardDate(task);
+        if (!__tmShouldRenderTaskCardDate(task)) return false;
+        const text = __tmGetTaskCardDateValue(task) || '日期';
         nodes.forEach((node) => {
             if (node instanceof HTMLElement) node.textContent = text;
         });

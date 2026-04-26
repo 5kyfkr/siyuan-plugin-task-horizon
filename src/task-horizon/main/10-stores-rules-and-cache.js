@@ -441,6 +441,143 @@
         }
     }
 
+    const __TM_SETTINGS_FIELD_SYNC_EXCLUDED_KEYS = new Set([
+        'settingsUpdatedAt',
+        'settingsFieldUpdatedAt',
+        'docGroupSettingsUpdatedAt',
+        'collapseStateUpdatedAt',
+        'customFieldDefsVersion',
+        'whiteboardStateVersion',
+        'checklistCompactTreeGuidesUpdatedAt',
+        'selectedDocIds',
+        'defaultDocId',
+        'defaultDocIdByGroup',
+        'allDocsExcludedDocIds',
+        'docGroups',
+        'otherBlockRefs',
+        'docPinnedByGroup',
+        'collapsedTaskIds',
+        'kanbanCollapsedTaskIds',
+        'collapsedGroups',
+        'customFieldDefs',
+        'whiteboardLinks',
+        'whiteboardDetachedChildren',
+        'whiteboardNotes',
+        'whiteboardTool',
+        'whiteboardSidebarCollapsed',
+        'whiteboardSidebarWidth',
+        'whiteboardShowDone',
+        'whiteboardCardFields',
+        'whiteboardView',
+        'whiteboardNodePos',
+        'whiteboardPlacedTaskIds',
+        'whiteboardDocFrameSize',
+        'whiteboardAllTabsLayoutMode',
+        'whiteboardAllTabsDocOrderByGroup',
+        'whiteboardSequenceMode',
+    ]);
+
+    function __tmIsSettingsFieldSyncKey(key) {
+        const normalized = String(key || '').trim();
+        if (!normalized) return false;
+        if (__TM_SETTINGS_FIELD_SYNC_EXCLUDED_KEYS.has(normalized)) return false;
+        if (normalized.startsWith('__')) return false;
+        if (normalized.endsWith('UpdatedAt')) return false;
+        return true;
+    }
+
+    function __tmStableSettingsJsonValue(value) {
+        if (Array.isArray(value)) return value.map(__tmStableSettingsJsonValue);
+        if (value && typeof value === 'object') {
+            const out = {};
+            Object.keys(value).sort().forEach((key) => {
+                out[key] = __tmStableSettingsJsonValue(value[key]);
+            });
+            return out;
+        }
+        return value;
+    }
+
+    function __tmGetSettingsFieldFingerprint(value) {
+        try {
+            return JSON.stringify(__tmStableSettingsJsonValue(value));
+        } catch (e) {
+            return '';
+        }
+    }
+
+    function __tmBuildSettingsFieldSyncSnapshot(source) {
+        const src = (source && typeof source === 'object') ? source : {};
+        const out = {};
+        Object.keys(src).forEach((key) => {
+            if (!__tmIsSettingsFieldSyncKey(key)) return;
+            out[key] = __tmCloneJsonSafe(src[key], src[key]);
+        });
+        return out;
+    }
+
+    function __tmNormalizeSettingsFieldUpdatedAtMap(input, source = null, options = {}) {
+        const src = (source && typeof source === 'object') ? source : {};
+        const raw = (input && typeof input === 'object' && !Array.isArray(input)) ? input : {};
+        const out = {};
+        Object.keys(raw).forEach((key) => {
+            if (!__tmIsSettingsFieldSyncKey(key)) return;
+            const ts = __tmParseUpdatedAtNumber(raw[key]);
+            if (ts > 0) out[key] = ts;
+        });
+        const fallbackUpdatedAt = __tmParseUpdatedAtNumber(src.settingsUpdatedAt);
+        if (fallbackUpdatedAt > 0 && options?.seedFromSettingsUpdatedAt === true) {
+            Object.keys(__tmBuildSettingsFieldSyncSnapshot(src)).forEach((key) => {
+                if (!out[key]) out[key] = fallbackUpdatedAt;
+            });
+        }
+        const treeGuidesUpdatedAt = __tmParseUpdatedAtNumber(src.checklistCompactTreeGuidesUpdatedAt);
+        if (treeGuidesUpdatedAt > 0 && __tmIsSettingsFieldSyncKey('checklistCompactTreeGuides')) {
+            out.checklistCompactTreeGuides = Math.max(Number(out.checklistCompactTreeGuides) || 0, treeGuidesUpdatedAt);
+        }
+        return out;
+    }
+
+    function __tmMarkChangedSettingsFields(data, loadedSnapshot, updatedAt) {
+        const target = (data && typeof data === 'object') ? data : {};
+        const current = __tmBuildSettingsFieldSyncSnapshot(target);
+        const loaded = (loadedSnapshot && typeof loadedSnapshot === 'object') ? loadedSnapshot : {};
+        const map = __tmNormalizeSettingsFieldUpdatedAtMap(target.settingsFieldUpdatedAt, target);
+        const ts = __tmParseUpdatedAtNumber(updatedAt) || Date.now();
+        const changed = new Set();
+        Object.keys(current).forEach((key) => {
+            const before = Object.prototype.hasOwnProperty.call(loaded, key) ? loaded[key] : undefined;
+            if (__tmGetSettingsFieldFingerprint(current[key]) === __tmGetSettingsFieldFingerprint(before)) return;
+            map[key] = ts;
+            changed.add(key);
+        });
+        target.settingsFieldUpdatedAt = map;
+        return { changedKeys: changed, map };
+    }
+
+    function __tmApplySettingsFieldUpdatesByMap(target, source, options = {}) {
+        const out = (target && typeof target === 'object') ? target : {};
+        const src = (source && typeof source === 'object') ? source : {};
+        if (!out || !src || !Object.keys(src).length) return [];
+        const skip = options?.skipKeys instanceof Set ? options.skipKeys : new Set(options?.skipKeys || []);
+        const localMap = __tmNormalizeSettingsFieldUpdatedAtMap(out.settingsFieldUpdatedAt, out, { seedFromSettingsUpdatedAt: true });
+        const remoteMap = __tmNormalizeSettingsFieldUpdatedAtMap(src.settingsFieldUpdatedAt, src, { seedFromSettingsUpdatedAt: true });
+        const applied = [];
+        Object.keys(remoteMap).forEach((key) => {
+            if (!__tmIsSettingsFieldSyncKey(key)) return;
+            if (skip.has(key)) return;
+            if (!Object.prototype.hasOwnProperty.call(src, key)) return;
+            const remoteTs = __tmParseUpdatedAtNumber(remoteMap[key]);
+            const localTs = __tmParseUpdatedAtNumber(localMap[key]);
+            if (remoteTs <= localTs) return;
+            out[key] = __tmCloneJsonSafe(src[key], src[key]);
+            localMap[key] = remoteTs;
+            applied.push(key);
+        });
+        out.settingsFieldUpdatedAt = localMap;
+        return applied;
+    }
+
     function __tmNormalizeWhiteboardLinkArray(input) {
         const list = Array.isArray(input) ? input : [];
         return list.map((item) => {
@@ -1798,6 +1935,7 @@
     const SettingsStore = {
         data: {
             settingsUpdatedAt: 0,
+            settingsFieldUpdatedAt: {},
             docGroupSettingsUpdatedAt: 0,
             collapseStateUpdatedAt: 0,
             selectedDocIds: [],
@@ -1819,11 +1957,14 @@
             enabledViews: ['list', 'checklist', 'timeline', 'kanban', 'calendar', 'whiteboard'],
             kanbanCompactMode: false,
             checklistCompactMode: true,
+            checklistCompactTreeGuides: false,
+            checklistCompactTreeGuidesUpdatedAt: 0,
             kanbanColumnWidth: 320,
             kanbanFillColumns: false,
             kanbanShowDoneColumn: false,
             kanbanDragSyncSubtasks: true,
             kanbanCardFields: ['priority', 'status', 'date'],
+            taskCardDateOnlyWithValue: false,
             kanbanHeadingGroupMode: false,
             whiteboardAllTabsCardMinWidth: 320,
             whiteboardStreamMobileTwoColumns: true,
@@ -2147,6 +2288,8 @@
         loadedCustomFieldDefsVersion: 0,
         lastCustomFieldDefsFingerprint: '',
         loadedCustomFieldDefsSnapshot: [],
+        loadedSettingsFieldSnapshot: {},
+        loadedSettingsFieldUpdatedAt: {},
 
         refreshDocGroupSyncState(updatedAt = null) {
             const resolvedUpdatedAt = __tmParseUpdatedAtNumber(updatedAt);
@@ -2176,6 +2319,12 @@
             this.loadedCollapseUpdatedAt = resolvedUpdatedAt > 0
                 ? resolvedUpdatedAt
                 : __tmGetCollapsedSessionUpdatedAt(this.data);
+        },
+
+        refreshSettingsFieldSyncState() {
+            this.data.settingsFieldUpdatedAt = __tmNormalizeSettingsFieldUpdatedAtMap(this.data.settingsFieldUpdatedAt, this.data);
+            this.loadedSettingsFieldUpdatedAt = __tmCloneJsonSafe(this.data.settingsFieldUpdatedAt, {});
+            this.loadedSettingsFieldSnapshot = __tmBuildSettingsFieldSyncSnapshot(this.data);
         },
 
         migrateLegacyTopbarDefaults() {
@@ -2269,6 +2418,16 @@
                                             syncOverallUpdatedAt: false,
                                         });
                                     }
+                                    __tmApplySettingsFieldUpdatesByMap(this.data, cloudData);
+                                    {
+                                        const cloudTreeGuidesUpdatedAt = __tmParseUpdatedAtNumber(cloudData.checklistCompactTreeGuidesUpdatedAt)
+                                            || (typeof cloudData.checklistCompactTreeGuides === 'boolean' ? cloudSettingsUpdatedAt : 0);
+                                        const localTreeGuidesUpdatedAt = __tmParseUpdatedAtNumber(this.data.checklistCompactTreeGuidesUpdatedAt);
+                                        if (typeof cloudData.checklistCompactTreeGuides === 'boolean' && cloudTreeGuidesUpdatedAt > localTreeGuidesUpdatedAt) {
+                                            this.data.checklistCompactTreeGuides = cloudData.checklistCompactTreeGuides;
+                                            this.data.checklistCompactTreeGuidesUpdatedAt = cloudTreeGuidesUpdatedAt;
+                                        }
+                                    }
                                     this.data.customFieldDefs = resolvedCustomFieldSchema.defs;
                                     this.data.customFieldDefsVersion = resolvedCustomFieldSchema.version;
                                     const migratedLegacyTopbarDefaults = this.migrateLegacyTopbarDefaults();
@@ -2280,6 +2439,7 @@
                                     this.refreshDocGroupSyncState(this.data.docGroupSettingsUpdatedAt);
                                     this.refreshCustomFieldSyncState();
                                     this.refreshCollapsedStateSyncState();
+                                    this.refreshSettingsFieldSyncState();
                                     this.loaded = true;
                                     if (migratedLegacyTopbarDefaults) {
                                         try { await this.save(); } catch (e) {}
@@ -2287,6 +2447,7 @@
                                     return;
                                 }
                                 if (cloudSettingsUpdatedAt > 0) this.data.settingsUpdatedAt = cloudSettingsUpdatedAt;
+                                this.data.settingsFieldUpdatedAt = __tmNormalizeSettingsFieldUpdatedAtMap(cloudData.settingsFieldUpdatedAt, cloudData, { seedFromSettingsUpdatedAt: true });
                                 if (cloudCollapseUpdatedAt > 0) this.data.collapseStateUpdatedAt = cloudCollapseUpdatedAt;
                                 // 应用云端数据
                                 if (shouldApplyCloudDocGroupState && Array.isArray(cloudData.selectedDocIds)) this.data.selectedDocIds = cloudData.selectedDocIds;
@@ -2312,6 +2473,10 @@
                                 if (Array.isArray(cloudData.enabledViews)) this.data.enabledViews = __tmNormalizeEnabledViews(cloudData.enabledViews);
                                 if (typeof cloudData.kanbanCompactMode === 'boolean') this.data.kanbanCompactMode = cloudData.kanbanCompactMode;
                                 if (typeof cloudData.checklistCompactMode === 'boolean') this.data.checklistCompactMode = cloudData.checklistCompactMode;
+                                if (typeof cloudData.checklistCompactTreeGuides === 'boolean') this.data.checklistCompactTreeGuides = cloudData.checklistCompactTreeGuides;
+                                if (typeof cloudData.checklistCompactTreeGuides === 'boolean') {
+                                    this.data.checklistCompactTreeGuidesUpdatedAt = __tmParseUpdatedAtNumber(cloudData.checklistCompactTreeGuidesUpdatedAt) || cloudSettingsUpdatedAt;
+                                }
                                 if (typeof cloudData.kanbanColumnWidth === 'number') this.data.kanbanColumnWidth = cloudData.kanbanColumnWidth;
                                 if (typeof cloudData.kanbanFillColumns === 'boolean') this.data.kanbanFillColumns = cloudData.kanbanFillColumns;
                                 if (typeof cloudData.kanbanShowDoneColumn === 'boolean') this.data.kanbanShowDoneColumn = cloudData.kanbanShowDoneColumn;
@@ -2599,6 +2764,7 @@
                                 this.refreshDocGroupSyncState(this.data.docGroupSettingsUpdatedAt);
                                 this.refreshCustomFieldSyncState();
                                 this.refreshCollapsedStateSyncState();
+                                this.refreshSettingsFieldSyncState();
                                 this.loaded = true;
                                 if (migratedLegacyTopbarDefaults) {
                                     try { await this.save(); } catch (e) {}
@@ -2617,6 +2783,7 @@
             this.refreshDocGroupSyncState(this.data.docGroupSettingsUpdatedAt);
             this.refreshCustomFieldSyncState();
             this.refreshCollapsedStateSyncState();
+            this.refreshSettingsFieldSyncState();
             this.loaded = true;
             if (migratedLegacyTopbarDefaults) {
                 try { await this.save(); } catch (e) {}
@@ -2626,6 +2793,7 @@
         // 从本地缓存加载
         loadFromLocal() {
             this.data.settingsUpdatedAt = Number(Storage.get('tm_settings_updated_at', this.data.settingsUpdatedAt)) || 0;
+            this.data.settingsFieldUpdatedAt = __tmNormalizeSettingsFieldUpdatedAtMap(Storage.get('tm_settings_field_updated_at', this.data.settingsFieldUpdatedAt), this.data, { seedFromSettingsUpdatedAt: true });
             this.data.docGroupSettingsUpdatedAt = Number(Storage.get('tm_doc_group_settings_updated_at', this.data.docGroupSettingsUpdatedAt)) || 0;
             this.data.collapseStateUpdatedAt = Number(Storage.get('tm_collapse_state_updated_at', this.data.collapseStateUpdatedAt)) || 0;
             this.data.selectedDocIds = Storage.get('tm_selected_doc_ids', []) || [];
@@ -2647,11 +2815,14 @@
             this.data.enabledViews = __tmNormalizeEnabledViews(Storage.get('tm_enabled_views', this.data.enabledViews));
             this.data.kanbanCompactMode = !!Storage.get('tm_kanban_compact_mode', this.data.kanbanCompactMode);
             this.data.checklistCompactMode = !!Storage.get('tm_checklist_compact_mode', this.data.checklistCompactMode);
+            this.data.checklistCompactTreeGuides = !!Storage.get('tm_checklist_compact_tree_guides', this.data.checklistCompactTreeGuides);
+            this.data.checklistCompactTreeGuidesUpdatedAt = __tmParseUpdatedAtNumber(Storage.get('tm_checklist_compact_tree_guides_updated_at', this.data.checklistCompactTreeGuidesUpdatedAt));
             this.data.kanbanColumnWidth = Storage.get('tm_kanban_column_width', this.data.kanbanColumnWidth);
             this.data.kanbanFillColumns = !!Storage.get('tm_kanban_fill_columns', this.data.kanbanFillColumns);
             this.data.kanbanShowDoneColumn = !!Storage.get('tm_kanban_show_done_column', this.data.kanbanShowDoneColumn);
             this.data.kanbanDragSyncSubtasks = !!Storage.get('tm_kanban_drag_sync_subtasks', this.data.kanbanDragSyncSubtasks);
             this.data.kanbanCardFields = Storage.get('tm_kanban_card_fields', this.data.kanbanCardFields) || this.data.kanbanCardFields;
+            this.data.taskCardDateOnlyWithValue = !!Storage.get('tm_task_card_date_only_with_value', this.data.taskCardDateOnlyWithValue);
             this.data.kanbanHeadingGroupMode = !!Storage.get('tm_kanban_heading_group_mode', this.data.kanbanHeadingGroupMode);
             this.data.whiteboardAllTabsCardMinWidth = Storage.get('tm_whiteboard_all_tabs_card_min_width', this.data.whiteboardAllTabsCardMinWidth);
             this.data.whiteboardStreamMobileTwoColumns = !!Storage.get('tm_whiteboard_stream_mobile_two_columns', this.data.whiteboardStreamMobileTwoColumns);
@@ -2950,12 +3121,15 @@
             this.data.docDisplayNameMode = __tmNormalizeDocDisplayNameMode(this.data.docDisplayNameMode);
             this.data.timelineSidebarCollapsed = !!this.data.timelineSidebarCollapsed;
             this.data.timelineCardFields = __tmNormalizeTimelineCardFields(this.data.timelineCardFields);
+            this.data.settingsFieldUpdatedAt = __tmNormalizeSettingsFieldUpdatedAtMap(this.data.settingsFieldUpdatedAt, this.data, { seedFromSettingsUpdatedAt: true });
             this.normalizeColumns();
         },
 
         // 同步到本地缓存
         syncToLocal() {
             Storage.set('tm_settings_updated_at', Number(this.data.settingsUpdatedAt) || 0);
+            this.data.settingsFieldUpdatedAt = __tmNormalizeSettingsFieldUpdatedAtMap(this.data.settingsFieldUpdatedAt, this.data);
+            Storage.set('tm_settings_field_updated_at', this.data.settingsFieldUpdatedAt);
             Storage.set('tm_doc_group_settings_updated_at', Number(this.data.docGroupSettingsUpdatedAt) || 0);
             Storage.set('tm_collapse_state_updated_at', Number(this.data.collapseStateUpdatedAt) || 0);
             Storage.set('tm_selected_doc_ids', this.data.selectedDocIds);
@@ -2985,11 +3159,14 @@
             Storage.set('tm_enabled_views', this.data.enabledViews);
             Storage.set('tm_kanban_compact_mode', !!this.data.kanbanCompactMode);
             Storage.set('tm_checklist_compact_mode', !!this.data.checklistCompactMode);
+            Storage.set('tm_checklist_compact_tree_guides', !!this.data.checklistCompactTreeGuides);
+            Storage.set('tm_checklist_compact_tree_guides_updated_at', __tmParseUpdatedAtNumber(this.data.checklistCompactTreeGuidesUpdatedAt));
             Storage.set('tm_kanban_column_width', Number(this.data.kanbanColumnWidth) || 320);
             Storage.set('tm_kanban_fill_columns', !!this.data.kanbanFillColumns);
             Storage.set('tm_kanban_show_done_column', !!this.data.kanbanShowDoneColumn);
             Storage.set('tm_kanban_drag_sync_subtasks', !!this.data.kanbanDragSyncSubtasks);
             Storage.set('tm_kanban_card_fields', this.data.kanbanCardFields || []);
+            Storage.set('tm_task_card_date_only_with_value', !!this.data.taskCardDateOnlyWithValue);
             Storage.set('tm_kanban_heading_group_mode', !!this.data.kanbanHeadingGroupMode);
             Storage.set('tm_whiteboard_all_tabs_card_min_width', Number(this.data.whiteboardAllTabsCardMinWidth) || 320);
             Storage.set('tm_whiteboard_stream_mobile_two_columns', !!this.data.whiteboardStreamMobileTwoColumns);
@@ -3312,6 +3489,10 @@
             this.data.whiteboardStreamMobileTwoColumns = this.data.whiteboardStreamMobileTwoColumns !== false;
             this.data.kanbanFillColumns = !!this.data.kanbanFillColumns;
             this.data.kanbanCardFields = __tmNormalizeTaskCardFieldList(this.data.kanbanCardFields, ['priority', 'status', 'date']);
+            this.data.taskCardDateOnlyWithValue = !!this.data.taskCardDateOnlyWithValue;
+            this.data.checklistCompactTreeGuides = !!this.data.checklistCompactTreeGuides;
+            this.data.checklistCompactTreeGuidesUpdatedAt = __tmParseUpdatedAtNumber(this.data.checklistCompactTreeGuidesUpdatedAt);
+            this.data.settingsFieldUpdatedAt = __tmNormalizeSettingsFieldUpdatedAtMap(this.data.settingsFieldUpdatedAt, this.data);
             this.data.docH2SubgroupEnabled = this.data.docH2SubgroupEnabled !== false;
             this.data.taskAutoWrapEnabled = this.data.taskAutoWrapEnabled !== false;
             this.data.aiSideDockEnabled = this.data.aiSideDockEnabled !== false;
@@ -3460,6 +3641,13 @@
                 });
                 const remoteCollapseUpdatedAt = __tmGetCollapsedSessionUpdatedAt(remoteSettings);
                 const remoteWhiteboardStateVersion = __tmParseVersionNumber(remoteSettings?.whiteboardStateVersion);
+                const settingsFieldChange = __tmMarkChangedSettingsFields(this.data, this.loadedSettingsFieldSnapshot, Date.now());
+                const appliedRemoteSettingFields = __tmApplySettingsFieldUpdatesByMap(this.data, remoteSettings, {
+                    skipKeys: settingsFieldChange.changedKeys,
+                });
+                if (appliedRemoteSettingFields.length) {
+                    this.normalizeColumns();
+                }
                 if (remoteWhiteboardStateVersion > loadedWhiteboardStateVersion) {
                     const mergedWhiteboardState = __tmMergeWhiteboardSettingsState(remoteSettings, this.data);
                     Object.assign(this.data, mergedWhiteboardState);
@@ -3576,6 +3764,7 @@
                 this.refreshDocGroupSyncState(this.data.docGroupSettingsUpdatedAt);
                 this.refreshCustomFieldSyncState();
                 this.refreshCollapsedStateSyncState();
+                this.refreshSettingsFieldSyncState();
                 if (this.saveDirty) {
                     try { if (this.saveTimer) clearTimeout(this.saveTimer); } catch (e) {}
                     this.saveTimer = setTimeout(() => {
@@ -7793,7 +7982,7 @@
             Promise.resolve().then(async () => {
                 try {
                     if (API && typeof API.getDocEnhanceSnapshot === 'function') {
-                        await API.getDocEnhanceSnapshot(next.docId, next.headingLevel);
+                        await API.getDocEnhanceSnapshot(next.docId, next.headingLevel, { needH2: true, needFlow: false });
                     }
                 } catch (e) {}
             }).finally(() => {

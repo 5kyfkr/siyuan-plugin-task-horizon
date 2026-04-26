@@ -686,6 +686,8 @@
         };
 
         const renderDialog = () => {
+            const prevScrollEl = dialog.querySelector('[data-tm-custom-field-dialog-scroll]');
+            const prevScrollTop = prevScrollEl ? prevScrollEl.scrollTop : 0;
             const viewportWidth = Math.max(0, window.innerWidth || document.documentElement?.clientWidth || 0);
             const isCompact = viewportWidth > 0 ? viewportWidth <= 720 : __tmIsMobileDevice();
             const isPhone = viewportWidth > 0 ? viewportWidth <= 520 : isCompact;
@@ -743,7 +745,7 @@
                     </div>
                     <button type="button" class="tm-btn tm-btn-gray" data-tm-custom-field-close style="padding:${isCompact ? '8px 12px' : '6px 10px'};min-height:${isCompact ? '40px' : 'auto'};${isCompact ? 'margin-left:auto;' : ''}">关闭</button>
                 </div>
-                <div style="display:grid;grid-template-columns:${isCompact ? '1fr' : 'minmax(180px,220px) minmax(0,1fr)'};gap:${isCompact ? '12px' : '16px'};padding:${isCompact ? '14px' : '18px'};overflow:auto;">
+                <div data-tm-custom-field-dialog-scroll style="display:grid;grid-template-columns:${isCompact ? '1fr' : 'minmax(180px,220px) minmax(0,1fr)'};gap:${isCompact ? '12px' : '16px'};padding:${isCompact ? '14px' : '18px'};overflow:auto;">
                     <div style="display:flex;flex-direction:column;gap:10px;">
                         <div style="font-size:12px;font-weight:600;color:var(--tm-secondary-text);">已配置自定义列</div>
                         <div style="display:${isCompact ? 'grid' : 'flex'};${isCompact ? `grid-template-columns:${isPhone ? '1fr' : 'repeat(auto-fit,minmax(132px,1fr))'};` : 'flex-direction:column;'}gap:8px;">${listHtml || '<div style="font-size:12px;color:var(--tm-secondary-text);padding:10px;border:1px dashed var(--tm-border-color);border-radius:10px;">还没有自定义列</div>'}</div>
@@ -798,6 +800,8 @@
                     </div>
                 </div>
             `;
+            const nextScrollEl = dialog.querySelector('[data-tm-custom-field-dialog-scroll]');
+            if (nextScrollEl) nextScrollEl.scrollTop = prevScrollTop;
 
             const readDraftFromDom = () => {
                 const nameInput = dialog.querySelector('[data-tm-custom-field-name]');

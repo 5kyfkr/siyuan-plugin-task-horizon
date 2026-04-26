@@ -2468,14 +2468,22 @@
         const root = container instanceof Element ? container : null;
         const taskLike = (task && typeof task === 'object') ? task : null;
         if (!(root instanceof Element) || !taskLike) return false;
+        let touched = false;
         const cell = root.querySelector('[data-tm-field="attachments"]');
-        if (!(cell instanceof HTMLElement)) return true;
         const entries = __tmBuildTaskAttachmentEntries(__tmGetTaskAttachmentPaths(taskLike));
         __tmHydrateTaskAttachmentBlockMetaForTask(taskLike, entries);
-        cell.innerHTML = __tmBuildTaskAttachmentSummaryHtml(taskLike);
-        cell.classList.toggle('is-empty', entries.length === 0);
-        cell.setAttribute('title', entries.map((item) => __tmBuildTaskAttachmentTitle(item)).filter(Boolean).join('\n'));
-        return true;
+        if (cell instanceof HTMLElement) {
+            cell.innerHTML = __tmBuildTaskAttachmentSummaryHtml(taskLike);
+            cell.classList.toggle('is-empty', entries.length === 0);
+            cell.setAttribute('title', entries.map((item) => __tmBuildTaskAttachmentTitle(item)).filter(Boolean).join('\n'));
+            touched = true;
+        }
+        const attachmentIconSlot = root.querySelector('[data-tm-field="attachmentIcon"]');
+        if (attachmentIconSlot instanceof HTMLElement) {
+            attachmentIconSlot.innerHTML = __tmRenderTaskAttachmentIcon(taskLike);
+            touched = true;
+        }
+        return touched || (!(cell instanceof HTMLElement) && !(attachmentIconSlot instanceof HTMLElement));
     }
 
     function __tmOpenAssetPath(path, event, options = {}) {
@@ -2835,6 +2843,10 @@
                 }
                 if (Object.prototype.hasOwnProperty.call(patch, 'remark')) {
                     touched = !!__tmUpdateTaskRemarkInDOM(item, task) || touched;
+                    handled = true;
+                }
+                if (Object.prototype.hasOwnProperty.call(patch, 'attachments')) {
+                    touched = !!__tmUpdateTaskAttachmentsInDOM(item, task) || touched;
                     handled = true;
                 }
                 if (Object.prototype.hasOwnProperty.call(patch, 'customFieldValues')) {

@@ -751,6 +751,12 @@
                             `<input class="b3-switch fn__flex-center" type="checkbox" ${SettingsStore.data.checklistCompactMode ? 'checked' : ''} onchange="updateChecklistCompactMode(this.checked)">`,
                             { style: 'margin-bottom:10px;' }
                         )}
+                        ${renderSingleSwitchSetting(
+                            '清单紧凑层级线',
+                            '开启后在清单紧凑模式中显示子任务层级竖线。',
+                            `<input class="b3-switch fn__flex-center" type="checkbox" ${SettingsStore.data.checklistCompactTreeGuides ? 'checked' : ''} onchange="updateChecklistCompactTreeGuides(this.checked)">`,
+                            { style: 'margin-bottom:10px;' }
+                        )}
                         ${renderSingleFieldSetting(
                             '看板宽度',
                             '调整看板列宽，适合不同信息密度。',
@@ -790,6 +796,12 @@
                                     </label>
                                 `).join('')}</div>`;
                             })(),
+                            { style: 'margin-bottom:10px;' }
+                        )}
+                        ${renderSingleSwitchSetting(
+                            '卡片日期有值才显示',
+                            '开启后，看板和白板卡片仅在任务已有截止日期数据时显示日期按钮；空日期任务不显示。',
+                            `<input class="b3-switch fn__flex-center" type="checkbox" ${SettingsStore.data.taskCardDateOnlyWithValue ? 'checked' : ''} onchange="updateTaskCardDateOnlyWithValue(this.checked)">`,
                             { style: 'margin-bottom:10px;' }
                         )}
                         ${renderSingleFieldSetting(

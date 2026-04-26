@@ -700,6 +700,16 @@
         }
     };
 
+    window.updateChecklistCompactTreeGuides = async function(enabled) {
+        SettingsStore.data.checklistCompactTreeGuides = !!enabled;
+        SettingsStore.data.checklistCompactTreeGuidesUpdatedAt = Date.now();
+        await SettingsStore.save();
+        showSettings();
+        if (state.modal && document.body.contains(state.modal)) {
+            if (!__tmRerenderCurrentViewInPlace(state.modal)) render();
+        }
+    };
+
     window.updateKanbanColumnWidth = async function(width) {
         const n = Number(width);
         SettingsStore.data.kanbanColumnWidth = Number.isFinite(n) ? Math.max(220, Math.min(520, Math.round(n))) : 320;
@@ -755,6 +765,15 @@
         if (enabled) current.add(key);
         else current.delete(key);
         SettingsStore.data[viewKey] = __tmNormalizeTaskCardFieldList(Array.from(current), ['priority', 'status', 'date']);
+        await SettingsStore.save();
+        showSettings();
+        if (state.modal && document.body.contains(state.modal)) {
+            if (!__tmRerenderCurrentViewInPlace(state.modal)) render();
+        }
+    };
+
+    window.updateTaskCardDateOnlyWithValue = async function(enabled) {
+        SettingsStore.data.taskCardDateOnlyWithValue = !!enabled;
         await SettingsStore.save();
         showSettings();
         if (state.modal && document.body.contains(state.modal)) {

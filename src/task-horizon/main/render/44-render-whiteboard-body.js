@@ -479,7 +479,7 @@
                     });
                     const isGhost = !!task.__tmGhost;
                     const selected = String(state.whiteboardSelectedTaskId || '').trim() === tid;
-                    const dateTxt = __tmFormatTaskTime(String(task?.completionTime || task?.startDate || '').trim());
+                    const dateTxt = __tmFormatTaskTime(__tmGetTaskCardDateValue(task));
                     const opBtn = !isGhost
                         ? `<button class="tm-kanban-more" onclick="tmOpenTaskDetail('${escSq(tid)}', event)" title="任务详情">${__tmRenderLucideIcon('dots-three')}</button>`
                         : '';
@@ -540,7 +540,7 @@
                     const metaParts = [];
                     if (whiteboardCardFields.has('priority')) metaParts.push(priorityChip);
                     if (whiteboardCardFields.has('status')) metaParts.push(statusChip);
-                    if (whiteboardCardFields.has('date')) {
+                    if (whiteboardCardFields.has('date') && __tmShouldRenderTaskCardDate(task)) {
                         metaParts.push(`<span class="tm-kanban-chip tm-kanban-chip--muted" data-tm-task-time-field="date" style="cursor:${editableMeta ? 'pointer' : 'default'};" ${editableMeta ? `onclick="tmWhiteboardEditDate('${escSq(tid)}', event)"` : ''} title="${editableMeta ? '点击选择日期' : ''}">${esc(dateTxt || '日期')}</span>`);
                     }
                     if (isGhost) metaParts.push(ghostTip);

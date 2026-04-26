@@ -7533,6 +7533,45 @@ select.tm-btn-secondary {
     background-position: left bottom;
 }
 
+.tm-checklist-pane--compact.tm-checklist-pane--tree-guides {
+    --tm-checklist-tree-line-start: 34px;
+    --tm-checklist-tree-line-color: #999999;
+}
+
+.tm-checklist-pane--compact.tm-checklist-pane--tree-guides .tm-checklist-group-card .tm-checklist-item {
+    --tm-checklist-tree-line-start: calc(var(--tm-checklist-card-divider-start) + 30px);
+}
+
+.tm-checklist-tree-guides {
+    position: absolute;
+    inset: -1px auto -1px 0;
+    width: 100%;
+    pointer-events: none;
+    z-index: 0;
+}
+
+.tm-checklist-tree-guide-line {
+    position: absolute;
+    top: 0;
+    bottom: 0;
+    display: block;
+    width: 0;
+}
+
+.tm-checklist-tree-guide-line::before {
+    content: '';
+    position: absolute;
+    left: 0;
+    top: 1px;
+    bottom: 1px;
+    border-left: 1.5px solid var(--tm-checklist-tree-line-color);
+    opacity: 0.86;
+}
+
+[data-theme-mode="dark"] .tm-checklist-pane--compact.tm-checklist-pane--tree-guides {
+    --tm-checklist-tree-line-color: #666666;
+}
+
 .tm-checklist-pane--compact .tm-checklist-item::before {
     content: '';
     position: absolute;
@@ -7605,6 +7644,16 @@ select.tm-btn-secondary {
     width: 18px;
     min-width: 18px;
     flex-basis: 18px;
+}
+
+.tm-modal.tm-modal--mobile .tm-checklist-pane--compact.tm-checklist-pane--tree-guides,
+.tm-modal.tm-modal--dock .tm-checklist-pane--compact.tm-checklist-pane--tree-guides {
+    --tm-checklist-tree-line-start: 12px;
+}
+
+.tm-modal.tm-modal--mobile .tm-checklist-pane--compact.tm-checklist-pane--tree-guides .tm-checklist-group-card .tm-checklist-item,
+.tm-modal.tm-modal--dock .tm-checklist-pane--compact.tm-checklist-pane--tree-guides .tm-checklist-group-card .tm-checklist-item {
+    --tm-checklist-tree-line-start: calc(var(--tm-checklist-card-divider-start) + 8px);
 }
 
 .tm-modal.tm-modal--mobile .tm-checklist-pane--compact .tm-checklist-group-card .tm-checklist-item,
@@ -7806,7 +7855,8 @@ select.tm-btn-secondary {
 }
 
 .tm-checklist-pane--compact .tm-checklist-title > .tm-task-reminder-emoji,
-.tm-checklist-pane--compact .tm-checklist-title > .tm-task-remark-emoji {
+.tm-checklist-pane--compact .tm-checklist-title > .tm-task-remark-emoji,
+.tm-checklist-pane--compact .tm-checklist-title > .tm-task-attachment-emoji {
     flex: 0 0 auto;
     align-self: center;
     margin-left: 5px;
@@ -9810,7 +9860,8 @@ th[data-col] {
     display: block;
 }
 
-.tm-task-remark-emoji {
+.tm-task-remark-emoji,
+.tm-task-attachment-emoji {
     display: inline-flex;
     align-items: center;
     justify-content: center;
@@ -9820,7 +9871,8 @@ th[data-col] {
     vertical-align: baseline;
     color: var(--tm-secondary-text);
 }
-.tm-task-remark-emoji svg {
+.tm-task-remark-emoji svg,
+.tm-task-attachment-emoji svg {
     width: 13px;
     height: 13px;
     display: block;
@@ -10437,7 +10489,7 @@ th[data-col] {
     border-radius: 8px;
     color: white;
     font-size: 14px;
-    z-index: 100003;
+    z-index: 200080;
     box-shadow: 0 4px 12px rgba(0,0,0,0.15);
     animation: slideDown 0.3s ease;
 }

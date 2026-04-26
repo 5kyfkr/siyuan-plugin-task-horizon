@@ -45,7 +45,7 @@
     const __TM_TASK_CARD_FIELD_OPTIONS = [
         { key: 'priority', label: '重要性' },
         { key: 'status', label: '状态' },
-        { key: 'date', label: '日期' },
+        { key: 'date', label: '截止日期' },
         { key: 'remark', label: '备注' },
     ];
 
@@ -70,6 +70,15 @@
 
     function __tmTaskCardFieldEnabled(view, field) {
         return __tmGetTaskCardFieldList(view).includes(String(field || '').trim());
+    }
+
+    function __tmGetTaskCardDateValue(task) {
+        return String(task?.completionTime || '').trim() || String(task?.startDate || '').trim();
+    }
+
+    function __tmShouldRenderTaskCardDate(task) {
+        if (SettingsStore.data?.taskCardDateOnlyWithValue !== true) return true;
+        return !!String(task?.completionTime || '').trim();
     }
 
     function __tmRenderTaskCardRemark(task) {

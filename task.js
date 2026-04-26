@@ -30997,8 +30997,13 @@ async function __tmRefreshAfterWake(reason) {
             try { document.removeEventListener('keydown', onKeydown, true); } catch (e) {}
             try { overlay.remove(); } catch (e) {}
         };
+        let overlayPointerStartedOnBackdrop = false;
+        overlay.addEventListener('pointerdown', (e) => {
+            overlayPointerStartedOnBackdrop = e.target === overlay;
+        }, true);
         overlay.addEventListener('click', (e) => {
-            if (e.target === overlay) close();
+            if (e.target === overlay && overlayPointerStartedOnBackdrop) close();
+            overlayPointerStartedOnBackdrop = false;
         });
         __tmBindTaskDetailEditor(overlay, tid, { embedded: false, onClose: close });
 

@@ -422,7 +422,7 @@
     position: fixed;
     top: 86px;
     right: 46px;
-    z-index: 200020;
+    z-index: 200080;
     display: flex;
     flex-direction: column;
     gap: 10px;

@@ -73,10 +73,22 @@
     <a href="https://ld246.com/member/jahzeds" style="font-size:12px;color:var(--b3-theme-on-surface);text-decoration:none;padding:4px 10px;background:var(--b3-theme-surface);border:1px solid var(--b3-border-color);border-radius:18px;">jahzeds</a>
     <a href="https://ld246.com/member/Dilyar" style="font-size:12px;color:var(--b3-theme-on-surface);text-decoration:none;padding:4px 10px;background:var(--b3-theme-surface);border:1px solid var(--b3-border-color);border-radius:18px;">Dilyar</a>
     <a href="https://github.com/bytemain" style="font-size:12px;color:var(--b3-theme-on-surface);text-decoration:none;padding:4px 10px;background:var(--b3-theme-surface);border:1px solid var(--b3-border-color);border-radius:18px;">bytemain</a>
+    <a href="https://ld246.com/member/Clymer" style="font-size:12px;color:var(--b3-theme-on-surface);text-decoration:none;padding:4px 10px;background:var(--b3-theme-surface);border:1px solid var(--b3-border-color);border-radius:18px;">Clymer</a>
   </div>
 </div>
 
 # 更新记录
+
+## 2.3.7更新内容 4/27
+- **新增：常规设置->视图与布局->清单紧凑层级线 设置，开启后清单紧凑视图增加子任务层级线**
+- **新增：常规设置->视图与布局->卡片日期有值才显示 设置，开启后，看板和白板卡片仅在任务已有截止日期数据时显示日期按钮，空日期任务不显示**
+- 优化：首次加载任务排序
+- 优化：清单紧凑视图对有附件的任务增加标识图标
+- 优化：备注工具条链接选中后点击链接按钮自动填充MD语法
+- 优化：任务详情新建子任务保存过程中不消失
+- 修复：任务详情页鼠标拖拽至窗口外导致关闭
+- 修复：文档分组规则保存后多端设置不同步
+- 修复：自定义列选项设置中操作后跳回顶部
 
 ## 2.3.6更新内容 4/25
 - 优化：任务详情页支持直接Ctrl+V插入剪贴板内附件或文档id
@@ -103,6 +115,9 @@
 - 修复：点击任务跳转到文档内定位不稳定
 - 修复：顶栏部分宽度无文档分组下拉菜单
 - 开发：task.js代码拆分至仓库src/task-horizon目录，打包时合并，降低开发读取难度
+
+<details>
+<summary>历史版本更新（点击展开）</summary>
 
 ## 2.3.4更新内容  4/23
 - **新增：文档页签增加按文档截止日期排序**
@@ -152,9 +167,6 @@
 - 修复：白板视图任务池不显示已不在文档的任务
 - 修复：文档悬浮条的显示延迟
 - 修复：番茄钟过期事件无聚焦
-
-<details>
-<summary>历史版本更新（点击展开）</summary>
 
 ## 2.3.0更新内容  4/19
 - **新增：视图与布局->“时长显示格式”后增加“时长预设”，可为任务详情/悬浮条预设单选时长选项，同时保留自定义填写；未配置预设时继续使用自由输入**

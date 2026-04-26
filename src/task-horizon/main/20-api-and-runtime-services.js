@@ -148,13 +148,16 @@
             return data?.dom || data?.content || '';
         },
 
-        async getDocEnhanceSnapshot(docId, headingLevel = 'h2') {
+        async getDocEnhanceSnapshot(docId, headingLevel = 'h2', options = {}) {
             const did = String(docId || '').trim();
             if (!did) return { flowRankMap: new Map(), headingContextMap: new Map() };
+            const opts = (options && typeof options === 'object') ? options : {};
+            const needH2Snapshot = opts.needH2 !== false;
+            const needFlowSnapshot = opts.needFlow !== false;
             const lvRaw = String(headingLevel || 'h2').trim().toLowerCase();
             const lvNum0 = Number((lvRaw.match(/^h([1-6])$/) || [])[1]);
             const lvNum = Number.isFinite(lvNum0) ? lvNum0 : 2;
-            const cacheKey = `${did}:${lvRaw}`;
+            const cacheKey = `${did}:${lvRaw}:${needH2Snapshot ? 1 : 0}:${needFlowSnapshot ? 1 : 0}`;
             const now = Date.now();
             const ttlMs = 30000;
             const cached = __tmDocEnhanceSnapshotCache.get(cacheKey);
@@ -166,15 +169,65 @@
             }
             const promise = Promise.resolve().then(async () => {
                 let km = '';
-                try { km = await this.getBlockKramdown(did); } catch (e) { km = ''; }
+                if (needH2Snapshot) {
+                    try { km = await this.getBlockKramdown(did); } catch (e) { km = ''; }
+                }
                 const flowRankMap = new Map();
                 const headingContextMap = new Map();
-                if (!km) {
-                    const emptySnapshot = { flowRankMap, headingContextMap };
-                    __tmDocEnhanceSnapshotCache.set(cacheKey, { t: Date.now(), snapshot: emptySnapshot });
-                    return emptySnapshot;
-                }
-                const lines = String(km).split(/\r?\n/);
+                const parseDomTaskFlowRanks = (html) => {
+                    const out = new Map();
+                    const sourceHtml = String(html || '');
+                    if (!sourceHtml) return out;
+                    let host = null;
+                    try {
+                        if (typeof DOMParser !== 'undefined') {
+                            const parser = new DOMParser();
+                            const doc = parser.parseFromString(`<div data-tm-dom-host="1">${sourceHtml}</div>`, 'text/html');
+                            host = doc.body?.firstElementChild || null;
+                        }
+                    } catch (e) {
+                        host = null;
+                    }
+                    if (!host && typeof document !== 'undefined' && document?.createElement) {
+                        try {
+                            const fallbackHost = document.createElement('div');
+                            fallbackHost.innerHTML = sourceHtml;
+                            host = fallbackHost;
+                        } catch (e) {
+                            host = null;
+                        }
+                    }
+                    const isElementLike = (el) => !!el && typeof el.getAttribute === 'function';
+                    const isTaskItem = (el) => isElementLike(el)
+                        && String(el.getAttribute('data-type') || '').trim() === 'NodeListItem'
+                        && (String(el.getAttribute('data-subtype') || '').trim() === 't' || el.hasAttribute?.('data-task'));
+                    let rank = 0;
+                    const walk = (el) => {
+                        if (!isElementLike(el)) return;
+                        if (isTaskItem(el)) {
+                            const tid = String(el.getAttribute('data-node-id') || '').trim();
+                            if (tid && !out.has(tid)) {
+                                rank += 1;
+                                out.set(tid, rank);
+                            }
+                        }
+                        Array.from(el.children || []).forEach(walk);
+                    };
+                    walk(host);
+                    return out;
+                };
+                const applyDomFlowRanks = async () => {
+                    let dom = '';
+                    try { dom = String(await this.getBlockDOM(did) || ''); } catch (e) { dom = ''; }
+                    const domFlowRanks = parseDomTaskFlowRanks(dom);
+                    if (domFlowRanks.size <= 0) return false;
+                    flowRankMap.clear();
+                    domFlowRanks.forEach((rank, taskId) => {
+                        flowRankMap.set(taskId, rank);
+                    });
+                    return true;
+                };
+                const lines = km ? String(km).split(/\r?\n/) : [];
                 const parseIds = (line) => {
                     const out = [];
                     const s = String(line || '');
@@ -229,21 +282,24 @@
                     ids.forEach((bid) => {
                         const tid = String(bid || '').trim();
                         if (!tid) return;
-                        if (!flowRankMap.has(tid)) {
+                        if (needFlowSnapshot && !flowRankMap.has(tid)) {
                             flowRank += 1;
                             flowRankMap.set(tid, flowRank);
                         }
-                        const currentHeading = headingStack[lvNum];
-                        headingContextMap.set(tid, {
-                            id: String(currentHeading?.id || '').trim(),
-                            content: String(currentHeading?.content || '').trim(),
-                            path: '',
-                            sort: Number.NaN,
-                            created: '',
-                            rank: Number(currentHeading?.rank),
-                        });
+                        if (needH2Snapshot) {
+                            const currentHeading = headingStack[lvNum];
+                            headingContextMap.set(tid, {
+                                id: String(currentHeading?.id || '').trim(),
+                                content: String(currentHeading?.content || '').trim(),
+                                path: '',
+                                sort: Number.NaN,
+                                created: '',
+                                rank: Number(currentHeading?.rank),
+                            });
+                        }
                     });
                 }
+                if (needFlowSnapshot) await applyDomFlowRanks();
                 const snapshot = { flowRankMap, headingContextMap };
                 __tmDocEnhanceSnapshotCache.set(cacheKey, { t: Date.now(), snapshot });
                 return snapshot;
@@ -343,7 +399,7 @@
                         if (index >= docEntries.length) return;
                         const [docId, tidSet] = docEntries[index];
                         let snapshot = null;
-                        try { snapshot = await this.getDocEnhanceSnapshot(docId, headingLevel); } catch (e) { snapshot = null; }
+                        try { snapshot = await this.getDocEnhanceSnapshot(docId, headingLevel, { needH2, needFlow }); } catch (e) { snapshot = null; }
                         if (!snapshot) continue;
                         tidSet.forEach((tid) => {
                             if (needFlow) {
@@ -10216,14 +10272,37 @@ async function __tmRefreshAfterWake(reason) {
         return true;
     }
 
+    function __tmIsRemarkLinkHref(value) {
+        const text = String(value || '').trim();
+        if (!text) return false;
+        return /^(https?:\/\/|mailto:|tel:)[^\s<>"']+$/i.test(text);
+    }
+
+    function __tmEscapeRemarkLinkLabel(value) {
+        return String(value || '').replace(/([\\\[\]])/g, '\\$1').replace(/\n+/g, ' ').trim();
+    }
+
+    function __tmEscapeRemarkLinkHref(value) {
+        return String(value || '').trim();
+    }
+
     function __tmInsertRemarkLinkTemplate(textarea) {
         if (!(textarea instanceof HTMLTextAreaElement)) return false;
         const { start, end, value } = __tmGetTextareaSelectionRange(textarea);
-        const selected = value.slice(start, end) || '链接文本';
-        const template = `[${selected}](https://)`;
+        const selected = value.slice(start, end);
+        const selectedText = String(selected || '').trim();
+        const selectedIsHref = __tmIsRemarkLinkHref(selectedText);
+        const label = __tmEscapeRemarkLinkLabel(selectedIsHref ? selectedText : (selected || '链接文本'));
+        const href = selectedIsHref ? __tmEscapeRemarkLinkHref(selectedText) : 'https://';
+        const template = `[${label}](${href})`;
         const nextValue = `${value.slice(0, start)}${template}${value.slice(end)}`;
-        const urlStart = start + selected.length + 3;
-        const caret = urlStart + 'https://'.length;
+        if (selectedIsHref) {
+            const labelStart = start + 1;
+            __tmSetTextareaValueAndSelection(textarea, nextValue, labelStart, labelStart + label.length);
+            return true;
+        }
+        const urlStart = start + label.length + 3;
+        const caret = urlStart + href.length;
         __tmSetTextareaValueAndSelection(textarea, nextValue, caret, caret);
         return true;
     }

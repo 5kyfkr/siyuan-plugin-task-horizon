@@ -658,7 +658,7 @@
                     fallbackColor: task?.done ? '#9e9e9e' : '#757575',
                     fallbackName: task?.done ? '完成' : (todoOpt?.name || '待办'),
                 });
-                const timeTxt = String(task?.completionTime || '').trim() || String(task?.startDate || '').trim();
+                const timeTxt = __tmGetTaskCardDateValue(task);
                 const dateTxt = timeTxt ? __tmFormatTaskTime(timeTxt) : '';
                 const directChildStats = getDirectChildStats(task);
                 const totalChildren = directChildStats.total;
@@ -671,7 +671,7 @@
                 const metaParts = [];
                 if (kanbanCardFields.has('priority')) metaParts.push(priorityChip);
                 if (kanbanCardFields.has('status')) metaParts.push(statusChip);
-                if (kanbanCardFields.has('date')) metaParts.push(`<span class="tm-kanban-chip tm-kanban-chip--muted" data-tm-task-time-field="date" onclick="tmKanbanPickDate('${id}', event)" title="点击选择日期">${esc(dateTxt || '日期')}</span>`);
+                if (kanbanCardFields.has('date') && __tmShouldRenderTaskCardDate(task)) metaParts.push(`<span class="tm-kanban-chip tm-kanban-chip--muted" data-tm-task-time-field="date" onclick="tmKanbanPickDate('${id}', event)" title="点击选择日期">${esc(dateTxt || '日期')}</span>`);
                 if (kanbanCardFields.has('h2') && task?.h2) metaParts.push(`<span class="tm-kanban-chip tm-kanban-chip--muted" style="cursor:default;">${__tmRenderHeadingLevelInlineIcon(task.headingLevel || SettingsStore.data.taskHeadingLevel || 'h2', { size: 14 })} ${esc(__tmNormalizeHeadingText(task.h2))}</span>`);
                 const remarkHtml = kanbanCardFields.has('remark') ? __tmRenderTaskCardRemark(task) : '';
                 const multiSelectCls = __tmIsTaskMultiSelected(id) ? ' tm-task-row--multi-selected' : '';

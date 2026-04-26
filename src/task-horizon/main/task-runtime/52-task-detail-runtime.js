@@ -635,13 +635,19 @@
                 left: Number(panel.scrollLeft || 0),
             };
         };
-        const restoreEmbeddedDetailScroll = (snapshot) => {
+        const restoreEmbeddedDetailScroll = (snapshot, options = {}) => {
             if (!snapshot || !embedded) return;
+            const opts = (options && typeof options === 'object') ? options : {};
             const restore = () => {
                 const modal = state.modal instanceof Element ? state.modal : null;
                 if (!(modal instanceof Element)) return;
                 const panel = __tmResolveChecklistDetailPanel(modal).panel;
                 if (!(panel instanceof HTMLElement)) return;
+                if (opts.onlyIfNear === true) {
+                    const threshold = Math.max(0, Number(opts.threshold ?? 80) || 80);
+                    if (Math.abs(Number(panel.scrollTop || 0) - Number(snapshot.top || 0)) > threshold) return;
+                    if (Math.abs(Number(panel.scrollLeft || 0) - Number(snapshot.left || 0)) > threshold) return;
+                }
                 try {
                     panel.scrollTop = Number(snapshot.top || 0);
                     panel.scrollLeft = Number(snapshot.left || 0);
@@ -1953,6 +1959,57 @@
                 try { draftRow.remove(); } catch (e) {}
                 restoreSubtaskEmptyState();
             };
+            let queuedSubtaskRow = null;
+            const replaceDraftWithQueuedSubtask = (createdId, text) => {
+                const tid = String(createdId || '').trim();
+                if (!tid || !(draftRow instanceof HTMLElement) || !draftRow.isConnected) return;
+                const queuedTask = globalThis.__tmRuntimeState?.getFlatTaskById?.(tid)
+                    || state.flatTasks?.[tid]
+                    || state.pendingInsertedTasks?.[tid]
+                    || {
+                        id: tid,
+                        done: false,
+                        content: String(text || '').trim(),
+                        markdown: `- [ ] ${String(text || '').trim()}`,
+                        children: [],
+                    };
+                const html = __tmBuildTaskDetailSubtasksHtml({ id: taskId, children: [queuedTask] });
+                if (!html) return;
+                const wrap = document.createElement('div');
+                wrap.innerHTML = html.trim();
+                const nextRow = wrap.firstElementChild;
+                if (!(nextRow instanceof HTMLElement)) return;
+                try { draftRow.replaceWith(nextRow); } catch (e) { return; }
+                queuedSubtaskRow = nextRow;
+                try {
+                    nextRow.querySelectorAll('[data-tm-detail-subtask-content]').forEach((el) => {
+                        if (!(el instanceof HTMLTextAreaElement)) return;
+                        const subtaskId = String(el.getAttribute('data-tm-detail-subtask-content') || '').trim();
+                        if (!subtaskId) return;
+                        if (!el.dataset.savedValue) el.dataset.savedValue = String(el.value || '').trim();
+                        syncAutoHeight(el, 34);
+                        on(el, 'input', () => {
+                            syncAutoHeight(el, 34);
+                            if (el.readOnly) return;
+                            scheduleSubtaskSave(el, subtaskId);
+                        });
+                        on(el, 'blur', () => {
+                            clearSubtaskSaveTimer(subtaskId);
+                            saveSubtaskContent(el, subtaskId, { showHint: false }).catch(() => null);
+                        });
+                    });
+                } catch (e) {}
+                try { __tmBindFloatingTooltips(nextRow); } catch (e) {}
+            };
+            const removeQueuedSubtaskRow = () => {
+                if (!(queuedSubtaskRow instanceof HTMLElement)) {
+                    removeDraft();
+                    return;
+                }
+                try { queuedSubtaskRow.remove(); } catch (e) {}
+                queuedSubtaskRow = null;
+                restoreSubtaskEmptyState();
+            };
             const submitDraft = () => {
                 const nextText = String(input.value || '').trim();
                 if (!nextText) {
@@ -1962,20 +2019,40 @@
                 }
                 if (draftRow.dataset.saving === 'true') return;
                 draftRow.dataset.saving = 'true';
+                try { input.readOnly = true; } catch (e) {}
+                try { if (saveBtn instanceof HTMLButtonElement) saveBtn.disabled = true; } catch (e) {}
+                try { if (cancelBtn instanceof HTMLButtonElement) cancelBtn.disabled = true; } catch (e) {}
+                setTaskDetailPendingSave(true, 4200);
                 try {
                     const detailScrollSnapshot = captureEmbeddedDetailScroll();
-                    removeDraft();
                     __tmQueueCreateSubtask(taskId, nextText, {
-                        onSuccess: () => {
-                            refreshBoundDetail(taskId);
-                            restoreEmbeddedDetailScroll(detailScrollSnapshot);
+                        onQueued: (tempId) => {
+                            replaceDraftWithQueuedSubtask(tempId, nextText);
+                            restoreEmbeddedDetailScroll(detailScrollSnapshot, { onlyIfNear: true });
+                        },
+                        onSuccess: async () => {
+                            try { await refreshBoundDetail(taskId); } catch (e) {}
+                            restoreEmbeddedDetailScroll(detailScrollSnapshot, { onlyIfNear: true });
+                            setTaskDetailPendingSave(false, 420);
+                        },
+                        onError: () => {
+                            removeQueuedSubtaskRow();
+                            setTaskDetailPendingSave(false, 420);
+                        },
+                        onFinally: () => {
+                            try { delete draftRow.dataset.saving; } catch (e2) {}
                         }
                     });
-                    refreshBoundDetail(taskId);
-                    restoreEmbeddedDetailScroll(detailScrollSnapshot);
+                    try { refreshBoundDetail(taskId); } catch (e) {}
+                    restoreEmbeddedDetailScroll(detailScrollSnapshot, { onlyIfNear: true });
                 } catch (e) {
                     hint(`❌ 新建子任务失败: ${e.message}`, 'error');
+                    removeDraft();
                     try { delete draftRow.dataset.saving; } catch (e2) {}
+                    try { input.readOnly = false; } catch (e3) {}
+                    try { if (saveBtn instanceof HTMLButtonElement) saveBtn.disabled = false; } catch (e4) {}
+                    try { if (cancelBtn instanceof HTMLButtonElement) cancelBtn.disabled = false; } catch (e5) {}
+                    setTaskDetailPendingSave(false, 420);
                 }
             };
             syncAutoHeight(input, 34);
@@ -3464,6 +3541,8 @@
     }
 
     let __tmKanbanDetailOutsideClickHandler = null;
+    let __tmKanbanDetailOutsidePointerDownHandler = null;
+    let __tmKanbanDetailPointerStartedInside = false;
     let __tmKanbanDetailRepositionHandler = null;
     let __tmKanbanDetailRepositionModal = null;
 
@@ -3473,7 +3552,12 @@
                 globalThis.__tmRuntimeEvents?.off?.(document, 'click', __tmKanbanDetailOutsideClickHandler, false);
                 __tmKanbanDetailOutsideClickHandler = null;
             }
+            if (__tmKanbanDetailOutsidePointerDownHandler) {
+                globalThis.__tmRuntimeEvents?.off?.(document, 'pointerdown', __tmKanbanDetailOutsidePointerDownHandler, true);
+                __tmKanbanDetailOutsidePointerDownHandler = null;
+            }
         } catch (e) {}
+        __tmKanbanDetailPointerStartedInside = false;
         try {
             if (__tmKanbanDetailRepositionHandler && __tmKanbanDetailRepositionModal instanceof Element) {
                 globalThis.__tmRuntimeEvents?.off?.(__tmKanbanDetailRepositionModal, 'scroll', __tmKanbanDetailRepositionHandler, true);
@@ -3620,16 +3704,29 @@
             }
         });
         __tmClearKanbanDetailFloatingHandlers();
+        __tmKanbanDetailOutsidePointerDownHandler = (ev) => {
+            const floatPanel = modal.querySelector('#tmKanbanDetailFloat');
+            const target = ev?.target;
+            __tmKanbanDetailPointerStartedInside = !!(target instanceof Element && (
+                (floatPanel instanceof Element && floatPanel.contains(target))
+                || !!target.closest('.tm-task-detail-inline-popover,.tm-inline-editor')
+            ));
+        };
         __tmKanbanDetailOutsideClickHandler = (ev) => {
             const floatPanel = modal.querySelector('#tmKanbanDetailFloat');
             if (!(floatPanel instanceof Element)) return;
             const target = ev?.target;
             if (!(target instanceof Element)) return;
+            if (__tmKanbanDetailPointerStartedInside) {
+                __tmKanbanDetailPointerStartedInside = false;
+                return;
+            }
             if (floatPanel.contains(target)) return;
             if (target.closest('.tm-kanban-more')) return;
             if (target.closest('.tm-task-detail-inline-popover,.tm-inline-editor')) return;
             __tmCloseKanbanDetailFloating();
         };
+        try { globalThis.__tmRuntimeEvents?.on?.(document, 'pointerdown', __tmKanbanDetailOutsidePointerDownHandler, true); } catch (e) {}
         try { globalThis.__tmRuntimeEvents?.on?.(document, 'click', __tmKanbanDetailOutsideClickHandler, false); } catch (e) {}
         __tmKanbanDetailRepositionHandler = () => {
             try { __tmPositionKanbanDetailFloat(modal); } catch (e) {}
