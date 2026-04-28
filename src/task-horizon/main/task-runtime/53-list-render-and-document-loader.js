@@ -410,7 +410,7 @@
             const pinnedCollapsed = state.collapsedGroups?.has(pinnedGroupKey);
             const pinnedToggle = `<span class="tm-group-toggle${pinnedCollapsed ? ' tm-group-toggle--collapsed' : ''}" onclick="tmToggleGroupCollapse('${pinnedGroupKey}', event)" style="cursor:pointer;margin-right:0;display:inline-flex;align-items:center;justify-content:center;width:16px;"><svg class="tm-group-toggle-icon" viewBox="0 0 16 16" width="16" height="16"><path d="M6 4l4 4-4 4" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg></span>`;
             const pinnedDurationSum = __tmCalcGroupDurationText(pinnedRoots);
-            allRows.push(`<tr class="tm-group-row" data-group-key="${pinnedGroupKey}"><td colspan="${colCount}" onclick="tmToggleGroupCollapse('${pinnedGroupKey}', event)" style="cursor:pointer;background:var(--tm-header-bg);font-weight:bold;color:var(--tm-text-color);"><div class="tm-group-sticky">${pinnedToggle}<span style="display:inline-flex;align-items:center;justify-content:center;width:16px;min-width:16px;color:var(--tm-warning-color);">📌</span><span class="tm-group-label" style="color:var(--tm-warning-color);">置顶</span><span class="tm-badge tm-badge--count">${pinnedRoots.length}</span>${pinnedDurationSum ? `<span class="tm-badge tm-badge--duration"><span class="tm-badge__icon">${__tmRenderBadgeIcon('chart-column')}</span>${esc(pinnedDurationSum)}</span>` : ''}</div></td></tr>`);
+            allRows.push(`<tr class="tm-group-row" data-group-key="${pinnedGroupKey}"><td colspan="${colCount}" onclick="tmToggleGroupCollapse('${pinnedGroupKey}', event)" style="cursor:pointer;background:var(--tm-header-bg);font-weight:bold;color:var(--tm-text-color);"><div class="tm-group-sticky">${pinnedToggle}<span class="tm-checklist-group-pin-icon">${__tmRenderBadgeIcon('pin', 14)}</span><span class="tm-group-label" style="color:var(--tm-warning-color);">置顶</span><span class="tm-badge tm-badge--count">${pinnedRoots.length}</span>${pinnedDurationSum ? `<span class="tm-badge tm-badge--duration"><span class="tm-badge__icon">${__tmRenderBadgeIcon('chart-column')}</span>${esc(pinnedDurationSum)}</span>` : ''}</div></td></tr>`);
             if (!pinnedCollapsed) {
                 currentGroupBg = '';
                 pinnedRoots.forEach(task => {
@@ -1627,6 +1627,7 @@
                     source: 'toggle-pinned',
                     label: val ? '置顶' : '取消置顶',
                     withFilters: true,
+                    optimisticProjectionRefresh: true,
                 });
                 hint(`✅ ${val ? '已置顶' : '已取消置顶'}`, 'success');
                 return true;
@@ -1640,6 +1641,7 @@
             source: 'toggle-pinned',
             label: val ? '置顶' : '取消置顶',
             withFilters: true,
+            optimisticProjectionRefresh: true,
             onError: () => {
                 if (ev?.target) ev.target.checked = !val;
             },
@@ -1673,6 +1675,9 @@
                 try { hint(done ? '✅ 已在插件内标记完成' : '✅ 已取消插件内完成', 'success'); } catch (e) {}
             }
             if (targetDone && opts.force !== true) __tmQueueTaskDoneDelight(id, { done: true, suppressHint: opts.suppressHint, source: opts.source });
+            if (targetDone) {
+                try { await __tmSettleTomatoAfterTaskDone(id, { source: opts.source }); } catch (e) {}
+            }
             return;
         }
         const statusPatch = __tmBuildCheckboxStatusPatch(task, targetDone, opts.statusPatch);
@@ -1704,6 +1709,9 @@
                     if (!state.doneOverrides || typeof state.doneOverrides !== 'object') state.doneOverrides = {};
                     state.doneOverrides[String(id)] = !!done;
                 } catch (e) {}
+                if (targetDone) {
+                    try { await __tmSettleTomatoAfterTaskDone(id, { source: opts.source }); } catch (e) {}
+                }
                 try { __tmInvalidateAllSqlCaches(); } catch (e) {}
                 if (opts.suppressHint !== true) {
                     try { hint(__tmBuildTaskDoneSuccessHint(!!done, '✅ 任务已完成'), 'success'); } catch (e) {}
@@ -2029,6 +2037,9 @@
                 if (!state.doneOverrides || typeof state.doneOverrides !== 'object') state.doneOverrides = {};
                 state.doneOverrides[String(id)] = !!actualDone;
             } catch (e) {}
+            if (actualDone) {
+                try { await __tmSettleTomatoAfterTaskDone(id, { source: opts.source }); } catch (e) {}
+            }
             if (shouldDispatchTaskReward && actualDone) {
                 try {
                     __tmDispatchTaskCompletedForReward(task, {
@@ -2727,6 +2738,7 @@
                     source: String(options.source || 'external-priority').trim() || 'external-priority',
                     label: '重要性',
                     skipDetailPatch: options.skipDetailPatch === true,
+                    optimisticProjectionRefresh: options.optimisticProjectionRefresh === true,
                 });
                 if (options.silent !== true) {
                     const label = next === 'high' ? '高' : (next === 'medium' ? '中' : (next === 'low' ? '低' : '无'));
@@ -2743,6 +2755,8 @@
             label: '重要性',
             skipDetailPatch: options.skipDetailPatch === true,
             defer: options.defer === true,
+            forceImmediate: options.forceImmediate === true,
+            optimisticProjectionRefresh: options.optimisticProjectionRefresh === true,
             showErrorHint: options.silent !== true,
         });
         if (result !== false && options.silent !== true) {

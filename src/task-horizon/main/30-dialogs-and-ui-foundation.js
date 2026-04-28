@@ -9670,9 +9670,6 @@
         const capabilities = __tmGetTaskDropCapabilities();
         const kind = __tmNormalizeTaskRowDropKind(overrideKind || __tmResolveTaskRowDropIntent(ev, row, capabilities), capabilities);
         __tmApplyTaskRowDropIndicator(row, kind || 'child');
-        try {
-            if (kind === 'child') state.collapsedTaskIds?.delete?.(targetId);
-        } catch (e) {}
         return false;
     };
 

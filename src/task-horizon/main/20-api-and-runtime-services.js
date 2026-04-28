@@ -3390,13 +3390,15 @@
             const input = (value && typeof value === 'object' && !Array.isArray(value)) ? value : {};
             const out = {};
             Object.entries(input).forEach(([fieldId, rawValue]) => {
-                const field = __tmGetCustomFieldDefMap().get(String(fieldId || '').trim());
+                const fid = String(fieldId || '').trim();
+                if (!fid) return;
+                const field = __tmGetCustomFieldDefMap().get(fid);
                 const normalized = __tmNormalizeCustomFieldValue(field, rawValue);
                 if (Array.isArray(normalized)) {
-                    if (normalized.length) out[fieldId] = normalized;
+                    out[fid] = normalized;
                     return;
                 }
-                if (String(normalized || '').trim()) out[fieldId] = normalized;
+                out[fid] = String(normalized || '').trim() ? normalized : '';
             });
             return out;
         }
@@ -3995,11 +3997,13 @@
                 source: String(op?.data?.source || '').trim(),
             });
             if (op?.data?.skipViewRefresh === true) return;
+            const optimisticProjectionRefresh = op?.data?.optimisticProjectionRefresh === true
+                && op?.data?.affectsProjection === true;
             __tmRefreshTaskFieldsAcrossViews(taskId, patch, {
-                withFilters: false,
+                withFilters: optimisticProjectionRefresh,
                 reason: String(op?.data?.reason || op?.data?.source || 'task-patch-optimistic').trim() || 'task-patch-optimistic',
-                forceProjectionRefresh: false,
-                fallback: false,
+                forceProjectionRefresh: optimisticProjectionRefresh,
+                fallback: optimisticProjectionRefresh,
                 skipDetailPatch: op?.data?.skipDetailPatch === true || op?.data?.optimisticSkipDetailPatch === true,
             });
             return;
@@ -4427,10 +4431,19 @@
                 const currentValues = (target.customFieldValues && typeof target.customFieldValues === 'object' && !Array.isArray(target.customFieldValues))
                     ? target.customFieldValues
                     : {};
-                target.customFieldValues = {
-                    ...currentValues,
-                    ...((value && typeof value === 'object' && !Array.isArray(value)) ? value : {}),
-                };
+                const nextValues = { ...currentValues };
+                Object.entries((value && typeof value === 'object' && !Array.isArray(value)) ? value : {}).forEach(([fieldId, fieldValue]) => {
+                    const field = __tmGetCustomFieldDefMap().get(String(fieldId || '').trim());
+                    const normalized = __tmNormalizeCustomFieldValue(field, fieldValue);
+                    if (Array.isArray(normalized)) {
+                        if (normalized.length) nextValues[fieldId] = normalized;
+                        else delete nextValues[fieldId];
+                        return;
+                    }
+                    if (String(normalized || '').trim()) nextValues[fieldId] = normalized;
+                    else delete nextValues[fieldId];
+                });
+                target.customFieldValues = nextValues;
                 return;
             }
             if (key === 'done') {
@@ -7354,6 +7367,49 @@
         });
     }
 
+    function __tmStripTaskRewardListMarker(input) {
+        let text = String(input || '').trim();
+        text = text.replace(/^\s*(?:[-*+]|\d+[.)])\s*/, '').trim();
+        text = text.replace(/^\[[^\]]*\]\s*/, '').trim();
+        return text;
+    }
+
+    function __tmNormalizeTaskRewardContent(taskLike, detail = {}) {
+        const task = (taskLike && typeof taskLike === 'object') ? taskLike : {};
+        const candidates = [
+            detail.content,
+            task.content,
+            task.raw_content,
+            task.rawContent,
+            task.markdown,
+        ];
+        for (const candidate of candidates) {
+            let text = String(candidate || '').trim();
+            if (!text) continue;
+            try {
+                if (typeof API?.extractTaskContentLine === 'function') {
+                    text = String(API.extractTaskContentLine(text) || text).trim();
+                }
+            } catch (e) {}
+            try {
+                if (typeof API?.parseTaskStatus === 'function') {
+                    const parsed = API.parseTaskStatus(text);
+                    const parsedContent = String(parsed?.content || '').trim();
+                    if (parsedContent) text = parsedContent;
+                }
+            } catch (e) {}
+            text = __tmStripTaskRewardListMarker(text);
+            try {
+                if (typeof API?.normalizeTaskContent === 'function') {
+                    text = String(API.normalizeTaskContent(text) || text).trim();
+                }
+            } catch (e) {}
+            text = __tmStripTaskRewardListMarker(text);
+            if (text) return text;
+        }
+        return '';
+    }
+
     function __tmDispatchTaskCompletedForReward(taskLike, detail = {}) {
         if (!SettingsStore?.data?.enablePointsRewardIntegration) return false;
         try {
@@ -7362,12 +7418,13 @@
             if (!taskId) return false;
             const rawScore = Number(detail.priorityScore);
             const priorityScore = Number.isFinite(rawScore) ? Math.max(0, Math.round(rawScore)) : 0;
+            const content = __tmNormalizeTaskRewardContent(task, detail);
             window.dispatchEvent(new CustomEvent('task-horizon:task-completed', {
                 detail: {
                     taskId,
                     attrHostId: String(detail.attrHostId || __tmGetTaskAttrHostId(task) || taskId).trim(),
                     docId: String(detail.docId || task.root_id || task.docId || '').trim(),
-                    content: String(detail.content || task.content || task.raw_content || '').trim(),
+                    content,
                     priority: String(detail.priority || task.priority || task.custom_priority || '').trim(),
                     priorityScore,
                     completedAt: String(detail.completedAt || '').trim(),
@@ -9970,6 +10027,51 @@ async function __tmRefreshAfterWake(reason) {
                 } catch (e) {}
             });
         } catch (e) {}
+    }
+
+    async function __tmSettleTomatoAfterTaskDone(taskId, options = {}) {
+        const tid = String(taskId || '').trim();
+        if (!tid) return false;
+        const opts = (options && typeof options === 'object') ? options : {};
+        const candidateIds = Array.from(new Set([
+            tid,
+            String(opts.blockId || '').trim(),
+            String(opts.rawId || '').trim(),
+            String(opts.attrHostId || '').trim(),
+            String(__tmGetTaskAttrHostId(opts.task) || '').trim(),
+        ].filter(Boolean)));
+        let touched = false;
+        try {
+            if (candidateIds.includes(String(state.timerFocusTaskId || '').trim())) {
+                state.timerFocusTaskId = '';
+                __tmClearTomatoFocusRowClasses();
+                touched = true;
+            }
+        } catch (e) {}
+        try {
+            if (!SettingsStore?.data?.enableTomatoIntegration) return touched;
+            const timer = globalThis.__tomatoTimer;
+            if (!timer || typeof timer !== 'object') return touched;
+            const api = typeof timer.completeAssociatedTask === 'function'
+                ? timer.completeAssociatedTask
+                : (typeof timer.stopAssociatedTaskAfterDone === 'function' ? timer.stopAssociatedTaskAfterDone : null);
+            if (typeof api !== 'function') return touched;
+            for (const candidateId of candidateIds) {
+                const result = await api.call(timer, candidateId, {
+                    source: String(opts.source || 'task-horizon-task-done').trim() || 'task-horizon-task-done',
+                    suppressToast: true,
+                });
+                if (result === true || result?.matched || result?.associationCleared || result?.stopped) {
+                    state.timerFocusTaskId = '';
+                    __tmClearTomatoFocusRowClasses();
+                    touched = true;
+                    break;
+                }
+            }
+        } catch (e) {
+            try { console.warn('[番茄钟联动] 完成任务后停止番茄钟失败:', e); } catch (e2) {}
+        }
+        return touched;
     }
 
     function __tmIsTomatoFocusModeEnabled() {

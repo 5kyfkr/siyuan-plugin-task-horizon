@@ -135,6 +135,9 @@
         onVisibilityChange: null,
         calendarResizeObserver: null,
         calendarResizeBox: null,
+        mainPopoverClickCapture: null,
+        mainPopoverClampRaf: null,
+        mainPopoverClampTimer: null,
         mainLayoutRaf: null,
         mainLayoutWrap: null,
         mainLayoutHost: null,
@@ -4358,6 +4361,7 @@
                 }
                 try { applyMainCalendarMonthMoreLinkLayout(nextHost, nextCalendar); } catch (e) {}
                 try { applyTimeGridAllDayMoreLinkLayout(nextHost, nextCalendar); } catch (e) {}
+                try { clampMainCalendarPopover(nextWrap, nextHost); } catch (e) {}
                 try { scheduleSyncTimeGridAllDayCollapseUi(nextHost || state.calendarEl, nextCalendar); } catch (e) {}
                 try { if (nextHost instanceof Element) enhanceNowIndicator(nextHost); } catch (e) {}
                 try { if (nextHost instanceof HTMLElement) scheduleCurrentTimeAutoCenter(nextHost, nextCalendar, getSettings(), { scope: 'main' }); } catch (e) {}
@@ -4378,6 +4382,7 @@
             try { if (options.updateSize === true) targetCalendar.updateSize(); } catch (e2) {}
             try { applyMainCalendarMonthMoreLinkLayout(targetHost, targetCalendar); } catch (e2) {}
             try { applyTimeGridAllDayMoreLinkLayout(targetHost, targetCalendar); } catch (e2) {}
+            try { clampMainCalendarPopover(targetWrap, targetHost); } catch (e2) {}
             try { scheduleSyncTimeGridAllDayCollapseUi(targetHost || state.calendarEl, targetCalendar); } catch (e2) {}
             try { if (targetHost instanceof Element) enhanceNowIndicator(targetHost); } catch (e2) {}
             try { if (targetHost instanceof HTMLElement) scheduleCurrentTimeAutoCenter(targetHost, targetCalendar, getSettings(), { scope: 'main' }); } catch (e2) {}
@@ -4954,6 +4959,8 @@
             await window.tmSetTaskPriority(id, nextKey === 'none' ? '' : nextKey, {
                 silent: true,
                 source: 'floating-mini-priority',
+                forceImmediate: true,
+                optimisticProjectionRefresh: true,
             });
             state.floatingMini.dragPriorityKey = nextKey;
             state.floatingMini.priorityHoverKey = '';
@@ -5527,7 +5534,10 @@
             return false;
         }
         try {
-            await window.tmUpdateTaskDates(id, { completionTime: normalizedDateKey });
+            await window.tmUpdateTaskDates(id, { completionTime: normalizedDateKey }, {
+                source: 'floating-mini-taskdate-save',
+                immediateProjectionRefresh: true,
+            });
             try {
                 scheduleCalendarRefresh({
                     reason: 'floating-mini-taskdate-save',
@@ -9061,6 +9071,152 @@
                 });
             }
         } catch (e) {}
+    }
+
+    function getMainCalendarPopoverViewportRect(wrap, host) {
+        const targetWrap = wrap instanceof HTMLElement ? wrap : (state.wrapEl instanceof HTMLElement ? state.wrapEl : null);
+        const targetHost = host instanceof HTMLElement ? host : (state.calendarEl instanceof HTMLElement ? state.calendarEl : null);
+        const viewportWidth = Math.max(0, Math.floor(Number(document.documentElement?.clientWidth || window.innerWidth || 0)));
+        const viewportHeight = Math.max(0, Math.floor(Number(document.documentElement?.clientHeight || window.innerHeight || 0)));
+        const fallback = {
+            left: 0,
+            top: 0,
+            right: viewportWidth || 1,
+            bottom: viewportHeight || 1,
+        };
+        let viewRect = { ...fallback };
+        const mergeRect = (node) => {
+            if (!(node instanceof HTMLElement)) return;
+            try {
+                const rect = node.getBoundingClientRect();
+                const width = Number(rect?.width || (rect.right - rect.left) || 0);
+                const height = Number(rect?.height || (rect.bottom - rect.top) || 0);
+                if (!Number.isFinite(width) || !Number.isFinite(height) || width <= 0 || height <= 0) return;
+                const next = {
+                    left: Math.max(viewRect.left, rect.left),
+                    top: Math.max(viewRect.top, rect.top),
+                    right: Math.min(viewRect.right, rect.right),
+                    bottom: Math.min(viewRect.bottom, rect.bottom),
+                };
+                if (next.right > next.left + 16 && next.bottom > next.top + 16) viewRect = next;
+            } catch (e) {}
+        };
+        const seen = new Set();
+        const addCandidate = (node) => {
+            if (!(node instanceof HTMLElement) || seen.has(node)) return;
+            seen.add(node);
+            mergeRect(node);
+        };
+        addCandidate(state.rootEl instanceof HTMLElement ? state.rootEl : null);
+        addCandidate(targetWrap?.closest?.('.tm-body--calendar'));
+        addCandidate(targetHost?.closest?.('.tm-modal'));
+        const width = Math.max(0, viewRect.right - viewRect.left);
+        const height = Math.max(0, viewRect.bottom - viewRect.top);
+        if (width <= 0 || height <= 0) {
+            return {
+                ...fallback,
+                width: Math.max(0, fallback.right - fallback.left),
+                height: Math.max(0, fallback.bottom - fallback.top),
+            };
+        }
+        return { ...viewRect, width, height };
+    }
+
+    function clampMainCalendarPopover(wrap, host) {
+        const targetWrap = wrap instanceof HTMLElement ? wrap : (state.wrapEl instanceof HTMLElement ? state.wrapEl : null);
+        const targetHost = host instanceof HTMLElement ? host : (state.calendarEl instanceof HTMLElement ? state.calendarEl : null);
+        if (!(targetHost instanceof HTMLElement)) return false;
+        const popovers = targetHost.querySelectorAll('.fc-popover');
+        if (!popovers || !popovers.length) return false;
+        const viewRect = getMainCalendarPopoverViewportRect(targetWrap, targetHost);
+        const safePad = 8;
+        const maxWidth = Math.max(96, Math.floor(viewRect.width - safePad * 2));
+        const maxHeight = Math.max(40, Math.floor(viewRect.height - safePad * 2));
+        let changed = false;
+        popovers.forEach((pop) => {
+            if (!(pop instanceof HTMLElement)) return;
+            if (pop.closest?.('#tmCalendarSideDockTimeline')) return;
+            try {
+                pop.style.right = 'auto';
+                pop.style.bottom = 'auto';
+                pop.style.removeProperty('width');
+                pop.style.minWidth = '0px';
+                pop.style.maxWidth = `${maxWidth}px`;
+                pop.style.maxHeight = `${maxHeight}px`;
+                pop.style.overflow = 'hidden';
+                pop.style.boxSizing = 'border-box';
+                const header = pop.querySelector('.fc-popover-header');
+                const body = pop.querySelector('.fc-popover-body');
+                const headerHeight = (() => {
+                    try {
+                        const rect = header instanceof HTMLElement ? header.getBoundingClientRect() : null;
+                        const h = Number(rect?.height || 0);
+                        if (Number.isFinite(h) && h > 0) return Math.ceil(h);
+                    } catch (e) {}
+                    return 28;
+                })();
+                if (body instanceof HTMLElement) {
+                    body.style.minWidth = '0px';
+                    body.style.maxWidth = '100%';
+                    body.style.minHeight = '0px';
+                    body.style.maxHeight = `${Math.max(12, maxHeight - headerHeight - 2)}px`;
+                    body.style.overflowX = 'hidden';
+                    body.style.overflowY = 'auto';
+                }
+                let rect = pop.getBoundingClientRect();
+                if (rect.width > maxWidth + 1) {
+                    pop.style.width = `${maxWidth}px`;
+                    rect = pop.getBoundingClientRect();
+                }
+                const maxLeft = viewRect.right - safePad - rect.width;
+                let nextLeft = Math.min(rect.left, maxLeft);
+                nextLeft = Math.max(viewRect.left + safePad, nextLeft);
+                let nextTop = rect.top;
+                const maxBottom = viewRect.bottom - safePad;
+                if (rect.bottom > maxBottom) nextTop -= (rect.bottom - maxBottom);
+                nextTop = Math.max(viewRect.top + safePad, nextTop);
+                const originEl = pop.offsetParent instanceof HTMLElement ? pop.offsetParent : pop.parentElement;
+                const originRect = originEl instanceof HTMLElement ? originEl.getBoundingClientRect() : null;
+                if (originRect) {
+                    pop.style.left = `${Math.round(nextLeft - originRect.left)}px`;
+                    pop.style.top = `${Math.round(nextTop - originRect.top)}px`;
+                    changed = true;
+                }
+                applyCalendarEventClampFromRoot(pop);
+            } catch (e) {}
+        });
+        return changed;
+    }
+
+    function scheduleClampMainCalendarPopover(wrap, host) {
+        const targetWrap = wrap instanceof HTMLElement ? wrap : (state.wrapEl instanceof HTMLElement ? state.wrapEl : null);
+        const targetHost = host instanceof HTMLElement ? host : (state.calendarEl instanceof HTMLElement ? state.calendarEl : null);
+        if (!(targetHost instanceof HTMLElement)) return false;
+        const run = () => {
+            try { clampMainCalendarPopover(targetWrap, targetHost); } catch (e) {}
+        };
+        if (state.mainPopoverClampRaf) {
+            try { cancelAnimationFrame(state.mainPopoverClampRaf); } catch (e) {}
+            state.mainPopoverClampRaf = null;
+        }
+        if (state.mainPopoverClampTimer) {
+            try { clearTimeout(state.mainPopoverClampTimer); } catch (e) {}
+            state.mainPopoverClampTimer = null;
+        }
+        try {
+            state.mainPopoverClampRaf = requestAnimationFrame(() => {
+                state.mainPopoverClampRaf = null;
+                try { requestAnimationFrame(run); } catch (e2) { run(); }
+            });
+            state.mainPopoverClampTimer = setTimeout(() => {
+                state.mainPopoverClampTimer = null;
+                run();
+            }, 60);
+            return true;
+        } catch (e) {
+            run();
+            return false;
+        }
     }
 
     function clampSideDayPopover(rootEl) {
@@ -14400,6 +14556,15 @@
         state.wrapEl = wrap;
         state.onToolbarClick = onToolbarClick;
 
+        const onMainPopoverClickCapture = (ev) => {
+            const target = ev?.target;
+            if (!(target instanceof Element)) return;
+            if (!target.closest('.fc-more-link, .fc-more')) return;
+            scheduleClampMainCalendarPopover(wrap, host);
+        };
+        wrap.addEventListener('click', onMainPopoverClickCapture, true);
+        state.mainPopoverClickCapture = onMainPopoverClickCapture;
+
         const onCalendarEventClickFallbackCapture = (e) => {
             try {
                 if (e && e.__tmCalHandled) return;
@@ -14830,11 +14995,13 @@
             try { if (state.onToolbarClick) state.wrapEl.removeEventListener('click', state.onToolbarClick); } catch (e) {}
             try { if (state.onSidebarContextMenu) state.wrapEl.removeEventListener('contextmenu', state.onSidebarContextMenu); } catch (e) {}
             try { if (state.onFilterChange) state.wrapEl.removeEventListener('change', state.onFilterChange); } catch (e) {}
+            try { if (state.mainPopoverClickCapture) state.wrapEl.removeEventListener('click', state.mainPopoverClickCapture, true); } catch (e) {}
             try { if (state.onCalendarEventClickFallbackCapture) state.wrapEl.removeEventListener('click', state.onCalendarEventClickFallbackCapture, true); } catch (e) {}
         }
         state.onToolbarClick = null;
         state.onSidebarContextMenu = null;
         state.onFilterChange = null;
+        state.mainPopoverClickCapture = null;
         state.onCalendarEventClickFallbackCapture = null;
         if (state.calendarEl instanceof HTMLElement) {
             try { state.calendarEl.classList.remove('tm-calendar-host--month-view'); } catch (e) {}
@@ -14860,6 +15027,14 @@
         state.mainLayoutHost = null;
         state.mainLayoutCalendar = null;
         state.mainLayoutNeedsUpdateSize = false;
+        if (state.mainPopoverClampRaf) {
+            try { cancelAnimationFrame(state.mainPopoverClampRaf); } catch (e) {}
+            state.mainPopoverClampRaf = null;
+        }
+        if (state.mainPopoverClampTimer) {
+            try { clearTimeout(state.mainPopoverClampTimer); } catch (e) {}
+            state.mainPopoverClampTimer = null;
+        }
         try { state.calendarDropAbort?.abort?.(); } catch (e) {}
         state.calendarDropAbort = null;
         try { state.taskTableAbort?.abort?.(); } catch (e) {}

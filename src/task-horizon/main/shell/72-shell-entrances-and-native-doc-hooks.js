@@ -1351,6 +1351,16 @@
                     liveTask.task_marker = liveTask.taskMarker;
                 }
             } catch (e) {}
+            if (domDone) {
+                try {
+                    await __tmSettleTomatoAfterTaskDone(tid, {
+                        blockId: rawId,
+                        attrHostId: __tmGetTaskAttrHostId(task),
+                        task,
+                        source: 'native-doc-checkbox-sync',
+                    });
+                } catch (e) {}
+            }
             return true;
         }
         const persistedAttrsBefore = await __tmReadDocCheckboxBlockAttrs(tid);
@@ -1410,6 +1420,16 @@
             } catch (e) {}
             try { globalThis.__taskHorizonQuickbarRefreshInline?.(); } catch (e) {}
             try { globalThis.__taskHorizonQuickbarRefresh?.(); } catch (e) {}
+            if (domDone) {
+                try {
+                    await __tmSettleTomatoAfterTaskDone(tid, {
+                        blockId: rawId,
+                        attrHostId: __tmGetTaskAttrHostId(task),
+                        task,
+                        source: 'native-doc-checkbox-sync',
+                    });
+                } catch (e) {}
+            }
             if (shouldDispatchTaskReward) {
                 try {
                     __tmDispatchTaskCompletedForReward(task, {
@@ -1501,6 +1521,16 @@
         } catch (e) {}
         try { globalThis.__taskHorizonQuickbarRefreshInline?.(); } catch (e) {}
         try { globalThis.__taskHorizonQuickbarRefresh?.(); } catch (e) {}
+        if (domDone) {
+            try {
+                await __tmSettleTomatoAfterTaskDone(tid, {
+                    blockId: rawId,
+                    attrHostId: __tmGetTaskAttrHostId(task),
+                    task,
+                    source: 'native-doc-checkbox-sync',
+                });
+            } catch (e) {}
+        }
         if (shouldDispatchTaskReward) {
             try {
                 __tmDispatchTaskCompletedForReward(task, {

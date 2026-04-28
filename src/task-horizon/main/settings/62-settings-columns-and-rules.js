@@ -639,6 +639,52 @@
         return true;
     };
 
+    window.tmClearCustomFieldSettings = async function() {
+        const defs = __tmGetCustomFieldDefs();
+        if (!defs.length) {
+            hint('ℹ️ 当前没有自定义列设置', 'info');
+            return false;
+        }
+        const ok = await showConfirm('清空自定义列设置', '确定清空所有自定义列配置吗？已有任务上的历史值不会被立即清理，但会停止显示。');
+        if (!ok) return false;
+        const colKeys = new Set(
+            defs.map((field) => __tmBuildCustomFieldColumnKey(field?.id))
+                .map((key) => String(key || '').trim())
+                .filter(Boolean)
+        );
+        SettingsStore.data.customFieldDefs = [];
+        SettingsStore.data.columnOrder = (Array.isArray(SettingsStore.data.columnOrder) ? SettingsStore.data.columnOrder : []).filter((key) => !colKeys.has(String(key || '').trim()));
+        SettingsStore.data.hiddenColumns = (Array.isArray(SettingsStore.data.hiddenColumns) ? SettingsStore.data.hiddenColumns : []).filter((key) => !colKeys.has(String(key || '').trim()));
+        if (SettingsStore.data.columnWidths && typeof SettingsStore.data.columnWidths === 'object') {
+            colKeys.forEach((key) => { delete SettingsStore.data.columnWidths[key]; });
+        }
+        const patchRules = (rules) => {
+            if (!Array.isArray(rules)) return;
+            rules.forEach((rule) => {
+                if (!rule || typeof rule !== 'object') return;
+                if (Array.isArray(rule.conditions)) {
+                    rule.conditions = rule.conditions.filter((condition) => !colKeys.has(String(condition?.field || '').trim()));
+                }
+                if (Array.isArray(rule.sort)) {
+                    rule.sort = rule.sort.filter((sortRule) => !colKeys.has(String(sortRule?.field || '').trim()));
+                }
+            });
+        };
+        try {
+            patchRules(state.filterRules);
+            patchRules(SettingsStore.data.filterRules);
+            if (state.editingRule && typeof state.editingRule === 'object') {
+                patchRules([state.editingRule]);
+            }
+        } catch (e) {}
+        SettingsStore.normalizeColumns();
+        await SettingsStore.save();
+        hint('✅ 自定义列设置已清空', 'success');
+        if (state.settingsModal) showSettings();
+        render();
+        return true;
+    };
+
     window.tmOpenCustomFieldDialog = function(fieldId = '', options = {}) {
         __tmRemoveElementsById('tm-custom-field-dialog-backdrop');
         const opts = (options && typeof options === 'object') ? options : {};
@@ -754,6 +800,7 @@
                             <button type="button" class="tm-btn tm-btn-secondary" data-tm-custom-field-new="multi" style="padding:${isCompact ? '8px 12px' : '6px 10px'};font-size:12px;min-height:${isCompact ? '40px' : 'auto'};">+ 多选列</button>
                             <button type="button" class="tm-btn tm-btn-secondary" data-tm-custom-field-new="text" style="padding:${isCompact ? '8px 12px' : '6px 10px'};font-size:12px;min-height:${isCompact ? '40px' : 'auto'};">+ 文本列</button>
                         </div>
+                        ${defsNow.length ? `<button type="button" class="tm-btn tm-btn-danger" data-tm-custom-field-clear-all style="padding:${isCompact ? '8px 12px' : '6px 10px'};font-size:12px;min-height:${isCompact ? '40px' : 'auto'};">清空自定义列设置</button>` : ''}
                     </div>
                     <div style="display:flex;flex-direction:column;gap:14px;">
                         <div style="display:grid;grid-template-columns:${isCompact ? '1fr' : 'minmax(0,1fr) 120px'};gap:12px;">
@@ -913,6 +960,13 @@
                 draft = resolveDraft(null, 'single');
                 renderDialog();
             };
+            const clearAllFields = async () => {
+                const cleared = await window.tmClearCustomFieldSettings();
+                if (!cleared) return;
+                currentFieldId = '';
+                draft = resolveDraft(null, 'single');
+                renderDialog();
+            };
 
             dialog.querySelector('[data-tm-custom-field-close]')?.addEventListener('click', close);
             dialog.querySelector('[data-tm-custom-field-cancel]')?.addEventListener('click', close);
@@ -922,6 +976,11 @@
                 });
             });
             dialog.querySelector('[data-tm-custom-field-delete]')?.addEventListener('click', () => { deleteField().catch(() => null); });
+            dialog.querySelector('[data-tm-custom-field-clear-all]')?.addEventListener('click', () => {
+                clearAllFields().catch((e) => {
+                    hint(`❌ 清空自定义列设置失败: ${e?.message || '未知错误'}`, 'error');
+                });
+            });
             dialog.querySelector('[data-tm-custom-field-add-option]')?.addEventListener('click', () => {
                 readDraftFromDom();
                 draft.options = [...(Array.isArray(draft.options) ? draft.options : []), {

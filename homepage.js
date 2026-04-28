@@ -1997,7 +1997,7 @@
         const rawPoints = Array.isArray(trend?.points) ? trend.points : [];
         if (!rawPoints.length) return `<div class="tm-homepage-chart-empty">暂无趋势数据</div>`;
         const points = rawPoints.slice();
-        const width = Math.max(360, Math.min(1400, Math.round(getLayoutMetrics(ctx, profile).trendWidth)));
+        const width = Math.max(360, Math.round(getLayoutMetrics(ctx, profile).trendWidth));
         const height = profile === "mobile" ? 142 : (profile === "dock" ? 156 : 170);
         const padding = { top: 14, right: 12, bottom: 8, left: 12 };
         const innerW = width - padding.left - padding.right;

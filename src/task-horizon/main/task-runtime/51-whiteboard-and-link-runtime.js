@@ -1443,6 +1443,15 @@
             supportsLocalPatch: true,
             coalesceKey: 'priority',
         },
+        pinned: {
+            key: 'pinned',
+            storageKind: 'attr-only',
+            requiresBlockUpdate: false,
+            requiresAttrWrite: true,
+            affectsProjection: true,
+            supportsLocalPatch: true,
+            coalesceKey: 'pinned',
+        },
         startDate: {
             key: 'startDate',
             storageKind: 'attr-only',
@@ -1614,6 +1623,7 @@
     function __tmDoesPatchAffectProjection(taskId, patch = {}) {
         const keys = __tmGetPatchFieldKeys(patch);
         if (!keys.length) return false;
+        if (keys.some((key) => key === 'pinned')) return true;
         if (!__tmIsSimpleProjectionContext()) {
             return keys.some((key) => __tmGetFieldSpec(key)?.affectsProjection === true);
         }
@@ -1646,7 +1656,7 @@
     function __tmDoesPatchNeedImmediateListProjectionRefresh(patch = {}) {
         const keys = __tmGetPatchFieldKeys(patch);
         if (!keys.length) return false;
-        return keys.some((key) => key === 'startDate' || key === 'completionTime' || key === 'customTime' || key === 'taskCompleteAt');
+        return keys.some((key) => key === 'startDate' || key === 'completionTime' || key === 'customTime' || key === 'taskCompleteAt' || key === 'pinned');
     }
 
     function __tmBuildListProjectionRefreshScheduleOptions(patch = {}, options = {}) {
@@ -3222,14 +3232,18 @@
                     && String(state.detailTaskId || '').trim() === tid
                     && (Object.prototype.hasOwnProperty.call(plan.normalizedPatch, 'done')
                         || Object.prototype.hasOwnProperty.call(plan.normalizedPatch, 'customStatus')));
+            const optimisticProjectionRefresh = opts.optimisticProjectionRefresh === true
+                && __tmDoesPatchNeedProjectionRefresh(tid, plan.normalizedPatch, {
+                    forceProjectionRefresh: plan.affectsProjection === true,
+                });
             if (allowOptimisticPatch) {
                 __tmTaskStateKernel.patchTaskLocal(tid, plan.normalizedPatch, opts);
                 if (!skipViewRefresh) {
                     __tmRefreshTaskFieldsAcrossViews(tid, plan.normalizedPatch, {
-                        withFilters: false,
+                        withFilters: optimisticProjectionRefresh,
                         reason: String(opts.reason || opts.source || 'task-field-optimistic').trim() || 'task-field-optimistic',
-                        forceProjectionRefresh: false,
-                        fallback: false,
+                        forceProjectionRefresh: optimisticProjectionRefresh,
+                        fallback: optimisticProjectionRefresh,
                         skipDetailPatch: opts.skipDetailPatch === true || optimisticSkipDetailPatch,
                     });
                 }
@@ -3379,6 +3393,7 @@
         if (viewMode !== 'list' && viewMode !== 'checklist' && viewMode !== 'timeline' && viewMode !== 'kanban' && viewMode !== 'whiteboard') return false;
         const keys = __tmGetPatchFieldKeys(patch);
         if (!keys.length) return false;
+        if (keys.some((key) => key === 'pinned')) return false;
         return keys.every((key) => __tmGetFieldSpec(key)?.supportsLocalPatch !== false);
     }
 
@@ -3443,6 +3458,7 @@
                 skipSettledRefresh: __tmShouldSkipSettledRefreshForUiPatch(tid, plan.normalizedPatch, opts),
                 broadcast: opts.broadcast !== false,
                 optimistic: opts.optimistic !== false,
+                optimisticProjectionRefresh: opts.optimisticProjectionRefresh === true,
                 affectsProjection: plan.affectsProjection === true,
                 skipFlush: opts.skipFlush !== false,
             },
@@ -3487,6 +3503,7 @@
                 broadcast: opts.broadcast !== false,
                 optimistic: opts.optimistic !== false,
                 optimisticSkipDetailPatch: opts.optimisticSkipDetailPatch === true,
+                optimisticProjectionRefresh: opts.optimisticProjectionRefresh === true,
                 reason: String(opts.reason || opts.source || 'inline-field').trim() || 'inline-field',
             });
         const runOpts = (__tmIsChecklistUiFriendlyTaskPatchContext(opts) && !Object.prototype.hasOwnProperty.call(opts, 'defer'))
@@ -3553,6 +3570,7 @@
             broadcast: opts.broadcast !== false,
             optimistic: opts.optimistic !== false,
             optimisticSkipDetailPatch: opts.optimisticSkipDetailPatch === true,
+            optimisticProjectionRefresh: opts.optimisticProjectionRefresh === true,
             reason: String(opts.reason || opts.source || 'inline-field').trim() || 'inline-field',
         }).then((result) => {
             restoreChecklistUi();

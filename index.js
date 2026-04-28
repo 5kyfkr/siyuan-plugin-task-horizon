@@ -18,6 +18,7 @@ const CALENDAR_VIEW_CSS_PATH = `/data/plugins/${PLUGIN_ID}/calendar-view.css`;
 const PLUGIN_MANIFEST_PATH = `/data/plugins/${PLUGIN_ID}/plugin.json`;
 const TAB_TYPE = "task-horizon";
 const TAB_TITLE = "任务管理器";
+const COMMAND_OPEN_QUICK_ADD_TASK_WINDOW = "openQuickAddTaskWindow";
 const ICON_ID = "iconTaskHorizon";
 const CUSTOM_TAB_ID = PLUGIN_ID + TAB_TYPE;
 const TASK_DOCK_TYPE = "::task-horizon-dock";
@@ -684,6 +685,7 @@ module.exports = class TaskHorizonPlugin extends Plugin {
         await loadScriptText(BASECOAT_SCRIPT_PATH, "basecoat/basecoat.js");
         const mainLoaded = await ensureTaskMainLoaded();
         if (!mainLoaded) return;
+        this.registerCommands();
         await loadScriptText(QUICKBAR_SCRIPT_PATH, "quickbar.js");
         await loadStyleText(BASECOAT_CSS_PATH, "basecoat/basecoat.css");
         await loadScriptText(FULLCALENDAR_MIN_SCRIPT_PATH, "fullcalendar/index.global.min.js");
@@ -698,6 +700,19 @@ module.exports = class TaskHorizonPlugin extends Plugin {
                 <path d="M24.485 10.343l-2.828-2.828-5.657 5.657-5.657-5.657-2.828 2.828 5.657 5.657-5.657 5.657 2.828 2.828 5.657-5.657 5.657 5.657 2.828-2.828-5.657-5.657z"></path>
             </symbol>
         `);
+    }
+
+    registerCommands() {
+        if (this._commandsRegistered) return;
+        this.addCommand({
+            langKey: COMMAND_OPEN_QUICK_ADD_TASK_WINDOW,
+            langText: "新建任务窗口",
+            hotkey: "",
+            callback: () => {
+                void this.openQuickAddTaskWindow();
+            },
+        });
+        this._commandsRegistered = true;
     }
 
     ensureCustomTab() {
@@ -935,6 +950,21 @@ module.exports = class TaskHorizonPlugin extends Plugin {
             },
         });
         Promise.resolve().then(() => this.remountBestTaskHorizonTab()).catch(() => null);
+    }
+
+    async openQuickAddTaskWindow() {
+        const openQuickAdd = typeof globalThis.tmQuickAddOpen === "function" ? globalThis.tmQuickAddOpen : null;
+        if (!openQuickAdd) {
+            console.warn("[task-horizon] quick add command skipped: tmQuickAddOpen is unavailable");
+            return false;
+        }
+        try {
+            await openQuickAdd();
+            return true;
+        } catch (e) {
+            console.error("[task-horizon] quick add command failed", e);
+            return false;
+        }
     }
 
     cancelTaskDockRecovery() {

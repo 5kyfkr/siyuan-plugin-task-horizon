@@ -859,15 +859,22 @@
             const viewPatch = {};
             if (hasStartDate) viewPatch.startDate = nextStart;
             if (hasCompletionTime) viewPatch.completionTime = nextEnd;
+            let needsProjectionRefresh = false;
+            try {
+                needsProjectionRefresh = __tmDoesPatchNeedProjectionRefresh(persistId, viewPatch, {
+                    forceProjectionRefresh: opts.forceProjectionRefresh === true,
+                });
+            } catch (e) {
+                needsProjectionRefresh = false;
+            }
             try {
                 __tmRefreshTaskTimeAcrossViews(persistId, {
                     patch: viewPatch,
-                    withFilters: false,
+                    withFilters: needsProjectionRefresh ? true : false,
                     reason: refreshReason,
                 });
             } catch (e) {}
             try {
-                const needsProjectionRefresh = __tmDoesPatchNeedProjectionRefresh(persistId, viewPatch);
                 const currentViewMode = String(state.viewMode || '').trim();
                 if (needsProjectionRefresh) {
                     if (currentViewMode === 'list') {
@@ -875,9 +882,11 @@
                             mode: 'current',
                             withFilters: true,
                             reason: refreshReason,
-                        }, __tmBuildListProjectionRefreshScheduleOptions(viewPatch, {
-                            reason: refreshReason,
-                        }));
+                        }, opts.immediateProjectionRefresh === true
+                            ? { immediate: true }
+                            : __tmBuildListProjectionRefreshScheduleOptions(viewPatch, {
+                                reason: refreshReason,
+                            }));
                     } else if (currentViewMode && currentViewMode !== 'calendar') {
                         __tmScheduleViewRefresh({
                             mode: 'current',
