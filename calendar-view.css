@@ -922,7 +922,7 @@
 
 .tm-floating-mini-cal__eyebrow {
     font-size: 12px;
-    font-weight: 700;
+    font-weight: 400;
     color: var(--tm-text-color);
     letter-spacing: 0.02em;
 }
@@ -1580,7 +1580,7 @@
 
 .tm-calendar-wrap .fc .fc-toolbar-title {
     font-size: 18px;
-    font-weight: 700;
+    font-weight: 400 !important;
     line-height: 1.2;
 }
 
@@ -1629,6 +1629,18 @@
     box-sizing: border-box;
     padding: 1px 4px;
     font-weight: 400 !important;
+}
+
+.tm-calendar-wrap .fc .fc-timegrid .fc-col-header-cell.fc-day-today .fc-col-header-cell-cushion,
+.tm-calendar-host .fc .fc-timegrid .fc-col-header-cell.fc-day-today .fc-col-header-cell-cushion,
+.tm-calendar-host.fc .fc-timegrid .fc-col-header-cell.fc-day-today .fc-col-header-cell-cushion,
+#tmCalendarSideDockTimeline .fc .fc-timegrid .fc-col-header-cell.fc-day-today .fc-col-header-cell-cushion,
+.tm-calendar-wrap .fc .fc-timegrid .fc-col-header-cell.fc-day-today .tm-cn-week-head,
+.tm-calendar-host .fc .fc-timegrid .fc-col-header-cell.fc-day-today .tm-cn-week-head,
+.tm-calendar-host.fc .fc-timegrid .fc-col-header-cell.fc-day-today .tm-cn-week-head,
+#tmCalendarSideDockTimeline .fc .fc-timegrid .fc-col-header-cell.fc-day-today .tm-cn-week-head {
+    color: var(--tm-text-color) !important;
+    font-weight: 700 !important;
 }
 
 .tm-calendar-wrap .fc .fc-timegrid-all-day {
@@ -1983,10 +1995,12 @@
     --tm-calendar-now-indicator-line-width: 2px;
     --tm-calendar-month-visible-events: 3;
     --tm-calendar-month-event-line-height: 24px;
-    --tm-calendar-month-more-link-height: 18px;
+    --tm-calendar-month-more-link-height: 19px;
+    --tm-calendar-month-more-bg: rgba(127, 127, 127, 0.11);
+    --tm-calendar-month-more-text: var(--tm-secondary-text);
     --tm-calendar-month-day-header-height: 28px;
     --tm-calendar-month-day-vertical-padding: 10px;
-    --tm-calendar-month-day-min-height: calc(var(--tm-calendar-month-day-header-height) + (var(--tm-calendar-month-event-line-height) * var(--tm-calendar-month-visible-events)) + var(--tm-calendar-month-more-link-height) + var(--tm-calendar-month-day-vertical-padding));
+    --tm-calendar-month-day-min-height: calc(var(--tm-calendar-month-day-header-height) + (var(--tm-calendar-month-event-line-height) * var(--tm-calendar-month-visible-events)) + var(--tm-calendar-month-day-vertical-padding));
     --tm-cal-allday-summary-bg: color-mix(in srgb, var(--tm-section-bg) 82%, var(--tm-bg-color) 18%);
     --tm-cal-allday-summary-hover-bg: color-mix(in srgb, var(--tm-section-bg) 64%, var(--tm-bg-color) 36%);
     --fc-slot-min-height: 29px;
@@ -2705,6 +2719,61 @@
     z-index: 5;
 }
 
+.tm-calendar-host:not(.tm-cal-allday-collapsed) .fc .fc-timegrid-all-day .fc-daygrid-day-bottom,
+.tm-calendar-host:not(.tm-cal-allday-collapsed) .fc .fc-timegrid-allday .fc-daygrid-day-bottom,
+.tm-calendar-host:not(.tm-cal-allday-collapsed) .fc .fc-timegrid .fc-daygrid-day-bottom,
+.tm-calendar-host.fc:not(.tm-cal-allday-collapsed) .fc-timegrid-all-day .fc-daygrid-day-bottom,
+.tm-calendar-host.fc:not(.tm-cal-allday-collapsed) .fc-timegrid-allday .fc-daygrid-day-bottom,
+.tm-calendar-host.fc:not(.tm-cal-allday-collapsed) .fc-timegrid .fc-daygrid-day-bottom,
+#tmCalendarSideDockTimeline:not(.tm-cal-allday-collapsed) .fc .fc-timegrid-all-day .fc-daygrid-day-bottom,
+#tmCalendarSideDockTimeline:not(.tm-cal-allday-collapsed) .fc .fc-timegrid-allday .fc-daygrid-day-bottom,
+#tmCalendarSideDockTimeline:not(.tm-cal-allday-collapsed) .fc .fc-timegrid .fc-daygrid-day-bottom {
+    width: 100% !important;
+    margin-top: 0 !important;
+    padding: 0 !important;
+    line-height: 1 !important;
+    box-sizing: border-box;
+}
+
+.tm-calendar-host:not(.tm-cal-allday-collapsed) .fc .fc-timegrid-all-day .fc-daygrid-more-link,
+.tm-calendar-host:not(.tm-cal-allday-collapsed) .fc .fc-timegrid-allday .fc-daygrid-more-link,
+.tm-calendar-host:not(.tm-cal-allday-collapsed) .fc .fc-timegrid .fc-daygrid-more-link,
+.tm-calendar-host.fc:not(.tm-cal-allday-collapsed) .fc-timegrid-all-day .fc-daygrid-more-link,
+.tm-calendar-host.fc:not(.tm-cal-allday-collapsed) .fc-timegrid-allday .fc-daygrid-more-link,
+.tm-calendar-host.fc:not(.tm-cal-allday-collapsed) .fc-timegrid .fc-daygrid-more-link,
+#tmCalendarSideDockTimeline:not(.tm-cal-allday-collapsed) .fc .fc-timegrid-all-day .fc-daygrid-more-link,
+#tmCalendarSideDockTimeline:not(.tm-cal-allday-collapsed) .fc .fc-timegrid-allday .fc-daygrid-more-link,
+#tmCalendarSideDockTimeline:not(.tm-cal-allday-collapsed) .fc .fc-timegrid .fc-daygrid-more-link {
+    display: flex !important;
+    align-items: center;
+    justify-content: center;
+    float: none !important;
+    width: 100% !important;
+    min-width: 28px;
+    height: var(--tm-calendar-month-more-link-height, 19px);
+    min-height: var(--tm-calendar-month-more-link-height, 19px);
+    max-width: 100%;
+    margin: 0 !important;
+    padding: 0 6px 0 7px;
+    border-radius: 5px;
+    background-image: linear-gradient(var(--tm-calendar-month-more-bg, rgba(127, 127, 127, 0.11)), var(--tm-calendar-month-more-bg, rgba(127, 127, 127, 0.11)));
+    background-position: left top;
+    background-size: 100% 100%;
+    background-repeat: no-repeat;
+    background-color: var(--tm-calendar-month-more-bg, rgba(127, 127, 127, 0.11));
+    box-shadow: inset 0 -1px 0 var(--fc-page-bg-color, var(--tm-bg-color, #fff));
+    color: var(--tm-calendar-month-more-text, var(--tm-secondary-text)) !important;
+    font-size: 11px;
+    font-weight: 700;
+    line-height: 1.1;
+    text-align: center;
+    text-decoration: none !important;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    box-sizing: border-box;
+}
+
 .tm-calendar-host .fc .fc-event-title {
     font-weight: 600;
 }
@@ -3181,6 +3250,78 @@
     padding: 0 !important;
 }
 
+.tm-calendar-host .fc .tm-cn-holiday-event--festival.tm-cal-allday-soft-event,
+#tmCalendarSideDockTimeline .fc .tm-cn-holiday-event--festival.tm-cal-allday-soft-event {
+    border-color: transparent !important;
+}
+
+.tm-calendar-host .fc .tm-cn-holiday-event--festival.tm-cal-allday-soft-event .fc-event-main,
+#tmCalendarSideDockTimeline .fc .tm-cn-holiday-event--festival.tm-cal-allday-soft-event .fc-event-main,
+.tm-calendar-host .fc .tm-cn-holiday-event--festival.tm-cal-allday-soft-event .fc-event-title,
+#tmCalendarSideDockTimeline .fc .tm-cn-holiday-event--festival.tm-cal-allday-soft-event .fc-event-title {
+    color: var(--tm-cal-schedule-text, var(--tm-text-color)) !important;
+    font-size: 11px !important;
+    line-height: 1.1 !important;
+}
+
+.tm-calendar-host .fc .fc-dayGridMonth-view .fc-daygrid-event[data-tm-cal-source],
+#tmCalendarSideDockTimeline .fc .fc-dayGridMonth-view .fc-daygrid-event[data-tm-cal-source],
+.tm-calendar-host .fc .fc-popover .fc-daygrid-event[data-tm-cal-source],
+#tmCalendarSideDockTimeline .fc .fc-popover .fc-daygrid-event[data-tm-cal-source] {
+    font-size: 11px !important;
+    line-height: 1.1 !important;
+}
+
+.tm-calendar-host .fc .fc-dayGridMonth-view .fc-daygrid-event[data-tm-cal-source] .tm-cal-task-event-title,
+#tmCalendarSideDockTimeline .fc .fc-dayGridMonth-view .fc-daygrid-event[data-tm-cal-source] .tm-cal-task-event-title,
+.tm-calendar-host .fc .fc-dayGridMonth-view .fc-daygrid-event[data-tm-cal-source] .tm-cal-task-event-title-text,
+#tmCalendarSideDockTimeline .fc .fc-dayGridMonth-view .fc-daygrid-event[data-tm-cal-source] .tm-cal-task-event-title-text,
+.tm-calendar-host .fc .fc-popover .fc-daygrid-event[data-tm-cal-source] .tm-cal-task-event-title,
+#tmCalendarSideDockTimeline .fc .fc-popover .fc-daygrid-event[data-tm-cal-source] .tm-cal-task-event-title,
+.tm-calendar-host .fc .fc-popover .fc-daygrid-event[data-tm-cal-source] .tm-cal-task-event-title-text,
+#tmCalendarSideDockTimeline .fc .fc-popover .fc-daygrid-event[data-tm-cal-source] .tm-cal-task-event-title-text {
+    font-size: 11px !important;
+    line-height: 1.1 !important;
+}
+
+.tm-calendar-host .fc .fc-dayGridMonth-view .fc-daygrid-event[data-tm-cal-source] .tm-cal-task-event-title-text,
+#tmCalendarSideDockTimeline .fc .fc-dayGridMonth-view .fc-daygrid-event[data-tm-cal-source] .tm-cal-task-event-title-text,
+.tm-calendar-host .fc .fc-popover .fc-daygrid-event[data-tm-cal-source] .tm-cal-task-event-title-text,
+#tmCalendarSideDockTimeline .fc .fc-popover .fc-daygrid-event[data-tm-cal-source] .tm-cal-task-event-title-text {
+    display: block;
+    min-width: 0;
+    max-width: 100%;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.tm-calendar-host .fc .fc-dayGridMonth-view .fc-daygrid-event[data-tm-cal-source] .tm-cal-task-event-leading,
+#tmCalendarSideDockTimeline .fc .fc-dayGridMonth-view .fc-daygrid-event[data-tm-cal-source] .tm-cal-task-event-leading,
+.tm-calendar-host .fc .fc-popover .fc-daygrid-event[data-tm-cal-source] .tm-cal-task-event-leading,
+#tmCalendarSideDockTimeline .fc .fc-popover .fc-daygrid-event[data-tm-cal-source] .tm-cal-task-event-leading {
+    margin-left: -2px !important;
+}
+
+.tm-calendar-host .fc .fc-popover .fc-daygrid-event[data-tm-cal-source] .fc-event-main,
+#tmCalendarSideDockTimeline .fc .fc-popover .fc-daygrid-event[data-tm-cal-source] .fc-event-main,
+.tm-calendar-host .fc .fc-popover .fc-daygrid-event[data-tm-cal-source] .fc-event-main-frame,
+#tmCalendarSideDockTimeline .fc .fc-popover .fc-daygrid-event[data-tm-cal-source] .fc-event-main-frame {
+    padding: 0 !important;
+    min-width: 0 !important;
+    max-width: 100% !important;
+    overflow: hidden !important;
+}
+
+.tm-calendar-host .fc .fc-popover .tm-cal-task-event.tm-cal-task-event--allday,
+#tmCalendarSideDockTimeline .fc .fc-popover .tm-cal-task-event.tm-cal-task-event--allday,
+.tm-calendar-host .fc .fc-popover .tm-cal-schedule-stack.tm-cal-schedule-stack--allday,
+#tmCalendarSideDockTimeline .fc .fc-popover .tm-cal-schedule-stack.tm-cal-schedule-stack--allday {
+    padding: 3px 4px 4px 4px !important;
+    font-size: 11px !important;
+    line-height: 1.1 !important;
+}
+
 .tm-calendar-host .fc .tm-cn-holiday-pill,
 #tmCalendarSideDockTimeline .fc .tm-cn-holiday-pill {
     display: inline-flex;
@@ -3275,7 +3416,7 @@
 .tm-calendar-root--month-view .tm-calendar-host .fc .fc-daygrid-day,
 .tm-calendar-root--month-view .tm-calendar-host .fc .fc-scrollgrid-sync-inner,
 .tm-calendar-root--month-view .tm-calendar-host .fc .fc-daygrid-day-frame {
-    height: auto !important;
+    height: var(--tm-calendar-month-fit-row-height, auto) !important;
 }
 
 .tm-calendar-root--month-view .tm-calendar-host .fc .fc-daygrid-body td,
@@ -3301,7 +3442,7 @@
 }
 
 .tm-calendar-root--month-view .tm-calendar-host .fc .fc-daygrid-day-bottom {
-    min-height: var(--tm-calendar-month-more-link-height);
+    min-height: 0;
     flex: 0 0 auto;
 }
 
@@ -3318,7 +3459,7 @@
 }
 
 .tm-calendar-host .fc .fc-dayGridMonth-view .fc-daygrid-day-events {
-    min-height: calc((var(--tm-calendar-month-event-line-height) * var(--tm-calendar-month-visible-events)) + var(--tm-calendar-month-more-link-height));
+    min-height: calc(var(--tm-calendar-month-event-line-height) * var(--tm-calendar-month-visible-events));
     display: flex;
     flex-direction: column;
     justify-content: flex-start;
@@ -3326,10 +3467,89 @@
 }
 
 .tm-calendar-host .fc .fc-dayGridMonth-view .fc-daygrid-day-bottom {
-    margin-top: auto !important;
-    min-height: var(--tm-calendar-month-more-link-height);
+    margin-top: 0 !important;
+    min-height: 0;
     padding-top: 0 !important;
     line-height: 1;
+}
+
+.tm-calendar-host .fc .fc-dayGridMonth-view .fc-daygrid-day-bottom.tm-cal-month-more-standalone {
+    position: absolute;
+    top: var(--tm-calendar-month-more-standalone-top, 0);
+    left: 2px;
+    right: 2px;
+    z-index: 7;
+    display: flex;
+    align-items: center;
+    height: var(--tm-calendar-month-more-link-height, 19px);
+    min-height: var(--tm-calendar-month-more-link-height, 19px) !important;
+    max-width: calc(100% - 4px);
+    margin: 0 !important;
+    padding: 0 !important;
+    line-height: 1 !important;
+}
+
+.tm-calendar-host .fc .fc-dayGridMonth-view .fc-daygrid-day-bottom.tm-cal-month-more-inline {
+    position: absolute;
+    top: var(--tm-calendar-month-more-inline-top, 0);
+    right: 4px;
+    z-index: 8;
+    display: flex;
+    align-items: center;
+    max-width: calc(100% - 8px);
+    min-height: 0 !important;
+    margin: 0 !important;
+    padding: 0 !important;
+    line-height: 1 !important;
+    pointer-events: none;
+}
+
+.tm-calendar-host .fc .fc-dayGridMonth-view .fc-daygrid-day-bottom.tm-cal-month-more-inline .fc-more-link,
+.tm-calendar-host .fc .fc-dayGridMonth-view .fc-daygrid-day-bottom.tm-cal-month-more-standalone .fc-more-link {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    float: none;
+    min-width: 28px;
+    height: var(--tm-calendar-month-more-link-height, 19px);
+    min-height: var(--tm-calendar-month-more-link-height, 19px);
+    max-width: 100%;
+    margin: 0;
+    padding: 0 6px 0 7px;
+    border-radius: 5px;
+    background-image: linear-gradient(var(--tm-calendar-month-more-bg, rgba(127, 127, 127, 0.11)), var(--tm-calendar-month-more-bg, rgba(127, 127, 127, 0.11)));
+    background-position: left top;
+    background-size: 100% 100%;
+    background-repeat: no-repeat;
+    background-color: rgba(127, 127, 127, 0.11);
+    background-color: var(--tm-calendar-month-more-bg, rgba(127, 127, 127, 0.11));
+    box-shadow: inset 0 -1px 0 var(--fc-page-bg-color, var(--tm-bg-color, #fff));
+    color: var(--tm-calendar-month-more-text, var(--tm-secondary-text));
+    font-size: 11px;
+    font-weight: 700;
+    line-height: 1.1;
+    text-decoration: none;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    pointer-events: auto;
+    box-sizing: border-box;
+}
+
+.tm-calendar-host .fc .fc-dayGridMonth-view .fc-daygrid-day-bottom.tm-cal-month-more-standalone .fc-more-link {
+    width: 100%;
+}
+
+.tm-calendar-host .fc .fc-dayGridMonth-view .fc-daygrid-day-bottom.tm-cal-month-more-inline .fc-more-link:hover,
+.tm-calendar-host .fc .fc-dayGridMonth-view .fc-daygrid-day-bottom.tm-cal-month-more-standalone .fc-more-link:hover {
+    background-color: color-mix(in srgb, var(--tm-primary-color) 10%, var(--tm-section-bg));
+    color: var(--tm-primary-color);
+}
+
+.tm-calendar-host .fc .fc-dayGridMonth-view .tm-cal-month-more-inline-source .fc-daygrid-event {
+    width: calc(100% - var(--tm-calendar-month-more-inline-width, 33px)) !important;
+    max-width: calc(100% - var(--tm-calendar-month-more-inline-width, 33px)) !important;
+    margin-right: var(--tm-calendar-month-more-inline-width, 33px) !important;
 }
 
 .tm-calendar-host .fc .fc-daygrid-day.tm-cal-drop-target {
@@ -3378,6 +3598,23 @@
     gap: 4px;
     margin-left: auto;
     order: 2;
+}
+
+.tm-calendar-host .fc .fc-dayGridMonth-view .fc-daygrid-day.fc-day-today .fc-daygrid-day-number,
+.tm-calendar-host.fc .fc-dayGridMonth-view .fc-daygrid-day.fc-day-today .fc-daygrid-day-number,
+.tm-calendar-wrap .fc .fc-dayGridMonth-view .fc-daygrid-day.fc-day-today .fc-daygrid-day-number {
+    display: inline-flex !important;
+    align-items: center;
+    min-width: 22px;
+    min-height: 20px;
+    justify-content: center;
+    padding: 1px 6px;
+    border-radius: 5px;
+    background: var(--tm-primary-color) !important;
+    color: var(--tm-calendar-today-date-text, #fff) !important;
+    font-weight: 400 !important;
+    line-height: 1;
+    box-shadow: 0 0 0 2px color-mix(in srgb, var(--tm-primary-color) 18%, transparent);
 }
 
 .tm-calendar-host .fc .tm-cn-lunar--month {

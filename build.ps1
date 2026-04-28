@@ -90,6 +90,7 @@ try {
         '.vscode',
         '.DS_Store',
         'node_modules',
+        'docs',
         'GUIDE_zh_CN.md',
         'REPRO_SYNC.md',
         'CHANGELOG.md',

@@ -769,6 +769,20 @@
         };
     }
 
+    function __tmApplyMergedWhiteboardContentState(target, remoteData) {
+        const out = (target && typeof target === 'object') ? target : {};
+        const merged = __tmMergeWhiteboardSettingsState(remoteData, out);
+        out.whiteboardStateVersion = merged.whiteboardStateVersion;
+        out.whiteboardLinks = merged.whiteboardLinks;
+        out.whiteboardDetachedChildren = merged.whiteboardDetachedChildren;
+        out.whiteboardNotes = merged.whiteboardNotes;
+        out.whiteboardNodePos = merged.whiteboardNodePos;
+        out.whiteboardPlacedTaskIds = merged.whiteboardPlacedTaskIds;
+        out.whiteboardDocFrameSize = merged.whiteboardDocFrameSize;
+        out.whiteboardAllTabsDocOrderByGroup = merged.whiteboardAllTabsDocOrderByGroup;
+        return out;
+    }
+
     function __tmNormalizeWhiteboardStoreData(input) {
         const raw = (input && typeof input === 'object') ? input : {};
         const cards0 = (raw.cards && typeof raw.cards === 'object' && !Array.isArray(raw.cards)) ? raw.cards : {};
@@ -1931,6 +1945,15 @@
         }
     };
 
+    const TM_TASK_PARENT_LOOKUP_DEPTH_DEFAULT = 0;
+    const TM_TASK_PARENT_LOOKUP_DEPTH_MAX = 6;
+
+    function __tmNormalizeTaskParentLookupDepth(value) {
+        const n = Number(value);
+        if (!Number.isFinite(n)) return TM_TASK_PARENT_LOOKUP_DEPTH_DEFAULT;
+        return Math.max(0, Math.min(TM_TASK_PARENT_LOOKUP_DEPTH_MAX, Math.round(n)));
+    }
+
     // 设置存储（使用云端同步存储，支持跨设备同步）
     const SettingsStore = {
         data: {
@@ -1941,6 +1964,7 @@
             selectedDocIds: [],
             queryLimit: 500,
             recursiveDocLimit: 2000,
+            taskParentLookupDepth: TM_TASK_PARENT_LOOKUP_DEPTH_DEFAULT,
             groupByDocName: true,
             groupByTime: false,
             defaultViewMode: 'checklist',
@@ -2013,6 +2037,7 @@
             newTaskDailyNoteAppendToBottom: false,
             headingGroupCreateAtSectionEnd: false,
             enableTomatoIntegration: true,
+            enablePointsRewardIntegration: false,
             tomatoSpentAttrMode: 'minutes',
             tomatoSpentAttrKeyMinutes: 'custom-tomato-minutes',
             tomatoSpentAttrKeyHours: 'custom-tomato-time',
@@ -2021,6 +2046,7 @@
             calendarInitialView: 'timeGridWeek',
             calendarFirstDay: 1,
             calendarMonthAggregate: true,
+            calendarMonthAdaptiveRowHeight: true,
             calendarMonthMinVisibleEvents: 3,
             calendarShowSchedule: true,
             calendarScheduleReminderEnabled: true,
@@ -2132,6 +2158,7 @@
             whiteboardSidebarCollapsed: false,
             whiteboardSidebarWidth: 300,
             whiteboardShowDone: false,
+            whiteboardNavigatorHidden: false,
             whiteboardCardFields: ['priority', 'status', 'date'],
             whiteboardView: { x: 64, y: 40, zoom: 1 },
             whiteboardNodePos: {},
@@ -2387,6 +2414,7 @@
                         try {
                             const cloudData = JSON.parse(text);
                             if (cloudData && typeof cloudData === 'object' && Object.keys(cloudData).length > 0) {
+                                const localSettingsBeforeCloud = __tmCloneJsonSafe(this.data, { ...(this.data || {}) });
                                 const localSettingsUpdatedAt = Number(this.data.settingsUpdatedAt) || 0;
                                 const cloudSettingsUpdatedAt = Number(cloudData.settingsUpdatedAt) || 0;
                                 const shouldApplyCloudDocGroupState = __tmShouldPreferRemoteDocGroupState(this.data, cloudData, {
@@ -2397,6 +2425,8 @@
                                 });
                                 const localCollapseUpdatedAt = __tmGetCollapsedSessionUpdatedAt(this.data);
                                 const cloudCollapseUpdatedAt = __tmGetCollapsedSessionUpdatedAt(cloudData);
+                                const localWhiteboardStateVersion = __tmParseVersionNumber(this.data.whiteboardStateVersion);
+                                const cloudWhiteboardStateVersion = __tmParseVersionNumber(cloudData.whiteboardStateVersion);
                                 const localCustomFieldDefsVersion = __tmParseVersionNumber(this.data.customFieldDefsVersion);
                                 const cloudCustomFieldDefsVersion = __tmParseVersionNumber(cloudData.customFieldDefsVersion);
                                 const resolvedCustomFieldSchema = __tmResolveCustomFieldDefsOnLoad(
@@ -2419,6 +2449,9 @@
                                         });
                                     }
                                     __tmApplySettingsFieldUpdatesByMap(this.data, cloudData);
+                                    if (cloudWhiteboardStateVersion > localWhiteboardStateVersion) {
+                                        __tmApplyMergedWhiteboardContentState(this.data, cloudData);
+                                    }
                                     {
                                         const cloudTreeGuidesUpdatedAt = __tmParseUpdatedAtNumber(cloudData.checklistCompactTreeGuidesUpdatedAt)
                                             || (typeof cloudData.checklistCompactTreeGuides === 'boolean' ? cloudSettingsUpdatedAt : 0);
@@ -2453,6 +2486,7 @@
                                 if (shouldApplyCloudDocGroupState && Array.isArray(cloudData.selectedDocIds)) this.data.selectedDocIds = cloudData.selectedDocIds;
                                 if (typeof cloudData.queryLimit === 'number') this.data.queryLimit = cloudData.queryLimit;
                                 if (typeof cloudData.recursiveDocLimit === 'number') this.data.recursiveDocLimit = cloudData.recursiveDocLimit;
+                                if (typeof cloudData.taskParentLookupDepth === 'number') this.data.taskParentLookupDepth = __tmNormalizeTaskParentLookupDepth(cloudData.taskParentLookupDepth);
                                 if (typeof cloudData.groupByDocName === 'boolean') this.data.groupByDocName = cloudData.groupByDocName;
                                 if (typeof cloudData.groupByTime === 'boolean') this.data.groupByTime = cloudData.groupByTime;
                                 if (typeof cloudData.defaultViewMode === 'string') this.data.defaultViewMode = cloudData.defaultViewMode;
@@ -2521,6 +2555,7 @@
                                 if (typeof cloudData.newTaskDailyNoteAppendToBottom === 'boolean') this.data.newTaskDailyNoteAppendToBottom = cloudData.newTaskDailyNoteAppendToBottom;
                                 if (typeof cloudData.headingGroupCreateAtSectionEnd === 'boolean') this.data.headingGroupCreateAtSectionEnd = cloudData.headingGroupCreateAtSectionEnd;
                                 if (typeof cloudData.enableTomatoIntegration === 'boolean') this.data.enableTomatoIntegration = cloudData.enableTomatoIntegration;
+                                if (typeof cloudData.enablePointsRewardIntegration === 'boolean') this.data.enablePointsRewardIntegration = cloudData.enablePointsRewardIntegration;
                                 if (typeof cloudData.tomatoSpentAttrMode === 'string') this.data.tomatoSpentAttrMode = cloudData.tomatoSpentAttrMode;
                                 if (typeof cloudData.tomatoSpentAttrKeyMinutes === 'string') this.data.tomatoSpentAttrKeyMinutes = cloudData.tomatoSpentAttrKeyMinutes;
                                 if (typeof cloudData.tomatoSpentAttrKeyHours === 'string') this.data.tomatoSpentAttrKeyHours = cloudData.tomatoSpentAttrKeyHours;
@@ -2529,6 +2564,7 @@
                                 if (typeof cloudData.calendarInitialView === 'string') this.data.calendarInitialView = cloudData.calendarInitialView;
                                 if (typeof cloudData.calendarFirstDay === 'number') this.data.calendarFirstDay = cloudData.calendarFirstDay;
                                 if (typeof cloudData.calendarMonthAggregate === 'boolean') this.data.calendarMonthAggregate = cloudData.calendarMonthAggregate;
+                                if (typeof cloudData.calendarMonthAdaptiveRowHeight === 'boolean') this.data.calendarMonthAdaptiveRowHeight = cloudData.calendarMonthAdaptiveRowHeight;
                                 if (typeof cloudData.calendarMonthMinVisibleEvents === 'number') this.data.calendarMonthMinVisibleEvents = cloudData.calendarMonthMinVisibleEvents;
                                 if (typeof cloudData.calendarShowSchedule === 'boolean') this.data.calendarShowSchedule = cloudData.calendarShowSchedule;
                                 if (typeof cloudData.calendarScheduleReminderEnabled === 'boolean') this.data.calendarScheduleReminderEnabled = cloudData.calendarScheduleReminderEnabled;
@@ -2669,23 +2705,16 @@
                                 if (typeof cloudData.groupSortByBestSubtaskTimeInTimeQuadrant === 'boolean') this.data.groupSortByBestSubtaskTimeInTimeQuadrant = cloudData.groupSortByBestSubtaskTimeInTimeQuadrant;
                                 if (typeof cloudData.collapseAllIncludesGroups === 'boolean') this.data.collapseAllIncludesGroups = cloudData.collapseAllIncludesGroups;
                                 if (typeof cloudData.enableGroupTaskBgByGroupColor === 'boolean') this.data.enableGroupTaskBgByGroupColor = cloudData.enableGroupTaskBgByGroupColor;
-                                if (Array.isArray(cloudData.whiteboardLinks)) this.data.whiteboardLinks = cloudData.whiteboardLinks;
+                                __tmApplyMergedWhiteboardContentState(this.data, cloudData);
                                 if (typeof cloudData.whiteboardAutoConnectByCreated === 'boolean') this.data.whiteboardAutoConnectByCreated = cloudData.whiteboardAutoConnectByCreated;
-                                if (cloudData.whiteboardDetachedChildren && typeof cloudData.whiteboardDetachedChildren === 'object') this.data.whiteboardDetachedChildren = cloudData.whiteboardDetachedChildren;
-                                if (Array.isArray(cloudData.whiteboardNotes)) this.data.whiteboardNotes = cloudData.whiteboardNotes;
                                 if (typeof cloudData.whiteboardTool === 'string') this.data.whiteboardTool = cloudData.whiteboardTool;
                                 if (typeof cloudData.whiteboardSidebarCollapsed === 'boolean') this.data.whiteboardSidebarCollapsed = cloudData.whiteboardSidebarCollapsed;
                                 if (typeof cloudData.whiteboardSidebarWidth === 'number') this.data.whiteboardSidebarWidth = cloudData.whiteboardSidebarWidth;
                                 if (typeof cloudData.whiteboardShowDone === 'boolean') this.data.whiteboardShowDone = cloudData.whiteboardShowDone;
                                 if (Array.isArray(cloudData.whiteboardCardFields)) this.data.whiteboardCardFields = cloudData.whiteboardCardFields;
                                 if (cloudData.whiteboardView && typeof cloudData.whiteboardView === 'object') this.data.whiteboardView = cloudData.whiteboardView;
-                                if (cloudData.whiteboardNodePos && typeof cloudData.whiteboardNodePos === 'object') this.data.whiteboardNodePos = cloudData.whiteboardNodePos;
                                 if (typeof cloudData.whiteboardAutoLayout === 'boolean') this.data.whiteboardAutoLayout = cloudData.whiteboardAutoLayout;
-                                if (cloudData.whiteboardPlacedTaskIds && typeof cloudData.whiteboardPlacedTaskIds === 'object') this.data.whiteboardPlacedTaskIds = cloudData.whiteboardPlacedTaskIds;
-                                if (typeof cloudData.whiteboardStateVersion === 'number') this.data.whiteboardStateVersion = cloudData.whiteboardStateVersion;
-                                if (cloudData.whiteboardDocFrameSize && typeof cloudData.whiteboardDocFrameSize === 'object') this.data.whiteboardDocFrameSize = cloudData.whiteboardDocFrameSize;
                                 if (typeof cloudData.whiteboardAllTabsLayoutMode === 'string') this.data.whiteboardAllTabsLayoutMode = cloudData.whiteboardAllTabsLayoutMode;
-                                if (cloudData.whiteboardAllTabsDocOrderByGroup && typeof cloudData.whiteboardAllTabsDocOrderByGroup === 'object') this.data.whiteboardAllTabsDocOrderByGroup = cloudData.whiteboardAllTabsDocOrderByGroup;
                                 if (typeof cloudData.whiteboardSequenceMode === 'boolean') this.data.whiteboardSequenceMode = cloudData.whiteboardSequenceMode;
                                 if (cloudData.docColorMap && typeof cloudData.docColorMap === 'object') this.data.docColorMap = cloudData.docColorMap;
                                 if (typeof cloudData.docColorSeed === 'number') this.data.docColorSeed = cloudData.docColorSeed;
@@ -2708,6 +2737,7 @@
                                 else if (typeof cloudData.aiScheduleWindows === 'string') this.data.aiScheduleWindows = String(cloudData.aiScheduleWindows).split(/\r?\n/);
                                 if (typeof cloudData.serverSyncOnManualRefresh === 'boolean') this.data.serverSyncOnManualRefresh = cloudData.serverSyncOnManualRefresh;
                                 if (typeof cloudData.serverSyncSessionStateOnManualRefresh === 'boolean') this.data.serverSyncSessionStateOnManualRefresh = cloudData.serverSyncSessionStateOnManualRefresh;
+                                const restoredLocalSettingFields = __tmApplySettingsFieldUpdatesByMap(this.data, localSettingsBeforeCloud);
 
                                 const validModes = new Set(['none', 'doc', 'time', 'quadrant', 'task']);
                                 if (!validModes.has(String(this.data.groupMode || ''))) {
@@ -2766,7 +2796,7 @@
                                 this.refreshCollapsedStateSyncState();
                                 this.refreshSettingsFieldSyncState();
                                 this.loaded = true;
-                                if (migratedLegacyTopbarDefaults) {
+                                if (migratedLegacyTopbarDefaults || restoredLocalSettingFields.length > 0) {
                                     try { await this.save(); } catch (e) {}
                                 }
                                 return;
@@ -2799,6 +2829,7 @@
             this.data.selectedDocIds = Storage.get('tm_selected_doc_ids', []) || [];
             this.data.queryLimit = Storage.get('tm_query_limit', 500);
             this.data.recursiveDocLimit = Storage.get('tm_recursive_doc_limit', this.data.recursiveDocLimit);
+            this.data.taskParentLookupDepth = __tmNormalizeTaskParentLookupDepth(Storage.get('tm_task_parent_lookup_depth', this.data.taskParentLookupDepth));
             this.data.groupByDocName = Storage.get('tm_group_by_docname', true);
             this.data.groupByTime = Storage.get('tm_group_by_time', false);
             this.data.defaultViewMode = Storage.get('tm_default_view_mode', this.data.defaultViewMode);
@@ -2907,6 +2938,7 @@
             this.data.taskContentWrapMaxLines = Number(Storage.get('tm_task_content_wrap_max_lines', this.data.taskContentWrapMaxLines));
             this.data.taskRemarkWrapMaxLines = Number(Storage.get('tm_task_remark_wrap_max_lines', this.data.taskRemarkWrapMaxLines));
             this.data.enableTomatoIntegration = Storage.get('tm_enable_tomato_integration', true);
+            this.data.enablePointsRewardIntegration = !!Storage.get('tm_enable_points_reward_integration', this.data.enablePointsRewardIntegration);
             this.data.tomatoSpentAttrMode = Storage.get('tm_tomato_spent_attr_mode', 'minutes');
             this.data.tomatoSpentAttrKeyMinutes = Storage.get('tm_tomato_spent_attr_key_minutes', this.data.tomatoSpentAttrKeyMinutes);
             this.data.tomatoSpentAttrKeyHours = Storage.get('tm_tomato_spent_attr_key_hours', this.data.tomatoSpentAttrKeyHours);
@@ -2915,6 +2947,7 @@
             this.data.calendarInitialView = Storage.get('tm_calendar_initial_view', this.data.calendarInitialView);
             this.data.calendarFirstDay = Number(Storage.get('tm_calendar_first_day', this.data.calendarFirstDay));
             this.data.calendarMonthAggregate = Storage.get('tm_calendar_month_aggregate', this.data.calendarMonthAggregate);
+            this.data.calendarMonthAdaptiveRowHeight = !!Storage.get('tm_calendar_month_adaptive_row_height', this.data.calendarMonthAdaptiveRowHeight);
             this.data.calendarMonthMinVisibleEvents = Number(Storage.get('tm_calendar_month_min_visible_events', this.data.calendarMonthMinVisibleEvents));
             this.data.calendarShowSchedule = Storage.get('tm_calendar_show_schedule', this.data.calendarShowSchedule);
             this.data.calendarScheduleReminderEnabled = !!Storage.get('tm_calendar_schedule_reminder_enabled', this.data.calendarScheduleReminderEnabled);
@@ -3005,6 +3038,7 @@
             this.data.whiteboardSidebarCollapsed = Storage.get('tm_whiteboard_sidebar_collapsed', this.data.whiteboardSidebarCollapsed);
             this.data.whiteboardSidebarWidth = Storage.get('tm_whiteboard_sidebar_width', this.data.whiteboardSidebarWidth);
             this.data.whiteboardShowDone = Storage.get('tm_whiteboard_show_done', this.data.whiteboardShowDone);
+            this.data.whiteboardNavigatorHidden = !!Storage.get('tm_whiteboard_navigator_hidden', this.data.whiteboardNavigatorHidden);
             this.data.whiteboardCardFields = Storage.get('tm_whiteboard_card_fields', this.data.whiteboardCardFields) || this.data.whiteboardCardFields;
             this.data.whiteboardView = Storage.get('tm_whiteboard_view', this.data.whiteboardView) || this.data.whiteboardView;
             this.data.collapseAllIncludesGroups = !!Storage.get('tm_collapse_all_includes_groups', this.data.collapseAllIncludesGroups);
@@ -3135,6 +3169,8 @@
             Storage.set('tm_selected_doc_ids', this.data.selectedDocIds);
             Storage.set('tm_query_limit', this.data.queryLimit);
             Storage.set('tm_recursive_doc_limit', this.data.recursiveDocLimit);
+            this.data.taskParentLookupDepth = __tmNormalizeTaskParentLookupDepth(this.data.taskParentLookupDepth);
+            Storage.set('tm_task_parent_lookup_depth', this.data.taskParentLookupDepth);
             Storage.set('tm_group_by_docname', this.data.groupByDocName);
             Storage.set('tm_group_by_time', this.data.groupByTime);
             this.data.enabledViews = __tmNormalizeEnabledViews(this.data.enabledViews);
@@ -3252,6 +3288,7 @@
             Storage.set('tm_task_content_wrap_max_lines', Number(this.data.taskContentWrapMaxLines) || 3);
             Storage.set('tm_task_remark_wrap_max_lines', Number(this.data.taskRemarkWrapMaxLines) || 2);
             Storage.set('tm_enable_tomato_integration', !!this.data.enableTomatoIntegration);
+            Storage.set('tm_enable_points_reward_integration', !!this.data.enablePointsRewardIntegration);
             Storage.set('tm_tomato_spent_attr_mode', String(this.data.tomatoSpentAttrMode || 'minutes'));
             Storage.set('tm_tomato_spent_attr_key_minutes', String(this.data.tomatoSpentAttrKeyMinutes || '').trim());
             Storage.set('tm_tomato_spent_attr_key_hours', String(this.data.tomatoSpentAttrKeyHours || '').trim());
@@ -3260,6 +3297,7 @@
             Storage.set('tm_calendar_initial_view', String(this.data.calendarInitialView || 'timeGridWeek').trim() || 'timeGridWeek');
             Storage.set('tm_calendar_first_day', Number(this.data.calendarFirstDay) === 0 ? 0 : 1);
             Storage.set('tm_calendar_month_aggregate', !!this.data.calendarMonthAggregate);
+            Storage.set('tm_calendar_month_adaptive_row_height', !!this.data.calendarMonthAdaptiveRowHeight);
             Storage.set('tm_calendar_month_min_visible_events', Number(this.data.calendarMonthMinVisibleEvents) || 3);
             Storage.set('tm_calendar_show_schedule', !!this.data.calendarShowSchedule);
             Storage.set('tm_calendar_schedule_reminder_enabled', !!this.data.calendarScheduleReminderEnabled);
@@ -3356,6 +3394,7 @@
             Storage.set('tm_whiteboard_sidebar_collapsed', !!this.data.whiteboardSidebarCollapsed);
             Storage.set('tm_whiteboard_sidebar_width', Number(this.data.whiteboardSidebarWidth) || 300);
             Storage.set('tm_whiteboard_show_done', !!this.data.whiteboardShowDone);
+            Storage.set('tm_whiteboard_navigator_hidden', !!this.data.whiteboardNavigatorHidden);
             Storage.set('tm_whiteboard_card_fields', this.data.whiteboardCardFields || []);
             Storage.set('tm_whiteboard_view', this.data.whiteboardView || { x: 64, y: 40, zoom: 1 });
             Storage.set('tm_collapse_all_includes_groups', !!this.data.collapseAllIncludesGroups);
@@ -3482,6 +3521,7 @@
             const seed = Number(this.data.docColorSeed);
             this.data.docColorSeed = (Number.isFinite(seed) && seed > 0) ? Math.floor(seed) : 1;
             this.data.docDefaultColorScheme.seed = this.data.docColorSeed;
+            this.data.taskParentLookupDepth = __tmNormalizeTaskParentLookupDepth(this.data.taskParentLookupDepth);
             const kw = Number(this.data.kanbanColumnWidth);
             this.data.kanbanColumnWidth = Number.isFinite(kw) ? Math.max(220, Math.min(520, Math.round(kw))) : 320;
             const wbStreamMinW = Number(this.data.whiteboardAllTabsCardMinWidth);
@@ -3507,6 +3547,7 @@
                     ? Math.max(1, Math.min(8, Math.round(monthMinVisibleEvents)))
                     : 3;
             }
+            this.data.calendarMonthAdaptiveRowHeight = this.data.calendarMonthAdaptiveRowHeight !== false;
             this.data.calendarSidebarDefaultPage = String(this.data.calendarSidebarDefaultPage || '').trim() === 'tasks' ? 'tasks' : 'calendar';
             {
                 const pos = Number(this.data.calendar3DayTodayPosition);
@@ -3541,11 +3582,12 @@
                 : {};
             this.data.whiteboardNotes = Array.isArray(this.data.whiteboardNotes) ? this.data.whiteboardNotes : [];
             const wbTool = String(this.data.whiteboardTool || 'pan').trim();
-            this.data.whiteboardTool = (wbTool === 'select' || wbTool === 'text' || wbTool === 'pan') ? wbTool : 'pan';
+            this.data.whiteboardTool = (wbTool === 'select' || wbTool === 'text' || wbTool === 'sticky' || wbTool === 'pan') ? wbTool : 'pan';
             this.data.whiteboardSidebarCollapsed = !!this.data.whiteboardSidebarCollapsed;
             const wbSidebarWidth = Number(this.data.whiteboardSidebarWidth);
             this.data.whiteboardSidebarWidth = Number.isFinite(wbSidebarWidth) ? Math.max(220, Math.min(520, Math.round(wbSidebarWidth))) : 300;
             this.data.whiteboardShowDone = !!this.data.whiteboardShowDone;
+            this.data.whiteboardNavigatorHidden = !!this.data.whiteboardNavigatorHidden;
             this.data.whiteboardCardFields = __tmNormalizeTaskCardFieldList(this.data.whiteboardCardFields, ['priority', 'status', 'date']);
             const wv0 = (this.data.whiteboardView && typeof this.data.whiteboardView === 'object') ? this.data.whiteboardView : {};
             const x0 = Number(wv0.x);
@@ -3615,9 +3657,17 @@
             return this.savePromise;
         },
 
+        async saveNow() {
+            try { if (this.saveTimer) clearTimeout(this.saveTimer); } catch (e) {}
+            this.saveTimer = null;
+            if (this.saving) return this.savePromise || undefined;
+            if (!this.saveDirty) return this.savePromise || undefined;
+            return this.flushSave();
+        },
+
         async flushSave() {
-            if (this.saving) return;
-            if (!this.saveDirty) return;
+            if (this.saving) return this.savePromise || undefined;
+            if (!this.saveDirty) return this.savePromise || undefined;
             this.saving = true;
             this.saveDirty = false;
             try {

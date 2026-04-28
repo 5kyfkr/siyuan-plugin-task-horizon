@@ -1820,15 +1820,24 @@
             const parts = this.splitPatchByStorage(taskId, patch, options);
             const fieldKeys = __tmGetPatchFieldKeys(parts.normalized);
             const task = __tmTaskStateKernel.getTask(taskId);
+            const previousDone = !!task?.done;
             const statusBeforeMarker = Object.keys(parts.statusPatch || {}).length > 0
                 ? (__tmResolveTaskMarkdownMarker(task) || __tmResolveTaskMarker(task))
                 : '';
+            const rewardPriorityScore = !!SettingsStore?.data?.enablePointsRewardIntegration
+                && parts.doneValue === true
+                && !previousDone
+                && !__tmUndoState?.applying
+                ? Math.max(0, Math.round(Number(__tmEnsureTaskPriorityScore(task, { force: true })) || 0))
+                : 0;
             return {
                 taskId: String(taskId || '').trim(),
                 originalPatch: { ...(patch && typeof patch === 'object' ? patch : {}) },
                 normalizedPatch: parts.normalized,
                 fieldKeys,
                 doneValue: parts.doneValue,
+                previousDone,
+                rewardPriorityScore,
                 statusPatch: parts.statusPatch,
                 statusBefore: Object.keys(parts.statusPatch || {}).length > 0
                     ? {
@@ -1870,6 +1879,9 @@
                         statusPatch: plan.statusPatch,
                         refreshMode: 'local',
                         scheduleId: String(opts.scheduleId || '').trim(),
+                        previousDone: plan.previousDone === true,
+                        previousStatusId: String(plan?.statusBefore?.statusId || '').trim(),
+                        rewardPriorityScore: Number(plan.rewardPriorityScore) || 0,
                     });
                 } else if (plan.statusPatch && Object.keys(plan.statusPatch).length > 0) {
                     await __tmApplyTaskStatus(taskId, String(plan.statusPatch.customStatus || '').trim(), {
@@ -6339,7 +6351,30 @@
         `;
     }
 
-    function __tmBuildTaskDetailRemarkToolbarHtml() {
+    function __tmGetWhiteboardStickyThemes() {
+        return [
+            { value: 'yellow', label: '黄色' },
+            { value: 'green', label: '绿色' },
+            { value: 'red', label: '红色' },
+            { value: 'blue', label: '蓝色' },
+            { value: 'purple', label: '紫色' },
+        ];
+    }
+
+    function __tmNormalizeWhiteboardStickyTheme(value) {
+        const raw = String(value || '').trim().toLowerCase();
+        return __tmGetWhiteboardStickyThemes().some((item) => item.value === raw) ? raw : 'yellow';
+    }
+
+    function __tmIsWhiteboardStickyNote(note) {
+        return !!(note && typeof note === 'object' && String(note.type || '').trim() === 'sticky');
+    }
+
+    function __tmBuildRemarkMarkdownToolbarHtml(options = {}) {
+        const opts = (options && typeof options === 'object') ? options : {};
+        const toolAttr = String(opts.toolAttribute || 'data-tm-detail-remark-tool').trim() || 'data-tm-detail-remark-tool';
+        const buttonClass = String(opts.buttonClass || 'bc-btn bc-btn--sm tm-task-detail-remark-toolbar-btn').trim() || 'bc-btn bc-btn--sm tm-task-detail-remark-toolbar-btn';
+        const tooltipSide = String(opts.tooltipSide || 'top').trim() || 'top';
         const tools = [
             { action: 'outdent', title: '取消缩进', content: __tmRenderLucideIcon('text-outdent') },
             { action: 'indent', title: '缩进', content: __tmRenderLucideIcon('text-indent') },
@@ -6353,10 +6388,64 @@
         ];
         return tools.map((tool) => `
             <button type="button"
-                class="bc-btn bc-btn--sm tm-task-detail-remark-toolbar-btn"
-                data-tm-detail-remark-tool="${esc(tool.action)}"
-                ${__tmBuildTooltipAttrs(tool.title, { side: 'top', ariaLabel: false })}>${tool.content || tool.label || ''}</button>
+                class="${esc(buttonClass)}"
+                ${toolAttr}="${esc(tool.action)}"
+                ${__tmBuildTooltipAttrs(tool.title, { side: tooltipSide, ariaLabel: false })}>${tool.content || tool.label || ''}</button>
         `).join('');
+    }
+
+    function __tmBuildTaskDetailRemarkToolbarHtml() {
+        return __tmBuildRemarkMarkdownToolbarHtml();
+    }
+
+    function __tmApplyRemarkMarkdownTool(textarea, action) {
+        if (!(textarea instanceof HTMLTextAreaElement)) return false;
+        const key = String(action || '').trim();
+        if (!key) return false;
+        if (key === 'indent') return __tmAdjustRemarkIndent(textarea, false);
+        if (key === 'outdent') return __tmAdjustRemarkIndent(textarea, true);
+        if (key === 'bold') return __tmWrapRemarkSelection(textarea, '**');
+        if (key === 'italic') return __tmWrapRemarkSelection(textarea, '*');
+        if (key === 'code') return __tmWrapRemarkSelection(textarea, '`');
+        if (key === 'link') return __tmInsertRemarkLinkTemplate(textarea);
+        if (key === 'quote') return __tmToggleRemarkLinePrefix(textarea, '> ');
+        if (key === 'bullet') return __tmToggleRemarkLinePrefix(textarea, '- ');
+        if (key === 'ordered') return __tmToggleRemarkOrderedList(textarea);
+        return false;
+    }
+
+    function __tmBindRemarkMarkdownToolbar(toolbar, textarea, options = {}) {
+        if (!(toolbar instanceof HTMLElement) || !(textarea instanceof HTMLTextAreaElement)) return;
+        const opts = (options && typeof options === 'object') ? options : {};
+        const toolAttr = String(opts.toolAttribute || 'data-tm-detail-remark-tool').trim() || 'data-tm-detail-remark-tool';
+        const bind = typeof opts.on === 'function'
+            ? opts.on
+            : (target, type, handler, listenerOptions) => {
+                try { target.addEventListener(type, handler, listenerOptions); } catch (e) {}
+            };
+        const runApply = typeof opts.apply === 'function' ? opts.apply : (fn) => fn();
+        toolbar.querySelectorAll(`[${toolAttr}]`).forEach((button) => {
+            if (!(button instanceof HTMLButtonElement)) return;
+            bind(button, 'mousedown', (ev) => {
+                try { ev.preventDefault(); } catch (e) {}
+                if (typeof opts.onMouseDown === 'function') {
+                    try { opts.onMouseDown(ev, button); } catch (e) {}
+                }
+            });
+            bind(button, 'click', (ev) => {
+                try { ev.preventDefault(); } catch (e) {}
+                try { ev.stopPropagation(); } catch (e) {}
+                const action = String(button.getAttribute(toolAttr) || '').trim();
+                if (!action) return;
+                if (typeof opts.onBeforeApply === 'function') {
+                    try { opts.onBeforeApply(action, ev, button); } catch (e) {}
+                }
+                const changed = runApply(() => __tmApplyRemarkMarkdownTool(textarea, action), action, ev, button);
+                if (typeof opts.onAfterApply === 'function') {
+                    try { opts.onAfterApply(action, changed !== false, ev, button); } catch (e) {}
+                }
+            });
+        });
     }
 
     function __tmBuildTaskDetailRemarkSectionHtml(remarkValue, detailTip) {

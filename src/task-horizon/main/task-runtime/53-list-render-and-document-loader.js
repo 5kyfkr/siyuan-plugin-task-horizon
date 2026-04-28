@@ -1773,8 +1773,20 @@
 
         // 关键修改：先保存原始状态，然后保存到 MetaStore（保持原始状态，等点击完成后再更新）
         const originalMarkdown = task.markdown;
-        const originalDone = task.done;
-        const originalCustomStatus = String(task.customStatus || '').trim();
+        const originalDone = Object.prototype.hasOwnProperty.call(opts, 'previousDone')
+            ? !!opts.previousDone
+            : !!task.done;
+        const originalCustomStatus = Object.prototype.hasOwnProperty.call(opts, 'previousStatusId')
+            ? String(opts.previousStatusId || '').trim()
+            : String(task.customStatus || '').trim();
+        const shouldDispatchTaskReward = !!SettingsStore?.data?.enablePointsRewardIntegration && !originalDone && targetDone && !__tmUndoState?.applying;
+        const passedRewardPriorityScore = Number(opts.rewardPriorityScore);
+        const taskRewardPriorityScore = shouldDispatchTaskReward && Number.isFinite(passedRewardPriorityScore) && passedRewardPriorityScore > 0
+            ? Math.max(0, Math.round(passedRewardPriorityScore))
+            : shouldDispatchTaskReward
+            ? Math.max(0, Math.round(Number(__tmEnsureTaskPriorityScore(task, { force: true })) || 0))
+            : 0;
+        const taskRewardAttrHostId = String(__tmGetTaskAttrHostId(task) || id || '').trim();
 
         // 立即保存当前任务到 MetaStore（保持原始done状态）
         MetaStore.set(id, {
@@ -2017,6 +2029,17 @@
                 if (!state.doneOverrides || typeof state.doneOverrides !== 'object') state.doneOverrides = {};
                 state.doneOverrides[String(id)] = !!actualDone;
             } catch (e) {}
+            if (shouldDispatchTaskReward && actualDone) {
+                try {
+                    __tmDispatchTaskCompletedForReward(task, {
+                        taskId: String(id || '').trim(),
+                        attrHostId: taskRewardAttrHostId || String(id || '').trim(),
+                        priorityScore: taskRewardPriorityScore,
+                        completedAt: String(completeAtPatch?.taskCompleteAt || '').trim(),
+                        source: String(opts.source || 'set-done').trim() || 'set-done',
+                    });
+                } catch (e) {}
+            }
 
             // 递归更新所有子任务的done状态（如果需要）
             const updateChildrenDone = (tasks) => {
@@ -2323,9 +2346,10 @@
         }
         const hasManualRelationships = manualRelationships instanceof Map && manualRelationships.size > 0;
         const hasInjectedTasks = Array.isArray(injectedTasks) && injectedTasks.length > 0;
-        const shouldPreserveExistingDocOrder = hasManualRelationships
+        const forceDocFlowOrder = opts.forceDocFlowOrder === true || opts.forceSyncFlowRank === true;
+        const shouldPreserveExistingDocOrder = !forceDocFlowOrder && (hasManualRelationships
             || hasInjectedTasks
-            || !__tmShouldUseResolvedFlowRankForDoc(docId);
+            || !__tmShouldUseResolvedFlowRankForDoc(docId));
         const allowOldRelationshipFallback = !hasManualRelationships && !hasInjectedTasks;
 
         // 1. 重新加载数据 (带重试机制，等待索引更新)
@@ -2402,6 +2426,28 @@
             } catch (e) {}
         }
 
+        const protectedFlowRankMap = new Map();
+        if (forceDocFlowOrder && flatTasks.length > 0) {
+            try {
+                const taskIds = Array.from(new Set(flatTasks.map((task) => String(task?.id || '').trim()).filter(Boolean)));
+                const taskDocMap = new Map(taskIds.map((taskId) => [taskId, String(docId || '').trim()]));
+                const bundle = await API.fetchTaskEnhanceBundle(taskIds, {
+                    taskDocMap,
+                    needH2: false,
+                    needFlow: true,
+                });
+                const flowMap = bundle?.taskFlowRankMap instanceof Map ? bundle.taskFlowRankMap : new Map();
+                flatTasks.forEach((task) => {
+                    const taskId = String(task?.id || '').trim();
+                    const flowRank = Number(flowMap.get(taskId));
+                    if (Number.isFinite(flowRank)) {
+                        __tmApplyResolvedFlowRankIfNeeded(task, flowRank);
+                        protectedFlowRankMap.set(taskId, flowRank);
+                    }
+                });
+            } catch (e) {}
+        }
+
         // 2. 关键：先建立内容到 MetaStore 数据的映射
         // 因为思源操作后子任务ID可能改变，需要用内容匹配来找回旧ID的MetaStore数据
         const contentToMeta = new Map();
@@ -2428,7 +2474,7 @@
 
         // 3. 构建树（保持原有逻辑）
         const taskMap = new Map();
-        const rootTasks = [];
+        let rootTasks = [];
         const isValidValue = (val) => val !== undefined && val !== null && val !== '' && val !== 'null';
 
         // 先创建所有节点（从 MetaStore 读取所有自定义属性，不依赖 SQL 查询）
@@ -2543,72 +2589,21 @@
             });
         });
 
-        // 建立父子关系
-        flatTasks.forEach(t => {
-            const task = taskMap.get(t.id);
-
-            // 0. 最优先：使用手动指定的关系（用于处理刚插入但索引未更新的任务）
-            if (manualRelationships && manualRelationships.has(t.id)) {
-                const parentId = manualRelationships.get(t.id);
-                const parentTask = taskMap.get(parentId);
-                if (parentTask) {
-                    task.parentTaskId = parentTask.id;
-                    parentTask.children.push(task);
-                    return;
-                }
-            }
-
-            // 1. 优先处理 parent_id 直接就是父任务块的情况
-            // 某些思源任务结构里，子任务会直接挂在父任务 NodeListItem 下，而不是先挂到子列表块。
-            const directParentId = String(t.parent_id || '').trim();
-            if (directParentId) {
-                const directParentTask = taskMap.get(directParentId);
-                if (directParentTask) {
-                    task.parentTaskId = directParentTask.id;
-                    directParentTask.children.push(task);
-                    return;
-                }
-            }
-
-            // 2. 再尝试直接从 SQL 结果中获取父任务 ID (API 已经通过 JOIN 查好了)
-            if (t.parent_task_id) {
-                const parentTask = taskMap.get(t.parent_task_id);
-                if (parentTask) {
-                    task.parentTaskId = parentTask.id;
-                    parentTask.children.push(task);
-                    return;
-                }
-            }
-
-            // 3. 如果 SQL 没有查到 parent_task_id（可能是旧版本 API 或查询失败降级），尝试手动查找
-            // 查找父任务（通过parent_id找到父列表的父任务）
-            const parentList = taskMap.get(t.parent_id);
-            if (parentList && parentList.parent_id) {
-                const parentTask = taskMap.get(parentList.parent_id);
-                if (parentTask) {
-                    task.parentTaskId = parentTask.id;
-                    parentTask.children.push(task);
-                    return;
-                }
-            }
-
-            // 4. 最后尝试使用旧数据的父子关系（容灾）
-            // 如果任务所在的列表ID(parent_id)没变，说明它没有移动位置，可以安全沿用旧的父子关系
-            if (allowOldRelationshipFallback && oldRelationships.has(t.id)) {
-                const oldRel = oldRelationships.get(t.id);
-                if (oldRel.listId === t.parent_id) {
-                    const parentTask = taskMap.get(oldRel.parentId);
-                    if (parentTask) {
-                        task.parentTaskId = parentTask.id;
-                        parentTask.children.push(task);
-                        return;
-                    }
-                }
-            }
-
-            task.parentTaskId = null;
-            rootTasks.push(task);
-        });
+        // 建立父子关系：统一复用主加载的父级回溯逻辑，避免局部刷新把夹在普通列表中的子任务还原成根任务。
+        try {
+            const resolvedParentLinks = await __tmResolveDocTaskParentLinks(Array.from(taskMap.values()), {
+                docId,
+                source: 'reload-doc-protected',
+                manualRelationships,
+                oldRelationships,
+                allowOldRelationshipFallback,
+            });
+            rootTasks = Array.isArray(resolvedParentLinks?.rootTasks)
+                ? resolvedParentLinks.rootTasks
+                : [];
+        } catch (e) {
+            rootTasks = Array.from(taskMap.values()).filter((task) => !String(task?.parentTaskId || '').trim());
+        }
 
         // 3. 关键：通过内容匹配恢复旧ID到新ID的映射，并更新MetaStore
         // 因为思源操作后子任务ID可能改变，需要用内容匹配来找回旧ID
@@ -2654,7 +2649,8 @@
         }
         TreeProtector.restoreTree(rootTasks);
         __tmRestoreTaskTreeFromMeta(rootTasks);
-        __tmSortTaskTreeBySiblingRankMap(rootTasks, siblingOrderRanks);
+        if (forceDocFlowOrder && protectedFlowRankMap.size > 0) __tmSortTaskTreeByDocFlow(rootTasks);
+        else __tmSortTaskTreeBySiblingRankMap(rootTasks, siblingOrderRanks);
         __tmAssignDocSeqByTree(rootTasks, 0);
 
         // 4. 恢复折叠状态
@@ -5215,7 +5211,10 @@
             const pendingTask = state.pendingInsertedTasks?.[String(taskId || '').trim()];
             if (pendingTask) __tmUpsertLocalTask(pendingTask);
             __tmRefreshMainViewInPlace({ withFilters: true });
-            __tmLoadSelectedDocumentsPreserveChecklistScroll().catch((err) => {
+            __tmLoadSelectedDocumentsPreserveChecklistScroll({
+                source: 'heading-create-task',
+                forceSyncFlowRank: true,
+            }).catch((err) => {
                 try { console.error('[标题分组新建任务] 刷新失败:', err); } catch (e) {}
             });
             hint('✅ 任务已创建', 'success');
@@ -5576,7 +5575,10 @@
             __tmQueueCreateSubtask(pid, nextText, {
                 onSuccess: () => {
                     __tmRefreshMainViewInPlace({ withFilters: true });
-                    __tmLoadSelectedDocumentsPreserveChecklistScroll().catch((err) => {
+                    __tmLoadSelectedDocumentsPreserveChecklistScroll({
+                        source: 'create-subtask',
+                        forceSyncFlowRank: true,
+                    }).catch((err) => {
                         try { console.error('[子任务] 刷新失败:', err); } catch (e) {}
                     });
                 }
@@ -5611,7 +5613,10 @@
         try {
             const siblingTaskId = await __tmQueueCreateSiblingTask(tid, nextText);
             __tmRefreshMainViewInPlace({ withFilters: true });
-            __tmLoadSelectedDocumentsPreserveChecklistScroll().catch((err) => {
+            __tmLoadSelectedDocumentsPreserveChecklistScroll({
+                source: 'create-sibling',
+                forceSyncFlowRank: true,
+            }).catch((err) => {
                 try { console.error('[同级任务] 刷新失败:', err); } catch (e) {}
             });
             hint('✅ 同级任务已创建', 'success');
@@ -6631,6 +6636,7 @@
         const showInlineLoading = !skipRender && !(options && options.showInlineLoading === false);
         const preferFastFirstPaint = !!(options && options.preferFastFirstPaint);
         const forceFreshTasks = !!(options && options.forceFreshTasks === true);
+        const forceSyncFlowRank = !!(options && options.forceSyncFlowRank === true);
         const perfTuning = __tmGetPerfTuningOptions();
         const perfTrace = (options && options.perfTrace) || __tmCreatePerfTrace('loadSelectedDocuments', {
             source: String(options?.source || 'direct').trim() || 'direct',
@@ -7157,7 +7163,7 @@
                 const h2StrictNeeded = !!ruleNeedsH2Sort || docHeadingSubgroupActive || kanbanHeadingGroupingActive;
                 const preferAsyncEnhance = !!(loadBudget.enabled || preferFastFirstPaint);
                 const deferH2Enhance = !!needH2 && !h2StrictNeeded && (deferEnhance || preferAsyncEnhance);
-                const syncFlowBeforeFirstRender = (sourceLabel === 'openManager' && !skipRender) || shouldForceFreshColdAllDocsLoad;
+                const syncFlowBeforeFirstRender = forceSyncFlowRank || (sourceLabel === 'openManager' && !skipRender) || shouldForceFreshColdAllDocsLoad;
                 const deferFlowEnhance = !!needFlowRank
                     && !ruleNeedsFlowRank
                     && !forceFreshTasks
@@ -7510,7 +7516,7 @@
                             }
                         });
                     };
-                    const preferResolvedFlowOrder = __tmShouldUseResolvedFlowRankForDoc(docId)
+                    const preferResolvedFlowOrder = (forceSyncFlowRank || __tmShouldUseResolvedFlowRankForDoc(docId))
                         && rawTasks.some((task) => taskFlowRankMap.has(String(task?.id || '').trim()));
                     if (preferResolvedFlowOrder) __tmSortTaskTreeByDocFlow(rootTasks);
                     else __tmSortTaskTreeBySiblingRankMap(rootTasks, siblingOrderRanks);
@@ -7556,6 +7562,15 @@
                     taskCount: recurringDueCandidateIds.length,
                     deferredByPerfFlag: perfTuning.deferRecurringReconcile ? 1 : 0,
                 });
+                try {
+                    const activeDocId = String(state.activeDocId || 'all').trim() || 'all';
+                    if (activeDocId && activeDocId !== 'all' && !__tmIsOtherBlockTabId(activeDocId)) {
+                        const validDocIds = new Set((Array.isArray(state.taskTree) ? state.taskTree : [])
+                            .map((doc) => String(doc?.id || '').trim())
+                            .filter(Boolean));
+                        if (!validDocIds.has(activeDocId)) state.activeDocId = 'all';
+                    }
+                } catch (e) {}
                 try { recalcStats(); } catch (e) {}
                 __tmPerfTraceMark(perfTrace, 'enhance', {
                     taskCount: Array.isArray(res.tasks) ? res.tasks.length : 0,
@@ -7771,7 +7786,7 @@
         { id: 'search', label: '搜索分组' },
         { id: 'topbar', label: '顶栏入口' },
         { id: 'quickbar', label: '悬浮条' },
-        { id: 'tomato', label: '番茄钟' }
+        { id: 'tomato', label: '番茄钟/联动' }
     ]);
 
     function __tmGetSettingsSectionAnchorTop(content, section) {

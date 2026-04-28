@@ -24,7 +24,7 @@
         SettingsStore.normalizeColumns();
         try { SettingsStore.syncToLocal(); } catch (e) {}
         try { SettingsStore.save().catch(() => null); } catch (e) {}
-        try { SettingsStore.flushSave().catch(() => null); } catch (e) {}
+        try { SettingsStore.saveNow().catch(() => null); } catch (e) {}
         const nextCustomFieldPlan = __tmBuildRuntimeCustomFieldLoadPlan({
             colOrder: Array.isArray(SettingsStore.data.columnOrder) ? SettingsStore.data.columnOrder : order,
         });

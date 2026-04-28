@@ -1282,7 +1282,7 @@
             } catch (e2) {}
             try {
                 if (SettingsStore?.saveDirty) {
-                    void SettingsStore.flushSave?.();
+                    void SettingsStore.saveNow?.();
                 }
             } catch (e2) {}
         } catch (e) {}

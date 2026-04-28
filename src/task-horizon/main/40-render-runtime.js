@@ -1509,6 +1509,11 @@
         try { __tmBindDocTabScrollMemory(state.modal); } catch (e) {}
         try { __tmRestoreDocTabScroll(state.modal, savedDocTabsScrollLeft); } catch (e) {}
         try { __tmBindMultiSelectPointerSweep(state.modal); } catch (e) {}
+        try {
+            if (renderMode === 'whiteboard' && typeof __tmUpdateWhiteboardNavigator === 'function') {
+                __tmUpdateWhiteboardNavigator();
+            }
+        } catch (e) {}
         try { __tmBindDockPointerTaskDrag(state.modal); } catch (e) {}
         try { if (renderMode === 'list') __tmBindListScrollVisibility(state.modal); } catch (e) {}
         try { if (renderMode === 'checklist') __tmBindChecklistScrollVisibility(state.modal); } catch (e) {}
@@ -4013,6 +4018,14 @@
             || ''
         ).trim();
         const source = String(opts.source || 'doc-parent-links').trim() || 'doc-parent-links';
+        const parentLookupDepth = __tmNormalizeTaskParentLookupDepth(
+            Object.prototype.hasOwnProperty.call(opts, 'parentLookupDepth')
+                ? opts.parentLookupDepth
+                : SettingsStore?.data?.taskParentLookupDepth
+        );
+        const manualRelationships = opts.manualRelationships instanceof Map ? opts.manualRelationships : null;
+        const oldRelationships = opts.oldRelationships instanceof Map ? opts.oldRelationships : null;
+        const allowOldRelationshipFallback = opts.allowOldRelationshipFallback === true;
         const idMap = new Map();
         const canLogValueDebug = __tmDebugChannels.value.enabled === true && __tmValueDebugWatchTaskIds.size > 0;
         const debugMetaByTaskId = canLogValueDebug ? new Map() : null;
@@ -4021,6 +4034,8 @@
         const stats = {
             docId,
             taskCount: tasks.length,
+            parentLookupDepth,
+            manualResolvedCount: 0,
             directResolvedCount: 0,
             joinedResolvedCount: 0,
             listParentResolvedCount: 0,
@@ -4028,6 +4043,7 @@
             fallbackCandidateCount: 0,
             fallbackQueryCount: 0,
             fallbackResolvedCount: 0,
+            oldRelationshipResolvedCount: 0,
             missingParentInDocCount: 0,
         };
 
@@ -4047,10 +4063,17 @@
             const debugIds = canLogValueDebug ? __tmGetValueDebugMatchKeysForTaskLike(task) : [];
             const shouldLogValue = canLogValueDebug ? __tmShouldLogValueDebug(debugIds, false) : false;
             const beforeSnapshot = shouldLogValue ? __tmSnapshotTaskValueDebugFields(task) : null;
+            const manualParentTaskId = manualRelationships
+                ? String(manualRelationships.get(taskId) || '').trim()
+                : '';
             let resolvedParentTaskId = '';
             let resolution = 'root';
 
-            if (directParentId && idMap.has(directParentId)) {
+            if (manualParentTaskId && idMap.has(manualParentTaskId)) {
+                resolvedParentTaskId = manualParentTaskId;
+                resolution = 'manual';
+                stats.manualResolvedCount += 1;
+            } else if (directParentId && idMap.has(directParentId)) {
                 resolvedParentTaskId = directParentId;
                 resolution = 'direct-parent';
                 stats.directResolvedCount += 1;
@@ -4064,7 +4087,7 @@
                 stats.listParentResolvedCount += 1;
             } else {
                 resolvedParentTaskId = joinedParentTaskId;
-                if (directParentId && !listParentTaskId) {
+                if (directParentId && parentLookupDepth > 0) {
                     unresolvedParentIds.add(directParentId);
                     fallbackTargets.push({
                         task,
@@ -4085,29 +4108,49 @@
                     joinedParentTaskId,
                     listParentTaskId,
                     beforeSnapshot,
-                    debugIds,
-                    shouldLogValue,
-                    initialResolution: resolution,
-                });
+                debugIds,
+                shouldLogValue,
+                initialResolution: resolution,
+                manualParentTaskId,
+            });
             }
         });
 
-        if (unresolvedParentIds.size > 0) {
+        if (unresolvedParentIds.size > 0 && parentLookupDepth > 0) {
             try {
-                const rows = await API.getBlocksByIds(Array.from(unresolvedParentIds));
-                const blockInfoMap = new Map();
-                stats.fallbackQueryCount = 1;
-                (Array.isArray(rows) ? rows : []).forEach((row) => {
-                    const id = String(row?.id || '').trim();
-                    if (!id || blockInfoMap.has(id)) return;
-                    blockInfoMap.set(id, String(row?.parent_id || '').trim());
-                });
+                const blockParentMap = new Map();
+                let frontier = new Set(Array.from(unresolvedParentIds));
+                for (let depth = 0; depth < parentLookupDepth && frontier.size > 0; depth += 1) {
+                    const queryIds = Array.from(frontier).filter((id) => id && !blockParentMap.has(id) && !idMap.has(id));
+                    frontier = new Set();
+                    if (!queryIds.length) continue;
+                    const rows = await API.getBlocksByIds(queryIds);
+                    stats.fallbackQueryCount += 1;
+                    (Array.isArray(rows) ? rows : []).forEach((row) => {
+                        const id = String(row?.id || '').trim();
+                        const parentId = String(row?.parent_id || '').trim();
+                        if (!id || blockParentMap.has(id)) return;
+                        blockParentMap.set(id, parentId);
+                        if (!parentId || parentId === docId || idMap.has(parentId)) return;
+                        frontier.add(parentId);
+                    });
+                }
                 fallbackTargets.forEach((item) => {
-                    const resolvedParentTaskId = String(blockInfoMap.get(item.directParentId) || '').trim();
-                    if (!resolvedParentTaskId || !idMap.has(resolvedParentTaskId)) return;
-                    if (String(item.task?.parentTaskId || '').trim() !== resolvedParentTaskId) {
-                        item.task.parentTaskId = resolvedParentTaskId;
-                        stats.fallbackResolvedCount += 1;
+                    let cursor = String(item.directParentId || '').trim();
+                    const seen = new Set();
+                    for (let depth = 0; cursor && depth < parentLookupDepth; depth += 1) {
+                        if (seen.has(cursor)) break;
+                        seen.add(cursor);
+                        const parentId = String(blockParentMap.get(cursor) || '').trim();
+                        if (!parentId || parentId === docId) break;
+                        if (idMap.has(parentId)) {
+                            if (String(item.task?.parentTaskId || '').trim() !== parentId) {
+                                item.task.parentTaskId = parentId;
+                                stats.fallbackResolvedCount += 1;
+                            }
+                            break;
+                        }
+                        cursor = parentId;
                     }
                 });
             } catch (e) {}
@@ -4118,9 +4161,22 @@
             const taskId = String(task?.id || '').trim();
             if (!taskId) return;
             const debugMeta = debugMetaByTaskId ? (debugMetaByTaskId.get(taskId) || null) : null;
-            const parentTaskId = String(task?.parentTaskId || '').trim();
-            const resolvedInDoc = !!(parentTaskId && idMap.has(parentTaskId));
+            let parentTaskId = String(task?.parentTaskId || '').trim();
+            let resolvedInDoc = !!(parentTaskId && idMap.has(parentTaskId));
+            if (!resolvedInDoc && allowOldRelationshipFallback && oldRelationships?.has(taskId)) {
+                const oldRel = oldRelationships.get(taskId);
+                const directParentId = String(task?.parent_id || task?.parentId || '').trim();
+                const oldListId = String(oldRel?.listId || '').trim();
+                const oldParentId = String(oldRel?.parentId || '').trim();
+                if (oldListId && oldListId === directParentId && oldParentId && idMap.has(oldParentId)) {
+                    task.parentTaskId = oldParentId;
+                    parentTaskId = oldParentId;
+                    resolvedInDoc = true;
+                    stats.oldRelationshipResolvedCount += 1;
+                }
+            }
             if (resolvedInDoc) {
+                task.parent_task_id = parentTaskId;
                 idMap.get(parentTaskId).children.push(task);
             } else {
                 rootTasks.push(task);
@@ -4131,6 +4187,7 @@
                     source,
                     docId,
                     taskId,
+                    manualParentTaskId: debugMeta.manualParentTaskId,
                     directParentId: debugMeta.directParentId,
                     joinedParentTaskId: debugMeta.joinedParentTaskId,
                     listParentTaskId: debugMeta.listParentTaskId,

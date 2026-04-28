@@ -864,6 +864,13 @@
                              <span class="tm-setting-field-unit">个文档</span>`,
                             { style: 'margin-bottom:10px;' }
                         )}
+                        ${renderSingleFieldSetting(
+                            '父任务回溯层数',
+                            '识别子任务时，从任务所在父级向上查找最近的任务块。夹在普通列表、无序列表里的任务可适当调大；0 表示不做额外回溯。',
+                            `<input class="b3-text-field" type="number" min="0" max="${TM_TASK_PARENT_LOOKUP_DEPTH_MAX}" value="${__tmNormalizeTaskParentLookupDepth(SettingsStore.data.taskParentLookupDepth)}" onchange="updateTaskParentLookupDepth(this.value)" style="width:96px;">
+                             <span class="tm-setting-field-unit">层</span>`,
+                            { style: 'margin-bottom:10px;' }
+                        )}
                         ${renderSingleSwitchSetting(
                             '不查找已完成父任务',
                             '提升搜索性能和长期使用性能。开启后仅查找未完成父任务。',
@@ -1023,8 +1030,8 @@
                     </div>
 
                     <div class="tm-settings-panel" data-tm-settings-section="tomato">
-                        <div class="tm-settings-section-title">🍅 番茄钟联动</div>
-                        <div class="tm-settings-section-desc">管理底栏番茄钟和任务耗时属性的联动方式。</div>
+                        <div class="tm-settings-section-title">🍅 番茄钟与插件联动</div>
+                        <div class="tm-settings-section-desc">管理底栏番茄钟、任务耗时属性，以及其他插件的任务完成联动。</div>
                         ${renderSingleSwitchSetting(
                             '启用底栏番茄钟相关功能',
                             '包含计时、提醒和耗时列。',
@@ -1052,6 +1059,11 @@
                                 `<input class="b3-text-field" type="text" value="${esc(String(SettingsStore.data.tomatoSpentAttrKeyHours || 'custom-tomato-time'))}" ${SettingsStore.data.enableTomatoIntegration ? '' : 'disabled'} onchange="updateTomatoSpentAttrKeyHours(this.value)" style="width:100%;">`
                             )}
                         </div>
+                        ${renderSingleSwitchSetting(
+                            '启用凡人修仙传:打卡插件联动',
+                            '开启后，任务完成时会向凡人修仙传:打卡插件发送任务ID、标题和完成前的优先级分值；凡人修仙传:打卡插件仍需单独开启任务管理器联动。',
+                            `<input class="b3-switch fn__flex-center" type="checkbox" ${SettingsStore.data.enablePointsRewardIntegration ? 'checked' : ''} onchange="updateEnablePointsRewardIntegration(this.checked)">`
+                        )}
                     </div>
 
                     ` : ''}

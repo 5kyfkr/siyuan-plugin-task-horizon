@@ -9,16 +9,19 @@
                 state.whiteboardEdgeRafId = 0;
                 __tmNormalizeWhiteboardAllViewFrames();
                 __tmRenderWhiteboardEdges();
+                __tmScheduleWhiteboardNavigatorUpdate();
                 try {
                     requestAnimationFrame(() => {
                         __tmNormalizeWhiteboardAllViewFrames();
                         __tmRenderWhiteboardEdges();
+                        __tmScheduleWhiteboardNavigatorUpdate();
                     });
                 } catch (e) {}
             });
         } catch (e) {
             __tmNormalizeWhiteboardAllViewFrames();
             __tmRenderWhiteboardEdges();
+            __tmScheduleWhiteboardNavigatorUpdate();
         }
     }
 
@@ -30,12 +33,393 @@
         }, 180);
     }
 
+    function __tmMeasureWhiteboardNavigatorWorldRect(el, viewportRect, view) {
+        if (!(el instanceof HTMLElement)) return null;
+        const zoom = Math.max(0.01, Number(view?.zoom) || 1);
+        let r = null;
+        try { r = el.getBoundingClientRect(); } catch (e) {}
+        if (!r) return null;
+        const w = Number(r.width) / zoom;
+        const h = Number(r.height) / zoom;
+        if (!Number.isFinite(w) || !Number.isFinite(h) || w <= 0 || h <= 0) return null;
+        const x = (Number(r.left) - Number(viewportRect.left) - Number(view.x || 0)) / zoom;
+        const y = (Number(r.top) - Number(viewportRect.top) - Number(view.y || 0)) / zoom;
+        if (!Number.isFinite(x) || !Number.isFinite(y)) return null;
+        return { x, y, w, h };
+    }
+
+    function __tmExpandWhiteboardNavigatorBounds(bounds, rect) {
+        if (!rect || typeof rect !== 'object') return bounds;
+        const x = Number(rect.x);
+        const y = Number(rect.y);
+        const w = Number(rect.w);
+        const h = Number(rect.h);
+        if (!Number.isFinite(x) || !Number.isFinite(y) || !Number.isFinite(w) || !Number.isFinite(h) || w <= 0 || h <= 0) {
+            return bounds;
+        }
+        const maxX = x + w;
+        const maxY = y + h;
+        if (!bounds) return { minX: x, minY: y, maxX, maxY };
+        bounds.minX = Math.min(bounds.minX, x);
+        bounds.minY = Math.min(bounds.minY, y);
+        bounds.maxX = Math.max(bounds.maxX, maxX);
+        bounds.maxY = Math.max(bounds.maxY, maxY);
+        return bounds;
+    }
+
+    function __tmWhiteboardNavigatorBoundsToRect(bounds) {
+        if (!bounds || typeof bounds !== 'object') return null;
+        const minX = Number(bounds.minX);
+        const minY = Number(bounds.minY);
+        const maxX = Number(bounds.maxX);
+        const maxY = Number(bounds.maxY);
+        if (!Number.isFinite(minX) || !Number.isFinite(minY) || !Number.isFinite(maxX) || !Number.isFinite(maxY)) return null;
+        return { x: minX, y: minY, w: Math.max(1, maxX - minX), h: Math.max(1, maxY - minY) };
+    }
+
+    function __tmPlaceWhiteboardNavigatorRect(el, rect, model, opts = {}) {
+        if (!(el instanceof HTMLElement) || !rect || !model) return;
+        const o = (opts && typeof opts === 'object') ? opts : {};
+        const minSize = Math.max(0, Number(o.minSize) || 0);
+        const left = Number(model.left) + (Number(rect.x) - Number(model.minX)) * Number(model.scale);
+        const top = Number(model.top) + (Number(rect.y) - Number(model.minY)) * Number(model.scale);
+        const width = Math.max(minSize, Number(rect.w) * Number(model.scale));
+        const height = Math.max(minSize, Number(rect.h) * Number(model.scale));
+        if (![left, top, width, height].every(Number.isFinite)) return;
+        el.style.left = `${left.toFixed(2)}px`;
+        el.style.top = `${top.toFixed(2)}px`;
+        el.style.width = `${width.toFixed(2)}px`;
+        el.style.height = `${height.toFixed(2)}px`;
+    }
+
+    function __tmUpdateWhiteboardNavigator() {
+        if (state.viewMode !== 'whiteboard') return;
+        const viewport = state.modal?.querySelector?.('#tmWhiteboardViewport');
+        const navigator = state.modal?.querySelector?.('#tmWhiteboardNavigator');
+        if (!(viewport instanceof HTMLElement) || !(navigator instanceof HTMLElement)) return;
+        const revealBtn = state.modal?.querySelector?.('#tmWhiteboardNavigatorReveal');
+        if (!!SettingsStore.data.whiteboardNavigatorHidden) {
+            try { navigator.classList.add('tm-whiteboard-navigator--hidden'); } catch (e) {}
+            try { revealBtn?.classList?.add?.('tm-whiteboard-navigator-reveal--visible'); } catch (e) {}
+            state.whiteboardNavigatorModel = null;
+            return;
+        }
+        try { navigator.classList.remove('tm-whiteboard-navigator--hidden'); } catch (e) {}
+        try { revealBtn?.classList?.remove?.('tm-whiteboard-navigator-reveal--visible'); } catch (e) {}
+        const surface = navigator.querySelector('.tm-whiteboard-navigator__surface');
+        const contentEl = navigator.querySelector('.tm-whiteboard-navigator__content');
+        const viewportEl = navigator.querySelector('.tm-whiteboard-navigator__viewport');
+        if (!(surface instanceof HTMLElement) || !(contentEl instanceof HTMLElement) || !(viewportEl instanceof HTMLElement)) return;
+        const view = __tmGetWhiteboardView();
+        const zoom = Math.max(0.01, Number(view.zoom) || 1);
+        const viewportRect = viewport.getBoundingClientRect();
+        const currentRect = {
+            x: -(Number(view.x) || 0) / zoom,
+            y: -(Number(view.y) || 0) / zoom,
+            w: Math.max(1, Number(viewport.clientWidth || viewportRect.width || 1) / zoom),
+            h: Math.max(1, Number(viewport.clientHeight || viewportRect.height || 1) / zoom),
+        };
+        let contentBounds = null;
+        let fullBounds = null;
+        const itemRects = [];
+        const allView = !(state.activeDocId && state.activeDocId !== 'all');
+        if (allView) {
+            try {
+                viewport.querySelectorAll('.tm-whiteboard-doc[data-doc-id]').forEach((el) => {
+                    const rect = __tmMeasureWhiteboardNavigatorWorldRect(el, viewportRect, view);
+                    if (!rect) return;
+                    const docId = String(el.getAttribute('data-doc-id') || '').trim();
+                    itemRects.push({ rect, key: docId ? `doc:${docId}` : `doc:${itemRects.length}`, className: 'tm-whiteboard-navigator__item--doc', minSize: 2 });
+                    contentBounds = __tmExpandWhiteboardNavigatorBounds(contentBounds, rect);
+                    fullBounds = __tmExpandWhiteboardNavigatorBounds(fullBounds, rect);
+                });
+            } catch (e) {}
+        }
+        try {
+            viewport.querySelectorAll('.tm-whiteboard-node--root[data-task-id],.tm-whiteboard-note[data-note-id]').forEach((el) => {
+                const rect = __tmMeasureWhiteboardNavigatorWorldRect(el, viewportRect, view);
+                if (!rect) return;
+                const isNote = el.classList?.contains?.('tm-whiteboard-note');
+                const itemKind = isNote ? 'note' : 'task';
+                const itemId = String(el.getAttribute(isNote ? 'data-note-id' : 'data-task-id') || '').trim();
+                itemRects.push({
+                    rect,
+                    key: itemId ? `${itemKind}:${itemId}` : `${itemKind}:${itemRects.length}`,
+                    className: isNote ? 'tm-whiteboard-navigator__item--note' : 'tm-whiteboard-navigator__item--task',
+                    minSize: isNote ? 3 : 2,
+                });
+                contentBounds = __tmExpandWhiteboardNavigatorBounds(contentBounds, rect);
+                fullBounds = __tmExpandWhiteboardNavigatorBounds(fullBounds, rect);
+            });
+        } catch (e) {}
+        fullBounds = __tmExpandWhiteboardNavigatorBounds(fullBounds, currentRect);
+        const contentRect = __tmWhiteboardNavigatorBoundsToRect(contentBounds) || currentRect;
+        const boundsRect = __tmWhiteboardNavigatorBoundsToRect(fullBounds);
+        if (!boundsRect) return;
+        const baseSpan = Math.max(boundsRect.w, boundsRect.h);
+        const worldPad = Math.max(64, Math.min(800, baseSpan * 0.035));
+        const minX = boundsRect.x - worldPad;
+        const minY = boundsRect.y - worldPad;
+        const spanW = Math.max(1, boundsRect.w + worldPad * 2);
+        const spanH = Math.max(1, boundsRect.h + worldPad * 2);
+        const surfaceRect = surface.getBoundingClientRect();
+        const surfaceW = Math.max(1, Number(surface.clientWidth || surfaceRect.width || 1));
+        const surfaceH = Math.max(1, Number(surface.clientHeight || surfaceRect.height || 1));
+        const inset = 6;
+        const scale = Math.max(0.0001, Math.min((surfaceW - inset * 2) / spanW, (surfaceH - inset * 2) / spanH));
+        if (!Number.isFinite(scale) || scale <= 0) return;
+        const computedModel = {
+            minX,
+            minY,
+            scale,
+            spanW,
+            spanH,
+            left: (surfaceW - spanW * scale) / 2,
+            top: (surfaceH - spanH * scale) / 2,
+            currentRect: { ...currentRect },
+            zoom,
+        };
+        const dragModel = (state.whiteboardNavigatorDrag?.model && typeof state.whiteboardNavigatorDrag.model === 'object')
+            ? state.whiteboardNavigatorDrag.model
+            : null;
+        const model = dragModel || computedModel;
+        if (!dragModel) state.whiteboardNavigatorModel = computedModel;
+        __tmPlaceWhiteboardNavigatorRect(contentEl, contentRect, model, { minSize: 4 });
+        const visibleKeys = new Set();
+        const existingItems = new Map();
+        try {
+            surface.querySelectorAll('.tm-whiteboard-navigator__item').forEach((el) => {
+                if (!(el instanceof HTMLElement)) return;
+                const key = String(el.getAttribute('data-tm-nav-key') || '').trim();
+                if (key && !existingItems.has(key)) existingItems.set(key, el);
+                else el.remove();
+            });
+        } catch (e) {}
+        itemRects.slice(0, 220).forEach((itemInfo, index) => {
+            const key = String(itemInfo?.key || `item:${index}`).trim() || `item:${index}`;
+            visibleKeys.add(key);
+            let item = existingItems.get(key);
+            if (!(item instanceof HTMLElement)) {
+                item = document.createElement('div');
+                item.setAttribute('data-tm-nav-key', key);
+                try { surface.insertBefore(item, viewportEl); } catch (e) {}
+            }
+            const className = `tm-whiteboard-navigator__item ${String(itemInfo?.className || '').trim()}`.trim();
+            if (item.className !== className) item.className = className;
+            __tmPlaceWhiteboardNavigatorRect(item, itemInfo?.rect, model, { minSize: Number(itemInfo?.minSize) || 2 });
+        });
+        try {
+            existingItems.forEach((el, key) => {
+                if (!visibleKeys.has(key)) el.remove();
+            });
+        } catch (e) {}
+        __tmPlaceWhiteboardNavigatorRect(viewportEl, currentRect, model, { minSize: 5 });
+        navigator.dataset.tmReady = '1';
+    }
+
+    function __tmClampWhiteboardNavigatorWorldTopLeft(value, min, span, size) {
+        const v = Number(value);
+        const lo = Number(min);
+        const range = Math.max(0, Number(span) - Math.max(1, Number(size) || 1));
+        const hi = lo + range;
+        if (!Number.isFinite(v) || !Number.isFinite(lo) || !Number.isFinite(hi)) return lo;
+        return Math.max(lo, Math.min(hi, v));
+    }
+
+    function __tmGetWhiteboardNavigatorClientPoint(ev) {
+        const touches = ev?.touches;
+        if (touches && Number(touches.length) > 0) {
+            const t = touches[0];
+            return { clientX: Number(t?.clientX) || 0, clientY: Number(t?.clientY) || 0 };
+        }
+        const changedTouches = ev?.changedTouches;
+        if (changedTouches && Number(changedTouches.length) > 0) {
+            const t = changedTouches[0];
+            return { clientX: Number(t?.clientX) || 0, clientY: Number(t?.clientY) || 0 };
+        }
+        const clientX = Number(ev?.clientX);
+        const clientY = Number(ev?.clientY);
+        if (!Number.isFinite(clientX) || !Number.isFinite(clientY)) return null;
+        return { clientX, clientY };
+    }
+
+    function __tmGetWhiteboardNavigatorPointerWorld(point, surface, model) {
+        if (!point || !(surface instanceof HTMLElement) || !model) return null;
+        const scale = Math.max(0.0001, Number(model.scale) || 0);
+        if (!Number.isFinite(scale) || scale <= 0) return null;
+        let rect = null;
+        try { rect = surface.getBoundingClientRect(); } catch (e) {}
+        if (!rect) return null;
+        const localX = Number(point.clientX) - Number(rect.left);
+        const localY = Number(point.clientY) - Number(rect.top);
+        const x = Number(model.minX) + (localX - Number(model.left)) / scale;
+        const y = Number(model.minY) + (localY - Number(model.top)) / scale;
+        if (!Number.isFinite(x) || !Number.isFinite(y)) return null;
+        return { x, y };
+    }
+
+    function __tmStartWhiteboardNavigatorDrag(ev, opts = {}) {
+        if (state.viewMode !== 'whiteboard') return;
+        if (!!SettingsStore.data.whiteboardNavigatorHidden) return;
+        const o = (opts && typeof opts === 'object') ? opts : {};
+        const source = String(o.source || 'pointer').trim();
+        const pType = String(ev?.pointerType || '').toLowerCase();
+        if (source === 'pointer' && pType !== 'touch' && Number(ev?.button) !== 0) return;
+        if (source === 'touch' && Number(ev?.touches?.length) !== 1) return;
+        try { ev?.stopPropagation?.(); } catch (e) {}
+        try { ev?.preventDefault?.(); } catch (e) {}
+        if (state.whiteboardNavigatorDrag) return;
+        const target = ev?.target;
+        if (target?.closest?.('.tm-whiteboard-navigator__hide,.tm-whiteboard-navigator-reveal')) return;
+        const frame = state.modal?.querySelector?.('.tm-whiteboard-navigator__viewport');
+        const navigator = state.modal?.querySelector?.('#tmWhiteboardNavigator');
+        const surface = state.modal?.querySelector?.('.tm-whiteboard-navigator__surface');
+        const model = state.whiteboardNavigatorModel;
+        const current = model?.currentRect;
+        const scale = Number(model?.scale);
+        const zoom = Math.max(0.01, Number(__tmGetWhiteboardView()?.zoom) || Number(model?.zoom) || 1);
+        const point = __tmGetWhiteboardNavigatorClientPoint(ev);
+        if (!(frame instanceof HTMLElement) || !(surface instanceof HTMLElement) || !model || !current || !Number.isFinite(scale) || scale <= 0 || !point) return;
+        const viewW = Math.max(1, Number(current.w) || 1);
+        const viewH = Math.max(1, Number(current.h) || 1);
+        const startsOnFrame = !!target?.closest?.('.tm-whiteboard-navigator__viewport');
+        const centerOnPointer = !!o.centerOnPointer && !startsOnFrame;
+        let startWorldX = Number(current.x) || 0;
+        let startWorldY = Number(current.y) || 0;
+        if (centerOnPointer) {
+            const pointerWorld = __tmGetWhiteboardNavigatorPointerWorld(point, surface, model);
+            if (pointerWorld) {
+                startWorldX = __tmClampWhiteboardNavigatorWorldTopLeft(Number(pointerWorld.x) - viewW / 2, Number(model.minX), Number(model.spanW), viewW);
+                startWorldY = __tmClampWhiteboardNavigatorWorldTopLeft(Number(pointerWorld.y) - viewH / 2, Number(model.minY), Number(model.spanH), viewH);
+            }
+        }
+        const pointerId = Number(ev?.pointerId);
+        const hasPointerId = source === 'pointer' && Number.isFinite(pointerId);
+        state.whiteboardNavigatorDrag = {
+            pointerId: hasPointerId ? pointerId : null,
+            source,
+            startClientX: Number(point.clientX) || 0,
+            startClientY: Number(point.clientY) || 0,
+            startWorldX,
+            startWorldY,
+            viewW,
+            viewH,
+            model,
+        };
+        try { navigator?.classList?.add?.('tm-whiteboard-navigator--dragging'); } catch (e) {}
+        const captureEl = ev?.currentTarget instanceof HTMLElement ? ev.currentTarget : frame;
+        if (hasPointerId && typeof captureEl.setPointerCapture === 'function') {
+            try { captureEl.setPointerCapture(pointerId); } catch (e) {}
+        }
+        if (centerOnPointer) {
+            __tmSetWhiteboardView({ x: -startWorldX * zoom, y: -startWorldY * zoom }, { persist: false });
+            __tmApplyWhiteboardTransform();
+        }
+        const samePointer = (e2) => {
+            if (source !== 'pointer') return true;
+            const pid = Number(state.whiteboardNavigatorDrag?.pointerId);
+            if (!Number.isFinite(pid)) return true;
+            const cur = Number(e2?.pointerId);
+            return !Number.isFinite(cur) || cur === pid;
+        };
+        const onMove = (e2) => {
+            if (!samePointer(e2)) return;
+            try { e2?.stopPropagation?.(); } catch (e) {}
+            try { e2?.preventDefault?.(); } catch (e) {}
+            const s = state.whiteboardNavigatorDrag;
+            if (!s || typeof s !== 'object') return;
+            const movePoint = __tmGetWhiteboardNavigatorClientPoint(e2);
+            if (!movePoint) return;
+            const m = s.model || {};
+            const cx = Number(movePoint.clientX);
+            const cy = Number(movePoint.clientY);
+            const sx = Number(s.startClientX) || 0;
+            const sy = Number(s.startClientY) || 0;
+            const nextWorldX0 = Number(s.startWorldX) + ((Number.isFinite(cx) ? cx : sx) - sx) / Math.max(0.0001, Number(m.scale) || 1);
+            const nextWorldY0 = Number(s.startWorldY) + ((Number.isFinite(cy) ? cy : sy) - sy) / Math.max(0.0001, Number(m.scale) || 1);
+            const nextWorldX = __tmClampWhiteboardNavigatorWorldTopLeft(nextWorldX0, Number(m.minX), Number(m.spanW), Number(s.viewW));
+            const nextWorldY = __tmClampWhiteboardNavigatorWorldTopLeft(nextWorldY0, Number(m.minY), Number(m.spanH), Number(s.viewH));
+            __tmSetWhiteboardView({ x: -nextWorldX * zoom, y: -nextWorldY * zoom }, { persist: false });
+            __tmApplyWhiteboardTransform();
+        };
+        const onUp = (e2) => {
+            if (!samePointer(e2)) return;
+            try { document.removeEventListener('pointermove', onMove, true); } catch (e) {}
+            try { document.removeEventListener('pointerup', onUp, true); } catch (e) {}
+            try { document.removeEventListener('pointercancel', onUp, true); } catch (e) {}
+            try { document.removeEventListener('touchmove', onMove, true); } catch (e) {}
+            try { document.removeEventListener('touchend', onUp, true); } catch (e) {}
+            try { document.removeEventListener('touchcancel', onUp, true); } catch (e) {}
+            try { window.removeEventListener('blur', onUp, true); } catch (e) {}
+            if (hasPointerId && typeof captureEl.releasePointerCapture === 'function') {
+                try { captureEl.releasePointerCapture(pointerId); } catch (e) {}
+            }
+            try { navigator?.classList?.remove?.('tm-whiteboard-navigator--dragging'); } catch (e) {}
+            state.whiteboardNavigatorDrag = null;
+            __tmScheduleWhiteboardNavigatorUpdate();
+            __tmScheduleWhiteboardViewSave();
+        };
+        if (source === 'touch') {
+            try { document.addEventListener('touchmove', onMove, { capture: true, passive: false }); } catch (e) { try { document.addEventListener('touchmove', onMove, true); } catch (e2) {} }
+            try { document.addEventListener('touchend', onUp, true); } catch (e) {}
+            try { document.addEventListener('touchcancel', onUp, true); } catch (e) {}
+        } else {
+            try { document.addEventListener('pointermove', onMove, true); } catch (e) {}
+            try { document.addEventListener('pointerup', onUp, true); } catch (e) {}
+            try { document.addEventListener('pointercancel', onUp, true); } catch (e) {}
+        }
+        try { window.addEventListener('blur', onUp, true); } catch (e) {}
+    }
+
+    window.tmWhiteboardNavigatorViewportPointerDown = function(ev) {
+        __tmStartWhiteboardNavigatorDrag(ev, { source: 'pointer', centerOnPointer: false });
+    };
+
+    window.tmWhiteboardNavigatorSurfacePointerDown = function(ev) {
+        __tmStartWhiteboardNavigatorDrag(ev, { source: 'pointer', centerOnPointer: true });
+    };
+
+    window.tmWhiteboardNavigatorSurfaceTouchStart = function(ev) {
+        __tmStartWhiteboardNavigatorDrag(ev, { source: 'touch', centerOnPointer: true });
+    };
+
+    window.tmWhiteboardSetNavigatorHidden = async function(hidden, ev) {
+        try { ev?.stopPropagation?.(); } catch (e) {}
+        try { ev?.preventDefault?.(); } catch (e) {}
+        const next = !!hidden;
+        SettingsStore.data.whiteboardNavigatorHidden = next;
+        try { SettingsStore.syncToLocal(); } catch (e) {}
+        const navigator = state.modal?.querySelector?.('#tmWhiteboardNavigator');
+        const revealBtn = state.modal?.querySelector?.('#tmWhiteboardNavigatorReveal');
+        try { navigator?.classList?.toggle?.('tm-whiteboard-navigator--hidden', next); } catch (e) {}
+        try { revealBtn?.classList?.toggle?.('tm-whiteboard-navigator-reveal--visible', next); } catch (e) {}
+        if (!next) __tmScheduleWhiteboardNavigatorUpdate();
+        try { await SettingsStore.save(); } catch (e) {}
+    };
+
+    function __tmScheduleWhiteboardNavigatorUpdate() {
+        if (state.viewMode !== 'whiteboard') return;
+        try {
+            const id0 = Number(state.whiteboardNavigatorRafId) || 0;
+            if (id0) cancelAnimationFrame(id0);
+        } catch (e) {}
+        try {
+            state.whiteboardNavigatorRafId = requestAnimationFrame(() => {
+                state.whiteboardNavigatorRafId = 0;
+                __tmUpdateWhiteboardNavigator();
+            });
+        } catch (e) {
+            __tmUpdateWhiteboardNavigator();
+        }
+    }
+
     function __tmApplyWhiteboardTransform() {
         if (state.viewMode !== 'whiteboard') return;
         const world = state.modal?.querySelector?.('#tmWhiteboardWorld');
         if (!(world instanceof HTMLElement)) return;
         const view = __tmGetWhiteboardView();
         world.style.transform = `translate(${view.x}px, ${view.y}px) scale(${view.zoom})`;
+        __tmScheduleWhiteboardNavigatorUpdate();
         __tmScheduleWhiteboardEdgeRedraw();
     }
 
@@ -504,7 +888,7 @@
         const viewport = state.modal?.querySelector?.('#tmWhiteboardViewport');
         if (!(viewport instanceof HTMLElement)) return;
         const target = ev?.target;
-        if (target && target.closest && target.closest('.tm-whiteboard-sidebar,.tm-whiteboard-bottom-toolbar,.tm-btn,input,button,select,textarea,label,a,.tm-whiteboard-doc-resize,.tm-task-link-dot,.tm-task-content-clickable,.tm-task-checkbox,.tm-kanban-chip,.tm-status-tag,.tm-priority-jira,.tm-kanban-priority-chip,.tm-whiteboard-card-tools,.tm-whiteboard-note-tools,.tm-whiteboard-link-tools,.tm-whiteboard-edge')) return;
+        if (target && target.closest && target.closest('.tm-whiteboard-sidebar,.tm-whiteboard-bottom-toolbar,.tm-whiteboard-navigator,.tm-whiteboard-navigator-reveal,.tm-btn,input,button,select,textarea,label,a,.tm-whiteboard-doc-resize,.tm-task-link-dot,.tm-task-content-clickable,.tm-task-checkbox,.tm-kanban-chip,.tm-status-tag,.tm-priority-jira,.tm-kanban-priority-chip,.tm-whiteboard-card-tools,.tm-whiteboard-note-tools,.tm-whiteboard-link-tools,.tm-whiteboard-edge,.tm-whiteboard-sticky-editor')) return;
         const touches = ev?.touches;
         const n = Number(touches?.length) || 0;
         if (n <= 0) return;
@@ -597,9 +981,9 @@
         if (!(viewport instanceof HTMLElement)) return;
         if (target && target.closest) {
             if (panMode) {
-                if (target.closest('.tm-whiteboard-sidebar,.tm-whiteboard-bottom-toolbar,.tm-btn,input,button,select,textarea,label,a,.tm-whiteboard-doc-resize,.tm-task-link-dot,.tm-task-content-clickable,.tm-task-checkbox,.tm-kanban-chip,.tm-status-tag,.tm-priority-jira,.tm-kanban-priority-chip,.tm-whiteboard-card-tools,.tm-whiteboard-note-tools,.tm-whiteboard-link-tools,.tm-whiteboard-edge,.tm-whiteboard-node,.tm-whiteboard-note,.tm-whiteboard-note-editor,.tm-whiteboard-doc-head')) return;
+                if (target.closest('.tm-whiteboard-sidebar,.tm-whiteboard-bottom-toolbar,.tm-whiteboard-navigator,.tm-whiteboard-navigator-reveal,.tm-btn,input,button,select,textarea,label,a,.tm-whiteboard-doc-resize,.tm-task-link-dot,.tm-task-content-clickable,.tm-task-checkbox,.tm-kanban-chip,.tm-status-tag,.tm-priority-jira,.tm-kanban-priority-chip,.tm-whiteboard-card-tools,.tm-whiteboard-note-tools,.tm-whiteboard-link-tools,.tm-whiteboard-edge,.tm-whiteboard-node,.tm-whiteboard-note,.tm-whiteboard-note-editor,.tm-whiteboard-sticky-editor,.tm-whiteboard-doc-head')) return;
             } else if (selectMode) {
-                if (target.closest('.tm-whiteboard-node,.tm-task-link-dot,.tm-task-checkbox,.tm-btn,.tm-task-content-clickable,.tm-whiteboard-note,.tm-whiteboard-note-editor,.tm-whiteboard-edge,.tm-whiteboard-link-tools,.tm-whiteboard-pool-item,.tm-whiteboard-doc-resize,.tm-whiteboard-doc-head,input,button,select,textarea,label,a')) return;
+                if (target.closest('.tm-whiteboard-node,.tm-task-link-dot,.tm-task-checkbox,.tm-whiteboard-navigator,.tm-whiteboard-navigator-reveal,.tm-btn,.tm-task-content-clickable,.tm-whiteboard-note,.tm-whiteboard-note-editor,.tm-whiteboard-sticky-editor,.tm-whiteboard-edge,.tm-whiteboard-link-tools,.tm-whiteboard-pool-item,.tm-whiteboard-doc-resize,.tm-whiteboard-doc-head,input,button,select,textarea,label,a')) return;
             } else {
                 return;
             }
@@ -965,6 +1349,7 @@
             if (d && Array.isArray(d.group) && d.group.length > 1) {
                 const notes = Array.isArray(SettingsStore.data.whiteboardNotes) ? [...SettingsStore.data.whiteboardNotes] : [];
                 const allView = !(state.activeDocId && state.activeDocId !== 'all');
+                const now = String(Date.now());
                 d.group.forEach((g) => {
                     if (!g || g.kind !== 'note' || !(g.el instanceof HTMLElement)) return;
                     const nx = Number((g.el.style.left || '').replace('px', '')) || Number(g.x0 || 0);
@@ -973,7 +1358,7 @@
                     if (idx < 0) return;
                     const offX = allView ? (Number(g.el.parentElement?.dataset?.frameOffsetX) || 0) : 0;
                     const offY = allView ? (Number(g.el.parentElement?.dataset?.frameOffsetY) || 0) : 0;
-                    notes[idx] = { ...(notes[idx] || {}), docId: g.did, x: Math.round(nx - offX), y: Math.round(ny - offY) };
+                    notes[idx] = { ...(notes[idx] || {}), docId: g.did, x: Math.round(nx - offX), y: Math.round(ny - offY), updatedAt: now };
                 });
                 SettingsStore.data.whiteboardNotes = notes;
                 try { SettingsStore.syncToLocal(); } catch (e) {}
@@ -1064,7 +1449,7 @@
     window.tmWhiteboardSelectNote = function(noteId, ev) {
         if (state.viewMode !== 'whiteboard') return;
         const tool = String(SettingsStore.data.whiteboardTool || 'pan');
-        if (tool !== 'pan' && tool !== 'text' && tool !== 'select') return;
+        if (tool !== 'pan' && tool !== 'text' && tool !== 'sticky' && tool !== 'select') return;
         if (state.whiteboardNoteEditor) return;
         try { ev?.stopPropagation?.(); } catch (e) {}
         const id = String(noteId || '').trim();
@@ -1112,6 +1497,12 @@
         return Math.max(80, Math.min(2200, Math.round(n)));
     }
 
+    function __tmNormalizeWhiteboardNoteHeight(v) {
+        const n = Number(v);
+        if (!Number.isFinite(n)) return 0;
+        return Math.max(120, Math.min(2200, Math.round(n)));
+    }
+
     function __tmNormalizeWhiteboardNoteBold(v) {
         return !!v;
     }
@@ -1137,9 +1528,19 @@
             if (w > 0) next.width = w;
             else delete next.width;
         }
+        if (Object.prototype.hasOwnProperty.call(patch, 'height')) {
+            const h = __tmNormalizeWhiteboardNoteHeight(patch.height);
+            if (h > 0) next.height = h;
+            else delete next.height;
+        }
         if (Object.prototype.hasOwnProperty.call(patch, 'bold')) {
             next.bold = __tmNormalizeWhiteboardNoteBold(patch.bold);
         }
+        if (Object.prototype.hasOwnProperty.call(patch, 'theme')) {
+            next.type = 'sticky';
+            next.theme = __tmNormalizeWhiteboardStickyTheme(patch.theme);
+        }
+        next.updatedAt = String(Date.now());
         notes[idx] = next;
         SettingsStore.data.whiteboardNotes = notes;
         try { SettingsStore.syncToLocal(); } catch (e) {}
@@ -1157,6 +1558,16 @@
         const d = Number(delta);
         const next = __tmNormalizeWhiteboardNoteFontSize(cur + (Number.isFinite(d) ? d : 0));
         const ok = await __tmUpdateWhiteboardNoteStyle(id, { fontSize: next });
+        if (!ok) return;
+        state.whiteboardSelectedNoteId = id;
+        render();
+    };
+
+    window.tmWhiteboardSetStickyTheme = async function(noteId, theme, ev) {
+        try { ev?.stopPropagation?.(); } catch (e) {}
+        const id = String(noteId || '').trim();
+        if (!id) return;
+        const ok = await __tmUpdateWhiteboardNoteStyle(id, { theme });
         if (!ok) return;
         state.whiteboardSelectedNoteId = id;
         render();
@@ -1378,15 +1789,17 @@
             try { clearTimeout(t); } catch (e) {}
             state.whiteboardNoteClickTimer = 0;
         }
-        if (String(SettingsStore.data.whiteboardTool || 'pan') !== 'pan') return;
+        const currentTool = String(SettingsStore.data.whiteboardTool || 'pan').trim();
+        if (currentTool !== 'pan' && currentTool !== 'sticky') return;
         const id = String(noteId || '').trim();
         const did = String(docId || '').trim();
         if (!id || !did) return;
         const notes = Array.isArray(SettingsStore.data.whiteboardNotes) ? SettingsStore.data.whiteboardNotes : [];
         const note = notes.find((n) => String(n?.id || '').trim() === id);
         if (!note) return;
-        const noteEl = (ev?.currentTarget instanceof HTMLElement)
-            ? ev.currentTarget
+        const eventEl = ev?.currentTarget instanceof HTMLElement ? ev.currentTarget : null;
+        const noteEl = (eventEl?.closest?.('.tm-whiteboard-note') instanceof HTMLElement)
+            ? eventEl.closest('.tm-whiteboard-note')
             : state.modal?.querySelector?.(`.tm-whiteboard-note[data-note-id="${CSS.escape(id)}"][data-doc-id="${CSS.escape(did)}"]`);
         const docBody = (noteEl instanceof HTMLElement ? noteEl.closest('.tm-whiteboard-doc-body[data-doc-id]') : null)
             || state.modal?.querySelector?.(`.tm-whiteboard-doc-body[data-doc-id="${CSS.escape(did)}"]`);
@@ -1421,6 +1834,20 @@
                 }
             }
         } catch (e) {}
+        if (__tmIsWhiteboardStickyNote(note)) {
+            const noteWidth = __tmNormalizeWhiteboardNoteWidth(note?.width) || Number(noteEl?.offsetWidth) || 260;
+            __tmOpenWhiteboardStickyEditor(docBody, did, x, y, {
+                noteId: id,
+                title: String(note?.title || ''),
+                text: String(note?.text || ''),
+                theme: __tmNormalizeWhiteboardStickyTheme(note?.theme),
+                width: noteWidth,
+                editorWidth: Math.max(360, noteWidth),
+                offsetX: offX,
+                offsetY: offY,
+            });
+            return;
+        }
         __tmOpenWhiteboardNoteEditor(docBody, did, x, y, {
             noteId: id,
             text: String(note?.text || ''),
@@ -1435,13 +1862,13 @@
     window.tmWhiteboardNoteMouseDown = function(ev, noteId, docId) {
         if (state.viewMode !== 'whiteboard') return;
         const tool = String(SettingsStore.data.whiteboardTool || 'pan');
-        if (tool !== 'pan' && tool !== 'text' && tool !== 'select') return;
+        if (tool !== 'pan' && tool !== 'text' && tool !== 'sticky' && tool !== 'select') return;
         if (Number(ev?.button) !== 0) return;
         if (state.whiteboardNoteEditor) return;
         // 双击用于编辑，不应进入拖拽流程，否则 mouseup-render 会把编辑框顶掉
         if (Number(ev?.detail) >= 2) return;
         const target = ev?.target;
-        if (target && target.closest && target.closest('.tm-whiteboard-note-resize,.tm-whiteboard-note-width-resize')) return;
+        if (target && target.closest && target.closest('.tm-whiteboard-note-resize,.tm-whiteboard-note-width-resize,.tm-whiteboard-note-height-resize')) return;
         if (target && target.closest && target.closest('.tm-btn,input,button,select,textarea,label,a')) return;
         const id = String(noteId || '').trim();
         const did = String(docId || '').trim();
@@ -1551,6 +1978,7 @@
             if (Array.isArray(d.group) && d.group.length > 1) {
                 const notes = Array.isArray(SettingsStore.data.whiteboardNotes) ? [...SettingsStore.data.whiteboardNotes] : [];
                 const allView = !(state.activeDocId && state.activeDocId !== 'all');
+                const now = String(Date.now());
                 d.group.forEach((g) => {
                     if (!g || g.kind !== 'note' || !(g.el instanceof HTMLElement)) return;
                     const nx = Number((g.el.style.left || '').replace('px', '')) || Number(g.x0 || 0);
@@ -1559,7 +1987,7 @@
                     if (idx < 0) return;
                     const offX = allView ? (Number(g.el.parentElement?.dataset?.frameOffsetX) || 0) : 0;
                     const offY = allView ? (Number(g.el.parentElement?.dataset?.frameOffsetY) || 0) : 0;
-                    notes[idx] = { ...(notes[idx] || {}), docId: g.did, x: Math.round(nx - offX), y: Math.round(ny - offY) };
+                    notes[idx] = { ...(notes[idx] || {}), docId: g.did, x: Math.round(nx - offX), y: Math.round(ny - offY), updatedAt: now };
                 });
                 SettingsStore.data.whiteboardNotes = notes;
                 try { SettingsStore.syncToLocal(); } catch (e) {}
@@ -1575,7 +2003,7 @@
                 const allView = !(state.activeDocId && state.activeDocId !== 'all');
                 const offX = allView ? (Number(d.noteEl.parentElement?.dataset?.frameOffsetX) || 0) : 0;
                 const offY = allView ? (Number(d.noteEl.parentElement?.dataset?.frameOffsetY) || 0) : 0;
-                notes[idx] = { ...(notes[idx] || {}), docId: d.did, x: Math.round(nx - offX), y: Math.round(ny - offY) };
+                notes[idx] = { ...(notes[idx] || {}), docId: d.did, x: Math.round(nx - offX), y: Math.round(ny - offY), updatedAt: String(Date.now()) };
                 SettingsStore.data.whiteboardNotes = notes;
                 try { SettingsStore.syncToLocal(); } catch (e) {}
                 try { await SettingsStore.save(); } catch (e) {}
@@ -1641,8 +2069,10 @@
         const startW = __tmNormalizeWhiteboardNoteWidth(Number(noteEl.getBoundingClientRect()?.width) || Number(noteEl.offsetWidth) || 0);
         const sx = Number(ev?.clientX) || 0;
         noteEl.style.width = `${startW}px`;
-        noteEl.style.whiteSpace = 'pre-wrap';
-        noteEl.style.overflowWrap = 'anywhere';
+        if (!noteEl.classList.contains('tm-whiteboard-sticky')) {
+            noteEl.style.whiteSpace = 'pre-wrap';
+            noteEl.style.overflowWrap = 'anywhere';
+        }
         const onMove = (e2) => {
             const dx = (Number(e2?.clientX) || 0) - sx;
             const next = __tmNormalizeWhiteboardNoteWidth(startW + dx);
@@ -1665,11 +2095,115 @@
         try { document.addEventListener('mouseup', onUp, true); } catch (e) {}
     };
 
+    window.tmWhiteboardNoteResizeHeightStart = function(ev, noteId, docId) {
+        if (state.viewMode !== 'whiteboard') return;
+        if (Number(ev?.button) !== 0) return;
+        try { ev?.stopPropagation?.(); } catch (e) {}
+        try { ev?.preventDefault?.(); } catch (e) {}
+        const id = String(noteId || '').trim();
+        const did = String(docId || '').trim();
+        if (!id || !did) return;
+        const handle = ev?.currentTarget instanceof HTMLElement ? ev.currentTarget : null;
+        const noteEl = (handle && handle.closest('.tm-whiteboard-note')) || (ev?.target?.closest?.('.tm-whiteboard-note'));
+        if (!(noteEl instanceof HTMLElement)) return;
+        const startH = __tmNormalizeWhiteboardNoteHeight(Number(noteEl.getBoundingClientRect()?.height) || Number(noteEl.offsetHeight) || 0);
+        const sy = Number(ev?.clientY) || 0;
+        noteEl.style.height = `${startH}px`;
+        const onMove = (e2) => {
+            const dy = (Number(e2?.clientY) || 0) - sy;
+            const next = __tmNormalizeWhiteboardNoteHeight(startH + dy);
+            noteEl.style.height = `${next}px`;
+            state.whiteboardNoteHeightResize = { noteId: id, docId: did, height: next };
+        };
+        const onUp = async () => {
+            try { document.removeEventListener('mousemove', onMove, true); } catch (e) {}
+            try { document.removeEventListener('mouseup', onUp, true); } catch (e) {}
+            const st = (state.whiteboardNoteHeightResize && String(state.whiteboardNoteHeightResize.noteId || '').trim() === id)
+                ? state.whiteboardNoteHeightResize
+                : null;
+            state.whiteboardNoteHeightResize = null;
+            const next = __tmNormalizeWhiteboardNoteHeight(st?.height ?? startH);
+            await __tmUpdateWhiteboardNoteStyle(id, { height: next });
+            state.whiteboardSelectedNoteId = id;
+            render();
+        };
+        try { document.addEventListener('mousemove', onMove, true); } catch (e) {}
+        try { document.addEventListener('mouseup', onUp, true); } catch (e) {}
+    };
+
+    async function __tmCloseWhiteboardStickyEditorState(st, opts = {}) {
+        const o = (opts && typeof opts === 'object') ? opts : {};
+        const shell = st?.el instanceof HTMLElement ? st.el : null;
+        const titleEl = st?.titleEl instanceof HTMLInputElement ? st.titleEl : null;
+        const textEl = st?.textEl instanceof HTMLTextAreaElement ? st.textEl : null;
+        const did = String(st?.docId || '').trim();
+        const noteId = String(st?.noteId || '').trim();
+        const x = Number(st?.x);
+        const y = Number(st?.y);
+        const ox = Number(st?.offsetX) || 0;
+        const oy = Number(st?.offsetY) || 0;
+        const theme = __tmNormalizeWhiteboardStickyTheme(st?.theme);
+        const width = __tmNormalizeWhiteboardNoteWidth(st?.width) || 260;
+        const title = String(titleEl?.value || '').trim();
+        const text = __tmNormalizeRemarkMarkdown(textEl?.value || '');
+        try { shell?.remove?.(); } catch (e) {}
+        if (!o.save) return;
+        if (!did || !Number.isFinite(x) || !Number.isFinite(y)) return;
+        if (!title && !text) return;
+        const allView = !(state.activeDocId && state.activeDocId !== 'all');
+        const sx = Math.round(x - (allView ? ox : 0));
+        const sy = Math.round(y - (allView ? oy : 0));
+        const notes0 = Array.isArray(SettingsStore.data.whiteboardNotes) ? [...SettingsStore.data.whiteboardNotes] : [];
+        const now = String(Date.now());
+        if (noteId) {
+            const idx = notes0.findIndex((n) => String(n?.id || '').trim() === noteId);
+            if (idx < 0) return;
+            notes0[idx] = {
+                ...(notes0[idx] || {}),
+                type: 'sticky',
+                docId: did,
+                title,
+                text,
+                theme,
+                width,
+                x: sx,
+                y: sy,
+                updatedAt: now,
+            };
+            SettingsStore.data.whiteboardNotes = notes0;
+            try { SettingsStore.syncToLocal(); } catch (e) {}
+            try { await SettingsStore.save(); } catch (e) {}
+            render();
+            return;
+        }
+        notes0.push({
+            id: `note_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`,
+            type: 'sticky',
+            docId: did,
+            title,
+            text,
+            theme,
+            width,
+            x: sx,
+            y: sy,
+            createdAt: now,
+            updatedAt: now,
+        });
+        SettingsStore.data.whiteboardNotes = notes0;
+        try { SettingsStore.syncToLocal(); } catch (e) {}
+        try { await SettingsStore.save(); } catch (e) {}
+        render();
+    }
+
     async function __tmCloseWhiteboardNoteEditor(opts = {}) {
         const o = (opts && typeof opts === 'object') ? opts : {};
         const st = state.whiteboardNoteEditor;
         state.whiteboardNoteEditor = null;
         if (!st || typeof st !== 'object') return;
+        if (String(st.kind || '').trim() === 'sticky') {
+            await __tmCloseWhiteboardStickyEditorState(st, o);
+            return;
+        }
         const el = st.el;
         const did = String(st.docId || '').trim();
         const noteId = String(st.noteId || '').trim();
@@ -1791,12 +2325,139 @@
         };
     }
 
+    function __tmOpenWhiteboardStickyEditor(docBody, docId, x, y, opts = {}) {
+        const o = (opts && typeof opts === 'object') ? opts : {};
+        const bodyEl = docBody instanceof HTMLElement ? docBody : null;
+        const did = String(docId || '').trim();
+        if (!bodyEl || !did) return;
+        const noteId = String(o.noteId || '').trim();
+        const nx = Math.round(Number(x) || 24);
+        const ny = Math.round(Number(y) || 24);
+        const initialTitle = String(o.title || '');
+        const initialText = __tmNormalizeRemarkMarkdown(o.text || '');
+        const initialTheme = __tmNormalizeWhiteboardStickyTheme(o.theme);
+        const initialWidth = __tmNormalizeWhiteboardNoteWidth(o.width) || 260;
+        const editorWidth = __tmNormalizeWhiteboardNoteWidth(o.editorWidth) || Math.max(360, initialWidth);
+        __tmCloseWhiteboardNoteEditor({ save: false });
+
+        const editor = document.createElement('div');
+        editor.className = `tm-whiteboard-sticky-editor tm-whiteboard-sticky-editor--${initialTheme}`;
+        editor.style.left = `${nx}px`;
+        editor.style.top = `${ny}px`;
+        editor.style.width = `${editorWidth}px`;
+        editor.innerHTML = `
+            <div class="tm-whiteboard-sticky-editor-head">
+                <input class="tm-whiteboard-sticky-title-input" data-tm-sticky-title type="text" placeholder="便利贴标题">
+            </div>
+            <div class="tm-whiteboard-sticky-editor-toolbar" data-tm-whiteboard-sticky-toolbar>${__tmBuildRemarkMarkdownToolbarHtml({
+                toolAttribute: 'data-tm-whiteboard-sticky-tool',
+                buttonClass: 'bc-btn bc-btn--sm tm-whiteboard-sticky-editor-toolbar-btn',
+                tooltipSide: 'top',
+            })}</div>
+            <textarea class="tm-whiteboard-sticky-textarea" data-tm-sticky-text rows="4" placeholder="输入正文，支持 Markdown"></textarea>
+        `;
+        const titleInput = editor.querySelector('[data-tm-sticky-title]');
+        const textArea = editor.querySelector('[data-tm-sticky-text]');
+        const toolbar = editor.querySelector('[data-tm-whiteboard-sticky-toolbar]');
+        if (titleInput instanceof HTMLInputElement) titleInput.value = initialTitle;
+        if (textArea instanceof HTMLTextAreaElement) textArea.value = initialText;
+
+        const syncTextHeight = () => {
+            if (!(textArea instanceof HTMLTextAreaElement)) return;
+            try {
+                textArea.style.height = 'auto';
+                textArea.style.height = `${Math.max(92, Math.ceil(Number(textArea.scrollHeight) || 0))}px`;
+            } catch (e) {}
+        };
+        const save = async () => {
+            await __tmCloseWhiteboardNoteEditor({ save: true });
+        };
+        const cancel = async () => {
+            await __tmCloseWhiteboardNoteEditor({ save: false });
+        };
+
+        editor.addEventListener('mousedown', (e) => {
+            try { e.stopPropagation(); } catch (err) {}
+        });
+        editor.addEventListener('click', (e) => {
+            try { e.stopPropagation(); } catch (err) {}
+        });
+        if (titleInput instanceof HTMLInputElement && textArea instanceof HTMLTextAreaElement) {
+            titleInput.addEventListener('keydown', async (e) => {
+                if (e.key === 'Escape') {
+                    try { e.preventDefault(); } catch (err) {}
+                    await cancel();
+                    return;
+                }
+                if (e.key === 'Enter') {
+                    try { e.preventDefault(); } catch (err) {}
+                    try { textArea.focus(); } catch (err) {}
+                }
+            });
+            textArea.addEventListener('input', syncTextHeight);
+            textArea.addEventListener('keydown', async (e) => {
+                if (e.key === 'Escape') {
+                    try { e.preventDefault(); } catch (err) {}
+                    await cancel();
+                    return;
+                }
+                if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) {
+                    try { e.preventDefault(); } catch (err) {}
+                    await save();
+                    return;
+                }
+                if (__tmHandleRemarkTextareaKeydown(textArea, e)) {
+                    syncTextHeight();
+                }
+            });
+        }
+        if (toolbar instanceof HTMLElement && textArea instanceof HTMLTextAreaElement) {
+            __tmBindRemarkMarkdownToolbar(toolbar, textArea, {
+                toolAttribute: 'data-tm-whiteboard-sticky-tool',
+                onAfterApply: () => {
+                    syncTextHeight();
+                    try { textArea.focus({ preventScroll: true }); } catch (e) { try { textArea.focus(); } catch (e2) {} }
+                },
+            });
+        }
+        editor.addEventListener('focusout', () => {
+            try {
+                setTimeout(() => {
+                    if (!state.whiteboardNoteEditor || state.whiteboardNoteEditor.el !== editor) return;
+                    const active = document.activeElement;
+                    if (active instanceof Node && editor.contains(active)) return;
+                    save().catch(() => null);
+                }, 0);
+            } catch (e) {}
+        });
+
+        bodyEl.appendChild(editor);
+        state.whiteboardNoteEditor = {
+            kind: 'sticky',
+            el: editor,
+            titleEl: titleInput,
+            textEl: textArea,
+            docId: did,
+            noteId,
+            x: nx,
+            y: ny,
+            offsetX: Number(o.offsetX) || 0,
+            offsetY: Number(o.offsetY) || 0,
+            theme: initialTheme,
+            width: initialWidth,
+        };
+        syncTextHeight();
+        try { titleInput?.focus?.(); } catch (e) {}
+        try { titleInput?.setSelectionRange?.(titleInput.value.length, titleInput.value.length); } catch (e) {}
+    }
+
     window.tmWhiteboardDocClick = async function(ev, docId) {
         const allView = !(state.activeDocId && state.activeDocId !== 'all');
         if (allView) return;
-        if (String(SettingsStore.data.whiteboardTool || 'pan') !== 'text') return;
+        const tool = String(SettingsStore.data.whiteboardTool || 'pan').trim();
+        if (tool !== 'text' && tool !== 'sticky') return;
         const target = ev?.target;
-        if (target && target.closest && target.closest('.tm-whiteboard-node,.tm-task-link-dot,.tm-task-checkbox,.tm-btn,.tm-task-content-clickable,.tm-whiteboard-note,.tm-whiteboard-note-editor')) return;
+        if (target && target.closest && target.closest('.tm-whiteboard-node,.tm-task-link-dot,.tm-task-checkbox,.tm-whiteboard-navigator,.tm-whiteboard-navigator-reveal,.tm-btn,.tm-task-content-clickable,.tm-whiteboard-note,.tm-whiteboard-note-editor,.tm-whiteboard-sticky-editor')) return;
         const did = String(docId || '').trim();
         if (!did) return;
         const docBody = target?.closest?.('.tm-whiteboard-doc-body[data-doc-id]')
@@ -1805,14 +2466,20 @@
         const p = __tmResolveWhiteboardPointerInfo(ev, did);
         const localX = Number.isFinite(Number(p?.localX)) ? Number(p.localX) : 24;
         const localY = Number.isFinite(Number(p?.localY)) ? Number(p.localY) : 24;
+        if (tool === 'sticky') {
+            __tmOpenWhiteboardStickyEditor(docBody, did, localX, localY);
+            return;
+        }
         __tmOpenWhiteboardNoteEditor(docBody, did, localX, localY);
     };
 
     window.tmWhiteboardBoardClick = async function(ev) {
         if (Number(state.whiteboardSuppressClickUntil || 0) > Date.now()) return;
         const target = ev?.target;
-        if (target && target.closest && target.closest('.tm-whiteboard-node,.tm-task-link-dot,.tm-task-checkbox,.tm-btn,.tm-task-content-clickable,.tm-whiteboard-note,.tm-whiteboard-note-editor,.tm-whiteboard-edge,.tm-whiteboard-doc-resize,.tm-whiteboard-link-tools,.tm-whiteboard-multi-tools')) return;
-        if (state.whiteboardNoteEditor && String(SettingsStore.data.whiteboardTool || 'pan') === 'text') {
+        if (target && target.closest && target.closest('.tm-whiteboard-node,.tm-task-link-dot,.tm-task-checkbox,.tm-whiteboard-navigator,.tm-whiteboard-navigator-reveal,.tm-btn,.tm-task-content-clickable,.tm-whiteboard-note,.tm-whiteboard-note-editor,.tm-whiteboard-sticky-editor,.tm-whiteboard-edge,.tm-whiteboard-doc-resize,.tm-whiteboard-link-tools,.tm-whiteboard-multi-tools')) return;
+        const tool = String(SettingsStore.data.whiteboardTool || 'pan').trim();
+        const isNoteCreateTool = tool === 'text' || tool === 'sticky';
+        if (state.whiteboardNoteEditor && isNoteCreateTool) {
             await __tmCloseWhiteboardNoteEditor({ save: true });
             return;
         }
@@ -1836,11 +2503,11 @@
             state.whiteboardSelectedTaskId = '';
             __tmApplyWhiteboardCardSelectionDom('');
             changed = true;
-            if (String(SettingsStore.data.whiteboardTool || 'pan') !== 'text') {
+            if (!isNoteCreateTool) {
                 render();
                 return;
             }
-        } else if (String(SettingsStore.data.whiteboardTool || 'pan') !== 'text') {
+        } else if (!isNoteCreateTool) {
             if (changed) render();
             return;
         }
@@ -1858,8 +2525,10 @@
     window.tmWhiteboardBoardDblClick = async function(ev) {
         const allView = !(state.activeDocId && state.activeDocId !== 'all');
         if (allView) return;
+        const tool = String(SettingsStore.data.whiteboardTool || 'pan').trim();
+        if (tool === 'text' || tool === 'sticky') return;
         const target = ev?.target;
-        if (target && target.closest && target.closest('.tm-whiteboard-node,.tm-task-link-dot,.tm-task-checkbox,.tm-btn,.tm-task-content-clickable,.tm-whiteboard-note,.tm-whiteboard-note-editor,.tm-whiteboard-edge,.tm-whiteboard-doc-resize,.tm-whiteboard-link-tools,.tm-whiteboard-multi-tools,input,button,select,textarea,label,a')) return;
+        if (target && target.closest && target.closest('.tm-whiteboard-node,.tm-task-link-dot,.tm-task-checkbox,.tm-btn,.tm-task-content-clickable,.tm-whiteboard-note,.tm-whiteboard-note-editor,.tm-whiteboard-sticky-editor,.tm-whiteboard-edge,.tm-whiteboard-doc-resize,.tm-whiteboard-link-tools,.tm-whiteboard-multi-tools,input,button,select,textarea,label,a')) return;
         const did = String(state.activeDocId || '').trim();
         if (!did || did === 'all') return;
         const point = __tmResolveWhiteboardPointerInfo(ev, did);
@@ -3245,8 +3914,9 @@
 
     window.tmWhiteboardSetTool = async function(tool) {
         const t = String(tool || 'pan').trim();
-        const next = (t === 'select' || t === 'text' || t === 'pan') ? t : 'pan';
-        if (next !== 'text') {
+        const next = (t === 'select' || t === 'text' || t === 'sticky' || t === 'pan') ? t : 'pan';
+        const currentEditorKind = String(state.whiteboardNoteEditor?.kind || '').trim();
+        if (next !== 'text' || currentEditorKind === 'sticky') {
             try { await __tmCloseWhiteboardNoteEditor({ save: true }); } catch (e) {}
         }
         __tmClearWhiteboardMultiSelection();

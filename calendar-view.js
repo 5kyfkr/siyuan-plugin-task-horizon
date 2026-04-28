@@ -47,6 +47,7 @@
         SCHEDULE_MOBILE_REGISTRY_LS_KEY: 'tm-calendar-mobile-notification-registry',
     };
     const SIDE_DAY_HALF_HOUR_SLOT_HEIGHT = 29;
+    const CALENDAR_MONTH_MIN_ROW_HEIGHT = 78;
     const CALENDAR_HOUR_SLOT_HEIGHT_DELTA_MAP = Object.freeze({
         normal: 0,
         high: 10,
@@ -60,6 +61,37 @@
         mainSchedule: 'tm-schedule-main',
         sideSchedule: 'tm-schedule-side',
     };
+
+    function setStylePropertyIfChanged(node, prop, value, priority = '') {
+        if (!(node instanceof HTMLElement)) return false;
+        const nextValue = String(value ?? '');
+        const nextPriority = String(priority || '');
+        try {
+            if (
+                node.style.getPropertyValue(prop) === nextValue
+                && node.style.getPropertyPriority(prop) === nextPriority
+            ) {
+                return false;
+            }
+            node.style.setProperty(prop, nextValue, nextPriority);
+            return true;
+        } catch (e) {}
+        return false;
+    }
+
+    function setImportantStyleIfChanged(node, prop, value) {
+        return setStylePropertyIfChanged(node, prop, value, 'important');
+    }
+
+    function removeStylePropertyIfPresent(node, prop) {
+        if (!(node instanceof HTMLElement)) return false;
+        try {
+            if (!node.style.getPropertyValue(prop) && !node.style.getPropertyPriority(prop)) return false;
+            node.style.removeProperty(prop);
+            return true;
+        } catch (e) {}
+        return false;
+    }
 
     const state = {
         mounted: false,
@@ -335,6 +367,7 @@
             type: 'dayGridMonth',
             titleFormat: { month: 'numeric' },
             fixedWeekCount: false,
+            moreLinkText: (n) => `+${n}`,
         },
     };
 
@@ -804,6 +837,7 @@
         rootEl.classList.toggle('tm-cal-allday-collapsed', collapsed);
         try { ensureInlineAllDayAxisToggle(rootEl, calendar); } catch (e) {}
         try { applyAllDayCollapsedLayout(rootEl, collapsed); } catch (e) {}
+        try { applyTimeGridAllDayMoreLinkLayout(rootEl, calendar); } catch (e) {}
         const count = supported ? getAllDaySummaryCount(calendar) : 0;
         const axisCushions = getAllDayAxisCushions(rootEl);
         const existingSummary = rootEl.querySelector('.tm-cal-allday-summary-overlay');
@@ -875,6 +909,18 @@
 #tmCalendarSideDockTimeline .fc .fc-timegrid-all-day .fc-daygrid-day-bottom{margin-top:0 !important;padding-top:0 !important;line-height:1 !important;}
 .tm-calendar-host .fc .fc-timegrid-all-day .fc-daygrid-more-link,
 #tmCalendarSideDockTimeline .fc .fc-timegrid-all-day .fc-daygrid-more-link{margin:0 !important;}
+.tm-calendar-host .fc .fc-timegrid .fc-col-header-cell.fc-day-today .fc-col-header-cell-cushion,
+.tm-calendar-host.fc .fc-timegrid .fc-col-header-cell.fc-day-today .fc-col-header-cell-cushion,
+.tm-calendar-wrap .fc .fc-timegrid .fc-col-header-cell.fc-day-today .fc-col-header-cell-cushion,
+#tmCalendarSideDockTimeline .fc .fc-timegrid .fc-col-header-cell.fc-day-today .fc-col-header-cell-cushion,
+.tm-calendar-host .fc .fc-timegrid .fc-col-header-cell.fc-day-today .tm-cn-week-head,
+.tm-calendar-host.fc .fc-timegrid .fc-col-header-cell.fc-day-today .tm-cn-week-head,
+.tm-calendar-wrap .fc .fc-timegrid .fc-col-header-cell.fc-day-today .tm-cn-week-head,
+#tmCalendarSideDockTimeline .fc .fc-timegrid .fc-col-header-cell.fc-day-today .tm-cn-week-head{color:var(--tm-text-color) !important;font-weight:700 !important;}
+.tm-calendar-host:not(.tm-cal-allday-collapsed) .fc .fc-timegrid .fc-daygrid-day-bottom,
+#tmCalendarSideDockTimeline:not(.tm-cal-allday-collapsed) .fc .fc-timegrid .fc-daygrid-day-bottom{width:100% !important;margin-top:0 !important;padding:0 !important;line-height:1 !important;box-sizing:border-box !important;}
+.tm-calendar-host:not(.tm-cal-allday-collapsed) .fc .fc-timegrid .fc-daygrid-more-link,
+#tmCalendarSideDockTimeline:not(.tm-cal-allday-collapsed) .fc .fc-timegrid .fc-daygrid-more-link{display:flex !important;align-items:center !important;justify-content:center !important;float:none !important;width:100% !important;min-width:28px !important;height:var(--tm-calendar-month-more-link-height, 19px) !important;min-height:var(--tm-calendar-month-more-link-height, 19px) !important;max-width:100% !important;margin:0 !important;padding:0 6px 0 7px !important;border-radius:5px !important;background-image:linear-gradient(var(--tm-calendar-month-more-bg, rgba(127, 127, 127, 0.11)), var(--tm-calendar-month-more-bg, rgba(127, 127, 127, 0.11))) !important;background-position:left top !important;background-size:100% 100% !important;background-repeat:no-repeat !important;background-color:var(--tm-calendar-month-more-bg, rgba(127, 127, 127, 0.11)) !important;box-shadow:inset 0 -1px 0 var(--fc-page-bg-color, var(--tm-bg-color, #fff)) !important;color:var(--tm-calendar-month-more-text, var(--tm-secondary-text)) !important;font-size:11px !important;font-weight:700 !important;line-height:1.1 !important;text-align:center !important;text-decoration:none !important;overflow:hidden !important;text-overflow:ellipsis !important;white-space:nowrap !important;box-sizing:border-box !important;}
 .fc .fc-daygrid-body-natural .fc-daygrid-day-events{margin-bottom:0 !important;}
 /* Fallback only:
    最终的全天标题/时间字号不要在这段字符串里改。
@@ -907,10 +953,13 @@
 #tmCalendarSideDockTimeline .fc .fc-timegrid-now-indicator-line::before{content:"";position:absolute;left:0;top:50%;width:10px;height:10px;border-radius:999px;background:var(--fc-now-indicator-color, var(--tm-primary-color));transform:translate(-50%, -50%);box-shadow:0 0 0 2px var(--fc-page-bg-color, #fff);}
 .tm-calendar-host .fc .fc-timegrid-now-indicator-arrow,
 #tmCalendarSideDockTimeline .fc .fc-timegrid-now-indicator-arrow{display:none !important;}
+.tm-calendar-host .fc .fc-dayGridMonth-view .fc-daygrid-day.fc-day-today .fc-daygrid-day-number,
+.tm-calendar-host.fc .fc-dayGridMonth-view .fc-daygrid-day.fc-day-today .fc-daygrid-day-number,
+.tm-calendar-wrap .fc .fc-dayGridMonth-view .fc-daygrid-day.fc-day-today .fc-daygrid-day-number{font-weight:400 !important;}
         `.trim();
         const existing = document.getElementById(id);
         if (existing && existing.tagName === 'STYLE') {
-            existing.textContent = css;
+            if (existing.textContent !== css) existing.textContent = css;
             return;
         }
         const st = document.createElement('style');
@@ -1272,7 +1321,31 @@
         if (!(titleEl instanceof HTMLElement)) return false;
         const nextTitle = formatMainCalendarTitle(calendar);
         if (!nextTitle) return false;
-        try { titleEl.textContent = nextTitle; } catch (e) { return false; }
+        try {
+            const viewType = String(calendar?.view?.type || state.calendar?.view?.type || '').trim();
+            const lunarDayEl = viewType === 'timeGridDay'
+                ? titleEl.querySelector?.(':scope > .tm-cn-lunar--day')
+                : null;
+            titleEl.replaceChildren(document.createTextNode(nextTitle));
+            if (lunarDayEl instanceof HTMLElement && String(lunarDayEl.textContent || '').trim()) {
+                titleEl.appendChild(lunarDayEl);
+            }
+            titleEl.setAttribute('data-tm-calendar-title', nextTitle);
+            titleEl.title = nextTitle;
+        } catch (e) { return false; }
+        return true;
+    }
+
+    function scheduleMainCalendarToolbarTitleSync(wrap, calendar) {
+        if (!(wrap instanceof Element) || !calendar) return false;
+        const run = () => {
+            try { syncMainCalendarToolbarTitle(wrap, calendar); } catch (e) {}
+        };
+        run();
+        try { requestAnimationFrame(run); } catch (e) {}
+        try { setTimeout(run, 0); } catch (e) {}
+        try { setTimeout(run, 40); } catch (e) {}
+        try { setTimeout(run, 160); } catch (e) {}
         return true;
     }
 
@@ -1410,10 +1483,21 @@
             }
         } catch (e) {}
         try { el.style.setProperty('color', textColor, 'important'); } catch (e) {}
+        try { el.style.setProperty('font-size', '11px', 'important'); } catch (e) {}
         try {
             const nodes = el.querySelectorAll('.fc-event-main, .fc-event-main-frame, .fc-event-time, .fc-event-title, .tm-cal-task-event, .tm-cal-task-event-title, .tm-cal-task-event-title-text, .tm-cal-task-event-time, .tm-cal-schedule-stack');
             nodes.forEach((node) => {
                 try { node.style.setProperty('color', textColor, 'important'); } catch (e2) {}
+                try {
+                    if (node.matches?.('.fc-event-time, .tm-cal-task-event-time')) {
+                        node.style.setProperty('font-size', '10px', 'important');
+                    } else if (node.matches?.('.fc-event-title, .tm-cal-task-event, .tm-cal-task-event-title, .tm-cal-task-event-title-text, .tm-cal-schedule-stack')) {
+                        node.style.setProperty('font-size', '11px', 'important');
+                    }
+                    if (node.matches?.('.fc-event-title, .tm-cal-task-event-title, .tm-cal-task-event-title-text')) {
+                        node.style.setProperty('line-height', '1.1', 'important');
+                    }
+                } catch (e3) {}
                 try {
                     if (el.closest?.('.fc-timegrid-all-day, .fc-timegrid-allday') && (node.matches?.('.fc-event-main, .fc-event-main-frame, .tm-cal-task-event, .tm-cal-schedule-stack'))) {
                         node.style.setProperty('height', '100%', 'important');
@@ -1430,6 +1514,58 @@
                     try { syncAllDayEventHarnessSpacing(el); } catch (e2) {}
                 });
             }
+        } catch (e) {}
+    }
+
+    function shouldUseAllDaySoftEventVisual(arg, source) {
+        const viewType = String(arg?.view?.type || '').trim();
+        const isAllDayLike = arg?.event?.allDay === true || viewType.startsWith('dayGrid');
+        if (!isAllDayLike) return false;
+        if (source === 'schedule' || source === 'taskdate' || source === 'reminder') return true;
+        if (source !== 'cnHoliday') return false;
+        try {
+            const id = String(arg?.event?.id || '').trim();
+            const display = String(arg?.event?.display || '').trim();
+            const el = arg?.el;
+            if (display === 'background' || id.startsWith('cn-holiday-bg:')) return false;
+            if (el?.classList?.contains?.('fc-bg-event')) return false;
+        } catch (e) {}
+        return true;
+    }
+
+    function shouldUseAllDayEventContentLayout(arg) {
+        const viewType = String(arg?.view?.type || '').trim();
+        return arg?.event?.allDay === true || viewType.startsWith('dayGrid');
+    }
+
+    function resolveCalendarEventClassNames(arg) {
+        if (arg?.isMirror) return ['tm-cal-selection-mirror', 'tm-cal-schedule-event'];
+        const ext = arg?.event?.extendedProps || {};
+        const source = String(ext.__tmSource || '').trim();
+        const classNames = [];
+        if (resolveCalendarEventDoneState(ext)) classNames.push('tm-cal-event--done');
+        if (shouldUseAllDaySoftEventVisual(arg, source)) classNames.push('tm-cal-allday-soft-event');
+        return classNames;
+    }
+
+    function normalizeAllDayEventContentLayout(eventEl) {
+        const el = eventEl instanceof Element ? eventEl : null;
+        if (!el) return;
+        try {
+            const wraps = el.querySelectorAll?.('.tm-cal-task-event, .tm-cal-schedule-stack');
+            if (!wraps || !wraps.length) return;
+            wraps.forEach((wrapEl) => {
+                if (!(wrapEl instanceof HTMLElement)) return;
+                try {
+                    if (wrapEl.classList.contains('tm-cal-schedule-stack')) {
+                        wrapEl.classList.add('tm-cal-schedule-stack--allday');
+                    } else {
+                        wrapEl.classList.add('tm-cal-task-event--allday');
+                    }
+                } catch (e1) {}
+                const titleEl = wrapEl.querySelector?.('.tm-cal-task-event-title') || null;
+                applyTaskEventTitleClamp(wrapEl, titleEl, { hasLeadingSlot: !!wrapEl.querySelector?.('.tm-cal-task-event-leading') });
+            });
         } catch (e) {}
     }
 
@@ -1563,6 +1699,60 @@
         timeText.addEventListener('dragstart', swallowDragStart);
         title.appendChild(timeText);
         return { title, titleText, timeText };
+    }
+
+    function buildCnHolidayEventContent(arg) {
+        const ext = arg?.event?.extendedProps || {};
+        const type = Number(ext.__tmCnHolidayType);
+        const name = normalizeCnHolidayName(String(ext.__tmCnHolidayName || '').trim());
+        if (!name) return true;
+        try {
+            const id = String(arg?.event?.id || '').trim();
+            const display = String(arg?.event?.display || '').trim();
+            if (display === 'background' || id.startsWith('cn-holiday-bg:')) return true;
+        } catch (e) {}
+        if (type === 0) {
+            const wrapEl = document.createElement('span');
+            wrapEl.className = 'tm-cal-task-event tm-cal-task-event--block tm-cal-task-event--allday tm-cn-holiday-title';
+            const { title } = buildTaskEventTitleNode(String(arg?.event?.title || '').trim() || name);
+            applyTaskEventTitleClamp(wrapEl, title);
+            wrapEl.title = name;
+            wrapEl.appendChild(title);
+            return { domNodes: [wrapEl] };
+        }
+        if (type !== 2 && type !== 3 && type !== 4) return true;
+        const isWork = type === 4;
+        const pill = document.createElement('span');
+        pill.className = `tm-cn-holiday-pill ${isWork ? 'tm-cn-holiday-pill--work' : 'tm-cn-holiday-pill--rest'}`;
+        const badge = document.createElement('span');
+        badge.className = 'tm-cn-holiday-badge';
+        badge.textContent = isWork ? '班' : '休';
+        pill.appendChild(badge);
+        const label = document.createElement('span');
+        label.className = 'tm-cn-holiday-label';
+        label.textContent = name;
+        pill.appendChild(label);
+        pill.title = `${isWork ? '上班' : '休息'}${name ? `：${name}` : ''}`;
+        return { domNodes: [pill] };
+    }
+
+    function normalizeCalendarMonthDayNumberCell(arg) {
+        try {
+            const viewType = String(arg?.view?.type || '').trim();
+            const date = arg?.date instanceof Date ? arg.date : null;
+            const el = arg?.el instanceof HTMLElement ? arg.el : null;
+            if (viewType === 'dayGridMonth' && date && !Number.isNaN(date.getTime())) {
+                const label = el?.querySelector?.('.fc-daygrid-day-number');
+                if (!(label instanceof HTMLElement)) return;
+                const nextText = String(date.getDate());
+                const textNode = Array.from(label.childNodes || []).find((node) => node?.nodeType === 3);
+                if (textNode) textNode.nodeValue = nextText;
+                else label.appendChild(document.createTextNode(nextText));
+                if (el?.classList?.contains?.('fc-day-today')) {
+                    try { label.style.setProperty('font-weight', '400', 'important'); } catch (e) {}
+                }
+            }
+        } catch (e) {}
     }
 
     function buildCalendarEventLeadingNode(kind = '') {
@@ -1895,6 +2085,64 @@
         return Math.max(1, Math.min(8, num));
     }
 
+    function readCalendarCssPixelValue(el, propName, fallback) {
+        const fallbackNum = Number(fallback);
+        const safeFallback = Number.isFinite(fallbackNum) ? fallbackNum : 0;
+        if (!(el instanceof HTMLElement)) return safeFallback;
+        try {
+            const raw = window.getComputedStyle(el).getPropertyValue(propName);
+            const parsed = Number.parseFloat(raw);
+            return Number.isFinite(parsed) ? parsed : safeFallback;
+        } catch (e) {}
+        return safeFallback;
+    }
+
+    function getMainCalendarMonthFitMetrics(rootEl, hostEl, viewportHeight, fallbackVisibleEvents) {
+        const targetHost = hostEl instanceof HTMLElement ? hostEl : null;
+        if (!targetHost) {
+            return { rowHeight: 0, visibleEvents: fallbackVisibleEvents };
+        }
+        const monthViewRoot = targetHost.querySelector('.fc-dayGridMonth-view.fc-view.fc-daygrid, .fc-dayGridMonth-view');
+        if (!(monthViewRoot instanceof HTMLElement)) {
+            return { rowHeight: 0, visibleEvents: fallbackVisibleEvents };
+        }
+        const rows = monthViewRoot.querySelectorAll('.fc-daygrid-body tbody tr');
+        const rowCount = rows?.length || 0;
+        if (!rowCount || !(Number(viewportHeight) > 0)) {
+            return { rowHeight: 0, visibleEvents: fallbackVisibleEvents };
+        }
+        const bodyEl = monthViewRoot.querySelector('.fc-daygrid-body') || monthViewRoot;
+        const rootRect = (() => {
+            try {
+                if (rootEl instanceof HTMLElement) return rootEl.getBoundingClientRect();
+            } catch (e) {}
+            try { return targetHost.getBoundingClientRect(); } catch (e) {}
+            return null;
+        })();
+        const bodyRect = (() => {
+            try { return bodyEl.getBoundingClientRect(); } catch (e) {}
+            return null;
+        })();
+        const availableHeight = (() => {
+            if (!rootRect || !bodyRect) return 0;
+            const bottom = rootRect.top + Number(viewportHeight || rootRect.height || 0);
+            const next = Math.floor(bottom - bodyRect.top - 2);
+            return next > 0 ? next : 0;
+        })();
+        if (!availableHeight) {
+            return { rowHeight: 0, visibleEvents: fallbackVisibleEvents };
+        }
+        const rowHeight = Math.max(CALENDAR_MONTH_MIN_ROW_HEIGHT, Math.floor(availableHeight / rowCount));
+        const headerHeight = readCalendarCssPixelValue(targetHost, '--tm-calendar-month-day-header-height', 28);
+        const eventLineHeight = Math.max(1, readCalendarCssPixelValue(targetHost, '--tm-calendar-month-event-line-height', 20));
+        const verticalPadding = readCalendarCssPixelValue(targetHost, '--tm-calendar-month-day-vertical-padding', 8);
+        const fitVisibleEvents = Math.floor(Math.max(0, rowHeight - headerHeight - verticalPadding) / eventLineHeight);
+        return {
+            rowHeight,
+            visibleEvents: normalizeCalendarMonthMinVisibleEvents(fitVisibleEvents || fallbackVisibleEvents),
+        };
+    }
+
     function normalizeCalendarSidebarDefaultPage(value) {
         return String(value || '').trim() === 'tasks' ? 'tasks' : 'calendar';
     }
@@ -1926,6 +2174,8 @@
         const monthMinVisibleEvents = normalizeCalendarMonthMinVisibleEvents(
             nextSettings?.monthMinVisibleEvents ?? nextSettings?.calendarMonthMinVisibleEvents
         );
+        const monthAdaptiveRowHeight = nextSettings?.monthAdaptiveRowHeight !== false
+            && nextSettings?.calendarMonthAdaptiveRowHeight !== false;
         const viewportHeight = (() => {
             const rootRectHeight = Number(targetRoot?.getBoundingClientRect?.().height || 0);
             const rootClientHeight = Number(targetRoot?.clientHeight || 0);
@@ -1940,10 +2190,19 @@
             );
             return next > 0 ? next : 0;
         })();
+        const monthFitMetrics = isMonthView && monthAdaptiveRowHeight
+            ? getMainCalendarMonthFitMetrics(targetRoot, targetHost, viewportHeight, monthMinVisibleEvents)
+            : { rowHeight: 0, visibleEvents: monthMinVisibleEvents };
+        const monthVisibleEvents = normalizeCalendarMonthMinVisibleEvents(monthFitMetrics.visibleEvents);
         const targets = [targetRoot, targetWrap, targetHost];
         for (const el of targets) {
             if (!(el instanceof HTMLElement)) continue;
-            try { el.style.setProperty('--tm-calendar-month-visible-events', String(monthMinVisibleEvents)); } catch (e) {}
+            try { el.style.setProperty('--tm-calendar-month-visible-events', String(monthVisibleEvents)); } catch (e) {}
+            if (isMonthView && monthAdaptiveRowHeight && monthFitMetrics.rowHeight > 0) {
+                try { el.style.setProperty('--tm-calendar-month-fit-row-height', `${monthFitMetrics.rowHeight}px`); } catch (e) {}
+            } else {
+                try { el.style.removeProperty('--tm-calendar-month-fit-row-height'); } catch (e) {}
+            }
             if (viewportHeight > 0) {
                 try { el.style.setProperty('--tm-calendar-month-viewport-height', `${viewportHeight}px`); } catch (e) {}
             } else {
@@ -1960,12 +2219,21 @@
                 targetCalendar.setOption('height', desiredHeight);
             }
         } catch (e) {}
-        const desiredDayMaxEvents = isMonthView ? monthMinVisibleEvents : true;
+        const desiredDayMaxEvents = isMonthView ? (monthAdaptiveRowHeight ? monthVisibleEvents : monthMinVisibleEvents) : true;
+        let dayMaxChanged = false;
         try {
             if (targetCalendar.getOption?.('dayMaxEvents') !== desiredDayMaxEvents) {
                 targetCalendar.setOption('dayMaxEvents', desiredDayMaxEvents);
+                dayMaxChanged = true;
             }
         } catch (e) {}
+        if (dayMaxChanged && targetWrap instanceof HTMLElement) {
+            try {
+                requestAnimationFrame(() => {
+                    try { scheduleMainCalendarLayoutRefresh(targetWrap, targetHost, targetCalendar, { updateSize: false }); } catch (e2) {}
+                });
+            } catch (e) {}
+        }
         return isMonthView;
     }
 
@@ -1977,13 +2245,10 @@
         const monthViewRoot = targetHost.querySelector('.fc-dayGridMonth-view.fc-view.fc-daygrid, .fc-dayGridMonth-view');
         if (!(monthViewRoot instanceof HTMLElement)) return false;
 
-        const setImportant = (node, prop, value) => {
-            if (!(node instanceof HTMLElement)) return;
-            try { node.style.setProperty(prop, value, 'important'); } catch (e) {}
-        };
+        const setImportant = setImportantStyleIfChanged;
 
         monthViewRoot.querySelectorAll('.fc-daygrid-day-frame').forEach((node) => {
-            setImportant(node, 'height', 'auto');
+            setImportant(node, 'height', 'var(--tm-calendar-month-fit-row-height, auto)');
             setImportant(node, 'min-height', 'var(--tm-calendar-month-day-min-height)');
             setImportant(node, 'display', 'flex');
             setImportant(node, 'flex-direction', 'column');
@@ -1996,7 +2261,7 @@
         });
 
         monthViewRoot.querySelectorAll('.fc-daygrid-day-events').forEach((node) => {
-            setImportant(node, 'min-height', 'calc((var(--tm-calendar-month-event-line-height) * var(--tm-calendar-month-visible-events)) + var(--tm-calendar-month-more-link-height))');
+            setImportant(node, 'min-height', 'calc(var(--tm-calendar-month-event-line-height) * var(--tm-calendar-month-visible-events))');
             setImportant(node, 'display', 'flex');
             setImportant(node, 'flex-direction', 'column');
             setImportant(node, 'justify-content', 'flex-start');
@@ -2004,13 +2269,698 @@
         });
 
         monthViewRoot.querySelectorAll('.fc-daygrid-day-bottom').forEach((node) => {
-            setImportant(node, 'margin-top', 'auto');
-            setImportant(node, 'min-height', 'var(--tm-calendar-month-more-link-height)');
+            setImportant(node, 'margin-top', '0');
+            setImportant(node, 'min-height', '0');
             setImportant(node, 'padding-top', '0');
             setImportant(node, 'line-height', '1');
         });
 
         return true;
+    }
+
+    function applyMainCalendarMonthMoreLinkLayout(host, calendar) {
+        const targetHost = (host instanceof HTMLElement) ? host : (state.calendarEl instanceof HTMLElement ? state.calendarEl : null);
+        const targetCalendar = calendar || state.calendar || null;
+        if (!(targetHost instanceof HTMLElement)) return false;
+        const viewType = String(targetCalendar?.view?.type || '').trim();
+        const isMonthView = viewType === 'dayGridMonth';
+        if (!isMonthView && !targetHost.querySelector('.tm-cal-month-more-inline, .tm-cal-month-more-standalone, .tm-cal-month-more-inline-source')) {
+            return false;
+        }
+        const setImportant = (node, prop, value) => {
+            setImportantStyleIfChanged(node, prop, value);
+        };
+        const removeInlineProps = (node, props) => {
+            if (!(node instanceof HTMLElement) || !Array.isArray(props)) return;
+            props.forEach((prop) => {
+                removeStylePropertyIfPresent(node, prop);
+            });
+        };
+        const bottomInlineProps = [
+            'position',
+            'top',
+            'left',
+            'right',
+            'bottom',
+            'z-index',
+            'display',
+            'align-items',
+            'height',
+            'min-height',
+            'max-height',
+            'width',
+            'max-width',
+            'margin',
+            'margin-top',
+            'margin-right',
+            'margin-bottom',
+            'margin-left',
+            'padding',
+            'padding-top',
+            'line-height',
+            'pointer-events',
+            'box-sizing',
+        ];
+        const linkInlineProps = [
+            'display',
+            'align-items',
+            'justify-content',
+            'float',
+            'width',
+            'min-width',
+            'height',
+            'min-height',
+            'max-height',
+            'max-width',
+            'margin',
+            'padding',
+            'border-radius',
+            'background',
+            'background-color',
+            'background-image',
+            'background-position',
+            'background-size',
+            'background-repeat',
+            'color',
+            'font-size',
+            'font-weight',
+            'line-height',
+            'text-decoration',
+            'overflow',
+            'text-overflow',
+            'white-space',
+            'pointer-events',
+            'box-sizing',
+            'box-shadow',
+        ];
+        const inlineSourceReserveProps = [
+            ['width', 'tmCalMonthMoreReserveWidth', 'tmCalMonthMoreReserveWidthPriority'],
+            ['max-width', 'tmCalMonthMoreReserveMaxWidth', 'tmCalMonthMoreReserveMaxWidthPriority'],
+            ['margin-right', 'tmCalMonthMoreReserveMarginRight', 'tmCalMonthMoreReserveMarginRightPriority'],
+        ];
+        const restoreInlineSourceEventReserve = (harness) => {
+            if (!(harness instanceof HTMLElement)) return;
+            const eventEl = harness.querySelector?.('.fc-event');
+            if (!(eventEl instanceof HTMLElement) || eventEl.dataset?.tmCalMonthMoreReserveApplied !== '1') return;
+            inlineSourceReserveProps.forEach(([prop, valueKey, priorityKey]) => {
+                const value = eventEl.dataset?.[valueKey] || '';
+                const priority = eventEl.dataset?.[priorityKey] || '';
+                try {
+                    if (value) eventEl.style.setProperty(prop, value, priority);
+                    else eventEl.style.removeProperty(prop);
+                } catch (e) {}
+                try { delete eventEl.dataset[valueKey]; } catch (e) {}
+                try { delete eventEl.dataset[priorityKey]; } catch (e) {}
+            });
+            try { delete eventEl.dataset.tmCalMonthMoreReserveApplied; } catch (e) {}
+        };
+        const reserveInlineSourceEventSpace = (harness, widthPx) => {
+            if (!(harness instanceof HTMLElement)) return false;
+            const eventEl = harness.querySelector?.('.fc-event');
+            const rawReserveWidth = Number(widthPx);
+            const reserveWidth = Number.isFinite(rawReserveWidth)
+                ? Math.max(0, Number(rawReserveWidth.toFixed(2)))
+                : 0;
+            if (!(eventEl instanceof HTMLElement) || reserveWidth <= 0) return false;
+            if (eventEl.dataset?.tmCalMonthMoreReserveApplied !== '1') {
+                inlineSourceReserveProps.forEach(([prop, valueKey, priorityKey]) => {
+                    try { eventEl.dataset[valueKey] = eventEl.style.getPropertyValue(prop) || ''; } catch (e) {}
+                    try { eventEl.dataset[priorityKey] = eventEl.style.getPropertyPriority(prop) || ''; } catch (e) {}
+                });
+                try { eventEl.dataset.tmCalMonthMoreReserveApplied = '1'; } catch (e) {}
+            }
+            setImportant(eventEl, 'width', `calc(100% - ${reserveWidth}px)`);
+            setImportant(eventEl, 'max-width', `calc(100% - ${reserveWidth}px)`);
+            setImportant(eventEl, 'margin-right', `${reserveWidth}px`);
+            return true;
+        };
+        const styleMoreLink = (moreLink, mode) => {
+            if (!(moreLink instanceof HTMLElement)) return;
+            setImportant(moreLink, 'display', 'inline-flex');
+            setImportant(moreLink, 'align-items', 'center');
+            setImportant(moreLink, 'justify-content', 'center');
+            setImportant(moreLink, 'float', 'none');
+            setImportant(moreLink, 'min-width', '28px');
+            setImportant(moreLink, 'height', 'var(--tm-calendar-month-more-link-height, 19px)');
+            setImportant(moreLink, 'min-height', 'var(--tm-calendar-month-more-link-height, 19px)');
+            setImportant(moreLink, 'max-width', '100%');
+            setImportant(moreLink, 'margin', '0');
+            setImportant(moreLink, 'padding', '0 6px 0 7px');
+            setImportant(moreLink, 'border-radius', '5px');
+            setImportant(moreLink, 'background-image', 'linear-gradient(var(--tm-calendar-month-more-bg, rgba(127, 127, 127, 0.11)), var(--tm-calendar-month-more-bg, rgba(127, 127, 127, 0.11)))');
+            setImportant(moreLink, 'background-position', 'left top');
+            setImportant(moreLink, 'background-size', '100% 100%');
+            setImportant(moreLink, 'background-repeat', 'no-repeat');
+            setImportant(moreLink, 'background-color', 'var(--tm-calendar-month-more-bg, rgba(127, 127, 127, 0.11))');
+            setImportant(moreLink, 'color', 'var(--tm-calendar-month-more-text, var(--tm-secondary-text))');
+            setImportant(moreLink, 'font-size', '11px');
+            setImportant(moreLink, 'font-weight', '700');
+            setImportant(moreLink, 'line-height', '1.1');
+            setImportant(moreLink, 'text-decoration', 'none');
+            setImportant(moreLink, 'overflow', 'hidden');
+            setImportant(moreLink, 'text-overflow', 'ellipsis');
+            setImportant(moreLink, 'white-space', 'nowrap');
+            setImportant(moreLink, 'pointer-events', 'auto');
+            setImportant(moreLink, 'box-sizing', 'border-box');
+            setImportant(moreLink, 'box-shadow', 'inset 0 -1px 0 var(--fc-page-bg-color, var(--tm-bg-color, #fff))');
+            if (mode === 'standalone') setImportant(moreLink, 'width', '100%');
+            else {
+                try { moreLink.style.removeProperty('width'); } catch (e) {}
+            }
+        };
+        targetHost.querySelectorAll('.tm-cal-month-more-inline, .tm-cal-month-more-standalone').forEach((node) => {
+            if (!(node instanceof HTMLElement)) return;
+            node.classList.remove('tm-cal-month-more-inline');
+            node.classList.remove('tm-cal-month-more-standalone');
+            try { node.style.removeProperty('--tm-calendar-month-more-inline-top'); } catch (e) {}
+            try { node.style.removeProperty('--tm-calendar-month-more-standalone-top'); } catch (e) {}
+            removeInlineProps(node, bottomInlineProps);
+            const moreLink = node.querySelector?.('.fc-more-link');
+            removeInlineProps(moreLink, linkInlineProps);
+        });
+        targetHost.querySelectorAll('.tm-cal-month-more-inline-source').forEach((node) => {
+            if (!(node instanceof HTMLElement)) return;
+            restoreInlineSourceEventReserve(node);
+            node.classList.remove('tm-cal-month-more-inline-source');
+            try { node.style.removeProperty('--tm-calendar-month-more-inline-width'); } catch (e) {}
+        });
+
+        if (!isMonthView) return false;
+        const monthViewRoot = targetHost.querySelector('.fc-dayGridMonth-view.fc-view.fc-daygrid, .fc-dayGridMonth-view');
+        if (!(monthViewRoot instanceof HTMLElement)) return false;
+
+        const isSingleDayCalendarEvent = (eventEl) => {
+            try {
+                if (!(eventEl instanceof HTMLElement)) return null;
+                const eventId = String(eventEl.getAttribute('data-tm-cal-event-id') || '').trim();
+                const eventApi = eventId && targetCalendar?.getEventById ? targetCalendar.getEventById(eventId) : null;
+                if (!eventApi) return null;
+                const start = eventApi.start instanceof Date ? eventApi.start : null;
+                if (!start || Number.isNaN(start.getTime())) return null;
+                const startKey = formatDateKey(start);
+                if (!startKey) return null;
+                const end = eventApi.end instanceof Date ? eventApi.end : null;
+                if (eventApi.allDay === true) {
+                    const expectedEndKey = shiftDateKey(startKey, 1);
+                    const endKey = end && !Number.isNaN(end.getTime()) ? formatDateKey(end) : expectedEndKey;
+                    return !!endKey && !!expectedEndKey && endKey <= expectedEndKey;
+                }
+                if (!end || Number.isNaN(end.getTime())) return true;
+                return formatDateKey(end) === startKey;
+            } catch (e) {}
+            return null;
+        };
+
+        const setStandalone = (bottom, moreLink, top) => {
+            if (!(bottom instanceof HTMLElement)) return;
+            const safeTop = Math.max(0, Math.round(Number(top) || 0));
+            bottom.classList.add('tm-cal-month-more-standalone');
+            try { bottom.style.setProperty('--tm-calendar-month-more-standalone-top', `${safeTop}px`); } catch (e) {}
+            setImportant(bottom, 'position', 'absolute');
+            setImportant(bottom, 'top', `${safeTop}px`);
+            setImportant(bottom, 'left', '2px');
+            setImportant(bottom, 'right', '2px');
+            setImportant(bottom, 'z-index', '7');
+            setImportant(bottom, 'display', 'flex');
+            setImportant(bottom, 'align-items', 'center');
+            setImportant(bottom, 'height', 'var(--tm-calendar-month-more-link-height, 19px)');
+            setImportant(bottom, 'min-height', 'var(--tm-calendar-month-more-link-height, 19px)');
+            setImportant(bottom, 'max-width', 'calc(100% - 4px)');
+            setImportant(bottom, 'margin', '0');
+            setImportant(bottom, 'padding', '0');
+            setImportant(bottom, 'line-height', '1');
+            setImportant(bottom, 'box-sizing', 'border-box');
+            styleMoreLink(moreLink, 'standalone');
+        };
+
+        const setInline = (bottom, moreLink, lastHarness, top, linkWidth) => {
+            if (!(bottom instanceof HTMLElement) || !(lastHarness instanceof HTMLElement)) return;
+            bottom.classList.add('tm-cal-month-more-inline');
+            lastHarness.classList.add('tm-cal-month-more-inline-source');
+            const inlineRight = 4;
+            const inlineGap = 1;
+            const rawReserveWidth = (Number(linkWidth) || 0) + inlineRight + inlineGap;
+            const reserveWidth = Math.max(0, Number(rawReserveWidth.toFixed(2)));
+            try { bottom.style.setProperty('--tm-calendar-month-more-inline-top', `${top}px`); } catch (e) {}
+            try { lastHarness.style.setProperty('--tm-calendar-month-more-inline-width', `${reserveWidth}px`); } catch (e) {}
+            reserveInlineSourceEventSpace(lastHarness, reserveWidth);
+            setImportant(bottom, 'position', 'absolute');
+            setImportant(bottom, 'top', `${top}px`);
+            setImportant(bottom, 'right', `${inlineRight}px`);
+            setImportant(bottom, 'z-index', '8');
+            setImportant(bottom, 'display', 'flex');
+            setImportant(bottom, 'align-items', 'center');
+            setImportant(bottom, 'max-width', 'calc(100% - 8px)');
+            setImportant(bottom, 'min-height', '0');
+            setImportant(bottom, 'margin', '0');
+            setImportant(bottom, 'padding', '0');
+            setImportant(bottom, 'line-height', '1');
+            setImportant(bottom, 'pointer-events', 'none');
+            styleMoreLink(moreLink, 'inline');
+            try {
+                const sourceEventEl = lastHarness.querySelector?.('.fc-event');
+                const sourceRect = sourceEventEl instanceof HTMLElement ? sourceEventEl.getBoundingClientRect() : null;
+                const sourceHeight = Number(sourceRect?.height || 0);
+                if (sourceHeight > 0) {
+                    const exactHeight = `${Math.max(1, Number(sourceHeight.toFixed(2)))}px`;
+                    setImportant(bottom, 'height', exactHeight);
+                    setImportant(bottom, 'min-height', exactHeight);
+                    setImportant(bottom, 'max-height', exactHeight);
+                    setImportant(moreLink, 'height', exactHeight);
+                    setImportant(moreLink, 'min-height', exactHeight);
+                    setImportant(moreLink, 'max-height', exactHeight);
+                }
+            } catch (e) {}
+        };
+
+        const getElementRect = (node) => {
+            try {
+                const rect = node instanceof HTMLElement ? node.getBoundingClientRect() : null;
+                if (rect && rect.width > 0 && rect.height > 0) return rect;
+            } catch (e) {}
+            return null;
+        };
+        const isVisibleHarness = (node) => {
+            if (!(node instanceof HTMLElement)) return false;
+            if (!node.classList.contains('fc-daygrid-event-harness')) return false;
+            try {
+                const style = window.getComputedStyle(node);
+                if (style.display === 'none' || style.visibility === 'hidden') return false;
+            } catch (e) {}
+            return !!getElementRect(node);
+        };
+        const overlapsEventsRoot = (rect, eventsRect) => {
+            if (!rect || !eventsRect) return false;
+            const horizontal = rect.right > eventsRect.left + 1 && rect.left < eventsRect.right - 1;
+            const vertical = rect.bottom > eventsRect.top + 1 && rect.top < eventsRect.bottom - 1;
+            return horizontal && vertical;
+        };
+        const getVisibleEventsBottom = (eventsRect, harnessRects) => {
+            if (!eventsRect || !Array.isArray(harnessRects)) return 0;
+            let maxBottom = 0;
+            harnessRects.forEach((item) => {
+                const rect = item?.rect || null;
+                if (!rect || !overlapsEventsRoot(rect, eventsRect)) return;
+                maxBottom = Math.max(maxBottom, rect.bottom - eventsRect.top);
+            });
+            return Math.max(0, Math.ceil(maxBottom));
+        };
+        const getStandaloneTop = (eventsRect, harnessRects) => {
+            const bottomPx = getVisibleEventsBottom(eventsRect, harnessRects);
+            return bottomPx > 0 ? bottomPx + 1 : 0;
+        };
+        const allVisibleHarnessRects = Array.from(monthViewRoot.querySelectorAll('.fc-daygrid-event-harness'))
+            .filter(isVisibleHarness)
+            .map((node) => ({ node, rect: getElementRect(node) }))
+            .filter((item) => !!item.rect);
+
+        monthViewRoot.querySelectorAll('.fc-daygrid-day-events').forEach((eventsRoot) => {
+            if (!(eventsRoot instanceof HTMLElement)) return;
+            const bottom = Array.from(eventsRoot.children || []).find((node) => node instanceof HTMLElement && node.classList.contains('fc-daygrid-day-bottom'));
+            const moreLink = bottom?.querySelector?.('.fc-more-link');
+            if (!(bottom instanceof HTMLElement) || !(moreLink instanceof HTMLElement)) return;
+            const eventsRect = getElementRect(eventsRoot);
+            if (!eventsRect) return;
+            const overlappingHarnessRects = allVisibleHarnessRects.filter((item) => overlapsEventsRoot(item.rect, eventsRect));
+            const visibleHarnesses = Array.from(eventsRoot.children || []).filter((node) => {
+                return isVisibleHarness(node);
+            });
+            if (!visibleHarnesses.length) {
+                setStandalone(bottom, moreLink, getStandaloneTop(eventsRect, overlappingHarnessRects));
+                return;
+            }
+
+            let lastHarness = null;
+            let lastTop = -Infinity;
+            let lastLeft = -Infinity;
+            for (const node of visibleHarnesses) {
+                try {
+                    const rect = node.getBoundingClientRect();
+                    if (rect.top > lastTop + 0.5 || (Math.abs(rect.top - lastTop) <= 0.5 && rect.left > lastLeft)) {
+                        lastHarness = node;
+                        lastTop = rect.top;
+                        lastLeft = rect.left;
+                    }
+                } catch (e) {}
+            }
+            if (!(lastHarness instanceof HTMLElement)) return;
+
+            const lastEventEl = lastHarness.querySelector?.('.fc-event');
+            styleMoreLink(moreLink, 'inline');
+            const linkRect = (() => {
+                try { return moreLink.getBoundingClientRect(); } catch (e) {}
+                return null;
+            })();
+            const lastRect = (() => {
+                try { return lastHarness.getBoundingClientRect(); } catch (e) {}
+                return null;
+            })();
+            const lastEventRect = (() => {
+                try {
+                    if (lastEventEl instanceof HTMLElement) {
+                        const rect = lastEventEl.getBoundingClientRect();
+                        if (rect && rect.width > 0 && rect.height > 0) return rect;
+                    }
+                } catch (e) {}
+                return null;
+            })();
+            if (!lastRect) return;
+            const lastVisualRect = lastEventRect || lastRect;
+            const rawLinkWidth = Number(linkRect?.width || 0);
+            const linkWidth = Number.isFinite(rawLinkWidth)
+                ? Math.max(28, Number(rawLinkWidth.toFixed(2)))
+                : 28;
+            const isSingleDay = isSingleDayCalendarEvent(lastEventEl);
+            const visuallySpansCells = lastVisualRect.width > eventsRect.width + 4;
+            const canAttachInline = (isSingleDay === true)
+                ? !visuallySpansCells
+                : (isSingleDay === null && !visuallySpansCells && !lastHarness.classList.contains('fc-daygrid-event-harness-abs'));
+            const visibleBottom = getVisibleEventsBottom(eventsRect, overlappingHarnessRects);
+            const lastBottom = Math.ceil(lastVisualRect.bottom - eventsRect.top);
+            if (!canAttachInline || lastRect.width < linkWidth + 28 || visibleBottom > lastBottom + 2) {
+                setStandalone(bottom, moreLink, visibleBottom > 0 ? visibleBottom + 1 : 0);
+                return;
+            }
+            const top = Math.max(0, Number((lastVisualRect.top - eventsRect.top).toFixed(2)));
+
+            setInline(bottom, moreLink, lastHarness, top, linkWidth);
+        });
+        return true;
+    }
+
+    function applyTimeGridAllDayMoreLinkLayout(rootEl, calendar) {
+        const targetRoot = rootEl instanceof HTMLElement
+            ? rootEl
+            : (state.calendarEl instanceof HTMLElement ? state.calendarEl : null);
+        if (!(targetRoot instanceof HTMLElement)) return false;
+        const viewType = String(calendar?.view?.type || '').trim();
+        if (!viewType.startsWith('timeGrid')) return false;
+        if (targetRoot.classList.contains('tm-cal-allday-collapsed')) return false;
+        const timeGridRoot = targetRoot.querySelector('.fc-timegrid, .fc-timeGridDay-view, .fc-timeGridWeek-view, .fc-timeGrid3Day-view, .fc-timeGridWorkdays-view');
+        const scope = timeGridRoot instanceof HTMLElement ? timeGridRoot : targetRoot;
+        const setImportant = (node, prop, value) => {
+            setImportantStyleIfChanged(node, prop, value);
+        };
+        const removeInlineProps = (node, props) => {
+            if (!(node instanceof HTMLElement) || !Array.isArray(props)) return;
+            props.forEach((prop) => {
+                removeStylePropertyIfPresent(node, prop);
+            });
+        };
+        const bottomInlineProps = [
+            'position',
+            'top',
+            'right',
+            'z-index',
+            'display',
+            'align-items',
+            'width',
+            'height',
+            'min-height',
+            'max-height',
+            'max-width',
+            'margin',
+            'margin-top',
+            'margin-left',
+            'margin-right',
+            'padding',
+            'line-height',
+            'pointer-events',
+            'box-sizing',
+            'overflow',
+        ];
+        const linkInlineProps = [
+            'display',
+            'align-items',
+            'justify-content',
+            'float',
+            'width',
+            'min-width',
+            'height',
+            'min-height',
+            'max-height',
+            'max-width',
+            'margin',
+            'padding',
+            'border-radius',
+            'background-color',
+            'background-image',
+            'background-position',
+            'background-size',
+            'background-repeat',
+            'box-shadow',
+            'color',
+            'font-size',
+            'font-weight',
+            'line-height',
+            'text-align',
+            'text-decoration',
+            'overflow',
+            'text-overflow',
+            'white-space',
+            'pointer-events',
+            'box-sizing',
+        ];
+        const eventReserveProps = [
+            ['width', 'tmCalTimegridMoreReserveWidth', 'tmCalTimegridMoreReserveWidthPriority'],
+            ['max-width', 'tmCalTimegridMoreReserveMaxWidth', 'tmCalTimegridMoreReserveMaxWidthPriority'],
+            ['margin-right', 'tmCalTimegridMoreReserveMarginRight', 'tmCalTimegridMoreReserveMarginRightPriority'],
+        ];
+        const restoreInlineSourceEventReserve = (harness) => {
+            if (!(harness instanceof HTMLElement)) return;
+            const eventEl = harness.querySelector?.('.fc-event');
+            if (!(eventEl instanceof HTMLElement) || eventEl.dataset?.tmCalTimegridMoreReserveApplied !== '1') return;
+            eventReserveProps.forEach(([prop, valueKey, priorityKey]) => {
+                const value = eventEl.dataset?.[valueKey] || '';
+                const priority = eventEl.dataset?.[priorityKey] || '';
+                try {
+                    if (value) eventEl.style.setProperty(prop, value, priority);
+                    else eventEl.style.removeProperty(prop);
+                } catch (e) {}
+                try { delete eventEl.dataset[valueKey]; } catch (e) {}
+                try { delete eventEl.dataset[priorityKey]; } catch (e) {}
+            });
+            try { delete eventEl.dataset.tmCalTimegridMoreReserveApplied; } catch (e) {}
+        };
+        const reserveInlineSourceEventSpace = (harness, widthPx) => {
+            if (!(harness instanceof HTMLElement)) return false;
+            const eventEl = harness.querySelector?.('.fc-event');
+            const rawReserveWidth = Number(widthPx);
+            const reserveWidth = Number.isFinite(rawReserveWidth)
+                ? Math.max(0, Number(rawReserveWidth.toFixed(2)))
+                : 0;
+            if (!(eventEl instanceof HTMLElement) || reserveWidth <= 0) return false;
+            if (eventEl.dataset?.tmCalTimegridMoreReserveApplied !== '1') {
+                eventReserveProps.forEach(([prop, valueKey, priorityKey]) => {
+                    try { eventEl.dataset[valueKey] = eventEl.style.getPropertyValue(prop) || ''; } catch (e) {}
+                    try { eventEl.dataset[priorityKey] = eventEl.style.getPropertyPriority(prop) || ''; } catch (e) {}
+                });
+                try { eventEl.dataset.tmCalTimegridMoreReserveApplied = '1'; } catch (e) {}
+            }
+            setImportant(eventEl, 'width', `calc(100% - ${reserveWidth}px)`);
+            setImportant(eventEl, 'max-width', `calc(100% - ${reserveWidth}px)`);
+            setImportant(eventEl, 'margin-right', `${reserveWidth}px`);
+            return true;
+        };
+        const styleMoreLink = (moreLink, mode) => {
+            if (!(moreLink instanceof HTMLElement)) return;
+            setImportant(moreLink, 'display', 'inline-flex');
+            setImportant(moreLink, 'align-items', 'center');
+            setImportant(moreLink, 'justify-content', 'center');
+            setImportant(moreLink, 'float', 'none');
+            setImportant(moreLink, 'min-width', '28px');
+            setImportant(moreLink, 'height', 'var(--tm-calendar-month-more-link-height, 19px)');
+            setImportant(moreLink, 'min-height', 'var(--tm-calendar-month-more-link-height, 19px)');
+            setImportant(moreLink, 'max-width', '100%');
+            setImportant(moreLink, 'margin', '0');
+            setImportant(moreLink, 'padding', '0 6px 0 7px');
+            setImportant(moreLink, 'border-radius', '5px');
+            setImportant(moreLink, 'background-image', 'linear-gradient(var(--tm-calendar-month-more-bg, rgba(127, 127, 127, 0.11)), var(--tm-calendar-month-more-bg, rgba(127, 127, 127, 0.11)))');
+            setImportant(moreLink, 'background-position', 'left top');
+            setImportant(moreLink, 'background-size', '100% 100%');
+            setImportant(moreLink, 'background-repeat', 'no-repeat');
+            setImportant(moreLink, 'background-color', 'var(--tm-calendar-month-more-bg, rgba(127, 127, 127, 0.11))');
+            setImportant(moreLink, 'box-shadow', 'inset 0 -1px 0 var(--fc-page-bg-color, var(--tm-bg-color, #fff))');
+            setImportant(moreLink, 'color', 'var(--tm-calendar-month-more-text, var(--tm-secondary-text))');
+            setImportant(moreLink, 'font-size', '11px');
+            setImportant(moreLink, 'font-weight', '700');
+            setImportant(moreLink, 'line-height', '1.1');
+            setImportant(moreLink, 'text-align', 'center');
+            setImportant(moreLink, 'text-decoration', 'none');
+            setImportant(moreLink, 'overflow', 'hidden');
+            setImportant(moreLink, 'text-overflow', 'ellipsis');
+            setImportant(moreLink, 'white-space', 'nowrap');
+            setImportant(moreLink, 'box-sizing', 'border-box');
+            setImportant(moreLink, 'pointer-events', 'auto');
+            if (mode === 'standalone') setImportant(moreLink, 'width', '100%');
+            else setImportant(moreLink, 'width', 'auto');
+        };
+        const getElementRect = (node) => {
+            try {
+                const rect = node instanceof HTMLElement ? node.getBoundingClientRect() : null;
+                if (rect && rect.width > 0 && rect.height > 0) return rect;
+            } catch (e) {}
+            return null;
+        };
+        const isVisibleHarness = (node) => {
+            if (!(node instanceof HTMLElement)) return false;
+            if (!node.classList.contains('fc-daygrid-event-harness')) return false;
+            if (node.classList.contains('fc-daygrid-event-harness-abs')) return false;
+            try {
+                const computed = window.getComputedStyle(node);
+                if (computed.display === 'none' || computed.visibility === 'hidden') return false;
+            } catch (e) {}
+            return !!getElementRect(node);
+        };
+        const getVisibleHarnesses = (eventsRoot) => {
+            if (!(eventsRoot instanceof HTMLElement)) return null;
+            return Array.from(eventsRoot.children || []).filter(isVisibleHarness);
+        };
+        const getLastVisibleHarness = (eventsRoot) => {
+            const harnesses = getVisibleHarnesses(eventsRoot) || [];
+            let lastHarness = null;
+            let lastTop = -Infinity;
+            let lastLeft = -Infinity;
+            for (const harness of harnesses) {
+                try {
+                    const rect = harness.getBoundingClientRect();
+                    if (rect.top > lastTop + 0.5 || (Math.abs(rect.top - lastTop) <= 0.5 && rect.left > lastLeft)) {
+                        lastHarness = harness;
+                        lastTop = rect.top;
+                        lastLeft = rect.left;
+                    }
+                } catch (e) {}
+            }
+            return lastHarness instanceof HTMLElement ? lastHarness : null;
+        };
+        const getEventRectFromHarness = (harness) => {
+            const eventEl = harness?.querySelector?.('.fc-event');
+            return eventEl instanceof HTMLElement ? getElementRect(eventEl) : null;
+        };
+        const isSingleDayCalendarEvent = (eventEl) => {
+            try {
+                if (!(eventEl instanceof HTMLElement)) return null;
+                const eventId = String(eventEl.getAttribute('data-tm-cal-event-id') || '').trim();
+                const eventApi = eventId && calendar?.getEventById ? calendar.getEventById(eventId) : null;
+                if (!eventApi) return null;
+                const start = eventApi.start instanceof Date ? eventApi.start : null;
+                if (!start || Number.isNaN(start.getTime())) return null;
+                const startKey = formatDateKey(start);
+                if (!startKey) return null;
+                const end = eventApi.end instanceof Date ? eventApi.end : null;
+                if (eventApi.allDay === true) {
+                    const expectedEndKey = shiftDateKey(startKey, 1);
+                    const endKey = end && !Number.isNaN(end.getTime()) ? formatDateKey(end) : expectedEndKey;
+                    return !!endKey && !!expectedEndKey && endKey <= expectedEndKey;
+                }
+                if (!end || Number.isNaN(end.getTime())) return true;
+                return formatDateKey(end) === startKey;
+            } catch (e) {}
+            return null;
+        };
+        const syncMoreLinkToEventSize = (bottom, moreLink, eventRect) => {
+            if (!(bottom instanceof HTMLElement) || !(moreLink instanceof HTMLElement)) return;
+            const eventHeight = Number(eventRect?.height || 0);
+            if (Number.isFinite(eventHeight) && eventHeight > 0) {
+                const exactHeight = `${Math.max(1, Number(eventHeight.toFixed(2)))}px`;
+                setImportant(bottom, 'height', exactHeight);
+                setImportant(bottom, 'min-height', exactHeight);
+                setImportant(bottom, 'max-height', exactHeight);
+                setImportant(moreLink, 'height', exactHeight);
+                setImportant(moreLink, 'min-height', exactHeight);
+                setImportant(moreLink, 'max-height', exactHeight);
+            }
+        };
+        const setStandalone = (bottom, moreLink, eventsRect, refRect) => {
+            if (!(bottom instanceof HTMLElement)) return;
+            bottom.classList.add('tm-cal-timegrid-more-standalone');
+            const leftInset = Math.max(0, Number(((refRect?.left || eventsRect?.left || 0) - (eventsRect?.left || 0)).toFixed(2)));
+            const rightInset = Math.max(0, Number(((eventsRect?.right || refRect?.right || 0) - (refRect?.right || eventsRect?.right || 0)).toFixed(2)));
+            setImportant(bottom, 'position', 'static');
+            setImportant(bottom, 'display', 'block');
+            setImportant(bottom, 'width', leftInset || rightInset ? `calc(100% - ${Number((leftInset + rightInset).toFixed(2))}px)` : '100%');
+            setImportant(bottom, 'max-width', '100%');
+            setImportant(bottom, 'margin-top', '0');
+            setImportant(bottom, 'margin-left', `${leftInset}px`);
+            setImportant(bottom, 'margin-right', `${rightInset}px`);
+            setImportant(bottom, 'padding', '0');
+            setImportant(bottom, 'line-height', '1');
+            setImportant(bottom, 'pointer-events', 'auto');
+            setImportant(bottom, 'box-sizing', 'border-box');
+            styleMoreLink(moreLink, 'standalone');
+            syncMoreLinkToEventSize(bottom, moreLink, refRect);
+        };
+        const setInline = (eventsRoot, bottom, moreLink, lastHarness, eventsRect, lastEventRect) => {
+            if (!(eventsRoot instanceof HTMLElement) || !(bottom instanceof HTMLElement) || !(lastHarness instanceof HTMLElement)) return false;
+            const lastEventEl = lastHarness.querySelector?.('.fc-event');
+            if (!(lastEventEl instanceof HTMLElement) || !lastEventRect || !eventsRect) return false;
+            bottom.classList.add('tm-cal-timegrid-more-inline');
+            lastHarness.classList.add('tm-cal-timegrid-more-inline-source');
+            styleMoreLink(moreLink, 'inline');
+            const linkRect = getElementRect(moreLink);
+            const linkWidth = Math.max(28, Number((Number(linkRect?.width || 28)).toFixed(2)));
+            const rightInset = Math.max(0, Number((eventsRect.right - lastEventRect.right).toFixed(2)));
+            const inlineGap = 1;
+            const reserveWidth = Math.max(0, Number((linkWidth + rightInset + inlineGap).toFixed(2)));
+            reserveInlineSourceEventSpace(lastHarness, reserveWidth);
+            try { eventsRoot.style.setProperty('position', 'relative', 'important'); } catch (e) {}
+            const measuredEventRect = getElementRect(lastEventEl) || lastEventRect;
+            const top = Math.max(0, Number((measuredEventRect.top - eventsRect.top).toFixed(2)));
+            setImportant(bottom, 'position', 'absolute');
+            setImportant(bottom, 'top', `${top}px`);
+            setImportant(bottom, 'right', `${rightInset}px`);
+            setImportant(bottom, 'z-index', '8');
+            setImportant(bottom, 'display', 'flex');
+            setImportant(bottom, 'align-items', 'center');
+            setImportant(bottom, 'width', `${linkWidth}px`);
+            setImportant(bottom, 'max-width', 'calc(100% - 8px)');
+            setImportant(bottom, 'margin', '0');
+            setImportant(bottom, 'padding', '0');
+            setImportant(bottom, 'line-height', '1');
+            setImportant(bottom, 'pointer-events', 'none');
+            setImportant(bottom, 'box-sizing', 'border-box');
+            setImportant(bottom, 'overflow', 'hidden');
+            syncMoreLinkToEventSize(bottom, moreLink, measuredEventRect);
+            return true;
+        };
+        targetRoot.querySelectorAll('.tm-cal-timegrid-more-inline, .tm-cal-timegrid-more-standalone').forEach((node) => {
+            if (!(node instanceof HTMLElement)) return;
+            node.classList.remove('tm-cal-timegrid-more-inline');
+            node.classList.remove('tm-cal-timegrid-more-standalone');
+            removeInlineProps(node, bottomInlineProps);
+            const moreLink = node.querySelector?.('.fc-more-link');
+            removeInlineProps(moreLink, linkInlineProps);
+        });
+        targetRoot.querySelectorAll('.tm-cal-timegrid-more-inline-source').forEach((node) => {
+            if (!(node instanceof HTMLElement)) return;
+            restoreInlineSourceEventReserve(node);
+            node.classList.remove('tm-cal-timegrid-more-inline-source');
+        });
+        let count = 0;
+        scope.querySelectorAll('.fc-daygrid-day-bottom').forEach((bottom) => {
+            if (!(bottom instanceof HTMLElement)) return;
+            if (bottom.closest('.fc-popover')) return;
+            const moreLink = bottom.querySelector?.('.fc-daygrid-more-link, .fc-more-link');
+            if (!(moreLink instanceof HTMLElement)) return;
+            const eventsRoot = bottom.closest?.('.fc-daygrid-day-events');
+            const eventsRect = getElementRect(eventsRoot);
+            const lastHarness = getLastVisibleHarness(eventsRoot);
+            const lastEventEl = lastHarness?.querySelector?.('.fc-event');
+            const lastEventRect = getEventRectFromHarness(lastHarness);
+            if (eventsRoot instanceof HTMLElement && eventsRect && lastHarness instanceof HTMLElement && lastEventEl instanceof HTMLElement && lastEventRect) {
+                const isSingleDay = isSingleDayCalendarEvent(lastEventEl);
+                const visuallySpansCells = lastEventRect.width > eventsRect.width + 4;
+                if ((isSingleDay === true || isSingleDay === null) && !visuallySpansCells) {
+                    if (setInline(eventsRoot, bottom, moreLink, lastHarness, eventsRect, lastEventRect)) {
+                        count += 1;
+                        return;
+                    }
+                }
+            }
+            setStandalone(bottom, moreLink, eventsRect, lastEventRect);
+            count += 1;
+        });
+        return count > 0;
     }
 
     function applyMainCalendarSlotHeightLayout(rootEl, settings) {
@@ -2407,6 +3357,7 @@
         const allDayTime0 = readStoredString('tm_calendar_all_day_reminder_time', s.calendarAllDayReminderTime).trim() || '09:00';
         const defaultMode0 = readStoredString('tm_calendar_schedule_reminder_default_mode', s.calendarScheduleReminderDefaultMode).trim() || '0';
         const hourSlotHeightMode0 = normalizeCalendarHourSlotHeightMode(readStoredString('tm_calendar_hour_slot_height_mode', s.calendarHourSlotHeightMode).trim() || 'normal');
+        const monthAdaptiveRowHeight0 = readStoredBool('tm_calendar_month_adaptive_row_height', typeof s.calendarMonthAdaptiveRowHeight === 'boolean' ? s.calendarMonthAdaptiveRowHeight : true);
         const monthMinVisibleEvents0 = normalizeCalendarMonthMinVisibleEvents(readStoredString('tm_calendar_month_min_visible_events', s.calendarMonthMinVisibleEvents).trim() || '3');
         const visibleStartTime0 = normalizeCalendarVisibleTime(readStoredString('tm_calendar_visible_start_time', s.calendarVisibleStartTime).trim() || '00:00', '00:00', false);
         const visibleEndTime0 = normalizeCalendarVisibleTime(readStoredString('tm_calendar_visible_end_time', s.calendarVisibleEndTime).trim() || '24:00', '24:00', true);
@@ -2427,6 +3378,7 @@
             hideScheduledTaskDatesInAllDay: readStoredBool('tm_calendar_hide_scheduled_task_dates_in_all_day', typeof s.calendarHideScheduledTaskDatesInAllDay === 'boolean' ? !!s.calendarHideScheduledTaskDatesInAllDay : undefined),
             newScheduleMaxDurationMin: normalizeNewScheduleMaxDuration(s.calendarNewScheduleMaxDurationMin),
             hourSlotHeightMode: hourSlotHeightMode0,
+            monthAdaptiveRowHeight: monthAdaptiveRowHeight0,
             monthMinVisibleEvents: monthMinVisibleEvents0,
             taskDateAllDayReminderEnabled: readStoredBool('tm_calendar_taskdate_all_day_reminder_enabled', typeof s.calendarTaskDateAllDayReminderEnabled === 'boolean' ? !!s.calendarTaskDateAllDayReminderEnabled : undefined),
             allDaySummaryIncludeExtras: s.calendarAllDaySummaryIncludeExtras !== false,
@@ -3395,12 +4347,17 @@
                 state.mainLayoutNeedsUpdateSize = false;
                 if (!(nextWrap instanceof Element) || !nextCalendar) return;
                 try { syncMainCalendarMonthViewLayout(nextWrap, nextHost, nextCalendar, getSettings()); } catch (e) {}
+                try { syncMainCalendarToolbarTitle(nextWrap, nextCalendar); } catch (e) {}
                 try { applyMainCalendarMonthCellMinHeightLayout(nextHost, nextCalendar); } catch (e) {}
+                try { applyMainCalendarMonthMoreLinkLayout(nextHost, nextCalendar); } catch (e) {}
+                try { applyTimeGridAllDayMoreLinkLayout(nextHost, nextCalendar); } catch (e) {}
                 try { applyMainCalendarSlotHeightLayout(nextWrap, getSettings()); } catch (e) {}
                 try { if (nextHost instanceof Element) applyTimeAxisColumnLayout(nextHost, 40); } catch (e) {}
                 if (needUpdateSize) {
                     try { nextCalendar.updateSize(); } catch (e) {}
                 }
+                try { applyMainCalendarMonthMoreLinkLayout(nextHost, nextCalendar); } catch (e) {}
+                try { applyTimeGridAllDayMoreLinkLayout(nextHost, nextCalendar); } catch (e) {}
                 try { scheduleSyncTimeGridAllDayCollapseUi(nextHost || state.calendarEl, nextCalendar); } catch (e) {}
                 try { if (nextHost instanceof Element) enhanceNowIndicator(nextHost); } catch (e) {}
                 try { if (nextHost instanceof HTMLElement) scheduleCurrentTimeAutoCenter(nextHost, nextCalendar, getSettings(), { scope: 'main' }); } catch (e) {}
@@ -3412,10 +4369,15 @@
             state.mainLayoutRaf = null;
             state.mainLayoutNeedsUpdateSize = false;
             try { syncMainCalendarMonthViewLayout(targetWrap, targetHost, targetCalendar, getSettings()); } catch (e2) {}
+            try { syncMainCalendarToolbarTitle(targetWrap, targetCalendar); } catch (e2) {}
             try { applyMainCalendarMonthCellMinHeightLayout(targetHost, targetCalendar); } catch (e2) {}
+            try { applyMainCalendarMonthMoreLinkLayout(targetHost, targetCalendar); } catch (e2) {}
+            try { applyTimeGridAllDayMoreLinkLayout(targetHost, targetCalendar); } catch (e2) {}
             try { applyMainCalendarSlotHeightLayout(targetWrap, getSettings()); } catch (e2) {}
             try { if (targetHost instanceof Element) applyTimeAxisColumnLayout(targetHost, 40); } catch (e2) {}
             try { if (options.updateSize === true) targetCalendar.updateSize(); } catch (e2) {}
+            try { applyMainCalendarMonthMoreLinkLayout(targetHost, targetCalendar); } catch (e2) {}
+            try { applyTimeGridAllDayMoreLinkLayout(targetHost, targetCalendar); } catch (e2) {}
             try { scheduleSyncTimeGridAllDayCollapseUi(targetHost || state.calendarEl, targetCalendar); } catch (e2) {}
             try { if (targetHost instanceof Element) enhanceNowIndicator(targetHost); } catch (e2) {}
             try { if (targetHost instanceof HTMLElement) scheduleCurrentTimeAutoCenter(targetHost, targetCalendar, getSettings(), { scope: 'main' }); } catch (e2) {}
@@ -7889,7 +8851,6 @@
                 || !!wrapEl?.classList?.contains?.('tm-cal-schedule-stack--block');
             const isAllDayWrap = !!wrapEl?.classList?.contains?.('tm-cal-task-event--allday')
                 || !!wrapEl?.classList?.contains?.('tm-cal-schedule-stack--allday');
-            const isPopoverWrap = !!wrapEl?.closest?.('.fc-popover');
             const hasLeadingSlot = options?.hasLeadingSlot === true
                 || !!wrapEl?.querySelector?.('.tm-cal-task-event-leading');
             if (wrapEl instanceof HTMLElement) {
@@ -7909,13 +8870,13 @@
                     wrapEl.style.gap = hasLeadingSlot ? (isAllDayWrap ? '4px' : '6px') : '6px';
                 }
                 if (isTaskWrap) {
-                    if (isAllDayWrap) wrapEl.style.padding = isPopoverWrap ? '5px 4px 6px 4px' : '3px 4px 4px 4px';
+                    if (isAllDayWrap) wrapEl.style.padding = '3px 4px 4px 4px';
                     else if (isBlockWrap) wrapEl.style.padding = '1px 4px 1px 4px';
                     else wrapEl.style.padding = stacked ? '1px 4px 1px 2px' : '1px 4px 1px 6px';
                 }
                 if (isScheduleStack) {
                     wrapEl.style.padding = isAllDayWrap
-                        ? (isPopoverWrap ? '5px 4px 6px 4px' : '3px 4px 4px 4px')
+                        ? '3px 4px 4px 4px'
                         : ((stacked || isBlockWrap) ? '1px 4px 1px 2px' : '1px 4px 1px 5px');
                 }
                 try {
@@ -7954,35 +8915,71 @@
                 // Source of truth:
                 // 全天区/“更多”弹层标题字号最终在这里写入 inline style。
                 // 这会覆盖 calendar-view.css 和 ensureFcCompactAllDayStyle() 里的同类规则。
-                if (isAllDayWrap) titleEl.style.fontSize = '11px';
-                else titleEl.style.removeProperty('font-size');
+                if (isAllDayWrap) {
+                    titleEl.style.setProperty('font-size', '11px', 'important');
+                    titleEl.style.setProperty('line-height', '1.1', 'important');
+                } else {
+                    titleEl.style.removeProperty('font-size');
+                    titleEl.style.removeProperty('line-height');
+                }
             }
             try {
                 const titleTextEl = wrapEl?.querySelector?.('.tm-cal-task-event-title-text');
                 if (titleTextEl instanceof HTMLElement) {
-                    if (isAllDayWrap) titleTextEl.style.fontSize = '11px';
-                    else titleTextEl.style.removeProperty('font-size');
+                    titleTextEl.style.display = 'block';
+                    titleTextEl.style.minWidth = '0';
+                    titleTextEl.style.maxWidth = '100%';
+                    titleTextEl.style.overflow = 'hidden';
+                    titleTextEl.style.textOverflow = stacked ? 'clip' : 'ellipsis';
+                    titleTextEl.style.whiteSpace = stacked ? 'normal' : 'nowrap';
+                    if (isAllDayWrap) {
+                        titleTextEl.style.setProperty('font-size', '11px', 'important');
+                        titleTextEl.style.setProperty('line-height', '1.1', 'important');
+                    } else {
+                        titleTextEl.style.removeProperty('font-size');
+                        titleTextEl.style.removeProperty('line-height');
+                    }
                 }
                 const timeTextEl = wrapEl?.querySelector?.('.tm-cal-task-event-time');
                 if (timeTextEl instanceof HTMLElement) {
-                    if (isAllDayWrap) timeTextEl.style.fontSize = '10px';
-                    else timeTextEl.style.removeProperty('font-size');
+                    if (isAllDayWrap) {
+                        timeTextEl.style.setProperty('font-size', '10px', 'important');
+                        timeTextEl.style.setProperty('line-height', '1.1', 'important');
+                    } else {
+                        timeTextEl.style.removeProperty('font-size');
+                        timeTextEl.style.removeProperty('line-height');
+                    }
                 }
                 if (wrapEl instanceof HTMLElement) {
-                    if (isAllDayWrap) wrapEl.style.fontSize = '11px';
-                    else wrapEl.style.removeProperty('font-size');
+                    if (isAllDayWrap) {
+                        wrapEl.style.setProperty('font-size', '11px', 'important');
+                        wrapEl.style.setProperty('line-height', '1.1', 'important');
+                    } else {
+                        wrapEl.style.removeProperty('font-size');
+                        wrapEl.style.removeProperty('line-height');
+                    }
                 }
             } catch (e) {}
             try {
                 const fcTitleEl = wrapEl?.querySelector?.('.fc-event-title');
                 if (fcTitleEl instanceof HTMLElement) {
-                    if (isAllDayWrap) fcTitleEl.style.fontSize = '11px';
-                    else fcTitleEl.style.removeProperty('font-size');
+                    if (isAllDayWrap) {
+                        fcTitleEl.style.setProperty('font-size', '11px', 'important');
+                        fcTitleEl.style.setProperty('line-height', '1.1', 'important');
+                    } else {
+                        fcTitleEl.style.removeProperty('font-size');
+                        fcTitleEl.style.removeProperty('line-height');
+                    }
                 }
                 const fcTimeEl = wrapEl?.querySelector?.('.fc-event-time');
                 if (fcTimeEl instanceof HTMLElement) {
-                    if (isAllDayWrap) fcTimeEl.style.fontSize = '10px';
-                    else fcTimeEl.style.removeProperty('font-size');
+                    if (isAllDayWrap) {
+                        fcTimeEl.style.setProperty('font-size', '10px', 'important');
+                        fcTimeEl.style.setProperty('line-height', '1.1', 'important');
+                    } else {
+                        fcTimeEl.style.removeProperty('font-size');
+                        fcTimeEl.style.removeProperty('line-height');
+                    }
                 }
             } catch (e) {}
         } catch (e) {}
@@ -8004,18 +9001,30 @@
                     n.style.overflow = 'hidden';
                 });
             }
+            const clampedTitleNodes = new Set();
+            const clampedTextNodes = new Set();
             const wraps = rootEl.querySelectorAll?.('.tm-cal-task-event, .tm-cal-schedule-stack');
             if (wraps && wraps.length) {
-                wraps.forEach((w) => applyTaskEventTitleClamp(
-                    w,
-                    w.querySelector?.('.tm-cal-task-event-title') || null,
-                    { hasLeadingSlot: !!w.querySelector?.('.tm-cal-task-event-leading') }
-                ));
+                wraps.forEach((w) => {
+                    const titleNode = w.querySelector?.('.tm-cal-task-event-title') || null;
+                    applyTaskEventTitleClamp(
+                        w,
+                        titleNode,
+                        { hasLeadingSlot: !!w.querySelector?.('.tm-cal-task-event-leading') }
+                    );
+                    if (titleNode instanceof HTMLElement) clampedTitleNodes.add(titleNode);
+                    try {
+                        w.querySelectorAll?.('.tm-cal-task-event-title-text, .tm-cal-task-event-time')?.forEach?.((node) => {
+                            if (node instanceof HTMLElement) clampedTextNodes.add(node);
+                        });
+                    } catch (e) {}
+                });
             }
             const titleNodes = rootEl.querySelectorAll?.('.tm-cal-task-event-title, .fc-event-title');
             if (titleNodes && titleNodes.length) {
                 titleNodes.forEach((t) => {
                     if (!(t instanceof HTMLElement)) return;
+                    if (clampedTitleNodes.has(t)) return;
                     const stacked = t.classList.contains('tm-cal-task-event-title--stack');
                     t.style.display = stacked ? 'flex' : 'block';
                     if (stacked) {
@@ -8042,6 +9051,7 @@
             if (textNodes && textNodes.length) {
                 textNodes.forEach((t) => {
                     if (!(t instanceof HTMLElement)) return;
+                    if (clampedTextNodes.has(t)) return;
                     t.style.display = 'block';
                     t.style.minWidth = '0';
                     t.style.maxWidth = '100%';
@@ -8636,15 +9646,15 @@
             allDaySlot: true,
             slotEventOverlap: false,
             dayMaxEvents: true,
+            moreLinkText: (n) => `+${n}`,
             moreLinkClick: 'popover',
             handleWindowResize: true,
             ...slotLayout,
-            eventOrder: '__tmRank,title',
+            dayCellDidMount: normalizeCalendarMonthDayNumberCell,
+            eventOrder: 'start,-duration,__tmRank,title',
             eventOrderStrict: true,
             eventClassNames: (arg) => {
-                if (arg?.isMirror) return ['tm-cal-selection-mirror', 'tm-cal-schedule-event'];
-                const ext = arg?.event?.extendedProps || {};
-                return resolveCalendarEventDoneState(ext) ? ['tm-cal-event--done'] : [];
+                return resolveCalendarEventClassNames(arg);
             },
             eventContent: (arg) => {
                 const ext = arg?.event?.extendedProps || {};
@@ -8656,6 +9666,7 @@
                     const tid = String(ext.__tmTaskId || ext.__tmBlockId || '').trim();
                     const done = resolveCalendarEventDoneState(ext);
                     const isAllDay = arg?.event?.allDay === true;
+                    const useAllDayLayout = shouldUseAllDayEventContentLayout(arg);
                     const wrapEl = document.createElement('span');
                     wrapEl.className = source === 'schedule' ? 'tm-cal-task-event tm-cal-task-event--schedule' : 'tm-cal-task-event';
                     if (shouldEnableCalendarEventContextMenu()) {
@@ -8678,7 +9689,7 @@
                         : '';
                     const { title, titleText } = buildTaskEventTitleNode(String(arg?.event?.title || '').trim() || '任务', rangeText);
                     if (isBlockLike) wrapEl.classList.add('tm-cal-task-event--block');
-                    if (isAllDay) wrapEl.classList.add('tm-cal-task-event--allday');
+                    if (useAllDayLayout) wrapEl.classList.add('tm-cal-task-event--allday');
                     if (rangeText) wrapEl.classList.add('tm-cal-task-event--stacked');
                     let cb = null;
                     let leadingEl = null;
@@ -8690,7 +9701,7 @@
                         cb.onclick = (ev) => {
                             try { ev.stopPropagation(); } catch (e) {}
                         };
-                        applyTaskEventCheckboxOffset(cb, { allDay: isAllDay, blockLike: isBlockLike });
+                        applyTaskEventCheckboxOffset(cb, { allDay: useAllDayLayout, blockLike: isBlockLike });
                         if (rangeText && !isBlockLike && !isAllDay) {
                             try { cb.style.marginTop = '4px'; } catch (e) {}
                         }
@@ -8721,11 +9732,11 @@
                     return { domNodes: [wrapEl] };
                 }
                 if (source === 'schedule') {
-                    const isAllDay = arg?.event?.allDay === true;
+                    const useAllDayLayout = shouldUseAllDayEventContentLayout(arg);
                     const wrapEl = document.createElement('span');
                     wrapEl.className = 'tm-cal-schedule-stack';
                     if (isBlockLike) wrapEl.classList.add('tm-cal-schedule-stack--block');
-                    if (isAllDay) wrapEl.classList.add('tm-cal-schedule-stack--allday');
+                    if (useAllDayLayout) wrapEl.classList.add('tm-cal-schedule-stack--allday');
                     const { title } = buildTaskEventTitleNode(
                         String(arg?.event?.title || '').trim() || '日程',
                         hideRangeText ? '' : formatScheduleEventRangeText(arg?.event?.start, arg?.event?.end, arg?.event?.allDay === true)
@@ -8739,12 +9750,13 @@
                 if (source === 'reminder') {
                     const done = resolveCalendarEventDoneState(ext);
                     const isAllDay = arg?.event?.allDay === true;
+                    const useAllDayLayout = shouldUseAllDayEventContentLayout(arg);
                     const wrapEl = document.createElement('span');
                     wrapEl.className = 'tm-cal-task-event';
                     const tid = String(ext.__tmReminderBlockId || '').trim();
                     const { title, titleText } = buildTaskEventTitleNode(String(arg?.event?.title || '').trim() || '任务提醒');
                     if (isBlockLike) wrapEl.classList.add('tm-cal-task-event--block');
-                    if (isAllDay) wrapEl.classList.add('tm-cal-task-event--allday');
+                    if (useAllDayLayout) wrapEl.classList.add('tm-cal-task-event--allday');
                     applyTaskEventTitleClamp(wrapEl, title);
                     applyTaskDoneVisual(wrapEl, titleText, done);
                     titleText.onclick = (ev) => {
@@ -8757,26 +9769,7 @@
                     return { domNodes: [wrapEl] };
                 }
                 if (source === 'cnHoliday') {
-                    const type = Number(ext.__tmCnHolidayType);
-                    const name = normalizeCnHolidayName(String(ext.__tmCnHolidayName || '').trim());
-                    if (!name) return true;
-                    if (type === 0) return true;
-                    if (type !== 2 && type !== 3 && type !== 4) return true;
-                    const isWork = type === 4;
-                    const pill = document.createElement('span');
-                    pill.className = `tm-cn-holiday-pill ${isWork ? 'tm-cn-holiday-pill--work' : 'tm-cn-holiday-pill--rest'}`;
-                    const badge = document.createElement('span');
-                    badge.className = 'tm-cn-holiday-badge';
-                    badge.textContent = isWork ? '班' : '休';
-                    pill.appendChild(badge);
-                    if (name) {
-                        const label = document.createElement('span');
-                        label.className = 'tm-cn-holiday-label';
-                        label.textContent = name;
-                        pill.appendChild(label);
-                    }
-                    pill.title = `${isWork ? '上班' : '休息'}${name ? `：${name}` : ''}`;
-                    return { domNodes: [pill] };
+                    return buildCnHolidayEventContent(arg);
                 }
                 return true;
             },
@@ -8792,7 +9785,10 @@
                         if (eid) el.setAttribute('data-tm-cal-event-id', eid);
                         if (source) el.setAttribute('data-tm-cal-source', source);
                         if (source === 'schedule' || source === 'tomato' || arg?.isMirror) applyScheduleEventColorVars(el, String(arg?.event?.backgroundColor || arg?.event?.borderColor || 'var(--tm-primary-color)'));
-                        if ((source === 'schedule' || source === 'taskdate' || source === 'reminder') && arg?.event?.allDay === true) applyAllDaySoftEventColorVars(el, String(arg?.event?.backgroundColor || arg?.event?.borderColor || 'var(--tm-primary-color)'));
+                        if (shouldUseAllDaySoftEventVisual(arg, source)) {
+                            applyAllDaySoftEventColorVars(el, String(arg?.event?.backgroundColor || arg?.event?.borderColor || 'var(--tm-primary-color)'));
+                            normalizeAllDayEventContentLayout(el);
+                        }
                         try {
                             const wrapEl = el.querySelector?.('.tm-cal-task-event');
                             const titleEl = wrapEl?.querySelector?.('.tm-cal-task-event-title-text') || wrapEl?.querySelector?.('.tm-cal-task-event-title') || null;
@@ -12016,6 +13012,7 @@
         const run = () => {
             try { cal.updateSize(); } catch (e3) {}
             try { applyMainCalendarMonthCellMinHeightLayout(state.calendarEl, cal); } catch (e3) {}
+            try { applyMainCalendarMonthMoreLinkLayout(state.calendarEl, cal); } catch (e3) {}
             try { applyMainCalendarSlotHeightLayout(wrap, getSettings()); } catch (e3) {}
             try { scheduleSyncTimeGridAllDayCollapseUi(state.calendarEl, cal); } catch (e3) {}
             try { applyCnHolidayDots(wrap); } catch (e3) {}
@@ -12394,7 +13391,7 @@
             firstDay: Number(s.firstDay) === 0 ? 0 : 1,
             weekText: '周',
             allDayText: '全天',
-            moreLinkText: (n) => `+${n} 更多`,
+            moreLinkText: (n) => `+${n}`,
             noEventsText: '暂无记录',
             buttonText: {
                 today: '今天',
@@ -12418,6 +13415,7 @@
                 right: 'timeGridDay,timeGrid3Day,timeGridWorkdays,timeGridWeek,dayGridMonth',
             },
             eventDisplay: 'block',
+            dayCellDidMount: normalizeCalendarMonthDayNumberCell,
             eventContent: (arg) => {
                 const ext = arg?.event?.extendedProps || {};
                 const source = String(ext.__tmSource || '').trim();
@@ -12428,6 +13426,7 @@
                     const tid = String(ext.__tmTaskId || ext.__tmBlockId || '').trim();
                     const done = resolveCalendarEventDoneState(ext);
                     const isAllDay = arg?.event?.allDay === true;
+                    const useAllDayLayout = shouldUseAllDayEventContentLayout(arg);
                     const wrapEl = document.createElement('span');
                     wrapEl.className = source === 'schedule' ? 'tm-cal-task-event tm-cal-task-event--schedule' : 'tm-cal-task-event';
                     if (shouldEnableCalendarEventContextMenu()) {
@@ -12450,7 +13449,7 @@
                         : '';
                     const { title, titleText } = buildTaskEventTitleNode(String(arg?.event?.title || '').trim() || '任务', rangeText);
                     if (isBlockLike) wrapEl.classList.add('tm-cal-task-event--block');
-                    if (isAllDay) wrapEl.classList.add('tm-cal-task-event--allday');
+                    if (useAllDayLayout) wrapEl.classList.add('tm-cal-task-event--allday');
                     if (rangeText) wrapEl.classList.add('tm-cal-task-event--stacked');
                     let cb = null;
                     let leadingEl = null;
@@ -12462,7 +13461,7 @@
                         cb.onclick = (ev) => {
                             try { ev.stopPropagation(); } catch (e) {}
                         };
-                        applyTaskEventCheckboxOffset(cb, { allDay: isAllDay, blockLike: isBlockLike });
+                        applyTaskEventCheckboxOffset(cb, { allDay: useAllDayLayout, blockLike: isBlockLike });
                         if (rangeText && !isBlockLike && !isAllDay) {
                             try { cb.style.marginTop = '4px'; } catch (e) {}
                         }
@@ -12504,11 +13503,11 @@
                     return { domNodes: [wrapEl] };
                 }
                 if (source === 'schedule') {
-                    const isAllDay = arg?.event?.allDay === true;
+                    const useAllDayLayout = shouldUseAllDayEventContentLayout(arg);
                     const wrapEl = document.createElement('span');
                     wrapEl.className = 'tm-cal-schedule-stack';
                     if (isBlockLike) wrapEl.classList.add('tm-cal-schedule-stack--block');
-                    if (isAllDay) wrapEl.classList.add('tm-cal-schedule-stack--allday');
+                    if (useAllDayLayout) wrapEl.classList.add('tm-cal-schedule-stack--allday');
                     const { title } = buildTaskEventTitleNode(
                         String(arg?.event?.title || '').trim() || '日程',
                         hideRangeText ? '' : formatScheduleEventRangeText(arg?.event?.start, arg?.event?.end, arg?.event?.allDay === true)
@@ -12521,13 +13520,13 @@
                 }
                 if (source === 'reminder') {
                     const done = resolveCalendarEventDoneState(ext);
-                    const isAllDay = arg?.event?.allDay === true;
+                    const useAllDayLayout = shouldUseAllDayEventContentLayout(arg);
                     const wrapEl = document.createElement('span');
                     wrapEl.className = 'tm-cal-task-event';
                     const tid = String(ext.__tmReminderBlockId || '').trim();
                     const { title, titleText } = buildTaskEventTitleNode(String(arg?.event?.title || '').trim() || '任务提醒');
                     if (isBlockLike) wrapEl.classList.add('tm-cal-task-event--block');
-                    if (isAllDay) wrapEl.classList.add('tm-cal-task-event--allday');
+                    if (useAllDayLayout) wrapEl.classList.add('tm-cal-task-event--allday');
                     applyTaskEventTitleClamp(wrapEl, title);
                     applyTaskDoneVisual(wrapEl, titleText, done);
                     titleText.onclick = (ev) => {
@@ -12551,26 +13550,7 @@
                     return { domNodes: [wrapEl] };
                 }
                 if (source !== 'cnHoliday') return true;
-                const type = Number(ext.__tmCnHolidayType);
-                const name = normalizeCnHolidayName(String(ext.__tmCnHolidayName || '').trim());
-                if (!name) return true;
-                if (type === 0) return true;
-                if (type !== 2 && type !== 3 && type !== 4) return true;
-                const isWork = type === 4;
-                const pill = document.createElement('span');
-                pill.className = `tm-cn-holiday-pill ${isWork ? 'tm-cn-holiday-pill--work' : 'tm-cn-holiday-pill--rest'}`;
-                const badge = document.createElement('span');
-                badge.className = 'tm-cn-holiday-badge';
-                badge.textContent = isWork ? '班' : '休';
-                pill.appendChild(badge);
-                if (name) {
-                    const label = document.createElement('span');
-                    label.className = 'tm-cn-holiday-label';
-                    label.textContent = name;
-                    pill.appendChild(label);
-                }
-                pill.title = `${isWork ? '上班' : '休息'}${name ? `：${name}` : ''}`;
-                return { domNodes: [pill] };
+                return buildCnHolidayEventContent(arg);
             },
             eventDidMount: (arg) => {
                 try {
@@ -12585,7 +13565,10 @@
                             if (eid) el.setAttribute('data-tm-cal-event-id', eid);
                             if (source) el.setAttribute('data-tm-cal-source', source);
                             if (source === 'schedule' || source === 'tomato' || arg?.isMirror) applyScheduleEventColorVars(el, String(arg?.event?.backgroundColor || arg?.event?.borderColor || 'var(--tm-primary-color)'));
-                            if ((source === 'schedule' || source === 'taskdate' || source === 'reminder') && arg?.event?.allDay === true) applyAllDaySoftEventColorVars(el, String(arg?.event?.backgroundColor || arg?.event?.borderColor || 'var(--tm-primary-color)'));
+                            if (shouldUseAllDaySoftEventVisual(arg, source)) {
+                                applyAllDaySoftEventColorVars(el, String(arg?.event?.backgroundColor || arg?.event?.borderColor || 'var(--tm-primary-color)'));
+                                normalizeAllDayEventContentLayout(el);
+                            }
                             try {
                                 const wrapEl = el.querySelector?.('.tm-cal-task-event');
                                 const titleEl = wrapEl?.querySelector?.('.tm-cal-task-event-title-text') || wrapEl?.querySelector?.('.tm-cal-task-event-title') || null;
@@ -12664,6 +13647,7 @@
             },
             eventsSet: () => {
                 try { scheduleSyncTimeGridAllDayCollapseUi(host, calendar); } catch (e) {}
+                try { scheduleMainCalendarLayoutRefresh(wrap, host, calendar, { updateSize: false }); } catch (e) {}
             },
             eventDragStart: () => {
                 try { setCalendarTouchGestureLock(host, true); } catch (e) {}
@@ -12677,12 +13661,10 @@
             eventResizeStop: () => {
                 try { setCalendarTouchGestureLock(host, false); } catch (e) {}
             },
-            eventOrder: '__tmRank,title',
+            eventOrder: 'start,-duration,__tmRank,title',
             eventOrderStrict: true,
             eventClassNames: (arg) => {
-                if (arg?.isMirror) return ['tm-cal-selection-mirror', 'tm-cal-schedule-event'];
-                const ext = arg?.event?.extendedProps || {};
-                return resolveCalendarEventDoneState(ext) ? ['tm-cal-event--done'] : [];
+                return resolveCalendarEventClassNames(arg);
             },
             editable: true,
             eventStartEditable: true,
@@ -13185,7 +14167,7 @@
                 try { syncMainCalendarMonthViewLayout(wrap, host, calendar, getSettings()); } catch (e) {}
                 try { bindCalendarDrop(wrap); } catch (e) {}
                 try { syncMainCalendarViewSelect(wrap, calendar, { compact: !!(isMobileDevice || isDockHost) }); } catch (e) {}
-                try { syncMainCalendarToolbarTitle(wrap, calendar); } catch (e) {}
+                try { scheduleMainCalendarToolbarTitleSync(wrap, calendar); } catch (e) {}
                 try { scheduleSyncTimeGridAllDayCollapseUi(host, calendar); } catch (e) {}
                 try {
                     const d = calendar?.getDate?.();
@@ -13231,6 +14213,7 @@
                             rangeEnd: formatDateKey(calendar?.view?.activeEnd),
                         });
                         scheduleMainCalendarLayoutRefresh(wrap, host, calendar, { updateSize: true });
+                        try { scheduleMainCalendarToolbarTitleSync(wrap, calendar); } catch (e3) {}
                     }
                 } catch (e) {}
             },
@@ -13239,6 +14222,7 @@
 
         try { calendar.render(); } catch (e) {}
         try { syncMainCalendarMonthViewLayout(wrap, host, calendar, getSettings()); } catch (e) {}
+        try { scheduleMainCalendarToolbarTitleSync(wrap, calendar); } catch (e) {}
         try { bindCalendarDrop(wrap); } catch (e) {}
         try { scheduleMainCalendarLayoutRefresh(wrap, host, calendar, { updateSize: true }); } catch (e) {}
         try { syncMainCalendarViewSelect(wrap, calendar, { compact: !!(isMobileDevice || isDockHost) }); } catch (e) {}
@@ -13956,6 +14940,7 @@
         if (!containerEl || !(containerEl instanceof Element)) return false;
         state.settingsStore = settingsStore || state.settingsStore || null;
         const s = getSettings();
+        const monthMinVisibleEventsDisabled = s.monthAdaptiveRowHeight !== false;
         const visibleRange = getCalendarVisibleSlotRange(s);
         const visibleStartOptions = buildCalendarVisibleTimeOptions(visibleRange.start, false);
         const visibleEndOptions = buildCalendarVisibleTimeOptions(visibleRange.end, true);
@@ -14027,8 +15012,12 @@
                     </select>
                 </div>
                 <div class="tm-calendar-settings-row">
+                    <div class="tm-calendar-settings-label">月视图自适应行高</div>
+                    <input class="b3-switch fn__flex-center" type="checkbox" data-tm-cal-setting="calendarMonthAdaptiveRowHeight" ${s.monthAdaptiveRowHeight !== false ? 'checked' : ''}>
+                </div>
+                <div class="tm-calendar-settings-row" style="${monthMinVisibleEventsDisabled ? 'opacity:0.55;' : ''}">
                     <div class="tm-calendar-settings-label">月视图最少展示日程</div>
-                    <select class="tm-calendar-settings-select" data-tm-cal-setting="calendarMonthMinVisibleEvents">
+                    <select class="tm-calendar-settings-select" data-tm-cal-setting="calendarMonthMinVisibleEvents" ${monthMinVisibleEventsDisabled ? 'disabled' : ''}>
                         <option value="1" ${Number(s.monthMinVisibleEvents) === 1 ? 'selected' : ''}>1 条</option>
                         <option value="2" ${Number(s.monthMinVisibleEvents) === 2 ? 'selected' : ''}>2 条</option>
                         <option value="3" ${Number(s.monthMinVisibleEvents) === 3 ? 'selected' : ''}>3 条</option>
@@ -14208,7 +15197,10 @@
                 } else if (key === 'calendarHourSlotHeightMode') {
                     const settings = getSettings();
                     try { refreshCalendarSlotHeight(settings); } catch (e2) {}
-                } else if (key === 'calendarMonthMinVisibleEvents') {
+                } else if (key === 'calendarMonthMinVisibleEvents' || key === 'calendarMonthAdaptiveRowHeight') {
+                    if (key === 'calendarMonthAdaptiveRowHeight') {
+                        try { renderSettings(containerEl, store); } catch (e2) {}
+                    }
                     const settings = getSettings();
                     try { syncMainCalendarMonthViewLayout(state.wrapEl, state.calendarEl, state.calendar, settings); } catch (e2) {}
                     try { scheduleMainCalendarLayoutRefresh(state.wrapEl, state.calendarEl, state.calendar, { updateSize: true }); } catch (e2) {}

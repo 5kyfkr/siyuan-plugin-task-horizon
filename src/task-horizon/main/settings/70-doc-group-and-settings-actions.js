@@ -388,6 +388,17 @@
         await SettingsStore.save();
     };
 
+    window.updateTaskParentLookupDepth = async function(value) {
+        SettingsStore.data.taskParentLookupDepth = __tmNormalizeTaskParentLookupDepth(value);
+        await SettingsStore.save();
+        showSettings();
+        if (state.modal && document.body.contains(state.modal)) {
+            try {
+                await loadSelectedDocuments({ source: 'task-parent-lookup-depth' });
+            } catch (e) {}
+        }
+    };
+
     window.updateCurrentGroupCalendarSearchOptimizationEnabled = async function(enabled) {
         const currentGroupId = String(SettingsStore.data.currentGroupId || 'all').trim() || 'all';
         if (currentGroupId === 'all') return;
@@ -496,6 +507,12 @@
         if (state.modal && document.body.contains(state.modal)) {
             try { render(); } catch (e) {}
         }
+    };
+
+    window.updateEnablePointsRewardIntegration = async function(enabled) {
+        SettingsStore.data.enablePointsRewardIntegration = !!enabled;
+        await SettingsStore.save();
+        showSettings();
     };
 
     window.updateTomatoSpentAttrMode = async function(mode) {

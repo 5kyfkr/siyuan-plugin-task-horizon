@@ -8742,6 +8742,20 @@
             viewport.addEventListener('touchcancel', window.tmWhiteboardViewportTouchEnd, { passive: true });
         }
         viewport.addEventListener('wheel', window.tmWhiteboardViewportWheel, { passive: true });
+        try {
+            if (typeof __tmScheduleWhiteboardNavigatorUpdate === 'function') {
+                __tmScheduleWhiteboardNavigatorUpdate();
+            }
+        } catch (e) {}
+        try {
+            if (typeof ResizeObserver === 'function' && !viewport.__tmWhiteboardNavigatorResizeObserver) {
+                const ro = new ResizeObserver(() => {
+                    try { __tmScheduleWhiteboardNavigatorUpdate(); } catch (e) {}
+                });
+                ro.observe(viewport);
+                viewport.__tmWhiteboardNavigatorResizeObserver = ro;
+            }
+        } catch (e) {}
     }
 
     // 搜索弹窗
@@ -9580,12 +9594,14 @@
                         applyFilters: false,
                         render: false,
                         saveMeta: false,
+                        forceDocFlowOrder: true,
                     });
                     if (sourceDocId && sourceDocId !== targetDocId) {
                         await reloadDocTasksProtected(sourceDocId, null, null, null, {
                             applyFilters: false,
                             render: false,
                             saveMeta: false,
+                            forceDocFlowOrder: true,
                         });
                     }
                     try { recalcStats(); } catch (e) {}
@@ -9593,7 +9609,10 @@
                     try { render(); } catch (e) {}
                     return;
                 }
-                await __tmLoadSelectedDocumentsPreserveChecklistScroll({ source: 'task-row-drop-reconcile' });
+                await __tmLoadSelectedDocumentsPreserveChecklistScroll({
+                    source: 'task-row-drop-reconcile',
+                    forceSyncFlowRank: true,
+                });
             } catch (e) {
                 try { __tmRefreshMainViewInPlace({ withFilters: true, reason: 'task-row-drop-reconcile-fallback' }); } catch (e2) {}
             }
@@ -9607,6 +9626,7 @@
                     // The protected reload can briefly cache pre-index SQL rows. Force the
                     // follow-up full load to fetch fresh rows instead of replaying them.
                     forceFreshTasks: true,
+                    forceSyncFlowRank: true,
                 });
             } catch (e) {
                 try { __tmRefreshMainViewInPlace({ withFilters: true, reason: 'task-row-drop-full-refresh-fallback' }); } catch (e2) {}
@@ -11011,6 +11031,12 @@
     __tmPhosphorBoldPaths['paperclip'] = 'M212.48,136.49l-82.06,82a60,60,0,0,1-84.85-84.88l98.16-97.89a40,40,0,0,1,56.56,56.59l-.17.16-95.8,92.22a12,12,0,1,1-16.64-17.3l95.71-92.12a16,16,0,0,0-22.7-22.56L62.53,150.57a36,36,0,0,0,50.93,50.91l82.06-82a12,12,0,0,1,17,17Z';
     __tmPhosphorBoldPaths['text-indent'] = 'M228,128a12,12,0,0,1-12,12H120a12,12,0,0,1,0-24h96A12,12,0,0,1,228,128ZM120,76h96a12,12,0,0,0,0-24H120a12,12,0,0,0,0,24Zm96,104H40a12,12,0,0,0,0,24H216a12,12,0,0,0,0-24ZM31.51,144.49a12,12,0,0,0,17,0l40-40a12,12,0,0,0,0-17l-40-40a12,12,0,0,0-17,17L63,96,31.51,127.51A12,12,0,0,0,31.51,144.49Z';
     __tmPhosphorBoldPaths['text-outdent'] = 'M228,128a12,12,0,0,1-12,12H120a12,12,0,0,1,0-24h96A12,12,0,0,1,228,128ZM120,76h96a12,12,0,0,0,0-24H120a12,12,0,0,0,0,24Zm96,104H40a12,12,0,0,0,0,24H216a12,12,0,0,0,0-24ZM72,148a12,12,0,0,0,8.49-20.49L49,96,80.49,64.48a12,12,0,0,0-17-17l-40,40a12,12,0,0,0,0,17l40,40A12,12,0,0,0,72,148Z';
+    __tmPhosphorBoldPaths['hand'] = 'M188,44a32,32,0,0,0-8,1V44a32,32,0,0,0-60.79-14A32,32,0,0,0,76,60v50.83a32,32,0,0,0-52,36.7C55.82,214.6,75.35,244,128,244a92.1,92.1,0,0,0,92-92V76A32,32,0,0,0,188,44Zm8,108a68.08,68.08,0,0,1-68,68c-35.83,0-49.71-14-82.48-83.14-.14-.29-.29-.58-.45-.86a8,8,0,0,1,13.85-8l.21.35,18.68,30A12,12,0,0,0,100,152V60a8,8,0,0,1,16,0v60a12,12,0,0,0,24,0V44a8,8,0,0,1,16,0v76a12,12,0,0,0,24,0V76a8,8,0,0,1,16,0Z';
+    __tmPhosphorBoldPaths['selection-plus'] = 'M156,40a12,12,0,0,1-12,12H112a12,12,0,0,1,0-24h32A12,12,0,0,1,156,40ZM144,204H112a12,12,0,0,0,0,24h32a12,12,0,0,0,0-24ZM204,52V72a12,12,0,0,0,24,0V48a20,20,0,0,0-20-20H184a12,12,0,0,0,0,24Zm12,48a12,12,0,0,0-12,12v32a12,12,0,0,0,24,0V112A12,12,0,0,0,216,100ZM40,156a12,12,0,0,0,12-12V112a12,12,0,0,0-24,0v32A12,12,0,0,0,40,156Zm32,48H52V184a12,12,0,0,0-24,0v24a20,20,0,0,0,20,20H72a12,12,0,0,0,0-24ZM72,28H48A20,20,0,0,0,28,48V72a12,12,0,0,0,24,0V52H72a12,12,0,0,0,0-24ZM240,204H228V192a12,12,0,0,0-24,0v12H192a12,12,0,0,0,0,24h12v12a12,12,0,0,0,24,0V228h12a12,12,0,0,0,0-24Z';
+    __tmPhosphorBoldPaths['cursor-text'] = 'M188,208a12,12,0,0,1-12,12H160a43.86,43.86,0,0,1-32-13.85A43.86,43.86,0,0,1,96,220H80a12,12,0,0,1,0-24H96a20,20,0,0,0,20-20V140H104a12,12,0,0,1,0-24h12V80A20,20,0,0,0,96,60H80a12,12,0,0,1,0-24H96a43.86,43.86,0,0,1,32,13.85A43.86,43.86,0,0,1,160,36h16a12,12,0,0,1,0,24H160a20,20,0,0,0-20,20v36h12a12,12,0,0,1,0,24H140v36a20,20,0,0,0,20,20h16A12,12,0,0,1,188,208Z';
+    __tmPhosphorBoldPaths['note-pencil'] = 'M232.49,55.51l-32-32a12,12,0,0,0-17,0l-96,96A12,12,0,0,0,84,128v32a12,12,0,0,0,12,12h32a12,12,0,0,0,8.49-3.51l96-96A12,12,0,0,0,232.49,55.51ZM192,49l15,15L196,75,181,60Zm-69,99H108V133l56-56,15,15Zm105-7.43V208a20,20,0,0,1-20,20H48a20,20,0,0,1-20-20V48A20,20,0,0,1,48,28h67.43a12,12,0,0,1,0,24H52V204H204V140.57a12,12,0,0,1,24,0Z';
+    __tmPhosphorBoldPaths['link-simple-break'] = 'M218.45,122.43l-30.08,30.06a12,12,0,0,1-17-17l30.08-30.07a36,36,0,0,0-50.93-50.92L120.48,84.59a12,12,0,0,1-17-17l30.07-30.06a60,60,0,0,1,84.87,84.88Zm-82.93,49-30.07,30.08a36,36,0,0,1-50.92-50.93l30.06-30.07a12,12,0,0,0-17-17L37.55,133.58a60,60,0,0,0,84.88,84.87l30.06-30.07a12,12,0,0,0-17-17Z';
+    __tmPhosphorBoldPaths['corners-in'] = 'M148,96V48a12,12,0,0,1,24,0V84h36a12,12,0,0,1,0,24H160A12,12,0,0,1,148,96ZM96,148H48a12,12,0,0,0,0,24H84v36a12,12,0,0,0,24,0V160A12,12,0,0,0,96,148Zm112,0H160a12,12,0,0,0-12,12v48a12,12,0,0,0,24,0V172h36a12,12,0,0,0,0-24ZM96,36A12,12,0,0,0,84,48V84H48a12,12,0,0,0,0,24H96a12,12,0,0,0,12-12V48A12,12,0,0,0,96,36Z';
     __tmPhosphorBoldPaths['text-h'] = 'M212,56V200a12,12,0,0,1-24,0V140H68v60a12,12,0,0,1-24,0V56a12,12,0,0,1,24,0v60H188V56a12,12,0,0,1,24,0Z';
     __tmPhosphorBoldPaths['text-h-one'] = 'M236,112v96a12,12,0,0,1-24,0V134.42L206.66,138a12,12,0,0,1-13.32-20l24-16A12,12,0,0,1,236,112ZM144,44a12,12,0,0,0-12,12v48H52V56a12,12,0,0,0-24,0V176a12,12,0,0,0,24,0V128h80v48a12,12,0,0,0,24,0V56A12,12,0,0,0,144,44Z';
     __tmPhosphorBoldPaths['text-h-two'] = 'M156,56V176a12,12,0,0,1-24,0V128H52v48a12,12,0,0,1-24,0V56a12,12,0,0,1,24,0v48h80V56a12,12,0,0,1,24,0Zm84,140H216l28.74-38.33A36,36,0,1,0,182.05,124a12,12,0,0,0,22.63,8,11.67,11.67,0,0,1,1.73-3.22,12,12,0,1,1,19.15,14.46L182.4,200.8A12,12,0,0,0,192,220h48a12,12,0,0,0,0-24Z';

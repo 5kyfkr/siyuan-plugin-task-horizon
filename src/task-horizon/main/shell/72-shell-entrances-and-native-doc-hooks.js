@@ -1326,6 +1326,10 @@
         const currentStatus = String(task.customStatus || '').trim();
         const currentTaskCompleteAt = String(task.taskCompleteAt || task.task_complete_at || '').trim();
         const taskDoneBefore = !!task.done;
+        const shouldDispatchTaskReward = !!SettingsStore?.data?.enablePointsRewardIntegration && !taskDoneBefore && !!domDone && !__tmUndoState?.applying;
+        const taskRewardPriorityScore = shouldDispatchTaskReward
+            ? Math.max(0, Math.round(Number(__tmEnsureTaskPriorityScore(task, { force: true })) || 0))
+            : 0;
         const ignoredSync = __tmConsumeNativeDocCheckboxStatusSyncIgnore(rawId, !!domDone);
         if (ignoredSync) {
             const preservedStatus = String(ignoredSync.expectedStatus || currentStatus || '').trim();
@@ -1406,6 +1410,17 @@
             } catch (e) {}
             try { globalThis.__taskHorizonQuickbarRefreshInline?.(); } catch (e) {}
             try { globalThis.__taskHorizonQuickbarRefresh?.(); } catch (e) {}
+            if (shouldDispatchTaskReward) {
+                try {
+                    __tmDispatchTaskCompletedForReward(task, {
+                        taskId: tid,
+                        attrHostId: __tmGetTaskAttrHostId(task) || rawId || tid,
+                        priorityScore: taskRewardPriorityScore,
+                        completedAt: resolvedTaskCompleteAt || __tmNowInChinaTimezoneIso(),
+                        source: 'native-doc-checkbox-sync',
+                    });
+                } catch (e) {}
+            }
             if (domDone) {
                 try {
                     __tmScheduleRecurringTaskAdvanceAfterCompletion(tid, {
@@ -1486,6 +1501,17 @@
         } catch (e) {}
         try { globalThis.__taskHorizonQuickbarRefreshInline?.(); } catch (e) {}
         try { globalThis.__taskHorizonQuickbarRefresh?.(); } catch (e) {}
+        if (shouldDispatchTaskReward) {
+            try {
+                __tmDispatchTaskCompletedForReward(task, {
+                    taskId: tid,
+                    attrHostId: __tmGetTaskAttrHostId(task) || rawId || tid,
+                    priorityScore: taskRewardPriorityScore,
+                    completedAt: finalTaskCompleteAt || __tmNowInChinaTimezoneIso(),
+                    source: 'native-doc-checkbox-sync',
+                });
+            } catch (e) {}
+        }
         if (domDone) {
             try {
                 __tmScheduleRecurringTaskAdvanceAfterCompletion(tid, {

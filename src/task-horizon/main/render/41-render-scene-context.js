@@ -17,9 +17,14 @@
             tableAvailableWidth,
         });
 
-        function __tmRenderChecklistBodyHtml() {
+        const __tmGetBodyAnimClassForRender = (renderOptions) => {
+            const renderOpts = (renderOptions && typeof renderOptions === 'object') ? renderOptions : {};
+            return renderOpts.withBodyAnimation ? bodyAnimClass : '';
+        };
+
+        function __tmRenderChecklistBodyHtml(renderOptions = {}) {
             return __tmBuildRenderSceneChecklistBodyHtml({
-                bodyAnimClass,
+                bodyAnimClass: __tmGetBodyAnimClassForRender(renderOptions),
             });
         }
 
@@ -28,16 +33,16 @@
             rowModel,
         });
 
-        const __tmRenderKanbanBodyHtml = () => __tmBuildRenderSceneKanbanBodyHtml({
-            bodyAnimClass,
+        const __tmRenderKanbanBodyHtml = (renderOptions = {}) => __tmBuildRenderSceneKanbanBodyHtml({
+            bodyAnimClass: __tmGetBodyAnimClassForRender(renderOptions),
         });
 
         const __tmRenderCalendarBodyHtml = () => __tmBuildRenderSceneCalendarBodyHtml({
             bodyAnimClass,
         });
 
-        const __tmRenderWhiteboardBodyHtml = () => __tmBuildRenderSceneWhiteboardBodyHtml({
-            bodyAnimClass,
+        const __tmRenderWhiteboardBodyHtml = (renderOptions = {}) => __tmBuildRenderSceneWhiteboardBodyHtml({
+            bodyAnimClass: __tmGetBodyAnimClassForRender(renderOptions),
             isMobile,
         });
 
@@ -53,13 +58,13 @@
             : renderMode === 'calendar'
             ? __tmRenderCalendarBodyHtml()
             : renderMode === 'whiteboard'
-                ? __tmRenderWhiteboardBodyHtml()
+                ? __tmRenderWhiteboardBodyHtml({ withBodyAnimation: true })
             : renderMode === 'checklist'
-                ? __tmRenderChecklistBodyHtml()
+                ? __tmRenderChecklistBodyHtml({ withBodyAnimation: true })
             : renderMode === 'timeline'
                 ? __tmRenderTimelineBodyHtml(__tmTimelineRowModel)
                 : renderMode === 'kanban'
-                    ? __tmRenderKanbanBodyHtml()
+                    ? __tmRenderKanbanBodyHtml({ withBodyAnimation: true })
                     : __tmRenderListBodyHtml();
         const showCalendarSideDock = !state.homepageOpen && __tmShouldShowCalendarSideDock() && !isMobile;
         const showAiSideDock = __tmShouldShowAiSidebar() && !!state.aiSidebarOpen && !isMobile;

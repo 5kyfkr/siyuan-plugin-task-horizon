@@ -30,6 +30,7 @@
             const noHeadingLabel = `无${headingLabelMap[headingLevel] || '标题'}`;
             const notes = Array.isArray(SettingsStore.data.whiteboardNotes) ? SettingsStore.data.whiteboardNotes : [];
             const noteColorOptions = ['#1f2937', '#2f6fed', '#16a34a', '#d97706', '#b91c1c', '#7c3aed'];
+            const stickyThemeOptions = __tmGetWhiteboardStickyThemes();
             const view = __tmGetWhiteboardView();
             const posMap = { ...__tmGetWhiteboardNodePosMap() };
             const placedMap = { ...__tmGetWhiteboardPlacedTaskMap() };
@@ -448,10 +449,16 @@
                     docNotes.forEach((n, idx) => {
                         const x = Number.isFinite(Number(n?.x)) ? Number(n.x) : 24;
                         const y = Number.isFinite(Number(n?.y)) ? Number(n.y) : (24 + idx * 42);
+                        const noteW = __tmIsWhiteboardStickyNote(n)
+                            ? (__tmNormalizeWhiteboardNoteWidth(n?.width) || 260)
+                            : NOTE_W;
+                        const noteH = __tmIsWhiteboardStickyNote(n)
+                            ? (__tmNormalizeWhiteboardNoteHeight(n?.height) || 190)
+                            : NOTE_H;
                         minX = Math.min(minX, x);
                         minY = Math.min(minY, y);
-                        maxX = Math.max(maxX, x + NOTE_W);
-                        maxY = Math.max(maxY, y + NOTE_H);
+                        maxX = Math.max(maxX, x + noteW);
+                        maxY = Math.max(maxY, y + noteH);
                     });
                     if (!Number.isFinite(minX) || !Number.isFinite(minY) || !Number.isFinite(maxX) || !Number.isFinite(maxY)) {
                         return { offsetX: 0, offsetY: 0, w: 1000, h: 1000, empty: true };
@@ -466,6 +473,56 @@
                     const h = Math.max(220, Math.ceil(spanH + PAD * 2));
                     return { offsetX, offsetY, w, h, empty: false };
                 })();
+
+                const renderWhiteboardNote = (n, idx) => {
+                    const nid = String(n?.id || '').trim();
+                    const nx0 = Number.isFinite(Number(n?.x)) ? Number(n.x) : 24;
+                    const ny0 = Number.isFinite(Number(n?.y)) ? Number(n.y) : (24 + idx * 42);
+                    const nx = Math.round(nx0 + (allView ? framePlan.offsetX : 0));
+                    const ny = Math.round(ny0 + (allView ? framePlan.offsetY : 0));
+                    const selected = String(state.whiteboardSelectedNoteId || '').trim() === nid;
+                    if (__tmIsWhiteboardStickyNote(n)) {
+                        const stickyTheme = __tmNormalizeWhiteboardStickyTheme(n?.theme);
+                        const stickyTitle = String(n?.title || '').trim();
+                        const stickyText = __tmNormalizeRemarkMarkdown(n?.text || '');
+                        const stickyWidth = __tmNormalizeWhiteboardNoteWidth(n?.width) || 260;
+                        const stickyHeight = __tmNormalizeWhiteboardNoteHeight(n?.height);
+                        const stickySizeStyle = `width:${stickyWidth}px;${stickyHeight > 0 ? `height:${stickyHeight}px;` : ''}`;
+                        const stickyBodyHtml = stickyText
+                            ? __tmRenderRemarkMarkdown(stickyText)
+                            : '<div class="tm-whiteboard-sticky-empty">双击编辑内容</div>';
+                        const stickyToolsHtml = selected
+                            ? `<div class="tm-whiteboard-note-tools tm-whiteboard-sticky-tools">
+                                ${stickyThemeOptions.map((item) => {
+                                    const value = String(item?.value || '').trim();
+                                    const label = String(item?.label || value).trim();
+                                    if (!value) return '';
+                                    return `<button class="tm-whiteboard-sticky-swatch tm-whiteboard-sticky-swatch--${esc(value)}${stickyTheme === value ? ' is-active' : ''}" onclick="tmWhiteboardSetStickyTheme('${escSq(nid)}', '${escSq(value)}', event)" title="${esc(label)}"></button>`;
+                                }).join('')}
+                                <button class="tm-btn tm-btn-info" style="padding:2px 8px;font-size:12px;" onclick="tmWhiteboardEditNote('${escSq(nid)}', '${escSq(docId)}', event)" title="编辑便利贴">编辑</button>
+                                <button class="tm-btn tm-btn-danger" style="padding:2px 8px;font-size:12px;" onclick="tmWhiteboardDeleteNote('${escSq(nid)}', event)" title="移除便利贴">移除</button>
+                            </div>`
+                            : '';
+                        const stickyResizeHtml = selected ? `<span class="tm-whiteboard-note-width-resize" onmousedown="tmWhiteboardNoteResizeWidthStart(event, '${escSq(nid)}', '${escSq(docId)}')" title="拖拽调节便利贴宽度"></span><span class="tm-whiteboard-note-height-resize" onmousedown="tmWhiteboardNoteResizeHeightStart(event, '${escSq(nid)}', '${escSq(docId)}')" title="向下拖拽调节便利贴高度"></span>` : '';
+                        return `<div class="tm-whiteboard-note tm-whiteboard-sticky tm-whiteboard-sticky--${esc(stickyTheme)}${selected ? ' tm-whiteboard-note--selected' : ''}" data-note-id="${esc(nid)}" data-note-kind="sticky" data-doc-id="${esc(docId)}" style="position:absolute;left:${nx}px;top:${ny}px;z-index:4;${stickySizeStyle}" onclick="tmWhiteboardNoteClick('${escSq(nid)}', event)" onmousedown="tmWhiteboardNoteMouseDown(event, '${escSq(nid)}', '${escSq(docId)}')" ondblclick="tmWhiteboardEditNote('${escSq(nid)}', '${escSq(docId)}', event)" title="拖动便利贴，双击编辑">${stickyToolsHtml}<div class="tm-whiteboard-sticky-title">${esc(stickyTitle || '便利贴')}</div><div class="tm-whiteboard-sticky-body">${stickyBodyHtml}</div>${stickyResizeHtml}</div>`;
+                    }
+                    const noteColor = __tmNormalizeWhiteboardNoteColor(n?.color) || '';
+                    const noteFont = __tmNormalizeWhiteboardNoteFontSize(n?.fontSize);
+                    const noteBold = __tmNormalizeWhiteboardNoteBold(n?.bold);
+                    const noteWidth = __tmNormalizeWhiteboardNoteWidth(n?.width);
+                    const noteStyle = `${noteColor ? `color:${noteColor};` : ''}font-size:${noteFont}px;font-weight:${noteBold ? '700' : '400'};${noteWidth > 0 ? `width:${noteWidth}px;white-space:pre-wrap;overflow-wrap:anywhere;` : 'white-space:pre;overflow-wrap:normal;'}`;
+                    const toolsHtml = selected
+                        ? `<div class="tm-whiteboard-note-tools">
+                            <button class="tm-btn ${noteBold ? 'tm-btn-primary' : 'tm-btn-secondary'}" style="padding:2px 8px;font-size:12px;font-weight:700;" onclick="tmWhiteboardToggleNoteBold('${escSq(nid)}', event)" title="加粗">B</button>
+                            <button class="tm-btn tm-btn-info" style="padding:2px 6px;font-size:12px;" onclick="tmWhiteboardAdjustNoteFontSize('${escSq(nid)}', -1, event)" title="减小字号">A-</button>
+                            <button class="tm-btn tm-btn-info" style="padding:2px 6px;font-size:12px;" onclick="tmWhiteboardAdjustNoteFontSize('${escSq(nid)}', 1, event)" title="增大字号">A+</button>
+                            ${noteColorOptions.map((c) => `<button class="tm-btn" style="padding:0;width:16px;height:14px;min-width:16px;border-radius:50%;background:${c};border:${noteColor === c ? '2px solid var(--tm-primary-color)' : '1px solid var(--tm-border-color)'};" onclick="tmWhiteboardSetNoteColor('${escSq(nid)}', '${escSq(c)}', event)" title="文字颜色"></button>`).join('')}
+                            <button class="tm-btn tm-btn-danger" style="padding:2px 8px;font-size:12px;" onclick="tmWhiteboardDeleteNote('${escSq(nid)}', event)" title="移除文本">移除</button>
+                        </div>`
+                        : '';
+                    const resizeHtml = selected ? `<span class="tm-whiteboard-note-resize" onmousedown="tmWhiteboardNoteResizeStart(event, '${escSq(nid)}', '${escSq(docId)}')" title="拖拽调节字号"></span><span class="tm-whiteboard-note-width-resize" onmousedown="tmWhiteboardNoteResizeWidthStart(event, '${escSq(nid)}', '${escSq(docId)}')" title="拖拽调节文本框宽度"></span>` : '';
+                    return `<div class="tm-whiteboard-note${selected ? ' tm-whiteboard-note--selected' : ''}" data-note-id="${esc(nid)}" data-doc-id="${esc(docId)}" style="position:absolute;left:${nx}px;top:${ny}px;z-index:4;${noteStyle}" onclick="tmWhiteboardNoteClick('${escSq(nid)}', event)" onmousedown="tmWhiteboardNoteMouseDown(event, '${escSq(nid)}', '${escSq(docId)}')" ondblclick="tmWhiteboardEditNote('${escSq(nid)}', '${escSq(docId)}', event)" title="拖动便签位置，双击编辑">${toolsHtml}${esc(String(n?.text || '').trim())}${resizeHtml}</div>`;
+                };
 
                 const renderTaskNode = (id, depth = 0, inheritedHideCompleted = false) => {
                     const task = taskById.get(String(id || '').trim());
@@ -604,30 +661,7 @@
                         <section class="tm-whiteboard-doc" data-doc-id="${esc(docId)}" style="border:none;background:transparent;">
                             <div class="tm-whiteboard-doc-body" data-doc-id="${esc(docId)}" style="height:${Math.round(boardH)}px;width:${Math.round(boardW)}px;" ondragover="tmWhiteboardBoardDragOver(event)" ondrop="tmWhiteboardBoardDrop(event, '${escSq(docId)}')">
                                 <svg class="tm-whiteboard-edges" aria-hidden="true"></svg>
-                                ${docNotes.map((n, idx) => {
-                                    const nid = String(n?.id || '').trim();
-                                    const nx0 = Number.isFinite(Number(n?.x)) ? Number(n.x) : 24;
-                                    const ny0 = Number.isFinite(Number(n?.y)) ? Number(n.y) : (24 + idx * 42);
-                                    const nx = Math.round(nx0 + (allView ? framePlan.offsetX : 0));
-                                    const ny = Math.round(ny0 + (allView ? framePlan.offsetY : 0));
-                                    const selected = String(state.whiteboardSelectedNoteId || '').trim() === nid;
-                                    const noteColor = __tmNormalizeWhiteboardNoteColor(n?.color) || '';
-                                    const noteFont = __tmNormalizeWhiteboardNoteFontSize(n?.fontSize);
-                                    const noteBold = __tmNormalizeWhiteboardNoteBold(n?.bold);
-                                    const noteWidth = __tmNormalizeWhiteboardNoteWidth(n?.width);
-                                    const noteStyle = `${noteColor ? `color:${noteColor};` : ''}font-size:${noteFont}px;font-weight:${noteBold ? '700' : '400'};${noteWidth > 0 ? `width:${noteWidth}px;white-space:pre-wrap;overflow-wrap:anywhere;` : 'white-space:pre;overflow-wrap:normal;'}`;
-                                    const toolsHtml = selected
-                                        ? `<div class="tm-whiteboard-note-tools">
-                                            <button class="tm-btn ${noteBold ? 'tm-btn-primary' : 'tm-btn-secondary'}" style="padding:2px 8px;font-size:12px;font-weight:700;" onclick="tmWhiteboardToggleNoteBold('${escSq(nid)}', event)" title="加粗">B</button>
-                                            <button class="tm-btn tm-btn-info" style="padding:2px 6px;font-size:12px;" onclick="tmWhiteboardAdjustNoteFontSize('${escSq(nid)}', -1, event)" title="减小字号">A-</button>
-                                            <button class="tm-btn tm-btn-info" style="padding:2px 6px;font-size:12px;" onclick="tmWhiteboardAdjustNoteFontSize('${escSq(nid)}', 1, event)" title="增大字号">A+</button>
-                                            ${noteColorOptions.map((c) => `<button class="tm-btn" style="padding:0;width:16px;height:14px;min-width:16px;border-radius:50%;background:${c};border:${noteColor === c ? '2px solid var(--tm-primary-color)' : '1px solid var(--tm-border-color)'};" onclick="tmWhiteboardSetNoteColor('${escSq(nid)}', '${escSq(c)}', event)" title="文字颜色"></button>`).join('')}
-                                            <button class="tm-btn tm-btn-danger" style="padding:2px 8px;font-size:12px;" onclick="tmWhiteboardDeleteNote('${escSq(nid)}', event)" title="移除文本">移除</button>
-                                        </div>`
-                                        : '';
-                                    const resizeHtml = selected ? `<span class="tm-whiteboard-note-resize" onmousedown="tmWhiteboardNoteResizeStart(event, '${escSq(nid)}', '${escSq(docId)}')" title="拖拽调节字号"></span><span class="tm-whiteboard-note-width-resize" onmousedown="tmWhiteboardNoteResizeWidthStart(event, '${escSq(nid)}', '${escSq(docId)}')" title="拖拽调节文本框宽度"></span>` : '';
-                                    return `<div class="tm-whiteboard-note${selected ? ' tm-whiteboard-note--selected' : ''}" data-note-id="${esc(nid)}" data-doc-id="${esc(docId)}" style="position:absolute;left:${nx}px;top:${ny}px;z-index:4;${noteStyle}" onclick="tmWhiteboardNoteClick('${escSq(nid)}', event)" onmousedown="tmWhiteboardNoteMouseDown(event, '${escSq(nid)}', '${escSq(docId)}')" ondblclick="tmWhiteboardEditNote('${escSq(nid)}', '${escSq(docId)}', event)" title="拖动便签位置，双击编辑">${toolsHtml}${esc(String(n?.text || '').trim())}${resizeHtml}</div>`;
-                                }).join('')}
+                                ${docNotes.map((n, idx) => renderWhiteboardNote(n, idx)).join('')}
                                 ${cardEmptyHtml}
                             </div>
                         </section>
@@ -641,30 +675,7 @@
                         </header>
                         <div class="tm-whiteboard-doc-body" data-doc-id="${esc(docId)}" data-frame-offset-x="${allView ? Math.round(framePlan.offsetX) : 0}" data-frame-offset-y="${allView ? Math.round(framePlan.offsetY) : 0}" style="height:${Math.round(boardH)}px;min-height:${Math.round(boardH)}px;width:${Math.round(boardW)}px;min-width:${Math.round(boardW)}px;" ondragover="tmWhiteboardBoardDragOver(event)" ondrop="tmWhiteboardBoardDrop(event, '${escSq(docId)}')">
                             <svg class="tm-whiteboard-edges" aria-hidden="true"></svg>
-                            ${docNotes.map((n, idx) => {
-                                const nid = String(n?.id || '').trim();
-                                const nx0 = Number.isFinite(Number(n?.x)) ? Number(n.x) : 24;
-                                const ny0 = Number.isFinite(Number(n?.y)) ? Number(n.y) : (24 + idx * 42);
-                                const nx = Math.round(nx0 + (allView ? framePlan.offsetX : 0));
-                                const ny = Math.round(ny0 + (allView ? framePlan.offsetY : 0));
-                                const selected = String(state.whiteboardSelectedNoteId || '').trim() === nid;
-                                const noteColor = __tmNormalizeWhiteboardNoteColor(n?.color) || '';
-                                const noteFont = __tmNormalizeWhiteboardNoteFontSize(n?.fontSize);
-                                const noteBold = __tmNormalizeWhiteboardNoteBold(n?.bold);
-                                const noteWidth = __tmNormalizeWhiteboardNoteWidth(n?.width);
-                                const noteStyle = `${noteColor ? `color:${noteColor};` : ''}font-size:${noteFont}px;font-weight:${noteBold ? '700' : '400'};${noteWidth > 0 ? `width:${noteWidth}px;white-space:pre-wrap;overflow-wrap:anywhere;` : 'white-space:pre;overflow-wrap:normal;'}`;
-                                const toolsHtml = selected
-                                    ? `<div class="tm-whiteboard-note-tools">
-                                        <button class="tm-btn ${noteBold ? 'tm-btn-primary' : 'tm-btn-secondary'}" style="padding:2px 8px;font-size:12px;font-weight:700;" onclick="tmWhiteboardToggleNoteBold('${escSq(nid)}', event)" title="加粗">B</button>
-                                        <button class="tm-btn tm-btn-info" style="padding:2px 6px;font-size:12px;" onclick="tmWhiteboardAdjustNoteFontSize('${escSq(nid)}', -1, event)" title="减小字号">A-</button>
-                                        <button class="tm-btn tm-btn-info" style="padding:2px 6px;font-size:12px;" onclick="tmWhiteboardAdjustNoteFontSize('${escSq(nid)}', 1, event)" title="增大字号">A+</button>
-                                        ${noteColorOptions.map((c) => `<button class="tm-btn" style="padding:0;width:16px;height:14px;min-width:16px;border-radius:50%;background:${c};border:${noteColor === c ? '2px solid var(--tm-primary-color)' : '1px solid var(--tm-border-color)'};" onclick="tmWhiteboardSetNoteColor('${escSq(nid)}', '${escSq(c)}', event)" title="文字颜色"></button>`).join('')}
-                                        <button class="tm-btn tm-btn-danger" style="padding:2px 8px;font-size:12px;" onclick="tmWhiteboardDeleteNote('${escSq(nid)}', event)" title="移除文本">移除</button>
-                                    </div>`
-                                    : '';
-                                const resizeHtml = selected ? `<span class="tm-whiteboard-note-resize" onmousedown="tmWhiteboardNoteResizeStart(event, '${escSq(nid)}', '${escSq(docId)}')" title="拖拽调节字号"></span><span class="tm-whiteboard-note-width-resize" onmousedown="tmWhiteboardNoteResizeWidthStart(event, '${escSq(nid)}', '${escSq(docId)}')" title="拖拽调节文本框宽度"></span>` : '';
-                                return `<div class="tm-whiteboard-note${selected ? ' tm-whiteboard-note--selected' : ''}" data-note-id="${esc(nid)}" data-doc-id="${esc(docId)}" style="position:absolute;left:${nx}px;top:${ny}px;z-index:4;${noteStyle}" onclick="tmWhiteboardNoteClick('${escSq(nid)}', event)" onmousedown="tmWhiteboardNoteMouseDown(event, '${escSq(nid)}', '${escSq(docId)}')" ondblclick="tmWhiteboardEditNote('${escSq(nid)}', '${escSq(docId)}', event)" title="拖动便签位置，双击编辑">${toolsHtml}${esc(String(n?.text || '').trim())}${resizeHtml}</div>`;
-                            }).join('')}
+                            ${docNotes.map((n, idx) => renderWhiteboardNote(n, idx)).join('')}
                             ${cardEmptyHtml}
                         </div>
                     </section>
@@ -1179,8 +1190,15 @@
             const sidebarCollapsed = !!SettingsStore.data.whiteboardSidebarCollapsed;
             const sidebarWidth = Math.max(220, Math.min(520, Math.round(Number(SettingsStore.data.whiteboardSidebarWidth) || 300)));
             const layoutClass = sidebarCollapsed ? ' tm-whiteboard-layout--sidebar-collapsed' : '';
+            const navigatorHidden = !!SettingsStore.data.whiteboardNavigatorHidden;
+            const navigatorReadyAttr = (!navigatorHidden && state.whiteboardNavigatorModel) ? ' data-tm-ready="1"' : '';
             const sidebarToggleLabel = sidebarCollapsed ? '展开侧栏' : '折叠侧栏';
             const sidebarToggleGlyph = sidebarCollapsed ? '☰' : '⟨';
+            const renderWhiteboardToolbarButton = ({ label, icon, onclick, active = false, pressed = null }) => {
+                const cls = `tm-btn tm-btn-info bc-btn bc-btn--sm tm-whiteboard-toolbar-btn${active ? ' tm-whiteboard-toolbar-btn--active' : ''}`;
+                const ariaPressed = pressed == null ? '' : ` aria-pressed="${pressed ? 'true' : 'false'}"`;
+                return `<button type="button" class="${cls}" onclick="${onclick}"${ariaPressed}${__tmBuildTooltipAttrs(label, { side: 'top' })}>${__tmPhosphorBoldSvg(icon, { size: 16, className: 'tm-whiteboard-toolbar-btn__icon' })}</button>`;
+            };
             return `
                 <div class="tm-body tm-body--whiteboard${bodyAnimClass}" id="tmWhiteboardBody">
                     <div class="tm-whiteboard-layout${layoutClass}" style="--tm-wb-sidebar-width:${sidebarWidth}px;">
@@ -1203,14 +1221,23 @@
                                         ${docsHtml || `<div style="padding:18px;color:var(--tm-secondary-text);">暂无任务可用于白板视图</div>`}
                                     </div>
                                 </div>
+                                <div id="tmWhiteboardNavigator" class="tm-whiteboard-navigator${navigatorHidden ? ' tm-whiteboard-navigator--hidden' : ''}"${navigatorReadyAttr} aria-label="白板视图浏览窗口">
+                                    <button type="button" class="tm-whiteboard-navigator__hide" onclick="tmWhiteboardSetNavigatorHidden(true, event)" title="隐藏浏览窗口">${__tmRenderLucideIcon('corners-in')}</button>
+                                    <div class="tm-whiteboard-navigator__surface" onpointerdown="tmWhiteboardNavigatorSurfacePointerDown(event)" ontouchstart="tmWhiteboardNavigatorSurfaceTouchStart(event)">
+                                        <div class="tm-whiteboard-navigator__content"></div>
+                                        <div class="tm-whiteboard-navigator__viewport" onpointerdown="tmWhiteboardNavigatorViewportPointerDown(event)"></div>
+                                    </div>
+                                </div>
+                                <button id="tmWhiteboardNavigatorReveal" type="button" class="tm-whiteboard-navigator-reveal${navigatorHidden ? ' tm-whiteboard-navigator-reveal--visible' : ''}" onclick="tmWhiteboardSetNavigatorHidden(false, event)" title="显示浏览窗口">${__tmRenderLucideIcon('map')}</button>
                                 <div class="tm-whiteboard-bottom-toolbar">
-                                    <button class="tm-btn ${whiteboardTool === 'pan' ? 'tm-btn-primary' : 'tm-btn-info'}" onclick="tmWhiteboardSetTool('pan')" style="padding: 4px 10px;" title="平移模式">平移</button>
-                                    <button class="tm-btn ${whiteboardTool === 'select' ? 'tm-btn-primary' : 'tm-btn-info'}" onclick="tmWhiteboardSetTool('select')" style="padding: 4px 10px;" title="多选模式">多选</button>
-                                    <button class="tm-btn ${whiteboardTool === 'text' ? 'tm-btn-primary' : 'tm-btn-info'}" onclick="tmWhiteboardSetTool('text')" style="padding: 4px 10px;" title="文字模式">文字</button>
-                                    <button class="tm-btn tm-btn-info" onclick="tmWhiteboardZoomOut()" style="padding: 4px 10px;" title="缩小画布">－</button>
-                                    <button class="tm-btn tm-btn-info" onclick="tmWhiteboardZoomIn()" style="padding: 4px 10px;" title="放大画布">＋</button>
-                                    <button class="tm-btn tm-btn-info" onclick="tmWhiteboardResetView()" style="padding: 4px 10px;" title="重置视图">重置</button>
-                                    <button class="tm-btn tm-btn-info" onclick="tmWhiteboardClearLinks()" style="padding: 4px 10px;" title="清空手动连线">清空连线</button>
+                                    ${renderWhiteboardToolbarButton({ label: '平移模式', icon: 'hand', onclick: "tmWhiteboardSetTool('pan')", active: whiteboardTool === 'pan', pressed: whiteboardTool === 'pan' })}
+                                    ${renderWhiteboardToolbarButton({ label: '多选模式', icon: 'selection-plus', onclick: "tmWhiteboardSetTool('select')", active: whiteboardTool === 'select', pressed: whiteboardTool === 'select' })}
+                                    ${renderWhiteboardToolbarButton({ label: '文字模式', icon: 'cursor-text', onclick: "tmWhiteboardSetTool('text')", active: whiteboardTool === 'text', pressed: whiteboardTool === 'text' })}
+                                    ${renderWhiteboardToolbarButton({ label: '便利贴模式', icon: 'note-pencil', onclick: "tmWhiteboardSetTool('sticky')", active: whiteboardTool === 'sticky', pressed: whiteboardTool === 'sticky' })}
+                                    ${renderWhiteboardToolbarButton({ label: '缩小画布', icon: 'minus', onclick: 'tmWhiteboardZoomOut()' })}
+                                    ${renderWhiteboardToolbarButton({ label: '放大画布', icon: 'plus', onclick: 'tmWhiteboardZoomIn()' })}
+                                    ${renderWhiteboardToolbarButton({ label: '重置视图', icon: 'arrows-clockwise', onclick: 'tmWhiteboardResetView()' })}
+                                    ${renderWhiteboardToolbarButton({ label: '清空手动连线', icon: 'link-simple-break', onclick: 'tmWhiteboardClearLinks()' })}
                                 </div>
                             </div>
                         </div>

@@ -2996,33 +2996,19 @@
                         handlerKey: '__tmDetailRemarkToolbarWheelHandler',
                     });
                 } catch (e) {}
-                remarkToolbar.querySelectorAll('[data-tm-detail-remark-tool]').forEach((button) => {
-                    if (!(button instanceof HTMLButtonElement)) return;
-                    on(button, 'mousedown', (ev) => {
-                        try { ev.preventDefault(); } catch (e) {}
-                    });
-                    on(button, 'click', (ev) => {
+                __tmBindRemarkMarkdownToolbar(remarkToolbar, remarkTextarea, {
+                    on,
+                    toolAttribute: 'data-tm-detail-remark-tool',
+                    apply: (fn) => preserveDetailScroll(fn),
+                    onBeforeApply: () => {
                         armRemarkInteractionGuard();
-                        try { ev.preventDefault(); } catch (e) {}
-                        try { ev.stopPropagation(); } catch (e) {}
-                        const action = String(button.getAttribute('data-tm-detail-remark-tool') || '').trim();
-                        if (!action) return;
-                        preserveDetailScroll(() => {
-                            if (action === 'indent') __tmAdjustRemarkIndent(remarkTextarea, false);
-                            else if (action === 'outdent') __tmAdjustRemarkIndent(remarkTextarea, true);
-                            else if (action === 'bold') __tmWrapRemarkSelection(remarkTextarea, '**');
-                            else if (action === 'italic') __tmWrapRemarkSelection(remarkTextarea, '*');
-                            else if (action === 'code') __tmWrapRemarkSelection(remarkTextarea, '`');
-                            else if (action === 'link') __tmInsertRemarkLinkTemplate(remarkTextarea);
-                            else if (action === 'quote') __tmToggleRemarkLinePrefix(remarkTextarea, '> ');
-                            else if (action === 'bullet') __tmToggleRemarkLinePrefix(remarkTextarea, '- ');
-                            else if (action === 'ordered') __tmToggleRemarkOrderedList(remarkTextarea);
-                        });
+                    },
+                    onAfterApply: () => {
                         syncRemarkHeight();
                         syncRemarkPreview(false);
                         scheduleAutoSave();
                         focusRemarkTextarea(false);
-                    });
+                    },
                 });
             }
             on(remarkFocusScope, 'focusout', () => {

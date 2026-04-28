@@ -575,7 +575,7 @@
         if (SettingsStore?.data?.serverSyncOnManualRefresh !== true) return false;
         const keepSessionState = SettingsStore?.data?.serverSyncSessionStateOnManualRefresh !== true;
         const sessionSnapshot = keepSessionState ? __tmCaptureManualRefreshSessionState() : null;
-        try { await SettingsStore.flushSave?.(); } catch (e) {}
+        try { await SettingsStore.saveNow?.(); } catch (e) {}
         try { await MetaStore.saveNow?.(); } catch (e) {}
         try { await WhiteboardStore.saveNow?.(); } catch (e) {}
         try { await SemanticDateRecognizedStore.saveNow?.(); } catch (e) {}

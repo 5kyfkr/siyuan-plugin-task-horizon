@@ -3328,6 +3328,9 @@
         whiteboardMultiSelectedLinkKeys: [],
         whiteboardNoteEditor: null,
         whiteboardEdgeRafId: 0,
+        whiteboardNavigatorRafId: 0,
+        whiteboardNavigatorModel: null,
+        whiteboardNavigatorDrag: null,
         whiteboardPanSession: null,
         whiteboardNodeDrag: null,
         whiteboardNoteDrag: null,
@@ -7351,6 +7354,32 @@
         });
     }
 
+    function __tmDispatchTaskCompletedForReward(taskLike, detail = {}) {
+        if (!SettingsStore?.data?.enablePointsRewardIntegration) return false;
+        try {
+            const task = (taskLike && typeof taskLike === 'object') ? taskLike : {};
+            const taskId = String(detail.taskId || task.id || '').trim();
+            if (!taskId) return false;
+            const rawScore = Number(detail.priorityScore);
+            const priorityScore = Number.isFinite(rawScore) ? Math.max(0, Math.round(rawScore)) : 0;
+            window.dispatchEvent(new CustomEvent('task-horizon:task-completed', {
+                detail: {
+                    taskId,
+                    attrHostId: String(detail.attrHostId || __tmGetTaskAttrHostId(task) || taskId).trim(),
+                    docId: String(detail.docId || task.root_id || task.docId || '').trim(),
+                    content: String(detail.content || task.content || task.raw_content || '').trim(),
+                    priority: String(detail.priority || task.priority || task.custom_priority || '').trim(),
+                    priorityScore,
+                    completedAt: String(detail.completedAt || '').trim(),
+                    source: String(detail.source || '').trim(),
+                }
+            }));
+            return true;
+        } catch (e) {
+            return false;
+        }
+    }
+
     async function __tmResolveTaskMutationContext(taskId) {
         const requestedId = String(taskId || '').trim();
         if (!requestedId) return null;
@@ -7833,6 +7862,10 @@
         const prevDone = Object.prototype.hasOwnProperty.call(opts, 'previousDone')
             ? !!opts.previousDone
             : __tmIsTaskMarkerDone(prevMarker);
+        const shouldDispatchTaskReward = !!SettingsStore?.data?.enablePointsRewardIntegration && !prevDone && nextDone && !__tmUndoState?.applying;
+        const taskRewardPriorityScore = shouldDispatchTaskReward
+            ? Math.max(0, Math.round(Number(__tmEnsureTaskPriorityScore(task, { force: true })) || 0))
+            : 0;
         const initialStatusLogIds = Array.from(new Set([
             context.requestedId,
             context.persistId,
@@ -7921,6 +7954,7 @@
         }
 
         let markerResult = null;
+        let rewardAttrHostId = String(__tmGetTaskAttrHostId(task) || context.persistId).trim();
         const completeAtPatch = nextDone ? __tmBuildTaskCompleteAtPatch() : null;
         const persistPatch = {
             customStatus: nextStatusId,
@@ -7949,6 +7983,7 @@
                         attrTargetId = String(__tmGetTaskAttrHostId(latestTask) || '').trim();
                     } catch (e) { attrTargetId = ''; }
                 }
+                if (attrTargetId) rewardAttrHostId = attrTargetId;
                 __tmPushStatusDebug('apply-status:resolved-host', {
                     requestedTaskId: context.requestedId,
                     persistId: context.persistId,
@@ -8036,6 +8071,22 @@
                     resolvedTaskId: context.persistId,
                     source: String(opts.source || '').trim(),
                 });
+            }
+            if (shouldDispatchTaskReward) {
+                try {
+                    const latestTask = globalThis.__tmRuntimeState?.getTaskById?.(context.persistId)
+                        || globalThis.__tmRuntimeState?.getFlatTaskById?.(context.persistId)
+                        || state.flatTasks?.[context.persistId]
+                        || state.pendingInsertedTasks?.[context.persistId]
+                        || task;
+                    __tmDispatchTaskCompletedForReward(latestTask, {
+                        taskId: context.persistId,
+                        attrHostId: rewardAttrHostId,
+                        priorityScore: taskRewardPriorityScore,
+                        completedAt: String(completeAtPatch?.taskCompleteAt || '').trim(),
+                        source: String(opts.source || 'task-status').trim() || 'task-status',
+                    });
+                } catch (e) {}
             }
             if (opts.recordUndo !== false && !__tmUndoState.applying) {
                 __tmPushUndoRecord({
@@ -14800,6 +14851,7 @@ async function __tmRefreshAfterWake(reason) {
         if (!(nextBody instanceof HTMLElement)) return false;
         try { body.replaceWith(nextBody); } catch (e) { return false; }
         try { __tmBindWhiteboardViewportInput(modal); } catch (e) {}
+        try { if (typeof __tmUpdateWhiteboardNavigator === 'function') __tmUpdateWhiteboardNavigator(); } catch (e) {}
         try { __tmRefreshChecklistSelectionInPlace(modal, 'whiteboard-rerender'); } catch (e) {}
         const restore = () => {
             try {
