@@ -7350,6 +7350,13 @@ if (mode === 'checklist') {
         if (shouldCollapseDocTabsAfterSwitch && state.docTabsCollapsed === false) {
             state.docTabsCollapsed = true;
             try { Storage.set('tm_doc_tabs_collapsed', true); } catch (e) {}
+            try {
+                const tabs = state.modal?.querySelector?.('.tm-doc-tabs');
+                if (tabs instanceof HTMLElement) {
+                    tabs.classList.add('tm-doc-tabs--collapsed');
+                    tabs.classList.remove('tm-doc-tabs--expanded');
+                }
+            } catch (e) {}
         }
         state.activeDocId = (__tmIsOtherBlockTabId(nextDocId) && !(Array.isArray(state.otherBlocks) && state.otherBlocks.length))
             ? 'all'
@@ -11273,9 +11280,37 @@ if (mode === 'checklist') {
     window.tmToggleDocTabsCollapsed = function(ev) {
         try { ev?.stopPropagation?.(); } catch (e) {}
         try { ev?.preventDefault?.(); } catch (e) {}
-        state.docTabsCollapsed = !state.docTabsCollapsed;
+        state.docTabsCollapsed = state.docTabsCollapsed === false ? true : false;
         try { Storage.set('tm_doc_tabs_collapsed', !!state.docTabsCollapsed); } catch (e) {}
-        render();
+        const tabs = state.modal?.querySelector?.('.tm-doc-tabs');
+        if (!(tabs instanceof HTMLElement)) {
+            render();
+            return;
+        }
+        const collapsed = state.docTabsCollapsed !== false;
+        const title = collapsed ? '展开多行文档页签' : '折叠为单行文档页签';
+        try {
+            const pane = tabs.querySelector?.('.tm-doc-tabs-scroll');
+            const button = tabs.querySelector?.('.tm-doc-tabs-toggle');
+            tabs.classList.toggle('tm-doc-tabs--collapsed', collapsed);
+            tabs.classList.toggle('tm-doc-tabs--expanded', !collapsed);
+            if (button instanceof HTMLElement) {
+                button.setAttribute('aria-label', title);
+                button.setAttribute('aria-pressed', collapsed ? 'true' : 'false');
+                button.setAttribute('data-tm-floating-tooltip-label', title);
+                button.innerHTML = __tmRenderLucideIcon(collapsed ? 'chevrons-up-down' : 'chevrons-down-up');
+            }
+            if (collapsed && pane instanceof HTMLElement) {
+                pane.scrollTop = 0;
+                state.docTabsScrollTop = 0;
+            }
+            __tmBindDocTabWheelScroll(state.modal);
+            __tmBindDocTabsOverflowToggle(state.modal);
+            __tmRestoreDocTabScroll(state.modal, state.docTabsScrollLeft, collapsed ? 0 : state.docTabsScrollTop);
+            __tmEnsureActiveDocTabVisible(state.modal);
+        } catch (e) {
+            render();
+        }
     };
 
     function __tmNormalizeLucideIconName(iconName) {

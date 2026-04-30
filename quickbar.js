@@ -2722,6 +2722,64 @@
             return out;
         }
 
+        function resolveQuickbarAttrBindingFromBlockId(blockId) {
+            const id = String(blockId || '').trim();
+            if (!id) return { taskId: '', attrHostId: '' };
+            const readDirectId = (el) => String(el?.dataset?.nodeId || el?.getAttribute?.('data-node-id') || '').trim();
+            const normalizeBinding = (binding) => {
+                const taskId = String(binding?.taskId || '').trim();
+                const attrHostId = String(binding?.attrHostId || binding?.taskId || '').trim();
+                if (!taskId && !attrHostId) return null;
+                return {
+                    taskId: taskId || attrHostId,
+                    attrHostId: attrHostId || taskId
+                };
+            };
+            const resolveFromEl = (el, requireMatch = false) => {
+                if (!el) return null;
+                let binding = null;
+                try { binding = resolveTaskBindingFromBlockEl(el); } catch (e) { binding = null; }
+                const normalized = normalizeBinding(binding);
+                if (!normalized) return null;
+                if (!requireMatch) return normalized;
+                const directId = readDirectId(el);
+                if (id === directId || id === normalized.taskId || id === normalized.attrHostId) return normalized;
+                return null;
+            };
+            const currentBinding = resolveFromEl(currentBlockEl, true);
+            if (currentBinding) return currentBinding;
+            const blockBinding = resolveFromEl(getBlockElById(id), false);
+            if (blockBinding) return blockBinding;
+            return { taskId: id, attrHostId: id };
+        }
+
+        async function getMergedTaskCustomAttrs(blockId) {
+            const id = String(blockId || '').trim();
+            if (!id) return {};
+            const binding = resolveQuickbarAttrBindingFromBlockId(id);
+            const taskId = String(binding?.taskId || id).trim() || id;
+            const attrHostId = String(binding?.attrHostId || taskId || id).trim() || taskId || id;
+            let taskAttrs = {};
+            let hostAttrs = {};
+            if (taskId && attrHostId && taskId !== attrHostId) {
+                const results = await Promise.all([
+                    getBlockCustomAttrs(taskId),
+                    getBlockCustomAttrs(attrHostId)
+                ]);
+                taskAttrs = results[0] || {};
+                hostAttrs = results[1] || {};
+            } else {
+                hostAttrs = await getBlockCustomAttrs(attrHostId || taskId || id);
+                taskAttrs = hostAttrs;
+            }
+            const attrs = { ...taskAttrs, ...hostAttrs };
+            ['custom-start-date', 'custom-completion-time', 'custom-time'].forEach((key) => {
+                const taskValue = String(taskAttrs?.[key] ?? '').trim();
+                if (taskValue) attrs[key] = taskAttrs[key];
+            });
+            return attrs;
+        }
+
         function isReminderRelatedAttrKey(attrKey) {
             const key = String(attrKey || '').trim();
             return !key
@@ -2872,7 +2930,7 @@
             const id = String(blockId || '').trim();
             if (!id) return normalizeCustomProps();
             if (!forceRefresh && inlineMetaCache.has(id)) return inlineMetaCache.get(id);
-            const attrs = await getBlockCustomAttrs(id);
+            const attrs = await getMergedTaskCustomAttrs(id);
             const props = normalizeCustomProps(attrs);
             try {
                 const statusSnapshot = await getManagedTaskStatusSnapshot(id);

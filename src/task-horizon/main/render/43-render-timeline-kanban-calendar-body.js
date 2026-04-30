@@ -182,8 +182,8 @@
                                 </span>
                             </div>
                         </td>
-                    <td class="tm-cell-editable tm-task-meta-cell" style="width:${timelineStartW}px; min-width:${timelineStartW}px; max-width:${timelineStartW}px; ${otherCellBgStyle}" onclick="tmBeginCellEdit('${task.id}','startDate',this,event)">${__tmFormatTaskTime(task.startDate)}</td>
-                    <td class="tm-cell-editable tm-task-meta-cell" style="width:${timelineEndW}px; min-width:${timelineEndW}px; max-width:${timelineEndW}px; ${otherCellBgStyle}" onclick="tmBeginCellEdit('${task.id}','completionTime',this,event)">${__tmFormatTaskTime(task.completionTime)}</td>
+                    <td class="tm-cell-editable tm-task-meta-cell" data-tm-task-time-field="startDate" style="width:${timelineStartW}px; min-width:${timelineStartW}px; max-width:${timelineStartW}px; ${otherCellBgStyle}" onclick="tmBeginCellEdit('${task.id}','startDate',this,event)">${__tmFormatTaskTime(task.startDate)}</td>
+                    <td class="tm-cell-editable tm-task-meta-cell" data-tm-task-time-field="completionTime" style="width:${timelineEndW}px; min-width:${timelineEndW}px; max-width:${timelineEndW}px; ${otherCellBgStyle}" onclick="tmBeginCellEdit('${task.id}','completionTime',this,event)">${__tmFormatTaskTime(task.completionTime)}</td>
                     </tr>
                 `;
             };
@@ -245,8 +245,8 @@
                                     <thead>
                                         <tr>
                                             <th style="width:${timelineContentWidth}px; min-width:${timelineContentWidth}px; max-width:${timelineContentWidth}px;">任务内容<span class="tm-col-resize" onmousedown="tmStartTimelineContentResize(event)"></span></th>
-                                            <th style="width:${timelineStartW}px; min-width:${timelineStartW}px; max-width:${timelineStartW}px;">开始日期</th>
-                                            <th style="width:${timelineEndW}px; min-width:${timelineEndW}px; max-width:${timelineEndW}px;">截止日期</th>
+                                            <th data-col="startDate" style="width:${timelineStartW}px; min-width:${timelineStartW}px; max-width:${timelineStartW}px;">开始日期</th>
+                                            <th data-col="completionTime" style="width:${timelineEndW}px; min-width:${timelineEndW}px; max-width:${timelineEndW}px;">截止日期</th>
                                         </tr>
                                     </thead>
                                     <tbody>

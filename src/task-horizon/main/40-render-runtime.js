@@ -773,11 +773,12 @@ return;
                         border-bottom: 1px solid var(--tm-border-color);
                         background: var(--tm-header-bg);
                         max-height: 56px;
-                        overflow: visible;
-                        transition: max-height 0.18s ease, opacity 0.18s ease, border-color 0.18s ease, padding-top 0.18s ease, padding-bottom 0.18s ease;
+                        overflow: hidden;
+                        transition: opacity 0.18s ease, border-color 0.18s ease, padding-top 0.18s ease, padding-bottom 0.18s ease;
                         opacity: 1;
                         position: relative;
                         z-index: 1;
+                        --tm-doc-tabs-action-width: 30px;
                     }
                     .tm-doc-tabs-scroll {
                         min-width: 0;
@@ -788,6 +789,10 @@ return;
                         overflow-x: auto;
                         overflow-y: hidden;
                         scrollbar-gutter: stable;
+                        max-height: 56px;
+                        padding-right: var(--tm-doc-tabs-action-width) !important;
+                        opacity: 1;
+                        transition: opacity 0.16s ease;
                     }
                     .tm-doc-tabs--multirow:not(.tm-doc-tabs--collapsed) {
                         align-items: stretch;
@@ -810,12 +815,16 @@ return;
                         display: none;
                         align-items: center;
                         justify-content: center;
-                        align-self: stretch;
-                        flex: 0 0 40px;
-                        margin-left: 8px;
-                        padding: 4px 8px;
+                        position: absolute;
+                        top: 0;
+                        right: 0;
+                        height: 36px;
+                        width: var(--tm-doc-tabs-action-width);
+                        padding: 4px 2px;
                         border-left: 1px solid var(--tm-border-color);
                         box-sizing: border-box;
+                        background: var(--tm-header-bg);
+                        z-index: 5;
                     }
                     .tm-doc-tabs--overflowing .tm-doc-tabs-actions {
                         display: flex;
@@ -829,11 +838,19 @@ return;
                         display: inline-flex;
                         align-items: center;
                         justify-content: center;
+                        transition: background 0.16s ease, border-color 0.16s ease;
+                    }
+                    .tm-doc-tabs--multirow:not(.tm-doc-tabs--collapsed) .tm-doc-tabs-toggle {
+                        transform: rotate(180deg);
                     }
                     .tm-modal.tm-modal--mobile .tm-doc-tabs-actions,
                     .tm-modal.tm-modal--dock .tm-doc-tabs-actions {
-                        flex-basis: 44px;
-                        padding: 4px 10px;
+                        height: 36px;
+                        padding: 4px 2px;
+                    }
+                    .tm-modal.tm-modal--mobile .tm-doc-tabs,
+                    .tm-modal.tm-modal--dock .tm-doc-tabs {
+                        --tm-doc-tabs-action-width: 34px;
                     }
                     .tm-modal.tm-modal--mobile .tm-doc-tabs-toggle,
                     .tm-modal.tm-modal--dock .tm-doc-tabs-toggle {
@@ -844,8 +861,6 @@ return;
                     }
                     .tm-box--with-cal-dock .tm-doc-tabs {
                         flex: 0 0 auto;
-                        max-height: 56px;
-                        overflow: visible;
                         position: relative;
                         z-index: 1;
                     }
@@ -856,6 +871,13 @@ return;
                         padding-top: 0;
                         padding-bottom: 0;
                         pointer-events: none;
+                    }
+                    @media (prefers-reduced-motion: reduce) {
+                        .tm-doc-tabs,
+                        .tm-doc-tabs-scroll,
+                        .tm-doc-tabs-toggle {
+                            transition-duration: 0.01ms !important;
+                        }
                     }
                     .tm-doc-tabs > div::-webkit-scrollbar {
                         height: 4px;
@@ -1822,6 +1844,7 @@ return;
                 }
 
                 requestAnimationFrame(() => requestAnimationFrame(() => {
+                    try { __tmSyncTimelineDateColumnWidths(state.modal); } catch (e) {}
                     if (useGlobalScroll) {
                         try { if (leftBody) leftBody.scrollTop = 0; } catch (e) {}
                         try {

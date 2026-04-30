@@ -47,6 +47,8 @@
     const __TM_OTHER_BLOCK_TAB_ID = '__tm_other_blocks__';
     const __TM_OTHER_BLOCK_TAB_NAME = '其他块';
     const WHITEBOARD_DATA_CACHE_KEY = 'tm_whiteboard_data_cache';
+    const __TM_QUICK_ADD_RECENT_DOCS_KEY = 'tm_quick_add_recent_docs';
+    const __TM_QUICK_ADD_RECENT_DOCS_LIMIT = 6;
     const __TM_BUILTIN_COLUMN_DEFAULT_ORDER = ['pinned', 'content', 'status', 'score', 'doc', 'h2', 'priority', 'startDate', 'completionTime', 'remainingTime', 'duration', 'spent', 'remark', 'attachments'];
     const __TM_BUILTIN_COLUMN_WIDTHS = {
         pinned: 48,
@@ -213,11 +215,32 @@
         return value.length * (Number(info.fontSize) || 14) * 0.62;
     }
 
+    function __tmCollectFixedDateColumnTexts(colKey) {
+        const out = [colKey === 'startDate' ? '开始日期' : '截止日期', '2026-04-29'];
+        try {
+            const tasks = globalThis.__tmRuntimeState?.getFlatTasks?.() || null;
+            if (tasks && typeof tasks === 'object') {
+                const seen = new Set(out);
+                Object.values(tasks).forEach((task) => {
+                    const raw = String(task?.[colKey] || '').trim();
+                    if (!raw) return;
+                    const text = typeof __tmFormatTaskTime === 'function' ? __tmFormatTaskTime(raw) : raw;
+                    if (!text || seen.has(text)) return;
+                    seen.add(text);
+                    out.push(text);
+                });
+            }
+        } catch (e) {}
+        return out;
+    }
+
     function __tmGetFixedDateColumnWidth(column) {
         const colKey = String(column || '').trim();
         const bodyInfo = __tmBuildDateColumnMeasureInfo(colKey, 'body');
         const headerInfo = __tmBuildDateColumnMeasureInfo(colKey, 'header');
         const headerText = colKey === 'startDate' ? '开始日期' : '截止日期';
+        const bodyTexts = __tmCollectFixedDateColumnTexts(colKey);
+        const bodyTextSig = bodyTexts.join('\u001f');
         const cacheKey = [
             colKey,
             bodyInfo.font,
@@ -228,9 +251,10 @@
             headerInfo.letterSpacing,
             headerInfo.paddingX,
             headerInfo.borderX,
+            bodyTextSig,
         ].join('|');
         if (__tmFixedDateColumnWidthCache.has(cacheKey)) return __tmFixedDateColumnWidthCache.get(cacheKey);
-        const dateWidth = __tmMeasureDateColumnText('2026-04-29', bodyInfo) + bodyInfo.paddingX + bodyInfo.borderX;
+        const dateWidth = bodyTexts.reduce((max, text) => Math.max(max, __tmMeasureDateColumnText(text, bodyInfo)), 0) + bodyInfo.paddingX + bodyInfo.borderX;
         const headerWidth = __tmMeasureDateColumnText(headerText, headerInfo) + headerInfo.paddingX + headerInfo.borderX;
         const width = Math.max(
             80,
@@ -252,6 +276,28 @@
         if (!s) return 0;
         const ts = __tmParseTimeToTs(s);
         return Number.isFinite(ts) && ts > 0 ? ts : 0;
+    }
+
+    function __tmNormalizeQuickAddRecentDocs(input, limit = __TM_QUICK_ADD_RECENT_DOCS_LIMIT) {
+        const max = Math.max(1, Math.min(20, Math.floor(Number(limit) || __TM_QUICK_ADD_RECENT_DOCS_LIMIT)));
+        const list = Array.isArray(input) ? input : [];
+        const seen = new Set();
+        const out = [];
+        list.forEach((entry) => {
+            const raw = (entry && typeof entry === 'object') ? entry : { id: entry };
+            const id = String(raw?.id || '').trim();
+            if (!id || id === '__dailyNote__' || seen.has(id)) return;
+            seen.add(id);
+            const item = { id };
+            const name = String(raw?.name || '').trim();
+            const path = String(raw?.path || '').trim();
+            const ts = __tmParseUpdatedAtNumber(raw?.ts);
+            if (name) item.name = name;
+            if (path) item.path = path;
+            if (ts > 0) item.ts = ts;
+            out.push(item);
+        });
+        return out.slice(0, max);
     }
 
     function __tmGetTaskAttachmentAttrIndex(key) {
@@ -2173,6 +2219,7 @@
             newTaskDocId: '',
             newTaskDailyNoteNotebookId: '',
             newTaskDailyNoteAppendToBottom: false,
+            quickAddRecentDocs: [],
             headingGroupCreateAtSectionEnd: false,
             enableTomatoIntegration: true,
             enablePointsRewardIntegration: false,
@@ -2692,6 +2739,7 @@
                                 if (typeof cloudData.newTaskDocId === 'string') this.data.newTaskDocId = cloudData.newTaskDocId;
                                 if (typeof cloudData.newTaskDailyNoteNotebookId === 'string') this.data.newTaskDailyNoteNotebookId = cloudData.newTaskDailyNoteNotebookId;
                                 if (typeof cloudData.newTaskDailyNoteAppendToBottom === 'boolean') this.data.newTaskDailyNoteAppendToBottom = cloudData.newTaskDailyNoteAppendToBottom;
+                                if (Array.isArray(cloudData.quickAddRecentDocs)) this.data.quickAddRecentDocs = __tmNormalizeQuickAddRecentDocs(cloudData.quickAddRecentDocs);
                                 if (typeof cloudData.headingGroupCreateAtSectionEnd === 'boolean') this.data.headingGroupCreateAtSectionEnd = cloudData.headingGroupCreateAtSectionEnd;
                                 if (typeof cloudData.enableTomatoIntegration === 'boolean') this.data.enableTomatoIntegration = cloudData.enableTomatoIntegration;
                                 if (typeof cloudData.enablePointsRewardIntegration === 'boolean') this.data.enablePointsRewardIntegration = cloudData.enablePointsRewardIntegration;
@@ -3072,6 +3120,7 @@
             this.data.taskDetailCompletedSubtasksVisibilityByTask = Storage.get('tm_task_detail_show_completed_subtasks_by_task', this.data.taskDetailCompletedSubtasksVisibilityByTask) || this.data.taskDetailCompletedSubtasksVisibilityByTask;
             this.data.newTaskDocId = Storage.get('tm_new_task_doc_id', '');
             this.data.newTaskDailyNoteNotebookId = String(Storage.get('tm_new_task_daily_note_notebook_id', this.data.newTaskDailyNoteNotebookId) || '').trim();
+            this.data.quickAddRecentDocs = __tmNormalizeQuickAddRecentDocs(Storage.get(__TM_QUICK_ADD_RECENT_DOCS_KEY, this.data.quickAddRecentDocs));
             this.data.docTabSortMode = String(Storage.get('tm_doc_tab_sort_mode', this.data.docTabSortMode) || this.data.docTabSortMode || 'created_desc').trim() || 'created_desc';
             this.data.docDisplayNameMode = String(Storage.get('tm_doc_display_name_mode', this.data.docDisplayNameMode) || this.data.docDisplayNameMode || 'name').trim() || 'name';
             this.data.taskAutoWrapEnabled = Storage.get('tm_task_auto_wrap_enabled', this.data.taskAutoWrapEnabled);
@@ -3439,6 +3488,7 @@
             Storage.set('tm_new_task_doc_id', String(this.data.newTaskDocId || '').trim());
             Storage.set('tm_new_task_daily_note_notebook_id', String(this.data.newTaskDailyNoteNotebookId || '').trim());
             Storage.set('tm_new_task_daily_note_append_to_bottom', !!this.data.newTaskDailyNoteAppendToBottom);
+            Storage.set(__TM_QUICK_ADD_RECENT_DOCS_KEY, __tmNormalizeQuickAddRecentDocs(this.data.quickAddRecentDocs));
             Storage.set('tm_heading_group_create_at_section_end', !!this.data.headingGroupCreateAtSectionEnd);
             Storage.set('tm_doc_tab_sort_mode', String(this.data.docTabSortMode || 'created_desc').trim() || 'created_desc');
             Storage.set('tm_doc_display_name_mode', __tmNormalizeDocDisplayNameMode(this.data.docDisplayNameMode));
@@ -3686,6 +3736,7 @@
             this.data.docColorSeed = (Number.isFinite(seed) && seed > 0) ? Math.floor(seed) : 1;
             this.data.docDefaultColorScheme.seed = this.data.docColorSeed;
             this.data.taskParentLookupDepth = __tmNormalizeTaskParentLookupDepth(this.data.taskParentLookupDepth);
+            this.data.quickAddRecentDocs = __tmNormalizeQuickAddRecentDocs(this.data.quickAddRecentDocs);
             const kw = Number(this.data.kanbanColumnWidth);
             this.data.kanbanColumnWidth = Number.isFinite(kw) ? Math.max(220, Math.min(520, Math.round(kw))) : 320;
             const wbStreamMinW = Number(this.data.whiteboardAllTabsCardMinWidth);

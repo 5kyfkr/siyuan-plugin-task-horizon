@@ -9639,6 +9639,7 @@ refreshOk = false;
                 const mountEl = __tmGetMountRoot();
                 if (mountEl && mountEl !== document.body && activeWindow.contains(mountEl)) return true;
                 if (activeWindow.contains(state.modal)) return true;
+                if ((!mountEl || mountEl === document.body) && state.modal?.parentElement === document.body) return true;
                 return false;
             }
         } catch (e) {}
@@ -14223,6 +14224,36 @@ return true;
         return true;
     }
 
+    function __tmSyncTimelineDateColumnWidths(modalEl) {
+        const modal = modalEl instanceof Element ? modalEl : state.modal;
+        const table = modal?.querySelector?.('#tmTimelineLeftTable');
+        if (!(table instanceof HTMLElement)) return false;
+        const contentW = Math.max(10, Math.min(800, Math.round(Number(SettingsStore.data.timelineContentWidth) || Number(SettingsStore.data.columnWidths?.content) || 360)));
+        const startW = __tmGetFixedDateColumnWidth('startDate');
+        const endW = __tmGetFixedDateColumnWidth('completionTime');
+        const total = Math.round(contentW + startW + endW + 2);
+        const setWidth = (el, width) => {
+            if (!(el instanceof HTMLElement)) return;
+            el.style.width = `${width}px`;
+            el.style.minWidth = `${width}px`;
+            el.style.maxWidth = `${width}px`;
+        };
+        setWidth(table, total);
+        setWidth(modal.querySelector('#tmTimelineColContent'), contentW);
+        setWidth(modal.querySelector('#tmTimelineColStart'), startW);
+        setWidth(modal.querySelector('#tmTimelineColEnd'), endW);
+        setWidth(modal.querySelector('#tmTimelineLeftTable thead th:nth-child(1)'), contentW);
+        setWidth(modal.querySelector('#tmTimelineLeftTable thead th:nth-child(2)'), startW);
+        setWidth(modal.querySelector('#tmTimelineLeftTable thead th:nth-child(3)'), endW);
+        modal.querySelectorAll('#tmTimelineLeftTable tbody tr[data-id]').forEach((row) => {
+            const cells = row?.children || [];
+            setWidth(cells[0], contentW);
+            setWidth(cells[1], startW);
+            setWidth(cells[2], endW);
+        });
+        return true;
+    }
+
     function __tmBindTimelineLeftCollapseInteractions(leftBodyEl) {
         const leftBody = leftBodyEl instanceof HTMLElement ? leftBodyEl : null;
         if (!leftBody) return;
@@ -14359,8 +14390,8 @@ return true;
                             </span>
                         </div>
                     </td>
-                    <td class="tm-cell-editable" style="width:${timelineStartW}px; min-width:${timelineStartW}px; max-width:${timelineStartW}px; ${otherCellBgStyle}" onclick="tmBeginCellEdit('${task.id}','startDate',this,event)">${__tmFormatTaskTime(task.startDate)}</td>
-                    <td class="tm-cell-editable" style="width:${timelineEndW}px; min-width:${timelineEndW}px; max-width:${timelineEndW}px; ${otherCellBgStyle}" onclick="tmBeginCellEdit('${task.id}','completionTime',this,event)">${__tmFormatTaskTime(task.completionTime)}</td>
+                    <td class="tm-cell-editable tm-task-meta-cell" data-tm-task-time-field="startDate" style="width:${timelineStartW}px; min-width:${timelineStartW}px; max-width:${timelineStartW}px; ${otherCellBgStyle}" onclick="tmBeginCellEdit('${task.id}','startDate',this,event)">${__tmFormatTaskTime(task.startDate)}</td>
+                    <td class="tm-cell-editable tm-task-meta-cell" data-tm-task-time-field="completionTime" style="width:${timelineEndW}px; min-width:${timelineEndW}px; max-width:${timelineEndW}px; ${otherCellBgStyle}" onclick="tmBeginCellEdit('${task.id}','completionTime',this,event)">${__tmFormatTaskTime(task.completionTime)}</td>
                 </tr>
             `;
         };
@@ -14407,6 +14438,7 @@ return true;
         }
         const html = leftRows.join('') || `<tr><td colspan="3" style="text-align:center; padding:40px; color:var(--tm-secondary-text);">暂无任务</td></tr>`;
         try { tbody.innerHTML = html; } catch (e) { return false; }
+        try { __tmSyncTimelineDateColumnWidths(modal); } catch (e) {}
         try { __tmBindTimelineLeftCollapseInteractions(leftBody); } catch (e) {}
 
         const view = globalThis.__TaskHorizonGanttView;

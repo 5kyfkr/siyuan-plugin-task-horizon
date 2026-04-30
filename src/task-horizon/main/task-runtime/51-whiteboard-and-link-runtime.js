@@ -2519,6 +2519,7 @@ return false;
             withFilters: false,
             reason: String(options?.reason || options?.source || 'task-attachments').trim() || 'task-attachments',
             broadcast: options?.broadcast !== false,
+            skipNoopCheck: options?.skipNoopCheck === true || normalizedPaths.length === 0,
         });
     }
 
@@ -3218,7 +3219,7 @@ const refreshWithFilters = __tmShouldRefreshWithFiltersForPatch(tid, nextPatch, 
             if (!tid || !Object.keys(nextPatch).length) return Promise.resolve(false);
             const plan = __tmWritePlanner.buildWritePlan(tid, nextPatch, opts);
             const inversePatch = __tmCaptureTaskPatchInverse(tid, plan.normalizedPatch);
-            if (__tmIsPatchNoop(plan.normalizedPatch, inversePatch)) return Promise.resolve(false);
+            if (opts.skipNoopCheck !== true && __tmIsPatchNoop(plan.normalizedPatch, inversePatch)) return Promise.resolve(false);
             const taskLike = __tmTaskStateKernel.getTask(tid);
             const suppressionIds = Array.from(new Set([
                 tid,
@@ -3428,7 +3429,7 @@ const refreshWithFilters = __tmShouldRefreshWithFiltersForPatch(tid, nextPatch, 
         if (!tid || !Object.keys(nextPatch).length) return Promise.resolve(false);
         const plan = __tmWritePlanner.buildWritePlan(tid, nextPatch, opts);
         const inversePatch = __tmCaptureTaskPatchInverse(tid, plan.normalizedPatch);
-        if (__tmIsPatchNoop(plan.normalizedPatch, inversePatch)) return Promise.resolve(false);
+        if (opts.skipNoopCheck !== true && __tmIsPatchNoop(plan.normalizedPatch, inversePatch)) return Promise.resolve(false);
         const taskLike = __tmTaskStateKernel.getTask(tid);
         const optimisticSkipDetailPatch = opts.optimisticSkipDetailPatch === true
             || (((String(state.viewMode || '').trim() === 'checklist') || __tmHasCalendarSidebarChecklist(state.modal))

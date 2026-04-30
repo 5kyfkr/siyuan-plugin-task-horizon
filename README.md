@@ -74,10 +74,21 @@
     <a href="https://ld246.com/member/Dilyar" style="font-size:12px;color:var(--b3-theme-on-surface);text-decoration:none;padding:4px 10px;background:var(--b3-theme-surface);border:1px solid var(--b3-border-color);border-radius:18px;">Dilyar</a>
     <a href="https://github.com/bytemain" style="font-size:12px;color:var(--b3-theme-on-surface);text-decoration:none;padding:4px 10px;background:var(--b3-theme-surface);border:1px solid var(--b3-border-color);border-radius:18px;">bytemain</a>
     <a href="https://ld246.com/member/Clymer" style="font-size:12px;color:var(--b3-theme-on-surface);text-decoration:none;padding:4px 10px;background:var(--b3-theme-surface);border:1px solid var(--b3-border-color);border-radius:18px;">Clymer</a>
+    <a href="https://ld246.com/member/Wolkasem" style="font-size:12px;color:var(--b3-theme-on-surface);text-decoration:none;padding:4px 10px;background:var(--b3-theme-surface);border:1px solid var(--b3-border-color);border-radius:18px;">Wolkasem</a>
   </div>
 </div>
 
 # 更新记录
+
+## 2.4.2更新内容 
+
+## 2.4.2更新内容 4/30
+- 优化：清单视图去除任务分隔线，任务折叠指示图标减淡
+- 优化：新建任务的最近选择文档支持多端记录保存
+- 优化：日历全天日程排布空间优化，减少日程空隙
+- 修复：时间轴视图日期列宽度没有自动识别
+- 修复：移动端文档顶栏图标跳转插件后切换页签或无反应
+- 修复：个别任务悬浮条有时设置了日期会不显示
 
 ## 2.4.1更新内容 4/30
 - **新增：文档页签栏多行展开，当无法完整显示所有页签时，可点击右侧展开按钮展开页签栏，移动端和Dock侧边栏展开后点击页签切换后回到折叠状态**
@@ -94,6 +105,9 @@
 - 修复：已完成任务有概率触发重复打卡
 - 修复：清单视图连续进行任务编辑时间字段后显示异常
 - 修复：图片浏览窗口被任务详情界面遮挡
+
+<details>
+<summary>历史版本更新（点击展开）</summary>
 
 ## 2.3.9更新内容 4/29
 - **新增：在思源笔记快捷键设置中增加了打开 新建任务窗口 的快捷键设置项**
@@ -116,9 +130,6 @@
 - 优化: 白板工具条样式优化为按钮样式
 - 修复：移动端清单视图展开折叠子任务异常闪动
 - 修复：文档内跳转后任务无显示
-
-<details>
-<summary>历史版本更新（点击展开）</summary>
 
 ## 2.3.7更新内容 4/27
 - **新增：常规设置->视图与布局->清单紧凑层级线 设置，开启后清单紧凑视图增加子任务层级线**

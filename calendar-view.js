@@ -953,7 +953,7 @@
 .tm-calendar-host .fc .fc-timegrid-now-indicator-line,
 #tmCalendarSideDockTimeline .fc .fc-timegrid-now-indicator-line{border-top-width:2px !important;margin-top:-1px !important;overflow:visible !important;z-index:6 !important;}
 .tm-calendar-host .fc .fc-timegrid-now-indicator-line::before,
-#tmCalendarSideDockTimeline .fc .fc-timegrid-now-indicator-line::before{content:"";position:absolute;left:0;top:50%;width:10px;height:10px;border-radius:999px;background:var(--fc-now-indicator-color, var(--tm-primary-color));transform:translate(-50%, -50%);box-shadow:0 0 0 2px var(--fc-page-bg-color, #fff);}
+#tmCalendarSideDockTimeline .fc .fc-timegrid-now-indicator-line::before{content:"";position:absolute;left:0;top:calc(50% - 0.5px);width:10px;height:10px;border-radius:999px;background:var(--fc-now-indicator-color, var(--tm-primary-color));transform:translate(-50%, -50%);box-shadow:0 0 0 2px var(--fc-page-bg-color, #fff);}
 .tm-calendar-host .fc .fc-timegrid-now-indicator-arrow,
 #tmCalendarSideDockTimeline .fc .fc-timegrid-now-indicator-arrow{display:none !important;}
 .tm-calendar-host .fc .fc-dayGridMonth-view .fc-daygrid-day.fc-day-today .fc-daygrid-day-number,
@@ -3299,7 +3299,7 @@
             if (!(dot instanceof HTMLElement)) return;
             try { dot.style.position = 'absolute'; } catch (e) {}
             try { dot.style.left = '0'; } catch (e) {}
-            try { dot.style.top = '50%'; } catch (e) {}
+            try { dot.style.top = 'calc(50% - 0.5px)'; } catch (e) {}
             try { dot.style.width = '10px'; } catch (e) {}
             try { dot.style.height = '10px'; } catch (e) {}
             try { dot.style.borderRadius = '999px'; } catch (e) {}
@@ -9815,7 +9815,7 @@
             ...slotLayout,
             dayCellDidMount: normalizeCalendarMonthDayNumberCell,
             eventOrder: 'start,-duration,__tmRank,title',
-            eventOrderStrict: true,
+            eventOrderStrict: false,
             eventClassNames: (arg) => {
                 return resolveCalendarEventClassNames(arg);
             },
@@ -13824,7 +13824,7 @@
                 try { setCalendarTouchGestureLock(host, false); } catch (e) {}
             },
             eventOrder: 'start,-duration,__tmRank,title',
-            eventOrderStrict: true,
+            eventOrderStrict: false,
             eventClassNames: (arg) => {
                 return resolveCalendarEventClassNames(arg);
             },

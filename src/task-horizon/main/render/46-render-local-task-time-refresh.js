@@ -37,6 +37,7 @@
                 if (tds && tds.length >= 3) {
                     try { tds[1].textContent = __tmFormatTaskTime(task.startDate); } catch (e) {}
                     try { tds[2].textContent = __tmFormatTaskTime(task.completionTime); } catch (e) {}
+                    try { __tmSyncTimelineDateColumnWidths(modal); } catch (e) {}
                 }
             }
         } catch (e) {}

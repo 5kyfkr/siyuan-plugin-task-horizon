@@ -108,6 +108,7 @@
         isViewMode,
         isAnyViewMode,
         getActiveRenderMode,
+        getFlatTasks: () => state.flatTasks || {},
         getFlatTaskById,
         getPendingTaskById,
         getTaskById,

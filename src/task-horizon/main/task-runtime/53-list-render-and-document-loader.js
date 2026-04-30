@@ -4196,9 +4196,6 @@ hint(`❌ 操作失败: ${e.message}`, 'error');
         return exists ? configured : null;
     }
 
-    const __TM_QUICK_ADD_RECENT_DOCS_KEY = 'tm_quick_add_recent_docs';
-    const __TM_QUICK_ADD_RECENT_DOCS_LIMIT = 6;
-
     function __tmResolveQuickAddRecentDocMeta(docId, fallback = null) {
         const id = String(docId || '').trim();
         if (!id || id === '__dailyNote__') return null;
@@ -4213,8 +4210,9 @@ hint(`❌ 操作失败: ${e.message}`, 'error');
     }
 
     function __tmGetQuickAddRecentDocs() {
-        const raw = Storage.get(__TM_QUICK_ADD_RECENT_DOCS_KEY, []);
-        const list = Array.isArray(raw) ? raw : [];
+        const fromSettings = SettingsStore?.data?.quickAddRecentDocs;
+        const raw = Array.isArray(fromSettings) ? fromSettings : Storage.get(__TM_QUICK_ADD_RECENT_DOCS_KEY, []);
+        const list = __tmNormalizeQuickAddRecentDocs(raw);
         const seen = new Set();
         const out = [];
         list.forEach((entry) => {
@@ -4238,7 +4236,9 @@ hint(`❌ 操作失败: ${e.message}`, 'error');
             .filter((entry) => String(entry?.id || '').trim() !== meta.id);
         const next = [{ ...meta, ts: Date.now() }, ...existing]
             .slice(0, __TM_QUICK_ADD_RECENT_DOCS_LIMIT);
-        Storage.set(__TM_QUICK_ADD_RECENT_DOCS_KEY, next);
+        SettingsStore.data.quickAddRecentDocs = __tmNormalizeQuickAddRecentDocs(next);
+        Storage.set(__TM_QUICK_ADD_RECENT_DOCS_KEY, SettingsStore.data.quickAddRecentDocs);
+        try { SettingsStore.save()?.catch?.(() => {}); } catch (e) {}
     }
 
     function __tmResolveDefaultDocId() {
