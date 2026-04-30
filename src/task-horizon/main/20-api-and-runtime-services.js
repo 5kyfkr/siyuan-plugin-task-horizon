@@ -8949,6 +8949,7 @@ if (!state.homepageOpen) return;
         }
         return openManager(options);
     }
+    try { globalThis.__taskHorizonOpenManagerFromTopbarEntry = __tmOpenManagerFromTopbarEntry; } catch (e) {}
 
     function __tmFindMobileTopBarTriggerFromEventTarget(target) {
         let el = target instanceof Element ? target : null;

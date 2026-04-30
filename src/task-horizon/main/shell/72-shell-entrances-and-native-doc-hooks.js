@@ -269,7 +269,8 @@
         const tabType = String(globalThis.__taskHorizonTabType || 'task-horizon').trim();
         const tabId = String(globalThis.__taskHorizonCustomTabId || '').trim();
         try {
-            if (tabType && String(model.type || '').trim() === tabType) return true;
+            const modelType = String(model.type || '').trim();
+            if ((tabType && modelType === tabType) || (tabId && modelType === tabId)) return true;
         } catch (e) {}
         try {
             if (tabId && String(model?.tab?.id || '').trim() === tabId) return true;
@@ -492,9 +493,14 @@
     function addTopBarIcon() {
         if (!__tmShouldShowWindowTopbarIcon()) {
             __tmRemoveTopBarIcon();
+            try { globalThis.__taskHorizonSyncWindowTopBar?.(); } catch (e) {}
             return;
         }
         const isMobileTopBarHost = __tmIsMobileTopBarRegistrationHost();
+        if (!isMobileTopBarHost) {
+            try { globalThis.__taskHorizonSyncWindowTopBar?.(); } catch (e) {}
+            return;
+        }
         if (isMobileTopBarHost && globalThis[__TM_MOBILE_TOPBAR_REGISTERED_KEY]) {
             __tmTopBarAdded = true;
             try { __tmBindMobileTopBarDocumentCapture(); } catch (e) {}
@@ -579,8 +585,13 @@
             else __tmRemoveBreadcrumbButton();
         } catch (e) {}
         try {
-            if (__tmShouldShowWindowTopbarIcon()) addTopBarIcon();
-            else __tmRemoveTopBarIcon();
+            const isMobileTopBarHost = __tmIsMobileTopBarRegistrationHost();
+            if (isMobileTopBarHost) {
+                if (__tmShouldShowWindowTopbarIcon()) addTopBarIcon();
+                else __tmRemoveTopBarIcon();
+            } else {
+                try { globalThis.__taskHorizonSyncWindowTopBar?.(); } catch (e2) {}
+            }
         } catch (e) {}
     }
 
@@ -728,6 +739,47 @@
         if (__tmShouldShowWindowTopbarIcon()) __tmTopBarTimer = setTimeout(addTopBarIcon, 1000);
     }
 
+    async function __tmAddOtherBlocksToSourceDocGroupFromMenu(blockIdsInput, options = {}) {
+        const blockIds = __tmNormalizeOtherBlockRefs(Array.isArray(blockIdsInput) ? blockIdsInput : [blockIdsInput]).map((item) => item.id);
+        if (!blockIds.length) {
+            hint('⚠ 未找到当前块', 'warning');
+            return null;
+        }
+        const addOtherBlock = window.tmAutoAddOtherBlocksToSourceDocGroup;
+        if (typeof addOtherBlock !== 'function') {
+            hint('⚠ 其他块页签功能尚未加载完成', 'warning');
+            return null;
+        }
+        const result = await addOtherBlock(blockIds, {
+            ...options,
+            silent: false,
+            forceRefresh: options?.forceRefresh !== false,
+        });
+        if (!result?.group) {
+            const reason = String(result?.reason || '').trim();
+            if (reason === 'cancelled') {
+                return result;
+            }
+            if (reason === 'no-source-group' || reason === 'no-doc') {
+                hint('⚠ 当前文档不在任何文档分组中，无法自动添加到其他块页签', 'warning');
+            } else if (reason !== 'empty' && reason !== 'no-groups') {
+                hint('⚠ 未找到可添加的文档分组', 'warning');
+            }
+            return result || null;
+        }
+        if (!result.added) return result;
+
+        const groupName = __tmResolveDocGroupName(result.group);
+        if (result.existed > 0) {
+            hint(blockIds.length > 1
+                ? `✅ 已添加 ${result.added} 个块到“${groupName}”，${result.existed} 个已存在`
+                : `✅ 已添加到“${groupName}”，该分组中已有 ${result.existed} 个重复块`, 'success');
+            return result;
+        }
+        hint(blockIds.length > 1 ? `✅ 已将 ${result.added} 个块添加到“${groupName}”` : `✅ 已添加到“${groupName}”`, 'success');
+        return result;
+    }
+
     function __tmBindDocGroupMenuEntry() {
         const eb = globalThis.__tmHost?.getEventBus?.() || null;
         if (!eb || typeof eb.on !== 'function') return;
@@ -768,7 +820,7 @@
                 label: '添加到其他块页签',
                 click: async () => {
                     try {
-                        await window.tmOpenAddOtherBlocksToGroupDialog?.([docId]);
+                        await __tmAddOtherBlocksToSourceDocGroupFromMenu([docId], { docId });
                     } catch (e) {
                         hint(`❌ 添加失败: ${e.message}`, 'error');
                     }
@@ -878,7 +930,7 @@
                 label: blockIds.length > 1 ? '添加所选块到其他块页签' : '添加到其他块页签',
                 click: async () => {
                     try {
-                        await window.tmOpenAddOtherBlocksToGroupDialog?.(blockIds);
+                        await __tmAddOtherBlocksToSourceDocGroupFromMenu(blockIds);
                     } catch (e) {
                         hint(`❌ 添加失败: ${e.message}`, 'error');
                     }

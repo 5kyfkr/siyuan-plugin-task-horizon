@@ -821,7 +821,6 @@ return;
                         height: 36px;
                         width: var(--tm-doc-tabs-action-width);
                         padding: 4px 2px;
-                        border-left: 1px solid var(--tm-border-color);
                         box-sizing: border-box;
                         background: var(--tm-header-bg);
                         z-index: 5;
@@ -4387,6 +4386,48 @@ return;
         if (current && __tmGetDocGroupById(current)) return current;
         const groups = Array.isArray(SettingsStore?.data?.docGroups) ? SettingsStore.data.docGroups : [];
         return String(groups[0]?.id || '').trim();
+    }
+
+    async function __tmResolveOtherBlockSourceDocId(blockIdsInput, options = {}) {
+        const explicitDocId = String(options?.docId || options?.rootId || '').trim();
+        if (explicitDocId) return explicitDocId;
+        const ids = __tmNormalizeOtherBlockRefs(Array.isArray(blockIdsInput) ? blockIdsInput : [blockIdsInput]).map((item) => item.id);
+        if (!ids.length) return '';
+        let rows = [];
+        try { rows = await API.getOtherBlocksByIds(ids); } catch (e) { rows = []; }
+        for (const row of (Array.isArray(rows) ? rows : [])) {
+            const type = String(row?.type || '').trim().toLowerCase();
+            const docId = type === 'd'
+                ? String(row?.id || row?.root_id || '').trim()
+                : String(row?.root_id || '').trim();
+            if (docId) return docId;
+        }
+        return '';
+    }
+
+    async function __tmResolveOtherBlockTargetGroupIdByDoc(docId) {
+        const did = String(docId || '').trim();
+        if (!did) return '';
+        try {
+            if (typeof __tmResolveDocTopbarTargetGroup === 'function') {
+                const target = await __tmResolveDocTopbarTargetGroup(did);
+                const groupId = String(target?.groupId || '').trim();
+                if (groupId && __tmGetDocGroupById(groupId)) return groupId;
+            }
+        } catch (e) {}
+        try {
+            if (typeof window.tmCalendarWarmDocsToGroupCache === 'function') {
+                await window.tmCalendarWarmDocsToGroupCache();
+            }
+        } catch (e) {}
+        try {
+            const map = window.__tmCalendarDocsToGroupCache?.map instanceof Map
+                ? window.__tmCalendarDocsToGroupCache.map
+                : (typeof __tmGetCalendarDocsToGroupMapSync === 'function' ? __tmGetCalendarDocsToGroupMapSync() : null);
+            const groupId = String(map?.get?.(did) || '').trim();
+            if (groupId && __tmGetDocGroupById(groupId)) return groupId;
+        } catch (e) {}
+        return '';
     }
 
     function __tmSetOtherBlockRefsByGroup(groupId, refs) {

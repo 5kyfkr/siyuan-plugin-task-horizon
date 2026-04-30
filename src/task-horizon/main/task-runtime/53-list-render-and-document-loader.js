@@ -6585,6 +6585,8 @@ hint(`❌ 操作失败: ${e.message}`, 'error');
         const forceRefreshScope = !!opts.forceRefreshScope;
         const quickAddDocId = includeQuickAddDoc ? String(SettingsStore.data.newTaskDocId || '').trim() : '';
         const currentGroupExcludedDocIds = __tmGetExcludedDocIdsForGroup(currentGroupId);
+        const otherBlockRefsForGroup = currentGroupId === 'all' ? [] : __tmGetOtherBlockRefsByGroup(currentGroupId);
+        const otherBlockRefsSig = __tmNormalizeOtherBlockRefs(otherBlockRefsForGroup).map((item) => item.id).join(',');
 
         let targetDocs = [];
 
@@ -6628,6 +6630,7 @@ hint(`❌ 操作失败: ${e.message}`, 'error');
             currentGroupId,
             quickAddDocId,
             currentGroupExcludedDocIds.join(','),
+            otherBlockRefsSig,
             ...normalizedDocs.map((doc) => `${doc.kind}:${doc.id}:${doc.recursive ? 1 : 0}:${__tmNormalizeDocGroupExcludedDocIds(doc?.excludedDocIds).join(',')}`)
         ].join('|');
         const resolveCacheEnt = __tmResolvedDocIdsCache;
@@ -6647,6 +6650,7 @@ hint(`❌ 操作失败: ${e.message}`, 'error');
         // 解析递归文档（保持顺序去重）
         const finalIds = [];
         const seen = new Set();
+        const otherBlockSourceDocIds = new Set();
         const pushId = (id0) => {
             const id = String(id0 || '').trim();
             if (!id || seen.has(id)) return;
@@ -6665,11 +6669,31 @@ hint(`❌ 操作失败: ${e.message}`, 'error');
         const resolvePromise = Promise.resolve().then(async () => {
             const promises = docsInOrder.map((doc) => __tmExpandSourceEntryDocIds(doc, pushId));
             await Promise.all(promises);
+            if (currentGroupId !== 'all' && otherBlockRefsForGroup.length > 0) {
+                let rows = [];
+                try { rows = await API.getOtherBlocksByIds(otherBlockRefsForGroup.map((item) => item.id)); } catch (e) { rows = []; }
+                (Array.isArray(rows) ? rows : []).forEach((row) => {
+                    if (!__tmIsSupportedOtherBlockType(row?.type, row?.subtype)) return;
+                    const type = String(row?.type || '').trim().toLowerCase();
+                    const docId = type === 'd'
+                        ? String(row?.id || row?.root_id || '').trim()
+                        : String(row?.root_id || '').trim();
+                    if (docId) otherBlockSourceDocIds.add(docId);
+                    pushId(docId);
+                });
+            }
             if (currentGroupId !== 'all') {
                 const currentGroup = groups.find((g) => String(g?.id || '').trim() === String(currentGroupId || '').trim());
                 if (currentGroup) {
                     const out0 = await __tmApplyCalendarSearchOptimizationToDocIds(finalIds, currentGroup);
-                    const out1 = excludeCurrentGroupDocs(Array.isArray(out0) ? out0.slice() : []);
+                    const withOtherBlockDocs = Array.isArray(out0) ? out0.slice() : [];
+                    const outSeen = new Set(withOtherBlockDocs.map((id) => String(id || '').trim()).filter(Boolean));
+                    otherBlockSourceDocIds.forEach((docId) => {
+                        if (!docId || outSeen.has(docId)) return;
+                        outSeen.add(docId);
+                        withOtherBlockDocs.push(docId);
+                    });
+                    const out1 = excludeCurrentGroupDocs(withOtherBlockDocs);
                     __tmResolvedDocIdsCache = { key: resolveCacheKey, ids: out1, t: Date.now() };
                     return out1;
                 }
@@ -6838,6 +6862,23 @@ hint(`❌ 操作失败: ${e.message}`, 'error');
         const allDocIds = await resolveDocIdsFromGroups({
             forceRefreshScope: !!state.isRefreshing,
         });
+        const otherBlockDocIdSet = new Set();
+        (Array.isArray(state.otherBlocks) ? state.otherBlocks : []).forEach((task) => {
+            const docId = String(task?.root_id || task?.docId || '').trim();
+            if (docId) otherBlockDocIdSet.add(docId);
+        });
+        if (currentGroupId !== 'all' && Array.isArray(currentOtherBlockRefs) && currentOtherBlockRefs.length > 0) {
+            let rows = [];
+            try { rows = await API.getOtherBlocksByIds(currentOtherBlockRefs.map((item) => item.id)); } catch (e) { rows = []; }
+            (Array.isArray(rows) ? rows : []).forEach((row) => {
+                if (!__tmIsSupportedOtherBlockType(row?.type, row?.subtype)) return;
+                const type = String(row?.type || '').trim().toLowerCase();
+                const docId = type === 'd'
+                    ? String(row?.id || row?.root_id || '').trim()
+                    : String(row?.root_id || '').trim();
+                if (docId) otherBlockDocIdSet.add(docId);
+            });
+        }
         state.__tmLoadedDocIdsForTasks = Array.isArray(allDocIds) ? allDocIds.slice() : [];
         __tmPerfTraceMark(perfTrace, 'docs', {
             docCount: Array.isArray(allDocIds) ? allDocIds.length : 0,
@@ -7547,7 +7588,7 @@ hint(`❌ 操作失败: ${e.message}`, 'error');
                     __tmAssignDocSeqByTree(rootTasks, 0);
 
                     // 添加到任务树
-                    if (rawTasks.length > 0 || state.selectedDocIds.includes(docId) || (quickAddDocId && docId === quickAddDocId)) {
+                    if (rawTasks.length > 0 || state.selectedDocIds.includes(docId) || otherBlockDocIdSet.has(docId) || (quickAddDocId && docId === quickAddDocId)) {
                          nextTaskTree.push({
                             id: docId,
                             name: docName,

@@ -3908,7 +3908,21 @@ if (mode === 'checklist') {
         const durationMin = __tmResolveQuickAddScheduleDurationMin(draft);
         const end = new Date(start.getTime() + durationMin * 60000);
         const docId = String(draft.docId || '').trim();
-        const calendarId = String(draft.calendarId || '').trim() || await __tmResolveCalendarIdForScheduleDoc(docId);
+        let ensuredGroupId = '';
+        if (docId && !String(draft.calendarId || '').trim()) {
+            const target = await __tmEnsureSourceDocGroupForAction(docId, {
+                title: '选择文档分组',
+                forceRefresh: true,
+            });
+            if (!target?.groupId) {
+                if (String(target?.reason || '').trim() !== 'cancelled') {
+                    hint('⚠ 未选择文档分组，已取消添加至今天日程', 'warning');
+                }
+                return false;
+            }
+            ensuredGroupId = String(target.groupId || '').trim();
+        }
+        const calendarId = String(draft.calendarId || '').trim() || (ensuredGroupId ? `group:${ensuredGroupId}` : await __tmResolveCalendarIdForScheduleDoc(docId));
         const color = __tmResolveScheduleColorForDoc(docId);
         try {
             await calendarApi.addTaskSchedule({
@@ -5012,6 +5026,17 @@ if (mode === 'checklist') {
         const conditionText = rule.conditions.length > 0
             ? rule.conditions.map(c => {
                 const field = RuleManager.getFieldInfo(c.field);
+                const operatorLabel = (RuleManager.getOperators(field?.type || 'text').find(op => op.value === c.operator)?.label || c.operator);
+                const noValueDatetimeOperators = new Set([
+                    'range_today',
+                    'range_week',
+                    'range_month',
+                    'range_year',
+                    'before_today',
+                    'after_today',
+                    'on_or_before_today',
+                    'on_or_after_today',
+                ]);
                 let valueDisplay = c.value;
 
                 if (field?.type === 'select') {
@@ -5049,7 +5074,10 @@ if (mode === 'checklist') {
                     ? `（${RuleManager.normalizeConditionMatchMode(c, field) === 'all' ? '全部匹配' : '匹配任一'}）`
                     : '';
 
-                return `${field?.label || c.field} ${c.operator}${matchModeText} ${valueDisplay}`;
+                const suffix = field?.type === 'datetime' && noValueDatetimeOperators.has(String(c.operator || '').trim())
+                    ? ''
+                    : ` ${valueDisplay}`;
+                return `${field?.label || c.field} ${operatorLabel}${matchModeText}${suffix}`;
             }).join('， ')
             : '无条件';
 
@@ -5185,6 +5213,20 @@ if (mode === 'checklist') {
     // 渲染条件值输入
     function renderConditionValue(condition, index, fieldInfo) {
         const fieldType = String(fieldInfo?.type || '').trim() || 'text';
+        const operator = String(condition?.operator || '').trim();
+        const noValueDatetimeOperators = new Set([
+            'range_today',
+            'range_week',
+            'range_month',
+            'range_year',
+            'before_today',
+            'after_today',
+            'on_or_before_today',
+            'on_or_after_today',
+        ]);
+        if (fieldType === 'datetime' && noValueDatetimeOperators.has(operator)) {
+            return '<span class="tm-rule-condition-value tm-rule-condition-value-empty">无需填写</span>';
+        }
         if (fieldType === 'boolean') {
             return `
                 <select class="tm-rule-condition-value" data-tm-change="updateConditionValue" data-index="${index}">
@@ -5283,7 +5325,7 @@ if (mode === 'checklist') {
             `;
         }
 
-        if (condition.operator === 'between' && (fieldType === 'datetime' || fieldType === 'number')) {
+        if (operator === 'between' && (fieldType === 'datetime' || fieldType === 'number')) {
             const inputType = fieldType === 'datetime' ? 'date' : 'number';
             return `
                 <div class="tm-time-range">
@@ -5303,6 +5345,15 @@ if (mode === 'checklist') {
                            data-index="${index}"
                            data-range-key="to">
                 </div>
+            `;
+        }
+
+        if (fieldType === 'datetime' && ['=', '!=', 'before', 'after'].includes(operator)) {
+            return `
+                <input type="date" class="tm-rule-condition-value"
+                       value="${esc(String(condition.value || ''))}"
+                       data-tm-change="updateConditionValue"
+                       data-index="${index}">
             `;
         }
 
@@ -6428,6 +6479,23 @@ if (mode === 'checklist') {
             // 如果操作符变为 between，初始化值对象
             if (operator === 'between') {
                 condition.value = { from: '', to: '' };
+            }
+            else if (fieldInfo?.type === 'datetime' && [
+                'range_today',
+                'range_week',
+                'range_month',
+                'range_year',
+                'before_today',
+                'after_today',
+                'on_or_before_today',
+                'on_or_after_today',
+            ].includes(operator)) {
+                condition.value = '';
+                delete condition.matchMode;
+            }
+            else if (fieldInfo?.type === 'datetime' && ['=', '!=', 'before', 'after'].includes(operator)) {
+                if (condition.value && typeof condition.value === 'object') condition.value = '';
+                delete condition.matchMode;
             }
             // 如果操作符变为 in/not_in，初始化为数组
             else if (operator === 'in' || operator === 'not_in') {

@@ -1165,6 +1165,11 @@
     border-radius: 4px;
 }
 
+.tm-rule-condition-value-empty {
+    color: var(--tm-secondary-text);
+    border-style: dashed;
+}
+
 .tm-rule-sort-items {
     display: flex;
     flex-direction: column;

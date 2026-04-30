@@ -4600,6 +4600,13 @@
                         const startTs = new Date(nowDate.getFullYear(), nowDate.getMonth(), nowDate.getDate()).getTime();
                         return { startTs, endTs: startTs + 24 * 60 * 60 * 1000 };
                     }
+                    case 'before_today':
+                    case 'after_today':
+                    case 'on_or_before_today':
+                    case 'on_or_after_today': {
+                        const todayStartTs = new Date(nowDate.getFullYear(), nowDate.getMonth(), nowDate.getDate()).getTime();
+                        return { todayStartTs, tomorrowStartTs: todayStartTs + 24 * 60 * 60 * 1000 };
+                    }
                     case 'range_week': {
                         const startTs = new Date(nowDate.getFullYear(), nowDate.getMonth(), nowDate.getDate() - nowDate.getDay()).getTime();
                         return { startTs, endTs: startTs + 7 * 24 * 60 * 60 * 1000 };
@@ -4738,6 +4745,10 @@
                 { value: 'range_week', label: '本周' },
                 { value: 'range_month', label: '本月' },
                 { value: 'range_year', label: '今年' },
+                { value: 'before_today', label: '今天之前' },
+                { value: 'after_today', label: '今天之后' },
+                { value: 'on_or_before_today', label: '今天及之前' },
+                { value: 'on_or_after_today', label: '今天及之后' },
                 { value: 'before', label: '之前' },
                 { value: 'after', label: '之后' },
                 { value: 'between', label: '介于' }
@@ -4942,6 +4953,18 @@
             switch(operator) {
                 case 'range_today': {
                     return taskTs >= Number(timeRuntime?.startTs || 0) && taskTs < Number(timeRuntime?.endTs || 0);
+                }
+                case 'before_today': {
+                    return taskTs < Number(timeRuntime?.todayStartTs || 0);
+                }
+                case 'after_today': {
+                    return taskTs >= Number(timeRuntime?.tomorrowStartTs || 0);
+                }
+                case 'on_or_before_today': {
+                    return taskTs < Number(timeRuntime?.tomorrowStartTs || 0);
+                }
+                case 'on_or_after_today': {
+                    return taskTs >= Number(timeRuntime?.todayStartTs || 0);
                 }
                 case 'range_week': {
                     return taskTs >= Number(timeRuntime?.startTs || 0) && taskTs < Number(timeRuntime?.endTs || 0);

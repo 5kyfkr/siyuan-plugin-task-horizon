@@ -242,6 +242,57 @@
         return { added, existed, group };
     }
 
+    async function __tmEnsureSourceDocGroupForAction(docIdInput, options = {}) {
+        const docId = String(docIdInput || '').trim();
+        if (!docId) return { groupId: '', group: null, reason: 'no-doc' };
+
+        const existingGroupId = await __tmResolveOtherBlockTargetGroupIdByDoc(docId);
+        if (existingGroupId) {
+            return { groupId: existingGroupId, group: __tmGetDocGroupById(existingGroupId), reason: 'existing' };
+        }
+
+        const groups = Array.isArray(SettingsStore.data.docGroups) ? SettingsStore.data.docGroups : [];
+        if (!groups.length) {
+            hint('⚠ 请先在任务管理器中创建文档分组', 'warning');
+            return { groupId: '', group: null, reason: 'no-groups' };
+        }
+
+        const currentGroupId = String(SettingsStore.data.currentGroupId || '').trim();
+        const defaultGroupId = groups.some((item) => String(item?.id || '').trim() === currentGroupId)
+            ? currentGroupId
+            : String(groups[0]?.id || '').trim();
+        const selectOptions = groups.map((group) => ({
+            value: String(group?.id || '').trim(),
+            label: __tmResolveDocGroupName(group)
+        })).filter((item) => item.value);
+        if (!selectOptions.length) {
+            hint('⚠ 当前没有可用的文档分组', 'warning');
+            return { groupId: '', group: null, reason: 'no-groups' };
+        }
+
+        const title = String(options?.title || '选择文档分组').trim() || '选择文档分组';
+        const selectedGroupId = await showSelectPrompt(title, selectOptions, defaultGroupId);
+        if (!selectedGroupId) return { groupId: '', group: null, reason: 'cancelled' };
+
+        const result = await __tmAddDocsToGroup([docId], selectedGroupId, {
+            ...options,
+            forceRefresh: options?.forceRefresh !== false,
+        });
+        if (!result?.group) return { groupId: '', group: null, reason: 'add-failed' };
+
+        try { window.__tmCalendarDocsToGroupCache = null; } catch (e) {}
+        try { await window.tmCalendarWarmDocsToGroupCache?.(); } catch (e) {}
+
+        const groupId = String(result.group?.id || selectedGroupId || '').trim();
+        return {
+            groupId,
+            group: result.group,
+            reason: result.added ? 'added' : 'existing',
+            added: result.added,
+            existed: result.existed,
+        };
+    }
+
     window.tmOpenAddDocToGroupDialog = async function(docIdsInput, options = {}) {
         const docIds = __tmNormalizeDocIdsForGroupInput(docIdsInput);
         if (!docIds.length) {
@@ -336,6 +387,25 @@
         const targetGroupId = __tmResolveAutoOtherBlockTargetGroupId(options?.groupId);
         if (!targetGroupId) {
             return { added: 0, existed: 0, invalid: 0, group: null, reason: 'no-group' };
+        }
+        return await __tmAddOtherBlocksToCollection(blockIds, targetGroupId, {
+            ...options,
+            silent: options?.silent !== false,
+            forceRefresh: options?.forceRefresh !== false,
+        });
+    };
+
+    window.tmAutoAddOtherBlocksToSourceDocGroup = async function(blockIdsInput, options = {}) {
+        const blockIds = __tmNormalizeOtherBlockRefs(Array.isArray(blockIdsInput) ? blockIdsInput : [blockIdsInput]).map((item) => item.id);
+        if (!blockIds.length) return { added: 0, existed: 0, invalid: 0, group: null, reason: 'empty' };
+        const docId = await __tmResolveOtherBlockSourceDocId(blockIds, options);
+        const target = await __tmEnsureSourceDocGroupForAction(docId, {
+            title: '选择文档分组',
+            forceRefresh: options?.forceRefresh !== false,
+        });
+        const targetGroupId = String(target?.groupId || '').trim();
+        if (!targetGroupId) {
+            return { added: 0, existed: 0, invalid: 0, group: null, reason: target?.reason || 'no-source-group', docId };
         }
         return await __tmAddOtherBlocksToCollection(blockIds, targetGroupId, {
             ...options,
@@ -964,14 +1034,16 @@
     window.updateWindowTopbarIconDesktop = async function(enabled) {
         SettingsStore.data.windowTopbarIconDesktop = !!enabled;
         await SettingsStore.save();
-        __tmRefreshShellEntrances();
+        try { globalThis.__taskHorizonSyncWindowTopBar?.(); } catch (e) {}
+        try { __tmRefreshShellEntrances(); } catch (e) {}
         showSettings();
     };
 
     window.updateWindowTopbarIconMobile = async function(enabled) {
         SettingsStore.data.windowTopbarIconMobile = !!enabled;
         await SettingsStore.save();
-        __tmRefreshShellEntrances();
+        try { globalThis.__taskHorizonSyncWindowTopBar?.(); } catch (e) {}
+        try { __tmRefreshShellEntrances(); } catch (e) {}
         showSettings();
     };
 

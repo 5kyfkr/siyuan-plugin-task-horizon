@@ -56,6 +56,11 @@ const readTaskDockSettings = () => ({
     defaultViewMode: normalizeDockDefaultViewMode(readLocalJson("tm_dock_default_view_mode", "follow-mobile")),
 });
 
+const readWindowTopbarEnabled = () => {
+    const key = isRuntimeMobileClient() ? "tm_window_topbar_icon_mobile" : "tm_window_topbar_icon_desktop";
+    return readLocalJson(key, true) !== false;
+};
+
 const MOBILE_RUNTIME_CONTAINERS = new Set(["android", "ios", "harmony"]);
 
 const getSiyuanRuntimeBackend = () => {
@@ -660,6 +665,7 @@ module.exports = class TaskHorizonPlugin extends Plugin {
         globalThis.__taskHorizonPlatformUtils = platformUtils || null;
         globalThis.__taskHorizonOpenAssetWithSystem = openTaskHorizonAssetWithSystem;
         globalThis.__taskHorizonOpenTabView = this.openTaskHorizonTab.bind(this);
+        globalThis.__taskHorizonSyncWindowTopBar = this.syncWindowTopBar.bind(this);
         globalThis.__taskHorizonHostBridge = createTaskHorizonHostBridge(this);
         globalThis.__taskHorizonCustomTabId = CUSTOM_TAB_ID;
         globalThis.__taskHorizonTabType = TAB_TYPE;
@@ -670,6 +676,7 @@ module.exports = class TaskHorizonPlugin extends Plugin {
         globalThis.__taskHorizonPluginManifest = await loadPluginManifest(this);
         try { this.addIcons(ICON_SYMBOL); } catch (e) {}
         this.ensureCustomTab();
+        this.syncWindowTopBar();
         this.initTaskDock();
         this.suppressTaskDockOnMobile();
         try {
@@ -694,6 +701,7 @@ module.exports = class TaskHorizonPlugin extends Plugin {
         await loadStyleText(CALENDAR_VIEW_CSS_PATH, "calendar-view.css");
         this.mountExistingTabs();
         this.scheduleTaskDockRecovery("post-load", { delayMs: 60 });
+        this.syncWindowTopBar();
         this.addIcons(`
             <symbol id="iconTaskCancelled" viewBox="0 0 32 32">
                 <path d="M28.444 0h-24.889c-1.956 0-3.556 1.6-3.556 3.556v24.889c0 1.956 1.6 3.556 3.556 3.556h24.889c1.956 0 3.556-1.6 3.556-3.556v-24.889c0-1.956-1.6-3.556-3.556-3.556zM28.444 28.445h-24.889v-24.889h24.889v24.889z"></path>
@@ -940,6 +948,10 @@ module.exports = class TaskHorizonPlugin extends Plugin {
             return;
         }
         this.ensureCustomTab();
+        if (this.focusExistingTaskHorizonTab()) {
+            Promise.resolve().then(() => this.remountBestTaskHorizonTab()).catch(() => null);
+            return;
+        }
         openTab({
             app: this.app,
             openNewTab: false,
@@ -950,6 +962,101 @@ module.exports = class TaskHorizonPlugin extends Plugin {
             },
         });
         Promise.resolve().then(() => this.remountBestTaskHorizonTab()).catch(() => null);
+    }
+
+    focusExistingTaskHorizonTab() {
+        const clickElement = (el) => {
+            if (!(el instanceof HTMLElement)) return false;
+            try {
+                el.dispatchEvent(new MouseEvent("click", { bubbles: true, cancelable: true }));
+                return true;
+            } catch (e) {
+                try {
+                    el.click();
+                    return true;
+                } catch (e2) {
+                    return false;
+                }
+            }
+        };
+        try {
+            const opened = typeof this.getOpenedTab === "function" ? this.getOpenedTab() : null;
+            const customs = [];
+            if (opened && typeof opened === "object") {
+                Object.values(opened).forEach((arr) => {
+                    if (Array.isArray(arr)) arr.forEach((item) => customs.push(item));
+                });
+            }
+            for (const custom of customs) {
+                const type = String(custom?.type || "").trim();
+                const tabId = String(custom?.tab?.id || custom?.id || "").trim();
+                if (type === PLUGIN_ID + TAB_TYPE || type === TAB_TYPE || tabId === CUSTOM_TAB_ID) {
+                    const head = custom?.tab?.headElement || custom?.headElement || null;
+                    if (clickElement(head)) return true;
+                }
+            }
+        } catch (e) {}
+        try {
+            const selector = `.layout-tab-bar [data-id="${CUSTOM_TAB_ID}"], .layout-tab-bar [data-key="${CUSTOM_TAB_ID}"]`;
+            const header = document.querySelector(selector);
+            if (clickElement(header)) return true;
+        } catch (e) {}
+        return false;
+    }
+
+    openFromWindowTopBar() {
+        try {
+            if (typeof globalThis.__taskHorizonOpenManagerFromTopbarEntry === "function") {
+                const result = globalThis.__taskHorizonOpenManagerFromTopbarEntry();
+                if (result !== false) return result;
+            }
+        } catch (e) {}
+        return this.openTaskHorizonTab();
+    }
+
+    syncWindowTopBar() {
+        try { globalThis.__taskHorizonSyncWindowTopBar = this.syncWindowTopBar.bind(this); } catch (e) {}
+        if (this.isRuntimeMobileClient()) {
+            this.removeWindowTopBar();
+            return false;
+        }
+        if (!readWindowTopbarEnabled()) {
+            this.removeWindowTopBar();
+            return false;
+        }
+        return this.ensureWindowTopBar();
+    }
+
+    ensureWindowTopBar() {
+        if (typeof this.addTopBar !== "function") return false;
+        if (this._taskWindowTopBarElement instanceof HTMLElement && document.contains(this._taskWindowTopBarElement)) {
+            return true;
+        }
+        try {
+            this._taskWindowTopBarElement = this.addTopBar({
+                icon: ICON_ID,
+                title: TAB_TITLE,
+                position: "right",
+                callback: () => {
+                    try { this.openFromWindowTopBar(); } catch (e) {}
+                },
+            }) || null;
+            return this._taskWindowTopBarElement instanceof HTMLElement;
+        } catch (e) {
+            this._taskWindowTopBarElement = null;
+            return false;
+        }
+    }
+
+    removeWindowTopBar() {
+        try {
+            if (this._taskWindowTopBarElement instanceof HTMLElement) {
+                const idx = Array.isArray(this.topBarIcons) ? this.topBarIcons.indexOf(this._taskWindowTopBarElement) : -1;
+                if (idx >= 0) this.topBarIcons.splice(idx, 1);
+                this._taskWindowTopBarElement.remove();
+            }
+        } catch (e) {}
+        this._taskWindowTopBarElement = null;
     }
 
     async openQuickAddTaskWindow() {
@@ -1382,6 +1489,7 @@ module.exports = class TaskHorizonPlugin extends Plugin {
             }
         } catch (e) {}
         try { this.cancelTaskDockRecovery(); } catch (e) {}
+        try { this.removeWindowTopBar(); } catch (e) {}
         try { this.destroyTaskDockFrame(); } catch (e) {}
         try { globalThis.__TaskManagerCleanup?.(); } catch (e) {}
         try { globalThis.__taskHorizonAiCleanup?.(); } catch (e) {}
@@ -1407,6 +1515,7 @@ module.exports = class TaskHorizonPlugin extends Plugin {
         try { delete globalThis.__taskHorizonOpenAssetWithSystem; } catch (e) {}
         try { delete globalThis.__taskHorizonHostBridge; } catch (e) {}
         try { delete globalThis.__taskHorizonOpenTabView; } catch (e) {}
+        try { delete globalThis.__taskHorizonSyncWindowTopBar; } catch (e) {}
         try { delete globalThis.__taskHorizonCustomTabId; } catch (e) {}
         try { delete globalThis.__taskHorizonTabElement; } catch (e) {}
         try { delete globalThis.__taskHorizonQuickbarLoaded; } catch (e) {}

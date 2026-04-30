@@ -766,7 +766,9 @@ if (shouldMarkDirty) {
                 try { __tmTopBarEl?.removeEventListener?.('click', __tmTopBarClickCaptureHandler, true); } catch (e2) {}
                 __tmTopBarClickCaptureHandler = null;
             }
-            try { __tmRemoveTopBarIcon(); } catch (e2) {}
+            try {
+                if (__tmIsMobileTopBarRegistrationHost?.()) __tmRemoveTopBarIcon();
+            } catch (e2) {}
             try { delete globalThis[__TM_MOBILE_TOPBAR_REGISTERED_KEY]; } catch (e2) {}
             __tmTopBarEl = null;
             __tmTopBarClickInFlight = false;
@@ -1220,6 +1222,7 @@ if (shouldMarkDirty) {
         try { document.querySelectorAll('.sy-custom-props-floatbar, .sy-custom-props-floatbar__select, .sy-custom-props-floatbar__input-editor').forEach(el => el.remove()); } catch (e) {}
 
         try { delete globalThis.__taskHorizonMount; } catch (e) {}
+        try { delete globalThis.__taskHorizonOpenManagerFromTopbarEntry; } catch (e) {}
         try {
             const keys = Array.isArray(__tmExplicitWindowExportKeys) ? __tmExplicitWindowExportKeys : [];
             keys.forEach((k) => {
