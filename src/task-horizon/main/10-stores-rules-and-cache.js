@@ -44,6 +44,10 @@
     const SETTINGS_FILE_PATH = `${PLUGIN_STORAGE_DIR}/task-settings.json`;
     const WHITEBOARD_DATA_FILE_PATH = `${PLUGIN_STORAGE_DIR}/whiteboard-data.json`;
     const SEMANTIC_DATE_RECOGNIZED_FILE_PATH = `${PLUGIN_STORAGE_DIR}/semantic-date-recognized.json`;
+    const TASK_SNAPSHOT_FILE_PATH = `${PLUGIN_STORAGE_DIR}/task-snapshot.json`;
+    const __TM_TASK_SNAPSHOT_VERSION = 1;
+    const __TM_TASK_SNAPSHOT_MAX_AGE_MS = 10 * 60 * 1000;
+    const __TM_TASK_SNAPSHOT_MAX_ENTRIES = 12;
     const __TM_OTHER_BLOCK_TAB_ID = '__tm_other_blocks__';
     const __TM_OTHER_BLOCK_TAB_NAME = '其他块';
     const WHITEBOARD_DATA_CACHE_KEY = 'tm_whiteboard_data_cache';
@@ -621,12 +625,252 @@
         }
     }
 
+    async function __tmWriteJsonFile(path, data) {
+        const targetPath = String(path || '').trim();
+        if (!targetPath) return false;
+        try {
+            const formDir = new FormData();
+            formDir.append('path', PLUGIN_STORAGE_DIR);
+            formDir.append('isDir', 'true');
+            await fetch('/api/file/putFile', { method: 'POST', body: formDir }).catch(() => null);
+
+            const form = new FormData();
+            form.append('path', targetPath);
+            form.append('isDir', 'false');
+            form.append('file', new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' }));
+            const res = await fetch('/api/file/putFile', { method: 'POST', body: form });
+            return !!(res && res.ok);
+        } catch (e) {
+            return false;
+        }
+    }
+
     function __tmCloneJsonSafe(value, fallback) {
         try {
             return JSON.parse(JSON.stringify(value));
         } catch (e) {
             return fallback;
         }
+    }
+
+    function __tmNormalizeTaskSnapshotDocIds(docIds = []) {
+        return Array.from(new Set((Array.isArray(docIds) ? docIds : [])
+            .map((id) => String(id || '').trim())
+            .filter((id) => __tmIsLikelyBlockId(id))))
+            .sort();
+    }
+
+    function __tmBuildTaskSnapshotScopeKey(docIds = [], groupId = 'all') {
+        const gid = String(groupId || 'all').trim() || 'all';
+        return `${gid}|${__tmNormalizeTaskSnapshotDocIds(docIds).join(',')}`;
+    }
+
+    function __tmCloneTaskSnapshotValue(value, depth = 0, seen = null) {
+        if (depth > 18) return undefined;
+        if (value == null) return value;
+        const type = typeof value;
+        if (type === 'string' || type === 'number' || type === 'boolean') return value;
+        if (type === 'bigint') return String(value);
+        if (type === 'function' || type === 'symbol' || type === 'undefined') return undefined;
+        const refs = seen || new WeakSet();
+        if (type === 'object') {
+            if (typeof Element !== 'undefined' && value instanceof Element) return undefined;
+            if (value instanceof Map || value instanceof Set || value instanceof WeakMap || value instanceof WeakSet) return undefined;
+            if (refs.has(value)) return undefined;
+            refs.add(value);
+            if (Array.isArray(value)) {
+                const arr = [];
+                value.forEach((item) => {
+                    const cloned = __tmCloneTaskSnapshotValue(item, depth + 1, refs);
+                    if (cloned !== undefined) arr.push(cloned);
+                });
+                refs.delete(value);
+                return arr;
+            }
+            const dropKeys = new Set([
+                '__tmPriorityScoreCacheVersion',
+                '__tmPriorityScoreCacheUntil',
+                '__tmPendingInserted',
+                '__tmTaskDetailPendingSave',
+                '__tmTaskDetailActiveInlinePopover',
+                '__tmTaskDetailRefreshHoldUntil',
+            ]);
+            const out = {};
+            Object.entries(value).forEach(([key, item]) => {
+                if (!key || dropKeys.has(key)) return;
+                if (key.startsWith('__tm') && key !== '__tmLoadedCustomFieldIds') return;
+                const cloned = __tmCloneTaskSnapshotValue(item, depth + 1, refs);
+                if (cloned !== undefined) out[key] = cloned;
+            });
+            refs.delete(value);
+            return out;
+        }
+        return undefined;
+    }
+
+    function __tmBuildFlatTasksFromTaskSnapshotTree(taskTree) {
+        const flat = {};
+        const walk = (task) => {
+            if (!task || typeof task !== 'object') return;
+            const id = String(task.id || '').trim();
+            if (id) flat[id] = task;
+            (Array.isArray(task.children) ? task.children : []).forEach(walk);
+        };
+        (Array.isArray(taskTree) ? taskTree : []).forEach((doc) => {
+            (Array.isArray(doc?.tasks) ? doc.tasks : []).forEach(walk);
+        });
+        return flat;
+    }
+
+    function __tmBuildTaskSnapshotPayload(options = {}) {
+        const opts = (options && typeof options === 'object') ? options : {};
+        const docIds = __tmNormalizeTaskSnapshotDocIds(opts.docIds);
+        const groupId = String(opts.groupId || SettingsStore?.data?.currentGroupId || 'all').trim() || 'all';
+        return {
+            version: __TM_TASK_SNAPSHOT_VERSION,
+            createdAt: Date.now(),
+            groupId,
+            scopeKey: __tmBuildTaskSnapshotScopeKey(docIds, groupId),
+            docIds,
+            queryLimit: Number.isFinite(Number(opts.queryLimit)) ? Math.max(1, Math.round(Number(opts.queryLimit))) : 0,
+            taskTree: __tmCloneTaskSnapshotValue(Array.isArray(state.taskTree) ? state.taskTree : [], 0) || [],
+        };
+    }
+
+    function __tmIsUsableTaskSnapshot(snapshot) {
+        const snap = (snapshot && typeof snapshot === 'object') ? snapshot : null;
+        if (!snap || Number(snap.version) !== __TM_TASK_SNAPSHOT_VERSION) return false;
+        const createdAt = Number(snap.createdAt || 0);
+        if (!createdAt || Date.now() - createdAt > __TM_TASK_SNAPSHOT_MAX_AGE_MS) return false;
+        if (!Array.isArray(snap.taskTree)) return false;
+        if (!String(snap.scopeKey || '').trim()) return false;
+        return true;
+    }
+
+    function __tmBuildTaskSnapshotStore(raw = null) {
+        const snapshots = {};
+        const push = (item) => {
+            const snap = (item && typeof item === 'object') ? item : null;
+            if (!__tmIsUsableTaskSnapshot(snap)) return;
+            snapshots[String(snap.scopeKey || '').trim()] = snap;
+        };
+        if (raw && typeof raw === 'object' && raw.snapshots && typeof raw.snapshots === 'object') {
+            Object.values(raw.snapshots).forEach(push);
+        } else {
+            push(raw);
+        }
+        const kept = Object.values(snapshots)
+            .sort((a, b) => Number(b?.createdAt || 0) - Number(a?.createdAt || 0))
+            .slice(0, __TM_TASK_SNAPSHOT_MAX_ENTRIES);
+        const out = {
+            version: __TM_TASK_SNAPSHOT_VERSION,
+            updatedAt: Date.now(),
+            order: [],
+            snapshots: {},
+        };
+        kept.forEach((snap) => {
+            const key = String(snap?.scopeKey || '').trim();
+            if (!key) return;
+            out.order.push(key);
+            out.snapshots[key] = snap;
+        });
+        return out;
+    }
+
+    function __tmValidateTaskSnapshotForScope(snapshot, options = {}) {
+        const snap = (snapshot && typeof snapshot === 'object') ? snapshot : null;
+        if (!__tmIsUsableTaskSnapshot(snap)) return false;
+        const opts = (options && typeof options === 'object') ? options : {};
+        const docIds = __tmNormalizeTaskSnapshotDocIds(opts.docIds);
+        const groupId = String(opts.groupId || 'all').trim() || 'all';
+        return String(snap.scopeKey || '') === __tmBuildTaskSnapshotScopeKey(docIds, groupId);
+    }
+
+    async function __tmLoadTaskSnapshotForScope(options = {}) {
+        try {
+            const store = await __tmLoadTaskSnapshotStore();
+            const opts = (options && typeof options === 'object') ? options : {};
+            const scopeKey = __tmBuildTaskSnapshotScopeKey(opts.docIds, opts.groupId || 'all');
+            const snapshot = store?.snapshots?.[scopeKey];
+            return __tmValidateTaskSnapshotForScope(snapshot, options) ? snapshot : null;
+        } catch (e) {
+            return null;
+        }
+    }
+
+    function __tmSelectLatestTaskSnapshotForGroupFromStore(store, groupId = 'all') {
+        try {
+            const gid = String(groupId || 'all').trim() || 'all';
+            const items = Object.values(store?.snapshots || {})
+                .filter((snap) => {
+                    if (!__tmIsUsableTaskSnapshot(snap)) return false;
+                    const snapGroupId = String(
+                        snap?.groupId
+                        || String(snap?.scopeKey || '').split('|')[0]
+                        || 'all'
+                    ).trim() || 'all';
+                    return snapGroupId === gid;
+                })
+                .sort((a, b) => Number(b?.createdAt || 0) - Number(a?.createdAt || 0));
+            return items[0] || null;
+        } catch (e) {
+            return null;
+        }
+    }
+
+    async function __tmLoadTaskSnapshotStore(options = {}) {
+        const opts = (options && typeof options === 'object') ? options : {};
+        if (!opts.force && __tmTaskSnapshotStoreCache) return __tmTaskSnapshotStoreCache;
+        if (!opts.force && __tmTaskSnapshotStoreLoadPromise) return await __tmTaskSnapshotStoreLoadPromise;
+        __tmTaskSnapshotStoreLoadPromise = Promise.resolve()
+            .then(async () => {
+                const raw = await __tmReadJsonFile(TASK_SNAPSHOT_FILE_PATH);
+                const store = __tmBuildTaskSnapshotStore(raw);
+                __tmTaskSnapshotStoreCache = store;
+                return store;
+            })
+            .finally(() => {
+                __tmTaskSnapshotStoreLoadPromise = null;
+            });
+        return await __tmTaskSnapshotStoreLoadPromise;
+    }
+
+    async function __tmLoadLatestTaskSnapshotForGroup(groupId = 'all', options = {}) {
+        const opts = (options && typeof options === 'object') ? options : {};
+        try {
+            if (opts.cachedOnly) {
+                return __tmSelectLatestTaskSnapshotForGroupFromStore(__tmTaskSnapshotStoreCache, groupId);
+            }
+            const store = await __tmLoadTaskSnapshotStore({ force: !!opts.force });
+            return __tmSelectLatestTaskSnapshotForGroupFromStore(store, groupId);
+        } catch (e) {
+            return null;
+        }
+    }
+
+    function __tmWarmTaskSnapshotStore() {
+        if (__tmTaskSnapshotStoreCache || __tmTaskSnapshotStoreLoadPromise) return;
+        try { __tmLoadTaskSnapshotStore().catch(() => null); } catch (e) {}
+    }
+
+    function __tmRestoreTaskSnapshotIntoState(snapshot) {
+        const snap = (snapshot && typeof snapshot === 'object') ? snapshot : null;
+        if (!snap || !Array.isArray(snap.taskTree)) return null;
+        const taskTree = __tmCloneTaskSnapshotValue(snap.taskTree, 0) || [];
+        const flatTasks = __tmBuildFlatTasksFromTaskSnapshotTree(taskTree);
+        state.taskTree = taskTree;
+        try {
+            state.flatTasks = __tmMergeOtherBlocksIntoFlatTasks(flatTasks);
+        } catch (e) {
+            state.flatTasks = flatTasks;
+        }
+        state.__tmLoadedDocIdsForTasks = Array.isArray(snap.docIds) ? snap.docIds.slice() : [];
+        state.__tmTaskSnapshotRestoredAt = Date.now();
+        return {
+            docCount: taskTree.length,
+            taskCount: Object.keys(flatTasks).length,
+            ageMs: Math.max(0, Date.now() - Number(snap.createdAt || 0)),
+        };
     }
 
     const __TM_SETTINGS_FIELD_SYNC_EXCLUDED_KEYS = new Set([
@@ -5278,6 +5522,10 @@
     let __tmCalendarTxRefreshPending = false;
     let __tmTxTaskRefreshTimer = null;
     let __tmTxTaskRefreshInFlight = false;
+    let __tmTaskSnapshotSaveTimer = null;
+    let __tmTaskSnapshotSaveInFlight = false;
+    let __tmTaskSnapshotStoreCache = null;
+    let __tmTaskSnapshotStoreLoadPromise = null;
     const __tmTxTaskRefreshDocIds = new Set();
     const __tmTxTaskRefreshBlockIds = new Set();
     let __tmLocalTimeTxSuppressUntil = 0;
@@ -5528,6 +5776,21 @@
 
     function __tmExtractAttrUpdatesFromTx(payload) {
         const updateMap = new Map();
+        const mergeNameValueAttr = (target, source) => {
+            if (!source || typeof source !== 'object' || Array.isArray(source)) return;
+            const key = String(
+                source.name
+                || source.attrName
+                || source.attrKey
+                || source.key
+                || ''
+            ).trim();
+            if (!__tmShouldSyncAttrKeyFromTx(key)) return;
+            const rawValue = Object.prototype.hasOwnProperty.call(source, 'value')
+                ? source.value
+                : (Object.prototype.hasOwnProperty.call(source, 'val') ? source.val : source.data);
+            target[key] = rawValue == null ? '' : String(rawValue);
+        };
         const mergePatchFromSource = (target, source) => {
             if (!source || typeof source !== 'object' || Array.isArray(source)) return;
             Object.entries(source).forEach(([rawKey, rawValue]) => {
@@ -5542,9 +5805,11 @@
             const action = String(node.action || node.cmd || node.operation || data?.action || '').trim().toLowerCase();
             const blockId = [
                 data?.id,
+                data?.block_id,
                 data?.blockID,
                 data?.blockId,
                 node.id,
+                node.block_id,
                 node.blockID,
                 node.blockId
             ].map((value) => String(value || '').trim()).find((value) => __tmIsLikelyBlockId(value)) || '';
@@ -5552,8 +5817,12 @@
             const patch = {};
             mergePatchFromSource(patch, data?.attrs);
             mergePatchFromSource(patch, data?.new);
+            mergePatchFromSource(patch, data?.newAttrs);
             mergePatchFromSource(patch, node.attrs);
             mergePatchFromSource(patch, node.new);
+            mergePatchFromSource(patch, node.newAttrs);
+            mergeNameValueAttr(patch, data);
+            mergeNameValueAttr(patch, node);
             if (!Object.keys(patch).length && (action === 'updateattrs' || action === 'setattrs' || action === 'setblockattrs')) {
                 mergePatchFromSource(patch, data);
             }
@@ -5656,6 +5925,28 @@
         };
         walk(payload, 0);
         return hasAnyOperation && !hasNonAttrOperation;
+    }
+
+    function __tmIsFastAttrOnlyRefreshEligible(txAttrUpdates = [], txAttrApplyResult = null, isAttrOnlyTx = false) {
+        if (!isAttrOnlyTx) return false;
+        const updates = Array.isArray(txAttrUpdates) ? txAttrUpdates : [];
+        if (!updates.length) return false;
+        const result = (txAttrApplyResult && typeof txAttrApplyResult === 'object') ? txAttrApplyResult : {};
+        const appliedCount = Number(result.appliedCount || 0) + Number(result.resolvedAppliedCount || 0);
+        if (appliedCount <= 0) return false;
+        if (Number(result.unresolvedCount || 0) > 0) return false;
+        const structuralKeys = new Set([
+            __TM_TASK_REPEAT_RULE_ATTR,
+            __TM_TASK_REPEAT_STATE_ATTR,
+            __TM_TASK_REPEAT_HISTORY_ATTR,
+        ]);
+        return updates.every((update) => {
+            const key = String(update?.key || '').trim();
+            if (!key) return false;
+            if (structuralKeys.has(key)) return false;
+            if (__tmIsTaskAttachmentAttrKey(key)) return false;
+            return true;
+        });
     }
 
     function __tmApplyTxAttrUpdatesInState(payload) {
@@ -7766,7 +8057,21 @@
                 const s = String(x || '').trim();
                 if (/^[0-9]+-[a-zA-Z0-9]+$/.test(s)) out.add(s);
             });
-            const next = [v.data, v.detail, v.tx, v.payload, v.rows, v.ops, v.operations];
+            const next = [
+                v.data,
+                v.detail,
+                v.tx,
+                v.payload,
+                v.rows,
+                v.ops,
+                v.operations,
+                v.doOperations,
+                v.undoOperations,
+                v.children,
+                v.items,
+                v.srcs,
+                v.dsts
+            ];
             next.forEach((x) => walk(x, depth + 1));
         };
         walk(payload, 0);
@@ -8223,9 +8528,57 @@ docIds.forEach((docId) => {
         return out;
     }
 
-    function __tmScheduleTaskIncrementalRefreshFromTx(payload) {
+    function __tmSchedulePersistTaskSnapshot(options = {}) {
+        const opts = (options && typeof options === 'object') ? options : {};
+        if (opts.forceFullLoadBudget === true) return false;
+        const docIds = __tmNormalizeTaskSnapshotDocIds(opts.docIds || state.__tmLoadedDocIdsForTasks || []);
+        if (!docIds.length) return false;
+        if (!Array.isArray(state.taskTree) || state.taskTree.length === 0) return false;
+        try {
+            if (__tmTaskSnapshotSaveTimer) clearTimeout(__tmTaskSnapshotSaveTimer);
+        } catch (e) {}
+        const delayMs = Math.max(200, Number(opts.delayMs || 900) || 900);
+        __tmTaskSnapshotSaveTimer = setTimeout(() => {
+            __tmTaskSnapshotSaveTimer = null;
+            if (__tmTaskSnapshotSaveInFlight) {
+                __tmSchedulePersistTaskSnapshot({ ...opts, delayMs: 1200 });
+                return;
+            }
+            __tmTaskSnapshotSaveInFlight = true;
+            Promise.resolve()
+                .then(async () => {
+                    const payload = __tmBuildTaskSnapshotPayload({
+                        docIds,
+                        groupId: opts.groupId || SettingsStore?.data?.currentGroupId || 'all',
+                        queryLimit: opts.queryLimit || state.queryLimit || SettingsStore?.data?.queryLimit,
+                    });
+                    const rawStore = await __tmReadJsonFile(TASK_SNAPSHOT_FILE_PATH);
+                    const store = __tmBuildTaskSnapshotStore(rawStore);
+                    store.snapshots[payload.scopeKey] = payload;
+                    store.updatedAt = Date.now();
+                    const nextStore = __tmBuildTaskSnapshotStore(store);
+                    __tmTaskSnapshotStoreCache = nextStore;
+                    await __tmWriteJsonFile(TASK_SNAPSHOT_FILE_PATH, nextStore);
+                })
+                .catch(() => null)
+                .finally(() => {
+                    __tmTaskSnapshotSaveInFlight = false;
+                });
+        }, delayMs);
+        return true;
+    }
+
+    function __tmScheduleTaskIncrementalRefreshFromTx(payload, options = {}) {
         const docIds = __tmExtractDocIdsFromTx(payload);
         const blockIds = __tmExtractBlockIdsFromTx(payload);
+        (Array.isArray(options?.docIds) ? options.docIds : []).forEach((docId) => {
+            const did = String(docId || '').trim();
+            if (did && __tmIsLikelyBlockId(did)) docIds.add(did);
+        });
+        (Array.isArray(options?.blockIds) ? options.blockIds : []).forEach((blockId) => {
+            const bid = String(blockId || '').trim();
+            if (bid && __tmIsLikelyBlockId(bid)) blockIds.add(bid);
+        });
         if ((!docIds || docIds.size === 0) && (!blockIds || blockIds.size === 0)) return;
         __tmRememberPendingTxRefreshTargets(Array.from(docIds || []), Array.from(blockIds || []));
         __tmMarkExternalTaskTxDirty();
@@ -8413,12 +8766,18 @@ docIds.forEach((docId) => {
                 };
                 let isAttrOnlyTx = false;
                 let skipNoopAttrOnlyTx = false;
+                let txAttrUpdates = [];
                 if (!suppressLocalTimeTx && !suppressLocalDoneTx && !suppressLocalMoveTx) {
                     let txAttrApplyFailed = false;
                     try {
                         isAttrOnlyTx = __tmHasOnlyAttrOperationsInTx(msg);
                     } catch (e) {
                         isAttrOnlyTx = false;
+                    }
+                    try {
+                        txAttrUpdates = __tmExtractAttrUpdatesFromTx(msg);
+                    } catch (e) {
+                        txAttrUpdates = [];
                     }
                     try {
                         txAttrApplyResult = __tmApplyTxAttrUpdatesInState(msg) || txAttrApplyResult;
@@ -8445,7 +8804,26 @@ docIds.forEach((docId) => {
                 else __tmInvalidateAllSqlCaches();
                 if (suppressLocalTimeTx || suppressLocalDoneTx || suppressLocalMoveTx) return;
                 if (skipNoopAttrOnlyTx) return;
-                __tmScheduleTaskIncrementalRefreshFromTx(msg);
+                const fastAttrOnlyRefresh = __tmIsFastAttrOnlyRefreshEligible(txAttrUpdates, txAttrApplyResult, isAttrOnlyTx);
+                if (fastAttrOnlyRefresh) {
+                    const skipCalendarTxRefresh = __tmShouldSkipCalendarTxRefreshForTimeEdit(msg);
+                    if (!skipCalendarTxRefresh) {
+                        __tmScheduleCalendarRefetchFromTx();
+                    }
+                    try { __tmClearExternalTaskTxDirty(); } catch (e) { try { state.externalTaskTxDirty = false; } catch (e2) {} }
+                    try {
+                        __tmSchedulePersistTaskSnapshot({
+                            docIds: state.__tmLoadedDocIdsForTasks,
+                            groupId: SettingsStore?.data?.currentGroupId || 'all',
+                            queryLimit: state.queryLimit || SettingsStore?.data?.queryLimit,
+                            delayMs: 1800,
+                        });
+                    } catch (e) {}
+                    return;
+                }
+                __tmScheduleTaskIncrementalRefreshFromTx(msg, {
+                    blockIds: txAttrUpdates.map((update) => update?.taskId),
+                });
                 const skipCalendarTxRefresh = __tmShouldSkipCalendarTxRefreshForTimeEdit(msg);
                 if (!skipCalendarTxRefresh) {
                     __tmScheduleCalendarRefetchFromTx();

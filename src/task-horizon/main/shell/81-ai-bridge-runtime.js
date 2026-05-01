@@ -758,6 +758,7 @@
         try {
             await Promise.all([
                 removePluginFile(SEMANTIC_DATE_RECOGNIZED_FILE_PATH),
+                removePluginFile(TASK_SNAPSHOT_FILE_PATH),
                 removePluginFile(`${PLUGIN_STORAGE_DIR}/ai-conversations.json`),
                 removePluginFile(`${PLUGIN_STORAGE_DIR}/ai-debug.json`),
                 removePluginFile(`${PLUGIN_STORAGE_DIR}/ai-prompt-templates.json`),

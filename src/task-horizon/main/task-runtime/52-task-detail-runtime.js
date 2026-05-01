@@ -557,11 +557,19 @@
             }
             return nextTask || null;
         };
+        const captureInlineSubtaskDraftSnapshot = (nextTaskId = taskId) => {
+            try { return __tmCaptureTaskDetailSubtaskDraftSnapshot(root, nextTaskId); } catch (e) { return null; }
+        };
+        const restoreInlineSubtaskDraftSnapshot = (snapshot) => {
+            if (!snapshot || typeof snapshot !== 'object') return;
+            try { __tmRestoreTaskDetailSubtaskDraftSnapshot(root, snapshot); } catch (e) {}
+        };
         const refreshBoundDetail = async (nextTaskId = taskId) => {
             const requestedId = String(nextTaskId || '').trim();
             if (!requestedId) return;
             if (!isSessionActive()) return;
             try {
+                const draftSnapshot = captureInlineSubtaskDraftSnapshot(requestedId);
                 const nextTask = await resolveDetailNavigationTask(requestedId);
                 if (!nextTask || !isSessionActive()) {
                     try { hint('⚠️ 未找到子任务数据，无法打开详情', 'warning'); } catch (e) {}
@@ -600,6 +608,7 @@
                 } catch (e) {}
                 root.innerHTML = __tmBuildTaskDetailInnerHtml(nextTask, opts);
                 __tmBindTaskDetailEditor(root, nextId, { ...options, source: `${bindSource}:open-child`, task: nextTask });
+                restoreInlineSubtaskDraftSnapshot(draftSnapshot);
                 try { __tmBindFloatingTooltips(root); } catch (e) {}
             } catch (e) {
                 try { hint(`❌ 打开子任务详情失败: ${e.message}`, 'error'); } catch (err) {}
@@ -2016,7 +2025,11 @@ if (!__tmIsCollectedOtherBlockTask(task) && diff.contentChanged) {
                             restoreEmbeddedDetailScroll(detailScrollSnapshot, { onlyIfNear: true });
                         },
                         onSuccess: async () => {
-                            try { await refreshBoundDetail(taskId); } catch (e) {}
+                            try {
+                                if (!root.querySelector('[data-tm-detail-subtask-draft]')) {
+                                    await refreshBoundDetail(taskId);
+                                }
+                            } catch (e) {}
                             restoreEmbeddedDetailScroll(detailScrollSnapshot, { onlyIfNear: true });
                             setTaskDetailPendingSave(false, 420);
                         },
@@ -2069,12 +2082,25 @@ if (!__tmIsCollectedOtherBlockTask(task) && diff.contentChanged) {
                 });
             } catch (e) {}
         };
-        const openInlineSubtaskDraft = () => {
+        const openInlineSubtaskDraft = (draftOptions = {}) => {
+            const draftOpts = (draftOptions && typeof draftOptions === 'object') ? draftOptions : {};
             const list = root.querySelector('[data-tm-detail-subtasks]');
             if (!(list instanceof HTMLElement)) return;
             const existing = list.querySelector('[data-tm-detail-subtask-draft]');
             if (existing instanceof HTMLElement) {
-                try { existing.querySelector('[data-tm-detail-subtask-draft-input]')?.focus?.(); } catch (e) {}
+                try {
+                    const existingInput = existing.querySelector('[data-tm-detail-subtask-draft-input]');
+                    if (existingInput instanceof HTMLTextAreaElement) {
+                        if (draftOpts.value != null) existingInput.value = String(draftOpts.value || '');
+                        syncAutoHeight(existingInput, 34);
+                        existingInput.focus();
+                        if (Number.isFinite(Number(draftOpts.selectionStart))) {
+                            const start = Math.max(0, Number(draftOpts.selectionStart || 0));
+                            const end = Math.max(start, Number(draftOpts.selectionEnd ?? start));
+                            existingInput.setSelectionRange(start, end);
+                        }
+                    }
+                } catch (e) {}
                 return;
             }
             const empty = list.querySelector('.tm-task-detail-empty');
@@ -2100,8 +2126,35 @@ if (!__tmIsCollectedOtherBlockTask(task) && diff.contentChanged) {
             `;
             list.appendChild(draftRow);
             bindSubtaskDraftRow(draftRow);
+            try {
+                const input = draftRow.querySelector('[data-tm-detail-subtask-draft-input]');
+                if (input instanceof HTMLTextAreaElement && draftOpts.value != null) {
+                    input.value = String(draftOpts.value || '');
+                    syncAutoHeight(input, 34);
+                }
+                if (input instanceof HTMLTextAreaElement && draftOpts.focus !== false) {
+                    requestAnimationFrame(() => {
+                        try {
+                            input.focus();
+                            if (Number.isFinite(Number(draftOpts.selectionStart))) {
+                                const start = Math.max(0, Number(draftOpts.selectionStart || 0));
+                                const end = Math.max(start, Number(draftOpts.selectionEnd ?? start));
+                                input.setSelectionRange(start, end);
+                            }
+                        } catch (e) {}
+                    });
+                }
+            } catch (e) {}
             try { __tmBindFloatingTooltips(draftRow); } catch (e) {}
         };
+        try { root.__tmTaskDetailOpenInlineSubtaskDraft = openInlineSubtaskDraft; } catch (e) {}
+        try {
+            const pendingDraftSnapshot = root.__tmPendingSubtaskDraftSnapshot;
+            if (pendingDraftSnapshot && typeof pendingDraftSnapshot === 'object') {
+                delete root.__tmPendingSubtaskDraftSnapshot;
+                __tmRestoreTaskDetailSubtaskDraftSnapshot(root, pendingDraftSnapshot);
+            }
+        } catch (e) {}
         const bindSubtaskEditors = () => {
             root.querySelectorAll('[data-tm-detail-subtask-content]').forEach((el) => {
                 if (!(el instanceof HTMLTextAreaElement)) return;
@@ -3196,6 +3249,7 @@ return true;
                 });
             } catch (e) {}
         } else {
+            const detailDraftSnapshot = __tmCaptureTaskDetailSubtaskDraftSnapshot(panel, selectedId);
             try {
                 __tmPushDetailDebug('detail-rebuild-html', {
                     taskId: String(selectedId || '').trim(),
@@ -3225,6 +3279,7 @@ return true;
                     if (!__tmRefreshChecklistSelectionInPlace(state.modal, 'detail-close')) render();
                 }
             });
+            try { __tmRestoreTaskDetailSubtaskDraftSnapshot(panel, detailDraftSnapshot); } catch (e) {}
         }
         const backdrop = modal.querySelector('#tmChecklistSheetBackdrop');
         const sheet = modal.querySelector('#tmChecklistSheet');
@@ -3466,6 +3521,7 @@ refreshed = !!__tmRefreshChecklistSelectionInPlace(state.modal, 'visible-task-de
                                 reasons: [],
                             });
                         } catch (e) {}
+                        const overlayDraftSnapshot = __tmCaptureTaskDetailSubtaskDraftSnapshot(overlay, tid);
                         try {
                             __tmPushDetailDebug('detail-rebuild-html', {
                                 taskId: tid,
@@ -3486,6 +3542,7 @@ refreshed = !!__tmRefreshChecklistSelectionInPlace(state.modal, 'visible-task-de
                             onClose: typeof overlay.__tmTaskDetailOnClose === 'function' ? overlay.__tmTaskDetailOnClose : null,
                             task,
                         });
+                        try { __tmRestoreTaskDetailSubtaskDraftSnapshot(overlay, overlayDraftSnapshot); } catch (e) {}
                         try { __tmBindFloatingTooltips(overlay); } catch (e) {}
                         refreshed = true;
                     }
@@ -3647,6 +3704,7 @@ refreshed = !!__tmRefreshChecklistSelectionInPlace(state.modal, 'visible-task-de
             return false;
         }
         if (!__tmIsTaskDetailRootUsable(panel, { taskId: selectedId })) return false;
+        const detailDraftSnapshot = __tmCaptureTaskDetailSubtaskDraftSnapshot(panel, selectedId);
         try {
             __tmPushDetailDebug('detail-rebuild-html', {
                 taskId: String(selectedId || '').trim(),
@@ -3667,6 +3725,7 @@ refreshed = !!__tmRefreshChecklistSelectionInPlace(state.modal, 'visible-task-de
                 __tmCloseKanbanDetailFloating();
             }
         });
+        try { __tmRestoreTaskDetailSubtaskDraftSnapshot(panel, detailDraftSnapshot); } catch (e) {}
         __tmClearKanbanDetailFloatingHandlers();
         __tmKanbanDetailOutsidePointerDownHandler = (ev) => {
             const floatPanel = modal.querySelector('#tmKanbanDetailFloat');

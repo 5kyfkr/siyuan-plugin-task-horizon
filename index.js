@@ -1554,6 +1554,7 @@ module.exports = class TaskHorizonPlugin extends Plugin {
             const paths = [
                 "/data/storage/petal/siyuan-plugin-task-horizon/task-settings.json",
                 "/data/storage/petal/siyuan-plugin-task-horizon/task-meta.json",
+                "/data/storage/petal/siyuan-plugin-task-horizon/task-snapshot.json",
                 "/data/storage/petal/siyuan-plugin-task-horizon/ai-conversations.json",
                 "/data/storage/petal/siyuan-plugin-task-horizon/ai-debug.json",
                 "/data/storage/petal/siyuan-plugin-task-horizon/ai-prompt-templates.json",

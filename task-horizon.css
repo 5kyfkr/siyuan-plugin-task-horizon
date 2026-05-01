@@ -2727,11 +2727,12 @@
 
 .tm-inline-loading-overlay--topbar {
     inset: 0;
+    z-index: 60;
     padding: 0;
     align-items: flex-start;
     justify-content: stretch;
     background: transparent;
-    pointer-events: auto;
+    pointer-events: none;
     cursor: progress;
 }
 
@@ -2777,6 +2778,7 @@
 .tm-inline-loading-topbar-badge {
     align-self: flex-end;
     margin-right: 12px;
+    pointer-events: none;
     display: inline-flex;
     align-items: center;
     gap: 8px;

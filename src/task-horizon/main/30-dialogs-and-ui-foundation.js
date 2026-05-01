@@ -4731,6 +4731,7 @@ if (mode === 'checklist') {
                 || typeof globalThis.__tmCalendar.openScheduleEditorById === 'function'
                 || typeof globalThis.__tmCalendar.openScheduleEditorByTaskId === 'function'));
         const aiEnabled = __tmIsAiFeatureEnabled();
+        const isOtherBlock = __tmIsCollectedOtherBlockTask(task);
 
         actions.push({
             label: task?.pinned ? '取消置顶' : '置顶',
@@ -4796,13 +4797,26 @@ if (mode === 'checklist') {
         }
 
         actions.push({ separator: true });
-        actions.push({
-            label: '删除任务',
-            icon: 'trash-2',
-            danger: true,
-            labelHtml: __tmRenderContextMenuLabel('trash-2', '删除任务'),
-            run: async () => { await window.tmDelete?.(tid); }
-        });
+        if (isOtherBlock) {
+            actions.push({
+                label: `从${__TM_OTHER_BLOCK_TAB_NAME}页签移除`,
+                icon: 'trash-2',
+                danger: true,
+                labelHtml: __tmRenderContextMenuLabel('trash-2', `从${__TM_OTHER_BLOCK_TAB_NAME}页签移除`),
+                run: async () => {
+                    const result = await __tmRemoveOtherBlocksFromCollection([tid]);
+                    if (result.removed > 0) hint(`✅ 已从“${__TM_OTHER_BLOCK_TAB_NAME}”页签移除`, 'success');
+                }
+            });
+        } else {
+            actions.push({
+                label: '删除任务',
+                icon: 'trash-2',
+                danger: true,
+                labelHtml: __tmRenderContextMenuLabel('trash-2', '删除任务'),
+                run: async () => { await window.tmDelete?.(tid); }
+            });
+        }
 
         const cleaned = [];
         actions.forEach((item) => {
@@ -9251,6 +9265,7 @@ if (mode === 'checklist') {
             return;
         }
         SettingsStore.data.currentGroupId = nextGroupId;
+        try { __tmHideMobileMenu(); } catch (e) {}
         __tmMarkContextInteractionQuiet('switch-doc-group', 1600);
         // 切换文档分组后，统一回到“全部文档”页签，避免白板停留在旧分组文档导致空白
         state.activeDocId = 'all';
@@ -9263,14 +9278,36 @@ if (mode === 'checklist') {
         await __tmApplyCurrentContextViewProfile();
 
         try {
-            await SettingsStore.save();
-            try { __tmHideMobileMenu(); } catch (e) {}
-            await loadSelectedDocuments({
+            let snapshot = null;
+            try {
+                snapshot = await Promise.race([
+                    __tmLoadLatestTaskSnapshotForGroup(nextGroupId, { cachedOnly: true }),
+                    new Promise((resolve) => setTimeout(() => resolve(null), 40)),
+                ]);
+            } catch (e) {
+                snapshot = null;
+            }
+            try { if (!snapshot) __tmWarmTaskSnapshotStore(); } catch (e) {}
+            if ((String(SettingsStore.data.currentGroupId || 'all').trim() || 'all') === nextGroupId) {
+                state.otherBlocks = [];
+                const snapshotMeta = __tmRestoreTaskSnapshotIntoState(snapshot);
+                if (snapshotMeta) {
+                    try { recalcStats(); } catch (e) {}
+                    applyFilters();
+                    render();
+                }
+            }
+            const savePromise = SettingsStore.save();
+            const loadPromise = loadSelectedDocuments({
                 showInlineLoading: true,
                 loadingStyleKind: 'topbar',
                 loadingDelayMs: 0,
+                preferFastFirstPaint: false,
+                forceFullLoadBudget: true,
                 source: 'switch-doc-group',
             });
+            await loadPromise;
+            await savePromise;
             if (state.viewMode === 'whiteboard') {
                 try {
                     requestAnimationFrame(() => {

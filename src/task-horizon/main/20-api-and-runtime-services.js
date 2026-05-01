@@ -14454,7 +14454,7 @@ return true;
                     headerEl: ganttHeader,
                     bodyEl: ganttBody,
                     rowModel,
-                    getTaskById: (id) => state.flatTasks[String(id)],
+                    getTaskById: (id) => state.flatTasks[String(id)] || state.pendingInsertedTasks?.[String(id)] || null,
                     viewState: state.ganttView,
                     onUpdateTaskDates: async (taskId, patch) => {
                         const id = String(taskId || '').trim();

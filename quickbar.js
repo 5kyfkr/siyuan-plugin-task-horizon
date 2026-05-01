@@ -113,6 +113,11 @@
     let inlineMetaObservedRoots = [];
     let inlineMetaStarted = false;
     let inlineMetaRenderTimer = null;
+    let inlineMetaRenderCursor = 0;
+    let inlineMetaRenderQueueTimer = 0;
+    let inlineMetaRenderQueue = [];
+    let inlineMetaRenderQueueIds = new Set();
+    let inlineMetaRenderActiveIds = new Set();
     let inlineMetaInteractUntil = 0;
     let inlineMetaScrollHandler = null;
     let inlineMetaRafId = 0;
@@ -394,6 +399,16 @@
         inlineMetaWakeClearLayout = false;
     }
 
+    function clearInlineMetaRenderQueue() {
+        if (inlineMetaRenderQueueTimer) {
+            try { clearTimeout(inlineMetaRenderQueueTimer); } catch (e) {}
+        }
+        inlineMetaRenderQueueTimer = 0;
+        inlineMetaRenderQueue = [];
+        inlineMetaRenderQueueIds.clear();
+        inlineMetaRenderActiveIds.clear();
+    }
+
     function scheduleInlineMetaWake(forceRefresh = true, options = {}) {
         const delayMs = Math.max(0, Number(options.delayMs) || 0);
         inlineMetaWakeForceRefresh = inlineMetaWakeForceRefresh || !!forceRefresh;
@@ -580,6 +595,18 @@
         return scopeDocIds.has(docId);
     }
 
+    function isInlineMetaScopeAllowedForBlockCached(blockEl) {
+        const docId = resolveDocIdFromTaskBlock(blockEl);
+        if (!docId) return true;
+        const scopeDocIds = inlineMetaScopeDocIds;
+        if (!(scopeDocIds instanceof Set)) {
+            try { ensureInlineMetaScopeDocIds(false); } catch (e) {}
+            return true;
+        }
+        if (!scopeDocIds.size) return false;
+        return scopeDocIds.has(docId);
+    }
+
     function removeInlineMetaHostByTaskId(taskId) {
         const id = String(taskId || '').trim();
         if (!id) return;
@@ -635,6 +662,9 @@
         return true;
     }
 
+    const QUICKBAR_INLINE_RENDER_BATCH_LIMIT = 6;
+    const QUICKBAR_INLINE_OBSERVED_FALLBACK_LIMIT = 24;
+
     function hasTaskMarkerEl(el) {
         if (!el) return false;
         const marker = el.getAttribute?.('data-marker') || '';
@@ -654,6 +684,23 @@
         });
         if (hasDirectTaskControl) return true;
         return hasTaskMarkerEl(blockEl);
+    }
+
+    function isInlineMetaHiddenDoneTaskBlock(blockEl) {
+        if (!(blockEl instanceof Element)) return false;
+        const doneEl = blockEl.classList?.contains('protyle-task--done')
+            ? blockEl
+            : blockEl.closest?.('.protyle-task--done');
+        if (!(doneEl instanceof Element)) return false;
+        try {
+            const style = window.getComputedStyle?.(doneEl);
+            if (style && (style.display === 'none' || style.visibility === 'hidden')) return true;
+        } catch (e) {}
+        try {
+            return typeof doneEl.getClientRects === 'function' && doneEl.getClientRects().length === 0;
+        } catch (e) {
+            return false;
+        }
     }
 
     function getBlockElementFromTarget(target) {
@@ -1884,30 +1931,7 @@
         }
 
         function pushTaskHorizonDebug(channel, tag, payload = {}) {
-            const nextChannel = String(channel || '').trim();
-            const nextTag = String(tag || '').trim();
-            const nextPayload = (payload && typeof payload === 'object' && !Array.isArray(payload))
-                ? payload
-                : { value: payload };
-            try {
-                const sharedApi = getTaskHorizonSharedApi();
-                const bridgePush = sharedApi?.quickbarBridge?.debugPush;
-                if (typeof bridgePush === 'function') {
-                    return bridgePush(nextChannel, nextTag, nextPayload);
-                }
-            } catch (e) {}
-            try {
-                relayTaskHorizonPayloadToStorage(__TM_TASK_HORIZON_DEBUG_RELAY_STORAGE_KEY, 'debug', {
-                    channel: nextChannel,
-                    tag: nextTag,
-                    payload: nextPayload,
-                });
-            } catch (e) {}
-            try {
-                return globalThis.__tmTaskHorizonDebugPush?.(nextChannel, nextTag, nextPayload);
-            } catch (e) {
-                return null;
-            }
+            return null;
         }
 
         function dispatchTaskAttrUpdated(attrHostId, attrKey, value, options = {}) {
@@ -2959,15 +2983,8 @@
                 requestInlineMetaRender(!!forceRefresh);
                 return;
             }
-            Promise.resolve(renderInlineMetaForBlock(blockEl, !!forceRefresh, 420))
-                .then(() => {
-                    // Follow up with a queued render so host pruning/layout reuse
-                    // sees the same owner id mapping as the immediate refresh path.
-                    requestInlineMetaRender(!!forceRefresh);
-                })
-                .catch(() => {
-                    requestInlineMetaRender(!!forceRefresh);
-                });
+            queueInlineMetaRenderBlock(blockEl, !!forceRefresh, 420);
+            requestInlineMetaRender(!!forceRefresh);
         }
 
         function getInlineCachedProps(blockId) {
@@ -3912,6 +3929,10 @@
         // 隐藏悬浮条
         function hideFloatBar() {
             currentFloatBarLoadToken += 1;
+            if (updatePositionRafId) {
+                try { cancelAnimationFrame(updatePositionRafId); } catch (e) {}
+                updatePositionRafId = 0;
+            }
             floatBar.style.display = 'none';
             hideAllPopups();
             currentBlockEl = null;
@@ -4042,6 +4063,25 @@
             if ((rect.bottom + buffer) < topBound) return false;
             if ((rect.top - buffer) > bottomBound) return false;
             return true;
+        }
+
+        function estimateInlineMetaHostSize(html) {
+            const source = String(html || '');
+            const chipCount = Math.max(1, (source.match(/sy-custom-props-inline-chip/g) || []).length);
+            const text = source
+                .replace(/<style[\s\S]*?<\/style>/gi, ' ')
+                .replace(/<script[\s\S]*?<\/script>/gi, ' ')
+                .replace(/<[^>]+>/g, ' ')
+                .replace(/&nbsp;/g, ' ')
+                .replace(/&[a-z0-9#]+;/gi, 'x')
+                .replace(/\s+/g, ' ')
+                .trim();
+            const textWidth = Math.min(260, Math.max(0, text.length * 6));
+            const chipChromeWidth = chipCount * 18 + Math.max(0, chipCount - 1) * 4;
+            return {
+                width: Math.max(56, Math.min(420, Math.ceil(textWidth + chipChromeWidth))),
+                height: 22,
+            };
         }
 
         function getInlineTextTailRect(textAnchor) {
@@ -4184,12 +4224,55 @@
             return getInlineDirectionalTaskBlocks(buffer, buffer, maxCount);
         }
 
+        function scheduleInlineMetaQueueDrain(delayMs = 0) {
+            if (inlineMetaRenderQueueTimer) return;
+            const delay = Math.max(0, Number(delayMs) || 0);
+            inlineMetaRenderQueueTimer = setTimeout(() => {
+                inlineMetaRenderQueueTimer = 0;
+                drainInlineMetaRenderQueue();
+            }, delay);
+        }
+
+        function queueInlineMetaRenderBlock(blockEl, forceRefresh = false, visibilityBuffer = 0) {
+            const taskId = String(resolveTaskAttrNodeIdForDetail(blockEl) || blockEl?.dataset?.nodeId || '').trim();
+            if (!taskId || inlineMetaRenderQueueIds.has(taskId) || inlineMetaRenderActiveIds.has(taskId)) return false;
+            inlineMetaRenderQueueIds.add(taskId);
+            inlineMetaRenderQueue.push({ blockEl, taskId, forceRefresh: !!forceRefresh, visibilityBuffer });
+            scheduleInlineMetaQueueDrain(0);
+            return true;
+        }
+
+        function drainInlineMetaRenderQueue() {
+            if (!inlineMetaStarted || !isInlineMetaEnabled()) {
+                inlineMetaRenderQueue = [];
+                inlineMetaRenderQueueIds.clear();
+                inlineMetaRenderActiveIds.clear();
+                return;
+            }
+            let count = 0;
+            while (count < QUICKBAR_INLINE_RENDER_BATCH_LIMIT && inlineMetaRenderQueue.length) {
+                const item = inlineMetaRenderQueue.shift();
+                inlineMetaRenderQueueIds.delete(item.taskId);
+                if (!item.blockEl?.isConnected || inlineMetaRenderActiveIds.has(item.taskId)) continue;
+                inlineMetaRenderActiveIds.add(item.taskId);
+                count += 1;
+                Promise.resolve(renderInlineMetaForBlock(item.blockEl, item.forceRefresh, item.visibilityBuffer))
+                    .catch(() => null)
+                    .finally(() => {
+                        inlineMetaRenderActiveIds.delete(item.taskId);
+                        if (inlineMetaRenderQueue.length) scheduleInlineMetaQueueDrain(16);
+                    });
+            }
+            if (inlineMetaRenderQueue.length) scheduleInlineMetaQueueDrain(16);
+        }
+
         function getInlineDirectionalTaskBlocks(upBuffer = 360, downBuffer = 360, maxCount = 96) {
             const viewportTop = 0 - Math.max(0, Number(upBuffer) || 0);
             const viewportBottom = (window.innerHeight || document.documentElement?.clientHeight || 0) + Math.max(0, Number(downBuffer) || 0);
+            const useObservedFallback = inlineMetaVisibleTaskBlocks.size <= 0 && inlineMetaObservedTaskBlocks.size <= QUICKBAR_INLINE_OBSERVED_FALLBACK_LIMIT;
             const sourceBlocks = inlineMetaVisibleTaskBlocks.size
                 ? Array.from(inlineMetaVisibleTaskBlocks.values())
-                : Array.from(inlineMetaObservedTaskBlocks.values());
+                : (useObservedFallback ? Array.from(inlineMetaObservedTaskBlocks.values()) : []);
             const out = [];
             const seen = new Set();
             for (let i = 0; i < sourceBlocks.length; i += 1) {
@@ -4208,6 +4291,43 @@
                 } catch (e) {}
             }
             return out;
+        }
+
+        function getInlineTaskBlockBuckets(dir) {
+            const viewportHeight = window.innerHeight || document.documentElement?.clientHeight || 0;
+            const coreUp = dir > 0 ? 320 : (dir < 0 ? 900 : 520);
+            const coreDown = dir > 0 ? 900 : (dir < 0 ? 320 : 520);
+            const preUp = dir > 0 ? 900 : (dir < 0 ? 3200 : 2200);
+            const preDown = dir > 0 ? 3200 : (dir < 0 ? 900 : 2200);
+            const keepUp = dir > 0 ? 1400 : (dir < 0 ? 4200 : 3200);
+            const keepDown = dir > 0 ? 4200 : (dir < 0 ? 1400 : 3200);
+            const useObservedFallback = inlineMetaVisibleTaskBlocks.size <= 0 && inlineMetaObservedTaskBlocks.size <= QUICKBAR_INLINE_OBSERVED_FALLBACK_LIMIT;
+            const sourceBlocks = inlineMetaVisibleTaskBlocks.size
+                ? Array.from(inlineMetaVisibleTaskBlocks.values())
+                : (useObservedFallback ? Array.from(inlineMetaObservedTaskBlocks.values()) : []);
+            const buckets = { coreBlocks: [], preRenderBlocks: [], keepBlocks: [] };
+            const seen = new Set();
+            for (let i = 0; i < sourceBlocks.length; i += 1) {
+                const blockEl = sourceBlocks[i];
+                const blockId = String(blockEl?.dataset?.nodeId || '').trim();
+                if (!blockId || seen.has(blockId)) continue;
+                seen.add(blockId);
+                if (!isTaskBlockElement(blockEl)) continue;
+                try {
+                    const rect = blockEl.getBoundingClientRect();
+                    if (!rect) continue;
+                    if (rect.bottom >= -keepUp && rect.top <= viewportHeight + keepDown) {
+                        if (buckets.keepBlocks.length < 900) buckets.keepBlocks.push(blockEl);
+                    }
+                    if (rect.bottom >= -preUp && rect.top <= viewportHeight + preDown) {
+                        if (buckets.preRenderBlocks.length < 620) buckets.preRenderBlocks.push(blockEl);
+                    }
+                    if (rect.bottom >= -coreUp && rect.top <= viewportHeight + coreDown) {
+                        if (buckets.coreBlocks.length < 320) buckets.coreBlocks.push(blockEl);
+                    }
+                } catch (e) {}
+            }
+            return buckets;
         }
 
         function getInlineScrollPositionFromEventTarget(target) {
@@ -4399,6 +4519,7 @@
                     const blockId = String(blockEl?.dataset?.nodeId || '').trim();
                     if (!blockId || nextBlocks.has(blockId)) continue;
                     if (!isTaskBlockElement(blockEl)) continue;
+                    if (isInlineMetaHiddenDoneTaskBlock(blockEl)) continue;
                     nextBlocks.set(blockId, blockEl);
                 }
             });
@@ -4606,7 +4727,9 @@
             const bounds = getInlineViewportBounds(blockEl);
             const editing = isInlineMetaEditingBlock(blockEl);
             if (!layerRect || !blockRect || (!blockRect.width && !blockRect.height) || !plainText || !textRect) {
-                if (editing && prevLayout) return true;
+                if (editing && prevLayout) {
+                    return true;
+                }
                 host.classList.remove('is-ready');
                 inlineMetaLayoutCache.delete(taskId);
                 return false;
@@ -4637,14 +4760,14 @@
                     right: (Number.parseInt(prevLayout.left, 10) || 0) + Math.max(prevLayout.hostWidth || 72, 72),
                     bottom: (Number.parseInt(prevLayout.top, 10) || 0) + Math.max(prevLayout.hostHeight || 20, 20)
                 });
+                finishDebug(true, 'geometry-cache');
                 return true;
             }
             // --- READ host dimensions: remove is-wrap only here to measure natural size ---
-            host.classList.remove('is-wrap');
-            const hostRect = host.getBoundingClientRect();
-            const hostWidth = Math.ceil(hostRect.width || host.offsetWidth || 0);
-            const hostHeight = Math.ceil(hostRect.height || host.offsetHeight || 20);
-            const layerWidth = Math.max(0, Math.round(layer.clientWidth || bounds?.width || layerRect.width || 0));
+            const estimatedHost = estimateInlineMetaHostSize(layoutHtml);
+            const hostWidth = estimatedHost.width;
+            const hostHeight = estimatedHost.height;
+            const layerWidth = Math.max(0, Math.round(bounds?.width || layerRect.width || 0));
             // --- COMPUTE PHASE: pure calculations, no DOM access ---
             const minLeft = 8;
             const maxLeft = Math.max(minLeft, layerWidth - hostWidth - 8);
@@ -4721,6 +4844,10 @@
             inlineMetaOccupiedRects = [];
             const hosts = Array.from(layer.querySelectorAll('.sy-custom-props-inline-host[data-block-id]'));
             const entries = [];
+            let missingBlockCount = 0;
+            let outsideViewportCount = 0;
+            const viewportTop = -900;
+            const viewportBottom = (window.innerHeight || document.documentElement?.clientHeight || 0) + 900;
             for (let i = 0; i < hosts.length; i++) {
                 const host = hosts[i];
                 const taskId = String(host?.dataset?.blockId || '').trim();
@@ -4729,10 +4856,22 @@
                 const textAnchor = getInlineTextAnchor(blockEl);
                 if (!blockEl || !textAnchor) {
                     entries.push({ host, taskId, skip: true });
+                    missingBlockCount += 1;
                     continue;
+                }
+                if (inlineMetaScrolling) {
+                    try {
+                        const rect = blockEl.getBoundingClientRect?.();
+                        if (!rect || rect.bottom < viewportTop || rect.top > viewportBottom) {
+                            outsideViewportCount += 1;
+                            continue;
+                        }
+                    } catch (e) {}
                 }
                 entries.push({ host, taskId, blockEl, textAnchor, html: inlineMetaLayoutCache.get(taskId)?.html || host.innerHTML || '', skip: false });
             }
+            let laidOut = 0;
+            let restored = 0;
             for (let i = 0; i < entries.length; i++) {
                 const e = entries[i];
                 if (e.skip) {
@@ -4744,12 +4883,14 @@
                 }
                 const prevLayout = inlineMetaScrolling ? inlineMetaLayoutCache.get(e.taskId) : null;
                 const ok = layoutInlineMetaHost(e.blockEl, e.host, e.taskId, e.textAnchor, e.html, false);
+                if (ok) laidOut += 1;
                 if (!ok && prevLayout) {
                     e.host.classList.toggle('is-wrap', !!prevLayout.wrapMode);
                     e.host.style.left = prevLayout.left;
                     e.host.style.top = prevLayout.top;
                     e.host.style.maxWidth = prevLayout.maxWidth;
                     e.host.classList.add('is-ready');
+                    restored += 1;
                 }
             }
         }
@@ -4758,7 +4899,12 @@
             if (!isInlineMetaEnabled()) return;
             const taskId = String(resolveTaskAttrNodeIdForDetail(blockEl) || blockEl?.dataset?.nodeId || '').trim();
             if (!taskId) return;
-            const isInScope = await isInlineMetaScopeAllowedForBlock(blockEl);
+            if (isInlineMetaHiddenDoneTaskBlock(blockEl)) {
+                removeInlineMetaHostByTaskId(taskId);
+                inlineMetaLayoutCache.delete(taskId);
+                return;
+            }
+            const isInScope = isInlineMetaScopeAllowedForBlockCached(blockEl);
             if (!isInScope) {
                 removeInlineMetaHostByTaskId(taskId);
                 inlineMetaLayoutCache.delete(taskId);
@@ -4779,8 +4925,11 @@
                 inlineMetaLayoutCache.delete(taskId);
                 return;
             }
-            if (host.innerHTML !== html) host.innerHTML = html;
-            layoutInlineMetaHost(hostParent, host, taskId, textAnchor, html, forceRefresh, visibilityBuffer);
+            const htmlChanged = host.innerHTML !== html;
+            const layoutOk = layoutInlineMetaHost(hostParent, host, taskId, textAnchor, html, forceRefresh, visibilityBuffer);
+            if (htmlChanged && layoutOk && host.isConnected && String(host.dataset.blockId || '').trim() === taskId) {
+                host.innerHTML = html;
+            }
             if (hasCached) return;
             Promise.resolve(ensureTaskPropsReady(taskId, forceRefresh)).then((freshProps) => {
                 if (!host.isConnected) return;
@@ -4811,32 +4960,38 @@
                 }
                 inlineMetaOccupiedRects = [];
                 const dir = inlineMetaScrollDirection;
-                const coreUp = dir > 0 ? 320 : (dir < 0 ? 900 : 520);
-                const coreDown = dir > 0 ? 900 : (dir < 0 ? 320 : 520);
-                const blocks = getInlineDirectionalTaskBlocks(coreUp, coreDown, 320);
+                const buckets = inlineMetaScrolling ? null : getInlineTaskBlockBuckets(dir);
+                const blocks = buckets ? buckets.coreBlocks : [];
                 if (inlineMetaScrolling) {
                     const keepUp = dir > 0 ? 1400 : (dir < 0 ? 4200 : 3200);
                     const keepDown = dir > 0 ? 4200 : (dir < 0 ? 1400 : 3200);
                     const keepBlocks = getInlineDirectionalTaskBlocks(keepUp, keepDown, 900);
                     pruneInlineMetaOutsideViewport(keepBlocks);
-                    blocks.forEach((blockEl) => {
-                        Promise.resolve(renderInlineMetaForBlock(blockEl, false, 420)).catch(() => null);
-                    });
                 } else {
-                    const preUp = dir > 0 ? 900 : (dir < 0 ? 3200 : 2200);
-                    const preDown = dir > 0 ? 3200 : (dir < 0 ? 900 : 2200);
-                    const keepUp = dir > 0 ? 1400 : (dir < 0 ? 4200 : 3200);
-                    const keepDown = dir > 0 ? 4200 : (dir < 0 ? 1400 : 3200);
-                    const preRenderBlocks = getInlineDirectionalTaskBlocks(preUp, preDown, 620);
-                    const keepBlocks = getInlineDirectionalTaskBlocks(keepUp, keepDown, 900);
+                    const preRenderBlocks = buckets ? buckets.preRenderBlocks : [];
+                    const keepBlocks = buckets ? buckets.keepBlocks : [];
                     pruneInlineMetaOutsideViewport(keepBlocks);
                     prefetchInlineMetaProps(preRenderBlocks, 680);
                     const coreSet = new Set(blocks.map((el) => String(el?.dataset?.nodeId || '').trim()).filter(Boolean));
-                    preRenderBlocks.forEach((blockEl) => {
+                    const renderBlocks = [];
+                    const renderLimit = Math.min(QUICKBAR_INLINE_RENDER_BATCH_LIMIT, preRenderBlocks.length);
+                    for (let i = 0; i < renderLimit; i += 1) {
+                        renderBlocks.push(preRenderBlocks[(inlineMetaRenderCursor + i) % preRenderBlocks.length]);
+                    }
+                    inlineMetaRenderCursor = preRenderBlocks.length
+                        ? (inlineMetaRenderCursor + renderBlocks.length) % preRenderBlocks.length
+                        : 0;
+                    renderBlocks.forEach((blockEl) => {
                         const blockId = String(blockEl?.dataset?.nodeId || '').trim();
                         const buffer = coreSet.has(blockId) ? 420 : 1800;
-                        Promise.resolve(renderInlineMetaForBlock(blockEl, forceRefresh, buffer)).catch(() => null);
+                        queueInlineMetaRenderBlock(blockEl, forceRefresh, buffer);
                     });
+                    if (preRenderBlocks.length > renderBlocks.length) {
+                        inlineMetaRenderTimer = setTimeout(() => {
+                            inlineMetaRenderTimer = null;
+                            requestInlineMetaRender(false);
+                        }, 48);
+                    }
                 }
             };
             if (inlineMetaRenderTimer) clearTimeout(inlineMetaRenderTimer);
@@ -4858,6 +5013,8 @@
             bindInlineMetaWakeEvents();
             inlineMetaScrollHandler = (e) => {
                 if (!shouldHandleInlineMetaViewportEvent(e?.target || document.documentElement)) return;
+                let pos = inlineMetaLastScrollPos;
+                let delta = 0;
                 if (!hasInlineMetaActiveTargets()) {
                     if (!inlineMetaNeedSyncBlocks) return;
                     const now = Date.now();
@@ -4869,8 +5026,8 @@
                 }
                 setInlineMetaScrolling(true);
                 if (e?.type !== 'resize') {
-                    const pos = getInlineScrollPositionFromEventTarget(e?.target || document.documentElement);
-                    const delta = pos - inlineMetaLastScrollPos;
+                    pos = getInlineScrollPositionFromEventTarget(e?.target || document.documentElement);
+                    delta = pos - inlineMetaLastScrollPos;
                     if (Math.abs(delta) >= 1) {
                         inlineMetaScrollDirection = delta > 0 ? 1 : -1;
                         inlineMetaLastScrollPos = pos;
@@ -4950,6 +5107,7 @@
             clearInlineMetaWakeTimer();
             if (inlineMetaRenderTimer) clearTimeout(inlineMetaRenderTimer);
             inlineMetaRenderTimer = null;
+            clearInlineMetaRenderQueue();
             if (inlineMetaRafId) cancelAnimationFrame(inlineMetaRafId);
             inlineMetaRafId = 0;
             if (inlineMetaPositionRafId) cancelAnimationFrame(inlineMetaPositionRafId);
@@ -5089,6 +5247,7 @@
         let taskAttrUpdatedHandler = null;
         let selectionChangeHandler = null;  // 新增：文字选择变化监听器
         let mouseUpHandler = null;
+        let mouseUpSelectionTimer = null;
 
         function startQuickbar() {
             if (quickbarStarted) return;
@@ -5139,7 +5298,12 @@
             // mouseup 事件 - 当用户释放鼠标时检测（选择文字后）
             mouseUpHandler = (e) => {
                 // 延迟一点执行，确保 selection 已经更新
-                setTimeout(() => {
+                if (mouseUpSelectionTimer) {
+                    try { clearTimeout(mouseUpSelectionTimer); } catch (err) {}
+                    mouseUpSelectionTimer = null;
+                }
+                mouseUpSelectionTimer = setTimeout(() => {
+                    mouseUpSelectionTimer = null;
                     checkAndHideForTextSelection();
                     updateInlineMetaSelectionVisibility();
                 }, 10);
@@ -5204,6 +5368,10 @@
             selectionChangeHandler = null;
             try { if (mouseUpHandler) document.removeEventListener('mouseup', mouseUpHandler, true); } catch (e) {}
             mouseUpHandler = null;
+            if (mouseUpSelectionTimer) {
+                try { clearTimeout(mouseUpSelectionTimer); } catch (e) {}
+                mouseUpSelectionTimer = null;
+            }
             try {
                 document.querySelectorAll('.sy-custom-props-inline-layer').forEach((layer) => {
                     layer.classList.remove('is-selection-active');

@@ -4866,6 +4866,23 @@ return;
         return true;
     }
 
+    async function __tmSetCollectedOtherBlockPriority(taskOrId, priority) {
+        const task = (taskOrId && typeof taskOrId === 'object')
+            ? taskOrId
+            : (globalThis.__tmRuntimeState?.getFlatTaskById?.(String(taskOrId || '').trim()) || state.flatTasks?.[String(taskOrId || '').trim()]);
+        const tid = String(task?.id || taskOrId || '').trim();
+        if (!task || !tid || !__tmIsCollectedOtherBlockTask(task)) return false;
+        const nextPriority = __tmNormalizeTaskPriorityValue(priority);
+        task.priority = nextPriority;
+        task.custom_priority = nextPriority;
+        task.customPriority = nextPriority;
+        try { MetaStore.set(tid, { priority: nextPriority }); } catch (e) {}
+        try { await MetaStore.saveNow?.(); } catch (e) {}
+        try { applyFilters(); } catch (e) {}
+        try { if (state.modal) render(); } catch (e) {}
+        return true;
+    }
+
     async function __tmResolveCollectedOtherBlockTaskById(id) {
         const tid = String(id || '').trim();
         if (!tid) return null;
@@ -4958,6 +4975,52 @@ return;
         const tomatoEnabled = !!SettingsStore.data.enableTomatoIntegration;
         const timer = tomatoEnabled ? globalThis.__tomatoTimer : null;
         const taskName = __tmNormalizeTimerTaskName(task?.otherBlockRawContent || task?.content || task?.markdown || '', '其他块');
+        const createPriorityBlock = () => {
+            const wrap = document.createElement('div');
+            wrap.className = 'tm-task-context-priority';
+            const title = document.createElement('div');
+            title.className = 'tm-task-context-priority__title';
+            title.textContent = '优先级';
+            wrap.appendChild(title);
+            const row = document.createElement('div');
+            row.className = 'tm-task-context-priority__row';
+            const currentKey = String(__tmGetPriorityJiraInfo(task?.priority || '')?.key || 'none').trim() || 'none';
+            [
+                { key: 'high', value: 'high' },
+                { key: 'medium', value: 'medium' },
+                { key: 'low', value: 'low' },
+                { key: 'none', value: '' },
+            ].forEach((opt) => {
+                const info = __tmGetPriorityJiraInfo(opt.value);
+                const key = String(opt.key || info?.key || 'none').trim() || 'none';
+                const color = __tmGetPriorityAccentColor(key) || 'var(--tm-secondary-text)';
+                const active = key === currentKey;
+                const btn = document.createElement('button');
+                btn.type = 'button';
+                btn.className = `tm-task-context-priority__btn${active ? ' is-active' : ''}`;
+                btn.style.setProperty('--tm-context-priority-color', color);
+                btn.setAttribute('aria-label', `设置重要性为${info?.label || '无'}`);
+                btn.setAttribute('aria-pressed', active ? 'true' : 'false');
+                btn.title = info?.label || '无';
+                btn.innerHTML = __tmRenderPriorityJira(opt.value, false);
+                btn.onclick = async (e) => {
+                    try { e.stopPropagation(); } catch (err) {}
+                    try { e.preventDefault(); } catch (err) {}
+                    btn.disabled = true;
+                    const ok = await __tmSetCollectedOtherBlockPriority(task, opt.value);
+                    if (ok) {
+                        const label = opt.value === 'high' ? '高' : (opt.value === 'medium' ? '中' : (opt.value === 'low' ? '低' : '无'));
+                        try { hint(`✅ 重要性已更新为${label}`, 'success'); } catch (err) {}
+                        try { closeHandler(); } catch (err) {}
+                    } else {
+                        btn.disabled = false;
+                    }
+                };
+                row.appendChild(btn);
+            });
+            wrap.appendChild(row);
+            return wrap;
+        };
         const runTaskTimer = async (minutes, mode = 'countdown') => {
             const timerTaskId = tid;
             const timerTaskName = String(taskName || '其他块').trim() || '其他块';
@@ -5047,6 +5110,11 @@ return;
                 }));
             }
         }
+
+        menu.appendChild(createPriorityBlock());
+        const hrPriority = document.createElement('hr');
+        hrPriority.style.cssText = 'margin: 4px 0; border: none; border-top: 1px solid var(--b3-theme-surface-light);';
+        menu.appendChild(hrPriority);
 
         menu.appendChild(createItem(__tmRenderContextMenuLabel('check-circle-2', task.done ? '取消完成（仅插件内）' : '标记完成（仅插件内）'), async () => {
             await tmSetDone(tid, !task.done);

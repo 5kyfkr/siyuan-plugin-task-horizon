@@ -535,6 +535,7 @@ if (shouldMarkDirty) {
             && !quickbarDirty
             && !hasPendingInsertedTasks
             && !forceShellRenderOnOpen;
+        try { __tmWarmTaskSnapshotStore(); } catch (e) {}
         if (canSkipRenderOnReuse) {
             try { __tmScheduleReminderTaskNameMarksRefresh(state.modal, true); } catch (e) {}
             try {

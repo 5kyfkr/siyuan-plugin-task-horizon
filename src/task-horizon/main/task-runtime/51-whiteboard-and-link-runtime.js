@@ -1055,6 +1055,56 @@
         return true;
     }
 
+    function __tmCaptureTaskDetailSubtaskDraftSnapshot(rootEl, expectedTaskId = '') {
+        const root = rootEl instanceof Element ? rootEl : null;
+        if (!(root instanceof Element)) return null;
+        try {
+            const currentId = __tmResolveTaskDetailRootTaskId(root);
+            const requestedId = String(expectedTaskId || currentId || '').trim();
+            if (requestedId && currentId && currentId !== requestedId) return null;
+            const draftRow = root.querySelector('[data-tm-detail-subtask-draft]');
+            if (!(draftRow instanceof HTMLElement) || draftRow.dataset.saving === 'true') return null;
+            const input = draftRow.querySelector('[data-tm-detail-subtask-draft-input]');
+            if (!(input instanceof HTMLTextAreaElement)) return null;
+            const active = document.activeElement === input;
+            return {
+                taskId: currentId || requestedId,
+                value: String(input.value || ''),
+                focused: active,
+                selectionStart: active ? Number(input.selectionStart || 0) : 0,
+                selectionEnd: active ? Number(input.selectionEnd || input.selectionStart || 0) : 0,
+            };
+        } catch (e) {
+            return null;
+        }
+    }
+
+    function __tmRestoreTaskDetailSubtaskDraftSnapshot(rootEl, snapshot) {
+        const root = rootEl instanceof Element ? rootEl : null;
+        if (!(root instanceof Element) || !snapshot || typeof snapshot !== 'object') return false;
+        try {
+            const taskId = String(snapshot.taskId || '').trim();
+            const currentId = __tmResolveTaskDetailRootTaskId(root);
+            if (taskId && currentId && taskId !== currentId) return false;
+            const opener = typeof root.__tmTaskDetailOpenInlineSubtaskDraft === 'function'
+                ? root.__tmTaskDetailOpenInlineSubtaskDraft
+                : null;
+            if (!opener) {
+                try { root.__tmPendingSubtaskDraftSnapshot = snapshot; } catch (e) {}
+                return false;
+            }
+            opener({
+                value: String(snapshot.value || ''),
+                focus: snapshot.focused !== false,
+                selectionStart: Number(snapshot.selectionStart || 0),
+                selectionEnd: Number(snapshot.selectionEnd || snapshot.selectionStart || 0),
+            });
+            return true;
+        } catch (e) {
+            return false;
+        }
+    }
+
     function __tmMarkTaskDetailRootClosing(rootEl, options = {}) {
         const root = rootEl instanceof Element ? rootEl : null;
         if (!(root instanceof Element)) return false;
@@ -4321,6 +4371,11 @@ throw error;
         try {
             if (root.querySelector?.('[data-tm-detail-status-trigger][aria-expanded="true"], [data-tm-detail-priority-trigger][aria-expanded="true"]')) {
                 reasons.push('menu-open');
+            }
+        } catch (e) {}
+        try {
+            if (root.querySelector?.('[data-tm-detail-subtask-draft]')) {
+                reasons.push('subtask-draft-open');
             }
         } catch (e) {}
         try {

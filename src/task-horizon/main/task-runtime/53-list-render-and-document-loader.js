@@ -1456,6 +1456,25 @@ return finish(false, 'noop');
         try { km = await API.getBlockKramdown(sourceId); } catch (e) { km = ''; }
         let parsed = { done: false, content: '' };
         try { parsed = API.parseTaskStatus(km || ''); } catch (e) {}
+        const cleanTaskContent = (value) => {
+            let text = String(value || '').trim();
+            try {
+                if (typeof API?.extractTaskContentLine === 'function') {
+                    text = String(API.extractTaskContentLine(text) || text).trim();
+                }
+            } catch (e) {}
+            try {
+                if (typeof API?.normalizeTaskContent === 'function') {
+                    text = String(API.normalizeTaskContent(text) || text).trim();
+                }
+            } catch (e) {}
+            text = text
+                .replace(/^\s*(?:[-*+]|\d+[.)])\s*\[[^\]]*\]\s*/, '')
+                .replace(/\s*\{:\s*[^}]*\}\s*$/g, '')
+                .trim();
+            return text;
+        };
+        const contentText = cleanTaskContent(parsed?.content || km || '');
         let attrs = {};
         const readAttrs = async (blockId) => {
             const targetId = String(blockId || '').trim();
@@ -1487,8 +1506,8 @@ return finish(false, 'noop');
         const row = {
             id: sourceId,
             markdown: km || '',
-            raw_content: String(parsed?.content || '').trim() || '(无内容)',
-            content: String(parsed?.content || '').trim() || '(无内容)',
+            raw_content: contentText || '(无内容)',
+            content: contentText || '(无内容)',
             done: !!parsed?.done,
             priority: String(attrs['custom-priority'] || '').trim(),
             duration: String(attrs['custom-duration'] || '').trim(),
@@ -1727,7 +1746,7 @@ return finish(false, 'noop');
             ev.preventDefault();
         }
 
-        let task = globalThis.__tmRuntimeState?.getFlatTaskById?.(id) || state.flatTasks?.[id] || null;
+        let task = globalThis.__tmRuntimeState?.getTaskById?.(id) || state.flatTasks?.[id] || state.pendingInsertedTasks?.[id] || null;
         if (!task) {
             try { task = await __tmEnsureTaskInStateById(id); } catch (e) { task = null; }
         }
@@ -2266,7 +2285,31 @@ if (ev) {
             try { ev.preventDefault(); } catch (e) {}
         }
         const tid = String(id || '').trim();
-        let task = globalThis.__tmRuntimeState?.getFlatTaskById?.(tid) || state.flatTasks?.[tid] || null;
+        let task = globalThis.__tmRuntimeState?.getTaskById?.(tid) || state.flatTasks?.[tid] || state.pendingInsertedTasks?.[tid] || null;
+        if (__tmIsOptimisticTempTaskId(tid) && state.pendingInsertedTasks?.[tid]) {
+            const targetDone = !!done;
+            try {
+                state.pendingInsertedTasks[tid].done = targetDone;
+                state.pendingInsertedTasks[tid].__tmPendingDoneRequest = {
+                    done: targetDone,
+                    options: {
+                        suppressHint: opts.suppressHint === true,
+                        source: String(opts.source || 'pending-create-set-done').trim() || 'pending-create-set-done',
+                        scheduleId: String(opts.scheduleId || '').trim(),
+                    },
+                };
+                if (state.flatTasks?.[tid]) state.flatTasks[tid].done = targetDone;
+                if (!state.doneOverrides || typeof state.doneOverrides !== 'object') state.doneOverrides = {};
+                state.doneOverrides[tid] = targetDone;
+            } catch (e) {}
+            if (ev?.target) {
+                try { ev.target.checked = targetDone; } catch (e) {}
+            }
+            if (opts.suppressHint !== true) {
+                try { hint(targetDone ? '⏳ 子任务创建中，完成状态将自动同步' : '✅ 已取消完成', targetDone ? 'info' : 'success'); } catch (e) {}
+            }
+            return true;
+        }
         const viewMode = globalThis.__tmRuntimeState?.getViewMode?.('') || String(state.viewMode || '').trim();
         const isChecklistListToggle = !!(ev?.target instanceof Element && ev.target.closest('.tm-checklist-item[data-id]'));
         const shouldPreserveMobileChecklistScroll = (viewMode === 'checklist')
@@ -2290,6 +2333,12 @@ if (ev) {
         }
         const targetDone = !!done;
         if (!!task.done === targetDone) return;
+        const originalDone = !!task.done;
+        const shouldDispatchTaskReward = !!SettingsStore?.data?.enablePointsRewardIntegration && !originalDone && targetDone && !__tmUndoState?.applying;
+        const taskRewardPriorityScore = shouldDispatchTaskReward
+            ? Math.max(0, Math.round(Number(__tmEnsureTaskPriorityScore(task, { force: true })) || 0))
+            : 0;
+        const taskRewardAttrHostId = String(tid || __tmGetTaskAttrHostId(task) || '').trim();
         try {
             const request = __tmMutationEngine.requestTaskPatch(tid, { done: targetDone }, {
                 source: String(opts.source || '').trim(),
@@ -2301,6 +2350,23 @@ if (ev) {
             });
             try { __tmRestoreChecklistRenderRestore(checklistLocalRestoreSnapshot); } catch (e) {}
             await request;
+            if (shouldDispatchTaskReward) {
+                try {
+                    const latestTask = globalThis.__tmRuntimeState?.getTaskById?.(tid)
+                        || state.flatTasks?.[tid]
+                        || state.pendingInsertedTasks?.[tid]
+                        || task;
+                    __tmDispatchTaskCompletedForReward(latestTask, {
+                        taskId: tid,
+                        attrHostId: taskRewardAttrHostId || tid,
+                        priorityScore: taskRewardPriorityScore,
+                        completedAt: String(latestTask?.taskCompleteAt || latestTask?.task_complete_at || '').trim(),
+                        source: String(opts.source || 'set-done-patch').trim() || 'set-done-patch',
+                        previousDone: originalDone,
+                        nextDone: true,
+                    });
+                } catch (e) {}
+            }
             try { __tmRestoreChecklistRenderRestore(checklistLocalRestoreSnapshot); } catch (e) {}
 if (targetDone) __tmQueueTaskDoneDelight(tid, { done: true, suppressHint: opts.suppressHint, source: opts.source });
             if (opts.suppressHint === true) return true;
@@ -3877,6 +3943,84 @@ hint(`❌ 操作失败: ${e.message}`, 'error');
             };
             return item;
         };
+        const createSubmenu = (label, childrenBuilder) => {
+            const item = createItem(label, () => {});
+            item.style.position = 'relative';
+            item.style.paddingRight = '24px';
+            const arrow = document.createElement('span');
+            arrow.textContent = '›';
+            arrow.style.cssText = 'margin-left:auto;font-size:14px;line-height:1;color:var(--b3-theme-on-background);opacity:.7;';
+            item.appendChild(arrow);
+            const submenu = document.createElement('div');
+            submenu.style.cssText = `
+                position: absolute;
+                top: -4px;
+                left: calc(100% - 4px);
+                display: none;
+                flex-direction: column;
+                align-items: stretch;
+                background: var(--b3-theme-background);
+                border: 1px solid var(--b3-theme-surface-light);
+                border-radius: 4px;
+                box-shadow: 0 4px 12px rgba(0,0,0,0.2);
+                padding: 4px 0;
+                min-width: 180px;
+                box-sizing: border-box;
+                z-index: 200021;
+            `;
+            const children = typeof childrenBuilder === 'function' ? childrenBuilder() : [];
+            (Array.isArray(children) ? children : []).forEach((child) => submenu.appendChild(child));
+            item.appendChild(submenu);
+            let hideTimer = null;
+            const positionSubmenu = () => {
+                submenu.style.left = 'calc(100% - 4px)';
+                submenu.style.right = 'auto';
+                submenu.style.top = '-4px';
+                try {
+                    const rect = submenu.getBoundingClientRect();
+                    const vw = Math.max(0, window.innerWidth || document.documentElement.clientWidth || 0);
+                    const vh = Math.max(0, window.innerHeight || document.documentElement.clientHeight || 0);
+                    const margin = 8;
+                    if (rect.right > vw - margin) {
+                        submenu.style.left = 'auto';
+                        submenu.style.right = 'calc(100% - 4px)';
+                    }
+                    const nextRect = submenu.getBoundingClientRect();
+                    if (nextRect.bottom > vh - margin) {
+                        const overflow = nextRect.bottom - (vh - margin);
+                        submenu.style.top = `${Math.min(-4, -4 - Math.round(overflow))}px`;
+                    }
+                    const finalRect = submenu.getBoundingClientRect();
+                    if (finalRect.top < margin) {
+                        submenu.style.top = `${Math.max(margin - (item.getBoundingClientRect().top || 0), -4)}px`;
+                    }
+                } catch (e) {}
+            };
+            const show = () => {
+                if (hideTimer) {
+                    clearTimeout(hideTimer);
+                    hideTimer = null;
+                }
+                submenu.style.display = 'flex';
+                positionSubmenu();
+            };
+            const hide = () => {
+                if (hideTimer) clearTimeout(hideTimer);
+                hideTimer = setTimeout(() => {
+                    submenu.style.display = 'none';
+                }, 120);
+            };
+            item.onmouseenter = show;
+            item.onmouseleave = hide;
+            submenu.onmouseenter = show;
+            submenu.onmouseleave = hide;
+            item.onclick = (e) => {
+                e.stopPropagation();
+                if (submenu.style.display === 'flex') submenu.style.display = 'none';
+                else show();
+            };
+            return item;
+        };
 
         const task = globalThis.__tmRuntimeState?.getFlatTaskById?.(taskId) || state.flatTasks?.[taskId];
         const taskName = __tmNormalizeTimerTaskName(task?.content || task?.markdown || '', '任务');
@@ -4117,18 +4261,23 @@ hint(`❌ 操作失败: ${e.message}`, 'error');
             }
         }
         if (__tmIsAiFeatureEnabled()) {
-            menu.appendChild(createItem(__tmRenderContextMenuLabel('bot', 'AI 优化任务名称'), () => {
-                try { globalThis.tmAiOptimizeTaskName?.(taskId); } catch (e) {}
-            }));
-            menu.appendChild(createItem(__tmRenderContextMenuLabel('bot', 'AI 编辑字段'), () => {
-                try { globalThis.tmAiEditTask?.(taskId); } catch (e) {}
-            }));
-            menu.appendChild(createItem(__tmRenderContextMenuLabel('bot', 'AI 安排日程'), () => {
-                try { globalThis.tmAiPlanTaskSchedule?.(taskId); } catch (e) {}
-            }));
+            menu.appendChild(createSubmenu(__tmRenderContextMenuLabel('bot', 'AI'), () => [
+                createItem(__tmRenderContextMenuLabel('bot', '优化任务名称'), () => {
+                    try { globalThis.tmAiOptimizeTaskName?.(taskId); } catch (e) {}
+                }),
+                createItem(__tmRenderContextMenuLabel('bot', '编辑字段'), () => {
+                    try { globalThis.tmAiEditTask?.(taskId); } catch (e) {}
+                }),
+                createItem(__tmRenderContextMenuLabel('bot', '安排日程'), () => {
+                    try { globalThis.tmAiPlanTaskSchedule?.(taskId); } catch (e) {}
+                }),
+            ]));
         }
         menu.appendChild(createItem(__tmRenderContextMenuLabel('file-text', '任务详情'), () => {
             try { window.tmOpenTaskDetail?.(taskId); } catch (e) {}
+        }));
+        menu.appendChild(createItem(__tmRenderContextMenuLabel('map-pin', '跳转到原块'), async () => {
+            try { await window.tmJumpToTask?.(taskId); } catch (e) {}
         }));
         menu.appendChild(createItem(__tmRenderContextMenuLabel('square-pen', '修改内容'), () => tmEdit(taskId)));
         if (tomatoEnabled) {
@@ -4354,6 +4503,10 @@ hint(`❌ 操作失败: ${e.message}`, 'error');
 
     function __tmGenerateTempTaskId(prefix = 'task') {
         return `tm_tmp_${String(prefix || 'task').trim() || 'task'}_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+    }
+
+    function __tmIsOptimisticTempTaskId(taskId) {
+        return String(taskId || '').trim().startsWith('tm_tmp_');
     }
 
     function __tmInsertTaskIntoDocLocal(task, options = {}) {
@@ -4834,18 +4987,135 @@ hint(`❌ 操作失败: ${e.message}`, 'error');
         const tmp = String(tempId || '').trim();
         const rid = String(realId || '').trim();
         if (!tmp || !rid || tmp === rid) return false;
+        let pendingDoneRequest = null;
         try { __tmTransferVisibleDateFallbackTaskId(tmp, rid); } catch (e) {}
         try {
             if (state.pendingInsertedTasks?.[tmp]) {
+                if (state.pendingInsertedTasks[tmp].__tmPendingDoneRequest) {
+                    pendingDoneRequest = { ...state.pendingInsertedTasks[tmp].__tmPendingDoneRequest };
+                }
                 state.pendingInsertedTasks[rid] = {
                     ...state.pendingInsertedTasks[tmp],
                     id: rid,
                     expiresAt: Date.now() + 10000,
                 };
+                try { delete state.pendingInsertedTasks[rid].__tmPendingDoneRequest; } catch (e) {}
                 delete state.pendingInsertedTasks[tmp];
             }
         } catch (e) {}
         try { __tmRemapTaskId(tmp, rid); } catch (e) { return false; }
+        try { __tmRemapOptimisticTaskDomId(tmp, rid); } catch (e) {}
+        try {
+            const task = state.flatTasks?.[rid] || state.pendingInsertedTasks?.[rid] || null;
+            __tmRefreshCommittedOptimisticTaskScore(rid, { parentTaskId: task?.parentTaskId || '' }).catch(() => null);
+        } catch (e) {}
+        if (pendingDoneRequest && pendingDoneRequest.done === true) {
+            try {
+                const task = state.flatTasks?.[rid] || state.pendingInsertedTasks?.[rid] || null;
+                if (task && typeof task === 'object') task.done = false;
+                setTimeout(async () => {
+                    try {
+                        await __tmRefreshCommittedOptimisticTaskScore(rid, { parentTaskId: task?.parentTaskId || '' });
+                        window.tmSetDone?.(rid, true, null, {
+                            ...pendingDoneRequest.options,
+                            source: String(pendingDoneRequest.options?.source || 'pending-create-set-done').trim() || 'pending-create-set-done',
+                        });
+                    } catch (e) {}
+                }, 0);
+            } catch (e) {}
+        }
+        return true;
+    }
+
+    async function __tmRefreshCommittedOptimisticTaskScore(taskId, options = {}) {
+        const tid = String(taskId || '').trim();
+        if (!tid) return null;
+        const opts = (options && typeof options === 'object') ? options : {};
+        let latest = null;
+        try { latest = await __tmBuildTaskLikeFromBlockId(tid); } catch (e) { latest = null; }
+        const local = state.flatTasks?.[tid] || state.pendingInsertedTasks?.[tid] || null;
+        const task = (latest && typeof latest === 'object')
+            ? latest
+            : ((local && typeof local === 'object') ? local : null);
+        if (!task) return null;
+        const parentTaskId = String(opts.parentTaskId || local?.parentTaskId || task.parentTaskId || '').trim();
+        if (parentTaskId) {
+            task.parentTaskId = parentTaskId;
+            task.parent_task_id = parentTaskId;
+        }
+        if (local && typeof local === 'object') {
+            ['docId', 'root_id', 'docName', 'h2', 'h2Id', 'h2Rank', 'level'].forEach((key) => {
+                if (task[key] == null || String(task[key] || '').trim() === '') task[key] = local[key];
+            });
+        }
+        try { normalizeTaskFields(task, task.docName || local?.docName || '未命名文档'); } catch (e) {}
+        try { task.priorityScore = __tmEnsureTaskPriorityScore(task, { force: true }); } catch (e) {}
+        try { state.flatTasks[tid] = task; } catch (e) {}
+        try {
+            if (state.pendingInsertedTasks?.[tid]) {
+                state.pendingInsertedTasks[tid] = {
+                    ...state.pendingInsertedTasks[tid],
+                    ...task,
+                    expiresAt: state.pendingInsertedTasks[tid].expiresAt || Date.now() + 10000,
+                };
+            }
+        } catch (e) {}
+        try {
+            const parent = parentTaskId ? (state.flatTasks?.[parentTaskId] || null) : null;
+            if (parent && Array.isArray(parent.children)) {
+                const idx = parent.children.findIndex((child) => String(child?.id || '').trim() === tid);
+                if (idx >= 0) parent.children[idx] = { ...parent.children[idx], ...task };
+            }
+        } catch (e) {}
+        return task;
+    }
+
+    function __tmRemapOptimisticTaskDomId(tempId, realId) {
+        const tmp = String(tempId || '').trim();
+        const rid = String(realId || '').trim();
+        if (!tmp || !rid || tmp === rid) return false;
+        const escTmp = typeof CSS !== 'undefined' && typeof CSS.escape === 'function'
+            ? CSS.escape(tmp)
+            : tmp.replace(/["\\]/g, '\\$&');
+        const replaceAttrValue = (el, attrName) => {
+            try {
+                if (!(el instanceof Element) || !el.hasAttribute(attrName)) return;
+                const value = String(el.getAttribute(attrName) || '');
+                if (value === tmp) {
+                    el.setAttribute(attrName, rid);
+                    return;
+                }
+                if (value.includes(tmp)) {
+                    el.setAttribute(attrName, value.split(tmp).join(rid));
+                }
+            } catch (e) {}
+        };
+        try {
+            document.querySelectorAll(
+                `[data-id="${escTmp}"], [data-task-id="${escTmp}"], [data-tm-detail-subtask-content="${escTmp}"], [data-tm-detail-open-child="${escTmp}"], [data-tm-detail-subtask-menu="${escTmp}"]`
+            ).forEach((el) => {
+                replaceAttrValue(el, 'data-id');
+                replaceAttrValue(el, 'data-task-id');
+                replaceAttrValue(el, 'data-tm-detail-subtask-content');
+                replaceAttrValue(el, 'data-tm-detail-open-child');
+                replaceAttrValue(el, 'data-tm-detail-subtask-menu');
+            });
+        } catch (e) {}
+        try {
+            document.querySelectorAll('.tm-task-checkbox[onchange]').forEach((el) => {
+                replaceAttrValue(el, 'onchange');
+            });
+        } catch (e) {}
+        try {
+            document.querySelectorAll('[onclick],[oncontextmenu],[ondragstart],[ondragenter],[ondragover],[ondrop]').forEach((el) => {
+                replaceAttrValue(el, 'onclick');
+                replaceAttrValue(el, 'oncontextmenu');
+                replaceAttrValue(el, 'ondragstart');
+                replaceAttrValue(el, 'ondragenter');
+                replaceAttrValue(el, 'ondragover');
+                replaceAttrValue(el, 'ondrop');
+            });
+        } catch (e) {}
         return true;
     }
 
@@ -6728,6 +6998,7 @@ hint(`❌ 操作失败: ${e.message}`, 'error');
         const preferFastFirstPaint = !!(options && options.preferFastFirstPaint);
         const forceFreshTasks = !!(options && options.forceFreshTasks === true);
         const forceSyncFlowRank = !!(options && options.forceSyncFlowRank === true);
+        const forceFullLoadBudget = !!(options && options.forceFullLoadBudget);
         const perfTuning = __tmGetPerfTuningOptions();
         const perfTrace = (options && options.perfTrace) || __tmCreatePerfTrace('loadSelectedDocuments', {
             source: String(options?.source || 'direct').trim() || 'direct',
@@ -6746,6 +7017,27 @@ hint(`❌ 操作失败: ${e.message}`, 'error');
             if (perfFinished) return;
             perfFinished = true;
             __tmPerfTraceFinish(perfTrace, detail);
+        };
+        const scheduleFullLoadAfterFastFirstPaint = (reason = 'fast-first-paint') => {
+            if (!preferFastFirstPaint || forceFullLoadBudget || forceFreshTasks || skipRender) return false;
+            if (state.__tmFastFirstPaintFullLoadScheduled) return false;
+            state.__tmFastFirstPaintFullLoadScheduled = true;
+            const run = () => {
+                state.__tmFastFirstPaintFullLoadScheduled = false;
+                if (!isTokenCurrent()) return;
+                const nextOptions = {
+                    ...options,
+                    preferFastFirstPaint: false,
+                    forceFullLoadBudget: true,
+                    forceFreshTasks: true,
+                    showInlineLoading: false,
+                    source: `${String(reason || 'fast-first-paint').trim() || 'fast-first-paint'}:full`,
+                };
+                try { delete nextOptions.perfTrace; } catch (e) {}
+                loadSelectedDocuments(nextOptions).catch(() => null);
+            };
+            try { __tmScheduleIdleTask(run, 240); } catch (e) { setTimeout(run, 240); }
+            return true;
         };
         if (showInlineLoading) {
             try {
@@ -6886,6 +7178,31 @@ hint(`❌ 操作失败: ${e.message}`, 'error');
             docCount: Array.isArray(allDocIds) ? allDocIds.length : 0,
             groupId: currentGroupId,
         });
+        let snapshotFirstRenderCommitted = false;
+        if (preferFastFirstPaint && !skipRender && !forceFullLoadBudget && !forceFreshTasks) {
+            try {
+                const snapshot = await __tmLoadTaskSnapshotForScope({
+                    docIds: allDocIds,
+                    groupId: currentGroupId,
+                });
+                const snapshotMeta = __tmRestoreTaskSnapshotIntoState(snapshot);
+                if (snapshotMeta && isTokenCurrent()) {
+                    try { recalcStats(); } catch (e) {}
+                    applyFilters();
+                    const activeModal = getActiveModal();
+                    if (activeModal && isTokenCurrent()) {
+                        try { if (showInlineLoading && Number(state.uiInlineLoadingToken) === token) __tmSetInlineLoading(false); } catch (e) {}
+                        render();
+                        __tmPerfTraceMark(perfTrace, 'snapshot-first-render', {
+                            docCount: Number(snapshotMeta.docCount || 0),
+                            taskCount: Number(snapshotMeta.taskCount || 0),
+                            ageMs: __tmRoundPerfMs(snapshotMeta.ageMs || 0),
+                        });
+                        snapshotFirstRenderCommitted = true;
+                    }
+                }
+            } catch (e) {}
+        }
         const shouldLoadOtherBlocksLater = allowDeferredBootWork
             && !shouldLoadOtherBlocksInline
             && currentGroupId !== 'all'
@@ -7013,9 +7330,9 @@ hint(`❌ 操作失败: ${e.message}`, 'error');
 
         try {
             const startTime = Date.now();
-            const loadBudget = preferFastFirstPaint
+            const loadBudget = (preferFastFirstPaint && !snapshotFirstRenderCommitted)
                 ? __tmGetInitialLoadBudget({
-                    forceFullLoadBudget: !!(options && options.forceFullLoadBudget),
+                    forceFullLoadBudget,
                     queryLimit: state.queryLimit,
                     viewMode: state.viewMode,
                 })
@@ -7025,7 +7342,9 @@ hint(`❌ 操作失败: ${e.message}`, 'error');
                     renderLimit: Number(state.listRenderLimit) || 100,
                     listStep: 100,
                 };
-            const effectiveQueryLimit = state.queryLimit;
+            const effectiveQueryLimit = loadBudget.enabled
+                ? Math.max(1, Math.min(Number(state.queryLimit) || 500, Number(loadBudget.queryLimit) || Number(state.queryLimit) || 500))
+                : state.queryLimit;
             const initialRenderLimit = loadBudget.enabled
                 ? Math.max(loadBudget.listStep, loadBudget.renderLimit)
                 : Number.POSITIVE_INFINITY;
@@ -7250,7 +7569,7 @@ hint(`❌ 操作失败: ${e.message}`, 'error');
                 perfMark = __tmPerfNow();
                 const deferEnhance = !!perfTuning.asyncEnhance && taskIds0.length >= Number(perfTuning.deferEnhanceThreshold || 180);
                 const h2StrictNeeded = !!ruleNeedsH2Sort || docHeadingSubgroupActive || kanbanHeadingGroupingActive;
-                const preferAsyncEnhance = !!(loadBudget.enabled || preferFastFirstPaint);
+                const preferAsyncEnhance = !!loadBudget.enabled;
                 const deferH2Enhance = !!needH2 && !h2StrictNeeded && (deferEnhance || preferAsyncEnhance);
                 const syncFlowBeforeFirstRender = forceSyncFlowRank || (sourceLabel === 'openManager' && !skipRender) || shouldForceFreshColdAllDocsLoad;
                 const deferFlowEnhance = !!needFlowRank
@@ -7717,6 +8036,9 @@ hint(`❌ 操作失败: ${e.message}`, 'error');
                         fastBudget: loadBudget.enabled ? 1 : 0,
                     });
                 }
+                if (loadBudget.enabled) {
+                    scheduleFullLoadAfterFastFirstPaint('query-first-paint');
+                }
                 if (activeModal && isTokenCurrent()) {
                     try {
                         requestAnimationFrame(() => {
@@ -7804,6 +8126,16 @@ hint(`❌ 操作失败: ${e.message}`, 'error');
                     fastBudget: loadBudget.enabled ? 1 : 0,
                     deferredEnhancePending: (deferH2Enhance || deferFlowEnhance) ? 1 : 0,
                 });
+                if (!loadBudget.enabled && !skipRender) {
+                    try {
+                        __tmSchedulePersistTaskSnapshot({
+                            docIds: allDocIds,
+                            groupId: currentGroupId,
+                            queryLimit: forceFullLoadBudget ? state.queryLimit : effectiveQueryLimit,
+                            forceFullLoadBudget: false,
+                        });
+                    } catch (e) {}
+                }
                 finishPerfTrace({
                     docCount: Array.isArray(allDocIds) ? allDocIds.length : 0,
                     taskCount: Array.isArray(res.tasks) ? res.tasks.length : 0,
