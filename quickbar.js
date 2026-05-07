@@ -111,6 +111,7 @@
     let inlineMetaLayoutCache = new Map();
     let inlineMetaObserver = null;
     let inlineMetaObservedRoots = [];
+    let inlineMetaProtyleHints = new Set();
     let inlineMetaStarted = false;
     let inlineMetaRenderTimer = null;
     let inlineMetaRenderCursor = 0;
@@ -663,7 +664,6 @@
     }
 
     const QUICKBAR_INLINE_RENDER_BATCH_LIMIT = 6;
-    const QUICKBAR_INLINE_OBSERVED_FALLBACK_LIMIT = 24;
 
     function hasTaskMarkerEl(el) {
         if (!el) return false;
@@ -4269,10 +4269,14 @@
         function getInlineDirectionalTaskBlocks(upBuffer = 360, downBuffer = 360, maxCount = 96) {
             const viewportTop = 0 - Math.max(0, Number(upBuffer) || 0);
             const viewportBottom = (window.innerHeight || document.documentElement?.clientHeight || 0) + Math.max(0, Number(downBuffer) || 0);
-            const useObservedFallback = inlineMetaVisibleTaskBlocks.size <= 0 && inlineMetaObservedTaskBlocks.size <= QUICKBAR_INLINE_OBSERVED_FALLBACK_LIMIT;
+            // Fall back to the observed set whenever the IntersectionObserver
+            // hasn't dispatched yet (initial entries fire async, so the very
+            // first render after a tab switch / loaded-protyle-static would
+            // otherwise paint nothing on docs with more than a handful of
+            // tasks). The viewport rect filter below caps the actual work.
             const sourceBlocks = inlineMetaVisibleTaskBlocks.size
                 ? Array.from(inlineMetaVisibleTaskBlocks.values())
-                : (useObservedFallback ? Array.from(inlineMetaObservedTaskBlocks.values()) : []);
+                : Array.from(inlineMetaObservedTaskBlocks.values());
             const out = [];
             const seen = new Set();
             for (let i = 0; i < sourceBlocks.length; i += 1) {
@@ -4301,10 +4305,12 @@
             const preDown = dir > 0 ? 3200 : (dir < 0 ? 900 : 2200);
             const keepUp = dir > 0 ? 1400 : (dir < 0 ? 4200 : 3200);
             const keepDown = dir > 0 ? 4200 : (dir < 0 ? 1400 : 3200);
-            const useObservedFallback = inlineMetaVisibleTaskBlocks.size <= 0 && inlineMetaObservedTaskBlocks.size <= QUICKBAR_INLINE_OBSERVED_FALLBACK_LIMIT;
+            // Same fallback as getInlineDirectionalTaskBlocks: when IO
+            // entries haven't dispatched yet, render from the observed set so
+            // freshly-switched tabs don't paint blank until the user scrolls.
             const sourceBlocks = inlineMetaVisibleTaskBlocks.size
                 ? Array.from(inlineMetaVisibleTaskBlocks.values())
-                : (useObservedFallback ? Array.from(inlineMetaObservedTaskBlocks.values()) : []);
+                : Array.from(inlineMetaObservedTaskBlocks.values());
             const buckets = { coreBlocks: [], preRenderBlocks: [], keepBlocks: [] };
             const seen = new Set();
             for (let i = 0; i < sourceBlocks.length; i += 1) {
@@ -4364,10 +4370,16 @@
             (keepBlocks || []).forEach((blockEl) => {
                 collectInlineMetaOwnerIds(blockEl).forEach((id) => keepIds.add(id));
             });
+            // Only evict hosts in protyles we're actively observing. Hosts in
+            // hidden tabs (their protyle filtered out of observe-roots) stay
+            // intact so a switch back doesn't paint blank.
+            const activeProtyles = new Set(inlineMetaObservedRoots);
             try {
                 document.querySelectorAll('.sy-custom-props-inline-host').forEach((host) => {
                     const owner = String(host?.dataset?.blockId || '').trim();
                     if (!owner || keepIds.has(owner)) return;
+                    const protyleEl = host.closest?.('.protyle');
+                    if (!protyleEl || !activeProtyles.has(protyleEl)) return;
                     try { host.remove(); } catch (e) {}
                     try { inlineMetaLayoutCache.delete(owner); } catch (e2) {}
                 });
@@ -4462,11 +4474,53 @@
             return false;
         }
 
+        function pruneInlineMetaProtyleHints() {
+            inlineMetaProtyleHints.forEach((hint) => {
+                if (!(hint instanceof Element) || !hint.isConnected) {
+                    inlineMetaProtyleHints.delete(hint);
+                    return;
+                }
+                // A hint exists to bypass the rect>0 filter for a freshly
+                // mounted protyle whose layout hasn't stabilized. A
+                // display:none protyle is a switched-away tab — the
+                // visibility filter correctly excludes it, and keeping it
+                // hinted would pull its blocks into the active tab's render
+                // and cause global prune to evict its hosts.
+                try {
+                    const style = window.getComputedStyle(hint);
+                    if (style && style.display === 'none') {
+                        inlineMetaProtyleHints.delete(hint);
+                    }
+                } catch (e) {}
+            });
+        }
+
+        function registerInlineMetaProtyleHint(el) {
+            // Pin a freshly mounted/switched protyle so it survives the
+            // visibility filter in getInlineMetaObserveRoots while its layout
+            // is still 0×0 right after loaded-protyle-static / switch-protyle.
+            if (!(el instanceof Element)) return;
+            const protyleEl = el.matches?.('.protyle') ? el : el.closest?.('.protyle');
+            if (!(protyleEl instanceof Element)) return;
+            inlineMetaProtyleHints.add(protyleEl);
+            pruneInlineMetaProtyleHints();
+        }
+
         function getInlineMetaObserveRoots() {
             try {
-                const roots = Array.from(document.querySelectorAll('.protyle'))
+                pruneInlineMetaProtyleHints();
+                const seen = new Set();
+                const result = [];
+                inlineMetaProtyleHints.forEach((hint) => {
+                    if (!seen.has(hint)) {
+                        seen.add(hint);
+                        result.push(hint);
+                    }
+                });
+                Array.from(document.querySelectorAll('.protyle'))
                     .filter((el) => {
                         if (!(el instanceof Element)) return false;
+                        if (seen.has(el)) return false;
                         const rect = el.getBoundingClientRect?.();
                         if (!rect) return false;
                         if (rect.width <= 0 || rect.height <= 0) return false;
@@ -4474,14 +4528,18 @@
                         if (!style || style.display === 'none' || style.visibility === 'hidden') return false;
                         if (!hasTaskBlockInRoot(el)) return false;
                         return true;
+                    })
+                    .forEach((el) => {
+                        seen.add(el);
+                        result.push(el);
                     });
-                if (roots.length) return roots;
+                if (result.length) return result;
                 const fallback = document.querySelector('.protyle--focus');
                 if (fallback instanceof Element) {
                     const rect = fallback.getBoundingClientRect?.();
                     if (rect && rect.width > 0 && rect.height > 0) return [fallback];
                 }
-                return roots;
+                return result;
             } catch (e) {
                 return [];
             }
@@ -4643,17 +4701,24 @@
             try {
                 const eb = globalThis.__taskHorizonPluginInstance?.eventBus || window.siyuan?.eventBus;
                 if (eb && typeof eb.on === 'function') {
-                    const wakeFromProtyleEvent = (delayMs = 40) => {
+                    const wakeFromProtyleEvent = (delayMs = 40, e = null) => {
+                        const protyle = e?.protyle || e?.detail?.protyle || null;
+                        const wysiwygEl = protyle?.wysiwyg?.element || null;
+                        const hint = wysiwygEl?.closest?.('.protyle') || wysiwygEl || null;
+                        if (hint) {
+                            registerInlineMetaProtyleHint(hint);
+                            try { syncInlineMetaObserveRoots(); } catch (e2) {}
+                        }
                         scheduleInlineMetaWake(true, {
                             delayMs,
                             includeBootstrap: true,
                             clearLayout: true,
                         });
                     };
-                    const onStatic = () => wakeFromProtyleEvent(24);
-                    const onDynamic = () => wakeFromProtyleEvent(40);
-                    const onSwitch = () => wakeFromProtyleEvent(32);
-                    const onSwitchMode = () => wakeFromProtyleEvent(32);
+                    const onStatic = (e) => wakeFromProtyleEvent(24, e);
+                    const onDynamic = (e) => wakeFromProtyleEvent(40, e);
+                    const onSwitch = (e) => wakeFromProtyleEvent(32, e);
+                    const onSwitchMode = (e) => wakeFromProtyleEvent(32, e);
                     eb.on('loaded-protyle-static', onStatic);
                     eb.on('loaded-protyle-dynamic', onDynamic);
                     eb.on('switch-protyle', onSwitch);
@@ -5118,6 +5183,7 @@
             try { inlineMetaObserver?.disconnect?.(); } catch (e) {}
             inlineMetaObserver = null;
             inlineMetaObservedRoots = [];
+            inlineMetaProtyleHints.clear();
             unbindInlineMetaWakeEvents();
             try { if (inlineMetaScrollHandler) document.removeEventListener('scroll', inlineMetaScrollHandler, true); } catch (e) {}
             try { if (inlineMetaScrollHandler) window.removeEventListener('resize', inlineMetaScrollHandler, true); } catch (e) {}
