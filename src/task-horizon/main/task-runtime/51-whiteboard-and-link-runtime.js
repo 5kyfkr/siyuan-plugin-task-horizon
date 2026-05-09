@@ -1335,7 +1335,10 @@ if (deferForActiveScroll) {
                 try { __tmFlushDeferredViewRefreshAfterTaskFieldWork('view-refresh'); } catch (e) {}
                 return;
             }
-__tmPerformViewRefresh(next);
+            const runRefresh = () => {
+                try { __tmPerformViewRefresh(next); } catch (e) {}
+            };
+            try { requestAnimationFrame(runRefresh); } catch (e) { runRefresh(); }
         }, 24);
         return true;
     }
@@ -1403,13 +1406,13 @@ try {
                 return;
             }
         }
-        if (withFilters) applyFilters();
-        if (typeof __tmIsPluginVisibleNow === 'function' && !__tmIsPluginVisibleNow()) {
-            return false;
-        }
         if (!state.modal || !document.body.contains(state.modal)) {
             return false;
         }
+        if (typeof __tmIsPluginVisibleNow === 'function' && !__tmIsPluginVisibleNow()) {
+            return false;
+        }
+        if (withFilters) applyFilters();
         if (state.viewMode === 'calendar') {
             if (!__tmRerenderCurrentViewInPlace(state.modal)) render();
             return;
@@ -1562,7 +1565,7 @@ try {
                 const statusId = String(nextPatch.customStatus || '').trim();
                 if (statusId) {
                     const statusOption = __tmFindStatusOptionById(statusId);
-                    const marker = __tmNormalizeTaskStatusMarker(statusOption?.marker, __tmGuessStatusOptionDefaultMarker(statusOption));
+                    const marker = __tmNormalizeCompatTaskStatusMarker(statusOption?.marker, __tmGuessStatusOptionDefaultMarker(statusOption));
                     __tmApplyTaskStatusLocalState(tid, statusId, marker);
                 }
                 const restPatch = { ...nextPatch };
@@ -1592,7 +1595,7 @@ try {
                 const statusId = String(prevPatch.customStatus || '').trim();
                 if (statusId) {
                     const statusOption = __tmFindStatusOptionById(statusId);
-                    const marker = __tmNormalizeTaskStatusMarker(statusOption?.marker, __tmGuessStatusOptionDefaultMarker(statusOption));
+                    const marker = __tmNormalizeCompatTaskStatusMarker(statusOption?.marker, __tmGuessStatusOptionDefaultMarker(statusOption));
                     __tmApplyTaskStatusLocalState(tid, statusId, marker);
                 }
                 const restPatch = { ...prevPatch };
@@ -1635,6 +1638,8 @@ try {
         if (String(state.detailTaskId || '').trim() !== tid) return false;
         if (!(state.modal instanceof Element) || !document.body.contains(state.modal)) return false;
         if (!__tmIsChecklistSelectionContext(state.modal)) return false;
+        if (typeof __tmDoesPatchNeedProjectionRefresh === 'function'
+            && __tmDoesPatchNeedProjectionRefresh(tid, nextPatch, opts)) return false;
         return true;
     }
 
@@ -2897,6 +2902,35 @@ return false;
         return touched;
     }
 
+    function __tmBuildTaskInlineContentHtml(task, fallbackText = '(无内容)') {
+        const taskLike = (task && typeof task === 'object') ? task : {};
+        const content = String(taskLike.content || '').trim() || String(fallbackText || '(无内容)').trim() || '(无内容)';
+        return `${API.renderTaskContentHtml(taskLike.markdown, content)}${__tmRenderRecurringTaskInlineIcon(taskLike)}${__tmRenderRecurringInstanceBadge(taskLike, { className: 'tm-recurring-instance-badge--inline' })}`;
+    }
+
+    function __tmUpdateTaskContentInDOM(container, task) {
+        const root = container instanceof Element ? container : null;
+        const taskLike = (task && typeof task === 'object') ? task : null;
+        if (!(root instanceof Element) || !taskLike) return false;
+        const html = __tmBuildTaskInlineContentHtml(taskLike);
+        const titleText = String(taskLike.content || '').trim() || '(无内容)';
+        let touched = false;
+        const targets = root.querySelectorAll('.tm-task-content-clickable, .tm-checklist-title-button > span, .tm-whiteboard-stream-task-title');
+        targets.forEach((el) => {
+            if (!(el instanceof HTMLElement)) return;
+            el.innerHTML = html;
+            try {
+                if (typeof __tmApplyTooltipAttrsToElement === 'function') {
+                    __tmApplyTooltipAttrsToElement(el, titleText, { side: 'bottom', ariaLabel: false });
+                } else {
+                    el.setAttribute('title', titleText);
+                }
+            } catch (e) {}
+            touched = true;
+        });
+        return touched;
+    }
+
     const __tmViewControllers = {
         list: {
             findRow(taskId) {
@@ -2909,6 +2943,7 @@ return false;
                 const task = __tmTaskStateKernel.getTask(taskId);
                 if (!(row instanceof HTMLElement) || !task) return false;
                 let touched = false;
+                if (Object.prototype.hasOwnProperty.call(patch, 'content')) touched = !!__tmUpdateTaskContentInDOM(row, task) || touched;
                 if (Object.prototype.hasOwnProperty.call(patch, 'done')) {
                     touched = !!__tmUpdateTaskDoneInDOM(row, task) || touched;
                     touched = !!__tmUpdateTaskStatusTagInDOM(row, task) || touched;
@@ -2947,6 +2982,10 @@ return false;
                 let touched = false;
                 let handled = false;
                 let timePatched = null;
+                if (Object.prototype.hasOwnProperty.call(patch, 'content')) {
+                    touched = !!__tmUpdateTaskContentInDOM(item, task) || touched;
+                    handled = true;
+                }
                 if (Object.prototype.hasOwnProperty.call(patch, 'done')) {
                     touched = !!__tmUpdateTaskDoneInDOM(item, task) || touched;
                     touched = !!__tmUpdateTaskStatusTagInDOM(item, task) || touched;
@@ -3005,6 +3044,9 @@ return false;
                 let touched = false;
                 const row = state.modal.querySelector(`#tmTimelineLeftTable tbody tr[data-id="${CSS.escape(tid)}"]`);
                 if (row instanceof HTMLElement) {
+                    if (Object.prototype.hasOwnProperty.call(patch, 'content')) {
+                        touched = !!__tmUpdateTaskContentInDOM(row, task) || touched;
+                    }
                     if (Object.prototype.hasOwnProperty.call(patch, 'done')) {
                         const checkbox = row.querySelector('.tm-task-checkbox');
                         if (checkbox instanceof HTMLInputElement) checkbox.checked = !!task.done;
@@ -3031,6 +3073,9 @@ return false;
                 const card = this.findCard(tid);
                 if (!(card instanceof HTMLElement) || !task) return false;
                 let touched = false;
+                if (Object.prototype.hasOwnProperty.call(patch, 'content')) {
+                    touched = !!__tmUpdateTaskContentInDOM(card, task) || touched;
+                }
                 if (Object.prototype.hasOwnProperty.call(patch, 'done')) {
                     card.classList.toggle('tm-kanban-card--done', !!task.done);
                     const checkbox = card.querySelector('.tm-task-checkbox');
@@ -3091,6 +3136,9 @@ return false;
                 );
                 nodes.forEach((node) => {
                     if (!(node instanceof HTMLElement)) return;
+                    if (Object.prototype.hasOwnProperty.call(patch, 'content')) {
+                        touched = !!__tmUpdateTaskContentInDOM(node, task) || touched;
+                    }
                     if (Object.prototype.hasOwnProperty.call(patch, 'done')) {
                         const checkbox = node.querySelector('.tm-task-checkbox');
                         if (checkbox instanceof HTMLInputElement) checkbox.checked = !!task.done;
@@ -5362,6 +5410,59 @@ throw error;
         return value;
     }
 
+    function __tmIsTaskDoneForTailGroup(task) {
+        return !!(task && task.done);
+    }
+
+    function __tmGetArchivedDocIdsForAllTabCompletedTailGroup() {
+        if (state.docTabsArchiveMode === true) return new Set();
+        if ((String(state.activeDocId || 'all').trim() || 'all') !== 'all') return new Set();
+        const ids = new Set();
+        (Array.isArray(state.taskTree) ? state.taskTree : []).forEach((doc) => {
+            const docId = String(doc?.id || '').trim();
+            if (!docId) return;
+            if (__tmDocIsArchivedForDocTabs(doc)) ids.add(docId);
+        });
+        return ids;
+    }
+
+    function __tmSplitTasksByDoneState(tasks) {
+        const active = [];
+        const done = [];
+        const archivedDocIds = __tmGetArchivedDocIdsForAllTabCompletedTailGroup();
+        (Array.isArray(tasks) ? tasks : []).forEach((task) => {
+            if (__tmIsTaskDoneForTailGroup(task)) {
+                const docId = String(task?.root_id || task?.docId || '').trim();
+                if (docId && archivedDocIds.has(docId)) return;
+                done.push(task);
+            }
+            else active.push(task);
+        });
+        return { active, done };
+    }
+
+    function __tmGetTaskDoneSortTs(task) {
+        const raw = String(
+            task?.['custom-task-complete-at']
+            || task?.taskCompleteAt
+            || task?.task_complete_at
+            || task?.completedAt
+            || task?.updated
+            || task?.updatedAt
+            || task?.completionTime
+            || ''
+        ).trim();
+        if (!raw) return 0;
+        const ts = __tmParseTimeToTs(raw);
+        return Number.isFinite(ts) && ts > 0 ? ts : 0;
+    }
+
+    function __tmCompareCompletedTasksRecentFirst(a, b, fallbackCompareFn = null) {
+        const diff = __tmGetTaskDoneSortTs(b) - __tmGetTaskDoneSortTs(a);
+        if (diff !== 0) return diff;
+        return typeof fallbackCompareFn === 'function' ? fallbackCompareFn(a, b) : 0;
+    }
+
     function __tmBuildTaskRowModel() {
         if (!Array.isArray(state.filteredTasks) || state.filteredTasks.length === 0) return [];
 
@@ -5465,8 +5566,11 @@ throw error;
         const timelineKeepH2Order = (state.viewMode === 'timeline')
             && !!state.groupByDocName
             && (SettingsStore.data.docH2SubgroupEnabled !== false);
-        const pinnedRoots = timelineKeepH2Order ? [] : rootTasks.filter(t => t.pinned);
-        const normalRoots = timelineKeepH2Order ? rootTasks.slice() : rootTasks.filter(t => !t.pinned);
+        const rootSplit = __tmSplitTasksByDoneState(rootTasks);
+        const activeRoots = rootSplit.active;
+        const completedRoots = rootSplit.done;
+        const pinnedRoots = timelineKeepH2Order ? [] : activeRoots.filter(t => t.pinned);
+        const normalRoots = timelineKeepH2Order ? activeRoots.slice() : activeRoots.filter(t => !t.pinned);
 
         const emitTask = (task, depth, hasChildren, collapsed) => {
             rows.push({
@@ -5504,6 +5608,25 @@ throw error;
             }
         };
 
+        const appendCompletedRootGroup = () => {
+            if (!completedRoots.length) return;
+            completedRoots.sort((a, b) => __tmCompareCompletedTasksRecentFirst(a, b, (x, y) => getTaskOrder(x.id) - getTaskOrder(y.id)));
+            const doneGroupKey = 'completed_root_tasks';
+            const doneCollapsed = state.collapsedGroups?.has(doneGroupKey);
+            rows.push({
+                type: 'group',
+                kind: 'done',
+                key: doneGroupKey,
+                label: '已完成任务',
+                count: completedRoots.length,
+                durationSum: __tmCalcGroupDurationText(completedRoots),
+                collapsed: !!doneCollapsed,
+            });
+            if (!doneCollapsed) {
+                completedRoots.forEach(task => walkTaskTree(task, 0));
+            }
+        };
+
         if (pinnedRoots.length > 0) {
             const pinnedGroupKey = 'pinned_root_tasks';
             const pinnedCollapsed = state.collapsedGroups?.has(pinnedGroupKey);
@@ -5536,6 +5659,7 @@ throw error;
             if (!normalCollapsed) {
                 normalRoots.forEach(task => walkTaskTree(task, 0));
             }
+            appendCompletedRootGroup();
             return rows;
         }
 
@@ -5618,6 +5742,7 @@ throw error;
                     group.items.forEach(task => walkTaskTree(task, 0));
                 }
             });
+            appendCompletedRootGroup();
             return rows;
         }
 
@@ -5629,10 +5754,11 @@ throw error;
             docsInOrder.forEach(docId => {
                 const docEntry = docEntryById.get(String(docId || '').trim());
                 if (!docEntry) return;
-                const docTasks = filteredTasksByDoc.get(String(docId || '').trim()) || [];
-                if (docTasks.length === 0) return;
                 const docRootTasks = docRootTasksByDoc.get(String(docId || '').trim()) || [];
                 const docNormal = timelineKeepH2Order ? docRootTasks.slice() : docRootTasks.filter(t => !t.pinned);
+                const activeDocRootTasks = docNormal.filter((task) => !__tmIsTaskDoneForTailGroup(task));
+                if (activeDocRootTasks.length === 0) return;
+                const docTasks = activeDocRootTasks;
                 const docName = docEntry.name || '未知文档';
                 const groupKey = `doc_${docId}`;
                 const isCollapsed = state.collapsedGroups?.has(groupKey);
@@ -5650,13 +5776,13 @@ throw error;
                 if (!isCollapsed) {
                     const useDocH2Subgroup = enableDocH2Subgroup && __tmDocHasAnyHeading(docId, docTasks);
                     if (!useDocH2Subgroup) {
-                        docNormal.forEach(task => walkTaskTree(task, 0));
+                        activeDocRootTasks.forEach(task => walkTaskTree(task, 0));
                         return;
                     }
                     const h2Groups = new Map();
                     const h2OrderSource = docTasks;
                     const h2Buckets = __tmBuildDocHeadingBuckets(h2OrderSource, noHeadingLabel);
-                    docNormal.forEach(task => {
+                    activeDocRootTasks.forEach(task => {
                         const b = __tmGetDocHeadingBucket(task, noHeadingLabel);
                         if (!h2Groups.has(b.key)) h2Groups.set(b.key, { label: b.label, id: String(b.id || '').trim(), items: [] });
                         h2Groups.get(b.key).items.push(task);
@@ -5688,6 +5814,7 @@ throw error;
                     });
                 }
             });
+            appendCompletedRootGroup();
             return rows;
         }
 
@@ -5737,6 +5864,7 @@ throw error;
                     tasks.forEach(task => walkTaskTree(task, 0));
                 }
             });
+            appendCompletedRootGroup();
             return rows;
         }
 
@@ -5782,10 +5910,12 @@ throw error;
                     group.items.forEach(task => walkTaskTree(task, 0));
                 }
             });
+            appendCompletedRootGroup();
             return rows;
         }
 
         normalRoots.forEach(task => walkTaskTree(task, 0));
+        appendCompletedRootGroup();
         return rows;
     }
 

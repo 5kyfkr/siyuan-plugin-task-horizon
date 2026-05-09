@@ -66,7 +66,7 @@
     window.saveSettings = async function() {
         // 同步到 SettingsStore 并保存到本地插件存储
         SettingsStore.data.selectedDocIds = state.selectedDocIds;
-        SettingsStore.data.queryLimit = state.queryLimit;
+        SettingsStore.data.queryLimit = __TM_TASK_INDEX_QUERY_LIMIT;
         SettingsStore.data.showCompletionTime = state.showCompletionTime;
         SettingsStore.data.groupByDocName = state.groupByDocName;
         SettingsStore.data.groupByTime = state.groupByTime;

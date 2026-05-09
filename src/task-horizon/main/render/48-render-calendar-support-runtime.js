@@ -92,7 +92,7 @@
 
     async function __tmLoadAllTasksForCalendarCache(options = {}) {
         const opts = (options && typeof options === 'object') ? options : {};
-        const limit = Number.isFinite(Number(SettingsStore.data.queryLimit)) ? Number(SettingsStore.data.queryLimit) : 2000;
+        const limit = __TM_TASK_INDEX_QUERY_LIMIT;
         const allDocIds = await resolveDocIdsFromGroups({
             groupId: 'all',
             includeQuickAddDoc: true,
@@ -395,7 +395,7 @@
         };
 
         const getAllTasksForCalendar = async () => {
-            const limit = Number.isFinite(Number(SettingsStore.data.queryLimit)) ? Number(SettingsStore.data.queryLimit) : 2000;
+            const limit = __TM_TASK_INDEX_QUERY_LIMIT;
             const allDocIds = await getAllDocIdsForCalendar();
             const docKey = allDocIds.slice().sort().join(',');
             const key = `${limit}|${docKey}`;

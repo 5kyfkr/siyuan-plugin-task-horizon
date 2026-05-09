@@ -87,6 +87,111 @@
         ];
     }
 
+    function __tmGetDocGroupSelectLabel(groupId) {
+        const gid = String(groupId || 'all').trim() || 'all';
+        if (gid === 'all') return '全部文档';
+        const group = (Array.isArray(SettingsStore?.data?.docGroups) ? SettingsStore.data.docGroups : [])
+            .find((item) => String(item?.id || '').trim() === gid);
+        return String(__tmResolveDocGroupName(group) || gid).trim() || gid;
+    }
+
+    function __tmUpdateDocGroupTopbarSelectsInPlace(groupId) {
+        const gid = String(groupId || 'all').trim() || 'all';
+        const label = __tmGetDocGroupSelectLabel(gid);
+        const selectIds = [
+            'tmTopbarDocQuickSelect',
+            'tmTopbarDocSelect',
+            'tmMobileDocSelect',
+            'tmDesktopDocSelect',
+        ];
+        const updateRoot = (root) => {
+            if (!(root instanceof HTMLElement)) return;
+            try {
+                const valueEl = root.querySelector('.bc-select-trigger__value');
+                if (valueEl) valueEl.textContent = label;
+            } catch (e) {}
+            try {
+                root.querySelectorAll('.bc-select-option').forEach((option) => {
+                    const selected = String(option?.dataset?.tmOptionValue || '').trim() === gid;
+                    option.classList.toggle('is-selected', selected);
+                    option.setAttribute('aria-selected', selected ? 'true' : 'false');
+                });
+            } catch (e) {}
+        };
+        selectIds.forEach((id) => {
+            try { updateRoot(document.getElementById(id)); } catch (e) {}
+        });
+        try {
+            const floating = document.getElementById('tmTopbarFloatingMenu');
+            if (floating instanceof HTMLElement) {
+                floating.querySelectorAll('.bc-select-option').forEach((option) => {
+                    const selected = String(option?.dataset?.tmOptionValue || '').trim() === gid;
+                    option.classList.toggle('is-selected', selected);
+                    option.setAttribute('aria-selected', selected ? 'true' : 'false');
+                });
+            }
+        } catch (e) {}
+    }
+
+    function __tmUpdateTopbarSelectValueInPlace(id, value, label = '') {
+        const selectId = String(id || '').trim();
+        const nextValue = String(value || '').trim();
+        const nextLabel = String(label || nextValue).trim();
+        if (!selectId) return false;
+        const updateRoot = (root) => {
+            if (!(root instanceof HTMLElement)) return;
+            try {
+                const valueEl = root.querySelector('.bc-select-trigger__value');
+                if (valueEl && nextLabel) valueEl.textContent = nextLabel;
+            } catch (e) {}
+            try {
+                root.querySelectorAll('.bc-select-option').forEach((option) => {
+                    const selected = String(option?.dataset?.tmOptionValue || '').trim() === nextValue;
+                    option.classList.toggle('is-selected', selected);
+                    option.setAttribute('aria-selected', selected ? 'true' : 'false');
+                });
+            } catch (e) {}
+        };
+        try { updateRoot(document.getElementById(selectId)); } catch (e) {}
+        try {
+            const floating = document.getElementById('tmTopbarFloatingMenu');
+            if (floating instanceof HTMLElement) updateRoot(floating);
+        } catch (e) {}
+        return true;
+    }
+
+    function __tmRunTopbarSelectAction(action) {
+        const code = String(action || '').trim();
+        if (!code) return;
+        setTimeout(() => {
+            try { (0, eval)(code); } catch (e) {}
+        }, 0);
+    }
+
+    window.tmHandleTopbarSelectOption = function(id, value, event) {
+        try { event?.preventDefault?.(); } catch (e) {}
+        try { event?.stopPropagation?.(); } catch (e) {}
+        const selectId = String(id || '').trim();
+        const option = event?.target instanceof Element ? event.target.closest('.bc-select-option') : null;
+        const nextValue = String(value || option?.dataset?.tmOptionValue || '').trim();
+        const nextLabel = String(option?.dataset?.tmOptionLabel || nextValue).trim();
+        const action = String(option?.dataset?.tmOptionAction || '').trim();
+        if (__tmIsDocTopbarSelectId(selectId)) {
+            try { __tmUpdateDocGroupTopbarSelectsInPlace(nextValue || 'all'); } catch (e) {}
+        } else {
+            try { __tmUpdateTopbarSelectValueInPlace(selectId, nextValue, nextLabel); } catch (e) {}
+        }
+        try { __tmCloseTopbarSelects(); } catch (e) {}
+        if (__tmIsDocTopbarSelectId(selectId)) {
+            setTimeout(() => {
+                try { window.tmSwitchDocGroup?.(nextValue || 'all'); } catch (e) {}
+            }, 0);
+            return false;
+        }
+        __tmRunTopbarSelectAction(action);
+        return false;
+    };
+
     function __tmBuildRuleMenuOptions() {
         return [
             {
@@ -220,6 +325,7 @@
             ${String(state.viewMode || '').trim() === 'list' ? renderDesktopMenuButton(`${__tmRenderLucideIcon('chart-column')}<span>导出 Excel</span>`, `tmExportCurrentTableExcel(); tmCloseDesktopMenu()`) : ''}
             ${renderDesktopMenuButton(`${__tmRenderLucideIcon('calendar-days')}<span>语义日期</span>`, `window.tmAiSemanticCompletionPreview?.(); tmCloseDesktopMenu()`)}
             ${renderDesktopMenuToggle('多选模式', !!state.multiSelectModeEnabled, `tmToggleMultiSelectMode(this.checked); tmCloseDesktopMenu()`)}
+            ${renderDesktopMenuToggle('显示已完成任务', !!state.showCompletedTasks, `tmToggleShowCompletedTasks(this.checked); tmCloseDesktopMenu()`)}
             ${__tmIsAiFeatureEnabled() ? renderDesktopMenuToggle('AI 对话', !!SettingsStore.data.aiSideDockEnabled, `tmToggleAiSideDock(this.checked); tmCloseDesktopMenu()`) : ''}
             ${renderDesktopMenuToggle('日历侧边栏', !!SettingsStore.data.calendarSideDockEnabled, `tmToggleCalendarSideDock(this.checked); tmCloseDesktopMenu()`)}
             ${state.searchKeyword ? renderDesktopMenuButton(`<span>清除搜索</span>`, `tmSearch(''); tmCloseDesktopMenu()`) : ''}
@@ -307,6 +413,21 @@
         try { await SettingsStore.save(); } catch (e) {}
         try { applyFilters(); } catch (e) {}
         render();
+    };
+
+    window.tmToggleShowCompletedTasks = async function(enabled) {
+        const next = (typeof enabled === 'boolean') ? enabled : !state.showCompletedTasks;
+        try { __tmSetShowCompletedTasksInSettings(!!next, SettingsStore.data); } catch (e) {
+            SettingsStore.data.showCompletedTasks = !!next;
+            SettingsStore.data.excludeCompletedTasks = !SettingsStore.data.showCompletedTasks;
+        }
+        state.showCompletedTasks = !!SettingsStore.data.showCompletedTasks;
+        state.excludeCompletedTasks = !state.showCompletedTasks;
+        try { await SettingsStore.save(); } catch (e) {}
+        try { applyFilters(); } catch (e) {}
+        if (state.modal && document.body.contains(state.modal)) {
+            try { if (!__tmRerenderCurrentViewInPlace(state.modal)) render(); } catch (e) { try { render(); } catch (e2) {} }
+        }
     };
 
     function __tmHideMobileMenu() {
@@ -621,7 +742,7 @@
             if (!document.body.contains(root)) return;
             if (String(root.dataset.open || '') !== 'true') return;
             try { await __tmSyncRemoteDocGroupSettingsIfNeeded(); } catch (e) {}
-        }, 1000);
+        }, 3200);
     }
 
     window.tmToggleTopbarSelect = async function(id, event) {
@@ -664,6 +785,7 @@
 
     function __tmOnTopbarSelectOutsideClick(event) {
         if (event?.target instanceof Element && event.target.closest('.tm-topbar-select')) return;
+        if (event?.target instanceof Element && event.target.closest('#tmTopbarFloatingMenu')) return;
         __tmCloseTopbarSelects();
     }
 

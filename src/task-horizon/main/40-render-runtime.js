@@ -29,6 +29,27 @@ return;
         if (!isTimelineView) __tmClearTimelineTodayIndicatorTimer();
         const useSoftSwap = isViewSwitchAnim;
         const currentRenderMode = state.homepageOpen ? 'home' : (String(state.viewMode || 'list').trim() || 'list');
+        const isSnapshotFirstRenderFastPath = !!state.__tmSnapshotFirstRenderLimitMode;
+        const deferSnapshotLayoutWork = (fn, delayMs = 0) => {
+            if (typeof fn !== 'function') return false;
+            if (!isSnapshotFirstRenderFastPath) return false;
+            const run = () => {
+                try { requestAnimationFrame(fn); } catch (e) { try { fn(); } catch (e2) {} }
+            };
+            try { setTimeout(run, Math.max(0, Number(delayMs) || 0)); } catch (e) { run(); }
+            return true;
+        };
+        const runFlipAnimationAfterRender = () => {
+            if (isSnapshotFirstRenderFastPath) return;
+            try { __tmRunFlipAnimation(state.modal); } catch (e) {}
+        };
+        const rememberViewDomRenderSignature = () => {
+            try {
+                if (typeof __tmBuildCurrentViewDomRenderSignature !== 'function') return;
+                const sig = __tmBuildCurrentViewDomRenderSignature(currentRenderMode);
+                if (sig) state.listDomRenderSignature = sig;
+            } catch (e) {}
+        };
         let prevModalEl = null;
         const prevModalSnapshot = state.modal instanceof Element ? state.modal : null;
         const prevMountRoot = prevModalSnapshot?.parentElement instanceof Element ? prevModalSnapshot.parentElement : null;
@@ -222,18 +243,22 @@ return;
         const docsForTabs = __tmSortDocEntriesForTabs(state.taskTree || [], currentGroupId);
         const activeDocId = String(state.activeDocId || '').trim();
         const filteredDocIdSet = new Set((Array.isArray(state.filteredDocIdsForTabs) ? state.filteredDocIdsForTabs : []).map((id) => String(id || '').trim()).filter(Boolean));
-        const hasContentFilter = __tmHasActiveDocTabContentFilter(currentRule);
+        const docTabsArchiveMode = state.docTabsArchiveMode === true;
+        const docTaskStateCache = new Map();
+        const docTabsFilterRule = __tmGetArchiveModeFilterRule(currentRule, docTabsArchiveMode);
+        const hasContentFilter = __tmHasActiveDocTabContentFilter(docTabsFilterRule);
         const visibleDocs = docsForTabs
             .filter((doc) => {
                 const docId = String(doc?.id || '').trim();
-                const shouldShowByTaskState = __tmDocShouldShowInDocTabs(doc, { rule: currentRule });
-                if (!shouldShowByTaskState) return false;
                 if (docId && activeDocId && activeDocId !== 'all' && docId === activeDocId) return true;
+                const shouldShowByTaskState = __tmDocShouldShowInDocTabs(doc, { rule: currentRule, archiveMode: docTabsArchiveMode, docStateCache: docTaskStateCache });
+                if (!shouldShowByTaskState) return false;
                 if (filteredDocIdSet.size || hasContentFilter) return filteredDocIdSet.has(docId);
                 return shouldShowByTaskState;
             })
             .filter(doc => !globalNewTaskDocId || doc.id !== globalNewTaskDocId);
-        const showOtherBlocksTab = currentGroupId !== 'all' && Array.isArray(state.otherBlocks) && state.otherBlocks.length > 0;
+        const archivedDocCount = docsForTabs.filter((doc) => __tmGetDocTaskStateForTabs(doc, docTaskStateCache).isArchived).length;
+        const showOtherBlocksTab = !docTabsArchiveMode && currentGroupId !== 'all' && Array.isArray(state.otherBlocks) && state.otherBlocks.length > 0;
 
         // 获取文档分组信息
         const docGroups = SettingsStore.data.docGroups || [];
@@ -254,6 +279,7 @@ return;
             state.docTabsHidden ? 'tm-doc-tabs--hidden' : '',
             docTabsCanMultirow ? 'tm-doc-tabs--multirow' : '',
             docTabsCollapsed ? 'tm-doc-tabs--collapsed' : 'tm-doc-tabs--expanded',
+            docTabsArchiveMode ? 'tm-doc-tabs--archive-mode' : '',
         ].filter(Boolean).join(' ');
         const docTabsToggleTitle = docTabsCollapsed ? '展开多行文档页签' : '折叠为单行文档页签';
         const isSplitPane = false; // 使用CSS容器查询处理分屏模式
@@ -628,6 +654,12 @@ return;
                                         <input class="b3-switch fn__flex-center" type="checkbox" ${state.multiSelectModeEnabled ? 'checked' : ''} onchange="tmToggleMultiSelectMode(this.checked); tmHideMobileMenu();">
                                     </div>
                                 </div>
+                                <div class="tm-mobile-only-item" style="display:flex; gap:10px; align-items:center;">
+                                    <div class="tm-btn tm-btn-info bc-btn bc-btn--sm" style="flex:1; padding: 6px 10px; display:flex; align-items:center; justify-content:space-between; gap:10px;">
+                                        <span>显示已完成任务</span>
+                                        <input class="b3-switch fn__flex-center" type="checkbox" ${state.showCompletedTasks ? 'checked' : ''} onchange="tmToggleShowCompletedTasks(this.checked); tmHideMobileMenu();">
+                                    </div>
+                                </div>
                                 ${__tmIsAiFeatureEnabled() ? `
                                 <div class="tm-mobile-only-item" style="display:flex; gap:10px; align-items:center;">
                                     <div class="tm-btn tm-btn-info bc-btn bc-btn--sm" style="flex:1; padding: 6px 10px; display:flex; align-items:center; justify-content:space-between; gap:10px; opacity:.6; cursor:not-allowed;" title="移动端不启用 AI 对话侧栏" aria-disabled="true">
@@ -682,11 +714,12 @@ return;
                      ondragover="tmDocTabDragOver(event)"
                      ondrop="tmDocTabDrop(event, '')">
                     <div class="tm-doc-tabs-scroll" style="display:flex; gap:8px; flex:1; padding: ${isMobile ? '4px 0 4px 0' : '4px 0 4px 0'};" ondragover="tmDocTabDragOver(event)" ondrop="tmDocTabDrop(event, '')">
-                        <div class="tm-doc-tab tm-doc-tab--all ${state.activeDocId === 'all' ? 'active' : ''}" onclick="tmHandleAllDocTabClick(event)" oncontextmenu="tmShowAllDocTabContextMenu(event)"${__tmBuildTooltipAttrs(`${__tmGetViewProfileSourceLabel(__tmGetEffectiveViewProfileForContext('all', currentGroupId).source)}: ${__tmDescribeViewProfile(__tmGetEffectiveViewProfileForContext('all', currentGroupId).profile)} ｜ 右键或长按查看当前分组全部页签`, { side: 'bottom', ariaLabel: false })}>全部</div>
+                        <div class="tm-doc-tab tm-doc-tab--all ${state.activeDocId === 'all' ? 'active' : ''}" onclick="tmHandleAllDocTabClick(event)" oncontextmenu="tmShowAllDocTabContextMenu(event)"${__tmBuildTooltipAttrs(`${__tmGetViewProfileSourceLabel(__tmGetEffectiveViewProfileForContext('all', currentGroupId).source)}: ${__tmDescribeViewProfile(__tmGetEffectiveViewProfileForContext('all', currentGroupId).profile)} ｜ ${docTabsArchiveMode ? '当前只看归档页签' : '右键或长按查看当前分组全部页签'}`, { side: 'bottom', ariaLabel: false })}>${docTabsArchiveMode ? '全部归档' : '全部'}</div>
                         ${(() => {
                             const id = String(SettingsStore.data.newTaskDocId || '').trim();
                             if (__tmIsDocExcludedInGroup(id, currentGroupId)) return '';
                             if (!id || id === '__dailyNote__') return '';
+                            if (docTabsArchiveMode) return '';
                             const docName = __tmGetDocDisplayName(id, '未命名文档');
                             const rawName = __tmGetDocRawName(id, '未命名文档');
                             const alias = __tmGetDocAliasValue(id);
@@ -747,6 +780,14 @@ return;
                                 <div class="tm-doc-tab-text">${iconHtml}<span>${esc(docName)}</span></div>
                             </div>`;
                         }).join('')}
+                        <button type="button"
+                            class="tm-doc-tab tm-doc-tab--archive ${docTabsArchiveMode ? 'active' : ''}"
+                            onclick="tmToggleDocTabsArchiveMode(event)"
+                            aria-label="${docTabsArchiveMode ? '退出归档页签' : '查看归档页签'}"
+                            aria-pressed="${docTabsArchiveMode ? 'true' : 'false'}"
+                            ${__tmBuildTooltipAttrs(docTabsArchiveMode ? '退出归档页签' : `查看归档页签${archivedDocCount ? ` (${archivedDocCount})` : ''}`, { side: 'bottom', ariaLabel: false })}>
+                            ${__tmRenderLucideIcon('archive', '', { size: 14 })}
+                        </button>
                     </div>
                     ${docTabsCanMultirow ? `
                     <div class="tm-doc-tabs-actions">
@@ -915,6 +956,20 @@ return;
                     }
                     .tm-doc-tab--all {
                         margin-left: 8px;
+                    }
+                    .tm-doc-tab--archive {
+                        width: 24px;
+                        min-width: 24px;
+                        padding: 0;
+                        align-items: center;
+                        justify-content: center;
+                        color: var(--tm-secondary-text);
+                    }
+                    .tm-doc-tab--archive::after {
+                        background: var(--tm-secondary-text);
+                    }
+                    .tm-doc-tabs--archive-mode .tm-doc-tab--archive {
+                        color: var(--tm-primary-color);
                     }
                     .tm-doc-tab-bg {
                         position: absolute;
@@ -1601,17 +1656,24 @@ return;
             __tmPruneMountedManagerShells(finalMountRoot, keepMountedShell);
         } catch (e) {}
         finalMountRoot.appendChild(state.modal);
+        rememberViewDomRenderSignature();
         try { __tmSyncInlineLoadingOverlay(state.modal); } catch (e) {}
-        try { __tmBindDockScrollIsolation(state.modal); } catch (e) {}
-        try { __tmBindTopbarOverflowTooltips(state.modal); } catch (e) {}
-        try { __tmBindResponsiveTableResize(state.modal); } catch (e) {}
-        try { __tmBindFloatingTooltips(state.modal); } catch (e) {}
-        try { __tmBindDocTabWheelScroll(state.modal); } catch (e) {}
-        try { __tmBindBottomViewbarWheelScroll(state.modal); } catch (e) {}
-        try { __tmBindDocTabScrollMemory(state.modal); } catch (e) {}
-        try { __tmBindDocTabsOverflowToggle(state.modal); } catch (e) {}
-        try { __tmRestoreDocTabScroll(state.modal, savedDocTabsScrollLeft, savedDocTabsScrollTop); } catch (e) {}
-        try { __tmEnsureActiveDocTabVisible(state.modal); } catch (e) {}
+        const bindDeferredNonCriticalShellWork = () => {
+            try { __tmBindDockScrollIsolation(state.modal); } catch (e) {}
+            try { __tmBindTopbarOverflowTooltips(state.modal); } catch (e) {}
+            try { __tmBindResponsiveTableResize(state.modal); } catch (e) {}
+            try { __tmBindFloatingTooltips(state.modal); } catch (e) {}
+            try { __tmBindDocTabWheelScroll(state.modal); } catch (e) {}
+            try { __tmBindBottomViewbarWheelScroll(state.modal); } catch (e) {}
+            try { __tmBindDocTabScrollMemory(state.modal); } catch (e) {}
+        };
+        if (!deferSnapshotLayoutWork(bindDeferredNonCriticalShellWork, 160)) bindDeferredNonCriticalShellWork();
+        const bindDeferredDocTabLayoutWork = () => {
+            try { __tmBindDocTabsOverflowToggle(state.modal); } catch (e) {}
+            try { __tmRestoreDocTabScroll(state.modal, savedDocTabsScrollLeft, savedDocTabsScrollTop); } catch (e) {}
+            try { __tmEnsureActiveDocTabVisible(state.modal); } catch (e) {}
+        };
+        if (!deferSnapshotLayoutWork(bindDeferredDocTabLayoutWork, 80)) bindDeferredDocTabLayoutWork();
         try { __tmBindMultiSelectPointerSweep(state.modal); } catch (e) {}
         try {
             if (renderMode === 'whiteboard' && typeof __tmUpdateWhiteboardNavigator === 'function') {
@@ -1619,10 +1681,13 @@ return;
             }
         } catch (e) {}
         try { __tmBindDockPointerTaskDrag(state.modal); } catch (e) {}
-        try { if (renderMode === 'list') __tmBindListScrollVisibility(state.modal); } catch (e) {}
-        try { if (renderMode === 'checklist') __tmBindChecklistScrollVisibility(state.modal); } catch (e) {}
-        try { if (renderMode === 'list') __tmBindAutoLoadMoreOnScroll(state.modal, 'list'); } catch (e) {}
-        try { if (renderMode === 'checklist') __tmBindAutoLoadMoreOnScroll(state.modal, 'checklist'); } catch (e) {}
+        const bindDeferredMainScrollLayoutWork = () => {
+            try { if (renderMode === 'list') __tmBindListScrollVisibility(state.modal); } catch (e) {}
+            try { if (renderMode === 'checklist') __tmBindChecklistScrollVisibility(state.modal); } catch (e) {}
+            try { if (renderMode === 'list') __tmBindAutoLoadMoreOnScroll(state.modal, 'list'); } catch (e) {}
+            try { if (renderMode === 'checklist') __tmBindAutoLoadMoreOnScroll(state.modal, 'checklist'); } catch (e) {}
+        };
+        if (!deferSnapshotLayoutWork(bindDeferredMainScrollLayoutWork, 120)) bindDeferredMainScrollLayoutWork();
         try { __tmBindMobileViewportAutoRefresh(state.modal); } catch (e) {}
         try {
             if (renderMode === 'checklist') {
@@ -1648,10 +1713,13 @@ return;
 }
             }
         } catch (e) {}
-        try { __tmApplyReminderTaskNameMarks(state.modal); } catch (e) {}
-        try { __tmScheduleReminderTaskNameMarksRefresh(state.modal); } catch (e) {}
-        try { __tmApplyTodayScheduledTaskNameMarks(state.modal); } catch (e) {}
-        try { __tmScheduleTodayScheduledTaskNameMarksRefresh(state.modal); } catch (e) {}
+        const bindDeferredTaskNameMarks = () => {
+            try { __tmApplyReminderTaskNameMarks(state.modal); } catch (e) {}
+            try { __tmScheduleReminderTaskNameMarksRefresh(state.modal); } catch (e) {}
+            try { __tmApplyTodayScheduledTaskNameMarks(state.modal); } catch (e) {}
+            try { __tmScheduleTodayScheduledTaskNameMarksRefresh(state.modal); } catch (e) {}
+        };
+        if (!deferSnapshotLayoutWork(bindDeferredTaskNameMarks, 220)) bindDeferredTaskNameMarks();
         try {
             if (renderMode === 'calendar') {
                 const el = state.modal.querySelector('#tmCalendarRoot');
@@ -1867,7 +1935,7 @@ return;
                         try { if (ganttBody) ganttBody.scrollLeft = desiredLeft; } catch (e) {}
                         try { syncHeaderX(); } catch (e) {}
                     }
-                    try { __tmRunFlipAnimation(state.modal); } catch (e) {}
+                    runFlipAnimationAfterRender();
 
                     if (useSoftSwap) {
                          try { state.modal.style.opacity = '1'; } catch (e) {}
@@ -2021,7 +2089,7 @@ return;
                     requestAnimationFrame(() => requestAnimationFrame(apply));
                     setTimeout(apply, 0);
                     requestAnimationFrame(() => requestAnimationFrame(() => {
-                        try { __tmRunFlipAnimation(state.modal); } catch (e) {}
+                        runFlipAnimationAfterRender();
                         if (useSoftSwap) {
                             try { state.modal.style.opacity = '1'; } catch (e) {}
                             try { state.modal.style.pointerEvents = ''; } catch (e) {}
@@ -2052,7 +2120,7 @@ return;
                     requestAnimationFrame(() => requestAnimationFrame(apply));
                     requestAnimationFrame(() => requestAnimationFrame(() => {
                         try { __tmRefreshKanbanDetailInPlace(state.modal, { scrollSnapshot: savedKanbanDetailScrollSnapshot, source: 'render-kanban-post-raf' }); } catch (e) {}
-                        try { __tmRunFlipAnimation(state.modal); } catch (e) {}
+                        runFlipAnimationAfterRender();
                         if (useSoftSwap) {
                             try { state.modal.style.opacity = '1'; } catch (e) {}
                             try { state.modal.style.pointerEvents = ''; } catch (e) {}
@@ -2076,7 +2144,7 @@ return;
                     apply();
                     requestAnimationFrame(() => requestAnimationFrame(apply));
                     requestAnimationFrame(() => requestAnimationFrame(() => {
-                        try { __tmRunFlipAnimation(state.modal); } catch (e) {}
+                        runFlipAnimationAfterRender();
                         try { __tmScheduleWhiteboardEdgeRedraw(); } catch (e) {}
                         if (useSoftSwap) {
                             try { state.modal.style.opacity = '1'; } catch (e) {}
@@ -2102,7 +2170,7 @@ return;
                     requestAnimationFrame(() => requestAnimationFrame(apply));
                     requestAnimationFrame(() => requestAnimationFrame(() => {
                         try { __tmRestoreChecklistDetailScrollSnapshot(savedChecklistDetailScrollSnapshot, state.modal); } catch (e) {}
-                        try { __tmRunFlipAnimation(state.modal); } catch (e) {}
+                        runFlipAnimationAfterRender();
                         if (useSoftSwap) {
                             try { state.modal.style.opacity = '1'; } catch (e) {}
                             try { state.modal.style.pointerEvents = ''; } catch (e) {}
@@ -2123,7 +2191,7 @@ return;
                     requestAnimationFrame(() => requestAnimationFrame(() => {
                          try { if (body) body.scrollTop = desiredTop; } catch (e) {}
                          try { body?.__tmTableScrollUpdateThumb?.(); } catch (e) {}
-                         try { __tmRunFlipAnimation(state.modal); } catch (e) {}
+                         runFlipAnimationAfterRender();
                          if (state.viewMode === 'whiteboard') {
                              try { __tmScheduleWhiteboardEdgeRedraw(); } catch (e) {}
                          }
@@ -2157,12 +2225,11 @@ return;
         }
         __tmPersistGlobalViewProfileFromCurrentState();
         await SettingsStore.save();
-        const prevDoneOnly = !!state.__tmQueryDoneOnly;
         const nextRule = ruleId ? state.filterRules.find(r => r.id === ruleId) : null;
         const nextDoneOnly = __tmRuleNeedsDoneOnly(nextRule);
         state.__tmQueryDoneOnly = nextDoneOnly;
         const nextCustomFieldPlan = __tmBuildRuntimeCustomFieldLoadPlan({ rule: nextRule });
-        if (prevDoneOnly !== nextDoneOnly || __tmDoesCustomFieldPlanNeedReload(prevCustomFieldPlan, nextCustomFieldPlan)) {
+        if (__tmDoesCustomFieldPlanNeedReload(prevCustomFieldPlan, nextCustomFieldPlan)) {
             await loadSelectedDocuments();
             if (ruleId) {
                 const rule = state.filterRules.find(r => r.id === ruleId);
@@ -2189,14 +2256,13 @@ return;
 
     window.clearFilterRule = async function() {
         const prevCustomFieldPlan = __tmBuildRuntimeCustomFieldLoadPlan();
-        const prevDoneOnly = !!state.__tmQueryDoneOnly;
         state.currentRule = null;
         SettingsStore.data.currentRule = null;
         __tmPersistGlobalViewProfileFromCurrentState();
         await SettingsStore.save();
         state.__tmQueryDoneOnly = false;
         const nextCustomFieldPlan = __tmBuildRuntimeCustomFieldLoadPlan({ rule: null });
-        if (prevDoneOnly || __tmDoesCustomFieldPlanNeedReload(prevCustomFieldPlan, nextCustomFieldPlan)) {
+        if (__tmDoesCustomFieldPlanNeedReload(prevCustomFieldPlan, nextCustomFieldPlan)) {
             await loadSelectedDocuments();
             hint('✅ 已清除筛选规则', 'success');
             return;
@@ -2524,8 +2590,10 @@ return;
 
     function __tmKanbanResolveTaskStatusColumnKey(task) {
         if (!task) return '';
-        const doneBoardEnabled = SettingsStore.data.kanbanHeadingGroupMode === true && !!SettingsStore.data.kanbanShowDoneColumn;
-        if (!!task.done) return doneBoardEnabled ? '__done__' : '';
+        const doneBoardEnabled = SettingsStore.data.kanbanHeadingGroupMode === true
+            && !!state.showCompletedTasks
+            && !!SettingsStore.data.kanbanShowDoneColumn;
+        if (!!task.done && doneBoardEnabled) return '__done__';
         return String(__tmResolveTaskStatusId(task, SettingsStore.data.customStatusOptions || []) || '').trim();
     }
 
@@ -2699,9 +2767,7 @@ return;
         const out = {};
         if (ids.length === 0) return out;
         const lv = __tmNormalizeHeadingLevel(headingLevel);
-        const perDocLimit = Number.isFinite(Number(SettingsStore.data?.queryLimit))
-            ? Math.max(1, Math.min(5000, Math.round(Number(SettingsStore.data.queryLimit))))
-            : 500;
+        const perDocLimit = Math.max(500, Math.min(__TM_TASK_INDEX_QUERY_LIMIT, Number(__TM_TASK_HOT_QUERY_LIMIT) || 5000));
         let headingOrderMap = new Map();
         try {
             headingOrderMap = await API.fetchHeadingOrderByDocs(ids, lv);
@@ -2713,7 +2779,7 @@ return;
             const batch = ids.slice(i, i + batchSize);
             if (!batch.length) continue;
             const inList = batch.map((id) => `'${id.replace(/'/g, "''")}'`).join(',');
-            const totalLimit = Math.max(perDocLimit, Math.min(500000, batch.length * perDocLimit));
+            const totalLimit = Math.max(perDocLimit, Math.min(__TM_SQL_MAX_TOTAL_LIMIT, batch.length * perDocLimit));
             const sql = `
                 SELECT id, root_id, content, sort, created
                 FROM blocks
@@ -3649,7 +3715,9 @@ return;
         if (!id) id = String(state.__tmKanbanDragId || '').trim();
         if (!id) return;
         const baseIds = Array.isArray(state.__tmKanbanDragIds) && state.__tmKanbanDragIds.length ? state.__tmKanbanDragIds : [id];
-        const headingDoneBoardEnabled = SettingsStore.data.kanbanHeadingGroupMode === true && !!SettingsStore.data.kanbanShowDoneColumn;
+        const headingDoneBoardEnabled = SettingsStore.data.kanbanHeadingGroupMode === true
+            && !!state.showCompletedTasks
+            && !!SettingsStore.data.kanbanShowDoneColumn;
         const restoreIdsFromDoneBoard = async (seedIds) => {
             if (!headingDoneBoardEnabled) return true;
             let ids = Array.isArray(seedIds) ? seedIds.slice() : [];
@@ -4172,6 +4240,11 @@ return;
             || ''
         ).trim();
         const source = String(opts.source || 'doc-parent-links').trim() || 'doc-parent-links';
+        const yieldEvery = Math.max(0, Math.round(Number(opts.yieldEvery || 0) || 0));
+        const shouldYield = yieldEvery > 0;
+        const yieldToBrowser = () => new Promise((resolve) => {
+            try { setTimeout(resolve, 0); } catch (e) { resolve(); }
+        });
         const parentLookupDepth = __tmNormalizeTaskParentLookupDepth(
             Object.prototype.hasOwnProperty.call(opts, 'parentLookupDepth')
                 ? opts.parentLookupDepth
@@ -4199,16 +4272,20 @@ return;
             missingParentInDocCount: 0,
         };
 
-        tasks.forEach((task) => {
+        for (let index = 0; index < tasks.length; index += 1) {
+            if (shouldYield && index > 0 && (index % yieldEvery) === 0) await yieldToBrowser();
+            const task = tasks[index];
             const taskId = String(task?.id || '').trim();
-            if (!taskId) return;
+            if (!taskId) continue;
             task.children = [];
             idMap.set(taskId, task);
-        });
+        }
 
-        tasks.forEach((task) => {
+        for (let index = 0; index < tasks.length; index += 1) {
+            if (shouldYield && index > 0 && (index % yieldEvery) === 0) await yieldToBrowser();
+            const task = tasks[index];
             const taskId = String(task?.id || '').trim();
-            if (!taskId) return;
+            if (!taskId) continue;
             const directParentId = String(task?.parent_id || task?.parentId || '').trim();
             const joinedParentTaskId = String(task?.parentTaskId || task?.parent_task_id || '').trim();
             const listParentTaskId = String(task?.parent_list_parent_id || task?.parentListParentId || '').trim();
@@ -4251,13 +4328,14 @@ return;
             }
 
             task.parentTaskId = resolvedParentTaskId;
-        });
+        }
 
         if (unresolvedParentIds.size > 0 && parentLookupDepth > 0) {
             try {
                 const blockParentMap = new Map();
                 let frontier = new Set(Array.from(unresolvedParentIds));
                 for (let depth = 0; depth < parentLookupDepth && frontier.size > 0; depth += 1) {
+                    if (shouldYield && depth > 0) await yieldToBrowser();
                     const queryIds = Array.from(frontier).filter((id) => id && !blockParentMap.has(id) && !idMap.has(id));
                     frontier = new Set();
                     if (!queryIds.length) continue;
@@ -4272,7 +4350,9 @@ return;
                         frontier.add(parentId);
                     });
                 }
-                fallbackTargets.forEach((item) => {
+                for (let index = 0; index < fallbackTargets.length; index += 1) {
+                    if (shouldYield && index > 0 && (index % yieldEvery) === 0) await yieldToBrowser();
+                    const item = fallbackTargets[index];
                     let cursor = String(item.directParentId || '').trim();
                     const seen = new Set();
                     for (let depth = 0; cursor && depth < parentLookupDepth; depth += 1) {
@@ -4289,14 +4369,16 @@ return;
                         }
                         cursor = parentId;
                     }
-                });
+                }
             } catch (e) {}
         }
 
         const rootTasks = [];
-        tasks.forEach((task) => {
+        for (let index = 0; index < tasks.length; index += 1) {
+            if (shouldYield && index > 0 && (index % yieldEvery) === 0) await yieldToBrowser();
+            const task = tasks[index];
             const taskId = String(task?.id || '').trim();
-            if (!taskId) return;
+            if (!taskId) continue;
             let parentTaskId = String(task?.parentTaskId || '').trim();
             let resolvedInDoc = !!(parentTaskId && idMap.has(parentTaskId));
             if (!resolvedInDoc && allowOldRelationshipFallback && oldRelationships?.has(taskId)) {
@@ -4318,7 +4400,7 @@ return;
                 rootTasks.push(task);
                 if (parentTaskId) stats.missingParentInDocCount += 1;
             }
-        });
+        }
 
         return {
             rootTasks,

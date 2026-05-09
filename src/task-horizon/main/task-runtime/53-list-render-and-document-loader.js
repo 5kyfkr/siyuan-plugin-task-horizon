@@ -13,9 +13,9 @@
 
         const isGloballyLocked = GlobalLock.isLocked();
         const isListView = globalThis.__tmRuntimeState?.isViewMode?.('list') ?? (String(state.viewMode || '').trim() === 'list');
-        const virtualThreshold = 50;
+        const virtualThreshold = state.__tmSnapshotFirstRenderLimitMode ? 0 : 5000;
         const virtualEnabled = isListView && state.filteredTasks.length > virtualThreshold;
-        const listStep = Math.max(100, Math.min(1200, Number(state.listRenderStep) || 100));
+        const listStep = Math.max(20, Math.min(1200, Number(state.listRenderStep) || 20));
         const taskRowLimit = virtualEnabled
             ? Math.max(listStep, Math.min(state.filteredTasks.length, Number(state.listRenderLimit) || listStep))
             : Number.POSITIVE_INFINITY;
@@ -161,8 +161,11 @@
         const rootTasks = derived.rootTasks;
 
         // 分离置顶和非置顶的根任务
-        const pinnedRoots = rootTasks.filter(t => t.pinned);
-        const normalRoots = rootTasks.filter(t => !t.pinned);
+        const rootSplit = __tmSplitTasksByDoneState(rootTasks);
+        const activeRoots = rootSplit.active;
+        const completedRoots = rootSplit.done;
+        const pinnedRoots = activeRoots.filter(t => t.pinned);
+        const normalRoots = activeRoots.filter(t => !t.pinned);
         const docRootTasksByDoc = derived.docRootTasksByDoc;
         const directChildStatsMemo = new Map();
         const getDirectChildStats = (task) => {
@@ -403,6 +406,23 @@
         };
 
         const allRows = [];
+        const appendCompletedRootGroup = () => {
+            if (!completedRoots.length) return;
+            if (!hasTaskRowBudget()) return;
+            completedRoots.sort((a, b) => __tmCompareCompletedTasksRecentFirst(a, b, (x, y) => getTaskOrder(x.id) - getTaskOrder(y.id)));
+            const doneGroupKey = 'completed_root_tasks';
+            const doneCollapsed = state.collapsedGroups?.has(doneGroupKey);
+            const doneToggle = `<span class="tm-group-toggle${doneCollapsed ? ' tm-group-toggle--collapsed' : ''}" onclick="tmToggleGroupCollapse('${doneGroupKey}', event)" style="cursor:pointer;margin-right:0;display:inline-flex;align-items:center;justify-content:center;width:16px;"><svg class="tm-group-toggle-icon" viewBox="0 0 16 16" width="16" height="16"><path d="M6 4l4 4-4 4" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg></span>`;
+            const doneDurationSum = __tmCalcGroupDurationText(completedRoots);
+            allRows.push(`<tr class="tm-group-row" data-group-key="${doneGroupKey}"><td colspan="${colCount}" onclick="tmToggleGroupCollapse('${doneGroupKey}', event)" style="cursor:pointer;background:var(--tm-header-bg);font-weight:bold;color:var(--tm-text-color);"><div class="tm-group-sticky">${doneToggle}<span class="tm-group-label" style="color:var(--tm-secondary-text);">已完成任务</span><span class="tm-badge tm-badge--count">${completedRoots.length}</span>${doneDurationSum ? `<span class="tm-badge tm-badge--duration"><span class="tm-badge__icon">${__tmRenderBadgeIcon('chart-column')}</span>${esc(doneDurationSum)}</span>` : ''}</div></td></tr>`);
+            if (!doneCollapsed) {
+                currentGroupBg = '';
+                completedRoots.forEach(task => {
+                    if (!hasTaskRowBudget()) return;
+                    allRows.push(...renderTaskTree(task, 0));
+                });
+            }
+        };
 
         // 处理置顶任务（全局混排）
         if (pinnedRoots.length > 0) {
@@ -573,15 +593,14 @@
                 const docEntry = docEntryById.get(String(docId || '').trim());
                 if (!docEntry) return;
 
-                // 获取该文档在 filtered 中的任务
-                const docTasks = filteredTasksByDoc.get(String(docId || '').trim()) || [];
-                if (docTasks.length === 0) return;
-
                 // 获取该文档的根任务
                 const docRootTasks = docRootTasksByDoc.get(String(docId || '').trim()) || [];
 
                 // 分离置顶和非置顶
                 const docNormal = docRootTasks.filter(t => !t.pinned);
+                const activeDocRootTasks = docNormal.filter((task) => !__tmIsTaskDoneForTailGroup(task));
+                if (activeDocRootTasks.length === 0) return;
+                const docTasks = activeDocRootTasks;
 
                 // 渲染文档标题（支持折叠）
                 const docName = docEntry.name || '未知文档';
@@ -597,7 +616,7 @@
                     currentGroupBg = enableGroupBg ? __tmGroupBgFromLabelColor(labelColor, isDark) : '';
                     const useDocH2Subgroup = enableDocH2Subgroup && __tmDocHasAnyHeading(docId, docTasks);
                     if (!useDocH2Subgroup) {
-                        docNormal.forEach(task => {
+                        activeDocRootTasks.forEach(task => {
                             if (!hasTaskRowBudget()) return;
                             allRows.push(...renderTaskTree(task, 0));
                         });
@@ -605,7 +624,7 @@
                         const h2Groups = new Map();
                         const h2OrderSource = docTasks;
                         const h2Buckets = __tmBuildDocHeadingBuckets(h2OrderSource, noHeadingLabel);
-                        docNormal.forEach(task => {
+                        activeDocRootTasks.forEach(task => {
                                 const b = __tmGetDocHeadingBucket(task, noHeadingLabel);
                                 if (!h2Groups.has(b.key)) h2Groups.set(b.key, { label: b.label, id: String(b.id || '').trim(), items: [] });
                                 h2Groups.get(b.key).items.push(task);
@@ -696,7 +715,7 @@
         } else if (state.groupByTaskName) {
             // 按任务名分组模式：只对顶级任务分组，子任务跟随父任务
             // 1. 先找出所有顶级任务
-            const topLevelTasks = state.filteredTasks.filter(t => !t.parentTaskId);
+            const topLevelTasks = normalRoots;
 
             // 2. 按任务内容分组顶级任务
             const tasksByContent = {};
@@ -751,6 +770,8 @@
             });
         }
 
+        appendCompletedRootGroup();
+
         if (allRows.length === 0) {
             return `<tr><td colspan="${colCount}" style="text-align: center; padding: 40px; color: var(--tm-secondary-text);">暂无任务</td></tr>`;
         }
@@ -770,7 +791,7 @@
     window.tmListLoadMoreRows = async function(ev) {
         try { ev?.preventDefault?.(); } catch (e) {}
         try { ev?.stopPropagation?.(); } catch (e) {}
-        const step = Math.max(100, Math.min(1200, Number(state.listRenderStep) || 100));
+        const step = Math.max(20, Math.min(1200, Number(state.listRenderStep) || 20));
         const next = Math.max(step, Number(state.listRenderLimit) || step) + step;
         state.listRenderLimit = Math.min(state.filteredTasks.length, next);
         try {
@@ -1551,7 +1572,8 @@ return finish(false, 'noop');
     }
 
     async function __tmHydrateChecklistVisibleDateAttrs(tasks, options = {}) {
-        if (!(globalThis.__tmRuntimeState?.isViewMode?.('checklist') ?? (String(state.viewMode || '').trim() === 'checklist'))) return { changed: false, changedCount: 0 };
+        const opts = (options && typeof options === 'object') ? options : {};
+        if (!opts.force && !(globalThis.__tmRuntimeState?.isViewMode?.('checklist') ?? (String(state.viewMode || '').trim() === 'checklist'))) return { changed: false, changedCount: 0 };
         const list = Array.isArray(tasks) ? tasks.filter((task) => task && typeof task === 'object') : [];
         if (!list.length) return { changed: false, changedCount: 0 };
         const visibleDateKeys = [
@@ -2472,7 +2494,7 @@ hint(`❌ 操作失败: ${e.message}`, 'error');
             let retries = 0;
             const maxRetries = 20; // 最多等待 5秒 (250ms * 20)
             while (retries < maxRetries) {
-                const res = await API.getTasksByDocuments([docId], state.queryLimit);
+                const res = await API.getTasksByDocuments([docId], __TM_TASK_INDEX_QUERY_LIMIT);
 
                 // 检查是否包含期望的ID
                 if (res.tasks && res.tasks.find(t => t.id === expectId)) {
@@ -2493,7 +2515,7 @@ hint(`❌ 操作失败: ${e.message}`, 'error');
                 retries++;
             }
         } else {
-             const res = await API.getTasksByDocuments([docId], state.queryLimit);
+             const res = await API.getTasksByDocuments([docId], __TM_TASK_INDEX_QUERY_LIMIT);
              flatTasks = res.tasks || [];
              queryTime = res.queryTime || 0;
         }
@@ -2780,6 +2802,12 @@ hint(`❌ 操作失败: ${e.message}`, 'error');
         } else {
             state.taskTree.push(newDoc);
         }
+        try {
+            __tmRememberDocSessionTaskEntry(newDoc, {
+                docInfo,
+                inTaskTree: true,
+            });
+        } catch (e) {}
         __tmInvalidateFilteredTaskDerivedStateCache();
 
         // 6. 更新flatTasks
@@ -5756,7 +5784,8 @@ hint(`❌ 操作失败: ${e.message}`, 'error');
         try { hooks.onQueued?.(tempId); } catch (e) {}
         opPromise.then((result) => {
             try { state.collapsedTaskIds?.delete?.(pid); } catch (e) {}
-            try { hooks.onSuccess?.(String(result?.realId || tempId).trim() || tempId); } catch (e) {}
+            const realId = String(result?.realId || tempId).trim() || tempId;
+            try { hooks.onSuccess?.(realId); } catch (e) {}
             if (hooks.silent !== true) hint('✅ 已新增', 'success');
         }).catch((e) => {
             try { hooks.onError?.(e); } catch (e2) {}
@@ -6847,141 +6876,354 @@ hint(`❌ 操作失败: ${e.message}`, 'error');
         try { __tmScheduleHomepageRefresh('stats-recalc'); } catch (e) {}
     }
 
-    // 解析文档分组中的所有文档ID
-    async function resolveDocIdsFromGroups(options = {}) {
-        const opts = (options && typeof options === 'object') ? options : {};
-        const groups = SettingsStore.data.docGroups || [];
-        const currentGroupIdRaw = (opts.groupId ?? SettingsStore.data.currentGroupId ?? 'all');
-        const currentGroupId = String(currentGroupIdRaw).trim() || 'all';
-        const includeQuickAddDoc = opts.includeQuickAddDoc !== false;
-        const forceRefreshScope = !!opts.forceRefreshScope;
-        const quickAddDocId = includeQuickAddDoc ? String(SettingsStore.data.newTaskDocId || '').trim() : '';
-        const currentGroupExcludedDocIds = __tmGetExcludedDocIdsForGroup(currentGroupId);
-        const otherBlockRefsForGroup = currentGroupId === 'all' ? [] : __tmGetOtherBlockRefsByGroup(currentGroupId);
-        const otherBlockRefsSig = __tmNormalizeOtherBlockRefs(otherBlockRefsForGroup).map((item) => item.id).join(',');
+    function __tmNormalizeDocGroupLoaderEntry(entry) {
+        const source = (entry && typeof entry === 'object') ? entry : {};
+        const id = String((typeof entry === 'object' ? source.id : entry) || '').trim();
+        if (!id) return null;
+        const kind = String(source.kind || 'doc').trim() || 'doc';
+        return {
+            id,
+            kind,
+            recursive: !!source.recursive,
+            calendarOptimization: __tmNormalizeCalendarSearchOptimization(source.calendarOptimization),
+            excludedDocIds: __tmNormalizeDocGroupExcludedDocIds(source.excludedDocIds)
+        };
+    }
 
-        let targetDocs = [];
-
-        if (currentGroupId === 'all') {
-            // “全部”模式：包含旧版 selectedDocIds 和所有分组中的文档
-            // 1. 旧版 selectedDocIds (视为无递归)
-            const legacyIds = SettingsStore.data.selectedDocIds || [];
-            legacyIds.forEach(id => targetDocs.push({ id, kind: 'doc', recursive: false }));
-
-            // 2. 所有分组中的文档
-            groups.forEach(g => {
-                targetDocs.push(...__tmGetGroupSourceEntries(g));
-            });
-        } else {
-            // 特定分组模式
-            const group = groups.find(g => g.id === currentGroupId);
-            if (group) {
-                targetDocs = __tmGetGroupSourceEntries(group);
-            }
-        }
-
-        // 归一化文档项并按当前分组钉住顺序前置
-        const normalizedDocs = (targetDocs || [])
-            .map((doc) => {
-                const id = String((typeof doc === 'object' ? doc?.id : doc) || '').trim();
-                if (!id) return null;
-                return {
-                    id,
-                    kind: String((typeof doc === 'object' ? doc?.kind : '') || 'doc').trim() || 'doc',
-                    recursive: !!(typeof doc === 'object' ? doc?.recursive : false),
-                    excludedDocIds: __tmNormalizeDocGroupExcludedDocIds(typeof doc === 'object' ? doc?.excludedDocIds : [])
-                };
-            })
-            .filter(Boolean);
-        if (forceRefreshScope) {
-            try { __tmDocExpandCache.clear(); } catch (e) {}
-            try { __tmResolvedDocIdsCache = null; } catch (e) {}
-            try { __tmResolvedDocIdsPromise = null; } catch (e) {}
-        }
-        const resolveCacheKey = [
-            currentGroupId,
-            quickAddDocId,
-            currentGroupExcludedDocIds.join(','),
-            otherBlockRefsSig,
-            ...normalizedDocs.map((doc) => `${doc.kind}:${doc.id}:${doc.recursive ? 1 : 0}:${__tmNormalizeDocGroupExcludedDocIds(doc?.excludedDocIds).join(',')}`)
-        ].join('|');
-        const resolveCacheEnt = __tmResolvedDocIdsCache;
-        const resolveCacheTtlMs = 30000;
-        if (resolveCacheEnt
-            && resolveCacheEnt.key === resolveCacheKey
-            && Array.isArray(resolveCacheEnt.ids)
-            && (Date.now() - Number(resolveCacheEnt.t || 0)) < resolveCacheTtlMs) {
-            return resolveCacheEnt.ids.slice();
-        }
-        if (__tmResolvedDocIdsPromise && __tmResolvedDocIdsPromise.key === resolveCacheKey && __tmResolvedDocIdsPromise.promise) {
-            const ids = await __tmResolvedDocIdsPromise.promise;
-            return Array.isArray(ids) ? ids.slice() : [];
-        }
-        const docsInOrder = __tmSortDocEntriesByPinned(normalizedDocs, currentGroupId);
-
-        // 解析递归文档（保持顺序去重）
-        const finalIds = [];
+    function __tmNormalizeDocGroupLoaderIds(docIds = []) {
+        if (typeof __tmNormalizeDocScopeDocIds === 'function') return __tmNormalizeDocScopeDocIds(docIds);
+        const out = [];
         const seen = new Set();
-        const otherBlockSourceDocIds = new Set();
-        const pushId = (id0) => {
+        (Array.isArray(docIds) ? docIds : []).forEach((id0) => {
             const id = String(id0 || '').trim();
             if (!id || seen.has(id)) return;
             seen.add(id);
-            finalIds.push(id);
-        };
-        const excludeCurrentGroupDocs = (ids) => {
-            const list = Array.isArray(ids) ? ids : [];
-            if (!currentGroupExcludedDocIds.length) return list.slice();
-            const excludedSet = new Set(currentGroupExcludedDocIds);
-            return list.filter((id0) => !excludedSet.has(String(id0 || '').trim()));
-        };
-        const quickAddExcluded = __tmIsDocExcludedInGroup(quickAddDocId, currentGroupId);
-        if (quickAddDocId && quickAddDocId !== '__dailyNote__' && !quickAddExcluded) pushId(quickAddDocId);
-
-        const resolvePromise = Promise.resolve().then(async () => {
-            const promises = docsInOrder.map((doc) => __tmExpandSourceEntryDocIds(doc, pushId));
-            await Promise.all(promises);
-            if (currentGroupId !== 'all' && otherBlockRefsForGroup.length > 0) {
-                let rows = [];
-                try { rows = await API.getOtherBlocksByIds(otherBlockRefsForGroup.map((item) => item.id)); } catch (e) { rows = []; }
-                (Array.isArray(rows) ? rows : []).forEach((row) => {
-                    if (!__tmIsSupportedOtherBlockType(row?.type, row?.subtype)) return;
-                    const type = String(row?.type || '').trim().toLowerCase();
-                    const docId = type === 'd'
-                        ? String(row?.id || row?.root_id || '').trim()
-                        : String(row?.root_id || '').trim();
-                    if (docId) otherBlockSourceDocIds.add(docId);
-                    pushId(docId);
-                });
-            }
-            if (currentGroupId !== 'all') {
-                const currentGroup = groups.find((g) => String(g?.id || '').trim() === String(currentGroupId || '').trim());
-                if (currentGroup) {
-                    const out0 = await __tmApplyCalendarSearchOptimizationToDocIds(finalIds, currentGroup);
-                    const withOtherBlockDocs = Array.isArray(out0) ? out0.slice() : [];
-                    const outSeen = new Set(withOtherBlockDocs.map((id) => String(id || '').trim()).filter(Boolean));
-                    otherBlockSourceDocIds.forEach((docId) => {
-                        if (!docId || outSeen.has(docId)) return;
-                        outSeen.add(docId);
-                        withOtherBlockDocs.push(docId);
-                    });
-                    const out1 = excludeCurrentGroupDocs(withOtherBlockDocs);
-                    __tmResolvedDocIdsCache = { key: resolveCacheKey, ids: out1, t: Date.now() };
-                    return out1;
-                }
-            }
-            const out = excludeCurrentGroupDocs(finalIds);
-            __tmResolvedDocIdsCache = { key: resolveCacheKey, ids: out, t: Date.now() };
-            return out;
+            out.push(id);
         });
-        __tmResolvedDocIdsPromise = { key: resolveCacheKey, promise: resolvePromise };
+        return out;
+    }
+
+    function __tmBuildDocGroupLoaderSourceEntries(groupId, groups, currentGroup) {
+        const gid = String(groupId || 'all').trim() || 'all';
+        const out = [];
+        if (gid === 'all') {
+            (Array.isArray(SettingsStore?.data?.selectedDocIds) ? SettingsStore.data.selectedDocIds : [])
+                .forEach((id) => out.push({ id, kind: 'doc', recursive: false }));
+            (Array.isArray(groups) ? groups : []).forEach((group) => {
+                out.push(...__tmGetGroupSourceEntries(group));
+            });
+        } else if (currentGroup) {
+            out.push(...__tmGetGroupSourceEntries(currentGroup));
+        }
+        const normalized = out.map(__tmNormalizeDocGroupLoaderEntry).filter(Boolean);
+        const sorted = __tmSortDocEntriesByPinned(normalized, gid);
+        return sorted;
+    }
+
+    function __tmBuildDocGroupLoaderContext(options = {}) {
+        const opts = (options && typeof options === 'object') ? options : {};
+        const groups = Array.isArray(SettingsStore?.data?.docGroups) ? SettingsStore.data.docGroups : [];
+        const groupId = String(opts.groupId ?? SettingsStore?.data?.currentGroupId ?? 'all').trim() || 'all';
+        const group = groupId === 'all'
+            ? null
+            : groups.find((item) => String(item?.id || '').trim() === groupId) || null;
+        const includeQuickAddDoc = opts.includeQuickAddDoc !== false;
+        const quickAddDocId = includeQuickAddDoc ? String(SettingsStore?.data?.newTaskDocId || '').trim() : '';
+        const excludedDocIds = __tmNormalizeDocGroupExcludedDocIds(__tmGetExcludedDocIdsForGroup(groupId));
+        const otherBlockRefs = groupId === 'all' ? [] : __tmNormalizeOtherBlockRefs(__tmGetOtherBlockRefsByGroup(groupId));
+        const otherBlockRefsSig = otherBlockRefs.map((item) => item.id).join(',');
+        const pinnedSig = __tmGetDocPinnedIdsForGroup(groupId).join(',');
+        const entries = __tmBuildDocGroupLoaderSourceEntries(groupId, groups, group);
+        const groupCalendarOptimization = group ? __tmGetGroupCalendarSearchOptimization(group) : __tmNormalizeCalendarSearchOptimization(null);
+        const recursiveDocLimit = Number.isFinite(Number(SettingsStore?.data?.recursiveDocLimit))
+            ? Math.max(1, Math.min(500000, Math.round(Number(SettingsStore.data.recursiveDocLimit))))
+            : 2000;
+        const entrySig = entries.map((entry) => {
+            const cal = __tmNormalizeCalendarSearchOptimization(entry.calendarOptimization);
+            return [
+                String(entry.kind || 'doc').trim() || 'doc',
+                String(entry.id || '').trim(),
+                entry.recursive ? 1 : 0,
+                cal.enabled ? 1 : 0,
+                Number(cal.days) || 0,
+                __tmNormalizeDocGroupExcludedDocIds(entry.excludedDocIds).join(',')
+            ].join(':');
+        }).join('|');
+        const legacyCompat = SettingsStore?.data?.legacyWin7CompatMode === true ? 1 : 0;
+        const scopeKey = [
+            'doc-group-scope-v2',
+            groupId,
+            `compat${legacyCompat}`,
+            includeQuickAddDoc ? quickAddDocId : '',
+            excludedDocIds.join(','),
+            otherBlockRefsSig,
+            pinnedSig,
+            recursiveDocLimit,
+            groupCalendarOptimization.enabled ? 1 : 0,
+            Number(groupCalendarOptimization.days) || 0,
+            entrySig
+        ].join('|');
+        return {
+            opts,
+            groupId,
+            group,
+            groups,
+            includeQuickAddDoc,
+            quickAddDocId,
+            excludedDocIds,
+            excludedDocIdSet: new Set(excludedDocIds),
+            otherBlockRefs,
+            entries,
+            scopeKey,
+            memoryKey: scopeKey,
+            forceRefreshScope: !!opts.forceRefreshScope,
+            skipPersistedScope: !!opts.skipPersistedScope,
+            skipResolvedDocIdsCache: !!opts.skipResolvedDocIdsCache,
+            verifyCachedScope: opts.verifyCachedScope !== false,
+        };
+    }
+
+    function __tmRememberDocGroupResolvedScope(ctx, ids, cacheSource = 'fresh') {
+        const out = __tmNormalizeDocGroupLoaderIds(ids);
+        const entry = {
+            key: ctx.memoryKey,
+            ids: out.slice(),
+            t: Date.now(),
+            source: String(cacheSource || 'fresh').trim() || 'fresh',
+            groupId: ctx.groupId,
+        };
+        __tmResolvedDocIdsCache = entry;
+        try { __tmRememberSmallCache(__tmResolvedDocIdsCacheMap, ctx.memoryKey, entry, 24); } catch (e) {}
+        try { __tmRememberDocScope(ctx.scopeKey, out, { groupId: ctx.groupId }); } catch (e) {}
+        try {
+            state.__tmLastDocGroupScopeLoad = {
+                groupId: ctx.groupId,
+                docCount: out.length,
+                source: entry.source,
+                updatedAt: entry.t,
+            };
+        } catch (e) {}
+        return out;
+    }
+
+    function __tmGetDocGroupResolvedMemoryCache(ctx) {
+        const ttlMs = Number(__TM_RESOLVED_DOC_IDS_CACHE_TTL_MS) || (10 * 60 * 1000);
+        const now = Date.now();
+        const mapEntry = __tmResolvedDocIdsCacheMap instanceof Map ? __tmResolvedDocIdsCacheMap.get(ctx.memoryKey) : null;
+        if (mapEntry && Array.isArray(mapEntry.ids) && (now - Number(mapEntry.t || 0)) < ttlMs) {
+            return mapEntry.ids.slice();
+        }
+        const lastEntry = __tmResolvedDocIdsCache;
+        if (lastEntry && lastEntry.key === ctx.memoryKey && Array.isArray(lastEntry.ids) && (now - Number(lastEntry.t || 0)) < ttlMs) {
+            return lastEntry.ids.slice();
+        }
+        return null;
+    }
+
+    function __tmFilterDocGroupExcludedIds(ids, ctx) {
+        const list = Array.isArray(ids) ? ids : [];
+        if (!ctx.excludedDocIdSet || ctx.excludedDocIdSet.size === 0) return __tmNormalizeDocGroupLoaderIds(list);
+        return __tmNormalizeDocGroupLoaderIds(list.filter((id0) => !ctx.excludedDocIdSet.has(String(id0 || '').trim())));
+    }
+
+    async function __tmResolveOtherBlockSourceDocIdsForDocGroup(ctx) {
+        const refs = Array.isArray(ctx.otherBlockRefs) ? ctx.otherBlockRefs : [];
+        if (!refs.length) return [];
+        let rows = [];
+        try { rows = await API.getOtherBlocksByIds(refs.map((item) => item.id)); } catch (e) { rows = []; }
+        const rowsById = new Map();
+        (Array.isArray(rows) ? rows : []).forEach((row) => {
+            const id = String(row?.id || '').trim();
+            if (id && !rowsById.has(id)) rowsById.set(id, row);
+        });
+        const orderedRows = [];
+        refs.forEach((ref) => {
+            const row = rowsById.get(String(ref?.id || '').trim());
+            if (row) orderedRows.push(row);
+        });
+        (Array.isArray(rows) ? rows : []).forEach((row) => {
+            if (!orderedRows.includes(row)) orderedRows.push(row);
+        });
+        const docIds = [];
+        orderedRows.forEach((row) => {
+            if (!__tmIsSupportedOtherBlockType(row?.type, row?.subtype)) return;
+            const type = String(row?.type || '').trim().toLowerCase();
+            const docId = type === 'd'
+                ? String(row?.id || row?.root_id || '').trim()
+                : String(row?.root_id || '').trim();
+            if (docId) docIds.push(docId);
+        });
+        return __tmNormalizeDocGroupLoaderIds(docIds);
+    }
+
+    async function __tmResolveDocGroupFreshIds(ctx) {
+        const collectedIds = [];
+        const collectedSeen = new Set();
+        const pushCollectedId = (id0) => {
+            const id = String(id0 || '').trim();
+            if (!id || collectedSeen.has(id)) return;
+            collectedSeen.add(id);
+            collectedIds.push(id);
+        };
+        if (ctx.quickAddDocId
+            && ctx.quickAddDocId !== '__dailyNote__'
+            && !ctx.excludedDocIdSet.has(ctx.quickAddDocId)) {
+            pushCollectedId(ctx.quickAddDocId);
+        }
+        const expandedByEntry = await Promise.all((Array.isArray(ctx.entries) ? ctx.entries : []).map(async (entry) => {
+            const entryIds = [];
+            try {
+                await __tmExpandSourceEntryDocIds(entry, (id) => {
+                    const docId = String(id || '').trim();
+                    if (docId) entryIds.push(docId);
+                });
+            } catch (e) {}
+            return entryIds;
+        }));
+        expandedByEntry.forEach((entryIds) => {
+            (Array.isArray(entryIds) ? entryIds : []).forEach(pushCollectedId);
+        });
+        let out = collectedIds.slice();
+        if (ctx.groupId !== 'all' && ctx.group) {
+            try {
+                const optimized = await __tmApplyCalendarSearchOptimizationToDocIds(out, ctx.group);
+                out = Array.isArray(optimized) ? optimized.slice() : out;
+            } catch (e) {}
+        }
+        const outSeen = new Set(out.map((id) => String(id || '').trim()).filter(Boolean));
+        const otherBlockDocIds = await __tmResolveOtherBlockSourceDocIdsForDocGroup(ctx);
+        otherBlockDocIds.forEach((docId) => {
+            if (!docId || outSeen.has(docId)) return;
+            outSeen.add(docId);
+            out.push(docId);
+        });
+        const filtered = __tmFilterDocGroupExcludedIds(out, ctx);
+        return filtered;
+    }
+
+    function __tmScheduleDocGroupScopeVerification(ctx, options, cachedIds, reason = 'doc-scope-cache-corrected') {
+        if (!ctx.verifyCachedScope) return false;
+        try {
+            const opts = (options && typeof options === 'object') ? options : {};
+            const cached = Array.isArray(cachedIds) ? cachedIds.slice() : [];
+            __tmScheduleIdleTask(() => {
+                resolveDocIdsFromGroups({
+                    ...opts,
+                    groupId: ctx.groupId,
+                    forceRefreshScope: false,
+                    skipPersistedScope: true,
+                    skipResolvedDocIdsCache: true,
+                    verifyCachedScope: false,
+                    preferFastScope: false,
+                }).then((freshIds) => {
+                    const fresh = Array.isArray(freshIds) ? freshIds : [];
+                    if (__tmHashIds(fresh) === __tmHashIds(cached)) return;
+                    if (String(SettingsStore?.data?.currentGroupId || 'all').trim() !== ctx.groupId) return;
+                    try {
+                        loadSelectedDocuments({
+                            preferFastFirstPaint: true,
+                            skipSnapshotFirstPaint: true,
+                            taskIndexFirstPaintCachedOnly: false,
+                            refreshAfterTaskIndexFirstPaint: true,
+                            forceFastFirstPaintBudget: true,
+                            showInlineLoading: false,
+                            source: reason,
+                        }).catch(() => null);
+                    } catch (e) {}
+                }).catch(() => null);
+            }, 900);
+            return true;
+        } catch (e) {
+            return false;
+        }
+    }
+
+    // 解析文档分组中的所有文档ID
+    async function resolveDocIdsFromGroups(options = {}) {
+        const opts = (options && typeof options === 'object') ? options : {};
+        const ctx = __tmBuildDocGroupLoaderContext(opts);
+        if (ctx.forceRefreshScope) {
+            try { __tmDocExpandCache.clear(); } catch (e) {}
+            try { __tmResolvedDocIdsCacheMap.clear(); } catch (e) {}
+            try { __tmResolvedDocIdsCache = null; } catch (e) {}
+            try { __tmResolvedDocIdsPromise = null; } catch (e) {}
+        }
+        if (!ctx.skipResolvedDocIdsCache) {
+            const cachedMemory = __tmGetDocGroupResolvedMemoryCache(ctx);
+            if (cachedMemory) {
+                return cachedMemory.slice();
+            }
+            if (__tmResolvedDocIdsPromise && __tmResolvedDocIdsPromise.key === ctx.memoryKey && __tmResolvedDocIdsPromise.promise) {
+                const pendingIds = await __tmResolvedDocIdsPromise.promise;
+                return Array.isArray(pendingIds) ? pendingIds.slice() : [];
+            }
+        }
+        if (!ctx.forceRefreshScope && !ctx.skipPersistedScope) {
+            try {
+                if (typeof __tmLoadDocScopeCacheStore === 'function') await __tmLoadDocScopeCacheStore();
+            } catch (e) {}
+            const scopeCache = __tmGetCachedDocScope(ctx.scopeKey);
+            if (scopeCache && Array.isArray(scopeCache.docIds) && scopeCache.docIds.length > 0) {
+                const ids = __tmRememberDocGroupResolvedScope(ctx, scopeCache.docIds, 'persisted');
+                __tmScheduleDocGroupScopeVerification(ctx, opts, ids, 'doc-scope-cache-corrected');
+                return ids.slice();
+            }
+        }
+        const resolvePromise = Promise.resolve().then(async () => {
+            const fresh = await __tmResolveDocGroupFreshIds(ctx);
+            return __tmRememberDocGroupResolvedScope(ctx, fresh, 'fresh');
+        });
+        __tmResolvedDocIdsPromise = { key: ctx.memoryKey, promise: resolvePromise };
         try {
             const ids = await resolvePromise;
             return Array.isArray(ids) ? ids.slice() : [];
         } finally {
-            if (__tmResolvedDocIdsPromise && __tmResolvedDocIdsPromise.key === resolveCacheKey) {
+            if (__tmResolvedDocIdsPromise && __tmResolvedDocIdsPromise.key === ctx.memoryKey) {
                 __tmResolvedDocIdsPromise = null;
             }
+        }
+    }
+
+    function __tmScheduleResolvedDocIdsPrewarm(options = {}) {
+        try {
+            const opts = (options && typeof options === 'object') ? options : {};
+            const delayMs = Math.max(120, Number(opts.delayMs || 360) || 360);
+            if (__tmResolvedDocIdsPrewarmState.timer || __tmResolvedDocIdsPrewarmState.running) return false;
+            __tmResolvedDocIdsPrewarmState.timer = setTimeout(() => {
+                __tmResolvedDocIdsPrewarmState.timer = null;
+                if (__tmResolvedDocIdsPrewarmState.running) return;
+                __tmResolvedDocIdsPrewarmState.running = true;
+                Promise.resolve()
+                    .then(async () => {
+                        const groups = Array.isArray(SettingsStore?.data?.docGroups) ? SettingsStore.data.docGroups : [];
+                        const currentGroupId = String(SettingsStore?.data?.currentGroupId || 'all').trim() || 'all';
+                        const groupIds = ['all']
+                            .concat(groups.map((group) => String(group?.id || '').trim()).filter(Boolean))
+                            .filter((gid, idx, arr) => arr.indexOf(gid) === idx)
+                            .sort((a, b) => {
+                                if (a === currentGroupId) return -1;
+                                if (b === currentGroupId) return 1;
+                                if (a === 'all') return -1;
+                                if (b === 'all') return 1;
+                                return 0;
+                            });
+                        for (const gid of groupIds.slice(0, 12)) {
+                            try {
+                                await resolveDocIdsFromGroups({
+                                    groupId: gid,
+                                    includeQuickAddDoc: true,
+                                });
+                            } catch (e) {}
+                        }
+                    })
+                    .catch(() => null)
+                    .finally(() => {
+                        __tmResolvedDocIdsPrewarmState.running = false;
+                    });
+            }, delayMs);
+            return true;
+        } catch (e) {
+            return false;
         }
     }
 
@@ -6993,12 +7235,184 @@ hint(`❌ 操作失败: ${e.message}`, 'error');
         const isTokenCurrent = () => runtimeState?.isCurrentOpenToken?.(token) ?? (token === (Number(state.openToken) || 0));
         const getActiveModal = () => runtimeState?.getModal?.() || state.modal;
         const getCurrentViewMode = (fallback = '') => runtimeState?.getViewMode?.(fallback) || String(state.viewMode || '').trim() || String(fallback || '').trim();
+        const isVerifyRawTaskSignatureSourceTask = (task) => {
+            if (!task || typeof task !== 'object') return false;
+            try { if (__tmIsCollectedOtherBlockTask(task)) return false; } catch (e) {}
+            try { if (__tmIsRecurringInstanceTask(task)) return false; } catch (e) {}
+            return true;
+        };
+        const buildVerifyRawTaskSignatureFromTasks = (tasks) => {
+            try {
+                const list = Array.isArray(tasks) ? tasks : [];
+                const rows = [];
+                list.forEach((task) => {
+                    if (!isVerifyRawTaskSignatureSourceTask(task)) return;
+                    const id = String(task.id || task.blockId || '').trim();
+                    if (!id) return;
+                    rows.push([
+                        id,
+                        String(task.blockId || '').trim(),
+                        String(task.markdown || task.content || task.text || '').trim(),
+                        String(task.updated || task.updatedAt || '').trim(),
+                        String(task.root_id || task.docId || '').trim(),
+                    ].join('\u0001'));
+                });
+                rows.sort();
+                return JSON.stringify(rows);
+            } catch (e) {
+                return '';
+            }
+        };
+        const buildVerifyRawTaskRowsFromSignature = (signature) => {
+            try {
+                const rows = JSON.parse(String(signature || '[]'));
+                return Array.isArray(rows) ? rows : [];
+            } catch (e) {
+                return [];
+            }
+        };
+        const summarizeVerifyRawTaskSignatureDiff = (beforeSignature, afterSignature) => {
+            try {
+                const beforeRows = buildVerifyRawTaskRowsFromSignature(beforeSignature);
+                const afterRows = buildVerifyRawTaskRowsFromSignature(afterSignature);
+                const maxLen = Math.max(beforeRows.length, afterRows.length);
+                let firstDiffIndex = -1;
+                for (let i = 0; i < maxLen; i += 1) {
+                    if (String(beforeRows[i] || '') !== String(afterRows[i] || '')) {
+                        firstDiffIndex = i;
+                        break;
+                    }
+                }
+                const getId = (row) => String(row || '').split('\u0001')[0] || '';
+                return {
+                    beforeCount: beforeRows.length,
+                    afterCount: afterRows.length,
+                    firstDiffIndex,
+                    beforeId: firstDiffIndex >= 0 ? getId(beforeRows[firstDiffIndex]) : '',
+                    afterId: firstDiffIndex >= 0 ? getId(afterRows[firstDiffIndex]) : '',
+                };
+            } catch (e) {
+                return {};
+            }
+        };
+        const buildVerifyRawTaskSignature = (taskMap) => {
+            try {
+                const map = (taskMap && typeof taskMap === 'object') ? taskMap : {};
+                return buildVerifyRawTaskSignatureFromTasks(Object.keys(map).map((id) => map[id]));
+            } catch (e) {
+                return '';
+            }
+        };
+        const buildVerifyTaskSignature = (taskMap) => {
+            try {
+                const map = (taskMap && typeof taskMap === 'object') ? taskMap : {};
+                const rows = [];
+                Object.keys(map).sort().forEach((id0) => {
+                    const id = String(id0 || '').trim();
+                    const task = id ? map[id] : null;
+                    if (!task || typeof task !== 'object') return;
+                    const childIds = (Array.isArray(task.children) ? task.children : [])
+                        .map((item) => String(item?.id || item?.blockId || '').trim())
+                        .filter(Boolean)
+                        .join(',');
+                    rows.push([
+                        id,
+                        String(task.blockId || '').trim(),
+                        String(task.content || task.markdown || task.text || '').trim(),
+                        task.done ? 1 : 0,
+                        task.pinned ? 1 : 0,
+                        String(task.startDate || task.start_date || '').trim(),
+                        String(task.completionTime || task.completion_time || task.taskCompleteAt || '').trim(),
+                        String(task.customTime || task.custom_time || '').trim(),
+                        String(task.taskCompleteAt || task.task_complete_at || '').trim(),
+                        String(task.created || '').trim(),
+                        String(task.updated || task.updatedAt || '').trim(),
+                        String(task.root_id || task.docId || '').trim(),
+                        String(task.docName || '').trim(),
+                        String(task.parentTaskId || '').trim(),
+                        String(task.h2 || '').trim(),
+                        String(task.h2Id || '').trim(),
+                        String(task.remark || '').trim(),
+                        String(task.duration || '').trim(),
+                        String(task.priority || '').trim(),
+                        String(task.customStatus || task.status || '').trim(),
+                        String(task.customFields ? JSON.stringify(task.customFields) : '').trim(),
+                        Number.isFinite(Number(task.level)) ? Number(task.level) : '',
+                        Number.isFinite(Number(task.docSeq)) ? Number(task.docSeq) : '',
+                        childIds,
+                    ].join('\u0001'));
+                });
+                return JSON.stringify(rows);
+            } catch (e) {
+                return '';
+            }
+        };
+        const buildVerifyDocSignature = () => {
+            try {
+                const docRows = (Array.isArray(state.taskTree) ? state.taskTree : []).map((doc) => {
+                    const docId = String(doc?.id || '').trim();
+                    const taskIds = [];
+                    const collect = (items) => {
+                        (Array.isArray(items) ? items : []).forEach((task) => {
+                            const id = String(task?.id || task?.blockId || '').trim();
+                            if (id) taskIds.push(id);
+                            if (Array.isArray(task?.children) && task.children.length > 0) collect(task.children);
+                        });
+                    };
+                    collect(doc?.tasks);
+                    return [
+                        docId,
+                        String(doc?.name || '').trim(),
+                        String(doc?.alias || '').trim(),
+                        String(doc?.icon || '').trim(),
+                        String(doc?.created || '').trim(),
+                        String(doc?.updated || doc?.docUpdated || '').trim(),
+                        taskIds.join(','),
+                    ].join('\u0001');
+                }).sort();
+                const loadedDocRows = (Array.isArray(state.allDocuments) ? state.allDocuments : []).map((doc) => [
+                    String(doc?.id || '').trim(),
+                    String(doc?.name || '').trim(),
+                    String(doc?.alias || '').trim(),
+                    String(doc?.icon || '').trim(),
+                    String(doc?.created || '').trim(),
+                    String(doc?.updated || doc?.docUpdated || '').trim(),
+                ].join('\u0001')).sort();
+                return JSON.stringify({
+                    selected: (Array.isArray(state.selectedDocIds) ? state.selectedDocIds : []).map((id) => String(id || '').trim()).filter(Boolean).sort(),
+                    loaded: (Array.isArray(state.__tmLoadedDocIdsForTasks) ? state.__tmLoadedDocIdsForTasks : []).map((id) => String(id || '').trim()).filter(Boolean).sort(),
+                    taskTree: docRows,
+                    docs: loadedDocRows,
+                    otherBlocks: (Array.isArray(state.otherBlocks) ? state.otherBlocks : [])
+                        .map((block) => String(block?.id || block?.blockId || '').trim())
+                        .filter(Boolean)
+                        .sort(),
+                });
+            } catch (e) {
+                return '';
+            }
+        };
         const skipRender = !!(options && options.skipRender);
         const showInlineLoading = !skipRender && !(options && options.showInlineLoading === false);
         const preferFastFirstPaint = !!(options && options.preferFastFirstPaint);
+        const skipSnapshotFirstPaint = !!(options && options.skipSnapshotFirstPaint === true);
+        const snapshotFirstPaintCachedOnly = !!(options && options.snapshotFirstPaintCachedOnly === true);
+        const taskIndexFirstPaintCachedOnly = !!(options && options.taskIndexFirstPaintCachedOnly === true);
+        const skipTaskIndexFirstPaint = !!(options && options.skipTaskIndexFirstPaint === true);
+        const skipSessionRestoreFirstPaint = !!(options && options.skipSessionRestoreFirstPaint === true);
+        const skipDocSessionRestoreFirstPaint = !!(options && options.skipDocSessionRestoreFirstPaint === true);
+        const forceFastFirstPaintBudget = !!(options && options.forceFastFirstPaintBudget === true);
         const forceFreshTasks = !!(options && options.forceFreshTasks === true);
         const forceSyncFlowRank = !!(options && options.forceSyncFlowRank === true);
         const forceFullLoadBudget = !!(options && options.forceFullLoadBudget);
+        const refreshAfterTaskIndexFirstPaint = !!(options && options.refreshAfterTaskIndexFirstPaint === true);
+        const waitForDocScopeResolve = !!(options && options.waitForDocScopeResolve === true);
+        const skipFullLoadAfterFastFirstPaint = !!(options && options.skipFullLoadAfterFastFirstPaint === true);
+        const skipTaskIndexWarmup = !!(options && options.skipTaskIndexWarmup === true);
+        const skipSiblingRankFirstPaint = !!(options && options.skipSiblingRankFirstPaint === true);
+        const parentLookupDepthOption = Object.prototype.hasOwnProperty.call(options || {}, 'parentLookupDepth')
+            ? Number(options.parentLookupDepth)
+            : Number.NaN;
         const perfTuning = __tmGetPerfTuningOptions();
         const perfTrace = (options && options.perfTrace) || __tmCreatePerfTrace('loadSelectedDocuments', {
             source: String(options?.source || 'direct').trim() || 'direct',
@@ -7012,6 +7426,149 @@ hint(`❌ 操作失败: ${e.message}`, 'error');
             perfDeferRecurringReconcile: perfTuning.deferRecurringReconcile ? 1 : 0,
         });
         const sourceLabel = String(options?.source || 'direct').trim() || 'direct';
+        const isSwitchDocGroupLoad = sourceLabel === 'switch-doc-group'
+            || sourceLabel === 'legacy-switch-doc-group'
+            || sourceLabel.startsWith('switch-doc-group:')
+            || sourceLabel.startsWith('legacy-switch-doc-group:');
+        const isSnapshotCacheVerifyLoad = skipRender
+            && forceFreshTasks
+            && sourceLabel.indexOf('snapshot-cache:verify') !== -1;
+        const snapshotCacheVerifyGroupId = isSnapshotCacheVerifyLoad
+            ? (String(SettingsStore?.data?.currentGroupId || 'all').trim() || 'all')
+            : '';
+        const getCacheVerifyRawSignatureForGroup = (groupId) => {
+            try {
+                const gid = String(groupId || 'all').trim() || 'all';
+                const map = state.__tmLastCacheVerifyRawTaskSignatureByGroup;
+                if (map && typeof map === 'object' && !Array.isArray(map)) return String(map[gid] || '').trim();
+            } catch (e) {}
+            return '';
+        };
+        const setCacheVerifyRawSignatureForGroup = (groupId, signature, candidate = false) => {
+            try {
+                const gid = String(groupId || 'all').trim() || 'all';
+                const value = String(signature || '').trim();
+                if (!value) return;
+                const key = candidate
+                    ? '__tmLastCacheVerifyRawTaskSignatureCandidateByGroup'
+                    : '__tmLastCacheVerifyRawTaskSignatureByGroup';
+                if (!state[key] || typeof state[key] !== 'object' || Array.isArray(state[key])) state[key] = {};
+                state[key][gid] = value;
+            } catch (e) {}
+        };
+        const snapshotCacheVerifyBefore = isSnapshotCacheVerifyLoad
+            ? {
+                groupId: snapshotCacheVerifyGroupId,
+                activeDocId: String(state.activeDocId || 'all').trim() || 'all',
+                viewMode: getCurrentViewMode(''),
+                currentRule: String(state.currentRule || '').trim(),
+                searchKeyword: String(state.searchKeyword || '').trim(),
+                showCompletedTasks: state.showCompletedTasks === true ? 1 : 0,
+                docTabsArchiveMode: state.docTabsArchiveMode === true ? 1 : 0,
+                groupByDocName: state.groupByDocName === true ? 1 : 0,
+                groupByTaskName: state.groupByTaskName === true ? 1 : 0,
+                groupByTime: state.groupByTime === true ? 1 : 0,
+                quadrantEnabled: state.quadrantEnabled === true ? 1 : 0,
+                listRenderSignature: String(state.listRenderSignature || ''),
+                listRenderLimit: Number(state.listRenderLimit) || 0,
+                listRenderStep: Number(state.listRenderStep) || 0,
+                filteredTaskIds: (Array.isArray(state.filteredTasks) ? state.filteredTasks : [])
+                    .map((task) => String(task?.id || task?.blockId || '').trim())
+                    .filter(Boolean),
+                filteredDocIdsForTabs: (Array.isArray(state.filteredDocIdsForTabs) ? state.filteredDocIdsForTabs : [])
+                    .map((id) => String(id || '').trim())
+                    .filter(Boolean),
+                rawTaskSignature: getCacheVerifyRawSignatureForGroup(snapshotCacheVerifyGroupId) || buildVerifyRawTaskSignature(state.flatTasks),
+                taskSignature: buildVerifyTaskSignature(state.flatTasks),
+                docSignature: buildVerifyDocSignature(),
+            }
+            : null;
+        if (isSnapshotCacheVerifyLoad) {
+            try { state.__tmLastCacheVerifyContextChanged = null; } catch (e) {}
+        }
+        const snapshotCacheVerifyContextSkipReasons = {
+            'group-changed': true,
+            'active-doc-changed': true,
+            'view-mode-changed': true,
+            'rule-changed': true,
+            'search-changed': true,
+            'completed-toggle-changed': true,
+            'archive-mode-changed': true,
+            'group-doc-changed': true,
+            'group-task-changed': true,
+            'group-time-changed': true,
+            'quadrant-changed': true,
+        };
+        const getSnapshotCacheVerifyContextChangeReason = () => {
+            if (!snapshotCacheVerifyBefore) return '';
+            try {
+                const currentGroupIdForVerify = String(SettingsStore?.data?.currentGroupId || 'all').trim() || 'all';
+                if (currentGroupIdForVerify !== snapshotCacheVerifyBefore.groupId) return 'group-changed';
+                if ((String(state.activeDocId || 'all').trim() || 'all') !== snapshotCacheVerifyBefore.activeDocId) return 'active-doc-changed';
+                if (getCurrentViewMode('') !== snapshotCacheVerifyBefore.viewMode) return 'view-mode-changed';
+                if (String(state.currentRule || '').trim() !== snapshotCacheVerifyBefore.currentRule) return 'rule-changed';
+                if (String(state.searchKeyword || '').trim() !== snapshotCacheVerifyBefore.searchKeyword) return 'search-changed';
+                if ((state.showCompletedTasks === true ? 1 : 0) !== snapshotCacheVerifyBefore.showCompletedTasks) return 'completed-toggle-changed';
+                if ((state.docTabsArchiveMode === true ? 1 : 0) !== snapshotCacheVerifyBefore.docTabsArchiveMode) return 'archive-mode-changed';
+                if ((state.groupByDocName === true ? 1 : 0) !== snapshotCacheVerifyBefore.groupByDocName) return 'group-doc-changed';
+                if ((state.groupByTaskName === true ? 1 : 0) !== snapshotCacheVerifyBefore.groupByTaskName) return 'group-task-changed';
+                if ((state.groupByTime === true ? 1 : 0) !== snapshotCacheVerifyBefore.groupByTime) return 'group-time-changed';
+                if ((state.quadrantEnabled === true ? 1 : 0) !== snapshotCacheVerifyBefore.quadrantEnabled) return 'quadrant-changed';
+            } catch (e) {}
+            return '';
+        };
+        const abortSnapshotCacheVerifyIfContextChanged = (stage, payload = {}) => {
+            if (!isSnapshotCacheVerifyLoad) return false;
+            const reason = getSnapshotCacheVerifyContextChangeReason();
+            if (!snapshotCacheVerifyContextSkipReasons[reason]) return false;
+            state.__tmLastCacheVerifyContextChanged = {
+                at: Date.now(),
+                source: sourceLabel,
+                reason,
+                stage: String(stage || '').trim() || 'unknown',
+                groupId: snapshotCacheVerifyBefore.groupId,
+                currentGroupId: String(SettingsStore?.data?.currentGroupId || 'all').trim() || 'all',
+            };
+            finishPerfTrace({
+                cancelled: 1,
+                reason: 'verify-context-changed',
+                detail: reason,
+                stage: String(stage || '').trim() || 'unknown',
+            });
+            return true;
+        };
+        const stabilizeSwitchGroupView = isSwitchDocGroupLoad
+            && !skipRender
+            && options?.allowPostSwitchRenderRefresh !== true;
+        const stableSwitchNeedsCompleteLoad = stabilizeSwitchGroupView
+            && options?.allowStableSwitchFastBudget !== true;
+        const switchGroupRenderCap = Math.max(40, Math.min(3000, Math.round(Number(options?.switchGroupRenderCap || 1200) || 1200)));
+        const prepareSwitchGroupFirstPaintWindow = () => {
+            if (!isSwitchDocGroupLoad || skipRender) return;
+            try {
+                state.listRenderStep = stabilizeSwitchGroupView ? switchGroupRenderCap : 20;
+                const filteredCount = Array.isArray(state.filteredTasks) ? state.filteredTasks.length : 0;
+                const renderLimit = stabilizeSwitchGroupView ? switchGroupRenderCap : 40;
+                state.listRenderLimit = filteredCount > 0 ? Math.min(renderLimit, filteredCount) : renderLimit;
+            } catch (e) {}
+        };
+        const viewNeedsCompleteVisibleDateAttrs = () => {
+            try {
+                const viewMode = getCurrentViewMode('');
+                if (viewMode === 'timeline' || viewMode === 'checklist') return true;
+                if (state.groupByTime || state.quadrantEnabled) return true;
+                const colOrder = Array.isArray(SettingsStore?.data?.columnOrder) ? SettingsStore.data.columnOrder : [];
+                if (colOrder.some((col) => ['startDate', 'completionTime', 'customTime', 'remainingTime'].includes(String(col || '').trim()))) return true;
+                const rule = state.currentRule ? (Array.isArray(state.filterRules) ? state.filterRules.find((item) => item?.id === state.currentRule) : null) : null;
+                const usesTimeField = (item) => ['startDate', 'completionTime', 'customTime', 'remainingTime', 'duration'].includes(String(item?.field || '').trim());
+                if ((Array.isArray(rule?.conditions) && rule.conditions.some(usesTimeField))
+                    || (Array.isArray(rule?.sort) && rule.sort.some(usesTimeField))) return true;
+            } catch (e) {}
+            return false;
+        };
+        const yieldToBrowser = () => new Promise((resolve) => {
+            try { setTimeout(resolve, 0); } catch (e) { resolve(); }
+        });
         let perfFinished = false;
         const finishPerfTrace = (detail = {}) => {
             if (perfFinished) return;
@@ -7020,24 +7577,66 @@ hint(`❌ 操作失败: ${e.message}`, 'error');
         };
         const scheduleFullLoadAfterFastFirstPaint = (reason = 'fast-first-paint') => {
             if (!preferFastFirstPaint || forceFullLoadBudget || forceFreshTasks || skipRender) return false;
-            if (state.__tmFastFirstPaintFullLoadScheduled) return false;
+            if (skipFullLoadAfterFastFirstPaint) return false;
+            if (stabilizeSwitchGroupView) {
+                return false;
+            }
+            if (state.__tmFastFirstPaintFullLoadScheduled
+                && Number(state.__tmFastFirstPaintFullLoadScheduledToken || 0) === token) {
+                return false;
+            }
             state.__tmFastFirstPaintFullLoadScheduled = true;
+            state.__tmFastFirstPaintFullLoadScheduledToken = token;
+            const baseSource = String(options?.source || reason || 'fast-first-paint').trim() || 'fast-first-paint';
             const run = () => {
-                state.__tmFastFirstPaintFullLoadScheduled = false;
+                if (Number(state.__tmFastFirstPaintFullLoadScheduledToken || 0) === token) {
+                    state.__tmFastFirstPaintFullLoadScheduled = false;
+                    state.__tmFastFirstPaintFullLoadScheduledToken = 0;
+                }
                 if (!isTokenCurrent()) return;
                 const nextOptions = {
                     ...options,
                     preferFastFirstPaint: false,
-                    forceFullLoadBudget: true,
+                    forceFullLoadBudget: false,
                     forceFreshTasks: true,
+                    skipSnapshotFirstPaint: true,
+                    skipTaskIndexFirstPaint: true,
+                    taskIndexFirstPaintCachedOnly: false,
+                    refreshAfterTaskIndexFirstPaint: false,
+                    skipSessionRestoreFirstPaint: true,
+                    skipDocSessionRestoreFirstPaint: true,
+                    forceFastFirstPaintBudget: false,
                     showInlineLoading: false,
-                    source: `${String(reason || 'fast-first-paint').trim() || 'fast-first-paint'}:full`,
+                    source: `${baseSource}:full`,
                 };
                 try { delete nextOptions.perfTrace; } catch (e) {}
                 loadSelectedDocuments(nextOptions).catch(() => null);
             };
-            try { __tmScheduleIdleTask(run, 240); } catch (e) { setTimeout(run, 240); }
+            const delayedFullLoadMs = Math.max(0, Number(options?.fullLoadAfterFastFirstPaintDelayMs || 0) || 0);
+            if (delayedFullLoadMs > 0) {
+                setTimeout(() => {
+                    try { __tmScheduleIdleTask(run, 900); } catch (e) { setTimeout(run, 0); }
+                }, delayedFullLoadMs);
+            } else {
+                try { __tmScheduleIdleTask(run, 240); } catch (e) { setTimeout(run, 240); }
+            }
             return true;
+        };
+        const scheduleSilentVerifyAfterCacheFirstPaint = (reason = 'cache-first-paint', meta = {}) => {
+            try {
+                if (isSwitchDocGroupLoad) return false;
+                if (typeof __tmScheduleSilentCacheVerifyAfterFirstPaint !== 'function') return false;
+                const cleanReason = String(reason || 'cache-first-paint').trim() || 'cache-first-paint';
+                const baseSource = isSwitchDocGroupLoad
+                    ? `switch-doc-group:${cleanReason}`
+                    : `${String(sourceLabel || 'load-selected-documents').trim() || 'load-selected-documents'}:${cleanReason}`;
+                return __tmScheduleSilentCacheVerifyAfterFirstPaint({
+                    source: baseSource,
+                    delayMs: Number(meta?.delayMs || 0) || (isSwitchDocGroupLoad ? 320 : 520),
+                });
+            } catch (e) {
+                return false;
+            }
         };
         if (showInlineLoading) {
             try {
@@ -7055,7 +7654,13 @@ hint(`❌ 操作失败: ${e.message}`, 'error');
             preferFastFirstPaint: preferFastFirstPaint ? 1 : 0,
             source: String(options?.source || 'direct').trim() || 'direct',
         });
-        try { await __tmRefreshNotebookCache(); } catch (e) {}
+        const waitNotebookCache = !!(options && options.waitNotebookCache === true);
+        if (waitNotebookCache) {
+            try { await __tmRefreshNotebookCache(); } catch (e) {}
+        } else {
+            try { __tmRefreshNotebookCache().catch(() => null); } catch (e) {}
+        }
+        try { __tmScheduleWarmDocScopeCache(0); } catch (e) {}
         try { __tmBindSqlCacheInvalidation(); } catch (e) {}
         try {
             if (globalThis.__tmCalendar && typeof globalThis.__tmCalendar.setSettingsStore === 'function') {
@@ -7067,10 +7672,12 @@ hint(`❌ 操作失败: ${e.message}`, 'error');
         const currentOtherBlockRefs = currentGroupId === 'all' ? [] : __tmGetOtherBlockRefsByGroup(currentGroupId);
         const allowDeferredBootWork = !skipRender;
         const shouldLoadWhiteboardInline = !allowDeferredBootWork || (runtimeState?.isViewMode?.('whiteboard') ?? (String(state.viewMode || '').trim() === 'whiteboard'));
-        const shouldLoadOtherBlocksInline = !allowDeferredBootWork || __tmIsOtherBlockTabId(state.activeDocId);
+        const shouldLoadOtherBlocksInline = !isSnapshotCacheVerifyLoad
+            && (!allowDeferredBootWork || __tmIsOtherBlockTabId(state.activeDocId));
         const shouldLoadMetaInline = !allowDeferredBootWork;
         const shouldLoadMetaLater = allowDeferredBootWork && !MetaStore.loaded;
         const shouldLoadWhiteboardLater = allowDeferredBootWork && !shouldLoadWhiteboardInline && !WhiteboardStore.loaded;
+        const waitWhiteboardInline = !!(options && options.waitWhiteboardInline === true);
         let otherBlocksLoadedSynchronously = false;
         const loadOtherBlocksNow = async () => {
             try { await __tmMigrateLegacyOtherBlockRefsToGroups({ groupId: currentGroupId, persist: true }); } catch (e) {}
@@ -7080,22 +7687,30 @@ hint(`❌ 操作失败: ${e.message}`, 'error');
             }
         };
         if (shouldLoadMetaInline) {
+            const metaLoadStart = Date.now();
             await MetaStore.load();
         }
         if (shouldLoadWhiteboardInline) {
-            await WhiteboardStore.load();
+            const whiteboardLoadStart = Date.now();
+            if (waitWhiteboardInline) {
+                await WhiteboardStore.load();
+            } else {
+                try { WhiteboardStore.load().catch(() => null); } catch (e) {}
+            }
         }
         if (shouldLoadOtherBlocksInline) {
+            const otherBlocksLoadStart = Date.now();
             await loadOtherBlocksNow();
             otherBlocksLoadedSynchronously = true;
-        } else {
+        } else if (!isSnapshotCacheVerifyLoad) {
             state.otherBlocks = [];
+        } else {
         }
         const quickAddDocId = String(SettingsStore.data.newTaskDocId || '').trim();
 
         // 将设置同步到 state
         state.selectedDocIds = SettingsStore.data.selectedDocIds;
-        state.queryLimit = SettingsStore.data.queryLimit;
+        state.queryLimit = __TM_TASK_INDEX_QUERY_LIMIT;
         state.recursiveDocLimit = SettingsStore.data.recursiveDocLimit;
         const gm0 = String(SettingsStore.data.groupMode || '').trim();
         const validModes = new Set(['none', 'doc', 'time', 'quadrant', 'task']);
@@ -7137,7 +7752,9 @@ hint(`❌ 操作失败: ${e.message}`, 'error');
         state.collapsedGroups = new Set(SettingsStore.data.collapsedGroups || []);
         state.currentRule = SettingsStore.data.currentRule;
         state.columnWidths = SettingsStore.data.columnWidths;
-        state.excludeCompletedTasks = !!SettingsStore.data.excludeCompletedTasks;
+        try { __tmNormalizeCompletedVisibilitySettings(SettingsStore.data); } catch (e) {}
+        state.showCompletedTasks = !!SettingsStore.data.showCompletedTasks;
+        state.excludeCompletedTasks = !state.showCompletedTasks;
 
         // 加载筛选规则
         state.filterRules = await __tmEnsureFilterRulesLoaded();
@@ -7153,9 +7770,15 @@ hint(`❌ 操作失败: ${e.message}`, 'error');
         state.__tmQueryDoneOnly = !!(currentRule && currentRule.conditions && currentRule.conditions.some(c => c && c.field === 'done' && c.operator === '=' && (c.value === true || String(c.value) === 'true' || c.value === '') && String(c.value) !== '__all__'));
 
         // 1. 解析所有需要查询的文档ID
-        const allDocIds = await resolveDocIdsFromGroups({
-            forceRefreshScope: !!state.isRefreshing,
-        });
+        const resolveScopeOptions = {
+            forceRefreshScope: !!state.isRefreshing || !!(options && options.forceRefreshScope === true),
+            skipPersistedScope: isSwitchDocGroupLoad,
+            skipResolvedDocIdsCache: false,
+            verifyCachedScope: !isSwitchDocGroupLoad,
+            preferFastScope: !isSwitchDocGroupLoad && !!preferFastFirstPaint && !forceFreshTasks && !state.isRefreshing,
+        };
+        let allDocIds = [];
+        allDocIds = await resolveDocIdsFromGroups(resolveScopeOptions);
         const otherBlockDocIdSet = new Set();
         (Array.isArray(state.otherBlocks) ? state.otherBlocks : []).forEach((task) => {
             const docId = String(task?.root_id || task?.docId || '').trim();
@@ -7178,17 +7801,59 @@ hint(`❌ 操作失败: ${e.message}`, 'error');
             docCount: Array.isArray(allDocIds) ? allDocIds.length : 0,
             groupId: currentGroupId,
         });
+        const taskIndexDocUpdatedMap = __tmBuildDocUpdatedFingerprintMap(state.allDocuments);
+        let taskCountMapLoadPromise = null;
+        let taskCountMapMeta = null;
+        const ensureTaskCountMapForCacheRestore = async (reason = 'cache-restore') => {
+            if (taskCountMapMeta) return taskCountMapMeta;
+            const ids = Array.isArray(allDocIds) ? allDocIds.slice() : [];
+            if (!ids.length || !API || typeof API.getTaskCountsByDocuments !== 'function') {
+                taskCountMapMeta = { map: new Map(), queryTime: 0, unavailable: 1 };
+                return taskCountMapMeta;
+            }
+            if (!taskCountMapLoadPromise) {
+                const countStartedAt = Date.now();
+                taskCountMapLoadPromise = API.getTaskCountsByDocuments(ids)
+                    .then((meta) => {
+                        const map = meta?.map instanceof Map ? meta.map : new Map();
+                        const out = {
+                            map,
+                            queryTime: Number(meta?.queryTime || 0) || (Date.now() - countStartedAt),
+                        };
+                        return out;
+                    })
+                    .catch(() => ({ map: new Map(), queryTime: 0, unavailable: 1 }));
+            }
+            taskCountMapMeta = await taskCountMapLoadPromise;
+            return taskCountMapMeta;
+        };
         let snapshotFirstRenderCommitted = false;
-        if (preferFastFirstPaint && !skipRender && !forceFullLoadBudget && !forceFreshTasks) {
+        if (preferFastFirstPaint && !skipSnapshotFirstPaint && !skipRender && !forceFullLoadBudget && !forceFreshTasks && !stableSwitchNeedsCompleteLoad) {
             try {
+                const countMeta = await ensureTaskCountMapForCacheRestore('snapshot-cache');
                 const snapshot = await __tmLoadTaskSnapshotForScope({
                     docIds: allDocIds,
                     groupId: currentGroupId,
+                    cachedOnly: snapshotFirstPaintCachedOnly,
                 });
-                const snapshotMeta = __tmRestoreTaskSnapshotIntoState(snapshot);
+                const snapshotMeta = __tmRestoreTaskSnapshotIntoState(snapshot, { taskCountMap: countMeta?.map });
                 if (snapshotMeta && isTokenCurrent()) {
                     try { recalcStats(); } catch (e) {}
-                    applyFilters();
+                    let viewSnapshotMeta = null;
+                    try {
+                        viewSnapshotMeta = __tmRestoreTaskSnapshotViewState(snapshot, {
+                            groupId: currentGroupId,
+                            viewMode: getCurrentViewMode('list'),
+                            activeDocId: state.activeDocId,
+                        });
+                    } catch (e) {
+                        viewSnapshotMeta = null;
+                    }
+                    if (!viewSnapshotMeta) {
+                        prepareSwitchGroupFirstPaintWindow();
+                        applyFilters();
+                    }
+                    prepareSwitchGroupFirstPaintWindow();
                     const activeModal = getActiveModal();
                     if (activeModal && isTokenCurrent()) {
                         try { if (showInlineLoading && Number(state.uiInlineLoadingToken) === token) __tmSetInlineLoading(false); } catch (e) {}
@@ -7199,6 +7864,18 @@ hint(`❌ 操作失败: ${e.message}`, 'error');
                             ageMs: __tmRoundPerfMs(snapshotMeta.ageMs || 0),
                         });
                         snapshotFirstRenderCommitted = true;
+                        const verifyScheduled = scheduleSilentVerifyAfterCacheFirstPaint('snapshot-cache', {
+                            delayMs: viewSnapshotMeta ? 520 : 260,
+                        });
+                        if (!verifyScheduled) scheduleFullLoadAfterFastFirstPaint('snapshot-cache');
+                        finishPerfTrace({
+                            docCount: Array.isArray(allDocIds) ? allDocIds.length : 0,
+                            taskCount: Number(snapshotMeta.taskCount || 0),
+                            filteredCount: Array.isArray(state.filteredTasks) ? state.filteredTasks.length : 0,
+                            cacheHit: 'snapshot',
+                            viewMode: getCurrentViewMode('list'),
+                        });
+                        return;
                     }
                 }
             } catch (e) {}
@@ -7267,6 +7944,11 @@ hint(`❌ 操作失败: ${e.message}`, 'error');
                     if (!isTokenCurrent()) return;
                 }
                 try { __tmScheduleEnhanceWarmup(deferredDocIds, currentGroupId || 'all'); } catch (e) {}
+                try { __tmScheduleResolvedDocIdsPrewarm({ delayMs: 260 }); } catch (e) {}
+                if (!skipTaskIndexWarmup) {
+                    try { __tmScheduleTaskIndexPrewarm({ currentDocIds: deferredDocIds, currentGroupId: currentGroupId || 'all' }); } catch (e) {}
+                }
+                try { window.tmWarmCalendarTaskCacheIfStale?.({ refresh: false, maxAgeMs: 20000 }); } catch (e) {}
                 if (SettingsStore.data.kanbanHeadingGroupMode || SettingsStore.data.docH2SubgroupEnabled !== false) {
                     try {
                         Promise.resolve().then(async () => {
@@ -7284,10 +7966,200 @@ hint(`❌ 操作失败: ${e.message}`, 'error');
                 } catch (e) {}
                 const activeModal = getActiveModal();
                 if (needRender && activeModal && isTokenCurrent()) {
-                    __tmScheduleRender({ withFilters: needFilters });
+                    if (stabilizeSwitchGroupView) {
+                    } else {
+                        __tmScheduleRender({ withFilters: needFilters });
+                    }
                 }
             }, 120);
         };
+        const schedulePartialIndexReloads = (docIds, reason = 'task-index-partial-miss') => {
+            const ids = Array.from(new Set((Array.isArray(docIds) ? docIds : [])
+                .map((id) => String(id || '').trim())
+                .filter((id) => __tmIsLikelyBlockId(id))));
+            if (!ids.length) return false;
+            if (stabilizeSwitchGroupView) {
+                try {
+                    __tmScheduleTaskIndexPrewarmForDocIds(ids, { delayMs: 420 });
+                } catch (e) {}
+                return true;
+            }
+            const chunks = [];
+            for (let i = 0; i < ids.length; i += 12) chunks.push(ids.slice(i, i + 12));
+            __tmScheduleIdleTask(async () => {
+                for (const chunk of chunks) {
+                    try {
+                        await __tmRefreshAffectedDocsIncrementally({
+                            docIds: chunk,
+                            reason,
+                            deferIfDetailBusy: true,
+                        });
+                    } catch (e) {}
+                    try { await new Promise((resolve) => setTimeout(resolve, 60)); } catch (e) {}
+                }
+            }, 180);
+            return true;
+        };
+        if (!skipRender && !forceFreshTasks && !forceFullLoadBudget && (preferFastFirstPaint || options?.allowSessionRestore === true) && !skipSessionRestoreFirstPaint && !stableSwitchNeedsCompleteLoad) {
+            try {
+                const countMeta = await ensureTaskCountMapForCacheRestore('session-cache');
+                const sessionMeta = __tmRestoreGroupSessionTaskState({
+                    docIds: allDocIds,
+                    groupId: currentGroupId,
+                    viewMode: getCurrentViewMode('list'),
+                    customFieldIds: bulkCustomFieldPlan.bulkFieldIds,
+                    taskCountMap: countMeta?.map,
+                });
+                if (sessionMeta && isTokenCurrent()) {
+                    try { recalcStats(); } catch (e) {}
+                    prepareSwitchGroupFirstPaintWindow();
+                    applyFilters();
+                    prepareSwitchGroupFirstPaintWindow();
+                    const activeModal = getActiveModal();
+                    if (activeModal && isTokenCurrent()) {
+                        try { if (showInlineLoading && Number(state.uiInlineLoadingToken) === token) __tmSetInlineLoading(false); } catch (e) {}
+                        render();
+                        scheduleDeferredPostLoadWork();
+                        __tmPerfTraceMark(perfTrace, 'session-first-render', {
+                            docCount: Number(sessionMeta.docCount || 0),
+                            taskCount: Number(sessionMeta.taskCount || 0),
+                            ageMs: __tmRoundPerfMs(sessionMeta.ageMs || 0),
+                        });
+                        const verifyScheduled = scheduleSilentVerifyAfterCacheFirstPaint('session-cache', { delayMs: 420 });
+                        if (!verifyScheduled) scheduleFullLoadAfterFastFirstPaint('session-cache');
+                        finishPerfTrace({
+                            docCount: Array.isArray(allDocIds) ? allDocIds.length : 0,
+                            taskCount: Number(sessionMeta.taskCount || 0),
+                            filteredCount: Array.isArray(state.filteredTasks) ? state.filteredTasks.length : 0,
+                            cacheHit: 'session',
+                            viewMode: getCurrentViewMode('list'),
+                        });
+                        return;
+                    }
+                }
+            } catch (e) {}
+            try {
+                if (!skipDocSessionRestoreFirstPaint) {
+                    const countMeta = await ensureTaskCountMapForCacheRestore('doc-session-cache');
+                    const docSessionMeta = __tmRestoreDocSessionTaskState({
+                        docIds: allDocIds,
+                        groupId: currentGroupId,
+                        docUpdatedMap: taskIndexDocUpdatedMap,
+                        taskCountMap: countMeta?.map,
+                    });
+                    if (docSessionMeta && isTokenCurrent()) {
+                        try { recalcStats(); } catch (e) {}
+                        prepareSwitchGroupFirstPaintWindow();
+                        applyFilters();
+                        prepareSwitchGroupFirstPaintWindow();
+                        const activeModal = getActiveModal();
+                        if (activeModal && isTokenCurrent()) {
+                            try { if (showInlineLoading && Number(state.uiInlineLoadingToken) === token) __tmSetInlineLoading(false); } catch (e) {}
+                            render();
+                            scheduleDeferredPostLoadWork();
+                            __tmPerfTraceMark(perfTrace, 'doc-session-first-render', {
+                                docCount: Number(docSessionMeta.docCount || 0),
+                                taskCount: Number(docSessionMeta.taskCount || 0),
+                                ageMs: __tmRoundPerfMs(docSessionMeta.ageMs || 0),
+                            });
+                            const verifyScheduled = scheduleSilentVerifyAfterCacheFirstPaint('doc-session-cache', { delayMs: 420 });
+                            if (!verifyScheduled) scheduleFullLoadAfterFastFirstPaint('doc-session-cache');
+                            finishPerfTrace({
+                                docCount: Array.isArray(allDocIds) ? allDocIds.length : 0,
+                                taskCount: Number(docSessionMeta.taskCount || 0),
+                                filteredCount: Array.isArray(state.filteredTasks) ? state.filteredTasks.length : 0,
+                                cacheHit: 'doc-session',
+                                viewMode: getCurrentViewMode('list'),
+                            });
+                            return;
+                        }
+                    }
+                }
+            } catch (e) {}
+        }
+        const canUseTaskIndex = !skipTaskIndexFirstPaint
+            && !forceFreshTasks
+            && !forceFullLoadBudget
+            && !state.isRefreshing;
+        if (canUseTaskIndex) {
+            try {
+                const countMeta = await ensureTaskCountMapForCacheRestore('task-index-cache');
+                const currentViewModeForTaskIndex = getCurrentViewMode('list');
+                const allowPartialTaskIndex = currentViewModeForTaskIndex !== 'calendar'
+                    && !stabilizeSwitchGroupView
+                    && options?.allowPartialTaskIndexFirstPaint !== false;
+                const indexMeta = await __tmLoadTaskIndexForScope({
+                    docIds: allDocIds,
+                    groupId: currentGroupId,
+                    queryLimit: __TM_TASK_INDEX_QUERY_LIMIT,
+                    docUpdatedMap: taskIndexDocUpdatedMap,
+                    taskCountMap: countMeta?.map,
+                    strictDocUpdated: stabilizeSwitchGroupView,
+                    cachedOnly: taskIndexFirstPaintCachedOnly,
+                    allowPartial: allowPartialTaskIndex,
+                    maxPartialMisses: allowPartialTaskIndex
+                        ? (isSwitchDocGroupLoad
+                            ? Math.max(0, Array.isArray(allDocIds) ? allDocIds.length : 0)
+                            : Math.max(12, Math.min(240, Math.ceil((Array.isArray(allDocIds) ? allDocIds.length : 0) * 0.35))))
+                        : 0,
+                });
+                if (indexMeta && isTokenCurrent()) {
+                    try { recalcStats(); } catch (e) {}
+                    prepareSwitchGroupFirstPaintWindow();
+                    applyFilters();
+                    prepareSwitchGroupFirstPaintWindow();
+                    const activeModal = getActiveModal();
+                    if (activeModal && isTokenCurrent()) {
+                        try { if (showInlineLoading && Number(state.uiInlineLoadingToken) === token) __tmSetInlineLoading(false); } catch (e) {}
+                        let patchedTaskIndexView = false;
+                        if (!skipRender) {
+                            const shouldPatchTaskIndexView = isSwitchDocGroupLoad
+                                && String(sourceLabel || '').indexOf(':') !== -1
+                                && typeof __tmRerenderCurrentViewInPlace === 'function';
+                            patchedTaskIndexView = shouldPatchTaskIndexView
+                                ? !!__tmRerenderCurrentViewInPlace(activeModal)
+                                : false;
+                            if (!patchedTaskIndexView) render();
+                        }
+                        scheduleDeferredPostLoadWork();
+                        __tmPerfTraceMark(perfTrace, 'task-index-ready', {
+                            docCount: Number(indexMeta.docCount || 0),
+                            taskCount: Number(indexMeta.taskCount || 0),
+                            indexAgeMs: Math.max(0, Date.now() - Number(indexMeta.indexUpdatedAt || 0)),
+                            partial: indexMeta.partial ? 1 : 0,
+                            reloadDocCount: Array.isArray(indexMeta.reloadDocIds) ? indexMeta.reloadDocIds.length : 0,
+                        });
+                        if (indexMeta.partial && Array.isArray(indexMeta.reloadDocIds) && indexMeta.reloadDocIds.length > 0) {
+                            try { schedulePartialIndexReloads(indexMeta.reloadDocIds, 'task-index-partial-miss'); } catch (e) {}
+                        }
+                        if (Array.isArray(indexMeta.softReloadDocIds) && indexMeta.softReloadDocIds.length > 0) {
+                            try { schedulePartialIndexReloads(indexMeta.softReloadDocIds, 'task-index-soft-stale'); } catch (e) {}
+                        }
+                        if (refreshAfterTaskIndexFirstPaint && indexMeta.partial && Array.isArray(indexMeta.reloadDocIds) && indexMeta.reloadDocIds.length > 0) {
+                            if (isSwitchDocGroupLoad) {
+                            } else {
+                                scheduleFullLoadAfterFastFirstPaint('task-index-cache');
+                            }
+                        }
+                        scheduleSilentVerifyAfterCacheFirstPaint('task-index-cache', {
+                            delayMs: indexMeta.partial ? 260 : 480,
+                        });
+                        finishPerfTrace({
+                            docCount: Array.isArray(allDocIds) ? allDocIds.length : 0,
+                            taskCount: Number(indexMeta.taskCount || 0),
+                            filteredCount: Array.isArray(state.filteredTasks) ? state.filteredTasks.length : 0,
+                            cacheHit: indexMeta.partial ? 'task-index-partial' : 'task-index',
+                            viewMode: currentViewModeForTaskIndex,
+                        });
+                        return;
+                    }
+                }
+            } catch (e) {}
+        } else {
+            if (!skipTaskIndexWarmup) {
+                try { __tmScheduleWarmTaskIndexStore(1600); } catch (e) {}
+            }
+        }
 
         // 如果没有文档，打开设置
         if (allDocIds.length === 0) {
@@ -7330,10 +8202,14 @@ hint(`❌ 操作失败: ${e.message}`, 'error');
 
         try {
             const startTime = Date.now();
-            const loadBudget = (preferFastFirstPaint && !snapshotFirstRenderCommitted)
+            const loadBudget = (preferFastFirstPaint && !snapshotFirstRenderCommitted && !stableSwitchNeedsCompleteLoad)
                 ? __tmGetInitialLoadBudget({
                     forceFullLoadBudget,
+                    forceFastFirstPaintBudget,
                     queryLimit: state.queryLimit,
+                    initialQueryLimit: Number(options?.initialQueryLimit),
+                    initialRenderLimit: Number(options?.initialRenderLimit),
+                    initialListStep: Number(options?.initialListStep),
                     viewMode: state.viewMode,
                 })
                 : {
@@ -7344,7 +8220,7 @@ hint(`❌ 操作失败: ${e.message}`, 'error');
                 };
             const effectiveQueryLimit = loadBudget.enabled
                 ? Math.max(1, Math.min(Number(state.queryLimit) || 500, Number(loadBudget.queryLimit) || Number(state.queryLimit) || 500))
-                : state.queryLimit;
+                : (Number(state.queryLimit) || 500);
             const initialRenderLimit = loadBudget.enabled
                 ? Math.max(loadBudget.listStep, loadBudget.renderLimit)
                 : Number.POSITIVE_INFINITY;
@@ -7360,6 +8236,14 @@ hint(`❌ 操作失败: ${e.message}`, 'error');
             // 循环完成实例挂在源任务历史上；如果只查询已完成原任务，会把已推进为未完成的源任务漏掉，
             // 从而无法注入循环记录。这里先关闭 doneOnly 查询优化，筛选交给前端规则层处理。
             const queryDoneOnly = false;
+            const queryStartedAt = Date.now();
+            try {
+                const flushStartedAt = Date.now();
+                await __tmFlushSqlTransactionsSafe(`load-selected-documents:${sourceLabel}`);
+            } catch (e) {}
+            if (abortSnapshotCacheVerifyIfContextChanged('after-query-flush', {
+                docCount: Array.isArray(allDocIds) ? allDocIds.length : 0,
+            })) return;
             const res = await API.getTasksByDocuments(allDocIds, effectiveQueryLimit, {
                 doneOnly: queryDoneOnly,
                 forceFresh: queryForceFresh,
@@ -7373,6 +8257,67 @@ hint(`❌ 操作失败: ${e.message}`, 'error');
             if (!isTokenCurrent()) {
                 finishPerfTrace({ cancelled: 1, reason: 'stale-token-after-query' });
                 return;
+            }
+            if (abortSnapshotCacheVerifyIfContextChanged('after-query', {
+                taskCount: Array.isArray(res?.tasks) ? res.tasks.length : 0,
+                queryTime: Number(res?.queryTime || 0),
+            })) return;
+            try {
+                const countMeta = await ensureTaskCountMapForCacheRestore('query-completeness');
+                const expectedMap = countMeta?.map instanceof Map ? countMeta.map : null;
+                if (expectedMap && expectedMap.size > 0 && Array.isArray(res.tasks)) {
+                    const actualByDoc = new Map();
+                    res.tasks.forEach((task) => {
+                        const docId = String(task?.root_id || task?.docId || '').trim();
+                        if (!docId) return;
+                        actualByDoc.set(docId, Math.max(0, Math.round(Number(actualByDoc.get(docId) || 0) || 0)) + 1);
+                    });
+                    const underfilledDocIds = [];
+                    (Array.isArray(allDocIds) ? allDocIds : []).forEach((docId0) => {
+                        const docId = String(docId0 || '').trim();
+                        if (!docId || !expectedMap.has(docId)) return;
+                        const expected = Math.max(0, Math.round(Number(expectedMap.get(docId) || 0) || 0));
+                        const actual = Math.max(0, Math.round(Number(actualByDoc.get(docId) || 0) || 0));
+                        if (actual < expected) underfilledDocIds.push(docId);
+                    });
+                    if (underfilledDocIds.length > 0) {
+                        const underfilledSet = new Set(underfilledDocIds);
+                        const keptTasks = res.tasks.filter((task) => !underfilledSet.has(String(task?.root_id || task?.docId || '').trim()));
+                        const replacementTasks = [];
+                        let replacementQueryTime = 0;
+                        for (const docId of underfilledDocIds) {
+                            if (!isTokenCurrent()) {
+                                finishPerfTrace({ cancelled: 1, reason: 'stale-token-during-query-completeness' });
+                                return;
+                            }
+                            try {
+                                const docRes = await API.getTasksByDocument(docId, __TM_TASK_INDEX_QUERY_LIMIT, {
+                                    doneOnly: queryDoneOnly,
+                                    fullTree: true,
+                                    skipParentTaskJoin: false,
+                                    skipDocJoin: true,
+                                    customFieldIds: bulkCustomFieldPlan.bulkFieldIds,
+                                });
+                                replacementQueryTime += Number(docRes?.queryTime || 0);
+                                replacementTasks.push(...(Array.isArray(docRes?.tasks) ? docRes.tasks : []));
+                            } catch (e) {}
+                            try { await new Promise((resolve) => setTimeout(resolve, 0)); } catch (e) {}
+                        }
+                        res.tasks = keptTasks.concat(replacementTasks);
+                        res.queryTime = Number(res.queryTime || 0) + replacementQueryTime;
+                        res.sqlQueryTime = Number(res.sqlQueryTime || 0) + replacementQueryTime;
+                        res.totalCount = Math.max(Number(res.totalCount || 0) || 0, Array.isArray(res.tasks) ? res.tasks.length : 0);
+                        res.queryCompletenessPatchedDocIds = underfilledDocIds;
+                    }
+                }
+            } catch (e) {}
+            const limitReachedDocIds = Array.isArray(res?.limitReachedDocIds)
+                ? res.limitReachedDocIds.map((id) => String(id || '').trim()).filter(Boolean)
+                : [];
+            if (limitReachedDocIds.length > 0) {
+                if (effectiveQueryLimit < __TM_TASK_INDEX_QUERY_LIMIT) {
+                    scheduleFullLoadAfterFastFirstPaint('query-limit-hit');
+                }
             }
             let pendingMergeMs = 0;
             let pendingValidateCount = 0;
@@ -7474,6 +8419,9 @@ hint(`❌ 操作失败: ${e.message}`, 'error');
                 queryTime: __tmRoundPerfMs(state.stats.queryTime),
                 queryStageMs: __tmRoundPerfMs(__tmPerfNow() - queryStageStartTime),
                 cacheHit: Number(res?.cacheHit || 0),
+                chunked: Number(res?.chunked || 0),
+                chunkCount: Number(res?.chunkCount || 0),
+                limitHitDocCount: limitReachedDocIds.length,
                 cacheAgeMs: __tmRoundPerfMs(res?.cacheAgeMs || 0),
                 attrHostReadTime: __tmRoundPerfMs(res?.attrHostReadTime || 0),
                 customFieldReadTime: __tmRoundPerfMs(res?.customFieldReadTime || 0),
@@ -7505,6 +8453,26 @@ hint(`❌ 操作失败: ${e.message}`, 'error');
                 pendingInsertedCount,
                 pendingDroppedCount,
             });
+            if (abortSnapshotCacheVerifyIfContextChanged('after-query-done', {
+                taskCount: Array.isArray(res.tasks) ? res.tasks.length : 0,
+                queryTime: state.stats.queryTime,
+            })) return;
+            if (isSnapshotCacheVerifyLoad && snapshotCacheVerifyBefore?.rawTaskSignature) {
+                const queriedRawTaskSignature = buildVerifyRawTaskSignatureFromTasks(res.tasks);
+                if (queriedRawTaskSignature && queriedRawTaskSignature === snapshotCacheVerifyBefore.rawTaskSignature) {
+                    state.__tmCacheFirstPaintNeedsVerify = false;
+                    state.__tmCacheFirstPaintVerifyGroupId = '';
+                    state.__tmLastCacheVerifyAt = Date.now();
+                    setCacheVerifyRawSignatureForGroup(snapshotCacheVerifyBefore.groupId, queriedRawTaskSignature);
+                    finishPerfTrace({
+                        verifiedUnchanged: 1,
+                        reason: 'query-raw-signature-unchanged',
+                        taskCount: Array.isArray(res.tasks) ? res.tasks.length : 0,
+                    });
+                    return;
+                }
+                if (queriedRawTaskSignature) setCacheVerifyRawSignatureForGroup(snapshotCacheVerifyBefore.groupId, queriedRawTaskSignature, true);
+            }
             __tmPerfTraceMark(perfTrace, 'attr-read', {
                 attrReadTime: __tmRoundPerfMs(res?.attrReadTime || 0),
                 attrHostReadTime: __tmRoundPerfMs(res?.attrHostReadTime || 0),
@@ -7642,9 +8610,28 @@ hint(`❌ 操作失败: ${e.message}`, 'error');
                 const metaStoreData = MetaStore.data;
                 let metaSeedCount = 0;
                 let metaSeedDirty = false;
-                res.tasks.forEach(task => {
+                const normalizeTasks = Array.isArray(res.tasks) ? res.tasks : [];
+                const normalizeChunkSize = Number(options?.taskNormalizeChunkSize || 16);
+                const normalizeYieldEvery = loadBudget.enabled
+                    ? Math.max(
+                        8,
+                        Math.min(
+                            80,
+                            Math.round(Number.isFinite(normalizeChunkSize) ? normalizeChunkSize : 16)
+                        )
+                    )
+                    : 0;
+                for (let taskIndex = 0; taskIndex < normalizeTasks.length; taskIndex += 1) {
+                    if (normalizeYieldEvery > 0 && taskIndex > 0 && (taskIndex % normalizeYieldEvery) === 0) {
+                        await yieldToBrowser();
+                        if (!isTokenCurrent()) {
+                            finishPerfTrace({ cancelled: 1, reason: 'stale-token-during-normalize' });
+                            return;
+                        }
+                    }
+                    const task = normalizeTasks[taskIndex];
                     // 确保任务有root_id
-                    if (!task.root_id) return;
+                    if (!task.root_id) continue;
                     const prevTask = state.flatTasks?.[String(task.id || '').trim()];
                     const flowRank = Number(taskFlowRankMap.get(String(task.id || '').trim()));
                     __tmApplyResolvedFlowRankIfNeeded(task, flowRank);
@@ -7710,7 +8697,7 @@ hint(`❌ 操作失败: ${e.message}`, 'error');
                         });
                         if (duplicateLive && isPendingInserted) {
                             try { delete state.pendingInsertedTasks[String(task.id || '').trim()]; } catch (e) {}
-                            return;
+                            continue;
                         }
                         if (duplicateLive && !isPendingInserted) {
                             const pendingDupId = String(duplicateLive.id || '').trim();
@@ -7769,7 +8756,7 @@ hint(`❌ 操作失败: ${e.message}`, 'error');
                         recurringDueCandidateIds.push(String(task.id || '').trim());
                     }
                     normalizeMetrics.virtualMs += (__tmPerfNow() - perfMark);
-                });
+                }
                 if (metaSeedDirty) {
                     try { MetaStore.scheduleSave(); } catch (e) {}
                 }
@@ -7808,6 +8795,10 @@ hint(`❌ 操作失败: ${e.message}`, 'error');
                     enhanceMissingH2Count: Number(enhanceBundleMeta?.missingH2Count || 0),
                     durationMs: __tmRoundPerfMs(Date.now() - normalizeStartTime),
                 });
+                if (abortSnapshotCacheVerifyIfContextChanged('after-normalize', {
+                    taskCount: Array.isArray(res.tasks) ? res.tasks.length : 0,
+                    docBucketCount: tasksByDoc.size,
+                })) return;
                 const rootTasksByDoc = new Map();
                 let parentLinkStats = {
                     docCount: 0,
@@ -7821,28 +8812,78 @@ hint(`❌ 操作失败: ${e.message}`, 'error');
                     fallbackResolvedCount: 0,
                     missingParentInDocCount: 0,
                 };
-                const parentLinkResults = await Promise.all(allDocIds.map(async (docId) => {
-                    const rawTasks = tasksByDoc.get(docId) || [];
-                    try {
-                        const resolvedParentLinks = await __tmResolveDocTaskParentLinks(rawTasks, {
+                const parentLinkResults = [];
+                const parentLinkStartedAt = Date.now();
+                const resolveParentLinksSequentially = loadBudget.enabled;
+                if (resolveParentLinksSequentially) {
+                    for (let i = 0; i < allDocIds.length; i += 1) {
+                        const docId = allDocIds[i];
+                        if (i > 0) await yieldToBrowser();
+                        if (!isTokenCurrent()) break;
+                        const rawTasks = tasksByDoc.get(docId) || [];
+                        const fastSwitchFirstPaint = false;
+                        const parentLinkOptions = {
                             docId,
                             source: 'load-selected-documents',
-                        });
-                        return {
-                            docId,
-                            rootTasks: Array.isArray(resolvedParentLinks?.rootTasks) ? resolvedParentLinks.rootTasks : [],
-                            stats: (resolvedParentLinks?.stats && typeof resolvedParentLinks.stats === 'object')
-                                ? resolvedParentLinks.stats
-                                : null,
+                            yieldEvery: fastSwitchFirstPaint ? 4 : 16,
+                            allowOldRelationshipFallback: !fastSwitchFirstPaint,
                         };
-                    } catch (e) {
-                        return {
-                            docId,
-                            rootTasks: Array.isArray(rawTasks) ? rawTasks.slice() : [],
-                            stats: null,
-                        };
+                        if (fastSwitchFirstPaint) {
+                            parentLinkOptions.parentLookupDepth = 0;
+                        } else if (Number.isFinite(parentLookupDepthOption)) {
+                            parentLinkOptions.parentLookupDepth = Math.max(0, Math.round(parentLookupDepthOption));
+                        }
+                        try {
+                            const resolvedParentLinks = await __tmResolveDocTaskParentLinks(rawTasks, parentLinkOptions);
+                            parentLinkResults.push({
+                                docId,
+                                rootTasks: Array.isArray(resolvedParentLinks?.rootTasks) ? resolvedParentLinks.rootTasks : [],
+                                stats: (resolvedParentLinks?.stats && typeof resolvedParentLinks.stats === 'object')
+                                    ? resolvedParentLinks.stats
+                                    : null,
+                            });
+                        } catch (e) {
+                            parentLinkResults.push({
+                                docId,
+                                rootTasks: Array.isArray(rawTasks) ? rawTasks.slice() : [],
+                                stats: null,
+                            });
+                        }
                     }
-                }));
+                } else {
+                    const resolvedParentLinks = await Promise.all(allDocIds.map(async (docId) => {
+                        const rawTasks = tasksByDoc.get(docId) || [];
+                        const fastSwitchFirstPaint = false;
+                        const parentLinkOptions = {
+                            docId,
+                            source: 'load-selected-documents',
+                            yieldEvery: fastSwitchFirstPaint ? 4 : 0,
+                            allowOldRelationshipFallback: !fastSwitchFirstPaint,
+                        };
+                        if (fastSwitchFirstPaint) {
+                            parentLinkOptions.parentLookupDepth = 0;
+                        } else if (Number.isFinite(parentLookupDepthOption)) {
+                            parentLinkOptions.parentLookupDepth = Math.max(0, Math.round(parentLookupDepthOption));
+                        }
+                        try {
+                            const resolvedParentLinks2 = await __tmResolveDocTaskParentLinks(rawTasks, parentLinkOptions);
+                            return {
+                                docId,
+                                rootTasks: Array.isArray(resolvedParentLinks2?.rootTasks) ? resolvedParentLinks2.rootTasks : [],
+                                stats: (resolvedParentLinks2?.stats && typeof resolvedParentLinks2.stats === 'object')
+                                    ? resolvedParentLinks2.stats
+                                    : null,
+                            };
+                        } catch (e) {
+                            return {
+                                docId,
+                                rootTasks: Array.isArray(rawTasks) ? rawTasks.slice() : [],
+                                stats: null,
+                            };
+                        }
+                    }));
+                    parentLinkResults.push(...resolvedParentLinks);
+                }
                 parentLinkResults.forEach((result) => {
                     rootTasksByDoc.set(result.docId, Array.isArray(result.rootTasks) ? result.rootTasks : []);
                     const stats = (result?.stats && typeof result.stats === 'object')
@@ -7861,17 +8902,29 @@ hint(`❌ 操作失败: ${e.message}`, 'error');
                     parentLinkStats.missingParentInDocCount += Number(stats.missingParentInDocCount || 0);
                 });
                 __tmPerfTraceMark(perfTrace, 'parent-link', parentLinkStats);
+                if (abortSnapshotCacheVerifyIfContextChanged('after-parent-link', {
+                    taskCount: Number(parentLinkStats?.taskCount || 0),
+                    durationMs: Date.now() - parentLinkStartedAt,
+                })) return;
                 let siblingOrderRanks = new Map();
+                const fastSwitchFirstPaint = false;
+                const shouldSkipSiblingRank = fastSwitchFirstPaint || skipSiblingRankFirstPaint;
                 const siblingRankStartTime = Date.now();
-                try {
-                    siblingOrderRanks = await __tmResolveTaskSiblingOrderRanks(tasksByDoc);
-                } catch (e) {
+                if (!shouldSkipSiblingRank && !perfTuning.disableSiblingRank) {
+                    try {
+                        siblingOrderRanks = await __tmResolveTaskSiblingOrderRanks(tasksByDoc);
+                    } catch (e) {
+                        siblingOrderRanks = new Map();
+                    }
+                } else {
                     siblingOrderRanks = new Map();
                 }
                 __tmPerfTraceMark(perfTrace, 'sibling-rank', {
                     durationMs: __tmRoundPerfMs(Date.now() - siblingRankStartTime),
                     rankCount: siblingOrderRanks instanceof Map ? siblingOrderRanks.size : 0,
-                    disabledByPerfFlag: perfTuning.disableSiblingRank ? 1 : 0,
+                    disabledByPerfFlag: perfTuning.disableSiblingRank || shouldSkipSiblingRank ? 1 : 0,
+                    fastSwitchFirstPaint: fastSwitchFirstPaint ? 1 : 0,
+                    skipSiblingRankFirstPaint: skipSiblingRankFirstPaint ? 1 : 0,
                 });
 
                 // 按文档顺序构建树
@@ -7888,6 +8941,7 @@ hint(`❌ 操作失败: ${e.message}`, 'error');
                     } else {
                         if (cachedDoc) docName = cachedDoc.name;
                     }
+                    const docUpdated = String(cachedDoc?.updated || cachedDoc?.docUpdated || rawTasks?.[0]?.docUpdated || rawTasks?.[0]?.doc_updated || '').trim();
                     const rootTasks = Array.isArray(rootTasksByDoc.get(docId))
                         ? rootTasksByDoc.get(docId)
                         : [];
@@ -7916,6 +8970,8 @@ hint(`❌ 操作失败: ${e.message}`, 'error');
                             alias: __tmNormalizeDocAliasValue(cachedDoc?.alias),
                             icon: __tmNormalizeDocIconValue(cachedDoc?.icon),
                             created: String(cachedDoc?.created || '').trim(),
+                            updated: docUpdated,
+                            docUpdated,
                             tasks: rootTasks
                         });
                     }
@@ -7933,20 +8989,13 @@ hint(`❌ 操作失败: ${e.message}`, 'error');
                     nextTaskTree || [],
                     String(SettingsStore.data.currentGroupId || 'all').trim() || 'all'
                 );
-                state.flatTasks = nextFlatTasks;
-                try { __tmUpsertWhiteboardTaskSnapshots(Object.values(state.flatTasks || {}), { persist: WhiteboardStore.loaded === true }); } catch (e) {}
-                state.flatTasks = __tmMergeOtherBlocksIntoFlatTasks(state.flatTasks);
-                const recurringReconcileStartTime = Date.now();
                 try {
-                    await __tmReconcileRecurringTasksOnLoad(recurringDueCandidateIds, {
-                        todayKey: __tmNormalizeDateOnly(new Date()),
+                    __tmRememberDocSessionTaskEntries(nextTaskTree, {
+                        docIds: allDocIds,
                     });
                 } catch (e) {}
-                __tmPerfTraceMark(perfTrace, 'recurring-reconcile', {
-                    durationMs: __tmRoundPerfMs(Date.now() - recurringReconcileStartTime),
-                    taskCount: recurringDueCandidateIds.length,
-                    deferredByPerfFlag: perfTuning.deferRecurringReconcile ? 1 : 0,
-                });
+                state.flatTasks = nextFlatTasks;
+                state.flatTasks = __tmMergeOtherBlocksIntoFlatTasks(state.flatTasks);
                 try {
                     const activeDocId = String(state.activeDocId || 'all').trim() || 'all';
                     if (activeDocId && activeDocId !== 'all' && !__tmIsOtherBlockTabId(activeDocId)) {
@@ -7966,15 +9015,167 @@ hint(`❌ 操作失败: ${e.message}`, 'error');
                     parentLinkResolved: Number(parentLinkStats?.resolvedCount || 0),
                 });
 
+                let visibleDateHydrateChanged = false;
+                let visibleDateHydrateChangedCount = 0;
+                let visibleDateHydrateFailed = false;
                 try {
                     const hydrateSourceTasks = Object.values(state.flatTasks || {}).filter((task) => task && typeof task === 'object');
-                    await __tmHydrateChecklistVisibleDateAttrs(hydrateSourceTasks, {
-                        reason: 'load-selected-before-filter',
-                    });
-                } catch (e) {}
+                    const requireVisibleDateBeforeFirstRender = isSwitchDocGroupLoad
+                        && stabilizeSwitchGroupView
+                        && viewNeedsCompleteVisibleDateAttrs();
+                    const deferChecklistVisibleDateHydrate = isSwitchDocGroupLoad
+                        && !skipRender
+                        && !requireVisibleDateBeforeFirstRender
+                        && (runtimeState?.isViewMode?.('checklist') ?? (String(state.viewMode || '').trim() === 'checklist'));
+                    if (requireVisibleDateBeforeFirstRender) {
+                        const hydrateStartedAt = Date.now();
+                        const hydrateMeta = await __tmHydrateChecklistVisibleDateAttrs(hydrateSourceTasks, {
+                            reason: 'load-selected-before-stable-first-render',
+                            force: true,
+                        });
+                        visibleDateHydrateChanged = !!hydrateMeta?.changed;
+                        visibleDateHydrateChangedCount = Number(hydrateMeta?.changedCount || 0);
+                    } else if (deferChecklistVisibleDateHydrate) {
+                        const hydrateToken = token;
+                        __tmScheduleIdleTask(async () => {
+                            try {
+                                if (!(runtimeState?.isCurrentOpenToken?.(hydrateToken) ?? hydrateToken === (Number(state.openToken) || 0))) return;
+                                const hydrateMeta = await __tmHydrateChecklistVisibleDateAttrs(hydrateSourceTasks, {
+                                    reason: 'load-selected-after-first-render',
+                                });
+                                if (!hydrateMeta?.changed) return;
+                                if (!(runtimeState?.isCurrentOpenToken?.(hydrateToken) ?? hydrateToken === (Number(state.openToken) || 0))) return;
+                                if (stabilizeSwitchGroupView) {
+                                    return;
+                                }
+                                applyFilters();
+                                const deferredModal = getActiveModal();
+                                if (!skipRender && deferredModal) {
+                                    if (!__tmRerenderCurrentViewInPlace(deferredModal)) render();
+                                }
+                            } catch (e) {}
+                        }, 320);
+                    } else {
+                        const hydrateStartedAt = Date.now();
+                        const hydrateMeta = await __tmHydrateChecklistVisibleDateAttrs(hydrateSourceTasks, {
+                            reason: 'load-selected-before-filter',
+                        });
+                        visibleDateHydrateChanged = !!hydrateMeta?.changed;
+                        visibleDateHydrateChangedCount = Number(hydrateMeta?.changedCount || 0);
+                    }
+                } catch (e) {
+                    visibleDateHydrateFailed = true;
+                }
 
-                applyFilters();
-                if (loadBudget.enabled) {
+                const filterStartedAt = Date.now();
+                prepareSwitchGroupFirstPaintWindow();
+                let filterRemapped = false;
+                let filterSkippedForVerifyContextChange = false;
+                let filterRemapSkipReason = '';
+                if (snapshotCacheVerifyBefore) {
+                    let remapSkipReason = '';
+                    try {
+                        const currentGroupIdForVerify = String(SettingsStore?.data?.currentGroupId || 'all').trim() || 'all';
+                        const currentTaskSignature = buildVerifyTaskSignature(state.flatTasks);
+                        const currentDocSignature = buildVerifyDocSignature();
+                        if (visibleDateHydrateFailed) remapSkipReason = 'visible-date-hydrate-failed';
+                        else if (visibleDateHydrateChanged) remapSkipReason = 'visible-date-changed';
+                        else if (currentGroupIdForVerify !== snapshotCacheVerifyBefore.groupId) remapSkipReason = 'group-changed';
+                        else if ((String(state.activeDocId || 'all').trim() || 'all') !== snapshotCacheVerifyBefore.activeDocId) remapSkipReason = 'active-doc-changed';
+                        else if (getCurrentViewMode('') !== snapshotCacheVerifyBefore.viewMode) remapSkipReason = 'view-mode-changed';
+                        else if (String(state.currentRule || '').trim() !== snapshotCacheVerifyBefore.currentRule) remapSkipReason = 'rule-changed';
+                        else if (String(state.searchKeyword || '').trim() !== snapshotCacheVerifyBefore.searchKeyword) remapSkipReason = 'search-changed';
+                        else if ((state.showCompletedTasks === true ? 1 : 0) !== snapshotCacheVerifyBefore.showCompletedTasks) remapSkipReason = 'completed-toggle-changed';
+                        else if ((state.docTabsArchiveMode === true ? 1 : 0) !== snapshotCacheVerifyBefore.docTabsArchiveMode) remapSkipReason = 'archive-mode-changed';
+                        else if ((state.groupByDocName === true ? 1 : 0) !== snapshotCacheVerifyBefore.groupByDocName) remapSkipReason = 'group-doc-changed';
+                        else if ((state.groupByTaskName === true ? 1 : 0) !== snapshotCacheVerifyBefore.groupByTaskName) remapSkipReason = 'group-task-changed';
+                        else if ((state.groupByTime === true ? 1 : 0) !== snapshotCacheVerifyBefore.groupByTime) remapSkipReason = 'group-time-changed';
+                        else if ((state.quadrantEnabled === true ? 1 : 0) !== snapshotCacheVerifyBefore.quadrantEnabled) remapSkipReason = 'quadrant-changed';
+                        else if (!currentTaskSignature || currentTaskSignature !== snapshotCacheVerifyBefore.taskSignature) remapSkipReason = 'task-signature-changed';
+                        else if (!currentDocSignature || currentDocSignature !== snapshotCacheVerifyBefore.docSignature) remapSkipReason = 'doc-signature-changed';
+                        if (!remapSkipReason) {
+                            const nextTasks = [];
+                            const taskMap = state.flatTasks || {};
+                            const prevIds = Array.isArray(snapshotCacheVerifyBefore.filteredTaskIds)
+                                ? snapshotCacheVerifyBefore.filteredTaskIds
+                                : [];
+                            for (let i = 0; i < prevIds.length; i += 1) {
+                                const id = String(prevIds[i] || '').trim();
+                                const task = id ? taskMap[id] : null;
+                                if (!task) {
+                                    remapSkipReason = 'filtered-task-missing';
+                                    break;
+                                }
+                                nextTasks.push(task);
+                            }
+                            if (!remapSkipReason) {
+                                state.filteredTasks = nextTasks;
+                                state.filteredDocIdsForTabs = (Array.isArray(snapshotCacheVerifyBefore.filteredDocIdsForTabs)
+                                    ? snapshotCacheVerifyBefore.filteredDocIdsForTabs
+                                    : []).slice();
+                                state.listRenderSignature = String(snapshotCacheVerifyBefore.listRenderSignature || '');
+                                state.listRenderLimit = Number(snapshotCacheVerifyBefore.listRenderLimit) || Number(state.listRenderLimit) || 0;
+                                state.listRenderStep = Number(snapshotCacheVerifyBefore.listRenderStep) || Number(state.listRenderStep) || 20;
+                                const remapDurationMs = Date.now() - filterStartedAt;
+                                state.__tmLastFilterPerf = {
+                                    cacheHit: 'verify-remap',
+                                    visibleMs: 0,
+                                    ruleMs: 0,
+                                    searchMs: 0,
+                                    docTabsMs: 0,
+                                    orderMs: __tmRoundPerfMs(remapDurationMs),
+                                    totalMs: __tmRoundPerfMs(remapDurationMs),
+                                    orderedCount: nextTasks.length,
+                                };
+                                filterRemapped = true;
+                            }
+                        }
+                    } catch (e) {
+                        remapSkipReason = 'exception';
+                    }
+                    if (!filterRemapped) {
+                        filterRemapSkipReason = remapSkipReason || 'unknown';
+                        const verifyContextChangedSkipReasons = {
+                            'group-changed': true,
+                            'active-doc-changed': true,
+                            'view-mode-changed': true,
+                            'rule-changed': true,
+                            'search-changed': true,
+                            'completed-toggle-changed': true,
+                            'archive-mode-changed': true,
+                            'group-doc-changed': true,
+                            'group-task-changed': true,
+                            'group-time-changed': true,
+                            'quadrant-changed': true,
+                        };
+                        if (isSnapshotCacheVerifyLoad && verifyContextChangedSkipReasons[filterRemapSkipReason]) {
+                            filterSkippedForVerifyContextChange = true;
+                            state.__tmLastFilterPerf = {
+                                cacheHit: 'verify-context-skip',
+                                visibleMs: 0,
+                                ruleMs: 0,
+                                searchMs: 0,
+                                docTabsMs: 0,
+                                orderMs: 0,
+                                totalMs: 0,
+                                orderedCount: Array.isArray(state.filteredTasks) ? state.filteredTasks.length : 0,
+                            };
+                            state.__tmLastCacheVerifyContextChanged = {
+                                at: Date.now(),
+                                source: sourceLabel,
+                                reason: filterRemapSkipReason,
+                                groupId: snapshotCacheVerifyBefore.groupId,
+                                currentGroupId: String(SettingsStore?.data?.currentGroupId || 'all').trim() || 'all',
+                            };
+                        }
+                    }
+                }
+                if (!filterRemapped && !filterSkippedForVerifyContextChange) {
+                    applyFilters();
+                }
+                if (isSwitchDocGroupLoad) {
+                    prepareSwitchGroupFirstPaintWindow();
+                } else if (loadBudget.enabled) {
                     state.listRenderLimit = Math.min(
                         Array.isArray(state.filteredTasks) ? state.filteredTasks.length : 0,
                         initialRenderLimit
@@ -7984,7 +9185,19 @@ hint(`❌ 操作失败: ${e.message}`, 'error');
                     ? bulkCustomFieldPlan.deferredListFieldIds.slice()
                     : [];
                 const deferredListCustomFieldFieldCount = state.deferredListCustomFieldIds.length;
-                const deferredListCustomFieldDeferred = deferredListCustomFieldFieldCount > 0
+                let stableListCustomFieldHydrateMeta = null;
+                if (deferredListCustomFieldFieldCount > 0 && stabilizeSwitchGroupView) {
+                    const listFieldStartedAt = Date.now();
+                    try {
+                        stableListCustomFieldHydrateMeta = await __tmHydrateVisibleListCustomFields(state.deferredListCustomFieldIds, {
+                            limit: Number(state.listRenderLimit) || switchGroupRenderCap,
+                            customFieldDefs: normalizeCustomFieldDefs,
+                        });
+                    } catch (e) {
+                        stableListCustomFieldHydrateMeta = null;
+                    }
+                }
+                const deferredListCustomFieldDeferred = deferredListCustomFieldFieldCount > 0 && !stabilizeSwitchGroupView
                     ? (() => {
                         try {
                             return __tmScheduleDeferredVisibleListCustomFieldHydration({
@@ -7997,6 +9210,8 @@ hint(`❌ 操作失败: ${e.message}`, 'error');
                         }
                     })()
                     : 0;
+                if (deferredListCustomFieldFieldCount > 0 && stabilizeSwitchGroupView) {
+                }
                 if (deferredListCustomFieldDeferred === 0 && deferredListCustomFieldFieldCount > 0) {
                     try {
                         await __tmHydrateVisibleListCustomFields(state.deferredListCustomFieldIds, {
@@ -8022,11 +9237,53 @@ hint(`❌ 操作失败: ${e.message}`, 'error');
                     filteredCount: Array.isArray(state.filteredTasks) ? state.filteredTasks.length : 0,
                     taskCount: Array.isArray(res.tasks) ? res.tasks.length : 0,
                 });
+                if (isSwitchDocGroupLoad) {
+                    try {
+                        const whiteboardSnapshotTasks = Object.values(state.flatTasks || {});
+                        const switchGroupToken = token;
+                        __tmScheduleIdleTask(async () => {
+                            try {
+                                if (!(runtimeState?.isCurrentOpenToken?.(switchGroupToken) ?? switchGroupToken === (Number(state.openToken) || 0))) return;
+                                if (String(SettingsStore?.data?.currentGroupId || 'all').trim() !== currentGroupId) return;
+                            } catch (e) {}
+                            try {
+                                __tmUpsertWhiteboardTaskSnapshots(whiteboardSnapshotTasks, { persist: WhiteboardStore.loaded === true });
+                            } catch (e) {}
+                            try {
+                                if (!(runtimeState?.isCurrentOpenToken?.(switchGroupToken) ?? switchGroupToken === (Number(state.openToken) || 0))) return;
+                                if (String(SettingsStore?.data?.currentGroupId || 'all').trim() !== currentGroupId) return;
+                                await __tmReconcileRecurringTasksOnLoad(recurringDueCandidateIds, {
+                                    todayKey: __tmNormalizeDateOnly(new Date()),
+                                });
+                            } catch (e) {}
+                        }, 120);
+                    } catch (e) {}
+                } else {
+                    const recurringReconcileStartTime = Date.now();
+                    try {
+                        await __tmReconcileRecurringTasksOnLoad(recurringDueCandidateIds, {
+                            todayKey: __tmNormalizeDateOnly(new Date()),
+                        });
+                    } catch (e) {}
+                    __tmPerfTraceMark(perfTrace, 'recurring-reconcile', {
+                        durationMs: __tmRoundPerfMs(Date.now() - recurringReconcileStartTime),
+                        taskCount: recurringDueCandidateIds.length,
+                        deferredByPerfFlag: perfTuning.deferRecurringReconcile ? 1 : 0,
+                    });
+                }
 
                 const activeModal = getActiveModal();
                 if (!skipRender && activeModal && isTokenCurrent()) {
                     try { if (showInlineLoading && Number(state.uiInlineLoadingToken) === token) __tmSetInlineLoading(false); } catch (e) {}
-                    render();
+                    const renderStartedAt = Date.now();
+                    const shouldPatchCurrentView = isSwitchDocGroupLoad
+                        && !loadBudget.enabled
+                        && String(sourceLabel || '').indexOf(':full') !== -1
+                        && typeof __tmRerenderCurrentViewInPlace === 'function';
+                    const patchedCurrentView = shouldPatchCurrentView
+                        ? !!__tmRerenderCurrentViewInPlace(activeModal)
+                        : false;
+                    if (!patchedCurrentView) render();
                     __tmPerfTraceMark(perfTrace, 'first-render', {
                         filteredCount: Array.isArray(state.filteredTasks) ? state.filteredTasks.length : 0,
                         fastBudget: loadBudget.enabled ? 1 : 0,
@@ -8126,13 +9383,38 @@ hint(`❌ 操作失败: ${e.message}`, 'error');
                     fastBudget: loadBudget.enabled ? 1 : 0,
                     deferredEnhancePending: (deferH2Enhance || deferFlowEnhance) ? 1 : 0,
                 });
-                if (!loadBudget.enabled && !skipRender) {
+                if (forceFreshTasks && !loadBudget.enabled) {
+                    state.__tmCacheFirstPaintNeedsVerify = false;
+                    state.__tmCacheFirstPaintVerifyGroupId = '';
+                    state.__tmLastCacheVerifyAt = Date.now();
+                }
+                if (!loadBudget.enabled && (!skipRender || (forceFreshTasks && !filterRemapped && !filterSkippedForVerifyContextChange))) {
                     try {
                         __tmSchedulePersistTaskSnapshot({
                             docIds: allDocIds,
                             groupId: currentGroupId,
-                            queryLimit: forceFullLoadBudget ? state.queryLimit : effectiveQueryLimit,
+                            queryLimit: effectiveQueryLimit,
                             forceFullLoadBudget: false,
+                            taskCountMap: taskCountMapMeta?.map,
+                        });
+                    } catch (e) {}
+                }
+                if (!loadBudget.enabled) {
+                    try {
+                        __tmRememberGroupSessionTaskState({
+                            docIds: allDocIds,
+                            groupId: currentGroupId,
+                            viewMode: getCurrentViewMode('list'),
+                            customFieldIds: bulkCustomFieldPlan.bulkFieldIds,
+                            source: sourceLabel,
+                        });
+                    } catch (e) {}
+                    try {
+                        __tmSchedulePersistTaskIndex({
+                            docIds: allDocIds,
+                            queryLimit: effectiveQueryLimit,
+                            taskCountMap: taskCountMapMeta?.map,
+                            delayMs: 500,
                         });
                     } catch (e) {}
                 }

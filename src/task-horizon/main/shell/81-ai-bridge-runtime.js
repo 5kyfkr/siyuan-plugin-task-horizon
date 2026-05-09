@@ -128,7 +128,10 @@
         if (!did) return null;
         let tasks = [];
         try {
-            const res = await API.getTasksByDocument(did, Math.max(50, Math.min(2000, Number(options.limit) || state.queryLimit || 500)), { doneOnly: false });
+            const limit = Number.isFinite(Number(options.limit))
+                ? Math.max(50, Math.min(__TM_TASK_INDEX_QUERY_LIMIT, Math.round(Number(options.limit))))
+                : __TM_TASK_INDEX_QUERY_LIMIT;
+            const res = await API.getTasksByDocument(did, limit, { doneOnly: false });
             tasks = Array.isArray(res?.tasks) ? res.tasks.map((task) => {
                 const next = { ...task };
                 try {
@@ -759,11 +762,13 @@
             await Promise.all([
                 removePluginFile(SEMANTIC_DATE_RECOGNIZED_FILE_PATH),
                 removePluginFile(TASK_SNAPSHOT_FILE_PATH),
+                removePluginFile(TASK_INDEX_FILE_PATH),
                 removePluginFile(`${PLUGIN_STORAGE_DIR}/ai-conversations.json`),
                 removePluginFile(`${PLUGIN_STORAGE_DIR}/ai-debug.json`),
                 removePluginFile(`${PLUGIN_STORAGE_DIR}/ai-prompt-templates.json`),
             ]);
         } catch (e) {}
+        try { __tmInvalidateTaskIndexStoreCache(); } catch (e) {}
 
         try {
             [

@@ -581,6 +581,22 @@
 
     function __tmRefreshShellEntrances() {
         try {
+            const breadcrumb = globalThis.__tmCompat?.findBreadcrumb?.() || null;
+            const liveBreadcrumbBtn = __tmBreadcrumbBtnEl instanceof HTMLElement && breadcrumb instanceof HTMLElement && breadcrumb.contains(__tmBreadcrumbBtnEl);
+            const mobileTopbarHost = __tmIsMobileTopBarRegistrationHost();
+            const shouldDocTopbar = __tmShouldShowDocTopbarButton();
+            const shouldWindowTopbar = __tmShouldShowWindowTopbarIcon();
+            const signature = [
+                shouldDocTopbar ? 1 : 0,
+                liveBreadcrumbBtn ? 1 : 0,
+                mobileTopbarHost ? 1 : 0,
+                shouldWindowTopbar ? 1 : 0,
+                __tmTopBarAdded ? 1 : 0,
+            ].join('|');
+            if (signature && signature === String(__tmShellEntrancesLastSignature || '')) return;
+            __tmShellEntrancesLastSignature = signature;
+        } catch (e) {}
+        try {
             if (__tmShouldShowDocTopbarButton()) addBreadcrumbButton();
             else __tmRemoveBreadcrumbButton();
         } catch (e) {}
@@ -621,15 +637,19 @@
     }
 
     function __tmScheduleShellEntrancesRefresh() {
+        if (__tmShellEntrancesRefreshTimer != null) return;
         if (__tmShellEntrancesRefreshRaf != null) return;
-        try {
-            __tmShellEntrancesRefreshRaf = requestAnimationFrame(() => {
-                __tmShellEntrancesRefreshRaf = null;
+        const run = () => {
+            __tmShellEntrancesRefreshTimer = null;
+            try {
                 __tmRefreshShellEntrances();
-            });
-        } catch (e) {
-            __tmRefreshShellEntrances();
-        }
+            } catch (e) {}
+        };
+        try {
+            __tmShellEntrancesRefreshTimer = setTimeout(() => {
+                try { __tmScheduleIdleTask(run, 180); } catch (e) { run(); }
+            }, 80);
+        } catch (e) { run(); }
     }
 
     function __tmFindExistingTaskHorizonCustomModel() {

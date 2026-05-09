@@ -73,9 +73,9 @@
                     });
                 });
             } catch (e) {}
-            const checklistVirtualThreshold = 50;
+            const checklistVirtualThreshold = state.__tmSnapshotFirstRenderLimitMode ? 0 : 5000;
             const checklistVirtualEnabled = Array.isArray(state.filteredTasks) && state.filteredTasks.length > checklistVirtualThreshold;
-            const checklistStep = Math.max(100, Math.min(1200, Number(state.listRenderStep) || 100));
+            const checklistStep = Math.max(20, Math.min(1200, Number(state.listRenderStep) || 20));
             const checklistTaskLimit = checklistVirtualEnabled
                 ? Math.max(checklistStep, Math.min(state.filteredTasks.length, Number(state.listRenderLimit) || checklistStep))
                 : Number.POSITIVE_INFINITY;
@@ -257,6 +257,7 @@
                 else if (row.kind === 'task') labelColor = String(row.labelColor || 'var(--tm-primary-color)');
                 else if (row.kind === 'time') labelColor = String(row.labelColor || 'var(--tm-text-color)');
                 else if (row.kind === 'pinned') labelColor = 'var(--tm-warning-color)';
+                else if (row.kind === 'done') labelColor = 'var(--tm-secondary-text)';
                 else if (row.kind === 'normal') labelColor = 'var(--tm-text-color)';
                 else if (row.kind === 'quadrant') {
                     const colorMap = { red: 'var(--tm-quadrant-red)', yellow: 'var(--tm-quadrant-yellow)', blue: 'var(--tm-quadrant-blue)', green: 'var(--tm-quadrant-green)' };

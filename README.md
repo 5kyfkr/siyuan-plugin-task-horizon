@@ -13,6 +13,7 @@
     <div>
       <div style="font-size:10px;color:var(--b3-theme-on-surface);font-weight:700;">PR贡献</div>
       <a href="https://github.com/bytemain" style="font-size:13px;color:var(--b3-theme-on-background);text-decoration:none;font-weight:600;">bytemain</a>
+      <a href="https://github.com/ProgramFan" style="font-size:13px;color:var(--b3-theme-on-background);text-decoration:none;font-weight:600;">ProgramFan</a>
     </div>
   </div>
   
@@ -75,12 +76,29 @@
     <a href="https://github.com/bytemain" style="font-size:12px;color:var(--b3-theme-on-surface);text-decoration:none;padding:4px 10px;background:var(--b3-theme-surface);border:1px solid var(--b3-border-color);border-radius:18px;">bytemain</a>
     <a href="https://ld246.com/member/Clymer" style="font-size:12px;color:var(--b3-theme-on-surface);text-decoration:none;padding:4px 10px;background:var(--b3-theme-surface);border:1px solid var(--b3-border-color);border-radius:18px;">Clymer</a>
     <a href="https://ld246.com/member/Wolkasem" style="font-size:12px;color:var(--b3-theme-on-surface);text-decoration:none;padding:4px 10px;background:var(--b3-theme-surface);border:1px solid var(--b3-border-color);border-radius:18px;">Wolkasem</a>
+    <a href="https://ld246.com/member/ming883" style="font-size:12px;color:var(--b3-theme-on-surface);text-decoration:none;padding:4px 10px;background:var(--b3-theme-surface);border:1px solid var(--b3-border-color);border-radius:18px;">ming883</a>
   </div>
 </div>
 
 # 更新记录
 
+## 2.4.5更新内容 5/9
+- **新增：重构插件任务搜索逻辑，菜单增加显示已完成任务开关，去除任务搜索数量限制，已完成任务显示在表格视图及清单视图末尾的已完成任务分组中，按完成时间排序，不受其他排序规则影响**
+- **新增：页签栏最后一个文档页签后增加归档分组切换，点击后切换至已完成所有任务的文档页签**
+- **新增：常规设置->搜索分组->兼容旧版 Win7 思源，开启后可在旧版本思源中兼容使用**
+- **新增：文档分组->搜索窗口设置增加最近7天选项**
+- 优化：常驻标签加载逻辑 PR贡献：ProgramFan
+- 优化：当日多个相同任务的日程在月视图只显示一个
+- 优化：文档分组快照和文档分组和索引缓存，减少快照体积，提升加载稳定性
+- 修复：任务详情中新建添加完子任务后，任务名称前的多余-[]
+- 修复：看板中待办看板常驻问题
+- 修复：修复月视图日期高亮移动日程后异常渲染
+- 修复：任务详情修改截止日期后时间分组中未刷新
+
 ## 2.4.4更新内容 5/1
+- 史诗级优化：任务加载改为长期本地任务索引 + 3 天任务快照 + 增量刷新，默认不再需要手动调整查询限制
+- 新增：已完成任务默认隐藏，可在菜单或设置中随时开启显示；已完成任务仍会进入索引，不限制完成时间
+- 新增：文档页签栏增加归档入口，便于查看全部任务均已完成的文档
 - 史诗级优化：引入文档分组快照，切换文档分组无需等待
 - 优化：Quickbar常驻字段加载速度
 - 优化：插件内任务字段刷新加载速度
@@ -915,7 +933,7 @@
    - 方式1：添加要纳入管理的笔记本，自动搜索笔记本内有任务的文档，分组名称跟随笔记本名称。
    - 方式2：自定义分组：可自定义设置分组名称，文档手动添加，也支持选择“包含子文档”自动搜索有任务的子文档。复制文档 ID 添加要纳入管理的文档，或在文档块菜单-插件二级菜单内添加至分组。
    - 保存设置后回到列表，点击「🔄️」刷新即可看到任务
-4. 如果任务显示不全：请加大插件里的“查询限制”数值，此数值不受思源笔记「设置 -> 搜索 -> 搜索结果显示数」影响。数值越大搜索速度会越慢，默认建议500，即一个文档内不超过500个任务的时候都能搜索到。若使用“包含子文档”或笔记本分组，请另外根据文档规模调整“递归文档数上限”。
+4. 如果任务显示不全：先点击「🔄️」刷新，插件会自动重建本地任务索引并补齐已完成任务；若使用“包含子文档”或笔记本分组，请根据文档规模调整“递归文档数上限”。
 
 ## 主要功能
 - 多文档任务汇总：把选中文档（或分组）中的任务集中展示
@@ -982,9 +1000,10 @@
 设置面板分为 4 个标签页：
 
 ### 常规设置
-- 查询限制：每个文档最多加载多少条任务。遇到任务未查找到的情况请加大此设置数值，此数值不受思源笔记「设置 -> 搜索 -> 搜索结果显示数」影响。数值越大搜索速度会越慢，默认建议500，即一个文档内不超过500个任务的时候都能搜索到。
 - 字体大小：桌面端与移动端分别可设置
-- 递归文档数上限：仅用于“包含子文档”和笔记本分组时展开文档范围，不受“查询限制”影响。数值越大，递归扫描文档越多，内存和查询压力也越大。
+- 任务检索：由长期本地任务索引、3 天任务快照和增量刷新自动优化，默认不需要手动设置查询限制。
+- 显示已完成任务：默认关闭以保持日常列表清爽；打开后显示索引中的全部已完成任务，不限制完成时间。
+- 递归文档数上限：仅用于“包含子文档”和笔记本分组时展开文档范围。数值越大，递归扫描文档越多，内存和查询压力也越大。
 - 任务悬浮条（quickbar）：
   - 启用/关闭 quickbar
   - 新建任务默认置顶

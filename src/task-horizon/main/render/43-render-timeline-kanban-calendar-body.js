@@ -283,17 +283,17 @@
             const kanbanFillColumns = !!SettingsStore.data.kanbanFillColumns;
             const kanbanCardFields = new Set(__tmGetTaskCardFieldList('kanban'));
             const headingMode = SettingsStore.data.kanbanHeadingGroupMode === true;
-            const showDoneCol = headingMode && !!SettingsStore.data.kanbanShowDoneColumn;
+            const showDoneCol = headingMode && !!state.showCompletedTasks && !!SettingsStore.data.kanbanShowDoneColumn;
             const currentGroupId = String(SettingsStore.data.currentGroupId || 'all').trim() || 'all';
             const statusOptionsRaw = Array.isArray(SettingsStore.data.customStatusOptions) ? SettingsStore.data.customStatusOptions : [];
-            const statusOptions = statusOptionsRaw
-                .map(o => ({ id: String(o?.id || '').trim(), name: String(o?.name || '').trim(), color: String(o?.color || '').trim() }))
+            const statusOptions = __tmGetStatusOptions(statusOptionsRaw)
+                .map(o => ({ id: String(o?.id || '').trim(), name: String(o?.name || '').trim(), color: String(o?.color || '').trim(), marker: o?.marker }))
                 .filter(o => o.id);
-            const todoOpt = statusOptions.find(o => o.id === 'todo') || { id: 'todo', name: '待办', color: '#757575' };
+            const defaultUndoneStatusId = __tmGetDefaultUndoneStatusId(statusOptions);
+            const defaultUndoneOpt = statusOptions.find(o => o.id === defaultUndoneStatusId)
+                || statusOptions[0]
+                || { id: defaultUndoneStatusId || 'todo', name: '待办', color: '#757575' };
             const doneOpt = { id: '__done__', name: '已完成', color: '#9e9e9e', kind: 'status' };
-            const colsStatus = showDoneCol
-                ? [todoOpt, ...statusOptions.filter(o => o.id !== 'todo'), doneOpt]
-                : [todoOpt, ...statusOptions.filter(o => o.id !== 'todo')];
 
             const docNameById = new Map();
             (Array.isArray(state.taskTree) ? state.taskTree : []).forEach(d => {
@@ -306,6 +306,37 @@
             });
 
             const filtered = Array.isArray(state.filteredTasks) ? state.filteredTasks : [];
+            const colsStatus = (() => {
+                const out = [];
+                const seen = new Set();
+                const push = (col) => {
+                    const id = String(col?.id || '').trim();
+                    if (!id || seen.has(id)) return;
+                    seen.add(id);
+                    out.push(col);
+                };
+                statusOptions.forEach((opt) => {
+                    push(opt);
+                });
+                if (!headingMode) {
+                    filtered.forEach((task) => {
+                        const statusId = __tmResolveTaskStatusId(task, statusOptions);
+                        if (!statusId || seen.has(statusId)) return;
+                        const display = __tmResolveTaskStatusDisplayOption(task, statusOptions, {
+                            fallbackColor: task?.done ? '#9e9e9e' : '#757575',
+                            fallbackName: task?.done ? '完成' : '待办',
+                        });
+                        push({
+                            id: statusId,
+                            name: String(display?.name || statusId).trim() || statusId,
+                            color: String(display?.color || (task?.done ? '#9e9e9e' : '#757575')).trim() || (task?.done ? '#9e9e9e' : '#757575'),
+                            kind: 'status',
+                        });
+                    });
+                }
+                if (showDoneCol) push(doneOpt);
+                return out;
+            })();
             const directChildStatsMemo = new Map();
             const getDirectChildStats = (task) => {
                 const id = String(task?.id || '').trim();
@@ -629,12 +660,9 @@
 
             const tasksByStatus = new Map(cols.map(c => [String(c?.id || '').trim(), []]));
             filtered.forEach(task => {
-                if (!showDoneCol && !!task?.done) return;
                 let key = '';
                 if (!headingMode) {
-                    key = __tmResolveTaskStatusId(task, statusOptions);
-                    if (!tasksByStatus.has(key) && showDoneCol && !!task?.done) key = '__done__';
-                    if (!showDoneCol && key === '__done__') return;
+                    key = (showDoneCol && !!task?.done) ? '__done__' : __tmResolveTaskStatusId(task, statusOptions);
                 } else if (showDoneCol && !!task?.done) {
                     key = '__done__';
                 } else if (isAllTabsView) {
@@ -656,7 +684,7 @@
                 const docName = docNameById.get(docId) || '';
                 const opt = __tmResolveTaskStatusDisplayOption(task, statusOptions, {
                     fallbackColor: task?.done ? '#9e9e9e' : '#757575',
-                    fallbackName: task?.done ? '完成' : (todoOpt?.name || '待办'),
+                    fallbackName: task?.done ? '完成' : (defaultUndoneOpt?.name || '待办'),
                 });
                 const timeTxt = __tmGetTaskCardDateValue(task);
                 const dateTxt = timeTxt ? __tmFormatTaskTime(timeTxt) : '';
@@ -705,6 +733,8 @@
 
             const colsHtml = cols.map(c => {
                 const list0 = tasksByStatus.get(c.id) || [];
+                const isDoneCol = String(c?.id || '').trim() === '__done__';
+                const isCompletedStatusCol = isDoneCol || (!headingMode && __tmDoesStatusIdResolveToDone(String(c?.id || '').trim(), statusOptions));
                 const map = new Map();
                 const pinnedGroupBg = __tmIsDarkMode()
                     ? 'color-mix(in srgb, var(--tm-danger-color,#d32f2f) 18%, var(--tm-header-bg))'
@@ -722,10 +752,16 @@
                     if (!childrenByParent.has(pid)) childrenByParent.set(pid, []);
                     childrenByParent.get(pid).push(t);
                 });
-                const roots = list0.filter(t => {
+                let roots = list0.filter(t => {
                     const pid = String(t?.parentTaskId || '').trim();
                     return !pid || !map.has(pid);
                 });
+                const headingDoneTailEnabled = headingMode && !isDoneCol;
+                const doneRootSplit = headingDoneTailEnabled
+                    ? __tmSplitTasksByDoneState(roots)
+                    : { active: roots, done: [] };
+                roots = doneRootSplit.active;
+                const completedRoots = doneRootSplit.done;
                 const getIdx = (t) => indexById.get(String(t?.id || '').trim()) ?? 999999;
                 const sortByIdx = (a, b) => getIdx(a) - getIdx(b);
                 const getDocId = (t) => String(t?.root_id || t?.docId || '').trim();
@@ -750,17 +786,12 @@
                     if (flow !== 0) return flow;
                     return sortByIdx(a, b);
                 };
-                const getTaskUpdatedTs = (task) => {
-                    const ts = __tmParseTimeToTs(task?.updated || task?.updatedAt || '');
-                    return Number.isFinite(ts) ? ts : 0;
-                };
-                const compareByUpdatedDesc = (a, b) => {
-                    const tsDiff = getTaskUpdatedTs(b) - getTaskUpdatedTs(a);
-                    if (tsDiff !== 0) return tsDiff;
-                    return sortByIdx(a, b);
-                };
-                roots.sort(needDocFlowForKanban ? compareRootByDocFlow : sortByIdx);
-                childrenByParent.forEach(arr => arr.sort(needDocFlowForKanban ? compareChildByDocFlow : sortByIdx));
+                const rootCompare = needDocFlowForKanban ? compareRootByDocFlow : sortByIdx;
+                const childCompare = needDocFlowForKanban ? compareChildByDocFlow : sortByIdx;
+                const completedRecentCompare = (a, b) => __tmCompareCompletedTasksRecentFirst(a, b, rootCompare);
+                roots.sort(isCompletedStatusCol ? completedRecentCompare : rootCompare);
+                completedRoots.sort(completedRecentCompare);
+                childrenByParent.forEach(arr => arr.sort(childCompare));
 
                 const renderTree = (task, depthInCol, inheritedHideCompleted = false) => {
                     const id = String(task?.id || '').trim();
@@ -831,6 +862,15 @@
                     `;
                 };
 
+                const renderCompletedRootGroup = () => {
+                    if (!headingDoneTailEnabled || completedRoots.length === 0) return '';
+                    const doneGroupKey = `kanban_${c.id}_completed_root_tasks`;
+                    const doneCollapsed = state.collapsedGroups?.has(doneGroupKey);
+                    const doneTitle = `<span style="color:var(--tm-secondary-text);">已完成任务</span>`;
+                    const doneBody = doneCollapsed ? '' : `<div class="tm-kanban-group-items">${completedRoots.map(t => renderTree(t, 0)).join('')}</div>`;
+                    return `<div class="tm-kanban-group">${renderGroupTitle(doneGroupKey, doneTitle, completedRoots.length, 'var(--tm-secondary-text)')}${doneBody}</div>`;
+                };
+
                 const renderGroupedByDoc = (opt = {}) => {
                     const o = (opt && typeof opt === 'object') ? opt : {};
                     const showDocTitle = !o.hideDocTitle; // 是否显示文档标题行
@@ -874,8 +914,7 @@
                     // 对非置顶任务按文档分组
                     const rootByDoc = new Map();
                     const countByDoc = new Map();
-                    list0.forEach(t => {
-                        if (isPinned(t)) return; // 跳过置顶任务
+                    allNormal.forEach(t => {
                         const did = String(t?.root_id || '').trim() || '__unknown__';
                         countByDoc.set(did, (countByDoc.get(did) || 0) + 1);
                     });
@@ -1199,14 +1238,13 @@
                 };
 
                 let listHtml = '';
-                const isDoneCol = String(c?.id || '').trim() === '__done__';
                 // 辅助函数：检查任务是否被置顶
                 const isPinned = (t) => {
                     const p = t.pinned;
                     return p === true || p === 'true' || p === '1';
                 };
                 const renderDoneColumnList = () => {
-                    const items = list0.slice().sort(compareByUpdatedDesc);
+                    const items = list0.slice().sort(completedRecentCompare);
                     return items.map((task) => {
                         const id = String(task?.id || '').trim();
                         if (!id) return '';
@@ -1300,6 +1338,7 @@
                     // 不分组模式
                     listHtml = roots.length ? renderUngroupedWithPinned() : '';
                 }
+                listHtml += renderCompletedRootGroup();
                 const count = list0.length;
                 const kind = isDoneCol
                     ? 'status'

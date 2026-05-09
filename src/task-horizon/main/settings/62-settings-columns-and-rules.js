@@ -79,6 +79,22 @@
         };
     }
 
+    function __tmIsLegacyWin7CompatMode() {
+        try { return SettingsStore?.data?.legacyWin7CompatMode === true; } catch (e) {}
+        return false;
+    }
+
+    function __tmGetCompatStatusOptionMarker(optionLike) {
+        const option = (optionLike && typeof optionLike === 'object') ? optionLike : {};
+        const id = String(option?.id || '').trim().toLowerCase();
+        const name = String(option?.name || '').trim();
+        const rawMarker = __tmNormalizeTaskStatusMarker(option?.marker, __tmGuessStatusOptionDefaultMarker(option, ' '));
+        if (!__tmIsLegacyWin7CompatMode()) return rawMarker;
+        if (String(rawMarker || '').trim().toUpperCase() === 'X') return 'X';
+        if (id === 'done' || id === 'finish' || /完成|已完成|finish|done/i.test(name)) return 'X';
+        return ' ';
+    }
+
     function __tmFocusStatusOptionDraftInput() {
         try {
             const input = state.settingsModal?.querySelector?.('[data-tm-status-option-draft-name]');
@@ -105,7 +121,13 @@
 
     window.renderStatusOptionsList = function() {
         const options = SettingsStore.data.customStatusOptions || [];
-        const rows = options.map((opt, index) => `
+        const compatMode = __tmIsLegacyWin7CompatMode();
+        const markerInputTitle = compatMode
+            ? '兼容模式下旧版思源仅支持空格和 X；未完成状态统一为空格，完成状态为 X。'
+            : '写入任务 - [ ] 方括号中的单字节字符；空格表示未完成，其他字符会被思源视为已勾选。';
+        const rows = options.map((opt, index) => {
+            const displayMarker = __tmGetCompatStatusOptionMarker(opt);
+            return `
             <div style="display: flex; align-items: center; gap: 6px; margin-bottom: 6px; flex-wrap: wrap;">
                 <button
                     type="button"
@@ -116,14 +138,14 @@
                 ></button>
                 <input type="text" value="${esc(opt.name)}" onchange="updateStatusOption(${index}, 'name', this.value)" style="width: 100px; padding: 4px; border: 1px solid var(--tm-input-border); background: var(--tm-input-bg); color: var(--tm-text-color); border-radius: 4px; font-size: 13px;" title="修改名称">
                 <input type="text" value="${esc(opt.id)}" onchange="updateStatusOption(${index}, 'id', this.value)" style="width: 120px; padding: 4px; border: 1px solid var(--tm-input-border); background: var(--tm-input-bg); color: var(--tm-text-color); border-radius: 4px; font-size: 12px; font-family: monospace;" title="修改ID（将同步更新任务状态）">
-                <input type="text" value="${esc(__tmNormalizeTaskStatusMarker(opt?.marker, __tmGuessStatusOptionDefaultMarker(opt)))}" onchange="updateStatusOption(${index}, 'marker', this.value)" placeholder="空格" style="width: 56px; padding: 4px; border: 1px solid var(--tm-input-border); background: var(--tm-input-bg); color: var(--tm-text-color); border-radius: 4px; font-size: 12px; font-family: monospace; text-align: center;" title="写入任务 - [ ] 方括号中的单字节字符；空格表示未完成，当前：${esc(__tmFormatStatusMarkerText(opt?.marker))}">
+                <input type="text" value="${esc(displayMarker)}" onchange="updateStatusOption(${index}, 'marker', this.value)" placeholder="空格" ${compatMode ? 'disabled' : ''} style="width: 56px; padding: 4px; border: 1px solid var(--tm-input-border); background: var(--tm-input-bg); color: var(--tm-text-color); border-radius: 4px; font-size: 12px; font-family: monospace; text-align: center; ${compatMode ? 'opacity:.72;cursor:not-allowed;' : ''}" title="${esc(markerInputTitle)} 当前：${esc(__tmFormatStatusMarkerText(displayMarker))}">
                 <div style="display: flex; gap: 2px;">
                     <button class="tm-btn" onclick="moveStatusOption(${index}, -1)" ${index === 0 ? 'disabled' : ''} style="padding: 2px 6px; font-size: 11px;">↑</button>
                     <button class="tm-btn" onclick="moveStatusOption(${index}, 1)" ${index === options.length - 1 ? 'disabled' : ''} style="padding: 2px 6px; font-size: 11px;">↓</button>
                 </div>
                 <button class="tm-btn tm-btn-danger" onclick="deleteStatusOption(${index})" style="padding: 2px 6px; font-size: 11px;">删除</button>
             </div>
-        `);
+        `; });
         const draft = __tmGetStatusOptionDraft();
         if (draft) {
             rows.push(`
@@ -137,7 +159,7 @@
                     ></button>
                     <input data-tm-status-option-draft-name type="text" value="${esc(draft.name)}" oninput="updateStatusOptionDraft('name', this.value)" placeholder="状态名称" style="width: 100px; padding: 4px; border: 1px solid var(--tm-input-border); background: var(--tm-input-bg); color: var(--tm-text-color); border-radius: 4px; font-size: 13px;" title="请输入状态名称">
                     <input data-tm-status-option-draft-id type="text" value="${esc(draft.id)}" oninput="updateStatusOptionDraft('id', this.value)" placeholder="自定义属性名称" style="width: 120px; padding: 4px; border: 1px solid var(--tm-input-border); background: var(--tm-input-bg); color: var(--tm-text-color); border-radius: 4px; font-size: 12px; font-family: monospace;" title="请输入自定义属性名称（唯一标识）">
-                    <input data-tm-status-option-draft-marker type="text" value="${esc(__tmNormalizeTaskStatusMarker(draft.marker, ' '))}" oninput="updateStatusOptionDraft('marker', this.value)" placeholder="空格" style="width: 56px; padding: 4px; border: 1px solid var(--tm-input-border); background: var(--tm-input-bg); color: var(--tm-text-color); border-radius: 4px; font-size: 12px; font-family: monospace; text-align: center;" title="写入任务 - [ ] 方括号中的单字节字符；默认空格表示未完成，当前：${esc(__tmFormatStatusMarkerText(draft.marker))}">
+                    <input data-tm-status-option-draft-marker type="text" value="${esc(__tmGetCompatStatusOptionMarker(draft))}" oninput="updateStatusOptionDraft('marker', this.value)" placeholder="空格" ${compatMode ? 'disabled' : ''} style="width: 56px; padding: 4px; border: 1px solid var(--tm-input-border); background: var(--tm-input-bg); color: var(--tm-text-color); border-radius: 4px; font-size: 12px; font-family: monospace; text-align: center; ${compatMode ? 'opacity:.72;cursor:not-allowed;' : ''}" title="${esc(markerInputTitle)} 当前：${esc(__tmFormatStatusMarkerText(__tmGetCompatStatusOptionMarker(draft)))}">
                     <button class="tm-btn tm-btn-success" onclick="saveStatusOptionDraft()" style="padding: 2px 8px; font-size: 11px;">保存</button>
                     <button class="tm-btn" onclick="cancelStatusOptionDraft()" style="padding: 2px 8px; font-size: 11px;">取消</button>
                 </div>
@@ -253,8 +275,10 @@
             return;
         }
         const rawMarker = draft.marker == null ? '' : String(draft.marker);
-        const directMarker = __tmNormalizeTaskStatusMarker(rawMarker, '');
-        if (!directMarker && rawMarker !== '' && rawMarker !== ' ') {
+        const directMarker = __tmIsLegacyWin7CompatMode()
+            ? __tmGetCompatStatusOptionMarker({ id, name, marker: rawMarker })
+            : __tmNormalizeTaskStatusMarker(rawMarker, '');
+        if (!__tmIsLegacyWin7CompatMode() && !directMarker && rawMarker !== '' && rawMarker !== ' ') {
             hint('状态标记必须是单个字节字符，且不能是 [ 或 ]', 'warning');
             __tmFocusStatusOptionDraftField('[data-tm-status-option-draft-marker]');
             return;
@@ -497,6 +521,16 @@
             const nextColor = __tmNormalizeHexColor(value, __tmGetStatusPresetColor(index)) || __tmGetStatusPresetColor(index);
             options[index].color = nextColor;
         } else if (field === 'marker') {
+            if (__tmIsLegacyWin7CompatMode()) {
+                options[index].marker = __tmGetCompatStatusOptionMarker({ ...options[index], marker: value });
+                SettingsStore.data.customStatusOptions = options;
+                await SettingsStore.save();
+                showSettings();
+                render();
+                try { window.tmQuickAddRefreshStatusSelect?.(); } catch (e) {}
+                try { window.tmQuickAddRenderMeta?.(); } catch (e) {}
+                return;
+            }
             const rawMarker = value == null ? '' : String(value);
             const directMarker = __tmNormalizeTaskStatusMarker(rawMarker, '');
             if (!directMarker && rawMarker !== '') {
@@ -1174,7 +1208,10 @@
     // 新增：切换分组
     window.switchDocGroup = async function(groupId) {
         try {
-            await SettingsStore.updateCurrentGroupId(groupId);
+            const nextGroupId = String(groupId || 'all').trim() || 'all';
+            SettingsStore.data.currentGroupId = nextGroupId;
+            try { SettingsStore.syncToLocal(); } catch (e) {}
+            const savePromise = SettingsStore.save().catch(() => null);
             state.activeDocId = 'all';
             const currentRuleId = String(state.currentRule || SettingsStore.data.currentRule || '').trim();
             const nextRuleId = (state.filterRules || []).some((rule) => rule && rule.enabled && String(rule.id || '').trim() === currentRuleId)
@@ -1182,13 +1219,18 @@
                 : '';
             state.currentRule = nextRuleId || null;
             SettingsStore.data.currentRule = nextRuleId || null;
-            await SettingsStore.save();
             await loadSelectedDocuments({
                 showInlineLoading: true,
                 loadingStyleKind: 'topbar',
                 loadingDelayMs: 0,
+                preferFastFirstPaint: true,
+                skipSnapshotFirstPaint: true,
+                taskIndexFirstPaintCachedOnly: false,
+                refreshAfterTaskIndexFirstPaint: true,
+                forceFastFirstPaintBudget: true,
                 source: 'legacy-switch-doc-group',
             });
+            await savePromise;
             render();
             showSettings();
         } catch (e) {

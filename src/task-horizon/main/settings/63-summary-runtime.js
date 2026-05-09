@@ -170,7 +170,7 @@
     async function __tmSummaryLoadTasksByDocs(docIds, options = {}) {
         const ids = Array.isArray(docIds) ? docIds.map(x => String(x || '').trim()).filter(Boolean) : [];
         if (!ids.length) return [];
-        const limit = Math.max(2000, Number(SettingsStore.data.queryLimit) || 5000);
+        const limit = __TM_TASK_INDEX_QUERY_LIMIT;
         let list = [];
         try {
             const res = await API.getTasksByDocuments(ids, limit, { doneOnly: false, ignoreExcludeCompleted: options?.ignoreExcludeCompleted === true });
@@ -210,7 +210,7 @@
     async function __tmSummaryLoadTasksByDocFallback(docId, options = {}) {
         const id = String(docId || '').trim();
         if (!id) return [];
-        const limit = Math.max(2000, Number(SettingsStore.data.queryLimit) || 5000);
+        const limit = __TM_TASK_INDEX_QUERY_LIMIT;
         let list = [];
         try {
             const res = await API.getTasksByDocument(id, limit, { doneOnly: false, ignoreExcludeCompleted: options?.ignoreExcludeCompleted === true });

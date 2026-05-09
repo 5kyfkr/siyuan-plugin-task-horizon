@@ -582,7 +582,7 @@
 
                     <div class="tm-settings-panel" style="margin-bottom: 16px;" data-tm-settings-section="status">
                         <div class="tm-settings-section-title">🏷️ 状态选项</div>
-                        <div class="tm-settings-section-desc">维护任务状态列表；marker 会写入任务 <code>- [ ]</code> 的方括号中，空格表示未完成，其他字符会被思源视为已勾选。</div>
+                        <div class="tm-settings-section-desc">${SettingsStore.data.legacyWin7CompatMode ? '维护任务状态列表；兼容旧版 Win7 思源时，任务方括号内仅使用空格和 X，未完成状态统一写为空格，已完成状态写为 X。' : '维护任务状态列表；marker 会写入任务 <code>- [ ]</code> 的方括号中，空格表示未完成，其他字符会被思源视为已勾选。'}</div>
                         ${renderSingleFieldSetting(
                             '勾选完成时状态',
                             '任务复选框被勾选为完成时，自动切换到这里设置的状态；可选择“不自动切换”。',
@@ -865,19 +865,18 @@
 
                     <div class="tm-settings-panel" data-tm-settings-section="search">
                         <div class="tm-settings-section-title">🔎 搜索与分组</div>
-                        <div class="tm-settings-section-desc">控制任务检索范围，以及文档和任务的分组行为。</div>
-                        ${renderSingleFieldSetting(
-                            '查询限制',
-                            '遇到任务未查找到的情况请加大此设置数值，此数值不受思源笔记「设置 -> 搜索 -> 搜索结果显示数」影响。数值越大搜索速度会越慢，默认建议500，即一个文档内不超过500个任务的时候都能搜索到。',
-                            `<input class="b3-text-field" type="number" value="${state.queryLimit}" onchange="updateQueryLimit(this.value)" style="width:96px;">
-                             <span class="tm-setting-field-unit">条任务/文档</span>`,
-                            { style: 'margin-bottom:10px;' }
-                        )}
+                        <div class="tm-settings-section-desc">任务检索由本地索引、快照和增量刷新自动优化；这里仅控制文档范围与分组行为。</div>
                         ${renderSingleFieldSetting(
                             '递归文档数上限',
-                            '仅用于“包含子文档”和笔记本分组时展开文档范围，不受“查询限制”影响。数值越大，递归扫描文档越多，内存和查询压力也越大。',
+                            '仅用于“包含子文档”和笔记本分组时展开文档范围。数值越大，递归扫描文档越多，内存和查询压力也越大。',
                             `<input class="b3-text-field" type="number" value="${state.recursiveDocLimit}" onchange="updateRecursiveDocLimit(this.value)" style="width:96px;">
                              <span class="tm-setting-field-unit">个文档</span>`,
+                            { style: 'margin-bottom:10px;' }
+                        )}
+                        ${renderSingleSwitchSetting(
+                            '兼容旧版 Win7 思源',
+                            '默认关闭。仅在 win7-dev1 等旧版内核中开启，3.6.4 以前版本思源请打开此开关；开启后使用旧版任务块 SQL 和旧版可用的任务状态更新方式。',
+                            `<input class="b3-switch fn__flex-center" type="checkbox" ${SettingsStore.data.legacyWin7CompatMode ? 'checked' : ''} onchange="updateLegacyWin7CompatMode(this.checked)">`,
                             { style: 'margin-bottom:10px;' }
                         )}
                         ${renderSingleFieldSetting(
@@ -888,14 +887,13 @@
                             { style: 'margin-bottom:10px;' }
                         )}
                         ${renderSingleSwitchSetting(
-                            '不查找已完成父任务',
-                            '提升搜索性能和长期使用性能。开启后仅查找未完成父任务。',
-                            `<input class="b3-switch fn__flex-center" type="checkbox" ${SettingsStore.data.excludeCompletedTasks ? 'checked' : ''} onchange="updateExcludeCompletedTasks(this.checked)">`
+                            '显示已完成任务',
+                            '关闭时仅在视图中隐藏已完成任务；任务仍会进入本地索引，可随时重新显示。',
+                            `<input class="b3-switch fn__flex-center" type="checkbox" ${__tmGetShowCompletedTasksFromSettings(SettingsStore.data) ? 'checked' : ''} onchange="updateShowCompletedTasks(this.checked)">`
                         )}
                         <div style="font-size: 12px; color: var(--tm-secondary-text); margin-top: 6px; margin-bottom: 12px;">
-                            开启后仅查找未完成任务。含有子任务的任务，如果父任务未完成，已完成的子任务仍会显示。
-                            <br>示例：假设笔记中有 1000 条任务，其中 800 条已完成，则这 800 条任务在开启后不会被查找到。
-                            <br>如需复盘已完成任务：在规则设置中添加/选择条件「完成状态」，将其设置为「所有状态」或「是」均可在筛选已完成任务时搜索到全部已完成任务。
+                            默认关闭以保持日常列表清爽。打开后会显示索引中的全部已完成任务，不限制完成时间。
+                            <br>规则设置中将「完成状态」设为「所有状态」或「是」时，也会显示对应已完成任务。
                         </div>
                         ${renderSingleSwitchSetting(
                             '文档分组下按二级标题子分组',
@@ -1127,7 +1125,7 @@
                         <div style="margin-bottom: 12px; padding: 10px; border: 1px solid var(--tm-border-color); border-radius: 8px; background: var(--tm-card-bg);">
                             <div style="font-weight: 600; margin-bottom: 6px;">📅 日记分组优化搜索</div>
                             <div style="font-size: 12px; color: var(--tm-secondary-text); line-height: 1.7; margin-bottom: 10px;">
-                                当当前分组主要由每天的日记文档组成时，开启后会优先按文档日期裁剪，只搜索最近 30、60、90 或 120 天内的日记文档任务；如果是非日记分组，也会将搜索范围限制在设定的时间内。
+                                当当前分组主要由每天的日记文档组成时，开启后会优先按文档日期裁剪，只搜索最近 7、30、60、90 或 120 天内的日记文档任务；如果是非日记分组，也会将搜索范围限制在设定的时间内。
                             </div>
                             ${renderSingleSwitchSetting(
                                 '启用日记分组优化搜索',
@@ -1139,6 +1137,7 @@
                                     '搜索窗口',
                                     '当前分组仅搜索最近多少天内可识别为日记文档的任务。',
                                     `<select class="b3-select" ${currentGroupCalendarOptimization.enabled ? '' : 'disabled'} onchange="updateCurrentGroupCalendarSearchOptimizationDays(this.value)" style="width:180px;">
+                                        <option value="7" ${Number(currentGroupCalendarOptimization.days) === 7 ? 'selected' : ''}>最近7天</option>
                                         <option value="30" ${Number(currentGroupCalendarOptimization.days) === 30 ? 'selected' : ''}>最近30天</option>
                                         <option value="60" ${Number(currentGroupCalendarOptimization.days) === 60 ? 'selected' : ''}>最近60天</option>
                                         <option value="90" ${Number(currentGroupCalendarOptimization.days) === 90 ? 'selected' : ''}>最近90天</option>

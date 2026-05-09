@@ -109,10 +109,156 @@
             return [];
         },
 
+        async readDir(path) {
+            const p = String(path || '').trim();
+            if (!p) return [];
+            const res = await this.call('/api/file/readDir', { path: p });
+            return res.code === 0 && Array.isArray(res.data) ? res.data : [];
+        },
+
+        async getHPathByID(id) {
+            const did = String(id || '').trim();
+            if (!/^[0-9]+-[a-zA-Z0-9]+$/.test(did)) return '';
+            try {
+                const res = await this.call('/api/filetree/getHPathByID', { id: did });
+                if (res.code === 0) return String(res.data || '').trim();
+            } catch (e) {}
+            return '';
+        },
+
+        async getDocMetaById(id) {
+            const did = String(id || '').trim();
+            if (!/^[0-9]+-[a-zA-Z0-9]+$/.test(did)) return null;
+            try {
+                const sql = `SELECT id, content, hpath, box FROM blocks WHERE id = '${did.replace(/'/g, "''")}' AND type = 'd' LIMIT 1`;
+                const res = await this.call('/api/query/sql', { stmt: sql });
+                if (res.code === 0 && Array.isArray(res.data) && res.data.length > 0) {
+                    const row = res.data[0] || {};
+                    return {
+                        id: did,
+                        name: String(row?.content || '').trim() || '未命名文档',
+                        path: String(row?.hpath || '').trim(),
+                        notebook: String(row?.box || '').trim()
+                    };
+                }
+            } catch (e) {}
+            const hpath = await this.getHPathByID(did);
+            const name = String(hpath || '').split('/').filter(Boolean).pop() || did;
+            return { id: did, name, path: hpath, notebook: '' };
+        },
+
+        async getNotebookDocumentsFromFileTree(notebookId, options = null) {
+            const box = String(notebookId || '').trim();
+            if (!box) return [];
+            const recursiveDocLimit = Number.isFinite(Number(SettingsStore.data?.recursiveDocLimit)) ? Math.max(1, Math.min(500000, Math.round(Number(SettingsStore.data.recursiveDocLimit)))) : 2000;
+            const limitRaw = Number(options?.limit);
+            const totalLimit = Number.isFinite(limitRaw)
+                ? Math.max(0, Math.min(500000, Math.round(limitRaw)))
+                : recursiveDocLimit;
+            const maxDocs = totalLimit > 0 ? totalLimit : 500000;
+            const maxDirs = Math.max(maxDocs * 2, 2000);
+            const out = [];
+            const seenDocs = new Set();
+            const seenDirs = new Set();
+            const queue = [`/data/${box}`];
+            let dirCount = 0;
+            while (queue.length > 0 && out.length < maxDocs && dirCount < maxDirs) {
+                const dirPath = queue.shift();
+                if (!dirPath || seenDirs.has(dirPath)) continue;
+                seenDirs.add(dirPath);
+                dirCount += 1;
+                let entries = [];
+                try { entries = await this.readDir(dirPath); } catch (e) { entries = []; }
+                for (const item of entries) {
+                    const name = String(item?.name || '').trim();
+                    if (!name) continue;
+                    const childPath = `${dirPath.replace(/\/+$/, '')}/${name}`;
+                    if (item?.isDir === true) {
+                        queue.push(childPath);
+                        continue;
+                    }
+                    const match = name.match(/^([0-9]+-[A-Za-z0-9]+)\.sy$/);
+                    if (!match) continue;
+                    const id = String(match[1] || '').trim();
+                    if (!id || seenDocs.has(id)) continue;
+                    seenDocs.add(id);
+                    out.push({ id, name: id, path: '' });
+                    if (out.length >= maxDocs) break;
+                }
+            }
+            if (!out.length) return [];
+            const metaMap = new Map();
+            const chunkSize = 200;
+            for (let i = 0; i < out.length; i += chunkSize) {
+                const chunk = out.slice(i, i + chunkSize).map((doc) => doc.id);
+                const idList = chunk.map((id) => `'${id.replace(/'/g, "''")}'`).join(',');
+                try {
+                    const res = await this.call('/api/query/sql', {
+                        stmt: `SELECT id, content, hpath FROM blocks WHERE type = 'd' AND id IN (${idList}) LIMIT ${chunk.length}`
+                    });
+                    if (res.code === 0 && Array.isArray(res.data)) {
+                        res.data.forEach((row) => {
+                            const id = String(row?.id || '').trim();
+                            if (!id) return;
+                            metaMap.set(id, {
+                                name: String(row?.content || '').trim(),
+                                path: String(row?.hpath || '').trim()
+                            });
+                        });
+                    }
+                } catch (e) {}
+            }
+            return out.map((doc) => {
+                const meta = metaMap.get(doc.id) || {};
+                const path = String(meta.path || '').trim();
+                const name = String(meta.name || '').trim() || path.split('/').filter(Boolean).pop() || doc.name || '未命名文档';
+                return { id: doc.id, name, path };
+            });
+        },
+
+        async getNotebookTaskDocumentsBySql(notebookId, options = null) {
+            const box = String(notebookId || '').trim();
+            if (!box) return [];
+            const recursiveDocLimit = Number.isFinite(Number(SettingsStore.data?.recursiveDocLimit)) ? Math.max(1, Math.min(500000, Math.round(Number(SettingsStore.data.recursiveDocLimit)))) : 2000;
+            const limitRaw = Number(options?.limit);
+            const totalLimit = Number.isFinite(limitRaw)
+                ? Math.max(0, Math.min(500000, Math.round(limitRaw)))
+                : recursiveDocLimit;
+            const limitSql = totalLimit > 0 ? ` LIMIT ${totalLimit}` : '';
+            try {
+                const sql = `
+                    SELECT
+                        b.root_id AS id,
+                        MIN(b.hpath) AS hpath,
+                        MAX(b.updated) AS updated
+                    FROM blocks b
+                    WHERE
+                        b.type = 'i'
+                        AND b.subtype = 't'
+                        AND (b.markdown LIKE '%[ ]%' OR b.markdown LIKE '%[x]%' OR b.markdown LIKE '%[X]%')
+                        AND b.box = '${box.replace(/'/g, "''")}'
+                        AND b.root_id IS NOT NULL
+                        AND b.root_id != ''
+                    GROUP BY b.root_id
+                    ORDER BY updated DESC, b.root_id DESC${limitSql}
+                `;
+                const res = await this.call('/api/query/sql', { stmt: sql });
+                if (res.code !== 0 || !Array.isArray(res.data)) return [];
+                const docs = res.data.map((row) => {
+                    const id = String(row?.id || '').trim();
+                    const path = String(row?.hpath || '').trim();
+                    const name = path.split('/').filter(Boolean).pop() || id || '未命名文档';
+                    return { id, name, path };
+                }).filter((row) => row.id);
+                return docs;
+            } catch (e) {}
+            return [];
+        },
+
         async getNotebookDocuments(notebookId, options = null) {
             const box = String(notebookId || '').trim();
             if (!box) return [];
-            try {
+            const queryByBox = async () => {
                 const recursiveDocLimit = Number.isFinite(Number(SettingsStore.data?.recursiveDocLimit)) ? Math.max(1, Math.min(500000, Math.round(Number(SettingsStore.data.recursiveDocLimit)))) : 2000;
                 const limitRaw = Number(options?.limit);
                 const totalLimit = Number.isFinite(limitRaw)
@@ -127,6 +273,22 @@
                         name: String(row?.content || '').trim() || '未命名文档',
                         path: String(row?.hpath || '').trim()
                     })).filter((row) => row.id);
+                }
+                return null;
+            };
+            try {
+                const docs = await queryByBox();
+                if (Array.isArray(docs) && docs.length > 0) return docs;
+                try { await this.call('/api/notebook/openNotebook', { notebook: box }); } catch (e) {}
+                const openedDocs = await queryByBox();
+                if (Array.isArray(openedDocs) && openedDocs.length > 0) return openedDocs;
+            } catch (e) {}
+            try {
+                if (SettingsStore.data?.legacyWin7CompatMode === true) {
+                    const taskDocs = await this.getNotebookTaskDocumentsBySql(box, options);
+                    if (Array.isArray(taskDocs) && taskDocs.length > 0) return taskDocs;
+                    const fileTreeDocs = await this.getNotebookDocumentsFromFileTree(box, options);
+                    return fileTreeDocs;
                 }
             } catch (e) {}
             return [];
@@ -579,7 +741,9 @@
         },
 
         renderTaskContentHtml(markdown, fallback = '') {
-            const source = this.extractTaskContentLine(markdown || fallback);
+            const markdownSource = this.extractTaskContentLine(markdown);
+            const fallbackSource = this.extractTaskContentLine(fallback);
+            const source = __tmResolveTaskContentRenderSource(markdownSource, fallbackSource);
             const cached = __tmTaskContentHtmlCache.get(source);
             if (cached !== undefined) return cached;
             const segments = this.getTaskContentSegments(source);
@@ -617,8 +781,7 @@
 
         async getAllDocuments() {
             try {
-                const queryLimit = Number.isFinite(Number(SettingsStore.data?.queryLimit)) ? Math.max(1, Math.min(5000, Math.round(Number(SettingsStore.data.queryLimit)))) : 500;
-                const totalLimit = Math.max(2000, Math.min(500000, queryLimit * 20));
+                const totalLimit = __TM_SQL_MAX_TOTAL_LIMIT;
                 const sql = `
                     SELECT
                         d.id,
@@ -626,9 +789,9 @@
                         d.hpath as path,
                         d.box as notebook,
                         d.created,
+                        d.updated,
                         d.ial as ial,
-                        COALESCE(attr.alias, '') as alias,
-                        COALESCE(tc.task_count, 0) as task_count
+                        COALESCE(attr.alias, '') as alias
                     FROM blocks d
                     LEFT JOIN (
                         SELECT block_id, MAX(value) as alias
@@ -636,12 +799,6 @@
                         WHERE name = 'alias'
                         GROUP BY block_id
                     ) attr ON attr.block_id = d.id
-                    LEFT JOIN (
-                        SELECT root_id, COUNT(*) as task_count
-                        FROM blocks
-                        WHERE type = 'i' AND subtype = 't'
-                        GROUP BY root_id
-                    ) tc ON tc.root_id = d.id
                     WHERE d.type = 'd'
                     ORDER BY d.content
                     LIMIT ${totalLimit}
@@ -656,8 +813,9 @@
                         icon: __tmNormalizeDocIconValue(__tmReadIalAttrValue(doc.ial, 'icon')),
                         path: doc.path || '',
                         notebook: doc.notebook || '',
-                        taskCount: parseInt(doc.task_count) || 0,
-                        created: doc.created
+                        taskCount: 0,
+                        created: doc.created,
+                        updated: doc.updated
                     }));
                 }
                 return [];
@@ -667,11 +825,52 @@
             }
         },
 
+        async getTaskCountsByDocuments(docIds) {
+            const safeDocIds0 = Array.isArray(docIds) ? docIds.filter(id => /^[0-9]+-[a-zA-Z0-9]+$/.test(String(id || ''))) : [];
+            const safeDocIds = Array.from(new Set(safeDocIds0.map((x) => String(x || '').trim()).filter(Boolean))).sort();
+            const startedAt = Date.now();
+            const map = new Map(safeDocIds.map((id) => [id, 0]));
+            if (safeDocIds.length === 0) return { map, queryTime: 0 };
+            const compatTaskTypeCondition = "type = 'i'";
+            const compatTaskMarkdownCondition = SettingsStore.data?.legacyWin7CompatMode === true
+                ? "(markdown LIKE '%[ ]%' OR markdown LIKE '%[x]%' OR markdown LIKE '%[X]%')"
+                : "markdown IS NOT NULL AND markdown != ''";
+            const chunks = [];
+            for (let i = 0; i < safeDocIds.length; i += 220) chunks.push(safeDocIds.slice(i, i + 220));
+            for (const chunk of chunks) {
+                const idList = chunk.map(id => `'${id}'`).join(',');
+                const sql = `
+                    SELECT root_id, COUNT(*) AS task_count
+                    FROM blocks
+                    WHERE
+                        ${compatTaskTypeCondition}
+                        AND subtype = 't'
+                        AND root_id IN (${idList})
+                        AND ${compatTaskMarkdownCondition}
+                    GROUP BY root_id
+                `;
+                try {
+                    const res = await this.call('/api/query/sql', { stmt: sql });
+                    if (res && res.code === 0 && Array.isArray(res.data)) {
+                        res.data.forEach((row) => {
+                            const docId = String(row?.root_id || '').trim();
+                            if (!docId || !map.has(docId)) return;
+                            map.set(docId, Math.max(0, Math.round(Number(row?.task_count || 0) || 0)));
+                        });
+                    }
+                } catch (e) {}
+                if (chunks.length > 1) {
+                    try { await new Promise((resolve) => setTimeout(resolve, 0)); } catch (e) {}
+                }
+            }
+            return { map, queryTime: Date.now() - startedAt };
+        },
+
         async getTasksByDocument(docId, limit = 500, options = null) {
             const did = String(docId || '').trim();
             if (!/^[0-9]+-[a-zA-Z0-9]+$/.test(did)) return { tasks: [], queryTime: 0 };
             const lim0 = Number(limit);
-            const lim = Number.isFinite(lim0) ? Math.max(1, Math.min(5000, Math.round(lim0))) : 500;
+            const lim = Number.isFinite(lim0) ? Math.max(1, Math.min(__TM_TASK_INDEX_QUERY_LIMIT, Math.round(lim0))) : __TM_TASK_INDEX_QUERY_LIMIT;
             const ignoreExcludeCompleted = !!(options && options.ignoreExcludeCompleted === true);
             const fullTree = !!(options && options.fullTree === true);
             const skipParentTaskJoin = !!(options && options.skipParentTaskJoin === true);
@@ -680,8 +879,16 @@
             const customFieldIds = Array.isArray(options?.customFieldIds) ? options.customFieldIds : null;
             const attrNamesSql = __tmBuildTaskInlineAttrNamesSql('                            ');
             const attrAggregateSql = __tmBuildTaskInlineAttrAggregateSql('                        ');
-            // 不查找已完成任务的过滤条件
-            // 不查找已完成任务的过滤条件（数据库层面暂不过滤，全部在JavaScript中过滤）
+            const legacyCompat = SettingsStore.data?.legacyWin7CompatMode === true;
+            const compatTaskTypeCondition = "type = 'i'";
+            const compatTaskAliasTypeCondition = (alias) => `${alias}.type = 'i'`;
+            const compatTaskMarkdownCondition = (alias) => legacyCompat
+                ? `(${alias}.markdown LIKE '%[ ]%' OR ${alias}.markdown LIKE '%[x]%' OR ${alias}.markdown LIKE '%[X]%')`
+                : `${alias}.markdown IS NOT NULL AND ${alias}.markdown != ''`;
+            const compatTaskRawMarkdownCondition = legacyCompat
+                ? "(markdown LIKE '%[ ]%' OR markdown LIKE '%[x]%' OR markdown LIKE '%[X]%')"
+                : "markdown IS NOT NULL AND markdown != ''";
+            // 已完成任务不在数据库层过滤，保证父子树和本地任务索引完整。
             const excludeCompletedCondition = '';
             const doneOnlyCondition = '';
             const parentListSelectSql = `parent_list.type as parent_list_type,
@@ -692,12 +899,11 @@
                     SELECT parent_id, COUNT(*) AS parent_list_task_count
                     FROM blocks
                     WHERE
-                        type = 'i'
+                        ${compatTaskTypeCondition}
                         AND subtype = 't'
                         AND root_id = '${did}'
                         AND parent_id IS NOT NULL
-                        AND markdown IS NOT NULL
-                        AND markdown != ''${excludeCompletedCondition}${doneOnlyCondition}
+                        AND ${compatTaskRawMarkdownCondition}${excludeCompletedCondition}${doneOnlyCondition}
                     GROUP BY parent_id
                 ) AS parent_counts ON parent_counts.parent_id = task.parent_id`;
             const parentTaskSelectSql = skipParentTaskJoin
@@ -706,7 +912,7 @@
             const parentTaskJoinSql = skipParentTaskJoin
                 ? ''
                 : `
-                LEFT JOIN blocks AS parent_task ON parent_task.id = parent_list.parent_id AND parent_task.type = 'i' AND parent_task.subtype = 't'`;
+                LEFT JOIN blocks AS parent_task ON parent_task.id = parent_list.parent_id AND ${compatTaskAliasTypeCondition('parent_task')} AND parent_task.subtype = 't'`;
             const docSelectSql = skipDocJoin
                 ? `'' as doc_name,
                     '' as doc_path,`
@@ -717,7 +923,46 @@
                 : 'INNER JOIN blocks AS doc ON task.root_id = doc.id';
             const limitClause = fullTree ? '' : `\n                LIMIT ${lim}`;
 
-            const sql = `
+            const sql = legacyCompat ? `
+                SELECT
+                    id,
+                    markdown,
+                    content as raw_content,
+                    parent_id,
+                    '' as parent_list_type,
+                    '' as parent_list_parent_id,
+                    0 as parent_list_task_count,
+                    '' as parent_task_id,
+                    root_id,
+                    path as block_path,
+                    sort as block_sort,
+                    created,
+                    updated,
+                    '' as doc_name,
+                    '' as doc_path,
+                    '' as custom_priority,
+                    '' as duration,
+                    '' as remark,
+                    '' as start_date,
+                    '' as completion_time,
+                    '' as task_complete_at,
+                    '' as milestone,
+                    '' as custom_time,
+                    '' as custom_status,
+                    '' as pinned,
+                    '' as repeat_rule,
+                    '' as repeat_state,
+                    '' as repeat_history,
+                    '' as tomato_minutes,
+                    '' as tomato_hours
+                FROM blocks
+                WHERE
+                    type = 'i'
+                    AND subtype = 't'
+                    AND root_id = '${did}'
+                    AND ${compatTaskRawMarkdownCondition}${excludeCompletedCondition}${doneOnlyCondition}
+                ORDER BY path, sort, created${limitClause}
+            ` : `
                 SELECT
                     task.id,
                     task.markdown,
@@ -766,7 +1011,7 @@
                     FROM attributes a
                     INNER JOIN blocks t ON t.id = a.block_id
                     WHERE
-                        t.type = 'i'
+                        ${compatTaskAliasTypeCondition('t')}
                         AND t.subtype = 't'
                         AND t.root_id = '${did}'
                         AND a.name IN (
@@ -776,25 +1021,23 @@
                 ) AS attr ON attr.block_id = task.id
 
                 WHERE
-                    task.type = 'i'
+                    ${compatTaskAliasTypeCondition('task')}
                     AND task.subtype = 't'
                     AND task.root_id = '${did}'
-                    AND task.markdown IS NOT NULL
-                    AND task.markdown != ''${excludeCompletedCondition}${doneOnlyCondition}
+                    AND ${compatTaskMarkdownCondition('task')}${excludeCompletedCondition}${doneOnlyCondition}
 
                 ORDER BY task.path, task.sort, task.created${limitClause}
             `;
 
             const startTime = Date.now();
             const res = await this.call('/api/query/sql', { stmt: sql });
-            const queryTime = Date.now() - startTime;
-
+            let queryTime = Date.now() - startTime;
             if (res.code !== 0) {
                 console.error(`[查询] 文档 ${did.slice(0, 8)} 查询失败:`, res.msg);
                 return { tasks: [], queryTime };
             }
             const tasks = Array.isArray(res.data) ? res.data : [];
-            if (skipDocJoin) {
+            if (skipDocJoin || legacyCompat) {
                 const docInfoMap = await __tmBuildDocQueryInfoMapWithFallback([did]);
                 __tmApplyDocQueryInfoToTasks(tasks, docInfoMap);
             }
@@ -831,10 +1074,14 @@
             // 注意：这里不能提前过滤已完成任务。
             // 子任务进度条、父子层级和“父任务未完成时显示已完成子任务”的规则，都依赖完整树结构。
             // 真正的显隐交给 applyFilters/filterVisibleTasks 统一处理。
+            const limitReachedDocIds = (!fullTree && tasks.length >= lim) ? [did] : [];
             return {
                 tasks: filteredTasks,
                 queryTime,
                 sqlQueryTime: queryTime,
+                queryLimit: lim,
+                limitReachedDocIds,
+                limitReached: limitReachedDocIds.length > 0 ? 1 : 0,
                 attrReadTime,
                 attrHostReadTime,
                 customFieldReadTime,
@@ -854,8 +1101,8 @@
             const safeDocIds = Array.from(new Set(safeDocIds0.map((x) => String(x || '').trim()).filter(Boolean))).sort();
             if (safeDocIds.length === 0) return { tasks: [], queryTime: 0 };
             const idList = safeDocIds.map(id => `'${id}'`).join(',');
-            const perDocLimit = Number.isFinite(limitPerDoc) ? Math.max(1, Math.min(5000, limitPerDoc)) : 500;
-            const totalLimit = Math.max(perDocLimit, Math.min(500000, safeDocIds.length * perDocLimit));
+            const perDocLimit = Number.isFinite(Number(limitPerDoc)) ? Math.max(1, Math.min(__TM_TASK_INDEX_QUERY_LIMIT, Math.round(Number(limitPerDoc)))) : __TM_TASK_INDEX_QUERY_LIMIT;
+            const totalLimit = Math.max(perDocLimit, Math.min(__TM_SQL_MAX_TOTAL_LIMIT, safeDocIds.length * perDocLimit));
             const doneOnly = !!(options && options.doneOnly === true);
             const ignoreExcludeCompleted = !!(options && options.ignoreExcludeCompleted === true);
             const forceFresh = !!(options && options.forceFresh === true);
@@ -872,7 +1119,8 @@
                 return 6000;
             })();
             const repeatAttrsInline = __tmShouldReadRepeatAttrsInline();
-            const cacheKey = `getTasksByDocuments:${idList}:${perDocLimit}:${doneOnly ? 1 : 0}:${ignoreExcludeCompleted ? 1 : 0}:${skipParentTaskJoin ? 1 : 0}:${skipDocJoin ? 1 : 0}:${SettingsStore.data.enableTomatoIntegration ? 1 : 0}:${repeatAttrsInline ? 1 : 0}:${customFieldIdsKey}:plp2`;
+            const legacyCompat = SettingsStore.data?.legacyWin7CompatMode === true;
+            const cacheKey = `getTasksByDocuments:${idList}:${perDocLimit}:${doneOnly ? 1 : 0}:${ignoreExcludeCompleted ? 1 : 0}:${skipParentTaskJoin ? 1 : 0}:${skipDocJoin ? 1 : 0}:${SettingsStore.data.enableTomatoIntegration ? 1 : 0}:${repeatAttrsInline ? 1 : 0}:${customFieldIdsKey}:compat${legacyCompat ? 1 : 0}:plp3`;
             const cached = __tmTasksQueryCache.get(cacheKey);
             if (!forceFresh && cached && cached.t && (Date.now() - cached.t) < cacheTtlMs && cached.v) {
                 const out = __tmCloneTaskQueryResult(cached.v);
@@ -917,27 +1165,181 @@
                 return out;
             }
             const docIdSet = new Set(safeDocIds);
+            const disableChunkedQuery = !!(options && options.disableChunkedQuery === true);
+            if (legacyCompat && !options?.disableLegacyPerDocQuery) {
+                const legacyStart = Date.now();
+                const tasks = [];
+                const limitReachedDocIds = [];
+                const limitReachedDocIdSet = new Set();
+                let sqlQueryTime = 0;
+                let attrReadTime = 0;
+                let attrHostReadTime = 0;
+                let customFieldReadTime = 0;
+                let customFieldCacheHitCount = 0;
+                let customFieldCacheMissCount = 0;
+                let customFieldHostQueryCount = 0;
+                let customFieldSelfFallbackCount = 0;
+                let customFieldHostAssignedCount = 0;
+                let customFieldSelfAssignedCount = 0;
+                let customFieldRequestedFieldCount = 0;
+                for (const docId of safeDocIds) {
+                    try {
+                        const docRes = await this.getTasksByDocument(docId, perDocLimit, {
+                            ...(options && typeof options === 'object' ? options : {}),
+                            fullTree: true,
+                            disableLegacyPerDocQuery: true,
+                        });
+                        tasks.push(...(Array.isArray(docRes?.tasks) ? docRes.tasks : []));
+                        sqlQueryTime += Number(docRes?.sqlQueryTime || docRes?.queryTime || 0);
+                        attrReadTime += Number(docRes?.attrReadTime || 0);
+                        attrHostReadTime += Number(docRes?.attrHostReadTime || 0);
+                        customFieldReadTime += Number(docRes?.customFieldReadTime || 0);
+                        customFieldCacheHitCount += Number(docRes?.customFieldCacheHitCount || 0);
+                        customFieldCacheMissCount += Number(docRes?.customFieldCacheMissCount || 0);
+                        customFieldHostQueryCount += Number(docRes?.customFieldHostQueryCount || 0);
+                        customFieldSelfFallbackCount += Number(docRes?.customFieldSelfFallbackCount || 0);
+                        customFieldHostAssignedCount += Number(docRes?.customFieldHostAssignedCount || 0);
+                        customFieldSelfAssignedCount += Number(docRes?.customFieldSelfAssignedCount || 0);
+                        customFieldRequestedFieldCount = Math.max(customFieldRequestedFieldCount, Number(docRes?.customFieldRequestedFieldCount || 0));
+                        (Array.isArray(docRes?.limitReachedDocIds) ? docRes.limitReachedDocIds : []).forEach((docId0) => {
+                            const did = String(docId0 || '').trim();
+                            if (!did || limitReachedDocIdSet.has(did)) return;
+                            limitReachedDocIdSet.add(did);
+                            limitReachedDocIds.push(did);
+                        });
+                    } catch (e) {}
+                    try { await new Promise((resolve) => setTimeout(resolve, 0)); } catch (e) {}
+                }
+                const out = {
+                    tasks: __tmCloneTaskQueryRows(tasks),
+                    queryTime: Date.now() - legacyStart,
+                    sqlQueryTime,
+                    queryLimit: perDocLimit,
+                    totalLimit,
+                    limitReachedDocIds,
+                    limitReached: limitReachedDocIds.length > 0 ? 1 : 0,
+                    chunked: 1,
+                    chunkCount: safeDocIds.length,
+                    legacyPerDocQuery: 1,
+                    attrReadTime,
+                    attrHostReadTime,
+                    customFieldReadTime,
+                    customFieldCacheHitCount,
+                    customFieldCacheMissCount,
+                    customFieldHostQueryCount,
+                    customFieldSelfFallbackCount,
+                    customFieldHostAssignedCount,
+                    customFieldSelfAssignedCount,
+                    customFieldRequestedFieldCount,
+                    readRepeatAttrsInline: repeatAttrsInline,
+                };
+                __tmTasksQueryCache.set(cacheKey, { t: Date.now(), v: __tmCloneTaskQueryResult(out), docIdSet, ttl: cacheTtlMs });
+                return out;
+            }
+            const chunkSize0 = Number(options?.docChunkSize);
+            const configuredDocChunkSize = Number.isFinite(chunkSize0)
+                ? Math.max(1, Math.min(80, Math.round(chunkSize0)))
+                : 24;
+            const maxDocsPerSql = Math.max(1, Math.floor(__TM_SQL_MAX_TOTAL_LIMIT / Math.max(1, perDocLimit)));
+            const docChunkSize = Math.max(1, Math.min(configuredDocChunkSize, maxDocsPerSql));
+            if (!disableChunkedQuery && safeDocIds.length > docChunkSize) {
+                const chunkedStart = Date.now();
+                const tasks = [];
+                const limitReachedDocIds = [];
+                const limitReachedDocIdSet = new Set();
+                let sqlQueryTime = 0;
+                let attrReadTime = 0;
+                let attrHostReadTime = 0;
+                let customFieldReadTime = 0;
+                let customFieldCacheHitCount = 0;
+                let customFieldCacheMissCount = 0;
+                let customFieldHostQueryCount = 0;
+                let customFieldSelfFallbackCount = 0;
+                let customFieldHostAssignedCount = 0;
+                let customFieldSelfAssignedCount = 0;
+                let customFieldRequestedFieldCount = 0;
+                let cacheHit = 0;
+                for (let i = 0; i < safeDocIds.length; i += docChunkSize) {
+                    const chunk = safeDocIds.slice(i, i + docChunkSize);
+                    const chunkRes = await this.getTasksByDocuments(chunk, perDocLimit, {
+                        ...(options && typeof options === 'object' ? options : {}),
+                        disableChunkedQuery: true,
+                    });
+                    tasks.push(...(Array.isArray(chunkRes?.tasks) ? chunkRes.tasks : []));
+                    (Array.isArray(chunkRes?.limitReachedDocIds) ? chunkRes.limitReachedDocIds : []).forEach((docId0) => {
+                        const docId = String(docId0 || '').trim();
+                        if (!docId || limitReachedDocIdSet.has(docId)) return;
+                        limitReachedDocIdSet.add(docId);
+                        limitReachedDocIds.push(docId);
+                    });
+                    sqlQueryTime += Number(chunkRes?.sqlQueryTime || chunkRes?.queryTime || 0);
+                    attrReadTime += Number(chunkRes?.attrReadTime || 0);
+                    attrHostReadTime += Number(chunkRes?.attrHostReadTime || 0);
+                    customFieldReadTime += Number(chunkRes?.customFieldReadTime || 0);
+                    customFieldCacheHitCount += Number(chunkRes?.customFieldCacheHitCount || 0);
+                    customFieldCacheMissCount += Number(chunkRes?.customFieldCacheMissCount || 0);
+                    customFieldHostQueryCount += Number(chunkRes?.customFieldHostQueryCount || 0);
+                    customFieldSelfFallbackCount += Number(chunkRes?.customFieldSelfFallbackCount || 0);
+                    customFieldHostAssignedCount += Number(chunkRes?.customFieldHostAssignedCount || 0);
+                    customFieldSelfAssignedCount += Number(chunkRes?.customFieldSelfAssignedCount || 0);
+                    customFieldRequestedFieldCount = Math.max(customFieldRequestedFieldCount, Number(chunkRes?.customFieldRequestedFieldCount || 0));
+                    cacheHit += Number(chunkRes?.cacheHit || 0);
+                    if ((i + docChunkSize) < safeDocIds.length) {
+                        try { await new Promise((resolve) => setTimeout(resolve, 0)); } catch (e) {}
+                    }
+                }
+                const out = {
+                    tasks: __tmCloneTaskQueryRows(tasks),
+                    queryTime: Date.now() - chunkedStart,
+                    sqlQueryTime,
+                    queryLimit: perDocLimit,
+                    totalLimit,
+                    limitReachedDocIds,
+                    limitReached: limitReachedDocIds.length > 0 ? 1 : 0,
+                    chunked: 1,
+                    chunkCount: Math.ceil(safeDocIds.length / docChunkSize),
+                    cacheHit,
+                    attrReadTime,
+                    attrHostReadTime,
+                    customFieldReadTime,
+                    customFieldCacheHitCount,
+                    customFieldCacheMissCount,
+                    customFieldHostQueryCount,
+                    customFieldSelfFallbackCount,
+                    customFieldHostAssignedCount,
+                    customFieldSelfAssignedCount,
+                    customFieldRequestedFieldCount,
+                    readRepeatAttrsInline: repeatAttrsInline,
+                };
+                __tmTasksQueryCache.set(cacheKey, { t: Date.now(), v: __tmCloneTaskQueryResult(out), docIdSet, ttl: cacheTtlMs });
+                return out;
+            }
 
             const attrNamesSql = __tmBuildTaskInlineAttrNamesSql('                        ');
             const attrAggregateSql = __tmBuildTaskInlineAttrAggregateSql('                        ');
+            const compatTaskAliasTypeCondition = (alias) => `${alias}.type = 'i'`;
+            const compatTaskMarkdownCondition = (alias) => legacyCompat
+                ? `(${alias}.markdown LIKE '%[ ]%' OR ${alias}.markdown LIKE '%[x]%' OR ${alias}.markdown LIKE '%[X]%')`
+                : `${alias}.markdown IS NOT NULL AND ${alias}.markdown != ''`;
             const parentTaskSelectSql = skipParentTaskJoin
                 ? 'NULL AS parent_task_id,'
                 : 'parent_task.id AS parent_task_id,';
             const parentTaskJoinSql = skipParentTaskJoin
                 ? ''
                 : `
-                LEFT JOIN blocks parent_task ON parent_task.id = t.parent_list_parent_id AND parent_task.type = 'i' AND parent_task.subtype = 't'`;
+                LEFT JOIN blocks parent_task ON parent_task.id = t.parent_list_parent_id AND ${compatTaskAliasTypeCondition('parent_task')} AND parent_task.subtype = 't'`;
             const docSelectSql = skipDocJoin
                 ? `'' AS doc_name,
-                        '' AS doc_path,`
+                        '' AS doc_path,
+                        '' AS doc_updated,`
                 : `doc.content AS doc_name,
-                        doc.hpath AS doc_path,`;
+                        doc.hpath AS doc_path,
+                        doc.updated AS doc_updated,`;
             const docJoinSql = skipDocJoin
                 ? ''
                 : 'INNER JOIN blocks AS doc ON task.root_id = doc.id';
 
-            // 不查找已完成任务的过滤条件
-            // 不查找已完成任务的过滤条件（数据库层面暂不过滤，全部在JavaScript中过滤）
+            // 已完成任务不在数据库层过滤，保证父子树和本地任务索引完整。
             const excludeCompletedCondition = '';
             const doneOnlyCondition = '';
 
@@ -948,12 +1350,11 @@
                         COUNT(*) AS parent_list_task_count
                     FROM blocks AS task
                     WHERE
-                        task.type = 'i'
+                        ${compatTaskAliasTypeCondition('task')}
                         AND task.subtype = 't'
                         AND task.root_id IN (${idList})
                         AND task.parent_id IS NOT NULL
-                        AND task.markdown IS NOT NULL
-                        AND task.markdown != ''${excludeCompletedCondition}${doneOnlyCondition}
+                        AND ${compatTaskMarkdownCondition('task')}${excludeCompletedCondition}${doneOnlyCondition}
                     GROUP BY task.parent_id
                 ),
                 tasks0 AS (
@@ -977,11 +1378,10 @@
                     LEFT JOIN blocks AS parent_list ON parent_list.id = task.parent_id
                     LEFT JOIN parent_counts ON parent_counts.parent_id = task.parent_id
                     WHERE
-                        task.type = 'i'
+                        ${compatTaskAliasTypeCondition('task')}
                         AND task.subtype = 't'
                         AND task.root_id IN (${idList})
-                        AND task.markdown IS NOT NULL
-                        AND task.markdown != ''${excludeCompletedCondition}${doneOnlyCondition}
+                        AND ${compatTaskMarkdownCondition('task')}${excludeCompletedCondition}${doneOnlyCondition}
                 ),
                 tasks AS (
                     SELECT * FROM tasks0 WHERE rn <= ${perDocLimit}
@@ -1014,6 +1414,7 @@
                     t.updated,
                     t.doc_name,
                     t.doc_path,
+                    t.doc_updated,
                     attr.custom_priority,
                     attr.duration,
                     attr.remark,
@@ -1055,8 +1456,16 @@
                     let customFieldHostAssignedCount = 0;
                     let customFieldSelfAssignedCount = 0;
                     let customFieldRequestedFieldCount = 0;
+                    const limitReachedDocIds = [];
+                    const limitReachedDocIdSet = new Set();
                     results.forEach(r => tasks.push(...(r?.tasks || [])));
                     results.forEach((r) => {
+                        (Array.isArray(r?.limitReachedDocIds) ? r.limitReachedDocIds : []).forEach((docId0) => {
+                            const docId = String(docId0 || '').trim();
+                            if (!docId || limitReachedDocIdSet.has(docId)) return;
+                            limitReachedDocIdSet.add(docId);
+                            limitReachedDocIds.push(docId);
+                        });
                         attrReadTime += Number(r?.attrReadTime || 0);
                         attrHostReadTime += Number(r?.attrHostReadTime || 0);
                         customFieldReadTime += Number(r?.customFieldReadTime || 0);
@@ -1073,6 +1482,10 @@
                         tasks: __tmCloneTaskQueryRows(tasks),
                         queryTime: queryTime + fallbackTime,
                         sqlQueryTime: queryTime + fallbackTime,
+                        queryLimit: perDocLimit,
+                        totalLimit,
+                        limitReachedDocIds,
+                        limitReached: limitReachedDocIds.length > 0 ? 1 : 0,
                         attrReadTime,
                         attrHostReadTime,
                         customFieldReadTime,
@@ -1091,7 +1504,7 @@
                     return { tasks: [], queryTime };
                 }
             }
-            const tasks = Array.isArray(res.data) ? res.data : [];
+            let tasks = Array.isArray(res.data) ? res.data : [];
             if (skipDocJoin) {
                 const docInfoMap = await __tmBuildDocQueryInfoMapWithFallback(safeDocIds);
                 __tmApplyDocQueryInfoToTasks(tasks, docInfoMap);
@@ -1121,6 +1534,14 @@
                 customFieldReadTime = 0;
             }
             attrReadTime = attrHostReadTime + customFieldReadTime;
+            const limitReachedDocIdSet = new Set();
+            tasks.forEach((task) => {
+                const seq = Number(task?.doc_seq);
+                if (!Number.isFinite(seq) || seq < perDocLimit) return;
+                const docId = String(task?.root_id || '').trim();
+                if (docId) limitReachedDocIdSet.add(docId);
+            });
+            const limitReachedDocIds = safeDocIds.filter((docId) => limitReachedDocIdSet.has(docId));
             const filteredTasks = doneOnly
                 ? tasks.filter((task) => {
                     try { return !!API.parseTaskStatus(task?.markdown).done; } catch (e) { return false; }
@@ -1133,6 +1554,10 @@
                 tasks: filteredTasks,
                 queryTime,
                 sqlQueryTime: queryTime,
+                queryLimit: perDocLimit,
+                totalLimit,
+                limitReachedDocIds,
+                limitReached: limitReachedDocIds.length > 0 ? 1 : 0,
                 attrReadTime,
                 attrHostReadTime,
                 customFieldReadTime,
@@ -1154,18 +1579,22 @@
             if (!/^[0-9]+-[a-zA-Z0-9]+$/.test(tid)) return null;
             const attrNamesSql = __tmBuildTaskInlineAttrNamesSql('                            ');
             const attrAggregateSql = __tmBuildTaskInlineAttrAggregateSql('                        ');
+            const legacyCompat = SettingsStore.data?.legacyWin7CompatMode === true;
+            const compatTaskAliasTypeCondition = (alias) => `${alias}.type = 'i'`;
             const sql = `
                 SELECT
                     task.id,
                     task.markdown,
                     task.content as raw_content,
                     task.parent_id,
+                    task.path as block_path,
+                    task.sort as block_sort,
                     parent_list.type as parent_list_type,
                     (
                         SELECT COUNT(*)
                         FROM blocks siblings
                         WHERE siblings.parent_id = task.parent_id
-                          AND siblings.type = 'i'
+                          AND ${compatTaskAliasTypeCondition('siblings')}
                           AND siblings.subtype = 't'
                     ) as parent_list_task_count,
                     parent_task.id as parent_task_id,
@@ -1192,7 +1621,7 @@
                 FROM blocks AS task
                 INNER JOIN blocks AS doc ON task.root_id = doc.id
                 LEFT JOIN blocks AS parent_list ON parent_list.id = task.parent_id
-                LEFT JOIN blocks AS parent_task ON parent_task.id = parent_list.parent_id AND parent_task.type = 'i' AND parent_task.subtype = 't'
+                LEFT JOIN blocks AS parent_task ON parent_task.id = parent_list.parent_id AND ${compatTaskAliasTypeCondition('parent_task')} AND parent_task.subtype = 't'
                 LEFT JOIN (
                     SELECT
                         a.block_id,
@@ -1960,7 +2389,7 @@
         async updateTaskListItemMarker(id, marker) {
             const payload = {
                 id: String(id || '').trim(),
-                marker: __tmNormalizeTaskStatusMarker(marker, ' '),
+                marker: __tmNormalizeCompatTaskStatusMarker(marker, ' '),
             };
             const res = await this.call('/api/block/updateTaskListItemMarker', payload);
             if (res.code !== 0) throw new Error(res.msg || '更新任务状态标记失败');
@@ -1971,7 +2400,7 @@
             const payloadItems = (Array.isArray(items) ? items : [])
                 .map((item) => ({
                     id: String(item?.id || '').trim(),
-                    marker: __tmNormalizeTaskStatusMarker(item?.marker, ' '),
+                    marker: __tmNormalizeCompatTaskStatusMarker(item?.marker, ' '),
                 }))
                 .filter((item) => item.id);
             if (!payloadItems.length) return [];
@@ -2271,9 +2700,9 @@
                     if (Array.isArray(domTaskIds) && domTaskIds.length > 0) return domTaskIds;
                 } catch (e) {}
             }
-            const queryLimit = Number.isFinite(Number(SettingsStore.data?.queryLimit)) ? Math.max(1, Math.min(5000, Math.round(Number(SettingsStore.data.queryLimit)))) : 500;
-            const totalLimit = Math.max(2000, Math.min(500000, queryLimit * 4));
-            const sql = `SELECT id FROM blocks WHERE parent_id = '${listId}' AND type = 'i' AND subtype = 't' ORDER BY sort ASC, created ASC, id ASC LIMIT ${totalLimit}`;
+            const totalLimit = __TM_SQL_MAX_TOTAL_LIMIT;
+            const typeCondition = "type = 'i'";
+            const sql = `SELECT id FROM blocks WHERE parent_id = '${listId}' AND ${typeCondition} AND subtype = 't' ORDER BY sort ASC, created ASC, id ASC LIMIT ${totalLimit}`;
             const res = await this.call('/api/query/sql', { stmt: sql });
             if (res.code === 0 && res.data) return res.data.map(r => r.id).filter(Boolean);
             return [];
@@ -2282,7 +2711,8 @@
         async getFirstTaskIdUnderBlock(blockId) {
             const id = String(blockId || '').trim();
             if (!id) return null;
-            const sql = `SELECT id FROM blocks WHERE parent_id = '${id}' AND type = 'i' AND subtype = 't' ORDER BY created ASC LIMIT 1`;
+            const typeCondition = "type = 'i'";
+            const sql = `SELECT id FROM blocks WHERE parent_id = '${id}' AND ${typeCondition} AND subtype = 't' ORDER BY created ASC LIMIT 1`;
             const res = await this.call('/api/query/sql', { stmt: sql });
             if (res.code === 0 && res.data && res.data.length > 0) {
                 const tid = String(res.data[0]?.id || '').trim();
@@ -2295,6 +2725,7 @@
             const id = String(blockId || '').trim();
             const depth = Number.isFinite(Number(maxDepth)) ? Math.max(1, Math.min(20, Math.floor(Number(maxDepth)))) : 6;
             if (!id) return null;
+            const typeCondition = "b.type = 'i'";
             const sql = `
                 WITH RECURSIVE tree(id, depth) AS (
                     SELECT '${id}' AS id, 0 AS depth
@@ -2307,7 +2738,7 @@
                 SELECT b.id
                 FROM blocks b
                 JOIN tree t ON t.id = b.id
-                WHERE b.type = 'i' AND b.subtype = 't'
+                WHERE ${typeCondition} AND b.subtype = 't'
                 ORDER BY t.depth ASC, b.created DESC
                 LIMIT 1
             `;
@@ -2461,6 +2892,18 @@
         return normalized || fallbackMarker;
     }
 
+    function __tmIsLegacyWin7CompatMode() {
+        try { return SettingsStore?.data?.legacyWin7CompatMode === true; } catch (e) {}
+        return false;
+    }
+
+    function __tmNormalizeCompatTaskStatusMarker(value, fallback = ' ') {
+        const normalized = __tmNormalizeTaskStatusMarker(value, fallback);
+        if (!normalized) return '';
+        if (!__tmIsLegacyWin7CompatMode()) return normalized;
+        return String(normalized || '').trim().toUpperCase() === 'X' ? 'X' : ' ';
+    }
+
     function __tmNormalizeCustomStatusOption(option, index = 0) {
         const source = (option && typeof option === 'object') ? option : {};
         const id = String(source?.id || '').trim();
@@ -2610,6 +3053,7 @@
         input: null,
         fingerprint: '',
         settingsVersion: 0,
+        legacyCompat: false,
         options: [],
         idMap: new Map(),
         markerMap: new Map(),
@@ -2622,7 +3066,7 @@
         source.forEach((item) => {
             const id = String(item?.id || '').trim();
             if (id && !idMap.has(id)) idMap.set(id, item);
-            const marker = __tmNormalizeTaskStatusMarker(item?.marker, __tmGuessStatusOptionDefaultMarker(item));
+            const marker = __tmNormalizeCompatTaskStatusMarker(item?.marker, __tmGuessStatusOptionDefaultMarker(item));
             if (!markerMap.has(marker)) markerMap.set(marker, item);
         });
         return { idMap, markerMap };
@@ -2633,9 +3077,11 @@
             ? statusOptionsInput
             : (Array.isArray(SettingsStore?.data?.customStatusOptions) ? SettingsStore.data.customStatusOptions : []);
         const settingsVersion = Number(SettingsStore?.data?.settingsUpdatedAt || 0);
+        const legacyCompat = __tmIsLegacyWin7CompatMode();
         if (statusOptionsInput == null
             && __tmStatusOptionsRuntimeCache.input === input
             && __tmStatusOptionsRuntimeCache.settingsVersion === settingsVersion
+            && __tmStatusOptionsRuntimeCache.legacyCompat === legacyCompat
             && Array.isArray(__tmStatusOptionsRuntimeCache.options)
             && __tmStatusOptionsRuntimeCache.idMap instanceof Map
             && __tmStatusOptionsRuntimeCache.markerMap instanceof Map) {
@@ -2647,6 +3093,7 @@
         } catch (e) {}
         if (__tmStatusOptionsRuntimeCache.input === input
             && __tmStatusOptionsRuntimeCache.fingerprint === fingerprint
+            && __tmStatusOptionsRuntimeCache.legacyCompat === legacyCompat
             && Array.isArray(__tmStatusOptionsRuntimeCache.options)
             && __tmStatusOptionsRuntimeCache.idMap instanceof Map
             && __tmStatusOptionsRuntimeCache.markerMap instanceof Map) {
@@ -2657,6 +3104,7 @@
         __tmStatusOptionsRuntimeCache.input = input;
         __tmStatusOptionsRuntimeCache.fingerprint = fingerprint;
         __tmStatusOptionsRuntimeCache.settingsVersion = settingsVersion;
+        __tmStatusOptionsRuntimeCache.legacyCompat = legacyCompat;
         __tmStatusOptionsRuntimeCache.options = nextOptions;
         __tmStatusOptionsRuntimeCache.idMap = lookupMaps.idMap;
         __tmStatusOptionsRuntimeCache.markerMap = lookupMaps.markerMap;
@@ -2677,15 +3125,18 @@
     }
 
     function __tmFindStatusOptionByMarker(marker, statusOptionsInput = null) {
-        const normalizedMarker = __tmNormalizeTaskStatusMarker(marker, ' ');
+        const normalizedMarker = __tmNormalizeCompatTaskStatusMarker(marker, ' ');
         const artifacts = __tmGetStatusOptionsRuntimeArtifacts(statusOptionsInput);
         if (artifacts.markerMap instanceof Map) return artifacts.markerMap.get(normalizedMarker) || null;
         const statusOptions = Array.isArray(artifacts.options) ? artifacts.options : [];
-        return statusOptions.find((item) => __tmNormalizeTaskStatusMarker(item?.marker, __tmGuessStatusOptionDefaultMarker(item)) === normalizedMarker) || null;
+        return statusOptions.find((item) => __tmNormalizeCompatTaskStatusMarker(item?.marker, __tmGuessStatusOptionDefaultMarker(item)) === normalizedMarker) || null;
     }
 
     function __tmIsTaskMarkerDone(marker) {
-        return __tmNormalizeTaskStatusMarker(marker, ' ') !== ' ';
+        const normalized = __tmNormalizeCompatTaskStatusMarker(marker, ' ');
+        return __tmIsLegacyWin7CompatMode()
+            ? String(normalized || '').trim().toUpperCase() === 'X'
+            : normalized !== ' ';
     }
 
     function __tmResolveTaskMarkdownMarker(task) {
@@ -2702,14 +3153,14 @@
     function __tmResolveTaskMarker(task, statusOptionsInput = null) {
         const taskLike = (task && typeof task === 'object') ? task : {};
         const directMarker = taskLike.taskMarker ?? taskLike.task_marker ?? taskLike.marker;
-        const normalizedDirect = __tmNormalizeTaskStatusMarker(directMarker, '');
+        const normalizedDirect = __tmNormalizeCompatTaskStatusMarker(directMarker, '');
         if (normalizedDirect) return normalizedDirect;
         const parsedMarker = __tmResolveTaskMarkdownMarker(taskLike);
-        if (parsedMarker) return parsedMarker;
+        if (parsedMarker) return __tmNormalizeCompatTaskStatusMarker(parsedMarker, ' ');
         const configuredStatus = String(taskLike?.customStatus ?? taskLike?.custom_status ?? '').trim();
         if (configuredStatus) {
             const matched = __tmFindStatusOptionById(configuredStatus, statusOptionsInput);
-            if (matched) return __tmNormalizeTaskStatusMarker(matched?.marker, __tmGuessStatusOptionDefaultMarker(matched));
+            if (matched) return __tmNormalizeCompatTaskStatusMarker(matched?.marker, __tmGuessStatusOptionDefaultMarker(matched));
         }
         return taskLike?.done ? 'X' : ' ';
     }
@@ -2786,7 +3237,7 @@
         if (!sid) return false;
         const matched = __tmFindStatusOptionById(sid, statusOptionsInput);
         if (!matched) return false;
-        const marker = __tmNormalizeTaskStatusMarker(matched?.marker, __tmGuessStatusOptionDefaultMarker(matched));
+        const marker = __tmNormalizeCompatTaskStatusMarker(matched?.marker, __tmGuessStatusOptionDefaultMarker(matched));
         return __tmIsTaskMarkerDone(marker);
     }
 
@@ -2809,14 +3260,15 @@
         const opts = (options && typeof options === 'object') ? options : {};
         const taskLike = (task && typeof task === 'object') ? task : {};
         const directMarker = taskLike.taskMarker ?? taskLike.task_marker ?? taskLike.marker;
-        let marker = __tmNormalizeTaskStatusMarker(directMarker, '');
+        let marker = __tmNormalizeCompatTaskStatusMarker(directMarker, '');
         if (!marker) marker = __tmResolveTaskMarkdownMarker(taskLike);
+        if (marker) marker = __tmNormalizeCompatTaskStatusMarker(marker, ' ');
         const configuredStatus = String(taskLike?.customStatus ?? taskLike?.custom_status ?? '').trim();
         const configuredMatched = configuredStatus
             ? ((statusArtifacts.idMap instanceof Map ? statusArtifacts.idMap.get(configuredStatus) : null) || null)
             : null;
         if (!marker) {
-            if (configuredMatched) marker = __tmNormalizeTaskStatusMarker(configuredMatched?.marker, __tmGuessStatusOptionDefaultMarker(configuredMatched));
+            if (configuredMatched) marker = __tmNormalizeCompatTaskStatusMarker(configuredMatched?.marker, __tmGuessStatusOptionDefaultMarker(configuredMatched));
             else marker = taskLike?.done ? 'X' : ' ';
         }
         const done = __tmIsTaskMarkerDone(marker);
@@ -3146,6 +3598,7 @@
         listRenderStep: 100,
         listRenderLimit: 100,
         listRenderSignature: '',
+        listDomRenderSignature: '',
         listAutoLoadMoreInFlight: false,
         listAutoLoadMoreLastTs: 0,
         listAutoLoadMoreHydrateTimer: 0,
@@ -3153,6 +3606,7 @@
         calendarDockDate: '',
         docTabsHidden: false,
         docTabsCollapsed: true,
+        docTabsArchiveMode: false,
         topbarManagerIconLongPressTimer: null,
         topbarManagerIconLongPressFired: false,
         topbarManagerIconLongPressMoved: false,
@@ -3231,8 +3685,10 @@
         notebooks: [],
         notebooksFetchedAt: 0,
         notebooksLoadingPromise: null,
-        queryLimit: 500,
+        queryLimit: __TM_TASK_INDEX_QUERY_LIMIT,
         recursiveDocLimit: 2000,
+        showCompletedTasks: false,
+        excludeCompletedTasks: true,
         groupByDocName: true,
         groupByTaskName: false,
         groupByTime: false,
@@ -3698,6 +4154,15 @@
                 currentDone: !!(task?.done ?? pending?.done),
             }, [tid], { force: true });
         }
+        try {
+            const docId = String(task?.root_id || task?.docId || pending?.root_id || pending?.docId || '').trim();
+            if (docId) {
+                __tmSchedulePersistTaskIndex({
+                    docIds: [docId],
+                    delayMs: 700,
+                });
+            }
+        } catch (e) {}
         if (options.render !== false) {
             try { __tmScheduleRender({ withFilters: options.withFilters !== false }); } catch (e) {}
         }
@@ -5271,9 +5736,7 @@
             .filter((id) => id && !loadedDocIdSet.has(id));
         if (!missingDocIds.length) return mergedTasks;
 
-        const queryLimit = Number.isFinite(Number(state.queryLimit || SettingsStore?.data?.queryLimit))
-            ? Math.max(1, Math.min(5000, Math.round(Number(state.queryLimit || SettingsStore?.data?.queryLimit))))
-            : 500;
+        const queryLimit = __TM_TASK_INDEX_QUERY_LIMIT;
         try {
             const res = await API.getTasksByDocuments(missingDocIds, queryLimit, {
                 doneOnly: false,
@@ -6894,6 +7357,7 @@
             multiBulkEditFieldKey: String(state.multiBulkEditFieldKey || ''),
             docTabsHidden: !!state.docTabsHidden,
             docTabsCollapsed: !!state.docTabsCollapsed,
+            docTabsArchiveMode: !!state.docTabsArchiveMode,
             homepageOpen: !!state.homepageOpen,
             aiSidebarOpen: !!state.aiSidebarOpen,
             aiMobilePanelOpen: !!state.aiMobilePanelOpen,
@@ -6926,6 +7390,7 @@
         state.multiBulkEditFieldKey = String(snap.multiBulkEditFieldKey || '').trim();
         state.docTabsHidden = !!snap.docTabsHidden;
         state.docTabsCollapsed = snap.docTabsCollapsed === false ? false : true;
+        state.docTabsArchiveMode = !!snap.docTabsArchiveMode;
         state.homepageOpen = !!snap.homepageOpen;
         state.aiSidebarOpen = !!snap.aiSidebarOpen;
         state.aiMobilePanelOpen = !!snap.aiMobilePanelOpen;
@@ -7691,29 +8156,26 @@ if (hasStatusPatch) {
     async function __tmUpdateTaskListItemMarkerWithFallback(taskId, marker) {
         const tid = String(taskId || '').trim();
         if (!tid) throw new Error('缺少任务 ID');
-        const nextMarker = __tmNormalizeTaskStatusMarker(marker, ' ');
+        const nextMarker = __tmNormalizeCompatTaskStatusMarker(marker, ' ');
         __tmPushStatusDebug('marker-update:start', {
             taskId: tid,
             marker: nextMarker,
         }, [tid], { force: true });
-        try {
-            await API.updateTaskListItemMarker(tid, nextMarker);
-            __tmPushStatusDebug('marker-update:success', {
-                taskId: tid,
-                marker: nextMarker,
-                mode: 'direct',
-            }, [tid], { force: true });
-            return { id: tid, marker: nextMarker, markdown: null, usedBatch: false, usedFallback: false };
-        } catch (apiErr) {
-            __tmPushStatusDebug('marker-update:fallback', {
-                taskId: tid,
-                marker: nextMarker,
-                error: String(apiErr?.message || apiErr || ''),
-            }, [tid], { force: true });
+        const updateByBlock = async (errorForFallback = null) => {
+            if (errorForFallback) {
+                __tmPushStatusDebug('marker-update:fallback', {
+                    taskId: tid,
+                    marker: nextMarker,
+                    error: String(errorForFallback?.message || errorForFallback || ''),
+                }, [tid], { force: true });
+            }
             let kramdown = '';
             try { kramdown = await API.getBlockKramdown(tid); } catch (e) { kramdown = ''; }
             const nextMarkdown = __tmReplaceTaskListItemMarkerInMarkdown(kramdown, nextMarker);
-            if (!nextMarkdown) throw apiErr;
+            if (!nextMarkdown) {
+                if (errorForFallback) throw errorForFallback;
+                throw new Error('无法解析任务 Markdown');
+            }
             const updateResult = await API.updateBlock(tid, nextMarkdown);
             const nextId = String(updateResult?.id || tid).trim() || tid;
             __tmPushStatusDebug('marker-update:fallback-success', {
@@ -7723,6 +8185,20 @@ if (hasStatusPatch) {
                 markdown: nextMarkdown,
             }, [tid, nextId], { force: true });
             return { id: nextId, marker: nextMarker, markdown: nextMarkdown, usedBatch: false, usedFallback: true };
+        };
+        if (SettingsStore.data?.legacyWin7CompatMode === true) {
+            return await updateByBlock();
+        }
+        try {
+            await API.updateTaskListItemMarker(tid, nextMarker);
+            __tmPushStatusDebug('marker-update:success', {
+                taskId: tid,
+                marker: nextMarker,
+                mode: 'direct',
+            }, [tid], { force: true });
+            return { id: tid, marker: nextMarker, markdown: null, usedBatch: false, usedFallback: false };
+        } catch (apiErr) {
+            return await updateByBlock(apiErr);
         }
     }
 
@@ -7731,12 +8207,26 @@ if (hasStatusPatch) {
         const payload = list
             .map((item) => ({
                 id: String(item?.id || '').trim(),
-                marker: __tmNormalizeTaskStatusMarker(item?.marker, ' '),
+                marker: __tmNormalizeCompatTaskStatusMarker(item?.marker, ' '),
             }))
             .filter((item) => item.id);
         const successMap = new Map();
         const failures = [];
         if (!payload.length) return { successMap, failures };
+        if (SettingsStore.data?.legacyWin7CompatMode === true) {
+            for (const item of payload) {
+                try {
+                    const result = await __tmUpdateTaskListItemMarkerWithFallback(item.id, item.marker);
+                    successMap.set(item.id, result);
+                } catch (e) {
+                    failures.push({
+                        id: item.id,
+                        error: e instanceof Error ? e : new Error(String(e || '更新任务状态标记失败')),
+                    });
+                }
+            }
+            return { successMap, failures };
+        }
         try {
             await API.batchUpdateTaskListItemMarker(payload);
             payload.forEach((item) => {
@@ -7770,7 +8260,7 @@ if (hasStatusPatch) {
         if (!tid) return false;
         const opts = (options && typeof options === 'object') ? options : {};
         const nextStatusId = String(statusId || '').trim();
-        const nextMarker = __tmNormalizeTaskStatusMarker(marker, ' ');
+        const nextMarker = __tmNormalizeCompatTaskStatusMarker(marker, ' ');
         const nextDone = __tmIsTaskMarkerDone(nextMarker);
         const applyOne = (target) => {
             if (!(target && typeof target === 'object')) return;
@@ -7808,6 +8298,16 @@ if (hasStatusPatch) {
                 reason: 'status-local-priority-sync',
             });
         } catch (e) {}
+        try {
+            const task = globalThis.__tmRuntimeState?.getFlatTaskById?.(tid) || state.flatTasks?.[tid] || state.pendingInsertedTasks?.[tid] || null;
+            const docId = String(task?.root_id || task?.docId || '').trim();
+            if (docId) {
+                __tmSchedulePersistTaskIndex({
+                    docIds: [docId],
+                    delayMs: 500,
+                });
+            }
+        } catch (e) {}
         __tmPushStatusDebug('status-local-state', {
             taskId: tid,
             customStatus: nextStatusId,
@@ -7826,7 +8326,7 @@ if (hasStatusPatch) {
         const statusOption = __tmFindStatusOptionById(requestedStatusId, statusOptions);
         if (!statusOption) throw new Error('状态不存在，请先在设置中配置');
         const nextStatusId = String(statusOption.id || requestedStatusId).trim();
-        const nextMarker = __tmNormalizeTaskStatusMarker(statusOption.marker, __tmGuessStatusOptionDefaultMarker(statusOption));
+        const nextMarker = __tmNormalizeCompatTaskStatusMarker(statusOption.marker, __tmGuessStatusOptionDefaultMarker(statusOption));
         const nextDone = __tmIsTaskMarkerDone(nextMarker);
         const context = await __tmResolveTaskMutationContext(taskId);
         if (!context?.persistId) throw new Error('未找到任务');
@@ -7841,7 +8341,7 @@ if (hasStatusPatch) {
         const prevStatusId = String(opts.previousStatusId || '').trim() || currentStatusId;
         const hasPreviousMarker = Object.prototype.hasOwnProperty.call(opts, 'previousMarker');
         const prevMarker = hasPreviousMarker
-            ? __tmNormalizeTaskStatusMarker(opts.previousMarker, '')
+            ? __tmNormalizeCompatTaskStatusMarker(opts.previousMarker, '')
             : currentMarker;
         const prevDone = Object.prototype.hasOwnProperty.call(opts, 'previousDone')
             ? !!opts.previousDone
@@ -8516,6 +9016,8 @@ __tmPushStatusDebug('apply-status:start', {
     let __tmThemeModeObserver = null;
     let __tmTopBarTimer = null;
     let __tmShellEntrancesRefreshRaf = null;
+    let __tmShellEntrancesRefreshTimer = null;
+    let __tmShellEntrancesLastSignature = '';
     let __tmMountRetryTimer = null;
     let __tmTopBarAdded = false;
     let __tmTopBarEl = null;
@@ -9163,7 +9665,7 @@ async function __tmRefreshAfterWake(reason) {
                 }
 
                 if (__tmHasAutoRefreshPendingSync()) {
-                    await __tmRunAutoRefreshIfNeeded('visibilitychange');
+                    await __tmMaybeAutoRefreshOnEnter('visibilitychange');
                 } else if (state.modal && document.body.contains(state.modal)) {
                     const syncedCollapsed = await __tmSyncRemoteCollapsedSessionStateIfNeeded({ rerender: true });
                     if (!syncedCollapsed) {
@@ -9175,7 +9677,7 @@ async function __tmRefreshAfterWake(reason) {
 		__tmFocusHandler = async () => {
 			try {
                 if (__tmWasPluginVisibleBeforeHide && __tmHasAutoRefreshPendingSync()) {
-                    await __tmRunAutoRefreshIfNeeded('focus');
+                    await __tmMaybeAutoRefreshOnEnter('focus');
                 } else if (state.modal && document.body.contains(state.modal)) {
                     const syncedCollapsed = await __tmSyncRemoteCollapsedSessionStateIfNeeded({ rerender: true });
                     if (!syncedCollapsed) {
@@ -9197,6 +9699,7 @@ async function __tmRefreshAfterWake(reason) {
     let __tmTabHeaderAutoRefreshHandler = null;
     let __tmTabActivationObserver = null;
     let __tmTabActivationObserverTimer = 0;
+    let __tmTabActivationObserverRaf = 0;
     let __tmTaskHorizonTabWasActive = false;
 
     function __tmParseQuickbarRelayStorageEntry(raw) {
@@ -9378,9 +9881,34 @@ async function __tmRefreshAfterWake(reason) {
         return __tmHasQuickbarModificationsSync() || __tmHasExternalTaskTxDirtySync();
     }
 
-    function __tmGetTxRefreshRetryMeta(source = 'ws-main') {
+    function __tmCaptureActiveDocBeforeBackgroundRefresh() {
+        const activeDocId = String(state.activeDocId || 'all').trim() || 'all';
+        return {
+            activeDocId,
+            docTabsArchiveMode: state.docTabsArchiveMode === true,
+        };
+    }
+
+    function __tmRestoreActiveDocAfterBackgroundRefresh(snapshot) {
+        const snap = (snapshot && typeof snapshot === 'object') ? snapshot : null;
+        const docId = String(snap?.activeDocId || '').trim();
+        if (!docId || docId === 'all' || __tmIsOtherBlockTabId(docId)) return false;
+        const exists = (Array.isArray(state.taskTree) ? state.taskTree : [])
+            .some((doc) => String(doc?.id || '').trim() === docId);
+        if (!exists) return false;
+        state.activeDocId = docId;
+        if (Object.prototype.hasOwnProperty.call(snap, 'docTabsArchiveMode')) {
+            state.docTabsArchiveMode = snap.docTabsArchiveMode === true;
+        }
+        return true;
+    }
+
+    function __tmGetTxRefreshRetryMeta(source = 'ws-main', options = {}) {
+        const opts = (options && typeof options === 'object') ? options : {};
         const sourceLabel = String(source || '').trim() || 'ws-main';
-        const gateMeta = __tmGetBackgroundRefreshGateMeta(sourceLabel);
+        const gateMeta = __tmGetBackgroundRefreshGateMeta(sourceLabel, {
+            ignoreContextQuiet: opts.ignoreContextQuiet === true,
+        });
         if (!gateMeta.allowRun) {
             return {
                 allowRun: false,
@@ -9412,16 +9940,18 @@ async function __tmRefreshAfterWake(reason) {
                 source: sourceLabel,
             };
         }
-        const throttleLeft = 1200 - (Date.now() - (Number(__tmTabEnterAutoRefreshLastTs) || 0));
-        if (throttleLeft > 0) {
-            return {
-                allowRun: false,
-                parkUntilVisible: false,
-                parkUntilScrollIdle: false,
-                reason: 'auto-refresh-throttled',
-                waitMs: Math.max(220, throttleLeft + 48),
-                source: sourceLabel,
-            };
+        if (opts.bypassThrottle !== true) {
+            const throttleLeft = 1200 - (Date.now() - (Number(__tmTabEnterAutoRefreshLastTs) || 0));
+            if (throttleLeft > 0) {
+                return {
+                    allowRun: false,
+                    parkUntilVisible: false,
+                    parkUntilScrollIdle: false,
+                    reason: 'auto-refresh-throttled',
+                    waitMs: Math.max(220, throttleLeft + 48),
+                    source: sourceLabel,
+                };
+            }
         }
         return {
             allowRun: true,
@@ -9435,6 +9965,7 @@ async function __tmRefreshAfterWake(reason) {
 
     async function __tmRunAutoRefreshIfNeeded(source, options = {}) {
         const force = options?.force === true;
+        const bypassThrottle = options?.bypassThrottle === true || options?.ignoreThrottle === true;
         const sourceLabel = String(source || '').trim() || 'unknown';
         if (!__tmIsPluginVisibleNow()) {
             return false;
@@ -9470,7 +10001,7 @@ async function __tmRefreshAfterWake(reason) {
         if (__tmTabEnterAutoRefreshInFlight) {
             return false;
         }
-        if (now - (Number(__tmTabEnterAutoRefreshLastTs) || 0) < 1200) {
+        if (!bypassThrottle && now - (Number(__tmTabEnterAutoRefreshLastTs) || 0) < 1200) {
             return false;
         }
         const hadQuickbarDirty = __tmHasQuickbarModificationsSync();
@@ -9524,6 +10055,10 @@ async function __tmRefreshAfterWake(reason) {
     }
 
     async function __tmSilentRefreshAfterQuickbarUpdate() {
+        const uiSnapshot = (typeof __tmCaptureRefreshUiState === 'function')
+            ? __tmCaptureRefreshUiState()
+            : null;
+        const activeDocSnapshot = __tmCaptureActiveDocBeforeBackgroundRefresh();
         try {
             const mode = String(state.viewMode || '').trim();
             if (mode === 'calendar' && typeof window.tmRefreshCalendarInPlace === 'function') {
@@ -9552,6 +10087,11 @@ async function __tmRefreshAfterWake(reason) {
             try { __tmInvalidateAllSqlCaches(); } catch (e) {}
             try { window.__tmCalendarAllTasksCache = null; } catch (e) {}
             await loadSelectedDocuments({ skipRender: true, source: 'quickbar-silent-refresh' });
+            try {
+                if (uiSnapshot && typeof __tmRestoreRefreshUiState === 'function') __tmRestoreRefreshUiState(uiSnapshot);
+                else __tmRestoreActiveDocAfterBackgroundRefresh(activeDocSnapshot);
+            } catch (e) {}
+            try { applyFilters(); } catch (e) {}
             try {
                 removedCount = Number(await __tmSyncWhiteboardFrozenTasksWithLiveTasks()) || 0;
             } catch (e) {}
@@ -9657,24 +10197,82 @@ refreshOk = false;
     }
 
     async function __tmMaybeAutoRefreshOnEnter(source) {
+        const hasExternalDirty = __tmHasExternalTaskTxDirtySync();
+        if (hasExternalDirty && typeof __tmFlushTaskIncrementalRefreshFromTx === 'function') {
+            await __tmFlushTaskIncrementalRefreshFromTx({
+                force: true,
+                ignoreContextQuiet: true,
+                bypassThrottle: true,
+                source: 'ws-main',
+            });
+            if (!__tmHasAutoRefreshPendingSync()) return;
+        }
         const hasPendingDirty = __tmHasAutoRefreshPendingSync();
-        await __tmRunAutoRefreshIfNeeded(source, { force: hasPendingDirty });
+        await __tmRunAutoRefreshIfNeeded(source, {
+            force: hasPendingDirty,
+            ignoreContextQuiet: hasExternalDirty,
+            bypassThrottle: hasExternalDirty,
+        });
+    }
+
+    function __tmIsTaskHorizonHostActiveForAutoRefresh() {
+        try {
+            if (typeof __tmIsTaskHorizonTabActiveNow === 'function' && __tmIsTaskHorizonTabActiveNow()) return true;
+        } catch (e) {}
+        try {
+            if ((__tmIsDockHost() || __tmIsTabHost()) && __tmIsPluginVisibleNow()) return true;
+        } catch (e) {}
+        return false;
+    }
+
+    function __tmQueueTabActivationCheck(source = 'tabActivatedObserver') {
+        try {
+            if (__tmTabActivationObserverTimer || __tmTabActivationObserverRaf) return;
+        } catch (e) {}
+        __tmTabActivationObserverTimer = setTimeout(() => {
+            __tmTabActivationObserverTimer = 0;
+            const run = () => {
+                __tmTabActivationObserverRaf = 0;
+                try {
+                    const hasPendingWork = __tmHasAutoRefreshPendingSync();
+                    const cheapActive = typeof __tmIsTaskHorizonTabActiveNow === 'function' && __tmIsTaskHorizonTabActiveNow();
+                    const prev = __tmTaskHorizonTabWasActive === true;
+                    if (!hasPendingWork && !cheapActive && !prev) return;
+                    const active = cheapActive || (hasPendingWork && __tmIsTaskHorizonHostActiveForAutoRefresh());
+                    __tmTaskHorizonTabWasActive = active;
+                    if (!active || prev || !hasPendingWork) return;
+                    __tmScheduleMaybeAutoRefreshOnEnter(source);
+                } catch (e) {}
+            };
+            try {
+                __tmTabActivationObserverRaf = requestAnimationFrame(run);
+            } catch (e) {
+                run();
+            }
+        }, 60);
     }
 
     function __tmScheduleMaybeAutoRefreshOnEnter(source) {
-        if (__tmTabEnterAutoRefreshTimer) return;
+        const hasExternalDirtyAtSchedule = __tmHasExternalTaskTxDirtySync();
+        if (__tmTabEnterAutoRefreshTimer) {
+            if (!hasExternalDirtyAtSchedule) return;
+            try { clearTimeout(__tmTabEnterAutoRefreshTimer); } catch (e) {}
+            __tmTabEnterAutoRefreshTimer = null;
+        }
         __tmTabEnterAutoRefreshTryCount = 0;
         const tick = async () => {
             __tmTabEnterAutoRefreshTimer = null;
             __tmTabEnterAutoRefreshTryCount += 1;
             try {
                 if (__tmIsPluginVisibleNow()) {
-                    const delayMeta = __tmGetEnterAutoRefreshDelayMeta(source);
-                    if (delayMeta.shouldDelay) {
-if (__tmTabEnterAutoRefreshTryCount < 16) {
-                            __tmTabEnterAutoRefreshTimer = setTimeout(tick, Number(delayMeta.waitMs || 180));
+                    if (!__tmHasExternalTaskTxDirtySync()) {
+                        const delayMeta = __tmGetEnterAutoRefreshDelayMeta(source);
+                        if (delayMeta.shouldDelay) {
+                            if (__tmTabEnterAutoRefreshTryCount < 16) {
+                                __tmTabEnterAutoRefreshTimer = setTimeout(tick, Number(delayMeta.waitMs || 180));
+                            }
+                            return;
                         }
-                        return;
                     }
                     await __tmMaybeAutoRefreshOnEnter(source);
                     return;
@@ -9684,7 +10282,7 @@ if (__tmTabEnterAutoRefreshTryCount < 16) {
                 __tmTabEnterAutoRefreshTimer = setTimeout(tick, 120);
             }
         };
-        const initialDelayMeta = __tmGetEnterAutoRefreshDelayMeta(source);
+        const initialDelayMeta = hasExternalDirtyAtSchedule ? { waitMs: 24 } : __tmGetEnterAutoRefreshDelayMeta(source);
         __tmTabEnterAutoRefreshTimer = setTimeout(tick, Number(initialDelayMeta.waitMs || 120));
     }
 
@@ -9717,19 +10315,9 @@ if (__tmTabEnterAutoRefreshTryCount < 16) {
         } catch (e) {}
         try {
             if (!__tmTabActivationObserver) {
-                __tmTaskHorizonTabWasActive = __tmIsTaskHorizonTabActiveNow();
+                __tmTaskHorizonTabWasActive = __tmIsTaskHorizonHostActiveForAutoRefresh();
                 __tmTabActivationObserver = new MutationObserver(() => {
-                    try {
-                        if (__tmTabActivationObserverTimer) return;
-                    } catch (e) {}
-                    __tmTabActivationObserverTimer = setTimeout(() => {
-                        __tmTabActivationObserverTimer = 0;
-                        const active = __tmIsTaskHorizonTabActiveNow();
-                        const prev = __tmTaskHorizonTabWasActive === true;
-                        __tmTaskHorizonTabWasActive = active;
-                        if (!active || prev) return;
-                        __tmRunAutoRefreshIfNeeded('tabActivatedObserver', { force: true }).catch(() => {});
-                    }, 60);
+                    __tmQueueTabActivationCheck('tabActivatedObserver');
                 });
                 __tmTabActivationObserver.observe(document.body, {
                     subtree: true,
@@ -10678,6 +11266,7 @@ if (__tmTabEnterAutoRefreshTryCount < 16) {
             feed(opt?.id);
             feed(opt?.name);
             feed(opt?.color);
+            feed(opt?.marker);
         });
 
         feed(quadrantRules.length);
@@ -10752,6 +11341,19 @@ if (__tmTabEnterAutoRefreshTryCount < 16) {
 
     const __tmTaskContentHtmlCache = new Map();
     const __tmTaskStatusParseCache = new Map();
+    function __tmResolveTaskContentRenderSource(markdownSource, fallbackSource) {
+        const source = String(markdownSource || '').trim();
+        const fallback = String(fallbackSource || '').trim();
+        if (!source) return fallback;
+        const stripped = source
+            .replace(/^\s*(?:[-*+]|\d+[.)])\s*(?:\{:\s*[^}]*\}\s*)*\[[^\]]*\]\s*/, '')
+            .replace(/^\s*(?:[-*+]|\d+[.)])\s*(?:\{:\s*[^}]*\}\s*)+/, '')
+            .replace(/\s*\{:\s*[^}]*\}\s*$/g, '')
+            .trim();
+        if (!stripped || /^(?:[-*+]|\d+[.)])(?:\s*\[[^\]]*\])?$/.test(stripped)) return fallback || stripped || source;
+        return stripped || source;
+    }
+
     function __tmRememberTaskContentHtml(source, html) {
         const key = String(source || '');
         if (!key) return html;
@@ -12034,7 +12636,7 @@ if (__tmTabEnterAutoRefreshTryCount < 16) {
                         const itemLabel = String(item?.label || itemValue);
                         const action = String(item?.action || '').trim();
                         const selected = item?.selected === true;
-                        return `<button class="bc-select-option ${selected ? 'is-selected' : ''}" type="button" role="option" aria-selected="${selected ? 'true' : 'false'}" onclick="${__tmEscAttr(action)}; tmCloseTopbarSelects();"><span>${esc(itemLabel)}</span><span class="bc-select-option__check" aria-hidden="true">✓</span></button>`;
+                        return `<button class="bc-select-option ${selected ? 'is-selected' : ''}" type="button" role="option" aria-selected="${selected ? 'true' : 'false'}" data-tm-option-value="${__tmEscAttr(itemValue)}" data-tm-option-label="${__tmEscAttr(itemLabel)}" data-tm-option-action="${__tmEscAttr(action)}" onclick="return tmHandleTopbarSelectOption('${escSq(id)}', '${escSq(itemValue)}', event);"><span>${esc(itemLabel)}</span><span class="bc-select-option__check" aria-hidden="true">✓</span></button>`;
                     }).join('')}
                 </div>
             </div>
@@ -13640,6 +14242,19 @@ if (__tmTabEnterAutoRefreshTryCount < 16) {
         }
     }
 
+    function __tmSyncCurrentViewDomRenderSignature(modeInput = '') {
+        try {
+            if (typeof __tmBuildCurrentViewDomRenderSignature !== 'function') return '';
+            const sig = __tmBuildCurrentViewDomRenderSignature(modeInput);
+            if (sig && String(state.viewMode || '').trim() !== 'timeline') {
+                state.listDomRenderSignature = sig;
+            }
+            return sig;
+        } catch (e) {
+            return '';
+        }
+    }
+
     function __tmTryCollapseTaskBranchInList(modalEl, taskId) {
         const modal = modalEl instanceof Element ? modalEl : state.modal;
         if (!modal) return false;
@@ -13668,6 +14283,7 @@ if (__tmTabEnterAutoRefreshTryCount < 16) {
         }
         if (!changed) return false;
         try { modal.querySelector('.tm-body')?.__tmTableScrollUpdateThumb?.(); } catch (e) {}
+        try { __tmSyncCurrentViewDomRenderSignature('list'); } catch (e) {}
         return true;
     }
 
@@ -13767,7 +14383,10 @@ if (__tmTabEnterAutoRefreshTryCount < 16) {
             }
         });
 
-        if (state.viewMode !== 'timeline') return true;
+        if (state.viewMode !== 'timeline') {
+            try { __tmSyncCurrentViewDomRenderSignature(state.viewMode); } catch (e) {}
+            return true;
+        }
 
         const ganttBody = modal.querySelector('#tmGanttBody');
         if (!ganttBody) return true;
@@ -13811,6 +14430,12 @@ if (__tmTabEnterAutoRefreshTryCount < 16) {
                     setTimeout(syncRowHeightsOnce, 260);
                 }
             });
+        } catch (e) {}
+
+        try {
+            if (state.viewMode === 'list' || state.viewMode === 'checklist') {
+                __tmSyncCurrentViewDomRenderSignature(state.viewMode);
+            }
         } catch (e) {}
 
         return true;
@@ -14157,6 +14782,17 @@ if (__tmTabEnterAutoRefreshTryCount < 16) {
         const table = modal.querySelector('#tmTaskTable');
         const tbody = modal.querySelector('#tmTaskTable tbody');
         if (!tbody) return false;
+        const renderSignature = typeof __tmBuildCurrentViewDomRenderSignature === 'function'
+            ? __tmBuildCurrentViewDomRenderSignature('list')
+            : '';
+        if (renderSignature && String(state.listDomRenderSignature || '') === renderSignature) {
+            try { body?.__tmTableScrollUpdateThumb?.(); } catch (e) {}
+            try { __tmApplyReminderTaskNameMarks(modal); } catch (e) {}
+            try { __tmScheduleReminderTaskNameMarksRefresh(modal); } catch (e) {}
+            try { __tmApplyTodayScheduledTaskNameMarks(modal); } catch (e) {}
+            try { __tmScheduleTodayScheduledTaskNameMarksRefresh(modal); } catch (e) {}
+            return true;
+        }
         const top = Number(body?.scrollTop) || 0;
         const left = Number(body?.scrollLeft) || 0;
         const isCalendarTaskTable = String(table?.getAttribute?.('data-tm-table') || '') === 'calendar';
@@ -14184,6 +14820,9 @@ if (__tmTabEnterAutoRefreshTryCount < 16) {
         try { __tmScheduleReminderTaskNameMarksRefresh(modal); } catch (e) {}
         try { __tmApplyTodayScheduledTaskNameMarks(modal); } catch (e) {}
         try { __tmScheduleTodayScheduledTaskNameMarksRefresh(modal); } catch (e) {}
+        if (renderSignature) {
+            try { state.listDomRenderSignature = renderSignature; } catch (e) {}
+        }
         try { queueMicrotask(() => { try { __tmRunFlipAnimation(modal); } catch (e) {} }); } catch (e) {
             try { Promise.resolve().then(() => { try { __tmRunFlipAnimation(modal); } catch (e2) {} }); } catch (e2) {}
         }
@@ -14634,6 +15273,19 @@ const renderBodyHtml = state.renderChecklistBodyHtml;
         const body = modal.querySelector('.tm-body.tm-body--checklist');
         const pane = modal.querySelector('.tm-checklist-scroll');
         if (!(body instanceof HTMLElement) || !(pane instanceof HTMLElement)) return false;
+        const renderSignature = typeof __tmBuildCurrentViewDomRenderSignature === 'function'
+            ? __tmBuildCurrentViewDomRenderSignature('checklist')
+            : '';
+        if (renderSignature && String(state.listDomRenderSignature || '') === renderSignature) {
+            try { __tmRefreshChecklistSelectionInPlace(modal, 'checklist-rerender-skip'); } catch (e) {}
+            try { pane.__tmChecklistScrollUpdateThumb?.(); } catch (e) {}
+            try { __tmApplyReminderTaskNameMarks(modal); } catch (e) {}
+            try { __tmScheduleReminderTaskNameMarksRefresh(modal); } catch (e) {}
+            try { __tmApplyTodayScheduledTaskNameMarks(modal); } catch (e) {}
+            try { __tmScheduleTodayScheduledTaskNameMarksRefresh(modal); } catch (e) {}
+            state.pendingChecklistRenderRestore = null;
+            return true;
+        }
         const staged = (state.pendingChecklistRenderRestore && typeof state.pendingChecklistRenderRestore === 'object')
             ? state.pendingChecklistRenderRestore
             : null;
@@ -14688,6 +15340,9 @@ const renderBodyHtml = state.renderChecklistBodyHtml;
         try { requestAnimationFrame(restore); } catch (e) {}
         try { setTimeout(restore, 30); } catch (e) {}
         try { setTimeout(restore, 90); } catch (e) {}
+        if (renderSignature) {
+            try { state.listDomRenderSignature = renderSignature; } catch (e) {}
+        }
         state.pendingChecklistRenderRestore = null;
         return true;
     }

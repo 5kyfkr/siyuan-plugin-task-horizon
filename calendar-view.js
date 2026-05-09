@@ -897,7 +897,7 @@
 .tm-calendar-host .fc .fc-timegrid-all-day .fc-scroller-harness,
 #tmCalendarSideDockTimeline .fc .fc-timegrid-all-day .fc-scroller-harness{height:auto !important;max-height:none !important;}
 .tm-calendar-host .fc .fc-timegrid-all-day .fc-scroller,
-#tmCalendarSideDockTimeline .fc .fc-timegrid-all-day .fc-scroller{height:auto !important;max-height:none !important;overflow:hidden !important;}
+#tmCalendarSideDockTimeline .fc .fc-timegrid-all-day .fc-scroller{height:auto !important;max-height:none !important;overflow:visible !important;}
 .tm-calendar-host .fc .fc-timegrid-all-day .fc-scrollgrid-sync-table,
 #tmCalendarSideDockTimeline .fc .fc-timegrid-all-day .fc-scrollgrid-sync-table{height:auto !important;}
 .tm-calendar-host .fc .fc-timegrid-all-day table,
@@ -909,7 +909,7 @@
 .tm-calendar-host .fc .fc-timegrid-all-day .fc-daygrid-day-events,
 #tmCalendarSideDockTimeline .fc .fc-timegrid-all-day .fc-daygrid-day-events{margin-bottom:0 !important;min-height:0 !important;}
 .tm-calendar-host .fc .fc-timegrid-all-day .fc-daygrid-day-bottom,
-#tmCalendarSideDockTimeline .fc .fc-timegrid-all-day .fc-daygrid-day-bottom{margin-top:0 !important;padding-top:0 !important;line-height:1 !important;}
+#tmCalendarSideDockTimeline .fc .fc-timegrid-all-day .fc-daygrid-day-bottom{padding-top:0 !important;line-height:1 !important;}
 .tm-calendar-host .fc .fc-timegrid-all-day .fc-daygrid-more-link,
 #tmCalendarSideDockTimeline .fc .fc-timegrid-all-day .fc-daygrid-more-link{margin:0 !important;}
 .tm-calendar-host .fc .fc-timegrid .fc-col-header-cell.fc-day-today .fc-col-header-cell-cushion,
@@ -921,7 +921,7 @@
 .tm-calendar-wrap .fc .fc-timegrid .fc-col-header-cell.fc-day-today .tm-cn-week-head,
 #tmCalendarSideDockTimeline .fc .fc-timegrid .fc-col-header-cell.fc-day-today .tm-cn-week-head{color:var(--tm-text-color) !important;font-weight:700 !important;}
 .tm-calendar-host:not(.tm-cal-allday-collapsed) .fc .fc-timegrid .fc-daygrid-day-bottom,
-#tmCalendarSideDockTimeline:not(.tm-cal-allday-collapsed) .fc .fc-timegrid .fc-daygrid-day-bottom{width:100% !important;margin-top:0 !important;padding:0 !important;line-height:1 !important;box-sizing:border-box !important;}
+#tmCalendarSideDockTimeline:not(.tm-cal-allday-collapsed) .fc .fc-timegrid .fc-daygrid-day-bottom{width:100% !important;padding:0 !important;line-height:1 !important;box-sizing:border-box !important;}
 .tm-calendar-host:not(.tm-cal-allday-collapsed) .fc .fc-timegrid .fc-daygrid-more-link,
 #tmCalendarSideDockTimeline:not(.tm-cal-allday-collapsed) .fc .fc-timegrid .fc-daygrid-more-link{display:flex !important;align-items:center !important;justify-content:center !important;float:none !important;width:100% !important;min-width:28px !important;height:var(--tm-calendar-month-more-link-height, 19px) !important;min-height:var(--tm-calendar-month-more-link-height, 19px) !important;max-width:100% !important;margin:0 !important;padding:0 6px 0 7px !important;border-radius:5px !important;background-image:linear-gradient(var(--tm-calendar-month-more-bg, rgba(127, 127, 127, 0.11)), var(--tm-calendar-month-more-bg, rgba(127, 127, 127, 0.11))) !important;background-position:left top !important;background-size:100% 100% !important;background-repeat:no-repeat !important;background-color:var(--tm-calendar-month-more-bg, rgba(127, 127, 127, 0.11)) !important;box-shadow:inset 0 -1px 0 var(--fc-page-bg-color, var(--tm-bg-color, #fff)) !important;color:var(--tm-calendar-month-more-text, var(--tm-secondary-text)) !important;font-size:11px !important;font-weight:700 !important;line-height:1.1 !important;text-align:center !important;text-decoration:none !important;overflow:hidden !important;text-overflow:ellipsis !important;white-space:nowrap !important;box-sizing:border-box !important;}
 .fc .fc-daygrid-body-natural .fc-daygrid-day-events{margin-bottom:0 !important;}
@@ -2705,6 +2705,7 @@
         const bottomInlineProps = [
             'position',
             'top',
+            'left',
             'right',
             'z-index',
             'display',
@@ -2715,7 +2716,6 @@
             'max-height',
             'max-width',
             'margin',
-            'margin-top',
             'margin-left',
             'margin-right',
             'padding',
@@ -2840,7 +2840,6 @@
         const isVisibleHarness = (node) => {
             if (!(node instanceof HTMLElement)) return false;
             if (!node.classList.contains('fc-daygrid-event-harness')) return false;
-            if (node.classList.contains('fc-daygrid-event-harness-abs')) return false;
             try {
                 const computed = window.getComputedStyle(node);
                 if (computed.display === 'none' || computed.visibility === 'hidden') return false;
@@ -2906,24 +2905,21 @@
                 setImportant(moreLink, 'max-height', exactHeight);
             }
         };
-        const setStandalone = (bottom, moreLink, eventsRect, refRect) => {
+        const setStandalone = (bottom, moreLink) => {
             if (!(bottom instanceof HTMLElement)) return;
             bottom.classList.add('tm-cal-timegrid-more-standalone');
-            const leftInset = Math.max(0, Number(((refRect?.left || eventsRect?.left || 0) - (eventsRect?.left || 0)).toFixed(2)));
-            const rightInset = Math.max(0, Number(((eventsRect?.right || refRect?.right || 0) - (refRect?.right || eventsRect?.right || 0)).toFixed(2)));
             setImportant(bottom, 'position', 'static');
             setImportant(bottom, 'display', 'block');
-            setImportant(bottom, 'width', leftInset || rightInset ? `calc(100% - ${Number((leftInset + rightInset).toFixed(2))}px)` : '100%');
+            setImportant(bottom, 'width', '100%');
             setImportant(bottom, 'max-width', '100%');
-            setImportant(bottom, 'margin-top', '0');
-            setImportant(bottom, 'margin-left', `${leftInset}px`);
-            setImportant(bottom, 'margin-right', `${rightInset}px`);
+            setImportant(bottom, 'margin-left', '0');
+            setImportant(bottom, 'margin-right', '0');
             setImportant(bottom, 'padding', '0');
             setImportant(bottom, 'line-height', '1');
             setImportant(bottom, 'pointer-events', 'auto');
             setImportant(bottom, 'box-sizing', 'border-box');
+            setImportant(bottom, 'overflow', 'hidden');
             styleMoreLink(moreLink, 'standalone');
-            syncMoreLinkToEventSize(bottom, moreLink, refRect);
         };
         const setInline = (eventsRoot, bottom, moreLink, lastHarness, eventsRect, lastEventRect) => {
             if (!(eventsRoot instanceof HTMLElement) || !(bottom instanceof HTMLElement) || !(lastHarness instanceof HTMLElement)) return false;
@@ -2971,28 +2967,28 @@
             restoreInlineSourceEventReserve(node);
             node.classList.remove('tm-cal-timegrid-more-inline-source');
         });
+        scope.querySelectorAll('.fc-timegrid-all-day, .fc-timegrid-allday').forEach((allDayWrap) => {
+            if (!(allDayWrap instanceof HTMLElement)) return;
+            setImportant(allDayWrap, 'height', 'auto');
+            setImportant(allDayWrap, 'max-height', 'none');
+            setImportant(allDayWrap, 'overflow', 'visible');
+            setImportant(allDayWrap, 'min-height', '0');
+            const scrollerNodes = allDayWrap.querySelectorAll?.('.fc-scroller-harness, .fc-scroller, .fc-scrollgrid-sync-table, .fc-daygrid-body, .fc-daygrid-day-frame');
+            scrollerNodes?.forEach?.((node) => {
+                if (!(node instanceof HTMLElement)) return;
+                setImportant(node, 'height', 'auto');
+                setImportant(node, 'min-height', '0');
+                setImportant(node, 'max-height', 'none');
+                setImportant(node, 'overflow', 'visible');
+            });
+        });
         let count = 0;
         scope.querySelectorAll('.fc-daygrid-day-bottom').forEach((bottom) => {
             if (!(bottom instanceof HTMLElement)) return;
             if (bottom.closest('.fc-popover')) return;
             const moreLink = bottom.querySelector?.('.fc-daygrid-more-link, .fc-more-link');
             if (!(moreLink instanceof HTMLElement)) return;
-            const eventsRoot = bottom.closest?.('.fc-daygrid-day-events');
-            const eventsRect = getElementRect(eventsRoot);
-            const lastHarness = getLastVisibleHarness(eventsRoot);
-            const lastEventEl = lastHarness?.querySelector?.('.fc-event');
-            const lastEventRect = getEventRectFromHarness(lastHarness);
-            if (eventsRoot instanceof HTMLElement && eventsRect && lastHarness instanceof HTMLElement && lastEventEl instanceof HTMLElement && lastEventRect) {
-                const isSingleDay = isSingleDayCalendarEvent(lastEventEl);
-                const visuallySpansCells = lastEventRect.width > eventsRect.width + 4;
-                if ((isSingleDay === true || isSingleDay === null) && !visuallySpansCells) {
-                    if (setInline(eventsRoot, bottom, moreLink, lastHarness, eventsRect, lastEventRect)) {
-                        count += 1;
-                        return;
-                    }
-                }
-            }
-            setStandalone(bottom, moreLink, eventsRect, lastEventRect);
+            setStandalone(bottom, moreLink);
             count += 1;
         });
         return count > 0;
@@ -5688,12 +5684,6 @@
             try {
                 host.querySelectorAll(`.fc-daygrid-day[data-date="${CSS.escape(prevKey)}"]`).forEach((el) => {
                     try { el.classList.remove('tm-cal-drop-target'); } catch (e) {}
-                    try {
-                        if (el.getAttribute('data-tm-drop-native-today') === '1') {
-                            el.classList.remove('fc-day-today');
-                            el.removeAttribute('data-tm-drop-native-today');
-                        }
-                    } catch (e) {}
                 });
             } catch (e) {}
         }
@@ -5702,12 +5692,6 @@
         try {
             host.querySelectorAll(`.fc-daygrid-day[data-date="${CSS.escape(nextKey)}"]`).forEach((el) => {
                 try { el.classList.add('tm-cal-drop-target'); } catch (e) {}
-                try {
-                    if (!el.classList.contains('fc-day-today')) {
-                        el.classList.add('fc-day-today');
-                        el.setAttribute('data-tm-drop-native-today', '1');
-                    }
-                } catch (e) {}
             });
         } catch (e) {}
     }
@@ -10712,6 +10696,34 @@
         return out;
     }
 
+    function isMonthScheduleEventRange(rangeStart, rangeEnd) {
+        const startMs = toMs(rangeStart);
+        const endMs = toMs(rangeEnd);
+        if (!Number.isFinite(startMs) || !Number.isFinite(endMs) || endMs <= startMs) return false;
+        return Math.round((endMs - startMs) / 86400000) >= 27;
+    }
+
+    function dedupeMonthScheduleEvents(events) {
+        const list = Array.isArray(events) ? events : [];
+        const seen = new Set();
+        const out = [];
+        for (const event of list) {
+            const ext = event?.extendedProps || {};
+            const taskLikeId = String(ext.__tmTaskId || ext.__tmBlockId || '').trim();
+            const start = event?.start instanceof Date ? event.start : new Date(event?.start);
+            const dayKey = formatDateKey(start);
+            if (!taskLikeId || !dayKey) {
+                out.push(event);
+                continue;
+            }
+            const key = `${taskLikeId}|${dayKey}`;
+            if (seen.has(key)) continue;
+            seen.add(key);
+            out.push(event);
+        }
+        return out;
+    }
+
     function __tmGetCalendarVisibleRange(calendar) {
         const cal = calendar || null;
         const start = cal?.view?.activeStart instanceof Date ? cal.view.activeStart : (cal?.view?.currentStart instanceof Date ? cal.view.currentStart : null);
@@ -10819,6 +10831,9 @@
         const visibleRange = __tmGetCalendarVisibleRange(cal);
         const overlaps = !!(visibleRange && hasScheduleOccurrenceInRange(item, visibleRange.start, visibleRange.end));
         const eventApi = cal.getEventById?.(scheduleId) || null;
+        if (cal === state.calendar && visibleRange && isMonthScheduleEventRange(visibleRange.start, visibleRange.end)) {
+            return { touched: false, needsRefresh: overlaps || !!eventApi };
+        }
         if (action === 'delete') {
             if (eventApi) {
                 try { eventApi.remove?.(); } catch (e) {}
@@ -11079,7 +11094,8 @@
             __tmBuildScheduleLinkedTaskTitleMap(schedules).catch(() => new Map()),
             buildScheduleLinkedDocIdMap(schedules).catch(() => new Map()),
         ]);
-        return buildEventsFromSchedule(schedules, start, end, settings, scheduleTaskTitleMap, scheduleTaskDocIdMap);
+        const events = buildEventsFromSchedule(schedules, start, end, settings, scheduleTaskTitleMap, scheduleTaskDocIdMap);
+        return isMonthScheduleEventRange(start, end) ? dedupeMonthScheduleEvents(events) : events;
     }
 
     async function __tmBuildTaskDateSourceEvents(rangeStart, rangeEnd, settings, viewType) {

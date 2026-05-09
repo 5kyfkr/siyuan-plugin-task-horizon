@@ -447,7 +447,7 @@
     };
 
     window.updateQueryLimit = async function(value) {
-        state.queryLimit = parseInt(value) || 500;
+        state.queryLimit = __TM_TASK_INDEX_QUERY_LIMIT;
         SettingsStore.data.queryLimit = state.queryLimit;
         await SettingsStore.save();
     };
@@ -456,6 +456,19 @@
         state.recursiveDocLimit = parseInt(value) || 2000;
         SettingsStore.data.recursiveDocLimit = state.recursiveDocLimit;
         await SettingsStore.save();
+    };
+
+    window.updateLegacyWin7CompatMode = async function(enabled) {
+        SettingsStore.data.legacyWin7CompatMode = !!enabled;
+        try { __tmDocExpandCache?.clear?.(); } catch (e) {}
+        try { window.__tmInvalidateDocScopeCache?.(); } catch (e) {}
+        await SettingsStore.save();
+        showSettings();
+        if (state.modal && document.body.contains(state.modal)) {
+            try {
+                await loadSelectedDocuments({ forceFreshTasks: true, source: 'legacy-win7-compat-mode' });
+            } catch (e) {}
+        }
     };
 
     window.updateTaskParentLookupDepth = async function(value) {
@@ -499,7 +512,7 @@
         const current = __tmGetGroupCalendarSearchOptimization(group);
         group.calendarSearchOptimization = {
             ...current,
-            days: [30, 60, 90, 120].includes(Number(value)) ? Number(value) : 90
+            days: [7, 30, 60, 90, 120].includes(Number(value)) ? Number(value) : 90
         };
         SettingsStore.data.docGroups = groups.map((item) => __tmNormalizeDocGroupConfig(item, SettingsStore.data.docDefaultColorScheme)).filter(Boolean);
         __tmCalendarDocWindowCache.clear();
@@ -623,14 +636,20 @@
         }
     };
 
-    window.updateExcludeCompletedTasks = async function(enabled) {
-        SettingsStore.data.excludeCompletedTasks = !!enabled;
+    window.updateShowCompletedTasks = async function(enabled) {
+        __tmSetShowCompletedTasksInSettings(!!enabled, SettingsStore.data);
         await SettingsStore.save();
-        state.excludeCompletedTasks = !!enabled;
+        state.showCompletedTasks = !!SettingsStore.data.showCompletedTasks;
+        state.excludeCompletedTasks = !state.showCompletedTasks;
         showSettings();
         if (state.modal && document.body.contains(state.modal)) {
-            loadSelectedDocuments();
+            try { applyFilters(); } catch (e) {}
+            try { if (!__tmRerenderCurrentViewInPlace(state.modal)) render(); } catch (e) { try { render(); } catch (e2) {} }
         }
+    };
+
+    window.updateExcludeCompletedTasks = async function(enabled) {
+        return window.updateShowCompletedTasks?.(!enabled);
     };
 
     window.updateSemanticDateAutoPromptEnabled = async function(enabled) {

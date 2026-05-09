@@ -7,6 +7,13 @@
                 return defaultValue;
             }
         },
+        has(key) {
+            try {
+                return localStorage.getItem(key) !== null;
+            } catch (e) {
+                return false;
+            }
+        },
         set(key, value) {
             try {
                 localStorage.setItem(key, JSON.stringify(value));
@@ -45,9 +52,27 @@
     const WHITEBOARD_DATA_FILE_PATH = `${PLUGIN_STORAGE_DIR}/whiteboard-data.json`;
     const SEMANTIC_DATE_RECOGNIZED_FILE_PATH = `${PLUGIN_STORAGE_DIR}/semantic-date-recognized.json`;
     const TASK_SNAPSHOT_FILE_PATH = `${PLUGIN_STORAGE_DIR}/task-snapshot.json`;
-    const __TM_TASK_SNAPSHOT_VERSION = 1;
-    const __TM_TASK_SNAPSHOT_MAX_AGE_MS = 10 * 60 * 1000;
-    const __TM_TASK_SNAPSHOT_MAX_ENTRIES = 12;
+    const TASK_INDEX_FILE_PATH = `${PLUGIN_STORAGE_DIR}/task-index.json`;
+    const DOC_SCOPE_CACHE_FILE_PATH = `${PLUGIN_STORAGE_DIR}/doc-scope-cache.json`;
+    const __TM_TASK_SNAPSHOT_VERSION = 2;
+    const __TM_TASK_SNAPSHOT_MAX_AGE_MS = 3 * 24 * 60 * 60 * 1000;
+    const __TM_TASK_SNAPSHOT_MAX_ENTRIES = 20;
+    const __TM_TASK_SNAPSHOT_MAX_BYTES = 20 * 1024 * 1024;
+    const __TM_TASK_SNAPSHOT_MAX_SINGLE_BYTES = 20 * 1024 * 1024;
+    const __TM_TASK_INDEX_VERSION = 3;
+    const __TM_TASK_INDEX_MAX_BYTES = 24 * 1024 * 1024;
+    const __TM_TASK_INDEX_MAX_DOCS = 1200;
+    const __TM_TASK_INDEX_MAX_SINGLE_DOC_BYTES = 10 * 1024 * 1024;
+    const __TM_TASK_INDEX_QUERY_LIMIT = 20000;
+    const __TM_DOC_SCOPE_CACHE_VERSION = 1;
+    const __TM_DOC_SCOPE_CACHE_MAX_BYTES = 5 * 1024 * 1024;
+    const __TM_DOC_SCOPE_CACHE_MAX_SCOPES = 48;
+    const __TM_DOC_SCOPE_CACHE_MAX_AGE_MS = 7 * 24 * 60 * 60 * 1000;
+    const __TM_TASK_HOT_QUERY_LIMIT = 5000;
+    const __TM_TASK_INCREMENTAL_QUERY_LIMIT = Math.min(__TM_TASK_INDEX_QUERY_LIMIT, __TM_TASK_HOT_QUERY_LIMIT);
+    const __TM_SQL_MAX_TOTAL_LIMIT = 500000;
+    const __TM_DOC_EXPAND_CACHE_TTL_MS = 10 * 60 * 1000;
+    const __TM_RESOLVED_DOC_IDS_CACHE_TTL_MS = 10 * 60 * 1000;
     const __TM_OTHER_BLOCK_TAB_ID = '__tm_other_blocks__';
     const __TM_OTHER_BLOCK_TAB_NAME = '其他块';
     const WHITEBOARD_DATA_CACHE_KEY = 'tm_whiteboard_data_cache';
@@ -637,7 +662,11 @@
             const form = new FormData();
             form.append('path', targetPath);
             form.append('isDir', 'false');
-            form.append('file', new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' }));
+            const compactJson = targetPath === TASK_SNAPSHOT_FILE_PATH
+                || targetPath === TASK_INDEX_FILE_PATH
+                || targetPath === DOC_SCOPE_CACHE_FILE_PATH;
+            const jsonText = compactJson ? JSON.stringify(data) : JSON.stringify(data, null, 2);
+            form.append('file', new Blob([jsonText], { type: 'application/json' }));
             const res = await fetch('/api/file/putFile', { method: 'POST', body: form });
             return !!(res && res.ok);
         } catch (e) {
@@ -653,11 +682,56 @@
         }
     }
 
+    function __tmEstimateJsonByteSize(value) {
+        let text = '';
+        try {
+            text = JSON.stringify(value);
+        } catch (e) {
+            return Number.POSITIVE_INFINITY;
+        }
+        if (!text) return 0;
+        try {
+            if (typeof TextEncoder === 'function') return new TextEncoder().encode(text).length;
+        } catch (e) {}
+        return text.length * 2;
+    }
+
+    function __tmLogTaskSnapshot(stage, payload = {}) {
+        void stage;
+        void payload;
+    }
+
+    function __tmGetTaskSnapshotSignatureDiffKeys(actualSignature, expectedSignature) {
+        try {
+            const actual = JSON.parse(String(actualSignature || '{}'));
+            const expected = JSON.parse(String(expectedSignature || '{}'));
+            const keys = Array.from(new Set([
+                ...Object.keys(actual || {}),
+                ...Object.keys(expected || {}),
+            ]));
+            return keys.filter((key) => JSON.stringify(actual?.[key]) !== JSON.stringify(expected?.[key])).slice(0, 12);
+        } catch (e) {
+            return [];
+        }
+    }
+
     function __tmNormalizeTaskSnapshotDocIds(docIds = []) {
         return Array.from(new Set((Array.isArray(docIds) ? docIds : [])
             .map((id) => String(id || '').trim())
             .filter((id) => __tmIsLikelyBlockId(id))))
             .sort();
+    }
+
+    function __tmNormalizeDocScopeDocIds(docIds = []) {
+        const out = [];
+        const seen = new Set();
+        (Array.isArray(docIds) ? docIds : []).forEach((id0) => {
+            const id = String(id0 || '').trim();
+            if (!__tmIsLikelyBlockId(id) || seen.has(id)) return;
+            seen.add(id);
+            out.push(id);
+        });
+        return out;
     }
 
     function __tmBuildTaskSnapshotScopeKey(docIds = [], groupId = 'all') {
@@ -708,6 +782,221 @@
         return undefined;
     }
 
+    function __tmIsTaskSnapshotMeaningfulValue(value) {
+        if (value === undefined || value === null || value === '' || value === 'null') return false;
+        if (Array.isArray(value)) return value.length > 0;
+        if (typeof value === 'object') return Object.keys(value).length > 0;
+        return true;
+    }
+
+    function __tmSnapshotPickFirstValue(source, keys = []) {
+        const row = (source && typeof source === 'object') ? source : {};
+        for (const key0 of (Array.isArray(keys) ? keys : [])) {
+            const key = String(key0 || '').trim();
+            if (!key || !Object.prototype.hasOwnProperty.call(row, key)) continue;
+            const value = row[key];
+            if (__tmIsTaskSnapshotMeaningfulValue(value)) return value;
+        }
+        return undefined;
+    }
+
+    function __tmSnapshotPickBooleanTrue(source, keys = []) {
+        const row = (source && typeof source === 'object') ? source : {};
+        for (const key0 of (Array.isArray(keys) ? keys : [])) {
+            const key = String(key0 || '').trim();
+            if (!key || !Object.prototype.hasOwnProperty.call(row, key)) continue;
+            const value = row[key];
+            if (value === true || value === 1 || String(value || '').trim() === '1' || String(value || '').trim().toLowerCase() === 'true') return true;
+        }
+        return false;
+    }
+
+    function __tmSnapshotNormalizeTaskRepeatRuleForStore(source = {}) {
+        const raw = __tmSnapshotPickFirstValue(source, [
+            'repeatRule',
+            'repeat_rule',
+            __TM_TASK_REPEAT_RULE_ATTR,
+        ]);
+        if (!__tmIsTaskSnapshotMeaningfulValue(raw)) return undefined;
+        let normalized = raw;
+        try {
+            normalized = __tmNormalizeTaskRepeatRule(raw, {
+                startDate: source?.startDate || source?.start_date || '',
+                completionTime: source?.completionTime || source?.completion_time || '',
+            });
+        } catch (e) {}
+        if (!normalized || typeof normalized !== 'object') return undefined;
+        if (normalized.enabled === false || String(normalized.type || '').trim().toLowerCase() === 'none') return undefined;
+        const cloned = __tmCloneTaskSnapshotValue(normalized, 0);
+        return cloned && typeof cloned === 'object' ? cloned : undefined;
+    }
+
+    function __tmSnapshotNormalizeTaskRepeatStateForStore(source = {}) {
+        const raw = __tmSnapshotPickFirstValue(source, [
+            'repeatState',
+            'repeat_state',
+            __TM_TASK_REPEAT_STATE_ATTR,
+        ]);
+        if (!__tmIsTaskSnapshotMeaningfulValue(raw)) return undefined;
+        const normalized = __tmNormalizeTaskRepeatState(raw);
+        const cloned = __tmCloneTaskSnapshotValue(normalized, 0);
+        return cloned && typeof cloned === 'object' ? cloned : undefined;
+    }
+
+    function __tmSnapshotNormalizeTaskRepeatHistoryForStore(source = {}) {
+        const raw = __tmSnapshotPickFirstValue(source, [
+            'repeatHistory',
+            'repeat_history',
+            __TM_TASK_REPEAT_HISTORY_ATTR,
+        ]);
+        if (!__tmIsTaskSnapshotMeaningfulValue(raw)) return undefined;
+        const normalized = __tmNormalizeTaskRepeatHistory(raw);
+        const cloned = __tmCloneTaskSnapshotValue(normalized, 0);
+        return Array.isArray(cloned) && cloned.length > 0 ? cloned : undefined;
+    }
+
+    function __tmSnapshotNormalizeTaskCustomFieldsForStore(source = {}) {
+        const row = (source && typeof source === 'object') ? source : {};
+        const rawValues = (row.customFieldValues && typeof row.customFieldValues === 'object' && !Array.isArray(row.customFieldValues))
+            ? row.customFieldValues
+            : ((row.__customFieldRawValues && typeof row.__customFieldRawValues === 'object' && !Array.isArray(row.__customFieldRawValues))
+                ? row.__customFieldRawValues
+                : null);
+        if (!rawValues) return undefined;
+        const normalized = __tmNormalizeTaskCustomFieldValues({}, rawValues);
+        const cloned = __tmCloneTaskSnapshotValue(normalized, 0);
+        return cloned && typeof cloned === 'object' && Object.keys(cloned).length > 0 ? cloned : undefined;
+    }
+
+    function __tmCompactTaskSnapshotTaskForStore(task) {
+        const source = (task && typeof task === 'object') ? task : null;
+        if (!source) return source;
+        const out = {};
+        const dropKeys = new Set([
+            'custom_priority',
+            'custom_duration',
+            'custom_remark',
+            'start_date',
+            'completion_time',
+            'task_complete_at',
+            'custom_milestone',
+            'custom_time',
+            'custom_status',
+            'custom_pinned',
+            'repeatRule',
+            'repeatState',
+            'repeatHistory',
+            'repeat_rule',
+            'repeat_state',
+            'repeat_history',
+            'customFieldValues',
+            'tomato_minutes',
+            'tomato_hours',
+            'attachments',
+            'tasks',
+            '__customFieldRawValues',
+            '__tmLoadedAllCustomFields',
+            '__tmLoadedCustomFieldIds',
+        ]);
+        Object.keys(source).sort().forEach((key) => {
+            if (!key || key === 'children' || dropKeys.has(key)) return;
+            const cloned = __tmCloneTaskSnapshotValue(source[key], 0);
+            if (cloned !== undefined) out[key] = cloned;
+        });
+        const nextPriority = __tmSnapshotPickFirstValue(source, ['priority', 'custom_priority', 'customPriority']);
+        if (__tmIsTaskSnapshotMeaningfulValue(nextPriority)) out.priority = String(nextPriority).trim();
+        const nextDuration = __tmSnapshotPickFirstValue(source, ['duration', 'custom_duration']);
+        if (__tmIsTaskSnapshotMeaningfulValue(nextDuration)) out.duration = String(nextDuration).trim();
+        const nextRemark = __tmSnapshotPickFirstValue(source, ['remark', 'custom_remark']);
+        if (__tmIsTaskSnapshotMeaningfulValue(nextRemark)) out.remark = String(nextRemark).trim();
+        const nextStartDate = __tmSnapshotPickFirstValue(source, ['startDate', 'start_date', 'custom-start-date', 'custom_start_date']);
+        if (__tmIsTaskSnapshotMeaningfulValue(nextStartDate)) out.startDate = String(nextStartDate).trim();
+        const nextCompletionTime = __tmSnapshotPickFirstValue(source, ['completionTime', 'completion_time', 'custom-completion-time', 'custom_completion_time']);
+        if (__tmIsTaskSnapshotMeaningfulValue(nextCompletionTime)) out.completionTime = String(nextCompletionTime).trim();
+        const nextTaskCompleteAt = __tmSnapshotPickFirstValue(source, ['taskCompleteAt', 'task_complete_at', __TM_TASK_COMPLETE_AT_ATTR]);
+        if (__tmIsTaskSnapshotMeaningfulValue(nextTaskCompleteAt)) out.taskCompleteAt = String(nextTaskCompleteAt).trim();
+        const nextMilestone = __tmSnapshotPickBooleanTrue(source, ['milestone', 'custom_milestone', 'customMilestone']);
+        if (nextMilestone) out.milestone = true;
+        const nextCustomTime = __tmSnapshotPickFirstValue(source, ['customTime', 'custom_time']);
+        if (__tmIsTaskSnapshotMeaningfulValue(nextCustomTime)) out.customTime = String(nextCustomTime).trim();
+        const nextCustomStatus = __tmSnapshotPickFirstValue(source, ['customStatus', 'custom_status']);
+        if (__tmIsTaskSnapshotMeaningfulValue(nextCustomStatus)) out.customStatus = String(nextCustomStatus).trim();
+        const nextPinned = __tmSnapshotPickBooleanTrue(source, ['pinned', 'custom_pinned', 'customPinned']);
+        if (nextPinned) out.pinned = true;
+        const nextRepeatRule = __tmSnapshotNormalizeTaskRepeatRuleForStore(source);
+        if (nextRepeatRule) out.repeatRule = nextRepeatRule;
+        const nextRepeatState = __tmSnapshotNormalizeTaskRepeatStateForStore(source);
+        if (nextRepeatState) out.repeatState = nextRepeatState;
+        const nextRepeatHistory = __tmSnapshotNormalizeTaskRepeatHistoryForStore(source);
+        if (nextRepeatHistory) out.repeatHistory = nextRepeatHistory;
+        const nextCustomFieldValues = __tmSnapshotNormalizeTaskCustomFieldsForStore(source);
+        if (nextCustomFieldValues) out.customFieldValues = nextCustomFieldValues;
+        const nextAttachments = Array.isArray(source.attachments)
+            ? __tmCloneTaskSnapshotValue(source.attachments, 0)
+            : undefined;
+        if (Array.isArray(nextAttachments) && nextAttachments.length > 0) out.attachments = nextAttachments;
+        const nextTasks = Array.isArray(source.tasks)
+            ? source.tasks.map((item) => __tmCompactTaskSnapshotTaskForStore(item)).filter(Boolean)
+            : undefined;
+        if (Array.isArray(nextTasks)) out.tasks = nextTasks;
+        const nextChildren = Array.isArray(source.children)
+            ? source.children.map((child) => __tmCompactTaskSnapshotTaskForStore(child)).filter(Boolean)
+            : [];
+        out.children = nextChildren;
+        return out;
+    }
+
+    function __tmHydrateTaskSnapshotTaskForRuntime(task) {
+        const target = (task && typeof task === 'object') ? task : null;
+        if (!target) return target;
+        const isValidValue = (val) => val !== undefined && val !== null && val !== '' && val !== 'null';
+        if (Array.isArray(target.__tmLoadedCustomFieldIds)) {
+            target.__tmLoadedCustomFieldIds = Array.from(new Set(target.__tmLoadedCustomFieldIds.map((id) => String(id || '').trim()).filter(Boolean))).sort();
+        }
+        if (!isValidValue(target.priority) && isValidValue(target.custom_priority)) target.priority = String(target.custom_priority || '').trim();
+        if (!isValidValue(target.duration) && isValidValue(target.custom_duration)) target.duration = String(target.custom_duration || '').trim();
+        if (!isValidValue(target.remark) && isValidValue(target.custom_remark)) target.remark = String(target.custom_remark || '').trim();
+        if (!isValidValue(target.startDate) && isValidValue(target.start_date)) target.startDate = String(target.start_date || '').trim();
+        if (!isValidValue(target.completionTime) && isValidValue(target.completion_time)) target.completionTime = String(target.completion_time || '').trim();
+        if (!isValidValue(target.taskCompleteAt) && isValidValue(target.task_complete_at)) target.taskCompleteAt = String(target.task_complete_at || '').trim();
+        if (!isValidValue(target.customTime) && isValidValue(target.custom_time)) target.customTime = String(target.custom_time || '').trim();
+        if (!isValidValue(target.customStatus) && isValidValue(target.custom_status)) target.customStatus = String(target.custom_status || '').trim();
+        if (!isValidValue(target.pinned) && isValidValue(target.custom_pinned)) target.pinned = String(target.custom_pinned || '').trim() === '1';
+        if (!isValidValue(target.milestone) && isValidValue(target.custom_milestone)) target.milestone = String(target.custom_milestone || '').trim() === '1';
+        if (!target.repeatRule && target.repeat_rule) target.repeatRule = __tmCloneTaskSnapshotValue(target.repeat_rule, 0);
+        if (!target.repeatRule) {
+            target.repeatRule = __tmNormalizeTaskRepeatRule('', {
+                startDate: target?.startDate,
+                completionTime: target?.completionTime,
+            });
+        } else {
+            target.repeatRule = __tmNormalizeTaskRepeatRule(target.repeatRule, {
+                startDate: target?.startDate,
+                completionTime: target?.completionTime,
+            });
+        }
+        target.repeat_rule = target.repeatRule;
+        if (!target.repeatState && target.repeat_state) target.repeatState = __tmCloneTaskSnapshotValue(target.repeat_state, 0);
+        target.repeatState = __tmNormalizeTaskRepeatState(target.repeatState || target.repeat_state || '');
+        target.repeat_state = target.repeatState;
+        if (!target.repeatHistory && target.repeat_history) target.repeatHistory = __tmCloneTaskSnapshotValue(target.repeat_history, 0);
+        target.repeatHistory = Array.isArray(target.repeatHistory) ? target.repeatHistory : __tmNormalizeTaskRepeatHistory(target.repeatHistory || target.repeat_history || '');
+        target.repeat_history = target.repeatHistory;
+        if (target.customFieldValues && typeof target.customFieldValues === 'object' && !Array.isArray(target.customFieldValues)) {
+            target.customFieldValues = __tmNormalizeTaskCustomFieldValues({}, target.customFieldValues);
+        }
+        if (!Array.isArray(target.children)) target.children = [];
+        target.children.forEach((child) => __tmHydrateTaskSnapshotTaskForRuntime(child));
+        return target;
+    }
+
+    function __tmHydrateTaskSnapshotDocForRuntime(doc) {
+        const target = (doc && typeof doc === 'object') ? doc : null;
+        if (!target) return target;
+        if (Array.isArray(target.tasks)) target.tasks.forEach((task) => __tmHydrateTaskSnapshotTaskForRuntime(task));
+        return target;
+    }
+
     function __tmBuildFlatTasksFromTaskSnapshotTree(taskTree) {
         const flat = {};
         const walk = (task) => {
@@ -722,58 +1011,905 @@
         return flat;
     }
 
+    function __tmHashTaskSnapshotText(text = '') {
+        const source = String(text || '');
+        let h = 2166136261;
+        for (let i = 0; i < source.length; i += 1) {
+            h ^= source.charCodeAt(i);
+            h = Math.imul(h, 16777619) >>> 0;
+        }
+        return h.toString(36);
+    }
+
+    function __tmBuildTaskSnapshotDocDataKey(doc) {
+        const source = (doc && typeof doc === 'object') ? doc : {};
+        const docId = String(source.id || '').trim();
+        let text = '';
+        try { text = JSON.stringify(source) || ''; } catch (e) { text = ''; }
+        return `${docId || 'doc'}:${__tmHashTaskSnapshotText(text)}:${text.length}`;
+    }
+
+    function __tmBuildTaskSnapshotOtherBlockDataKey(otherBlocks) {
+        const list = Array.isArray(otherBlocks) ? otherBlocks : [];
+        if (!list.length) return '';
+        let text = '';
+        try { text = JSON.stringify(list) || ''; } catch (e) { text = ''; }
+        return `other:${__tmHashTaskSnapshotText(text)}:${text.length}`;
+    }
+
+    function __tmNormalizeTaskSnapshotStoreDocPool(rawDocs = null) {
+        const out = {};
+        const source = (rawDocs && typeof rawDocs === 'object' && !Array.isArray(rawDocs)) ? rawDocs : {};
+        Object.entries(source).forEach(([key0, doc0]) => {
+            const key = String(key0 || '').trim();
+            const doc = (doc0 && typeof doc0 === 'object' && !Array.isArray(doc0)) ? doc0 : null;
+            if (!key || !doc || !__tmIsLikelyBlockId(String(doc.id || '').trim())) return;
+            out[key] = doc;
+        });
+        return out;
+    }
+
+    function __tmNormalizeTaskSnapshotStoreOtherBlockPool(rawSets = null) {
+        const out = {};
+        const source = (rawSets && typeof rawSets === 'object' && !Array.isArray(rawSets)) ? rawSets : {};
+        Object.entries(source).forEach(([key0, list0]) => {
+            const key = String(key0 || '').trim();
+            if (!key || !Array.isArray(list0)) return;
+            out[key] = list0;
+        });
+        return out;
+    }
+
+    function __tmBuildTaskSnapshotRecordForStore(snapshot, pools = {}) {
+        const snap = (snapshot && typeof snapshot === 'object') ? snapshot : null;
+        if (!snap) return null;
+        const docsPool = (pools.docs && typeof pools.docs === 'object') ? pools.docs : {};
+        const otherBlockSets = (pools.otherBlockSets && typeof pools.otherBlockSets === 'object') ? pools.otherBlockSets : {};
+        const record = { ...snap };
+        const taskTree = Array.isArray(snap.taskTree) ? snap.taskTree : null;
+        let docDataKeys = [];
+        if (taskTree) {
+            taskTree.forEach((doc) => {
+                const cloned = __tmCloneTaskSnapshotValue(doc, 0);
+                const docId = String(cloned?.id || '').trim();
+                if (!cloned || !__tmIsLikelyBlockId(docId)) return;
+                const compacted = __tmCompactTaskSnapshotTaskForStore(cloned) || cloned;
+                const key = __tmBuildTaskSnapshotDocDataKey(compacted);
+                docsPool[key] = compacted;
+                docDataKeys.push(key);
+            });
+        } else {
+            docDataKeys = (Array.isArray(snap.docDataKeys) ? snap.docDataKeys : [])
+                .map((key) => String(key || '').trim())
+                .filter((key) => key && docsPool[key]);
+        }
+        if (!docDataKeys.length) return null;
+        record.dataMode = 'doc-pool';
+        record.docDataKeys = docDataKeys;
+        delete record.taskTree;
+
+        if (Array.isArray(snap.otherBlocks) && snap.otherBlocks.length > 0) {
+            const clonedOtherBlocks = __tmCloneTaskSnapshotValue(snap.otherBlocks, 0) || [];
+            const otherKey = __tmBuildTaskSnapshotOtherBlockDataKey(clonedOtherBlocks);
+            if (otherKey) {
+                otherBlockSets[otherKey] = clonedOtherBlocks;
+                record.otherBlockDataKey = otherKey;
+            }
+        } else {
+            const otherKey = String(snap.otherBlockDataKey || '').trim();
+            record.otherBlockDataKey = otherKey && otherBlockSets[otherKey] ? otherKey : '';
+        }
+        delete record.otherBlocks;
+        return record;
+    }
+
+    function __tmMaterializeTaskSnapshotRecord(snapshot, store = null) {
+        const snap = (snapshot && typeof snapshot === 'object') ? snapshot : null;
+        if (!snap) return null;
+        if (Array.isArray(snap.taskTree)) return snap;
+        const docDataKeys = Array.isArray(snap.docDataKeys)
+            ? snap.docDataKeys.map((key) => String(key || '').trim()).filter(Boolean)
+            : [];
+        if (!docDataKeys.length) return null;
+        const docsPool = store?.docs && typeof store.docs === 'object' ? store.docs : {};
+        const taskTree = [];
+        for (const key of docDataKeys) {
+            const doc = docsPool[key];
+            const cloned = __tmCloneTaskSnapshotValue(doc, 0);
+            if (!cloned || !__tmIsLikelyBlockId(String(cloned.id || '').trim())) return null;
+            taskTree.push(__tmHydrateTaskSnapshotDocForRuntime(cloned));
+        }
+        if (!taskTree.length) return null;
+        const out = { ...snap, taskTree };
+        const otherKey = String(snap.otherBlockDataKey || '').trim();
+        const otherBlockSets = store?.otherBlockSets && typeof store.otherBlockSets === 'object'
+            ? store.otherBlockSets
+            : {};
+        out.otherBlocks = otherKey && Array.isArray(otherBlockSets[otherKey])
+            ? (__tmCloneTaskSnapshotValue(otherBlockSets[otherKey], 0) || [])
+            : [];
+        return out;
+    }
+
+    function __tmPruneTaskSnapshotStorePools(store) {
+        const target = (store && typeof store === 'object') ? store : null;
+        if (!target) return target;
+        const usedDocKeys = new Set();
+        const usedOtherKeys = new Set();
+        Object.values(target.snapshots || {}).forEach((snap) => {
+            (Array.isArray(snap?.docDataKeys) ? snap.docDataKeys : []).forEach((key0) => {
+                const key = String(key0 || '').trim();
+                if (key) usedDocKeys.add(key);
+            });
+            const otherKey = String(snap?.otherBlockDataKey || '').trim();
+            if (otherKey) usedOtherKeys.add(otherKey);
+        });
+        Object.keys(target.docs || {}).forEach((key) => {
+            if (!usedDocKeys.has(key)) delete target.docs[key];
+        });
+        Object.keys(target.otherBlockSets || {}).forEach((key) => {
+            if (!usedOtherKeys.has(key)) delete target.otherBlockSets[key];
+        });
+        return target;
+    }
+
+    function __tmGetExpectedTaskCountFromMap(taskCountMap, docId) {
+        const did = String(docId || '').trim();
+        if (!did) return Number.NaN;
+        if (taskCountMap instanceof Map) {
+            if (!taskCountMap.has(did)) return Number.NaN;
+            const value = Number(taskCountMap.get(did));
+            return Number.isFinite(value) ? Math.max(0, Math.round(value)) : Number.NaN;
+        }
+        if (taskCountMap && typeof taskCountMap === 'object') {
+            if (!Object.prototype.hasOwnProperty.call(taskCountMap, did)) return Number.NaN;
+            const value = Number(taskCountMap[did]);
+            return Number.isFinite(value) ? Math.max(0, Math.round(value)) : Number.NaN;
+        }
+        return Number.NaN;
+    }
+
+    function __tmGetExpectedTaskCountMapFromOptions(options = {}) {
+        const opts = (options && typeof options === 'object') ? options : {};
+        return opts.taskCountMap || opts.expectedTaskCountMap || opts.docTaskCountMap || null;
+    }
+
+    function __tmGetExpectedTaskTotalForDocs(docIds = [], options = {}) {
+        const ids = __tmNormalizeTaskSnapshotDocIds(docIds || []);
+        const map = __tmGetExpectedTaskCountMapFromOptions(options);
+        if (!ids.length || !map) return Number.NaN;
+        let total = 0;
+        let known = 0;
+        ids.forEach((docId) => {
+            const count = __tmGetExpectedTaskCountFromMap(map, docId);
+            if (!Number.isFinite(count)) return;
+            known += 1;
+            total += count;
+        });
+        return known === ids.length ? total : Number.NaN;
+    }
+
+    function __tmHasExpectedTaskCountCoverage(docIds = [], actualCount = 0, options = {}) {
+        return __tmGetTaskCountCoverageStatus(docIds, actualCount, options).ok;
+    }
+
+    function __tmGetTaskCountCoverageStatus(docIds = [], actualCount = 0, options = {}) {
+        const expected = __tmGetExpectedTaskTotalForDocs(docIds, options);
+        const actual = Math.max(0, Math.round(Number(actualCount || 0) || 0));
+        if (!Number.isFinite(expected)) {
+            return { ok: true, reason: 'unknown-expected-task-count', actual, expected: Number.NaN, overageTolerance: 0 };
+        }
+        const rawOverageTolerance = options?.taskCountOverageTolerance ?? options?.expectedTaskCountOverageTolerance;
+        const defaultOverageTolerance = Math.min(8, Math.max(0, Math.ceil(expected * 0.01)));
+        const overageTolerance = Number.isFinite(Number(rawOverageTolerance))
+            ? Math.max(0, Math.round(Number(rawOverageTolerance)))
+            : defaultOverageTolerance;
+        if (actual < expected) {
+            return { ok: false, reason: 'underfilled-task-count', actual, expected, overageTolerance };
+        }
+        if (actual > expected + overageTolerance) {
+            return { ok: false, reason: 'overfilled-task-count', actual, expected, overageTolerance };
+        }
+        return { ok: true, reason: 'ok', actual, expected, overageTolerance };
+    }
+
+    function __tmRememberSmallCache(map, key, value, limit = 12) {
+        if (!(map instanceof Map)) return value;
+        const cacheKey = String(key || '').trim();
+        if (!cacheKey) return value;
+        try {
+            if (map.has(cacheKey)) map.delete(cacheKey);
+            map.set(cacheKey, value);
+            const max = Math.max(1, Math.floor(Number(limit) || 12));
+            while (map.size > max) {
+                const oldestKey = map.keys().next().value;
+                if (oldestKey === undefined) break;
+                map.delete(oldestKey);
+            }
+        } catch (e) {}
+        return value;
+    }
+
+    function __tmClearGroupSessionTaskCache(docId = '') {
+        const did = String(docId || '').trim();
+        try {
+            if (!did) {
+                __tmGroupSessionTaskCache.clear();
+                return;
+            }
+            for (const [key, entry] of __tmGroupSessionTaskCache.entries()) {
+                const ids = Array.isArray(entry?.docIds) ? entry.docIds : [];
+                if (ids.some((id) => String(id || '').trim() === did)) __tmGroupSessionTaskCache.delete(key);
+            }
+        } catch (e) {}
+    }
+
+    function __tmClearDocSessionTaskCache(docId = '') {
+        const did = String(docId || '').trim();
+        try {
+            if (!did) {
+                __tmDocSessionTaskCache.clear();
+                return;
+            }
+            __tmDocSessionTaskCache.delete(did);
+        } catch (e) {}
+    }
+
+    function __tmBuildDocSessionTaskEntry(doc, options = {}) {
+        const source = (doc && typeof doc === 'object') ? doc : null;
+        const docId = String(source?.id || '').trim();
+        if (!source || !__tmIsLikelyBlockId(docId)) return null;
+        const tasks = __tmCloneTaskSnapshotValue(Array.isArray(source.tasks) ? source.tasks : [], 0) || [];
+        const flat = __tmBuildFlatTasksFromTaskSnapshotTree([{ tasks }]);
+        const docInfo = (options?.docInfo && typeof options.docInfo === 'object') ? options.docInfo : {};
+        return {
+            id: docId,
+            name: String(source.name || docInfo.name || '').trim(),
+            alias: __tmNormalizeDocAliasValue(source.alias || docInfo.alias),
+            icon: __tmNormalizeDocIconValue(source.icon || docInfo.icon),
+            created: String(source.created || docInfo.created || '').trim(),
+            docUpdated: String(source.docUpdated || source.updated || docInfo.updated || docInfo.docUpdated || '').trim(),
+            t: Date.now(),
+            taskCount: Object.keys(flat).length,
+            inTaskTree: options?.inTaskTree === false ? false : true,
+            tasks,
+        };
+    }
+
+    function __tmRememberDocSessionTaskEntry(doc, options = {}) {
+        const entry = __tmBuildDocSessionTaskEntry(doc, options);
+        if (!entry) return false;
+        __tmRememberSmallCache(__tmDocSessionTaskCache, entry.id, entry, 260);
+        try { __tmPruneDocSessionTaskCache(); } catch (e) {}
+        return true;
+    }
+
+    function __tmRememberDocSessionTaskEntries(taskTree, options = {}) {
+        const docs = Array.isArray(taskTree) ? taskTree : [];
+        const docIds = new Set(__tmNormalizeTaskSnapshotDocIds(options?.docIds || state.__tmLoadedDocIdsForTasks || []));
+        if (!docs.length && !docIds.size) return 0;
+        const docInfoById = new Map((Array.isArray(state.allDocuments) ? state.allDocuments : [])
+            .map((doc) => [String(doc?.id || '').trim(), doc])
+            .filter(([docId]) => __tmIsLikelyBlockId(docId)));
+        let count = 0;
+        docs.forEach((doc) => {
+            const docId = String(doc?.id || '').trim();
+            if (!__tmIsLikelyBlockId(docId)) return;
+            if (docIds.size > 0 && !docIds.has(docId)) return;
+            if (__tmRememberDocSessionTaskEntry(doc, {
+                docInfo: docInfoById.get(docId),
+                inTaskTree: true,
+            })) count += 1;
+        });
+        return count;
+    }
+
+    function __tmRestoreDocSessionTaskState(options = {}) {
+        const opts = (options && typeof options === 'object') ? options : {};
+        const docIds = __tmNormalizeTaskSnapshotDocIds(opts.docIds || []);
+        if (!docIds.length) return null;
+        const maxAgeMs = Number.isFinite(Number(opts.maxAgeMs)) ? Math.max(0, Number(opts.maxAgeMs)) : 10 * 60 * 1000;
+        const docUpdatedMap = opts.docUpdatedMap instanceof Map ? opts.docUpdatedMap : null;
+        const taskTree = [];
+        let taskCount = 0;
+        let oldestAt = Date.now();
+        for (const docId of docIds) {
+            const cached = __tmDocSessionTaskCache.get(docId);
+            if (!cached || !Array.isArray(cached.tasks) || Date.now() - Number(cached.t || 0) > maxAgeMs) {
+                try { if (cached) __tmDocSessionTaskCache.delete(docId); } catch (e) {}
+                return null;
+            }
+            if (docUpdatedMap && docUpdatedMap.has(docId)) {
+                const currentDocUpdated = String(docUpdatedMap.get(docId) || '').trim();
+                const cachedDocUpdated = String(cached.docUpdated || '').trim();
+                if (currentDocUpdated && cachedDocUpdated && currentDocUpdated !== cachedDocUpdated) {
+                    try { __tmDocSessionTaskCache.delete(docId); } catch (e) {}
+                    return null;
+                }
+            }
+            const tasks = __tmCloneTaskSnapshotValue(cached.tasks, 0) || [];
+            if (tasks.length || cached.inTaskTree !== false) {
+                taskTree.push({
+                    id: docId,
+                    name: String(cached.name || '').trim() || '未命名文档',
+                    alias: __tmNormalizeDocAliasValue(cached.alias),
+                    icon: __tmNormalizeDocIconValue(cached.icon),
+                    created: String(cached.created || '').trim(),
+                    docUpdated: String(cached.docUpdated || '').trim(),
+                    tasks,
+                });
+            }
+            taskCount += Math.max(0, Math.round(Number(cached.taskCount || 0) || 0));
+            oldestAt = Math.min(oldestAt, Number(cached.t || oldestAt));
+        }
+        const flatTasks = __tmBuildFlatTasksFromTaskSnapshotTree(taskTree);
+        if (!__tmHasExpectedTaskCountCoverage(docIds, Object.keys(flatTasks).length, opts)) return null;
+        state.taskTree = __tmSortDocEntriesByPinned(
+            taskTree,
+            String(opts.groupId || SettingsStore?.data?.currentGroupId || 'all').trim() || 'all'
+        );
+        try {
+            state.flatTasks = __tmMergeOtherBlocksIntoFlatTasks(flatTasks);
+        } catch (e) {
+            state.flatTasks = flatTasks;
+        }
+        state.__tmLoadedDocIdsForTasks = docIds.slice();
+        state.__tmDocSessionTaskRestoredAt = Date.now();
+        return {
+            docCount: taskTree.length,
+            taskCount: taskCount || Object.keys(flatTasks).length,
+            ageMs: Math.max(0, Date.now() - Number(oldestAt || 0)),
+        };
+    }
+
+    function __tmBuildGroupSessionTaskCacheKey(options = {}) {
+        const opts = (options && typeof options === 'object') ? options : {};
+        const docKey = __tmNormalizeTaskSnapshotDocIds(opts.docIds || []).join(',');
+        if (!docKey) return '';
+        const currentRuleId = String(opts.ruleId ?? state?.currentRule ?? SettingsStore?.data?.currentRule ?? '').trim();
+        const groupMode = String(opts.groupMode ?? SettingsStore?.data?.groupMode ?? '').trim();
+        const viewMode = String(opts.viewMode ?? state?.viewMode ?? '').trim();
+        const activeDocId = String(opts.activeDocId ?? state?.activeDocId ?? 'all').trim() || 'all';
+        const showCompleted = __tmGetShowCompletedTasksFromSettings(SettingsStore?.data) ? 1 : 0;
+        const colOrder = Array.isArray(SettingsStore?.data?.columnOrder) ? SettingsStore.data.columnOrder.join(',') : '';
+        const customFields = Array.isArray(opts.customFieldIds)
+            ? opts.customFieldIds.map((id) => String(id || '').trim()).filter(Boolean).sort().join(',')
+            : '';
+        return [
+            String(opts.groupId || SettingsStore?.data?.currentGroupId || 'all').trim() || 'all',
+            activeDocId,
+            viewMode,
+            groupMode,
+            currentRuleId,
+            showCompleted,
+            colOrder,
+            customFields,
+            docKey,
+        ].join('|');
+    }
+
+    function __tmRememberGroupSessionTaskState(options = {}) {
+        const opts = (options && typeof options === 'object') ? options : {};
+        const docIds = __tmNormalizeTaskSnapshotDocIds(opts.docIds || state.__tmLoadedDocIdsForTasks || []);
+        const key = __tmBuildGroupSessionTaskCacheKey({ ...opts, docIds });
+        if (!key || !docIds.length) return false;
+        const taskTree = __tmCloneTaskSnapshotValue(Array.isArray(state.taskTree) ? state.taskTree : [], 0) || [];
+        if (!taskTree.length) return false;
+        const flatTasks = __tmBuildFlatTasksFromTaskSnapshotTree(taskTree);
+        const payload = {
+            t: Date.now(),
+            docIds,
+            taskTree,
+            taskCount: Object.keys(flatTasks).length,
+            source: String(opts.source || '').trim(),
+        };
+        __tmRememberSmallCache(__tmGroupSessionTaskCache, key, payload, 5);
+        return true;
+    }
+
+    function __tmRestoreGroupSessionTaskState(options = {}) {
+        const opts = (options && typeof options === 'object') ? options : {};
+        const docIds = __tmNormalizeTaskSnapshotDocIds(opts.docIds || []);
+        const key = __tmBuildGroupSessionTaskCacheKey({ ...opts, docIds });
+        if (!key) return null;
+        const cached = __tmGroupSessionTaskCache.get(key);
+        const maxAgeMs = Number.isFinite(Number(opts.maxAgeMs)) ? Math.max(0, Number(opts.maxAgeMs)) : 10 * 60 * 1000;
+        if (!cached || !Array.isArray(cached.taskTree) || Date.now() - Number(cached.t || 0) > maxAgeMs) {
+            try { if (cached) __tmGroupSessionTaskCache.delete(key); } catch (e) {}
+            return null;
+        }
+        const taskTree = __tmCloneTaskSnapshotValue(cached.taskTree, 0) || [];
+        if (!taskTree.length) return null;
+        const flatTasks = __tmBuildFlatTasksFromTaskSnapshotTree(taskTree);
+        if (!__tmHasExpectedTaskCountCoverage(docIds, Object.keys(flatTasks).length, opts)) return null;
+        state.taskTree = __tmSortDocEntriesByPinned(
+            taskTree,
+            String(opts.groupId || SettingsStore?.data?.currentGroupId || 'all').trim() || 'all'
+        );
+        try {
+            state.flatTasks = __tmMergeOtherBlocksIntoFlatTasks(flatTasks);
+        } catch (e) {
+            state.flatTasks = flatTasks;
+        }
+        state.__tmLoadedDocIdsForTasks = docIds.slice();
+        return {
+            docCount: taskTree.length,
+            taskCount: Object.keys(flatTasks).length,
+            ageMs: Math.max(0, Date.now() - Number(cached.t || 0)),
+        };
+    }
+
+    function __tmGetShowCompletedTasksFromSettings(data = null) {
+        const src = (data && typeof data === 'object') ? data : SettingsStore?.data;
+        if (src && typeof src.showCompletedTasks === 'boolean') return !!src.showCompletedTasks;
+        return !(src && src.excludeCompletedTasks === true);
+    }
+
+    function __tmSetShowCompletedTasksInSettings(show, data = null) {
+        const target = (data && typeof data === 'object') ? data : SettingsStore?.data;
+        if (!target || typeof target !== 'object') return false;
+        target.showCompletedTasks = !!show;
+        target.excludeCompletedTasks = !target.showCompletedTasks;
+        return true;
+    }
+
+    function __tmNormalizeCompletedVisibilitySettings(data = null) {
+        const target = (data && typeof data === 'object') ? data : SettingsStore?.data;
+        if (!target || typeof target !== 'object') return false;
+        return __tmSetShowCompletedTasksInSettings(__tmGetShowCompletedTasksFromSettings(target), target);
+    }
+
+    function __tmGetTaskSnapshotRuleForView() {
+        try {
+            const ruleId = String(state?.currentRule ?? SettingsStore?.data?.currentRule ?? '').trim();
+            if (!ruleId) return null;
+            const rules = Array.isArray(state?.filterRules) && state.filterRules.length > 0
+                ? state.filterRules
+                : (Array.isArray(SettingsStore?.data?.filterRules) ? SettingsStore.data.filterRules : []);
+            return rules.find((rule) => String(rule?.id || '').trim() === ruleId) || null;
+        } catch (e) {
+            return null;
+        }
+    }
+
+    function __tmBuildTaskSnapshotViewSignature(options = {}) {
+        const opts = (options && typeof options === 'object') ? options : {};
+        const data = SettingsStore?.data || {};
+        const rule = Object.prototype.hasOwnProperty.call(opts, 'rule')
+            ? opts.rule
+            : __tmGetTaskSnapshotRuleForView();
+        const day = (() => {
+            try {
+                const d = new Date();
+                const y = d.getFullYear();
+                const m = String(d.getMonth() + 1).padStart(2, '0');
+                const dd = String(d.getDate()).padStart(2, '0');
+                return `${y}-${m}-${dd}`;
+            } catch (e) {
+                return '';
+            }
+        })();
+        const payload = {
+            v: 1,
+            day,
+            groupId: String(opts.groupId || data.currentGroupId || 'all').trim() || 'all',
+            viewMode: String(opts.viewMode || state?.viewMode || '').trim(),
+            activeDocId: String(opts.activeDocId || state?.activeDocId || 'all').trim() || 'all',
+            ruleId: String(state?.currentRule ?? data.currentRule ?? '').trim(),
+            rule: rule ? __tmStableSettingsJsonValue({
+                conditions: Array.isArray(rule.conditions) ? rule.conditions : [],
+                sort: Array.isArray(rule.sort) ? rule.sort : [],
+                enabled: rule.enabled !== false,
+            }) : null,
+            searchKeyword: String(state?.searchKeyword || '').trim(),
+            archiveMode: state?.docTabsArchiveMode === true ? 1 : 0,
+            groupMode: String(data.groupMode || '').trim(),
+            groupByDocName: data.groupByDocName ? 1 : 0,
+            groupByTaskName: data.groupByTaskName ? 1 : 0,
+            groupByTime: data.groupByTime ? 1 : 0,
+            quadrantEnabled: data.quadrantConfig?.enabled ? 1 : 0,
+            showCompleted: __tmGetShowCompletedTasksFromSettings(data) ? 1 : 0,
+            docTabSortMode: String(data.docTabSortMode || '').trim(),
+            taskHeadingLevel: String(data.taskHeadingLevel || 'h2').trim() || 'h2',
+            docH2SubgroupEnabled: data.docH2SubgroupEnabled ? 1 : 0,
+            whiteboardSequenceMode: data.whiteboardSequenceMode ? 1 : 0,
+            customFieldDefsVersion: __tmParseVersionNumber(data.customFieldDefsVersion),
+        };
+        try {
+            return JSON.stringify(__tmStableSettingsJsonValue(payload));
+        } catch (e) {
+            return '';
+        }
+    }
+
+    function __tmBuildTaskSnapshotViewState(options = {}) {
+        try {
+            const filteredTasks = Array.isArray(state?.filteredTasks) ? state.filteredTasks : [];
+            const filteredTaskIds = filteredTasks
+                .map((task) => String(task?.id || task?.blockId || '').trim())
+                .filter(Boolean);
+            const filteredDocIdsForTabs = (Array.isArray(state?.filteredDocIdsForTabs) ? state.filteredDocIdsForTabs : [])
+                .map((id) => String(id || '').trim())
+                .filter(Boolean);
+            return {
+                version: 1,
+                createdAt: Date.now(),
+                signature: __tmBuildTaskSnapshotViewSignature(options),
+                filteredTaskIds,
+                filteredDocIdsForTabs,
+                listRenderSignature: String(state?.listRenderSignature || ''),
+                listRenderStep: Math.max(20, Math.min(1200, Number(state?.listRenderStep) || 20)),
+                listRenderLimit: Math.max(0, Math.round(Number(state?.listRenderLimit) || 0)),
+            };
+        } catch (e) {
+            return null;
+        }
+    }
+
+    function __tmGetTaskSnapshotViewStateCandidates(snapshot, expectedSignature = '') {
+        const snap = (snapshot && typeof snapshot === 'object') ? snapshot : null;
+        const out = [];
+        const push = (view, source = '') => {
+            if (!view || typeof view !== 'object' || Number(view.version || 0) !== 1) return;
+            out.push({
+                view,
+                source: String(source || '').trim() || 'viewState',
+                signature: String(view.signature || ''),
+            });
+        };
+        push(snap?.viewState, 'viewState');
+        if (snap?.viewStates && typeof snap.viewStates === 'object' && !Array.isArray(snap.viewStates)) {
+            Object.entries(snap.viewStates).forEach(([key, view]) => push(view, `viewStates:${key}`));
+        }
+        if (expectedSignature) {
+            out.sort((a, b) => {
+                const ah = a.signature === expectedSignature ? 1 : 0;
+                const bh = b.signature === expectedSignature ? 1 : 0;
+                if (ah !== bh) return bh - ah;
+                return Number(b.view?.createdAt || 0) - Number(a.view?.createdAt || 0);
+            });
+        }
+        return out;
+    }
+
+    function __tmAttachTaskSnapshotViewState(payload, options = {}) {
+        const target = (payload && typeof payload === 'object') ? payload : null;
+        if (!target) return target;
+        const opts = (options && typeof options === 'object') ? options : {};
+        const nextView = __tmBuildTaskSnapshotViewState(opts);
+        if (!nextView || !String(nextView.signature || '').trim()) {
+            target.viewState = nextView || null;
+            return target;
+        }
+        const viewStates = {};
+        const push = (view) => {
+            if (!view || typeof view !== 'object' || Number(view.version || 0) !== 1) return;
+            const sig = String(view.signature || '').trim();
+            if (!sig) return;
+            viewStates[sig] = view;
+        };
+        const previous = (opts.previousSnapshot && typeof opts.previousSnapshot === 'object') ? opts.previousSnapshot : null;
+        push(previous?.viewState);
+        if (previous?.viewStates && typeof previous.viewStates === 'object' && !Array.isArray(previous.viewStates)) {
+            Object.values(previous.viewStates).forEach(push);
+        }
+        push(target.viewState);
+        if (target.viewStates && typeof target.viewStates === 'object' && !Array.isArray(target.viewStates)) {
+            Object.values(target.viewStates).forEach(push);
+        }
+        push(nextView);
+        const kept = Object.values(viewStates)
+            .sort((a, b) => Number(b?.createdAt || 0) - Number(a?.createdAt || 0))
+            .slice(0, 6);
+        target.viewStates = {};
+        kept.forEach((view) => {
+            const sig = String(view?.signature || '').trim();
+            if (sig) target.viewStates[sig] = view;
+        });
+        target.viewState = nextView;
+        return target;
+    }
+
+    function __tmRestoreTaskSnapshotViewState(snapshot, options = {}) {
+        const snap = (snapshot && typeof snapshot === 'object') ? snapshot : null;
+        const logViewMiss = (reason, extra = {}) => {
+            __tmLogTaskSnapshot('view-restore-miss', {
+                reason: String(reason || '').trim() || 'unknown',
+                groupId: String(options?.groupId || snap?.groupId || 'all').trim() || 'all',
+                viewMode: String(options?.viewMode || state?.viewMode || '').trim(),
+                docCount: Array.isArray(snap?.docIds) ? snap.docIds.length : 0,
+                ...((extra && typeof extra === 'object') ? extra : {}),
+            });
+        };
+        const expected = __tmBuildTaskSnapshotViewSignature(options);
+        const candidates = __tmGetTaskSnapshotViewStateCandidates(snap, expected);
+        const view = candidates.find((item) => item.signature === expected)?.view || null;
+        if (!view) {
+            const newest = candidates[0] || null;
+            logViewMiss(candidates.length ? 'signature-mismatch' : 'missing-view-state', {
+                candidateCount: candidates.length,
+                diffKeys: __tmGetTaskSnapshotSignatureDiffKeys(newest?.signature || '', expected),
+                diffKeyText: __tmGetTaskSnapshotSignatureDiffKeys(newest?.signature || '', expected).join(','),
+                source: String(newest?.source || ''),
+            });
+            return null;
+        }
+        if (Number(view.version || 0) !== 1) {
+            logViewMiss('version-mismatch', { version: Number(view.version || 0) || 0 });
+            return null;
+        }
+        if (!expected) {
+            logViewMiss('empty-expected-signature');
+            return null;
+        }
+        const ids = Array.isArray(view.filteredTaskIds) ? view.filteredTaskIds.map((id) => String(id || '').trim()) : null;
+        if (!ids) {
+            logViewMiss('missing-filtered-ids');
+            return null;
+        }
+        const flat = state?.flatTasks && typeof state.flatTasks === 'object' ? state.flatTasks : {};
+        const filtered = [];
+        const missingIds = [];
+        for (const id of ids) {
+            if (!id) continue;
+            const task = flat[id];
+            if (!task) {
+                missingIds.push(id);
+                continue;
+            }
+            filtered.push(task);
+        }
+        if (missingIds.length > 0) {
+            const missingLimit = Math.max(3, Math.min(24, Math.ceil(ids.length * 0.01)));
+            if (missingIds.length > missingLimit || filtered.length === 0) {
+                logViewMiss('missing-task', {
+                    taskId: missingIds[0],
+                    missingCount: missingIds.length,
+                    missingLimit,
+                    filteredIdCount: ids.length,
+                });
+                return null;
+            }
+            __tmLogTaskSnapshot('view-restore-partial', {
+                reason: 'missing-small-task-set',
+                groupId: String(options?.groupId || snap?.groupId || 'all').trim() || 'all',
+                viewMode: String(options?.viewMode || state?.viewMode || '').trim(),
+                missingCount: missingIds.length,
+                missingLimit,
+                filteredCount: filtered.length,
+                filteredIdCount: ids.length,
+                sampleTaskIds: missingIds.slice(0, 5),
+            });
+        }
+        state.filteredTasks = filtered;
+        state.filteredDocIdsForTabs = (Array.isArray(view.filteredDocIdsForTabs) ? view.filteredDocIdsForTabs : [])
+            .map((id) => String(id || '').trim())
+            .filter(Boolean);
+        state.listRenderSignature = String(view.listRenderSignature || '');
+        const activeDocId = String(state?.activeDocId || 'all').trim() || 'all';
+        const docTabStep = activeDocId && activeDocId !== 'all' && activeDocId !== __TM_OTHER_BLOCK_TAB_ID
+            ? Math.min(1200, Math.max(100, filtered.length))
+            : 0;
+        state.listRenderStep = Math.max(
+            docTabStep || 20,
+            Math.min(1200, Number(view.listRenderStep) || Number(state.listRenderStep) || 20)
+        );
+        const limit = Math.max(0, Math.round(Number(view.listRenderLimit) || 0));
+        if (limit > 0 || docTabStep > 0) {
+            state.listRenderLimit = Math.min(filtered.length, Math.max(state.listRenderStep, limit, docTabStep));
+        }
+        state.__tmLastFilterPerf = {
+            cacheHit: 'snapshot-view',
+            totalMs: 0,
+            orderedCount: filtered.length,
+            filteredDocTabCount: state.filteredDocIdsForTabs.length,
+            missingSnapshotViewTaskCount: missingIds.length,
+        };
+        state.__tmTaskSnapshotViewRestoredAt = Date.now();
+        try { window.dispatchEvent(new CustomEvent('tm:filtered-tasks-updated')); } catch (e) {}
+        return {
+            filteredCount: filtered.length,
+            docTabCount: state.filteredDocIdsForTabs.length,
+            missingCount: missingIds.length,
+            ageMs: Math.max(0, Date.now() - Number(view.createdAt || snap.createdAt || 0)),
+        };
+    }
+
     function __tmBuildTaskSnapshotPayload(options = {}) {
         const opts = (options && typeof options === 'object') ? options : {};
         const docIds = __tmNormalizeTaskSnapshotDocIds(opts.docIds);
         const groupId = String(opts.groupId || SettingsStore?.data?.currentGroupId || 'all').trim() || 'all';
-        return {
+        const activeDocId = String(opts.activeDocId || state?.activeDocId || 'all').trim() || 'all';
+        const preserve = groupId !== 'all' && activeDocId === 'all';
+        const payload = {
             version: __TM_TASK_SNAPSHOT_VERSION,
             createdAt: Date.now(),
             groupId,
             scopeKey: __tmBuildTaskSnapshotScopeKey(docIds, groupId),
             docIds,
+            activeDocId,
+            preserve,
             queryLimit: Number.isFinite(Number(opts.queryLimit)) ? Math.max(1, Math.round(Number(opts.queryLimit))) : 0,
             taskTree: __tmCloneTaskSnapshotValue(Array.isArray(state.taskTree) ? state.taskTree : [], 0) || [],
+            otherBlocks: __tmCloneTaskSnapshotValue(Array.isArray(state.otherBlocks) ? state.otherBlocks : [], 0) || [],
         };
+        return __tmAttachTaskSnapshotViewState(payload, { groupId });
+    }
+
+    function __tmBuildTaskSnapshotPersistSignature(payload) {
+        try {
+            const snap = (payload && typeof payload === 'object') ? payload : null;
+            if (!snap) return '';
+            const taskTree = Array.isArray(snap.taskTree) ? snap.taskTree : [];
+            const taskSig = [];
+            const walk = (task) => {
+                if (!task || typeof task !== 'object') return;
+                const id = String(task.id || task.blockId || '').trim();
+                if (id) {
+                    taskSig.push([
+                        id,
+                        task.done ? 1 : 0,
+                        String(task.updated || task.updatedAt || '').trim(),
+                        String(task.startDate || task.start_date || '').trim(),
+                        String(task.completionTime || task.completion_time || task.taskCompleteAt || '').trim(),
+                        String(task.customTime || task.custom_time || '').trim(),
+                        String(task.parentTaskId || task.parent_task_id || '').trim(),
+                        Number.isFinite(Number(task.level)) ? Number(task.level) : '',
+                        Number.isFinite(Number(task.docSeq)) ? Number(task.docSeq) : '',
+                    ].join('\u0001'));
+                }
+                if (Array.isArray(task.children)) task.children.forEach(walk);
+            };
+            taskTree.forEach((doc) => {
+                const docId = String(doc?.id || '').trim();
+                taskSig.push(`doc:${docId}:${String(doc?.updated || doc?.docUpdated || '').trim()}`);
+                (Array.isArray(doc?.tasks) ? doc.tasks : []).forEach(walk);
+            });
+            const otherBlocks = Array.isArray(snap.otherBlocks) ? snap.otherBlocks : [];
+            otherBlocks.forEach(walk);
+            const viewKeys = Object.keys(snap.viewStates || {}).sort();
+            const viewSig = viewKeys.map((key) => {
+                const view = snap.viewStates?.[key];
+                return [
+                    key,
+                    Array.isArray(view?.filteredTaskIds) ? view.filteredTaskIds.length : 0,
+                    String(view?.listRenderSignature || '').trim(),
+                    Number(view?.listRenderLimit || 0) || 0,
+                ].join(':');
+            });
+            return JSON.stringify({
+                version: Number(snap.version || 0) || 0,
+                groupId: String(snap.groupId || '').trim(),
+                scopeKey: String(snap.scopeKey || '').trim(),
+                docIds: Array.isArray(snap.docIds) ? snap.docIds.slice() : [],
+                queryLimit: Number(snap.queryLimit || 0) || 0,
+                tasks: taskSig,
+                otherBlockCount: otherBlocks.length,
+                views: viewSig,
+            });
+        } catch (e) {
+            return '';
+        }
     }
 
     function __tmIsUsableTaskSnapshot(snapshot) {
         const snap = (snapshot && typeof snapshot === 'object') ? snapshot : null;
         if (!snap || Number(snap.version) !== __TM_TASK_SNAPSHOT_VERSION) return false;
         const createdAt = Number(snap.createdAt || 0);
-        if (!createdAt || Date.now() - createdAt > __TM_TASK_SNAPSHOT_MAX_AGE_MS) return false;
-        if (!Array.isArray(snap.taskTree)) return false;
+        if (!createdAt) return false;
+        if (!__tmIsPreservedTaskSnapshot(snap) && Date.now() - createdAt > __TM_TASK_SNAPSHOT_MAX_AGE_MS) return false;
+        if (!Array.isArray(snap.taskTree) && !Array.isArray(snap.docDataKeys)) return false;
         if (!String(snap.scopeKey || '').trim()) return false;
         return true;
     }
 
+    function __tmIsPreservedTaskSnapshot(snapshot) {
+        const snap = (snapshot && typeof snapshot === 'object') ? snapshot : null;
+        if (!snap) return false;
+        return snap.preserve === true
+            || snap.retain === true
+            || snap.keep === true
+            || snap.keepAlive === true;
+    }
+
+    function __tmCreateEmptyTaskSnapshotStore(updatedAt = Date.now()) {
+        return {
+            version: __TM_TASK_SNAPSHOT_VERSION,
+            updatedAt: Number(updatedAt || 0) || Date.now(),
+            order: [],
+            snapshots: {},
+            docs: {},
+            otherBlockSets: {},
+        };
+    }
+
     function __tmBuildTaskSnapshotStore(raw = null) {
         const snapshots = {};
+        const pooledDocs = __tmNormalizeTaskSnapshotStoreDocPool(raw?.docs);
+        const pooledOtherBlockSets = __tmNormalizeTaskSnapshotStoreOtherBlockPool(raw?.otherBlockSets);
+        const skipStats = {
+            unusable: 0,
+            maxEntries: 0,
+            missingKey: 0,
+            tooLarge: 0,
+            storeTooLarge: 0,
+            preserved: 0,
+        };
         const push = (item) => {
             const snap = (item && typeof item === 'object') ? item : null;
-            if (!__tmIsUsableTaskSnapshot(snap)) return;
-            snapshots[String(snap.scopeKey || '').trim()] = snap;
+            const materialized = __tmMaterializeTaskSnapshotRecord(snap, {
+                docs: pooledDocs,
+                otherBlockSets: pooledOtherBlockSets,
+            });
+            if (!__tmIsUsableTaskSnapshot(materialized)) {
+                skipStats.unusable += 1;
+                return;
+            }
+            snapshots[String(materialized.scopeKey || '').trim()] = materialized;
         };
         if (raw && typeof raw === 'object' && raw.snapshots && typeof raw.snapshots === 'object') {
             Object.values(raw.snapshots).forEach(push);
         } else {
             push(raw);
         }
-        const kept = Object.values(snapshots)
-            .sort((a, b) => Number(b?.createdAt || 0) - Number(a?.createdAt || 0))
-            .slice(0, __TM_TASK_SNAPSHOT_MAX_ENTRIES);
-        const out = {
-            version: __TM_TASK_SNAPSHOT_VERSION,
-            updatedAt: Date.now(),
-            order: [],
-            snapshots: {},
-        };
-        kept.forEach((snap) => {
+        const out = __tmCreateEmptyTaskSnapshotStore(Date.now());
+        out.docs = {};
+        out.otherBlockSets = {};
+        const candidates = Object.values(snapshots)
+            .sort((a, b) => Number(b?.createdAt || 0) - Number(a?.createdAt || 0));
+        const preservedCandidates = candidates.filter((snap) => __tmIsPreservedTaskSnapshot(snap));
+        const normalCandidates = candidates.filter((snap) => !__tmIsPreservedTaskSnapshot(snap));
+        const addSnapshot = (snap, countTowardsLimit = true) => {
             const key = String(snap?.scopeKey || '').trim();
-            if (!key) return;
+            if (!key) {
+                skipStats.missingKey += 1;
+                return false;
+            }
+            const record = __tmBuildTaskSnapshotRecordForStore(snap, {
+                docs: out.docs,
+                otherBlockSets: out.otherBlockSets,
+            });
+            if (!record) {
+                skipStats.unusable += 1;
+                return false;
+            }
+            if (__tmEstimateJsonByteSize(record) > __TM_TASK_SNAPSHOT_MAX_SINGLE_BYTES) {
+                skipStats.tooLarge += 1;
+                return false;
+            }
+            if (countTowardsLimit && out.order.length >= __TM_TASK_SNAPSHOT_MAX_ENTRIES) {
+                skipStats.maxEntries += 1;
+                return false;
+            }
             out.order.push(key);
-            out.snapshots[key] = snap;
+            out.snapshots[key] = record;
+            if (countTowardsLimit && __tmEstimateJsonByteSize(out) > __TM_TASK_SNAPSHOT_MAX_BYTES) {
+                out.order.pop();
+                delete out.snapshots[key];
+                __tmPruneTaskSnapshotStorePools(out);
+                skipStats.storeTooLarge += 1;
+                return false;
+            }
+            return true;
+        };
+        preservedCandidates.forEach((snap) => {
+            if (addSnapshot(snap, false)) skipStats.preserved += 1;
         });
+        normalCandidates.forEach((snap) => {
+            addSnapshot(snap, true);
+        });
+        __tmPruneTaskSnapshotStorePools(out);
+        try {
+            const skipped = Object.values(skipStats).reduce((sum, value) => sum + Number(value || 0), 0);
+            if (skipped > 0) {
+                __tmLogTaskSnapshot('store-pruned', {
+                    kept: out.order.length,
+                    candidateCount: candidates.length,
+                    maxEntries: __TM_TASK_SNAPSHOT_MAX_ENTRIES,
+                    ...skipStats,
+                });
+            }
+        } catch (e) {}
         return out;
     }
 
@@ -788,12 +1924,56 @@
 
     async function __tmLoadTaskSnapshotForScope(options = {}) {
         try {
-            const store = await __tmLoadTaskSnapshotStore();
             const opts = (options && typeof options === 'object') ? options : {};
+            if (opts.cachedOnly && !__tmTaskSnapshotStoreCache) {
+                __tmScheduleWarmTaskSnapshotStore(1800);
+                __tmLogTaskSnapshot('scope-miss', {
+                    reason: 'cached-store-empty',
+                    cachedOnly: 1,
+                    groupId: String(opts.groupId || 'all').trim() || 'all',
+                    docCount: __tmNormalizeTaskSnapshotDocIds(opts.docIds || []).length,
+                });
+                return null;
+            }
+            const store = opts.cachedOnly
+                ? __tmTaskSnapshotStoreCache
+                : await __tmLoadTaskSnapshotStore();
             const scopeKey = __tmBuildTaskSnapshotScopeKey(opts.docIds, opts.groupId || 'all');
             const snapshot = store?.snapshots?.[scopeKey];
-            return __tmValidateTaskSnapshotForScope(snapshot, options) ? snapshot : null;
+            const valid = __tmValidateTaskSnapshotForScope(snapshot, options);
+            if (!valid) {
+                __tmLogTaskSnapshot('scope-miss', {
+                    reason: snapshot ? 'invalid-scope' : 'not-found',
+                    cachedOnly: opts.cachedOnly ? 1 : 0,
+                    groupId: String(opts.groupId || 'all').trim() || 'all',
+                    docCount: __tmNormalizeTaskSnapshotDocIds(opts.docIds || []).length,
+                    storeEntryCount: Object.keys(store?.snapshots || {}).length,
+                });
+                return null;
+            }
+            const materialized = __tmMaterializeTaskSnapshotRecord(snapshot, store);
+            if (!materialized || !__tmValidateTaskSnapshotForScope(materialized, options)) {
+                __tmLogTaskSnapshot('scope-miss', {
+                    reason: 'missing-pooled-data',
+                    cachedOnly: opts.cachedOnly ? 1 : 0,
+                    groupId: String(opts.groupId || 'all').trim() || 'all',
+                    docCount: __tmNormalizeTaskSnapshotDocIds(opts.docIds || []).length,
+                    storeEntryCount: Object.keys(store?.snapshots || {}).length,
+                });
+                return null;
+            }
+            __tmLogTaskSnapshot('scope-hit', {
+                cachedOnly: opts.cachedOnly ? 1 : 0,
+                groupId: String(materialized?.groupId || opts.groupId || 'all').trim() || 'all',
+                docCount: Array.isArray(materialized?.docIds) ? materialized.docIds.length : 0,
+                ageMs: Math.max(0, Date.now() - Number(materialized?.createdAt || 0)),
+                dataMode: String(snapshot?.dataMode || ''),
+            });
+            return materialized;
         } catch (e) {
+            __tmLogTaskSnapshot('scope-error', {
+                error: String(e?.message || e || '').trim() || 'load-failed',
+            });
             return null;
         }
     }
@@ -801,7 +1981,13 @@
     function __tmSelectLatestTaskSnapshotForGroupFromStore(store, groupId = 'all') {
         try {
             const gid = String(groupId || 'all').trim() || 'all';
-            const items = Object.values(store?.snapshots || {})
+            const snapshots = Object.values(store?.snapshots || {});
+            const groups = Array.from(new Set(snapshots.map((snap) => String(
+                snap?.groupId
+                || String(snap?.scopeKey || '').split('|')[0]
+                || 'all'
+            ).trim() || 'all'))).slice(0, 12);
+            const items = snapshots
                 .filter((snap) => {
                     if (!__tmIsUsableTaskSnapshot(snap)) return false;
                     const snapGroupId = String(
@@ -812,8 +1998,30 @@
                     return snapGroupId === gid;
                 })
                 .sort((a, b) => Number(b?.createdAt || 0) - Number(a?.createdAt || 0));
-            return items[0] || null;
+            let selected = null;
+            let materialized = null;
+            for (const item of items) {
+                const next = __tmMaterializeTaskSnapshotRecord(item, store);
+                if (!__tmIsUsableTaskSnapshot(next)) continue;
+                selected = item;
+                materialized = next;
+                break;
+            }
+            __tmLogTaskSnapshot(materialized ? 'latest-hit' : 'latest-miss', {
+                groupId: gid,
+                storeEntryCount: snapshots.length,
+                matchingCount: items.length,
+                groups,
+                ageMs: selected ? Math.max(0, Date.now() - Number(selected?.createdAt || 0)) : 0,
+                docCount: materialized && Array.isArray(materialized?.docIds) ? materialized.docIds.length : 0,
+                dataMode: String(selected?.dataMode || ''),
+            });
+            return materialized;
         } catch (e) {
+            __tmLogTaskSnapshot('latest-error', {
+                groupId: String(groupId || 'all').trim() || 'all',
+                error: String(e?.message || e || '').trim() || 'select-failed',
+            });
             return null;
         }
     }
@@ -827,6 +2035,30 @@
                 const raw = await __tmReadJsonFile(TASK_SNAPSHOT_FILE_PATH);
                 const store = __tmBuildTaskSnapshotStore(raw);
                 __tmTaskSnapshotStoreCache = store;
+                try {
+                    const rawBytes = raw ? __tmEstimateJsonByteSize(raw) : 0;
+                    const storeBytes = __tmEstimateJsonByteSize(store);
+                    if (rawBytes > (storeBytes + 1024)) {
+                        __tmLogTaskSnapshot('store-compaction-scheduled', {
+                            rawBytes,
+                            storeBytes,
+                            savedBytes: Math.max(0, rawBytes - storeBytes),
+                            storeEntryCount: Object.keys(store?.snapshots || {}).length,
+                            pooledDocCount: Object.keys(store?.docs || {}).length,
+                        });
+                        __tmScheduleIdleTask(async () => {
+                            const ok = await __tmWriteJsonFile(TASK_SNAPSHOT_FILE_PATH, store);
+                            __tmLogTaskSnapshot('store-compaction-done', {
+                                ok: ok ? 1 : 0,
+                                rawBytes,
+                                storeBytes,
+                                savedBytes: Math.max(0, rawBytes - storeBytes),
+                                storeEntryCount: Object.keys(store?.snapshots || {}).length,
+                                pooledDocCount: Object.keys(store?.docs || {}).length,
+                            });
+                        }, 2200);
+                    }
+                } catch (e) {}
                 return store;
             })
             .finally(() => {
@@ -853,12 +2085,37 @@
         try { __tmLoadTaskSnapshotStore().catch(() => null); } catch (e) {}
     }
 
-    function __tmRestoreTaskSnapshotIntoState(snapshot) {
+    function __tmScheduleWarmTaskSnapshotStore(delayMs = 1800) {
+        if (__tmTaskSnapshotStoreCache || __tmTaskSnapshotStoreLoadPromise) return false;
+        const delay0 = Number(delayMs);
+        const waitMs = Math.max(80, Number.isFinite(delay0) ? delay0 : 1800);
+        const run = () => {
+            if (__tmTaskSnapshotStoreCache || __tmTaskSnapshotStoreLoadPromise) return;
+            try { __tmWarmTaskSnapshotStore(); } catch (e) {}
+        };
+        try { __tmScheduleIdleTask(run, waitMs); } catch (e) { setTimeout(run, waitMs); }
+        return true;
+    }
+
+    function __tmRestoreTaskSnapshotIntoState(snapshot, options = {}) {
         const snap = (snapshot && typeof snapshot === 'object') ? snapshot : null;
         if (!snap || !Array.isArray(snap.taskTree)) return null;
         const taskTree = __tmCloneTaskSnapshotValue(snap.taskTree, 0) || [];
         const flatTasks = __tmBuildFlatTasksFromTaskSnapshotTree(taskTree);
+        const coverage = __tmGetTaskCountCoverageStatus(snap.docIds || [], Object.keys(flatTasks).length, options);
+        if (!coverage.ok) {
+            __tmLogTaskSnapshot('restore-reject', {
+                reason: coverage.reason,
+                groupId: String(snap.groupId || options?.groupId || SettingsStore?.data?.currentGroupId || 'all').trim() || 'all',
+                docCount: Array.isArray(snap.docIds) ? snap.docIds.length : 0,
+                taskCount: coverage.actual,
+                expectedTaskCount: coverage.expected,
+                overageTolerance: coverage.overageTolerance,
+            });
+            return null;
+        }
         state.taskTree = taskTree;
+        state.otherBlocks = __tmCloneTaskSnapshotValue(Array.isArray(snap.otherBlocks) ? snap.otherBlocks : [], 0) || [];
         try {
             state.flatTasks = __tmMergeOtherBlocksIntoFlatTasks(flatTasks);
         } catch (e) {
@@ -869,8 +2126,849 @@
         return {
             docCount: taskTree.length,
             taskCount: Object.keys(flatTasks).length,
+            otherBlockCount: Array.isArray(state.otherBlocks) ? state.otherBlocks.length : 0,
             ageMs: Math.max(0, Date.now() - Number(snap.createdAt || 0)),
         };
+    }
+
+    function __tmFlattenTaskIndexTree(tasks, out = []) {
+        (Array.isArray(tasks) ? tasks : []).forEach((task) => {
+            if (!task || typeof task !== 'object') return;
+            out.push(task);
+            if (Array.isArray(task.children) && task.children.length > 0) {
+                __tmFlattenTaskIndexTree(task.children, out);
+            }
+        });
+        return out;
+    }
+
+    function __tmCompactTaskIndexText(value, maxLength = 0) {
+        const text = String(value || '').trim();
+        const limit = Math.max(0, Math.floor(Number(maxLength) || 0));
+        if (!limit || text.length <= limit) return text;
+        return text.slice(0, limit);
+    }
+
+    function __tmCompactTaskIndexValue(value, options = {}) {
+        if (value == null || value === '' || value === false) return undefined;
+        if (Array.isArray(value) && value.length === 0) return undefined;
+        if (typeof value === 'object' && !Array.isArray(value) && Object.keys(value).length === 0) return undefined;
+        const cloned = __tmCloneTaskSnapshotValue(value, 0);
+        const maxBytes = Math.max(0, Math.floor(Number(options?.maxBytes || 0) || 0));
+        if (maxBytes > 0 && __tmEstimateJsonByteSize(cloned) > maxBytes) return undefined;
+        return cloned;
+    }
+
+    function __tmBuildTaskIndexBlockEntry(task, doc = null, fallbackParentTaskId = '') {
+        const source = (task && typeof task === 'object') ? task : null;
+        const id = String(source?.id || source?.blockId || '').trim();
+        if (!source || !__tmIsLikelyBlockId(id)) return null;
+        const docId = String(source.root_id || source.docId || doc?.id || '').trim();
+        if (!__tmIsLikelyBlockId(docId)) return null;
+        const parentTaskId = String(source.parentTaskId || source.parent_task_id || fallbackParentTaskId || '').trim();
+        const out = {
+            id,
+            root_id: docId,
+            parent_id: String(source.parent_id || '').trim(),
+            parentTaskId,
+            blockSort: String(source.blockSort || source.block_sort || source.sort || '').trim(),
+            content: __tmCompactTaskIndexText(source.content || source.raw_content || source.title || source.markdown || '', 3200),
+            done: source.done === true,
+            taskMarker: String(source.taskMarker || source.task_marker || '').trim(),
+            priority: String(source.priority || source.custom_priority || '').trim(),
+            pinned: source.pinned === true || source.custom_pinned === true || String(source.custom_pinned || '').trim() === '1',
+            milestone: source.milestone === true || source.custom_milestone === true || String(source.custom_milestone || '').trim() === '1',
+            completionTime: String(source.completionTime || source.completion_time || '').trim(),
+            startDate: String(source.startDate || source.start_date || '').trim(),
+            customTime: String(source.customTime || source.custom_time || '').trim(),
+            customStatus: String(source.customStatus || source.custom_status || '').trim(),
+            duration: String(source.duration || source.custom_duration || '').trim(),
+            remark: __tmCompactTaskIndexText(source.remark || source.custom_remark || '', 900),
+            taskCompleteAt: String(source.taskCompleteAt || source.task_complete_at || '').trim(),
+            tomatoHours: String(source.tomatoHours || source.tomato_hours || '').trim(),
+            tomatoMinutes: String(source.tomatoMinutes || source.tomato_minutes || '').trim(),
+            docName: __tmCompactTaskIndexText(source.docName || source.rawDocName || source.doc_name || doc?.name || '', 180),
+            blockPath: __tmCompactTaskIndexText(source.blockPath || source.block_path || source.hPath || '', 800),
+            docSeq: Number.isFinite(Number(source.docSeq ?? source.doc_seq)) ? Number(source.docSeq ?? source.doc_seq) : undefined,
+            h2: __tmCompactTaskIndexText(source.h2 || '', 320),
+            h2Id: String(source.h2Id || '').trim(),
+            h2Path: __tmCompactTaskIndexText(source.h2Path || '', 800),
+            h2Sort: Number.isFinite(Number(source.h2Sort)) ? Number(source.h2Sort) : undefined,
+            h2Created: String(source.h2Created || '').trim(),
+            h2Rank: Number.isFinite(Number(source.h2Rank)) ? Number(source.h2Rank) : undefined,
+            headingLevel: String(source.headingLevel || '').trim(),
+            level: Math.max(0, Math.round(Number(source.level || 0) || 0)),
+            priorityScore: Number.isFinite(Number(source.priorityScore)) ? Number(source.priorityScore) : undefined,
+            repeatRule: __tmCompactTaskIndexValue(source.repeatRule || source.repeat_rule, { maxBytes: 4096 }),
+            repeatState: __tmCompactTaskIndexValue(source.repeatState || source.repeat_state, { maxBytes: 4096 }),
+            attachmentCount: Number.isFinite(Number(source.attachmentCount)) ? Number(source.attachmentCount) : undefined,
+        };
+        Object.keys(out).forEach((key) => {
+            const next = __tmCompactTaskIndexValue(out[key]);
+            if (next === undefined) delete out[key];
+            else out[key] = next;
+        });
+        return out;
+    }
+
+    function __tmBuildTaskIndexBlocksFromTree(tasks, doc = null) {
+        const out = [];
+        const walk = (items, parentTaskId = '') => {
+            (Array.isArray(items) ? items : []).forEach((task) => {
+                const entry = __tmBuildTaskIndexBlockEntry(task, doc, parentTaskId);
+                if (entry) out.push(entry);
+                const taskId = String(task?.id || '').trim();
+                if (Array.isArray(task?.children) && task.children.length > 0) {
+                    walk(task.children, taskId || parentTaskId);
+                }
+            });
+        };
+        walk(tasks, '');
+        return out;
+    }
+
+    function __tmRestoreTaskIndexBlockEntry(block, docEntry) {
+        const item = (block && typeof block === 'object') ? block : null;
+        if (!item) return null;
+        const id = String(item.id || item.blockId || '').trim();
+        const docId = String(item.root_id || item.rootId || item.docId || docEntry?.id || '').trim();
+        if (!__tmIsLikelyBlockId(id) || !__tmIsLikelyBlockId(docId)) return null;
+        const content = String(item.content || item.title || item.raw_content || '').trim();
+        const markdown = String(item.markdown || '').trim() || `- [${item.done === true ? 'X' : ' '}] ${content}`;
+        const task = {
+            id,
+            root_id: docId,
+            docId,
+            parent_id: String(item.parent_id || '').trim(),
+            parentTaskId: String(item.parentTaskId || item.parent_task_id || '').trim(),
+            block_sort: String(item.blockSort || item.block_sort || '').trim(),
+            blockSort: String(item.blockSort || item.block_sort || '').trim(),
+            block_path: String(item.blockPath || item.block_path || '').trim(),
+            blockPath: String(item.blockPath || item.block_path || '').trim(),
+            doc_name: String(item.rawDocName || item.docName || docEntry?.name || '').trim(),
+            rawDocName: String(item.rawDocName || item.docName || docEntry?.name || '').trim(),
+            docName: String(item.docName || item.rawDocName || docEntry?.name || '').trim() || '未命名文档',
+            markdown,
+            raw_content: content,
+            content,
+            done: item.done === true,
+            taskMarker: String(item.taskMarker || '').trim() || (item.done === true ? 'X' : ' '),
+            task_marker: String(item.taskMarker || '').trim() || (item.done === true ? 'X' : ' '),
+            priority: String(item.priority || '').trim(),
+            custom_priority: String(item.priority || '').trim(),
+            pinned: item.pinned === true,
+            custom_pinned: item.pinned === true ? '1' : '',
+            milestone: item.milestone === true,
+            custom_milestone: item.milestone === true ? '1' : '',
+            completionTime: String(item.completionTime || '').trim(),
+            completion_time: String(item.completionTime || '').trim(),
+            startDate: String(item.startDate || '').trim(),
+            start_date: String(item.startDate || '').trim(),
+            customTime: String(item.customTime || '').trim(),
+            custom_time: String(item.customTime || '').trim(),
+            customStatus: String(item.customStatus || '').trim(),
+            custom_status: String(item.customStatus || '').trim(),
+            duration: String(item.duration || '').trim(),
+            remark: String(item.remark || '').trim(),
+            taskCompleteAt: String(item.taskCompleteAt || '').trim(),
+            task_complete_at: String(item.taskCompleteAt || '').trim(),
+            tomatoHours: String(item.tomatoHours || '').trim(),
+            tomato_hours: String(item.tomatoHours || '').trim(),
+            tomatoMinutes: String(item.tomatoMinutes || '').trim(),
+            tomato_minutes: String(item.tomatoMinutes || '').trim(),
+            docSeq: Number.isFinite(Number(item.docSeq)) ? Number(item.docSeq) : Number.POSITIVE_INFINITY,
+            doc_seq: Number.isFinite(Number(item.docSeq)) ? Number(item.docSeq) : Number.POSITIVE_INFINITY,
+            h2: String(item.h2 || '').trim(),
+            h2Id: String(item.h2Id || '').trim(),
+            h2Path: String(item.h2Path || '').trim(),
+            h2Sort: Number(item.h2Sort),
+            h2Created: String(item.h2Created || '').trim(),
+            h2Rank: Number(item.h2Rank),
+            headingLevel: String(item.headingLevel || SettingsStore?.data?.taskHeadingLevel || 'h2').trim() || 'h2',
+            level: Math.max(0, Math.round(Number(item.level || 0) || 0)),
+            priorityScore: Number.isFinite(Number(item.priorityScore)) ? Number(item.priorityScore) : undefined,
+            repeatRule: __tmCloneTaskSnapshotValue(item.repeatRule, 0),
+            repeat_rule: __tmCloneTaskSnapshotValue(item.repeatRule, 0),
+            repeatState: __tmCloneTaskSnapshotValue(item.repeatState, 0),
+            repeat_state: __tmCloneTaskSnapshotValue(item.repeatState, 0),
+            repeatHistory: __tmCloneTaskSnapshotValue(item.repeatHistory, 0) || [],
+            repeat_history: __tmCloneTaskSnapshotValue(item.repeatHistory, 0) || [],
+            customFieldValues: __tmCloneTaskSnapshotValue(item.customFieldValues, 0) || {},
+            attachments: __tmCloneTaskSnapshotValue(item.attachments, 0) || [],
+            attachmentCount: Math.max(0, Math.round(Number(item.attachmentCount || 0) || 0)),
+            children: [],
+        };
+        if (task.priorityScore === undefined) delete task.priorityScore;
+        return task;
+    }
+
+    function __tmBuildTaskTreeFromTaskIndexBlocks(entry) {
+        const source = (entry && typeof entry === 'object') ? entry : {};
+        const blocks = Array.isArray(source.blocks)
+            ? source.blocks
+            : __tmBuildTaskIndexBlocksFromTree(source.tasks || [], source);
+        const tasks = blocks
+            .map((block) => __tmRestoreTaskIndexBlockEntry(block, source))
+            .filter(Boolean);
+        const byId = new Map();
+        tasks.forEach((task) => {
+            task.children = [];
+            byId.set(String(task.id || '').trim(), task);
+        });
+        const roots = [];
+        tasks.forEach((task) => {
+            const parentTaskId = String(task.parentTaskId || task.parent_task_id || '').trim();
+            const parent = parentTaskId ? byId.get(parentTaskId) : null;
+            if (parent && parent !== task) {
+                parent.children.push(task);
+            } else {
+                roots.push(task);
+            }
+        });
+        const sortBySeq = (list) => {
+            (Array.isArray(list) ? list : []).sort((a, b) => {
+                const sa = Number.isFinite(Number(a?.docSeq)) ? Number(a.docSeq) : Number.POSITIVE_INFINITY;
+                const sb = Number.isFinite(Number(b?.docSeq)) ? Number(b.docSeq) : Number.POSITIVE_INFINITY;
+                if (sa !== sb) return sa - sb;
+                const ba = Number(a?.blockSort || a?.block_sort || 0) || 0;
+                const bb = Number(b?.blockSort || b?.block_sort || 0) || 0;
+                if (ba !== bb) return ba - bb;
+                return String(a?.id || '').localeCompare(String(b?.id || ''));
+            });
+            list.forEach((task, index) => {
+                task.level = Math.max(0, Math.round(Number(task.level || 0) || 0));
+                if (Array.isArray(task.children) && task.children.length > 0) sortBySeq(task.children);
+                if (!Number.isFinite(Number(task.docSeq))) task.docSeq = index;
+            });
+        };
+        sortBySeq(roots);
+        return roots;
+    }
+
+    function __tmNormalizeTaskIndexBlocksForStore(entry, options = {}) {
+        const source = (entry && typeof entry === 'object') ? entry : {};
+        const opts = (options && typeof options === 'object') ? options : {};
+        const rawBlocks = Array.isArray(source.blocks)
+            ? source.blocks
+            : __tmBuildTaskIndexBlocksFromTree(source.tasks || [], source);
+        const shouldCompact = opts.compact === true;
+        const out = [];
+        (Array.isArray(rawBlocks) ? rawBlocks : []).forEach((block) => {
+            let next = null;
+            if (shouldCompact) {
+                const restored = __tmRestoreTaskIndexBlockEntry(block, source);
+                next = __tmBuildTaskIndexBlockEntry(restored || block, source);
+            } else {
+                next = (block && typeof block === 'object') ? block : null;
+            }
+            const id = String(next?.id || next?.blockId || '').trim();
+            const docId = String(next?.root_id || next?.rootId || next?.docId || source?.id || '').trim();
+            if (__tmIsLikelyBlockId(id) && __tmIsLikelyBlockId(docId)) out.push(next);
+        });
+        return out;
+    }
+
+    function __tmNormalizeTaskIndexStore(raw = null) {
+        const source = (raw && typeof raw === 'object') ? raw : {};
+        const docs = {};
+        const sourceDocs = (source.docs && typeof source.docs === 'object') ? source.docs : {};
+        const sourceVersion = Math.max(0, Math.round(Number(source.version || 0) || 0));
+        if (Object.keys(sourceDocs).length > 0 && sourceVersion !== __TM_TASK_INDEX_VERSION) {
+            return {
+                version: __TM_TASK_INDEX_VERSION,
+                updatedAt: Date.now(),
+                docs,
+            };
+        }
+        Object.entries(sourceDocs).forEach(([docId0, entry0]) => {
+            const docId = String(docId0 || entry0?.id || '').trim();
+            const entry = (entry0 && typeof entry0 === 'object') ? entry0 : null;
+            if (!__tmIsLikelyBlockId(docId) || !entry) return;
+            const updatedAt = Number(entry.updatedAt || entry.indexedAt || source.updatedAt || 0) || 0;
+            const blocks = __tmNormalizeTaskIndexBlocksForStore(
+                { ...entry, id: docId },
+                { compact: sourceVersion !== __TM_TASK_INDEX_VERSION }
+            );
+            const taskCount = Math.max(0, Math.round(Number(entry.taskCount || blocks.length) || 0));
+            const inTaskTree = (typeof entry.inTaskTree === 'boolean')
+                ? entry.inTaskTree
+                : blocks.length > 0;
+            docs[docId] = {
+                id: docId,
+                name: String(entry.name || '').trim(),
+                alias: __tmNormalizeDocAliasValue(entry.alias),
+                icon: __tmNormalizeDocIconValue(entry.icon),
+                created: String(entry.created || '').trim(),
+                docUpdated: String(entry.docUpdated || entry.updated || '').trim(),
+                updatedAt,
+                inTaskTree,
+                queryLimit: Math.max(0, Math.round(Number(entry.queryLimit || 0) || 0)),
+                taskCount,
+                blocks,
+            };
+        });
+        return {
+            version: __TM_TASK_INDEX_VERSION,
+            updatedAt: Number(source.updatedAt || 0) || Date.now(),
+            docs,
+        };
+    }
+
+    function __tmPruneTaskIndexStoreToLimits(store, options = {}) {
+        const source = (store && typeof store === 'object') ? store : {};
+        const sourceDocs = (source.docs && typeof source.docs === 'object') ? source.docs : {};
+        const opts = (options && typeof options === 'object') ? options : {};
+        const keepDocIds = new Set(__tmNormalizeTaskSnapshotDocIds(opts.keepDocIds || []));
+        const candidates = Object.values(sourceDocs)
+            .filter((entry) => entry && __tmIsLikelyBlockId(entry.id) && (Array.isArray(entry.blocks) || Array.isArray(entry.tasks)))
+            .filter((entry) => {
+                const count = Array.isArray(entry.blocks) ? entry.blocks.length : (Array.isArray(entry.tasks) ? entry.tasks.length : 0);
+                return count > 0 || entry.inTaskTree !== false;
+            })
+            .sort((a, b) => {
+                const aid = String(a?.id || '').trim();
+                const bid = String(b?.id || '').trim();
+                const keepDiff = (keepDocIds.has(bid) ? 1 : 0) - (keepDocIds.has(aid) ? 1 : 0);
+                if (keepDiff) return keepDiff;
+                return Number(b?.updatedAt || 0) - Number(a?.updatedAt || 0);
+            });
+        const out = {
+            version: __TM_TASK_INDEX_VERSION,
+            updatedAt: Number(source.updatedAt || 0) || Date.now(),
+            docs: {},
+        };
+        let outDocCount = 0;
+        let outBytes = __tmEstimateJsonByteSize(out);
+        for (const entry of candidates) {
+            const docId = String(entry?.id || '').trim();
+            if (!docId || out.docs[docId]) continue;
+            if (outDocCount >= __TM_TASK_INDEX_MAX_DOCS) break;
+            const entryBytes = __tmEstimateJsonByteSize(entry);
+            if (entryBytes > __TM_TASK_INDEX_MAX_SINGLE_DOC_BYTES) continue;
+            const nextBytes = outBytes + entryBytes + docId.length + 16;
+            if (nextBytes > __TM_TASK_INDEX_MAX_BYTES) {
+                if (keepDocIds.has(docId)) break;
+                continue;
+            }
+            out.docs[docId] = entry;
+            outDocCount += 1;
+            outBytes = nextBytes;
+        }
+        return out;
+    }
+
+    function __tmRememberTaskIndexEntriesInMemory(entries, options = {}) {
+        const list = (Array.isArray(entries) ? entries : [])
+            .filter((entry) => entry && __tmIsLikelyBlockId(entry.id));
+        if (!list.length) return null;
+        const opts = (options && typeof options === 'object') ? options : {};
+        const cachedStore = (__tmTaskIndexStoreCache
+            && __tmTaskIndexStoreCache.version === __TM_TASK_INDEX_VERSION
+            && __tmTaskIndexStoreCache.docs
+            && typeof __tmTaskIndexStoreCache.docs === 'object')
+            ? __tmTaskIndexStoreCache
+            : null;
+        const store = cachedStore || __tmNormalizeTaskIndexStore({
+            version: __TM_TASK_INDEX_VERSION,
+            updatedAt: Date.now(),
+            docs: {},
+        });
+        list.forEach((entry) => {
+            store.docs[entry.id] = entry;
+        });
+        store.version = __TM_TASK_INDEX_VERSION;
+        store.updatedAt = Date.now();
+        const docCount = Object.keys(store.docs || {}).length;
+        const shouldPrune = opts.pruneNow === true || docCount > __TM_TASK_INDEX_MAX_DOCS;
+        const nextStore = shouldPrune
+            ? __tmPruneTaskIndexStoreToLimits(store, {
+                keepDocIds: opts.keepDocIds || list.map((entry) => entry?.id),
+            })
+            : store;
+        __tmTaskIndexStoreCache = nextStore;
+        return nextStore;
+    }
+
+    function __tmBuildTaskIndexDocEntry(doc, options = {}) {
+        const source = (doc && typeof doc === 'object') ? doc : null;
+        const docId = String(source?.id || '').trim();
+        if (!source || !__tmIsLikelyBlockId(docId)) return null;
+        const tasks = Array.isArray(source.tasks) ? source.tasks : [];
+        const blocks = __tmBuildTaskIndexBlocksFromTree(tasks, { ...source, id: docId });
+        const opts = (options && typeof options === 'object') ? options : {};
+        const inTaskTree = (typeof opts.inTaskTree === 'boolean') ? opts.inTaskTree : blocks.length > 0;
+        return {
+            id: docId,
+            name: String(source.name || '').trim(),
+            alias: __tmNormalizeDocAliasValue(source.alias),
+            icon: __tmNormalizeDocIconValue(source.icon),
+            created: String(source.created || '').trim(),
+            docUpdated: String(source.docUpdated || source.updated || '').trim(),
+            updatedAt: Date.now(),
+            inTaskTree,
+            queryLimit: Math.max(0, Math.round(Number(opts.queryLimit || __TM_TASK_INDEX_QUERY_LIMIT) || 0)),
+            taskCount: blocks.length,
+            blocks,
+        };
+    }
+
+    function __tmBuildDocUpdatedFingerprintMap(docs = null) {
+        const out = new Map();
+        (Array.isArray(docs) ? docs : (Array.isArray(state.allDocuments) ? state.allDocuments : [])).forEach((doc) => {
+            const id = String(doc?.id || '').trim();
+            if (!__tmIsLikelyBlockId(id)) return;
+            const updated = String(doc?.updated || doc?.docUpdated || '').trim();
+            if (updated) out.set(id, updated);
+        });
+        return out;
+    }
+
+    function __tmNormalizeDocScopeCache(raw = null) {
+        const source = (raw && typeof raw === 'object') ? raw : {};
+        const sourceScopes = (source.scopes && typeof source.scopes === 'object') ? source.scopes : {};
+        const now = Date.now();
+        const scopes = {};
+        Object.entries(sourceScopes).forEach(([key0, entry0]) => {
+            const key = String(key0 || '').trim();
+            const entry = (entry0 && typeof entry0 === 'object') ? entry0 : null;
+            if (!key || !entry) return;
+            const ids = __tmNormalizeDocScopeDocIds(entry.docIds || entry.ids || []);
+            if (!ids.length) return;
+            const updatedAt = Number(entry.updatedAt || entry.t || 0) || 0;
+            if (updatedAt > 0 && (now - updatedAt) > __TM_DOC_SCOPE_CACHE_MAX_AGE_MS) return;
+            scopes[key] = {
+                key,
+                groupId: String(entry.groupId || '').trim(),
+                docIds: ids,
+                updatedAt: updatedAt || now,
+                docCount: ids.length,
+            };
+        });
+        return {
+            version: __TM_DOC_SCOPE_CACHE_VERSION,
+            updatedAt: Number(source.updatedAt || 0) || now,
+            scopes,
+        };
+    }
+
+    function __tmPruneDocScopeCacheToLimits(store) {
+        const source = (store && typeof store === 'object') ? store : {};
+        const candidates = Object.values(source.scopes || {})
+            .filter((entry) => entry && Array.isArray(entry.docIds) && entry.docIds.length > 0)
+            .sort((a, b) => Number(b?.updatedAt || 0) - Number(a?.updatedAt || 0));
+        const out = {
+            version: __TM_DOC_SCOPE_CACHE_VERSION,
+            updatedAt: Number(source.updatedAt || 0) || Date.now(),
+            scopes: {},
+        };
+        for (const entry of candidates) {
+            const key = String(entry?.key || '').trim();
+            if (!key || out.scopes[key]) continue;
+            if (Object.keys(out.scopes).length >= __TM_DOC_SCOPE_CACHE_MAX_SCOPES) break;
+            out.scopes[key] = {
+                key,
+                groupId: String(entry.groupId || '').trim(),
+                docIds: __tmNormalizeDocScopeDocIds(entry.docIds || []),
+                updatedAt: Number(entry.updatedAt || 0) || Date.now(),
+                docCount: Math.max(0, Math.round(Number(entry.docCount || entry.docIds?.length || 0) || 0)),
+            };
+            if (__tmEstimateJsonByteSize(out) > __TM_DOC_SCOPE_CACHE_MAX_BYTES) {
+                delete out.scopes[key];
+                break;
+            }
+        }
+        return out;
+    }
+
+    let __tmDocScopeCacheStore = null;
+    let __tmDocScopeCacheLoadPromise = null;
+    let __tmDocScopeCacheSaveTimer = null;
+    let __tmDocScopeCacheSaveInFlight = false;
+
+    async function __tmLoadDocScopeCacheStore(options = {}) {
+        const opts = (options && typeof options === 'object') ? options : {};
+        if (!opts.force && __tmDocScopeCacheStore) return __tmDocScopeCacheStore;
+        if (!opts.force && __tmDocScopeCacheLoadPromise) return await __tmDocScopeCacheLoadPromise;
+        __tmDocScopeCacheLoadPromise = Promise.resolve()
+            .then(async () => {
+                const raw = await __tmReadJsonFile(DOC_SCOPE_CACHE_FILE_PATH);
+                const store = __tmPruneDocScopeCacheToLimits(__tmNormalizeDocScopeCache(raw));
+                __tmDocScopeCacheStore = store;
+                try {
+                    if (raw && __tmEstimateJsonByteSize(raw) > (__tmEstimateJsonByteSize(store) + 1024)) {
+                        __tmScheduleIdleTask(() => __tmWriteJsonFile(DOC_SCOPE_CACHE_FILE_PATH, store), 2600);
+                    }
+                } catch (e) {}
+                return store;
+            })
+            .finally(() => {
+                __tmDocScopeCacheLoadPromise = null;
+            });
+        return await __tmDocScopeCacheLoadPromise;
+    }
+
+    function __tmGetCachedDocScope(scopeKey) {
+        try {
+            const key = String(scopeKey || '').trim();
+            if (!key) return null;
+            const store = __tmDocScopeCacheStore;
+            const entry = store?.scopes?.[key];
+            if (!entry || !Array.isArray(entry.docIds) || !entry.docIds.length) return null;
+            if ((Date.now() - Number(entry.updatedAt || 0)) > __TM_DOC_SCOPE_CACHE_MAX_AGE_MS) return null;
+            return {
+                key,
+                groupId: String(entry.groupId || '').trim(),
+                docIds: __tmNormalizeDocScopeDocIds(entry.docIds),
+                updatedAt: Number(entry.updatedAt || 0) || 0,
+            };
+        } catch (e) {
+            return null;
+        }
+    }
+
+    function __tmRememberDocScope(scopeKey, docIds = [], options = {}) {
+        const key = String(scopeKey || '').trim();
+        const ids = __tmNormalizeDocScopeDocIds(docIds || []);
+        if (!key || !ids.length) return false;
+        const opts = (options && typeof options === 'object') ? options : {};
+        const store = __tmPruneDocScopeCacheToLimits(__tmDocScopeCacheStore || {
+            version: __TM_DOC_SCOPE_CACHE_VERSION,
+            updatedAt: Date.now(),
+            scopes: {},
+        });
+        store.scopes[key] = {
+            key,
+            groupId: String(opts.groupId || '').trim(),
+            docIds: ids,
+            updatedAt: Date.now(),
+            docCount: ids.length,
+        };
+        const nextStore = __tmPruneDocScopeCacheToLimits(store);
+        nextStore.updatedAt = Date.now();
+        __tmDocScopeCacheStore = nextStore;
+        try {
+            if (__tmDocScopeCacheSaveTimer) clearTimeout(__tmDocScopeCacheSaveTimer);
+        } catch (e) {}
+        const delayMs = Math.max(300, Number(opts.delayMs || 1200) || 1200);
+        __tmDocScopeCacheSaveTimer = setTimeout(() => {
+            __tmDocScopeCacheSaveTimer = null;
+            if (__tmDocScopeCacheSaveInFlight) {
+                __tmRememberDocScope(key, ids, { ...opts, delayMs: 1800 });
+                return;
+            }
+            __tmDocScopeCacheSaveInFlight = true;
+            Promise.resolve()
+                .then(async () => {
+                    const raw = await __tmReadJsonFile(DOC_SCOPE_CACHE_FILE_PATH);
+                    const latest = __tmNormalizeDocScopeCache(raw || __tmDocScopeCacheStore);
+                    latest.scopes[key] = __tmDocScopeCacheStore?.scopes?.[key] || {
+                        key,
+                        groupId: String(opts.groupId || '').trim(),
+                        docIds: ids,
+                        updatedAt: Date.now(),
+                        docCount: ids.length,
+                    };
+                    latest.updatedAt = Date.now();
+                    const pruned = __tmPruneDocScopeCacheToLimits(latest);
+                    __tmDocScopeCacheStore = pruned;
+                    await __tmWriteJsonFile(DOC_SCOPE_CACHE_FILE_PATH, pruned);
+                })
+                .catch(() => null)
+                .finally(() => {
+                    __tmDocScopeCacheSaveInFlight = false;
+                });
+        }, delayMs);
+        return true;
+    }
+
+    function __tmScheduleWarmDocScopeCache(delayMs = 1400) {
+        if (__tmDocScopeCacheStore || __tmDocScopeCacheLoadPromise) return false;
+        const delay0 = Number(delayMs);
+        const waitMs = Math.max(200, Number.isFinite(delay0) ? delay0 : 1400);
+        const run = () => {
+            if (__tmDocScopeCacheStore || __tmDocScopeCacheLoadPromise) return;
+            try { __tmLoadDocScopeCacheStore().catch(() => null); } catch (e) {}
+        };
+        try { __tmScheduleIdleTask(run, waitMs); } catch (e) { setTimeout(run, waitMs); }
+        return true;
+    }
+
+    function __tmInvalidateDocScopeCache() {
+        try { __tmDocScopeCacheStore = null; } catch (e) {}
+        try { __tmDocScopeCacheLoadPromise = null; } catch (e) {}
+    }
+
+    window.__tmInvalidateDocScopeCache = __tmInvalidateDocScopeCache;
+
+    function __tmIsUsableTaskIndexDoc(entry, options = {}) {
+        const item = (entry && typeof entry === 'object') ? entry : null;
+        if (!item || !__tmIsLikelyBlockId(item.id)) return false;
+        if (!Array.isArray(item.blocks) && !Array.isArray(item.tasks)) return false;
+        const updatedAt = Number(item.updatedAt || 0);
+        if (!updatedAt) return false;
+        const docUpdatedMap = options?.docUpdatedMap instanceof Map ? options.docUpdatedMap : null;
+        if (options?.strictDocUpdated === true && docUpdatedMap && docUpdatedMap.has(item.id)) {
+            const currentDocUpdated = String(docUpdatedMap.get(item.id) || '').trim();
+            const indexedDocUpdated = String(item.docUpdated || '').trim();
+            if (currentDocUpdated && !indexedDocUpdated) return false;
+            if (currentDocUpdated && indexedDocUpdated && currentDocUpdated !== indexedDocUpdated) return false;
+        }
+        const currentLimit = Math.max(0, Math.round(Number(options?.queryLimit || 0) || 0));
+        const entryLimit = Math.max(0, Math.round(Number(item.queryLimit || 0) || 0));
+        const taskCount = Math.max(0, Math.round(Number(item.taskCount || 0) || 0));
+        if (currentLimit > entryLimit && entryLimit > 0 && taskCount >= entryLimit) return false;
+        const expectedCount = __tmGetExpectedTaskCountFromMap(__tmGetExpectedTaskCountMapFromOptions(options), item.id);
+        if (Number.isFinite(expectedCount)) {
+            const blockCount = Array.isArray(item.blocks)
+                ? item.blocks.length
+                : (Array.isArray(item.tasks) ? Object.keys(__tmBuildFlatTasksFromTaskSnapshotTree([{ id: item.id, tasks: item.tasks }])).length : taskCount);
+            if (Math.max(0, Math.round(Number(blockCount || 0) || 0)) < expectedCount) return false;
+        }
+        return true;
+    }
+
+    function __tmBuildTaskIndexTaskTreeForDocs(store, docIds = [], options = {}) {
+        const source = (store && typeof store === 'object') ? store : null;
+        const docs = source?.docs && typeof source.docs === 'object' ? source.docs : {};
+        const opts = (options && typeof options === 'object') ? options : {};
+        const out = [];
+        const missingDocIds = [];
+        const staleDocIds = [];
+        const softStaleDocIds = [];
+        const docUpdatedMap = opts.docUpdatedMap instanceof Map ? opts.docUpdatedMap : null;
+        const ids = __tmNormalizeTaskSnapshotDocIds(docIds);
+        ids.forEach((docId) => {
+            const entry = docs[docId];
+            if (!entry) {
+                missingDocIds.push(docId);
+                return;
+            }
+            if (!__tmIsUsableTaskIndexDoc(entry, opts)) {
+                staleDocIds.push(docId);
+                return;
+            }
+            if (docUpdatedMap && docUpdatedMap.has(docId)) {
+                const currentDocUpdated = String(docUpdatedMap.get(docId) || '').trim();
+                const indexedDocUpdated = String(entry.docUpdated || '').trim();
+                if (currentDocUpdated && indexedDocUpdated && currentDocUpdated !== indexedDocUpdated) {
+                    softStaleDocIds.push(docId);
+                }
+            }
+            const tasks = __tmBuildTaskTreeFromTaskIndexBlocks(entry);
+            if (!tasks.length && entry.inTaskTree === false) return;
+            out.push({
+                id: docId,
+                name: String(entry.name || '').trim() || '未命名文档',
+                alias: __tmNormalizeDocAliasValue(entry.alias),
+                icon: __tmNormalizeDocIconValue(entry.icon),
+                created: String(entry.created || '').trim(),
+                docUpdated: String(entry.docUpdated || '').trim(),
+                tasks,
+            });
+        });
+        return { taskTree: out, missingDocIds, staleDocIds, softStaleDocIds };
+    }
+
+    let __tmTaskIndexStoreCache = null;
+    let __tmTaskIndexStoreLoadPromise = null;
+    let __tmTaskIndexSaveTimer = null;
+    let __tmTaskIndexSaveInFlight = false;
+
+    async function __tmLoadTaskIndexStore(options = {}) {
+        const opts = (options && typeof options === 'object') ? options : {};
+        if (!opts.force && __tmTaskIndexStoreCache) return __tmTaskIndexStoreCache;
+        if (!opts.force && __tmTaskIndexStoreLoadPromise) return await __tmTaskIndexStoreLoadPromise;
+        __tmTaskIndexStoreLoadPromise = Promise.resolve()
+            .then(async () => {
+                const raw = await __tmReadJsonFile(TASK_INDEX_FILE_PATH);
+                const normalizedStore = __tmNormalizeTaskIndexStore(raw);
+                const store = __tmPruneTaskIndexStoreToLimits(normalizedStore);
+                __tmTaskIndexStoreCache = store;
+                try {
+                    const rawVersion = Math.max(0, Math.round(Number(raw?.version || 0) || 0));
+                    if (raw && (rawVersion !== __TM_TASK_INDEX_VERSION
+                        || __tmEstimateJsonByteSize(raw) > (__tmEstimateJsonByteSize(store) + 1024))) {
+                        __tmScheduleIdleTask(() => __tmWriteJsonFile(TASK_INDEX_FILE_PATH, store), 2600);
+                    }
+                } catch (e) {}
+                return store;
+            })
+            .finally(() => {
+                __tmTaskIndexStoreLoadPromise = null;
+            });
+        return await __tmTaskIndexStoreLoadPromise;
+    }
+
+    function __tmRestoreTaskIndexIntoState(store, options = {}) {
+        const opts = (options && typeof options === 'object') ? options : {};
+        const docIds = __tmNormalizeTaskSnapshotDocIds(opts.docIds || []);
+        if (!docIds.length) return null;
+        const built = __tmBuildTaskIndexTaskTreeForDocs(store, docIds, opts);
+        const reloadDocIds = Array.from(new Set([
+            ...((Array.isArray(built?.missingDocIds) ? built.missingDocIds : [])),
+            ...((Array.isArray(built?.staleDocIds) ? built.staleDocIds : [])),
+        ].map((id) => String(id || '').trim()).filter(Boolean)));
+        const softReloadDocIds = Array.from(new Set(
+            (Array.isArray(built?.softStaleDocIds) ? built.softStaleDocIds : [])
+                .map((id) => String(id || '').trim())
+                .filter(Boolean)
+        ));
+        if (!built) return null;
+        if (reloadDocIds.length) {
+            const allowPartial = opts.allowPartial === true;
+            const maxPartialMisses = Math.max(0, Math.round(Number(opts.maxPartialMisses || 0) || 0));
+            if (!allowPartial || reloadDocIds.length > maxPartialMisses) return null;
+        }
+        const taskTree = built.taskTree;
+        if (!taskTree.length && reloadDocIds.length > 0) return null;
+        const flatTasks = __tmBuildFlatTasksFromTaskSnapshotTree(taskTree);
+        if (!__tmHasExpectedTaskCountCoverage(docIds, Object.keys(flatTasks).length, opts)) return null;
+        state.taskTree = __tmSortDocEntriesByPinned(
+            taskTree,
+            String(opts.groupId || SettingsStore?.data?.currentGroupId || 'all').trim() || 'all'
+        );
+        try {
+            state.flatTasks = __tmMergeOtherBlocksIntoFlatTasks(flatTasks);
+        } catch (e) {
+            state.flatTasks = flatTasks;
+        }
+        state.__tmLoadedDocIdsForTasks = docIds.slice();
+        state.__tmTaskIndexRestoredAt = Date.now();
+        return {
+            docCount: taskTree.length,
+            taskCount: Object.keys(flatTasks).length,
+            indexUpdatedAt: Number(store?.updatedAt || 0) || 0,
+            partial: reloadDocIds.length > 0,
+            missingDocIds: Array.isArray(built.missingDocIds) ? built.missingDocIds.slice() : [],
+            staleDocIds: Array.isArray(built.staleDocIds) ? built.staleDocIds.slice() : [],
+            softStaleDocIds: softReloadDocIds,
+            reloadDocIds,
+            softReloadDocIds,
+        };
+    }
+
+    async function __tmLoadTaskIndexForScope(options = {}) {
+        try {
+            const opts = (options && typeof options === 'object') ? options : {};
+            const docIds = __tmNormalizeTaskSnapshotDocIds(opts.docIds || []);
+            if (!docIds.length) return null;
+            if (opts.cachedOnly && !__tmTaskIndexStoreCache) {
+                __tmScheduleWarmTaskIndexStore(2200);
+                return null;
+            }
+            const store = opts.cachedOnly
+                ? __tmTaskIndexStoreCache
+                : await __tmLoadTaskIndexStore({ force: !!opts.force });
+            return __tmRestoreTaskIndexIntoState(store, opts);
+        } catch (e) {
+            return null;
+        }
+    }
+
+    function __tmWarmTaskIndexStore() {
+        if (__tmTaskIndexStoreCache || __tmTaskIndexStoreLoadPromise) return;
+        try { __tmLoadTaskIndexStore().catch(() => null); } catch (e) {}
+    }
+
+    function __tmScheduleWarmTaskIndexStore(delayMs = 2200) {
+        if (__tmTaskIndexStoreCache || __tmTaskIndexStoreLoadPromise) return false;
+        const delay0 = Number(delayMs);
+        const waitMs = Math.max(80, Number.isFinite(delay0) ? delay0 : 2200);
+        const run = () => {
+            if (__tmTaskIndexStoreCache || __tmTaskIndexStoreLoadPromise) return;
+            try { __tmWarmTaskIndexStore(); } catch (e) {}
+        };
+        try { __tmScheduleIdleTask(run, waitMs); } catch (e) { setTimeout(run, waitMs); }
+        return true;
+    }
+
+    function __tmInvalidateTaskIndexStoreCache() {
+        try { __tmTaskIndexStoreCache = null; } catch (e) {}
+        try { __tmTaskIndexStoreLoadPromise = null; } catch (e) {}
+    }
+
+    async function __tmEnsureTaskIndexStoreReadyForFastPath(options = {}) {
+        const opts = (options && typeof options === 'object') ? options : {};
+        try {
+            if (!__tmDocScopeCacheStore) await __tmLoadDocScopeCacheStore({ force: !!opts.force });
+        } catch (e) {}
+        try {
+            if (!__tmTaskIndexStoreCache) await __tmLoadTaskIndexStore({ force: !!opts.force });
+        } catch (e) {}
+        return !!__tmTaskIndexStoreCache;
+    }
+
+    function __tmSchedulePersistTaskIndex(options = {}) {
+        const opts = (options && typeof options === 'object') ? options : {};
+        const docIds = __tmNormalizeTaskSnapshotDocIds(opts.docIds || state.__tmLoadedDocIdsForTasks || []);
+        if (!docIds.length) return false;
+        if (docIds.length > __TM_TASK_INDEX_MAX_DOCS) return false;
+        const docsById = new Map((Array.isArray(state.taskTree) ? state.taskTree : [])
+            .map((doc) => [String(doc?.id || '').trim(), doc])
+            .filter(([docId]) => __tmIsLikelyBlockId(docId)));
+        const allDocInfoById = new Map((Array.isArray(state.allDocuments) ? state.allDocuments : [])
+            .map((doc) => [String(doc?.id || '').trim(), doc])
+            .filter(([docId]) => __tmIsLikelyBlockId(docId)));
+        const nextEntries = [];
+        docIds.forEach((docId) => {
+            const hasTaskTreeDoc = docsById.has(docId);
+            const docInfo = allDocInfoById.get(docId) || {};
+            const doc = docsById.get(docId) || {
+                id: docId,
+                name: String(docInfo?.name || '').trim(),
+                alias: __tmNormalizeDocAliasValue(docInfo?.alias),
+                icon: __tmNormalizeDocIconValue(docInfo?.icon),
+                created: String(docInfo?.created || '').trim(),
+                updated: String(docInfo?.updated || '').trim(),
+                tasks: [],
+            };
+            const entry = __tmBuildTaskIndexDocEntry({
+                ...doc,
+                docUpdated: String(doc?.docUpdated || doc?.updated || docInfo?.updated || docInfo?.docUpdated || '').trim(),
+            }, { ...opts, inTaskTree: hasTaskTreeDoc });
+            const expectedCount = __tmGetExpectedTaskCountFromMap(__tmGetExpectedTaskCountMapFromOptions(opts), docId);
+            if (entry && Number.isFinite(expectedCount) && Math.max(0, Math.round(Number(entry.taskCount || 0) || 0)) < expectedCount) return;
+            if (entry && __tmEstimateJsonByteSize(entry) > __TM_TASK_INDEX_MAX_SINGLE_DOC_BYTES) return;
+            if (entry) nextEntries.push(entry);
+        });
+        if (!nextEntries.length) return false;
+        try {
+            __tmRememberTaskIndexEntriesInMemory(nextEntries, {
+                keepDocIds: nextEntries.map((entry) => entry?.id),
+            });
+        } catch (e) {}
+        try {
+            if (__tmTaskIndexSaveTimer) clearTimeout(__tmTaskIndexSaveTimer);
+        } catch (e) {}
+        const delayMs = Math.max(120, Number(opts.delayMs || 700) || 700);
+        __tmTaskIndexSaveTimer = setTimeout(() => {
+            __tmTaskIndexSaveTimer = null;
+            if (__tmTaskIndexSaveInFlight) {
+                __tmSchedulePersistTaskIndex({ ...opts, delayMs: 1000 });
+                return;
+            }
+            __tmTaskIndexSaveInFlight = true;
+            Promise.resolve()
+                .then(async () => {
+                    const raw = await __tmReadJsonFile(TASK_INDEX_FILE_PATH);
+                    const store = __tmNormalizeTaskIndexStore(raw || __tmTaskIndexStoreCache);
+                    nextEntries.forEach((entry) => {
+                        store.docs[entry.id] = entry;
+                    });
+                    store.version = __TM_TASK_INDEX_VERSION;
+                    store.updatedAt = Date.now();
+                    const nextStore = __tmPruneTaskIndexStoreToLimits(store, {
+                        keepDocIds: nextEntries.map((entry) => entry?.id),
+                    });
+                    __tmTaskIndexStoreCache = nextStore;
+                    await __tmWriteJsonFile(TASK_INDEX_FILE_PATH, nextStore);
+                })
+                .catch(() => null)
+                .finally(() => {
+                    __tmTaskIndexSaveInFlight = false;
+                });
+        }, delayMs);
+        return true;
     }
 
     const __TM_SETTINGS_FIELD_SYNC_EXCLUDED_KEYS = new Set([
@@ -2020,13 +4118,72 @@
     }
 
     function __tmGetActiveListTaskRenderLimit() {
-        if (String(state?.viewMode || '').trim() !== 'list') return 0;
+        const mode = String(state?.viewMode || '').trim();
+        if (mode !== 'list' && mode !== 'checklist') return 0;
         const filteredCount = Array.isArray(state?.filteredTasks) ? state.filteredTasks.length : 0;
         if (filteredCount <= 0) return 0;
         const virtualThreshold = 50;
         if (filteredCount <= virtualThreshold) return filteredCount;
-        const step = Math.max(100, Math.min(1200, Number(state?.listRenderStep) || 100));
+        const step = Math.max(20, Math.min(1200, Number(state?.listRenderStep) || 20));
         return Math.max(step, Math.min(filteredCount, Number(state?.listRenderLimit) || step));
+    }
+
+    function __tmBuildCurrentViewDomRenderSignature(modeInput = '') {
+        const mode = String(modeInput || state?.viewMode || '').trim() || 'list';
+        if (mode !== 'list' && mode !== 'checklist') return '';
+        try {
+            const filtered = Array.isArray(state?.filteredTasks) ? state.filteredTasks : [];
+            const limit = Math.max(0, Math.min(filtered.length, __tmGetActiveListTaskRenderLimit() || filtered.length));
+            const sampleIds = [];
+            const sampleTask = (idx) => {
+                if (idx < 0 || idx >= limit) return;
+                const id = String(filtered[idx]?.id || '').trim();
+                if (id) sampleIds.push(`${idx}:${id}`);
+            };
+            sampleTask(0);
+            sampleTask(1);
+            sampleTask(Math.floor(limit / 2));
+            sampleTask(limit - 2);
+            sampleTask(limit - 1);
+            const multiSelectedIds = Array.isArray(state?.multiSelectedTaskIds)
+                ? state.multiSelectedTaskIds.map((id) => String(id || '').trim()).filter(Boolean).sort()
+                : [];
+            const multiSelectedSig = multiSelectedIds.length > 24
+                ? `${multiSelectedIds.length}:${multiSelectedIds.slice(0, 12).join(',')}:${multiSelectedIds.slice(-12).join(',')}`
+                : multiSelectedIds.join(',');
+            const collapsedTaskIds = state?.collapsedTaskIds instanceof Set
+                ? Array.from(state.collapsedTaskIds).map((id) => String(id || '').trim()).filter(Boolean).sort()
+                : [];
+            const collapsedGroups = state?.collapsedGroups instanceof Set
+                ? Array.from(state.collapsedGroups).map((id) => String(id || '').trim()).filter(Boolean).sort()
+                : [];
+            return [
+                mode,
+                String(state?.activeDocId || 'all').trim() || 'all',
+                String(state?.currentRule || '').trim(),
+                String(state?.searchKeyword || '').trim(),
+                String(state?.listRenderSignature || '').trim(),
+                String(limit),
+                String(filtered.length),
+                String(state?.groupByDocName ? 1 : 0),
+                String(state?.groupByTaskName ? 1 : 0),
+                String(state?.groupByTime ? 1 : 0),
+                String(state?.quadrantEnabled ? 1 : 0),
+                String(state?.docTabsArchiveMode ? 1 : 0),
+                String(state?.docTabsHidden ? 1 : 0),
+                String(state?.multiSelectModeEnabled ? 1 : 0),
+                String(Array.isArray(state?.multiSelectedTaskIds) ? state.multiSelectedTaskIds.length : 0),
+                multiSelectedSig,
+                String(collapsedTaskIds.length),
+                collapsedTaskIds.join(','),
+                String(collapsedGroups.length),
+                collapsedGroups.join(','),
+                String(state?.detailTaskId || '').trim(),
+                sampleIds.join(','),
+            ].join('|');
+        } catch (e) {
+            return '';
+        }
     }
 
     function __tmCollectVisibleListTasks(options = {}) {
@@ -2391,8 +4548,9 @@
             docGroupSettingsUpdatedAt: 0,
             collapseStateUpdatedAt: 0,
             selectedDocIds: [],
-            queryLimit: 500,
+            queryLimit: __TM_TASK_INDEX_QUERY_LIMIT,
             recursiveDocLimit: 2000,
+            legacyWin7CompatMode: false,
             taskParentLookupDepth: TM_TASK_PARENT_LOOKUP_DEPTH_DEFAULT,
             groupByDocName: true,
             groupByTime: false,
@@ -2568,8 +4726,9 @@
             taskHeadingLevel: 'h2',
             // 时长显示格式: 'hours' 或 'minutes'
             durationFormat: 'hours',
-            // 不查找已完成任务（提升性能）
+            // 默认隐藏已完成任务（仅视图过滤，任务仍会进入索引）
             excludeCompletedTasks: true,
+            showCompletedTasks: false,
             // 开始日期（新增列）
             startDate: 90,
             // 时间轴模式左侧宽度
@@ -2915,8 +5074,9 @@
                                 if (cloudCollapseUpdatedAt > 0) this.data.collapseStateUpdatedAt = cloudCollapseUpdatedAt;
                                 // 应用云端数据
                                 if (shouldApplyCloudDocGroupState && Array.isArray(cloudData.selectedDocIds)) this.data.selectedDocIds = cloudData.selectedDocIds;
-                                if (typeof cloudData.queryLimit === 'number') this.data.queryLimit = cloudData.queryLimit;
+                                if (typeof cloudData.queryLimit === 'number') this.data.queryLimit = __TM_TASK_INDEX_QUERY_LIMIT;
                                 if (typeof cloudData.recursiveDocLimit === 'number') this.data.recursiveDocLimit = cloudData.recursiveDocLimit;
+                                if (typeof cloudData.legacyWin7CompatMode === 'boolean') this.data.legacyWin7CompatMode = cloudData.legacyWin7CompatMode;
                                 if (typeof cloudData.taskParentLookupDepth === 'number') this.data.taskParentLookupDepth = __tmNormalizeTaskParentLookupDepth(cloudData.taskParentLookupDepth);
                                 if (typeof cloudData.groupByDocName === 'boolean') this.data.groupByDocName = cloudData.groupByDocName;
                                 if (typeof cloudData.groupByTime === 'boolean') this.data.groupByTime = cloudData.groupByTime;
@@ -3128,7 +5288,12 @@
 
                                 // 新增字段处理
                                 if (typeof cloudData.durationFormat === 'string') this.data.durationFormat = cloudData.durationFormat;
-                                if (typeof cloudData.excludeCompletedTasks === 'boolean') this.data.excludeCompletedTasks = cloudData.excludeCompletedTasks;
+                                const cloudHasShowCompletedTasks = typeof cloudData.showCompletedTasks === 'boolean';
+                                const cloudHasExcludeCompletedTasks = typeof cloudData.excludeCompletedTasks === 'boolean';
+                                if (cloudHasShowCompletedTasks) this.data.showCompletedTasks = cloudData.showCompletedTasks;
+                                if (cloudHasExcludeCompletedTasks) this.data.excludeCompletedTasks = cloudData.excludeCompletedTasks;
+                                if (!cloudHasShowCompletedTasks && cloudHasExcludeCompletedTasks) this.data.showCompletedTasks = !this.data.excludeCompletedTasks;
+                                __tmNormalizeCompletedVisibilitySettings(this.data);
                                 if (typeof cloudData.startDate === 'number') this.data.startDate = cloudData.startDate;
                                 if (typeof cloudData.timelineLeftWidth === 'number') this.data.timelineLeftWidth = cloudData.timelineLeftWidth;
                                 if (typeof cloudData.timelineSidebarCollapsed === 'boolean') this.data.timelineSidebarCollapsed = cloudData.timelineSidebarCollapsed;
@@ -3260,8 +5425,9 @@
             this.data.docGroupSettingsUpdatedAt = Number(Storage.get('tm_doc_group_settings_updated_at', this.data.docGroupSettingsUpdatedAt)) || 0;
             this.data.collapseStateUpdatedAt = Number(Storage.get('tm_collapse_state_updated_at', this.data.collapseStateUpdatedAt)) || 0;
             this.data.selectedDocIds = Storage.get('tm_selected_doc_ids', []) || [];
-            this.data.queryLimit = Storage.get('tm_query_limit', 500);
+            this.data.queryLimit = __TM_TASK_INDEX_QUERY_LIMIT;
             this.data.recursiveDocLimit = Storage.get('tm_recursive_doc_limit', this.data.recursiveDocLimit);
+            this.data.legacyWin7CompatMode = !!Storage.get('tm_legacy_win7_compat_mode', this.data.legacyWin7CompatMode);
             this.data.taskParentLookupDepth = __tmNormalizeTaskParentLookupDepth(Storage.get('tm_task_parent_lookup_depth', this.data.taskParentLookupDepth));
             this.data.groupByDocName = Storage.get('tm_group_by_docname', true);
             this.data.groupByTime = Storage.get('tm_group_by_time', false);
@@ -3457,7 +5623,13 @@
             this.data.columnOrder = Storage.get('tm_column_order', this.data.columnOrder);
             this.data.hiddenColumns = Storage.get('tm_hidden_columns', this.data.hiddenColumns);
             this.data.durationFormat = Storage.get('tm_duration_format', this.data.durationFormat);
+            const hasStoredShowCompletedTasks = Storage.has('tm_show_completed_tasks');
+            if (hasStoredShowCompletedTasks) {
+                this.data.showCompletedTasks = Storage.get('tm_show_completed_tasks', this.data.showCompletedTasks);
+            }
             this.data.excludeCompletedTasks = Storage.get('tm_exclude_completed_tasks', this.data.excludeCompletedTasks);
+            if (!hasStoredShowCompletedTasks) this.data.showCompletedTasks = !this.data.excludeCompletedTasks;
+            __tmNormalizeCompletedVisibilitySettings(this.data);
             this.data.startDate = Storage.get('tm_start_date', this.data.startDate);
             this.data.timelineLeftWidth = Storage.get('tm_timeline_left_width', this.data.timelineLeftWidth);
             this.data.timelineSidebarCollapsed = !!Storage.get('tm_timeline_sidebar_collapsed', this.data.timelineSidebarCollapsed);
@@ -3620,8 +5792,9 @@
             Storage.set('tm_doc_group_settings_updated_at', Number(this.data.docGroupSettingsUpdatedAt) || 0);
             Storage.set('tm_collapse_state_updated_at', Number(this.data.collapseStateUpdatedAt) || 0);
             Storage.set('tm_selected_doc_ids', this.data.selectedDocIds);
-            Storage.set('tm_query_limit', this.data.queryLimit);
+            this.data.queryLimit = __TM_TASK_INDEX_QUERY_LIMIT;
             Storage.set('tm_recursive_doc_limit', this.data.recursiveDocLimit);
+            Storage.set('tm_legacy_win7_compat_mode', !!this.data.legacyWin7CompatMode);
             this.data.taskParentLookupDepth = __tmNormalizeTaskParentLookupDepth(this.data.taskParentLookupDepth);
             Storage.set('tm_task_parent_lookup_depth', this.data.taskParentLookupDepth);
             Storage.set('tm_group_by_docname', this.data.groupByDocName);
@@ -3832,6 +6005,8 @@
             Storage.set('tm_column_order', this.data.columnOrder);
             Storage.set('tm_hidden_columns', Array.isArray(this.data.hiddenColumns) ? this.data.hiddenColumns : []);
             Storage.set('tm_duration_format', String(this.data.durationFormat || 'hours').trim() === 'minutes' ? 'minutes' : 'hours');
+            __tmNormalizeCompletedVisibilitySettings(this.data);
+            Storage.set('tm_show_completed_tasks', !!this.data.showCompletedTasks);
             Storage.set('tm_exclude_completed_tasks', !!this.data.excludeCompletedTasks);
             Storage.set('tm_start_date', Number(this.data.startDate) || 90);
             Storage.set('tm_timeline_left_width', this.data.timelineLeftWidth);
@@ -5503,6 +7678,9 @@
 
     const __tmTasksQueryCache = new Map();
     const __tmDocExpandCache = new Map();
+    const __tmResolvedDocIdsCacheMap = new Map();
+    const __tmGroupSessionTaskCache = new Map();
+    const __tmDocSessionTaskCache = new Map();
     const __tmDocHasTaskQueryCache = new Map();
     const __tmDocEnhanceSnapshotCache = new Map();
     const __tmTaskDocMapCache = new Map();
@@ -5512,6 +7690,16 @@
     const __tmSqlInFlight = new Map();
     const __tmSqlQueue = { max: 3, active: 0, q: [] };
     const __tmAuxQueryCache = new Map();
+    const __tmTaskIndexPrewarmState = {
+        running: false,
+        pendingDocIds: new Set(),
+        timer: null,
+        lastStartedAt: 0,
+    };
+    const __tmResolvedDocIdsPrewarmState = {
+        timer: null,
+        running: false,
+    };
     let __tmResolvedDocIdsCache = null;
     let __tmResolvedDocIdsPromise = null;
     let __tmSqlCacheInvalidationBound = false;
@@ -5522,10 +7710,13 @@
     let __tmCalendarTxRefreshPending = false;
     let __tmTxTaskRefreshTimer = null;
     let __tmTxTaskRefreshInFlight = false;
+    let __tmWsTaskTxBatchTimer = null;
+    let __tmWsTaskTxBatch = null;
     let __tmTaskSnapshotSaveTimer = null;
     let __tmTaskSnapshotSaveInFlight = false;
     let __tmTaskSnapshotStoreCache = null;
     let __tmTaskSnapshotStoreLoadPromise = null;
+    const __tmTaskSnapshotPersistSignatureCache = new Map();
     const __tmTxTaskRefreshDocIds = new Set();
     const __tmTxTaskRefreshBlockIds = new Set();
     let __tmLocalTimeTxSuppressUntil = 0;
@@ -6345,6 +8536,7 @@
         return {
             ...src,
             tasks: __tmCloneTaskQueryRows(src.tasks),
+            limitReachedDocIds: Array.isArray(src.limitReachedDocIds) ? src.limitReachedDocIds.slice() : [],
         };
     }
 
@@ -7180,6 +9372,9 @@
             try { __tmDocEnhanceWarmQueue.items.length = 0; __tmDocEnhanceWarmQueue.set.clear(); } catch (e) {}
             try { __tmAuxQueryCache.clear(); } catch (e) {}
             try { __tmDocExpandCache.clear(); } catch (e) {}
+            try { __tmResolvedDocIdsCacheMap.clear(); } catch (e) {}
+            try { __tmClearGroupSessionTaskCache(); } catch (e) {}
+            try { __tmClearDocSessionTaskCache(); } catch (e) {}
             try { __tmResolvedDocIdsCache = null; } catch (e) {}
             try { __tmResolvedDocIdsPromise = null; } catch (e) {}
             return;
@@ -7202,6 +9397,9 @@
         try { __tmClearCustomFieldAttrValueCache(); } catch (e) {}
         try { __tmAuxQueryCache.clear(); } catch (e) {}
         try { __tmDocExpandCache.clear(); } catch (e) {}
+        try { __tmResolvedDocIdsCacheMap.clear(); } catch (e) {}
+        try { __tmClearGroupSessionTaskCache(did); } catch (e) {}
+        try { __tmClearDocSessionTaskCache(did); } catch (e) {}
         try { __tmResolvedDocIdsCache = null; } catch (e) {}
         try { __tmResolvedDocIdsPromise = null; } catch (e) {}
     }
@@ -7217,8 +9415,37 @@
         try { __tmSqlInFlight.clear(); } catch (e) {}
         try { __tmAuxQueryCache.clear(); } catch (e) {}
         try { __tmDocExpandCache.clear(); } catch (e) {}
+        try { __tmResolvedDocIdsCacheMap.clear(); } catch (e) {}
+        try { __tmClearGroupSessionTaskCache(); } catch (e) {}
+        try { __tmClearDocSessionTaskCache(); } catch (e) {}
         try { __tmResolvedDocIdsCache = null; } catch (e) {}
         try { __tmResolvedDocIdsPromise = null; } catch (e) {}
+    }
+
+    function __tmPruneDocSessionTaskCache(options = {}) {
+        const opts = (options && typeof options === 'object') ? options : {};
+        const maxEntries = Math.max(40, Math.floor(Number(opts.maxEntries || 260) || 260));
+        const maxAgeMs = Math.max(5 * 60 * 1000, Math.floor(Number(opts.maxAgeMs || 20 * 60 * 1000) || 20 * 60 * 1000));
+        try {
+            const now = Date.now();
+            for (const [docId, entry] of Array.from(__tmDocSessionTaskCache.entries())) {
+                if (!__tmIsLikelyBlockId(String(docId || '').trim()) || !entry || typeof entry !== 'object') {
+                    __tmDocSessionTaskCache.delete(docId);
+                    continue;
+                }
+                if (now - Number(entry?.t || 0) > maxAgeMs) {
+                    __tmDocSessionTaskCache.delete(docId);
+                }
+            }
+            if (__tmDocSessionTaskCache.size <= maxEntries) return;
+            const survivors = Array.from(__tmDocSessionTaskCache.entries())
+                .sort((a, b) => Number(b[1]?.t || 0) - Number(a[1]?.t || 0))
+                .slice(0, maxEntries);
+            __tmDocSessionTaskCache.clear();
+            survivors.forEach(([docId, entry]) => {
+                __tmDocSessionTaskCache.set(docId, entry);
+            });
+        } catch (e) {}
     }
 
     async function __tmFillDocHasTasksMap(docIds, tasksMap) {
@@ -7226,12 +9453,24 @@
         if (!ids.length || !(tasksMap instanceof Map)) return tasksMap;
         const now = Date.now();
         const ttlMs = 20000;
+        let taskIndexStore = null;
+        const docUpdatedMap = __tmBuildDocUpdatedFingerprintMap(state.allDocuments);
+        try { taskIndexStore = await __tmLoadTaskIndexStore(); } catch (e) { taskIndexStore = null; }
         const uncheckedIds = [];
         ids.forEach((id) => {
             if (tasksMap.has(id)) return;
             const cached = __tmDocHasTaskQueryCache.get(id);
             if (cached && (now - Number(cached.t || 0)) < ttlMs) {
                 if (cached.hasTasks) tasksMap.set(id, true);
+                return;
+            }
+            const indexedDoc = taskIndexStore?.docs?.[id];
+            if (__tmIsUsableTaskIndexDoc(indexedDoc, { queryLimit: __TM_TASK_INDEX_QUERY_LIMIT, docUpdatedMap })) {
+                const hasIndexedTasks = Number(indexedDoc?.taskCount || 0) > 0
+                    || (Array.isArray(indexedDoc?.blocks) && indexedDoc.blocks.length > 0)
+                    || (Array.isArray(indexedDoc?.tasks) && indexedDoc.tasks.length > 0);
+                __tmDocHasTaskQueryCache.set(id, { t: now, hasTasks: hasIndexedTasks });
+                if (hasIndexedTasks) tasksMap.set(id, true);
                 return;
             }
             uncheckedIds.push(id);
@@ -7725,53 +9964,12 @@
         target.totalMs = __tmRoundPerfMs(perfNow - Number(target.startPerf || perfNow));
         target.finishDetail = __tmCloneDebugValue(detail || {});
         const entry = __tmPushPerfTrace(target);
-        try {
-            const traceName = String(entry?.name || target.name || '').trim();
-            if (traceName === 'openManager' || traceName === 'loadSelectedDocuments') {
-                
-            }
-        } catch (e) {}
-        try {
-            const cfg = (typeof window !== 'undefined' && window && typeof window.tmTaskHorizonPerf === 'object' && window.tmTaskHorizonPerf)
-                ? window.tmTaskHorizonPerf
-                : {};
-            if (cfg.logToConsole === true || cfg.console === true) {
-                console.info('[TM][Perf]', entry?.name || target.name || 'trace', {
-                    totalMs: entry?.totalMs || target.totalMs || 0,
-                    marks: Array.isArray(entry?.marks) ? entry.marks.length : (Array.isArray(target.marks) ? target.marks.length : 0),
-                    meta: entry?.meta || target.meta || {},
-                    finishDetail: entry?.finishDetail || target.finishDetail || {},
-                });
-            }
-        } catch (e) {}
         return entry || __tmClonePerfTrace(target);
     }
 
     function __tmDumpPerfTraces(limit = 5) {
         const count = Math.max(1, Math.min(80, Number(limit) || 5));
         const traces = __tmPerfTraceStore.log.slice(-count).map((trace) => __tmClonePerfTrace(trace)).filter(Boolean);
-        try {
-            console.table(traces.map((trace) => ({
-                id: trace?.id || 0,
-                name: trace?.name || '',
-                createdTime: trace?.createdTime || '',
-                totalMs: __tmRoundPerfMs(trace?.totalMs || 0),
-                markCount: Array.isArray(trace?.marks) ? trace.marks.length : 0,
-                source: String(trace?.meta?.source || ''),
-                viewMode: String(trace?.meta?.viewMode || ''),
-                taskCount: Number(trace?.finishDetail?.taskCount || trace?.meta?.taskCount || 0),
-                filteredCount: Number(trace?.finishDetail?.filteredCount || 0),
-            })));
-            if (traces.length === 1 && Array.isArray(traces[0]?.marks)) {
-                console.table(traces[0].marks.map((mark) => ({
-                    index: Number(mark?.index || 0),
-                    tag: String(mark?.tag || ''),
-                    sinceStartMs: __tmRoundPerfMs(mark?.sinceStartMs || 0),
-                    sincePrevMs: __tmRoundPerfMs(mark?.sincePrevMs || 0),
-                    payload: mark?.payload || {},
-                })));
-            }
-        } catch (e) {}
         return traces;
     }
 
@@ -7812,73 +10010,8 @@
     }
 
     function __tmDumpPerfTraceMarkPayload(tag = 'normalize', trace = null) {
-        const payload = __tmGetPerfTraceMarkPayload(tag, trace);
-        try {
-            if (payload && typeof payload === 'object' && !Array.isArray(payload)) {
-                console.table([payload]);
-            } else {
-                console.log(payload);
-            }
-        } catch (e) {}
-        return payload;
+        return __tmGetPerfTraceMarkPayload(tag, trace);
     }
-
-    function __tmBindPerfDebugGlobals() {
-        const dump = function(limit = 5) {
-            return __tmDumpPerfTraces(limit);
-        };
-        const clear = function() {
-            return __tmClearPerfTraces();
-        };
-        const clearCaches = function() {
-            try { __tmInvalidateAllSqlCaches(); } catch (e) {}
-            return true;
-        };
-        const latest = function() {
-            return __tmClonePerfTrace(globalThis.__tmTaskHorizonPerfTraceLast || null);
-        };
-        const stats = function() {
-            return __tmGetStatsSnapshot();
-        };
-        const mark = function(tag = 'normalize', trace = null) {
-            return __tmDumpPerfTraceMarkPayload(tag, trace);
-        };
-        try { globalThis.__tmTaskHorizonPerfTrace = __tmPerfTraceStore.log; } catch (e) {}
-        try { if (globalThis.__tmTaskHorizonPerfTraceLast === undefined) globalThis.__tmTaskHorizonPerfTraceLast = null; } catch (e) {}
-        try { if (globalThis.__tmTaskHorizonPerfTraceCurrent === undefined) globalThis.__tmTaskHorizonPerfTraceCurrent = null; } catch (e) {}
-        try { globalThis.__tmTaskHorizonPerfCreate = function(name, meta = {}) { return __tmCreatePerfTrace(name, meta); }; } catch (e) {}
-        try { globalThis.__tmTaskHorizonPerfMark = function(trace, tag, payload = {}) { return __tmPerfTraceMark(trace, tag, payload); }; } catch (e) {}
-        try { globalThis.__tmTaskHorizonPerfFinish = function(trace, detail = {}) { return __tmPerfTraceFinish(trace, detail); }; } catch (e) {}
-        try { globalThis.tmTaskHorizonPerfDump = dump; } catch (e) {}
-        try { globalThis.tmTaskHorizonPerfClear = clear; } catch (e) {}
-        try { globalThis.tmTaskHorizonPerfClearCaches = clearCaches; } catch (e) {}
-        try { globalThis.tmTaskHorizonPerfLatest = latest; } catch (e) {}
-        try { globalThis.tmTaskHorizonPerfMarkPayload = mark; } catch (e) {}
-        try { globalThis.tmTaskHorizonStats = stats; } catch (e) {}
-        try {
-            const existing = (typeof window !== 'undefined' && window && typeof window.tmTaskHorizonPerf === 'object' && window.tmTaskHorizonPerf)
-                ? window.tmTaskHorizonPerf
-                : {};
-            existing.dump = dump;
-            existing.clear = clear;
-            existing.clearCaches = clearCaches;
-            existing.latest = latest;
-            existing.mark = mark;
-            existing.stats = stats;
-            try {
-                Object.defineProperty(window, 'tmTaskHorizonPerf', {
-                    value: existing,
-                    configurable: true,
-                    writable: true,
-                    enumerable: true,
-                });
-            } catch (defineErr) {
-                try { window.tmTaskHorizonPerf = existing; } catch (assignErr) {}
-            }
-        } catch (e) {}
-    }
-
-    __tmBindPerfDebugGlobals();
 
     function __tmScheduleIdleTask(task, timeout = 180) {
         const run = () => Promise.resolve().then(task).catch(() => null);
@@ -7898,11 +10031,25 @@
         const viewMode = String(options?.viewMode || state?.viewMode || '').trim();
         const baseQueryLimit = Number.isFinite(Number(options?.queryLimit))
             ? Math.max(1, Math.round(Number(options.queryLimit)))
-            : 500;
-        const enabled = !!(cfg.mobileFastFirstPaint && runtimeMobile && !forceFullLoadBudget && (viewMode === 'checklist' || viewMode === 'list'));
-        const queryLimit = Math.max(50, Math.min(baseQueryLimit, Number(cfg.mobileInitialQueryLimit) || 180));
-        const renderLimit = Math.max(20, Math.min(queryLimit, Number(cfg.mobileInitialRenderLimit) || 60));
-        const listStep = Math.max(20, Math.min(renderLimit, Number(cfg.mobileInitialListStep) || 60));
+            : __TM_TASK_INDEX_QUERY_LIMIT;
+        const forced = !!(options && options.forceFastFirstPaintBudget);
+        const viewSupportsAutoBudget = viewMode === 'checklist' || viewMode === 'list';
+        const enabled = !!((forced || (cfg.mobileFastFirstPaint && runtimeMobile && viewSupportsAutoBudget)) && !forceFullLoadBudget);
+        const overrideQueryLimit = Number(options?.initialQueryLimit);
+        const overrideRenderLimit = Number(options?.initialRenderLimit);
+        const overrideListStep = Number(options?.initialListStep);
+        const queryLimit = Math.max(20, Math.min(
+            baseQueryLimit,
+            Number.isFinite(overrideQueryLimit) ? Math.round(overrideQueryLimit) : (Number(cfg.mobileInitialQueryLimit) || 60)
+        ));
+        const renderLimit = Math.max(10, Math.min(
+            queryLimit,
+            Number.isFinite(overrideRenderLimit) ? Math.round(overrideRenderLimit) : (Number(cfg.mobileInitialRenderLimit) || 30)
+        ));
+        const listStep = Math.max(10, Math.min(
+            renderLimit,
+            Number.isFinite(overrideListStep) ? Math.round(overrideListStep) : (Number(cfg.mobileInitialListStep) || 30)
+        ));
         return { enabled, queryLimit, renderLimit, listStep };
     }
 
@@ -7918,6 +10065,10 @@
         const mobileInitialQuery0 = Number(cfg.mobileInitialQueryLimit);
         const mobileInitialRender0 = Number(cfg.mobileInitialRenderLimit);
         const mobileInitialStep0 = Number(cfg.mobileInitialListStep);
+        const taskIndexPrewarmDelay0 = Number(cfg.taskIndexPrewarmDelayMs);
+        const taskIndexPrewarmChunk0 = Number(cfg.taskIndexPrewarmChunkSize);
+        const taskIndexPrewarmMaxDocs0 = Number(cfg.taskIndexPrewarmMaxDocs);
+        const taskBlockIncrementalMax0 = Number(cfg.taskBlockIncrementalMaxTasks);
         const disableSiblingRank = cfg.disableSiblingRank === true || cfg.perfDisableSiblingRank === true;
         const deferRecurringReconcile = cfg.deferRecurringReconcile === true || cfg.perfDeferRecurringReconcile === true;
         const readRepeatAttrsInline = cfg.readRepeatAttrsInline !== false && cfg.perfReadRepeatAttrsInline !== false;
@@ -7933,6 +10084,12 @@
             mobileInitialQueryLimit: Number.isFinite(mobileInitialQuery0) ? Math.max(50, Math.floor(mobileInitialQuery0)) : 180,
             mobileInitialRenderLimit: Number.isFinite(mobileInitialRender0) ? Math.max(20, Math.floor(mobileInitialRender0)) : 60,
             mobileInitialListStep: Number.isFinite(mobileInitialStep0) ? Math.max(20, Math.floor(mobileInitialStep0)) : 60,
+            taskIndexPrewarm: cfg.taskIndexPrewarm !== false && cfg.disableTaskIndexPrewarm !== true,
+            taskIndexPrewarmDelayMs: Number.isFinite(taskIndexPrewarmDelay0) ? Math.max(120, Math.floor(taskIndexPrewarmDelay0)) : 900,
+            taskIndexPrewarmChunkSize: Number.isFinite(taskIndexPrewarmChunk0) ? Math.max(2, Math.min(30, Math.floor(taskIndexPrewarmChunk0))) : 12,
+            taskIndexPrewarmMaxDocs: Number.isFinite(taskIndexPrewarmMaxDocs0) ? Math.max(0, Math.floor(taskIndexPrewarmMaxDocs0)) : 1200,
+            taskBlockIncrementalRefresh: cfg.taskBlockIncrementalRefresh !== false && cfg.disableTaskBlockIncrementalRefresh !== true,
+            taskBlockIncrementalMaxTasks: Number.isFinite(taskBlockIncrementalMax0) ? Math.max(1, Math.min(30, Math.floor(taskBlockIncrementalMax0))) : 8,
             disableSiblingRank,
             deferRecurringReconcile,
             readRepeatAttrsInline,
@@ -8011,6 +10168,348 @@
         __tmEnqueueDocEnhanceWarm(warmIds, headingLevel);
         const prefetchIds = __tmCollectPrefetchDocIdsByGroups(currentGroupId, cfg.prefetchGroupDocsLimit);
         __tmEnqueueDocEnhanceWarm(prefetchIds, headingLevel);
+    }
+
+    async function __tmCollectAllConfiguredTaskScopeDocIds() {
+        const out = [];
+        const seen = new Set();
+        const pushDocId = (id0) => {
+            const id = String(id0 || '').trim();
+            if (!__tmIsLikelyBlockId(id) || seen.has(id)) return;
+            seen.add(id);
+            out.push(id);
+        };
+        const entries = [];
+        const quickAddDocId = String(SettingsStore?.data?.newTaskDocId || '').trim();
+        if (__tmIsLikelyBlockId(quickAddDocId)) entries.push({ id: quickAddDocId, kind: 'doc', recursive: false });
+        const legacyIds = Array.isArray(SettingsStore?.data?.selectedDocIds) ? SettingsStore.data.selectedDocIds : [];
+        legacyIds.forEach((id) => entries.push({ id, kind: 'doc', recursive: false }));
+        const groups = Array.isArray(SettingsStore?.data?.docGroups) ? SettingsStore.data.docGroups : [];
+        groups.forEach((group) => {
+            try {
+                entries.push(...__tmGetGroupSourceEntries(group));
+            } catch (e) {}
+        });
+        for (const entry of entries) {
+            try {
+                await __tmExpandSourceEntryDocIds(entry, pushDocId);
+            } catch (e) {}
+        }
+        const stillMissingIds = targetIds.filter((id) => !out.has(id));
+        if (stillMissingIds.length && API && typeof API.getDocMetaById === 'function') {
+            for (const id of stillMissingIds) {
+                if (out.has(id)) continue;
+                try {
+                    const meta = await API.getDocMetaById(id);
+                    if (!meta) continue;
+                    const docName = String(meta?.name || '').trim();
+                    const docPath = String(meta?.path || '').trim();
+                    out.set(id, {
+                        doc_name: docName,
+                        doc_path: docPath,
+                    });
+                    if (!Array.isArray(state.allDocuments)) state.allDocuments = [];
+                    const existing = state.allDocuments.find((doc) => String(doc?.id || '').trim() === id);
+                    if (existing) {
+                        if (!String(existing.name || '').trim() && docName) existing.name = docName;
+                        if (!String(existing.path || '').trim() && docPath) existing.path = docPath;
+                    } else {
+                        state.allDocuments.push({
+                            id,
+                            name: docName || '未命名文档',
+                            alias: '',
+                            icon: '',
+                            path: docPath,
+                            notebook: String(meta?.notebook || '').trim(),
+                            taskCount: 0,
+                            created: ''
+                        });
+                    }
+                } catch (e) {}
+            }
+        }
+        return out;
+    }
+
+    async function __tmBuildTaskIndexEntriesFromRows(docIds, rows, options = {}) {
+        const ids = __tmNormalizeTaskSnapshotDocIds(docIds || []);
+        if (!ids.length) return [];
+        const idSet = new Set(ids);
+        const opts = (options && typeof options === 'object') ? options : {};
+        const queryLimit = Math.max(1, Math.round(Number(opts.queryLimit || __TM_TASK_INDEX_QUERY_LIMIT) || __TM_TASK_INDEX_QUERY_LIMIT));
+        const allDocuments = Array.isArray(state.allDocuments) ? state.allDocuments : [];
+        const docInfoById = new Map(allDocuments
+            .map((doc) => [String(doc?.id || '').trim(), doc])
+            .filter(([docId]) => __tmIsLikelyBlockId(docId)));
+        const normalizeCustomFieldDefs = __tmGetCustomFieldDefs();
+        const normalizeCustomFieldDefMap = new Map(normalizeCustomFieldDefs
+            .map((field) => [String(field?.id || '').trim(), field])
+            .filter(([fieldId]) => !!fieldId));
+        const normalizeDocDisplayNameCache = new Map();
+        const visibleDateFallbackTaskIds = __tmBuildVisibleDateFallbackTaskIdSet();
+        const normalizeTaskOptions = {
+            docDisplayNameCache: normalizeDocDisplayNameCache,
+            docDisplayNameMode: String(__tmGetDocDisplayNameMode() || '').trim() || 'name',
+            customFieldDefs: normalizeCustomFieldDefs,
+            customFieldDefMap: normalizeCustomFieldDefMap,
+            visibleDateFallbackTaskIds,
+            todayDateKey: __tmNormalizeDateOnly(new Date()),
+        };
+        const tasksByDoc = new Map();
+        const taskIds = [];
+        const taskDocMap = new Map();
+        (Array.isArray(rows) ? rows : []).forEach((row) => {
+            if (!row || typeof row !== 'object') return;
+            const docId = String(row.root_id || row.docId || '').trim();
+            if (!idSet.has(docId)) return;
+            const task = { ...row };
+            const taskId = String(task.id || '').trim();
+            const prevTask = taskId ? (state.flatTasks?.[taskId] || null) : null;
+            if (taskId) {
+                taskIds.push(taskId);
+                taskDocMap.set(taskId, docId);
+            }
+            const parsed = (API && typeof API.parseTaskStatus === 'function')
+                ? API.parseTaskStatus(task.markdown)
+                : { done: false, content: String(task.content || task.markdown || '').trim(), marker: '' };
+            task.done = !!parsed.done;
+            task.content = parsed.content;
+            const parsedMarker = __tmNormalizeTaskStatusMarker(parsed?.marker, '');
+            if (parsedMarker) {
+                task.taskMarker = parsedMarker;
+                task.task_marker = parsedMarker;
+            }
+            try { __tmMergeVisibleDateFieldsFromPrevTask(task, prevTask); } catch (e) {}
+            const docName = task.docName || task.doc_name || docInfoById.get(docId)?.name || '未命名文档';
+            try {
+                normalizeTaskFields(task, docName, normalizeTaskOptions);
+            } catch (e) {}
+            if (prevTask && typeof prevTask === 'object') {
+                try { __tmCopyTaskHeadingContext(task, prevTask); } catch (e) {}
+            } else {
+                try { __tmApplyTaskHeadingContext(task, ''); } catch (e) {}
+            }
+            if (!tasksByDoc.has(docId)) tasksByDoc.set(docId, []);
+            tasksByDoc.get(docId).push(task);
+
+            const repeatHistory = Array.isArray(task.repeatHistory) ? task.repeatHistory : [];
+            if (repeatHistory.length > 0) {
+                repeatHistory.forEach((historyItem, historyIndex) => {
+                    const virtualTask = __tmBuildRecurringInstanceTask(task, historyItem, historyIndex);
+                    if (!virtualTask?.id) return;
+                    if (!tasksByDoc.has(virtualTask.root_id)) tasksByDoc.set(virtualTask.root_id, []);
+                    tasksByDoc.get(virtualTask.root_id).push(virtualTask);
+                });
+            }
+        });
+
+        let h2ContextMap = new Map();
+        if (taskIds.length > 0 && API && typeof API.fetchTaskEnhanceBundle === 'function') {
+            try {
+                const bundle = await API.fetchTaskEnhanceBundle(taskIds, {
+                    taskDocMap,
+                    needH2: true,
+                    needFlow: false,
+                });
+                h2ContextMap = bundle?.h2ContextMap instanceof Map ? bundle.h2ContextMap : new Map();
+            } catch (e) {
+                h2ContextMap = new Map();
+            }
+        }
+        if (h2ContextMap.size > 0) {
+            tasksByDoc.forEach((list) => {
+                (Array.isArray(list) ? list : []).forEach((task) => {
+                    const taskId = String(task?.id || '').trim();
+                    const sourceTaskId = String(task?.sourceTaskId || task?.recurringSourceTaskId || '').trim();
+                    const h2ctx = h2ContextMap.get(taskId) || (sourceTaskId ? h2ContextMap.get(sourceTaskId) : null);
+                    if (h2ctx) {
+                        try { __tmApplyTaskHeadingContext(task, h2ctx); } catch (e) {}
+                    }
+                });
+            });
+        }
+
+        let siblingOrderRanks = new Map();
+        if (tasksByDoc.size > 0) {
+            try {
+                siblingOrderRanks = await __tmResolveTaskSiblingOrderRanks(tasksByDoc);
+            } catch (e) {
+                siblingOrderRanks = new Map();
+            }
+        }
+        const calcLevel = (tasks, level) => {
+            (Array.isArray(tasks) ? tasks : []).forEach((task) => {
+                task.level = level;
+                if (Array.isArray(task.children) && task.children.length > 0) calcLevel(task.children, level + 1);
+            });
+        };
+        const entries = [];
+        for (const docId of ids) {
+            const rawTasks = tasksByDoc.get(docId) || [];
+            let rootTasks = [];
+            try {
+                const parentLinkResolved = await __tmResolveDocTaskParentLinks(rawTasks, {
+                    docId,
+                    source: 'task-index-prewarm',
+                });
+                rootTasks = Array.isArray(parentLinkResolved?.rootTasks)
+                    ? parentLinkResolved.rootTasks
+                    : [];
+            } catch (e) {
+                rootTasks = Array.isArray(rawTasks) ? rawTasks.slice() : [];
+            }
+            try { __tmSortTaskTreeBySiblingRankMap(rootTasks, siblingOrderRanks); } catch (e) {}
+            calcLevel(rootTasks, 0);
+            try { __tmAssignDocSeqByTree(rootTasks, 0); } catch (e) {}
+            const docInfo = docInfoById.get(docId) || {};
+            const entry = __tmBuildTaskIndexDocEntry({
+                id: docId,
+                name: String(docInfo?.name || rawTasks?.[0]?.docName || '未命名文档').trim() || '未命名文档',
+                alias: __tmNormalizeDocAliasValue(docInfo?.alias),
+                icon: __tmNormalizeDocIconValue(docInfo?.icon),
+                created: String(docInfo?.created || '').trim(),
+                docUpdated: String(docInfo?.updated || docInfo?.docUpdated || '').trim(),
+                tasks: rootTasks,
+            }, {
+                queryLimit,
+                inTaskTree: rawTasks.length > 0,
+            });
+            if (entry) entries.push(entry);
+        }
+        return entries;
+    }
+
+    async function __tmMergeTaskIndexEntries(entries) {
+        const list = (Array.isArray(entries) ? entries : []).filter((entry) => entry && __tmIsLikelyBlockId(entry.id));
+        if (!list.length) return false;
+        await __tmLoadTaskIndexStore();
+        const nextStore = __tmRememberTaskIndexEntriesInMemory(list, {
+            keepDocIds: list.map((entry) => entry?.id),
+            pruneNow: true,
+        });
+        if (!nextStore) return false;
+        await __tmWriteJsonFile(TASK_INDEX_FILE_PATH, nextStore);
+        return true;
+    }
+
+    function __tmScheduleTaskIndexPrewarmForDocIds(docIds, options = {}) {
+        const cfg = __tmGetPerfTuningOptions();
+        if (!cfg.taskIndexPrewarm) return false;
+        const opts = (options && typeof options === 'object') ? options : {};
+        const maxDocs = Math.max(0, Math.floor(Number(cfg.taskIndexPrewarmMaxDocs) || 0));
+        if (maxDocs <= 0) return false;
+        const ids = __tmNormalizeTaskSnapshotDocIds(docIds || []).slice(0, maxDocs);
+        if (!ids.length) return false;
+        ids.forEach((docId) => __tmTaskIndexPrewarmState.pendingDocIds.add(docId));
+        if (__tmTaskIndexPrewarmState.running || __tmTaskIndexPrewarmState.timer) return true;
+        const delayMs = Math.max(0, Number(opts.delayMs ?? cfg.taskIndexPrewarmDelayMs) || 0);
+        __tmTaskIndexPrewarmState.timer = setTimeout(() => {
+            __tmTaskIndexPrewarmState.timer = null;
+            __tmRunTaskIndexPrewarm().catch(() => null);
+        }, delayMs);
+        return true;
+    }
+
+    function __tmScheduleTaskIndexPrewarm(options = {}) {
+        const cfg = __tmGetPerfTuningOptions();
+        if (!cfg.taskIndexPrewarm) return false;
+        const opts = (options && typeof options === 'object') ? options : {};
+        const currentDocIds = new Set(__tmNormalizeTaskSnapshotDocIds(opts.currentDocIds || []));
+        const currentGroupId = String(opts.currentGroupId || SettingsStore?.data?.currentGroupId || 'all').trim() || 'all';
+        const delayMs = Math.max(300, Number(opts.delayMs ?? cfg.taskIndexPrewarmDelayMs) || cfg.taskIndexPrewarmDelayMs);
+        if (__tmTaskIndexPrewarmState.timer) return true;
+        __tmTaskIndexPrewarmState.timer = setTimeout(() => {
+            __tmTaskIndexPrewarmState.timer = null;
+            Promise.resolve()
+                .then(async () => {
+                    const allDocIds = await __tmCollectAllConfiguredTaskScopeDocIds();
+                    const currentIds = allDocIds.filter((docId) => currentDocIds.has(docId));
+                    const otherDocIds = allDocIds.filter((docId) => !currentDocIds.has(docId));
+                    const currentGroupDocs = currentGroupId === 'all'
+                        ? currentIds
+                        : currentIds;
+                    return currentGroupDocs.concat(otherDocIds);
+                })
+                .then((docIds) => {
+                    __tmScheduleTaskIndexPrewarmForDocIds(docIds, { delayMs: 0 });
+                })
+                .catch(() => null);
+        }, delayMs);
+        return true;
+    }
+
+    async function __tmRunTaskIndexPrewarm() {
+        if (__tmTaskIndexPrewarmState.running) return false;
+        const cfg = __tmGetPerfTuningOptions();
+        if (!cfg.taskIndexPrewarm) return false;
+        __tmTaskIndexPrewarmState.running = true;
+        __tmTaskIndexPrewarmState.lastStartedAt = Date.now();
+        const chunkSize = Math.max(2, Math.min(30, Math.floor(Number(cfg.taskIndexPrewarmChunkSize) || 10)));
+        const queryLimit = __TM_TASK_INDEX_QUERY_LIMIT;
+        const customFieldPlan = __tmBuildRuntimeCustomFieldLoadPlan();
+        const bulkCustomFieldIds = __tmNormalizeCustomFieldIdList(customFieldPlan?.bulkFieldIds);
+        let pendingAfterRun = false;
+        try {
+            const store = await __tmLoadTaskIndexStore();
+            const docUpdatedMap = __tmBuildDocUpdatedFingerprintMap(state.allDocuments);
+            const ids = Array.from(__tmTaskIndexPrewarmState.pendingDocIds)
+                .map((id) => String(id || '').trim())
+                .filter((id) => __tmIsLikelyBlockId(id));
+            const staleIds = [];
+            ids.forEach((docId) => {
+                const indexedDoc = store?.docs?.[docId];
+                if (__tmIsUsableTaskIndexDoc(indexedDoc, { queryLimit, docUpdatedMap })) {
+                    __tmTaskIndexPrewarmState.pendingDocIds.delete(docId);
+                    return;
+                }
+                staleIds.push(docId);
+            });
+            let bufferedEntries = [];
+            let bufferedChunkCount = 0;
+            const flushBufferedEntries = async () => {
+                if (!bufferedEntries.length) return;
+                const nextEntries = bufferedEntries;
+                bufferedEntries = [];
+                bufferedChunkCount = 0;
+                await __tmMergeTaskIndexEntries(nextEntries);
+            };
+            for (let i = 0; i < staleIds.length; i += chunkSize) {
+                const chunk = staleIds.slice(i, i + chunkSize);
+                if (!chunk.length) continue;
+                try {
+                    const res = await API.getTasksByDocuments(chunk, queryLimit, {
+                        doneOnly: false,
+                        forceFresh: false,
+                        skipParentTaskJoin: false,
+                        skipDocJoin: true,
+                        customFieldIds: bulkCustomFieldIds,
+                    });
+                    const entries = await __tmBuildTaskIndexEntriesFromRows(chunk, Array.isArray(res?.tasks) ? res.tasks : [], {
+                        queryLimit,
+                    });
+                    if (entries.length) {
+                        bufferedEntries.push(...entries);
+                        bufferedChunkCount += 1;
+                    }
+                    chunk.forEach((docId) => __tmTaskIndexPrewarmState.pendingDocIds.delete(docId));
+                    if (bufferedChunkCount >= 5) await flushBufferedEntries();
+                } catch (e) {
+                    chunk.forEach((docId) => __tmTaskIndexPrewarmState.pendingDocIds.delete(docId));
+                }
+                try { await new Promise((resolve) => setTimeout(resolve, 80)); } catch (e) {}
+            }
+            await flushBufferedEntries();
+        } finally {
+            __tmTaskIndexPrewarmState.running = false;
+            pendingAfterRun = __tmTaskIndexPrewarmState.pendingDocIds.size > 0;
+            if (pendingAfterRun && !__tmTaskIndexPrewarmState.timer) {
+                __tmTaskIndexPrewarmState.timer = setTimeout(() => {
+                    __tmTaskIndexPrewarmState.timer = null;
+                    __tmRunTaskIndexPrewarm().catch(() => null);
+                }, 1200);
+            }
+        }
+        return true;
     }
 
     function __tmHashIds(ids) {
@@ -8137,9 +10636,15 @@
                 || ''
             ).trim().toLowerCase();
             // SiYuan kernel pushes `savedoc(type=tx)` after transaction commit.
-            // The task plugin already reacts to the preceding `transactions` event,
-            // so handling this duplicate save notification again causes redundant refreshes.
-            if (!saveType || saveType === 'tx') return true;
+            // The task plugin already reacts to the preceding `transactions` event.
+            // Some document-side edits only surface here, so keep loaded task scopes dirty
+            // when the save payload points at the currently loaded document.
+            if (!saveType || saveType === 'tx') {
+                try {
+                    if (__tmTxTargetsAffectLoadedScope(__tmCollectTxRefreshTargets(msg))) return false;
+                } catch (e) {}
+                return true;
+            }
         }
         return false;
     }
@@ -8185,6 +10690,48 @@
             const bid = String(blockId || '').trim();
             if (bid && __tmIsLikelyBlockId(bid)) __tmTxTaskRefreshBlockIds.add(bid);
         });
+    }
+
+    function __tmCollectTxRefreshTargets(payload = null, options = {}) {
+        const opts = (options && typeof options === 'object') ? options : {};
+        let docIds = new Set();
+        let blockIds = new Set();
+        try { docIds = __tmExtractDocIdsFromTx(payload); } catch (e) { docIds = new Set(); }
+        try { blockIds = __tmExtractBlockIdsFromTx(payload); } catch (e) { blockIds = new Set(); }
+        (Array.isArray(opts.docIds) ? opts.docIds : []).forEach((docId) => {
+            const did = String(docId || '').trim();
+            if (did && __tmIsLikelyBlockId(did)) docIds.add(did);
+        });
+        (Array.isArray(opts.blockIds) ? opts.blockIds : []).forEach((blockId) => {
+            const bid = String(blockId || '').trim();
+            if (bid && __tmIsLikelyBlockId(bid)) blockIds.add(bid);
+        });
+        return { docIds, blockIds };
+    }
+
+    function __tmTxTargetsAffectLoadedScope(targets = {}) {
+        const docIds = targets?.docIds instanceof Set ? targets.docIds : new Set(targets?.docIds || []);
+        const blockIds = targets?.blockIds instanceof Set ? targets.blockIds : new Set(targets?.blockIds || []);
+        const loadedDocIds = new Set(
+            ((Array.isArray(state.__tmLoadedDocIdsForTasks) && state.__tmLoadedDocIdsForTasks.length > 0)
+                ? state.__tmLoadedDocIdsForTasks
+                : (Array.isArray(state.taskTree) ? state.taskTree.map((doc) => doc?.id) : []))
+                .map((id) => String(id || '').trim())
+                .filter((id) => __tmIsLikelyBlockId(id))
+        );
+        const activeDocId = String(state.activeDocId || '').trim();
+        if (__tmIsLikelyBlockId(activeDocId)) loadedDocIds.add(activeDocId);
+        for (const docId of docIds) {
+            if (loadedDocIds.has(String(docId || '').trim())) return true;
+        }
+        for (const blockId of blockIds) {
+            const bid = String(blockId || '').trim();
+            if (loadedDocIds.has(bid)) return true;
+            const task = state.flatTasks?.[bid];
+            const taskDocId = String(task?.root_id || task?.docId || '').trim();
+            if (taskDocId && loadedDocIds.has(taskDocId)) return true;
+        }
+        return false;
     }
 
     function __tmSnapshotPendingTxRefreshTargets() {
@@ -8239,27 +10786,451 @@
         return Array.from(resolved).filter((docId) => loadedDocIds.has(docId));
     }
 
-        async function __tmRefreshAffectedDocsIncrementally(options = {}) {
+    function __tmFindLoadedTaskTreeSlot(taskId) {
+        const tid = String(taskId || '').trim();
+        if (!tid) return null;
+        const docs = Array.isArray(state.taskTree) ? state.taskTree : [];
+        const walk = (list, doc) => {
+            const items = Array.isArray(list) ? list : [];
+            for (let i = 0; i < items.length; i += 1) {
+                const task = items[i];
+                if (!task || typeof task !== 'object') continue;
+                if (String(task.id || '').trim() === tid) return { doc, list: items, index: i, task };
+                const child = walk(task.children, doc);
+                if (child) return child;
+            }
+            return null;
+        };
+        for (const doc of docs) {
+            const found = walk(doc?.tasks, doc);
+            if (found) return found;
+        }
+        return null;
+    }
+
+    async function __tmResolveLoadedTaskIdsFromBlockIds(blockIds, options = {}) {
+        const opts = (options && typeof options === 'object') ? options : {};
+        const maxTasks = Math.max(1, Math.floor(Number(opts.maxTasks || 8) || 8));
+        const ids = Array.from(new Set((Array.isArray(blockIds) ? blockIds : [])
+            .map((id) => String(id || '').trim())
+            .filter((id) => __tmIsLikelyBlockId(id))));
+        const out = [];
+        const seen = new Set();
+        let needsDocRefresh = false;
+        const loadedDocIds = new Set(
+            ((Array.isArray(state.__tmLoadedDocIdsForTasks) && state.__tmLoadedDocIdsForTasks.length > 0)
+                ? state.__tmLoadedDocIdsForTasks
+                : (Array.isArray(state.taskTree) ? state.taskTree.map((doc) => doc?.id) : []))
+                .map((id) => String(id || '').trim())
+                .filter((id) => __tmIsLikelyBlockId(id))
+        );
+        const pushTaskId = (taskId0) => {
+            const taskId = String(taskId0 || '').trim();
+            if (!__tmIsLikelyBlockId(taskId) || seen.has(taskId)) return;
+            if (seen.size >= maxTasks) {
+                needsDocRefresh = true;
+                return;
+            }
+            const loadedTask = state.flatTasks?.[taskId] || null;
+            if (!loadedTask) {
+                needsDocRefresh = true;
+                return;
+            }
+            seen.add(taskId);
+            out.push(taskId);
+        };
+        for (const blockId of ids) {
+            if (seen.size > maxTasks) {
+                needsDocRefresh = true;
+                break;
+            }
+            if (loadedDocIds.has(blockId)) continue;
+            let localBinding = null;
+            try { localBinding = __tmResolveLocalTaskBindingFromAnyBlockId(blockId); } catch (e) { localBinding = null; }
+            const localTaskId = String(localBinding?.taskId || '').trim();
+            if (localTaskId) {
+                pushTaskId(localTaskId);
+                continue;
+            }
+            let directRow = null;
+            try { directRow = await API.getTaskById(blockId); } catch (e) { directRow = null; }
+            if (directRow && typeof directRow === 'object') {
+                const directTaskId = String(directRow.id || blockId).trim();
+                if (state.flatTasks?.[directTaskId]) pushTaskId(directTaskId);
+                else needsDocRefresh = true;
+                continue;
+            }
+            let resolvedTaskId = '';
+            try { resolvedTaskId = await __tmResolveTaskIdFromAnyBlockId(blockId); } catch (e) { resolvedTaskId = ''; }
+            if (resolvedTaskId) {
+                pushTaskId(resolvedTaskId);
+            }
+        }
+        return {
+            taskIds: out,
+            needsDocRefresh: needsDocRefresh || out.length > maxTasks,
+        };
+    }
+
+    function __tmApplyDoneOverrideToTaskIfPresent(task) {
+        const target = (task && typeof task === 'object') ? task : null;
+        if (!target) return false;
+        const taskId = String(target.id || '').trim();
+        if (!taskId || !state.doneOverrides || typeof state.doneOverrides !== 'object') return false;
+        if (!Object.prototype.hasOwnProperty.call(state.doneOverrides, taskId)) return false;
+        const nextDone = !!state.doneOverrides[taskId];
+        target.done = nextDone;
+        target.__tmDoneOverrideApplied = true;
+        if (nextDone) {
+            target.taskMarker = 'X';
+            target.task_marker = 'X';
+        } else if (__tmIsTaskMarkerDone(target.taskMarker || target.task_marker)) {
+            target.taskMarker = ' ';
+            target.task_marker = ' ';
+        }
+        return true;
+    }
+
+    function __tmPrepareTaskBlockIncrementalRow(row, prevTask, normalizeOptions) {
+        const source = (row && typeof row === 'object') ? row : null;
+        if (!source) return null;
+        const task = { ...source };
+        const taskId = String(task.id || '').trim();
+        if (!taskId) return null;
+        try {
+            const parsed = API.parseTaskStatus(task.markdown);
+            task.done = !!parsed.done;
+            task.content = parsed.content;
+            const parsedMarker = __tmNormalizeTaskStatusMarker(parsed?.marker, '');
+            if (parsedMarker) {
+                task.taskMarker = parsedMarker;
+                task.task_marker = parsedMarker;
+            }
+        } catch (e) {}
+        __tmApplyDoneOverrideToTaskIfPresent(task);
+        try { __tmMergeVisibleDateFieldsFromPrevTask(task, prevTask); } catch (e) {}
+        try { MetaStore.applyToTask(task); } catch (e) {}
+        const docName = task.docName || task.doc_name || prevTask?.docName || prevTask?.doc_name || '未命名文档';
+        try { normalizeTaskFields(task, docName, normalizeOptions); } catch (e) {}
+        if (prevTask && typeof prevTask === 'object') {
+            try { __tmCopyTaskHeadingContext(task, prevTask); } catch (e) {}
+            const prevFlowRank = Number(prevTask.resolvedFlowRank ?? prevTask.resolved_flow_rank ?? prevTask.__tmResolvedFlowRank);
+            if (Number.isFinite(prevFlowRank)) {
+                task.resolvedFlowRank = prevFlowRank;
+                task.resolved_flow_rank = prevFlowRank;
+                task.__tmResolvedFlowRank = prevFlowRank;
+            }
+        } else {
+            try { __tmApplyTaskHeadingContext(task, ''); } catch (e) {}
+        }
+        return task;
+    }
+
+    function __tmCanPatchTaskBlockIncrementally(prevTask, nextTask) {
+        if (!prevTask || !nextTask) return false;
+        const prevDocId = String(prevTask.root_id || prevTask.docId || '').trim();
+        const nextDocId = String(nextTask.root_id || nextTask.docId || '').trim();
+        if (!prevDocId || !nextDocId || prevDocId !== nextDocId) return false;
+        const prevParentTaskId = String(prevTask.parentTaskId || prevTask.parent_task_id || '').trim();
+        const nextParentTaskId = String(nextTask.parentTaskId || nextTask.parent_task_id || '').trim();
+        if (prevParentTaskId !== nextParentTaskId) return false;
+        const prevParentId = String(prevTask.parent_id || prevTask.parentId || '').trim();
+        const nextParentId = String(nextTask.parent_id || nextTask.parentId || '').trim();
+        if (prevParentId && nextParentId && prevParentId !== nextParentId) return false;
+        const prevSort = String(prevTask.block_sort ?? prevTask.blockSort ?? prevTask.sort ?? '').trim();
+        const nextSort = String(nextTask.block_sort ?? nextTask.blockSort ?? nextTask.sort ?? '').trim();
+        if (prevSort && nextSort && prevSort !== nextSort) return false;
+        return true;
+    }
+
+    function __tmPatchLoadedTaskBlockInPlace(taskId, nextTask) {
+        const tid = String(taskId || '').trim();
+        const slot = __tmFindLoadedTaskTreeSlot(tid);
+        if (!slot || !slot.task || !nextTask) return '';
+        const target = slot.task;
+        const preservedChildren = Array.isArray(target.children) ? target.children : [];
+        Object.keys(target).forEach((key) => {
+            if (key !== 'children') {
+                try { delete target[key]; } catch (e) {}
+            }
+        });
+        Object.assign(target, nextTask);
+        target.children = preservedChildren;
+        if (!state.flatTasks || typeof state.flatTasks !== 'object') state.flatTasks = {};
+        state.flatTasks[tid] = target;
+        try { __tmRestoreTaskFlatMap(target); } catch (e) {}
+        return String(slot.doc?.id || target.root_id || target.docId || '').trim();
+    }
+
+    function __tmNormalizeTaskBlockMarkdownWithoutMarker(markdown = '') {
+        return String(markdown || '').replace(/^(\s*(?:[-*]|\d+\.)\s*)\[[^\]]\]/, '$1[ ]');
+    }
+
+    function __tmTaskBlockScalarValue(task, keys = []) {
+        const source = (task && typeof task === 'object') ? task : {};
+        for (const key of keys) {
+            const value = source[key];
+            if (value !== undefined && value !== null) return value;
+        }
+        return '';
+    }
+
+    function __tmTaskBlockStringValue(task, keys = []) {
+        return String(__tmTaskBlockScalarValue(task, keys) ?? '').trim();
+    }
+
+    function __tmTaskBlockJsonValue(value) {
+        try { return JSON.stringify(value ?? null); } catch (e) { return String(value ?? ''); }
+    }
+
+    function __tmBuildTaskBlockVisibleDomPatch(prevTask, nextTask) {
+        const prev = (prevTask && typeof prevTask === 'object') ? prevTask : null;
+        const next = (nextTask && typeof nextTask === 'object') ? nextTask : null;
+        if (!prev || !next) return null;
+        const prevContent = __tmTaskBlockStringValue(prev, ['content', 'raw_content']);
+        const nextContent = __tmTaskBlockStringValue(next, ['content', 'raw_content']);
+        const prevMarkdown = __tmNormalizeTaskBlockMarkdownWithoutMarker(prev.markdown || '');
+        const nextMarkdown = __tmNormalizeTaskBlockMarkdownWithoutMarker(next.markdown || '');
+        const structuralVisibleKeys = [
+            ['repeatRule', 'repeat_rule'],
+            ['repeatState', 'repeat_state'],
+            ['repeatHistory', 'repeat_history'],
+        ];
+        for (const keys of structuralVisibleKeys) {
+            if (__tmTaskBlockJsonValue(__tmTaskBlockScalarValue(prev, keys)) !== __tmTaskBlockJsonValue(__tmTaskBlockScalarValue(next, keys))) {
+                return null;
+            }
+        }
+
+        const patch = {};
+        if (prevContent !== nextContent || prevMarkdown !== nextMarkdown) patch.content = nextContent;
+        if (!!prev.done !== !!next.done) patch.done = !!next.done;
+        const prevStatus = __tmTaskBlockStringValue(prev, ['customStatus', 'custom_status']);
+        const nextStatus = __tmTaskBlockStringValue(next, ['customStatus', 'custom_status']);
+        if (prevStatus !== nextStatus) patch.customStatus = nextStatus;
+        const scalarFields = [
+            ['priority', ['priority']],
+            ['pinned', ['pinned']],
+            ['startDate', ['startDate', 'start_date']],
+            ['completionTime', ['completionTime', 'completion_time']],
+            ['taskCompleteAt', ['taskCompleteAt', 'task_complete_at']],
+            ['duration', ['duration']],
+            ['customTime', ['customTime', 'custom_time']],
+            ['remark', ['remark']],
+        ];
+        scalarFields.forEach(([field, keys]) => {
+            const prevValue = __tmTaskBlockStringValue(prev, keys);
+            const nextValue = __tmTaskBlockStringValue(next, keys);
+            if (prevValue !== nextValue) patch[field] = nextValue;
+        });
+        try {
+            const prevAttachments = __tmTaskBlockJsonValue(__tmGetTaskAttachmentPaths(prev));
+            const nextAttachments = __tmTaskBlockJsonValue(__tmGetTaskAttachmentPaths(next));
+            if (prevAttachments !== nextAttachments) patch.attachments = __tmGetTaskAttachmentPaths(next);
+        } catch (e) {}
+        return patch;
+    }
+
+    function __tmCanApplyTaskBlockDomPatch(taskId, patch = {}) {
+        const tid = String(taskId || '').trim();
+        const nextPatch = (patch && typeof patch === 'object') ? patch : {};
+        const keys = Object.keys(nextPatch);
+        if (!tid) return false;
+        if (!keys.length) return true;
+        if (typeof __tmRefreshTaskFieldsAcrossViews !== 'function') return false;
+        const viewMode = String(state.viewMode || '').trim();
+        if (viewMode === 'calendar') return false;
+        const supportedByView = {
+            list: new Set(['content', 'done', 'customStatus', 'priority', 'pinned', 'startDate', 'completionTime', 'taskCompleteAt', 'duration', 'customTime', 'remark', 'attachments']),
+            checklist: new Set(['content', 'done', 'customStatus', 'priority', 'pinned', 'startDate', 'completionTime', 'taskCompleteAt', 'duration', 'customTime', 'remark', 'attachments']),
+            timeline: new Set(['content', 'done', 'startDate', 'completionTime']),
+            kanban: new Set(['content', 'done', 'customStatus', 'priority', 'startDate', 'completionTime', 'remark']),
+            whiteboard: new Set(['content', 'done', 'startDate', 'completionTime']),
+        };
+        const supported = supportedByView[viewMode] || null;
+        if (!supported || keys.some((key) => !supported.has(String(key || '').trim()))) return false;
+        if (Object.prototype.hasOwnProperty.call(nextPatch, 'done') && !__tmGetShowCompletedTasksFromSettings()) return false;
+        if (viewMode === 'kanban' && (Object.prototype.hasOwnProperty.call(nextPatch, 'done') || Object.prototype.hasOwnProperty.call(nextPatch, 'customStatus'))) return false;
+        try {
+            if (typeof __tmDoesPatchNeedProjectionRefresh === 'function'
+                && __tmDoesPatchNeedProjectionRefresh(tid, nextPatch, { withFilters: false })) return false;
+        } catch (e) {
+            return false;
+        }
+        return true;
+    }
+
+    function __tmApplyTaskBlockDomPatches(patches = [], reason = '') {
+        if (!Array.isArray(patches) || patches.length === 0) return true;
+        if (typeof __tmRefreshTaskFieldsAcrossViews !== 'function') return false;
+        const sourceReason = String(reason || 'task-block-dom-patch').trim() || 'task-block-dom-patch';
+        for (const item of patches) {
+            const taskId = String(item?.taskId || '').trim();
+            const patch = (item?.patch && typeof item.patch === 'object') ? item.patch : {};
+            if (!__tmCanApplyTaskBlockDomPatch(taskId, patch)) return false;
+        }
+        patches.forEach((item) => {
+            const taskId = String(item?.taskId || '').trim();
+            const patch = (item?.patch && typeof item.patch === 'object') ? item.patch : {};
+            if (!Object.keys(patch).length) return;
+            try {
+                __tmRefreshTaskFieldsAcrossViews(taskId, patch, {
+                    withFilters: false,
+                    reason: sourceReason,
+                    forceProjectionRefresh: false,
+                    fallback: false,
+                });
+            } catch (e) {}
+        });
+        return true;
+    }
+
+    async function __tmRefreshAffectedTaskBlocksIncrementally(options = {}) {
+        const opts = (options && typeof options === 'object') ? options : {};
+        const cfg = __tmGetPerfTuningOptions();
+        if (!cfg.taskBlockIncrementalRefresh) return false;
+        const viewMode = String(state.viewMode || '').trim();
+        if (!state.modal || !document.body.contains(state.modal)) return false;
+        if (viewMode === 'calendar') return false;
+        try { await __tmFlushSqlTransactionsSafe('task-block-incremental-refresh'); } catch (e) {}
+        const rawBlockIds = Array.isArray(opts.blockIds) ? opts.blockIds : [];
+        const blockIds = Array.from(new Set(rawBlockIds
+            .map((id) => String(id || '').trim())
+            .filter((id) => __tmIsLikelyBlockId(id))));
+        if (!blockIds.length) return false;
+        const maxTasks = Math.max(1, Math.floor(Number(cfg.taskBlockIncrementalMaxTasks) || 8));
+        if (blockIds.length > maxTasks * 4) return false;
+        const resolved = await __tmResolveLoadedTaskIdsFromBlockIds(blockIds, { maxTasks });
+        const taskIds = Array.isArray(resolved?.taskIds) ? resolved.taskIds : [];
+        if (resolved?.needsDocRefresh || taskIds.length === 0 || taskIds.length > maxTasks) return false;
+        const patches = [];
+        const rule0 = state.currentRule ? state.filterRules.find((rule) => rule.id === state.currentRule) : null;
+        const colOrder0 = Array.isArray(SettingsStore.data.columnOrder) ? SettingsStore.data.columnOrder : [];
+        const customFieldLoadPlan0 = __tmCollectCustomFieldLoadPlan({
+            viewMode,
+            colOrder: colOrder0,
+            rule: rule0,
+        });
+        const normalizeCustomFieldDefs = __tmGetCustomFieldDefs();
+        const normalizeCustomFieldDefMap = new Map(normalizeCustomFieldDefs
+            .map((field) => [String(field?.id || '').trim(), field])
+            .filter(([fieldId]) => !!fieldId));
+        const normalizeTaskOptions = {
+            docDisplayNameCache: new Map(),
+            docDisplayNameMode: String(__tmGetDocDisplayNameMode() || '').trim() || 'name',
+            customFieldDefs: normalizeCustomFieldDefs,
+            customFieldDefMap: normalizeCustomFieldDefMap,
+            visibleDateFallbackTaskIds: __tmBuildVisibleDateFallbackTaskIdSet(),
+            todayDateKey: __tmNormalizeDateOnly(new Date()),
+        };
+        for (const taskId of taskIds) {
+            const slot = __tmFindLoadedTaskTreeSlot(taskId);
+            const prevTask = slot?.task || state.flatTasks?.[taskId] || null;
+            if (!slot || !prevTask) return false;
+            let row = null;
+            try { row = await API.getTaskById(taskId); } catch (e) { row = null; }
+            if (!row || typeof row !== 'object') return false;
+            const nextTask = __tmPrepareTaskBlockIncrementalRow(row, prevTask, normalizeTaskOptions);
+            if (!nextTask || !__tmCanPatchTaskBlockIncrementally(prevTask, nextTask)) return false;
+            const visiblePatch = __tmBuildTaskBlockVisibleDomPatch(prevTask, nextTask);
+            if (visiblePatch === null) return false;
+            patches.push({ taskId, nextTask, patch: visiblePatch });
+        }
+        if (!patches.length) return false;
+        const changedDocIds = new Set();
+        patches.forEach((patch) => {
+            const docId = __tmPatchLoadedTaskBlockInPlace(patch.taskId, patch.nextTask);
+            if (__tmIsLikelyBlockId(docId)) changedDocIds.add(docId);
+        });
+        if (!changedDocIds.size) return false;
+        changedDocIds.forEach((docId) => {
+            try { __tmInvalidateTasksQueryCacheByDocId(docId); } catch (e) {}
+            try { __tmRebuildLocalDocTree(docId); } catch (e) {}
+        });
+        try { __tmInvalidateFilteredTaskDerivedStateCache(); } catch (e) {}
+        try { recalcStats(); } catch (e) {}
+        state.deferredListCustomFieldIds = String(state.viewMode || '').trim() === 'list'
+            ? customFieldLoadPlan0.deferredListFieldIds.slice()
+            : [];
+        const canPatchDomOnly = __tmApplyTaskBlockDomPatches(
+            patches,
+            String(opts.reason || 'task-block-incremental-refresh').trim() || 'task-block-incremental-refresh'
+        );
+        if (opts.withFilters !== false && !canPatchDomOnly) {
+            try { applyFilters(); } catch (e) {}
+            try {
+                __tmScheduleDeferredVisibleListCustomFieldHydration({
+                    delayMs: 120,
+                    reason: String(opts.reason || 'task-block-incremental-refresh').trim() || 'task-block-incremental-refresh',
+                    customFieldDefs: normalizeCustomFieldDefs,
+                });
+            } catch (e) {}
+        }
+        try {
+            __tmSchedulePersistTaskIndex({
+                docIds: Array.from(changedDocIds),
+                queryLimit: __TM_TASK_INDEX_QUERY_LIMIT,
+                delayMs: 250,
+            });
+        } catch (e) {}
+        if (!canPatchDomOnly) {
+            __tmRefreshMainViewInPlace({
+                withFilters: false,
+                reason: String(opts.reason || 'task-block-incremental-refresh').trim() || 'task-block-incremental-refresh',
+                deferIfDetailBusy: opts.deferIfDetailBusy !== false,
+            });
+        }
+        return true;
+    }
+
+    function __tmCountLoadedDocTasksForQueryLimit(docId) {
+        const did = String(docId || '').trim();
+        if (!did || !Array.isArray(state.taskTree)) return 0;
+        const doc = state.taskTree.find((item) => String(item?.id || '').trim() === did);
+        if (!doc || !Array.isArray(doc.tasks)) return 0;
+        let count = 0;
+        const stack = doc.tasks.slice();
+        while (stack.length) {
+            const task = stack.pop();
+            count += 1;
+            if (Array.isArray(task?.children) && task.children.length) {
+                task.children.forEach((child) => stack.push(child));
+            }
+        }
+        return count;
+    }
+
+    function __tmGetIncrementalTaskQueryLimit(docIds = []) {
+        const hotLimit = Math.max(500, Math.min(__TM_TASK_INDEX_QUERY_LIMIT, Number(__TM_TASK_INCREMENTAL_QUERY_LIMIT) || 5000));
+        const ids = Array.from(new Set((Array.isArray(docIds) ? docIds : [])
+            .map((id) => String(id || '').trim())
+            .filter((id) => __tmIsLikelyBlockId(id))));
+        const hasLargeLoadedDoc = ids.some((docId) => __tmCountLoadedDocTasksForQueryLimit(docId) >= hotLimit);
+        return hasLargeLoadedDoc ? __TM_TASK_INDEX_QUERY_LIMIT : hotLimit;
+    }
+
+    async function __tmRefreshAffectedDocsIncrementally(options = {}) {
         const opts = (options && typeof options === 'object') ? options : {};
         const targets = {
             docIds: Array.isArray(opts.docIds) ? opts.docIds.slice() : [],
             blockIds: Array.isArray(opts.blockIds) ? opts.blockIds.slice() : [],
         };
         const viewMode = String(state.viewMode || '').trim();
-        const startedAt = __tmPerfNow();
         if (!state.modal || !document.body.contains(state.modal)) return false;
-        if (!Array.isArray(state.taskTree) || state.taskTree.length === 0) return false;
         if (viewMode === 'calendar') return false;
+        try { await __tmFlushSqlTransactionsSafe('doc-incremental-refresh'); } catch (e) {}
+        try {
+            const taskBlockOk = await __tmRefreshAffectedTaskBlocksIncrementally(opts);
+            if (taskBlockOk) return true;
+        } catch (e) {}
         const docIds = await __tmResolveIncrementalRefreshDocIds(targets.docIds, targets.blockIds);
         if (!docIds.length) return false;
         if (docIds.length > 12) return false;
-docIds.forEach((docId) => {
+        docIds.forEach((docId) => {
             try { __tmInvalidateTasksQueryCacheByDocId(docId); } catch (e) {}
         });
 
-        const queryLimit = Number.isFinite(Number(state.queryLimit || SettingsStore?.data?.queryLimit))
-            ? Math.max(1, Math.min(5000, Math.round(Number(state.queryLimit || SettingsStore?.data?.queryLimit))))
-            : 500;
+        const queryLimit = __tmGetIncrementalTaskQueryLimit(docIds);
         const rule0 = state.currentRule ? state.filterRules.find((rule) => rule.id === state.currentRule) : null;
         const normalizedRuleSorts0 = __tmGetNormalizedRuleSorts(rule0);
         const isUngroup = !state.groupByDocName && !state.groupByTaskName && !state.groupByTime && !state.quadrantEnabled;
@@ -8277,15 +11248,15 @@ docIds.forEach((docId) => {
             colOrder: colOrder0,
             rule: rule0,
         });
-            const res = await API.getTasksByDocuments(docIds, queryLimit, {
-                doneOnly: false,
-                forceFresh: true,
-                // parent list 子任务首次增量刷新时必须直接带回真实 parent_task_id，
-                // 否则后面的前端兜底只补一层，容易把父任务先挂错再来回跳。
-                skipParentTaskJoin: false,
-                skipDocJoin: true,
-                customFieldIds: customFieldLoadPlan0.bulkFieldIds,
-            });
+        const res = await API.getTasksByDocuments(docIds, queryLimit, {
+            doneOnly: false,
+            forceFresh: true,
+            // parent list 子任务首次增量刷新时必须直接带回真实 parent_task_id，
+            // 否则后面的前端兜底只补一层，容易把父任务先挂错再来回跳。
+            skipParentTaskJoin: false,
+            skipDocJoin: true,
+            customFieldIds: customFieldLoadPlan0.bulkFieldIds,
+        });
         const rows = Array.isArray(res?.tasks) ? res.tasks.slice() : [];
         const enhanceTargets0 = __tmCollectTaskEnhanceTargets(rows);
         const taskIds0 = enhanceTargets0.taskIds;
@@ -8340,7 +11311,7 @@ docIds.forEach((docId) => {
                 task.task_marker = parsedMarker;
             }
             __tmMergeVisibleDateFieldsFromPrevTask(task, prevTask);
-            task.done = !!parsed.done;
+            __tmApplyDoneOverrideToTaskIfPresent(task);
 
             const docName = task.docName || task.doc_name || '未命名文档';
             normalizeTaskFields(task, docName, normalizeTaskOptions);
@@ -8427,6 +11398,12 @@ docIds.forEach((docId) => {
                 state.taskTree.push(nextDoc);
             }
         }
+        try {
+            state.taskTree = __tmSortDocEntriesByPinned(
+                state.taskTree || [],
+                String(SettingsStore?.data?.currentGroupId || 'all').trim() || 'all'
+            );
+        } catch (e) {}
         __tmInvalidateFilteredTaskDerivedStateCache();
 
         docIds.forEach((docId) => {
@@ -8442,6 +11419,13 @@ docIds.forEach((docId) => {
         state.flatTasks = __tmMergeOtherBlocksIntoFlatTasks(state.flatTasks);
         state.stats.queryTime = Number(res?.queryTime) || 0;
         recalcStats();
+        try {
+            __tmSchedulePersistTaskIndex({
+                docIds,
+                queryLimit,
+                delayMs: 300,
+            });
+        } catch (e) {}
         if (opts.withFilters !== false) applyFilters();
         state.deferredListCustomFieldIds = String(state.viewMode || '').trim() === 'list'
             ? customFieldLoadPlan0.deferredListFieldIds.slice()
@@ -8530,76 +11514,296 @@ docIds.forEach((docId) => {
 
     function __tmSchedulePersistTaskSnapshot(options = {}) {
         const opts = (options && typeof options === 'object') ? options : {};
-        if (opts.forceFullLoadBudget === true) return false;
+        const groupIdForLog = String(opts.groupId || SettingsStore?.data?.currentGroupId || 'all').trim() || 'all';
+        const activeDocIdForLog = String(opts.activeDocId || state?.activeDocId || 'all').trim() || 'all';
+        if (opts.forceFullLoadBudget === true) {
+            __tmLogTaskSnapshot('save-skip', {
+                reason: 'force-full-load-budget',
+                groupId: groupIdForLog,
+            });
+            return false;
+        }
         const docIds = __tmNormalizeTaskSnapshotDocIds(opts.docIds || state.__tmLoadedDocIdsForTasks || []);
-        if (!docIds.length) return false;
-        if (!Array.isArray(state.taskTree) || state.taskTree.length === 0) return false;
+        if (!docIds.length) {
+            __tmLogTaskSnapshot('save-skip', {
+                reason: 'empty-docs',
+                groupId: groupIdForLog,
+            });
+            return false;
+        }
+        if (!Array.isArray(state.taskTree) || state.taskTree.length === 0) {
+            __tmLogTaskSnapshot('save-skip', {
+                reason: 'empty-task-tree',
+                groupId: groupIdForLog,
+                docCount: docIds.length,
+            });
+            return false;
+        }
+        try {
+            const flatTasks = __tmBuildFlatTasksFromTaskSnapshotTree(state.taskTree);
+            const taskCount = Object.keys(flatTasks).length;
+            const coverage = __tmGetTaskCountCoverageStatus(docIds, taskCount, opts);
+            if (!coverage.ok) {
+                __tmLogTaskSnapshot('save-skip', {
+                    reason: coverage.reason,
+                    groupId: groupIdForLog,
+                    docCount: docIds.length,
+                    taskCount: coverage.actual,
+                    expectedTaskCount: coverage.expected,
+                    overageTolerance: coverage.overageTolerance,
+                });
+                return false;
+            }
+        } catch (e) {}
+        if (state.__tmCacheFirstPaintNeedsVerify && opts.allowCacheFirstPaintPersist !== true) {
+            __tmLogTaskSnapshot('save-skip', {
+                reason: 'cache-first-paint-needs-verify',
+                groupId: groupIdForLog,
+                docCount: docIds.length,
+            });
+            return false;
+        }
         try {
             if (__tmTaskSnapshotSaveTimer) clearTimeout(__tmTaskSnapshotSaveTimer);
         } catch (e) {}
         const delayMs = Math.max(200, Number(opts.delayMs || 900) || 900);
+        const scheduledGroupId = groupIdForLog;
+        const scheduledDocKey = docIds.join(',');
+        const scheduledActiveDocId = activeDocIdForLog;
+        const scheduledOpenToken = Number(state.openToken) || 0;
+        __tmLogTaskSnapshot('save-scheduled', {
+            groupId: groupIdForLog,
+            docCount: docIds.length,
+            delayMs,
+        });
         __tmTaskSnapshotSaveTimer = setTimeout(() => {
             __tmTaskSnapshotSaveTimer = null;
-            if (__tmTaskSnapshotSaveInFlight) {
-                __tmSchedulePersistTaskSnapshot({ ...opts, delayMs: 1200 });
-                return;
-            }
-            __tmTaskSnapshotSaveInFlight = true;
-            Promise.resolve()
-                .then(async () => {
-                    const payload = __tmBuildTaskSnapshotPayload({
+            const runSave = () => {
+                if (__tmTaskSnapshotSaveInFlight) {
+                    __tmLogTaskSnapshot('save-rescheduled', {
+                        reason: 'in-flight',
+                        groupId: groupIdForLog,
+                        docCount: docIds.length,
+                    });
+                    __tmSchedulePersistTaskSnapshot({ ...opts, delayMs: 1200 });
+                    return;
+                }
+                __tmTaskSnapshotSaveInFlight = true;
+                Promise.resolve()
+                    .then(async () => {
+                    const currentGroupId = String(SettingsStore?.data?.currentGroupId || 'all').trim() || 'all';
+                    const currentActiveDocId = String(state?.activeDocId || 'all').trim() || 'all';
+                    const currentLoadedDocKey = __tmNormalizeTaskSnapshotDocIds(state.__tmLoadedDocIdsForTasks || []).join(',');
+                    const currentTreeDocIds = __tmNormalizeTaskSnapshotDocIds((Array.isArray(state.taskTree) ? state.taskTree : [])
+                        .map((doc) => doc?.id));
+                    const scheduledDocSet = new Set(docIds);
+                    const hasUnexpectedTreeDoc = currentTreeDocIds.some((docId) => !scheduledDocSet.has(docId));
+                    if (currentGroupId !== scheduledGroupId
+                        || currentActiveDocId !== scheduledActiveDocId
+                        || (currentLoadedDocKey && currentLoadedDocKey !== scheduledDocKey)
+                        || hasUnexpectedTreeDoc) {
+                        __tmLogTaskSnapshot('save-skip', {
+                            reason: 'stale-state',
+                            groupId: scheduledGroupId,
+                            currentGroupId,
+                            currentActiveDocId,
+                            docCount: docIds.length,
+                            currentLoadedDocCount: currentLoadedDocKey ? currentLoadedDocKey.split(',').filter(Boolean).length : 0,
+                            currentTreeDocCount: currentTreeDocIds.length,
+                            unexpectedTreeDocCount: hasUnexpectedTreeDoc
+                                ? currentTreeDocIds.filter((docId) => !scheduledDocSet.has(docId)).length
+                                : 0,
+                            scheduledOpenToken,
+                            currentOpenToken: Number(state.openToken) || 0,
+                        });
+                        return;
+                    }
+                    let payload = __tmBuildTaskSnapshotPayload({
                         docIds,
-                        groupId: opts.groupId || SettingsStore?.data?.currentGroupId || 'all',
-                        queryLimit: opts.queryLimit || state.queryLimit || SettingsStore?.data?.queryLimit,
+                        groupId: scheduledGroupId,
+                        activeDocId: scheduledActiveDocId,
+                        queryLimit: opts.queryLimit || __TM_TASK_INDEX_QUERY_LIMIT,
                     });
                     const rawStore = await __tmReadJsonFile(TASK_SNAPSHOT_FILE_PATH);
                     const store = __tmBuildTaskSnapshotStore(rawStore);
+                    payload = __tmAttachTaskSnapshotViewState(payload, {
+                        groupId: payload?.groupId || scheduledGroupId,
+                        previousSnapshot: store?.snapshots?.[payload?.scopeKey],
+                    }) || payload;
+                    const payloadFlatTasks = __tmBuildFlatTasksFromTaskSnapshotTree(Array.isArray(payload?.taskTree) ? payload.taskTree : []);
+                    const payloadCoverage = __tmGetTaskCountCoverageStatus(payload?.docIds || docIds, Object.keys(payloadFlatTasks).length, opts);
+                    if (!payloadCoverage.ok) {
+                        __tmLogTaskSnapshot('save-skip', {
+                            reason: payloadCoverage.reason,
+                            groupId: String(payload?.groupId || groupIdForLog).trim() || 'all',
+                            docCount: Array.isArray(payload?.docIds) ? payload.docIds.length : docIds.length,
+                            taskDocCount: Array.isArray(payload?.taskTree) ? payload.taskTree.length : 0,
+                            otherBlockCount: Array.isArray(payload?.otherBlocks) ? payload.otherBlocks.length : 0,
+                            taskCount: payloadCoverage.actual,
+                            expectedTaskCount: payloadCoverage.expected,
+                            overageTolerance: payloadCoverage.overageTolerance,
+                        });
+                        return;
+                    }
+                    const persistSignature = __tmBuildTaskSnapshotPersistSignature(payload);
+                    const prevPersistSignature = String(__tmTaskSnapshotPersistSignatureCache.get(payload?.scopeKey) || '').trim();
+                    if (persistSignature && prevPersistSignature && persistSignature === prevPersistSignature) {
+                        __tmLogTaskSnapshot('save-skip', {
+                            reason: 'unchanged-signature',
+                            groupId: String(payload?.groupId || groupIdForLog).trim() || 'all',
+                            docCount: Array.isArray(payload?.docIds) ? payload.docIds.length : docIds.length,
+                            taskDocCount: Array.isArray(payload?.taskTree) ? payload.taskTree.length : 0,
+                            otherBlockCount: Array.isArray(payload?.otherBlocks) ? payload.otherBlocks.length : 0,
+                            hasViewState: payload?.viewState ? 1 : 0,
+                            viewStatesCount: payload?.viewStates && typeof payload.viewStates === 'object'
+                                ? Object.keys(payload.viewStates).length
+                                : 0,
+                        });
+                        return;
+                    }
+                    const pooledPayloadPreview = __tmBuildTaskSnapshotRecordForStore(payload, {
+                        docs: {},
+                        otherBlockSets: {},
+                    });
+                    const payloadBytes = __tmEstimateJsonByteSize(pooledPayloadPreview || payload);
+                    if (payloadBytes > __TM_TASK_SNAPSHOT_MAX_SINGLE_BYTES) {
+                        __tmLogTaskSnapshot('save-skip', {
+                            reason: 'payload-too-large',
+                            groupId: String(payload?.groupId || groupIdForLog).trim() || 'all',
+                            docCount: Array.isArray(payload?.docIds) ? payload.docIds.length : docIds.length,
+                            taskDocCount: Array.isArray(payload?.taskTree) ? payload.taskTree.length : 0,
+                            otherBlockCount: Array.isArray(payload?.otherBlocks) ? payload.otherBlocks.length : 0,
+                            bytes: payloadBytes,
+                            maxBytes: __TM_TASK_SNAPSHOT_MAX_SINGLE_BYTES,
+                        });
+                        try {
+                            __tmTaskSnapshotStoreCache = store;
+                            await __tmWriteJsonFile(TASK_SNAPSHOT_FILE_PATH, store);
+                        } catch (e) {}
+                        return;
+                    }
                     store.snapshots[payload.scopeKey] = payload;
                     store.updatedAt = Date.now();
                     const nextStore = __tmBuildTaskSnapshotStore(store);
                     __tmTaskSnapshotStoreCache = nextStore;
                     await __tmWriteJsonFile(TASK_SNAPSHOT_FILE_PATH, nextStore);
-                })
-                .catch(() => null)
-                .finally(() => {
+                    if (persistSignature) {
+                        try { __tmTaskSnapshotPersistSignatureCache.set(payload.scopeKey, persistSignature); } catch (e) {}
+                    }
+                    __tmLogTaskSnapshot('save-done', {
+                        groupId: String(payload?.groupId || groupIdForLog).trim() || 'all',
+                        docCount: Array.isArray(payload?.docIds) ? payload.docIds.length : docIds.length,
+                        taskDocCount: Array.isArray(payload?.taskTree) ? payload.taskTree.length : 0,
+                        otherBlockCount: Array.isArray(payload?.otherBlocks) ? payload.otherBlocks.length : 0,
+                        bytes: payloadBytes,
+                        hasViewState: payload?.viewState ? 1 : 0,
+                        viewStatesCount: payload?.viewStates && typeof payload.viewStates === 'object'
+                            ? Object.keys(payload.viewStates).length
+                            : 0,
+                        storeEntryCount: Object.keys(nextStore?.snapshots || {}).length,
+                        storeBytes: __tmEstimateJsonByteSize(nextStore),
+                        pooledDocCount: Object.keys(nextStore?.docs || {}).length,
+                        pooledOtherBlockSetCount: Object.keys(nextStore?.otherBlockSets || {}).length,
+                        dataMode: String(nextStore?.snapshots?.[payload.scopeKey]?.dataMode || ''),
+                        maxEntries: __TM_TASK_SNAPSHOT_MAX_ENTRIES,
+                    });
+                    })
+                    .catch((e) => {
+                    __tmLogTaskSnapshot('save-error', {
+                        groupId: groupIdForLog,
+                        error: String(e?.message || e || '').trim() || 'save-failed',
+                    });
+                    })
+                    .finally(() => {
                     __tmTaskSnapshotSaveInFlight = false;
-                });
+                    });
+            };
+            try { __tmScheduleIdleTask(runSave, Math.max(900, Math.round(delayMs))); } catch (e) { setTimeout(runSave, 0); }
         }, delayMs);
         return true;
     }
 
+    function __tmScheduleBatchedTaskIncrementalRefreshFromTx(payload, options = {}) {
+        const opts = (options && typeof options === 'object') ? options : {};
+        const targets = __tmCollectTxRefreshTargets(payload, opts);
+        if ((!targets.docIds || targets.docIds.size === 0) && (!targets.blockIds || targets.blockIds.size === 0)) return false;
+        if (!__tmWsTaskTxBatch) {
+            __tmWsTaskTxBatch = {
+                docIds: new Set(),
+                blockIds: new Set(),
+                delayMs: 80,
+                source: 'ws-main-batch',
+                forceImmediate: false,
+            };
+        }
+        targets.docIds.forEach((docId) => __tmWsTaskTxBatch.docIds.add(docId));
+        targets.blockIds.forEach((blockId) => __tmWsTaskTxBatch.blockIds.add(blockId));
+        const nextDelayMs = (opts.forceImmediate === true || opts.force === true)
+            ? 0
+            : Math.max(0, Number(opts.delayMs ?? 80) || 80);
+        __tmWsTaskTxBatch.delayMs = Math.min(Number(__tmWsTaskTxBatch.delayMs ?? 80), nextDelayMs);
+        __tmWsTaskTxBatch.forceImmediate = __tmWsTaskTxBatch.forceImmediate || opts.forceImmediate === true || opts.force === true;
+        const source = String(opts.source || '').trim();
+        if (source) __tmWsTaskTxBatch.source = source;
+        if (__tmWsTaskTxBatchTimer) return true;
+        const flushDelayMs = Math.max(0, Number(opts.flushDelayMs ?? 16) || 16);
+        __tmWsTaskTxBatchTimer = setTimeout(() => {
+            __tmWsTaskTxBatchTimer = null;
+            const batch = __tmWsTaskTxBatch;
+            __tmWsTaskTxBatch = null;
+            if (!batch) return;
+            __tmScheduleTaskIncrementalRefreshFromTx(null, {
+                docIds: Array.from(batch.docIds || []),
+                blockIds: Array.from(batch.blockIds || []),
+                delayMs: Number(batch.delayMs ?? 0),
+                source: String(batch.source || 'ws-main-batch').trim() || 'ws-main-batch',
+                forceImmediate: batch.forceImmediate === true,
+            });
+        }, flushDelayMs);
+        return true;
+    }
+
     function __tmScheduleTaskIncrementalRefreshFromTx(payload, options = {}) {
-        const docIds = __tmExtractDocIdsFromTx(payload);
-        const blockIds = __tmExtractBlockIdsFromTx(payload);
-        (Array.isArray(options?.docIds) ? options.docIds : []).forEach((docId) => {
-            const did = String(docId || '').trim();
-            if (did && __tmIsLikelyBlockId(did)) docIds.add(did);
-        });
-        (Array.isArray(options?.blockIds) ? options.blockIds : []).forEach((blockId) => {
-            const bid = String(blockId || '').trim();
-            if (bid && __tmIsLikelyBlockId(bid)) blockIds.add(bid);
-        });
+        const opts = (options && typeof options === 'object') ? options : {};
+        const { docIds, blockIds } = __tmCollectTxRefreshTargets(payload, opts);
         if ((!docIds || docIds.size === 0) && (!blockIds || blockIds.size === 0)) return;
         __tmRememberPendingTxRefreshTargets(Array.from(docIds || []), Array.from(blockIds || []));
         __tmMarkExternalTaskTxDirty();
         try {
             if (__tmTxTaskRefreshTimer) clearTimeout(__tmTxTaskRefreshTimer);
         } catch (e) {}
+        const delayMs = (opts.forceImmediate === true || opts.force === true)
+            ? 0
+            : Math.max(0, Number(opts.delayMs ?? 280) || 280);
+        const flushOptions = {
+            source: String(opts.source || 'ws-main').trim() || 'ws-main',
+            forceImmediate: opts.forceImmediate === true || opts.force === true,
+            force: opts.force === true,
+            ignoreContextQuiet: opts.ignoreContextQuiet === true,
+            bypassThrottle: opts.bypassThrottle === true,
+        };
         __tmTxTaskRefreshTimer = setTimeout(() => {
             __tmTxTaskRefreshTimer = null;
-            __tmFlushTaskIncrementalRefreshFromTx().catch(() => {});
-        }, 280);
+            __tmFlushTaskIncrementalRefreshFromTx(flushOptions).catch(() => {});
+        }, delayMs);
     }
 
-    async function __tmFlushTaskIncrementalRefreshFromTx() {
+    async function __tmFlushTaskIncrementalRefreshFromTx(options = {}) {
+        const opts = (options && typeof options === 'object') ? options : {};
+        const sourceLabel = String(opts.source || 'ws-main').trim() || 'ws-main';
+        const forceImmediate = opts.force === true || opts.forceImmediate === true;
+        const retryOptions = {
+            ignoreContextQuiet: opts.ignoreContextQuiet === true || forceImmediate,
+            bypassThrottle: opts.bypassThrottle === true || forceImmediate,
+        };
         if (__tmTxTaskRefreshInFlight) {
             try {
                 if (__tmTxTaskRefreshTimer) clearTimeout(__tmTxTaskRefreshTimer);
             } catch (e) {}
             __tmTxTaskRefreshTimer = setTimeout(() => {
                 __tmTxTaskRefreshTimer = null;
-                __tmFlushTaskIncrementalRefreshFromTx().catch(() => {});
-            }, 220);
+                __tmFlushTaskIncrementalRefreshFromTx(opts).catch(() => {});
+            }, forceImmediate ? 80 : 220);
             return;
         }
 
@@ -8607,7 +11811,7 @@ docIds.forEach((docId) => {
         const pendingDocIds = pendingTargets.docIds;
         const pendingBlockIds = pendingTargets.blockIds;
         if (!state.externalTaskTxDirty && pendingDocIds.length === 0 && pendingBlockIds.length === 0) return;
-        const retryMeta0 = __tmGetTxRefreshRetryMeta('ws-main');
+        const retryMeta0 = __tmGetTxRefreshRetryMeta(sourceLabel, retryOptions);
         if (!retryMeta0.allowRun) {
             if (retryMeta0.parkUntilScrollIdle) {
                 try { __tmScheduleDeferredRefreshAfterScroll('ws-main'); } catch (e) {}
@@ -8619,7 +11823,7 @@ docIds.forEach((docId) => {
                 } catch (e) {}
                 __tmTxTaskRefreshTimer = setTimeout(() => {
                     __tmTxTaskRefreshTimer = null;
-                    __tmFlushTaskIncrementalRefreshFromTx().catch(() => {});
+                    __tmFlushTaskIncrementalRefreshFromTx(opts).catch(() => {});
                 }, Math.max(180, Number(retryMeta0.waitMs || 0) || 180));
             }
             return;
@@ -8627,14 +11831,17 @@ docIds.forEach((docId) => {
 
         __tmTxTaskRefreshInFlight = true;
         try {
-            await __tmRunAutoRefreshIfNeeded('ws-main', {
+            await __tmRunAutoRefreshIfNeeded(sourceLabel, {
                 affectedDocIds: pendingDocIds,
                 affectedBlockIds: pendingBlockIds,
+                force: forceImmediate,
+                ignoreContextQuiet: retryOptions.ignoreContextQuiet,
+                bypassThrottle: retryOptions.bypassThrottle,
             });
         } finally {
             __tmTxTaskRefreshInFlight = false;
             if (state.externalTaskTxDirty) {
-                const retryMeta = __tmGetTxRefreshRetryMeta('ws-main');
+                const retryMeta = __tmGetTxRefreshRetryMeta(sourceLabel, retryOptions);
                 if (!retryMeta.allowRun && retryMeta.parkUntilVisible) {
                     return;
                 }
@@ -8647,10 +11854,10 @@ docIds.forEach((docId) => {
                 } catch (e) {}
                 const retryDelayMs = !retryMeta.allowRun
                     ? Math.max(180, Number(retryMeta.waitMs || 0) || 180)
-                    : 400;
+                    : (forceImmediate ? 120 : 400);
                 __tmTxTaskRefreshTimer = setTimeout(() => {
                     __tmTxTaskRefreshTimer = null;
-                    __tmFlushTaskIncrementalRefreshFromTx().catch(() => {});
+                    __tmFlushTaskIncrementalRefreshFromTx(opts).catch(() => {});
                 }, retryDelayMs);
             }
             try { __tmFlushDeferredViewRefreshAfterTaskFieldWork('ws-main:end'); } catch (e) {}
@@ -8747,11 +11954,10 @@ docIds.forEach((docId) => {
                 if (__tmShouldIgnoreWsMainTaskRefreshMessage(msg)) {
                     return;
                 }
-                try {
-                    const docIds0 = __tmExtractDocIdsFromTx(msg);
-                    const blockIds0 = __tmExtractBlockIdsFromTx(msg);
-                    
-                } catch (e) {}
+                const txTargets = __tmCollectTxRefreshTargets(msg);
+                const docIds = txTargets.docIds;
+                const blockIds = txTargets.blockIds;
+                const hasTxTargets = (docIds && docIds.size > 0) || (blockIds && blockIds.size > 0);
                 const suppressLocalTimeTx = __tmShouldSuppressLocalTimeTx(msg);
                 const suppressLocalDoneTx = !suppressLocalTimeTx && __tmShouldSuppressLocalDoneTx(msg);
                 const suppressLocalMoveTx = !suppressLocalTimeTx && !suppressLocalDoneTx && __tmShouldSuppressLocalMoveTx(msg);
@@ -8784,7 +11990,9 @@ docIds.forEach((docId) => {
                     } catch (e) {
                         txAttrApplyFailed = true;
                     }
-                    skipNoopAttrOnlyTx = !txAttrApplyFailed
+                    const attrOnlyWithUnparsedTargets = isAttrOnlyTx && txAttrUpdates.length === 0 && hasTxTargets;
+                    skipNoopAttrOnlyTx = !attrOnlyWithUnparsedTargets
+                        && !txAttrApplyFailed
                         && Number(txAttrApplyResult.appliedCount || 0) === 0
                         && Number(txAttrApplyResult.resolvedAppliedCount || 0) === 0
                         && Number(txAttrApplyResult.unresolvedCount || 0) === 0
@@ -8799,10 +12007,17 @@ docIds.forEach((docId) => {
                         __tmMarkExternalTaskTxDirty();
                     }
                 }
-                const docIds = __tmExtractDocIdsFromTx(msg);
                 if (docIds && docIds.size > 0) docIds.forEach((d) => __tmInvalidateTasksQueryCacheByDocId(d));
                 else __tmInvalidateAllSqlCaches();
-                if (suppressLocalTimeTx || suppressLocalDoneTx || suppressLocalMoveTx) return;
+                if (suppressLocalTimeTx || suppressLocalDoneTx || suppressLocalMoveTx) {
+                    if (suppressLocalDoneTx || suppressLocalMoveTx) {
+                        try {
+                            __tmRememberPendingTxRefreshTargets(Array.from(docIds || []), Array.from(blockIds || []));
+                            if (typeof __tmIsPluginVisibleNow !== 'function' || !__tmIsPluginVisibleNow()) __tmMarkExternalTaskTxDirty();
+                        } catch (e) {}
+                    }
+                    return;
+                }
                 if (skipNoopAttrOnlyTx) return;
                 const fastAttrOnlyRefresh = __tmIsFastAttrOnlyRefreshEligible(txAttrUpdates, txAttrApplyResult, isAttrOnlyTx);
                 if (fastAttrOnlyRefresh) {
@@ -8810,19 +12025,32 @@ docIds.forEach((docId) => {
                     if (!skipCalendarTxRefresh) {
                         __tmScheduleCalendarRefetchFromTx();
                     }
-                    try { __tmClearExternalTaskTxDirty(); } catch (e) { try { state.externalTaskTxDirty = false; } catch (e2) {} }
+                    if (typeof __tmIsPluginVisibleNow === 'function' && __tmIsPluginVisibleNow()) {
+                        try { __tmClearExternalTaskTxDirty(); } catch (e) { try { state.externalTaskTxDirty = false; } catch (e2) {} }
+                    } else {
+                        try {
+                            __tmRememberPendingTxRefreshTargets(
+                                Array.from(docIds || []),
+                                txAttrUpdates.map((update) => update?.taskId)
+                            );
+                            __tmMarkExternalTaskTxDirty();
+                        } catch (e) {}
+                    }
                     try {
                         __tmSchedulePersistTaskSnapshot({
                             docIds: state.__tmLoadedDocIdsForTasks,
                             groupId: SettingsStore?.data?.currentGroupId || 'all',
-                            queryLimit: state.queryLimit || SettingsStore?.data?.queryLimit,
+                            queryLimit: __TM_TASK_INDEX_QUERY_LIMIT,
                             delayMs: 1800,
                         });
                     } catch (e) {}
                     return;
                 }
-                __tmScheduleTaskIncrementalRefreshFromTx(msg, {
+                __tmScheduleBatchedTaskIncrementalRefreshFromTx(msg, {
                     blockIds: txAttrUpdates.map((update) => update?.taskId),
+                    delayMs: 80,
+                    flushDelayMs: 16,
+                    source: 'ws-main-batch',
                 });
                 const skipCalendarTxRefresh = __tmShouldSkipCalendarTxRefreshForTimeEdit(msg);
                 if (!skipCalendarTxRefresh) {

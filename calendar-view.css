@@ -1664,7 +1664,9 @@
 }
 
 .tm-calendar-wrap .fc .fc-timegrid-all-day {
-    max-height: 44px;
+    height: auto;
+    max-height: none;
+    overflow: visible;
     border-bottom: 1px solid var(--fc-border-color);
 }
 
@@ -2749,7 +2751,6 @@
 #tmCalendarSideDockTimeline:not(.tm-cal-allday-collapsed) .fc .fc-timegrid-allday .fc-daygrid-day-bottom,
 #tmCalendarSideDockTimeline:not(.tm-cal-allday-collapsed) .fc .fc-timegrid .fc-daygrid-day-bottom {
     width: 100% !important;
-    margin-top: 0 !important;
     padding: 0 !important;
     line-height: 1 !important;
     box-sizing: border-box;
@@ -3573,17 +3574,17 @@
 }
 
 .tm-calendar-host .fc .fc-daygrid-day.tm-cal-drop-target {
-    background: var(--fc-today-bg-color) !important;
+    background: transparent !important;
     box-shadow: inset 0 0 0 2px color-mix(in srgb, var(--tm-primary-color) 26%, transparent);
 }
 
 .tm-calendar-host .fc .fc-daygrid-day.tm-cal-drop-target .fc-daygrid-day-frame {
-    background: var(--fc-today-bg-color);
+    background: transparent !important;
     box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--tm-primary-color) 22%, transparent);
 }
 
 .tm-calendar-host .fc .fc-daygrid-day.tm-cal-drop-target .fc-daygrid-day-bg {
-    background: var(--fc-today-bg-color) !important;
+    background: transparent !important;
 }
 
 .tm-calendar-host .fc .fc-daygrid-day.tm-cal-drop-target .fc-daygrid-day-frame::after {

@@ -1,9 +1,9 @@
     async function init() {
         const bindShellEntrances = !(globalThis.__tmRuntimeHost?.getInfo?.()?.isDockHost ?? __tmIsDockHost());
         try { __tmBindUndoShortcut(); } catch (e) {}
+        try { __tmBindTabEnterAutoRefresh(); } catch (e) {}
         if (bindShellEntrances) {
             try { __tmBindWakeReload(); } catch (e) {}
-            try { __tmBindTabEnterAutoRefresh(); } catch (e) {}
             try { __tmBindNativeDocCheckboxStatusSync(); } catch (e) {}
         }
         try { __tmBindCalendarScheduleUpdated(); } catch (e) {}
@@ -130,11 +130,16 @@ if (shouldMarkDirty) {
                     globalThis.__tmCalendar.setSettingsStore(SettingsStore);
                 }
             } catch (e) {}
-            await WhiteboardStore.load();
+            try {
+                __tmScheduleWarmTaskSnapshotStore(180);
+                __tmScheduleWarmTaskIndexStore(0);
+                __tmScheduleWarmDocScopeCache(0);
+            } catch (e) {}
+            try { __tmScheduleIdleTask(() => WhiteboardStore.load(), 200); } catch (e) {}
 
             // 初始化状态
             state.selectedDocIds = SettingsStore.data.selectedDocIds;
-            state.queryLimit = SettingsStore.data.queryLimit;
+            state.queryLimit = __TM_TASK_INDEX_QUERY_LIMIT;
             state.recursiveDocLimit = SettingsStore.data.recursiveDocLimit;
             const gm0 = String(SettingsStore.data.groupMode || '').trim();
             const validModes = new Set(['none', 'doc', 'time', 'quadrant', 'task']);
@@ -200,10 +205,26 @@ if (shouldMarkDirty) {
 
         // 2. 获取所有文档列表
         try {
-            state.allDocuments = await __tmEnsureAllDocumentsLoaded(false);
+            if (Array.isArray(state.allDocuments) && state.allDocuments.length > 0) {
+                __tmEnsureAllDocumentsLoaded(false).catch(() => null);
+            } else {
+                try { __tmScheduleIdleTask(() => __tmEnsureAllDocumentsLoaded(false), 200); } catch (e) {}
+            }
         } catch (e) {
             console.error('[初始化] 加载文档列表失败:', e);
         }
+        try {
+            __tmScheduleIdleTask(() => {
+                try {
+                    const currentDocIds = Array.isArray(SettingsStore?.data?.selectedDocIds) ? SettingsStore.data.selectedDocIds : [];
+                    __tmScheduleTaskIndexPrewarm({
+                        currentDocIds,
+                        currentGroupId: SettingsStore?.data?.currentGroupId || 'all',
+                        delayMs: 240,
+                    });
+                } catch (e) {}
+            }, 360);
+        } catch (e) {}
 
         // 3. 创建浮动按钮 (已禁用)
         /*
@@ -454,7 +475,7 @@ if (shouldMarkDirty) {
         state.wasHidden = false;
 
         await __tmEnsureSettingsLoaded();
-        try { await __tmRefreshNotebookCache(); } catch (e) {}
+        try { __tmRefreshNotebookCache().catch(() => null); } catch (e) {}
         try {
             if (globalThis.__tmCalendar && typeof globalThis.__tmCalendar.setSettingsStore === 'function') {
                 globalThis.__tmCalendar.setSettingsStore(SettingsStore);
@@ -535,7 +556,8 @@ if (shouldMarkDirty) {
             && !quickbarDirty
             && !hasPendingInsertedTasks
             && !forceShellRenderOnOpen;
-        try { __tmWarmTaskSnapshotStore(); } catch (e) {}
+        try { __tmScheduleWarmTaskSnapshotStore(240); } catch (e) {}
+        try { __tmScheduleWarmTaskIndexStore(240); } catch (e) {}
         if (canSkipRenderOnReuse) {
             try { __tmScheduleReminderTaskNameMarksRefresh(state.modal, true); } catch (e) {}
             try {
@@ -554,7 +576,6 @@ if (shouldMarkDirty) {
             loadSelectedDocuments({
                 skipRender: true,
                 preferFastFirstPaint: false,
-                forceFreshTasks: true,
                 showInlineLoading: false,
                 perfTrace,
                 source: 'openManager-soft-reuse'
@@ -609,10 +630,16 @@ if (shouldMarkDirty) {
         });
         loadSelectedDocuments({
             skipRender: canSkipRenderOnReuse,
-            preferFastFirstPaint: !canSkipRenderOnReuse && runtimeMobileFastPath,
+            preferFastFirstPaint: !canSkipRenderOnReuse,
+            skipSnapshotFirstPaint: false,
+            snapshotFirstPaintCachedOnly: false,
+            taskIndexFirstPaintCachedOnly: false,
+            allowPartialTaskIndexFirstPaint: false,
+            refreshAfterTaskIndexFirstPaint: false,
+            skipFullLoadAfterFastFirstPaint: true,
             showInlineLoading: shouldShowInlineLoading,
             loadingStyleKind: canSkipRenderOnReuse ? 'topbar' : 'skeleton',
-            loadingDelayMs: canSkipRenderOnReuse ? undefined : 0,
+            loadingDelayMs: canSkipRenderOnReuse ? undefined : 900,
             perfTrace,
             source: 'openManager'
         }).then(() => {
@@ -759,6 +786,10 @@ if (shouldMarkDirty) {
             if (__tmTabActivationObserverTimer) {
                 clearTimeout(__tmTabActivationObserverTimer);
                 __tmTabActivationObserverTimer = 0;
+            }
+            if (__tmTabActivationObserverRaf) {
+                cancelAnimationFrame(__tmTabActivationObserverRaf);
+                __tmTabActivationObserverRaf = 0;
             }
             __tmTaskHorizonTabWasActive = false;
         } catch (e) {}
@@ -942,6 +973,11 @@ if (shouldMarkDirty) {
                 cancelAnimationFrame(__tmShellEntrancesRefreshRaf);
                 __tmShellEntrancesRefreshRaf = null;
             }
+            if (__tmShellEntrancesRefreshTimer != null) {
+                clearTimeout(__tmShellEntrancesRefreshTimer);
+                __tmShellEntrancesRefreshTimer = null;
+            }
+            __tmShellEntrancesLastSignature = '';
         } catch (e) {}
         try {
             if (__tmMountRetryTimer != null) {

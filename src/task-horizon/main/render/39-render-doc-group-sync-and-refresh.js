@@ -315,7 +315,7 @@
         if (activeDocChanged) {
             try {
                 const applied = await __tmApplyCurrentContextViewProfile();
-                if (applied?.doneOnlyChanged || applied?.customFieldReloadNeeded) {
+                if (applied?.customFieldReloadNeeded) {
                     await loadSelectedDocuments({
                         skipRender: true,
                         showInlineLoading: false,
