@@ -3160,6 +3160,10 @@ return false;
         const nextPatch = (patch && typeof patch === 'object') ? patch : {};
         if (!tid || !Object.keys(nextPatch).length) return false;
         const opts = (options && typeof options === 'object') ? options : {};
+        const viewMode = String(state.viewMode || '').trim();
+        const refreshWithFilters = __tmShouldRefreshWithFiltersForPatch(tid, nextPatch, opts);
+        const needsProjectionRefresh = __tmDoesPatchNeedProjectionRefresh(tid, nextPatch, opts);
+        const fallbackNeeded = __tmShouldFallbackTaskFieldPatch(tid, nextPatch, opts);
         const suppressChecklistDetailSaveRefresh = __tmShouldSuppressChecklistDetailSaveRefresh(tid, nextPatch, opts);
         if (!__tmIsPluginVisibleNow()) {
 return false;
@@ -3170,26 +3174,7 @@ return false;
             } catch (e) {}
             return true;
         }
-        if (__tmShouldFallbackTaskFieldPatch(tid, nextPatch, opts)) {
-            const refreshWithFilters = __tmShouldRefreshWithFiltersForPatch(tid, nextPatch, opts);
-            const needsProjectionRefresh = __tmDoesPatchNeedProjectionRefresh(tid, nextPatch, opts);
-if (String(state.viewMode || '').trim() === 'list' && refreshWithFilters && needsProjectionRefresh) {
-                __tmScheduleListProjectionRefresh({
-                    mode: 'current',
-                    withFilters: true,
-                    reason: String(opts.reason || 'task-field-projection').trim() || 'task-field-projection',
-                }, __tmBuildListProjectionRefreshScheduleOptions(nextPatch, opts));
-            } else {
-                __tmScheduleViewRefresh({
-                    mode: 'current',
-                    withFilters: refreshWithFilters,
-                    reason: String(opts.reason || 'task-field-projection').trim() || 'task-field-projection',
-                });
-            }
-            return false;
-        }
         let refreshed = false;
-        const viewMode = String(state.viewMode || '').trim();
         if (viewMode === 'list') refreshed = !!__tmViewControllers.list.patchTask(tid, nextPatch) || refreshed;
         if (viewMode === 'checklist') {
             const checklistPatched = !!__tmViewControllers.checklist.patchTask(tid, nextPatch);
@@ -3204,10 +3189,25 @@ refreshed = checklistPatched || refreshed;
         if (viewMode === 'kanban') refreshed = !!__tmViewControllers.kanban.patchTask(tid, nextPatch) || refreshed;
         if (viewMode === 'whiteboard') refreshed = !!__tmViewControllers.whiteboard.patchTask(tid, nextPatch) || refreshed;
         if (opts.skipDetailPatch !== true) refreshed = !!__tmViewControllers.detail.patchTask(tid) || refreshed;
-if (viewMode === 'list' && refreshed && opts.withFilters === false) {
-            const needsReorderRefresh = __tmDoesPatchNeedProjectionRefresh(tid, nextPatch, opts);
-            if (needsReorderRefresh) {
-__tmScheduleListProjectionRefresh({
+        if (fallbackNeeded) {
+            if (viewMode === 'list' && refreshWithFilters && needsProjectionRefresh) {
+                __tmScheduleListProjectionRefresh({
+                    mode: 'current',
+                    withFilters: true,
+                    reason: String(opts.reason || 'task-field-projection').trim() || 'task-field-projection',
+                }, __tmBuildListProjectionRefreshScheduleOptions(nextPatch, opts));
+            } else {
+                __tmScheduleViewRefresh({
+                    mode: 'current',
+                    withFilters: refreshWithFilters,
+                    reason: String(opts.reason || 'task-field-projection').trim() || 'task-field-projection',
+                });
+            }
+            return refreshed;
+        }
+        if (viewMode === 'list' && refreshed && opts.withFilters === false) {
+            if (needsProjectionRefresh) {
+                __tmScheduleListProjectionRefresh({
                     mode: 'current',
                     withFilters: true,
                     reason: String(opts.reason || 'task-field-list-reorder').trim() || 'task-field-list-reorder',
@@ -3229,8 +3229,6 @@ __tmScheduleListProjectionRefresh({
                 }
 return false;
             }
-const refreshWithFilters = __tmShouldRefreshWithFiltersForPatch(tid, nextPatch, opts);
-            const needsProjectionRefresh = __tmDoesPatchNeedProjectionRefresh(tid, nextPatch, opts);
             if (viewMode === 'list' && refreshWithFilters && needsProjectionRefresh) {
                 __tmScheduleListProjectionRefresh({
                     mode: 'current',
