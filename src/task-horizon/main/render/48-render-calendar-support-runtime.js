@@ -832,36 +832,32 @@ const hasStartDate = Object.prototype.hasOwnProperty.call(nextPatch, 'startDate'
             });
         }
         const refreshReason = String(opts.source || 'calendar-dates').trim() || 'calendar-dates';
+        const viewPatch = {};
+        if (hasStartDate) viewPatch.startDate = nextStart;
+        if (hasCompletionTime) viewPatch.completionTime = nextEnd;
+        let needsProjectionRefresh = false;
         try {
-            await __tmApplyTaskMetaPatchWithUndo(persistId, attrPatch, {
-                source: refreshReason,
-                label: __tmBuildUndoLabelFromMetaPatch(attrPatch, '日期'),
-                refresh: false,
-                refreshCalendar: false,
-                withFilters: false,
-                skipNoopCheck: opts.skipNoopCheck === true,
-                hard: opts.hard === true,
-                broadcast: opts.broadcast !== false,
-                queued: opts.queued === true,
-                background: opts.background === true,
-                skipFlush: opts.skipFlush,
-                renderOptimistic: opts.renderOptimistic !== false,
+            needsProjectionRefresh = __tmDoesPatchNeedProjectionRefresh(persistId, viewPatch, {
+                forceProjectionRefresh: opts.forceProjectionRefresh === true,
             });
         } catch (e) {
-            throw e;
+            needsProjectionRefresh = false;
         }
+        const persistPromise = __tmApplyTaskMetaPatchWithUndo(persistId, attrPatch, {
+            source: refreshReason,
+            label: __tmBuildUndoLabelFromMetaPatch(attrPatch, '日期'),
+            refresh: false,
+            refreshCalendar: false,
+            withFilters: false,
+            skipNoopCheck: opts.skipNoopCheck === true,
+            hard: opts.hard === true,
+            broadcast: opts.broadcast !== false,
+            queued: true,
+            background: false,
+            skipFlush: opts.skipFlush,
+            renderOptimistic: opts.renderOptimistic !== false,
+        });
         if (opts.refresh !== false) {
-            const viewPatch = {};
-            if (hasStartDate) viewPatch.startDate = nextStart;
-            if (hasCompletionTime) viewPatch.completionTime = nextEnd;
-            let needsProjectionRefresh = false;
-            try {
-                needsProjectionRefresh = __tmDoesPatchNeedProjectionRefresh(persistId, viewPatch, {
-                    forceProjectionRefresh: opts.forceProjectionRefresh === true,
-                });
-            } catch (e) {
-                needsProjectionRefresh = false;
-            }
             try {
                 __tmRefreshTaskTimeAcrossViews(persistId, {
                     patch: viewPatch,
@@ -891,6 +887,11 @@ const hasStartDate = Object.prototype.hasOwnProperty.call(nextPatch, 'startDate'
                     }
                 }
             } catch (e) {}
+        }
+        try {
+            await persistPromise;
+        } catch (e) {
+            throw e;
         }
 return {
             id: persistId,
