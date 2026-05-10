@@ -1126,7 +1126,8 @@
 }
 
 .tm-rule-condition {
-    display: flex;
+    display: grid;
+    grid-template-columns: 56px 120px 80px 1fr auto;
     align-items: center;
     gap: 10px;
     padding: 6px;
@@ -1157,6 +1158,8 @@
 
 .tm-rule-condition-value {
     flex: 1;
+    width: 100%;
+    box-sizing: border-box;
     font-size: 12px;
     background: var(--tm-input-bg);
     color: var(--tm-text-color);
@@ -1168,6 +1171,27 @@
 .tm-rule-condition-value-empty {
     color: var(--tm-secondary-text);
     border-style: dashed;
+}
+
+.tm-rule-condition-join {
+    width: 100%;
+    box-sizing: border-box;
+    font-size: 12px;
+    font-weight: 500;
+    text-align: center;
+    background: var(--tm-input-bg);
+    color: var(--tm-text-color);
+    border: 1px solid var(--tm-input-border);
+    padding: 4px;
+    border-radius: 4px;
+}
+
+.tm-rule-condition-where {
+    background: transparent;
+    border: 1px solid transparent;
+    color: var(--tm-secondary-text);
+    cursor: default;
+    user-select: none;
 }
 
 .tm-rule-sort-items {
@@ -12298,7 +12322,12 @@ th[data-col] {
         grid-template-columns: 1fr !important;
     }
 
-    .tm-settings-content .tm-rule-condition,
+    .tm-settings-content .tm-rule-condition {
+        display: flex !important;
+        flex-wrap: wrap !important;
+        gap: 6px !important;
+    }
+
     .tm-settings-content .tm-rule-sort-item,
     .tm-settings-content .tm-time-range {
         flex-wrap: wrap !important;
@@ -12315,6 +12344,11 @@ th[data-col] {
         width: 100% !important;
         max-width: 100% !important;
         min-width: 0 !important;
+    }
+
+    .tm-settings-content .tm-rule-condition-join {
+        width: auto !important;
+        min-width: 56px !important;
     }
 
     .tm-settings-content .tm-priority-status-row {

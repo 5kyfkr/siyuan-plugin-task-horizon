@@ -5217,6 +5217,7 @@ if (mode === 'checklist') {
             if (changeType === 'toggleRuleEnabled') return window.toggleRuleEnabled?.(ruleId, !!target.checked);
             if (changeType === 'updateConditionField') return window.updateConditionField?.(index, target.value);
             if (changeType === 'updateConditionOperator') return window.updateConditionOperator?.(index, target.value);
+            if (changeType === 'updateConditionJoin') return window.updateConditionJoin?.(index, target.value);
             if (changeType === 'updateConditionMatchMode') return window.updateConditionMatchMode?.(index, target.value);
             if (changeType === 'updateConditionValue') return window.updateConditionValue?.(index, target.value);
             if (changeType === 'toggleConditionMultiValue') return window.toggleConditionMultiValue?.(index, optionValue, !!target.checked);
@@ -5436,9 +5437,18 @@ if (mode === 'checklist') {
         return conditions.map((condition, index) => {
             const field = availableFields.find(f => f.value === condition.field) || RuleManager.getFieldInfo(condition.field);
             const operators = RuleManager.getOperators(field?.type || 'text');
+            const join = String(condition?.join || 'and').toLowerCase() === 'or' ? 'or' : 'and';
+            // 第 0 行显示"当"作为左到右求值的种子，后续行用 [且/或] 连接到累计结果。
+            const joinSlot = index === 0
+                ? '<span class="tm-rule-condition-join tm-rule-condition-where">当</span>'
+                : `<select class="tm-rule-condition-join" data-tm-change="updateConditionJoin" data-index="${index}">
+                        <option value="and" ${join === 'and' ? 'selected' : ''}>且</option>
+                        <option value="or" ${join === 'or' ? 'selected' : ''}>或</option>
+                    </select>`;
 
             return `
                 <div class="tm-rule-condition">
+                    ${joinSlot}
                     <select class="tm-rule-condition-field" data-tm-change="updateConditionField" data-index="${index}">
                         ${availableFields.map(f =>
                             `<option value="${esc(f.value)}" ${condition.field === f.value ? 'selected' : ''}>
@@ -6684,7 +6694,8 @@ if (mode === 'checklist') {
         state.editingRule.conditions.push({
             field: firstField.value,
             operator: operators[0].value,
-            value: ''
+            value: '',
+            join: 'and'
         });
 
         __tmRerenderRulesManagerUI('conditions');
@@ -6813,6 +6824,11 @@ if (mode === 'checklist') {
             return;
         }
         condition.matchMode = String(mode || '').trim() === 'all' ? 'all' : 'any';
+    };
+
+    window.updateConditionJoin = function(index, value) {
+        if (!state.editingRule || !state.editingRule.conditions[index]) return;
+        state.editingRule.conditions[index].join = String(value || '').toLowerCase() === 'or' ? 'or' : 'and';
     };
 
     window.updateConditionValueRange = function(index, key, value) {

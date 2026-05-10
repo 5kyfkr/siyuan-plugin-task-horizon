@@ -7222,16 +7222,32 @@
         },
 
         // 应用规则筛选
+        // 条件按从左到右顺序求值：每个条件的 join ('and' | 'or') 把它接到目前累计结果上。
+        // 第 0 个条件的 join 被忽略（作为 reduce 的种子）。
+        // 例：[a and b or c and d] = (((a AND b) OR c) AND d)
         applyRuleFilter(tasks, rule, options = {}) {
             if (!rule || !rule.conditions || rule.conditions.length === 0) {
                 return tasks;
             }
             const opts = (options && typeof options === 'object') ? options : {};
-            const compiledConditions = rule.conditions.map((condition) => this.buildConditionRuntime(condition, opts));
+            const compiledConditions = rule.conditions.map((condition) => ({
+                runtime: this.buildConditionRuntime(condition, opts),
+                join: String(condition?.join || 'and').toLowerCase() === 'or' ? 'or' : 'and',
+            }));
             return tasks.filter(task => {
-                return compiledConditions.every((conditionRuntime) => {
-                    return this.evaluateCondition(task, conditionRuntime, opts);
-                });
+                let acc = false;
+                for (let i = 0; i < compiledConditions.length; i++) {
+                    const { runtime, join } = compiledConditions[i];
+                    const v = this.evaluateCondition(task, runtime, opts);
+                    if (i === 0) {
+                        acc = v;
+                    } else if (join === 'or') {
+                        acc = acc || v;
+                    } else {
+                        acc = acc && v;
+                    }
+                }
+                return acc;
             });
         },
 
