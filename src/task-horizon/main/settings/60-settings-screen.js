@@ -316,7 +316,7 @@
                                     <option value="MiniMax-M2.5-highspeed" ${model === 'MiniMax-M2.5-highspeed' ? 'selected' : ''}>MiniMax-M2.5-highspeed</option>
                                 </select>`)
                     )}
-                    ${renderSingleFieldSetting(
+                    ${provider === 'openai' ? '' : renderSingleFieldSetting(
                         '温度',
                         '数值越低越稳定，越高越发散。',
                         `<input class="b3-text-field" type="number" step="0.1" min="0" max="1.5" value="${temperature}" onchange="tmUpdateAiTemperature(this.value)" style="width:88px;">`

@@ -1212,18 +1212,12 @@
                     })).filter((item) => item.content))
                     .concat([{ role: 'user', content: userPayload }]);
                 const modelName = String(opt.model || cfg.model || DEFAULT_OPENAI_MODEL);
-                const isReasoning = /^o\d/i.test(modelName);
+                const tokenBudget = Math.max(256, Math.min(8192, Math.round(Number(opt.maxTokens || cfg.maxTokens || 1600))));
                 const requestBody = {
                     model: modelName,
                     messages,
+                    max_completion_tokens: tokenBudget,
                 };
-                const tokenBudget = Math.max(256, Math.min(8192, Math.round(Number(opt.maxTokens || cfg.maxTokens || 1600))));
-                if (isReasoning) {
-                    requestBody.max_completion_tokens = tokenBudget;
-                } else {
-                    requestBody.max_tokens = tokenBudget;
-                    requestBody.temperature = Math.max(0, Math.min(1.5, Number(opt.temperature ?? cfg.temperature ?? 0.2)));
-                }
                 if (opt.expectJson !== false) {
                     requestBody.response_format = { type: 'json_object' };
                 }
