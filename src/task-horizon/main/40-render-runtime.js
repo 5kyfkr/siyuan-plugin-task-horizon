@@ -644,11 +644,6 @@ return;
                                 </div>
                                 ` : ''}
                                 <div class="tm-mobile-only-item" style="display:flex; gap:10px; align-items:center;">
-                                    <button class="tm-btn tm-btn-info bc-btn bc-btn--sm" onclick="window.tmAiSemanticCompletionPreview?.(); tmHideMobileMenu();" style="flex:1; padding: 6px;">
-                                        <span style="display:inline-flex;align-items:center;gap:6px;">${__tmRenderLucideIcon('calendar-days')}<span>语义日期</span></span>
-                                    </button>
-                                </div>
-                                <div class="tm-mobile-only-item" style="display:flex; gap:10px; align-items:center;">
                                     <div class="tm-btn tm-btn-info bc-btn bc-btn--sm" style="flex:1; padding: 6px 10px; display:flex; align-items:center; justify-content:space-between; gap:10px;">
                                         <span>多选模式</span>
                                         <input class="b3-switch fn__flex-center" type="checkbox" ${state.multiSelectModeEnabled ? 'checked' : ''} onchange="tmToggleMultiSelectMode(this.checked); tmHideMobileMenu();">

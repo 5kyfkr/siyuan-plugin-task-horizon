@@ -42,6 +42,42 @@
         return full;
     }
 
+    const __tmTaskCompletedAtFormatCache = new Map();
+
+    function __tmResolveTaskCompletedAtRaw(task, options = {}) {
+        const opts = (options && typeof options === 'object') ? options : {};
+        if (!(task && typeof task === 'object')) return '';
+        if (opts.completedOnly !== false && !task.done) return '';
+        return String(
+            task?.['custom-task-complete-at']
+            || task?.['task-complete-at']
+            || task?.taskCompleteAt
+            || task?.task_complete_at
+            || task?.completedAt
+            || task?.updated
+            || task?.updatedAt
+            || task?.completionTime
+            || ''
+        ).trim();
+    }
+
+    function __tmFormatTaskCompletedAtTime(value) {
+        const raw = String(value || '').trim();
+        if (!raw) return '';
+        if (__tmTaskCompletedAtFormatCache.has(raw)) return __tmTaskCompletedAtFormatCache.get(raw) || '';
+        const hasTimePart = /^\d{14}$/.test(raw)
+            || /^\d{10,13}$/.test(raw)
+            || /(?:T|\s)\d{2}:\d{2}/.test(raw);
+        const ts = __tmParseTimeToTs(raw);
+        if (!Number.isFinite(ts) || ts <= 0) return __tmRememberSmallCache(__tmTaskCompletedAtFormatCache, raw, __tmFormatTaskTime(raw), 1600);
+        const d = new Date(ts);
+        if (Number.isNaN(d.getTime())) return __tmRememberSmallCache(__tmTaskCompletedAtFormatCache, raw, __tmFormatTaskTime(raw), 1600);
+        const pad = (n) => String(n).padStart(2, '0');
+        const date = `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+        const out = hasTimePart ? `${date} ${pad(d.getHours())}:${pad(d.getMinutes())}` : date;
+        return __tmRememberSmallCache(__tmTaskCompletedAtFormatCache, raw, out, 1600);
+    }
+
     const __TM_TASK_CARD_FIELD_OPTIONS = [
         { key: 'priority', label: '重要性' },
         { key: 'status', label: '状态' },
@@ -367,15 +403,19 @@
         return new Date(year, month, day, 12, 0, 0, 0);
     }
 
-    function __tmBuildTaskRepeatMonthlyDate(baseDate, deltaMonths) {
+    function __tmBuildTaskRepeatMonthlyDate(baseDate, deltaMonths, anchorDateLike = '') {
         const base = (baseDate instanceof Date) ? new Date(baseDate.getTime()) : __tmBuildLocalNoonDateFromKey(baseDate);
         if (!(base instanceof Date) || Number.isNaN(base.getTime())) return null;
+        const anchor = __tmBuildLocalNoonDateFromKey(anchorDateLike);
         const months = Number(deltaMonths) || 0;
         const total = base.getFullYear() * 12 + base.getMonth() + months;
         const year = Math.floor(total / 12);
         const month = ((total % 12) + 12) % 12;
         const lastDay = new Date(year, month + 1, 0, 12, 0, 0, 0).getDate();
-        const day = Math.min(base.getDate(), lastDay);
+        const preferredDay = (anchor instanceof Date && !Number.isNaN(anchor.getTime()))
+            ? anchor.getDate()
+            : base.getDate();
+        const day = Math.min(preferredDay, lastDay);
         return new Date(year, month, day, 12, 0, 0, 0);
     }
 
@@ -392,7 +432,10 @@
     function __tmAdvanceTaskRepeatDateKey(dateKey, ruleInput) {
         const key = __tmNormalizeDateOnly(dateKey);
         if (!key) return '';
-        const rule = __tmNormalizeTaskRepeatRule(ruleInput, { anchorDate: key });
+        const rule = __tmNormalizeTaskRepeatRule(ruleInput, {
+            startDate: key,
+            completionTime: key,
+        });
         if (!rule.enabled || rule.type === 'none') return key;
         const base = __tmBuildLocalNoonDateFromKey(key);
         if (!(base instanceof Date) || Number.isNaN(base.getTime())) return key;
@@ -414,7 +457,7 @@
         } else if (rule.type === 'monthly') {
             next = rule.monthlyMode === 'weekday'
                 ? __tmBuildTaskRepeatMonthlyWeekdayDate(base, rule.every)
-                : __tmBuildTaskRepeatMonthlyDate(base, rule.every);
+                : __tmBuildTaskRepeatMonthlyDate(base, rule.every, rule.anchorDate);
         } else if (rule.type === 'yearly') {
             next = __tmBuildTaskRepeatYearlyDate(base, rule.every);
         }
@@ -427,7 +470,6 @@
     function __tmBuildTaskRepeatAdvancePatch(taskLike, ruleInput, options = {}) {
         const task = (taskLike && typeof taskLike === 'object') ? taskLike : {};
         const rule = __tmNormalizeTaskRepeatRule(ruleInput, {
-            anchorDate: task?.completionTime || task?.startDate || new Date(),
             startDate: task?.startDate,
             completionTime: task?.completionTime,
         });

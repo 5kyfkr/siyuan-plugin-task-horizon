@@ -56,6 +56,7 @@
         const hasContentCol = colSet.has('content');
         const hasStartDateCol = colSet.has('startDate');
         const hasCompletionTimeCol = colSet.has('completionTime');
+        const hasTaskCompleteAtCol = colSet.has('taskCompleteAt');
         const hasRemainingTimeCol = colSet.has('remainingTime');
         const hasStatusCol = colSet.has('status');
         const treeGuidesCache = new Map();
@@ -105,6 +106,16 @@
             const bts = Number(bi?.ts || 0);
             if (ats !== bts) return ats - bts;
             return getTaskOrder(String(a?.id || '')) - getTaskOrder(String(b?.id || ''));
+        };
+        const buildTimeGroupLabelHtml = (label, diffDays) => {
+            const safeLabel = esc(String(label || '').trim());
+            const days = Number(diffDays);
+            if (!Number.isFinite(days) || days < 0 || days > 15) return safeLabel;
+            const target = new Date();
+            target.setHours(12, 0, 0, 0);
+            target.setDate(target.getDate() + days);
+            const weekday = __tmGetTaskRepeatWeekdayLabel(target);
+            return `<span class="tm-time-group-label-wrap"><span class="tm-time-group-label-text">${safeLabel}</span><span class="tm-time-group-weekday-chip">${esc(weekday)}</span></span>`;
         };
         const resolvePinnedTaskGroupBg = (task) => {
             if (!enableGroupBg || !task) return '';
@@ -217,6 +228,7 @@
                 : '';
             const startDateText = hasStartDateCol ? __tmFormatTaskTime(startDate) : '';
             const completionTimeText = hasCompletionTimeCol ? __tmFormatTaskTime(completionTime) : '';
+            const taskCompleteAtText = hasTaskCompleteAtCol ? __tmFormatTaskCompletedAtTime(__tmResolveTaskCompletedAtRaw(task)) : '';
             const remainingInfo = hasRemainingTimeCol ? __tmGetTaskRemainingTimeInfo(task) : null;
             const remainingLabel = hasRemainingTimeCol ? String(remainingInfo?.label || '').trim() : '';
             const remainingHtml = hasRemainingTimeCol ? __tmRenderTaskRemainingTimeInfoHtml(remainingInfo) : '';
@@ -315,6 +327,10 @@
                         rowHtml += `
                     <td class="tm-cell-editable tm-task-meta-cell" data-tm-task-time-field="completionTime" style="${getTableCellStyle('completionTime')}" onclick="tmBeginCellEdit('${taskId}','completionTime',this,event)">${completionTimeText}</td>`;
                         break;
+                    case 'taskCompleteAt':
+                        rowHtml += `
+                    <td class="tm-task-meta-cell" data-tm-task-time-field="taskCompleteAt" style="${getTableCellStyle('taskCompleteAt')}" title="${esc(taskCompleteAtText)}">${esc(taskCompleteAtText)}</td>`;
+                        break;
                     case 'remainingTime':
                         rowHtml += `<td class="tm-task-meta-cell" data-tm-task-time-field="remainingTime" style="${getTableCellStyle('remainingTime', 'text-align:center;')}" title="${esc(remainingLabel)}">${remainingHtml}</td>`;
                         break;
@@ -410,8 +426,8 @@
             if (!completedRoots.length) return;
             if (!hasTaskRowBudget()) return;
             completedRoots.sort((a, b) => __tmCompareCompletedTasksRecentFirst(a, b, (x, y) => getTaskOrder(x.id) - getTaskOrder(y.id)));
-            const doneGroupKey = 'completed_root_tasks';
-            const doneCollapsed = state.collapsedGroups?.has(doneGroupKey);
+            const doneGroupKey = __tmBuildCompletedRootGroupKey();
+            const doneCollapsed = __tmIsCompletedRootGroupCollapsed(doneGroupKey);
             const doneToggle = `<span class="tm-group-toggle${doneCollapsed ? ' tm-group-toggle--collapsed' : ''}" onclick="tmToggleGroupCollapse('${doneGroupKey}', event)" style="cursor:pointer;margin-right:0;display:inline-flex;align-items:center;justify-content:center;width:16px;"><svg class="tm-group-toggle-icon" viewBox="0 0 16 16" width="16" height="16"><path d="M6 4l4 4-4 4" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg></span>`;
             const doneDurationSum = __tmCalcGroupDurationText(completedRoots);
             allRows.push(`<tr class="tm-group-row" data-group-key="${doneGroupKey}"><td colspan="${colCount}" onclick="tmToggleGroupCollapse('${doneGroupKey}', event)" style="cursor:pointer;background:var(--tm-header-bg);font-weight:bold;color:var(--tm-text-color);"><div class="tm-group-sticky">${doneToggle}<span class="tm-group-label" style="color:var(--tm-secondary-text);">已完成任务</span><span class="tm-badge tm-badge--count">${completedRoots.length}</span>${doneDurationSum ? `<span class="tm-badge tm-badge--duration"><span class="tm-badge__icon">${__tmRenderBadgeIcon('chart-column')}</span>${esc(doneDurationSum)}</span>` : ''}</div></td></tr>`);
@@ -660,15 +676,21 @@
                 const info = getTimePriorityInfo(task);
                 const diffDays = Number(info?.diffDays);
                 if (!Number.isFinite(diffDays)) {
-                    return { key: 'pending', label: '待定', sortValue: Infinity };
+                    return { key: 'pending', label: '待定', labelHtml: '待定', sortValue: Infinity };
                 }
 
-                if (diffDays < 0) return { key: 'overdue', label: '已过期', sortValue: diffDays };
-                if (diffDays === 0) return { key: 'today', label: '今天', sortValue: 0 };
-                if (diffDays === 1) return { key: 'tomorrow', label: '明天', sortValue: 1 };
-                if (diffDays === 2) return { key: 'after_tomorrow', label: '后天', sortValue: 2 };
+                if (diffDays < 0) return { key: 'overdue', label: '已过期', labelHtml: '已过期', sortValue: diffDays };
+                if (diffDays === 0) return { key: 'today', label: '今天', labelHtml: buildTimeGroupLabelHtml('今天', diffDays), sortValue: 0 };
+                if (diffDays === 1) return { key: 'tomorrow', label: '明天', labelHtml: buildTimeGroupLabelHtml('明天', diffDays), sortValue: 1 };
+                if (diffDays === 2) return { key: 'after_tomorrow', label: '后天', labelHtml: buildTimeGroupLabelHtml('后天', diffDays), sortValue: 2 };
 
-                return { key: `days_${diffDays}`, label: `余${diffDays}天`, sortValue: diffDays };
+                const label = `余${diffDays}天`;
+                return {
+                    key: `days_${diffDays}`,
+                    label,
+                    labelHtml: buildTimeGroupLabelHtml(label, diffDays),
+                    sortValue: diffDays,
+                };
             };
 
             // 按时间分组
@@ -693,11 +715,13 @@
                 const isCollapsed = state.collapsedGroups?.has(group.key);
                 const toggle = `<span class="tm-group-toggle${isCollapsed ? ' tm-group-toggle--collapsed' : ''}" onclick="tmToggleGroupCollapse('${group.key}', event)" style="cursor:pointer;margin-right:0;display:inline-flex;align-items:center;justify-content:center;width:16px;"><svg class="tm-group-toggle-icon" viewBox="0 0 16 16" width="16" height="16"><path d="M6 4l4 4-4 4" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg></span>`;
                 const labelColor = __tmGetTimeGroupLabelColor(group);
+                const groupKey = String(group.key || '').trim();
+                const timeGroupDropAttrs = `data-group-kind="time" data-group-key="${esc(groupKey)}" ondragenter="tmTimeGroupDragOver(event, '${groupKey}')" ondragover="tmTimeGroupDragOver(event, '${groupKey}')" ondragleave="tmTimeGroupDragLeave(event)" ondrop="tmTimeGroupDrop(event, '${groupKey}')"`;
 
                 // 计算该分组下所有任务的时长总和
                 const durationSum = calculateGroupDuration(group.items);
 
-                allRows.push(`<tr class="tm-group-row" data-group-key="${esc(group.key)}"><td colspan="${colCount}" onclick="tmToggleGroupCollapse('${group.key}', event)" style="cursor:pointer;background:var(--tm-header-bg);font-weight:bold;color:var(--tm-text-color);"><div class="tm-group-sticky">${toggle}<span class="tm-group-label" style="color:${labelColor};">${esc(group.label)}</span><span class="tm-badge tm-badge--count">${group.items.length}</span>${durationSum ? `<span class="tm-badge tm-badge--duration"><span class="tm-badge__icon">${__tmRenderBadgeIcon('chart-column')}</span>${esc(durationSum)}</span>` : ''}</div></td></tr>`);
+                allRows.push(`<tr class="tm-group-row" ${timeGroupDropAttrs}><td colspan="${colCount}" onclick="tmToggleGroupCollapse('${groupKey}', event)" style="cursor:pointer;background:var(--tm-header-bg);font-weight:bold;color:var(--tm-text-color);"><div class="tm-group-sticky">${toggle}<span class="tm-group-label" style="color:${labelColor};">${String(group.labelHtml || esc(group.label))}</span><span class="tm-badge tm-badge--count">${group.items.length}</span>${durationSum ? `<span class="tm-badge tm-badge--duration"><span class="tm-badge__icon">${__tmRenderBadgeIcon('chart-column')}</span>${esc(durationSum)}</span>` : ''}</div></td></tr>`);
 
                 if (!isCollapsed) {
                     currentGroupBg = enableGroupBg
@@ -1154,6 +1178,17 @@
         if (!tid || !key) return finish(false, 'invalid-input');
         const task = globalThis.__tmRuntimeState?.getFlatTaskById?.(tid) || state.flatTasks?.[tid];
         if (!task || typeof task !== 'object') return finish(false, 'task-missing');
+        const customFieldDef = __tmGetCustomFieldDefByAttrStorageKey(key);
+        const customFieldId = String(customFieldDef?.id || '').trim();
+        const isCustomFieldAttr = !!customFieldId;
+        if (isCustomFieldAttr) {
+            __tmQuickbarRefreshDebugLog('custom-field-apply-enter', {
+                taskId: tid,
+                attrKey: key,
+                fieldId: customFieldId,
+                attrValue: String(attrValue ?? ''),
+            });
+        }
         const rawValue = attrValue == null ? '' : String(attrValue);
         const trimmedValue = String(rawValue || '').trim();
         const metaUpdate = __tmBuildMetaPatchFromAttrUpdate(key, rawValue, task);
@@ -1161,6 +1196,31 @@
         if (comparablePatch) {
             const inversePatch = __tmCaptureTaskPatchInverse(tid, comparablePatch);
             if (__tmIsPatchNoop(comparablePatch, inversePatch)) {
+                try {
+                    const customFieldPatch = (comparablePatch.customFieldValues && typeof comparablePatch.customFieldValues === 'object' && !Array.isArray(comparablePatch.customFieldValues))
+                        ? comparablePatch.customFieldValues
+                        : null;
+                    if (customFieldPatch) {
+                        __tmQuickbarRefreshDebugLog('custom-field-noop-apply-local', {
+                            taskId: tid,
+                            attrKey: key,
+                            fieldId: customFieldId,
+                            patch: customFieldPatch,
+                            inverse: inversePatch?.customFieldValues || null,
+                        });
+                        Object.entries(customFieldPatch).forEach(([fieldId, nextValue]) => {
+                            const fid = String(fieldId || '').trim();
+                            if (!fid) return;
+                            const field = __tmGetCustomFieldDefMap().get(fid);
+                            if (!field) return;
+                            __tmApplyTaskCustomFieldValueLocally(task, field, nextValue);
+                        });
+                        __tmCacheTaskInState(task, {
+                            docNameFallback: task.doc_name || task.docName || '未命名文档'
+                        });
+                        MetaStore.set(tid, { customFieldValues: customFieldPatch });
+                    }
+                } catch (e) {}
 return finish(false, 'noop');
             }
         }
@@ -1225,6 +1285,12 @@ return finish(false, 'noop');
                     if (!field || !fieldId) return finish(false, 'unsupported-field');
                     const normalizedValue = __tmNormalizeCustomFieldValue(field, rawValue);
                     __tmApplyTaskCustomFieldValueLocally(task, field, normalizedValue);
+                    __tmQuickbarRefreshDebugLog('custom-field-apply-local', {
+                        taskId: tid,
+                        attrKey: key,
+                        fieldId,
+                        normalizedValue,
+                    });
                     metaPatch = { customFieldValues: { [fieldId]: normalizedValue } };
                 }
                 break;
@@ -1275,6 +1341,14 @@ return finish(false, 'noop');
         try {
             if (metaPatch && typeof metaPatch === 'object') MetaStore.set(tid, metaPatch);
         } catch (e) {}
+        if (isCustomFieldAttr) {
+            __tmQuickbarRefreshDebugLog('custom-field-apply-exit', {
+                taskId: tid,
+                attrKey: key,
+                fieldId: customFieldId,
+                metaPatch: metaPatch && typeof metaPatch === 'object' ? { ...metaPatch } : null,
+            });
+        }
         return finish(true, 'applied');
     }
 
@@ -6061,10 +6135,20 @@ hint(`❌ 操作失败: ${e.message}`, 'error');
             }
             // 不可见时再退回静默就地刷新，避免切回页面后数据过旧。
             if (state.isRefreshing) {
+                try {
+                    if (typeof __tmScheduleMaybeAutoRefreshOnEnter === 'function') {
+                        __tmScheduleMaybeAutoRefreshOnEnter('quickbar-refresh-busy');
+                    }
+                } catch (e) {}
                 setTimeout(() => { try { __tmSilentRefreshAfterQuickbarUpdate(); } catch (e) {} }, 500);
                 return;
             }
             __tmSilentRefreshAfterQuickbarUpdate();
+            try {
+                if (typeof __tmScheduleMaybeAutoRefreshOnEnter === 'function') {
+                    __tmScheduleMaybeAutoRefreshOnEnter('quickbar-refresh-hidden');
+                }
+            } catch (e) {}
         } catch (e) {
             console.error('__taskHorizonRefresh error:', e);
         }
@@ -7558,9 +7642,9 @@ hint(`❌ 操作失败: ${e.message}`, 'error');
                 if (viewMode === 'timeline' || viewMode === 'checklist') return true;
                 if (state.groupByTime || state.quadrantEnabled) return true;
                 const colOrder = Array.isArray(SettingsStore?.data?.columnOrder) ? SettingsStore.data.columnOrder : [];
-                if (colOrder.some((col) => ['startDate', 'completionTime', 'customTime', 'remainingTime'].includes(String(col || '').trim()))) return true;
+                if (colOrder.some((col) => ['startDate', 'completionTime', 'taskCompleteAt', 'customTime', 'remainingTime'].includes(String(col || '').trim()))) return true;
                 const rule = state.currentRule ? (Array.isArray(state.filterRules) ? state.filterRules.find((item) => item?.id === state.currentRule) : null) : null;
-                const usesTimeField = (item) => ['startDate', 'completionTime', 'customTime', 'remainingTime', 'duration'].includes(String(item?.field || '').trim());
+                const usesTimeField = (item) => ['startDate', 'completionTime', 'taskCompleteAt', 'customTime', 'remainingTime', 'duration'].includes(String(item?.field || '').trim());
                 if ((Array.isArray(rule?.conditions) && rule.conditions.some(usesTimeField))
                     || (Array.isArray(rule?.sort) && rule.sort.some(usesTimeField))) return true;
             } catch (e) {}
@@ -7750,6 +7834,7 @@ hint(`❌ 操作失败: ${e.message}`, 'error');
         }
         state.collapsedTaskIds = new Set(SettingsStore.data.collapsedTaskIds || []);
         state.collapsedGroups = new Set(SettingsStore.data.collapsedGroups || []);
+        state.expandedCompletedGroups = new Set(SettingsStore.data.expandedCompletedGroups || []);
         state.currentRule = SettingsStore.data.currentRule;
         state.columnWidths = SettingsStore.data.columnWidths;
         try { __tmNormalizeCompletedVisibilitySettings(SettingsStore.data); } catch (e) {}

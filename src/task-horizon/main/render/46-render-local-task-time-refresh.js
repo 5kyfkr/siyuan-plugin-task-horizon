@@ -166,6 +166,8 @@ return false;
         };
         setCell('startDate', __tmFormatTaskTime(task.startDate));
         setCell('completionTime', __tmFormatTaskTime(task.completionTime));
+        const taskCompleteAtText = __tmFormatTaskCompletedAtTime(__tmResolveTaskCompletedAtRaw(task));
+        setCell('taskCompleteAt', taskCompleteAtText, { title: taskCompleteAtText });
         setCell('duration', esc(String(task.duration || '')), { html: true });
         const remainingInfo = __tmGetTaskRemainingTimeInfo(task);
         const remainingLabel = String(remainingInfo?.label || '').trim();

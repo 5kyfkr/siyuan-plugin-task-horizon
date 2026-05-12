@@ -1,3 +1,15 @@
+    function __tmBuildTaskCompleteAtDetailChipHtml(task, detailTip = null) {
+        const rawValue = __tmResolveTaskCompletedAtRaw(task);
+        const text = __tmFormatTaskCompletedAtTime(rawValue);
+        if (!text) return '';
+        const tipAttr = typeof detailTip === 'function'
+            ? detailTip(`完成时间：${text}`, { ariaLabel: false })
+            : ` title="完成时间：${esc(text)}" data-tm-floating-tooltip-label="完成时间：${esc(text)}"`;
+        return `<div class="bc-btn bc-btn--sm tm-task-detail-core-chip tm-task-detail-core-chip--static has-value" data-tm-detail-complete-at-chip${tipAttr}>
+                            <span class="tm-task-detail-core-chip__face" data-tm-detail-chip-face="taskCompleteAt">${__tmBuildTaskDetailCoreChipFace('taskCompleteAt', rawValue)}</span>
+                        </div>`;
+    }
+
     function __tmBuildTaskDetailInnerHtml(task, options = {}) {
         const opts = (options && typeof options === 'object') ? options : {};
         const embedded = !!opts.embedded;
@@ -201,6 +213,7 @@
                         <button type="button" class="bc-btn bc-btn--sm tm-task-detail-core-chip ${endValue ? 'has-value' : ''}" data-tm-detail-date-trigger="completionTime"${detailTip('截止日期', { ariaLabel: false })}>
                             <span class="tm-task-detail-core-chip__face" data-tm-detail-chip-face="completionTime">${__tmBuildTaskDetailCoreChipFace('completionTime', endValue)}</span>
                         </button>
+                        ${__tmBuildTaskCompleteAtDetailChipHtml(task, detailTip)}
                         <input type="hidden" data-tm-detail="duration" value="${esc(durationValue)}">
                         <button type="button" class="bc-btn bc-btn--sm tm-task-detail-core-chip ${durationValue ? 'has-value' : ''}" data-tm-detail-duration-trigger${detailTip('时长', { ariaLabel: false })}>
                             <span class="tm-task-detail-core-chip__face" data-tm-detail-chip-face="duration">${__tmBuildTaskDetailCoreChipFace('duration', durationValue)}</span>
@@ -3176,6 +3189,7 @@ if (!__tmIsCollectedOtherBlockTask(task) && diff.contentChanged) {
             priority: String(taskLike?.priority || '').trim(),
             startDate: String(taskLike?.startDate || taskLike?.start_date || '').trim(),
             completionTime: String(taskLike?.completionTime || taskLike?.completion_time || '').trim(),
+            taskCompleteAt: __tmResolveTaskCompletedAtRaw(taskLike),
             duration: String(taskLike?.duration || '').trim(),
             pinned: !!(taskLike?.pinned === true || taskLike?.pinned === '1' || taskLike?.pinned === 1 || String(taskLike?.custom_pinned || '').trim() === '1'),
             remark: String(taskLike?.remark || ''),
@@ -3241,6 +3255,7 @@ return true;
                     priority: true,
                     startDate: true,
                     completionTime: true,
+                    taskCompleteAt: true,
                     duration: true,
                     pinned: true,
                     remark: true,
@@ -3349,9 +3364,40 @@ return true;
                 touched = true;
             }
         };
+        const syncTaskCompleteAtChip = () => {
+            const existing = panel.querySelector('[data-tm-detail-complete-at-chip]');
+            const rawValue = __tmResolveTaskCompletedAtRaw(task);
+            const text = __tmFormatTaskCompletedAtTime(rawValue);
+            if (!text) {
+                if (existing instanceof HTMLElement) {
+                    existing.remove();
+                    touched = true;
+                }
+                return;
+            }
+            if (existing instanceof HTMLElement) {
+                const face = existing.querySelector('[data-tm-detail-chip-face="taskCompleteAt"]');
+                if (face instanceof HTMLElement) face.innerHTML = __tmBuildTaskDetailCoreChipFace('taskCompleteAt', rawValue);
+                existing.setAttribute('title', `完成时间：${text}`);
+                existing.setAttribute('data-tm-floating-tooltip-label', `完成时间：${text}`);
+                touched = true;
+                return;
+            }
+            const coreMeta = panel.querySelector('.tm-task-detail-core-meta');
+            if (!(coreMeta instanceof HTMLElement)) return;
+            const template = document.createElement('template');
+            template.innerHTML = __tmBuildTaskCompleteAtDetailChipHtml(task).trim();
+            const chip = template.content.firstElementChild;
+            if (!(chip instanceof HTMLElement)) return;
+            const durationInput = coreMeta.querySelector('input[type="hidden"][data-tm-detail="duration"]');
+            if (durationInput instanceof Element) coreMeta.insertBefore(chip, durationInput);
+            else coreMeta.appendChild(chip);
+            touched = true;
+        };
 
         if (Object.prototype.hasOwnProperty.call(nextPatch, 'startDate')) syncChipField('startDate', String(task?.startDate || task?.start_date || '').trim(), 'startDate');
         if (Object.prototype.hasOwnProperty.call(nextPatch, 'completionTime')) syncChipField('completionTime', String(task?.completionTime || task?.completion_time || '').trim(), 'completionTime');
+        if (Object.prototype.hasOwnProperty.call(nextPatch, 'done') || Object.prototype.hasOwnProperty.call(nextPatch, 'taskCompleteAt')) syncTaskCompleteAtChip();
         if (Object.prototype.hasOwnProperty.call(nextPatch, 'duration')) syncChipField('duration', String(task?.duration || '').trim(), 'duration');
 
         if (Object.prototype.hasOwnProperty.call(nextPatch, 'pinned')) {
@@ -3438,6 +3484,7 @@ return true;
                     priority: true,
                     startDate: true,
                     completionTime: true,
+                    taskCompleteAt: true,
                     duration: true,
                     pinned: true,
                     remark: true,
@@ -3494,6 +3541,7 @@ refreshed = !!__tmRefreshChecklistSelectionInPlace(state.modal, 'visible-task-de
                     priority: true,
                     startDate: true,
                     completionTime: true,
+                    taskCompleteAt: true,
                     duration: true,
                     pinned: true,
                     remark: true,

@@ -1282,9 +1282,16 @@
             }
         }
         if (typeof __tmIsPluginVisibleNow === 'function' && !__tmIsPluginVisibleNow()) {
+            state.viewRefreshPending = __tmMergeViewRefreshDetail(state.viewRefreshPending, next);
+            try {
+                if (typeof __tmScheduleMaybeAutoRefreshOnEnter === 'function') {
+                    __tmScheduleMaybeAutoRefreshOnEnter('view-refresh-hidden');
+                }
+            } catch (e) {}
             return false;
         }
         if (!state.modal || !document.body.contains(state.modal)) {
+            state.viewRefreshPending = __tmMergeViewRefreshDetail(state.viewRefreshPending, next);
             return false;
         }
         if (next.mode === 'full') {
@@ -2748,6 +2755,7 @@ return false;
         const root = container instanceof Element ? container : null;
         const taskLike = (task && typeof task === 'object') ? task : null;
         if (!(root instanceof Element) || !taskLike) return false;
+        const debugTaskId = String(taskLike?.id || '').trim();
         const patchFieldValues = (patch && typeof patch.customFieldValues === 'object' && patch.customFieldValues)
             ? patch.customFieldValues
             : null;
@@ -2762,6 +2770,15 @@ return false;
                 .concat(Object.keys(taskFieldValues || {}))
                 .concat(Object.keys(patchFieldValues || {}))
         ));
+        if (patchFieldValues) {
+            __tmQuickbarRefreshDebugLog('custom-field-dom-enter', {
+                taskId: debugTaskId,
+                fieldIds: fieldIds.slice(),
+                domFieldIds: domFieldIds.slice(),
+                patchFieldIds: Object.keys(patchFieldValues || {}),
+                viewMode: String(state.viewMode || '').trim(),
+            });
+        }
         let touched = false;
         const syncCompactWrapVisibility = (wrap) => {
             if (!(wrap instanceof HTMLElement)) return;
@@ -2793,6 +2810,14 @@ return false;
             const value = __tmGetTaskCustomFieldValue(taskLike, fieldId);
             const nodes = Array.from(root.querySelectorAll(`[data-tm-custom-field-cell="${CSS.escape(fid)}"]`))
                 .filter((node) => node instanceof HTMLElement);
+            if (patchFieldValues && Object.prototype.hasOwnProperty.call(patchFieldValues, fid)) {
+                __tmQuickbarRefreshDebugLog('custom-field-dom-field', {
+                    taskId: debugTaskId,
+                    fieldId: fid,
+                    nodeCount: nodes.length,
+                    value: __tmGetTaskCustomFieldValue(taskLike, fid),
+                });
+            }
             nodes.forEach((node) => {
                 const cell = node.querySelector('.tm-custom-field-cell');
                 if (cell instanceof HTMLElement) {
@@ -2880,6 +2905,14 @@ return false;
             syncCompactWrapVisibility(compactWrap);
             touched = true;
         });
+        if (patchFieldValues) {
+            __tmQuickbarRefreshDebugLog('custom-field-dom-exit', {
+                taskId: debugTaskId,
+                touched: !!touched,
+                fieldCount: fieldIds.length,
+                viewMode: String(state.viewMode || '').trim(),
+            });
+        }
         return touched || fieldIds.length === 0;
     }
 
@@ -3160,12 +3193,37 @@ return false;
         const nextPatch = (patch && typeof patch === 'object') ? patch : {};
         if (!tid || !Object.keys(nextPatch).length) return false;
         const opts = (options && typeof options === 'object') ? options : {};
+        const hasCustomFieldPatch = Object.prototype.hasOwnProperty.call(nextPatch, 'customFieldValues');
         const viewMode = String(state.viewMode || '').trim();
         const refreshWithFilters = __tmShouldRefreshWithFiltersForPatch(tid, nextPatch, opts);
         const needsProjectionRefresh = __tmDoesPatchNeedProjectionRefresh(tid, nextPatch, opts);
         const fallbackNeeded = __tmShouldFallbackTaskFieldPatch(tid, nextPatch, opts);
         const suppressChecklistDetailSaveRefresh = __tmShouldSuppressChecklistDetailSaveRefresh(tid, nextPatch, opts);
+        if (hasCustomFieldPatch) {
+            __tmQuickbarRefreshDebugLog('custom-field-refresh-enter', {
+                taskId: tid,
+                viewMode,
+                pluginVisible: typeof __tmIsPluginVisibleNow === 'function' ? __tmIsPluginVisibleNow() : null,
+                refreshWithFilters,
+                needsProjectionRefresh,
+                fallbackNeeded,
+                reason: String(opts.reason || '').trim(),
+            });
+        }
         if (!__tmIsPluginVisibleNow()) {
+            if (opts.fallback !== false) {
+                __tmScheduleViewRefresh({
+                    mode: 'current',
+                    withFilters: refreshWithFilters,
+                    reason: String(opts.reason || 'task-field-hidden-fallback').trim() || 'task-field-hidden-fallback',
+                });
+            }
+            if (hasCustomFieldPatch) {
+                __tmQuickbarRefreshDebugLog('custom-field-refresh-hidden', {
+                    taskId: tid,
+                    reason: String(opts.reason || '').trim(),
+                });
+            }
 return false;
         }
         if (state.homepageOpen) {
@@ -3175,9 +3233,16 @@ return false;
             return true;
         }
         let refreshed = false;
-        if (viewMode === 'list') refreshed = !!__tmViewControllers.list.patchTask(tid, nextPatch) || refreshed;
+        let refreshedList = false;
+        let refreshedChecklist = false;
+        let refreshedDetail = false;
+        if (viewMode === 'list') {
+            refreshedList = !!__tmViewControllers.list.patchTask(tid, nextPatch);
+            refreshed = refreshedList || refreshed;
+        }
         if (viewMode === 'checklist') {
             const checklistPatched = !!__tmViewControllers.checklist.patchTask(tid, nextPatch);
+            refreshedChecklist = checklistPatched;
 refreshed = checklistPatched || refreshed;
             if (checklistPatched) {
                 try {
@@ -3188,7 +3253,22 @@ refreshed = checklistPatched || refreshed;
         if (viewMode === 'timeline') refreshed = !!__tmViewControllers.timeline.patchTask(tid, nextPatch) || refreshed;
         if (viewMode === 'kanban') refreshed = !!__tmViewControllers.kanban.patchTask(tid, nextPatch) || refreshed;
         if (viewMode === 'whiteboard') refreshed = !!__tmViewControllers.whiteboard.patchTask(tid, nextPatch) || refreshed;
-        if (opts.skipDetailPatch !== true) refreshed = !!__tmViewControllers.detail.patchTask(tid) || refreshed;
+        if (opts.skipDetailPatch !== true) {
+            refreshedDetail = !!__tmViewControllers.detail.patchTask(tid);
+            refreshed = refreshedDetail || refreshed;
+        }
+        if (hasCustomFieldPatch) {
+            __tmQuickbarRefreshDebugLog('custom-field-refresh-patched', {
+                taskId: tid,
+                viewMode,
+                refreshed,
+                refreshedList,
+                refreshedChecklist,
+                refreshedDetail,
+                needsProjectionRefresh,
+                fallbackNeeded,
+            });
+        }
         if (fallbackNeeded) {
             if (viewMode === 'list' && refreshWithFilters && needsProjectionRefresh) {
                 __tmScheduleListProjectionRefresh({
@@ -3201,6 +3281,15 @@ refreshed = checklistPatched || refreshed;
                     mode: 'current',
                     withFilters: refreshWithFilters,
                     reason: String(opts.reason || 'task-field-projection').trim() || 'task-field-projection',
+                });
+            }
+            if (hasCustomFieldPatch) {
+                __tmQuickbarRefreshDebugLog('custom-field-refresh-fallback-scheduled', {
+                    taskId: tid,
+                    viewMode,
+                    reason: String(opts.reason || '').trim(),
+                    refreshWithFilters,
+                    needsProjectionRefresh,
                 });
             }
             return refreshed;
@@ -3242,6 +3331,14 @@ return false;
                     reason: String(opts.reason || 'task-field-patch-fallback').trim() || 'task-field-patch-fallback',
                 });
             }
+        }
+        if (hasCustomFieldPatch) {
+            __tmQuickbarRefreshDebugLog('custom-field-refresh-exit', {
+                taskId: tid,
+                viewMode,
+                refreshed,
+                reason: String(opts.reason || '').trim(),
+            });
         }
         return refreshed;
     }
@@ -3651,8 +3748,17 @@ throw error;
             const patch = this.buildPatchFromAttr(tid, attrKey, attrValue);
             const opts = (options && typeof options === 'object') ? options : {};
             if (!tid || !patch) return false;
+            const customFieldDef = __tmGetCustomFieldDefByAttrStorageKey(attrKey);
+            const customFieldId = String(customFieldDef?.id || '').trim();
             if (__tmMutationEngine.isTaskSuppressed(tid)) return true;
-            const applied = __tmApplyQuickbarAttrUpdateInState(tid, attrKey, attrValue);
+            const applyResult = __tmApplyQuickbarAttrUpdateInState(tid, attrKey, attrValue, {
+                returnReason: true,
+            });
+            const applied = applyResult === true || (applyResult && applyResult.ok === true);
+            const applyReason = (applyResult && typeof applyResult === 'object')
+                ? String(applyResult.reason || '').trim()
+                : (applied ? 'applied' : '');
+            const handledAsNoop = applyReason === 'noop';
             try {
                 __tmPushDetailDebug('change-feed-handle-attr', {
                     taskId: tid,
@@ -3660,18 +3766,49 @@ throw error;
                     attrValue: String(attrValue ?? ''),
                     patch: patch ? { ...patch } : null,
                     applied: !!applied,
+                    applyReason,
                     reason: String(opts.reason || '').trim(),
                 });
             } catch (e) {}
-            if (!applied) return false;
+            if (customFieldId) {
+                __tmQuickbarRefreshDebugLog('change-feed-custom-field', {
+                    taskId: tid,
+                    attrKey: String(attrKey || '').trim(),
+                    fieldId: customFieldId,
+                    attrValue: String(attrValue ?? ''),
+                    patch: patch ? { ...patch } : null,
+                    applied: !!applied,
+                    applyReason,
+                });
+            }
+            if (!applied && !handledAsNoop) return false;
+            let refreshed = false;
             try {
-                __tmRefreshTaskFieldsAcrossViews(tid, patch, {
+                refreshed = !!__tmRefreshTaskFieldsAcrossViews(tid, patch, {
                     withFilters: true,
                     reason: String(opts.reason || 'change-feed-attr').trim() || 'change-feed-attr',
                     forceProjectionRefresh: __tmDoesPatchAffectProjection(tid, patch),
                     fallback: true,
                 });
             } catch (e) {}
+            if (customFieldId && !refreshed) {
+                try {
+                    __tmScheduleViewRefresh({
+                        mode: 'current',
+                        withFilters: true,
+                        reason: 'change-feed-custom-field-force',
+                        taskIds: [tid],
+                    });
+                } catch (e) {}
+                __tmQuickbarRefreshDebugLog('change-feed-custom-field-force-refresh', {
+                    taskId: tid,
+                    attrKey: String(attrKey || '').trim(),
+                    fieldId: customFieldId,
+                    applied: !!applied,
+                    applyReason,
+                    refreshed,
+                });
+            }
             return true;
         },
         shouldDeferToAutoRefresh(taskId, attrKey, attrValue) {
@@ -5440,16 +5577,7 @@ throw error;
     }
 
     function __tmGetTaskDoneSortTs(task) {
-        const raw = String(
-            task?.['custom-task-complete-at']
-            || task?.taskCompleteAt
-            || task?.task_complete_at
-            || task?.completedAt
-            || task?.updated
-            || task?.updatedAt
-            || task?.completionTime
-            || ''
-        ).trim();
+        const raw = __tmResolveTaskCompletedAtRaw(task);
         if (!raw) return 0;
         const ts = __tmParseTimeToTs(raw);
         return Number.isFinite(ts) && ts > 0 ? ts : 0;
@@ -5557,6 +5685,16 @@ throw error;
             if (ats !== bts) return ats - bts;
             return getTaskOrder(String(a?.id || '')) - getTaskOrder(String(b?.id || ''));
         };
+        const buildTimeGroupLabelHtml = (label, diffDays) => {
+            const safeLabel = esc(String(label || '').trim());
+            const days = Number(diffDays);
+            if (!Number.isFinite(days) || days < 0 || days > 15) return safeLabel;
+            const target = new Date();
+            target.setHours(12, 0, 0, 0);
+            target.setDate(target.getDate() + days);
+            const weekday = __tmGetTaskRepeatWeekdayLabel(target);
+            return `<span class="tm-time-group-label-wrap"><span class="tm-time-group-label-text">${safeLabel}</span><span class="tm-time-group-weekday-chip">${esc(weekday)}</span></span>`;
+        };
 
         const rootTasks = derived.rootTasks;
         const docRootTasksByDoc = derived.docRootTasksByDoc;
@@ -5609,8 +5747,8 @@ throw error;
         const appendCompletedRootGroup = () => {
             if (!completedRoots.length) return;
             completedRoots.sort((a, b) => __tmCompareCompletedTasksRecentFirst(a, b, (x, y) => getTaskOrder(x.id) - getTaskOrder(y.id)));
-            const doneGroupKey = 'completed_root_tasks';
-            const doneCollapsed = state.collapsedGroups?.has(doneGroupKey);
+            const doneGroupKey = __tmBuildCompletedRootGroupKey();
+            const doneCollapsed = __tmIsCompletedRootGroupCollapsed(doneGroupKey);
             rows.push({
                 type: 'group',
                 kind: 'done',
@@ -5870,12 +6008,13 @@ throw error;
             const getTimeGroup = (task) => {
                 const info = getTimePriorityInfo(task);
                 const diffDays = Number(info?.diffDays);
-                if (!Number.isFinite(diffDays)) return { key: 'pending', label: '待定', sortValue: Infinity };
-                if (diffDays < 0) return { key: 'overdue', label: '已过期', sortValue: diffDays };
-                if (diffDays === 0) return { key: 'today', label: '今天', sortValue: 0 };
-                if (diffDays === 1) return { key: 'tomorrow', label: '明天', sortValue: 1 };
-                if (diffDays === 2) return { key: 'after_tomorrow', label: '后天', sortValue: 2 };
-                return { key: `days_${diffDays}`, label: `余${diffDays}天`, sortValue: diffDays };
+                if (!Number.isFinite(diffDays)) return { key: 'pending', label: '待定', labelHtml: '待定', sortValue: Infinity };
+                if (diffDays < 0) return { key: 'overdue', label: '已过期', labelHtml: '已过期', sortValue: diffDays };
+                if (diffDays === 0) return { key: 'today', label: '今天', labelHtml: buildTimeGroupLabelHtml('今天', diffDays), sortValue: 0 };
+                if (diffDays === 1) return { key: 'tomorrow', label: '明天', labelHtml: buildTimeGroupLabelHtml('明天', diffDays), sortValue: 1 };
+                if (diffDays === 2) return { key: 'after_tomorrow', label: '后天', labelHtml: buildTimeGroupLabelHtml('后天', diffDays), sortValue: 2 };
+                const label = `余${diffDays}天`;
+                return { key: `days_${diffDays}`, label, labelHtml: buildTimeGroupLabelHtml(label, diffDays), sortValue: diffDays };
             };
 
             const timeGroups = new Map();
@@ -5897,6 +6036,7 @@ throw error;
                     kind: 'time',
                     key: String(group.key),
                     label: String(group.label || ''),
+                    labelHtml: String(group.labelHtml || ''),
                     count: Array.isArray(group.items) ? group.items.length : 0,
                     labelColor: __tmGetTimeGroupLabelColor(group),
                     durationSum: calculateGroupDuration(group.items || []),
@@ -6036,6 +6176,11 @@ throw error;
         if (kind === 'completionTime') {
             const icon = __tmRenderLucideIcon('calendar-check', 'tm-task-detail-core-chip__icon');
             const text = __tmFormatTaskTimeCompact(value);
+            return text ? `${icon}<span class="tm-task-detail-core-chip__text">${esc(text)}</span>` : icon;
+        }
+        if (kind === 'taskCompleteAt') {
+            const icon = __tmRenderLucideIcon('check-circle-2', 'tm-task-detail-core-chip__icon');
+            const text = __tmFormatTaskCompletedAtTime(value);
             return text ? `${icon}<span class="tm-task-detail-core-chip__text">${esc(text)}</span>` : icon;
         }
         const icon = __tmRenderLucideIcon('calendar-plus-2', 'tm-task-detail-core-chip__icon');

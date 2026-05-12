@@ -709,12 +709,23 @@
             const getPoolTimeGroupInfo = (task) => {
                 const info = __tmGetTaskTimePriorityInfo(task);
                 const diffDays = Number(info?.diffDays);
-                if (!Number.isFinite(diffDays)) return { key: 'pending', label: '待定', sortValue: Infinity };
-                if (diffDays < 0) return { key: 'overdue', label: '已过期', sortValue: diffDays };
-                if (diffDays === 0) return { key: 'today', label: '今天', sortValue: 0 };
-                if (diffDays === 1) return { key: 'tomorrow', label: '明天', sortValue: 1 };
-                if (diffDays === 2) return { key: 'after_tomorrow', label: '后天', sortValue: 2 };
-                return { key: `days_${diffDays}`, label: `余${diffDays}天`, sortValue: diffDays };
+                const buildTimeGroupLabelHtml = (label, daysInput) => {
+                    const safeLabel = esc(String(label || '').trim());
+                    const days = Number(daysInput);
+                    if (!Number.isFinite(days) || days < 0 || days > 15) return safeLabel;
+                    const target = new Date();
+                    target.setHours(12, 0, 0, 0);
+                    target.setDate(target.getDate() + days);
+                    const weekday = __tmGetTaskRepeatWeekdayLabel(target);
+                    return `<span class="tm-time-group-label-wrap"><span class="tm-time-group-label-text">${safeLabel}</span><span class="tm-time-group-weekday-chip">${esc(weekday)}</span></span>`;
+                };
+                if (!Number.isFinite(diffDays)) return { key: 'pending', label: '待定', labelHtml: '待定', sortValue: Infinity };
+                if (diffDays < 0) return { key: 'overdue', label: '已过期', labelHtml: '已过期', sortValue: diffDays };
+                if (diffDays === 0) return { key: 'today', label: '今天', labelHtml: buildTimeGroupLabelHtml('今天', diffDays), sortValue: 0 };
+                if (diffDays === 1) return { key: 'tomorrow', label: '明天', labelHtml: buildTimeGroupLabelHtml('明天', diffDays), sortValue: 1 };
+                if (diffDays === 2) return { key: 'after_tomorrow', label: '后天', labelHtml: buildTimeGroupLabelHtml('后天', diffDays), sortValue: 2 };
+                const label = `余${diffDays}天`;
+                return { key: `days_${diffDays}`, label, labelHtml: buildTimeGroupLabelHtml(label, diffDays), sortValue: diffDays };
             };
             const poolQuadrantRules = (SettingsStore.data.quadrantConfig && Array.isArray(SettingsStore.data.quadrantConfig.rules))
                 ? SettingsStore.data.quadrantConfig.rules
@@ -892,7 +903,7 @@
                     const childIds = (childrenMap.get(tid) || []).filter((cid) => taskMap.has(cid));
                     const collapsed = childIds.length ? __tmKanbanGetCollapsedSet().has(tid) : false;
                     const toggleHtml = childIds.length
-                        ? `<button class="tm-whiteboard-pool-toggle" onclick="tmWhiteboardToggleTaskCollapse('${escSq(tid)}', event)" onmousedown="event.stopPropagation()" title="${collapsed ? '展开子任务' : '折叠子任务'}"><svg viewBox="0 0 16 16" width="16" height="16"><path d="M6 4l4 4-4 4" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg></button>`
+                        ? `<button class="tm-whiteboard-pool-toggle${collapsed ? ' tm-whiteboard-pool-toggle--collapsed' : ''}" onclick="tmWhiteboardToggleTaskCollapse('${escSq(tid)}', event)" onmousedown="event.stopPropagation()" title="${collapsed ? '展开子任务' : '折叠子任务'}">${__tmRenderToggleIcon(10, 0, 'tm-whiteboard-pool-toggle-icon', `transform:translate(-50%, -50%) rotate(${collapsed ? 0 : 90}deg);`)}</button>`
                         : '<span style="display:inline-block;width:16px;height:14px;"></span>';
                     const indent = Math.max(0, Math.min(10, Number(depth) || 0)) * 16;
                     const doneCls = task?.done ? ' tm-whiteboard-pool-item--done' : '';
@@ -998,7 +1009,7 @@
                                     const childIds = (groupChildrenMap.get(tid) || []).filter((cid) => groupTaskMap.has(cid));
                                     const collapsed = childIds.length ? __tmKanbanGetCollapsedSet().has(tid) : false;
                                     const toggleHtml = childIds.length
-                                        ? `<button class="tm-whiteboard-pool-toggle" onclick="tmWhiteboardToggleTaskCollapse('${escSq(tid)}', event)" onmousedown="event.stopPropagation()" title="${collapsed ? '展开子任务' : '折叠子任务'}"><svg viewBox="0 0 16 16" width="16" height="16"><path d="M6 4l4 4-4 4" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg></button>`
+                                        ? `<button class="tm-whiteboard-pool-toggle${collapsed ? ' tm-whiteboard-pool-toggle--collapsed' : ''}" onclick="tmWhiteboardToggleTaskCollapse('${escSq(tid)}', event)" onmousedown="event.stopPropagation()" title="${collapsed ? '展开子任务' : '折叠子任务'}">${__tmRenderToggleIcon(10, 0, 'tm-whiteboard-pool-toggle-icon', `transform:translate(-50%, -50%) rotate(${collapsed ? 0 : 90}deg);`)}</button>`
                                         : '<span style="display:inline-block;width:16px;height:14px;"></span>';
                                     const indent = Math.max(0, Math.min(10, Number(depth) || 0)) * 16;
                                     const doneCls = task?.done ? ' tm-whiteboard-pool-item--done' : '';
@@ -1076,6 +1087,11 @@
                 if (section?.kind === 'none') {
                     return `<span>${esc(label || '全部任务')}</span>`;
                 }
+                if (section?.kind === 'time') {
+                    const rawHtml = String(section?.labelHtml || '').trim();
+                    const safeHtml = rawHtml || esc(label);
+                    return `<span${labelColor ? ` style="color:${esc(labelColor)};"` : ''}>${safeHtml}</span>`;
+                }
                 return `<span${labelColor ? ` style="color:${esc(labelColor)};"` : ''}>${esc(label)}</span>`;
             };
             const renderWhiteboardPoolGroupedSection = (section) => {
@@ -1105,6 +1121,7 @@
                             kind: 'time',
                             key: info.key,
                             label: info.label,
+                            labelHtml: info.labelHtml,
                             labelColor: getPoolTimeGroupLabelColor(info),
                             sortValue: Number(info.sortValue),
                             rootEntries: [],

@@ -3693,6 +3693,8 @@
         groupByTaskName: false,
         groupByTime: false,
         collapsedTaskIds: new Set(),
+        collapsedGroups: new Set(),
+        expandedCompletedGroups: new Set(),
         timerFocusTaskId: '',
 
         // 统计信息
@@ -5303,6 +5305,35 @@
             this.saveDirty = false;
             try {
                 this.syncLocalCache();
+                let payload = this.data || {};
+                try {
+                    const res = await fetch('/api/file/getFile', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ path: SEMANTIC_DATE_RECOGNIZED_FILE_PATH }),
+                    });
+                    if (res.ok) {
+                        const text = await res.text();
+                        if (text && text.trim()) {
+                            const remoteJson = JSON.parse(text);
+                            const remoteLedger = (remoteJson && typeof remoteJson === 'object' && !Array.isArray(remoteJson))
+                                ? remoteJson[__TM_POINTS_PENALTY_LEDGER_EMBED_KEY]
+                                : null;
+                            const localLedger = (__tmPointsPenaltyLedgerCache && typeof __tmPointsPenaltyLedgerCache === 'object')
+                                ? __tmPointsPenaltyLedgerCache
+                                : null;
+                            const mergedLedger = (remoteLedger || localLedger)
+                                ? __tmMergePointsPenaltyLedgers(remoteLedger || {}, localLedger || {})
+                                : null;
+                            if (mergedLedger && Object.keys(mergedLedger.records || {}).length > 0) {
+                                payload = {
+                                    ...payload,
+                                    [__TM_POINTS_PENALTY_LEDGER_EMBED_KEY]: mergedLedger,
+                                };
+                            }
+                        }
+                    }
+                } catch (e) {}
                 const formDir = new FormData();
                 formDir.append('path', PLUGIN_STORAGE_DIR);
                 formDir.append('isDir', 'true');
@@ -5311,7 +5342,7 @@
                 const form = new FormData();
                 form.append('path', SEMANTIC_DATE_RECOGNIZED_FILE_PATH);
                 form.append('isDir', 'false');
-                form.append('file', new Blob([JSON.stringify(this.data || {}, null, 2)], { type: 'application/json' }));
+                form.append('file', new Blob([JSON.stringify(payload || {}, null, 2)], { type: 'application/json' }));
                 await fetch('/api/file/putFile', { method: 'POST', body: form }).catch(() => null);
             } catch (e) {
             } finally {
@@ -7809,27 +7840,54 @@
         return '';
     }
 
+    const __tmTaskRewardDispatchDedupeUntil = new Map();
+    const __tmTaskRewardDispatchDedupeMs = 2500;
+
+    function __tmPruneTaskRewardDispatchDedupe(now = Date.now()) {
+        for (const [key, until] of __tmTaskRewardDispatchDedupeUntil.entries()) {
+            if (!(until > now)) __tmTaskRewardDispatchDedupeUntil.delete(key);
+        }
+    }
+
+    function __tmShouldSkipTaskRewardDispatch(taskId, nextDone) {
+        if (!nextDone) return false;
+        const tid = String(taskId || '').trim();
+        if (!tid) return false;
+        const key = `task:${tid}`;
+        const now = Date.now();
+        __tmPruneTaskRewardDispatchDedupe(now);
+        const until = Number(__tmTaskRewardDispatchDedupeUntil.get(key) || 0);
+        if (until > now) return true;
+        const nextUntil = now + __tmTaskRewardDispatchDedupeMs;
+        __tmTaskRewardDispatchDedupeUntil.set(key, nextUntil);
+        return false;
+    }
+
     function __tmDispatchTaskCompletedForReward(taskLike, detail = {}) {
         if (!SettingsStore?.data?.enablePointsRewardIntegration) return false;
         try {
             const task = (taskLike && typeof taskLike === 'object') ? taskLike : {};
             const taskId = String(detail.taskId || task.id || '').trim();
             if (!taskId) return false;
+            const attrHostId = String(detail.attrHostId || __tmGetTaskAttrHostId(task) || taskId).trim();
+            const previousDone = Object.prototype.hasOwnProperty.call(detail, 'previousDone') ? !!detail.previousDone : false;
+            const nextDone = Object.prototype.hasOwnProperty.call(detail, 'nextDone') ? !!detail.nextDone : true;
+            if (!previousDone && nextDone && __tmShouldSkipTaskRewardDispatch(taskId, nextDone)) return false;
             const rawScore = Number(detail.priorityScore);
             const priorityScore = Number.isFinite(rawScore) ? Math.max(0, Math.round(rawScore)) : 0;
             const content = __tmNormalizeTaskRewardContent(task, detail);
             window.dispatchEvent(new CustomEvent('task-horizon:task-completed', {
                 detail: {
                     taskId,
-                    attrHostId: String(detail.attrHostId || __tmGetTaskAttrHostId(task) || taskId).trim(),
+                    attrHostId,
                     docId: String(detail.docId || task.root_id || task.docId || '').trim(),
                     content,
                     priority: String(detail.priority || task.priority || task.custom_priority || '').trim(),
                     priorityScore,
                     completedAt: String(detail.completedAt || '').trim(),
                     source: String(detail.source || '').trim(),
-                    previousDone: Object.prototype.hasOwnProperty.call(detail, 'previousDone') ? !!detail.previousDone : false,
-                    nextDone: Object.prototype.hasOwnProperty.call(detail, 'nextDone') ? !!detail.nextDone : true,
+                    previousDone,
+                    nextDone,
                 }
             }));
             return true;
@@ -7837,6 +7895,1279 @@
             return false;
         }
     }
+
+    const __TM_POINTS_PENALTY_LEDGER_KEY = 'tm_points_penalty_ledger_v1';
+    const __TM_POINTS_PENALTY_LEDGER_EMBED_KEY = '__tmPointsPenaltyLedger';
+    const __TM_POINTS_PENALTY_LEDGER_KEEP_DAYS = 120;
+    const __TM_POINTS_PENALTY_TICK_MS = 30 * 1000;
+    let __tmPointsPenaltyLedgerCache = null;
+    let __tmPointsPenaltyLedgerSyncPromise = null;
+    let __tmPointsPenaltyLedgerSavePromise = null;
+    let __tmPointsPenaltyCheckTimer = null;
+    let __tmPointsPenaltyLastTickKey = '';
+    let __tmPointsPenaltyCheckRunning = false;
+    let __tmPointsPenaltyStartupChecked = false;
+    let __tmPointsPenaltyConfirmModal = null;
+    let __tmPointsPenaltyConfirmModalUnstack = null;
+    let __tmPointsPenaltyPendingCandidates = [];
+    let __tmPointsPenaltyScheduleUpdatedListener = null;
+    let __tmPointsPenaltyScheduleRefreshTimer = null;
+    let __tmPointsPenaltyScheduleRefreshRunning = false;
+
+    function __tmParsePointsPenaltyCheckTimeEntry(value) {
+        const text = String(value || '').trim();
+        if (!text) return null;
+        let dayOffset = 0;
+        let hh = NaN;
+        let mm = NaN;
+        let hasOffset = false;
+        let m = /^\+(\d+)\s+(\d{1,2}):(\d{2})$/.exec(text);
+        if (m) {
+            hasOffset = true;
+            dayOffset = Number(m[1]);
+            hh = Number(m[2]);
+            mm = Number(m[3]);
+        } else {
+            m = /^(\d{1,2}):(\d{2})$/.exec(text);
+            if (!m) return null;
+            hh = Number(m[1]);
+            mm = Number(m[2]);
+        }
+        if (!Number.isInteger(dayOffset)) return null;
+        if (hasOffset && (dayOffset < 1 || dayOffset > 7)) return null;
+        if (!hasOffset) dayOffset = 0;
+        if (!Number.isInteger(hh) || !Number.isInteger(mm)) return null;
+        if (hh < 0 || hh > 23 || mm < 0 || mm > 59) return null;
+        const timeText = `${String(hh).padStart(2, '0')}:${String(mm).padStart(2, '0')}`;
+        return {
+            dayOffset,
+            minute: hh * 60 + mm,
+            timeText,
+            normalized: dayOffset > 0 ? `+${dayOffset} ${timeText}` : timeText,
+        };
+    }
+
+    function __tmNormalizePointsPenaltyCheckTimes(input) {
+        const source = Array.isArray(input) ? input : [];
+        const seen = new Set();
+        const out = [];
+        source.forEach((value) => {
+            const parsed = __tmParsePointsPenaltyCheckTimeEntry(value);
+            if (!parsed) return;
+            if (seen.has(parsed.normalized)) return;
+            seen.add(parsed.normalized);
+            out.push(parsed);
+        });
+        out.sort((a, b) => {
+            if (a.dayOffset !== b.dayOffset) return a.dayOffset - b.dayOffset;
+            if (a.minute !== b.minute) return a.minute - b.minute;
+            return a.normalized.localeCompare(b.normalized);
+        });
+        return out.length ? out.map((item) => item.normalized) : ['23:00', '+1 08:00'];
+    }
+
+    function __tmGetPointsPenaltyCheckRules(input) {
+        const normalized = __tmNormalizePointsPenaltyCheckTimes(input);
+        const seen = new Set();
+        const rules = [];
+        normalized.forEach((value) => {
+            const parsed = __tmParsePointsPenaltyCheckTimeEntry(value);
+            if (!parsed) return;
+            if (seen.has(parsed.normalized)) return;
+            seen.add(parsed.normalized);
+            rules.push(parsed);
+        });
+        return rules;
+    }
+
+    function __tmGetPointsPenaltyRuntimeSettings() {
+        const integrationEnabled = !!SettingsStore?.data?.enablePointsRewardIntegration
+            && !!SettingsStore?.data?.enablePointsPenaltyIntegration;
+        const scheduleEnabled = !!SettingsStore?.data?.pointsPenaltyScheduleEnabled;
+        const deadlineEnabled = !!SettingsStore?.data?.pointsPenaltyDeadlineEnabled;
+        const scheduleAmountRaw = Number(SettingsStore?.data?.pointsPenaltyScheduleAmount);
+        const deadlineAmountRaw = Number(SettingsStore?.data?.pointsPenaltyDeadlineAmount);
+        return {
+            integrationEnabled,
+            scheduleEnabled,
+            deadlineEnabled,
+            scheduleAmount: Number.isFinite(scheduleAmountRaw) ? Math.max(0, Math.min(9999, Math.round(scheduleAmountRaw))) : 0,
+            deadlineAmount: Number.isFinite(deadlineAmountRaw) ? Math.max(0, Math.min(9999, Math.round(deadlineAmountRaw))) : 0,
+            checkTimes: __tmNormalizePointsPenaltyCheckTimes(SettingsStore?.data?.pointsPenaltyCheckTimes),
+            checkOnStartup: !!SettingsStore?.data?.pointsPenaltyCheckOnStartup,
+            confirmModalEnabled: SettingsStore?.data?.pointsPenaltyConfirmModalEnabled !== false,
+        };
+    }
+
+    function __tmGetPointsPenaltyDayKey(dateLike = new Date()) {
+        try {
+            const normalized = __tmNormalizeDateOnly(dateLike);
+            if (normalized) return normalized;
+        } catch (e) {}
+        return __tmGetTodayDateKey();
+    }
+
+    function __tmGetPointsPenaltyDayKeyWithOffset(dateLike = new Date(), dayOffset = 0) {
+        const base = (dateLike instanceof Date && !Number.isNaN(dateLike.getTime())) ? new Date(dateLike.getTime()) : new Date();
+        const offset = Math.max(0, Math.min(7, Math.floor(Number(dayOffset) || 0)));
+        if (offset > 0) base.setDate(base.getDate() - offset);
+        return __tmGetPointsPenaltyDayKey(base);
+    }
+
+    function __tmGetDeadlinePenaltyRecordDayKey(deadlineValue, dueTs, fallbackDayKey = '') {
+        const normalizedDeadline = __tmNormalizeDateOnly(String(deadlineValue || '').trim());
+        if (normalizedDeadline) return normalizedDeadline;
+        const num = Number(dueTs);
+        if (Number.isFinite(num) && num > 0) {
+            try {
+                const byTs = __tmGetPointsPenaltyDayKey(new Date(num));
+                if (byTs) return byTs;
+            } catch (e) {}
+        }
+        return String(fallbackDayKey || '').trim() || __tmGetPointsPenaltyDayKey();
+    }
+
+    function __tmParsePointsPenaltyTs(value) {
+        try {
+            const parsed = Number(__tmParseTimeToTs(value));
+            if (Number.isFinite(parsed) && parsed > 0) return parsed;
+        } catch (e) {}
+        const raw = String(value || '').trim();
+        if (!raw) return 0;
+        const direct = new Date(raw.replace(' ', 'T')).getTime();
+        return Number.isFinite(direct) ? direct : 0;
+    }
+
+    function __tmParseDeadlinePenaltyDueTs(value) {
+        const raw = String(value || '').trim();
+        if (!raw) return 0;
+        const ymd = /^(\d{4})-(\d{2})-(\d{2})$/.exec(raw);
+        if (ymd) {
+            const y = Number(ymd[1]);
+            const m = Number(ymd[2]) - 1;
+            const d = Number(ymd[3]);
+            const dt = new Date(y, m, d, 23, 59, 59, 999);
+            return Number.isFinite(dt.getTime()) ? dt.getTime() : 0;
+        }
+        const compact = /^(\d{4})(\d{2})(\d{2})$/.exec(raw);
+        if (compact) {
+            const y = Number(compact[1]);
+            const m = Number(compact[2]) - 1;
+            const d = Number(compact[3]);
+            const dt = new Date(y, m, d, 23, 59, 59, 999);
+            return Number.isFinite(dt.getTime()) ? dt.getTime() : 0;
+        }
+        return __tmParsePointsPenaltyTs(raw);
+    }
+
+    function __tmFormatPointsPenaltyTs(ts) {
+        const num = Number(ts);
+        if (!Number.isFinite(num) || num <= 0) return '';
+        const dt = new Date(num);
+        if (Number.isNaN(dt.getTime())) return '';
+        const pad = (v) => String(v).padStart(2, '0');
+        return `${dt.getFullYear()}-${pad(dt.getMonth() + 1)}-${pad(dt.getDate())} ${pad(dt.getHours())}:${pad(dt.getMinutes())}`;
+    }
+
+    function __tmBuildPointsPenaltyRecordKey(type, taskId, dayKey) {
+        const t = String(type || '').trim();
+        const tid = String(taskId || '').trim();
+        const day = String(dayKey || '').trim();
+        if (!t || !tid || !day) return '';
+        return `${t}:${tid}:${day}`;
+    }
+
+    function __tmPrunePointsPenaltyLedger(ledger) {
+        const source = (ledger && typeof ledger === 'object') ? ledger : { records: {} };
+        const records = (source.records && typeof source.records === 'object') ? source.records : {};
+        const now = Date.now();
+        const cutoff = now - (__TM_POINTS_PENALTY_LEDGER_KEEP_DAYS * 86400000);
+        const next = {};
+        Object.keys(records).forEach((key) => {
+            const item = records[key];
+            if (!item || typeof item !== 'object') return;
+            const status = String(item.status || '').trim();
+            if (!(status === 'penalized' || status === 'exempt')) return;
+            const dayKey = String(item.dayKey || '').trim();
+            const ts = __tmParsePointsPenaltyTs(`${dayKey}T12:00:00`);
+            if (ts && ts < cutoff) return;
+            next[key] = {
+                type: String(item.type || '').trim(),
+                taskId: String(item.taskId || '').trim(),
+                dayKey,
+                status,
+                amount: Number.isFinite(Number(item.amount)) ? Math.max(0, Math.round(Number(item.amount))) : 0,
+                reason: String(item.reason || '').trim(),
+                updatedAt: Number.isFinite(Number(item.updatedAt)) ? Number(item.updatedAt) : now,
+            };
+        });
+        source.records = next;
+        return source;
+    }
+
+    function __tmMergePointsPenaltyLedgers(baseLedger, incomingLedger) {
+        const base = __tmPrunePointsPenaltyLedger(baseLedger && typeof baseLedger === 'object' ? baseLedger : { records: {} });
+        const incoming = __tmPrunePointsPenaltyLedger(incomingLedger && typeof incomingLedger === 'object' ? incomingLedger : { records: {} });
+        const out = { records: {}, updatedAt: 0 };
+        const push = (records) => {
+            Object.keys(records || {}).forEach((key) => {
+                const item = records[key];
+                if (!item || typeof item !== 'object') return;
+                const status = String(item.status || '').trim();
+                if (!(status === 'penalized' || status === 'exempt')) return;
+                const prev = out.records[key];
+                const prevAt = Number(prev?.updatedAt) || 0;
+                const nextAt = Number(item.updatedAt) || 0;
+                if (!prev || nextAt >= prevAt) {
+                    out.records[key] = { ...item };
+                }
+            });
+        };
+        push(base.records);
+        push(incoming.records);
+        out.updatedAt = Math.max(Number(base.updatedAt) || 0, Number(incoming.updatedAt) || 0, Date.now());
+        return __tmPrunePointsPenaltyLedger(out);
+    }
+
+    async function __tmReadPointsPenaltyLedgerFile() {
+        const readJson = async (path) => {
+            const targetPath = String(path || '').trim();
+            if (!targetPath) return null;
+            try {
+                const res = await fetch('/api/file/getFile', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ path: targetPath }),
+                });
+                if (!res.ok) return null;
+                const text = await res.text();
+                if (!text || !text.trim()) return null;
+                const json = JSON.parse(text);
+                return (json && typeof json === 'object' && !Array.isArray(json)) ? json : null;
+            } catch (e) {
+                return null;
+            }
+        };
+        try {
+            const cacheJson = await readJson(SEMANTIC_DATE_RECOGNIZED_FILE_PATH);
+            const embedded = cacheJson?.[__TM_POINTS_PENALTY_LEDGER_EMBED_KEY];
+            if (embedded && typeof embedded === 'object' && !Array.isArray(embedded)) return embedded;
+            return null;
+        } catch (e) {
+            return null;
+        }
+    }
+
+    async function __tmWritePointsPenaltyLedgerFile(ledger) {
+        try {
+            let payload = {};
+            try {
+                const res = await fetch('/api/file/getFile', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ path: SEMANTIC_DATE_RECOGNIZED_FILE_PATH }),
+                });
+                if (res.ok) {
+                    const text = await res.text();
+                    if (text && text.trim()) {
+                        const json = JSON.parse(text);
+                        if (json && typeof json === 'object' && !Array.isArray(json)) payload = json;
+                    }
+                }
+            } catch (e) {}
+            const prevLedger = (payload?.[__TM_POINTS_PENALTY_LEDGER_EMBED_KEY] && typeof payload[__TM_POINTS_PENALTY_LEDGER_EMBED_KEY] === 'object')
+                ? payload[__TM_POINTS_PENALTY_LEDGER_EMBED_KEY]
+                : {};
+            payload[__TM_POINTS_PENALTY_LEDGER_EMBED_KEY] = __tmMergePointsPenaltyLedgers(prevLedger, ledger || {});
+
+            const formDir = new FormData();
+            formDir.append('path', '/data/storage/petal/siyuan-plugin-task-horizon');
+            formDir.append('isDir', 'true');
+            await fetch('/api/file/putFile', { method: 'POST', body: formDir }).catch(() => null);
+
+            const form = new FormData();
+            form.append('path', SEMANTIC_DATE_RECOGNIZED_FILE_PATH);
+            form.append('isDir', 'false');
+            form.append('file', new Blob([JSON.stringify(payload || {}, null, 2)], { type: 'application/json' }));
+            const res = await fetch('/api/file/putFile', { method: 'POST', body: form });
+            return !!(res && res.ok);
+        } catch (e) {
+            return false;
+        }
+    }
+
+    async function __tmSyncPointsPenaltyLedger(options = {}) {
+        if (__tmPointsPenaltyLedgerSyncPromise) return __tmPointsPenaltyLedgerSyncPromise;
+        const opts = (options && typeof options === 'object') ? options : {};
+        __tmPointsPenaltyLedgerSyncPromise = Promise.resolve().then(async () => {
+            const local = __tmLoadPointsPenaltyLedger();
+            const remote = await __tmReadPointsPenaltyLedgerFile();
+            const merged = __tmMergePointsPenaltyLedgers(remote || {}, local || {});
+            __tmPointsPenaltyLedgerCache = merged;
+            try { Storage.set(__TM_POINTS_PENALTY_LEDGER_KEY, merged); } catch (e) {}
+            if (opts.writeBack === true || !remote || JSON.stringify(__tmPrunePointsPenaltyLedger(remote)) !== JSON.stringify(merged)) {
+                await __tmWritePointsPenaltyLedgerFile(merged);
+            }
+            return merged;
+        }).finally(() => {
+            __tmPointsPenaltyLedgerSyncPromise = null;
+        });
+        return __tmPointsPenaltyLedgerSyncPromise;
+    }
+
+    function __tmScheduleSavePointsPenaltyLedgerRemote() {
+        if (__tmPointsPenaltyLedgerSavePromise) return __tmPointsPenaltyLedgerSavePromise;
+        __tmPointsPenaltyLedgerSavePromise = Promise.resolve().then(async () => {
+            const local = __tmLoadPointsPenaltyLedger();
+            const remote = await __tmReadPointsPenaltyLedgerFile();
+            const merged = __tmMergePointsPenaltyLedgers(remote || {}, local || {});
+            __tmPointsPenaltyLedgerCache = merged;
+            try { Storage.set(__TM_POINTS_PENALTY_LEDGER_KEY, merged); } catch (e) {}
+            await __tmWritePointsPenaltyLedgerFile(merged);
+            return merged;
+        }).finally(() => {
+            __tmPointsPenaltyLedgerSavePromise = null;
+        });
+        return __tmPointsPenaltyLedgerSavePromise;
+    }
+
+    function __tmLoadPointsPenaltyLedger() {
+        if (__tmPointsPenaltyLedgerCache && typeof __tmPointsPenaltyLedgerCache === 'object') return __tmPointsPenaltyLedgerCache;
+        let raw = null;
+        try { raw = Storage.get(__TM_POINTS_PENALTY_LEDGER_KEY, null); } catch (e) { raw = null; }
+        const ledger = (raw && typeof raw === 'object' && !Array.isArray(raw))
+            ? raw
+            : { records: {}, updatedAt: 0 };
+        __tmPointsPenaltyLedgerCache = __tmPrunePointsPenaltyLedger(ledger);
+        return __tmPointsPenaltyLedgerCache;
+    }
+
+    function __tmSavePointsPenaltyLedger(options = {}) {
+        const ledger = __tmPrunePointsPenaltyLedger(__tmLoadPointsPenaltyLedger());
+        ledger.updatedAt = Date.now();
+        __tmPointsPenaltyLedgerCache = ledger;
+        try { Storage.set(__TM_POINTS_PENALTY_LEDGER_KEY, ledger); } catch (e) {}
+        if (options?.syncRemote !== false) {
+            void __tmScheduleSavePointsPenaltyLedgerRemote();
+        }
+    }
+
+    function __tmGetPointsPenaltyRecord(type, taskId, dayKey) {
+        const key = __tmBuildPointsPenaltyRecordKey(type, taskId, dayKey);
+        if (!key) return null;
+        const ledger = __tmLoadPointsPenaltyLedger();
+        const item = ledger.records?.[key];
+        return (item && typeof item === 'object') ? item : null;
+    }
+
+    function __tmHasFinalPointsPenaltyRecord(type, taskId, dayKey) {
+        const item = __tmGetPointsPenaltyRecord(type, taskId, dayKey);
+        if (!item) return false;
+        const status = String(item.status || '').trim();
+        return status === 'penalized' || status === 'exempt';
+    }
+
+    function __tmSetPointsPenaltyRecord(type, taskId, dayKey, patch = {}) {
+        const key = __tmBuildPointsPenaltyRecordKey(type, taskId, dayKey);
+        if (!key) return false;
+        const ledger = __tmLoadPointsPenaltyLedger();
+        const prev = (ledger.records?.[key] && typeof ledger.records[key] === 'object') ? ledger.records[key] : {};
+        ledger.records[key] = {
+            type: String(type || '').trim(),
+            taskId: String(taskId || '').trim(),
+            dayKey: String(dayKey || '').trim(),
+            status: String(patch.status || prev.status || '').trim() || 'exempt',
+            amount: Number.isFinite(Number(patch.amount)) ? Math.max(0, Math.round(Number(patch.amount))) : Math.max(0, Math.round(Number(prev.amount) || 0)),
+            reason: String(patch.reason || prev.reason || '').trim(),
+            updatedAt: Date.now(),
+        };
+        __tmSavePointsPenaltyLedger({ syncRemote: patch.syncRemote !== false });
+        return true;
+    }
+
+    async function __tmResolvePointsPenaltyTaskById(taskId, cacheMap) {
+        const tid = String(taskId || '').trim();
+        if (!tid) return null;
+        if (cacheMap instanceof Map && cacheMap.has(tid)) return cacheMap.get(tid);
+        let task = null;
+        try { task = globalThis.__tmRuntimeState?.getTaskById?.(tid, { includePending: true }) || state.flatTasks?.[tid] || state.pendingInsertedTasks?.[tid] || null; } catch (e) {}
+        if (!task) {
+            try { task = await __tmEnsureTaskInStateById(tid); } catch (e) { task = null; }
+        }
+        if (!task) {
+            try { task = await API.getTaskById(tid); } catch (e) { task = null; }
+        }
+        if (task && typeof task === 'object' && typeof task.done !== 'boolean') {
+            try {
+                const parsed = API.parseTaskStatus(task.markdown);
+                task.done = !!parsed?.done;
+                if (!String(task.content || '').trim()) task.content = String(parsed?.content || '').trim();
+            } catch (e) {
+                task.done = false;
+            }
+        }
+        if (task && typeof task === 'object') {
+            const parentTaskId = String(task.parentTaskId || task.parent_task_id || '').trim();
+            task.parentTaskId = parentTaskId;
+            task.parent_task_id = parentTaskId;
+        }
+        if (cacheMap instanceof Map) cacheMap.set(tid, task || null);
+        return task || null;
+    }
+
+    function __tmNormalizePointsPenaltyTaskForCache(taskLike) {
+        const src = (taskLike && typeof taskLike === 'object') ? taskLike : null;
+        if (!src) return null;
+        const taskId = String(src.id || '').trim();
+        if (!taskId) return null;
+        const task = { ...src, id: taskId };
+        const parentTaskId = String(task.parentTaskId || task.parent_task_id || '').trim();
+        task.parentTaskId = parentTaskId;
+        task.parent_task_id = parentTaskId;
+        if (typeof task.done !== 'boolean') {
+            try {
+                const parsed = API.parseTaskStatus(task.markdown);
+                task.done = !!parsed?.done;
+                if (!String(task.content || '').trim()) task.content = String(parsed?.content || '').trim();
+            } catch (e) {
+                task.done = false;
+            }
+        }
+        return task;
+    }
+
+    function __tmCachePointsPenaltyTask(taskLike, cacheMap) {
+        const normalized = __tmNormalizePointsPenaltyTaskForCache(taskLike);
+        if (!normalized) return null;
+        if (!(cacheMap instanceof Map)) return normalized;
+        const tid = String(normalized.id || '').trim();
+        if (!tid) return null;
+        const prev = cacheMap.get(tid);
+        if (!prev || typeof prev !== 'object') {
+            cacheMap.set(tid, normalized);
+            return normalized;
+        }
+        const merged = { ...prev, ...normalized };
+        if (typeof merged.done !== 'boolean') merged.done = !!normalized.done;
+        const parentTaskId = String(merged.parentTaskId || merged.parent_task_id || '').trim();
+        merged.parentTaskId = parentTaskId;
+        merged.parent_task_id = parentTaskId;
+        cacheMap.set(tid, merged);
+        return merged;
+    }
+
+    async function __tmWarmPointsPenaltyTaskScopeCache(taskCache, options = {}) {
+        const cacheMap = taskCache instanceof Map ? taskCache : new Map();
+        const opts = (options && typeof options === 'object') ? options : {};
+        const seedLocal = (source) => {
+            Object.keys(source || {}).forEach((key) => {
+                const item = source?.[key];
+                if (!item || typeof item !== 'object') return;
+                __tmCachePointsPenaltyTask(item, cacheMap);
+            });
+        };
+        try { seedLocal(globalThis.__tmRuntimeState?.getFlatTasks?.() || state.flatTasks || {}); } catch (e) { seedLocal(state.flatTasks || {}); }
+        try { seedLocal(state.pendingInsertedTasks || {}); } catch (e) {}
+
+        if (typeof resolveDocIdsFromGroups !== 'function' || typeof API?.getTasksByDocuments !== 'function') return cacheMap;
+        let allDocIds = [];
+        try {
+            allDocIds = await resolveDocIdsFromGroups({
+                groupId: 'all',
+                forceRefreshScope: !!state.isRefreshing,
+            });
+        } catch (e) {
+            allDocIds = [];
+        }
+        const safeAllDocIds = Array.from(new Set((Array.isArray(allDocIds) ? allDocIds : [])
+            .map((id) => String(id || '').trim())
+            .filter(Boolean)));
+        if (!safeAllDocIds.length) return cacheMap;
+
+        const loadedDocIdSet = new Set(
+            (Array.isArray(state.__tmLoadedDocIdsForTasks) ? state.__tmLoadedDocIdsForTasks : [])
+                .map((id) => String(id || '').trim())
+                .filter(Boolean)
+        );
+        const missingDocIds = safeAllDocIds.filter((docId) => !loadedDocIdSet.has(docId));
+        if (!missingDocIds.length) return cacheMap;
+
+        const perDocLimitRaw = Number(__TM_TASK_INDEX_QUERY_LIMIT);
+        const perDocLimit = Number.isFinite(perDocLimitRaw)
+            ? Math.max(1, Math.min(20000, Math.round(perDocLimitRaw)))
+            : 500;
+        let res = null;
+        try {
+            res = await API.getTasksByDocuments(missingDocIds, perDocLimit, {
+                doneOnly: false,
+                forceFresh: opts.forceFresh === true || !!state.isRefreshing,
+                customFieldIds: [],
+            });
+        } catch (e) {
+            res = null;
+        }
+        (Array.isArray(res?.tasks) ? res.tasks : []).forEach((task) => {
+            __tmCachePointsPenaltyTask(task, cacheMap);
+        });
+        return cacheMap;
+    }
+
+    async function __tmIsPointsPenaltyBlockedByDoneParent(taskLike, taskCache, memoMap) {
+        const task = (taskLike && typeof taskLike === 'object') ? taskLike : null;
+        if (!task) return false;
+        const taskId = String(task.id || '').trim();
+        if (memoMap instanceof Map && taskId && memoMap.has(taskId)) {
+            return memoMap.get(taskId) === true;
+        }
+        const checkedIds = [];
+        let parentId = String(task.parentTaskId || task.parent_task_id || '').trim();
+        const visited = new Set();
+        while (parentId) {
+            if (visited.has(parentId)) break;
+            visited.add(parentId);
+            checkedIds.push(parentId);
+            if (memoMap instanceof Map && memoMap.has(parentId)) {
+                const cached = memoMap.get(parentId) === true;
+                if (memoMap instanceof Map && taskId) memoMap.set(taskId, cached);
+                return cached;
+            }
+            const parent = await __tmResolvePointsPenaltyTaskById(parentId, taskCache);
+            if (!parent) break;
+            if (parent.done === true) {
+                if (memoMap instanceof Map) {
+                    memoMap.set(parentId, true);
+                    checkedIds.forEach((id) => memoMap.set(id, true));
+                    if (taskId) memoMap.set(taskId, true);
+                }
+                return true;
+            }
+            if (memoMap instanceof Map) memoMap.set(parentId, false);
+            parentId = String(parent.parentTaskId || parent.parent_task_id || '').trim();
+        }
+        if (memoMap instanceof Map) {
+            checkedIds.forEach((id) => {
+                if (!memoMap.has(id)) memoMap.set(id, false);
+            });
+            if (taskId) memoMap.set(taskId, false);
+        }
+        return false;
+    }
+
+    function __tmBuildPointsPenaltyCandidate(type, taskLike, options = {}) {
+        const opt = (options && typeof options === 'object') ? options : {};
+        const task = (taskLike && typeof taskLike === 'object') ? taskLike : {};
+        const taskId = String(opt.taskId || task.id || '').trim();
+        const dayKey = String(opt.dayKey || '').trim();
+        if (!taskId || !dayKey) return null;
+        const dueTs = Number(opt.dueTs);
+        const amount = Number(opt.amount);
+        if (!Number.isFinite(amount) || amount <= 0) return null;
+        const title = __tmNormalizeTaskRewardContent(task, { content: opt.title }) || String(opt.title || '').trim() || '未命名任务';
+        return {
+            id: __tmBuildPointsPenaltyRecordKey(type, taskId, dayKey),
+            type: String(type || '').trim(),
+            taskId,
+            dayKey,
+            title,
+            amount: Math.max(0, Math.round(amount)),
+            dueTs: Number.isFinite(dueTs) ? dueTs : 0,
+            dueText: Number.isFinite(dueTs) ? __tmFormatPointsPenaltyTs(dueTs) : '',
+            scheduleId: String(opt.scheduleId || '').trim(),
+            deadlineText: String(opt.deadlineText || '').trim(),
+        };
+    }
+
+    async function __tmBuildSchedulePenaltyCandidates(nowTs, dayKey, settings, taskCache) {
+        if (!settings.scheduleEnabled || settings.scheduleAmount <= 0) return [];
+        const scheduleApi = globalThis.__tmCalendar?.listTaskSchedulesByDay;
+        if (typeof scheduleApi !== 'function') return [];
+        let list = [];
+        try { list = await scheduleApi(dayKey); } catch (e) { list = []; }
+        const lastScheduleByTask = new Map();
+        (Array.isArray(list) ? list : []).forEach((item) => {
+            const taskId = String(item?.taskId || item?.task_id || item?.linkedTaskId || item?.linked_task_id || '').trim();
+            if (!taskId) return;
+            const startTs0 = __tmParsePointsPenaltyTs(item?.start);
+            const endTs0 = __tmParsePointsPenaltyTs(item?.end);
+            const startTs = Number.isFinite(startTs0) && startTs0 > 0 ? startTs0 : endTs0;
+            if (!Number.isFinite(startTs) || startTs <= 0) return;
+            let endTs = Number.isFinite(endTs0) && endTs0 > 0 ? endTs0 : (startTs + 30 * 60000);
+            if (endTs <= startTs) endTs = startTs + 60000;
+            const prev = lastScheduleByTask.get(taskId);
+            if (!prev || endTs > prev.endTs || (endTs === prev.endTs && startTs > prev.startTs)) {
+                lastScheduleByTask.set(taskId, {
+                    taskId,
+                    startTs,
+                    endTs,
+                    scheduleId: String(item?.id || '').trim(),
+                    title: String(item?.title || '').trim(),
+                });
+            }
+        });
+        const out = [];
+        const parentDoneMemo = new Map();
+        for (const entry of lastScheduleByTask.values()) {
+            if (!(entry.endTs <= nowTs)) continue;
+            if (__tmHasFinalPointsPenaltyRecord('schedule', entry.taskId, dayKey)) continue;
+            const task = await __tmResolvePointsPenaltyTaskById(entry.taskId, taskCache);
+            if (task && task.done) continue;
+            if (task && await __tmIsPointsPenaltyBlockedByDoneParent(task, taskCache, parentDoneMemo)) continue;
+            const candidate = __tmBuildPointsPenaltyCandidate('schedule', task || {}, {
+                taskId: entry.taskId,
+                dayKey,
+                dueTs: entry.endTs,
+                amount: settings.scheduleAmount,
+                title: entry.title,
+                scheduleId: entry.scheduleId,
+            });
+            if (candidate) out.push(candidate);
+        }
+        out.sort((a, b) => {
+            const ta = Number(a?.dueTs || 0);
+            const tb = Number(b?.dueTs || 0);
+            if (ta !== tb) return ta - tb;
+            return String(a?.title || '').localeCompare(String(b?.title || ''), 'zh-Hans-CN');
+        });
+        return out;
+    }
+
+    async function __tmBuildDeadlinePenaltyCandidates(nowTs, dayKey, settings, taskCache) {
+        if (!settings.deadlineEnabled || settings.deadlineAmount <= 0) return [];
+        const scopeCache = await __tmWarmPointsPenaltyTaskScopeCache(taskCache, { forceFresh: false });
+        const sourceMap = scopeCache instanceof Map
+            ? scopeCache
+            : new Map(Object.entries(globalThis.__tmRuntimeState?.getFlatTasks?.() || state.flatTasks || {})
+                .map(([key, value]) => [String(value?.id || key || '').trim(), value])
+                .filter(([key, value]) => !!key && !!value));
+        const seen = new Set();
+        const out = [];
+        const parentDoneMemo = new Map();
+        const items = sourceMap instanceof Map ? Array.from(sourceMap.values()) : [];
+        for (const task0 of items) {
+            const task = __tmCachePointsPenaltyTask(task0, taskCache) || task0;
+            const taskId = String(task?.id || '').trim();
+            if (!taskId || seen.has(taskId)) continue;
+            seen.add(taskId);
+            if (!!task?.done) continue;
+            if (await __tmIsPointsPenaltyBlockedByDoneParent(task, taskCache, parentDoneMemo)) continue;
+            const deadlineValue = String(task?.completionTime || task?.completion_time || '').trim();
+            if (!deadlineValue) continue;
+            const dueTs = __tmParseDeadlinePenaltyDueTs(deadlineValue);
+            if (!Number.isFinite(dueTs) || dueTs <= 0) continue;
+            if (dueTs > nowTs) continue;
+            const deadlineRecordDayKey = __tmGetDeadlinePenaltyRecordDayKey(deadlineValue, dueTs, dayKey);
+            if (__tmHasFinalPointsPenaltyRecord('deadline', taskId, deadlineRecordDayKey)) continue;
+            const candidate = __tmBuildPointsPenaltyCandidate('deadline', task, {
+                taskId,
+                dayKey: deadlineRecordDayKey,
+                dueTs,
+                amount: settings.deadlineAmount,
+                deadlineText: deadlineValue,
+            });
+            if (candidate) out.push(candidate);
+            if (taskCache instanceof Map) taskCache.set(taskId, task);
+        }
+        out.sort((a, b) => {
+            const ta = Number(a?.dueTs || 0);
+            const tb = Number(b?.dueTs || 0);
+            if (ta !== tb) return ta - tb;
+            return String(a?.title || '').localeCompare(String(b?.title || ''), 'zh-Hans-CN');
+        });
+        return out;
+    }
+
+    function __tmBuildPointsPenaltyReason(candidate) {
+        const item = (candidate && typeof candidate === 'object') ? candidate : {};
+        const type = String(item.type || '').trim();
+        const title = String(item.title || '未命名任务').trim() || '未命名任务';
+        if (type === 'schedule') return `任务日程逾期扣分：${title}`;
+        return `任务截止日逾期扣分：${title}`;
+    }
+
+    function __tmDispatchPointsPenaltyEvent(amount, reason, detail = {}) {
+        const n = Number(amount);
+        if (!Number.isFinite(n) || n === 0) return false;
+        try {
+            window.dispatchEvent(new CustomEvent('siyuan-points-reward-add-points', {
+                detail: {
+                    amount: n,
+                    reason: String(reason || '').trim() || '任务逾期扣分',
+                    skipEncouragement: true,
+                    source: 'task-horizon-points-penalty',
+                    ...((detail && typeof detail === 'object') ? detail : {}),
+                }
+            }));
+            return true;
+        } catch (e) {
+            return false;
+        }
+    }
+
+    async function __tmApplyPointsPenaltyCandidate(candidate, options = {}) {
+        const item = (candidate && typeof candidate === 'object') ? candidate : null;
+        if (!item) return false;
+        const amount = Math.max(0, Math.round(Number(item.amount) || 0));
+        if (amount <= 0) return false;
+        const reason = __tmBuildPointsPenaltyReason(item);
+        const ok = __tmDispatchPointsPenaltyEvent(-amount, reason, {
+            taskId: String(item.taskId || '').trim(),
+            penaltyType: String(item.type || '').trim(),
+            penaltyDayKey: String(item.dayKey || '').trim(),
+        });
+        if (!ok) return false;
+        __tmSetPointsPenaltyRecord(item.type, item.taskId, item.dayKey, {
+            status: 'penalized',
+            amount,
+            reason,
+        });
+        if (options?.silent !== true) {
+            hint(`⚠ 已扣 ${amount} 分：${item.title}`, 'warning');
+        }
+        return true;
+    }
+
+    function __tmMarkPointsPenaltyExempt(candidate, reasonText = '') {
+        const item = (candidate && typeof candidate === 'object') ? candidate : null;
+        if (!item) return false;
+        return __tmSetPointsPenaltyRecord(item.type, item.taskId, item.dayKey, {
+            status: 'exempt',
+            amount: 0,
+            reason: String(reasonText || '').trim() || 'manual-exempt',
+        });
+    }
+
+    async function __tmMarkPointsPenaltyDoneAndExempt(candidate) {
+        const item = (candidate && typeof candidate === 'object') ? candidate : null;
+        if (!item) return false;
+        try {
+            if (typeof window.tmSetDone === 'function') {
+                await window.tmSetDone(item.taskId, true, null, {
+                    suppressHint: true,
+                    source: 'points-penalty-confirm-done',
+                });
+            }
+        } catch (e) {}
+        __tmMarkPointsPenaltyExempt(item, 'marked-done');
+        return true;
+    }
+
+    async function __tmEditPointsPenaltyDeadline(candidate) {
+        const item = (candidate && typeof candidate === 'object') ? candidate : null;
+        if (!item) return false;
+        let task = null;
+        try { task = globalThis.__tmRuntimeState?.getTaskById?.(item.taskId, { includePending: true }) || state.flatTasks?.[item.taskId] || null; } catch (e) {}
+        const current = __tmNormalizeDateOnly(String(task?.completionTime || task?.completion_time || item?.deadlineText || '').trim());
+        let next = null;
+        if (typeof showPrompt === 'function') {
+            try {
+                next = await showPrompt('截止日期', '输入日期，如 2026-02-07', current || '', {
+                    inputType: 'date',
+                    selectOnFocus: false,
+                    openPickerOnFocus: true,
+                });
+            } catch (e) {
+                next = null;
+            }
+        }
+        if (next == null) {
+            try {
+                next = prompt('设置新的截止日期（YYYY-MM-DD）', current || '');
+            } catch (e) {
+                next = null;
+            }
+        }
+        if (next == null) return false;
+        const normalized = __tmNormalizeDateOnly(String(next || '').trim());
+        if (!normalized) {
+            hint('⚠ 日期格式无效，请使用 YYYY-MM-DD', 'warning');
+            return false;
+        }
+        try {
+            if (typeof window.tmUpdateTaskDates === 'function') {
+                await window.tmUpdateTaskDates(item.taskId, { completionTime: normalized }, {
+                    source: 'points-penalty-edit-deadline',
+                });
+            } else {
+                await __tmPersistMetaAndAttrsAsync(item.taskId, { completionTime: normalized }, {
+                    queued: true,
+                    source: 'points-penalty-edit-deadline',
+                });
+            }
+        } catch (e) {
+            hint(`❌ 截止日期更新失败：${String(e?.message || e || '')}`, 'error');
+            return false;
+        }
+        __tmMarkPointsPenaltyExempt(item, 'edited-deadline');
+        return true;
+    }
+
+    async function __tmEditPointsPenaltySchedule(candidate) {
+        const item = (candidate && typeof candidate === 'object') ? candidate : null;
+        if (!item) return false;
+        const calendarApi = globalThis.__tmCalendar;
+        if (!calendarApi) return false;
+        if (item.scheduleId && typeof calendarApi.openScheduleEditorById === 'function') {
+            const opened = await calendarApi.openScheduleEditorById(item.scheduleId);
+            if (!opened) return false;
+            return true;
+        }
+        if (typeof calendarApi.openScheduleEditorByTaskId === 'function') {
+            const opened = await calendarApi.openScheduleEditorByTaskId(item.taskId, {
+                taskId: item.taskId,
+                scheduleId: item.scheduleId,
+                source: 'points-penalty-edit-schedule',
+            });
+            if (!opened) return false;
+            return true;
+        }
+        return false;
+    }
+
+    function __tmSortPointsPenaltyCandidates(list) {
+        return (Array.isArray(list) ? list : []).sort((a, b) => {
+            const ta = Number(a?.dueTs || 0);
+            const tb = Number(b?.dueTs || 0);
+            if (ta !== tb) return ta - tb;
+            if (String(a?.type || '') !== String(b?.type || '')) return String(a?.type || '').localeCompare(String(b?.type || ''));
+            return String(a?.title || '').localeCompare(String(b?.title || ''), 'zh-Hans-CN');
+        });
+    }
+
+    function __tmDetachPointsPenaltyScheduleUpdatedListener() {
+        if (__tmPointsPenaltyScheduleRefreshTimer) {
+            try { clearTimeout(__tmPointsPenaltyScheduleRefreshTimer); } catch (e) {}
+        }
+        __tmPointsPenaltyScheduleRefreshTimer = null;
+        if (__tmPointsPenaltyScheduleUpdatedListener) {
+            try { window.removeEventListener('tm:calendar-schedule-updated', __tmPointsPenaltyScheduleUpdatedListener); } catch (e) {}
+        }
+        __tmPointsPenaltyScheduleUpdatedListener = null;
+        __tmPointsPenaltyScheduleRefreshRunning = false;
+    }
+
+    async function __tmRefreshPointsPenaltyPendingSchedules() {
+        if (__tmPointsPenaltyScheduleRefreshRunning) return false;
+        const modal = __tmPointsPenaltyConfirmModal;
+        if (!(modal instanceof HTMLElement) || !document.body.contains(modal)) return false;
+        __tmPointsPenaltyScheduleRefreshRunning = true;
+        try {
+            await __tmSyncPointsPenaltyLedger();
+            const current = Array.isArray(__tmPointsPenaltyPendingCandidates) ? __tmPointsPenaltyPendingCandidates : [];
+            const dayKeys = Array.from(new Set(current
+                .filter((item) => String(item?.type || '').trim() === 'schedule')
+                .map((item) => String(item?.dayKey || '').trim())
+                .filter(Boolean)));
+            if (!dayKeys.length) return false;
+            const settings = __tmGetPointsPenaltyRuntimeSettings();
+            const nowTs = Date.now();
+            const taskCache = new Map();
+            const refreshed = [];
+            if (settings.integrationEnabled && settings.scheduleEnabled && settings.scheduleAmount > 0) {
+                for (const dayKey of dayKeys) {
+                    try {
+                        const rows = await __tmBuildSchedulePenaltyCandidates(nowTs, dayKey, settings, taskCache);
+                        if (Array.isArray(rows) && rows.length) refreshed.push(...rows);
+                    } catch (e) {}
+                }
+            }
+            const refreshedMap = new Map();
+            refreshed.forEach((item) => {
+                const key = String(item?.id || '').trim();
+                if (key) refreshedMap.set(key, item);
+            });
+            const next = current.filter((item) => String(item?.type || '').trim() !== 'schedule');
+            next.push(...Array.from(refreshedMap.values()));
+            __tmPointsPenaltyPendingCandidates = __tmSortPointsPenaltyCandidates(next);
+            if (__tmPointsPenaltyConfirmModal && document.body.contains(__tmPointsPenaltyConfirmModal)) {
+                __tmRenderPointsPenaltyConfirmModal();
+            }
+            return true;
+        } finally {
+            __tmPointsPenaltyScheduleRefreshRunning = false;
+        }
+    }
+
+    function __tmQueueRefreshPointsPenaltyPendingSchedules(delayMs = 120) {
+        if (__tmPointsPenaltyScheduleRefreshTimer) {
+            try { clearTimeout(__tmPointsPenaltyScheduleRefreshTimer); } catch (e) {}
+        }
+        const waitMs = Math.max(0, Math.min(1000, Math.floor(Number(delayMs) || 0)));
+        __tmPointsPenaltyScheduleRefreshTimer = setTimeout(() => {
+            __tmPointsPenaltyScheduleRefreshTimer = null;
+            void __tmRefreshPointsPenaltyPendingSchedules();
+        }, waitMs);
+    }
+
+    function __tmClosePointsPenaltyConfirmModal() {
+        __tmDetachPointsPenaltyScheduleUpdatedListener();
+        try { __tmPointsPenaltyConfirmModalUnstack?.(); } catch (e) {}
+        __tmPointsPenaltyConfirmModalUnstack = null;
+        if (__tmPointsPenaltyConfirmModal) {
+            try { __tmPointsPenaltyConfirmModal.remove(); } catch (e) {}
+        }
+        __tmPointsPenaltyConfirmModal = null;
+        __tmPointsPenaltyPendingCandidates = [];
+    }
+
+    function __tmRenderPointsPenaltyConfirmModal() {
+        const modal = __tmPointsPenaltyConfirmModal;
+        if (!(modal instanceof HTMLElement)) return;
+        const asScrollNumber = (value) => {
+            const num = Number(value);
+            return Number.isFinite(num) && num > 0 ? num : 0;
+        };
+        const prevBox = modal.querySelector('.tm-points-penalty-box');
+        const prevTableWrap = modal.querySelector('.tm-points-penalty-table-wrap');
+        const prevBoxScrollTop = asScrollNumber(prevBox?.scrollTop);
+        const prevBoxScrollLeft = asScrollNumber(prevBox?.scrollLeft);
+        const prevTableScrollTop = asScrollNumber(prevTableWrap?.scrollTop);
+        const prevTableScrollLeft = asScrollNumber(prevTableWrap?.scrollLeft);
+        const list = Array.isArray(__tmPointsPenaltyPendingCandidates) ? __tmPointsPenaltyPendingCandidates : [];
+        const rows = list.length
+            ? list.map((item) => {
+                const typeLabel = item.type === 'schedule' ? '日程' : '截止日';
+                const dueText = item.dueText || item.deadlineText || '-';
+                return `
+                    <tr data-tm-penalty-row="${esc(item.id)}">
+                        <td class="tm-points-penalty-cell-type" style="padding:6px 8px;font-size:12px;">${esc(typeLabel)}</td>
+                        <td style="padding:6px 8px;max-width:360px;">
+                            <div class="tm-points-penalty-task-title" title="${esc(item.title)}">${esc(item.title)}</div>
+                        </td>
+                        <td class="tm-points-penalty-cell-due" style="padding:6px 8px;font-size:12px;white-space:nowrap;">${esc(dueText)}</td>
+                        <td class="tm-points-penalty-cell-amount" style="padding:6px 8px;font-size:12px;white-space:nowrap;">-${Math.max(0, Math.round(Number(item.amount) || 0))}</td>
+                        <td class="tm-points-penalty-cell-actions" style="padding:6px 8px;">
+                            <div class="tm-points-penalty-actions">
+                                <button class="tm-btn tm-btn-secondary tm-points-penalty-action-btn" data-tm-penalty-action="penalize" data-candidate-id="${esc(item.id)}">扣分</button>
+                                <button class="tm-btn tm-btn-secondary tm-points-penalty-action-btn" data-tm-penalty-action="done" data-candidate-id="${esc(item.id)}">已完成免扣</button>
+                                <button class="tm-btn tm-btn-secondary tm-points-penalty-action-btn" data-tm-penalty-action="edit" data-candidate-id="${esc(item.id)}">改时间</button>
+                                <button class="tm-btn tm-btn-secondary tm-points-penalty-action-btn" data-tm-penalty-action="exempt" data-candidate-id="${esc(item.id)}">忽略</button>
+                            </div>
+                        </td>
+                    </tr>
+                `;
+            }).join('')
+            : `
+                <tr>
+                    <td colspan="5" style="padding:16px 8px;text-align:center;color:var(--tm-secondary-text);font-size:12px;">
+                        暂无待处理扣分项
+                    </td>
+                </tr>
+            `;
+        modal.innerHTML = `
+            <div class="tm-prompt-box tm-points-penalty-box" style="width:min(920px,94vw);max-height:84vh;overflow:auto;">
+                <div style="font-size:16px;font-weight:600;margin-bottom:10px;">逾期任务扣分确认</div>
+                <div style="font-size:12px;color:var(--tm-secondary-text);margin-bottom:10px;">
+                    可逐项处理；父任务已完成的子任务不会进入扣分列表；日程按天处理一次，截止日按当前截止日期处理一次（修改截止日后会重新计算）。
+                </div>
+                <div class="tm-points-penalty-table-wrap" style="overflow:auto;max-height:56vh;border:1px solid var(--tm-border-color);border-radius:8px;">
+                    <table class="tm-table tm-points-penalty-table" style="width:100%;table-layout:fixed;">
+                        <thead>
+                            <tr>
+                                <th class="tm-points-penalty-col-type" style="width:64px;">类型</th>
+                                <th>任务</th>
+                                <th class="tm-points-penalty-col-due" style="width:148px;">到期时间</th>
+                                <th class="tm-points-penalty-col-amount" style="width:72px;">扣分</th>
+                                <th class="tm-points-penalty-col-actions" style="width:268px;">处理</th>
+                            </tr>
+                        </thead>
+                        <tbody>${rows}</tbody>
+                    </table>
+                </div>
+                <div style="display:flex;justify-content:flex-end;gap:8px;margin-top:12px;">
+                    <button class="tm-btn tm-btn-primary" data-tm-penalty-action="penalize-all" ${list.length ? '' : 'disabled'}>全部扣分</button>
+                    <button class="tm-btn tm-btn-secondary" data-tm-penalty-action="exempt-all" ${list.length ? '' : 'disabled'}>全部忽略</button>
+                    <button class="tm-btn tm-btn-gray" data-tm-penalty-action="close">${list.length ? '稍后处理' : '关闭'}</button>
+                </div>
+            </div>
+        `;
+        const restoreScroll = () => {
+            const nextBox = modal.querySelector('.tm-points-penalty-box');
+            const nextTableWrap = modal.querySelector('.tm-points-penalty-table-wrap');
+            if (nextBox) {
+                try { nextBox.scrollTop = prevBoxScrollTop; } catch (e) {}
+                try { nextBox.scrollLeft = prevBoxScrollLeft; } catch (e) {}
+            }
+            if (nextTableWrap) {
+                try { nextTableWrap.scrollTop = prevTableScrollTop; } catch (e) {}
+                try { nextTableWrap.scrollLeft = prevTableScrollLeft; } catch (e) {}
+            }
+        };
+        restoreScroll();
+        try { requestAnimationFrame(restoreScroll); } catch (e) {}
+        const findCandidate = (id) => __tmPointsPenaltyPendingCandidates.find((item) => String(item?.id || '').trim() === String(id || '').trim()) || null;
+        const removeCandidate = (id) => {
+            __tmPointsPenaltyPendingCandidates = __tmPointsPenaltyPendingCandidates.filter((item) => String(item?.id || '').trim() !== String(id || '').trim());
+        };
+        const runBusy = async (runner) => {
+            if (modal.dataset.tmPenaltyBusy === '1') return;
+            modal.dataset.tmPenaltyBusy = '1';
+            try {
+                await runner();
+            } finally {
+                delete modal.dataset.tmPenaltyBusy;
+            }
+        };
+        modal.querySelectorAll('button[data-tm-penalty-action]').forEach((btn) => {
+            btn.addEventListener('click', (ev) => {
+                ev.preventDefault();
+                ev.stopPropagation();
+                const action = String(btn.getAttribute('data-tm-penalty-action') || '').trim();
+                const candidateId = String(btn.getAttribute('data-candidate-id') || '').trim();
+                void runBusy(async () => {
+                    if (action === 'close') {
+                        __tmClosePointsPenaltyConfirmModal();
+                        return;
+                    }
+                    if (action === 'penalize-all') {
+                        const snapshot = Array.isArray(__tmPointsPenaltyPendingCandidates) ? [...__tmPointsPenaltyPendingCandidates] : [];
+                        let count = 0;
+                        for (const item of snapshot) {
+                            try {
+                                const ok = await __tmApplyPointsPenaltyCandidate(item, { silent: true });
+                                if (ok) count += 1;
+                            } catch (e) {}
+                        }
+                        __tmPointsPenaltyPendingCandidates = [];
+                        __tmClosePointsPenaltyConfirmModal();
+                        if (count > 0) hint(`⚠ 已扣分 ${count} 项`, 'warning');
+                        return;
+                    }
+                    if (action === 'exempt-all') {
+                        const snapshot = Array.isArray(__tmPointsPenaltyPendingCandidates) ? [...__tmPointsPenaltyPendingCandidates] : [];
+                        let count = 0;
+                        for (const item of snapshot) {
+                            try {
+                                const ok = __tmMarkPointsPenaltyExempt(item, 'manual-exempt');
+                                if (ok) count += 1;
+                            } catch (e) {}
+                        }
+                        __tmPointsPenaltyPendingCandidates = [];
+                        __tmClosePointsPenaltyConfirmModal();
+                        if (count > 0) hint(`✅ 已忽略 ${count} 项`, 'success');
+                        return;
+                    }
+                    const candidate = findCandidate(candidateId);
+                    if (!candidate) return;
+                    if (action === 'penalize') {
+                        const ok = await __tmApplyPointsPenaltyCandidate(candidate);
+                        if (!ok) return;
+                        removeCandidate(candidate.id);
+                    } else if (action === 'done') {
+                        await __tmMarkPointsPenaltyDoneAndExempt(candidate);
+                        removeCandidate(candidate.id);
+                        hint(`✅ 已标记完成：${candidate.title}`, 'success');
+                    } else if (action === 'exempt') {
+                        __tmMarkPointsPenaltyExempt(candidate, 'manual-exempt');
+                        removeCandidate(candidate.id);
+                        hint(`✅ 已忽略：${candidate.title}`, 'success');
+                    } else if (action === 'edit') {
+                        if (candidate.type === 'schedule') {
+                            const ok = await __tmEditPointsPenaltySchedule(candidate);
+                            if (ok) {
+                                hint(`✅ 已打开日程编辑（保存后自动重判）：${candidate.title}`, 'success');
+                                __tmQueueRefreshPointsPenaltyPendingSchedules(260);
+                            } else {
+                                hint('⚠ 当前无法打开日程编辑器', 'warning');
+                            }
+                        } else {
+                            const ok = await __tmEditPointsPenaltyDeadline(candidate);
+                            if (ok) {
+                                removeCandidate(candidate.id);
+                                hint(`✅ 已更新截止日期：${candidate.title}`, 'success');
+                            } else {
+                                hint('⚠ 未更新截止日期', 'warning');
+                            }
+                        }
+                    }
+                    __tmRenderPointsPenaltyConfirmModal();
+                });
+            });
+        });
+    }
+
+    function __tmShowPointsPenaltyConfirmModal(candidates) {
+        const incoming = Array.isArray(candidates) ? candidates : [];
+        if (!incoming.length) return false;
+        const currentMap = new Map((Array.isArray(__tmPointsPenaltyPendingCandidates) ? __tmPointsPenaltyPendingCandidates : [])
+            .map((item) => [String(item?.id || '').trim(), item])
+            .filter(([key]) => !!key));
+        incoming.forEach((item) => {
+            const key = String(item?.id || '').trim();
+            if (!key) return;
+            currentMap.set(key, item);
+        });
+        __tmPointsPenaltyPendingCandidates = __tmSortPointsPenaltyCandidates(Array.from(currentMap.values()));
+        if (!(__tmPointsPenaltyConfirmModal instanceof HTMLElement) || !document.body.contains(__tmPointsPenaltyConfirmModal)) {
+            const modal = document.createElement('div');
+            modal.className = 'tm-prompt-modal tm-points-penalty-confirm-modal';
+            modal.addEventListener('click', (e) => {
+                if (e.target === modal) __tmClosePointsPenaltyConfirmModal();
+            });
+            document.body.appendChild(modal);
+            __tmPointsPenaltyConfirmModal = modal;
+            __tmPointsPenaltyConfirmModalUnstack = __tmModalStackBind(() => __tmClosePointsPenaltyConfirmModal());
+        }
+        if (!__tmPointsPenaltyScheduleUpdatedListener) {
+            __tmPointsPenaltyScheduleUpdatedListener = () => {
+                __tmQueueRefreshPointsPenaltyPendingSchedules(120);
+            };
+            try { window.addEventListener('tm:calendar-schedule-updated', __tmPointsPenaltyScheduleUpdatedListener); } catch (e) {}
+        }
+        __tmRenderPointsPenaltyConfirmModal();
+        return true;
+    }
+
+    async function __tmCollectPointsPenaltyCandidates(nowDate = new Date(), options = {}) {
+        const opts = (options && typeof options === 'object') ? options : {};
+        const settings = __tmGetPointsPenaltyRuntimeSettings();
+        if (!settings.integrationEnabled) return [];
+        if (!settings.scheduleEnabled && !settings.deadlineEnabled) return [];
+        await __tmSyncPointsPenaltyLedger();
+        const nowTs = Number(nowDate?.getTime?.() || Date.now());
+        const fallbackDayKey = __tmGetPointsPenaltyDayKey(nowDate);
+        const dayKeys = [];
+        const seenDay = new Set();
+        (Array.isArray(opts.dayKeys) ? opts.dayKeys : []).forEach((value) => {
+            const key = String(value || '').trim();
+            if (!key || seenDay.has(key)) return;
+            seenDay.add(key);
+            dayKeys.push(key);
+        });
+        if (!dayKeys.length) {
+            seenDay.add(fallbackDayKey);
+            dayKeys.push(fallbackDayKey);
+        }
+        const taskCache = new Map();
+        const merged = [];
+        for (const dayKey of dayKeys) {
+            let scheduleCandidates = [];
+            let deadlineCandidates = [];
+            try { scheduleCandidates = await __tmBuildSchedulePenaltyCandidates(nowTs, dayKey, settings, taskCache); } catch (e) { scheduleCandidates = []; }
+            try { deadlineCandidates = await __tmBuildDeadlinePenaltyCandidates(nowTs, dayKey, settings, taskCache); } catch (e) { deadlineCandidates = []; }
+            merged.push(...scheduleCandidates, ...deadlineCandidates);
+        }
+        const seenCandidate = new Set();
+        const unique = [];
+        merged.forEach((item) => {
+            const id = String(item?.id || '').trim();
+            if (!id || seenCandidate.has(id)) return;
+            seenCandidate.add(id);
+            unique.push(item);
+        });
+        return unique.sort((a, b) => {
+            const ta = Number(a?.dueTs || 0);
+            const tb = Number(b?.dueTs || 0);
+            if (ta !== tb) return ta - tb;
+            if (String(a?.type || '') !== String(b?.type || '')) return String(a?.type || '').localeCompare(String(b?.type || ''));
+            return String(a?.title || '').localeCompare(String(b?.title || ''), 'zh-Hans-CN');
+        });
+    }
+
+    async function __tmRunPointsPenaltyCheck(options = {}) {
+        const opts = (options && typeof options === 'object') ? options : {};
+        const settings = __tmGetPointsPenaltyRuntimeSettings();
+        if (!settings.integrationEnabled) return { checked: false, count: 0 };
+        if (!settings.scheduleEnabled && !settings.deadlineEnabled) return { checked: false, count: 0 };
+        if (__tmPointsPenaltyCheckRunning) return { checked: false, count: 0 };
+        __tmPointsPenaltyCheckRunning = true;
+        try {
+            await __tmSyncPointsPenaltyLedger();
+            const candidates = await __tmCollectPointsPenaltyCandidates(
+                opts.now instanceof Date ? opts.now : new Date(),
+                { dayKeys: Array.isArray(opts.dayKeys) ? opts.dayKeys : [] }
+            );
+            if (!candidates.length) return { checked: true, count: 0 };
+            if (settings.confirmModalEnabled) {
+                __tmShowPointsPenaltyConfirmModal(candidates);
+                return { checked: true, count: candidates.length };
+            }
+            let doneCount = 0;
+            for (const item of candidates) {
+                try {
+                    const ok = await __tmApplyPointsPenaltyCandidate(item, { silent: true });
+                    if (ok) doneCount += 1;
+                } catch (e) {}
+            }
+            if (doneCount > 0) hint(`⚠ 已自动扣分 ${doneCount} 项`, 'warning');
+            return { checked: true, count: doneCount };
+        } finally {
+            __tmPointsPenaltyCheckRunning = false;
+        }
+    }
+
+    function __tmClearPointsPenaltyCheckTimer() {
+        if (!__tmPointsPenaltyCheckTimer) return;
+        try { clearInterval(__tmPointsPenaltyCheckTimer); } catch (e) {}
+        __tmPointsPenaltyCheckTimer = null;
+    }
+
+    function __tmResolvePointsPenaltyTickPlan(nowDate, checkTimes) {
+        const now = (nowDate instanceof Date && !Number.isNaN(nowDate.getTime())) ? nowDate : new Date();
+        const minute = now.getHours() * 60 + now.getMinutes();
+        const rules = __tmGetPointsPenaltyCheckRules(checkTimes);
+        const matched = rules.filter((rule) => Number(rule?.minute) === minute);
+        if (!matched.length) return null;
+        const dayKey = __tmGetPointsPenaltyDayKey(now);
+        const tickKey = `${dayKey}|${minute}`;
+        if (tickKey === __tmPointsPenaltyLastTickKey) return null;
+        __tmPointsPenaltyLastTickKey = tickKey;
+        const targetDayKeys = [];
+        const seen = new Set();
+        matched.forEach((rule) => {
+            const key = __tmGetPointsPenaltyDayKeyWithOffset(now, Number(rule?.dayOffset) || 0);
+            if (!key || seen.has(key)) return;
+            seen.add(key);
+            targetDayKeys.push(key);
+        });
+        if (!targetDayKeys.length) targetDayKeys.push(dayKey);
+        return {
+            now,
+            minute,
+            dayKey,
+            targetDayKeys,
+            matchedRules: matched,
+        };
+    }
+
+    async function __tmRefreshPointsPenaltyRuntime(options = {}) {
+        const opts = (options && typeof options === 'object') ? options : {};
+        try { await __tmEnsureSettingsLoaded(false); } catch (e) {}
+        const settings = __tmGetPointsPenaltyRuntimeSettings();
+        __tmClearPointsPenaltyCheckTimer();
+        if (!settings.integrationEnabled || (!settings.scheduleEnabled && !settings.deadlineEnabled)) return false;
+        __tmPointsPenaltyCheckTimer = setInterval(() => {
+            const now = new Date();
+            const tickPlan = __tmResolvePointsPenaltyTickPlan(now, settings.checkTimes);
+            if (!tickPlan) return;
+            void __tmRunPointsPenaltyCheck({ source: 'timer', now, dayKeys: tickPlan.targetDayKeys });
+        }, __TM_POINTS_PENALTY_TICK_MS);
+        const shouldRunStartupCheck = opts.runImmediate === true || (settings.checkOnStartup && !__tmPointsPenaltyStartupChecked);
+        if (shouldRunStartupCheck) {
+            __tmPointsPenaltyStartupChecked = true;
+            void __tmRunPointsPenaltyCheck({ source: opts.reason || 'startup' });
+        }
+        return true;
+    }
+
+    function __tmInitPointsPenaltyRuntime() {
+        void __tmRefreshPointsPenaltyRuntime({ reason: 'init' });
+    }
+
+    function __tmDisposePointsPenaltyRuntime() {
+        __tmClearPointsPenaltyCheckTimer();
+        __tmPointsPenaltyLastTickKey = '';
+        __tmPointsPenaltyCheckRunning = false;
+        __tmClosePointsPenaltyConfirmModal();
+    }
+
+    globalThis.__tmPointsPenaltyRuntimeRefresh = function(options = {}) {
+        return __tmRefreshPointsPenaltyRuntime(options);
+    };
+
+    globalThis.__tmRunPointsPenaltyCheckNow = function(options = {}) {
+        const opts = (options && typeof options === 'object') ? options : {};
+        return __tmRunPointsPenaltyCheck({ ...opts, source: opts.source || 'manual' });
+    };
 
     async function __tmResolveTaskMutationContext(taskId) {
         const requestedId = String(taskId || '').trim();
@@ -14146,6 +15477,83 @@ refreshOk = false;
         return __tmRememberSmallCache(__tmPriorityChipStyleCache, cacheKey, out, 32);
     }
 
+    function __tmGetCompletedRootGroupScopeKey() {
+        const archivePrefix = state?.docTabsArchiveMode === true ? 'archive' : 'active';
+        const activeDocId = String(state?.activeDocId || 'all').trim() || 'all';
+        const currentGroupId = String(SettingsStore?.data?.currentGroupId || 'all').trim() || 'all';
+        if (activeDocId === 'all') return `${archivePrefix}:group:${currentGroupId}`;
+        if (activeDocId === __TM_OTHER_BLOCK_TAB_ID) return `${archivePrefix}:other`;
+        return `${archivePrefix}:doc:${activeDocId}`;
+    }
+
+    function __tmBuildCompletedRootGroupKey(suffix = '') {
+        const tail = String(suffix || '').trim();
+        return `completed_root_tasks::${__tmGetCompletedRootGroupScopeKey()}${tail ? `::${tail}` : ''}`;
+    }
+
+    function __tmNormalizeCompletedRootGroupKey(key) {
+        const raw = String(key || '').trim();
+        if (!raw) return '';
+        if (raw === 'completed_root_tasks') return __tmBuildCompletedRootGroupKey();
+        if (raw.startsWith('kanban_') && raw.endsWith('_completed_root_tasks')) {
+            return __tmBuildCompletedRootGroupKey(raw.slice('kanban_'.length, -'_completed_root_tasks'.length));
+        }
+        return raw;
+    }
+
+    function __tmIsCompletedRootGroupKey(key) {
+        const raw = String(key || '').trim();
+        return raw === 'completed_root_tasks'
+            || raw.startsWith('completed_root_tasks::')
+            || (raw.startsWith('kanban_') && raw.endsWith('_completed_root_tasks'));
+    }
+
+    function __tmGetExpandedCompletedGroupsSet() {
+        if (!(state.expandedCompletedGroups instanceof Set)) {
+            state.expandedCompletedGroups = new Set(
+                (Array.isArray(SettingsStore?.data?.expandedCompletedGroups) ? SettingsStore.data.expandedCompletedGroups : [])
+                    .map((key) => String(key || '').trim())
+                    .filter(Boolean)
+            );
+        }
+        return state.expandedCompletedGroups;
+    }
+
+    function __tmIsCompletedRootGroupCollapsed(key) {
+        const normalizedKey = __tmNormalizeCompletedRootGroupKey(key);
+        if (!normalizedKey) return false;
+        if (state?.docTabsArchiveMode === true) return state.collapsedGroups?.has(normalizedKey) === true;
+        return !__tmGetExpandedCompletedGroupsSet().has(normalizedKey);
+    }
+
+    function __tmPersistExpandedCompletedGroups() {
+        const arr = Array.from(__tmGetExpandedCompletedGroupsSet())
+            .map((key) => String(key || '').trim())
+            .filter(Boolean)
+            .sort();
+        SettingsStore.data.expandedCompletedGroups = arr;
+        try { Storage.set('tm_expanded_completed_groups', arr); } catch (e) {}
+        return arr;
+    }
+
+    function __tmResetArchiveCompletedRootGroupCollapse() {
+        if (state?.docTabsArchiveMode !== true) return false;
+        const groups = state.collapsedGroups instanceof Set ? state.collapsedGroups : new Set(SettingsStore?.data?.collapsedGroups || []);
+        let changed = false;
+        Array.from(groups).forEach((key) => {
+            const k = String(key || '').trim();
+            if (k.startsWith('completed_root_tasks::archive:')) {
+                groups.delete(key);
+                changed = true;
+            }
+        });
+        if (!changed) return false;
+        state.collapsedGroups = groups;
+        SettingsStore.data.collapsedGroups = Array.from(groups);
+        try { Storage.set('tm_collapsed_groups', SettingsStore.data.collapsedGroups); } catch (e) {}
+        return true;
+    }
+
     function __tmRemoveElementsById(...ids) {
         try {
             ids.forEach((id) => {
@@ -14349,7 +15757,7 @@ refreshOk = false;
                     groupStack.pop();
                 }
                 const parentCollapsed = groupStack.some(it => !!it.collapsed);
-                const selfCollapsed = !!(gk && collapsedGroups.has(gk));
+                const selfCollapsed = !!(gk && (__tmIsCompletedRootGroupKey(gk) ? __tmIsCompletedRootGroupCollapsed(gk) : collapsedGroups.has(gk)));
                 const effectiveCollapsed = parentCollapsed || selfCollapsed;
                 groupStack.push({ level, collapsed: effectiveCollapsed });
                 row.style.display = parentCollapsed ? 'none' : '';

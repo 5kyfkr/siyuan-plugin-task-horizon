@@ -323,7 +323,6 @@
             ${renderDesktopMenuButton(`${__tmRenderLucideIcon('search')}<span>搜索${state.searchKeyword ? ` (${esc(String(state.searchKeyword || '').trim())})` : ''}</span>`, `tmShowSearchModal(); tmCloseDesktopMenu()`)}
             ${renderDesktopMenuButton(`${__tmRenderLucideIcon('file-text')}<span>摘要</span>`, `tmShowSummaryModal(); tmCloseDesktopMenu()`)}
             ${String(state.viewMode || '').trim() === 'list' ? renderDesktopMenuButton(`${__tmRenderLucideIcon('chart-column')}<span>导出 Excel</span>`, `tmExportCurrentTableExcel(); tmCloseDesktopMenu()`) : ''}
-            ${renderDesktopMenuButton(`${__tmRenderLucideIcon('calendar-days')}<span>语义日期</span>`, `window.tmAiSemanticCompletionPreview?.(); tmCloseDesktopMenu()`)}
             ${renderDesktopMenuToggle('多选模式', !!state.multiSelectModeEnabled, `tmToggleMultiSelectMode(this.checked); tmCloseDesktopMenu()`)}
             ${renderDesktopMenuToggle('显示已完成任务', !!state.showCompletedTasks, `tmToggleShowCompletedTasks(this.checked); tmCloseDesktopMenu()`)}
             ${__tmIsAiFeatureEnabled() ? renderDesktopMenuToggle('AI 对话', !!SettingsStore.data.aiSideDockEnabled, `tmToggleAiSideDock(this.checked); tmCloseDesktopMenu()`) : ''}

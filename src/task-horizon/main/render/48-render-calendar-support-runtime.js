@@ -88,6 +88,29 @@
         return { tasks: flatTasks, docsToGroup };
     }
 
+    function __tmResolveCalendarTaskDisplayTitle(task, fallback = '') {
+        const t = (task && typeof task === 'object') ? task : {};
+        const fb = String(fallback || '').trim();
+        try {
+            if (API && typeof API.parseTaskStatus === 'function') {
+                const parsed = API.parseTaskStatus(String(t?.markdown || ''));
+                const parsedTitle = String(parsed?.content || '').trim();
+                if (parsedTitle) return parsedTitle;
+            }
+        } catch (e) {}
+        let title = String(t?.content || t?.title || t?.raw_content || '').trim();
+        if (!title) title = fb;
+        if (!title) return '(无标题)';
+        try {
+            if (API && typeof API.normalizeTaskContent === 'function') {
+                const normalized = String(API.normalizeTaskContent(title) || '').trim();
+                if (normalized) title = normalized;
+            }
+        } catch (e) {}
+        title = title.split(/\r?\n/, 1)[0].replace(/\s+/g, ' ').trim();
+        return title || fb || '(无标题)';
+    }
+
     let __tmCalendarTaskCacheWarmPromise = null;
 
     async function __tmLoadAllTasksForCalendarCache(options = {}) {
@@ -194,7 +217,7 @@
             if (!task || task.done) continue;
             const id = String(task.id || '').trim();
             if (!id) continue;
-            const title = String(task.content || '').trim() || '(无标题)';
+            const title = __tmResolveCalendarTaskDisplayTitle(task, '(无标题)');
             const docId = String(task.root_id || '').trim();
             const gid = docId ? docsToGroup.get(docId) : '';
             const calendarId = gid ? `group:${gid}` : 'default';
@@ -272,7 +295,7 @@
             if (t.done) continue;
             const id = String(t.id || '').trim();
             if (!id) continue;
-            const title = String(t.content || '').trim();
+            const title = __tmResolveCalendarTaskDisplayTitle(t, '');
             const docId = String(t.root_id || '').trim();
             const gid = docId ? docsToGroup.get(docId) : '';
             const calendarId = gid ? `group:${gid}` : 'default';
@@ -326,7 +349,7 @@
             if (t.done) continue;
             const id = String(t.id || '').trim();
             if (!id) continue;
-            const title = String(t.content || '').trim() || '(无标题)';
+            const title = __tmResolveCalendarTaskDisplayTitle(t, '(无标题)');
             if (q && !title.toLowerCase().includes(q)) continue;
             const docId = String(t.root_id || '').trim();
             const gid = docId ? docsToGroup.get(docId) : '';
@@ -495,7 +518,7 @@
             if (rangeStartTs && endExTs && endExTs <= rangeStartTs) continue;
             if (rangeEndTs && startTs && startTs >= rangeEndTs) continue;
 
-            const title = String(t.content || '').trim() || '(无标题)';
+            const title = __tmResolveCalendarTaskDisplayTitle(t, '(无标题)');
             const docId = String(t.root_id || '').trim();
             const gid = docId ? docsToGroup.get(docId) : '';
             const calendarId = gid ? `group:${gid}` : 'default';
@@ -656,7 +679,7 @@
 
         const mins = __tmParseDurationMinutes(t?.duration);
         const durationMin = (Number.isFinite(Number(mins)) && Number(mins) > 0) ? Math.round(Number(mins)) : 60;
-        const title = String(t.content || '').trim() || '(无标题)';
+        const title = __tmResolveCalendarTaskDisplayTitle(t, '(无标题)');
         return {
             title,
             durationMin,

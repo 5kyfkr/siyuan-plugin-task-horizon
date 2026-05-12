@@ -1565,6 +1565,61 @@
         return out;
     }
 
+    function buildTaskRelationIndex(tasks) {
+        const byId = new Map();
+        const parentById = new Map();
+        const seenObjects = new Set();
+        const visit = (task, parentId = "") => {
+            if (!task || typeof task !== "object") return;
+            if (seenObjects.has(task)) return;
+            seenObjects.add(task);
+            const id = String(task.id || "").trim();
+            const explicitParentId = String(task.parentTaskId || task.parent_task_id || "").trim();
+            const resolvedParentId = explicitParentId || String(parentId || "").trim();
+            if (id) {
+                if (!byId.has(id)) byId.set(id, task);
+                if (resolvedParentId && resolvedParentId !== id && !parentById.has(id)) parentById.set(id, resolvedParentId);
+            }
+            const childParentId = id || resolvedParentId;
+            if (Array.isArray(task.children) && task.children.length) {
+                task.children.forEach((child) => visit(child, childParentId));
+            }
+        };
+        (Array.isArray(tasks) ? tasks : []).forEach((task) => visit(task));
+        return { byId, parentById };
+    }
+
+    function hasDoneParentTask(task, relationIndex, memo = new Map()) {
+        if (!task || typeof task !== "object") return false;
+        const index = relationIndex && typeof relationIndex === "object" ? relationIndex : {};
+        const byId = index.byId instanceof Map ? index.byId : new Map();
+        const parentById = index.parentById instanceof Map ? index.parentById : new Map();
+        const taskId = String(task.id || "").trim();
+        if (taskId && memo.has(taskId)) return memo.get(taskId) === true;
+        const checkedIds = [];
+        const visited = new Set();
+        let parentId = String(task.parentTaskId || task.parent_task_id || "").trim() || (taskId ? (parentById.get(taskId) || "") : "");
+        while (parentId) {
+            if (visited.has(parentId)) break;
+            visited.add(parentId);
+            checkedIds.push(parentId);
+            const parent = byId.get(parentId);
+            if (!parent || typeof parent !== "object") break;
+            if (parent.done) {
+                checkedIds.forEach((id) => memo.set(id, true));
+                if (taskId) memo.set(taskId, true);
+                return true;
+            }
+            if (memo.get(parentId) === true) {
+                if (taskId) memo.set(taskId, true);
+                return true;
+            }
+            parentId = String(parent.parentTaskId || parent.parent_task_id || "").trim() || (parentById.get(parentId) || "");
+        }
+        if (taskId) memo.set(taskId, false);
+        return false;
+    }
+
     function resolveTaskTitle(task) {
         return String(task?.content || task?.title || task?.name || task?.raw_content || "").trim() || "未命名任务";
     }
@@ -1800,9 +1855,11 @@
             .slice(0, 6);
     }
 
-    function buildRiskList(tasks, todayKey) {
+    function buildRiskList(tasks, todayKey, relationIndex = null) {
+        const doneParentMemo = new Map();
         return tasks
             .filter((task) => !task?.done)
+            .filter((task) => !hasDoneParentTask(task, relationIndex, doneParentMemo))
             .map((task) => {
                 const dueKey = resolveTaskDueKey(task);
                 if (!dueKey) return null;
@@ -1829,6 +1886,7 @@
     function buildOverview(ctx) {
         const todayKey = normalizeDateKey(ctx?.todayKey) || formatDateKey(new Date());
         const tasks = flattenTasks(ctx?.tasks || []);
+        const relationIndex = buildTaskRelationIndex(tasks);
         const trend = buildTrend(tasks, todayKey, runtime.rangeDays);
         const weekDone = buildTrend(tasks, todayKey, 7).points.reduce((sum, point) => sum + point.value, 0);
         const overdue = tasks.filter((task) => !task?.done && resolveTaskDueKey(task) && dayDiff(todayKey, resolveTaskDueKey(task)) < 0).length;
@@ -1849,7 +1907,7 @@
             heatmap: buildHeatmap(tasks, todayKey, ctx, profile),
             distribution: buildDistribution(tasks),
             recentDone: buildRecentDone(tasks, todayKey),
-            riskList: buildRiskList(tasks, todayKey),
+            riskList: buildRiskList(tasks, todayKey, relationIndex),
             title: `主页 - ${scopeLabel}`,
             subtitle: subtitleParts.length
                 ? subtitleParts.join("，")

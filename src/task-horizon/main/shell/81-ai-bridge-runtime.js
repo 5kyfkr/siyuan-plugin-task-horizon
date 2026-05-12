@@ -782,6 +782,7 @@
                 'tm_doc_h2_subgroup_enabled',
                 'tm_collapsed_task_ids',
                 'tm_collapsed_groups',
+                'tm_expanded_completed_groups',
                 'tm_current_rule',
                 'tm_filter_rules',
                 'tm_font_size',

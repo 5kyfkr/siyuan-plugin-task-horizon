@@ -321,6 +321,12 @@
                 wch: pxToWch(widthMap.completionTime, 14),
                 value: (task) => String(task?.completionTime || '').trim()
             },
+            taskCompleteAt: {
+                key: 'taskCompleteAt',
+                label: '完成时间',
+                wch: pxToWch(widthMap.taskCompleteAt, 18),
+                value: (task) => __tmFormatTaskCompletedAtTime(__tmResolveTaskCompletedAtRaw(task))
+            },
             remainingTime: {
                 key: 'remainingTime',
                 label: '剩余时间',
@@ -391,10 +397,12 @@
         };
         const prevCollapsedTaskIds = state.collapsedTaskIds instanceof Set ? new Set(state.collapsedTaskIds) : new Set();
         const prevCollapsedGroups = state.collapsedGroups instanceof Set ? new Set(state.collapsedGroups) : new Set();
+        const prevExpandedCompletedGroups = state.expandedCompletedGroups instanceof Set ? new Set(state.expandedCompletedGroups) : new Set();
         let orderedTaskRows = [];
         try {
             state.collapsedTaskIds = new Set();
             state.collapsedGroups = new Set();
+            state.expandedCompletedGroups = new Set([__tmBuildCompletedRootGroupKey()]);
             orderedTaskRows = (__tmBuildTaskRowModel() || []).filter((row) => row && row.type === 'task' && row.id);
         } catch (e) {
             orderedTaskRows = filtered.map((task) => ({
@@ -405,6 +413,7 @@
         } finally {
             state.collapsedTaskIds = prevCollapsedTaskIds;
             state.collapsedGroups = prevCollapsedGroups;
+            state.expandedCompletedGroups = prevExpandedCompletedGroups;
         }
         const exportedTaskIdSet = new Set();
         orderedTaskRows = orderedTaskRows.filter((row) => {

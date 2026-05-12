@@ -433,6 +433,7 @@
         try { SettingsStore.refreshCollapsedStateSyncState(remoteUpdatedAt); } catch (e) {}
         try { state.collapsedTaskIds = new Set(SettingsStore.data.collapsedTaskIds || []); } catch (e) {}
         try { state.collapsedGroups = new Set(SettingsStore.data.collapsedGroups || []); } catch (e) {}
+        try { state.expandedCompletedGroups = new Set(SettingsStore.data.expandedCompletedGroups || []); } catch (e) {}
         try {
             const ids = Array.isArray(SettingsStore.data.kanbanCollapsedTaskIds) ? SettingsStore.data.kanbanCollapsedTaskIds : [];
             state.__tmKanbanCollapsedIds = new Set(ids.map((id) => String(id || '').trim()).filter(Boolean));
@@ -459,6 +460,7 @@
             currentRule: SettingsStore?.data?.currentRule ?? null,
             collapsedTaskIds: Array.from(state?.collapsedTaskIds || []),
             collapsedGroups: Array.from(state?.collapsedGroups || []),
+            expandedCompletedGroups: Array.from(state?.expandedCompletedGroups || []),
             kanbanCollapsedTaskIds: Array.isArray(SettingsStore?.data?.kanbanCollapsedTaskIds) ? SettingsStore.data.kanbanCollapsedTaskIds.slice() : [],
             collapseStateUpdatedAt: __tmGetCollapsedSessionUpdatedAt(SettingsStore?.data),
             groupMode: String(SettingsStore?.data?.groupMode || 'none').trim() || 'none',
@@ -475,6 +477,7 @@
         SettingsStore.data.currentRule = saved.currentRule ?? null;
         SettingsStore.data.collapsedTaskIds = Array.isArray(saved.collapsedTaskIds) ? saved.collapsedTaskIds.slice() : [];
         SettingsStore.data.collapsedGroups = Array.isArray(saved.collapsedGroups) ? saved.collapsedGroups.slice() : [];
+        SettingsStore.data.expandedCompletedGroups = Array.isArray(saved.expandedCompletedGroups) ? saved.expandedCompletedGroups.slice() : [];
         SettingsStore.data.kanbanCollapsedTaskIds = Array.isArray(saved.kanbanCollapsedTaskIds) ? saved.kanbanCollapsedTaskIds.slice() : [];
         SettingsStore.data.collapseStateUpdatedAt = __tmParseUpdatedAtNumber(saved.collapseStateUpdatedAt)
             || __tmGetCollapsedSessionUpdatedAt(SettingsStore.data);
@@ -519,6 +522,7 @@
         try { __tmRestoreManualRefreshSessionState(saved.session); } catch (e) {}
         try { state.collapsedTaskIds = new Set(saved?.session?.collapsedTaskIds || []); } catch (e) {}
         try { state.collapsedGroups = new Set(saved?.session?.collapsedGroups || []); } catch (e) {}
+        try { state.expandedCompletedGroups = new Set(saved?.session?.expandedCompletedGroups || []); } catch (e) {}
         try {
             const ids = Array.isArray(saved?.session?.kanbanCollapsedTaskIds) ? saved.session.kanbanCollapsedTaskIds : [];
             state.__tmKanbanCollapsedIds = new Set(ids.map((id) => String(id || '').trim()).filter(Boolean));
@@ -704,7 +708,6 @@ state.openToken = (Number(state.openToken) || 0) + 1;
                     try { render(); } catch (e2) {}
                 }
             }
-
             try { __tmClearAutoRefreshDirtyFlags(); } catch (e) {}
 
             if (!silent) {

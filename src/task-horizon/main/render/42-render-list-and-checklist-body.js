@@ -287,9 +287,16 @@
                     ? __tmRenderDocGroupLabel(row.docId || row.id, row.label || '')
                     : (row.kind === 'h2'
                         ? __tmRenderHeadingLevelIconLabel(row.label || '', row.headingLevel || SettingsStore.data.taskHeadingLevel || 'h2')
-                        : esc(String(row.label || '')));
+                        : (row.kind === 'time'
+                            ? (String(row.labelHtml || '').trim() || esc(String(row.label || '')))
+                            : esc(String(row.label || ''))));
+                const groupKind = String(row.kind || '').trim();
+                const groupKey = String(row.key || '').trim();
+                const timeGroupDropAttrs = groupKind === 'time'
+                    ? ` ondragenter="tmTimeGroupDragOver(event, '${escSq(groupKey)}')" ondragover="tmTimeGroupDragOver(event, '${escSq(groupKey)}')" ondragleave="tmTimeGroupDragLeave(event)" ondrop="tmTimeGroupDrop(event, '${escSq(groupKey)}')"`
+                    : '';
                 return `
-                    <div class="tm-checklist-group ${row.kind === 'doc' ? 'tm-checklist-group--doc' : ''} ${row.kind === 'pinned' ? 'tm-checklist-group--pinned' : ''} ${row.kind === 'task' ? 'tm-checklist-group--task' : ''} ${row.kind === 'h2' ? 'tm-checklist-group--h2' : ''} ${row.kind === 'time' ? 'tm-checklist-group--time' : ''} ${row.kind === 'quadrant' ? 'tm-checklist-group--quadrant' : ''} ${isCollapsed ? 'tm-checklist-group--collapsed' : ''}" data-group-key="${esc(String(row.key || ''))}" onclick="tmToggleGroupCollapse('${escSq(String(row.key || ''))}', event)">
+                    <div class="tm-checklist-group ${row.kind === 'doc' ? 'tm-checklist-group--doc' : ''} ${row.kind === 'pinned' ? 'tm-checklist-group--pinned' : ''} ${row.kind === 'task' ? 'tm-checklist-group--task' : ''} ${row.kind === 'h2' ? 'tm-checklist-group--h2' : ''} ${row.kind === 'time' ? 'tm-checklist-group--time' : ''} ${row.kind === 'quadrant' ? 'tm-checklist-group--quadrant' : ''} ${isCollapsed ? 'tm-checklist-group--collapsed' : ''}" data-group-kind="${esc(groupKind)}" data-group-key="${esc(groupKey)}" onclick="tmToggleGroupCollapse('${escSq(groupKey)}', event)"${timeGroupDropAttrs}>
                         ${toggle}
                         ${pinnedIconHtml}
                         <span class="tm-checklist-group-label" style="color:${labelColor};">${labelHtml}</span>

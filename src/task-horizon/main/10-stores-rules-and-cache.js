@@ -78,7 +78,7 @@
     const WHITEBOARD_DATA_CACHE_KEY = 'tm_whiteboard_data_cache';
     const __TM_QUICK_ADD_RECENT_DOCS_KEY = 'tm_quick_add_recent_docs';
     const __TM_QUICK_ADD_RECENT_DOCS_LIMIT = 6;
-    const __TM_BUILTIN_COLUMN_DEFAULT_ORDER = ['pinned', 'content', 'status', 'score', 'doc', 'h2', 'priority', 'startDate', 'completionTime', 'remainingTime', 'duration', 'spent', 'remark', 'attachments'];
+    const __TM_BUILTIN_COLUMN_DEFAULT_ORDER = ['pinned', 'content', 'status', 'score', 'doc', 'h2', 'priority', 'startDate', 'completionTime', 'taskCompleteAt', 'remainingTime', 'duration', 'spent', 'remark', 'attachments'];
     const __TM_BUILTIN_COLUMN_WIDTHS = {
         pinned: 48,
         content: 360,
@@ -89,6 +89,7 @@
         priority: 96,
         startDate: 90,
         completionTime: 90,
+        taskCompleteAt: 140,
         remainingTime: 116,
         duration: 96,
         spent: 96,
@@ -105,6 +106,7 @@
         priority: 8,
         startDate: 7,
         completionTime: 7,
+        taskCompleteAt: 11,
         remainingTime: 10,
         duration: 8,
         spent: 8,
@@ -2989,6 +2991,7 @@
         'collapsedTaskIds',
         'kanbanCollapsedTaskIds',
         'collapsedGroups',
+        'expandedCompletedGroups',
         'customFieldDefs',
         'whiteboardLinks',
         'whiteboardDetachedChildren',
@@ -3085,13 +3088,39 @@
         return { changedKeys: changed, map };
     }
 
+    function __tmLooksLegacySeededSettingsFieldMap(input, source = null) {
+        const src = (source && typeof source === 'object') ? source : {};
+        const map = __tmNormalizeSettingsFieldUpdatedAtMap(input, src);
+        const keys = Object.keys(map);
+        if (!keys.length) return false;
+        const fallbackUpdatedAt = __tmParseUpdatedAtNumber(src.settingsUpdatedAt);
+        if (fallbackUpdatedAt <= 0) return false;
+        const hasNonFallbackTs = keys.some((key) => __tmParseUpdatedAtNumber(map[key]) !== fallbackUpdatedAt);
+        if (hasNonFallbackTs) return false;
+        const syncKeys = Object.keys(__tmBuildSettingsFieldSyncSnapshot(src));
+        if (!syncKeys.length) return false;
+        const coverage = keys.length / Math.max(1, syncKeys.length);
+        return coverage >= 0.85;
+    }
+
     function __tmApplySettingsFieldUpdatesByMap(target, source, options = {}) {
         const out = (target && typeof target === 'object') ? target : {};
         const src = (source && typeof source === 'object') ? source : {};
         if (!out || !src || !Object.keys(src).length) return [];
         const skip = options?.skipKeys instanceof Set ? options.skipKeys : new Set(options?.skipKeys || []);
-        const localMap = __tmNormalizeSettingsFieldUpdatedAtMap(out.settingsFieldUpdatedAt, out, { seedFromSettingsUpdatedAt: true });
-        const remoteMap = __tmNormalizeSettingsFieldUpdatedAtMap(src.settingsFieldUpdatedAt, src, { seedFromSettingsUpdatedAt: true });
+        const localRawMap = __tmNormalizeSettingsFieldUpdatedAtMap(out.settingsFieldUpdatedAt, out);
+        const remoteRawMap = __tmNormalizeSettingsFieldUpdatedAtMap(src.settingsFieldUpdatedAt, src);
+        const localLegacySeeded = __tmLooksLegacySeededSettingsFieldMap(out.settingsFieldUpdatedAt, out);
+        const remoteLegacySeeded = __tmLooksLegacySeededSettingsFieldMap(src.settingsFieldUpdatedAt, src);
+        const localHasExplicit = Object.keys(localRawMap).length > 0 && !localLegacySeeded;
+        const remoteHasExplicit = Object.keys(remoteRawMap).length > 0 && !remoteLegacySeeded;
+        const seedBothFromSettingsUpdatedAt = !localHasExplicit && !remoteHasExplicit;
+        const localMap = __tmNormalizeSettingsFieldUpdatedAtMap(localLegacySeeded ? {} : localRawMap, out, {
+            seedFromSettingsUpdatedAt: seedBothFromSettingsUpdatedAt,
+        });
+        const remoteMap = __tmNormalizeSettingsFieldUpdatedAtMap(remoteLegacySeeded ? {} : remoteRawMap, src, {
+            seedFromSettingsUpdatedAt: seedBothFromSettingsUpdatedAt,
+        });
         const applied = [];
         Object.keys(remoteMap).forEach((key) => {
             if (!__tmIsSettingsFieldSyncKey(key)) return;
@@ -3247,6 +3276,7 @@
             collapsedTaskIds: normalizeList(src.collapsedTaskIds),
             kanbanCollapsedTaskIds: normalizeList(src.kanbanCollapsedTaskIds),
             collapsedGroups: normalizeList(src.collapsedGroups),
+            expandedCompletedGroups: normalizeList(src.expandedCompletedGroups),
         };
     }
 
@@ -3256,6 +3286,7 @@
         out.collapsedTaskIds = next.collapsedTaskIds.slice();
         out.kanbanCollapsedTaskIds = next.kanbanCollapsedTaskIds.slice();
         out.collapsedGroups = next.collapsedGroups.slice();
+        out.expandedCompletedGroups = next.expandedCompletedGroups.slice();
         return next;
     }
 
@@ -3949,6 +3980,7 @@
         if (raw === 'priority') return '重要性';
         if (raw === 'startDate') return '开始日期';
         if (raw === 'completionTime') return '截止日期';
+        if (raw === 'taskCompleteAt') return '完成时间';
         if (raw === 'remainingTime') return '剩余时间';
         if (raw === 'duration') return '时长';
         if (raw === 'spent') return '耗时';
@@ -3971,6 +4003,7 @@
             { key: 'priority', label: '重要性', kind: 'builtin' },
             { key: 'startDate', label: '开始日期', kind: 'builtin' },
             { key: 'completionTime', label: '截止日期', kind: 'builtin' },
+            { key: 'taskCompleteAt', label: '完成时间', kind: 'builtin' },
             { key: 'remainingTime', label: '剩余时间', kind: 'builtin' },
             { key: 'duration', label: '时长', kind: 'builtin' },
             { key: 'spent', label: '耗时', kind: 'builtin' },
@@ -4157,6 +4190,9 @@
             const collapsedGroups = state?.collapsedGroups instanceof Set
                 ? Array.from(state.collapsedGroups).map((id) => String(id || '').trim()).filter(Boolean).sort()
                 : [];
+            const expandedCompletedGroups = state?.expandedCompletedGroups instanceof Set
+                ? Array.from(state.expandedCompletedGroups).map((id) => String(id || '').trim()).filter(Boolean).sort()
+                : [];
             return [
                 mode,
                 String(state?.activeDocId || 'all').trim() || 'all',
@@ -4178,6 +4214,8 @@
                 collapsedTaskIds.join(','),
                 String(collapsedGroups.length),
                 collapsedGroups.join(','),
+                String(expandedCompletedGroups.length),
+                expandedCompletedGroups.join(','),
                 String(state?.detailTaskId || '').trim(),
                 sampleIds.join(','),
             ].join('|');
@@ -4584,6 +4622,8 @@
             groupMode: 'doc',
             collapsedTaskIds: [],
             kanbanCollapsedTaskIds: [],
+            collapsedGroups: [],
+            expandedCompletedGroups: [],
             currentRule: null,
             viewProfiles: {
                 global: { ruleId: null, groupMode: 'doc' },
@@ -4625,6 +4665,14 @@
             headingGroupCreateAtSectionEnd: false,
             enableTomatoIntegration: true,
             enablePointsRewardIntegration: false,
+            enablePointsPenaltyIntegration: false,
+            pointsPenaltyScheduleEnabled: true,
+            pointsPenaltyDeadlineEnabled: true,
+            pointsPenaltyScheduleAmount: 20,
+            pointsPenaltyDeadlineAmount: 30,
+            pointsPenaltyCheckTimes: ['23:00', '+1 08:00'],
+            pointsPenaltyCheckOnStartup: false,
+            pointsPenaltyConfirmModalEnabled: true,
             tomatoSpentAttrMode: 'minutes',
             tomatoSpentAttrKeyMinutes: 'custom-tomato-minutes',
             tomatoSpentAttrKeyHours: 'custom-tomato-time',
@@ -5070,7 +5118,10 @@
                                     return;
                                 }
                                 if (cloudSettingsUpdatedAt > 0) this.data.settingsUpdatedAt = cloudSettingsUpdatedAt;
-                                this.data.settingsFieldUpdatedAt = __tmNormalizeSettingsFieldUpdatedAtMap(cloudData.settingsFieldUpdatedAt, cloudData, { seedFromSettingsUpdatedAt: true });
+                                {
+                                    const cloudFieldMap = __tmNormalizeSettingsFieldUpdatedAtMap(cloudData.settingsFieldUpdatedAt, cloudData);
+                                    this.data.settingsFieldUpdatedAt = __tmLooksLegacySeededSettingsFieldMap(cloudFieldMap, cloudData) ? {} : cloudFieldMap;
+                                }
                                 if (cloudCollapseUpdatedAt > 0) this.data.collapseStateUpdatedAt = cloudCollapseUpdatedAt;
                                 // 应用云端数据
                                 if (shouldApplyCloudDocGroupState && Array.isArray(cloudData.selectedDocIds)) this.data.selectedDocIds = cloudData.selectedDocIds;
@@ -5117,6 +5168,7 @@
                                     if (Array.isArray(cloudData.collapsedTaskIds)) this.data.collapsedTaskIds = cloudData.collapsedTaskIds;
                                     if (Array.isArray(cloudData.kanbanCollapsedTaskIds)) this.data.kanbanCollapsedTaskIds = cloudData.kanbanCollapsedTaskIds;
                                     if (Array.isArray(cloudData.collapsedGroups)) this.data.collapsedGroups = cloudData.collapsedGroups;
+                                    if (Array.isArray(cloudData.expandedCompletedGroups)) this.data.expandedCompletedGroups = cloudData.expandedCompletedGroups;
                                 }
                                 if (cloudData.currentRule !== undefined) this.data.currentRule = cloudData.currentRule;
                                 if (cloudData.viewProfiles !== undefined) this.data.viewProfiles = cloudData.viewProfiles;
@@ -5147,6 +5199,14 @@
                                 if (typeof cloudData.headingGroupCreateAtSectionEnd === 'boolean') this.data.headingGroupCreateAtSectionEnd = cloudData.headingGroupCreateAtSectionEnd;
                                 if (typeof cloudData.enableTomatoIntegration === 'boolean') this.data.enableTomatoIntegration = cloudData.enableTomatoIntegration;
                                 if (typeof cloudData.enablePointsRewardIntegration === 'boolean') this.data.enablePointsRewardIntegration = cloudData.enablePointsRewardIntegration;
+                                if (typeof cloudData.enablePointsPenaltyIntegration === 'boolean') this.data.enablePointsPenaltyIntegration = cloudData.enablePointsPenaltyIntegration;
+                                if (typeof cloudData.pointsPenaltyScheduleEnabled === 'boolean') this.data.pointsPenaltyScheduleEnabled = cloudData.pointsPenaltyScheduleEnabled;
+                                if (typeof cloudData.pointsPenaltyDeadlineEnabled === 'boolean') this.data.pointsPenaltyDeadlineEnabled = cloudData.pointsPenaltyDeadlineEnabled;
+                                if (typeof cloudData.pointsPenaltyScheduleAmount === 'number') this.data.pointsPenaltyScheduleAmount = cloudData.pointsPenaltyScheduleAmount;
+                                if (typeof cloudData.pointsPenaltyDeadlineAmount === 'number') this.data.pointsPenaltyDeadlineAmount = cloudData.pointsPenaltyDeadlineAmount;
+                                if (Array.isArray(cloudData.pointsPenaltyCheckTimes)) this.data.pointsPenaltyCheckTimes = cloudData.pointsPenaltyCheckTimes;
+                                if (typeof cloudData.pointsPenaltyCheckOnStartup === 'boolean') this.data.pointsPenaltyCheckOnStartup = cloudData.pointsPenaltyCheckOnStartup;
+                                if (typeof cloudData.pointsPenaltyConfirmModalEnabled === 'boolean') this.data.pointsPenaltyConfirmModalEnabled = cloudData.pointsPenaltyConfirmModalEnabled;
                                 if (typeof cloudData.tomatoSpentAttrMode === 'string') this.data.tomatoSpentAttrMode = cloudData.tomatoSpentAttrMode;
                                 if (typeof cloudData.tomatoSpentAttrKeyMinutes === 'string') this.data.tomatoSpentAttrKeyMinutes = cloudData.tomatoSpentAttrKeyMinutes;
                                 if (typeof cloudData.tomatoSpentAttrKeyHours === 'string') this.data.tomatoSpentAttrKeyHours = cloudData.tomatoSpentAttrKeyHours;
@@ -5421,7 +5481,10 @@
         // 从本地缓存加载
         loadFromLocal() {
             this.data.settingsUpdatedAt = Number(Storage.get('tm_settings_updated_at', this.data.settingsUpdatedAt)) || 0;
-            this.data.settingsFieldUpdatedAt = __tmNormalizeSettingsFieldUpdatedAtMap(Storage.get('tm_settings_field_updated_at', this.data.settingsFieldUpdatedAt), this.data, { seedFromSettingsUpdatedAt: true });
+            {
+                const localFieldMap = __tmNormalizeSettingsFieldUpdatedAtMap(Storage.get('tm_settings_field_updated_at', this.data.settingsFieldUpdatedAt), this.data);
+                this.data.settingsFieldUpdatedAt = __tmLooksLegacySeededSettingsFieldMap(localFieldMap, this.data) ? {} : localFieldMap;
+            }
             this.data.docGroupSettingsUpdatedAt = Number(Storage.get('tm_doc_group_settings_updated_at', this.data.docGroupSettingsUpdatedAt)) || 0;
             this.data.collapseStateUpdatedAt = Number(Storage.get('tm_collapse_state_updated_at', this.data.collapseStateUpdatedAt)) || 0;
             this.data.selectedDocIds = Storage.get('tm_selected_doc_ids', []) || [];
@@ -5462,6 +5525,7 @@
             this.data.collapsedTaskIds = Storage.get('tm_collapsed_task_ids', []) || [];
             this.data.kanbanCollapsedTaskIds = Storage.get('tm_kanban_collapsed_task_ids', []) || [];
             this.data.collapsedGroups = Storage.get('tm_collapsed_groups', []) || [];
+            this.data.expandedCompletedGroups = Storage.get('tm_expanded_completed_groups', []) || [];
             this.data.currentRule = Storage.get('tm_current_rule', null);
             this.data.viewProfiles = Storage.get('tm_view_profiles', this.data.viewProfiles) || this.data.viewProfiles;
             this.data.filterRules = Storage.get('tm_filter_rules', []);
@@ -5538,6 +5602,14 @@
             this.data.taskRemarkWrapMaxLines = Number(Storage.get('tm_task_remark_wrap_max_lines', this.data.taskRemarkWrapMaxLines));
             this.data.enableTomatoIntegration = Storage.get('tm_enable_tomato_integration', true);
             this.data.enablePointsRewardIntegration = !!Storage.get('tm_enable_points_reward_integration', this.data.enablePointsRewardIntegration);
+            this.data.enablePointsPenaltyIntegration = !!Storage.get('tm_enable_points_penalty_integration', this.data.enablePointsPenaltyIntegration);
+            this.data.pointsPenaltyScheduleEnabled = !!Storage.get('tm_points_penalty_schedule_enabled', this.data.pointsPenaltyScheduleEnabled);
+            this.data.pointsPenaltyDeadlineEnabled = !!Storage.get('tm_points_penalty_deadline_enabled', this.data.pointsPenaltyDeadlineEnabled);
+            this.data.pointsPenaltyScheduleAmount = Number(Storage.get('tm_points_penalty_schedule_amount', this.data.pointsPenaltyScheduleAmount));
+            this.data.pointsPenaltyDeadlineAmount = Number(Storage.get('tm_points_penalty_deadline_amount', this.data.pointsPenaltyDeadlineAmount));
+            this.data.pointsPenaltyCheckTimes = Storage.get('tm_points_penalty_check_times', this.data.pointsPenaltyCheckTimes);
+            this.data.pointsPenaltyCheckOnStartup = !!Storage.get('tm_points_penalty_check_on_startup', this.data.pointsPenaltyCheckOnStartup);
+            this.data.pointsPenaltyConfirmModalEnabled = !!Storage.get('tm_points_penalty_confirm_modal_enabled', this.data.pointsPenaltyConfirmModalEnabled);
             this.data.tomatoSpentAttrMode = Storage.get('tm_tomato_spent_attr_mode', 'minutes');
             this.data.tomatoSpentAttrKeyMinutes = Storage.get('tm_tomato_spent_attr_key_minutes', this.data.tomatoSpentAttrKeyMinutes);
             this.data.tomatoSpentAttrKeyHours = Storage.get('tm_tomato_spent_attr_key_hours', this.data.tomatoSpentAttrKeyHours);
@@ -5780,7 +5852,10 @@
             this.data.docDisplayNameMode = __tmNormalizeDocDisplayNameMode(this.data.docDisplayNameMode);
             this.data.timelineSidebarCollapsed = !!this.data.timelineSidebarCollapsed;
             this.data.timelineCardFields = __tmNormalizeTimelineCardFields(this.data.timelineCardFields);
-            this.data.settingsFieldUpdatedAt = __tmNormalizeSettingsFieldUpdatedAtMap(this.data.settingsFieldUpdatedAt, this.data, { seedFromSettingsUpdatedAt: true });
+            {
+                const normalizedFieldMap = __tmNormalizeSettingsFieldUpdatedAtMap(this.data.settingsFieldUpdatedAt, this.data);
+                this.data.settingsFieldUpdatedAt = __tmLooksLegacySeededSettingsFieldMap(normalizedFieldMap, this.data) ? {} : normalizedFieldMap;
+            }
             this.normalizeColumns();
         },
 
@@ -5838,6 +5913,7 @@
             Storage.set('tm_collapsed_task_ids', this.data.collapsedTaskIds);
             Storage.set('tm_kanban_collapsed_task_ids', this.data.kanbanCollapsedTaskIds || []);
             Storage.set('tm_collapsed_groups', this.data.collapsedGroups || []);
+            Storage.set('tm_expanded_completed_groups', this.data.expandedCompletedGroups || []);
             Storage.set('tm_current_rule', this.data.currentRule);
             Storage.set('tm_view_profiles', __tmNormalizeViewProfiles(this.data.viewProfiles, {
                 ruleId: this.data.currentRule,
@@ -5915,6 +5991,14 @@
             Storage.set('tm_task_remark_wrap_max_lines', Number(this.data.taskRemarkWrapMaxLines) || 2);
             Storage.set('tm_enable_tomato_integration', !!this.data.enableTomatoIntegration);
             Storage.set('tm_enable_points_reward_integration', !!this.data.enablePointsRewardIntegration);
+            Storage.set('tm_enable_points_penalty_integration', !!this.data.enablePointsPenaltyIntegration);
+            Storage.set('tm_points_penalty_schedule_enabled', !!this.data.pointsPenaltyScheduleEnabled);
+            Storage.set('tm_points_penalty_deadline_enabled', !!this.data.pointsPenaltyDeadlineEnabled);
+            Storage.set('tm_points_penalty_schedule_amount', Math.max(0, Math.min(9999, Math.round(Number(this.data.pointsPenaltyScheduleAmount) || 0))));
+            Storage.set('tm_points_penalty_deadline_amount', Math.max(0, Math.min(9999, Math.round(Number(this.data.pointsPenaltyDeadlineAmount) || 0))));
+            Storage.set('tm_points_penalty_check_times', Array.isArray(this.data.pointsPenaltyCheckTimes) ? this.data.pointsPenaltyCheckTimes : ['23:00', '+1 08:00']);
+            Storage.set('tm_points_penalty_check_on_startup', !!this.data.pointsPenaltyCheckOnStartup);
+            Storage.set('tm_points_penalty_confirm_modal_enabled', !!this.data.pointsPenaltyConfirmModalEnabled);
             Storage.set('tm_tomato_spent_attr_mode', String(this.data.tomatoSpentAttrMode || 'minutes'));
             Storage.set('tm_tomato_spent_attr_key_minutes', String(this.data.tomatoSpentAttrKeyMinutes || '').trim());
             Storage.set('tm_tomato_spent_attr_key_hours', String(this.data.tomatoSpentAttrKeyHours || '').trim());
@@ -6204,6 +6288,68 @@
             const wrapRemarkLines = Number(this.data.taskRemarkWrapMaxLines);
             this.data.taskRemarkWrapMaxLines = Number.isFinite(wrapRemarkLines) ? Math.max(1, Math.min(10, Math.round(wrapRemarkLines))) : 2;
             this.data.enableMoveBlockToDailyNote = !!this.data.enableMoveBlockToDailyNote;
+            this.data.enablePointsPenaltyIntegration = !!this.data.enablePointsPenaltyIntegration;
+            this.data.pointsPenaltyScheduleEnabled = this.data.pointsPenaltyScheduleEnabled !== false;
+            this.data.pointsPenaltyDeadlineEnabled = this.data.pointsPenaltyDeadlineEnabled !== false;
+            {
+                const amount = Number(this.data.pointsPenaltyScheduleAmount);
+                this.data.pointsPenaltyScheduleAmount = Number.isFinite(amount) ? Math.max(0, Math.min(9999, Math.round(amount))) : 20;
+            }
+            {
+                const amount = Number(this.data.pointsPenaltyDeadlineAmount);
+                this.data.pointsPenaltyDeadlineAmount = Number.isFinite(amount) ? Math.max(0, Math.min(9999, Math.round(amount))) : 30;
+            }
+            {
+                const rawTimes = Array.isArray(this.data.pointsPenaltyCheckTimes) ? this.data.pointsPenaltyCheckTimes : [];
+                const seen = new Set();
+                const normalized = [];
+                const parseItem = (input) => {
+                    const text = String(input || '').trim();
+                    if (!text) return null;
+                    let dayOffset = 0;
+                    let hh = NaN;
+                    let mm = NaN;
+                    let hasOffset = false;
+                    let m = /^\+(\d+)\s+(\d{1,2}):(\d{2})$/.exec(text);
+                    if (m) {
+                        hasOffset = true;
+                        dayOffset = Number(m[1]);
+                        hh = Number(m[2]);
+                        mm = Number(m[3]);
+                    } else {
+                        m = /^(\d{1,2}):(\d{2})$/.exec(text);
+                        if (!m) return null;
+                        hh = Number(m[1]);
+                        mm = Number(m[2]);
+                    }
+                    if (!Number.isInteger(dayOffset)) return null;
+                    if (hasOffset && (dayOffset < 1 || dayOffset > 7)) return null;
+                    if (!hasOffset) dayOffset = 0;
+                    if (!Number.isInteger(hh) || !Number.isInteger(mm)) return null;
+                    if (hh < 0 || hh > 23 || mm < 0 || mm > 59) return null;
+                    const timeText = `${String(hh).padStart(2, '0')}:${String(mm).padStart(2, '0')}`;
+                    return {
+                        dayOffset,
+                        minute: hh * 60 + mm,
+                        normalized: dayOffset > 0 ? `+${dayOffset} ${timeText}` : timeText,
+                    };
+                };
+                rawTimes.forEach((value) => {
+                    const parsed = parseItem(value);
+                    if (!parsed) return;
+                    if (seen.has(parsed.normalized)) return;
+                    seen.add(parsed.normalized);
+                    normalized.push(parsed);
+                });
+                normalized.sort((a, b) => {
+                    if (a.dayOffset !== b.dayOffset) return a.dayOffset - b.dayOffset;
+                    if (a.minute !== b.minute) return a.minute - b.minute;
+                    return a.normalized.localeCompare(b.normalized);
+                });
+                this.data.pointsPenaltyCheckTimes = normalized.length ? normalized.map((item) => item.normalized) : ['23:00', '+1 08:00'];
+            }
+            this.data.pointsPenaltyCheckOnStartup = !!this.data.pointsPenaltyCheckOnStartup;
+            this.data.pointsPenaltyConfirmModalEnabled = this.data.pointsPenaltyConfirmModalEnabled !== false;
             this.data.newTaskDailyNoteAppendToBottom = !!this.data.newTaskDailyNoteAppendToBottom;
             this.data.headingGroupCreateAtSectionEnd = !!this.data.headingGroupCreateAtSectionEnd;
             this.data.taskDetailCompletedSubtasksVisibilityByTask = (this.data.taskDetailCompletedSubtasksVisibilityByTask && typeof this.data.taskDetailCompletedSubtasksVisibilityByTask === 'object' && !Array.isArray(this.data.taskDetailCompletedSubtasksVisibilityByTask))
@@ -6958,7 +7104,9 @@
             else if (key === 'priorityScore') result = __tmEnsureTaskPriorityScore(task);
             else if (key === 'startDate') result = task?.startDate ?? task?.start_date;
             else if (key === 'completionTime') result = task?.completionTime ?? task?.completion_time;
-            else if (key === 'taskCompleteAt') result = task?.taskCompleteAt ?? task?.task_complete_at;
+            else if (key === 'taskCompleteAt') result = typeof __tmResolveTaskCompletedAtRaw === 'function'
+                ? __tmResolveTaskCompletedAtRaw(task)
+                : (task?.taskCompleteAt ?? task?.task_complete_at);
             else result = task ? task[key] : undefined;
             if (taskMemo) taskMemo.set(key, result);
             return result;
@@ -7857,6 +8005,14 @@
             || normalized === 'custom-time';
     }
 
+    function __tmIsQuickbarRefreshDebugEnabled() {
+        return false;
+    }
+
+    function __tmQuickbarRefreshDebugLog(tag, payload = {}) {
+        return;
+    }
+
     function __tmPruneRecentVisibleDateFallbackTasks(maxAgeMs = 20000) {
         const now = Date.now();
         const ttl = Math.max(1000, Number(maxAgeMs) || 20000);
@@ -8261,7 +8417,7 @@
             const mergedByTask = new Map();
             sourceUpdates.forEach((update) => {
                 const taskId = String(update?.taskId || '').trim();
-                const patch = __tmChangeFeed.buildPatchFromAttr(update?.key, update?.value);
+                const patch = __tmChangeFeed.buildPatchFromAttr(taskId, update?.key, update?.value);
                 if (!taskId || !patch) return;
                 mergedByTask.set(taskId, __tmWritePlanner.mergeTaskPatches(mergedByTask.get(taskId) || {}, patch));
             });
@@ -11080,6 +11236,8 @@
         if (!Array.isArray(patches) || patches.length === 0) return true;
         if (typeof __tmRefreshTaskFieldsAcrossViews !== 'function') return false;
         const sourceReason = String(reason || 'task-block-dom-patch').trim() || 'task-block-dom-patch';
+        let hadEffectivePatch = false;
+        let touchedAny = false;
         for (const item of patches) {
             const taskId = String(item?.taskId || '').trim();
             const patch = (item?.patch && typeof item.patch === 'object') ? item.patch : {};
@@ -11089,16 +11247,20 @@
             const taskId = String(item?.taskId || '').trim();
             const patch = (item?.patch && typeof item.patch === 'object') ? item.patch : {};
             if (!Object.keys(patch).length) return;
+            hadEffectivePatch = true;
             try {
-                __tmRefreshTaskFieldsAcrossViews(taskId, patch, {
+                const touched = __tmRefreshTaskFieldsAcrossViews(taskId, patch, {
                     withFilters: false,
                     reason: sourceReason,
                     forceProjectionRefresh: false,
                     fallback: false,
+                    skipDetailPatch: true,
                 });
+                if (touched) touchedAny = true;
             } catch (e) {}
         });
-        return true;
+        if (!hadEffectivePatch) return false;
+        return touchedAny;
     }
 
     async function __tmRefreshAffectedTaskBlocksIncrementally(options = {}) {

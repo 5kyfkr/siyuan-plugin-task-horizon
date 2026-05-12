@@ -395,6 +395,39 @@
         if (key) acc[key] = String(item?.label || key);
         return acc;
     }, Object.create(null));
+    const MAIN_CALENDAR_MONTH_DAY_HEADER_LABELS = Object.freeze(['日', '一', '二', '三', '四', '五', '六']);
+    const MAIN_CALENDAR_WEEK_DAY_HEADER_LABELS = Object.freeze(['周日', '周一', '周二', '周三', '周四', '周五', '周六']);
+    const MAIN_CALENDAR_WEEK_DAY_HEADER_LABELS_COMPACT = Object.freeze(['日', '一', '二', '三', '四', '五', '六']);
+
+    function shouldUseCompactMobileWeekHeader(viewType) {
+        const v = String(viewType || '').trim();
+        if (v !== 'timeGridWeek' && v !== 'timeGridWorkdays') return false;
+        return !!(state.isMobileDevice || isLikelyMobileRuntime());
+    }
+
+    function renderMainCalendarDayHeaderContent(arg) {
+        const viewType = String(arg?.view?.type || '').trim();
+        const date = arg?.date instanceof Date ? arg.date : null;
+        if (!date || Number.isNaN(date.getTime())) return true;
+        const dow = date.getDay();
+        if (viewType === 'dayGridMonth') return MAIN_CALENDAR_MONTH_DAY_HEADER_LABELS[dow] || true;
+        if (!viewType.startsWith('timeGrid')) return true;
+        const wrap = document.createElement('span');
+        wrap.className = 'tm-cal-timegrid-day-head';
+        const day = document.createElement('span');
+        day.className = 'tm-cal-timegrid-day-head-date';
+        day.textContent = String(date.getDate());
+        const week = document.createElement('span');
+        week.className = 'tm-cal-timegrid-day-head-week';
+        if (shouldUseCompactMobileWeekHeader(viewType)) {
+            week.textContent = MAIN_CALENDAR_WEEK_DAY_HEADER_LABELS_COMPACT[dow] || '';
+        } else {
+            week.textContent = MAIN_CALENDAR_WEEK_DAY_HEADER_LABELS[dow] || '';
+        }
+        wrap.appendChild(day);
+        wrap.appendChild(week);
+        return { domNodes: [wrap] };
+    }
     const SCHEDULE_EDITOR_MORANDI_PRESET_COLORS = Object.freeze([
         '#D57A63',
         '#F7C27A',
@@ -832,6 +865,89 @@
         });
     }
 
+    function stabilizeTimeGridAllDaySeparators(rootEl) {
+        if (!(rootEl instanceof HTMLElement)) return;
+        const setImp = (el, prop, val) => {
+            if (!(el instanceof HTMLElement)) return;
+            setInlineStyle(el, prop, val, true);
+        };
+
+        rootEl.querySelectorAll('.fc-timegrid .fc-scrollgrid, .fc-timegrid .fc-scrollgrid table').forEach((el) => {
+            setImp(el, 'border-left', '0');
+            setImp(el, 'border-top', '0');
+            setImp(el, 'box-shadow', 'none');
+        });
+
+        rootEl.querySelectorAll(
+            '.fc-timegrid .fc-scrollgrid-section-header.fc-scrollgrid-section-sticky,' +
+            '.fc-timegrid .fc-scrollgrid-section-header.fc-scrollgrid-section-sticky > th,' +
+            '.fc-timegrid .fc-scrollgrid-section-header.fc-scrollgrid-section-sticky .fc-timegrid-axis,' +
+            '.fc-timegrid .fc-scrollgrid-section-header.fc-scrollgrid-section-sticky .fc-col-header,' +
+            '.fc-timegrid .fc-scrollgrid-section-header.fc-scrollgrid-section-sticky .fc-col-header th'
+        ).forEach((el) => {
+            setImp(el, 'border-top', '0');
+            setImp(el, 'border-left', '0');
+            setImp(el, 'border-right', '0');
+            setImp(el, 'border-bottom', '0');
+            setImp(el, 'box-shadow', 'none');
+        });
+
+        rootEl.querySelectorAll('.fc-timegrid-all-day, .fc-timegrid-allday').forEach((allDayWrap) => {
+            if (!(allDayWrap instanceof HTMLElement)) return;
+            const row = allDayWrap.closest('tr');
+            if (row instanceof HTMLElement) {
+                setImp(row, 'border-top', '1px solid var(--fc-border-color)');
+                setImp(row, 'border-bottom', '0');
+                setImp(row, 'box-shadow', 'none');
+                row.querySelectorAll('th, td').forEach((cell) => {
+                    setImp(cell, 'border-top', '1px solid var(--fc-border-color)');
+                    setImp(cell, 'border-bottom', '0');
+                    setImp(cell, 'box-shadow', 'none');
+                });
+                row.querySelectorAll('.fc-timegrid-axis, .fc-timegrid-axis-frame').forEach((cell) => {
+                    setImp(cell, 'border-left', '0');
+                    setImp(cell, 'border-right', '0');
+                    setImp(cell, 'box-shadow', 'none');
+                });
+            }
+            allDayWrap.querySelectorAll('table, .fc-scrollgrid-sync-table, .fc-daygrid-body, .fc-daygrid-day-frame, .fc-daygrid-day-events, .fc-daygrid-day-bottom').forEach((el) => {
+                setImp(el, 'border-bottom', '0');
+                setImp(el, 'box-shadow', 'none');
+            });
+            allDayWrap.querySelectorAll('.fc-scrollgrid-sync-table > tbody > tr > td:first-child').forEach((el) => {
+                setImp(el, 'border-left', '0');
+                setImp(el, 'border-right', '0');
+                setImp(el, 'box-shadow', 'none');
+            });
+        });
+
+        rootEl.querySelectorAll('.fc-timegrid-divider, .fc-timegrid-divider.fc-cell-shaded').forEach((divider) => {
+            if (!(divider instanceof HTMLElement)) return;
+            setImp(divider, 'border-top', '1px solid var(--fc-border-color)');
+            setImp(divider, 'border-bottom', '0');
+            setImp(divider, 'border-left', '0');
+            setImp(divider, 'border-right', '0');
+            setImp(divider, 'height', '0');
+            setImp(divider, 'min-height', '0');
+            setImp(divider, 'max-height', '0');
+            setImp(divider, 'padding', '0');
+            setImp(divider, 'background', 'transparent');
+            setImp(divider, 'box-shadow', 'none');
+            divider.querySelectorAll('td, th').forEach((cell) => {
+                setImp(cell, 'border-top', '1px solid var(--fc-border-color)');
+                setImp(cell, 'border-bottom', '0');
+                setImp(cell, 'border-left', '0');
+                setImp(cell, 'border-right', '0');
+                setImp(cell, 'height', '0');
+                setImp(cell, 'min-height', '0');
+                setImp(cell, 'max-height', '0');
+                setImp(cell, 'padding', '0');
+                setImp(cell, 'background', 'transparent');
+                setImp(cell, 'box-shadow', 'none');
+            });
+        });
+    }
+
     function syncTimeGridAllDayCollapseUi(rootEl, calendar) {
         if (!(rootEl instanceof HTMLElement)) return false;
         const supported = isTimeGridAllDayCollapseSupported(calendar);
@@ -840,6 +956,7 @@
         rootEl.classList.toggle('tm-cal-allday-collapsed', collapsed);
         try { ensureInlineAllDayAxisToggle(rootEl, calendar); } catch (e) {}
         try { applyAllDayCollapsedLayout(rootEl, collapsed); } catch (e) {}
+        try { stabilizeTimeGridAllDaySeparators(rootEl); } catch (e) {}
         try { applyTimeGridAllDayMoreLinkLayout(rootEl, calendar); } catch (e) {}
         const count = supported ? getAllDaySummaryCount(calendar) : 0;
         const axisCushions = getAllDayAxisCushions(rootEl);
@@ -886,12 +1003,6 @@
     function ensureFcCompactAllDayStyle() {
         const id = 'tm-fc-compact-allday-style';
         const css = `
-.tm-calendar-host .fc .fc-timegrid-divider,
-#tmCalendarSideDockTimeline .fc .fc-timegrid-divider{padding:0 !important;height:1px !important;}
-.tm-calendar-host .fc .fc-timegrid-divider td,
-#tmCalendarSideDockTimeline .fc .fc-timegrid-divider td{padding:0 !important;}
-.tm-calendar-host .fc .fc-timegrid-divider div,
-#tmCalendarSideDockTimeline .fc .fc-timegrid-divider div{margin:0 !important;}
 .tm-calendar-host .fc .fc-timegrid-all-day .fc-daygrid-body,
 #tmCalendarSideDockTimeline .fc .fc-timegrid-all-day .fc-daygrid-body{min-height:0 !important;}
 .tm-calendar-host .fc .fc-timegrid-all-day .fc-scroller-harness,
@@ -956,9 +1067,64 @@
 #tmCalendarSideDockTimeline .fc .fc-timegrid-now-indicator-line::before{content:"";position:absolute;left:0;top:calc(50% - 0.5px);width:10px;height:10px;border-radius:999px;background:var(--fc-now-indicator-color, var(--tm-primary-color));transform:translate(-50%, -50%);box-shadow:0 0 0 2px var(--fc-page-bg-color, #fff);}
 .tm-calendar-host .fc .fc-timegrid-now-indicator-arrow,
 #tmCalendarSideDockTimeline .fc .fc-timegrid-now-indicator-arrow{display:none !important;}
+.tm-calendar-host .fc .fc-timegrid .fc-scrollgrid-section-header,
+.tm-calendar-host.fc .fc-timegrid .fc-scrollgrid-section-header,
+.tm-calendar-wrap .fc .fc-timegrid .fc-scrollgrid-section-header,
+.tm-calendar-host .fc .fc-timegrid .fc-scrollgrid-section-header > *,
+.tm-calendar-host.fc .fc-timegrid .fc-scrollgrid-section-header > *,
+.tm-calendar-wrap .fc .fc-timegrid .fc-scrollgrid-section-header > *,
+.tm-calendar-host .fc .fc-timegrid .fc-col-header,
+.tm-calendar-host.fc .fc-timegrid .fc-col-header,
+.tm-calendar-wrap .fc .fc-timegrid .fc-col-header,
+.tm-calendar-host .fc .fc-timegrid .fc-col-header-cell,
+.tm-calendar-host.fc .fc-timegrid .fc-col-header-cell,
+.tm-calendar-wrap .fc .fc-timegrid .fc-col-header-cell,
+.tm-calendar-host .fc .fc-timegrid .fc-col-header th,
+.tm-calendar-host.fc .fc-timegrid .fc-col-header th,
+.tm-calendar-wrap .fc .fc-timegrid .fc-col-header th{box-shadow:none !important;}
+.tm-calendar-host .fc .fc-timegrid .fc-col-header-cell-cushion,
+.tm-calendar-host.fc .fc-timegrid .fc-col-header-cell-cushion,
+.tm-calendar-wrap .fc .fc-timegrid .fc-col-header-cell-cushion{flex-direction:row !important;gap:4px !important;min-height:24px !important;}
+.tm-calendar-host .fc .tm-cal-timegrid-day-head,
+.tm-calendar-host.fc .tm-cal-timegrid-day-head,
+.tm-calendar-wrap .fc .tm-cal-timegrid-day-head{display:inline-flex !important;align-items:center !important;justify-content:center !important;gap:4px !important;line-height:1 !important;white-space:nowrap !important;}
+.tm-calendar-host .fc .tm-cal-timegrid-day-head-date,
+.tm-calendar-host.fc .tm-cal-timegrid-day-head-date,
+.tm-calendar-wrap .fc .tm-cal-timegrid-day-head-date{display:inline-flex !important;align-items:center !important;justify-content:center !important;min-width:18px !important;height:18px !important;padding:0 3px !important;border-radius:5px !important;box-sizing:border-box !important;}
+.tm-calendar-host .fc .fc-timegrid .fc-col-header-cell.fc-day-today .tm-cal-timegrid-day-head-date,
+.tm-calendar-host.fc .fc-timegrid .fc-col-header-cell.fc-day-today .tm-cal-timegrid-day-head-date,
+.tm-calendar-wrap .fc .fc-timegrid .fc-col-header-cell.fc-day-today .tm-cal-timegrid-day-head-date{min-width:22px !important;padding:0 6px !important;background:var(--tm-primary-color) !important;color:var(--tm-calendar-today-date-text, #fff) !important;box-shadow:0 0 0 2px color-mix(in srgb, var(--tm-primary-color) 18%, transparent) !important;}
+.tm-calendar-host .fc .fc-dayGridMonth-view .fc-scrollgrid-section-header,
+.tm-calendar-host.fc .fc-dayGridMonth-view .fc-scrollgrid-section-header,
+.tm-calendar-host .fc .fc-dayGridMonth-view .fc-scrollgrid-section-header > *,
+.tm-calendar-host.fc .fc-dayGridMonth-view .fc-scrollgrid-section-header > *,
+.tm-calendar-host .fc .fc-dayGridMonth-view .fc-scrollgrid-section-header table,
+.tm-calendar-host.fc .fc-dayGridMonth-view .fc-scrollgrid-section-header table,
+.tm-calendar-host .fc .fc-dayGridMonth-view .fc-scrollgrid-section-header th,
+.tm-calendar-host.fc .fc-dayGridMonth-view .fc-scrollgrid-section-header th,
+.tm-calendar-host .fc .fc-dayGridMonth-view .fc-col-header,
+.tm-calendar-host.fc .fc-dayGridMonth-view .fc-col-header,
+.tm-calendar-host .fc .fc-dayGridMonth-view .fc-col-header-cell,
+.tm-calendar-host.fc .fc-dayGridMonth-view .fc-col-header-cell{border:0 !important;border-top:0 !important;border-bottom:0 !important;border-left:0 !important;border-right:0 !important;box-shadow:none !important;}
 .tm-calendar-host .fc .fc-dayGridMonth-view .fc-daygrid-day.fc-day-today .fc-daygrid-day-number,
 .tm-calendar-host.fc .fc-dayGridMonth-view .fc-daygrid-day.fc-day-today .fc-daygrid-day-number,
-.tm-calendar-wrap .fc .fc-dayGridMonth-view .fc-daygrid-day.fc-day-today .fc-daygrid-day-number{font-weight:400 !important;}
+.tm-calendar-host .fc .fc-dayGridMonth-view .fc-daygrid-day-top,
+.tm-calendar-wrap .fc .fc-dayGridMonth-view .fc-daygrid-day-top{align-items:flex-start !important;height:var(--tm-calendar-month-day-header-height, 16px) !important;min-height:var(--tm-calendar-month-day-header-height, 16px) !important;max-height:var(--tm-calendar-month-day-header-height, 16px) !important;box-sizing:border-box !important;padding-top:0 !important;}
+.tm-calendar-host .fc .fc-dayGridMonth-view .fc-daygrid-day-number,
+.tm-calendar-wrap .fc .fc-dayGridMonth-view .fc-daygrid-day-number{display:inline-flex !important;align-items:center !important;gap:4px !important;height:16px !important;min-height:16px !important;padding:0 4px !important;line-height:16px !important;margin-top:0 !important;margin-bottom:0 !important;}
+.tm-calendar-wrap .fc .fc-dayGridMonth-view .fc-daygrid-day.fc-day-today .fc-daygrid-day-number{display:inline-flex !important;align-items:center !important;justify-content:center !important;gap:4px !important;padding:0 !important;border-radius:0 !important;background:transparent !important;color:inherit !important;font-weight:400 !important;line-height:16px !important;box-shadow:none !important;}
+.tm-calendar-host .fc .fc-dayGridMonth-view .fc-daygrid-day.fc-day-today .tm-cn-day-number-text,
+.tm-calendar-host.fc .fc-dayGridMonth-view .fc-daygrid-day.fc-day-today .tm-cn-day-number-text,
+.tm-calendar-wrap .fc .fc-dayGridMonth-view .fc-daygrid-day.fc-day-today .tm-cn-day-number-text{min-width:22px !important;height:16px !important;min-height:16px !important;padding:0 6px !important;border-radius:5px !important;background:var(--tm-primary-color) !important;color:var(--tm-calendar-today-date-text, #fff) !important;box-shadow:0 0 0 2px color-mix(in srgb, var(--tm-primary-color) 18%, transparent) !important;}
+.tm-calendar-host .fc .fc-dayGridMonth-view .fc-daygrid-day.fc-day-today .fc-daygrid-day-number:not(:has(.tm-cn-holiday-dot)):not(:has(.tm-cn-day-number-text)),
+.tm-calendar-host.fc .fc-dayGridMonth-view .fc-daygrid-day.fc-day-today .fc-daygrid-day-number:not(:has(.tm-cn-holiday-dot)):not(:has(.tm-cn-day-number-text)),
+.tm-calendar-wrap .fc .fc-dayGridMonth-view .fc-daygrid-day.fc-day-today .fc-daygrid-day-number:not(:has(.tm-cn-holiday-dot)):not(:has(.tm-cn-day-number-text)){min-width:22px !important;height:16px !important;min-height:16px !important;padding:0 6px !important;border-radius:5px !important;background:var(--tm-primary-color) !important;color:var(--tm-calendar-today-date-text, #fff) !important;box-shadow:0 0 0 2px color-mix(in srgb, var(--tm-primary-color) 18%, transparent) !important;}
+.tm-calendar-host .fc .fc-daygrid-day-number .tm-cn-holiday-dot,
+#tmCalendarSideDockTimeline .fc .fc-daygrid-day-number .tm-cn-holiday-dot,
+.tm-calendar-wrap .fc .fc-daygrid-day-number .tm-cn-holiday-dot{order:1 !important;flex:0 0 14px !important;margin:0 !important;line-height:14px !important;align-self:center !important;transform:none !important;}
+.tm-calendar-host .fc .tm-cn-day-number-text,
+#tmCalendarSideDockTimeline .fc .tm-cn-day-number-text,
+.tm-calendar-wrap .fc .tm-cn-day-number-text{order:2 !important;display:inline-flex !important;align-items:center !important;justify-content:center !important;min-width:16px !important;height:16px !important;min-height:16px !important;padding:0 1px !important;border-radius:5px !important;line-height:16px !important;}
         `.trim();
         const existing = document.getElementById(id);
         if (existing && existing.tagName === 'STYLE') {
@@ -2153,7 +2319,7 @@
             return { rowHeight: 0, visibleEvents: fallbackVisibleEvents };
         }
         const rowHeight = Math.max(CALENDAR_MONTH_MIN_ROW_HEIGHT, Math.floor(availableHeight / rowCount));
-        const headerHeight = readCalendarCssPixelValue(targetHost, '--tm-calendar-month-day-header-height', 28);
+        const headerHeight = readCalendarCssPixelValue(targetHost, '--tm-calendar-month-day-header-height', 16);
         const eventLineHeight = Math.max(1, readCalendarCssPixelValue(targetHost, '--tm-calendar-month-event-line-height', 20));
         const verticalPadding = readCalendarCssPixelValue(targetHost, '--tm-calendar-month-day-vertical-padding', 8);
         const fitVisibleEvents = Math.floor(Math.max(0, rowHeight - headerHeight - verticalPadding) / eventLineHeight);
@@ -2291,8 +2457,12 @@
         });
 
         monthViewRoot.querySelectorAll('.fc-daygrid-day-top').forEach((node) => {
+            setImportant(node, 'height', 'var(--tm-calendar-month-day-header-height)');
             setImportant(node, 'min-height', 'var(--tm-calendar-month-day-header-height)');
+            setImportant(node, 'max-height', 'var(--tm-calendar-month-day-header-height)');
             setImportant(node, 'flex', '0 0 auto');
+            setImportant(node, 'box-sizing', 'border-box');
+            setImportant(node, 'padding-top', '0');
         });
 
         monthViewRoot.querySelectorAll('.fc-daygrid-day-events').forEach((node) => {
@@ -8613,6 +8783,21 @@
         return 60;
     }
 
+    function resolveTaskDisplayTitleForDrag(task, fallback = '') {
+        const t = (task && typeof task === 'object') ? task : {};
+        const fb = String(fallback || '').trim();
+        const markdown = String(t?.markdown || '').trim();
+        if (markdown) {
+            const firstLine = markdown.split(/\r?\n/, 1)[0].trim();
+            const parsed = firstLine.replace(/^\s*(?:[\*\-]|\d+\.)\s*\[[^\]]\]\s*/, '').trim();
+            if (parsed) return parsed.replace(/\s+/g, ' ');
+        }
+        let title = String(t?.content || t?.title || t?.raw_content || '').trim();
+        if (!title) title = fb;
+        if (!title) return '';
+        return title.split(/\r?\n/, 1)[0].replace(/\s+/g, ' ').trim();
+    }
+
     function parseTaskDropPayload(jsEvent, draggedEl, resolveTask) {
         const dt = jsEvent?.dataTransfer;
         let taskId = '';
@@ -8666,7 +8851,7 @@
         if (!taskId) return null;
         const resolver = typeof resolveTask === 'function' ? resolveTask : null;
         const task = resolver ? resolver(taskId) : null;
-        let title = String(task?.content || task?.title || '').trim() || taskId;
+        let title = resolveTaskDisplayTitleForDrag(task, taskId) || taskId;
         let durationMin = parseTaskDurationMinutes(task?.duration);
         if (titleFromPayload) title = titleFromPayload;
         if (Number.isFinite(durationFromPayload) && durationFromPayload > 0) durationMin = durationFromPayload;
@@ -8699,7 +8884,7 @@
         if (!taskId) return null;
         const resolver = typeof resolveTask === 'function' ? resolveTask : null;
         const task = resolver ? resolver(taskId) : null;
-        let title = String(task?.content || task?.title || '').trim() || taskId;
+        let title = resolveTaskDisplayTitleForDrag(task, taskId) || taskId;
         let durationMin = parseTaskDurationMinutes(task?.duration);
         let calendarId = '';
         try {
@@ -9710,7 +9895,7 @@
                         || ''
                     ).trim();
                     const task = resolver ? resolver(id) : null;
-                    let title = String(task?.content || task?.title || '').trim() || id || '任务';
+                    let title = resolveTaskDisplayTitleForDrag(task, id) || id || '任务';
                     let safeMin = parseTaskDurationMinutes(task?.duration);
                     let calendarId = String(el?.getAttribute?.('data-calendar-id') || '').trim();
                     try {
@@ -10517,10 +10702,11 @@
 
     function __tmNormalizeTaskTitleFromRow(row) {
         const raw = String(row?.content || row?.raw_content || '').trim();
-        if (raw) return raw;
+        if (raw) return raw.split(/\r?\n/, 1)[0].replace(/\s+/g, ' ').trim();
         const md = String(row?.markdown || '').trim();
         if (!md) return '';
-        return md.replace(/^\s*[-*]\s*\[[ xX]\]\s*/g, '').trim();
+        const firstLine = md.split(/\r?\n/, 1)[0].trim();
+        return firstLine.replace(/^\s*(?:[\*\-]|\d+\.)\s*\[[^\]]\]\s*/, '').replace(/\s+/g, ' ').trim();
     }
 
     function __tmBuildTaskTitleIndexFromCalendarCache() {
@@ -11612,31 +11798,105 @@
         const cached = state.cnHolidayCache.get(y);
         if (cached && Array.isArray(cached.data) && (Date.now() - (cached.ts || 0) < 12 * 3600 * 1000)) return cached.data;
         const lsKey = `tm_cn_holiday_${y}`;
+        let localData = [];
+        let localTs = 0;
         try {
             const raw = String(localStorage.getItem(lsKey) || '');
             if (raw) {
                 const obj = JSON.parse(raw);
                 const data = Array.isArray(obj?.data) ? obj.data : [];
                 const ts = Number(obj?.ts) || 0;
+                if (data.length) {
+                    localData = data;
+                    localTs = ts;
+                }
                 if (data.length && ts && (Date.now() - ts < 72 * 3600 * 1000)) {
                     state.cnHolidayCache.set(y, { ts, data });
                     return data;
                 }
             }
         } catch (e) {}
-        try {
-            const res = await fetch(`https://holiday.ailcc.com/api/holiday/allyear/${y}`);
+        const parseTimorYearPayload = (json) => {
+            // 兼容 timor 年接口的不同结构:
+            // 1) { holiday: { "MM-DD" or "YYYY-MM-DD": { holiday: bool, name, date? } } }
+            // 2) { data: [...] } (若后续接口结构调整)
+            if (Array.isArray(json?.data)) {
+                const out = [];
+                for (const it of json.data) {
+                    if (!it || typeof it !== 'object') continue;
+                    const date = String(it.date || '').trim();
+                    if (!date) continue;
+                    const typeRaw = Number(it.type);
+                    let type = 0;
+                    if (typeRaw === 2 || typeRaw === 3 || typeRaw === 4) type = typeRaw;
+                    else if (it.holiday === true || it.isOffDay === true) type = 2;
+                    else if (it.holiday === false || it.isOffDay === false) type = 4;
+                    if (type !== 2 && type !== 4) continue;
+                    out.push({
+                        date,
+                        type,
+                        name: String(it.name || '').trim() || (type === 4 ? '调休（班）' : '节假日（休）'),
+                        lunar: String(it.lunar || '').trim(),
+                        extra_info: String(it.extra_info || '').trim(),
+                    });
+                }
+                return out;
+            }
+            const holiday = (json && typeof json === 'object') ? json.holiday : null;
+            if (!holiday || typeof holiday !== 'object') return [];
+            const out = [];
+            for (const [k, v] of Object.entries(holiday)) {
+                if (!v || typeof v !== 'object') continue;
+                const date = String(v.date || (String(k).includes('-') ? `${y}-${k}` : '')).trim();
+                if (!date) continue;
+                const name = String(v.name || '').trim();
+                const holidayFlag = v.holiday === true ? true : (v.holiday === false ? false : null);
+                let type = 0;
+                if (holidayFlag === true) type = 2;
+                else if (holidayFlag === false) type = 4;
+                if (type !== 2 && type !== 4) continue;
+                out.push({
+                    date,
+                    type,
+                    name: name || (type === 4 ? '调休（班）' : '节假日（休）'),
+                    lunar: '',
+                    extra_info: '',
+                });
+            }
+            return out;
+        };
+        const tryFetchTimor = async (baseUrl) => {
+            const normalized = String(baseUrl || '').replace(/\/+$/, '');
+            // timor 年接口新版建议带尾斜杠
+            const res = await fetch(`${normalized}/api/holiday/year/${y}/`);
             if (!res.ok) throw new Error(`HTTP ${res.status}`);
             const json = await res.json();
-            const data = Array.isArray(json?.data) ? json.data : [];
+            return parseTimorYearPayload(json);
+        };
+
+        let data = [];
+        const timorBases = ['https://timor.tech', 'https://timor.cn'];
+        for (const base of timorBases) {
+            if (Array.isArray(data) && data.length) break;
+            try { data = await tryFetchTimor(base); } catch (e) {}
+        }
+        if (Array.isArray(data) && data.length) {
             const ts = Date.now();
             state.cnHolidayCache.set(y, { ts, data });
             try { localStorage.setItem(lsKey, JSON.stringify({ ts, data })); } catch (e2) {}
             return data;
-        } catch (e) {
-            state.cnHolidayCache.set(y, { ts: Date.now(), data: [] });
-            return [];
         }
+
+        // Network/API failure fallback: keep previous non-empty data instead of caching empty.
+        const fallback = (Array.isArray(cached?.data) && cached.data.length)
+            ? cached.data
+            : (Array.isArray(localData) && localData.length ? localData : []);
+        if (fallback.length) {
+            const ts = localTs || Number(cached?.ts) || Date.now();
+            state.cnHolidayCache.set(y, { ts, data: fallback });
+            return fallback;
+        }
+        return [];
     }
 
     function buildCnHolidayMap(days, rangeStart, rangeEnd, includeAllDays) {
@@ -11658,9 +11918,11 @@
         const root = rootEl || state.rootEl;
         if (!root || !(root instanceof Element)) return;
         const map = state.cnHolidayMap instanceof Map ? state.cnHolidayMap : new Map();
+        const activeViewType = String(state.calendar?.view?.type || '').trim();
+        const hideHeaderHolidayDots = shouldUseCompactMobileWeekHeader(activeViewType);
         const monthCells = Array.from(root.querySelectorAll('.fc-daygrid-day[data-date]'));
         const headerCells = Array.from(root.querySelectorAll('.fc-col-header-cell[data-date]'));
-        const passKey = `${String(state.cnHolidaySignature || map.size)}|${monthCells.length}|${headerCells.length}`;
+        const passKey = `${String(state.cnHolidaySignature || map.size)}|${monthCells.length}|${headerCells.length}|${activeViewType}|${hideHeaderHolidayDots ? 1 : 0}`;
         const stamps = [
             __tmCreateNodeListStamp(monthCells),
             __tmCreateNodeListStamp(headerCells),
@@ -11678,11 +11940,29 @@
             labelEl.appendChild(head);
             return head;
         };
+        const ensureMonthDayNumberText = (labelEl) => {
+            if (!labelEl) return null;
+            const exist = labelEl.querySelector?.(':scope > .tm-cn-day-number-text');
+            if (exist) return exist;
+            const text = document.createElement('span');
+            text.className = 'tm-cn-day-number-text';
+            const move = [];
+            for (const node of Array.from(labelEl.childNodes || [])) {
+                if (node?.nodeType === Node.TEXT_NODE && String(node.textContent || '').trim()) move.push(node);
+            }
+            if (!move.length) return null;
+            for (const node of move) text.appendChild(node);
+            labelEl.appendChild(text);
+            return text;
+        };
         const ensure = (labelEl, dateKey) => {
             if (!labelEl) return;
             try {
                 labelEl.querySelectorAll?.('.tm-cn-holiday-dot')?.forEach?.((el) => { try { el.remove(); } catch (e) {} });
             } catch (e) {}
+            const isWeek = !!labelEl.closest?.('.fc-col-header-cell');
+            if (isWeek && hideHeaderHolidayDots) return;
+            if (!isWeek) ensureMonthDayNumberText(labelEl);
             const it = map.get(String(dateKey || ''));
             if (!it) return;
             const type = Number(it.type);
@@ -11693,7 +11973,6 @@
             dot.textContent = isWork ? '班' : '休';
             dot.title = `${isWork ? '上班' : '休息'}${it.name ? `：${it.name}` : ''}`;
             try {
-                const isWeek = !!labelEl.closest?.('.fc-col-header-cell');
                 const host = isWeek ? ensureWeekHead(labelEl) : labelEl;
                 const first = host.firstChild;
                 if (first) host.insertBefore(dot, first);
@@ -13602,6 +13881,7 @@
             stickyHeaderDates: true,
             lazyFetching: false,
             ...slotLayout,
+            dayHeaderContent: renderMainCalendarDayHeaderContent,
             headerToolbar: {
                 left: 'prev today next',
                 center: 'title',

@@ -414,10 +414,7 @@
         if (!nextRule.enabled || nextRule.type === 'none') {
             return await window.tmClearTaskRepeatRule(task.id, { source: 'task-repeat-dialog' });
         }
-        return await window.tmSetTaskRepeatRule(task.id, {
-            ...nextRule,
-            anchorDate: task?.completionTime || task?.startDate || __tmNormalizeDateOnly(new Date()),
-        }, { source: 'task-repeat-dialog' });
+        return await window.tmSetTaskRepeatRule(task.id, nextRule, { source: 'task-repeat-dialog' });
     };
 
     window.tmCalendarWarmDocsToGroupCache = async function() {

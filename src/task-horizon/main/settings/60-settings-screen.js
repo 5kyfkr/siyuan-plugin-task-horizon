@@ -1098,6 +1098,46 @@
                             '开启后，任务完成时会向凡人修仙传:打卡插件发送任务ID、标题和完成前的优先级分值；凡人修仙传:打卡插件仍需单独开启任务管理器联动。',
                             `<input class="b3-switch fn__flex-center" type="checkbox" ${SettingsStore.data.enablePointsRewardIntegration ? 'checked' : ''} onchange="updateEnablePointsRewardIntegration(this.checked)">`
                         )}
+                        <div style="margin-top:10px;opacity:${SettingsStore.data.enablePointsRewardIntegration ? 1 : 0.6};">
+                            ${renderSingleSwitchSetting(
+                                '启用任务逾期扣分',
+                                '按设定时间检查未完成任务，支持截止日期和日程两类扣分。',
+                                `<input class="b3-switch fn__flex-center" type="checkbox" ${SettingsStore.data.enablePointsPenaltyIntegration ? 'checked' : ''} ${SettingsStore.data.enablePointsRewardIntegration ? '' : 'disabled'} onchange="updateEnablePointsPenaltyIntegration(this.checked)">`
+                            )}
+                            <div style="margin-top:10px;opacity:${(SettingsStore.data.enablePointsRewardIntegration && SettingsStore.data.enablePointsPenaltyIntegration) ? 1 : 0.6};">
+                                ${renderSingleFieldSetting(
+                                    '截止日过期扣分',
+                                    '任务截止日期已过且未完成时触发扣分；同一截止日期只扣一次，修改截止日期后重新计算（父任务已完成的子任务不扣）。',
+                                    `<div style="display:flex;align-items:center;gap:8px;">
+                                        <input class="b3-switch fn__flex-center" type="checkbox" ${SettingsStore.data.pointsPenaltyDeadlineEnabled ? 'checked' : ''} ${(SettingsStore.data.enablePointsRewardIntegration && SettingsStore.data.enablePointsPenaltyIntegration) ? '' : 'disabled'} onchange="updatePointsPenaltyDeadlineEnabled(this.checked)">
+                                        <input class="b3-text-field" type="number" min="0" max="9999" value="${Math.max(0, Math.min(9999, Math.round(Number(SettingsStore.data.pointsPenaltyDeadlineAmount) || 0)))}" ${(SettingsStore.data.enablePointsRewardIntegration && SettingsStore.data.enablePointsPenaltyIntegration && SettingsStore.data.pointsPenaltyDeadlineEnabled) ? '' : 'disabled'} onchange="updatePointsPenaltyDeadlineAmount(this.value)" style="width:88px;">
+                                        <span class="tm-setting-field-unit">分/次</span>
+                                    </div>`,
+                                    { style: 'margin-bottom:10px;' }
+                                )}
+                                ${renderSingleFieldSetting(
+                                    '日程过期扣分',
+                                    '同一任务当天若有多个日程，只按当天最后一个日程判断是否扣分（每任务每天最多一次，父任务已完成的子任务不扣）。',
+                                    `<div style="display:flex;align-items:center;gap:8px;">
+                                        <input class="b3-switch fn__flex-center" type="checkbox" ${SettingsStore.data.pointsPenaltyScheduleEnabled ? 'checked' : ''} ${(SettingsStore.data.enablePointsRewardIntegration && SettingsStore.data.enablePointsPenaltyIntegration) ? '' : 'disabled'} onchange="updatePointsPenaltyScheduleEnabled(this.checked)">
+                                        <input class="b3-text-field" type="number" min="0" max="9999" value="${Math.max(0, Math.min(9999, Math.round(Number(SettingsStore.data.pointsPenaltyScheduleAmount) || 0)))}" ${(SettingsStore.data.enablePointsRewardIntegration && SettingsStore.data.enablePointsPenaltyIntegration && SettingsStore.data.pointsPenaltyScheduleEnabled) ? '' : 'disabled'} onchange="updatePointsPenaltyScheduleAmount(this.value)" style="width:88px;">
+                                        <span class="tm-setting-field-unit">分/次</span>
+                                    </div>`,
+                                    { style: 'margin-bottom:10px;' }
+                                )}
+                                ${renderSingleFieldSetting(
+                                    '检查时间',
+                                    '每行一个时间；支持 HH:mm（当天）和 +1 HH:mm（次日检查前一天）。',
+                                    `<textarea class="b3-text-field" ${(SettingsStore.data.enablePointsRewardIntegration && SettingsStore.data.enablePointsPenaltyIntegration) ? '' : 'disabled'} onchange="updatePointsPenaltyCheckTimes(this.value)" style="width:220px;min-height:72px;resize:vertical;">${esc((Array.isArray(SettingsStore.data.pointsPenaltyCheckTimes) && SettingsStore.data.pointsPenaltyCheckTimes.length ? SettingsStore.data.pointsPenaltyCheckTimes : ['23:00', '+1 08:00']).map(v => String(v || '').trim()).filter(Boolean).join('\n'))}</textarea>`,
+                                    { style: 'margin-bottom:10px;' }
+                                )}
+                                ${renderSingleSwitchSetting(
+                                    '弹窗确认扣分',
+                                    '开启后先弹窗确认，可在弹窗中标记完成、免扣或修改时间。',
+                                    `<input class="b3-switch fn__flex-center" type="checkbox" ${SettingsStore.data.pointsPenaltyConfirmModalEnabled !== false ? 'checked' : ''} ${(SettingsStore.data.enablePointsRewardIntegration && SettingsStore.data.enablePointsPenaltyIntegration) ? '' : 'disabled'} onchange="updatePointsPenaltyConfirmModalEnabled(this.checked)">`
+                                )}
+                            </div>
+                        </div>
                     </div>
 
                     ` : ''}

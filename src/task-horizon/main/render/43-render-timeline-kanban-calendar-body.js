@@ -105,7 +105,8 @@
                 if (row.kind === 'time') {
                     const labelColor = String(row.labelColor || 'var(--tm-text-color)');
                     const durationSum = String(row.durationSum || '').trim();
-                    return `<tr class="tm-group-row tm-timeline-row" data-group-key="${esc(row.key)}"><td colspan="3" onclick="tmToggleGroupCollapse('${row.key}', event)" style="cursor:pointer;font-weight:bold;color:var(--tm-text-color);"><div class="tm-group-sticky">${toggle}<span class="tm-group-label" style="color:${labelColor};">${esc(row.label || '')}</span><span class="tm-badge tm-badge--count">${Number(row.count) || 0}</span>${durationSum ? `<span class="tm-badge tm-badge--duration"><span class="tm-badge__icon">${__tmRenderBadgeIcon('chart-column')}</span>${esc(durationSum)}</span>` : ''}</div></td></tr>`;
+                    const timeLabelHtml = String(row.labelHtml || '').trim() || esc(row.label || '');
+                    return `<tr class="tm-group-row tm-timeline-row" data-group-key="${esc(row.key)}"><td colspan="3" onclick="tmToggleGroupCollapse('${row.key}', event)" style="cursor:pointer;font-weight:bold;color:var(--tm-text-color);"><div class="tm-group-sticky">${toggle}<span class="tm-group-label" style="color:${labelColor};">${timeLabelHtml}</span><span class="tm-badge tm-badge--count">${Number(row.count) || 0}</span>${durationSum ? `<span class="tm-badge tm-badge--duration"><span class="tm-badge__icon">${__tmRenderBadgeIcon('chart-column')}</span>${esc(durationSum)}</span>` : ''}</div></td></tr>`;
                 }
                 if (row.kind === 'h2') {
                     const createBtnHtml = __tmBuildHeadingGroupCreateBtnHtml(row.docId, row.headingId, '在该标题下新建任务');
@@ -864,8 +865,8 @@
 
                 const renderCompletedRootGroup = () => {
                     if (!headingDoneTailEnabled || completedRoots.length === 0) return '';
-                    const doneGroupKey = `kanban_${c.id}_completed_root_tasks`;
-                    const doneCollapsed = state.collapsedGroups?.has(doneGroupKey);
+                    const doneGroupKey = __tmBuildCompletedRootGroupKey(`kanban:${String(c.id || '').trim() || 'col'}`);
+                    const doneCollapsed = __tmIsCompletedRootGroupCollapsed(doneGroupKey);
                     const doneTitle = `<span style="color:var(--tm-secondary-text);">已完成任务</span>`;
                     const doneBody = doneCollapsed ? '' : `<div class="tm-kanban-group-items">${completedRoots.map(t => renderTree(t, 0)).join('')}</div>`;
                     return `<div class="tm-kanban-group">${renderGroupTitle(doneGroupKey, doneTitle, completedRoots.length, 'var(--tm-secondary-text)')}${doneBody}</div>`;

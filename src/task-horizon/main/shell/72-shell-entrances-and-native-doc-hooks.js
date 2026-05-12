@@ -862,13 +862,6 @@
                     }
                 });
             }
-            menu.addItem({
-                icon: 'iconTaskHorizon',
-                label: '语义识别截止日期',
-                click: () => {
-                    try { window.tmAiSemanticCompletionPreview?.(docId); } catch (e) {}
-                }
-            });
         };
 
         __tmDocTreeMenuHandler = (event) => {
@@ -901,13 +894,6 @@
                         label: 'AI 日程排期',
                         click: () => {
                             try { window.tmAiPlanDocumentSchedule?.(docId); } catch (e) {}
-                        }
-                    });
-                    menu.addItem({
-                        icon: 'iconTaskHorizon',
-                        label: '语义识别截止日期',
-                        click: () => {
-                            try { window.tmAiSemanticCompletionPreview?.(docId); } catch (e) {}
                         }
                     });
                 }
@@ -1018,10 +1004,6 @@
                         });
                         __tmInsertMenuItem(menuItems, scheduleItem);
                     }
-                    const semanticItem = __tmCreateNativeMenuItem('语义识别截止日期', async () => {
-                        await window.tmAiSemanticCompletionPreview?.(docId);
-                    });
-                    __tmInsertMenuItem(menuItems, semanticItem);
                     return;
                 }
                 if (menuItems.querySelector('.tm-block-schedule-menu-item')) return;

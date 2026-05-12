@@ -663,6 +663,29 @@
     background: var(--tm-header-bg) !important;
 }
 
+.tm-group-row.tm-time-group-drop--active td,
+.tm-group-row.tm-time-group-drop--active .tm-group-sticky {
+    background: color-mix(in srgb, var(--tm-primary-color) 12%, var(--tm-header-bg)) !important;
+}
+
+.tm-group-row.tm-time-group-drop--active td {
+    box-shadow:
+        inset 3px 0 0 var(--tm-primary-color),
+        inset 0 -1px 0 var(--tm-table-border-color);
+}
+
+.tm-group-row.tm-time-group-drop--forbidden td,
+.tm-group-row.tm-time-group-drop--forbidden .tm-group-sticky {
+    background: color-mix(in srgb, var(--b3-theme-error, #d92d20) 8%, var(--tm-header-bg)) !important;
+}
+
+.tm-group-row.tm-time-group-drop--forbidden td {
+    box-shadow:
+        inset 3px 0 0 var(--b3-theme-error, #d92d20),
+        inset 0 -1px 0 var(--tm-table-border-color);
+    opacity: 0.78;
+}
+
 .tm-group-sticky {
     position: sticky;
     left: 0;
@@ -701,6 +724,21 @@
     background: var(--tm-doc-count-bg);
 }
 
+/* list/table 分组行中的数量徽标默认保持中线 */
+.tm-body--list .tm-table .tm-group-row .tm-badge--count {
+    position: static;
+    top: auto;
+    transform: none;
+    padding-top: 0;
+    padding-bottom: 0;
+}
+
+/* 仅时间分组（带“周X”胶囊）做轻微下压，避免视觉偏高 */
+.tm-body--list .tm-table .tm-group-row .tm-group-label:has(.tm-time-group-weekday-chip) + .tm-badge--count,
+.tm-body--list .tm-table .tm-group-row .tm-group-label:has(.tm-time-group-weekday-chip) + .tm-badge--count + .tm-badge--duration {
+    transform: translateY(1px);
+}
+
 .tm-badge--duration {
     color: var(--tm-primary-color);
     background: var(--tm-info-bg);
@@ -718,6 +756,36 @@
     width: 12px;
     height: 12px;
     display: block;
+}
+
+.tm-time-group-label-wrap {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    vertical-align: middle;
+}
+
+.tm-time-group-label-text {
+    display: inline-block;
+    line-height: 1.25;
+}
+
+.tm-time-group-weekday-chip {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    margin-left: 0;
+    padding: 0 6px;
+    height: 18px;
+    min-height: 18px;
+    border: 1px solid currentColor;
+    border-radius: 999px;
+    font-size: 11px;
+    line-height: 16px;
+    box-sizing: border-box;
+    vertical-align: middle;
+    position: static;
+    flex-shrink: 0;
 }
 .tm-inline-icon {
     display: inline-flex;
@@ -1177,8 +1245,6 @@
     width: 100%;
     box-sizing: border-box;
     font-size: 12px;
-    font-weight: 500;
-    text-align: center;
     background: var(--tm-input-bg);
     color: var(--tm-text-color);
     border: 1px solid var(--tm-input-border);
@@ -4001,17 +4067,31 @@ select.tm-btn-secondary {
 
 .tm-whiteboard-pool-toggle {
     flex: 0 0 auto;
-    width: 14px;
-    height: 14px;
-    line-height: 12px;
-    font-size: 12px;
-    text-align: center;
+    width: 16px;
+    height: 16px;
+    line-height: 1;
     border: 1px solid var(--tm-border-color);
     border-radius: 4px;
     background: var(--tm-bg-color);
     color: var(--tm-secondary-text);
     cursor: pointer;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    box-sizing: border-box;
+    position: relative;
     padding: 0;
+}
+
+.tm-whiteboard-pool-toggle-icon {
+    width: 10px;
+    height: 10px;
+    display: block;
+    position: absolute;
+    left: 50%;
+    top: 50%;
+    transition: transform 0.16s ease;
+    pointer-events: none;
 }
 
 .tm-whiteboard-pool-toggle:hover {
@@ -7788,6 +7868,21 @@ select.tm-btn-secondary {
     cursor: pointer;
 }
 
+.tm-checklist-group.tm-time-group-drop--active {
+    border-color: color-mix(in srgb, var(--tm-primary-color) 55%, var(--tm-border-color));
+    background: color-mix(in srgb, var(--tm-primary-color) 12%, var(--tm-header-bg)) !important;
+    box-shadow:
+        inset 3px 0 0 var(--tm-primary-color),
+        0 0 0 1px color-mix(in srgb, var(--tm-primary-color) 18%, transparent);
+}
+
+.tm-checklist-group.tm-time-group-drop--forbidden {
+    border-color: color-mix(in srgb, var(--b3-theme-error, #d92d20) 58%, var(--tm-border-color));
+    background: color-mix(in srgb, var(--b3-theme-error, #d92d20) 8%, var(--tm-header-bg)) !important;
+    box-shadow: inset 3px 0 0 var(--b3-theme-error, #d92d20);
+    opacity: 0.78;
+}
+
 .tm-checklist-group.tm-checklist-group--doc {
     padding-left: 8px;
 }
@@ -11478,6 +11573,116 @@ th[data-col] {
     justify-content: center;
 }
 
+/* 扣分确认弹窗层级低于日程编辑弹窗，避免遮挡“改时间”流程 */
+.tm-prompt-modal.tm-points-penalty-confirm-modal {
+    z-index: 199900;
+    padding: 12px;
+    box-sizing: border-box;
+}
+
+.tm-points-penalty-confirm-modal .tm-points-penalty-box {
+    min-width: 0;
+}
+
+.tm-points-penalty-confirm-modal .tm-points-penalty-task-title {
+    display: -webkit-box;
+    -webkit-box-orient: vertical;
+    -webkit-line-clamp: 2;
+    overflow: hidden;
+    white-space: normal;
+    line-height: 1.35;
+    max-height: 2.7em;
+    word-break: break-word;
+    overflow-wrap: anywhere;
+}
+
+.tm-points-penalty-confirm-modal .tm-points-penalty-actions {
+    display: flex;
+    align-items: center;
+    justify-content: flex-start;
+    gap: 6px;
+    flex-wrap: nowrap;
+    white-space: nowrap;
+}
+
+.tm-points-penalty-confirm-modal .tm-points-penalty-action-btn {
+    white-space: nowrap;
+    padding: 6px 10px;
+    font-size: 12px;
+    line-height: 1.2;
+}
+
+.tm-points-penalty-confirm-modal .tm-points-penalty-col-type {
+    width: 64px !important;
+}
+
+.tm-points-penalty-confirm-modal .tm-points-penalty-col-due {
+    width: 148px !important;
+}
+
+.tm-points-penalty-confirm-modal .tm-points-penalty-col-amount {
+    width: 72px !important;
+}
+
+.tm-points-penalty-confirm-modal .tm-points-penalty-col-actions {
+    width: 268px !important;
+}
+
+.tm-points-penalty-confirm-modal .tm-points-penalty-table-wrap {
+    overflow-x: auto;
+    overflow-y: auto;
+    -webkit-overflow-scrolling: touch;
+    touch-action: pan-x pan-y;
+}
+
+.tm-points-penalty-confirm-modal .tm-points-penalty-table {
+    min-width: 700px;
+}
+
+@media (max-width: 768px) {
+    .tm-prompt-modal.tm-points-penalty-confirm-modal {
+        padding: 8px;
+        align-items: flex-start;
+    }
+
+    .tm-points-penalty-confirm-modal .tm-points-penalty-box {
+        width: calc(100vw - 16px) !important;
+        max-height: calc(100vh - 16px) !important;
+        padding: 12px;
+        border-radius: 10px;
+    }
+
+    .tm-points-penalty-confirm-modal .tm-points-penalty-table-wrap {
+        max-height: calc(100vh - 240px) !important;
+    }
+
+    .tm-points-penalty-confirm-modal .tm-points-penalty-table {
+        min-width: 700px;
+    }
+
+    .tm-points-penalty-confirm-modal .tm-points-penalty-col-type {
+        width: 56px !important;
+    }
+
+    .tm-points-penalty-confirm-modal .tm-points-penalty-col-due {
+        width: 132px !important;
+    }
+
+    .tm-points-penalty-confirm-modal .tm-points-penalty-col-amount {
+        width: 60px !important;
+    }
+
+    .tm-points-penalty-confirm-modal .tm-points-penalty-col-actions {
+        width: 236px !important;
+    }
+
+    .tm-points-penalty-confirm-modal .tm-points-penalty-action-btn {
+        min-height: 34px;
+        padding: 6px 9px;
+        font-size: 11px;
+    }
+}
+
 .tm-quick-add-modal {
     position: fixed;
     top: 0;
@@ -12346,7 +12551,13 @@ th[data-col] {
         min-width: 0 !important;
     }
 
-    .tm-settings-content .tm-rule-condition-join {
+    .tm-settings-content select.tm-rule-condition-join {
+        width: 100% !important;
+        max-width: 100% !important;
+        min-width: 0 !important;
+    }
+
+    .tm-settings-content .tm-rule-condition-where {
         width: auto !important;
         min-width: 56px !important;
     }

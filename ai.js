@@ -5272,165 +5272,6 @@
         return conversation;
     }
 
-    function semanticNormalizeText(input) {
-        let s = String(input || '');
-        if (!s) return '';
-        s = s.replace(/[０-９]/g, (ch) => String.fromCharCode(ch.charCodeAt(0) - 0xFF10 + 0x30));
-        s = s.replace(/[：]/g, ':').replace(/[／]/g, '/').replace(/[－—–]/g, '-');
-        return s.replace(/\s+/g, ' ').trim();
-    }
-
-    function semanticDowFromToken(token) {
-        const t = String(token || '').trim();
-        if (!t) return null;
-        if (/^\d+$/.test(t)) {
-            const n = parseInt(t, 10);
-            if (n >= 1 && n <= 6) return n;
-            if (n === 7) return 0;
-            return null;
-        }
-        const map = { '日': 0, '天': 0, '七': 0, '一': 1, '二': 2, '三': 3, '四': 4, '五': 5, '六': 6 };
-        return Object.prototype.hasOwnProperty.call(map, t) ? map[t] : null;
-    }
-
-    function semanticClampYmd(y, m1, d) {
-        const year = Number(y);
-        const month1 = Number(m1);
-        const day = Number(d);
-        if (!Number.isFinite(year) || !Number.isFinite(month1) || !Number.isFinite(day)) return null;
-        if (year < 1970 || year > 9999 || month1 < 1 || month1 > 12) return null;
-        const last = new Date(year, month1, 0).getDate();
-        const dt = new Date(year, month1 - 1, Math.max(1, Math.min(last, day)), 0, 0, 0, 0);
-        return Number.isNaN(dt.getTime()) ? null : dt;
-    }
-
-    function semanticExtractCompletionSuggestion(rawTitle, baseDate) {
-        const title = semanticNormalizeText(rawTitle);
-        if (!title) return null;
-        const now = parseDateTimeLoose(baseDate || new Date()) || new Date();
-        const ymd = /(\d{4})[./-](\d{1,2})[./-](\d{1,2})/.exec(title);
-        const md = /(^|[^\d])(\d{1,2})[./-](\d{1,2})(?!\d)/.exec(title);
-        const mdCn = /(\d{1,2})\s*月\s*(\d{1,2})\s*(日|号)?/.exec(title);
-        const rel = /(今天|明天|后天|大后天)/.exec(title);
-        const dur = /(\d+)\s*(天|日|周|星期|礼拜)\s*后/.exec(title);
-        const weekday = /((本周|这周|下周|下下周)?\s*(周|星期|礼拜)\s*([一二三四五六日天1-7]))/.exec(title);
-        let dt = null;
-        let confidence = '高';
-        let reason = '';
-        if (ymd) {
-            dt = semanticClampYmd(ymd[1], ymd[2], ymd[3]);
-            reason = '识别到明确日期';
-        } else if (mdCn) {
-            dt = semanticClampYmd(now.getFullYear(), mdCn[1], mdCn[2]);
-            if (dt && dt.getTime() < new Date(todayKey() + 'T00:00:00').getTime()) dt.setFullYear(dt.getFullYear() + 1);
-            reason = '识别到月日表达';
-            confidence = '中';
-        } else if (md) {
-            dt = semanticClampYmd(now.getFullYear(), md[2], md[3]);
-            if (dt && dt.getTime() < new Date(todayKey() + 'T00:00:00').getTime()) dt.setFullYear(dt.getFullYear() + 1);
-            reason = '识别到数字日期';
-            confidence = '中';
-        } else if (rel) {
-            dt = new Date(todayKey() + 'T00:00:00');
-            if (rel[1] === '明天') dt.setDate(dt.getDate() + 1);
-            else if (rel[1] === '后天') dt.setDate(dt.getDate() + 2);
-            else if (rel[1] === '大后天') dt.setDate(dt.getDate() + 3);
-            reason = `识别到${rel[1]}`;
-            confidence = '中';
-        } else if (dur) {
-            dt = new Date(todayKey() + 'T00:00:00');
-            const n = parseInt(dur[1], 10) || 0;
-            if (dur[2] === '天' || dur[2] === '日') dt.setDate(dt.getDate() + n);
-            else dt.setDate(dt.getDate() + n * 7);
-            reason = `识别到“${dur[0]}”`;
-            confidence = '中';
-        } else if (weekday) {
-            const scope = String(weekday[2] || '').trim();
-            const targetDow = semanticDowFromToken(weekday[4]);
-            if (Number.isFinite(targetDow)) {
-                dt = new Date(todayKey() + 'T00:00:00');
-                let forward = (targetDow - dt.getDay() + 7) % 7;
-                if (scope === '下周') forward += 7;
-                else if (scope === '下下周') forward += 14;
-                else if (forward === 0) forward += 7;
-                dt.setDate(dt.getDate() + forward);
-                reason = `识别到${weekday[1]}`;
-                confidence = '中';
-            }
-        }
-        if (!dt || Number.isNaN(dt.getTime())) return null;
-        return { completionDate: normalizeDateKey(dt), confidence, reason };
-    }
-
-    async function openSemanticCompletionPreview(target = {}) {
-        const b = bridge();
-        const payload = (typeof target === 'object' && target) ? target : {};
-        const docId = String(payload.docId || '').trim();
-        const scope = docId ? 'doc' : 'view';
-        let tasks = [];
-        let title = scope === 'doc' ? '当前文档语义识别完成日期' : '当前视图语义识别完成日期';
-        if (scope === 'doc') {
-            const doc = await b?.getDocumentSnapshot?.(docId, { limit: 1400 });
-            title = `${title}${doc?.name ? ` · ${doc.name}` : ''}`;
-            tasks = Array.isArray(doc?.tasks) ? doc.tasks : [];
-        } else {
-            tasks = await b?.getCurrentViewTasks?.(80) || [];
-        }
-        const preview = (Array.isArray(tasks) ? tasks : []).map((task) => {
-            const suggestion = semanticExtractCompletionSuggestion([task?.content, task?.remark].filter(Boolean).join(' '), new Date());
-            return {
-                taskId: String(task?.id || '').trim(),
-                content: String(task?.content || '').trim() || '未命名任务',
-                currentDate: String(task?.completionTime || '').trim(),
-                suggestedDate: String(suggestion?.completionDate || '').trim(),
-                confidence: String(suggestion?.confidence || '').trim(),
-                reason: String(suggestion?.reason || '未识别到明确日期').trim(),
-            };
-        }).filter((it) => it.taskId && it.suggestedDate);
-        const modal = setModal(title, `
-            <div class="tm-ai-box">
-                <h4>批量预览</h4>
-                <div class="tm-ai-hint">这里只展示识别到明确日期的任务；默认不勾选任何任务，只会写入你手动勾选项的 completionTime。</div>
-            </div>
-            <div class="tm-ai-box">
-                <div class="tm-ai-list">
-                    ${preview.map((item, index) => `
-                        <label class="tm-ai-item" style="display:flex;gap:10px;align-items:flex-start;">
-                            <input type="checkbox" data-ai-semantic-apply="${index}">
-                            <div style="flex:1;min-width:0;">
-                                <div style="font-weight:600;">${esc(item.content)}</div>
-                                <div class="tm-ai-hint">当前：${esc(item.currentDate || '未设置')} → 识别：${esc(item.suggestedDate || '未识别')}</div>
-                                <div class="tm-ai-hint">置信：${esc(item.confidence || '无')}；${esc(item.reason)}</div>
-                            </div>
-                        </label>
-                    `).join('') || `<div class="tm-ai-hint">没有识别到明确日期的任务。</div>`}
-                </div>
-            </div>
-            <div class="tm-ai-actions">
-                <button class="tm-btn tm-btn-secondary" data-ai-action="close">关闭</button>
-                <button class="tm-btn tm-btn-success" data-ai-action="apply-semantic-dates">应用勾选项</button>
-            </div>
-        `);
-        const body = modal.querySelector('.tm-ai-modal__body');
-        body.addEventListener('click', async (event) => {
-            const action = String(event.target?.dataset?.aiAction || '').trim();
-            if (action !== 'apply-semantic-dates') return;
-            const chosen = preview.filter((item, index) => {
-                const input = body.querySelector(`[data-ai-semantic-apply="${index}"]`);
-                return !!input?.checked && !!item.suggestedDate;
-            });
-            if (!chosen.length) {
-                toast('⚠️ 没有可应用的识别结果', 'warning');
-                return;
-            }
-            for (const item of chosen) {
-                await b?.applyTaskPatch?.(item.taskId, { completionTime: item.suggestedDate });
-            }
-            toast(`✅ 已应用 ${chosen.length} 条 completionTime`, 'success');
-            closeModal();
-        });
-    }
-
     async function testConnection() {
         const cfg = assertReady(true);
         toast(`⏳ 正在测试 ${cfg.provider === 'deepseek' ? 'DeepSeek' : 'MiniMax'} 连接...`, 'info');
@@ -5450,7 +5291,6 @@
         try { delete globalThis.tmAiPlanTaskSchedule; } catch (e) {}
         try { delete globalThis.tmAiOpenChat; } catch (e) {}
         try { delete globalThis.tmAiShowHistory; } catch (e) {}
-        try { delete globalThis.tmAiSemanticCompletionPreview; } catch (e) {}
         try { delete globalThis.tmAiMountSidebar; } catch (e) {}
         try { delete globalThis.tmAiTestConnection; } catch (e) {}
         try { delete globalThis.__tmAI; } catch (e) {}
@@ -5464,7 +5304,6 @@
     globalThis.tmAiOpenSummary = async (docId) => { try { await openSidebar({ type: 'summary', contextScope: docId ? 'current_doc' : 'current_doc', selectedDocIds: docId ? [docId] : undefined }); } catch (e) { toast(`❌ ${String(e?.message || e)}`, 'error'); } };
     globalThis.tmAiOpenChat = async (docId) => { try { await openSidebar({ type: 'chat', contextScope: docId ? 'current_doc' : 'current_doc', selectedDocIds: docId ? [docId] : undefined }); } catch (e) { toast(`❌ ${String(e?.message || e)}`, 'error'); } };
     globalThis.tmAiShowHistory = async (docId) => { try { await openSidebar({ type: 'chat', contextScope: 'current_doc', selectedDocIds: docId ? [docId] : undefined, showHistory: true }); } catch (e) { toast(`❌ ${String(e?.message || e)}`, 'error'); } };
-    globalThis.tmAiSemanticCompletionPreview = async (docId) => { try { await openSemanticCompletionPreview(docId ? { docId } : {}); } catch (e) { toast(`❌ ${String(e?.message || e)}`, 'error'); } };
     globalThis.tmAiMountSidebar = async (host, options) => { try { return await mountSidebar(host, options); } catch (e) { toast(`❌ ${String(e?.message || e)}`, 'error'); return false; } };
     globalThis.tmAiTestConnection = async () => { try { return await testConnection(); } catch (e) { toast(`❌ ${String(e?.message || e)}`, 'error'); throw e; } };
     globalThis.__taskHorizonAiCleanup = cleanup;

@@ -2345,6 +2345,33 @@ return Number(state.contextInteractionQuietUntil || 0);
         return base;
     }
 
+    function __tmBuildVisibleTaskWindowContentSignature(tasks, limit) {
+        try {
+            const list = Array.isArray(tasks) ? tasks : [];
+            const n = Math.max(0, Math.min(list.length, Math.round(Number(limit) || list.length)));
+            let hash = 0x811c9dc5; // FNV-1a 32-bit offset basis
+            const push = (value) => {
+                const text = String(value || '');
+                for (let i = 0; i < text.length; i += 1) {
+                    hash ^= text.charCodeAt(i);
+                    hash = Math.imul(hash, 0x01000193); // FNV prime
+                }
+            };
+            for (let i = 0; i < n; i += 1) {
+                const task = list[i] || {};
+                push(task.id || task.blockId || '');
+                push(task.updated || task.updatedAt || '');
+                push(task.markdown || task.content || task.text || '');
+                push(task.priority || '');
+                push(task.customStatus || task.status || '');
+                push(task.done ? '1' : '0');
+            }
+            return `${n}:${(hash >>> 0).toString(16)}`;
+        } catch (e) {
+            return '';
+        }
+    }
+
     function __tmGetVisibleTaskFingerprint() {
         try {
             const ids = [];
@@ -2882,9 +2909,18 @@ if (mode === 'checklist') {
         } catch (e) {}
     }
 
-    function showPrompt(title, placeholder = '', defaultValue = '') {
+    function showPrompt(title, placeholder = '', defaultValue = '', options = {}) {
         return new Promise((resolve) => {
-            const existing = document.querySelector('.tm-prompt-modal');
+            const opts = (options && typeof options === 'object') ? options : {};
+            const inputTypeRaw = String(opts.inputType || 'text').trim().toLowerCase();
+            const inputType = /^(text|search|email|url|tel|password|number|date|time|datetime-local|month|week)$/.test(inputTypeRaw)
+                ? inputTypeRaw
+                : 'text';
+            const shouldSelectOnFocus = opts.selectOnFocus !== false && inputType !== 'date';
+            const openPickerOnFocus = opts.openPickerOnFocus !== false && inputType === 'date';
+
+            const existing = Array.from(document.querySelectorAll('.tm-prompt-modal'))
+                .find((el) => !(el instanceof HTMLElement) || !el.classList.contains('tm-points-penalty-confirm-modal'));
             if (existing) existing.remove();
 
             const modal = document.createElement('div');
@@ -2898,7 +2934,7 @@ if (mode === 'checklist') {
             titleEl.textContent = String(title ?? '');
 
             const input = document.createElement('input');
-            input.type = 'text';
+            input.type = inputType;
             input.className = 'tm-prompt-input';
             input.placeholder = String(placeholder ?? '');
             input.value = String(defaultValue ?? '');
@@ -2934,7 +2970,12 @@ if (mode === 'checklist') {
                 } catch (e) {
                     try { input.focus(); } catch (e2) {}
                 }
-                try { input.select?.(); } catch (e) {}
+                if (shouldSelectOnFocus) {
+                    try { input.select?.(); } catch (e) {}
+                }
+                if (openPickerOnFocus) {
+                    try { input.showPicker?.(); } catch (e) {}
+                }
             };
             focusInput();
             try { requestAnimationFrame(() => focusInput()); } catch (e) {}
@@ -3102,7 +3143,7 @@ if (mode === 'checklist') {
                 startDate: task?.startDate,
                 completionTime: task?.completionTime,
             });
-            const anchorDate = __tmNormalizeDateOnly(task?.completionTime || task?.startDate || currentRule.anchorDate || new Date());
+            const anchorDate = __tmNormalizeDateOnly(currentRule.anchorDate || task?.completionTime || task?.startDate || new Date());
             const modal = document.createElement('div');
             modal.className = 'tm-repeat-modal';
             modal.innerHTML = `
@@ -5441,7 +5482,7 @@ if (mode === 'checklist') {
             // 第 0 行显示"当"作为左到右求值的种子，后续行用 [且/或] 连接到累计结果。
             const joinSlot = index === 0
                 ? '<span class="tm-rule-condition-join tm-rule-condition-where">当</span>'
-                : `<select class="tm-rule-condition-join" data-tm-change="updateConditionJoin" data-index="${index}">
+                : `<select class="tm-rule-condition-join tm-rule-condition-operator" data-tm-change="updateConditionJoin" data-index="${index}">
                         <option value="and" ${join === 'and' ? 'selected' : ''}>且</option>
                         <option value="or" ${join === 'or' ? 'selected' : ''}>或</option>
                     </select>`;
@@ -7285,6 +7326,7 @@ if (mode === 'checklist') {
             state.__tmLastFilterPerf = filterMetrics;
             try {
                 const total = Array.isArray(finalOrdered) ? finalOrdered.length : 0;
+                const step = __tmGetRenderStepForFilteredScope(total);
                 const firstId = total > 0 ? String(finalOrdered[0]?.id || '').trim() : '';
                 const lastId = total > 0 ? String(finalOrdered[total - 1]?.id || '').trim() : '';
                 const signature = [
@@ -7298,9 +7340,9 @@ if (mode === 'checklist') {
                     String(state.quadrantEnabled ? 1 : 0),
                     String(total),
                     firstId,
-                    lastId
+                    lastId,
+                    __tmBuildVisibleTaskWindowContentSignature(finalOrdered, Math.max(step, Number(state.listRenderLimit) || step)),
                 ].join('|');
-                const step = __tmGetRenderStepForFilteredScope(total);
                 if (String(state.listRenderSignature || '') !== signature) {
                     state.listRenderSignature = signature;
                     state.listRenderLimit = step;
@@ -7390,6 +7432,7 @@ if (mode === 'checklist') {
             state.__tmLastFilterPerf = filterMetrics;
             try {
                 const total = Array.isArray(finalOrdered) ? finalOrdered.length : 0;
+                const step = __tmGetRenderStepForFilteredScope(total);
                 const firstId = total > 0 ? String(finalOrdered[0]?.id || '').trim() : '';
                 const lastId = total > 0 ? String(finalOrdered[total - 1]?.id || '').trim() : '';
                 const signature = [
@@ -7403,9 +7446,9 @@ if (mode === 'checklist') {
                     String(state.quadrantEnabled ? 1 : 0),
                     String(total),
                     firstId,
-                    lastId
+                    lastId,
+                    __tmBuildVisibleTaskWindowContentSignature(finalOrdered, Math.max(step, Number(state.listRenderLimit) || step)),
                 ].join('|');
-                const step = __tmGetRenderStepForFilteredScope(total);
                 if (String(state.listRenderSignature || '') !== signature) {
                     state.listRenderSignature = signature;
                     state.listRenderLimit = step;
@@ -7451,6 +7494,7 @@ if (mode === 'checklist') {
         state.__tmLastFilterPerf = filterMetrics;
         try {
             const total = Array.isArray(finalOrdered) ? finalOrdered.length : 0;
+            const step = __tmGetRenderStepForFilteredScope(total);
             const firstId = total > 0 ? String(finalOrdered[0]?.id || '').trim() : '';
             const lastId = total > 0 ? String(finalOrdered[total - 1]?.id || '').trim() : '';
             const signature = [
@@ -7464,9 +7508,9 @@ if (mode === 'checklist') {
                 String(state.quadrantEnabled ? 1 : 0),
                 String(total),
                 firstId,
-                lastId
+                lastId,
+                __tmBuildVisibleTaskWindowContentSignature(finalOrdered, Math.max(step, Number(state.listRenderLimit) || step)),
             ].join('|');
-            const step = __tmGetRenderStepForFilteredScope(total);
             if (String(state.listRenderSignature || '') !== signature) {
                 state.listRenderSignature = signature;
                 state.listRenderLimit = step;
@@ -7780,6 +7824,7 @@ if (mode === 'checklist') {
             }
         }
         state.activeDocId = resolvedDocId;
+        try { __tmResetArchiveCompletedRootGroupCollapse(); } catch (e) {}
         if (resolvedDocId !== 'all' && !__tmIsOtherBlockTabId(resolvedDocId)) {
             try {
                 state.listRenderStep = 1200;
@@ -9347,6 +9392,7 @@ if (mode === 'checklist') {
         try { event?.stopPropagation?.(); } catch (e) {}
         state.docTabsArchiveMode = state.docTabsArchiveMode !== true;
         state.activeDocId = 'all';
+        try { __tmResetArchiveCompletedRootGroupCollapse(); } catch (e) {}
         state.docTabsScrollLeft = 0;
         state.docTabsScrollTop = 0;
         try { applyFilters(); } catch (e) {}
@@ -10328,9 +10374,9 @@ if (mode === 'checklist') {
     function __tmClearTaskRowDropIndicators(root = null) {
         const host = root instanceof Element ? root : (state.modal instanceof Element ? state.modal : document);
         try {
-            host.querySelectorAll?.('.tm-task-drop--before, .tm-task-drop--after, .tm-task-drop--child, .tm-task-drop--child-top, .tm-task-drop--forbidden')?.forEach?.((el) => {
+            host.querySelectorAll?.('.tm-task-drop--before, .tm-task-drop--after, .tm-task-drop--child, .tm-task-drop--child-top, .tm-task-drop--forbidden, .tm-time-group-drop--active, .tm-time-group-drop--forbidden')?.forEach?.((el) => {
                 try {
-                    el.classList.remove('tm-task-drop--before', 'tm-task-drop--after', 'tm-task-drop--child', 'tm-task-drop--child-top', 'tm-task-drop--forbidden');
+                    el.classList.remove('tm-task-drop--before', 'tm-task-drop--after', 'tm-task-drop--child', 'tm-task-drop--child-top', 'tm-task-drop--forbidden', 'tm-time-group-drop--active', 'tm-time-group-drop--forbidden');
                     el.style.removeProperty('--tm-task-drop-indent');
                 } catch (e) {}
             });
@@ -10353,6 +10399,133 @@ if (mode === 'checklist') {
         try { el.style.setProperty('--tm-task-drop-indent', `${indentBase + (visualDepth * indentStep)}px`); } catch (e) {}
         el.classList.add(`tm-task-drop--${dropKind}`);
     }
+
+    function __tmResolveTimeGroupDropElementFromTarget(target) {
+        const el = target instanceof Element ? target : null;
+        if (!(el instanceof Element)) return null;
+        const candidate = el.closest('.tm-checklist-group[data-group-kind="time"], #tmTaskTable tbody tr.tm-group-row[data-group-kind="time"]');
+        return candidate instanceof HTMLElement ? candidate : null;
+    }
+
+    function __tmResolveTimeGroupDropElement(ev) {
+        const current = ev?.currentTarget instanceof Element ? ev.currentTarget : null;
+        return __tmResolveTimeGroupDropElementFromTarget(current)
+            || __tmResolveTimeGroupDropElementFromTarget(ev?.target);
+    }
+
+    function __tmResolveTimeGroupDropDateKey(groupKey) {
+        const key = String(groupKey || '').trim();
+        let offsetDays = Number.NaN;
+        if (key === 'today') offsetDays = 0;
+        else if (key === 'tomorrow') offsetDays = 1;
+        else if (key === 'after_tomorrow') offsetDays = 2;
+        else {
+            const m = /^days_(\d+)$/.exec(key);
+            if (m) offsetDays = Number(m[1]);
+        }
+        if (!Number.isFinite(offsetDays) || offsetDays < 0) return '';
+        const target = new Date();
+        target.setHours(12, 0, 0, 0);
+        target.setDate(target.getDate() + offsetDays);
+        return __tmFormatDateKeyFromDate(target) || __tmNormalizeDateOnly(target);
+    }
+
+    function __tmGetTimeGroupDropTask(taskId) {
+        const tid = String(taskId || '').trim();
+        if (!tid) return null;
+        return globalThis.__tmRuntimeState?.getFlatTaskById?.(tid)
+            || state.flatTasks?.[tid]
+            || state.pendingInsertedTasks?.[tid]
+            || null;
+    }
+
+    function __tmCheckTimeGroupDrop(taskId, groupKey) {
+        const dateKey = __tmResolveTimeGroupDropDateKey(groupKey);
+        const task = __tmGetTimeGroupDropTask(taskId);
+        if (!state.groupByTime || !dateKey || !task) return { ok: false, dateKey, task };
+        return { ok: true, dateKey, task };
+    }
+
+    function __tmApplyTimeGroupDropIndicator(groupEl, allowed) {
+        const el = groupEl instanceof HTMLElement ? groupEl : null;
+        if (!(el instanceof HTMLElement)) return;
+        __tmClearTaskRowDropIndicators();
+        el.classList.add(allowed ? 'tm-time-group-drop--active' : 'tm-time-group-drop--forbidden');
+    }
+
+    window.tmTimeGroupDragOver = function(ev, groupKey) {
+        try {
+            ev?.preventDefault?.();
+            ev?.stopPropagation?.();
+        } catch (e) {}
+        try { if (ev?.dataTransfer) ev.dataTransfer.dropEffect = 'move'; } catch (e) {}
+        const groupEl = __tmResolveTimeGroupDropElement(ev);
+        const key = String(groupKey || groupEl?.getAttribute?.('data-group-key') || '').trim();
+        const sourceTaskId = __tmGetDraggedTaskId(ev);
+        if (!groupEl || !sourceTaskId) {
+            __tmClearTaskRowDropIndicators();
+            return false;
+        }
+        const check = __tmCheckTimeGroupDrop(sourceTaskId, key);
+        __tmApplyTimeGroupDropIndicator(groupEl, !!check.ok);
+        return false;
+    };
+
+    window.tmTimeGroupDragLeave = function(ev) {
+        const groupEl = __tmResolveTimeGroupDropElement(ev);
+        if (!(groupEl instanceof HTMLElement)) return;
+        try {
+            const related = ev?.relatedTarget instanceof Node ? ev.relatedTarget : null;
+            if (related && groupEl.contains(related)) return;
+        } catch (e) {}
+        try { groupEl.classList.remove('tm-time-group-drop--active', 'tm-time-group-drop--forbidden'); } catch (e) {}
+    };
+
+    window.tmTimeGroupDrop = async function(ev, groupKey) {
+        try {
+            ev?.preventDefault?.();
+            ev?.stopPropagation?.();
+        } catch (e) {}
+        const groupEl = __tmResolveTimeGroupDropElement(ev);
+        const key = String(groupKey || groupEl?.getAttribute?.('data-group-key') || '').trim();
+        const sourceTaskId = __tmGetDraggedTaskId(ev);
+        const check = __tmCheckTimeGroupDrop(sourceTaskId, key);
+        try {
+            if (!check.ok) {
+                if (groupEl) __tmApplyTimeGroupDropIndicator(groupEl, false);
+                return;
+            }
+            if (!__tmEnsureEditableTaskLike(check.task, '修改截止日期')) return;
+            const currentDate = __tmNormalizeDateOnly(check.task?.completionTime || check.task?.completion_time || '');
+            if (currentDate === check.dateKey) {
+                hint(`截止日期已是 ${check.dateKey}`, 'info');
+                return;
+            }
+            const patch = { completionTime: check.dateKey };
+            const opts = {
+                source: 'time-group-drop-completion-time',
+                label: '截止日期',
+                reason: 'time-group-drop-completion-time',
+                withFilters: true,
+                defer: false,
+                optimisticProjectionRefresh: true,
+            };
+            if (typeof __tmShouldUseChecklistLegacyFieldCommit === 'function' && __tmShouldUseChecklistLegacyFieldCommit()) {
+                await __tmRequestChecklistLegacyTaskPatch(sourceTaskId, patch, opts);
+                hint(`✅ 截止日期已更新为 ${check.dateKey}`, 'success');
+            } else {
+                await __tmCommitUiFriendlyTaskPatch(sourceTaskId, patch, {
+                    ...opts,
+                    successHint: `✅ 截止日期已更新为 ${check.dateKey}`,
+                });
+            }
+        } catch (e) {
+            const message = String(e?.message || e || '').trim() || '未知错误';
+            hint(`❌ 截止日期更新失败: ${message}`, 'error');
+        } finally {
+            __tmClearTaskRowDropIndicators();
+        }
+    };
 
     function __tmTaskHasExpandedVisibleChildren(taskLike) {
         const task = (taskLike && typeof taskLike === 'object')
@@ -11074,20 +11247,33 @@ if (mode === 'checklist') {
                 } else {
                     clearDocHover();
                 }
-                const taskRowEl = pointTarget?.closest?.('.tm-checklist-item[data-id], #tmTaskTable tbody tr[data-id]') || null;
-                if (taskRowEl instanceof HTMLElement) {
+                const timeGroupEl = __tmResolveTimeGroupDropElementFromTarget(pointTarget);
+                if (timeGroupEl instanceof HTMLElement) {
                     try {
-                        window.tmTaskRowDragOver?.({
+                        window.tmTimeGroupDragOver?.({
                             preventDefault() {},
                             stopPropagation() {},
-                            clientY: lastY,
                             dataTransfer: syntheticTransfer,
-                            target: pointTarget || taskRowEl,
-                            currentTarget: taskRowEl,
-                        }, String(taskRowEl.getAttribute('data-id') || '').trim());
+                            target: pointTarget || timeGroupEl,
+                            currentTarget: timeGroupEl,
+                        }, String(timeGroupEl.getAttribute('data-group-key') || '').trim());
                     } catch (e) {}
                 } else {
-                    clearTaskRowHover();
+                    const taskRowEl = pointTarget?.closest?.('.tm-checklist-item[data-id], #tmTaskTable tbody tr[data-id]') || null;
+                    if (taskRowEl instanceof HTMLElement) {
+                        try {
+                            window.tmTaskRowDragOver?.({
+                                preventDefault() {},
+                                stopPropagation() {},
+                                clientY: lastY,
+                                dataTransfer: syntheticTransfer,
+                                target: pointTarget || taskRowEl,
+                                currentTarget: taskRowEl,
+                            }, String(taskRowEl.getAttribute('data-id') || '').trim());
+                        } catch (e) {}
+                    } else {
+                        clearTaskRowHover();
+                    }
                 }
                 if (sourceType === 'kanban') {
                     try { __tmApplyKanbanDragHoverFromTarget(pointTarget); } catch (e) {}
@@ -11147,6 +11333,19 @@ if (mode === 'checklist') {
                             target: docTabEl,
                             currentTarget: docTabEl,
                         }, String(docTabEl.getAttribute('data-tm-doc-id') || '').trim());
+                        return true;
+                    } catch (e) {}
+                }
+                const timeGroupEl = __tmResolveTimeGroupDropElementFromTarget(pointTarget);
+                if (timeGroupEl instanceof HTMLElement) {
+                    try {
+                        await window.tmTimeGroupDrop?.({
+                            preventDefault() {},
+                            stopPropagation() {},
+                            dataTransfer: syntheticTransfer,
+                            target: pointTarget || timeGroupEl,
+                            currentTarget: timeGroupEl,
+                        }, String(timeGroupEl.getAttribute('data-group-key') || '').trim());
                         return true;
                     } catch (e) {}
                 }
@@ -11580,25 +11779,44 @@ if (mode === 'checklist') {
                     target: pointTarget,
                 }, { mode: 'mobile' });
             } catch (e) {}
-            const taskRowEl = resolvePointTarget(x, y)?.closest?.('.tm-checklist-item[data-id], #tmTaskTable tbody tr[data-id]') || null;
-            if (taskRowEl instanceof HTMLElement) {
+            const pointTargetForRows = resolvePointTarget(x, y);
+            const timeGroupEl = __tmResolveTimeGroupDropElementFromTarget(pointTargetForRows);
+            if (timeGroupEl instanceof HTMLElement) {
                 try {
-                    window.tmTaskRowDragOver?.({
+                    window.tmTimeGroupDragOver?.({
                         preventDefault() {},
                         stopPropagation() {},
-                        clientY: y,
                         dataTransfer: {
                             getData(type) {
                                 if (String(type || '').trim() === 'application/x-tm-task-id' || String(type || '').trim() === 'text/plain') return id;
                                 return '';
                             },
                         },
-                        target: taskRowEl,
-                        currentTarget: taskRowEl,
-                    }, String(taskRowEl.getAttribute('data-id') || '').trim());
+                        target: pointTargetForRows || timeGroupEl,
+                        currentTarget: timeGroupEl,
+                    }, String(timeGroupEl.getAttribute('data-group-key') || '').trim());
                 } catch (e) {}
             } else {
-                clearTaskRowHover();
+                const taskRowEl = pointTargetForRows?.closest?.('.tm-checklist-item[data-id], #tmTaskTable tbody tr[data-id]') || null;
+                if (taskRowEl instanceof HTMLElement) {
+                    try {
+                        window.tmTaskRowDragOver?.({
+                            preventDefault() {},
+                            stopPropagation() {},
+                            clientY: y,
+                            dataTransfer: {
+                                getData(type) {
+                                    if (String(type || '').trim() === 'application/x-tm-task-id' || String(type || '').trim() === 'text/plain') return id;
+                                    return '';
+                                },
+                            },
+                            target: taskRowEl,
+                            currentTarget: taskRowEl,
+                        }, String(taskRowEl.getAttribute('data-id') || '').trim());
+                    } catch (e) {}
+                } else {
+                    clearTaskRowHover();
+                }
             }
         };
         const finalizeDrag = async () => {
@@ -11615,21 +11833,37 @@ if (mode === 'checklist') {
                         mode: 'mobile',
                     });
                     if (!handled) {
-                        const taskRowEl = pointTarget?.closest?.('.tm-checklist-item[data-id], #tmTaskTable tbody tr[data-id]') || null;
-                        if (taskRowEl instanceof HTMLElement) {
-                            await window.tmTaskRowDrop?.({
+                        const timeGroupEl = __tmResolveTimeGroupDropElementFromTarget(pointTarget);
+                        if (timeGroupEl instanceof HTMLElement) {
+                            await window.tmTimeGroupDrop?.({
                                 preventDefault() {},
                                 stopPropagation() {},
-                                clientY: lastY,
                                 dataTransfer: {
                                     getData(type) {
                                         if (String(type || '').trim() === 'application/x-tm-task-id' || String(type || '').trim() === 'text/plain') return id;
                                         return '';
                                     },
                                 },
-                                target: taskRowEl,
-                                currentTarget: taskRowEl,
-                            }, String(taskRowEl.getAttribute('data-id') || '').trim());
+                                target: pointTarget || timeGroupEl,
+                                currentTarget: timeGroupEl,
+                            }, String(timeGroupEl.getAttribute('data-group-key') || '').trim());
+                        } else {
+                            const taskRowEl = pointTarget?.closest?.('.tm-checklist-item[data-id], #tmTaskTable tbody tr[data-id]') || null;
+                            if (taskRowEl instanceof HTMLElement) {
+                                await window.tmTaskRowDrop?.({
+                                    preventDefault() {},
+                                    stopPropagation() {},
+                                    clientY: lastY,
+                                    dataTransfer: {
+                                        getData(type) {
+                                            if (String(type || '').trim() === 'application/x-tm-task-id' || String(type || '').trim() === 'text/plain') return id;
+                                            return '';
+                                        },
+                                    },
+                                    target: taskRowEl,
+                                    currentTarget: taskRowEl,
+                                }, String(taskRowEl.getAttribute('data-id') || '').trim());
+                            }
                         }
                     }
                 }

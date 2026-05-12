@@ -607,6 +607,107 @@
     window.updateEnablePointsRewardIntegration = async function(enabled) {
         SettingsStore.data.enablePointsRewardIntegration = !!enabled;
         await SettingsStore.save();
+        try { globalThis.__tmPointsPenaltyRuntimeRefresh?.({ reason: 'points-reward-integration-toggle' }); } catch (e) {}
+        showSettings();
+    };
+
+    window.updateEnablePointsPenaltyIntegration = async function(enabled) {
+        SettingsStore.data.enablePointsPenaltyIntegration = !!enabled;
+        await SettingsStore.save();
+        try { globalThis.__tmPointsPenaltyRuntimeRefresh?.({ reason: 'points-penalty-toggle' }); } catch (e) {}
+        showSettings();
+    };
+
+    window.updatePointsPenaltyScheduleEnabled = async function(enabled) {
+        SettingsStore.data.pointsPenaltyScheduleEnabled = !!enabled;
+        await SettingsStore.save();
+        try { globalThis.__tmPointsPenaltyRuntimeRefresh?.({ reason: 'points-penalty-schedule-toggle' }); } catch (e) {}
+        showSettings();
+    };
+
+    window.updatePointsPenaltyDeadlineEnabled = async function(enabled) {
+        SettingsStore.data.pointsPenaltyDeadlineEnabled = !!enabled;
+        await SettingsStore.save();
+        try { globalThis.__tmPointsPenaltyRuntimeRefresh?.({ reason: 'points-penalty-deadline-toggle' }); } catch (e) {}
+        showSettings();
+    };
+
+    window.updatePointsPenaltyScheduleAmount = async function(value) {
+        const amount = Number(value);
+        SettingsStore.data.pointsPenaltyScheduleAmount = Number.isFinite(amount) ? Math.max(0, Math.min(9999, Math.round(amount))) : 0;
+        await SettingsStore.save();
+        showSettings();
+    };
+
+    window.updatePointsPenaltyDeadlineAmount = async function(value) {
+        const amount = Number(value);
+        SettingsStore.data.pointsPenaltyDeadlineAmount = Number.isFinite(amount) ? Math.max(0, Math.min(9999, Math.round(amount))) : 0;
+        await SettingsStore.save();
+        showSettings();
+    };
+
+    window.updatePointsPenaltyCheckTimes = async function(value) {
+        const lines = String(value || '').split(/\r?\n/);
+        const seen = new Set();
+        const out = [];
+        const parseLine = (input) => {
+            const text = String(input || '').trim();
+            if (!text) return null;
+            let dayOffset = 0;
+            let hh = NaN;
+            let mm = NaN;
+            let hasOffset = false;
+            let m = /^\+(\d+)\s+(\d{1,2}):(\d{2})$/.exec(text);
+            if (m) {
+                hasOffset = true;
+                dayOffset = Number(m[1]);
+                hh = Number(m[2]);
+                mm = Number(m[3]);
+            } else {
+                m = /^(\d{1,2}):(\d{2})$/.exec(text);
+                if (!m) return null;
+                hh = Number(m[1]);
+                mm = Number(m[2]);
+            }
+            if (!Number.isInteger(dayOffset)) return null;
+            if (hasOffset && (dayOffset < 1 || dayOffset > 7)) return null;
+            if (!hasOffset) dayOffset = 0;
+            if (!Number.isInteger(hh) || !Number.isInteger(mm)) return null;
+            if (hh < 0 || hh > 23 || mm < 0 || mm > 59) return null;
+            const timeText = `${String(hh).padStart(2, '0')}:${String(mm).padStart(2, '0')}`;
+            return {
+                dayOffset,
+                minute: hh * 60 + mm,
+                normalized: dayOffset > 0 ? `+${dayOffset} ${timeText}` : timeText,
+            };
+        };
+        lines.forEach((line) => {
+            const parsed = parseLine(line);
+            if (!parsed) return;
+            if (seen.has(parsed.normalized)) return;
+            seen.add(parsed.normalized);
+            out.push(parsed);
+        });
+        out.sort((a, b) => {
+            if (a.dayOffset !== b.dayOffset) return a.dayOffset - b.dayOffset;
+            if (a.minute !== b.minute) return a.minute - b.minute;
+            return a.normalized.localeCompare(b.normalized);
+        });
+        SettingsStore.data.pointsPenaltyCheckTimes = out.length ? out.map((item) => item.normalized) : ['23:00', '+1 08:00'];
+        await SettingsStore.save();
+        try { globalThis.__tmPointsPenaltyRuntimeRefresh?.({ reason: 'points-penalty-check-times-updated' }); } catch (e) {}
+        showSettings();
+    };
+
+    window.updatePointsPenaltyCheckOnStartup = async function(enabled) {
+        SettingsStore.data.pointsPenaltyCheckOnStartup = !!enabled;
+        await SettingsStore.save();
+        showSettings();
+    };
+
+    window.updatePointsPenaltyConfirmModalEnabled = async function(enabled) {
+        SettingsStore.data.pointsPenaltyConfirmModalEnabled = !!enabled;
+        await SettingsStore.save();
         showSettings();
     };
 
@@ -1415,8 +1516,13 @@
         const isChecklist = String(state.viewMode || '').trim() === 'checklist';
         const isCalendarSidebarChecklist = __tmHasCalendarSidebarChecklist(state.modal);
 
-        const k0 = String(groupKey || '').trim();
-        const action = state.collapsedGroups.has(k0) ? 'expand' : 'collapse';
+        const rawKey = String(groupKey || '').trim();
+        const k0 = __tmNormalizeCompletedRootGroupKey(rawKey);
+        if (!k0) return;
+        const isCompletedGroup = __tmIsCompletedRootGroupKey(k0);
+        const action = isCompletedGroup
+            ? (__tmIsCompletedRootGroupCollapsed(k0) ? 'expand' : 'collapse')
+            : (state.collapsedGroups.has(k0) ? 'expand' : 'collapse');
         const mode = __tmGetCollapseAnimMode();
         const flipOpts = { kind: 'group', key: k0, action, lite: mode === 'lite' };
         let skipAnim = mode === 'none';
@@ -1432,8 +1538,19 @@
             try { __tmResetFlipState(state.modal); } catch (e) {}
         }
 
-        if (state.collapsedGroups.has(groupKey)) state.collapsedGroups.delete(groupKey);
-        else state.collapsedGroups.add(groupKey);
+        if (isCompletedGroup) {
+            if (state.docTabsArchiveMode === true) {
+                if (action === 'expand') state.collapsedGroups.delete(k0);
+                else state.collapsedGroups.add(k0);
+            } else {
+                const expandedCompletedGroups = __tmGetExpandedCompletedGroupsSet();
+                if (action === 'expand') expandedCompletedGroups.add(k0);
+                else expandedCompletedGroups.delete(k0);
+                state.collapsedGroups.delete(k0);
+                __tmPersistExpandedCompletedGroups();
+            }
+        } else if (state.collapsedGroups.has(k0)) state.collapsedGroups.delete(k0);
+        else state.collapsedGroups.add(k0);
 
         SettingsStore.data.collapsedGroups = [...state.collapsedGroups];
         __tmMarkCollapseStateChanged();
@@ -1574,6 +1691,7 @@
         }
         const filteredSet = new Set(state.filteredTasks.map(t => t.id));
         const next = new Set(state.collapsedTaskIds || []);
+        const expandedCompletedGroups = __tmGetExpandedCompletedGroupsSet();
         const applyCollapse = (list) => {
             list.forEach(t => {
                 const hasVisibleChild = (t.children || []).some(c => filteredSet.has(c.id));
@@ -1593,9 +1711,19 @@
         try { Storage.set('tm_collapsed_task_ids', SettingsStore.data.collapsedTaskIds); } catch (e) {}
         if (SettingsStore.data.collapseAllIncludesGroups) {
             const nextGroups = new Set(state.collapsedGroups || []);
-            __tmCollectVisibleGroupKeysFromDom().forEach((key) => nextGroups.add(key));
+            __tmCollectVisibleGroupKeysFromDom().forEach((key) => {
+                if (__tmIsCompletedRootGroupKey(key)) {
+                    const normalizedKey = __tmNormalizeCompletedRootGroupKey(key);
+                    expandedCompletedGroups.delete(normalizedKey);
+                    if (state.docTabsArchiveMode === true) nextGroups.add(normalizedKey);
+                    else nextGroups.delete(normalizedKey);
+                    return;
+                }
+                nextGroups.add(key);
+            });
             state.collapsedGroups = nextGroups;
             SettingsStore.data.collapsedGroups = [...nextGroups];
+            __tmPersistExpandedCompletedGroups();
             try { Storage.set('tm_collapsed_groups', SettingsStore.data.collapsedGroups); } catch (e) {}
         }
         try { __tmResetFlipState(state.modal); } catch (e) {}
@@ -1618,9 +1746,14 @@
         try { Storage.set('tm_collapsed_task_ids', []); } catch (e) {}
         if (SettingsStore.data.collapseAllIncludesGroups) {
             const visibleGroupKeys = new Set(__tmCollectVisibleGroupKeysFromDom());
+            const expandedCompletedGroups = __tmGetExpandedCompletedGroupsSet();
+            visibleGroupKeys.forEach((key) => {
+                if (__tmIsCompletedRootGroupKey(key)) expandedCompletedGroups.add(__tmNormalizeCompletedRootGroupKey(key));
+            });
             const nextGroups = new Set(Array.from(state.collapsedGroups || []).filter((key) => !visibleGroupKeys.has(String(key || '').trim())));
             state.collapsedGroups = nextGroups;
             SettingsStore.data.collapsedGroups = [...nextGroups];
+            __tmPersistExpandedCompletedGroups();
             try { Storage.set('tm_collapsed_groups', SettingsStore.data.collapsedGroups); } catch (e) {}
         }
         try { __tmResetFlipState(state.modal); } catch (e) {}
