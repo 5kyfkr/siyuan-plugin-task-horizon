@@ -11,6 +11,8 @@
     const DEFAULT_MODEL = 'MiniMax-M2.5';
     const DEFAULT_DEEPSEEK_BASE_URL = 'https://api.deepseek.com';
     const DEFAULT_DEEPSEEK_MODEL = 'deepseek-chat';
+    const DEFAULT_OPENAI_BASE_URL = 'https://api.openai.com/v1';
+    const DEFAULT_OPENAI_MODEL = 'gpt-5.4-mini';
     const AI_UI_REV = 'ui-rev-2026-03-17-3';
     const AI_SCENE_LABELS = {
         chat: 'AI 对话',
@@ -938,7 +940,8 @@
 
     function getConfig() {
         const s = bridge()?.getSettings?.() || {};
-        const provider = String(s.aiProvider || '').trim() === 'deepseek' ? 'deepseek' : 'minimax';
+        const providerRaw = String(s.aiProvider || '').trim();
+        const provider = providerRaw === 'deepseek' ? 'deepseek' : (providerRaw === 'openai' ? 'openai' : 'minimax');
         const statusOptions = Array.isArray(s.customStatusOptions)
             ? s.customStatusOptions.map((it) => ({
                 id: String(it?.id || '').trim(),
@@ -946,18 +949,31 @@
                 color: String(it?.color || '').trim(),
             })).filter((it) => it.id || it.name)
             : [];
+        const apiKey = provider === 'deepseek'
+            ? String(s.aiDeepSeekApiKey || '').trim()
+            : (provider === 'openai'
+                ? String(s.aiOpenAIApiKey || '').trim()
+                : String(s.aiMiniMaxApiKey || '').trim());
+        const baseUrlFallback = provider === 'deepseek'
+            ? DEFAULT_DEEPSEEK_BASE_URL
+            : (provider === 'openai' ? DEFAULT_OPENAI_BASE_URL : DEFAULT_BASE_URL);
+        const baseUrlRaw = provider === 'deepseek'
+            ? String(s.aiDeepSeekBaseUrl || DEFAULT_DEEPSEEK_BASE_URL).trim()
+            : (provider === 'openai'
+                ? String(s.aiOpenAIBaseUrl || DEFAULT_OPENAI_BASE_URL).trim()
+                : String(s.aiMiniMaxBaseUrl || DEFAULT_BASE_URL).trim());
+        const baseUrl = baseUrlRaw.replace(/\/+$/, '') || baseUrlFallback;
+        const model = provider === 'deepseek'
+            ? (String(s.aiDeepSeekModel || DEFAULT_DEEPSEEK_MODEL).trim() || DEFAULT_DEEPSEEK_MODEL)
+            : (provider === 'openai'
+                ? (String(s.aiOpenAIModel || DEFAULT_OPENAI_MODEL).trim() || DEFAULT_OPENAI_MODEL)
+                : (String(s.aiMiniMaxModel || DEFAULT_MODEL).trim() || DEFAULT_MODEL));
         return {
             provider,
             enabled: !!s.aiEnabled,
-            apiKey: provider === 'deepseek'
-                ? String(s.aiDeepSeekApiKey || '').trim()
-                : String(s.aiMiniMaxApiKey || '').trim(),
-            baseUrl: (provider === 'deepseek'
-                ? String(s.aiDeepSeekBaseUrl || DEFAULT_DEEPSEEK_BASE_URL).trim()
-                : String(s.aiMiniMaxBaseUrl || DEFAULT_BASE_URL).trim()).replace(/\/+$/, '') || (provider === 'deepseek' ? DEFAULT_DEEPSEEK_BASE_URL : DEFAULT_BASE_URL),
-            model: provider === 'deepseek'
-                ? (String(s.aiDeepSeekModel || DEFAULT_DEEPSEEK_MODEL).trim() || DEFAULT_DEEPSEEK_MODEL)
-                : (String(s.aiMiniMaxModel || DEFAULT_MODEL).trim() || DEFAULT_MODEL),
+            apiKey,
+            baseUrl,
+            model,
             temperature: Number.isFinite(Number(s.aiMiniMaxTemperature)) ? Number(s.aiMiniMaxTemperature) : 0.2,
             maxTokens: Number.isFinite(Number(s.aiMiniMaxMaxTokens)) ? Number(s.aiMiniMaxMaxTokens) : 1600,
             timeoutMs: Number.isFinite(Number(s.aiMiniMaxTimeoutMs)) ? Number(s.aiMiniMaxTimeoutMs) : 30000,
@@ -997,9 +1013,15 @@
         return list.map((it) => `${String(it.name || it.id || '').trim()} -> ${String(it.id || '').trim()}`).join('；');
     }
 
+    function providerLabel(provider) {
+        if (provider === 'deepseek') return 'DeepSeek';
+        if (provider === 'openai') return 'OpenAI';
+        return 'MiniMax';
+    }
+
     function assertReady(allowDisabled) {
         const cfg = getConfig();
-        if (!cfg.apiKey) throw new Error(`请先在 AI 设置中填写${cfg.provider === 'deepseek' ? ' DeepSeek' : ' MiniMax'} API Key`);
+        if (!cfg.apiKey) throw new Error(`请先在 AI 设置中填写 ${providerLabel(cfg.provider)} API Key`);
         if (!allowDisabled && !cfg.enabled) throw new Error('请先启用 AI 功能');
         return cfg;
     }
@@ -1033,6 +1055,14 @@
         if (!raw) return 'https://api.minimaxi.com/v1';
         if (/\/anthropic$/i.test(raw)) return raw.replace(/\/anthropic$/i, '/v1');
         if (/\/v1$/i.test(raw)) return raw;
+        return `${raw}/v1`;
+    }
+
+    function resolveOpenAiBaseUrl(baseUrl) {
+        const raw = String(baseUrl || '').trim().replace(/\/+$/, '');
+        if (!raw) return DEFAULT_OPENAI_BASE_URL;
+        if (/\/v1$/i.test(raw)) return raw;
+        if (/\/openai$/i.test(raw)) return `${raw}/v1`;
         return `${raw}/v1`;
     }
 
@@ -1173,6 +1203,52 @@
                 if (!text) throw new Error('DeepSeek 返回为空');
                 return text;
             }
+            if (cfg.provider === 'openai') {
+                const baseUrl = resolveOpenAiBaseUrl(cfg.baseUrl);
+                const messages = [{ role: 'system', content: String(system || '').trim() }]
+                    .concat(history.map((item) => ({
+                        role: item?.role === 'assistant' ? 'assistant' : 'user',
+                        content: String(item?.content || '').trim(),
+                    })).filter((item) => item.content))
+                    .concat([{ role: 'user', content: userPayload }]);
+                const modelName = String(opt.model || cfg.model || DEFAULT_OPENAI_MODEL);
+                const isReasoning = /^o\d/i.test(modelName);
+                const requestBody = {
+                    model: modelName,
+                    messages,
+                };
+                const tokenBudget = Math.max(256, Math.min(8192, Math.round(Number(opt.maxTokens || cfg.maxTokens || 1600))));
+                if (isReasoning) {
+                    requestBody.max_completion_tokens = tokenBudget;
+                } else {
+                    requestBody.max_tokens = tokenBudget;
+                    requestBody.temperature = Math.max(0, Math.min(1.5, Number(opt.temperature ?? cfg.temperature ?? 0.2)));
+                }
+                if (opt.expectJson !== false) {
+                    requestBody.response_format = { type: 'json_object' };
+                }
+                const tryRequest = async (body) => requestAiHttp(`${baseUrl}/chat/completions`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        Authorization: `Bearer ${cfg.apiKey}`,
+                    },
+                    body: JSON.stringify(body),
+                }, { controller, timeoutMs: resolveRequestTimeoutMs(cfg, opt) });
+                let res = await tryRequest(requestBody);
+                let raw = await res.text();
+                if (!res.ok && requestBody.response_format && /response_format|json_object/i.test(raw)) {
+                    const fallbackBody = { ...requestBody };
+                    delete fallbackBody.response_format;
+                    res = await tryRequest(fallbackBody);
+                    raw = await res.text();
+                }
+                if (!res.ok) throw new Error(parseHttpError(raw, res.status));
+                const json = JSON.parse(raw);
+                const text = extractOpenAiMessageText(json?.choices?.[0]?.message?.content);
+                if (!text) throw new Error('OpenAI 返回为空');
+                return text;
+            }
             const messages = history.map((item) => ({
                 role: item?.role === 'assistant' ? 'assistant' : 'user',
                 content: String(item?.content || '').trim(),
@@ -1248,7 +1324,7 @@
                 const mode = String(opt.contextMode || '').trim() === 'fulltext' ? '全文模式' : '当前模式';
                 throw new Error(`${mode}请求超时，已中止。建议重试，或在 AI 设置里调大超时时间。`);
             }
-            throw new Error(normalizeAiErrorMessage(msg, cfg.provider === 'deepseek' ? 'DeepSeek' : 'MiniMax'));
+            throw new Error(normalizeAiErrorMessage(msg, providerLabel(cfg.provider)));
         } finally {
             clearTimeout(timeout);
         }
@@ -1456,7 +1532,12 @@
             let repaired = '';
             let rebuilt = '';
             const cfg = getConfig();
-            const repairModel = String(opt.repairModel || (cfg.provider === 'deepseek' ? cfg.model || DEFAULT_DEEPSEEK_MODEL : 'MiniMax-M2.5-highspeed'));
+            const defaultRepairModel = cfg.provider === 'deepseek'
+                ? (cfg.model || DEFAULT_DEEPSEEK_MODEL)
+                : (cfg.provider === 'openai'
+                    ? (cfg.model || DEFAULT_OPENAI_MODEL)
+                    : 'MiniMax-M2.5-highspeed');
+            const repairModel = String(opt.repairModel || defaultRepairModel);
             try {
                 repaired = await callMiniMax(
                     '你是 JSON 修复助手。请把用户提供的内容修复为唯一且合法的 JSON。不要解释，不要补充说明，不要输出 Markdown，只输出 JSON 本身。',
@@ -5274,9 +5355,10 @@
 
     async function testConnection() {
         const cfg = assertReady(true);
-        toast(`⏳ 正在测试 ${cfg.provider === 'deepseek' ? 'DeepSeek' : 'MiniMax'} 连接...`, 'info');
+        const label = providerLabel(cfg.provider);
+        toast(`⏳ 正在测试 ${label} 连接...`, 'info');
         await callMiniMax('你是测试助手。请只输出 JSON：{"ping":"pong"}', { ping: 'pong' }, { maxTokens: 256, temperature: 0 });
-        toast(`✅ ${cfg.provider === 'deepseek' ? 'DeepSeek' : 'MiniMax'} 连接成功`, 'success');
+        toast(`✅ ${label} 连接成功`, 'success');
     }
 
     function cleanup() {

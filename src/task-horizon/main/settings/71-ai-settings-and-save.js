@@ -3,28 +3,42 @@
         await SettingsStore.save();
         showSettings();
     };
+    function __tmResolveAiProvider(raw) {
+        const v = String(raw || '').trim();
+        if (v === 'deepseek') return 'deepseek';
+        if (v === 'openai') return 'openai';
+        return 'minimax';
+    }
     window.tmUpdateAiProvider = async function(value) {
-        SettingsStore.data.aiProvider = String(value || '').trim() === 'deepseek' ? 'deepseek' : 'minimax';
+        SettingsStore.data.aiProvider = __tmResolveAiProvider(value);
         await SettingsStore.save();
         showSettings();
     };
     window.tmUpdateAiApiKey = async function(value) {
-        const provider = String(SettingsStore.data.aiProvider || '').trim() === 'deepseek' ? 'deepseek' : 'minimax';
-        if (provider === 'deepseek') SettingsStore.data.aiDeepSeekApiKey = String(value || '').trim();
-        else SettingsStore.data.aiMiniMaxApiKey = String(value || '').trim();
+        const provider = __tmResolveAiProvider(SettingsStore.data.aiProvider);
+        const next = String(value || '').trim();
+        if (provider === 'deepseek') SettingsStore.data.aiDeepSeekApiKey = next;
+        else if (provider === 'openai') SettingsStore.data.aiOpenAIApiKey = next;
+        else SettingsStore.data.aiMiniMaxApiKey = next;
         await SettingsStore.save();
     };
     window.tmUpdateAiBaseUrl = async function(value) {
-        const provider = String(SettingsStore.data.aiProvider || '').trim() === 'deepseek' ? 'deepseek' : 'minimax';
-        const next = String(value || '').trim() || (provider === 'deepseek' ? 'https://api.deepseek.com' : 'https://api.minimaxi.com/anthropic');
-        if (provider === 'deepseek') SettingsStore.data.aiDeepSeekBaseUrl = next.replace(/\/+$/, '');
-        else SettingsStore.data.aiMiniMaxBaseUrl = next.replace(/\/+$/, '');
+        const provider = __tmResolveAiProvider(SettingsStore.data.aiProvider);
+        const fallback = provider === 'deepseek'
+            ? 'https://api.deepseek.com'
+            : (provider === 'openai' ? 'https://api.openai.com/v1' : 'https://api.minimaxi.com/anthropic');
+        const next = (String(value || '').trim() || fallback).replace(/\/+$/, '');
+        if (provider === 'deepseek') SettingsStore.data.aiDeepSeekBaseUrl = next;
+        else if (provider === 'openai') SettingsStore.data.aiOpenAIBaseUrl = next;
+        else SettingsStore.data.aiMiniMaxBaseUrl = next;
         await SettingsStore.save();
     };
     window.tmUpdateAiModel = async function(value) {
-        const provider = String(SettingsStore.data.aiProvider || '').trim() === 'deepseek' ? 'deepseek' : 'minimax';
-        if (provider === 'deepseek') SettingsStore.data.aiDeepSeekModel = String(value || '').trim() || 'deepseek-chat';
-        else SettingsStore.data.aiMiniMaxModel = String(value || '').trim() || 'MiniMax-M2.5';
+        const provider = __tmResolveAiProvider(SettingsStore.data.aiProvider);
+        const next = String(value || '').trim();
+        if (provider === 'deepseek') SettingsStore.data.aiDeepSeekModel = next || 'deepseek-chat';
+        else if (provider === 'openai') SettingsStore.data.aiOpenAIModel = next || 'gpt-5.4-mini';
+        else SettingsStore.data.aiMiniMaxModel = next || 'MiniMax-M2.5';
         await SettingsStore.save();
     };
     window.tmUpdateAiTemperature = async function(value) {
