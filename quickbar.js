@@ -117,6 +117,7 @@
     let inlineMetaRenderTimer = null;
     let inlineMetaRenderCursor = 0;
     let inlineMetaRenderQueueTimer = 0;
+    let inlineMetaRenderQueueIsRaf = false;  // queue timer was scheduled via rAF (item 4)
     let inlineMetaRenderQueue = [];
     let inlineMetaRenderQueueIds = new Set();
     let inlineMetaRenderActiveIds = new Set();
@@ -156,6 +157,14 @@
     let inlineMetaVisibilityHandler = null;
     let inlineMetaFocusHandler = null;
     let inlineMetaPageShowHandler = null;
+    // Cross-tab refresh: protyle visibility observer + attr-updated bridge.
+    // SiYuan does not fire a usable "tab revealed" event when the user
+    // switches from a non-protyle tab (e.g. the Task Horizon panel) back
+    // to a document tab whose protyle is already mounted, so without these
+    // hooks the inline meta layer paints from stale `inlineMetaCache`.
+    let inlineMetaProtyleVisibilityObserver = null;
+    let inlineMetaProtyleVisibility = new WeakMap();
+    let inlineMetaAttrUpdatedHandler = null;
     let quickbarInlineSettingsCache = null;
     let quickbarInlineSettingsCacheDirty = true;
     let inlineMetaActiveTargetsCacheTs = 0;
@@ -403,9 +412,16 @@
 
     function clearInlineMetaRenderQueue() {
         if (inlineMetaRenderQueueTimer) {
-            try { clearTimeout(inlineMetaRenderQueueTimer); } catch (e) {}
+            try {
+                if (inlineMetaRenderQueueIsRaf && typeof cancelAnimationFrame === 'function') {
+                    cancelAnimationFrame(inlineMetaRenderQueueTimer);
+                } else {
+                    clearTimeout(inlineMetaRenderQueueTimer);
+                }
+            } catch (e) {}
         }
         inlineMetaRenderQueueTimer = 0;
+        inlineMetaRenderQueueIsRaf = false;
         inlineMetaRenderQueue = [];
         inlineMetaRenderQueueIds.clear();
         inlineMetaRenderActiveIds.clear();
@@ -435,12 +451,27 @@
     }
 
     function hasInlineMetaReadyHosts() {
+        // Scan across every layer, not just `inlineMetaLayer` (which only
+        // tracks the last-set protyle). In split-view / dock-plus-tab
+        // setups this is the difference between detecting one protyle's
+        // ready hosts and detecting any.
         try {
-            const layer = inlineMetaLayer && inlineMetaLayer.isConnected
-                ? inlineMetaLayer
-                : document.querySelector('.sy-custom-props-inline-layer');
-            if (!layer) return false;
-            return !!layer.querySelector('.sy-custom-props-inline-host.is-ready');
+            return document.querySelectorAll('.sy-custom-props-inline-layer .sy-custom-props-inline-host.is-ready').length > 0;
+        } catch (e) {
+            return false;
+        }
+    }
+
+    function hasInlineMetaPendingHosts() {
+        // A host exists in the DOM but lacks the `is-ready` class when its
+        // last `layoutInlineMetaHost` call returned false (transient 0×0
+        // rect, missing text anchor, viewport-collision, etc). The bootstrap
+        // retry plan needs to keep firing while any such host is pending,
+        // otherwise blocks that failed once get stranded as soon as a single
+        // peer block has rendered successfully (hasInlineMetaReadyHosts
+        // alone returns true and short-circuits the retry).
+        try {
+            return document.querySelectorAll('.sy-custom-props-inline-host:not(.is-ready)').length > 0;
         } catch (e) {
             return false;
         }
@@ -448,7 +479,10 @@
 
     function scheduleInlineMetaBootstrapRenders(forceRefresh = false) {
         clearInlineMetaBootstrapTimers();
-        const plan = [0, 48, 160, 360, 760];
+        // Plan extended past 760 ms so embed blocks (which SiYuan renders
+        // asynchronously after `loaded-protyle-static` fires) still get
+        // chips even if their first paint lands past the original window.
+        const plan = [0, 48, 160, 360, 760, 1400, 2400];
         plan.forEach((delay, index) => {
             if (delay === 0) {
                 try { scheduleInlineMetaRender(!!forceRefresh, true); } catch (e) {}
@@ -459,7 +493,8 @@
                 if (!inlineMetaStarted || !isInlineMetaEnabled()) return;
                 const needRetry = inlineMetaObservedRoots.length === 0
                     || inlineMetaObservedTaskBlocks.size === 0
-                    || !hasInlineMetaReadyHosts();
+                    || !hasInlineMetaReadyHosts()
+                    || hasInlineMetaPendingHosts();
                 if (!forceRefresh && !needRetry) return;
                 try { requestInlineMetaRender(forceRefresh || index >= plan.length - 2); } catch (e) {}
             }, delay);
@@ -1745,6 +1780,10 @@
                 pointer-events: none;
                 z-index: 1;
                 overflow: visible;
+                /* Isolate layout & style invalidation from the protyle's
+                   editor surface — chip writes should never propagate
+                   layout dirty bits up into SiYuan's editor tree. */
+                contain: layout style;
             }
             .sy-custom-props-inline-layer.is-scrolling .sy-custom-props-inline-host {
                 transition: none !important;
@@ -4460,6 +4499,21 @@
         function scheduleInlineMetaQueueDrain(delayMs = 0) {
             if (inlineMetaRenderQueueTimer) return;
             const delay = Math.max(0, Number(delayMs) || 0);
+            // delayMs === 0 → align to the next animation frame; this lets
+            // a frame's worth of cache-hit renders drain together instead
+            // of crawling through one setTimeout(16) hop per batch. Any
+            // explicit delay still uses setTimeout (used by the in-flight
+            // re-schedule that lets fetches resolve between batches).
+            if (delay === 0 && typeof requestAnimationFrame === 'function') {
+                inlineMetaRenderQueueIsRaf = true;
+                inlineMetaRenderQueueTimer = requestAnimationFrame(() => {
+                    inlineMetaRenderQueueTimer = 0;
+                    inlineMetaRenderQueueIsRaf = false;
+                    drainInlineMetaRenderQueue();
+                });
+                return;
+            }
+            inlineMetaRenderQueueIsRaf = false;
             inlineMetaRenderQueueTimer = setTimeout(() => {
                 inlineMetaRenderQueueTimer = 0;
                 drainInlineMetaRenderQueue();
@@ -4482,8 +4536,18 @@
                 inlineMetaRenderActiveIds.clear();
                 return;
             }
+            // Process at least BATCH_LIMIT items unconditionally to keep
+            // small bursts (e.g. attr-updated for a handful of tasks)
+            // single-frame. Beyond that, drain until ~4 ms of synchronous
+            // work has elapsed — cache-hit-only renders (~0.1 ms each)
+            // can clear a queue of dozens within a single frame, while
+            // slow-path renders still respect the frame budget.
+            const now = () => ((typeof performance !== 'undefined' && performance.now) ? performance.now() : Date.now());
+            const startTs = now();
+            const frameBudgetMs = 4;
             let count = 0;
-            while (count < QUICKBAR_INLINE_RENDER_BATCH_LIMIT && inlineMetaRenderQueue.length) {
+            while (inlineMetaRenderQueue.length) {
+                if (count >= QUICKBAR_INLINE_RENDER_BATCH_LIMIT && (now() - startTs) >= frameBudgetMs) break;
                 const item = inlineMetaRenderQueue.shift();
                 inlineMetaRenderQueueIds.delete(item.taskId);
                 if (!item.blockEl?.isConnected || inlineMetaRenderActiveIds.has(item.taskId)) continue;
@@ -4493,10 +4557,10 @@
                     .catch(() => null)
                     .finally(() => {
                         inlineMetaRenderActiveIds.delete(item.taskId);
-                        if (inlineMetaRenderQueue.length) scheduleInlineMetaQueueDrain(16);
+                        if (inlineMetaRenderQueue.length) scheduleInlineMetaQueueDrain(0);
                     });
             }
-            if (inlineMetaRenderQueue.length) scheduleInlineMetaQueueDrain(16);
+            if (inlineMetaRenderQueue.length) scheduleInlineMetaQueueDrain(0);
         }
 
         function getInlineDirectionalTaskBlocks(upBuffer = 360, downBuffer = 360, maxCount = 96) {
@@ -4778,6 +4842,69 @@
             }
         }
 
+        function ensureInlineMetaProtyleVisibilityObserver() {
+            if (inlineMetaProtyleVisibilityObserver) return inlineMetaProtyleVisibilityObserver;
+            if (typeof IntersectionObserver !== 'function') return null;
+            inlineMetaProtyleVisibilityObserver = new IntersectionObserver((entries) => {
+                let revealed = false;
+                entries.forEach((entry) => {
+                    const target = entry.target;
+                    if (!(target instanceof Element)) return;
+                    const wasIntersecting = inlineMetaProtyleVisibility.get(target) === true;
+                    const nowIntersecting = entry.isIntersecting === true && entry.intersectionRatio > 0;
+                    inlineMetaProtyleVisibility.set(target, nowIntersecting);
+                    if (!wasIntersecting && nowIntersecting) revealed = true;
+                });
+                if (!revealed || !inlineMetaStarted || !isInlineMetaEnabled()) return;
+                // A protyle just transitioned from hidden to visible. We want
+                // to re-trigger rendering, but NOT force-refresh every chip:
+                //
+                //  - `forceRefresh: true` would stampede /api/attr/getBlockAttrs
+                //    for every visible task (the cached props are wiped from
+                //    the render path's POV). While those fetches are
+                //    in-flight `renderInlineMetaHtml` paints default chips
+                //    (status=todo, priority=none) and any slow/failing fetch
+                //    leaves the chip looking like a freshly-created task.
+                //    Stale entries that genuinely changed are already
+                //    invalidated by `inlineMetaAttrUpdatedHandler`.
+                //
+                //  - `clearLayout: true` was originally added on the theory
+                //    that geometry was stale because the protyle was 0×0,
+                //    but `layoutInlineMetaHost` skips writing the cache when
+                //    rects are zero — so the cached positions all come from
+                //    the previously visible state and are still relative to
+                //    the per-protyle layer, which doesn't move when the tab
+                //    hides/shows. Trust the cached layout's textSig/widthSig
+                //    signatures to invalidate per-host when content shifted.
+                scheduleInlineMetaWake(false, {
+                    delayMs: 16,
+                    includeBootstrap: true,
+                    clearLayout: false,
+                });
+            }, { root: null, threshold: 0 });
+            return inlineMetaProtyleVisibilityObserver;
+        }
+
+        function rebindInlineMetaProtyleVisibility() {
+            const observer = ensureInlineMetaProtyleVisibilityObserver();
+            if (!observer) return;
+            // Re-observe every protyle in the DOM, not just visible ones, so
+            // a hidden tab's protyle can fire on reveal. Cheap because IO is
+            // O(observed elements) and protyles per workspace are small.
+            try { observer.disconnect(); } catch (e) {}
+            inlineMetaProtyleVisibility = new WeakMap();
+            try {
+                document.querySelectorAll('.protyle').forEach((el) => {
+                    if (!(el instanceof Element)) return;
+                    let rect = null;
+                    try { rect = el.getBoundingClientRect(); } catch (e2) {}
+                    const initiallyVisible = !!(rect && rect.width > 0 && rect.height > 0);
+                    inlineMetaProtyleVisibility.set(el, initiallyVisible);
+                    try { observer.observe(el); } catch (e2) {}
+                });
+            } catch (e) {}
+        }
+
         function ensureInlineMetaBlockObserver() {
             if (inlineMetaBlockObserver) return inlineMetaBlockObserver;
             if (typeof IntersectionObserver !== 'function') return null;
@@ -4869,16 +4996,72 @@
                     return true;
                 });
                 if (!hasRelevantMutation) return;
+                let topmostAffected = null;
                 const hasStructuralChange = mutations.some((m) => {
                     if (m.type !== 'childList') return false;
                     if (m.target instanceof Element && m.target.closest('.sy-custom-props-inline-layer')) return false;
                     const nodes = [...m.addedNodes, ...m.removedNodes];
-                    return nodes.some((n) => n.nodeType === Node.ELEMENT_NODE && (n.hasAttribute?.('data-node-id') || n.querySelector?.('[data-node-id]')));
+                    const structural = nodes.some((n) => n.nodeType === Node.ELEMENT_NODE && (n.hasAttribute?.('data-node-id') || n.querySelector?.('[data-node-id]')));
+                    if (structural) {
+                        // Find the topmost-in-DOM-order anchor for the mutation,
+                        // so we can invalidate only entries at or after it.
+                        // Removed nodes are no longer in the tree — use the
+                        // mutation target's nearest block ancestor instead.
+                        let anchor = null;
+                        try {
+                            for (let i = 0; i < m.addedNodes.length; i += 1) {
+                                const node = m.addedNodes[i];
+                                if (!(node instanceof Element)) continue;
+                                anchor = node.closest?.('[data-node-id]') || node;
+                                if (anchor) break;
+                            }
+                            if (!anchor && m.target instanceof Element) {
+                                anchor = m.target.closest?.('[data-node-id]') || m.target;
+                            }
+                        } catch (e) {}
+                        if (anchor instanceof Element && anchor.isConnected) {
+                            if (!topmostAffected) topmostAffected = anchor;
+                            else try {
+                                // anchor PRECEDES topmostAffected → use anchor instead.
+                                if (anchor.compareDocumentPosition(topmostAffected) & Node.DOCUMENT_POSITION_FOLLOWING) {
+                                    topmostAffected = anchor;
+                                }
+                            } catch (e) {}
+                        }
+                    }
+                    return structural;
                 });
                 inlineMetaNeedSyncBlocks = true;
                 if (hasStructuralChange && !inlineMetaScrolling) {
                     inlineMetaMutationHasStructural = true;
-                    inlineMetaLayoutCache.clear();
+                    if (topmostAffected instanceof Element) {
+                        // Targeted invalidation: only cache entries whose blocks
+                        // are at or after the topmost affected element can be
+                        // wrong (blocks before are visually undisturbed and their
+                        // cached left/top remain accurate). For typing in one
+                        // task in a long doc this preserves N-1 cache entries.
+                        try {
+                            const stale = [];
+                            inlineMetaLayoutCache.forEach((_, taskId) => {
+                                const blockEl = inlineMetaObservedTaskBlocks.get(taskId);
+                                if (!(blockEl instanceof Element) || !blockEl.isConnected) {
+                                    stale.push(taskId);
+                                    return;
+                                }
+                                if (blockEl === topmostAffected) {
+                                    stale.push(taskId);
+                                    return;
+                                }
+                                const rel = topmostAffected.compareDocumentPosition(blockEl);
+                                if (rel & Node.DOCUMENT_POSITION_FOLLOWING) stale.push(taskId);
+                            });
+                            stale.forEach((taskId) => inlineMetaLayoutCache.delete(taskId));
+                        } catch (e) {
+                            inlineMetaLayoutCache.clear();
+                        }
+                    } else {
+                        inlineMetaLayoutCache.clear();
+                    }
                 }
                 if (inlineMetaMutationTimer) clearTimeout(inlineMetaMutationTimer);
                 const now = Date.now();
@@ -4902,6 +5085,10 @@
             roots.forEach((root) => {
                 try { inlineMetaObserver.observe(root, { childList: true, subtree: true }); } catch (e) {}
             });
+            // Watch every .protyle for hidden→visible transitions so a tab
+            // switch back to a document tab triggers a wake even when SiYuan
+            // does not fire switch-protyle / loaded-protyle-* for it.
+            try { rebindInlineMetaProtyleVisibility(); } catch (e) {}
             inlineMetaNeedSyncBlocks = true;
             syncInlineMetaTaskBlocks(true);
         }
@@ -4997,10 +5184,24 @@
                 host.classList.remove('is-ready');
                 return false;
             }
-            // --- FAST PATH: skip expensive geometry reads when content is unchanged ---
             const textSig = getInlineTextFastSignature(textAnchor);
             const prevLayout = inlineMetaLayoutCache.get(taskId);
             const layoutHtml = String(html ?? prevLayout?.html ?? host.innerHTML ?? '');
+            // --- FAST PATH 0: block lives in a hidden protyle. Cheap O(1)
+            // check via the protyle-visibility WeakMap (no rect reads, no
+            // forced reflow). Skipping the read phase here avoids clearing
+            // the cache for blocks whose protyle just hides momentarily
+            // (e.g. behind another tab) — the cached position is correct
+            // and will fast-path-restore on reveal. ---
+            try {
+                const protyleEl = blockEl.closest?.('.protyle');
+                if (protyleEl && inlineMetaProtyleVisibility.get(protyleEl) === false) {
+                    if (prevLayout) return true;
+                    host.classList.remove('is-ready');
+                    return false;
+                }
+            } catch (e) {}
+            // --- FAST PATH: skip expensive geometry reads when content is unchanged ---
             if (!forceRefresh && prevLayout && prevLayout.textSig === textSig && prevLayout.html === layoutHtml && !inlineMetaScrolling) {
                 host.classList.toggle('is-wrap', !!prevLayout.wrapMode);
                 host.style.left = prevLayout.left;
@@ -5135,12 +5336,20 @@
 
         function refreshInlineMetaPositions() {
             if (!isInlineMetaEnabled()) return;
-            const layer = inlineMetaLayer && inlineMetaLayer.isConnected
-                ? inlineMetaLayer
-                : document.querySelector('.sy-custom-props-inline-layer');
-            if (!layer) return;
+            // Gather hosts from every layer in the document. Each protyle
+            // has its own layer; the old code only re-positioned hosts in
+            // whichever layer was last set as `inlineMetaLayer`, so a
+            // split-view (or dock + tab) would have chips frozen in one
+            // protyle while the other scrolled correctly.
+            const layers = Array.from(document.querySelectorAll('.sy-custom-props-inline-layer'));
+            if (!layers.length) return;
             inlineMetaOccupiedRects = [];
-            const hosts = Array.from(layer.querySelectorAll('.sy-custom-props-inline-host[data-block-id]'));
+            const hosts = [];
+            for (let li = 0; li < layers.length; li += 1) {
+                const layerEl = layers[li];
+                if (!layerEl?.isConnected) continue;
+                Array.prototype.push.apply(hosts, Array.from(layerEl.querySelectorAll('.sy-custom-props-inline-host[data-block-id]')));
+            }
             const entries = [];
             let missingBlockCount = 0;
             let outsideViewportCount = 0;
@@ -5296,6 +5505,19 @@
                     const keepDown = dir > 0 ? 4200 : (dir < 0 ? 1400 : 3200);
                     const keepBlocks = getInlineDirectionalTaskBlocks(keepUp, keepDown, 900);
                     pruneInlineMetaOutsideViewport(keepBlocks);
+                    // Render a small core slice while scrolling so blocks
+                    // entering the viewport get chips immediately. The old
+                    // path skipped all rendering until the 150ms scroll-idle
+                    // timer fired, which made fast scrolling reveal blank
+                    // rows for ~150ms. Cap the batch tightly to keep frame
+                    // budget — heavy work still waits for scroll-idle.
+                    const scrollCoreUp = dir > 0 ? 240 : (dir < 0 ? 720 : 480);
+                    const scrollCoreDown = dir > 0 ? 720 : (dir < 0 ? 240 : 480);
+                    const scrollCoreBlocks = getInlineDirectionalTaskBlocks(scrollCoreUp, scrollCoreDown, 32);
+                    const scrollCoreLimit = Math.min(QUICKBAR_INLINE_RENDER_BATCH_LIMIT, scrollCoreBlocks.length);
+                    for (let i = 0; i < scrollCoreLimit; i += 1) {
+                        queueInlineMetaRenderBlock(scrollCoreBlocks[i], !!forceRefresh, 360);
+                    }
                 } else {
                     const preRenderBlocks = buckets ? buckets.preRenderBlocks : [];
                     const keepBlocks = buckets ? buckets.keepBlocks : [];
@@ -5401,6 +5623,41 @@
                 document.addEventListener('compositionend', inlineMetaCompositionEndHandler, true);
             } catch (e) {}
             try {
+                if (!inlineMetaAttrUpdatedHandler) {
+                    // The main panel and the floatbar both dispatch
+                    // tm-task-attr-updated when an attr is written. Without
+                    // this listener the inline-meta caches stay frozen on the
+                    // pre-edit value, so when the user switches back to the
+                    // document the chips are stale. Invalidate caches and
+                    // re-render the affected hosts proactively.
+                    inlineMetaAttrUpdatedHandler = (e) => {
+                        const detail = e?.detail || null;
+                        if (!detail) return;
+                        const ids = new Set();
+                        const collect = (raw) => {
+                            const id = String(raw || '').trim();
+                            if (id) ids.add(id);
+                        };
+                        collect(detail.taskId);
+                        collect(detail.requestedTaskId);
+                        collect(detail.attrHostId);
+                        if (!ids.size) return;
+                        ids.forEach((id) => {
+                            try { inlineMetaCache.delete(id); } catch (err) {}
+                            try { inlineMetaPropsInflight.delete(id); } catch (err) {}
+                            try { inlineMetaLayoutCache.delete(id); } catch (err) {}
+                        });
+                        // Schedule a re-render per id. refreshInlineMetaByTaskId
+                        // skips if no block is in the DOM (hidden tab) — the
+                        // visibility observer above will pick it up on reveal.
+                        ids.forEach((id) => {
+                            try { refreshInlineMetaByTaskId(id, false); } catch (err) {}
+                        });
+                    };
+                    window.addEventListener('tm-task-attr-updated', inlineMetaAttrUpdatedHandler);
+                }
+            } catch (e) {}
+            try {
                 const eb = globalThis.__taskHorizonPluginInstance?.eventBus || window.siyuan?.eventBus;
                 if (eb && typeof eb.on === 'function' && !inlineMetaWsHandler) {
                     inlineMetaWsHandler = (msg) => {
@@ -5465,6 +5722,15 @@
             inlineMetaWsHandler = null;
             if (inlineMetaWsTimer) clearTimeout(inlineMetaWsTimer);
             inlineMetaWsTimer = null;
+            try {
+                if (inlineMetaAttrUpdatedHandler) {
+                    window.removeEventListener('tm-task-attr-updated', inlineMetaAttrUpdatedHandler);
+                }
+            } catch (e) {}
+            inlineMetaAttrUpdatedHandler = null;
+            try { inlineMetaProtyleVisibilityObserver?.disconnect?.(); } catch (e) {}
+            inlineMetaProtyleVisibilityObserver = null;
+            inlineMetaProtyleVisibility = new WeakMap();
             inlineMetaIsComposing = false;
             setInlineMetaScrolling(false);
             removeInlineMetaNodes();

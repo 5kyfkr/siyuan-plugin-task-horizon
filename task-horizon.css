@@ -5793,7 +5793,11 @@ select.tm-btn-secondary {
 @supports (content-visibility: auto) {
     .tm-kanban-card {
         content-visibility: auto;
-        contain-intrinsic-size: 148px;
+        /* `auto Xpx` lets the browser remember the measured size between
+           visible/invisible cycles. The single-value form re-uses the fixed
+           placeholder every time, which causes scrollbar jumps and the
+           "row pops in" flicker. */
+        contain-intrinsic-size: auto 148px;
     }
 }
 
@@ -7982,7 +7986,9 @@ select.tm-btn-secondary {
 @supports (content-visibility: auto) {
     .tm-checklist-item {
         content-visibility: auto;
-        contain-intrinsic-size: 108px;
+        /* `auto Xpx`: remembered measured size avoids layout shift when
+           scrolling rows back into view. */
+        contain-intrinsic-size: auto 108px;
     }
 }
 
