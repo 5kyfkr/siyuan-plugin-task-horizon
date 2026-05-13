@@ -238,7 +238,7 @@
             const contextMode = String(SettingsStore.data.aiDefaultContextMode || 'nearby').trim() === 'fulltext' ? 'fulltext' : 'nearby';
             const providerRaw = String(SettingsStore.data.aiProvider || '').trim();
             const provider = providerRaw === 'deepseek' ? 'deepseek' : (providerRaw === 'openai' ? 'openai' : 'minimax');
-            const providerLabel = provider === 'deepseek' ? 'DeepSeek' : (provider === 'openai' ? 'OpenAI' : 'MiniMax');
+            const providerLabel = provider === 'deepseek' ? 'DeepSeek' : (provider === 'openai' ? 'OpenAI 兼容' : 'MiniMax');
             const model = provider === 'deepseek'
                 ? (String(SettingsStore.data.aiDeepSeekModel || 'deepseek-chat').trim() || 'deepseek-chat')
                 : (provider === 'openai'
@@ -275,7 +275,7 @@
                         `<select class="b3-select" onchange="tmUpdateAiProvider(this.value)" style="width:220px;">
                             <option value="minimax" ${provider === 'minimax' ? 'selected' : ''}>MiniMax</option>
                             <option value="deepseek" ${provider === 'deepseek' ? 'selected' : ''}>DeepSeek</option>
-                            <option value="openai" ${provider === 'openai' ? 'selected' : ''}>OpenAI</option>
+                            <option value="openai" ${provider === 'openai' ? 'selected' : ''}>OpenAI 兼容</option>
                         </select>`,
                         { style: 'margin-top:10px;' }
                     )}
