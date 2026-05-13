@@ -7,6 +7,7 @@
         const v = String(raw || '').trim();
         if (v === 'deepseek') return 'deepseek';
         if (v === 'openai') return 'openai';
+        if (v === 'anthropic') return 'anthropic';
         return 'minimax';
     }
     window.tmUpdateAiProvider = async function(value) {
@@ -19,6 +20,7 @@
         const next = String(value || '').trim();
         if (provider === 'deepseek') SettingsStore.data.aiDeepSeekApiKey = next;
         else if (provider === 'openai') SettingsStore.data.aiOpenAIApiKey = next;
+        else if (provider === 'anthropic') SettingsStore.data.aiAnthropicApiKey = next;
         else SettingsStore.data.aiMiniMaxApiKey = next;
         await SettingsStore.save();
     };
@@ -26,10 +28,13 @@
         const provider = __tmResolveAiProvider(SettingsStore.data.aiProvider);
         const fallback = provider === 'deepseek'
             ? 'https://api.deepseek.com'
-            : (provider === 'openai' ? 'https://api.openai.com/v1' : 'https://api.minimaxi.com/anthropic');
+            : (provider === 'openai'
+                ? 'https://api.openai.com/v1'
+                : (provider === 'anthropic' ? 'https://api.anthropic.com' : 'https://api.minimaxi.com/anthropic'));
         const next = (String(value || '').trim() || fallback).replace(/\/+$/, '');
         if (provider === 'deepseek') SettingsStore.data.aiDeepSeekBaseUrl = next;
         else if (provider === 'openai') SettingsStore.data.aiOpenAIBaseUrl = next;
+        else if (provider === 'anthropic') SettingsStore.data.aiAnthropicBaseUrl = next;
         else SettingsStore.data.aiMiniMaxBaseUrl = next;
         await SettingsStore.save();
     };
@@ -38,6 +43,7 @@
         const next = String(value || '').trim();
         if (provider === 'deepseek') SettingsStore.data.aiDeepSeekModel = next || 'deepseek-chat';
         else if (provider === 'openai') SettingsStore.data.aiOpenAIModel = next || 'gpt-5.4-mini';
+        else if (provider === 'anthropic') SettingsStore.data.aiAnthropicModel = next || 'claude-sonnet-4-5';
         else SettingsStore.data.aiMiniMaxModel = next || 'MiniMax-M2.5';
         await SettingsStore.save();
     };

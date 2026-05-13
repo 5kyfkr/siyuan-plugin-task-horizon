@@ -516,7 +516,10 @@
                 aiEnabled: !!SettingsStore.data.aiEnabled,
                 aiProvider: (() => {
                     const v = String(SettingsStore.data.aiProvider || '').trim();
-                    return v === 'deepseek' ? 'deepseek' : (v === 'openai' ? 'openai' : 'minimax');
+                    if (v === 'deepseek') return 'deepseek';
+                    if (v === 'openai') return 'openai';
+                    if (v === 'anthropic') return 'anthropic';
+                    return 'minimax';
                 })(),
                 aiMiniMaxApiKey: String(SettingsStore.data.aiMiniMaxApiKey || ''),
                 aiMiniMaxBaseUrl: String(SettingsStore.data.aiMiniMaxBaseUrl || 'https://api.minimaxi.com/anthropic').trim() || 'https://api.minimaxi.com/anthropic',
@@ -527,6 +530,9 @@
                 aiOpenAIApiKey: String(SettingsStore.data.aiOpenAIApiKey || ''),
                 aiOpenAIBaseUrl: String(SettingsStore.data.aiOpenAIBaseUrl || 'https://api.openai.com/v1').trim() || 'https://api.openai.com/v1',
                 aiOpenAIModel: String(SettingsStore.data.aiOpenAIModel || 'gpt-5.4-mini').trim() || 'gpt-5.4-mini',
+                aiAnthropicApiKey: String(SettingsStore.data.aiAnthropicApiKey || ''),
+                aiAnthropicBaseUrl: String(SettingsStore.data.aiAnthropicBaseUrl || 'https://api.anthropic.com').trim() || 'https://api.anthropic.com',
+                aiAnthropicModel: String(SettingsStore.data.aiAnthropicModel || 'claude-sonnet-4-5').trim() || 'claude-sonnet-4-5',
                 aiMiniMaxTemperature: Number(SettingsStore.data.aiMiniMaxTemperature),
                 aiMiniMaxMaxTokens: Number(SettingsStore.data.aiMiniMaxMaxTokens),
                 aiMiniMaxTimeoutMs: Number(SettingsStore.data.aiMiniMaxTimeoutMs),
@@ -920,6 +926,9 @@
                 'tm_ai_openai_api_key',
                 'tm_ai_openai_base_url',
                 'tm_ai_openai_model',
+                'tm_ai_anthropic_api_key',
+                'tm_ai_anthropic_base_url',
+                'tm_ai_anthropic_model',
                 'tm_ai_minimax_temperature',
                 'tm_ai_minimax_max_tokens',
                 'tm_ai_minimax_timeout_ms',

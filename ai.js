@@ -13,6 +13,8 @@
     const DEFAULT_DEEPSEEK_MODEL = 'deepseek-chat';
     const DEFAULT_OPENAI_BASE_URL = 'https://api.openai.com/v1';
     const DEFAULT_OPENAI_MODEL = 'gpt-5.4-mini';
+    const DEFAULT_ANTHROPIC_BASE_URL = 'https://api.anthropic.com';
+    const DEFAULT_ANTHROPIC_MODEL = 'claude-sonnet-4-5';
     const AI_UI_REV = 'ui-rev-2026-03-17-3';
     const AI_SCENE_LABELS = {
         chat: 'AI 对话',
@@ -941,7 +943,11 @@
     function getConfig() {
         const s = bridge()?.getSettings?.() || {};
         const providerRaw = String(s.aiProvider || '').trim();
-        const provider = providerRaw === 'deepseek' ? 'deepseek' : (providerRaw === 'openai' ? 'openai' : 'minimax');
+        const provider = providerRaw === 'deepseek'
+            ? 'deepseek'
+            : (providerRaw === 'openai'
+                ? 'openai'
+                : (providerRaw === 'anthropic' ? 'anthropic' : 'minimax'));
         const statusOptions = Array.isArray(s.customStatusOptions)
             ? s.customStatusOptions.map((it) => ({
                 id: String(it?.id || '').trim(),
@@ -953,21 +959,29 @@
             ? String(s.aiDeepSeekApiKey || '').trim()
             : (provider === 'openai'
                 ? String(s.aiOpenAIApiKey || '').trim()
-                : String(s.aiMiniMaxApiKey || '').trim());
+                : (provider === 'anthropic'
+                    ? String(s.aiAnthropicApiKey || '').trim()
+                    : String(s.aiMiniMaxApiKey || '').trim()));
         const baseUrlFallback = provider === 'deepseek'
             ? DEFAULT_DEEPSEEK_BASE_URL
-            : (provider === 'openai' ? DEFAULT_OPENAI_BASE_URL : DEFAULT_BASE_URL);
+            : (provider === 'openai'
+                ? DEFAULT_OPENAI_BASE_URL
+                : (provider === 'anthropic' ? DEFAULT_ANTHROPIC_BASE_URL : DEFAULT_BASE_URL));
         const baseUrlRaw = provider === 'deepseek'
             ? String(s.aiDeepSeekBaseUrl || DEFAULT_DEEPSEEK_BASE_URL).trim()
             : (provider === 'openai'
                 ? String(s.aiOpenAIBaseUrl || DEFAULT_OPENAI_BASE_URL).trim()
-                : String(s.aiMiniMaxBaseUrl || DEFAULT_BASE_URL).trim());
+                : (provider === 'anthropic'
+                    ? String(s.aiAnthropicBaseUrl || DEFAULT_ANTHROPIC_BASE_URL).trim()
+                    : String(s.aiMiniMaxBaseUrl || DEFAULT_BASE_URL).trim()));
         const baseUrl = baseUrlRaw.replace(/\/+$/, '') || baseUrlFallback;
         const model = provider === 'deepseek'
             ? (String(s.aiDeepSeekModel || DEFAULT_DEEPSEEK_MODEL).trim() || DEFAULT_DEEPSEEK_MODEL)
             : (provider === 'openai'
                 ? (String(s.aiOpenAIModel || DEFAULT_OPENAI_MODEL).trim() || DEFAULT_OPENAI_MODEL)
-                : (String(s.aiMiniMaxModel || DEFAULT_MODEL).trim() || DEFAULT_MODEL));
+                : (provider === 'anthropic'
+                    ? (String(s.aiAnthropicModel || DEFAULT_ANTHROPIC_MODEL).trim() || DEFAULT_ANTHROPIC_MODEL)
+                    : (String(s.aiMiniMaxModel || DEFAULT_MODEL).trim() || DEFAULT_MODEL)));
         return {
             provider,
             enabled: !!s.aiEnabled,
@@ -1016,6 +1030,7 @@
     function providerLabel(provider) {
         if (provider === 'deepseek') return 'DeepSeek';
         if (provider === 'openai') return 'OpenAI';
+        if (provider === 'anthropic') return 'Anthropic';
         return 'MiniMax';
     }
 
@@ -1064,6 +1079,12 @@
         if (/\/v1$/i.test(raw)) return raw;
         if (/\/openai$/i.test(raw)) return `${raw}/v1`;
         return `${raw}/v1`;
+    }
+
+    function resolveAnthropicBaseUrl(baseUrl) {
+        const raw = String(baseUrl || '').trim().replace(/\/+$/, '');
+        if (!raw) return DEFAULT_ANTHROPIC_BASE_URL;
+        return raw.replace(/\/v1$/i, '');
     }
 
     function extractOpenAiMessageText(content) {
@@ -1201,6 +1222,39 @@
                 const json = JSON.parse(raw);
                 const text = String(json?.choices?.[0]?.message?.content || '').trim();
                 if (!text) throw new Error('DeepSeek 返回为空');
+                return text;
+            }
+            if (cfg.provider === 'anthropic') {
+                const baseUrl = resolveAnthropicBaseUrl(cfg.baseUrl);
+                const anthropicMessages = history.map((item) => ({
+                    role: item?.role === 'assistant' ? 'assistant' : 'user',
+                    content: String(item?.content || '').trim(),
+                })).filter((item) => item.content);
+                anthropicMessages.push({ role: 'user', content: userPayload });
+                const res = await requestAiHttp(`${baseUrl}/v1/messages`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'x-api-key': cfg.apiKey,
+                        Authorization: `Bearer ${cfg.apiKey}`,
+                        'anthropic-version': '2023-06-01',
+                        'anthropic-dangerous-direct-browser-access': 'true',
+                    },
+                    body: JSON.stringify({
+                        model: String(opt.model || cfg.model || DEFAULT_ANTHROPIC_MODEL),
+                        system: String(system || '').trim(),
+                        messages: anthropicMessages,
+                        max_tokens: Math.max(256, Math.min(8192, Math.round(Number(opt.maxTokens || cfg.maxTokens || 1600)))),
+                        temperature: Math.max(0, Math.min(1.5, Number(opt.temperature ?? cfg.temperature ?? 0.2))),
+                    }),
+                }, { controller, timeoutMs: resolveRequestTimeoutMs(cfg, opt) });
+                const raw = await res.text();
+                if (!res.ok) throw new Error(parseHttpError(raw, res.status));
+                const json = JSON.parse(raw);
+                const text = Array.isArray(json?.content)
+                    ? json.content.filter((it) => it?.type === 'text').map((it) => String(it?.text || '')).join('\n').trim()
+                    : '';
+                if (!text) throw new Error('Anthropic 返回为空');
                 return text;
             }
             if (cfg.provider === 'openai') {
@@ -1530,7 +1584,9 @@
                 ? (cfg.model || DEFAULT_DEEPSEEK_MODEL)
                 : (cfg.provider === 'openai'
                     ? (cfg.model || DEFAULT_OPENAI_MODEL)
-                    : 'MiniMax-M2.5-highspeed');
+                    : (cfg.provider === 'anthropic'
+                        ? (cfg.model || DEFAULT_ANTHROPIC_MODEL)
+                        : 'MiniMax-M2.5-highspeed'));
             const repairModel = String(opt.repairModel || defaultRepairModel);
             try {
                 repaired = await callMiniMax(
