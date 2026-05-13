@@ -4614,6 +4614,7 @@
             kanbanDragSyncSubtasks: true,
             kanbanCardFields: ['priority', 'status', 'date'],
             taskCardDateOnlyWithValue: false,
+            kanbanBoardMode: '',
             kanbanHeadingGroupMode: false,
             whiteboardAllTabsCardMinWidth: 320,
             whiteboardStreamMobileTwoColumns: true,
@@ -5027,6 +5028,13 @@
             } catch (e) {
                 payload = { ...(this.data || {}) };
             }
+            try {
+                const mode = typeof __tmGetKanbanBoardMode === 'function'
+                    ? __tmGetKanbanBoardMode()
+                    : (payload.kanbanHeadingGroupMode === true ? 'heading' : (String(payload.kanbanBoardMode || '').trim() || 'status'));
+                payload.kanbanBoardMode = mode;
+                payload.kanbanHeadingGroupMode = mode === 'heading';
+            } catch (e) {}
             return payload;
         },
 
@@ -5158,6 +5166,7 @@
                                 if (typeof cloudData.kanbanShowDoneColumn === 'boolean') this.data.kanbanShowDoneColumn = cloudData.kanbanShowDoneColumn;
                                 if (typeof cloudData.kanbanDragSyncSubtasks === 'boolean') this.data.kanbanDragSyncSubtasks = cloudData.kanbanDragSyncSubtasks;
                                 if (Array.isArray(cloudData.kanbanCardFields)) this.data.kanbanCardFields = cloudData.kanbanCardFields;
+                                if (typeof cloudData.kanbanBoardMode === 'string') this.data.kanbanBoardMode = cloudData.kanbanBoardMode;
                                 if (typeof cloudData.kanbanHeadingGroupMode === 'boolean') this.data.kanbanHeadingGroupMode = cloudData.kanbanHeadingGroupMode;
                                 if (typeof cloudData.whiteboardAllTabsCardMinWidth === 'number') this.data.whiteboardAllTabsCardMinWidth = cloudData.whiteboardAllTabsCardMinWidth;
                                 if (typeof cloudData.whiteboardStreamMobileTwoColumns === 'boolean') this.data.whiteboardStreamMobileTwoColumns = cloudData.whiteboardStreamMobileTwoColumns;
@@ -5516,6 +5525,7 @@
             this.data.kanbanDragSyncSubtasks = !!Storage.get('tm_kanban_drag_sync_subtasks', this.data.kanbanDragSyncSubtasks);
             this.data.kanbanCardFields = Storage.get('tm_kanban_card_fields', this.data.kanbanCardFields) || this.data.kanbanCardFields;
             this.data.taskCardDateOnlyWithValue = !!Storage.get('tm_task_card_date_only_with_value', this.data.taskCardDateOnlyWithValue);
+            this.data.kanbanBoardMode = Storage.get('tm_kanban_board_mode', this.data.kanbanBoardMode);
             this.data.kanbanHeadingGroupMode = !!Storage.get('tm_kanban_heading_group_mode', this.data.kanbanHeadingGroupMode);
             this.data.whiteboardAllTabsCardMinWidth = Storage.get('tm_whiteboard_all_tabs_card_min_width', this.data.whiteboardAllTabsCardMinWidth);
             this.data.whiteboardStreamMobileTwoColumns = !!Storage.get('tm_whiteboard_stream_mobile_two_columns', this.data.whiteboardStreamMobileTwoColumns);
@@ -5904,6 +5914,7 @@
             Storage.set('tm_kanban_drag_sync_subtasks', !!this.data.kanbanDragSyncSubtasks);
             Storage.set('tm_kanban_card_fields', this.data.kanbanCardFields || []);
             Storage.set('tm_task_card_date_only_with_value', !!this.data.taskCardDateOnlyWithValue);
+            Storage.set('tm_kanban_board_mode', typeof __tmGetKanbanBoardMode === 'function' ? __tmGetKanbanBoardMode() : (String(this.data.kanbanBoardMode || '').trim() || (this.data.kanbanHeadingGroupMode ? 'heading' : 'status')));
             Storage.set('tm_kanban_heading_group_mode', !!this.data.kanbanHeadingGroupMode);
             Storage.set('tm_whiteboard_all_tabs_card_min_width', Number(this.data.whiteboardAllTabsCardMinWidth) || 320);
             Storage.set('tm_whiteboard_stream_mobile_two_columns', !!this.data.whiteboardStreamMobileTwoColumns);
@@ -11416,7 +11427,9 @@
         const needFlowRank = !!ruleNeedsFlowRank || (!__tmRuleHasExplicitSort(rule0) && (!!state.groupByDocName || isUngroup || !!state.groupByTaskName || !!state.groupByTime || !!state.quadrantEnabled));
         const colOrder0 = Array.isArray(SettingsStore.data.columnOrder) ? SettingsStore.data.columnOrder : [];
         const docHeadingSubgroupActive = !!state.groupByDocName && SettingsStore.data.docH2SubgroupEnabled !== false;
-        const kanbanHeadingGroupingActive = !!SettingsStore.data.kanbanHeadingGroupMode;
+        const kanbanHeadingGroupingActive = typeof __tmGetKanbanBoardMode === 'function'
+            ? __tmGetKanbanBoardMode() === 'heading'
+            : !!SettingsStore.data.kanbanHeadingGroupMode;
         const needH2 = colOrder0.includes('h2')
             || normalizedRuleSorts0.some((item) => String(item?.field || '').trim() === 'h2')
             || docHeadingSubgroupActive

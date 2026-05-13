@@ -36,7 +36,9 @@
                         ? { key: 'pending', sortValue: Number.POSITIVE_INFINITY }
                         : (diffDays < 0
                             ? { key: 'overdue', sortValue: diffDays }
-                            : { key: `days_${diffDays}`, sortValue: diffDays });
+                            : (diffDays >= 16
+                                ? { key: 'farther', sortValue: 16 }
+                                : { key: `days_${diffDays}`, sortValue: diffDays }));
                     const timeBaseColor = isDark
                         ? __tmNormalizeHexColor(SettingsStore.data.timeGroupBaseColorDark, '#6ba5ff')
                         : __tmNormalizeHexColor(SettingsStore.data.timeGroupBaseColorLight, '#1a73e8');
@@ -283,7 +285,9 @@
             const kanbanColW = isCompact ? Math.max(220, baseKanbanW - 40) : baseKanbanW;
             const kanbanFillColumns = !!SettingsStore.data.kanbanFillColumns;
             const kanbanCardFields = new Set(__tmGetTaskCardFieldList('kanban'));
-            const headingMode = SettingsStore.data.kanbanHeadingGroupMode === true;
+            const boardMode = __tmGetKanbanBoardMode();
+            const headingMode = boardMode === 'heading';
+            const timeBoardMode = boardMode === 'time';
             const showDoneCol = headingMode && !!state.showCompletedTasks && !!SettingsStore.data.kanbanShowDoneColumn;
             const currentGroupId = String(SettingsStore.data.currentGroupId || 'all').trim() || 'all';
             const statusOptionsRaw = Array.isArray(SettingsStore.data.customStatusOptions) ? SettingsStore.data.customStatusOptions : [];
@@ -354,6 +358,11 @@
             const filteredIdList = filtered.map(t => String(t?.id || '').trim()).filter(Boolean);
             const filteredIdSet = new Set(filteredIdList);
             const indexById = new Map(filteredIdList.map((id, i) => [id, i]));
+            const filteredTaskById = new Map();
+            filtered.forEach((task) => {
+                const id = String(task?.id || '').trim();
+                if (id) filteredTaskById.set(id, task);
+            });
             const ruleForKanban = __tmGetCurrentRule();
             const allowDocFlowForKanban = __tmRuleUsesDocFlowSort(ruleForKanban);
             const isUngroupForKanban = !state.groupByDocName && !state.groupByTaskName && !state.groupByTime && !state.quadrantEnabled;
@@ -377,6 +386,8 @@
             const timeOverdueColor = isDark
                 ? __tmNormalizeHexColor(SettingsStore.data.timeGroupOverdueColorDark, '#ff6b6b')
                 : __tmNormalizeHexColor(SettingsStore.data.timeGroupOverdueColorLight, '#d93025');
+            const timePriorityMemo = new Map();
+            const getTimePriorityInfo = (task) => __tmGetTaskTimePriorityInfo(task, { memo: timePriorityMemo });
             const getTimeGroupLabelColor = (groupInfo) => {
                 const key = String(groupInfo?.key || '');
                 const sortValue = Number(groupInfo?.sortValue);
@@ -387,21 +398,67 @@
                 const alpha = __tmClamp(1 - sortValue * step, minA, 1);
                 return __tmWithAlpha(timeBaseColor || 'var(--tm-primary-color)', alpha);
             };
+            const buildTimeGroupLabelHtml = (label, diffDays) => {
+                const safeLabel = esc(String(label || '').trim());
+                const days = Number(diffDays);
+                if (!Number.isFinite(days) || days < 0 || days > 15) return safeLabel;
+                const target = new Date();
+                target.setHours(12, 0, 0, 0);
+                target.setDate(target.getDate() + days);
+                const weekday = __tmGetTaskRepeatWeekdayLabel(target);
+                return `<span class="tm-time-group-label-wrap"><span class="tm-time-group-label-text">${safeLabel}</span><span class="tm-time-group-weekday-chip">${esc(weekday)}</span></span>`;
+            };
             const getTimeGroup = (task) => {
-                const timeStr = String(task?.completionTime || task?.startDate || '').trim();
-                if (!timeStr) return { key: 'pending', label: '待定', sortValue: Infinity };
-                const taskDate = new Date(timeStr);
-                if (isNaN(taskDate.getTime())) return { key: 'pending', label: '待定', sortValue: Infinity };
-                const now = new Date();
-                const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
-                const target = new Date(taskDate.getFullYear(), taskDate.getMonth(), taskDate.getDate());
-                const diffDays = Math.ceil((target - today) / (1000 * 60 * 60 * 24));
-                if (diffDays < 0) return { key: 'overdue', label: '已过期', sortValue: diffDays };
-                if (diffDays === 0) return { key: 'today', label: '今天', sortValue: 0 };
-                if (diffDays === 1) return { key: 'tomorrow', label: '明天', sortValue: 1 };
-                if (diffDays <= 7) return { key: 'week', label: '本周', sortValue: diffDays };
-                if (diffDays <= 14) return { key: 'nextweek', label: '下周', sortValue: diffDays };
-                return { key: 'later', label: `${diffDays}天后`, sortValue: diffDays };
+                const info = getTimePriorityInfo(task);
+                const diffDays = Number(info?.diffDays);
+                if (!Number.isFinite(diffDays)) {
+                    return { key: 'pending', label: '待定', labelHtml: '待定', sortValue: Infinity };
+                }
+                if (diffDays < 0) return { key: 'overdue', label: '已过期', labelHtml: '已过期', sortValue: diffDays };
+                if (diffDays === 0) return { key: 'today', label: '今天', labelHtml: buildTimeGroupLabelHtml('今天', diffDays), sortValue: 0 };
+                if (diffDays === 1) return { key: 'tomorrow', label: '明天', labelHtml: buildTimeGroupLabelHtml('明天', diffDays), sortValue: 1 };
+                if (diffDays === 2) return { key: 'after_tomorrow', label: '后天', labelHtml: buildTimeGroupLabelHtml('后天', diffDays), sortValue: 2 };
+                if (diffDays >= 16) return { key: 'farther', label: '更远', labelHtml: '更远', sortValue: 16 };
+                const label = `余${diffDays}天`;
+                return { key: `days_${diffDays}`, label, labelHtml: buildTimeGroupLabelHtml(label, diffDays), sortValue: diffDays };
+            };
+            const timeBoardKeepSubtasksAttached = timeBoardMode && SettingsStore.data.kanbanDragSyncSubtasks !== false;
+            const getTimeBoardColumnTask = (task) => {
+                if (!timeBoardKeepSubtasksAttached || !task) return task;
+                let current = task;
+                const seen = new Set([String(task?.id || '').trim()].filter(Boolean));
+                while (current) {
+                    const pid = String(current?.parentTaskId || '').trim();
+                    if (!pid || seen.has(pid)) break;
+                    const parent = filteredTaskById.get(pid);
+                    if (!parent) break;
+                    current = parent;
+                    seen.add(pid);
+                }
+                return current || task;
+            };
+            const getTimeBoardGroup = (task) => getTimeGroup(getTimeBoardColumnTask(task));
+            const buildTimeBoardCols = () => {
+                const groups = new Map();
+                filtered.forEach((task) => {
+                    const info = getTimeBoardGroup(task);
+                    const key = String(info?.key || 'pending').trim() || 'pending';
+                    if (!groups.has(key)) {
+                        groups.set(key, {
+                            id: key,
+                            name: String(info?.label || '').trim() || '待定',
+                            labelHtml: String(info?.labelHtml || '').trim(),
+                            color: getTimeGroupLabelColor(info),
+                            kind: 'time',
+                            sortValue: Number(info?.sortValue),
+                        });
+                    }
+                });
+                return Array.from(groups.values()).sort((a, b) => {
+                    const av = Number(a?.sortValue);
+                    const bv = Number(b?.sortValue);
+                    return (Number.isFinite(av) ? av : Infinity) - (Number.isFinite(bv) ? bv : Infinity);
+                });
             };
             const getImportanceLevel = (task) => {
                 const priority = String(task?.priority || '').toLowerCase();
@@ -486,6 +543,7 @@
                 kanbanColW,
                 kanbanFillColumns,
                 showDoneCol,
+                boardMode,
                 headingMode,
                 currentGroupId,
                 activeDocId: String(state.activeDocId || '').trim(),
@@ -508,6 +566,7 @@
                 `;
             }
             const cols = (() => {
+                if (timeBoardMode) return buildTimeBoardCols();
                 if (!headingMode) return colsStatus;
                 if (isAllTabsView) {
                     const globalNewTaskDocId = String(SettingsStore.data.newTaskDocId || '').trim();
@@ -662,7 +721,9 @@
             const tasksByStatus = new Map(cols.map(c => [String(c?.id || '').trim(), []]));
             filtered.forEach(task => {
                 let key = '';
-                if (!headingMode) {
+                if (timeBoardMode) {
+                    key = String(getTimeBoardGroup(task)?.key || 'pending').trim() || 'pending';
+                } else if (!headingMode) {
                     key = (showDoneCol && !!task?.done) ? '__done__' : __tmResolveTaskStatusId(task, statusOptions);
                 } else if (showDoneCol && !!task?.done) {
                     key = '__done__';
@@ -1015,7 +1076,7 @@
                                 body = `<div class="tm-kanban-group-items">${h2Html}</div>`;
                             }
                         }
-                        const dropOpt = (SettingsStore.data.kanbanHeadingGroupMode && isAllTabsView && o.dropDoc && docId !== '__unknown__')
+                        const dropOpt = (headingMode && isAllTabsView && o.dropDoc && docId !== '__unknown__')
                             ? { dropKind: 'doc', dropDocId: docId }
                             : {};
                         const wrapDrop = dropOpt.dropKind
@@ -1308,6 +1369,14 @@
                 // 标题看板模式下，也支持按文档/时间/四象限/任务名分组
                 if (isDoneCol) {
                     listHtml = renderDoneColumnList();
+                } else if (timeBoardMode && state.quadrantEnabled) {
+                    listHtml = renderGroupedByQuadrant();
+                } else if (timeBoardMode && state.groupByDocName) {
+                    listHtml = renderGroupedByDoc();
+                } else if (timeBoardMode && state.groupByTaskName) {
+                    listHtml = renderGroupedByTaskName();
+                } else if (timeBoardMode) {
+                    listHtml = roots.length ? renderUngroupedWithPinned() : '';
                 } else if (headingMode && state.groupByDocName && isAllTabsView) {
                     // 标题看板模式 + 按文档分组 + 全部视图：每个文档内按二级标题分组，不显示文档标题行
                     listHtml = renderGroupedByDoc({ dropDoc: true, forceNoHeading: false, hideDocTitle: true, headingMode: true });
@@ -1343,32 +1412,37 @@
                 const count = list0.length;
                 const kind = isDoneCol
                     ? 'status'
-                    : (headingMode ? (String(c?.kind || '').trim() || (isAllTabsView ? 'doc' : 'heading')) : 'status');
+                    : (timeBoardMode ? 'time' : (headingMode ? (String(c?.kind || '').trim() || (isAllTabsView ? 'doc' : 'heading')) : 'status'));
                 if (headingMode && !isDoneCol && kind === 'doc' && !String(listHtml || '').trim()) {
                     return '';
                 }
                 const title = isDoneCol
                     ? '✅ 已完成'
+                    : (timeBoardMode
+                    ? c.name
                     : (headingMode
                     ? (kind === 'doc' ? `📄 ${c.name}` : c.name)
-                    : (c.id === '__done__' ? '✅ 已完成' : c.id === 'todo' ? `🗂️ ${c.name}` : c.name));
+                    : (c.id === '__done__' ? '✅ 已完成' : c.id === 'todo' ? `🗂️ ${c.name}` : c.name)));
                 const dataAttrs = isDoneCol
                     ? `data-kind="status" data-status="__done__"`
+                    : (timeBoardMode
+                    ? `data-kind="time" data-time="${esc(c.id)}"`
                     : (headingMode
                     ? (kind === 'doc'
                         ? `data-kind="doc" data-doc="${esc(String(c?.id || '').trim())}"`
                         : `data-kind="heading" data-doc="${esc(String(c?.docId || '').trim())}" data-heading="${esc(String(c?.headingId || '__none__').trim())}"`)
-                    : `data-kind="status" data-status="${esc(c.id)}"`);
-                const colHeaderBg = (() => {
+                    : `data-kind="status" data-status="${esc(c.id)}"`));
+                const colTintBg = (() => {
                     const rgba = __tmParseCssColorToRgba(String(c?.color || '').trim());
                     if (!rgba) return '';
                     const a = isDark ? 0.30 : 0.20;
                     return `rgba(${Math.round(rgba.r)}, ${Math.round(rgba.g)}, ${Math.round(rgba.b)}, ${a})`;
                 })();
                 const colTitleColor = String(c?.color || '').trim() || 'var(--tm-text-color)';
-                const colStyle = kanbanFillColumns
+                const colStyleBase = kanbanFillColumns
                     ? `flex:1 0 ${kanbanColW}px;min-width:${kanbanColW}px;max-width:none;`
                     : `width:${kanbanColW}px;min-width:${kanbanColW}px;max-width:${kanbanColW}px;`;
+                const colStyle = `${colStyleBase}${colTintBg ? `background:${colTintBg};` : ''}`;
                 const docIdForTitle = String(c?.docId || c?.id || '').trim();
                 const headingDocId = String(c?.docId || '').trim();
                 const headingIdForCreate = String(c?.headingId || '__none__').trim() || '__none__';
@@ -1379,12 +1453,14 @@
                 const canOpenDocFromTitle = headingMode && !isDoneCol && kind === 'doc' && docIdForTitle && docIdForTitle !== '__unknown__';
                 const canQuickAddToDoc = headingMode && isAllTabsView && !isDoneCol && kind === 'doc' && docIdForTitle && docIdForTitle !== '__unknown__';
                 const canCreateInHeading = headingMode && !isAllTabsView && !isDoneCol && kind === 'heading' && !!headingDocId;
-                const canQuickAddToStatus = !headingMode && !isDoneCol && !!statusIdForCreate;
-                const titleContentHtml = headingMode && !isDoneCol && kind === 'doc'
+                const canQuickAddToStatus = !headingMode && !timeBoardMode && !isDoneCol && !!statusIdForCreate;
+                const titleContentHtml = timeBoardMode && !isDoneCol
+                    ? `<span>${String(c?.labelHtml || '').trim() || esc(String(c?.name || ''))}</span>`
+                    : (headingMode && !isDoneCol && kind === 'doc'
                     ? `${__tmRenderDocIcon(docIdForTitle, { fallbackText: '📄', size: 14 })}<span>${esc(String(c?.name || ''))}</span>`
                     : (headingMode && !isDoneCol && kind === 'heading'
                         ? `${__tmRenderHeadingLevelInlineIcon(c?.headingLevel || SettingsStore.data.taskHeadingLevel || 'h2', { size: 14 })}<span>${esc(String(c?.name || ''))}</span>`
-                        : esc(title));
+                        : esc(title)));
                 const titleHtml = canOpenDocFromTitle
                     ? `<button type="button" class="tm-kanban-col-title tm-kanban-col-title--link" style="color:${esc(colTitleColor)};" title="点击跳转至文档：${esc(c.name)}" onclick="event.preventDefault();event.stopPropagation();tmOpenDocById('${escSq(docIdForTitle)}');">${titleContentHtml}</button>`
                     : `<div class="tm-kanban-col-title" style="color:${esc(colTitleColor)};" title="${esc(c.name)}">${titleContentHtml}</div>`;
@@ -1427,7 +1503,7 @@
                 `;
                 return `
                     <div class="tm-kanban-col" ${dataAttrs} style="${colStyle}" ondragover="tmKanbanDragOver(event)" ondragleave="tmKanbanDragLeave(event)" ondrop="tmKanbanDrop(event)">
-                        <div class="tm-kanban-col-header" style="${colHeaderBg ? `background:${colHeaderBg};` : ''}">
+                        <div class="tm-kanban-col-header" style="${colTintBg ? `background:${colTintBg};` : ''}">
                             ${titleHtml}
                             ${headerActionsHtml}
                         </div>

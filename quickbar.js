@@ -108,6 +108,7 @@
     const quickbarVisibleItemDefaults = ['custom-status', 'custom-priority', 'custom-start-date', 'custom-completion-time', 'custom-duration', 'custom-remark', 'action-ai-title', 'action-reminder', 'action-more'];
     const quickbarVisibleItemAllowSet = new Set(quickbarVisibleItemDefaults);
     let inlineMetaCache = new Map();
+    let inlineMetaCacheTs = new Map();
     let inlineMetaLayoutCache = new Map();
     let inlineMetaObserver = null;
     let inlineMetaObservedRoots = [];
@@ -789,6 +790,7 @@
                     : root.closest?.('.list,[data-type="NodeList"]');
                 const directTaskItems = getDirectTaskListItems(list);
                 if (directTaskItems.length === 1) return directTaskItems[0];
+                if (root.matches?.('.list,[data-type="NodeList"]')) return null;
                 const inner = root.querySelector?.('.li[data-node-id],[data-type="NodeListItem"][data-node-id]');
                 if (inner && readId(inner) && isTaskBlockElement(inner)) return inner;
                 return null;
@@ -2273,7 +2275,7 @@
                     const id = String(blockId || '').trim();
                     if (id) {
                         const prev = inlineMetaCache.get(id) || normalizeCustomProps();
-                        inlineMetaCache.set(id, normalizeCustomProps({ ...prev, ...attrs }));
+                        setInlineMetaCache(id, normalizeCustomProps({ ...prev, ...attrs }));
                     }
                 }
                 return {
@@ -2606,7 +2608,7 @@
             const attrKey = String(config?.attrKey || '').trim();
             const rawValue = String(value ?? '').trim();
             if (!rawValue) return '';
-            if (config?.type === 'date') return formatDate(rawValue);
+            if (config?.type === 'date') return formatTaskTimeLikeManager(rawValue);
             if (attrKey === 'custom-remark') return truncateInlineValue(rawValue, 24);
             if (attrKey === 'custom-duration') return truncateInlineValue(rawValue, 12);
             return truncateInlineValue(rawValue, 15);
@@ -2746,6 +2748,86 @@
             return out;
         }
 
+        function getRuntimeTaskByQuickbarId(blockId, blockEl = null) {
+            const id = String(blockId || '').trim();
+            const ids = [];
+            const pushId = (value) => {
+                const next = String(value || '').trim();
+                if (next && !ids.includes(next)) ids.push(next);
+            };
+            pushId(id);
+            try {
+                const binding = blockEl ? resolveTaskBindingFromBlockEl(blockEl) : resolveQuickbarAttrBindingFromBlockId(id);
+                pushId(binding?.taskId);
+                pushId(binding?.attrHostId);
+            } catch (e) {}
+            const runtime = globalThis.__tmRuntimeState || null;
+            const acceptsRuntimeTask = (task) => {
+                if (!(task && typeof task === 'object')) return false;
+                const taskId = String(task.id || '').trim();
+                const hostId = String(task.attrHostId || task.attr_host_id || '').trim();
+                return (taskId && ids.includes(taskId)) || (hostId && ids.includes(hostId));
+            };
+            const pickDirect = (tid) => {
+                if (!tid) return null;
+                try {
+                    return runtime?.getTaskById?.(tid, { includePending: true })
+                        || runtime?.getFlatTaskById?.(tid)
+                        || runtime?.getPendingTaskById?.(tid)
+                        || null;
+                } catch (e) {
+                    return null;
+                }
+            };
+            for (const tid of ids) {
+                const task = pickDirect(tid);
+                if (acceptsRuntimeTask(task)) return task;
+            }
+            try {
+                const flat = runtime?.getFlatTasks?.() || {};
+                const tasks = Object.values(flat || {});
+                const matched = tasks.find(acceptsRuntimeTask);
+                if (matched) return matched;
+            } catch (e) {}
+            return null;
+        }
+
+        function serializeQuickbarCustomFieldValueFromRuntime(config, value) {
+            const normalized = normalizeQuickbarCustomFieldValue(config, value);
+            if (Array.isArray(normalized)) return normalized.join(', ');
+            return String(normalized || '').trim();
+        }
+
+        function getRuntimeTaskCustomProps(blockId, blockEl = null) {
+            const task = getRuntimeTaskByQuickbarId(blockId, blockEl);
+            if (!(task && typeof task === 'object')) return null;
+            const props = normalizeCustomProps({
+                'custom-priority': String(task.priority || task.custom_priority || 'none').trim() || 'none',
+                'custom-status': String(task.customStatus || task.custom_status || '').trim(),
+                'custom-completion-time': String(task.completionTime || task.completion_time || '').trim(),
+                'custom-start-date': String(task.startDate || task.start_date || '').trim(),
+                'custom-duration': String(task.duration || task.custom_duration || '').trim(),
+                'custom-remark': String(task.remark || task.custom_remark || '').trim(),
+                'custom-pinned': String(task.pinned || task.custom_pinned || '').trim(),
+                'bookmark': String(task.bookmark || '').trim()
+            });
+            const customValues = (task.customFieldValues && typeof task.customFieldValues === 'object' && !Array.isArray(task.customFieldValues))
+                ? task.customFieldValues
+                : {};
+            getQuickbarCustomFieldDefs().forEach((field) => {
+                const config = buildQuickbarCustomFieldConfig(field);
+                const fieldId = String(field?.id || config?.customFieldId || '').trim();
+                if (!config?.attrKey || !fieldId) return;
+                if (!Object.prototype.hasOwnProperty.call(customValues, fieldId)) return;
+                props[config.attrKey] = serializeQuickbarCustomFieldValueFromRuntime(config, customValues[fieldId]);
+            });
+            return {
+                props,
+                taskId: String(task.id || '').trim(),
+                attrHostId: String(task.attrHostId || task.attr_host_id || '').trim()
+            };
+        }
+
         function resolveQuickbarAttrBindingFromBlockId(blockId) {
             const id = String(blockId || '').trim();
             if (!id) return { taskId: '', attrHostId: '' };
@@ -2772,7 +2854,7 @@
             };
             const currentBinding = resolveFromEl(currentBlockEl, true);
             if (currentBinding) return currentBinding;
-            const blockBinding = resolveFromEl(getBlockElById(id), false);
+            const blockBinding = resolveFromEl(getBlockElById(id), true);
             if (blockBinding) return blockBinding;
             return { taskId: id, attrHostId: id };
         }
@@ -2876,19 +2958,30 @@
             return text.length > max ? `${text.slice(0, max)}...` : text;
         }
 
-        function formatInlineCompletionDisplay(value) {
+        function formatTaskTimeLikeManager(value) {
             const s = String(value || '').trim();
             if (!s) return '';
-            const direct = s.match(/(?:T|\s)(\d{2}:\d{2})(?::\d{2})?$/);
-            if (direct) return direct[1];
-            if (/^\d{2}:\d{2}(?::\d{2})?$/.test(s)) return s.slice(0, 5);
-            if (/^\d+$/.test(s)) {
-                const d = new Date(Number(s));
-                if (Number.isNaN(d.getTime())) return '';
-                if (d.getHours() || d.getMinutes()) {
-                    return `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
+            try {
+                const bridgeFormatter = getTaskHorizonSharedApi()?.quickbarBridge?.formatTaskTime;
+                if (typeof bridgeFormatter === 'function') {
+                    const text = String(bridgeFormatter(s) || '').trim();
+                    if (text) return text;
                 }
-                return formatDate(d.getTime());
+            } catch (e) {}
+            if (/^\d{4}-\d{2}-\d{2}$/.test(s)) return s;
+            if (/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}/.test(s)) return s.slice(0, 10);
+            if (/^\d{14}$/.test(s)) return `${s.slice(0, 4)}-${s.slice(4, 6)}-${s.slice(6, 8)}`;
+            if (/^\d{8}$/.test(s)) return `${s.slice(0, 4)}-${s.slice(4, 6)}-${s.slice(6, 8)}`;
+            if (/^\d+$/.test(s)) {
+                const n = Number(s);
+                if (Number.isFinite(n) && n > 0) {
+                    const ts = n < 1e12 ? n * 1000 : n;
+                    const d = new Date(ts);
+                    if (!Number.isNaN(d.getTime())) {
+                        const pad = (v) => String(v).padStart(2, '0');
+                        return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+                    }
+                }
             }
             return formatDate(s);
         }
@@ -2930,7 +3023,7 @@
                 `.trim();
             }
             if (attrKey === 'custom-completion-time') {
-                const timeText = formatInlineCompletionDisplay(rawValue);
+                const timeText = formatTaskTimeLikeManager(rawValue);
                 if (!timeText) return '';
                 return `
                     <span class="sy-custom-props-inline-chip sy-custom-props-inline-chip--time" data-inline-attr="${escapedAttr}" data-inline-type="${config.type}" data-inline-name="${escapedName}" data-inline-value="${escapedValue}" title="${escapedName}">
@@ -2940,7 +3033,7 @@
             }
             const isDate = config.type === 'date';
             const displayValue = isDate
-                ? formatDate(rawValue)
+                ? formatTaskTimeLikeManager(rawValue)
                 : truncateInlineValue(rawValue, attrKey === 'custom-remark' ? 24 : 10);
             if (!displayValue) return '';
             return `
@@ -2950,12 +3043,51 @@
             `.trim();
         }
 
-        async function getTaskCustomProps(blockId, forceRefresh = false) {
+        async function getTaskCustomPropsFromTaskHorizon(blockId) {
+            const id = String(blockId || '').trim();
+            if (!id) return null;
+            try {
+                const sharedApi = getTaskHorizonSharedApi();
+                const bridge = sharedApi?.quickbarBridge || null;
+                const getter = bridge?.getTaskCustomPropsByAnyId || sharedApi?.getTaskCustomPropsByAnyId;
+                if (typeof getter !== 'function') {
+                    return null;
+                }
+                const result = await Promise.resolve(getter.call(bridge || sharedApi, id, { source: 'quickbar-inline' }));
+                const props = (result?.props && typeof result.props === 'object' && !Array.isArray(result.props))
+                    ? result.props
+                    : ((result && typeof result === 'object' && !Array.isArray(result)) ? result : null);
+                if (!props) {
+                    return null;
+                }
+                return {
+                    props: normalizeCustomProps(props),
+                    taskId: String(result?.taskId || '').trim(),
+                    attrHostId: String(result?.attrHostId || '').trim(),
+                };
+            } catch (e) {
+                return null;
+            }
+        }
+
+        async function getTaskCustomProps(blockId, forceRefresh = false, options = {}) {
+            const opts = (options && typeof options === 'object') ? options : {};
             const id = String(blockId || '').trim();
             if (!id) return normalizeCustomProps();
-            if (!forceRefresh && inlineMetaCache.has(id)) return inlineMetaCache.get(id);
-            const attrs = await getMergedTaskCustomAttrs(id);
-            const props = normalizeCustomProps(attrs);
+            if (!forceRefresh && !opts.skipAttrFallback && inlineMetaCache.has(id)) {
+                const cached = inlineMetaCache.get(id);
+                return cached;
+            }
+            const runtimeProps = getRuntimeTaskCustomProps(id);
+            const managerProps = runtimeProps || await getTaskCustomPropsFromTaskHorizon(id);
+            let props = managerProps?.props || null;
+            if (!props && opts.skipAttrFallback !== true) {
+                const attrs = await getMergedTaskCustomAttrs(id);
+                props = normalizeCustomProps(attrs);
+            }
+            if (!props) {
+                props = normalizeCustomProps();
+            }
             try {
                 const statusSnapshot = await getManagedTaskStatusSnapshot(id);
                 if (statusSnapshot && typeof statusSnapshot === 'object') {
@@ -2963,8 +3095,37 @@
                     if (statusValue) props['custom-status'] = statusValue;
                 }
             } catch (e) {}
-            inlineMetaCache.set(id, props);
+            setInlineMetaCache(id, props);
+            if (managerProps?.taskId && managerProps.taskId !== id) setInlineMetaCache(managerProps.taskId, props);
+            if (managerProps?.attrHostId && managerProps.attrHostId !== id) setInlineMetaCache(managerProps.attrHostId, props);
             return props;
+        }
+
+        function setInlineMetaCache(taskId, props) {
+            const id = String(taskId || '').trim();
+            if (!id) return;
+            inlineMetaCache.set(id, props && typeof props === 'object' ? props : normalizeCustomProps());
+            inlineMetaCacheTs.set(id, Date.now());
+        }
+
+        function deleteInlineMetaCache(taskId) {
+            const id = String(taskId || '').trim();
+            if (!id) return;
+            inlineMetaCache.delete(id);
+            inlineMetaCacheTs.delete(id);
+        }
+
+        function isInlineMetaCacheStale(taskId, maxAgeMs = 12000) {
+            const id = String(taskId || '').trim();
+            if (!id || !inlineMetaCache.has(id)) return false;
+            const ts = Number(inlineMetaCacheTs.get(id) || 0);
+            if (!ts) return true;
+            return (Date.now() - ts) > Math.max(1000, Number(maxAgeMs) || 12000);
+        }
+
+        function inlineMetaFieldsIncludeDate(cfg) {
+            const fields = Array.isArray(cfg?.fields) ? cfg.fields : [];
+            return fields.includes('custom-start-date') || fields.includes('custom-completion-time');
         }
 
         function patchInlineMetaCache(taskId, patch) {
@@ -2972,7 +3133,61 @@
             if (!id || !patch || typeof patch !== 'object') return;
             const base = inlineMetaCache.get(id) || normalizeCustomProps();
             const next = normalizeCustomProps({ ...base, ...patch });
-            inlineMetaCache.set(id, next);
+            setInlineMetaCache(id, next);
+        }
+
+        function collectInlineMetaAttrUpdateIds(detail = {}) {
+            const ids = new Set();
+            const pushId = (value) => {
+                const id = String(value || '').trim();
+                if (id) ids.add(id);
+            };
+            pushId(detail.taskId);
+            pushId(detail.requestedTaskId);
+            pushId(detail.resolvedTaskId);
+            pushId(detail.attrHostId);
+
+            Array.from(ids).forEach((id) => {
+                try {
+                    const binding = resolveQuickbarAttrBindingFromBlockId(id);
+                    pushId(binding?.taskId);
+                    pushId(binding?.attrHostId);
+                } catch (e) {}
+            });
+
+            Array.from(inlineMetaCache.keys()).forEach((cachedId) => {
+                if (ids.has(cachedId)) return;
+                try {
+                    const binding = resolveQuickbarAttrBindingFromBlockId(cachedId);
+                    const taskId = String(binding?.taskId || '').trim();
+                    const attrHostId = String(binding?.attrHostId || '').trim();
+                    if ((taskId && ids.has(taskId)) || (attrHostId && ids.has(attrHostId))) {
+                        pushId(cachedId);
+                    }
+                } catch (e) {}
+            });
+
+            return Array.from(ids);
+        }
+
+        function syncInlineMetaCacheFromAttrUpdate(detail = {}) {
+            const attrKey = String(detail?.attrKey || '').trim();
+            if (!attrKey) return false;
+            const config = getInlineFieldConfig(attrKey);
+            if (!config && !quickbarInlineFieldAllowSet.has(attrKey)) return false;
+            const cacheKey = String(config?.attrKey || attrKey).trim();
+            if (!cacheKey) return false;
+            const value = detail?.value == null ? '' : String(detail.value);
+            const ids = collectInlineMetaAttrUpdateIds(detail);
+            if (!ids.length) return false;
+            ids.forEach((id) => {
+                const hadCache = inlineMetaCache.has(id);
+                try { inlineMetaPropsInflight.delete(id); } catch (e) {}
+                if (hadCache) patchInlineMetaCache(id, { [cacheKey]: value });
+                else deleteInlineMetaCache(id);
+                refreshInlineMetaByTaskId(id, !hadCache);
+            });
+            return true;
         }
 
         function refreshInlineMetaByTaskId(taskId, forceRefresh = false) {
@@ -2993,13 +3208,14 @@
             return inlineMetaCache.get(id) || normalizeCustomProps();
         }
 
-        function ensureTaskPropsReady(blockId, forceRefresh = false) {
+        function ensureTaskPropsReady(blockId, forceRefresh = false, options = {}) {
+            const opts = (options && typeof options === 'object') ? options : {};
             const id = String(blockId || '').trim();
             if (!id) return Promise.resolve(normalizeCustomProps());
-            if (!forceRefresh && inlineMetaCache.has(id)) return Promise.resolve(inlineMetaCache.get(id));
+            if (!forceRefresh && !opts.skipAttrFallback && inlineMetaCache.has(id)) return Promise.resolve(inlineMetaCache.get(id));
             const inflight = inlineMetaPropsInflight.get(id);
-            if (inflight && !forceRefresh) return inflight;
-            const p = Promise.resolve(getTaskCustomProps(id, forceRefresh))
+            if (inflight) return inflight;
+            const p = Promise.resolve(getTaskCustomProps(id, forceRefresh, opts))
                 .catch(() => normalizeCustomProps())
                 .finally(() => {
                     if (inlineMetaPropsInflight.get(id) === p) inlineMetaPropsInflight.delete(id);
@@ -3538,7 +3754,7 @@
                 const anchorRect = anchorEl.getBoundingClientRect();
                 const tempInput = document.createElement('input');
                 tempInput.type = 'date';
-                tempInput.value = currentValue ? formatDate(currentValue) : '';
+                tempInput.value = currentValue ? formatTaskTimeLikeManager(currentValue) : '';
                 tempInput.setAttribute('aria-hidden', 'true');
                 tempInput.style.cssText = `position:fixed;left:${Math.max(0, Math.round(anchorRect.left))}px;top:${Math.max(0, Math.round(anchorRect.bottom))}px;width:1px;height:1px;opacity:0;pointer-events:none;`;
                 document.body.appendChild(tempInput);
@@ -3555,7 +3771,7 @@
                 const commitIfAny = async () => {
                     if (committed) return;
                     const picked = String(tempInput.value || '').trim();
-                    const oldDate = currentValue ? formatDate(currentValue) : '';
+                    const oldDate = currentValue ? formatTaskTimeLikeManager(currentValue) : '';
                     if (!picked && !oldDate) return;
                     if (picked === oldDate) return;
                     committed = true;
@@ -3582,7 +3798,7 @@
             // 桌面端：保留输入框弹层，并支持“清除日期”
             const input = setInputEditorMode('input');
             if (!(input instanceof HTMLInputElement)) return;
-            const oldValue = currentValue ? formatDate(currentValue) : '';
+            const oldValue = currentValue ? formatTaskTimeLikeManager(currentValue) : '';
             input.type = 'date';
             input.value = oldValue;
             input.placeholder = '';
@@ -4983,20 +5199,23 @@
             if (!host) return;
             host.dataset.blockId = taskId;
             const cfg = getQuickbarInlineSettings();
-            const hasCached = inlineMetaCache.has(taskId) && !forceRefresh;
-            const html = renderInlineMetaHtml(cfg, getInlineCachedProps(taskId));
-            if (!html) {
-                host.remove();
-                inlineMetaLayoutCache.delete(taskId);
-                return;
+            const hasDateInlineField = inlineMetaFieldsIncludeDate(cfg);
+            const runtimeProps = hasDateInlineField ? getRuntimeTaskCustomProps(taskId, blockEl) : null;
+            const hasCacheForRender = inlineMetaCache.has(taskId) && !runtimeProps?.props;
+            const hasCached = hasCacheForRender && !forceRefresh;
+            if (hasDateInlineField && !runtimeProps?.props && !hasCacheForRender) host.classList.remove('is-ready');
+            if (runtimeProps?.props) {
+                setInlineMetaCache(taskId, runtimeProps.props);
+                if (runtimeProps.taskId && runtimeProps.taskId !== taskId) setInlineMetaCache(runtimeProps.taskId, runtimeProps.props);
+                if (runtimeProps.attrHostId && runtimeProps.attrHostId !== taskId) setInlineMetaCache(runtimeProps.attrHostId, runtimeProps.props);
             }
-            const htmlChanged = host.innerHTML !== html;
-            const layoutOk = layoutInlineMetaHost(hostParent, host, taskId, textAnchor, html, forceRefresh, visibilityBuffer);
-            if (htmlChanged && layoutOk && host.isConnected && String(host.dataset.blockId || '').trim() === taskId) {
-                host.innerHTML = html;
-            }
-            if (hasCached) return;
-            Promise.resolve(ensureTaskPropsReady(taskId, forceRefresh)).then((freshProps) => {
+            const revalidateCached = (hasCached && isInlineMetaCacheStale(taskId)) || (hasDateInlineField && !runtimeProps?.props);
+            const useEmptyPropsForRender = hasDateInlineField && !runtimeProps?.props && !hasCacheForRender;
+            const cachedPropsForRender = useEmptyPropsForRender
+                ? normalizeCustomProps()
+                : getInlineCachedProps(taskId);
+            const html = renderInlineMetaHtml(cfg, cachedPropsForRender);
+            const applyFreshProps = (freshProps) => {
                 if (!host.isConnected) return;
                 if (String(host.dataset.blockId || '').trim() !== taskId) return;
                 const freshHtml = renderInlineMetaHtml(cfg, freshProps);
@@ -5005,11 +5224,39 @@
                     inlineMetaLayoutCache.delete(taskId);
                     return;
                 }
-                if (host.innerHTML === freshHtml) return;
+                if (host.innerHTML === freshHtml) {
+                    return;
+                }
                 host.innerHTML = freshHtml;
                 inlineMetaLayoutCache.delete(taskId);
                 requestInlineMetaRender(false);
-            }).catch(() => null);
+            };
+            if (!html) {
+                if (runtimeProps?.props) {
+                    host.remove();
+                    inlineMetaLayoutCache.delete(taskId);
+                    return;
+                }
+                if (!hasCached || revalidateCached || forceRefresh) {
+                    Promise.resolve(ensureTaskPropsReady(taskId, forceRefresh || revalidateCached, { skipAttrFallback: hasDateInlineField })).then(applyFreshProps).catch(() => null);
+                } else {
+                    host.remove();
+                    inlineMetaLayoutCache.delete(taskId);
+                }
+                return;
+            }
+            const htmlChanged = host.innerHTML !== html;
+            const layoutOk = layoutInlineMetaHost(hostParent, host, taskId, textAnchor, html, forceRefresh, visibilityBuffer);
+            if (htmlChanged && layoutOk && host.isConnected && String(host.dataset.blockId || '').trim() === taskId) {
+                host.innerHTML = html;
+            }
+            if (runtimeProps?.props) {
+                return;
+            }
+            if (hasCached && !revalidateCached) {
+                return;
+            }
+            Promise.resolve(ensureTaskPropsReady(taskId, forceRefresh || revalidateCached, { skipAttrFallback: hasDateInlineField })).then(applyFreshProps).catch(() => null);
         }
 
         function scheduleInlineMetaRender(forceRefresh = false, immediate = false) {
@@ -5040,18 +5287,20 @@
                     const coreSet = new Set(blocks.map((el) => String(el?.dataset?.nodeId || '').trim()).filter(Boolean));
                     const renderBlocks = [];
                     const renderLimit = Math.min(QUICKBAR_INLINE_RENDER_BATCH_LIMIT, preRenderBlocks.length);
+                    const renderCursor = preRenderBlocks.length ? inlineMetaRenderCursor % preRenderBlocks.length : 0;
                     for (let i = 0; i < renderLimit; i += 1) {
-                        renderBlocks.push(preRenderBlocks[(inlineMetaRenderCursor + i) % preRenderBlocks.length]);
+                        renderBlocks.push(preRenderBlocks[(renderCursor + i) % preRenderBlocks.length]);
                     }
+                    const renderPassComplete = !preRenderBlocks.length || (renderCursor + renderBlocks.length) >= preRenderBlocks.length;
                     inlineMetaRenderCursor = preRenderBlocks.length
-                        ? (inlineMetaRenderCursor + renderBlocks.length) % preRenderBlocks.length
+                        ? (renderCursor + renderBlocks.length) % preRenderBlocks.length
                         : 0;
                     renderBlocks.forEach((blockEl) => {
                         const blockId = String(blockEl?.dataset?.nodeId || '').trim();
                         const buffer = coreSet.has(blockId) ? 420 : 1800;
                         queueInlineMetaRenderBlock(blockEl, forceRefresh, buffer);
                     });
-                    if (preRenderBlocks.length > renderBlocks.length) {
+                    if (preRenderBlocks.length > renderBlocks.length && !renderPassComplete) {
                         inlineMetaRenderTimer = setTimeout(() => {
                             inlineMetaRenderTimer = null;
                             requestInlineMetaRender(false);
@@ -5392,6 +5641,7 @@
             document.addEventListener('pointerdown', closePopupsHandler, true);
 
             taskAttrUpdatedHandler = async (e) => {
+                try { syncInlineMetaCacheFromAttrUpdate(e?.detail || {}); } catch (err) {}
                 if (!e?.detail || !isReminderRelatedAttrKey(e.detail.attrKey)) return;
                 if (!floatBar || floatBar.style.display === 'none') return;
                 const incomingTaskId = String(e.detail.taskId || '').trim();

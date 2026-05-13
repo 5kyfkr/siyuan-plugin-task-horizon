@@ -130,7 +130,9 @@
                     ? { key: 'pending', sortValue: Number.POSITIVE_INFINITY }
                     : (diffDays < 0
                         ? { key: 'overdue', sortValue: diffDays }
-                        : { key: `days_${diffDays}`, sortValue: diffDays });
+                        : (diffDays >= 16
+                            ? { key: 'farther', sortValue: 16 }
+                            : { key: `days_${diffDays}`, sortValue: diffDays }));
                 return __tmGroupBgFromLabelColor(__tmGetTimeGroupLabelColor(groupInfo), isDark) || '';
             }
             if (state.quadrantEnabled) {
@@ -683,6 +685,7 @@
                 if (diffDays === 0) return { key: 'today', label: '今天', labelHtml: buildTimeGroupLabelHtml('今天', diffDays), sortValue: 0 };
                 if (diffDays === 1) return { key: 'tomorrow', label: '明天', labelHtml: buildTimeGroupLabelHtml('明天', diffDays), sortValue: 1 };
                 if (diffDays === 2) return { key: 'after_tomorrow', label: '后天', labelHtml: buildTimeGroupLabelHtml('后天', diffDays), sortValue: 2 };
+                if (diffDays >= 16) return { key: 'farther', label: '更远', labelHtml: '更远', sortValue: 16 };
 
                 const label = `余${diffDays}天`;
                 return {
@@ -8034,10 +8037,13 @@ hint(`❌ 操作失败: ${e.message}`, 'error');
                     try { __tmScheduleTaskIndexPrewarm({ currentDocIds: deferredDocIds, currentGroupId: currentGroupId || 'all' }); } catch (e) {}
                 }
                 try { window.tmWarmCalendarTaskCacheIfStale?.({ refresh: false, maxAgeMs: 20000 }); } catch (e) {}
-                if (SettingsStore.data.kanbanHeadingGroupMode || SettingsStore.data.docH2SubgroupEnabled !== false) {
+                const kanbanHeadingGroupingActive = typeof __tmGetKanbanBoardMode === 'function'
+                    ? __tmGetKanbanBoardMode() === 'heading'
+                    : !!SettingsStore.data.kanbanHeadingGroupMode;
+                if (kanbanHeadingGroupingActive || SettingsStore.data.docH2SubgroupEnabled !== false) {
                     try {
                         Promise.resolve().then(async () => {
-                            if (SettingsStore.data.kanbanHeadingGroupMode) {
+                            if (kanbanHeadingGroupingActive) {
                                 try { await __tmCleanupPlaceholderTasks(deferredDocIds); } catch (e) {}
                             }
                             try { await __tmWarmKanbanDocHeadings(deferredDocIds); } catch (e) {}
@@ -8594,7 +8600,9 @@ hint(`❌ 操作失败: ${e.message}`, 'error');
                 const needFlowRank = !!ruleNeedsFlowRank || (!__tmRuleHasExplicitSort(rule0) && (!!state.groupByDocName || isUngroup || !!state.groupByTaskName || !!state.groupByTime || !!state.quadrantEnabled));
                 const colOrder0 = Array.isArray(SettingsStore.data.columnOrder) ? SettingsStore.data.columnOrder : [];
                 const docHeadingSubgroupActive = !!state.groupByDocName && SettingsStore.data.docH2SubgroupEnabled !== false;
-                const kanbanHeadingGroupingActive = !!SettingsStore.data.kanbanHeadingGroupMode;
+                const kanbanHeadingGroupingActive = typeof __tmGetKanbanBoardMode === 'function'
+                    ? __tmGetKanbanBoardMode() === 'heading'
+                    : !!SettingsStore.data.kanbanHeadingGroupMode;
                 const needH2 = colOrder0.includes('h2')
                     || normalizedRuleSorts0.some(s => String(s?.field || '').trim() === 'h2')
                     || docHeadingSubgroupActive

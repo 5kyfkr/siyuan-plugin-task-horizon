@@ -192,6 +192,7 @@
         if (diffDays === 0) return '今天';
         if (diffDays === 1) return '明天';
         if (diffDays === 2) return '后天';
+        if (diffDays >= 16) return '更远';
         return `余${diffDays}天`;
     }
 

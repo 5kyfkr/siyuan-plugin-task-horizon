@@ -439,7 +439,9 @@
                         ? { key: 'pending', sortValue: Number.POSITIVE_INFINITY }
                         : (diffDays < 0
                             ? { key: 'overdue', sortValue: diffDays }
-                            : { key: `days_${diffDays}`, sortValue: diffDays });
+                            : (diffDays >= 16
+                                ? { key: 'farther', sortValue: 16 }
+                                : { key: `days_${diffDays}`, sortValue: diffDays }));
                     const timeBaseColor = isDark
                         ? __tmNormalizeHexColor(SettingsStore.data.timeGroupBaseColorDark, '#6ba5ff')
                         : __tmNormalizeHexColor(SettingsStore.data.timeGroupBaseColorLight, '#1a73e8');

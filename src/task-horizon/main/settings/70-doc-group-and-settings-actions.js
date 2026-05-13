@@ -1350,36 +1350,32 @@
     window.tmToggleKanbanHeadingGroupMode = async function(ev) {
         try { ev?.stopPropagation?.(); } catch (e) {}
         try { ev?.preventDefault?.(); } catch (e) {}
-        const next = !(SettingsStore.data.kanbanHeadingGroupMode === true);
-        SettingsStore.data.kanbanHeadingGroupMode = next;
+        const next = __tmGetKanbanBoardMode() === 'heading' ? 'status' : 'heading';
+        return window.tmSetKanbanBoardMode(next, ev);
+    };
+
+    window.tmSetKanbanBoardMode = async function(mode, ev) {
+        try { ev?.stopPropagation?.(); } catch (e) {}
+        try { ev?.preventDefault?.(); } catch (e) {}
+        const prev = __tmGetKanbanBoardMode();
+        const next = __tmNormalizeKanbanBoardMode(mode) || 'status';
+        if (next === prev) return;
+        __tmSetKanbanBoardModeState(next);
         try { SettingsStore.syncToLocal(); } catch (e) {}
         await SettingsStore.save();
-        if (next) {
+        if (next === 'heading') {
             try { await __tmCleanupPlaceholderTasks(state.__tmLoadedDocIdsForTasks || []); } catch (e) {}
             try { await __tmWarmKanbanDocHeadings(state.__tmLoadedDocIdsForTasks || []); } catch (e) {}
         }
         applyFilters();
         if (!__tmRerenderCurrentViewInPlace(state.modal)) render();
-        try { hint(next ? '✅ 已切换到标题看板' : '✅ 已切换到状态看板', 'success'); } catch (e) {}
+        const labelMap = { status: '状态看板', heading: '标题看板', time: '时间看板' };
+        try { hint(`✅ 已切换到${labelMap[next] || '状态看板'}`, 'success'); } catch (e) {}
     };
 
     window.tmSetKanbanHeadingGroupMode = async function(mode, ev) {
-        try { ev?.stopPropagation?.(); } catch (e) {}
-        try { ev?.preventDefault?.(); } catch (e) {}
         const m = String(mode || '').trim().toLowerCase();
-        const next = m === 'heading';
-        const prev = SettingsStore.data.kanbanHeadingGroupMode === true;
-        if (next === prev) return;
-        SettingsStore.data.kanbanHeadingGroupMode = next;
-        try { SettingsStore.syncToLocal(); } catch (e) {}
-        await SettingsStore.save();
-        if (next) {
-            try { await __tmCleanupPlaceholderTasks(state.__tmLoadedDocIdsForTasks || []); } catch (e) {}
-            try { await __tmWarmKanbanDocHeadings(state.__tmLoadedDocIdsForTasks || []); } catch (e) {}
-        }
-        applyFilters();
-        if (!__tmRerenderCurrentViewInPlace(state.modal)) render();
-        try { hint(next ? '✅ 已切换到标题看板' : '✅ 已切换到状态看板', 'success'); } catch (e) {}
+        return window.tmSetKanbanBoardMode(m === 'heading' ? 'heading' : 'status', ev);
     };
 
     window.tmSetWhiteboardAllTabsLayoutMode = async function(mode, ev) {

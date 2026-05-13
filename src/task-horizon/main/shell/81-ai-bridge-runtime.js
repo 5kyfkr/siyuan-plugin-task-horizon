@@ -640,9 +640,80 @@
     __tmNs.applyTaskAttrUpdateWithUndo = __tmApplyTaskAttrUpdateWithUndo;
     __tmNs.applyTaskMetaPatchWithUndo = __tmApplyTaskMetaPatchWithUndo;
     __tmNs.applyTaskStatus = __tmApplyTaskStatus;
+
+    function __tmBuildQuickbarTaskCustomProps(task) {
+        if (!(task && typeof task === 'object')) return null;
+        const normalizeDate = (value) => {
+            try { return value ? __tmNormalizeDateOnly(value) : ''; } catch (e) { return String(value || '').trim(); }
+        };
+        const props = {
+            'custom-priority': String(task.priority || task.custom_priority || 'none').trim() || 'none',
+            'custom-status': String(task.customStatus || task.custom_status || '').trim(),
+            'custom-completion-time': normalizeDate(task.completionTime || task.completion_time || ''),
+            'custom-start-date': normalizeDate(task.startDate || task.start_date || ''),
+            'custom-duration': String(task.duration || task.custom_duration || '').trim(),
+            'custom-remark': String(task.remark || task.custom_remark || '').trim(),
+            'custom-pinned': String(task.pinned || task.custom_pinned || '').trim(),
+            'bookmark': String(task.bookmark || '').trim(),
+        };
+        try {
+            __tmGetCustomFieldDefs().forEach((field) => {
+                const fieldId = String(field?.id || '').trim();
+                if (!fieldId) return;
+                const attrKey = __tmBuildCustomFieldAttrStorageKey(field?.attrKey || field?.id || field?.name || 'field', fieldId);
+                if (!attrKey) return;
+                const normalized = __tmNormalizeCustomFieldValue(field, __tmGetTaskCustomFieldValue(task, fieldId));
+                props[attrKey] = __tmSerializeCustomFieldValue(field, normalized);
+            });
+        } catch (e) {}
+        return props;
+    }
+
+    async function __tmGetQuickbarTaskCustomPropsByAnyId(taskIdOrBlockId) {
+        const requestedId = String(taskIdOrBlockId || '').trim();
+        if (!requestedId) return null;
+        let binding = null;
+        try { binding = await __tmResolveTaskBindingFromAnyBlockId(requestedId); } catch (e) { binding = null; }
+        const taskId = String(binding?.taskId || requestedId).trim();
+        let task = (binding?.task && typeof binding.task === 'object') ? binding.task : null;
+        if (!task && taskId) {
+            try { task = globalThis.__tmRuntimeState?.getTaskById?.(taskId, { includePending: true }) || state.flatTasks?.[taskId] || state.pendingInsertedTasks?.[taskId] || null; } catch (e) {}
+        }
+        if (!task && taskId) {
+            try { task = await __tmEnsureTaskInStateById(taskId); } catch (e) { task = null; }
+        }
+        if (!task && taskId) {
+            try { task = await __tmBuildTaskLikeFromBlockId(taskId); } catch (e) { task = null; }
+        }
+        if (!task && requestedId && requestedId !== taskId) {
+            try { task = await __tmBuildTaskLikeFromBlockId(requestedId); } catch (e) { task = null; }
+        }
+        if (task && typeof task === 'object') {
+            try {
+                task = __tmCacheTaskInState(task, {
+                    docNameFallback: task.doc_name || task.docName || '未命名文档'
+                }) || task;
+            } catch (e) {}
+        }
+        const props = __tmBuildQuickbarTaskCustomProps(task);
+        if (!props) return null;
+        return {
+            requestedId,
+            taskId: String(task?.id || taskId || requestedId).trim(),
+            attrHostId: String(binding?.attrHostId || __tmGetTaskAttrHostId(task) || taskId || requestedId).trim(),
+            props,
+        };
+    }
+
     __tmNs.quickbarBridge = {
         debugPush(channel, tag, payload = {}) {
             return __tmPushDebugChannel(channel, tag, payload);
+        },
+        async getTaskCustomPropsByAnyId(taskIdOrBlockId) {
+            return await __tmGetQuickbarTaskCustomPropsByAnyId(taskIdOrBlockId);
+        },
+        formatTaskTime(value) {
+            try { return __tmFormatTaskTime(value); } catch (e) { return String(value || '').trim(); }
         },
         notifyAttrUpdated(detail = {}) {
             const next = (detail && typeof detail === 'object' && !Array.isArray(detail)) ? detail : {};

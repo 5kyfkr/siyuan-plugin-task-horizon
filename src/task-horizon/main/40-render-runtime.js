@@ -414,6 +414,27 @@ return;
                 action: `tmSwitchGroupMode('task')`
             }] : [])
         ];
+        const kanbanBoardMode = __tmGetKanbanBoardMode();
+        const kanbanModeMenuOptions = [
+            {
+                value: 'status',
+                label: '状态',
+                selected: kanbanBoardMode === 'status',
+                action: `tmSetKanbanBoardMode('status')`
+            },
+            {
+                value: 'heading',
+                label: '标题',
+                selected: kanbanBoardMode === 'heading',
+                action: `tmSetKanbanBoardMode('heading')`
+            },
+            {
+                value: 'time',
+                label: '时间',
+                selected: kanbanBoardMode === 'time',
+                action: `tmSetKanbanBoardMode('time')`
+            }
+        ];
 
         const {
             renderMode,
@@ -555,10 +576,7 @@ return;
                     <!-- 桌面端搜索栏 -->
                     <div class="tm-search-box tm-desktop-toolbar" style="display:${isMobile ? 'none' : 'flex'}; flex-wrap: nowrap;">
                         ${renderMode === 'kanban' ? `
-                            <div class="tm-view-segmented tm-kanban-mode-segmented bc-tabs-list" role="tablist" aria-label="看板模式">
-                                <button class="tm-view-seg-item bc-tabs-trigger ${!SettingsStore.data.kanbanHeadingGroupMode ? 'tm-view-seg-item--active' : ''}" data-state="${!SettingsStore.data.kanbanHeadingGroupMode ? 'active' : 'inactive'}" onclick="tmSetKanbanHeadingGroupMode('status', event)" role="tab" aria-selected="${!SettingsStore.data.kanbanHeadingGroupMode ? 'true' : 'false'}"${__tmBuildTooltipAttrs('状态看板', { side: 'bottom', ariaLabel: false })}>状态</button>
-                                <button class="tm-view-seg-item bc-tabs-trigger ${SettingsStore.data.kanbanHeadingGroupMode ? 'tm-view-seg-item--active' : ''}" data-state="${SettingsStore.data.kanbanHeadingGroupMode ? 'active' : 'inactive'}" onclick="tmSetKanbanHeadingGroupMode('heading', event)" role="tab" aria-selected="${SettingsStore.data.kanbanHeadingGroupMode ? 'true' : 'false'}"${__tmBuildTooltipAttrs('标题看板', { side: 'bottom', ariaLabel: false })}>标题</button>
-                            </div>
+                            ${__tmRenderTopbarSelect({ id: 'tmTopbarKanbanModeSelect', label: '看板模式', options: kanbanModeMenuOptions, className: 'tm-kanban-mode-select tm-topbar-select--narrow', tooltip: '切换看板模式' })}
                         ` : showWhiteboardAllTabsModeToggle ? `
                             <div class="tm-view-segmented tm-kanban-mode-segmented bc-tabs-list" role="tablist" aria-label="白板模式">
                                 <button class="tm-view-seg-item bc-tabs-trigger ${whiteboardAllTabsLayoutMode !== 'stream' ? 'tm-view-seg-item--active' : ''}" data-state="${whiteboardAllTabsLayoutMode !== 'stream' ? 'active' : 'inactive'}" onclick="tmSetWhiteboardAllTabsLayoutMode('board', event)" role="tab" aria-selected="${whiteboardAllTabsLayoutMode !== 'stream' ? 'true' : 'false'}"${__tmBuildTooltipAttrs('白板', { side: 'bottom', ariaLabel: false })}>白板</button>
@@ -597,12 +615,9 @@ return;
                                     </div>
                                 </div>
                                 ${renderMode === 'kanban' ? `
-                                <div class="tm-mobile-only-item" style="display:flex; flex-direction:column; gap:6px; align-items:stretch;">
-                                    <span style="color:var(--tm-text-color);">看板模式:</span>
-                                    <div class="tm-view-segmented tm-kanban-mode-segmented bc-tabs-list" role="tablist" aria-label="看板模式" style="width:100%;">
-                                        <button class="tm-view-seg-item bc-tabs-trigger ${!SettingsStore.data.kanbanHeadingGroupMode ? 'tm-view-seg-item--active' : ''}" data-state="${!SettingsStore.data.kanbanHeadingGroupMode ? 'active' : 'inactive'}" onclick="tmSetKanbanHeadingGroupMode('status', event)" role="tab" aria-selected="${!SettingsStore.data.kanbanHeadingGroupMode ? 'true' : 'false'}" style="flex:1;line-height:30px;">状态</button>
-                                        <button class="tm-view-seg-item bc-tabs-trigger ${SettingsStore.data.kanbanHeadingGroupMode ? 'tm-view-seg-item--active' : ''}" data-state="${SettingsStore.data.kanbanHeadingGroupMode ? 'active' : 'inactive'}" onclick="tmSetKanbanHeadingGroupMode('heading', event)" role="tab" aria-selected="${SettingsStore.data.kanbanHeadingGroupMode ? 'true' : 'false'}" style="flex:1;line-height:30px;">标题</button>
-                                    </div>
+                                <div class="tm-mobile-only-item tm-mobile-menu-row" style="display:flex; gap:10px; align-items:center;">
+                                    <span class="tm-mobile-menu-label" style="color:var(--tm-text-color);width:60px;">看板:</span>
+                                    ${__tmRenderTopbarSelect({ id: 'tmMobileKanbanModeSelect', label: '看板模式', options: kanbanModeMenuOptions, style: 'flex:1;' })}
                                 </div>
                                 ` : ''}
                                 ${showWhiteboardMobileLayoutModeToggle ? `
@@ -2473,9 +2488,24 @@ return;
         const modal = modalEl instanceof Element ? modalEl : state.modal;
         if (!modal) return;
         try {
-            const cols = modal.querySelectorAll('.tm-kanban-col.tm-kanban-col--dragover');
-            cols.forEach(el => { try { el.classList.remove('tm-kanban-col--dragover'); } catch (e) {} });
+            const cols = modal.querySelectorAll('.tm-kanban-col.tm-kanban-col--dragover, .tm-kanban-col.tm-kanban-col--drop-forbidden');
+            cols.forEach(el => { try { el.classList.remove('tm-kanban-col--dragover', 'tm-kanban-col--drop-forbidden'); } catch (e) {} });
         } catch (e) {}
+    }
+
+    function __tmBuildKanbanTimeDropTarget(timeKey) {
+        const key = String(timeKey || '').trim();
+        if (!key) return null;
+        if (key === 'pending') return { key, dateKey: '', label: '待定' };
+        const dateKey = typeof __tmResolveTimeGroupDropDateKey === 'function'
+            ? __tmResolveTimeGroupDropDateKey(key)
+            : '';
+        if (!dateKey) return null;
+        if (key === 'today') return { key, dateKey, label: '今天' };
+        if (key === 'tomorrow') return { key, dateKey, label: '明天' };
+        if (key === 'after_tomorrow') return { key, dateKey, label: '后天' };
+        const m = /^days_(\d+)$/.exec(key);
+        return { key, dateKey, label: m ? `余${m[1]}天` : dateKey };
     }
 
     function __tmResolveKanbanDropHost(ev) {
@@ -2585,7 +2615,7 @@ return;
 
     function __tmKanbanResolveTaskStatusColumnKey(task) {
         if (!task) return '';
-        const doneBoardEnabled = SettingsStore.data.kanbanHeadingGroupMode === true
+        const doneBoardEnabled = __tmGetKanbanBoardMode() === 'heading'
             && !!state.showCompletedTasks
             && !!SettingsStore.data.kanbanShowDoneColumn;
         if (!!task.done && doneBoardEnabled) return '__done__';
@@ -2961,10 +2991,14 @@ return;
         const col = host?.closest?.('.tm-kanban-col') || null;
         if (!col) return;
         try {
+            const kind = String(col?.dataset?.kind || '').trim();
+            const timeKey = String(col?.dataset?.time || '').trim();
+            const timeDropForbidden = kind === 'time' && !__tmBuildKanbanTimeDropTarget(timeKey);
             if (!col.classList.contains('tm-kanban-col--dragover')) {
                 __tmKanbanClearDragOver();
                 col.classList.add('tm-kanban-col--dragover');
             }
+            col.classList.toggle('tm-kanban-col--drop-forbidden', timeDropForbidden);
         } catch (e) {}
     };
 
@@ -3686,6 +3720,7 @@ return;
         let kind = '';
         let targetDocId = '';
         let targetHeadingId = '';
+        let targetTimeKey = '';
         let st = '';
 
         if (dropTarget) {
@@ -3701,6 +3736,7 @@ return;
             kind = String(col?.dataset?.kind || 'status').trim() || 'status';
             targetDocId = String(col?.dataset?.doc || '').trim();
             targetHeadingId = String(col?.dataset?.heading || '').trim();
+            targetTimeKey = String(col?.dataset?.time || '').trim();
             st = String(col?.dataset?.status || '').trim();
         }
 
@@ -3710,7 +3746,7 @@ return;
         if (!id) id = String(state.__tmKanbanDragId || '').trim();
         if (!id) return;
         const baseIds = Array.isArray(state.__tmKanbanDragIds) && state.__tmKanbanDragIds.length ? state.__tmKanbanDragIds : [id];
-        const headingDoneBoardEnabled = SettingsStore.data.kanbanHeadingGroupMode === true
+        const headingDoneBoardEnabled = __tmGetKanbanBoardMode() === 'heading'
             && !!state.showCompletedTasks
             && !!SettingsStore.data.kanbanShowDoneColumn;
         const restoreIdsFromDoneBoard = async (seedIds) => {
@@ -3758,6 +3794,48 @@ return;
             }
             return false;
         };
+        if (kind === 'time') {
+            const target = __tmBuildKanbanTimeDropTarget(targetTimeKey);
+            if (!target) {
+                hint(targetTimeKey === 'overdue' ? '已过期看板不能作为拖放目标' : '该时间看板不能作为拖放目标', 'info');
+                return;
+            }
+            let changed = 0;
+            let editableBlocked = false;
+            const ids = baseIds.map((tid) => String(tid || '').trim()).filter(Boolean);
+            for (const tid of ids) {
+                const task = globalThis.__tmRuntimeState?.getFlatTaskById?.(tid) || state.flatTasks?.[tid];
+                if (!task) continue;
+                if (!__tmEnsureEditableTaskLike(task, '修改截止日期')) {
+                    editableBlocked = true;
+                    continue;
+                }
+                const currentDate = __tmNormalizeDateOnly(task?.completionTime || task?.completion_time || '');
+                if (currentDate === target.dateKey) continue;
+                const ok = await __tmCommitUiFriendlyTaskPatch(tid, { completionTime: target.dateKey }, {
+                    source: 'kanban-time-board-drop-completion-time',
+                    label: '截止日期',
+                    reason: 'kanban-time-board-drop-completion-time',
+                    withFilters: true,
+                    skipViewRefresh: true,
+                    skipSettledRefresh: true,
+                    defer: false,
+                    optimisticProjectionRefresh: true,
+                    showErrorHint: false,
+                });
+                if (ok !== false) changed += 1;
+            }
+            if (!changed) {
+                if (!editableBlocked) hint(target.dateKey ? `截止日期已是 ${target.dateKey}` : '截止日期已是待定', 'info');
+                return;
+            }
+            try { applyFilters(); } catch (e2) {}
+            if (!__tmRerenderKanbanInPlace(state.modal)) {
+                try { render(); } catch (e2) {}
+            }
+            hint(target.dateKey ? `✅ 已移动到${target.label}看板` : '✅ 已移入待定看板', 'success');
+            return;
+        }
         if (kind === 'status') {
             if (!st) return;
             let ids = baseIds.slice();

@@ -8603,18 +8603,66 @@
         }
     }
 
+    function __tmCreatePointsPenaltyRecordWaiter(amount, reason, timeoutMs = 8000) {
+        const n = Number(amount);
+        const reasonText = String(reason || '').trim() || '任务逾期扣分';
+        const fallback = { promise: Promise.resolve(false), cancel: () => {} };
+        if (!Number.isFinite(n) || n === 0) return fallback;
+        if (typeof window?.addEventListener !== 'function' || typeof window?.removeEventListener !== 'function') return fallback;
+        let done = false;
+        let timer = null;
+        let resolvePromise = null;
+        const promise = new Promise((resolve) => {
+            resolvePromise = resolve;
+        });
+        const finish = (matched) => {
+            if (done) return;
+            done = true;
+            try { window.removeEventListener('siyuan-points-reward-point-record-added', onRecordAdded); } catch (e) {}
+            if (timer) {
+                try { clearTimeout(timer); } catch (e) {}
+                timer = null;
+            }
+            try { resolvePromise(!!matched); } catch (e) {}
+        };
+        const onRecordAdded = (event) => {
+            const detail = event?.detail || {};
+            const rawAmount = detail.amount;
+            const eventAmount = typeof rawAmount === 'number' ? rawAmount : Number(rawAmount);
+            if (!Number.isFinite(eventAmount) || eventAmount !== n) return;
+            const eventReason = String(detail.reason || '').trim();
+            if (eventReason !== reasonText) return;
+            finish(true);
+        };
+        try { window.addEventListener('siyuan-points-reward-point-record-added', onRecordAdded); } catch (e) { return fallback; }
+        const waitMs = Math.max(300, Math.min(30000, Math.round(Number(timeoutMs) || 8000)));
+        timer = setTimeout(() => finish(false), waitMs);
+        return { promise, cancel: () => finish(false) };
+    }
+
     async function __tmApplyPointsPenaltyCandidate(candidate, options = {}) {
         const item = (candidate && typeof candidate === 'object') ? candidate : null;
         if (!item) return false;
         const amount = Math.max(0, Math.round(Number(item.amount) || 0));
         if (amount <= 0) return false;
         const reason = __tmBuildPointsPenaltyReason(item);
+        const waiter = options?.waitForRecord === true
+            ? __tmCreatePointsPenaltyRecordWaiter(-amount, reason, options?.recordWaitTimeoutMs)
+            : null;
         const ok = __tmDispatchPointsPenaltyEvent(-amount, reason, {
             taskId: String(item.taskId || '').trim(),
             penaltyType: String(item.type || '').trim(),
             penaltyDayKey: String(item.dayKey || '').trim(),
         });
-        if (!ok) return false;
+        if (!ok) {
+            try { waiter?.cancel?.(); } catch (e) {}
+            return false;
+        }
+        if (waiter) {
+            let recorded = false;
+            try { recorded = await waiter.promise; } catch (e) { recorded = false; }
+            if (!recorded) return false;
+        }
         __tmSetPointsPenaltyRecord(item.type, item.taskId, item.dayKey, {
             status: 'penalized',
             amount,
@@ -8920,16 +8968,32 @@
                     }
                     if (action === 'penalize-all') {
                         const snapshot = Array.isArray(__tmPointsPenaltyPendingCandidates) ? [...__tmPointsPenaltyPendingCandidates] : [];
+                        const appliedIds = new Set();
                         let count = 0;
                         for (const item of snapshot) {
                             try {
-                                const ok = await __tmApplyPointsPenaltyCandidate(item, { silent: true });
-                                if (ok) count += 1;
+                                const ok = await __tmApplyPointsPenaltyCandidate(item, { silent: true, waitForRecord: true });
+                                if (ok) {
+                                    count += 1;
+                                    const id = String(item?.id || '').trim();
+                                    if (id) appliedIds.add(id);
+                                }
                             } catch (e) {}
                         }
-                        __tmPointsPenaltyPendingCandidates = [];
-                        __tmClosePointsPenaltyConfirmModal();
-                        if (count > 0) hint(`⚠ 已扣分 ${count} 项`, 'warning');
+                        __tmPointsPenaltyPendingCandidates = __tmPointsPenaltyPendingCandidates.filter((item) => !appliedIds.has(String(item?.id || '').trim()));
+                        const remainingCount = __tmPointsPenaltyPendingCandidates.length;
+                        if (remainingCount <= 0) {
+                            __tmClosePointsPenaltyConfirmModal();
+                        } else {
+                            __tmRenderPointsPenaltyConfirmModal();
+                        }
+                        if (count > 0 && remainingCount > 0) {
+                            hint(`⚠ 已扣分 ${count} 项，${remainingCount} 项未确认入账`, 'warning');
+                        } else if (count > 0) {
+                            hint(`⚠ 已扣分 ${count} 项`, 'warning');
+                        } else {
+                            hint('⚠ 未确认扣分入账，请确认打卡插件状态', 'warning');
+                        }
                         return;
                     }
                     if (action === 'exempt-all') {
@@ -9084,7 +9148,7 @@
             let doneCount = 0;
             for (const item of candidates) {
                 try {
-                    const ok = await __tmApplyPointsPenaltyCandidate(item, { silent: true });
+                    const ok = await __tmApplyPointsPenaltyCandidate(item, { silent: true, waitForRecord: true });
                     if (ok) doneCount += 1;
                 } catch (e) {}
             }
@@ -11821,6 +11885,24 @@ refreshOk = false;
         return String(s || '').replace(/\\/g, '\\\\').replace(/'/g, "\\'");
     }
 
+    function __tmNormalizeKanbanBoardMode(value) {
+        const m = String(value || '').trim().toLowerCase();
+        return (m === 'status' || m === 'heading' || m === 'time') ? m : '';
+    }
+
+    function __tmGetKanbanBoardMode() {
+        const direct = __tmNormalizeKanbanBoardMode(SettingsStore?.data?.kanbanBoardMode);
+        if (direct) return direct;
+        return SettingsStore?.data?.kanbanHeadingGroupMode === true ? 'heading' : 'status';
+    }
+
+    function __tmSetKanbanBoardModeState(mode) {
+        const next = __tmNormalizeKanbanBoardMode(mode) || 'status';
+        SettingsStore.data.kanbanBoardMode = next;
+        SettingsStore.data.kanbanHeadingGroupMode = next === 'heading';
+        return next;
+    }
+
     const __tmRemarkRenderCache = new Map();
     const __tmRemarkStripCache = new Map();
 
@@ -12573,6 +12655,7 @@ refreshOk = false;
         feed(options.kanbanColW);
         feed(options.kanbanFillColumns ? 1 : 0);
         feed(options.showDoneCol ? 1 : 0);
+        feed(options.boardMode || '');
         feed(options.headingMode ? 1 : 0);
         feed(options.currentGroupId);
         feed(options.activeDocId);
@@ -12583,7 +12666,10 @@ refreshOk = false;
         feed(options.groupByTime ? 1 : 0);
         feed(options.quadrantEnabled ? 1 : 0);
         feed(options.kanbanCardFields || '');
+        feed(__tmNormalizeDateOnly(new Date()));
         feed(SettingsStore.data.taskHeadingLevel || 'h2');
+        feed(SettingsStore.data.groupSortByBestSubtaskTimeInTimeQuadrant ? 1 : 0);
+        feed(SettingsStore.data.kanbanDragSyncSubtasks ? 1 : 0);
         feed(SettingsStore.data.newTaskDocId || '');
         feed(SettingsStore.data.timeGroupBaseColorLight || '');
         feed(SettingsStore.data.timeGroupBaseColorDark || '');
@@ -16653,11 +16739,34 @@ return true;
         try { btn.setAttribute('aria-selected', active ? 'true' : 'false'); } catch (e) {}
     }
 
+    function __tmSyncKanbanModeSelectUi(modalEl) {
+        const modal = modalEl instanceof Element ? modalEl : state.modal;
+        if (!(modal instanceof Element)) return false;
+        const mode = __tmGetKanbanBoardMode();
+        const labelMap = { status: '状态', heading: '标题', time: '时间' };
+        let updated = false;
+        try {
+            modal.querySelectorAll('#tmTopbarKanbanModeSelect, #tmMobileKanbanModeSelect').forEach((root) => {
+                if (!(root instanceof HTMLElement)) return;
+                const valueEl = root.querySelector('.bc-select-trigger__value');
+                if (valueEl) valueEl.textContent = labelMap[mode] || '状态';
+                root.querySelectorAll('.bc-select-option').forEach((option) => {
+                    const selected = String(option?.dataset?.tmOptionValue || '').trim() === mode;
+                    option.classList.toggle('is-selected', selected);
+                    option.setAttribute('aria-selected', selected ? 'true' : 'false');
+                });
+                updated = true;
+            });
+        } catch (e) {}
+        return updated;
+    }
+
     function __tmSyncKanbanHeadingModeSegmentedUi(modalEl) {
         const modal = modalEl instanceof Element ? modalEl : state.modal;
         if (!(modal instanceof Element)) return false;
-        const headingActive = SettingsStore.data.kanbanHeadingGroupMode === true;
-        let updated = false;
+        const mode = __tmGetKanbanBoardMode();
+        const headingActive = mode === 'heading';
+        let updated = __tmSyncKanbanModeSelectUi(modal);
         try {
             modal.querySelectorAll('button[onclick*="tmSetKanbanHeadingGroupMode"]').forEach((btn) => {
                 if (!(btn instanceof HTMLElement)) return;
@@ -16665,7 +16774,7 @@ return true;
                 const isHeadingBtn = /tmSetKanbanHeadingGroupMode\(\s*['"]heading['"]/.test(onclick);
                 const isStatusBtn = /tmSetKanbanHeadingGroupMode\(\s*['"]status['"]/.test(onclick);
                 if (!isHeadingBtn && !isStatusBtn) return;
-                __tmSyncSegmentButtonState(btn, isHeadingBtn ? headingActive : !headingActive);
+                __tmSyncSegmentButtonState(btn, isHeadingBtn ? headingActive : mode === 'status');
                 updated = true;
             });
         } catch (e) {}
