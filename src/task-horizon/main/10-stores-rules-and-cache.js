@@ -4650,6 +4650,12 @@
             aiDeepSeekApiKey: '',
             aiDeepSeekBaseUrl: 'https://api.deepseek.com',
             aiDeepSeekModel: 'deepseek-chat',
+            aiOpenAIApiKey: '',
+            aiOpenAIBaseUrl: 'https://api.openai.com/v1',
+            aiOpenAIModel: 'gpt-5.4-mini',
+            aiAnthropicApiKey: '',
+            aiAnthropicBaseUrl: 'https://api.anthropic.com',
+            aiAnthropicModel: 'claude-sonnet-4-5',
             aiMiniMaxTemperature: 0.2,
             aiMiniMaxMaxTokens: 1600,
             aiMiniMaxTimeoutMs: 30000,
@@ -5396,6 +5402,12 @@
                                 if (typeof cloudData.aiDeepSeekApiKey === 'string') this.data.aiDeepSeekApiKey = cloudData.aiDeepSeekApiKey;
                                 if (typeof cloudData.aiDeepSeekBaseUrl === 'string') this.data.aiDeepSeekBaseUrl = cloudData.aiDeepSeekBaseUrl;
                                 if (typeof cloudData.aiDeepSeekModel === 'string') this.data.aiDeepSeekModel = cloudData.aiDeepSeekModel;
+                                if (typeof cloudData.aiOpenAIApiKey === 'string') this.data.aiOpenAIApiKey = cloudData.aiOpenAIApiKey;
+                                if (typeof cloudData.aiOpenAIBaseUrl === 'string') this.data.aiOpenAIBaseUrl = cloudData.aiOpenAIBaseUrl;
+                                if (typeof cloudData.aiOpenAIModel === 'string') this.data.aiOpenAIModel = cloudData.aiOpenAIModel;
+                                if (typeof cloudData.aiAnthropicApiKey === 'string') this.data.aiAnthropicApiKey = cloudData.aiAnthropicApiKey;
+                                if (typeof cloudData.aiAnthropicBaseUrl === 'string') this.data.aiAnthropicBaseUrl = cloudData.aiAnthropicBaseUrl;
+                                if (typeof cloudData.aiAnthropicModel === 'string') this.data.aiAnthropicModel = cloudData.aiAnthropicModel;
                                 if (typeof cloudData.aiMiniMaxTemperature === 'number') this.data.aiMiniMaxTemperature = cloudData.aiMiniMaxTemperature;
                                 if (typeof cloudData.aiMiniMaxMaxTokens === 'number') this.data.aiMiniMaxMaxTokens = cloudData.aiMiniMaxMaxTokens;
                                 if (typeof cloudData.aiMiniMaxTimeoutMs === 'number') this.data.aiMiniMaxTimeoutMs = cloudData.aiMiniMaxTimeoutMs;
@@ -5747,13 +5759,26 @@
             this.data.enableGroupTaskBgByGroupColor = Storage.get('tm_enable_group_task_bg_by_group_color', this.data.enableGroupTaskBgByGroupColor);
             this.data.aiEnabled = !!Storage.get('tm_ai_enabled', this.data.aiEnabled);
             this.data.aiSideDockEnabled = !!Storage.get('tm_ai_side_dock_enabled', this.data.aiSideDockEnabled);
-            this.data.aiProvider = String(Storage.get('tm_ai_provider', this.data.aiProvider) || this.data.aiProvider).trim() === 'deepseek' ? 'deepseek' : 'minimax';
+            {
+                const rawProvider = String(Storage.get('tm_ai_provider', this.data.aiProvider) || this.data.aiProvider).trim();
+                this.data.aiProvider = rawProvider === 'deepseek'
+                    ? 'deepseek'
+                    : (rawProvider === 'openai'
+                        ? 'openai'
+                        : (rawProvider === 'anthropic' ? 'anthropic' : 'minimax'));
+            }
             this.data.aiMiniMaxApiKey = String(Storage.get('tm_ai_minimax_api_key', this.data.aiMiniMaxApiKey) || '');
             this.data.aiMiniMaxBaseUrl = String(Storage.get('tm_ai_minimax_base_url', this.data.aiMiniMaxBaseUrl) || this.data.aiMiniMaxBaseUrl).trim() || 'https://api.minimaxi.com/anthropic';
             this.data.aiMiniMaxModel = String(Storage.get('tm_ai_minimax_model', this.data.aiMiniMaxModel) || this.data.aiMiniMaxModel).trim() || 'MiniMax-M2.5';
             this.data.aiDeepSeekApiKey = String(Storage.get('tm_ai_deepseek_api_key', this.data.aiDeepSeekApiKey) || '');
             this.data.aiDeepSeekBaseUrl = String(Storage.get('tm_ai_deepseek_base_url', this.data.aiDeepSeekBaseUrl) || this.data.aiDeepSeekBaseUrl).trim() || 'https://api.deepseek.com';
             this.data.aiDeepSeekModel = String(Storage.get('tm_ai_deepseek_model', this.data.aiDeepSeekModel) || this.data.aiDeepSeekModel).trim() || 'deepseek-chat';
+            this.data.aiOpenAIApiKey = String(Storage.get('tm_ai_openai_api_key', this.data.aiOpenAIApiKey) || '');
+            this.data.aiOpenAIBaseUrl = String(Storage.get('tm_ai_openai_base_url', this.data.aiOpenAIBaseUrl) || this.data.aiOpenAIBaseUrl).trim() || 'https://api.openai.com/v1';
+            this.data.aiOpenAIModel = String(Storage.get('tm_ai_openai_model', this.data.aiOpenAIModel) || this.data.aiOpenAIModel).trim() || 'gpt-5.4-mini';
+            this.data.aiAnthropicApiKey = String(Storage.get('tm_ai_anthropic_api_key', this.data.aiAnthropicApiKey) || '');
+            this.data.aiAnthropicBaseUrl = String(Storage.get('tm_ai_anthropic_base_url', this.data.aiAnthropicBaseUrl) || this.data.aiAnthropicBaseUrl).trim() || 'https://api.anthropic.com';
+            this.data.aiAnthropicModel = String(Storage.get('tm_ai_anthropic_model', this.data.aiAnthropicModel) || this.data.aiAnthropicModel).trim() || 'claude-sonnet-4-5';
             this.data.aiMiniMaxTemperature = Number(Storage.get('tm_ai_minimax_temperature', this.data.aiMiniMaxTemperature));
             this.data.aiMiniMaxMaxTokens = Number(Storage.get('tm_ai_minimax_max_tokens', this.data.aiMiniMaxMaxTokens));
             this.data.aiMiniMaxTimeoutMs = Number(Storage.get('tm_ai_minimax_timeout_ms', this.data.aiMiniMaxTimeoutMs));
@@ -6138,13 +6163,26 @@
             Storage.set('tm_enable_group_task_bg_by_group_color', !!this.data.enableGroupTaskBgByGroupColor);
             Storage.set('tm_ai_enabled', !!this.data.aiEnabled);
             Storage.set('tm_ai_side_dock_enabled', !!this.data.aiSideDockEnabled);
-            Storage.set('tm_ai_provider', String(this.data.aiProvider || '').trim() === 'deepseek' ? 'deepseek' : 'minimax');
+            {
+                const rawProvider = String(this.data.aiProvider || '').trim();
+                Storage.set('tm_ai_provider', rawProvider === 'deepseek'
+                    ? 'deepseek'
+                    : (rawProvider === 'openai'
+                        ? 'openai'
+                        : (rawProvider === 'anthropic' ? 'anthropic' : 'minimax')));
+            }
             Storage.set('tm_ai_minimax_api_key', String(this.data.aiMiniMaxApiKey || ''));
             Storage.set('tm_ai_minimax_base_url', String(this.data.aiMiniMaxBaseUrl || '').trim() || 'https://api.minimaxi.com/anthropic');
             Storage.set('tm_ai_minimax_model', String(this.data.aiMiniMaxModel || '').trim() || 'MiniMax-M2.5');
             Storage.set('tm_ai_deepseek_api_key', String(this.data.aiDeepSeekApiKey || ''));
             Storage.set('tm_ai_deepseek_base_url', String(this.data.aiDeepSeekBaseUrl || '').trim() || 'https://api.deepseek.com');
             Storage.set('tm_ai_deepseek_model', String(this.data.aiDeepSeekModel || '').trim() || 'deepseek-chat');
+            Storage.set('tm_ai_openai_api_key', String(this.data.aiOpenAIApiKey || ''));
+            Storage.set('tm_ai_openai_base_url', String(this.data.aiOpenAIBaseUrl || '').trim() || 'https://api.openai.com/v1');
+            Storage.set('tm_ai_openai_model', String(this.data.aiOpenAIModel || '').trim() || 'gpt-5.4-mini');
+            Storage.set('tm_ai_anthropic_api_key', String(this.data.aiAnthropicApiKey || ''));
+            Storage.set('tm_ai_anthropic_base_url', String(this.data.aiAnthropicBaseUrl || '').trim() || 'https://api.anthropic.com');
+            Storage.set('tm_ai_anthropic_model', String(this.data.aiAnthropicModel || '').trim() || 'claude-sonnet-4-5');
             Storage.set('tm_ai_minimax_temperature', Number.isFinite(Number(this.data.aiMiniMaxTemperature)) ? Number(this.data.aiMiniMaxTemperature) : 0.2);
             Storage.set('tm_ai_minimax_max_tokens', Number.isFinite(Number(this.data.aiMiniMaxMaxTokens)) ? Math.round(Number(this.data.aiMiniMaxMaxTokens)) : 1600);
             Storage.set('tm_ai_minimax_timeout_ms', Number.isFinite(Number(this.data.aiMiniMaxTimeoutMs)) ? Math.round(Number(this.data.aiMiniMaxTimeoutMs)) : 30000);
