@@ -5121,15 +5121,20 @@
             try {
                 const eb = globalThis.__taskHorizonPluginInstance?.eventBus || window.siyuan?.eventBus;
                 if (eb && typeof eb.on === 'function') {
-                    // mode='mount' → newly loaded protyle: clear cached
-                    //   layouts and force a fresh geometry read (no prior
-                    //   layout for these blocks is valid).
+                    // mode='mount' → newly loaded protyle. Force a fresh
+                    //   geometry read for ITS blocks, but do NOT wipe the
+                    //   global layout cache — other tabs' cached entries
+                    //   are keyed by their own block IDs and stay valid.
+                    //   The previous clearLayout:true behavior was the
+                    //   trigger for the "open new tab → chips vanish in
+                    //   other tabs" bug: after a global clear, a single
+                    //   scroll event would let FAST PATH 0 strip is-ready
+                    //   from every hidden tab's hosts.
                     // mode='switch' → tab brought to front by Wnd.switchTab:
                     //   the protyle is now display:block and cached layouts
                     //   are still valid relative to the per-protyle layer.
-                    //   Match the IO visibility handler's reasoning — trust
-                    //   the textSig/widthSig signatures rather than wiping
-                    //   the cache.
+                    //   Trust the textSig/widthSig signatures to invalidate
+                    //   per-host when content shifted.
                     const wakeFromProtyleEvent = (delayMs = 40, e = null, mode = 'mount') => {
                         const protyle = e?.protyle || e?.detail?.protyle || null;
                         const wysiwygEl = protyle?.wysiwyg?.element || null;
@@ -5154,7 +5159,7 @@
                         scheduleInlineMetaWake(isMount, {
                             delayMs,
                             includeBootstrap: true,
-                            clearLayout: isMount,
+                            clearLayout: false,
                         });
                     };
                     const onStatic = (e) => wakeFromProtyleEvent(24, e, 'mount');
@@ -5211,16 +5216,23 @@
             const layoutHtml = String(html ?? prevLayout?.html ?? host.innerHTML ?? '');
             // --- FAST PATH 0: block lives in a hidden protyle. Cheap O(1)
             // check via the protyle-visibility WeakMap (no rect reads, no
-            // forced reflow). Skipping the read phase here avoids clearing
-            // the cache for blocks whose protyle just hides momentarily
-            // (e.g. behind another tab) — the cached position is correct
-            // and will fast-path-restore on reveal. ---
+            // forced reflow). The host is inside a display:none ancestor,
+            // so whatever is-ready state it carries is invisible to the
+            // user. Bail out WITHOUT mutating is-ready or the cache —
+            // stripping is-ready here is the root cause of "chips vanish
+            // when a sibling tab opens": opening a new tab clears the
+            // global layout cache, and any subsequent scroll-driven
+            // refreshInlineMetaPositions sweep then walks every hidden
+            // host with prevLayout === null and would strip is-ready,
+            // leaving the host invisible after the protyle is revealed
+            // again. Preserving the previous is-ready state means the
+            // chip is already shown the moment the tab is brought to
+            // front; the live render that follows just refreshes its
+            // position.
             try {
                 const protyleEl = blockEl.closest?.('.protyle');
                 if (protyleEl && inlineMetaProtyleVisibility.get(protyleEl) === false) {
-                    if (prevLayout) return true;
-                    host.classList.remove('is-ready');
-                    return false;
+                    return !!prevLayout;
                 }
             } catch (e) {}
             // --- FAST PATH: skip expensive geometry reads when content is unchanged ---
