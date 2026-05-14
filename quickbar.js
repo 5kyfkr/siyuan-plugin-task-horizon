@@ -5121,24 +5121,46 @@
             try {
                 const eb = globalThis.__taskHorizonPluginInstance?.eventBus || window.siyuan?.eventBus;
                 if (eb && typeof eb.on === 'function') {
-                    const wakeFromProtyleEvent = (delayMs = 40, e = null) => {
+                    // mode='mount' → newly loaded protyle: clear cached
+                    //   layouts and force a fresh geometry read (no prior
+                    //   layout for these blocks is valid).
+                    // mode='switch' → tab brought to front by Wnd.switchTab:
+                    //   the protyle is now display:block and cached layouts
+                    //   are still valid relative to the per-protyle layer.
+                    //   Match the IO visibility handler's reasoning — trust
+                    //   the textSig/widthSig signatures rather than wiping
+                    //   the cache.
+                    const wakeFromProtyleEvent = (delayMs = 40, e = null, mode = 'mount') => {
                         const protyle = e?.protyle || e?.detail?.protyle || null;
                         const wysiwygEl = protyle?.wysiwyg?.element || null;
                         const hint = wysiwygEl?.closest?.('.protyle') || wysiwygEl || null;
                         if (hint) {
                             registerInlineMetaProtyleHint(hint);
+                            // IntersectionObserver delivers entries async, so
+                            // the visibility map can still hold a stale
+                            // `false` for the just-revealed protyle when our
+                            // wake fires. layoutInlineMetaHost's FAST PATH 0
+                            // would then bail out — chips vanish until any
+                            // later mutation (e.g. a hover-triggered DOM
+                            // change) gives IO a chance to catch up. The
+                            // event reaches us only after Wnd.switchTab has
+                            // made the protyle visible, so we know the
+                            // truthful state synchronously.
+                            try { inlineMetaProtyleVisibility.set(hint, true); } catch (e2) {}
+                            try { inlineMetaProtyleVisibilityObserver?.observe?.(hint); } catch (e2) {}
                             try { syncInlineMetaObserveRoots(); } catch (e2) {}
                         }
-                        scheduleInlineMetaWake(true, {
+                        const isMount = mode === 'mount';
+                        scheduleInlineMetaWake(isMount, {
                             delayMs,
                             includeBootstrap: true,
-                            clearLayout: true,
+                            clearLayout: isMount,
                         });
                     };
-                    const onStatic = (e) => wakeFromProtyleEvent(24, e);
-                    const onDynamic = (e) => wakeFromProtyleEvent(40, e);
-                    const onSwitch = (e) => wakeFromProtyleEvent(32, e);
-                    const onSwitchMode = (e) => wakeFromProtyleEvent(32, e);
+                    const onStatic = (e) => wakeFromProtyleEvent(24, e, 'mount');
+                    const onDynamic = (e) => wakeFromProtyleEvent(40, e, 'mount');
+                    const onSwitch = (e) => wakeFromProtyleEvent(32, e, 'switch');
+                    const onSwitchMode = (e) => wakeFromProtyleEvent(32, e, 'switch');
                     eb.on('loaded-protyle-static', onStatic);
                     eb.on('loaded-protyle-dynamic', onDynamic);
                     eb.on('switch-protyle', onSwitch);
