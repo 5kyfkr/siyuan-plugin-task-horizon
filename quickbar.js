@@ -901,6 +901,20 @@
         }
     }
 
+    async function ensureAiRuntimeLoaded() {
+        try {
+            if (globalThis.__tmAI?.loaded) return true;
+        } catch (e) {}
+        const loader = globalThis.__taskHorizonEnsureAiModuleLoaded;
+        if (typeof loader !== 'function') return !!globalThis.__tmAI?.loaded;
+        try {
+            const ok = await loader();
+            return !!(ok && globalThis.__tmAI?.loaded);
+        } catch (e) {
+            return false;
+        }
+    }
+
     function markBlockMenuTrigger(target, source) {
         const blockEl = getBlockElementFromTarget(target);
         lastBlockMenuTrigger = {
@@ -3420,6 +3434,9 @@
                             if (!taskIdForAi) {
                                 showMessage('未找到任务', true, 1800);
                                 return;
+                            }
+                            if (typeof globalThis.tmAiOptimizeTaskName !== 'function') {
+                                await ensureAiRuntimeLoaded();
                             }
                             if (typeof globalThis.tmAiOptimizeTaskName === 'function') {
                                 await globalThis.tmAiOptimizeTaskName(taskIdForAi);
