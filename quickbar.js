@@ -4795,6 +4795,16 @@
         }
 
         function pruneInlineMetaOutsideViewport(keepBlocks) {
+            // Defer pruning during active scroll. Removing a host here and
+            // recreating it on the next render frame leaves a one-frame
+            // gap where the freshly-created host has no is-ready class —
+            // that's the chip flicker the user sees. SiYuan transiently
+            // detaches blocks during lazy-render scrolling, which
+            // shrinks keepBlocks below its true size; pruning on that
+            // shrunken set would evict hosts we're about to need again.
+            // The scroll-idle render pass runs this same prune with a
+            // stable keep set.
+            if (inlineMetaScrolling) return;
             const keepIds = new Set();
             (keepBlocks || []).forEach((blockEl) => {
                 collectInlineMetaOwnerIds(blockEl).forEach((id) => keepIds.add(id));
@@ -5045,8 +5055,27 @@
                     const blockEl = entry?.target;
                     const blockId = String(blockEl?.dataset?.nodeId || '').trim();
                     if (!blockId) return;
-                    if (entry.isIntersecting) inlineMetaVisibleTaskBlocks.set(blockId, blockEl);
-                    else inlineMetaVisibleTaskBlocks.delete(blockId);
+                    if (entry.isIntersecting) {
+                        const wasVisible = inlineMetaVisibleTaskBlocks.has(blockId);
+                        inlineMetaVisibleTaskBlocks.set(blockId, blockEl);
+                        // A block just entered the 2400px IO margin. Pre-render
+                        // its chip now so a fast scroll that brings several
+                        // rows into the viewport at once doesn't reveal blank
+                        // rows — the host is built and populated while the
+                        // row is still off-screen, and layoutInlineMetaHost's
+                        // bounds check leaves is-ready off until the row
+                        // actually crosses into protyle viewport. By then
+                        // there's no async work left to do, so the chip just
+                        // toggles visible. Without this hook, blocks beyond
+                        // the scroll-core zone (240–720px) wait until the
+                        // next scroll-driven render pass even gets to them,
+                        // which during fast scroll is too late.
+                        if (!wasVisible && blockEl instanceof Element && blockEl.isConnected) {
+                            try { queueInlineMetaRenderBlock(blockEl, false, 2400); } catch (e) {}
+                        }
+                    } else {
+                        inlineMetaVisibleTaskBlocks.delete(blockId);
+                    }
                 });
             }, {
                 root: null,
@@ -5074,14 +5103,25 @@
                 }
             });
             const io = ensureInlineMetaBlockObserver();
+            const isScrolling = inlineMetaScrolling;
             inlineMetaObservedTaskBlocks.forEach((prevEl, blockId) => {
                 if (nextBlocks.has(blockId)) return;
+                // During scroll, SiYuan transiently detaches and re-attaches
+                // task rows for lazy-render. A detached pass leaves the
+                // block missing from this scan, so without the guard we'd
+                // wipe the layout cache and visible-set entry for a block
+                // that's about to come back. The next frame's layout would
+                // see prevLayout=undefined, fail my preserve guards in
+                // layoutInlineMetaHost, and strip is-ready — that's the
+                // flicker. Defer evict to the next scroll-idle sync.
+                if (isScrolling) return;
                 if (io) {
                     try { io.unobserve(prevEl); } catch (e) {}
                 }
                 inlineMetaVisibleTaskBlocks.delete(blockId);
                 inlineMetaLayoutCache.delete(blockId);
             });
+            const viewportHeight = window.innerHeight || document.documentElement?.clientHeight || 0;
             nextBlocks.forEach((nextEl, blockId) => {
                 const prevEl = inlineMetaObservedTaskBlocks.get(blockId);
                 if (prevEl === nextEl) return;
@@ -5091,9 +5131,43 @@
                 if (io) {
                     try { io.observe(nextEl); } catch (e) {}
                 }
+                // Queue a pre-render now for blocks near the viewport.
+                // IO's first entry is delivered async — by the time it
+                // fires, a fast scroll may have already revealed the
+                // row, so the chip lags behind. Inspecting the rect
+                // synchronously here lets us queue the build during
+                // the same mutation-driven render cycle that surfaced
+                // the block.
+                if (nextEl instanceof Element && nextEl.isConnected) {
+                    try {
+                        const rect = nextEl.getBoundingClientRect();
+                        if (rect && rect.bottom > -2400 && rect.top < (viewportHeight + 2400)) {
+                            queueInlineMetaRenderBlock(nextEl, false, 2400);
+                        }
+                    } catch (e) {}
+                }
             });
+            if (isScrolling) {
+                // Merge mode: keep stale (possibly-still-detached) entries
+                // alongside fresh ones, so their cache survives. Schedule
+                // a clean resync at scroll-idle to drop entries that
+                // really did leave.
+                nextBlocks.forEach((nextEl, blockId) => {
+                    inlineMetaObservedTaskBlocks.set(blockId, nextEl);
+                });
+                inlineMetaNeedSyncBlocks = true;
+            } else {
             inlineMetaObservedTaskBlocks = nextBlocks;
-            if (!io) inlineMetaVisibleTaskBlocks = new Map(nextBlocks);
+            }
+            if (!io) {
+                if (isScrolling) {
+                    nextBlocks.forEach((nextEl, blockId) => {
+                        inlineMetaVisibleTaskBlocks.set(blockId, nextEl);
+                    });
+                } else {
+                    inlineMetaVisibleTaskBlocks = new Map(nextBlocks);
+                }
+            }
             invalidateInlineMetaActiveTargetsCache();
         }
 
@@ -5345,7 +5419,9 @@
             }
             const textSig = getInlineTextFastSignature(textAnchor);
             const prevLayout = inlineMetaLayoutCache.get(taskId);
-            const layoutHtml = String(html ?? prevLayout?.html ?? host.innerHTML ?? '');
+            // Prefer the source string we last wrote over host.innerHTML,
+            // which can differ after browser serialization.
+            const layoutHtml = String(html ?? prevLayout?.html ?? host._inlineMetaHtml ?? host.innerHTML ?? '');
             // --- FAST PATH 0: block lives in a hidden protyle. Cheap O(1)
             // check via the protyle-visibility WeakMap (no rect reads, no
             // forced reflow). The host is inside a display:none ancestor,
@@ -5569,7 +5645,7 @@
                         }
                     } catch (e) {}
                 }
-                entries.push({ host, taskId, blockEl, textAnchor, html: inlineMetaLayoutCache.get(taskId)?.html || host.innerHTML || '', skip: false });
+                entries.push({ host, taskId, blockEl, textAnchor, html: inlineMetaLayoutCache.get(taskId)?.html || host._inlineMetaHtml || host.innerHTML || '', skip: false });
             }
             let laidOut = 0;
             let restored = 0;
@@ -5645,10 +5721,20 @@
                     inlineMetaLayoutCache.delete(taskId);
                     return;
                 }
-                if (host.innerHTML === freshHtml) {
+                // Compare against the cached source string, not host.innerHTML.
+                // The browser may serialize back attributes / CSS variables in a
+                // slightly different shape than what we wrote (whitespace in
+                // style values, attribute reordering on some engines), making
+                // `host.innerHTML !== freshHtml` spuriously true every render.
+                // That false positive triggers a real innerHTML rewrite, which
+                // tears down and rebuilds the chip's children — the user sees
+                // it as a flicker during scroll, even though the content
+                // didn't actually change.
+                if (host._inlineMetaHtml === freshHtml) {
                     return;
                 }
                 host.innerHTML = freshHtml;
+                host._inlineMetaHtml = freshHtml;
                 inlineMetaLayoutCache.delete(taskId);
                 requestInlineMetaRender(false);
             };
@@ -5666,10 +5752,16 @@
                 }
                 return;
             }
-            const htmlChanged = host.innerHTML !== html;
+            // Same comparison fix as applyFreshProps: track the last
+            // source string we wrote, not the browser-serialized
+            // host.innerHTML. Comparing against innerHTML caused a
+            // rewrite every render-during-scroll for stable content,
+            // which is the visible chip flicker.
+            const htmlChanged = host._inlineMetaHtml !== html;
             const layoutOk = layoutInlineMetaHost(hostParent, host, taskId, textAnchor, html, forceRefresh, visibilityBuffer);
             if (htmlChanged && layoutOk && host.isConnected && String(host.dataset.blockId || '').trim() === taskId) {
                 host.innerHTML = html;
+                host._inlineMetaHtml = html;
             }
             if (runtimeProps?.props) {
                 return;
