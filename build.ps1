@@ -93,6 +93,7 @@ try {
         'docs',
         'GUIDE_zh_CN.md',
         'REPRO_SYNC.md',
+        'PRODUCT.md',
         'CHANGELOG.md',
         'LICENSE',
         'package.zip',
