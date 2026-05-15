@@ -5395,11 +5395,30 @@
                 if (editing && prevLayout) {
                     return true;
                 }
+                // During scroll, transient measurement failures (0×0
+                // rects mid-virtualization, missing text anchors while
+                // the row is repainting) flicker is-ready off. Preserve
+                // the cache so the caller's prev-layout restore keeps
+                // the chip pinned across frames; next successful pass
+                // re-anchors. Without preservation, one strip evicts the
+                // cache and every subsequent tick has nothing to fall
+                // back on.
+                if (inlineMetaScrolling && prevLayout) {
+                    return false;
+                }
                 host.classList.remove('is-ready');
                 inlineMetaLayoutCache.delete(taskId);
                 return false;
             }
             if (!isInlineRectVisibleInBounds(textRect, bounds, visibilityBuffer)) {
+                // Same preservation: a row that has crossed the protyle
+                // viewport edge mid-scroll keeps its cached position.
+                // protyle-content clips out-of-bounds hosts so nothing
+                // paints outside; the chip stays where it last sat and
+                // re-anchors when the row scrolls back in.
+                if (inlineMetaScrolling && prevLayout) {
+                    return false;
+                }
                 host.classList.remove('is-ready');
                 inlineMetaLayoutCache.delete(taskId);
                 return false;
@@ -5481,6 +5500,15 @@
                     host.classList.add('is-ready');
                     inlineMetaLayoutCache.set(taskId, { textSig, widthSig, viewportSig, html: layoutHtml, left: leftPx, top: topPx, maxWidth: maxWidthPx, wrapMode, hostWidth: estHostWidth, hostHeight: estHostHeight });
                     return true;
+                }
+                // Same preservation as the failure paths above: during
+                // scroll, transient collisions (e.g. a sibling chip's
+                // rect briefly overlapping ours as positions shift each
+                // RAF) shouldn't strip is-ready and evict the cache —
+                // that breaks the prev-layout restore chain across
+                // frames.
+                if (inlineMetaScrolling && prevLayout) {
+                    return false;
                 }
                 host.classList.remove('is-ready');
                 inlineMetaLayoutCache.delete(taskId);
