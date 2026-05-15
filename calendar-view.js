@@ -79,6 +79,41 @@
         return false;
     }
 
+    function getTaskLikeForTitleOpacity(taskId, fallback = null) {
+        const tid = String(taskId || fallback?.id || '').trim();
+        if (fallback && typeof fallback === 'object' && Number.isFinite(Number(fallback.priorityScore))) return fallback;
+        try {
+            const task = globalThis.__tmRuntimeState?.getTaskById?.(tid, { includePending: true })
+                || globalThis.__tmRuntimeState?.getFlatTaskById?.(tid)
+                || null;
+            if (task && typeof task === 'object') return task;
+        } catch (e) {}
+        try {
+            const cache = window.__tmCalendarAllTasksCache;
+            const tasks = Array.isArray(cache?.tasks) ? cache.tasks : [];
+            const found = tasks.find((t) => String(t?.id || '').trim() === tid);
+            if (found && typeof found === 'object') return found;
+        } catch (e) {}
+        return (fallback && typeof fallback === 'object') ? fallback : null;
+    }
+
+    function applyTaskTitleOpacityFromTask(titleEl, taskLike) {
+        if (!(titleEl instanceof HTMLElement)) return false;
+        const fn = globalThis.__tmApplyTaskTitleOpacityToElement;
+        if (typeof fn === 'function') {
+            try { return !!fn(titleEl, taskLike); } catch (e) {}
+        }
+        return false;
+    }
+
+    function buildTaskTitleOpacityStyleForTask(taskLike) {
+        const fn = globalThis.__tmBuildTaskTitleOpacityStyle;
+        if (typeof fn === 'function') {
+            try { return String(fn(taskLike) || ''); } catch (e) {}
+        }
+        return '';
+    }
+
     function setImportantStyleIfChanged(node, prop, value) {
         return setStylePropertyIfChanged(node, prop, value, 'important');
     }
@@ -4174,11 +4209,12 @@
             const calendarId = String(t?.calendarId || 'default').trim() || 'default';
             const dot = colorMap.get(calendarId) || 'var(--tm-primary-color)';
             const safeDuration = (Number.isFinite(durationMin) && durationMin > 0) ? Math.round(durationMin) : 60;
+            const titleOpacityStyle = buildTaskTitleOpacityStyleForTask(getTaskLikeForTitleOpacity(id, t));
             return `
                 <div class="tm-cal-task" draggable="true" data-tm-task-item="1" style="padding-left:${6 + Math.min(6, Math.max(0, depth)) * 10}px" data-task-id="${esc(id)}" data-task-title="${esc(title)}" data-task-spent="${esc(spent)}" data-task-duration-min="${esc(String(safeDuration))}" data-calendar-id="${esc(calendarId)}">
                     <div class="tm-cal-task-left">
                         <span class="tm-cal-task-dot" style="background:${esc(dot)};"></span>
-                        <div class="tm-cal-task-title" title="${esc(title)}">${esc(title)}</div>
+                        <div class="tm-cal-task-title" title="${esc(title)}" style="${titleOpacityStyle}">${esc(title)}</div>
                     </div>
                     <div class="tm-cal-task-spent" title="${esc(spent)}">${esc(spent)}</div>
                 </div>
@@ -4251,6 +4287,7 @@
             if (durationLabel) metaParts.push(`<span class="tm-checklist-meta-compact-time" title="预计时长">${esc(durationLabel)}</span>`);
             if (spent) metaParts.push(`<span class="tm-checklist-meta-compact-time" title="已耗时">${esc(spent)}</span>`);
             const tooltipAttrs = ` data-tm-floating-tooltip-label="${esc(title)}" data-tm-tooltip-side="bottom" data-tm-tooltip-align="center"`;
+            const titleOpacityStyle = buildTaskTitleOpacityStyleForTask(getTaskLikeForTitleOpacity(id, t));
             return `
                 <div class="tm-cal-task tm-cal-task--checklist tm-checklist-item" draggable="true" ondragstart="tmDragTaskStart(event, '${esc(id)}')" ondragend="tmDragTaskEnd(event)" data-id="${esc(id)}" data-task-id="${esc(id)}" data-task-title="${esc(title)}" data-task-spent="${esc(spent)}" data-task-duration-min="${esc(String(safeDuration))}" data-calendar-id="${esc(calendarId)}" style="--tm-checklist-accent-color:${esc(accent)};--tm-checklist-compact-indent:${Math.min(8, depth) * 14}px;">
                     <div class="tm-checklist-leading">
@@ -4262,7 +4299,7 @@
                             <div class="tm-checklist-title-main">
                                 <div class="tm-checklist-title">
                                     <span class="tm-checklist-title-button">
-                                        <span class="tm-task-content-clickable" title="${esc(title)}"${tooltipAttrs}>${esc(title)}</span>
+                                        <span class="tm-task-content-clickable" title="${esc(title)}"${tooltipAttrs} style="${titleOpacityStyle}">${esc(title)}</span>
                                     </span>
                                 </div>
                             </div>
@@ -4608,7 +4645,7 @@
             const textEl = row.querySelector('.tm-task-content-clickable, .tm-task-text, .tm-cal-task-title--checklist, .tm-checklist-title-button > span');
             if (textEl instanceof HTMLElement) {
                 if (marked) textEl.style.color = 'var(--tm-primary-color)';
-                else textEl.style.removeProperty('color');
+                else applyTaskTitleOpacityFromTask(textEl, getTaskLikeForTitleOpacity(tid, null));
             }
             if (row instanceof HTMLElement) {
                 try { row.classList.toggle('tm-cal-task--today', marked); } catch (e) {}
@@ -8725,6 +8762,80 @@
         return item;
     }
 
+    async function upsertTaskScheduleTime(input) {
+        const base = (input && typeof input === 'object') ? input : {};
+        const taskId = String(base.taskId || '').trim();
+        const dateKey = formatDateKey(parseDateOnly(base.dateKey || base.date || base.start));
+        const timeText = String(base.timeKey || base.time || '').trim();
+        const timeMatch = /^(\d{1,2}):(\d{2})$/.exec(timeText);
+        if (!taskId || !dateKey || !timeMatch) throw new Error('invalid task schedule time payload');
+        const date = parseDateOnly(dateKey);
+        const hour = Math.max(0, Math.min(23, Number(timeMatch[1]) || 0));
+        const minute = Math.max(0, Math.min(59, Number(timeMatch[2]) || 0));
+        const start = new Date(date.getFullYear(), date.getMonth(), date.getDate(), hour, minute, 0, 0);
+        const list = await loadScheduleAll();
+        const candidates = (Array.isArray(list) ? list : []).map((item, index) => ({ item, index })).filter(({ item }) => {
+            const tid = String(item?.taskId || item?.task_id || item?.linkedTaskId || item?.linked_task_id || '').trim();
+            return tid === taskId;
+        }).sort((a, b) => toMs(a.item?.start) - toMs(b.item?.start));
+        const sameDay = candidates.find(({ item }) => formatDateKey(new Date(toMs(item?.start))) === dateKey);
+        const now = Date.now();
+        const future = candidates.find(({ item }) => {
+            const endMs = toMs(item?.end);
+            const startMs = toMs(item?.start);
+            return (Number.isFinite(endMs) ? endMs : startMs) >= now;
+        });
+        const picked = sameDay || future || candidates[0] || null;
+        if (!picked) {
+            const end = new Date(start.getTime() + Math.max(15, Number(base.durationMin) || 60) * 60000);
+            return await addTaskSchedule({
+                ...base,
+                taskId,
+                start: safeISO(start),
+                end: safeISO(end),
+                allDay: false,
+                refresh: base.refresh,
+            });
+        }
+        const prev = (picked.item && typeof picked.item === 'object') ? picked.item : {};
+        const prevDuration = Math.round((toMs(prev.end) - toMs(prev.start)) / 60000);
+        const durationMin = Number.isFinite(Number(base.durationMin)) && Number(base.durationMin) > 0
+            ? Math.max(15, Math.round(Number(base.durationMin)))
+            : (Number.isFinite(prevDuration) && prevDuration > 0 ? Math.max(15, prevDuration) : 60);
+        const end = new Date(start.getTime() + durationMin * 60000);
+        const calendarId = String(base.calendarId || prev.calendarId || '').trim() || pickDefaultCalendarId(getSettings());
+        const nextItem = {
+            ...prev,
+            title: String(base.title || prev.title || '').trim() || '任务',
+            start: safeISO(start),
+            end: safeISO(end),
+            allDay: false,
+            calendarId,
+            taskId,
+            task_id: taskId,
+            linkedTaskId: taskId,
+            linked_task_id: taskId,
+        };
+        list[picked.index] = nextItem;
+        await saveScheduleAll(list, {
+            reason: 'upsert-task-schedule-time',
+            op: 'update',
+            scheduleId: String(nextItem.id || '').trim(),
+            scheduleIds: [String(nextItem.id || '').trim()].filter(Boolean),
+            rangeStart: nextItem.start,
+            rangeEnd: nextItem.end,
+        });
+        if (base.refresh !== false) {
+            __tmSchedulePostMutationRefresh(nextItem, 'upsert', {
+                reason: 'upsert-task-schedule-time',
+                side: base.side === true,
+                flushTaskPanel: true,
+                version: Number(state.calendarMutationVersion) || 0,
+            });
+        }
+        return nextItem;
+    }
+
     async function setScheduleOccurrenceDone(scheduleId, occurrenceStartMs, done, options = {}) {
         const sid = String(scheduleId || '').trim();
         const occurrenceKey = normalizeScheduleCompletedOccurrenceKey(occurrenceStartMs);
@@ -8908,11 +9019,18 @@
     function applyTaskDoneVisual(wrapEl, titleEl, done) {
         const v = !!done;
         try { wrapEl?.classList?.toggle?.('tm-cal-task-event--done', v); } catch (e) {}
+        let eventEl = null;
         try {
-            const eventEl = wrapEl?.closest?.('.fc-event');
+            eventEl = wrapEl?.closest?.('.fc-event');
             eventEl?.classList?.toggle?.('tm-cal-event--done', v);
             applyCalendarEventDoneBorderTone(eventEl, v);
         } catch (e) {}
+        const tid = String(
+            wrapEl?.getAttribute?.('data-tm-task-id')
+            || eventEl?.getAttribute?.('data-tm-cal-task-id')
+            || eventEl?.getAttribute?.('data-tm-cal-reminder-id')
+            || ''
+        ).trim();
         const styleNodes = new Set();
         if (titleEl instanceof HTMLElement) styleNodes.add(titleEl);
         try {
@@ -8926,12 +9044,17 @@
                 const isTime = node.classList.contains('tm-cal-task-event-time');
                 if (v) {
                     node.style.setProperty('text-decoration', isTime ? 'none' : 'line-through', 'important');
-                    node.style.setProperty('opacity', isTime ? '0.72' : '0.9', 'important');
+                    if (isTime) {
+                        node.style.setProperty('opacity', '0.72', 'important');
+                    } else if (!String(node.getAttribute?.('data-tm-title-opacity') || '').trim()) {
+                        node.style.setProperty('opacity', '0.9', 'important');
+                    }
                     node.style.setProperty('color', 'var(--tm-secondary-text, #8a8a8a)', 'important');
                 } else {
                     node.style.removeProperty('text-decoration');
-                    node.style.removeProperty('opacity');
+                    if (isTime || !String(node.getAttribute?.('data-tm-title-opacity') || '').trim()) node.style.removeProperty('opacity');
                     node.style.removeProperty('color');
+                    if (!isTime && tid) applyTaskTitleOpacityFromTask(node, getTaskLikeForTitleOpacity(tid, null));
                 }
             } catch (e) {}
         });
@@ -10016,6 +10139,7 @@
                     const useAllDayLayout = shouldUseAllDayEventContentLayout(arg);
                     const wrapEl = document.createElement('span');
                     wrapEl.className = source === 'schedule' ? 'tm-cal-task-event tm-cal-task-event--schedule' : 'tm-cal-task-event';
+                    if (tid) wrapEl.setAttribute('data-tm-task-id', tid);
                     if (shouldEnableCalendarEventContextMenu()) {
                         wrapEl.oncontextmenu = (ev) => {
                             try { ev.stopPropagation(); } catch (e) {}
@@ -10038,6 +10162,7 @@
                     if (isBlockLike) wrapEl.classList.add('tm-cal-task-event--block');
                     if (useAllDayLayout) wrapEl.classList.add('tm-cal-task-event--allday');
                     if (rangeText) wrapEl.classList.add('tm-cal-task-event--stacked');
+                    applyTaskTitleOpacityFromTask(titleText, getTaskLikeForTitleOpacity(tid, null));
                     let cb = null;
                     let leadingEl = null;
                     if (shouldShowCalendarEventCheckbox(ext)) {
@@ -10101,9 +10226,11 @@
                     const wrapEl = document.createElement('span');
                     wrapEl.className = 'tm-cal-task-event';
                     const tid = String(ext.__tmReminderBlockId || '').trim();
+                    if (tid) wrapEl.setAttribute('data-tm-task-id', tid);
                     const { title, titleText } = buildTaskEventTitleNode(String(arg?.event?.title || '').trim() || '任务提醒');
                     if (isBlockLike) wrapEl.classList.add('tm-cal-task-event--block');
                     if (useAllDayLayout) wrapEl.classList.add('tm-cal-task-event--allday');
+                    applyTaskTitleOpacityFromTask(titleText, getTaskLikeForTitleOpacity(tid, null));
                     applyTaskEventTitleClamp(wrapEl, title);
                     applyTaskDoneVisual(wrapEl, titleText, done);
                     titleText.onclick = (ev) => {
@@ -10139,6 +10266,8 @@
                         try {
                             const wrapEl = el.querySelector?.('.tm-cal-task-event');
                             const titleEl = wrapEl?.querySelector?.('.tm-cal-task-event-title-text') || wrapEl?.querySelector?.('.tm-cal-task-event-title') || null;
+                            const tid0 = String(ext.__tmTaskId || ext.__tmBlockId || ext.__tmReminderBlockId || '').trim();
+                            if (titleEl instanceof HTMLElement && tid0) applyTaskTitleOpacityFromTask(titleEl, getTaskLikeForTitleOpacity(tid0, null));
                             if (wrapEl) applyTaskDoneVisual(wrapEl, titleEl, resolveCalendarEventDoneState(ext));
                         } catch (e2) {}
                         const tid = String(ext.__tmTaskId || '').trim();
@@ -10687,6 +10816,38 @@
             const s1 = toMs(it?.start);
             const e1 = toMs(it?.end);
             return overlap(s1, e1, s2, e2);
+        }).sort((a, b) => {
+            const sa = toMs(a?.start);
+            const sb = toMs(b?.start);
+            if (sa !== sb) return sa - sb;
+            return String(a?.title || '').localeCompare(String(b?.title || ''), 'zh-Hans-CN');
+        });
+    }
+
+    async function listTaskSchedulesByTaskId(taskId, options = {}) {
+        const tid = String(taskId || '').trim();
+        if (!tid) return [];
+        const opts = (options && typeof options === 'object') ? options : {};
+        const list = await loadScheduleAll();
+        const settings = getSettings();
+        const calendarDefs = getCalendarDefs(settings);
+        const now = Date.now();
+        return (Array.isArray(list) ? list : []).filter((it) => {
+            const itemTaskId = String(it?.taskId || it?.task_id || it?.linkedTaskId || it?.linked_task_id || '').trim();
+            if (itemTaskId !== tid) return false;
+            if (opts.futureOnly !== true) return true;
+            const startMs = toMs(it?.start);
+            const endMs = toMs(it?.end);
+            const lastMs = Number.isFinite(endMs) ? endMs : startMs;
+            return Number.isFinite(lastMs) && lastMs >= now;
+        }).map((it) => {
+            const calendarId = String(it?.calendarId || '').trim();
+            const def = calendarDefs.find((d) => String(d?.id || '').trim() === calendarId);
+            return {
+                ...it,
+                calendarName: String(def?.name || calendarId || '日程').trim(),
+                calendarColor: String(def?.color || it?.color || '').trim(),
+            };
         }).sort((a, b) => {
             const sa = toMs(a?.start);
             const sb = toMs(b?.start);
@@ -11625,6 +11786,86 @@
         return Math.min(3650, Math.max(1, n));
     }
 
+    function normalizeReminderInterval(value) {
+        const raw = String(value || '').trim().toLowerCase();
+        if (raw === 'weekday' || raw === 'weekdays') return 'workday';
+        if (raw === 'everyday') return 'daily';
+        if (['once', 'daily', 'workday', 'weekly', 'monthly', 'yearly'].includes(raw)) return raw;
+        return 'once';
+    }
+
+    function getReminderMonthlyMode(reminder) {
+        const raw = String(
+            reminder?.monthlyMode
+            || reminder?.repeatMonthlyMode
+            || reminder?.monthly_mode
+            || reminder?.taskRepeatRule?.monthlyMode
+            || ''
+        ).trim().toLowerCase();
+        return raw === 'weekday' ? 'weekday' : 'date';
+    }
+
+    function isReminderWorkdayDate(date) {
+        const d = date instanceof Date ? date : new Date(date);
+        if (!(d instanceof Date) || Number.isNaN(d.getTime())) return false;
+        const day = d.getDay();
+        return day >= 1 && day <= 5;
+    }
+
+    function getReminderWorkdayIndex(anchorDate, targetDate) {
+        const start = anchorDate instanceof Date ? new Date(anchorDate.getTime()) : new Date(anchorDate);
+        const target = targetDate instanceof Date ? new Date(targetDate.getTime()) : new Date(targetDate);
+        if (!(start instanceof Date) || !(target instanceof Date) || Number.isNaN(start.getTime()) || Number.isNaN(target.getTime())) return -1;
+        start.setHours(0, 0, 0, 0);
+        target.setHours(0, 0, 0, 0);
+        if (target.getTime() < start.getTime()) return -1;
+        if (!isReminderWorkdayDate(target)) return -1;
+        let index = -1;
+        const cursor = new Date(start.getTime());
+        for (let guard = 0; cursor.getTime() <= target.getTime() && guard < 4000; guard += 1) {
+            if (isReminderWorkdayDate(cursor)) index += 1;
+            cursor.setDate(cursor.getDate() + 1);
+        }
+        return index;
+    }
+
+    function isReminderWorkdayOccurrence(targetDate, anchorDate, every) {
+        const index = getReminderWorkdayIndex(anchorDate, targetDate);
+        return index >= 0 && index % Math.max(1, Number(every) || 1) === 0;
+    }
+
+    function getReminderMonthWeekOrdinal(date) {
+        const d = date instanceof Date ? date : new Date(date);
+        if (!(d instanceof Date) || Number.isNaN(d.getTime())) return 1;
+        return Math.max(1, Math.min(5, Math.floor((d.getDate() - 1) / 7) + 1));
+    }
+
+    function buildReminderMonthlyDate(anchorDate, monthOffset) {
+        const anchor = anchorDate instanceof Date ? new Date(anchorDate.getTime()) : new Date(anchorDate);
+        if (!(anchor instanceof Date) || Number.isNaN(anchor.getTime())) return null;
+        const total = anchor.getFullYear() * 12 + anchor.getMonth() + (Number(monthOffset) || 0);
+        const year = Math.floor(total / 12);
+        const month = ((total % 12) + 12) % 12;
+        const lastDay = new Date(year, month + 1, 0).getDate();
+        return new Date(year, month, Math.min(anchor.getDate(), lastDay), 0, 0, 0, 0);
+    }
+
+    function buildReminderMonthlyWeekdayDate(anchorDate, monthOffset) {
+        const anchor = anchorDate instanceof Date ? new Date(anchorDate.getTime()) : new Date(anchorDate);
+        if (!(anchor instanceof Date) || Number.isNaN(anchor.getTime())) return null;
+        const total = anchor.getFullYear() * 12 + anchor.getMonth() + (Number(monthOffset) || 0);
+        const year = Math.floor(total / 12);
+        const month = ((total % 12) + 12) % 12;
+        const weekday = anchor.getDay();
+        const ordinal = getReminderMonthWeekOrdinal(anchor);
+        const first = new Date(year, month, 1, 0, 0, 0, 0);
+        const offset = (weekday - first.getDay() + 7) % 7;
+        const day = 1 + offset + (ordinal - 1) * 7;
+        const lastDay = new Date(year, month + 1, 0).getDate();
+        if (day > lastDay) return null;
+        return new Date(year, month, day, 0, 0, 0, 0);
+    }
+
     function getReminderStartDateKey(reminder) {
         const v = String(reminder?.startDate || reminder?.startDateKey || '').trim();
         if (/^\d{4}-\d{2}-\d{2}$/.test(v)) return v;
@@ -11640,7 +11881,7 @@
         const endDateKey = String(reminder?.endDate || '').trim();
         if (endDateKey && /^\d{4}-\d{2}-\d{2}$/.test(endDateKey) && dk > endDateKey) return false;
 
-        const interval = String(reminder?.interval || 'once').trim() || 'once';
+        const interval = normalizeReminderInterval(reminder?.interval || 'once');
         const every = interval === 'once' ? 1 : getReminderEvery(reminder);
         const target = new Date(`${dk}T00:00:00`);
         const created = new Date(`${startKey}T00:00:00`);
@@ -11652,6 +11893,9 @@
             const diffDays = Math.floor((target.getTime() - created.getTime()) / dayMs);
             return diffDays >= 0 && diffDays % every === 0;
         }
+        if (interval === 'workday') {
+            return isReminderWorkdayOccurrence(target, created, every);
+        }
         if (interval === 'weekly') {
             if (target.getDay() !== created.getDay()) return false;
             const diffWeeks = Math.floor((target.getTime() - created.getTime()) / (dayMs * 7));
@@ -11660,9 +11904,10 @@
         if (interval === 'monthly') {
             const diffMonths = (target.getFullYear() - created.getFullYear()) * 12 + (target.getMonth() - created.getMonth());
             if (diffMonths < 0 || diffMonths % every !== 0) return false;
-            const lastDay = new Date(target.getFullYear(), target.getMonth() + 1, 0).getDate();
-            const day = Math.min(created.getDate(), lastDay);
-            return target.getDate() === day;
+            const candidate = getReminderMonthlyMode(reminder) === 'weekday'
+                ? buildReminderMonthlyWeekdayDate(created, diffMonths)
+                : buildReminderMonthlyDate(created, diffMonths);
+            return !!candidate && formatDateKey(candidate) === dk;
         }
         if (interval === 'yearly') {
             const diffYears = target.getFullYear() - created.getFullYear();
@@ -13902,6 +14147,7 @@
                     const useAllDayLayout = shouldUseAllDayEventContentLayout(arg);
                     const wrapEl = document.createElement('span');
                     wrapEl.className = source === 'schedule' ? 'tm-cal-task-event tm-cal-task-event--schedule' : 'tm-cal-task-event';
+                    if (tid) wrapEl.setAttribute('data-tm-task-id', tid);
                     if (shouldEnableCalendarEventContextMenu()) {
                         wrapEl.oncontextmenu = (ev) => {
                             try { ev.stopPropagation(); } catch (e) {}
@@ -13924,6 +14170,7 @@
                     if (isBlockLike) wrapEl.classList.add('tm-cal-task-event--block');
                     if (useAllDayLayout) wrapEl.classList.add('tm-cal-task-event--allday');
                     if (rangeText) wrapEl.classList.add('tm-cal-task-event--stacked');
+                    applyTaskTitleOpacityFromTask(titleText, getTaskLikeForTitleOpacity(tid, null));
                     let cb = null;
                     let leadingEl = null;
                     if (shouldShowCalendarEventCheckbox(ext)) {
@@ -13997,9 +14244,11 @@
                     const wrapEl = document.createElement('span');
                     wrapEl.className = 'tm-cal-task-event';
                     const tid = String(ext.__tmReminderBlockId || '').trim();
+                    if (tid) wrapEl.setAttribute('data-tm-task-id', tid);
                     const { title, titleText } = buildTaskEventTitleNode(String(arg?.event?.title || '').trim() || '任务提醒');
                     if (isBlockLike) wrapEl.classList.add('tm-cal-task-event--block');
                     if (useAllDayLayout) wrapEl.classList.add('tm-cal-task-event--allday');
+                    applyTaskTitleOpacityFromTask(titleText, getTaskLikeForTitleOpacity(tid, null));
                     applyTaskEventTitleClamp(wrapEl, title);
                     applyTaskDoneVisual(wrapEl, titleText, done);
                     titleText.onclick = (ev) => {
@@ -14045,6 +14294,8 @@
                             try {
                                 const wrapEl = el.querySelector?.('.tm-cal-task-event');
                                 const titleEl = wrapEl?.querySelector?.('.tm-cal-task-event-title-text') || wrapEl?.querySelector?.('.tm-cal-task-event-title') || null;
+                                const tid0 = String(ext.__tmTaskId || ext.__tmBlockId || ext.__tmReminderBlockId || '').trim();
+                                if (titleEl instanceof HTMLElement && tid0) applyTaskTitleOpacityFromTask(titleEl, getTaskLikeForTitleOpacity(tid0, null));
                                 if (wrapEl) applyTaskDoneVisual(wrapEl, titleEl, resolveCalendarEventDoneState(ext));
                             } catch (e2) {}
                             const aggDay = String(ext.__tmAggregateDay || '').trim();
@@ -15906,6 +16157,10 @@
         const tid = String(extra.taskId || '').trim();
         const blockId = getScheduleLinkedBlockId(extra);
         try {
+            if (extra.forceNew === true) {
+                openScheduleModal(buildScheduleEditorInitFromInput(extra));
+                return true;
+            }
             if (tid) {
                 const list = await loadScheduleAll();
                 const items = (Array.isArray(list) ? list : []).filter((x) => {
@@ -16191,8 +16446,10 @@
         getSideDayDate,
         relayoutSideDayDate,
         addTaskSchedule,
+        upsertTaskScheduleTime,
         setScheduleOccurrenceDone,
         listTaskSchedulesByDay,
+        listTaskSchedulesByTaskId,
         openScheduleEditor,
         openScheduleEditorById,
         openScheduleEditorByTaskId,

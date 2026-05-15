@@ -117,6 +117,7 @@
     let inlineMetaRenderTimer = null;
     let inlineMetaRenderCursor = 0;
     let inlineMetaRenderQueueTimer = 0;
+    let inlineMetaRenderQueueIsRaf = false;  // queue timer was scheduled via rAF (item 4)
     let inlineMetaRenderQueue = [];
     let inlineMetaRenderQueueIds = new Set();
     let inlineMetaRenderActiveIds = new Set();
@@ -156,6 +157,13 @@
     let inlineMetaVisibilityHandler = null;
     let inlineMetaFocusHandler = null;
     let inlineMetaPageShowHandler = null;
+    // Cross-tab refresh: protyle visibility observer + attr-updated bridge.
+    // SiYuan does not fire a usable "tab revealed" event when the user
+    // switches from a non-protyle tab (e.g. the Task Horizon panel) back
+    // to a document tab whose protyle is already mounted, so without these
+    // hooks the inline meta layer paints from stale `inlineMetaCache`.
+    let inlineMetaProtyleVisibilityObserver = null;
+    let inlineMetaProtyleVisibility = new WeakMap();
     let quickbarInlineSettingsCache = null;
     let quickbarInlineSettingsCacheDirty = true;
     let inlineMetaActiveTargetsCacheTs = 0;
@@ -403,9 +411,16 @@
 
     function clearInlineMetaRenderQueue() {
         if (inlineMetaRenderQueueTimer) {
-            try { clearTimeout(inlineMetaRenderQueueTimer); } catch (e) {}
+            try {
+                if (inlineMetaRenderQueueIsRaf && typeof cancelAnimationFrame === 'function') {
+                    cancelAnimationFrame(inlineMetaRenderQueueTimer);
+                } else {
+                    clearTimeout(inlineMetaRenderQueueTimer);
+                }
+            } catch (e) {}
         }
         inlineMetaRenderQueueTimer = 0;
+        inlineMetaRenderQueueIsRaf = false;
         inlineMetaRenderQueue = [];
         inlineMetaRenderQueueIds.clear();
         inlineMetaRenderActiveIds.clear();
@@ -435,12 +450,27 @@
     }
 
     function hasInlineMetaReadyHosts() {
+        // Scan across every layer, not just `inlineMetaLayer` (which only
+        // tracks the last-set protyle). In split-view / dock-plus-tab
+        // setups this is the difference between detecting one protyle's
+        // ready hosts and detecting any.
         try {
-            const layer = inlineMetaLayer && inlineMetaLayer.isConnected
-                ? inlineMetaLayer
-                : document.querySelector('.sy-custom-props-inline-layer');
-            if (!layer) return false;
-            return !!layer.querySelector('.sy-custom-props-inline-host.is-ready');
+            return document.querySelectorAll('.sy-custom-props-inline-layer .sy-custom-props-inline-host.is-ready').length > 0;
+        } catch (e) {
+            return false;
+        }
+    }
+
+    function hasInlineMetaPendingHosts() {
+        // A host exists in the DOM but lacks the `is-ready` class when its
+        // last `layoutInlineMetaHost` call returned false (transient 0×0
+        // rect, missing text anchor, viewport-collision, etc). The bootstrap
+        // retry plan needs to keep firing while any such host is pending,
+        // otherwise blocks that failed once get stranded as soon as a single
+        // peer block has rendered successfully (hasInlineMetaReadyHosts
+        // alone returns true and short-circuits the retry).
+        try {
+            return document.querySelectorAll('.sy-custom-props-inline-host:not(.is-ready)').length > 0;
         } catch (e) {
             return false;
         }
@@ -448,7 +478,10 @@
 
     function scheduleInlineMetaBootstrapRenders(forceRefresh = false) {
         clearInlineMetaBootstrapTimers();
-        const plan = [0, 48, 160, 360, 760];
+        // Plan extended past 760 ms so embed blocks (which SiYuan renders
+        // asynchronously after `loaded-protyle-static` fires) still get
+        // chips even if their first paint lands past the original window.
+        const plan = [0, 48, 160, 360, 760, 1400, 2400];
         plan.forEach((delay, index) => {
             if (delay === 0) {
                 try { scheduleInlineMetaRender(!!forceRefresh, true); } catch (e) {}
@@ -459,7 +492,8 @@
                 if (!inlineMetaStarted || !isInlineMetaEnabled()) return;
                 const needRetry = inlineMetaObservedRoots.length === 0
                     || inlineMetaObservedTaskBlocks.size === 0
-                    || !hasInlineMetaReadyHosts();
+                    || !hasInlineMetaReadyHosts()
+                    || hasInlineMetaPendingHosts();
                 if (!forceRefresh && !needRetry) return;
                 try { requestInlineMetaRender(forceRefresh || index >= plan.length - 2); } catch (e) {}
             }, delay);
@@ -896,6 +930,20 @@
             const raw = localStorage.getItem('tm_ai_enabled');
             if (raw === null) return false;
             return raw === 'true' || raw === '1';
+        } catch (e) {
+            return false;
+        }
+    }
+
+    async function ensureAiRuntimeLoaded() {
+        try {
+            if (globalThis.__tmAI?.loaded) return true;
+        } catch (e) {}
+        const loader = globalThis.__taskHorizonEnsureAiModuleLoaded;
+        if (typeof loader !== 'function') return !!globalThis.__tmAI?.loaded;
+        try {
+            const ok = await loader();
+            return !!(ok && globalThis.__tmAI?.loaded);
         } catch (e) {
             return false;
         }
@@ -1731,6 +1779,10 @@
                 pointer-events: none;
                 z-index: 1;
                 overflow: visible;
+                /* Isolate layout & style invalidation from the protyle's
+                   editor surface — chip writes should never propagate
+                   layout dirty bits up into SiYuan's editor tree. */
+                contain: layout style;
             }
             .sy-custom-props-inline-layer.is-scrolling .sy-custom-props-inline-host {
                 transition: none !important;
@@ -1783,6 +1835,11 @@
         let currentFloatBarLoadToken = 0;
         let activePropConfig = null;  // 当前编辑的属性配置
         let inputResolve = null;  // 输入框Promise解析器
+        const QUICKBAR_AUTO_HIDE_DELAY = 5000;
+        let quickbarAutoHideTimer = null;
+        let quickbarAutoHidePointerEnterHandler = null;
+        let quickbarAutoHidePointerLeaveHandler = null;
+        let quickbarAutoHideActivityHandler = null;
 
         function getInputEditorControls() {
             return {
@@ -1839,6 +1896,82 @@
 
             popupEl.style.left = `${Math.round(left)}px`;
             popupEl.style.top = `${Math.round(top)}px`;
+        }
+
+        function isQuickbarInteractionTarget(target) {
+            return !!target && (
+                floatBar.contains(target)
+                || selectMenu.contains(target)
+                || inputEditor.contains(target)
+            );
+        }
+
+        function isQuickbarInputFocused() {
+            const active = document.activeElement;
+            return inputEditor.classList.contains('is-visible') && isQuickbarInteractionTarget(active);
+        }
+
+        function clearQuickbarAutoHideTimer() {
+            if (!quickbarAutoHideTimer) return;
+            try { clearTimeout(quickbarAutoHideTimer); } catch (e) {}
+            quickbarAutoHideTimer = null;
+        }
+
+        function scheduleQuickbarAutoHide() {
+            clearQuickbarAutoHideTimer();
+            if (!quickbarStarted || floatBar.style.display === 'none') return;
+            quickbarAutoHideTimer = setTimeout(() => {
+                quickbarAutoHideTimer = null;
+                if (!quickbarStarted || floatBar.style.display === 'none') return;
+                if (isQuickbarInputFocused()) {
+                    scheduleQuickbarAutoHide();
+                    return;
+                }
+                hideFloatBar();
+            }, QUICKBAR_AUTO_HIDE_DELAY);
+        }
+
+        function noteQuickbarActivity() {
+            if (floatBar.style.display === 'none') return;
+            scheduleQuickbarAutoHide();
+        }
+
+        function bindQuickbarAutoHideEvents() {
+            if (quickbarAutoHidePointerEnterHandler || quickbarAutoHidePointerLeaveHandler || quickbarAutoHideActivityHandler) return;
+            quickbarAutoHidePointerEnterHandler = () => {
+                noteQuickbarActivity();
+            };
+            quickbarAutoHidePointerLeaveHandler = () => {
+                scheduleQuickbarAutoHide();
+            };
+            quickbarAutoHideActivityHandler = () => noteQuickbarActivity();
+            [floatBar, selectMenu, inputEditor].forEach((el) => {
+                try { el.addEventListener('pointerenter', quickbarAutoHidePointerEnterHandler, true); } catch (e) {}
+                try { el.addEventListener('pointerleave', quickbarAutoHidePointerLeaveHandler, true); } catch (e) {}
+                try { el.addEventListener('pointermove', quickbarAutoHideActivityHandler, { capture: true, passive: true }); } catch (e) {}
+                try { el.addEventListener('pointerdown', quickbarAutoHideActivityHandler, true); } catch (e) {}
+                try { el.addEventListener('click', quickbarAutoHideActivityHandler, true); } catch (e) {}
+                try { el.addEventListener('keydown', quickbarAutoHideActivityHandler, true); } catch (e) {}
+                try { el.addEventListener('input', quickbarAutoHideActivityHandler, true); } catch (e) {}
+                try { el.addEventListener('change', quickbarAutoHideActivityHandler, true); } catch (e) {}
+            });
+        }
+
+        function unbindQuickbarAutoHideEvents() {
+            [floatBar, selectMenu, inputEditor].forEach((el) => {
+                try { if (quickbarAutoHidePointerEnterHandler) el.removeEventListener('pointerenter', quickbarAutoHidePointerEnterHandler, true); } catch (e) {}
+                try { if (quickbarAutoHidePointerLeaveHandler) el.removeEventListener('pointerleave', quickbarAutoHidePointerLeaveHandler, true); } catch (e) {}
+                try { if (quickbarAutoHideActivityHandler) el.removeEventListener('pointermove', quickbarAutoHideActivityHandler, true); } catch (e) {}
+                try { if (quickbarAutoHideActivityHandler) el.removeEventListener('pointerdown', quickbarAutoHideActivityHandler, true); } catch (e) {}
+                try { if (quickbarAutoHideActivityHandler) el.removeEventListener('click', quickbarAutoHideActivityHandler, true); } catch (e) {}
+                try { if (quickbarAutoHideActivityHandler) el.removeEventListener('keydown', quickbarAutoHideActivityHandler, true); } catch (e) {}
+                try { if (quickbarAutoHideActivityHandler) el.removeEventListener('input', quickbarAutoHideActivityHandler, true); } catch (e) {}
+                try { if (quickbarAutoHideActivityHandler) el.removeEventListener('change', quickbarAutoHideActivityHandler, true); } catch (e) {}
+            });
+            quickbarAutoHidePointerEnterHandler = null;
+            quickbarAutoHidePointerLeaveHandler = null;
+            quickbarAutoHideActivityHandler = null;
+            clearQuickbarAutoHideTimer();
         }
 
         function setInputEditorMode(mode = 'input') {
@@ -3043,17 +3176,21 @@
             `.trim();
         }
 
-        async function getTaskCustomPropsFromTaskHorizon(blockId) {
+        async function getTaskCustomPropsFromTaskHorizon(blockId, options = {}) {
             const id = String(blockId || '').trim();
             if (!id) return null;
             try {
+                const opts = (options && typeof options === 'object') ? options : {};
                 const sharedApi = getTaskHorizonSharedApi();
                 const bridge = sharedApi?.quickbarBridge || null;
                 const getter = bridge?.getTaskCustomPropsByAnyId || sharedApi?.getTaskCustomPropsByAnyId;
                 if (typeof getter !== 'function') {
                     return null;
                 }
-                const result = await Promise.resolve(getter.call(bridge || sharedApi, id, { source: 'quickbar-inline' }));
+                const result = await Promise.resolve(getter.call(bridge || sharedApi, id, {
+                    source: 'quickbar-inline',
+                    forceFresh: opts.forceFresh === true,
+                }));
                 const props = (result?.props && typeof result.props === 'object' && !Array.isArray(result.props))
                     ? result.props
                     : ((result && typeof result === 'object' && !Array.isArray(result)) ? result : null);
@@ -3074,13 +3211,19 @@
             const opts = (options && typeof options === 'object') ? options : {};
             const id = String(blockId || '').trim();
             if (!id) return normalizeCustomProps();
-            if (!forceRefresh && !opts.skipAttrFallback && inlineMetaCache.has(id)) {
+            const shouldUseFreshManagerProps = opts.forceFresh === true || opts.includeRemark === true;
+            if (!forceRefresh && !shouldUseFreshManagerProps && !opts.skipAttrFallback && inlineMetaCache.has(id)) {
                 const cached = inlineMetaCache.get(id);
                 return cached;
             }
-            const runtimeProps = getRuntimeTaskCustomProps(id);
-            const managerProps = runtimeProps || await getTaskCustomPropsFromTaskHorizon(id);
-            let props = managerProps?.props || null;
+            const managerProps = shouldUseFreshManagerProps
+                ? await getTaskCustomPropsFromTaskHorizon(id, { forceFresh: true })
+                : null;
+            const runtimeProps = managerProps
+                ? null
+                : getRuntimeTaskCustomProps(id);
+            const resolvedManagerProps = managerProps || runtimeProps || await getTaskCustomPropsFromTaskHorizon(id);
+            let props = resolvedManagerProps?.props || null;
             if (!props && opts.skipAttrFallback !== true) {
                 const attrs = await getMergedTaskCustomAttrs(id);
                 props = normalizeCustomProps(attrs);
@@ -3096,8 +3239,8 @@
                 }
             } catch (e) {}
             setInlineMetaCache(id, props);
-            if (managerProps?.taskId && managerProps.taskId !== id) setInlineMetaCache(managerProps.taskId, props);
-            if (managerProps?.attrHostId && managerProps.attrHostId !== id) setInlineMetaCache(managerProps.attrHostId, props);
+            if (resolvedManagerProps?.taskId && resolvedManagerProps.taskId !== id) setInlineMetaCache(resolvedManagerProps.taskId, props);
+            if (resolvedManagerProps?.attrHostId && resolvedManagerProps.attrHostId !== id) setInlineMetaCache(resolvedManagerProps.attrHostId, props);
             return props;
         }
 
@@ -3183,6 +3326,7 @@
             ids.forEach((id) => {
                 const hadCache = inlineMetaCache.has(id);
                 try { inlineMetaPropsInflight.delete(id); } catch (e) {}
+                try { inlineMetaLayoutCache.delete(id); } catch (e) {}
                 if (hadCache) patchInlineMetaCache(id, { [cacheKey]: value });
                 else deleteInlineMetaCache(id);
                 refreshInlineMetaByTaskId(id, !hadCache);
@@ -3212,15 +3356,17 @@
             const opts = (options && typeof options === 'object') ? options : {};
             const id = String(blockId || '').trim();
             if (!id) return Promise.resolve(normalizeCustomProps());
-            if (!forceRefresh && !opts.skipAttrFallback && inlineMetaCache.has(id)) return Promise.resolve(inlineMetaCache.get(id));
-            const inflight = inlineMetaPropsInflight.get(id);
+            const shouldUseFreshManagerProps = opts.forceFresh === true || opts.includeRemark === true;
+            if (!forceRefresh && !shouldUseFreshManagerProps && !opts.skipAttrFallback && inlineMetaCache.has(id)) return Promise.resolve(inlineMetaCache.get(id));
+            const inflightKey = shouldUseFreshManagerProps ? `${id}:fresh` : id;
+            const inflight = inlineMetaPropsInflight.get(inflightKey);
             if (inflight) return inflight;
             const p = Promise.resolve(getTaskCustomProps(id, forceRefresh, opts))
                 .catch(() => normalizeCustomProps())
                 .finally(() => {
-                    if (inlineMetaPropsInflight.get(id) === p) inlineMetaPropsInflight.delete(id);
+                    if (inlineMetaPropsInflight.get(inflightKey) === p) inlineMetaPropsInflight.delete(inflightKey);
                 });
-            inlineMetaPropsInflight.set(id, p);
+            inlineMetaPropsInflight.set(inflightKey, p);
             return p;
         }
 
@@ -3420,6 +3566,9 @@
                             if (!taskIdForAi) {
                                 showMessage('未找到任务', true, 1800);
                                 return;
+                            }
+                            if (typeof globalThis.tmAiOptimizeTaskName !== 'function') {
+                                await ensureAiRuntimeLoaded();
                             }
                             if (typeof globalThis.tmAiOptimizeTaskName === 'function') {
                                 await globalThis.tmAiOptimizeTaskName(taskIdForAi);
@@ -3667,6 +3816,43 @@
             const blockIdAtOpen = String(currentBlockId || '').trim();
             if (!blockIdAtOpen) {
                 showMessage('无法获取任务ID', true, 1800);
+                return;
+            }
+            const attrKey = String(config?.attrKey || '').trim();
+            if ((attrKey === 'custom-start-date' || attrKey === 'custom-completion-time') && typeof window.tmOpenTaskTimeHub === 'function') {
+                try { inputEditor.classList.remove('is-visible'); } catch (e) {}
+                const activeField = attrKey === 'custom-start-date' ? 'startDate' : 'completionTime';
+                Promise.resolve(window.tmOpenTaskTimeHub(blockIdAtOpen, anchorEl, {
+                    activeField,
+                    source: 'quickbar',
+                    onChange: async (payload = {}) => {
+                        const patch = (payload?.patch && typeof payload.patch === 'object') ? payload.patch : {};
+                        const nextProps = {};
+                        if (Object.prototype.hasOwnProperty.call(patch, 'startDate')) {
+                            nextProps['custom-start-date'] = String(patch.startDate || '').trim();
+                        }
+                        if (Object.prototype.hasOwnProperty.call(patch, 'completionTime')) {
+                            nextProps['custom-completion-time'] = String(patch.completionTime || '').trim();
+                        }
+                        if (!Object.keys(nextProps).length) return;
+                        if (String(currentBlockId || '').trim() === blockIdAtOpen) {
+                            currentProps = { ...currentProps, ...nextProps };
+                            renderFloatBar();
+                        }
+                        patchInlineMetaCache(blockIdAtOpen, nextProps);
+                        refreshInlineMetaByTaskId(blockIdAtOpen, false);
+                        const dispatchTaskId = String(payload?.taskId || blockIdAtOpen).trim() || blockIdAtOpen;
+                        const requestedTaskId = String(payload?.requestedTaskId || blockIdAtOpen).trim() || blockIdAtOpen;
+                        Object.entries(nextProps).forEach(([key, value]) => {
+                            dispatchTaskAttrUpdated(blockIdAtOpen, key, value, {
+                                taskId: dispatchTaskId,
+                                requestedTaskId,
+                            });
+                        });
+                    },
+                })).catch((err) => {
+                    showMessage(String(err?.message || err || '打开时间设置失败'), true, 1800);
+                });
                 return;
             }
             const isCompletionDate = String(config?.attrKey || '').trim() === 'custom-completion-time';
@@ -4124,6 +4310,7 @@
             floatBar.style.display = 'flex';
             hideAllPopups();
             updatePosition();
+            scheduleQuickbarAutoHide();
 
             if (!blockIdAtOpen) return;
 
@@ -4144,6 +4331,7 @@
 
         // 隐藏悬浮条
         function hideFloatBar() {
+            clearQuickbarAutoHideTimer();
             currentFloatBarLoadToken += 1;
             if (updatePositionRafId) {
                 try { cancelAnimationFrame(updatePositionRafId); } catch (e) {}
@@ -4443,6 +4631,21 @@
         function scheduleInlineMetaQueueDrain(delayMs = 0) {
             if (inlineMetaRenderQueueTimer) return;
             const delay = Math.max(0, Number(delayMs) || 0);
+            // delayMs === 0 → align to the next animation frame; this lets
+            // a frame's worth of cache-hit renders drain together instead
+            // of crawling through one setTimeout(16) hop per batch. Any
+            // explicit delay still uses setTimeout (used by the in-flight
+            // re-schedule that lets fetches resolve between batches).
+            if (delay === 0 && typeof requestAnimationFrame === 'function') {
+                inlineMetaRenderQueueIsRaf = true;
+                inlineMetaRenderQueueTimer = requestAnimationFrame(() => {
+                    inlineMetaRenderQueueTimer = 0;
+                    inlineMetaRenderQueueIsRaf = false;
+                    drainInlineMetaRenderQueue();
+                });
+                return;
+            }
+            inlineMetaRenderQueueIsRaf = false;
             inlineMetaRenderQueueTimer = setTimeout(() => {
                 inlineMetaRenderQueueTimer = 0;
                 drainInlineMetaRenderQueue();
@@ -4465,8 +4668,18 @@
                 inlineMetaRenderActiveIds.clear();
                 return;
             }
+            // Process at least BATCH_LIMIT items unconditionally to keep
+            // small bursts (e.g. attr-updated for a handful of tasks)
+            // single-frame. Beyond that, drain until ~4 ms of synchronous
+            // work has elapsed — cache-hit-only renders (~0.1 ms each)
+            // can clear a queue of dozens within a single frame, while
+            // slow-path renders still respect the frame budget.
+            const now = () => ((typeof performance !== 'undefined' && performance.now) ? performance.now() : Date.now());
+            const startTs = now();
+            const frameBudgetMs = 4;
             let count = 0;
-            while (count < QUICKBAR_INLINE_RENDER_BATCH_LIMIT && inlineMetaRenderQueue.length) {
+            while (inlineMetaRenderQueue.length) {
+                if (count >= QUICKBAR_INLINE_RENDER_BATCH_LIMIT && (now() - startTs) >= frameBudgetMs) break;
                 const item = inlineMetaRenderQueue.shift();
                 inlineMetaRenderQueueIds.delete(item.taskId);
                 if (!item.blockEl?.isConnected || inlineMetaRenderActiveIds.has(item.taskId)) continue;
@@ -4476,10 +4689,10 @@
                     .catch(() => null)
                     .finally(() => {
                         inlineMetaRenderActiveIds.delete(item.taskId);
-                        if (inlineMetaRenderQueue.length) scheduleInlineMetaQueueDrain(16);
+                        if (inlineMetaRenderQueue.length) scheduleInlineMetaQueueDrain(0);
                     });
             }
-            if (inlineMetaRenderQueue.length) scheduleInlineMetaQueueDrain(16);
+            if (inlineMetaRenderQueue.length) scheduleInlineMetaQueueDrain(0);
         }
 
         function getInlineDirectionalTaskBlocks(upBuffer = 360, downBuffer = 360, maxCount = 96) {
@@ -4761,6 +4974,69 @@
             }
         }
 
+        function ensureInlineMetaProtyleVisibilityObserver() {
+            if (inlineMetaProtyleVisibilityObserver) return inlineMetaProtyleVisibilityObserver;
+            if (typeof IntersectionObserver !== 'function') return null;
+            inlineMetaProtyleVisibilityObserver = new IntersectionObserver((entries) => {
+                let revealed = false;
+                entries.forEach((entry) => {
+                    const target = entry.target;
+                    if (!(target instanceof Element)) return;
+                    const wasIntersecting = inlineMetaProtyleVisibility.get(target) === true;
+                    const nowIntersecting = entry.isIntersecting === true && entry.intersectionRatio > 0;
+                    inlineMetaProtyleVisibility.set(target, nowIntersecting);
+                    if (!wasIntersecting && nowIntersecting) revealed = true;
+                });
+                if (!revealed || !inlineMetaStarted || !isInlineMetaEnabled()) return;
+                // A protyle just transitioned from hidden to visible. We want
+                // to re-trigger rendering, but NOT force-refresh every chip:
+                //
+                // - `forceRefresh: true` would stampede /api/attr/getBlockAttrs
+                //   for every visible task (the cached props are wiped from
+                //   the render path's POV). While those fetches are
+                //   in-flight `renderInlineMetaHtml` paints default chips
+                //   (status=todo, priority=none) and any slow/failing fetch
+                //   leaves the chip looking like a freshly-created task.
+                //   Stale entries that genuinely changed are already
+                //   invalidated by `syncInlineMetaCacheFromAttrUpdate`.
+                //
+                // - `clearLayout: true` was originally added on the theory
+                //   that geometry was stale because the protyle was 0×0,
+                //   but `layoutInlineMetaHost` skips writing the cache when
+                //   rects are zero — so the cached positions all come from
+                //   the previously visible state and are still relative to
+                //   the per-protyle layer, which doesn't move when the tab
+                //   hides/shows. Trust the cached layout's textSig/widthSig
+                //   signatures to invalidate per-host when content shifted.
+                scheduleInlineMetaWake(false, {
+                    delayMs: 16,
+                    includeBootstrap: true,
+                    clearLayout: false,
+                });
+            }, { root: null, threshold: 0 });
+            return inlineMetaProtyleVisibilityObserver;
+        }
+
+        function rebindInlineMetaProtyleVisibility() {
+            const observer = ensureInlineMetaProtyleVisibilityObserver();
+            if (!observer) return;
+            // Re-observe every protyle in the DOM, not just visible ones, so
+            // a hidden tab's protyle can fire on reveal. Cheap because IO is
+            // O(observed elements) and protyles per workspace are small.
+            try { observer.disconnect(); } catch (e) {}
+            inlineMetaProtyleVisibility = new WeakMap();
+            try {
+                document.querySelectorAll('.protyle').forEach((el) => {
+                    if (!(el instanceof Element)) return;
+                    let rect = null;
+                    try { rect = el.getBoundingClientRect(); } catch (e2) {}
+                    const initiallyVisible = !!(rect && rect.width > 0 && rect.height > 0);
+                    inlineMetaProtyleVisibility.set(el, initiallyVisible);
+                    try { observer.observe(el); } catch (e2) {}
+                });
+            } catch (e) {}
+        }
+
         function ensureInlineMetaBlockObserver() {
             if (inlineMetaBlockObserver) return inlineMetaBlockObserver;
             if (typeof IntersectionObserver !== 'function') return null;
@@ -4852,16 +5128,72 @@
                     return true;
                 });
                 if (!hasRelevantMutation) return;
+                let topmostAffected = null;
                 const hasStructuralChange = mutations.some((m) => {
                     if (m.type !== 'childList') return false;
                     if (m.target instanceof Element && m.target.closest('.sy-custom-props-inline-layer')) return false;
                     const nodes = [...m.addedNodes, ...m.removedNodes];
-                    return nodes.some((n) => n.nodeType === Node.ELEMENT_NODE && (n.hasAttribute?.('data-node-id') || n.querySelector?.('[data-node-id]')));
+                    const structural = nodes.some((n) => n.nodeType === Node.ELEMENT_NODE && (n.hasAttribute?.('data-node-id') || n.querySelector?.('[data-node-id]')));
+                    if (structural) {
+                        // Find the topmost-in-DOM-order anchor for the mutation,
+                        // so we can invalidate only entries at or after it.
+                        // Removed nodes are no longer in the tree — use the
+                        // mutation target's nearest block ancestor instead.
+                        let anchor = null;
+                        try {
+                            for (let i = 0; i < m.addedNodes.length; i += 1) {
+                                const node = m.addedNodes[i];
+                                if (!(node instanceof Element)) continue;
+                                anchor = node.closest?.('[data-node-id]') || node;
+                                if (anchor) break;
+                            }
+                            if (!anchor && m.target instanceof Element) {
+                                anchor = m.target.closest?.('[data-node-id]') || m.target;
+                            }
+                        } catch (e) {}
+                        if (anchor instanceof Element && anchor.isConnected) {
+                            if (!topmostAffected) topmostAffected = anchor;
+                            else try {
+                                // anchor PRECEDES topmostAffected → use anchor instead.
+                                if (anchor.compareDocumentPosition(topmostAffected) & Node.DOCUMENT_POSITION_FOLLOWING) {
+                                    topmostAffected = anchor;
+                                }
+                            } catch (e) {}
+                        }
+                    }
+                    return structural;
                 });
                 inlineMetaNeedSyncBlocks = true;
                 if (hasStructuralChange && !inlineMetaScrolling) {
                     inlineMetaMutationHasStructural = true;
-                    inlineMetaLayoutCache.clear();
+                    if (topmostAffected instanceof Element) {
+                        // Targeted invalidation: only cache entries whose blocks
+                        // are at or after the topmost affected element can be
+                        // wrong (blocks before are visually undisturbed and their
+                        // cached left/top remain accurate). For typing in one
+                        // task in a long doc this preserves N-1 cache entries.
+                        try {
+                            const stale = [];
+                            inlineMetaLayoutCache.forEach((_, taskId) => {
+                                const blockEl = inlineMetaObservedTaskBlocks.get(taskId);
+                                if (!(blockEl instanceof Element) || !blockEl.isConnected) {
+                                    stale.push(taskId);
+                                    return;
+                                }
+                                if (blockEl === topmostAffected) {
+                                    stale.push(taskId);
+                                    return;
+                                }
+                                const rel = topmostAffected.compareDocumentPosition(blockEl);
+                                if (rel & Node.DOCUMENT_POSITION_FOLLOWING) stale.push(taskId);
+                            });
+                            stale.forEach((taskId) => inlineMetaLayoutCache.delete(taskId));
+                        } catch (e) {
+                            inlineMetaLayoutCache.clear();
+                        }
+                    } else {
+                        inlineMetaLayoutCache.clear();
+                    }
                 }
                 if (inlineMetaMutationTimer) clearTimeout(inlineMetaMutationTimer);
                 const now = Date.now();
@@ -4885,6 +5217,10 @@
             roots.forEach((root) => {
                 try { inlineMetaObserver.observe(root, { childList: true, subtree: true }); } catch (e) {}
             });
+            // Watch every .protyle for hidden→visible transitions so a tab
+            // switch back to a document tab triggers a wake even when SiYuan
+            // does not fire switch-protyle / loaded-protyle-* for it.
+            try { rebindInlineMetaProtyleVisibility(); } catch (e) {}
             inlineMetaNeedSyncBlocks = true;
             syncInlineMetaTaskBlocks(true);
         }
@@ -4917,24 +5253,51 @@
             try {
                 const eb = globalThis.__taskHorizonPluginInstance?.eventBus || window.siyuan?.eventBus;
                 if (eb && typeof eb.on === 'function') {
-                    const wakeFromProtyleEvent = (delayMs = 40, e = null) => {
+                    // mode='mount' → newly loaded protyle. Force a fresh
+                    //   geometry read for ITS blocks, but do NOT wipe the
+                    //   global layout cache — other tabs' cached entries
+                    //   are keyed by their own block IDs and stay valid.
+                    //   The previous clearLayout:true behavior was the
+                    //   trigger for the "open new tab → chips vanish in
+                    //   other tabs" bug: after a global clear, a single
+                    //   scroll event would let FAST PATH 0 strip is-ready
+                    //   from every hidden tab's hosts.
+                    // mode='switch' → tab brought to front by Wnd.switchTab:
+                    //   the protyle is now display:block and cached layouts
+                    //   are still valid relative to the per-protyle layer.
+                    //   Trust the textSig/widthSig signatures to invalidate
+                    //   per-host when content shifted.
+                    const wakeFromProtyleEvent = (delayMs = 40, e = null, mode = 'mount') => {
                         const protyle = e?.protyle || e?.detail?.protyle || null;
                         const wysiwygEl = protyle?.wysiwyg?.element || null;
                         const hint = wysiwygEl?.closest?.('.protyle') || wysiwygEl || null;
                         if (hint) {
                             registerInlineMetaProtyleHint(hint);
+                            // IntersectionObserver delivers entries async, so
+                            // the visibility map can still hold a stale
+                            // `false` for the just-revealed protyle when our
+                            // wake fires. layoutInlineMetaHost's FAST PATH 0
+                            // would then bail out — chips vanish until any
+                            // later mutation (e.g. a hover-triggered DOM
+                            // change) gives IO a chance to catch up. The
+                            // event reaches us only after Wnd.switchTab has
+                            // made the protyle visible, so we know the
+                            // truthful state synchronously.
+                            try { inlineMetaProtyleVisibility.set(hint, true); } catch (e2) {}
+                            try { inlineMetaProtyleVisibilityObserver?.observe?.(hint); } catch (e2) {}
                             try { syncInlineMetaObserveRoots(); } catch (e2) {}
                         }
-                        scheduleInlineMetaWake(true, {
+                        const isMount = mode === 'mount';
+                        scheduleInlineMetaWake(isMount, {
                             delayMs,
                             includeBootstrap: true,
-                            clearLayout: true,
+                            clearLayout: false,
                         });
                     };
-                    const onStatic = (e) => wakeFromProtyleEvent(24, e);
-                    const onDynamic = (e) => wakeFromProtyleEvent(40, e);
-                    const onSwitch = (e) => wakeFromProtyleEvent(32, e);
-                    const onSwitchMode = (e) => wakeFromProtyleEvent(32, e);
+                    const onStatic = (e) => wakeFromProtyleEvent(24, e, 'mount');
+                    const onDynamic = (e) => wakeFromProtyleEvent(40, e, 'mount');
+                    const onSwitch = (e) => wakeFromProtyleEvent(32, e, 'switch');
+                    const onSwitchMode = (e) => wakeFromProtyleEvent(32, e, 'switch');
                     eb.on('loaded-protyle-static', onStatic);
                     eb.on('loaded-protyle-dynamic', onDynamic);
                     eb.on('switch-protyle', onSwitch);
@@ -4980,10 +5343,31 @@
                 host.classList.remove('is-ready');
                 return false;
             }
-            // --- FAST PATH: skip expensive geometry reads when content is unchanged ---
             const textSig = getInlineTextFastSignature(textAnchor);
             const prevLayout = inlineMetaLayoutCache.get(taskId);
             const layoutHtml = String(html ?? prevLayout?.html ?? host.innerHTML ?? '');
+            // --- FAST PATH 0: block lives in a hidden protyle. Cheap O(1)
+            // check via the protyle-visibility WeakMap (no rect reads, no
+            // forced reflow). The host is inside a display:none ancestor,
+            // so whatever is-ready state it carries is invisible to the
+            // user. Bail out WITHOUT mutating is-ready or the cache —
+            // stripping is-ready here is the root cause of "chips vanish
+            // when a sibling tab opens": opening a new tab clears the
+            // global layout cache, and any subsequent scroll-driven
+            // refreshInlineMetaPositions sweep then walks every hidden
+            // host with prevLayout === null and would strip is-ready,
+            // leaving the host invisible after the protyle is revealed
+            // again. Preserving the previous is-ready state means the
+            // chip is already shown the moment the tab is brought to
+            // front; the live render that follows just refreshes its
+            // position.
+            try {
+                const protyleEl = blockEl.closest?.('.protyle');
+                if (protyleEl && inlineMetaProtyleVisibility.get(protyleEl) === false) {
+                    return !!prevLayout;
+                }
+            } catch (e) {}
+            // --- FAST PATH: skip expensive geometry reads when content is unchanged ---
             if (!forceRefresh && prevLayout && prevLayout.textSig === textSig && prevLayout.html === layoutHtml && !inlineMetaScrolling) {
                 host.classList.toggle('is-wrap', !!prevLayout.wrapMode);
                 host.style.left = prevLayout.left;
@@ -5118,12 +5502,20 @@
 
         function refreshInlineMetaPositions() {
             if (!isInlineMetaEnabled()) return;
-            const layer = inlineMetaLayer && inlineMetaLayer.isConnected
-                ? inlineMetaLayer
-                : document.querySelector('.sy-custom-props-inline-layer');
-            if (!layer) return;
+            // Gather hosts from every layer in the document. Each protyle
+            // has its own layer; the old code only re-positioned hosts in
+            // whichever layer was last set as `inlineMetaLayer`, so a
+            // split-view (or dock + tab) would have chips frozen in one
+            // protyle while the other scrolled correctly.
+            const layers = Array.from(document.querySelectorAll('.sy-custom-props-inline-layer'));
+            if (!layers.length) return;
             inlineMetaOccupiedRects = [];
-            const hosts = Array.from(layer.querySelectorAll('.sy-custom-props-inline-host[data-block-id]'));
+            const hosts = [];
+            for (let li = 0; li < layers.length; li += 1) {
+                const layerEl = layers[li];
+                if (!layerEl?.isConnected) continue;
+                Array.prototype.push.apply(hosts, Array.from(layerEl.querySelectorAll('.sy-custom-props-inline-host[data-block-id]')));
+            }
             const entries = [];
             let missingBlockCount = 0;
             let outsideViewportCount = 0;
@@ -5200,7 +5592,8 @@
             host.dataset.blockId = taskId;
             const cfg = getQuickbarInlineSettings();
             const hasDateInlineField = inlineMetaFieldsIncludeDate(cfg);
-            const runtimeProps = hasDateInlineField ? getRuntimeTaskCustomProps(taskId, blockEl) : null;
+            const hasRemarkInlineField = Array.isArray(cfg?.fields) && cfg.fields.includes('custom-remark');
+            const runtimeProps = hasRemarkInlineField ? null : (hasDateInlineField ? getRuntimeTaskCustomProps(taskId, blockEl) : null);
             const hasCacheForRender = inlineMetaCache.has(taskId) && !runtimeProps?.props;
             const hasCached = hasCacheForRender && !forceRefresh;
             if (hasDateInlineField && !runtimeProps?.props && !hasCacheForRender) host.classList.remove('is-ready');
@@ -5209,7 +5602,7 @@
                 if (runtimeProps.taskId && runtimeProps.taskId !== taskId) setInlineMetaCache(runtimeProps.taskId, runtimeProps.props);
                 if (runtimeProps.attrHostId && runtimeProps.attrHostId !== taskId) setInlineMetaCache(runtimeProps.attrHostId, runtimeProps.props);
             }
-            const revalidateCached = (hasCached && isInlineMetaCacheStale(taskId)) || (hasDateInlineField && !runtimeProps?.props);
+            const revalidateCached = (hasCached && (hasRemarkInlineField || isInlineMetaCacheStale(taskId))) || (hasDateInlineField && !runtimeProps?.props);
             const useEmptyPropsForRender = hasDateInlineField && !runtimeProps?.props && !hasCacheForRender;
             const cachedPropsForRender = useEmptyPropsForRender
                 ? normalizeCustomProps()
@@ -5238,7 +5631,7 @@
                     return;
                 }
                 if (!hasCached || revalidateCached || forceRefresh) {
-                    Promise.resolve(ensureTaskPropsReady(taskId, forceRefresh || revalidateCached, { skipAttrFallback: hasDateInlineField })).then(applyFreshProps).catch(() => null);
+                    Promise.resolve(ensureTaskPropsReady(taskId, forceRefresh || revalidateCached, { skipAttrFallback: hasDateInlineField, blockEl, includeRemark: hasRemarkInlineField })).then(applyFreshProps).catch(() => null);
                 } else {
                     host.remove();
                     inlineMetaLayoutCache.delete(taskId);
@@ -5256,7 +5649,7 @@
             if (hasCached && !revalidateCached) {
                 return;
             }
-            Promise.resolve(ensureTaskPropsReady(taskId, forceRefresh || revalidateCached, { skipAttrFallback: hasDateInlineField })).then(applyFreshProps).catch(() => null);
+            Promise.resolve(ensureTaskPropsReady(taskId, forceRefresh || revalidateCached, { skipAttrFallback: hasDateInlineField, blockEl, includeRemark: hasRemarkInlineField })).then(applyFreshProps).catch(() => null);
         }
 
         function scheduleInlineMetaRender(forceRefresh = false, immediate = false) {
@@ -5279,6 +5672,19 @@
                     const keepDown = dir > 0 ? 4200 : (dir < 0 ? 1400 : 3200);
                     const keepBlocks = getInlineDirectionalTaskBlocks(keepUp, keepDown, 900);
                     pruneInlineMetaOutsideViewport(keepBlocks);
+                    // Render a small core slice while scrolling so blocks
+                    // entering the viewport get chips immediately. The old
+                    // path skipped all rendering until the 150ms scroll-idle
+                    // timer fired, which made fast scrolling reveal blank
+                    // rows for ~150ms. Cap the batch tightly to keep frame
+                    // budget — heavy work still waits for scroll-idle.
+                    const scrollCoreUp = dir > 0 ? 240 : (dir < 0 ? 720 : 480);
+                    const scrollCoreDown = dir > 0 ? 720 : (dir < 0 ? 240 : 480);
+                    const scrollCoreBlocks = getInlineDirectionalTaskBlocks(scrollCoreUp, scrollCoreDown, 32);
+                    const scrollCoreLimit = Math.min(QUICKBAR_INLINE_RENDER_BATCH_LIMIT, scrollCoreBlocks.length);
+                    for (let i = 0; i < scrollCoreLimit; i += 1) {
+                        queueInlineMetaRenderBlock(scrollCoreBlocks[i], !!forceRefresh, 360);
+                    }
                 } else {
                     const preRenderBlocks = buckets ? buckets.preRenderBlocks : [];
                     const keepBlocks = buckets ? buckets.keepBlocks : [];
@@ -5448,6 +5854,9 @@
             inlineMetaWsHandler = null;
             if (inlineMetaWsTimer) clearTimeout(inlineMetaWsTimer);
             inlineMetaWsTimer = null;
+            try { inlineMetaProtyleVisibilityObserver?.disconnect?.(); } catch (e) {}
+            inlineMetaProtyleVisibilityObserver = null;
+            inlineMetaProtyleVisibility = new WeakMap();
             inlineMetaIsComposing = false;
             setInlineMetaScrolling(false);
             removeInlineMetaNodes();
@@ -5475,6 +5884,7 @@
             if (Date.now() < inlineMetaInteractUntil) return;
 
             const target = e.target;
+            if (isQuickbarInteractionTarget(target)) noteQuickbarActivity();
             if (target?.closest?.('.sy-custom-props-inline-host,.sy-custom-props-inline-chip')) return;
             if (shouldSuppressFloatBarForTarget(target, now)) {
                 if (floatBar.style.display !== 'none') hideFloatBar();
@@ -5630,6 +6040,7 @@
             document.addEventListener('click', handleTrigger, true);
             document.addEventListener('scroll', updatePosition, true);
             window.addEventListener('resize', updatePosition, true);
+            bindQuickbarAutoHideEvents();
 
             closePopupsHandler = (e) => {
                 if (Date.now() < inlineMetaInteractUntil) return;
@@ -5674,6 +6085,7 @@
             try { document.removeEventListener('click', handleTrigger, true); } catch (e) {}
             try { document.removeEventListener('scroll', updatePosition, true); } catch (e) {}
             try { window.removeEventListener('resize', updatePosition, true); } catch (e) {}
+            unbindQuickbarAutoHideEvents();
             try { if (closePopupsHandler) document.removeEventListener('pointerdown', closePopupsHandler, true); } catch (e) {}
             closePopupsHandler = null;
             try { if (taskAttrUpdatedHandler) window.removeEventListener('tm-task-attr-updated', taskAttrUpdatedHandler); } catch (e) {}

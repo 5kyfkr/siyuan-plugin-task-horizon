@@ -1766,6 +1766,31 @@ return false;
         return false;
     }
 
+    function __tmScheduleTaskProjectionRefresh(taskId, patch = {}, options = {}) {
+        const tid = String(taskId || '').trim();
+        const nextPatch = (patch && typeof patch === 'object') ? patch : {};
+        const opts = (options && typeof options === 'object') ? options : {};
+        if (!tid || !Object.keys(nextPatch).length) return false;
+        const viewMode = String(state.viewMode || '').trim();
+        const reason = String(opts.reason || 'task-field-projection').trim() || 'task-field-projection';
+        const refreshWithFilters = opts.withFilters !== false
+            || __tmDoesPatchNeedProjectionRefresh(tid, nextPatch, opts);
+        if (viewMode === 'list' && refreshWithFilters) {
+            return __tmScheduleListProjectionRefresh({
+                mode: 'current',
+                withFilters: true,
+                reason,
+                taskIds: [tid],
+            }, __tmBuildListProjectionRefreshScheduleOptions(nextPatch, opts));
+        }
+        return __tmScheduleViewRefresh({
+            mode: 'current',
+            withFilters: refreshWithFilters,
+            reason,
+            taskIds: [tid],
+        });
+    }
+
     function __tmBuildMergedAttrPatch(taskId, patch = {}, options = {}) {
         const task = __tmTaskStateKernel.getTask(taskId);
         const nextPatch = (patch && typeof patch === 'object') ? patch : {};
@@ -2011,9 +2036,9 @@ return false;
         const taskLike = (task && typeof task === 'object') ? task : null;
         if (!(root instanceof Element) || !taskLike) return false;
         const cell = root.querySelector('[data-tm-field="score"]');
-        if (!(cell instanceof HTMLElement)) return true;
         const nextValue = Math.round(__tmEnsureTaskPriorityScore(taskLike));
-        cell.textContent = String(nextValue);
+        if (cell instanceof HTMLElement) cell.textContent = String(nextValue);
+        try { __tmApplyTaskTitleOpacityInContainer(root, taskLike); } catch (e) {}
         return true;
     }
 
@@ -2959,6 +2984,7 @@ return false;
                     el.setAttribute('title', titleText);
                 }
             } catch (e) {}
+            try { __tmApplyTaskTitleOpacityToElement(el, taskLike); } catch (e) {}
             touched = true;
         });
         return touched;
@@ -3060,6 +3086,7 @@ return false;
                     handled = true;
                 }
                 if (timePatched === false) return false;
+                if (__tmDoesPatchAffectPriorityScore(patch)) touched = !!__tmApplyTaskTitleOpacityInContainer(item, task) || touched;
                 return touched || handled;
             },
         },
@@ -3090,6 +3117,7 @@ return false;
                     if (Object.prototype.hasOwnProperty.call(patch, 'startDate') || Object.prototype.hasOwnProperty.call(patch, 'completionTime')) {
                         touched = !!__tmUpdateTimelineTaskInDOM(tid) || touched;
                     }
+                    if (__tmDoesPatchAffectPriorityScore(patch)) touched = !!__tmApplyTaskTitleOpacityInContainer(row, task) || touched;
                 }
                 return touched;
             },
@@ -3140,6 +3168,7 @@ return false;
                 if (Object.prototype.hasOwnProperty.call(patch, 'completionTime') || Object.prototype.hasOwnProperty.call(patch, 'startDate')) {
                     touched = !!__tmUpdateKanbanTaskTimeInDOM(tid) || touched;
                 }
+                if (__tmDoesPatchAffectPriorityScore(patch)) touched = !!__tmApplyTaskTitleOpacityInContainer(card, task) || touched;
                 if (Object.prototype.hasOwnProperty.call(patch, 'remark')) {
                     const nextRemark = __tmRenderTaskCardRemark(task);
                     let remarkEl = card.querySelector('.tm-task-card-remark');
@@ -3182,6 +3211,7 @@ return false;
                     if (Object.prototype.hasOwnProperty.call(patch, 'completionTime') || Object.prototype.hasOwnProperty.call(patch, 'startDate')) {
                         touched = !!__tmUpdateWhiteboardTaskTimeInDOM(tid) || touched;
                     }
+                    if (__tmDoesPatchAffectPriorityScore(patch)) touched = !!__tmApplyTaskTitleOpacityInContainer(node, task) || touched;
                 });
                 return touched;
             },
@@ -3270,19 +3300,11 @@ refreshed = checklistPatched || refreshed;
             });
         }
         if (fallbackNeeded) {
-            if (viewMode === 'list' && refreshWithFilters && needsProjectionRefresh) {
-                __tmScheduleListProjectionRefresh({
-                    mode: 'current',
-                    withFilters: true,
-                    reason: String(opts.reason || 'task-field-projection').trim() || 'task-field-projection',
-                }, __tmBuildListProjectionRefreshScheduleOptions(nextPatch, opts));
-            } else {
-                __tmScheduleViewRefresh({
-                    mode: 'current',
-                    withFilters: refreshWithFilters,
-                    reason: String(opts.reason || 'task-field-projection').trim() || 'task-field-projection',
-                });
-            }
+            __tmScheduleTaskProjectionRefresh(tid, nextPatch, {
+                ...opts,
+                withFilters: refreshWithFilters,
+                reason: String(opts.reason || 'task-field-projection').trim() || 'task-field-projection',
+            });
             if (hasCustomFieldPatch) {
                 __tmQuickbarRefreshDebugLog('custom-field-refresh-fallback-scheduled', {
                     taskId: tid,
@@ -3296,11 +3318,11 @@ refreshed = checklistPatched || refreshed;
         }
         if (viewMode === 'list' && refreshed && opts.withFilters === false) {
             if (needsProjectionRefresh) {
-                __tmScheduleListProjectionRefresh({
-                    mode: 'current',
+                __tmScheduleTaskProjectionRefresh(tid, nextPatch, {
+                    ...opts,
                     withFilters: true,
                     reason: String(opts.reason || 'task-field-list-reorder').trim() || 'task-field-list-reorder',
-                }, __tmBuildListProjectionRefreshScheduleOptions(nextPatch, opts));
+                });
             }
         }
         if (!refreshed && opts.fallback !== false) {
@@ -3318,19 +3340,11 @@ refreshed = checklistPatched || refreshed;
                 }
 return false;
             }
-            if (viewMode === 'list' && refreshWithFilters && needsProjectionRefresh) {
-                __tmScheduleListProjectionRefresh({
-                    mode: 'current',
-                    withFilters: true,
-                    reason: String(opts.reason || 'task-field-patch-fallback').trim() || 'task-field-patch-fallback',
-                }, __tmBuildListProjectionRefreshScheduleOptions(nextPatch, opts));
-            } else {
-                __tmScheduleViewRefresh({
-                    mode: 'current',
-                    withFilters: refreshWithFilters,
-                    reason: String(opts.reason || 'task-field-patch-fallback').trim() || 'task-field-patch-fallback',
-                });
-            }
+            __tmScheduleTaskProjectionRefresh(tid, nextPatch, {
+                ...opts,
+                withFilters: refreshWithFilters,
+                reason: String(opts.reason || 'task-field-patch-fallback').trim() || 'task-field-patch-fallback',
+            });
         }
         if (hasCustomFieldPatch) {
             __tmQuickbarRefreshDebugLog('custom-field-refresh-exit', {
@@ -4034,6 +4048,17 @@ throw error;
         const existingInput = td.querySelector?.('input,select,textarea');
         if (existingInput) {
             try { existingInput.focus?.(); } catch (e) {}
+            return;
+        }
+        if ((field === 'startDate' || field === 'completionTime') && typeof window.tmOpenTaskTimeHub === 'function') {
+            __tmCloseInlineEditor();
+            __tmCloseCellEditor(false);
+            Promise.resolve(window.tmOpenTaskTimeHub(id, td, {
+                activeField: field,
+                source: 'table-cell',
+            })).catch((e) => {
+                try { hint(`❌ 打开时间设置失败: ${e.message}`, 'error'); } catch (e2) {}
+            });
             return;
         }
         if (ev && String(ev.type || '').trim() === 'click' && isDeferredTextField) {

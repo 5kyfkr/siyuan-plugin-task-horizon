@@ -10,6 +10,983 @@
                         </div>`;
     }
 
+    function __tmTaskDetailTimeHubIcon(iconName, className = 'tm-task-time-hub__icon-svg', size = 15) {
+        const name = String(iconName || '').trim();
+        if (!name) return '';
+        try {
+            if (typeof __tmPhosphorBoldSvg === 'function') {
+                return __tmPhosphorBoldSvg(name, { size, className });
+            }
+        } catch (e) {}
+        try { return __tmRenderLucideIcon(name, className, { size }); } catch (e) {}
+        return '';
+    }
+
+    function __tmGetStableTaskTimeHubAnchorRect(element, fallbackRect = null) {
+        if (!(element instanceof HTMLElement)) return fallbackRect;
+        let rect = null;
+        try { rect = element.getBoundingClientRect(); } catch (e) { return fallbackRect; }
+        const usable = element.isConnected && rect && (
+            rect.width > 0 ||
+            rect.height > 0 ||
+            rect.left !== 0 ||
+            rect.top !== 0 ||
+            rect.right !== 0 ||
+            rect.bottom !== 0
+        );
+        if (!usable) return fallbackRect;
+        return {
+            left: rect.left,
+            top: rect.top,
+            right: rect.right,
+            bottom: rect.bottom,
+            width: rect.width,
+            height: rect.height,
+        };
+    }
+
+    function __tmGetTaskTimeHubViewport() {
+        const docEl = document.documentElement;
+        const vv = window.visualViewport;
+        const left = Number.isFinite(Number(vv?.offsetLeft)) ? Number(vv.offsetLeft) : 0;
+        const top = Number.isFinite(Number(vv?.offsetTop)) ? Number(vv.offsetTop) : 0;
+        const width = Math.max(240, Math.round(Number(vv?.width) || docEl?.clientWidth || window.innerWidth || 0));
+        const height = Math.max(240, Math.round(Number(vv?.height) || docEl?.clientHeight || window.innerHeight || 0));
+        return {
+            left,
+            top,
+            width,
+            height,
+            right: left + width,
+            bottom: top + height,
+        };
+    }
+
+    function __tmPositionTaskTimeHubPopover(popover, anchorRect, options = {}) {
+        if (!(popover instanceof HTMLElement) || !anchorRect) return;
+        if (window.matchMedia && window.matchMedia('(max-width: 640px)').matches) {
+            popover.style.width = '';
+            popover.style.left = '';
+            popover.style.top = '';
+            popover.style.maxHeight = '';
+            return;
+        }
+        const viewport = __tmGetTaskTimeHubViewport();
+        const margin = Math.max(6, Number(options.margin) || 8);
+        const gap = Math.max(4, Number(options.gap) || 8);
+        const maxWidth = Math.max(220, Number(options.maxWidth) || 286);
+        const minWidth = Math.max(180, Number(options.minWidth) || 260);
+        const availableWidth = Math.max(180, Math.round(viewport.width - margin * 2));
+        const targetWidth = Math.round(Math.min(maxWidth, Math.max(minWidth, availableWidth)));
+        popover.style.width = `${targetWidth}px`;
+        popover.style.maxHeight = '';
+
+        const popRect = popover.getBoundingClientRect();
+        const popWidth = Math.max(180, Math.round(popRect.width || targetWidth));
+        const availableHeight = Math.max(180, Math.round(viewport.height - margin * 2));
+        const heightForPlacement = Math.max(1, Math.round(popRect.height || Math.min(520, availableHeight)));
+        const leftMin = Math.round(viewport.left + margin);
+        const leftMax = Math.round(viewport.right - margin - popWidth);
+        let left = Math.round(anchorRect.left + (anchorRect.width || 0) / 2 - popWidth / 2);
+        left = Math.max(leftMin, Math.min(left, Math.max(leftMin, leftMax)));
+
+        const topMin = Math.round(viewport.top + margin);
+        const topMax = Math.round(viewport.bottom - margin - Math.min(heightForPlacement, availableHeight));
+        const belowTop = Math.round(anchorRect.bottom + gap);
+        const aboveTop = Math.round(anchorRect.top - heightForPlacement - gap);
+        const belowSpace = Math.round(viewport.bottom - margin - belowTop);
+        const aboveSpace = Math.round(anchorRect.top - gap - topMin);
+        let top;
+        if (heightForPlacement <= belowSpace) {
+            top = belowTop;
+        } else if (heightForPlacement <= aboveSpace) {
+            top = aboveTop;
+        } else {
+            top = Math.max(topMin, Math.min(belowTop, Math.max(topMin, topMax)));
+        }
+
+        const maxHeight = Math.max(180, Math.round(viewport.bottom - margin - top));
+        popover.style.left = `${left}px`;
+        popover.style.top = `${top}px`;
+        popover.style.maxHeight = `${Math.min(maxHeight, availableHeight)}px`;
+    }
+
+    function __tmFormatTaskDetailShortDate(value, emptyText = '未设置') {
+        const key = __tmNormalizeDateOnly(value);
+        if (!key) return emptyText;
+        const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(key);
+        if (!m) return key;
+        const year = Number(m[1]);
+        const month = Number(m[2]);
+        const day = Number(m[3]);
+        const now = new Date();
+        return year === now.getFullYear()
+            ? `${month}月${day}日`
+            : `${year}年${month}月${day}日`;
+    }
+
+    function __tmNormalizeTaskTimeHubTitle(value, fallback = '任务') {
+        const backup = String(fallback || '').trim() || '任务';
+        let text = String(value || '').trim() || backup;
+        try {
+            text = (typeof API?.extractTaskContentLine === 'function')
+                ? String(API.extractTaskContentLine(text) || text).trim()
+                : String(text.split(/\r?\n/)[0] || text).trim();
+        } catch (e) {
+            text = String(text.split(/\r?\n/)[0] || text).trim();
+        }
+        text = text
+            .replace(/^[\s>*-]*\[(?:[xX ]?)\]\s*/, '')
+            .replace(/^[\s>*-]*\[\]\s*/, '')
+            .replace(/\{\:\s*[^}]*\}/g, '')
+            .replace(/<span[^>]*>[\s\S]*?<\/span>/gi, '')
+            .replace(/<[^>]+>/g, '')
+            .replace(/\s{2,}/g, ' ')
+            .trim();
+        try {
+            if (typeof API?.normalizeTaskContent === 'function') {
+                text = String(API.normalizeTaskContent(text) || text).trim();
+            }
+        } catch (e) {}
+        return text || backup;
+    }
+
+    function __tmGetTaskDetailTimeHubParts(task, options = {}) {
+        const source = (task && typeof task === 'object') ? task : {};
+        const opts = (options && typeof options === 'object') ? options : {};
+        const endValue = __tmNormalizeDateOnly(opts.completionTime ?? source.completionTime ?? source.completion_time ?? '');
+        const reminderText = String(opts.reminderText || '').trim();
+        const hasReminder = opts.hasReminder === true || !!reminderText;
+        const scheduleText = String(opts.scheduleText || '').trim();
+        const parts = [];
+        if (endValue) parts.push(__tmFormatTaskDetailShortDate(endValue));
+        if (scheduleText) parts.push(scheduleText);
+        if (hasReminder) parts.push(reminderText || '已提醒');
+        return parts;
+    }
+
+    function __tmTaskDetailTimeHubHasRepeat(options = {}) {
+        const opts = (options && typeof options === 'object') ? options : {};
+        return opts.hasRepeat === true || !!String(opts.repeatSummary || '').trim();
+    }
+
+    function __tmTaskDetailTimeHubHasValue(task, options = {}) {
+        return __tmGetTaskDetailTimeHubParts(task, options).length > 0 || __tmTaskDetailTimeHubHasRepeat(options);
+    }
+
+    function __tmGetTaskDetailTimeHubLabel(task, options = {}) {
+        const text = __tmGetTaskDetailTimeHubParts(task, options).join(' · ');
+        if (text) return text;
+        return __tmTaskDetailTimeHubHasRepeat(options) ? '循环' : '时间';
+    }
+
+    function __tmBuildTaskDetailTimeHubFace(task, options = {}) {
+        const text = __tmGetTaskDetailTimeHubParts(task, options).join(' · ');
+        const icon = __tmRenderLucideIcon('calendar-check', 'tm-task-detail-core-chip__icon');
+        const repeatIcon = __tmTaskDetailTimeHubHasRepeat(options)
+            ? __tmRenderLucideIcon('repeat', 'tm-task-detail-core-chip__icon')
+            : '';
+        return `${icon}${text ? `<span class="tm-task-detail-core-chip__text">${esc(text)}</span>` : ''}${repeatIcon}`;
+    }
+
+    let __tmStandaloneTaskTimeHub = null;
+
+    function __tmCloseStandaloneTaskTimeHub(reason = 'manual') {
+        const state0 = __tmStandaloneTaskTimeHub;
+        if (!state0) return false;
+        __tmStandaloneTaskTimeHub = null;
+        try { state0.abort?.abort?.(); } catch (e) {}
+        try { state0.trigger?.classList?.remove?.('is-open'); } catch (e) {}
+        try { state0.trigger?.setAttribute?.('aria-expanded', 'false'); } catch (e) {}
+        const popover = state0.popover;
+        if (popover instanceof HTMLElement) {
+            try { __tmAnimatePopupOutAndRemove(popover, { duration: 110 }); } catch (e) {
+                try { popover.remove(); } catch (e2) {}
+            }
+        }
+        return true;
+    }
+
+    async function __tmResolveTaskForTimeHub(taskIdOrBlockId, taskLike = null) {
+        const requestedId = String(taskIdOrBlockId || taskLike?.id || taskLike?.blockId || '').trim();
+        let task = (taskLike && typeof taskLike === 'object') ? taskLike : null;
+        let resolvedId = requestedId;
+        if (!task && requestedId) {
+            try { task = __tmTaskStateKernel.getTask(requestedId) || null; } catch (e) { task = null; }
+        }
+        if (!task && requestedId) {
+            try { task = globalThis.__tmRuntimeState?.getFlatTaskById?.(requestedId) || state.flatTasks?.[requestedId] || null; } catch (e) {}
+        }
+        if (!task && requestedId) {
+            try {
+                const nextId = await __tmResolveTaskIdFromAnyBlockId(requestedId);
+                if (nextId) resolvedId = String(nextId || '').trim() || requestedId;
+            } catch (e) {}
+        }
+        if (!task && resolvedId) {
+            try { task = __tmTaskStateKernel.getTask(resolvedId) || globalThis.__tmRuntimeState?.getFlatTaskById?.(resolvedId) || state.flatTasks?.[resolvedId] || null; } catch (e) {}
+        }
+        if (!task && resolvedId) {
+            try { task = await __tmEnsureTaskInStateById(resolvedId); } catch (e) { task = null; }
+        }
+        if (!task && resolvedId) {
+            try { task = await __tmBuildTaskLikeFromBlockId(resolvedId); } catch (e) { task = null; }
+        }
+        if (!task && requestedId && requestedId !== resolvedId) {
+            try { task = await __tmBuildTaskLikeFromBlockId(requestedId); } catch (e) { task = null; }
+        }
+        if (task && typeof task === 'object') {
+            const tid = String(task.id || resolvedId || requestedId).trim();
+            if (tid && !task.id) {
+                try { task = { ...task, id: tid }; } catch (e) {}
+            }
+        }
+        return task || null;
+    }
+
+    function __tmTaskTimeHubAnchorFromInput(anchorOrEvent, options = {}) {
+        const opts = (options && typeof options === 'object') ? options : {};
+        if (opts.anchorEl instanceof HTMLElement) return opts.anchorEl;
+        if (anchorOrEvent instanceof HTMLElement) return anchorOrEvent;
+        const ev = anchorOrEvent && typeof anchorOrEvent === 'object' ? anchorOrEvent : null;
+        if (ev?.currentTarget instanceof HTMLElement) return ev.currentTarget;
+        if (ev?.target instanceof Element) return ev.target.closest('button,[data-tm-task-time-field],.tm-cell-editable,.tm-kanban-chip,.sy-custom-props-inline-chip,.sy-custom-props-floatbar__prop') || ev.target;
+        return null;
+    }
+
+    async function __tmOpenStandaloneTaskTimeHub(taskIdOrBlockId, anchorOrEvent = null, options = {}) {
+        const opts = (options && typeof options === 'object') ? options : {};
+        const trigger = __tmTaskTimeHubAnchorFromInput(anchorOrEvent, opts);
+        if (!(trigger instanceof HTMLElement)) {
+            hint('⚠ 未找到时间设置入口', 'warning');
+            return null;
+        }
+        if (__tmStandaloneTaskTimeHub?.trigger === trigger) {
+            __tmCloseStandaloneTaskTimeHub('toggle');
+            return null;
+        }
+        __tmCloseStandaloneTaskTimeHub('replace');
+
+        let task = await __tmResolveTaskForTimeHub(taskIdOrBlockId, opts.task);
+        const draftMode = opts.draft === true || opts.persist === false;
+        if (!task && draftMode && opts.task && typeof opts.task === 'object') task = opts.task;
+        const taskId = String(task?.id || taskIdOrBlockId || (draftMode ? '__tm_quick_add_draft__' : '')).trim();
+        if (!taskId) {
+            hint('⚠ 未找到任务', 'warning');
+            return null;
+        }
+        const hideReminder = opts.hideReminder === true || draftMode;
+        const hideSchedule = opts.hideSchedule === true || draftMode;
+        const hideRepeat = opts.hideRepeat === true || draftMode;
+
+        const todayKey = __tmNormalizeDateOnly(new Date());
+        const pad2 = (n) => String(n).padStart(2, '0');
+        const parseDateKey = (value) => {
+            const key = __tmNormalizeDateOnly(value);
+            const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(key);
+            if (!m) return null;
+            const d = new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3]), 12, 0, 0, 0);
+            return Number.isNaN(d.getTime()) ? null : d;
+        };
+        const toDateKey = (date) => {
+            if (!(date instanceof Date) || Number.isNaN(date.getTime())) return '';
+            return `${date.getFullYear()}-${pad2(date.getMonth() + 1)}-${pad2(date.getDate())}`;
+        };
+        const startOfMonth = (date) => new Date(date.getFullYear(), date.getMonth(), 1, 12, 0, 0, 0);
+        const shiftMonth = (date, delta) => new Date(date.getFullYear(), date.getMonth() + (Number(delta) || 0), 1, 12, 0, 0, 0);
+        const normalizeDate = (value) => value ? __tmNormalizeDateOnly(value) : '';
+        const getTaskTitle = () => {
+            const source = task && typeof task === 'object' ? task : {};
+            return __tmNormalizeTaskTimeHubTitle(source.content || source.raw_content || source.markdown || '', '任务');
+        };
+        const readTaskDate = (field) => {
+            const source = task && typeof task === 'object' ? task : {};
+            return normalizeDate(field === 'startDate'
+                ? (source.startDate || source.start_date || '')
+                : (source.completionTime || source.completion_time || ''));
+        };
+        const writeTaskDatesLocal = (patch = {}) => {
+            task = {
+                ...(task || {}),
+                ...(Object.prototype.hasOwnProperty.call(patch, 'startDate') ? { startDate: normalizeDate(patch.startDate), start_date: normalizeDate(patch.startDate) } : {}),
+                ...(Object.prototype.hasOwnProperty.call(patch, 'completionTime') ? { completionTime: normalizeDate(patch.completionTime), completion_time: normalizeDate(patch.completionTime) } : {}),
+            };
+        };
+        const refreshTask = async () => {
+            const next = await __tmResolveTaskForTimeHub(taskId, null);
+            if (next) task = next;
+            return task;
+        };
+        const notifyChange = async (patch = {}, extra = {}) => {
+            try {
+                if (typeof opts.onChange === 'function') {
+                    await opts.onChange({
+                        taskId,
+                        requestedTaskId: String(taskIdOrBlockId || taskId).trim(),
+                        patch: { ...(patch || {}) },
+                        task,
+                        ...((extra && typeof extra === 'object') ? extra : {}),
+                    });
+                }
+            } catch (e) {}
+        };
+        const makeDateTime = (dateKey, timeKey = '09:00') => {
+            const d = parseDateKey(dateKey) || parseDateKey(todayKey) || new Date();
+            const m = /^(\d{1,2}):(\d{2})$/.exec(String(timeKey || '').trim());
+            const h = m ? Math.max(0, Math.min(23, Number(m[1]) || 0)) : 9;
+            const min = m ? Math.max(0, Math.min(59, Number(m[2]) || 0)) : 0;
+            return new Date(d.getFullYear(), d.getMonth(), d.getDate(), h, min, 0, 0);
+        };
+        const formatTime = (value) => {
+            const d = value instanceof Date ? value : new Date(value);
+            if (!(d instanceof Date) || Number.isNaN(d.getTime())) return '';
+            return `${pad2(d.getHours())}:${pad2(d.getMinutes())}`;
+        };
+        const formatScheduleDate = (value) => __tmFormatTaskDetailShortDate(__tmNormalizeDateOnly(value), '');
+        const getRepeatRule = () => {
+            try { return __tmGetTaskRepeatRule(task || {}); } catch (e) { return { enabled: false, type: 'none' }; }
+        };
+        const getRepeatSummary = () => {
+            try {
+                return __tmGetTaskRepeatSummary(getRepeatRule(), {
+                    startDate: readTaskDate('startDate'),
+                    completionTime: readTaskDate('completionTime'),
+                });
+            } catch (e) {
+                return '';
+            }
+        };
+        const readReminderSnapshot = () => {
+            try { return __tmPeekTaskReminderSnapshotByAnyId(task || { id: taskId }); } catch (e) { return null; }
+        };
+        const readReminderValue = () => {
+            const snap = readReminderSnapshot();
+            try { return !!(snap?.hasReminder === true || __tmHasReminderMark(task || { id: taskId })); } catch (e) {}
+            return snap?.hasReminder === true;
+        };
+        const readReminderDisplayValue = () => String(readReminderSnapshot()?.displayText || '').trim();
+        const sortDateRange = (left, right) => {
+            const a = normalizeDate(left);
+            const b = normalizeDate(right);
+            if (!a && !b) return { start: '', end: '' };
+            if (!a) return { start: b, end: b };
+            if (!b) return { start: a, end: a };
+            return a <= b ? { start: a, end: b } : { start: b, end: a };
+        };
+        const isKeyInDateRange = (key, start, end) => {
+            const k = normalizeDate(key);
+            return !!(k && start && end && k >= start && k <= end);
+        };
+
+        const requestedField = String(opts.activeField || '').trim();
+        const initialActiveField = requestedField === 'startDate' ? 'startDate' : 'completionTime';
+        const initialMonth = parseDateKey(readTaskDate(initialActiveField) || readTaskDate('completionTime') || readTaskDate('startDate') || todayKey) || new Date();
+        const hubState = {
+            tab: !hideSchedule && String(opts.tab || '').trim() === 'schedule' ? 'schedule' : 'date',
+            activeField: initialActiveField,
+            monthDate: startOfMonth(initialMonth),
+            editor: '',
+            schedules: [],
+            schedulesLoaded: false,
+            schedulesLoading: false,
+            scheduleExpanded: false,
+            rangeDrag: null,
+        };
+        let scheduleText = '';
+        let suppressNextDayClick = false;
+        let busy = false;
+        const popover = document.createElement('div');
+        popover.className = `tm-task-detail-inline-popover tm-task-time-hub-popover${draftMode ? ' tm-task-time-hub-popover--draft' : ''}`;
+        popover.setAttribute('role', 'dialog');
+        popover.setAttribute('aria-label', '任务时间中心');
+        let lastTriggerRect = null;
+        const abort = new AbortController();
+        const on = (target, type, handler, opt = {}) => {
+            try { target.addEventListener(type, handler, { ...(opt || {}), signal: abort.signal }); } catch (e) {}
+        };
+        const position = () => {
+            if (!popover.isConnected || !(trigger instanceof HTMLElement)) return;
+            lastTriggerRect = __tmGetStableTaskTimeHubAnchorRect(trigger, lastTriggerRect);
+            const triggerRect = lastTriggerRect;
+            if (!triggerRect) return;
+            __tmPositionTaskTimeHubPopover(popover, triggerRect);
+        };
+        const positionEditorPanel = () => {
+            const panel = popover.querySelector('[data-tm-time-hub-editor-panel]');
+            const card = hubState.editor ? popover.querySelector(`[data-tm-time-hub-card="${hubState.editor}"]`) : null;
+            if (!(panel instanceof HTMLElement) || !(card instanceof HTMLElement)) return;
+            if (window.matchMedia && window.matchMedia('(max-width: 640px)').matches) {
+                panel.style.left = '';
+                panel.style.top = '';
+                return;
+            }
+            const popRect = popover.getBoundingClientRect();
+            const cardRect = card.getBoundingClientRect();
+            const panelRect = panel.getBoundingClientRect();
+            const maxLeft = Math.max(8, popRect.width - panelRect.width - 8);
+            const left = Math.max(8, Math.min(maxLeft, Math.round(cardRect.left - popRect.left)));
+            let top = Math.round(cardRect.top - popRect.top - panelRect.height - 8);
+            if (top < 8) top = Math.round(cardRect.bottom - popRect.top + 8);
+            panel.style.left = `${left}px`;
+            panel.style.top = `${top}px`;
+        };
+        const setBusy = (nextBusy) => {
+            busy = !!nextBusy;
+            try { popover.classList.toggle('is-busy', busy); } catch (e) {}
+        };
+        const getTimeFromSchedules = () => {
+            const item = Array.isArray(hubState.schedules) ? hubState.schedules.find((it) => it && it.allDay !== true) : null;
+            return item ? formatTime(item.start) : '';
+        };
+        const renderPreviewHtml = () => {
+            if (draftMode) return '';
+            const dates = __tmCollectTaskRepeatPreviewDates(task || {}, { limit: 4 });
+            if (!dates.length) return '';
+            return `
+                <div class="tm-task-time-hub__preview">
+                    <span>下次循环</span>
+                    <div>${dates.map((d) => `<span>${esc(__tmFormatTaskDetailShortDate(d, String(d || '')))}</span>`).join('')}</div>
+                </div>
+            `;
+        };
+        const renderDateCards = () => {
+            const cards = [
+                ['startDate', '开始', readTaskDate('startDate')],
+                ['completionTime', '截止', readTaskDate('completionTime')],
+            ];
+            return cards.map(([field, label, value]) => `
+                <div class="tm-task-time-hub__date-card ${hubState.activeField === field ? 'is-active' : ''}" role="button" tabindex="0" data-tm-time-hub-date-card="${field}">
+                    <span>${esc(label)}</span>
+                    <strong>${esc(__tmFormatTaskDetailShortDate(value))}</strong>
+                    ${value ? `<button type="button" class="tm-task-time-hub__date-clear" data-tm-time-hub-clear-date="${field}" aria-label="清除${esc(label)}日期">${__tmTaskDetailTimeHubIcon('x', 'tm-task-time-hub__small-icon', 13)}</button>` : ''}
+                </div>
+            `).join('');
+        };
+        const renderCalendarHtml = () => {
+            const month = startOfMonth(hubState.monthDate);
+            const first = new Date(month.getFullYear(), month.getMonth(), 1, 12, 0, 0, 0);
+            const gridStart = new Date(first.getTime());
+            gridStart.setDate(first.getDate() - first.getDay());
+            const startValue = readTaskDate('startDate');
+            const endValue = readTaskDate('completionTime');
+            const activeValue = readTaskDate(hubState.activeField);
+            const savedRange = startValue && endValue ? sortDateRange(startValue, endValue) : null;
+            const dragRange = hubState.rangeDrag ? sortDateRange(hubState.rangeDrag.anchor, hubState.rangeDrag.current) : null;
+            const days = [];
+            for (let i = 0; i < 42; i += 1) {
+                const d = new Date(gridStart.getTime());
+                d.setDate(gridStart.getDate() + i);
+                const key = toDateKey(d);
+                const out = d.getMonth() !== month.getMonth();
+                const classes = [
+                    'tm-task-time-hub__day',
+                    out ? 'is-outside' : '',
+                    key === todayKey ? 'is-today' : '',
+                    savedRange && isKeyInDateRange(key, savedRange.start, savedRange.end) ? 'is-range' : '',
+                    savedRange && key === savedRange.start ? 'is-range-start' : '',
+                    savedRange && key === savedRange.end ? 'is-range-end' : '',
+                    key === activeValue ? 'is-active' : '',
+                    key === startValue ? 'is-start' : '',
+                    key === endValue ? 'is-due' : '',
+                    dragRange && isKeyInDateRange(key, dragRange.start, dragRange.end) ? 'is-range-preview' : '',
+                    dragRange && key === dragRange.start ? 'is-range-start-preview' : '',
+                    dragRange && key === dragRange.end ? 'is-range-end-preview' : '',
+                ].filter(Boolean).join(' ');
+                days.push(`<button type="button" class="${classes}" data-tm-time-hub-date="${esc(key)}">${d.getDate()}</button>`);
+            }
+            return `
+                <div class="tm-task-time-hub__calendar-head">
+                    <strong>${month.getFullYear()}年${month.getMonth() + 1}月</strong>
+                    <div class="tm-task-time-hub__month-actions">
+                        <button type="button" data-tm-time-hub-month="-1" aria-label="上个月">${__tmTaskDetailTimeHubIcon('chevron-left', 'tm-task-time-hub__small-icon', 14)}</button>
+                        <button type="button" data-tm-time-hub-month="0" aria-label="回到本月">今</button>
+                        <button type="button" data-tm-time-hub-month="1" aria-label="下个月">${__tmTaskDetailTimeHubIcon('chevron-right', 'tm-task-time-hub__small-icon', 14)}</button>
+                    </div>
+                </div>
+                <div class="tm-task-time-hub__weekdays">
+                    ${['日', '一', '二', '三', '四', '五', '六'].map((d) => `<span>${d}</span>`).join('')}
+                </div>
+                <div class="tm-task-time-hub__calendar">${days.join('')}</div>
+            `;
+        };
+        const renderSettingCards = () => {
+            const disabled = hubState.activeField === 'startDate';
+            const reminderText = readReminderValue() ? (readReminderDisplayValue() || '已提醒') : '不提醒';
+            const repeatText = getRepeatSummary() || '不循环';
+            const rule = getRepeatRule();
+            const endText = rule?.enabled ? (rule.until ? `至 ${__tmFormatTaskDetailShortDate(rule.until)}` : '永不结束') : '未设置';
+            const cards = [];
+            if (!hideRepeat) {
+                cards.push(['repeat', 'repeat', '循环', repeatText]);
+                cards.push(['end', 'calendar-check', '结束', endText]);
+            }
+            if (!hideReminder) cards.push(['reminder', 'alarm-clock', '提醒', reminderText]);
+            if (!cards.length) return '';
+            return cards.map(([key, icon, label, value]) => `
+                <button type="button" class="tm-task-time-hub__setting ${hubState.editor === key ? 'is-active' : ''} ${disabled ? 'is-disabled' : ''}" data-tm-time-hub-card="${key}"${disabled ? ' disabled aria-disabled="true"' : ''}>
+                    <span class="tm-task-time-hub__setting-icon">${__tmTaskDetailTimeHubIcon(icon, 'tm-task-time-hub__icon-svg', 16)}</span>
+                    <span class="tm-task-time-hub__setting-text"><span>${esc(label)}</span><strong>${esc(value)}</strong></span>
+                </button>
+            `).join('');
+        };
+        const renderScheduleList = () => {
+            if (hubState.schedulesLoading) return '<div class="tm-task-time-hub__empty">正在读取日程...</div>';
+            const list = Array.isArray(hubState.schedules) ? hubState.schedules : [];
+            if (!list.length) return '<div class="tm-task-time-hub__empty">暂无日程</div>';
+            const visible = hubState.scheduleExpanded ? list : list.slice(0, 5);
+            return visible.map((item) => {
+                const id = String(item?.id || '').trim();
+                const start = new Date(item?.start);
+                const end = new Date(item?.end);
+                const isAllDay = item?.allDay === true;
+                const dateText = formatScheduleDate(item?.start) || '未定日期';
+                const timeText = isAllDay ? '全天' : `${formatTime(start)}${formatTime(end) ? `-${formatTime(end)}` : ''}`;
+                const calendarName = String(item?.calendarName || item?.calendarTitle || item?.calendarId || '日程').trim();
+                const repeatText = String(item?.repeatText || item?.repeatType || item?.rrule || '').trim();
+                const reminderText = item?.reminderMode === 'inherit' ? '跟随任务' : (item?.reminderEnabled === true ? '已提醒' : '不提醒');
+                return `
+                    <div class="tm-task-time-hub__schedule-item" data-tm-time-hub-schedule-id="${esc(id)}">
+                        <div class="tm-task-time-hub__schedule-main">
+                            <strong>${esc(dateText)} ${esc(timeText)}</strong>
+                            <span>${esc(calendarName)} · ${esc(reminderText)}${repeatText ? ` · ${esc(repeatText)}` : ''}</span>
+                        </div>
+                        <div class="tm-task-time-hub__schedule-actions">
+                            <button type="button" data-tm-time-hub-edit-schedule="${esc(id)}">编辑</button>
+                            <button type="button" data-tm-time-hub-delete-schedule="${esc(id)}">删除</button>
+                        </div>
+                    </div>
+                `;
+            }).join('');
+        };
+        const renderEditorHtml = () => {
+            const editor = String(hubState.editor || '').trim();
+            if (!editor) return '';
+            if (editor === 'reminder') {
+                if (hideReminder) return '';
+                return `<div class="tm-task-time-hub__subpanel" data-tm-time-hub-editor-panel>
+                    <div class="tm-task-time-hub__subpanel-title">提醒</div>
+                    <button type="button" class="tm-task-time-hub__choice ${!readReminderValue() ? 'is-selected' : ''}" data-tm-time-hub-reminder-open>不提醒</button>
+                    <button type="button" class="tm-task-time-hub__choice ${readReminderValue() ? 'is-selected' : ''}" data-tm-time-hub-reminder-open>打开提醒设置</button>
+                </div>`;
+            }
+            if (editor === 'repeat') {
+                if (hideRepeat) return '';
+                const rule = getRepeatRule();
+                const currentType = rule?.enabled ? String(rule.type || 'none') : 'none';
+                const choices = [['none', '不循环'], ['daily', '每天'], ['workday', '工作日'], ['weekly', '每周'], ['monthly', '每月'], ['yearly', '每年']];
+                return `<div class="tm-task-time-hub__subpanel" data-tm-time-hub-editor-panel>
+                    <div class="tm-task-time-hub__subpanel-title">循环</div>
+                    ${choices.map(([type, label]) => `<button type="button" class="tm-task-time-hub__choice ${currentType === type ? 'is-selected' : ''}" data-tm-time-hub-repeat="${type}">${esc(label)}</button>`).join('')}
+                    <button type="button" class="tm-task-time-hub__choice" data-tm-time-hub-repeat-custom>自定义循环</button>
+                </div>`;
+            }
+            if (editor === 'end') {
+                if (hideRepeat) return '';
+                const rule = getRepeatRule();
+                return `<div class="tm-task-time-hub__subpanel" data-tm-time-hub-editor-panel>
+                    <div class="tm-task-time-hub__subpanel-title">结束</div>
+                    <button type="button" class="tm-task-time-hub__choice ${!rule?.until ? 'is-selected' : ''}" data-tm-time-hub-repeat-until-clear>永不结束</button>
+                    <div class="tm-task-time-hub__until-row">
+                        <input class="tm-input" type="date" value="${esc(rule?.until || '')}" data-tm-time-hub-repeat-until-input>
+                        <button type="button" class="tm-btn tm-btn-primary" data-tm-time-hub-repeat-until-apply>应用</button>
+                    </div>
+                </div>`;
+            }
+            return '';
+        };
+        const render = () => {
+            popover.innerHTML = `
+                ${draftMode ? '' : `<div class="tm-task-time-hub__top">
+                    <div class="tm-task-time-hub__tabs" role="tablist" aria-label="时间中心">
+                        <button type="button" class="${hubState.tab === 'date' ? 'is-active' : ''}" data-tm-time-hub-tab="date" role="tab" aria-selected="${hubState.tab === 'date' ? 'true' : 'false'}">日期</button>
+                        ${hideSchedule ? '' : `<button type="button" class="${hubState.tab === 'schedule' ? 'is-active' : ''}" data-tm-time-hub-tab="schedule" role="tab" aria-selected="${hubState.tab === 'schedule' ? 'true' : 'false'}">日程</button>`}
+                    </div>
+                    <button type="button" class="tm-task-time-hub__close" data-tm-time-hub-close aria-label="关闭">${__tmTaskDetailTimeHubIcon('x', 'tm-task-time-hub__small-icon', 16)}</button>
+                </div>`}
+                ${hubState.tab === 'date' ? `
+                    <div class="tm-task-time-hub__panel tm-task-time-hub__panel--date">
+                        <div class="tm-task-time-hub__date-cards">${renderDateCards()}</div>
+                        ${renderCalendarHtml()}
+                        ${(() => {
+                            const settingsHtml = renderSettingCards();
+                            return settingsHtml ? `<div class="tm-task-time-hub__settings">${settingsHtml}</div>` : '';
+                        })()}
+                        ${renderPreviewHtml()}
+                        ${renderEditorHtml()}
+                    </div>
+                ` : `
+                    <div class="tm-task-time-hub__panel tm-task-time-hub__panel--schedule">
+                        <div class="tm-task-time-hub__schedule-toolbar">
+                            <button type="button" class="tm-btn tm-btn-primary" data-tm-time-hub-add-schedule>${__tmTaskDetailTimeHubIcon('plus', 'tm-task-time-hub__small-icon', 14)}新增日程</button>
+                            <button type="button" class="tm-btn tm-btn-secondary" data-tm-time-hub-toggle-schedules>${hubState.scheduleExpanded ? '收起' : '展开全部'}</button>
+                        </div>
+                        <div class="tm-task-time-hub__schedule-list">${renderScheduleList()}</div>
+                    </div>
+                `}
+            `;
+            try { trigger.setAttribute('aria-expanded', 'true'); } catch (e) {}
+            try { position(); } catch (e) {}
+            try {
+                requestAnimationFrame(() => {
+                    position();
+                    positionEditorPanel();
+                    requestAnimationFrame(() => {
+                        position();
+                        positionEditorPanel();
+                    });
+                });
+            } catch (e) {}
+        };
+        const loadHubSchedules = async (force = false) => {
+            if (hideSchedule) return;
+            if (hubState.schedulesLoading) return;
+            if (hubState.schedulesLoaded && !force) return;
+            hubState.schedulesLoading = true;
+            if (popover.isConnected) render();
+            try {
+                let list = [];
+                if (globalThis.__tmCalendar && typeof globalThis.__tmCalendar.listTaskSchedulesByTaskId === 'function') {
+                    list = await globalThis.__tmCalendar.listTaskSchedulesByTaskId(taskId, { futureOnly: false });
+                }
+                hubState.schedules = (Array.isArray(list) ? list : []).sort((a, b) => {
+                    const ta = new Date(a?.start).getTime();
+                    const tb = new Date(b?.start).getTime();
+                    return (Number.isFinite(ta) ? ta : 0) - (Number.isFinite(tb) ? tb : 0);
+                });
+                const first = hubState.schedules.find((it) => it?.allDay !== true) || hubState.schedules[0] || null;
+                scheduleText = first ? (first.allDay === true ? '全天' : formatTime(first.start)) : '';
+                hubState.schedulesLoaded = true;
+            } catch (e) {
+                hubState.schedules = [];
+                scheduleText = '';
+            } finally {
+                hubState.schedulesLoading = false;
+                if (popover.isConnected) render();
+            }
+        };
+        const updateDatePatch = async (patch, source = 'task-time-hub') => {
+            if (draftMode) {
+                const nextPatch = {};
+                if (Object.prototype.hasOwnProperty.call(patch, 'startDate')) nextPatch.startDate = normalizeDate(patch.startDate);
+                if (Object.prototype.hasOwnProperty.call(patch, 'completionTime')) nextPatch.completionTime = normalizeDate(patch.completionTime);
+                writeTaskDatesLocal(nextPatch);
+                await notifyChange(nextPatch, { kind: 'date', draft: true, source });
+                return nextPatch;
+            }
+            if (!window.tmUpdateTaskDates) throw new Error('日期更新接口未就绪');
+            setBusy(true);
+            try {
+                const result = await window.tmUpdateTaskDates(taskId, patch, {
+                    source,
+                    refresh: opts.refresh !== false,
+                    broadcast: opts.broadcast !== false,
+                    skipNoopCheck: opts.skipNoopCheck === true,
+                });
+                const nextPatch = {
+                    startDate: normalizeDate(result?.startDate ?? (Object.prototype.hasOwnProperty.call(patch, 'startDate') ? patch.startDate : readTaskDate('startDate'))),
+                    completionTime: normalizeDate(result?.completionTime ?? (Object.prototype.hasOwnProperty.call(patch, 'completionTime') ? patch.completionTime : readTaskDate('completionTime'))),
+                };
+                writeTaskDatesLocal(nextPatch);
+                await notifyChange(nextPatch, { kind: 'date' });
+                return nextPatch;
+            } finally {
+                setBusy(false);
+            }
+        };
+        const updateDateField = async (field, value) => {
+            const key = value ? normalizeDate(value) : '';
+            await updateDatePatch({ [field]: key }, 'task-time-hub-date');
+            render();
+        };
+        const updateDateRange = async (left, right) => {
+            const range = sortDateRange(left, right);
+            await updateDatePatch({ startDate: range.start, completionTime: range.end }, 'task-time-hub-range');
+            hubState.activeField = 'completionTime';
+            render();
+        };
+        const applyRepeatType = async (type) => {
+            if (hideRepeat) return;
+            const nextType = String(type || '').trim();
+            try {
+                setBusy(true);
+                if (!nextType || nextType === 'none') {
+                    await window.tmClearTaskRepeatRule?.(taskId, { source: 'task-time-hub' });
+                } else {
+                    const current = getRepeatRule();
+                    const anchorDate = readTaskDate('completionTime') || readTaskDate('startDate') || todayKey;
+                    await window.tmSetTaskRepeatRule?.(taskId, {
+                        ...current,
+                        enabled: true,
+                        type: nextType,
+                        every: current?.type === nextType ? current.every : 1,
+                        anchorDate,
+                        trigger: current?.trigger || 'due',
+                    }, { source: 'task-time-hub' });
+                }
+                await refreshTask();
+                await notifyChange({}, { kind: 'repeat' });
+                render();
+            } catch (e) {
+                hint(`❌ 循环更新失败: ${e.message}`, 'error');
+            } finally {
+                setBusy(false);
+            }
+        };
+        const applyRepeatUntil = async (untilValue) => {
+            if (hideRepeat) return;
+            const current = getRepeatRule();
+            if (!current?.enabled || current.type === 'none') {
+                hint('⚠ 请先设置循环规则', 'warning');
+                return;
+            }
+            try {
+                setBusy(true);
+                await window.tmSetTaskRepeatRule?.(taskId, {
+                    ...current,
+                    until: untilValue ? normalizeDate(untilValue) : '',
+                    anchorDate: readTaskDate('completionTime') || readTaskDate('startDate') || todayKey,
+                }, { source: 'task-time-hub-until' });
+                await refreshTask();
+                await notifyChange({}, { kind: 'repeat' });
+                render();
+            } catch (e) {
+                hint(`❌ 结束规则更新失败: ${e.message}`, 'error');
+            } finally {
+                setBusy(false);
+            }
+        };
+        const openScheduleEditorFromHub = async () => {
+            if (hideSchedule) return;
+            const dateKey = readTaskDate('completionTime') || readTaskDate('startDate') || todayKey;
+            const timeKey = getTimeFromSchedules() || '09:00';
+            const start = makeDateTime(dateKey, timeKey);
+            const end = new Date(start.getTime() + 60 * 60000);
+            if (globalThis.__tmCalendar && typeof globalThis.__tmCalendar.openScheduleEditor === 'function') {
+                await globalThis.__tmCalendar.openScheduleEditor({
+                    taskId,
+                    title: getTaskTitle(),
+                    start: start.toISOString(),
+                    end: end.toISOString(),
+                    startDate: readTaskDate('startDate'),
+                    completionTime: readTaskDate('completionTime'),
+                    forceNew: true,
+                });
+                await loadHubSchedules(true);
+            } else {
+                hint('⚠ 日历模块未就绪', 'warning');
+            }
+        };
+
+        document.body.appendChild(popover);
+        __tmStandaloneTaskTimeHub = { popover, trigger, abort };
+        try { trigger.classList.add('is-open'); } catch (e) {}
+        render();
+        try { __tmAnimatePopupIn(popover, { origin: 'top-left', duration: 150 }); } catch (e) {}
+        void loadHubSchedules(false);
+
+        on(popover, 'click', async (ev) => {
+            const target = ev.target instanceof Element ? ev.target : null;
+            if (!target || busy) return;
+            const closeBtn = target.closest('[data-tm-time-hub-close]');
+            if (closeBtn) {
+                try { ev.preventDefault(); } catch (e) {}
+                __tmCloseStandaloneTaskTimeHub('close-button');
+                return;
+            }
+            const tabBtn = target.closest('[data-tm-time-hub-tab]');
+            if (tabBtn) {
+                try { ev.preventDefault(); } catch (e) {}
+                hubState.tab = String(tabBtn.getAttribute('data-tm-time-hub-tab') || 'date').trim() === 'schedule' ? 'schedule' : 'date';
+                hubState.editor = '';
+                render();
+                if (hubState.tab === 'schedule') void loadHubSchedules(false);
+                return;
+            }
+            const clearBtn = target.closest('[data-tm-time-hub-clear-date]');
+            if (clearBtn) {
+                try { ev.preventDefault(); ev.stopPropagation(); } catch (e) {}
+                const field = String(clearBtn.getAttribute('data-tm-time-hub-clear-date') || '').trim();
+                if (field === 'startDate' || field === 'completionTime') await updateDateField(field, '');
+                return;
+            }
+            const dateCard = target.closest('[data-tm-time-hub-date-card]');
+            if (dateCard) {
+                try { ev.preventDefault(); } catch (e) {}
+                const field = String(dateCard.getAttribute('data-tm-time-hub-date-card') || '').trim();
+                if (field === 'startDate' || field === 'completionTime') {
+                    hubState.activeField = field;
+                    hubState.editor = '';
+                    render();
+                }
+                return;
+            }
+            const monthBtn = target.closest('[data-tm-time-hub-month]');
+            if (monthBtn) {
+                try { ev.preventDefault(); } catch (e) {}
+                const delta = Number(monthBtn.getAttribute('data-tm-time-hub-month') || 0);
+                hubState.monthDate = delta === 0 ? startOfMonth(parseDateKey(todayKey) || new Date()) : shiftMonth(hubState.monthDate, delta);
+                render();
+                return;
+            }
+            const dayBtn = target.closest('[data-tm-time-hub-date]');
+            if (dayBtn) {
+                try { ev.preventDefault(); } catch (e) {}
+                if (suppressNextDayClick) {
+                    suppressNextDayClick = false;
+                    return;
+                }
+                const key = normalizeDate(dayBtn.getAttribute('data-tm-time-hub-date') || '');
+                if (key) await updateDateField(hubState.activeField, key);
+                return;
+            }
+            const cardBtn = target.closest('[data-tm-time-hub-card]');
+            if (cardBtn) {
+                try { ev.preventDefault(); } catch (e) {}
+                if (cardBtn.disabled || cardBtn.getAttribute('aria-disabled') === 'true') return;
+                const key = String(cardBtn.getAttribute('data-tm-time-hub-card') || '').trim();
+                if (key === 'reminder') {
+                    try { await window.tmReminder?.(taskId); } finally {
+                        await refreshTask();
+                        await notifyChange({}, { kind: 'reminder' });
+                        render();
+                    }
+                    return;
+                }
+                hubState.editor = hubState.editor === key ? '' : key;
+                render();
+                return;
+            }
+            const reminderBtn = target.closest('[data-tm-time-hub-reminder-open]');
+            if (reminderBtn) {
+                try { ev.preventDefault(); } catch (e) {}
+                try { await window.tmReminder?.(taskId); } finally {
+                    await refreshTask();
+                    await notifyChange({}, { kind: 'reminder' });
+                    render();
+                }
+                return;
+            }
+            const repeatBtn = target.closest('[data-tm-time-hub-repeat]');
+            if (repeatBtn) {
+                try { ev.preventDefault(); } catch (e) {}
+                await applyRepeatType(repeatBtn.getAttribute('data-tm-time-hub-repeat'));
+                return;
+            }
+            const customRepeatBtn = target.closest('[data-tm-time-hub-repeat-custom]');
+            if (customRepeatBtn) {
+                try { ev.preventDefault(); } catch (e) {}
+                const result = await window.tmEditTaskRepeatRule?.(taskId, { task, title: '循环设置' });
+                if (result) {
+                    await refreshTask();
+                    await notifyChange({}, { kind: 'repeat' });
+                    render();
+                }
+                return;
+            }
+            const untilClearBtn = target.closest('[data-tm-time-hub-repeat-until-clear]');
+            if (untilClearBtn) {
+                try { ev.preventDefault(); } catch (e) {}
+                await applyRepeatUntil('');
+                return;
+            }
+            const untilApplyBtn = target.closest('[data-tm-time-hub-repeat-until-apply]');
+            if (untilApplyBtn) {
+                try { ev.preventDefault(); } catch (e) {}
+                const input = popover.querySelector('[data-tm-time-hub-repeat-until-input]');
+                await applyRepeatUntil(input instanceof HTMLInputElement ? input.value : '');
+                return;
+            }
+            const addScheduleBtn = target.closest('[data-tm-time-hub-add-schedule]');
+            if (addScheduleBtn) {
+                try { ev.preventDefault(); } catch (e) {}
+                await openScheduleEditorFromHub();
+                return;
+            }
+            const toggleSchedulesBtn = target.closest('[data-tm-time-hub-toggle-schedules]');
+            if (toggleSchedulesBtn) {
+                try { ev.preventDefault(); } catch (e) {}
+                hubState.scheduleExpanded = !hubState.scheduleExpanded;
+                render();
+                return;
+            }
+            const editScheduleBtn = target.closest('[data-tm-time-hub-edit-schedule]');
+            if (editScheduleBtn) {
+                try { ev.preventDefault(); } catch (e) {}
+                const sid = String(editScheduleBtn.getAttribute('data-tm-time-hub-edit-schedule') || '').trim();
+                if (sid && globalThis.__tmCalendar?.openScheduleEditorById) await globalThis.__tmCalendar.openScheduleEditorById(sid);
+                return;
+            }
+            const deleteScheduleBtn = target.closest('[data-tm-time-hub-delete-schedule]');
+            if (deleteScheduleBtn) {
+                try { ev.preventDefault(); } catch (e) {}
+                const sid = String(deleteScheduleBtn.getAttribute('data-tm-time-hub-delete-schedule') || '').trim();
+                if (sid && globalThis.__tmCalendar?.deleteScheduleById) {
+                    await globalThis.__tmCalendar.deleteScheduleById(sid, { closeModal: false });
+                    await loadHubSchedules(true);
+                }
+            }
+        });
+        on(popover, 'pointerdown', (ev) => {
+            const target = ev.target instanceof Element ? ev.target : null;
+            const dayBtn = target?.closest?.('[data-tm-time-hub-date]');
+            if (!(dayBtn instanceof HTMLElement)) return;
+            const key = normalizeDate(dayBtn.getAttribute('data-tm-time-hub-date') || '');
+            if (!key) return;
+            if (ev.button != null && ev.button !== 0) return;
+            hubState.rangeDrag = { anchor: key, current: key, moved: false };
+            suppressNextDayClick = false;
+            try { dayBtn.setPointerCapture?.(ev.pointerId); } catch (e) {}
+        });
+        on(popover, 'pointermove', (ev) => {
+            if (!hubState.rangeDrag) return;
+            const hit = document.elementFromPoint(Number(ev.clientX) || 0, Number(ev.clientY) || 0);
+            const dayBtn = hit instanceof Element ? hit.closest('[data-tm-time-hub-date]') : null;
+            if (!(dayBtn instanceof HTMLElement)) return;
+            const key = normalizeDate(dayBtn.getAttribute('data-tm-time-hub-date') || '');
+            if (!key || key === hubState.rangeDrag.current) return;
+            hubState.rangeDrag = { ...hubState.rangeDrag, current: key, moved: key !== hubState.rangeDrag.anchor };
+            render();
+        });
+        on(window, 'pointerup', async () => {
+            const drag = hubState.rangeDrag;
+            if (!drag || busy) return;
+            hubState.rangeDrag = null;
+            suppressNextDayClick = true;
+            try { setTimeout(() => { suppressNextDayClick = false; }, 250); } catch (e) {}
+            if (!drag.moved) await updateDateField(hubState.activeField, drag.anchor);
+            else await updateDateRange(drag.anchor, drag.current);
+        });
+        on(document, 'pointerdown', (ev) => {
+            const target = ev.target;
+            if (target instanceof Node) {
+                if (popover.contains(target)) return;
+                if (trigger.contains(target)) return;
+            }
+            if (busy) {
+                try { ev.preventDefault(); ev.stopPropagation(); ev.stopImmediatePropagation(); } catch (e) {}
+                return;
+            }
+            __tmCloseStandaloneTaskTimeHub('outside');
+        }, { capture: true });
+        on(document, 'keydown', (ev) => {
+            if (ev.key === 'Escape') __tmCloseStandaloneTaskTimeHub('escape');
+        });
+        on(window, 'resize', position, { capture: true });
+        on(window, 'scroll', (ev) => {
+            const target = ev?.target;
+            if (target instanceof Node && popover.contains(target)) return;
+            position();
+        }, { capture: true });
+        on(window, 'tm:calendar-schedule-updated', () => {
+            void loadHubSchedules(true);
+        });
+        return popover;
+    }
+
+    window.tmOpenTaskTimeHub = async function(taskIdOrBlockId, anchorOrEvent = null, options = {}) {
+        return await __tmOpenStandaloneTaskTimeHub(taskIdOrBlockId, anchorOrEvent, options);
+    };
+
     function __tmBuildTaskDetailInnerHtml(task, options = {}) {
         const opts = (options && typeof options === 'object') ? options : {};
         const embedded = !!opts.embedded;
@@ -30,9 +1007,6 @@
         const curReminderSnapshot = tomatoEnabled ? __tmPeekTaskReminderSnapshotByAnyId(task) : null;
         const curHasReminder = tomatoEnabled && (curReminderSnapshot?.hasReminder === true || __tmHasReminderMark(task));
         const curReminderText = curHasReminder ? String(curReminderSnapshot?.displayText || '').trim() : '';
-        const curReminderTip = curHasReminder
-            ? (curReminderText ? `${curReminderSnapshot?.isOverdue ? '最近一次提醒' : '提醒'}：${curReminderText}` : '已添加提醒')
-            : '提醒';
         const taskStartDateValue = String(task?.startDate || task?.start_date || '').trim();
         const taskCompletionTimeValue = String(task?.completionTime || task?.completion_time || '').trim();
         const curRepeatRule = __tmGetTaskRepeatRule(task);
@@ -40,6 +1014,15 @@
             startDate: taskStartDateValue,
             completionTime: taskCompletionTimeValue,
         });
+        const timeHubOptions = {
+            startDate: taskStartDateValue,
+            completionTime: taskCompletionTimeValue,
+            hasReminder: curHasReminder,
+            reminderText: curReminderText,
+            repeatSummary: curRepeatSummary,
+        };
+        const timeHubHasValue = __tmTaskDetailTimeHubHasValue(task, timeHubOptions);
+        const timeHubTip = __tmGetTaskDetailTimeHubLabel(task, timeHubOptions);
         const startValue = __tmNormalizeDateOnly(taskStartDateValue);
         const endValue = __tmNormalizeDateOnly(taskCompletionTimeValue);
         const durationValue = String(task?.duration || '').trim();
@@ -210,8 +1193,8 @@
                             <span class="tm-task-detail-core-chip__face" data-tm-detail-chip-face="startDate">${__tmBuildTaskDetailCoreChipFace('startDate', startValue)}</span>
                         </button>
                         <input type="hidden" data-tm-detail="completionTime" value="${esc(endValue)}">
-                        <button type="button" class="bc-btn bc-btn--sm tm-task-detail-core-chip ${endValue ? 'has-value' : ''}" data-tm-detail-date-trigger="completionTime"${detailTip('截止日期', { ariaLabel: false })}>
-                            <span class="tm-task-detail-core-chip__face" data-tm-detail-chip-face="completionTime">${__tmBuildTaskDetailCoreChipFace('completionTime', endValue)}</span>
+                        <button type="button" class="bc-btn bc-btn--sm tm-task-detail-core-chip tm-task-detail-time-hub-trigger ${timeHubHasValue ? 'has-value' : ''}" data-tm-detail-time-hub-trigger aria-haspopup="dialog" aria-expanded="false"${detailTip(timeHubTip, { ariaLabel: false })}>
+                            <span class="tm-task-detail-core-chip__face" data-tm-detail-chip-face="timeHub">${__tmBuildTaskDetailTimeHubFace(task, timeHubOptions)}</span>
                         </button>
                         ${__tmBuildTaskCompleteAtDetailChipHtml(task, detailTip)}
                         <input type="hidden" data-tm-detail="duration" value="${esc(durationValue)}">
@@ -221,9 +1204,6 @@
                         ${spentValue ? `<div class="bc-btn bc-btn--sm tm-task-detail-core-chip tm-task-detail-core-chip--static has-value"${detailTip('耗时', { ariaLabel: false })}>
                             <span class="tm-task-detail-core-chip__face" data-tm-detail-chip-face="spent">${__tmBuildTaskDetailCoreChipFace('spent', spentValue)}</span>
                         </div>` : ''}
-                        ${tomatoEnabled ? `<button type="button" class="bc-btn bc-btn--sm tm-task-detail-core-chip ${curReminderText ? 'has-value' : 'tm-task-detail-core-chip--icon'} ${curHasReminder ? 'is-active' : ''}" data-tm-detail-reminder-toggle${detailTip(curReminderTip, { ariaLabel: false })}>
-                            <span class="tm-task-detail-core-chip__face" data-tm-detail-chip-face="reminder">${__tmBuildTaskDetailCoreChipFace('reminder', curReminderText)}</span>
-                        </button>` : ''}
                         <input type="hidden" data-tm-detail="pinned" value="${curPinned ? '1' : ''}">
                     </div>
                     ${customFieldsHtml}
@@ -444,6 +1424,71 @@
                 completionTime: task?.completionTime,
             });
         };
+        const readTimeHubScheduleText = () => String(root.__tmTaskDetailTimeHubScheduleText || '').trim();
+        const formatTimeHubScheduleText = (item) => {
+            if (!item || typeof item !== 'object') return '';
+            const startMs = new Date(item.start).getTime();
+            if (!Number.isFinite(startMs)) return '';
+            const start = new Date(startMs);
+            const pad = (n) => String(n).padStart(2, '0');
+            const dateKey = __tmNormalizeDateOnly(start);
+            const timeText = item.allDay === true ? '全天' : `${pad(start.getHours())}:${pad(start.getMinutes())}`;
+            const taskDate = readHiddenInputValue('completionTime') || readHiddenInputValue('startDate');
+            if (dateKey && taskDate && dateKey === taskDate) return timeText;
+            const dateText = __tmFormatTaskDetailShortDate(dateKey, '');
+            return dateText ? `${dateText} ${timeText}` : timeText;
+        };
+        const refreshTimeHubScheduleSummary = async () => {
+            const tid = String(taskId || getBoundTask()?.id || '').trim();
+            if (!tid || !globalThis.__tmCalendar || typeof globalThis.__tmCalendar.listTaskSchedulesByTaskId !== 'function') {
+                try { root.__tmTaskDetailTimeHubScheduleText = ''; } catch (e) {}
+                syncTimeHubTriggerFace();
+                return;
+            }
+            try {
+                const list = await globalThis.__tmCalendar.listTaskSchedulesByTaskId(tid, { futureOnly: true });
+                const first = (Array.isArray(list) ? list : []).find((it) => it?.allDay !== true) || (Array.isArray(list) ? list[0] : null);
+                try { root.__tmTaskDetailTimeHubScheduleText = formatTimeHubScheduleText(first); } catch (e) {}
+            } catch (e) {
+                try { root.__tmTaskDetailTimeHubScheduleText = ''; } catch (e2) {}
+            }
+            if (!root.isConnected) return;
+            syncTimeHubTriggerFace();
+        };
+        const syncTimeHubTriggerFace = () => {
+            const trigger = root.querySelector('[data-tm-detail-time-hub-trigger]');
+            const face = root.querySelector('[data-tm-detail-chip-face="timeHub"]');
+            if (!(trigger instanceof HTMLElement) && !(face instanceof HTMLElement)) return;
+            const task = getBoundTask() || {};
+            const startDate = readHiddenInputValue('startDate');
+            const completionTime = readHiddenInputValue('completionTime');
+            const options = {
+                startDate,
+                completionTime,
+                hasReminder: readReminderValue(),
+                reminderText: readReminderDisplayValue(),
+                scheduleText: readTimeHubScheduleText(),
+                repeatSummary: readRepeatSummaryValue(),
+            };
+            const taskLike = {
+                ...task,
+                startDate,
+                start_date: startDate,
+                completionTime,
+                completion_time: completionTime,
+            };
+            const hasValue = __tmTaskDetailTimeHubHasValue(taskLike, options);
+            const label = __tmGetTaskDetailTimeHubLabel(taskLike, options);
+            if (face instanceof HTMLElement) {
+                face.innerHTML = __tmBuildTaskDetailTimeHubFace(taskLike, options);
+            }
+            if (trigger instanceof HTMLElement) {
+                trigger.classList.toggle('has-value', hasValue);
+                try { __tmApplyTooltipAttrsToElement(trigger, label, { side: 'bottom' }); } catch (e) {}
+                try { trigger.setAttribute('aria-label', label); } catch (e) {}
+                try { trigger.removeAttribute('title'); } catch (e) {}
+            }
+        };
         const syncRepeatChipFace = () => {
             const summary = readRepeatSummaryValue();
             const repeatFace = root.querySelector('[data-tm-detail-chip-face="repeat"]');
@@ -456,6 +1501,7 @@
                 try { repeatBtn.setAttribute('aria-label', label); } catch (e) {}
                 try { repeatBtn.removeAttribute('title'); } catch (e) {}
             }
+            syncTimeHubTriggerFace();
         };
         const syncReminderChipFace = () => {
             const reminder = readReminderValue();
@@ -472,10 +1518,14 @@
                 try { reminderBtn.setAttribute('aria-label', label); } catch (e) {}
                 try { reminderBtn.removeAttribute('title'); } catch (e) {}
             }
+            syncTimeHubTriggerFace();
         };
         const refreshReminderButtonState = async (force = false) => {
-            const reminderBtn = root.querySelector('[data-tm-detail-reminder-toggle]');
-            if (!(reminderBtn instanceof HTMLElement)) return;
+            const reminderBtn = root.querySelector('[data-tm-detail-reminder-toggle], [data-tm-detail-time-hub-trigger]');
+            if (!(reminderBtn instanceof HTMLElement)) {
+                syncTimeHubTriggerFace();
+                return;
+            }
             syncReminderChipFace();
             const task = getBoundTask();
             const tid = String(task?.id || taskId || '').trim();
@@ -1395,6 +2445,7 @@ if (!__tmIsCollectedOtherBlockTask(task) && diff.contentChanged) {
         try { root.__tmTaskDetailFlushSave = flushAutoSaveNow; } catch (e) {}
         let activeInlinePopover = null;
         let activeInlinePopoverTrigger = null;
+        let activeInlinePopoverTriggerRect = null;
         let inlinePopoverCommitting = false;
         const subtaskSaveTimers = new Map();
         const syncAutoHeight = (textarea, minHeight = 34) => {
@@ -1438,8 +2489,10 @@ if (!__tmIsCollectedOtherBlockTask(task) && diff.contentChanged) {
             setInlinePopoverBusyState(false, popover);
             activeInlinePopover = null;
             activeInlinePopoverTrigger = null;
+            activeInlinePopoverTriggerRect = null;
             setTaskDetailActivePopover(null, 420);
             try { trigger?.classList?.remove?.('is-open'); } catch (e) {}
+            try { trigger?.setAttribute?.('aria-expanded', 'false'); } catch (e) {}
             if (popover instanceof HTMLElement) {
                 try { __tmAnimatePopupOutAndRemove(popover, { duration: 110 }); } catch (e) {
                     try { popover.remove(); } catch (e2) {}
@@ -1451,14 +2504,22 @@ if (!__tmIsCollectedOtherBlockTask(task) && diff.contentChanged) {
         try { abortController.signal.addEventListener('abort', () => closeInlinePopover(true, 'abort-signal'), { once: true }); } catch (e) {}
         const positionInlinePopover = () => {
             if (!(activeInlinePopover instanceof HTMLElement) || !(activeInlinePopoverTrigger instanceof HTMLElement)) return;
-            const triggerRect = activeInlinePopoverTrigger.getBoundingClientRect();
+            activeInlinePopoverTriggerRect = __tmGetStableTaskTimeHubAnchorRect(activeInlinePopoverTrigger, activeInlinePopoverTriggerRect);
+            const triggerRect = activeInlinePopoverTriggerRect;
+            if (!triggerRect) return;
+            if (activeInlinePopover.classList.contains('tm-task-time-hub-popover')) {
+                __tmPositionTaskTimeHubPopover(activeInlinePopover, triggerRect);
+                return;
+            }
             const popRect = activeInlinePopover.getBoundingClientRect();
             const viewportW = Math.max(320, window.innerWidth || 0);
             const viewportH = Math.max(240, window.innerHeight || 0);
             let left = Math.round(triggerRect.left);
             let top = Math.round(triggerRect.bottom + 8);
             if (left + popRect.width > viewportW - 8) left = Math.max(8, Math.round(viewportW - popRect.width - 8));
-            if (top + popRect.height > viewportH - 8) top = Math.max(8, Math.round(triggerRect.top - popRect.height - 8));
+            if (top + popRect.height > viewportH - 8) {
+                top = Math.max(8, Math.round(triggerRect.top - popRect.height - 8));
+            }
             activeInlinePopover.style.left = `${left}px`;
             activeInlinePopover.style.top = `${top}px`;
         };
@@ -1814,6 +2875,694 @@ if (!__tmIsCollectedOtherBlockTask(task) && diff.contentChanged) {
                 positionInlinePopover();
             });
         };
+        const openTaskTimeHubPopover = (trigger, options = {}) => {
+            if (!(trigger instanceof HTMLElement)) return;
+            if (inlinePopoverCommitting) return;
+            if (activeInlinePopover && activeInlinePopoverTrigger === trigger) {
+                closeInlinePopover(false, 'toggle-time-hub');
+                return;
+            }
+            closeInlinePopover(false, 'replace-before-time-hub');
+
+            const todayKey = __tmNormalizeDateOnly(new Date());
+            const parseDateKey = (value) => {
+                const key = __tmNormalizeDateOnly(value);
+                const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(key);
+                if (!m) return null;
+                const d = new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3]), 12, 0, 0, 0);
+                return Number.isNaN(d.getTime()) ? null : d;
+            };
+            const pad2 = (n) => String(n).padStart(2, '0');
+            const toDateKey = (date) => {
+                if (!(date instanceof Date) || Number.isNaN(date.getTime())) return '';
+                return `${date.getFullYear()}-${pad2(date.getMonth() + 1)}-${pad2(date.getDate())}`;
+            };
+            const startOfMonth = (date) => new Date(date.getFullYear(), date.getMonth(), 1, 12, 0, 0, 0);
+            const shiftMonth = (date, delta) => new Date(date.getFullYear(), date.getMonth() + (Number(delta) || 0), 1, 12, 0, 0, 0);
+            const makeDateTime = (dateKey, timeKey = '09:00') => {
+                const d = parseDateKey(dateKey) || parseDateKey(todayKey) || new Date();
+                const m = /^(\d{1,2}):(\d{2})$/.exec(String(timeKey || '').trim());
+                const h = m ? Math.max(0, Math.min(23, Number(m[1]) || 0)) : 9;
+                const min = m ? Math.max(0, Math.min(59, Number(m[2]) || 0)) : 0;
+                return new Date(d.getFullYear(), d.getMonth(), d.getDate(), h, min, 0, 0);
+            };
+            const formatTime = (value) => {
+                const d = value instanceof Date ? value : new Date(value);
+                if (!(d instanceof Date) || Number.isNaN(d.getTime())) return '';
+                return `${pad2(d.getHours())}:${pad2(d.getMinutes())}`;
+            };
+            const formatScheduleDate = (value) => __tmFormatTaskDetailShortDate(__tmNormalizeDateOnly(value), '');
+            const getTaskTitle = () => {
+                const task = getBoundTask() || {};
+                return __tmNormalizeTaskTimeHubTitle(task.content || task.raw_content || task.markdown || '', '任务');
+            };
+            const getTimeFromSchedules = () => {
+                const item = Array.isArray(hubState.schedules) ? hubState.schedules.find((it) => it && it.allDay !== true) : null;
+                return item ? formatTime(item.start) : '';
+            };
+            const getRepeatRule = () => __tmGetTaskRepeatRule(getBoundTask() || {});
+            const getRepeatSummary = () => __tmGetTaskRepeatSummary(getRepeatRule(), {
+                startDate: readHiddenInputValue('startDate'),
+                completionTime: readHiddenInputValue('completionTime'),
+            });
+            const popover = document.createElement('div');
+            popover.className = 'tm-task-detail-inline-popover tm-task-time-hub-popover';
+            popover.setAttribute('role', 'dialog');
+            popover.setAttribute('aria-label', '任务时间中心');
+            const hideReminder = options?.hideReminder === true;
+            const hideSchedule = options?.hideSchedule === true;
+            const hideRepeat = options?.hideRepeat === true;
+            const requestedField = String(options?.activeField || '').trim();
+            const initialActiveField = requestedField === 'startDate' ? 'startDate' : 'completionTime';
+            const initialMonth = parseDateKey(readHiddenInputValue(initialActiveField) || readHiddenInputValue('completionTime') || readHiddenInputValue('startDate') || todayKey) || new Date();
+            const hubState = {
+                tab: 'date',
+                activeField: initialActiveField,
+                monthDate: startOfMonth(initialMonth),
+                editor: '',
+                schedules: [],
+                schedulesLoaded: false,
+                schedulesLoading: false,
+                scheduleExpanded: false,
+                rangeDrag: null,
+            };
+            let suppressNextDayClick = false;
+            const sortDateRange = (left, right) => {
+                const a = __tmNormalizeDateOnly(left);
+                const b = __tmNormalizeDateOnly(right);
+                if (!a && !b) return { start: '', end: '' };
+                if (!a) return { start: b, end: b };
+                if (!b) return { start: a, end: a };
+                return a <= b ? { start: a, end: b } : { start: b, end: a };
+            };
+            const isKeyInDateRange = (key, start, end) => {
+                const k = __tmNormalizeDateOnly(key);
+                if (!k || !start || !end) return false;
+                return k >= start && k <= end;
+            };
+
+            const renderPreviewHtml = () => {
+                const task = {
+                    ...(getBoundTask() || {}),
+                    startDate: readHiddenInputValue('startDate'),
+                    completionTime: readHiddenInputValue('completionTime'),
+                };
+                const dates = __tmCollectTaskRepeatPreviewDates(task, { limit: 4 });
+                if (!dates.length) return '';
+                return `
+                    <div class="tm-task-time-hub__preview">
+                        <span>下次循环</span>
+                        <div>${dates.map((d) => `<span>${esc(__tmFormatTaskDetailShortDate(d, String(d || '')))}</span>`).join('')}</div>
+                    </div>
+                `;
+            };
+            const renderDateCards = () => {
+                const cards = [
+                    ['startDate', '开始', readHiddenInputValue('startDate')],
+                    ['completionTime', '截止', readHiddenInputValue('completionTime')],
+                ];
+                return cards.map(([field, label, value]) => `
+                    <div class="tm-task-time-hub__date-card ${hubState.activeField === field ? 'is-active' : ''}" role="button" tabindex="0" data-tm-time-hub-date-card="${field}">
+                        <span>${esc(label)}</span>
+                        <strong>${esc(__tmFormatTaskDetailShortDate(value))}</strong>
+                        ${value ? `<button type="button" class="tm-task-time-hub__date-clear" data-tm-time-hub-clear-date="${field}" aria-label="清除${esc(label)}日期">${__tmTaskDetailTimeHubIcon('x', 'tm-task-time-hub__small-icon', 13)}</button>` : ''}
+                    </div>
+                `).join('');
+            };
+            const renderCalendarHtml = () => {
+                const month = startOfMonth(hubState.monthDate);
+                const first = new Date(month.getFullYear(), month.getMonth(), 1, 12, 0, 0, 0);
+                const gridStart = new Date(first.getTime());
+                gridStart.setDate(first.getDate() - first.getDay());
+                const startValue = readHiddenInputValue('startDate');
+                const endValue = readHiddenInputValue('completionTime');
+                const activeValue = readHiddenInputValue(hubState.activeField);
+                const savedRange = startValue && endValue ? sortDateRange(startValue, endValue) : null;
+                const dragRange = hubState.rangeDrag
+                    ? sortDateRange(hubState.rangeDrag.anchor, hubState.rangeDrag.current)
+                    : null;
+                const days = [];
+                for (let i = 0; i < 42; i += 1) {
+                    const d = new Date(gridStart.getTime());
+                    d.setDate(gridStart.getDate() + i);
+                    const key = toDateKey(d);
+                    const out = d.getMonth() !== month.getMonth();
+                    const classes = [
+                        'tm-task-time-hub__day',
+                        out ? 'is-outside' : '',
+                        key === todayKey ? 'is-today' : '',
+                        savedRange && isKeyInDateRange(key, savedRange.start, savedRange.end) ? 'is-range' : '',
+                        savedRange && key === savedRange.start ? 'is-range-start' : '',
+                        savedRange && key === savedRange.end ? 'is-range-end' : '',
+                        key === activeValue ? 'is-active' : '',
+                        key === startValue ? 'is-start' : '',
+                        key === endValue ? 'is-due' : '',
+                        dragRange && isKeyInDateRange(key, dragRange.start, dragRange.end) ? 'is-range-preview' : '',
+                        dragRange && key === dragRange.start ? 'is-range-start-preview' : '',
+                        dragRange && key === dragRange.end ? 'is-range-end-preview' : '',
+                    ].filter(Boolean).join(' ');
+                    days.push(`<button type="button" class="${classes}" data-tm-time-hub-date="${esc(key)}">${d.getDate()}</button>`);
+                }
+                return `
+                    <div class="tm-task-time-hub__calendar-head">
+                        <strong>${month.getFullYear()}年${month.getMonth() + 1}月</strong>
+                        <div class="tm-task-time-hub__month-actions">
+                            <button type="button" data-tm-time-hub-month="-1" aria-label="上个月">${__tmTaskDetailTimeHubIcon('chevron-left', 'tm-task-time-hub__small-icon', 14)}</button>
+                            <button type="button" data-tm-time-hub-month="0" aria-label="回到本月">今</button>
+                            <button type="button" data-tm-time-hub-month="1" aria-label="下个月">${__tmTaskDetailTimeHubIcon('chevron-right', 'tm-task-time-hub__small-icon', 14)}</button>
+                        </div>
+                    </div>
+                    <div class="tm-task-time-hub__weekdays">
+                        ${['日', '一', '二', '三', '四', '五', '六'].map((d) => `<span>${d}</span>`).join('')}
+                    </div>
+                    <div class="tm-task-time-hub__calendar">${days.join('')}</div>
+                `;
+            };
+            const renderSettingCards = () => {
+            const disabled = hubState.activeField === 'startDate';
+            const reminderText = readReminderValue() ? (readReminderDisplayValue() || '已提醒') : '不提醒';
+            const repeatText = getRepeatSummary() || '不循环';
+            const rule = getRepeatRule();
+            const endText = rule?.enabled ? (rule.until ? `至 ${__tmFormatTaskDetailShortDate(rule.until)}` : '永不结束') : '未设置';
+            const cards = [];
+            if (!hideRepeat) {
+                cards.push(['repeat', 'repeat', '循环', repeatText]);
+                cards.push(['end', 'calendar-check', '结束', endText]);
+            }
+            if (!hideReminder) cards.push(['reminder', 'alarm-clock', '提醒', reminderText]);
+            if (!cards.length) return '';
+            return cards.map(([key, icon, label, value]) => `
+                <button type="button" class="tm-task-time-hub__setting ${hubState.editor === key ? 'is-active' : ''} ${disabled ? 'is-disabled' : ''}" data-tm-time-hub-card="${key}"${disabled ? ' disabled aria-disabled="true"' : ''}>
+                        <span class="tm-task-time-hub__setting-icon">${__tmTaskDetailTimeHubIcon(icon, 'tm-task-time-hub__icon-svg', 16)}</span>
+                        <span class="tm-task-time-hub__setting-text">
+                            <span>${esc(label)}</span>
+                            <strong>${esc(value)}</strong>
+                        </span>
+                    </button>
+                `).join('');
+            };
+            const renderScheduleList = () => {
+                if (hubState.schedulesLoading) return '<div class="tm-task-time-hub__empty">正在读取日程...</div>';
+                const list = Array.isArray(hubState.schedules) ? hubState.schedules : [];
+                if (!list.length) return '<div class="tm-task-time-hub__empty">暂无日程</div>';
+                const visible = hubState.scheduleExpanded ? list : list.slice(0, 5);
+                return visible.map((item) => {
+                    const id = String(item?.id || '').trim();
+                    const start = new Date(item?.start);
+                    const end = new Date(item?.end);
+                    const isAllDay = item?.allDay === true;
+                    const dateText = formatScheduleDate(item?.start) || '未定日期';
+                    const timeText = isAllDay ? '全天' : `${formatTime(start)}${formatTime(end) ? `-${formatTime(end)}` : ''}`;
+                    const calendarName = String(item?.calendarName || item?.calendarTitle || item?.calendarId || '日程').trim();
+                    const repeatText = String(item?.repeatText || item?.repeatType || item?.rrule || '').trim();
+                    const reminderText = item?.reminderMode === 'inherit'
+                        ? '跟随任务'
+                        : (item?.reminderEnabled === true ? '已提醒' : '不提醒');
+                    return `
+                        <div class="tm-task-time-hub__schedule-item" data-tm-time-hub-schedule-id="${esc(id)}">
+                            <div class="tm-task-time-hub__schedule-main">
+                                <strong>${esc(dateText)} ${esc(timeText)}</strong>
+                                <span>${esc(calendarName)} · ${esc(reminderText)}${repeatText ? ` · ${esc(repeatText)}` : ''}</span>
+                            </div>
+                            <div class="tm-task-time-hub__schedule-actions">
+                                <button type="button" data-tm-time-hub-edit-schedule="${esc(id)}">编辑</button>
+                                <button type="button" data-tm-time-hub-delete-schedule="${esc(id)}">删除</button>
+                            </div>
+                        </div>
+                    `;
+                }).join('');
+            };
+            const renderEditorHtml = () => {
+                const editor = String(hubState.editor || '').trim();
+            if (!editor) return '';
+            if (editor === 'reminder') {
+                if (hideReminder) return '';
+                return `<div class="tm-task-time-hub__subpanel" data-tm-time-hub-editor-panel>
+                        <div class="tm-task-time-hub__subpanel-title">提醒</div>
+                        <button type="button" class="tm-task-time-hub__choice ${!readReminderValue() ? 'is-selected' : ''}" data-tm-time-hub-reminder-open>不提醒</button>
+                        <button type="button" class="tm-task-time-hub__choice ${readReminderValue() ? 'is-selected' : ''}" data-tm-time-hub-reminder-open>打开提醒设置</button>
+                    </div>`;
+            }
+            if (editor === 'repeat') {
+                if (hideRepeat) return '';
+                const rule = getRepeatRule();
+                    const currentType = rule?.enabled ? String(rule.type || 'none') : 'none';
+                    const choices = [
+                        ['none', '不循环'],
+                        ['daily', '每天'],
+                        ['workday', '工作日'],
+                        ['weekly', '每周'],
+                        ['monthly', '每月'],
+                        ['yearly', '每年'],
+                    ];
+                    return `<div class="tm-task-time-hub__subpanel" data-tm-time-hub-editor-panel>
+                        <div class="tm-task-time-hub__subpanel-title">循环</div>
+                        ${choices.map(([type, label]) => `<button type="button" class="tm-task-time-hub__choice ${currentType === type ? 'is-selected' : ''}" data-tm-time-hub-repeat="${type}">${esc(label)}</button>`).join('')}
+                        <button type="button" class="tm-task-time-hub__choice" data-tm-time-hub-repeat-custom>自定义循环</button>
+                    </div>`;
+            }
+            if (editor === 'end') {
+                if (hideRepeat) return '';
+                const rule = getRepeatRule();
+                    return `<div class="tm-task-time-hub__subpanel" data-tm-time-hub-editor-panel>
+                        <div class="tm-task-time-hub__subpanel-title">结束</div>
+                        <button type="button" class="tm-task-time-hub__choice ${!rule?.until ? 'is-selected' : ''}" data-tm-time-hub-repeat-until-clear>永不结束</button>
+                        <div class="tm-task-time-hub__until-row">
+                            <input class="tm-input" type="date" value="${esc(rule?.until || '')}" data-tm-time-hub-repeat-until-input>
+                            <button type="button" class="tm-btn tm-btn-primary" data-tm-time-hub-repeat-until-apply>应用</button>
+                        </div>
+                    </div>`;
+                }
+                return '';
+            };
+            const render = () => {
+                popover.innerHTML = `
+                    <div class="tm-task-time-hub__top">
+                    <div class="tm-task-time-hub__tabs" role="tablist" aria-label="时间中心">
+                        <button type="button" class="${hubState.tab === 'date' ? 'is-active' : ''}" data-tm-time-hub-tab="date" role="tab" aria-selected="${hubState.tab === 'date' ? 'true' : 'false'}">日期</button>
+                        ${hideSchedule ? '' : `<button type="button" class="${hubState.tab === 'schedule' ? 'is-active' : ''}" data-tm-time-hub-tab="schedule" role="tab" aria-selected="${hubState.tab === 'schedule' ? 'true' : 'false'}">日程</button>`}
+                        </div>
+                        <button type="button" class="tm-task-time-hub__close" data-tm-time-hub-close aria-label="关闭">${__tmTaskDetailTimeHubIcon('x', 'tm-task-time-hub__small-icon', 16)}</button>
+                    </div>
+                    ${hubState.tab === 'date' ? `
+                        <div class="tm-task-time-hub__panel tm-task-time-hub__panel--date">
+                        <div class="tm-task-time-hub__date-cards">${renderDateCards()}</div>
+                        ${renderCalendarHtml()}
+                        ${(() => {
+                            const settingsHtml = renderSettingCards();
+                            return settingsHtml ? `<div class="tm-task-time-hub__settings">${settingsHtml}</div>` : '';
+                        })()}
+                            ${renderPreviewHtml()}
+                            ${renderEditorHtml()}
+                        </div>
+                    ` : `
+                        <div class="tm-task-time-hub__panel tm-task-time-hub__panel--schedule">
+                            <div class="tm-task-time-hub__schedule-toolbar">
+                                <button type="button" class="tm-btn tm-btn-primary" data-tm-time-hub-add-schedule>${__tmTaskDetailTimeHubIcon('plus', 'tm-task-time-hub__small-icon', 14)}新增日程</button>
+                                <button type="button" class="tm-btn tm-btn-secondary" data-tm-time-hub-toggle-schedules>${hubState.scheduleExpanded ? '收起' : '展开全部'}</button>
+                            </div>
+                            <div class="tm-task-time-hub__schedule-list">${renderScheduleList()}</div>
+                        </div>
+                    `}
+                `;
+                try { trigger.setAttribute('aria-expanded', 'true'); } catch (e) {}
+                try { positionInlinePopover(); } catch (e) {}
+                try {
+                    requestAnimationFrame(() => {
+                        try {
+                            positionInlinePopover();
+                            positionEditorPanel();
+                            requestAnimationFrame(() => {
+                                try {
+                                    positionInlinePopover();
+                                    positionEditorPanel();
+                                } catch (e) {}
+                            });
+                        } catch (e) {}
+                    });
+                } catch (e) {}
+            };
+            const positionEditorPanel = () => {
+                const panel = popover.querySelector('[data-tm-time-hub-editor-panel]');
+                const card = hubState.editor ? popover.querySelector(`[data-tm-time-hub-card="${hubState.editor}"]`) : null;
+                if (!(panel instanceof HTMLElement) || !(card instanceof HTMLElement)) return;
+                if (window.matchMedia && window.matchMedia('(max-width: 640px)').matches) {
+                    panel.style.left = '';
+                    panel.style.top = '';
+                    return;
+                }
+                const popRect = popover.getBoundingClientRect();
+                const cardRect = card.getBoundingClientRect();
+                const panelRect = panel.getBoundingClientRect();
+                const maxLeft = Math.max(8, popRect.width - panelRect.width - 8);
+                const left = Math.max(8, Math.min(maxLeft, Math.round(cardRect.left - popRect.left)));
+                let top = Math.round(cardRect.top - popRect.top - panelRect.height - 8);
+                if (top < 8) top = Math.round(cardRect.bottom - popRect.top + 8);
+                panel.style.left = `${left}px`;
+                panel.style.top = `${top}px`;
+            };
+            const updateDateField = async (field, value) => {
+                const key = value ? __tmNormalizeDateOnly(value) : '';
+                setHiddenInputValue(field, key);
+                syncMetaChipFaces();
+                const ok = await flushAutoSaveNow({
+                    showHint: false,
+                    closeAfterSave: false,
+                    preserveFocus: true,
+                    skipRerender: true,
+                });
+                if (ok === false) hint('❌ 日期更新失败', 'error');
+                else void refreshTimeHubScheduleSummary();
+                render();
+            };
+            const updateDateRange = async (left, right) => {
+                const range = sortDateRange(left, right);
+                setHiddenInputValue('startDate', range.start);
+                setHiddenInputValue('completionTime', range.end);
+                hubState.activeField = 'completionTime';
+                syncMetaChipFaces();
+                const ok = await flushAutoSaveNow({
+                    showHint: false,
+                    closeAfterSave: false,
+                    preserveFocus: true,
+                    skipRerender: true,
+                });
+                if (ok === false) hint('❌ 日期范围更新失败', 'error');
+                else void refreshTimeHubScheduleSummary();
+                render();
+            };
+            const loadHubSchedules = async (force = false) => {
+                if (hubState.schedulesLoading) return;
+                if (hubState.schedulesLoaded && !force) return;
+                hubState.schedulesLoading = true;
+                if (popover.isConnected) render();
+                try {
+                    let list = [];
+                    if (globalThis.__tmCalendar && typeof globalThis.__tmCalendar.listTaskSchedulesByTaskId === 'function') {
+                        list = await globalThis.__tmCalendar.listTaskSchedulesByTaskId(taskId, { futureOnly: false });
+                    } else {
+                        const raw = String(localStorage.getItem('tm-calendar-events') || '').trim();
+                        const parsed = raw ? JSON.parse(raw) : [];
+                        list = Array.isArray(parsed) ? parsed.filter((x) => {
+                            const tid = String(x?.taskId || x?.task_id || x?.linkedTaskId || x?.linked_task_id || '').trim();
+                            return tid === String(taskId || '').trim();
+                        }) : [];
+                    }
+                    hubState.schedules = (Array.isArray(list) ? list : []).sort((a, b) => {
+                        const ta = new Date(a?.start).getTime();
+                        const tb = new Date(b?.start).getTime();
+                        return (Number.isFinite(ta) ? ta : 0) - (Number.isFinite(tb) ? tb : 0);
+                    });
+                    try {
+                        const first = hubState.schedules.find((it) => it?.allDay !== true) || hubState.schedules[0] || null;
+                        root.__tmTaskDetailTimeHubScheduleText = formatTimeHubScheduleText(first);
+                        syncTimeHubTriggerFace();
+                    } catch (e) {}
+                    hubState.schedulesLoaded = true;
+                } catch (e) {
+                    hubState.schedules = [];
+                    try {
+                        root.__tmTaskDetailTimeHubScheduleText = '';
+                        syncTimeHubTriggerFace();
+                    } catch (e2) {}
+                } finally {
+                    hubState.schedulesLoading = false;
+                    if (popover.isConnected) render();
+                }
+            };
+            const applyRepeatType = async (type) => {
+                const nextType = String(type || '').trim();
+                const task = getBoundTask() || {};
+                try {
+                    setInlinePopoverBusyState(true, popover);
+                    if (!nextType || nextType === 'none') {
+                        await window.tmClearTaskRepeatRule?.(taskId, { source: 'task-detail-time-hub' });
+                    } else {
+                        const current = getRepeatRule();
+                        const anchorDate = readHiddenInputValue('completionTime') || readHiddenInputValue('startDate') || todayKey;
+                        await window.tmSetTaskRepeatRule?.(taskId, {
+                            ...current,
+                            enabled: true,
+                            type: nextType,
+                            every: current?.type === nextType ? current.every : 1,
+                            anchorDate,
+                            trigger: current?.trigger || 'due',
+                        }, { source: 'task-detail-time-hub' });
+                    }
+                    const refreshed = await __tmResolveTaskForRepeat(taskId);
+                    if (refreshed) {
+                        try { root.__tmTaskDetailTask = refreshed; } catch (e) {}
+                    } else {
+                        try { root.__tmTaskDetailTask = task; } catch (e) {}
+                    }
+                    syncMetaChipFaces();
+                    syncSerializedSnapshot();
+                    render();
+                } catch (e) {
+                    hint(`❌ 循环更新失败: ${e.message}`, 'error');
+                } finally {
+                    setInlinePopoverBusyState(false, popover);
+                }
+            };
+            const applyRepeatUntil = async (untilValue) => {
+                const current = getRepeatRule();
+                if (!current?.enabled || current.type === 'none') {
+                    hint('⚠ 请先设置循环规则', 'warning');
+                    return;
+                }
+                try {
+                    setInlinePopoverBusyState(true, popover);
+                    await window.tmSetTaskRepeatRule?.(taskId, {
+                        ...current,
+                        until: untilValue ? __tmNormalizeDateOnly(untilValue) : '',
+                        anchorDate: readHiddenInputValue('completionTime') || readHiddenInputValue('startDate') || todayKey,
+                    }, { source: 'task-detail-time-hub-until' });
+                    const refreshed = await __tmResolveTaskForRepeat(taskId);
+                    if (refreshed) {
+                        try { root.__tmTaskDetailTask = refreshed; } catch (e) {}
+                    }
+                    syncMetaChipFaces();
+                    syncSerializedSnapshot();
+                    render();
+                } catch (e) {
+                    hint(`❌ 结束规则更新失败: ${e.message}`, 'error');
+                } finally {
+                    setInlinePopoverBusyState(false, popover);
+                }
+            };
+            const openScheduleEditorFromHub = async () => {
+                const dateKey = readHiddenInputValue('completionTime') || readHiddenInputValue('startDate') || todayKey;
+                const timeKey = getTimeFromSchedules() || '09:00';
+                const start = makeDateTime(dateKey, timeKey);
+                const end = new Date(start.getTime() + 60 * 60000);
+                if (globalThis.__tmCalendar && typeof globalThis.__tmCalendar.openScheduleEditor === 'function') {
+                    await globalThis.__tmCalendar.openScheduleEditor({
+                        taskId,
+                        title: getTaskTitle(),
+                        start: start.toISOString(),
+                        end: end.toISOString(),
+                        startDate: readHiddenInputValue('startDate'),
+                        completionTime: readHiddenInputValue('completionTime'),
+                        forceNew: true,
+                    });
+                    await loadHubSchedules(true);
+                } else {
+                    hint('⚠ 日历模块未就绪', 'warning');
+                }
+            };
+
+            document.body.appendChild(popover);
+            activeInlinePopover = popover;
+            activeInlinePopoverTrigger = trigger;
+            setTaskDetailActivePopover(popover);
+            try { trigger.classList.add('is-open'); } catch (e) {}
+            render();
+            try { __tmAnimatePopupIn(popover, { origin: 'top-left', duration: 150 }); } catch (e) {}
+            void loadHubSchedules(false);
+
+            on(popover, 'click', async (ev) => {
+                const target = ev.target instanceof Element ? ev.target : null;
+                if (!target) return;
+                const closeBtn = target.closest('[data-tm-time-hub-close]');
+                if (closeBtn) {
+                    try { ev.preventDefault(); } catch (e) {}
+                    closeInlinePopover(false, 'time-hub-close');
+                    return;
+                }
+                const tabBtn = target.closest('[data-tm-time-hub-tab]');
+                if (tabBtn) {
+                    try { ev.preventDefault(); } catch (e) {}
+                    hubState.tab = String(tabBtn.getAttribute('data-tm-time-hub-tab') || 'date').trim() === 'schedule' ? 'schedule' : 'date';
+                    hubState.editor = '';
+                    render();
+                    if (hubState.tab === 'schedule') void loadHubSchedules(false);
+                    return;
+                }
+                const clearBtn = target.closest('[data-tm-time-hub-clear-date]');
+                if (clearBtn) {
+                    try { ev.preventDefault(); } catch (e) {}
+                    try { ev.stopPropagation(); } catch (e) {}
+                    const field = String(clearBtn.getAttribute('data-tm-time-hub-clear-date') || '').trim();
+                    if (field === 'startDate' || field === 'completionTime') await updateDateField(field, '');
+                    return;
+                }
+                const dateCard = target.closest('[data-tm-time-hub-date-card]');
+                if (dateCard) {
+                    try { ev.preventDefault(); } catch (e) {}
+                    const field = String(dateCard.getAttribute('data-tm-time-hub-date-card') || '').trim();
+                    if (field === 'startDate' || field === 'completionTime') {
+                        hubState.activeField = field;
+                        hubState.editor = '';
+                        render();
+                    }
+                    return;
+                }
+                const monthBtn = target.closest('[data-tm-time-hub-month]');
+                if (monthBtn) {
+                    try { ev.preventDefault(); } catch (e) {}
+                    const delta = Number(monthBtn.getAttribute('data-tm-time-hub-month') || 0);
+                    hubState.monthDate = delta === 0 ? startOfMonth(parseDateKey(todayKey) || new Date()) : shiftMonth(hubState.monthDate, delta);
+                    render();
+                    return;
+                }
+                const dayBtn = target.closest('[data-tm-time-hub-date]');
+                if (dayBtn) {
+                    try { ev.preventDefault(); } catch (e) {}
+                    if (suppressNextDayClick) {
+                        suppressNextDayClick = false;
+                        return;
+                    }
+                    const key = __tmNormalizeDateOnly(dayBtn.getAttribute('data-tm-time-hub-date') || '');
+                    if (key) await updateDateField(hubState.activeField, key);
+                    return;
+                }
+                const cardBtn = target.closest('[data-tm-time-hub-card]');
+                if (cardBtn) {
+                    try { ev.preventDefault(); } catch (e) {}
+                    if (cardBtn.disabled || cardBtn.getAttribute('aria-disabled') === 'true') return;
+                    const key = String(cardBtn.getAttribute('data-tm-time-hub-card') || '').trim();
+                    if (key === 'reminder') {
+                        try {
+                            await tmReminder(taskId);
+                        } finally {
+                            scheduleReminderButtonStateRefresh();
+                            render();
+                        }
+                        return;
+                    }
+                    hubState.editor = hubState.editor === key ? '' : key;
+                    render();
+                    return;
+                }
+                const reminderBtn = target.closest('[data-tm-time-hub-reminder-open]');
+                if (reminderBtn) {
+                    try { ev.preventDefault(); } catch (e) {}
+                    try {
+                        await tmReminder(taskId);
+                    } finally {
+                        scheduleReminderButtonStateRefresh();
+                        render();
+                    }
+                    return;
+                }
+                const repeatBtn = target.closest('[data-tm-time-hub-repeat]');
+                if (repeatBtn) {
+                    try { ev.preventDefault(); } catch (e) {}
+                    await applyRepeatType(repeatBtn.getAttribute('data-tm-time-hub-repeat'));
+                    return;
+                }
+                const customRepeatBtn = target.closest('[data-tm-time-hub-repeat-custom]');
+                if (customRepeatBtn) {
+                    try { ev.preventDefault(); } catch (e) {}
+                    const result = await window.tmEditTaskRepeatRule?.(taskId, { task: getBoundTask(), title: '循环设置' });
+                    if (result) {
+                        const refreshed = await __tmResolveTaskForRepeat(taskId);
+                        if (refreshed) {
+                            try { root.__tmTaskDetailTask = refreshed; } catch (e) {}
+                        }
+                        syncMetaChipFaces();
+                        syncSerializedSnapshot();
+                        render();
+                    }
+                    return;
+                }
+                const untilClearBtn = target.closest('[data-tm-time-hub-repeat-until-clear]');
+                if (untilClearBtn) {
+                    try { ev.preventDefault(); } catch (e) {}
+                    await applyRepeatUntil('');
+                    return;
+                }
+                const untilApplyBtn = target.closest('[data-tm-time-hub-repeat-until-apply]');
+                if (untilApplyBtn) {
+                    try { ev.preventDefault(); } catch (e) {}
+                    const input = popover.querySelector('[data-tm-time-hub-repeat-until-input]');
+                    await applyRepeatUntil(input instanceof HTMLInputElement ? input.value : '');
+                    return;
+                }
+                const addScheduleBtn = target.closest('[data-tm-time-hub-add-schedule]');
+                if (addScheduleBtn) {
+                    try { ev.preventDefault(); } catch (e) {}
+                    await openScheduleEditorFromHub();
+                    return;
+                }
+                const toggleSchedulesBtn = target.closest('[data-tm-time-hub-toggle-schedules]');
+                if (toggleSchedulesBtn) {
+                    try { ev.preventDefault(); } catch (e) {}
+                    hubState.scheduleExpanded = !hubState.scheduleExpanded;
+                    render();
+                    return;
+                }
+                const editScheduleBtn = target.closest('[data-tm-time-hub-edit-schedule]');
+                if (editScheduleBtn) {
+                    try { ev.preventDefault(); } catch (e) {}
+                    const sid = String(editScheduleBtn.getAttribute('data-tm-time-hub-edit-schedule') || '').trim();
+                    if (sid && globalThis.__tmCalendar?.openScheduleEditorById) await globalThis.__tmCalendar.openScheduleEditorById(sid);
+                    return;
+                }
+                const deleteScheduleBtn = target.closest('[data-tm-time-hub-delete-schedule]');
+                if (deleteScheduleBtn) {
+                    try { ev.preventDefault(); } catch (e) {}
+                    const sid = String(deleteScheduleBtn.getAttribute('data-tm-time-hub-delete-schedule') || '').trim();
+                    if (sid && globalThis.__tmCalendar?.deleteScheduleById) {
+                        await globalThis.__tmCalendar.deleteScheduleById(sid, { closeModal: false });
+                        await loadHubSchedules(true);
+                    }
+                }
+            });
+            on(popover, 'pointerdown', (ev) => {
+                const target = ev.target instanceof Element ? ev.target : null;
+                const dayBtn = target?.closest?.('[data-tm-time-hub-date]');
+                if (!(dayBtn instanceof HTMLElement)) return;
+                const key = __tmNormalizeDateOnly(dayBtn.getAttribute('data-tm-time-hub-date') || '');
+                if (!key) return;
+                if (ev.button != null && ev.button !== 0) return;
+                hubState.rangeDrag = { anchor: key, current: key, moved: false };
+                suppressNextDayClick = false;
+                try { dayBtn.setPointerCapture?.(ev.pointerId); } catch (e) {}
+            });
+            on(popover, 'pointermove', (ev) => {
+                if (!hubState.rangeDrag) return;
+                const hit = document.elementFromPoint(Number(ev.clientX) || 0, Number(ev.clientY) || 0);
+                const dayBtn = hit instanceof Element ? hit.closest('[data-tm-time-hub-date]') : null;
+                if (!(dayBtn instanceof HTMLElement)) return;
+                const key = __tmNormalizeDateOnly(dayBtn.getAttribute('data-tm-time-hub-date') || '');
+                if (!key || key === hubState.rangeDrag.current) return;
+                hubState.rangeDrag = {
+                    ...hubState.rangeDrag,
+                    current: key,
+                    moved: key !== hubState.rangeDrag.anchor,
+                };
+                render();
+            });
+            on(window, 'pointerup', async () => {
+                const drag = hubState.rangeDrag;
+                if (!drag) return;
+                hubState.rangeDrag = null;
+                if (!drag.moved) {
+                    suppressNextDayClick = true;
+                    try { setTimeout(() => { suppressNextDayClick = false; }, 250); } catch (e) {}
+                    await updateDateField(hubState.activeField, drag.anchor);
+                    return;
+                }
+                suppressNextDayClick = true;
+                try { setTimeout(() => { suppressNextDayClick = false; }, 250); } catch (e) {}
+                await updateDateRange(drag.anchor, drag.current);
+            });
+            on(popover, 'keydown', async (ev) => {
+                const target = ev.target instanceof Element ? ev.target : null;
+                if (String(ev.key || '') === 'Enter') {
+                    const card = target?.closest?.('[data-tm-time-hub-date-card]');
+                    if (card) {
+                        try { ev.preventDefault(); } catch (e) {}
+                        card.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+                    }
+                }
+            });
+            on(window, 'tm:calendar-schedule-updated', () => {
+                if (activeInlinePopover !== popover) return;
+                void loadHubSchedules(true);
+            });
+        };
         on(document, 'pointerdown', (ev) => {
             if (!(activeInlinePopover instanceof HTMLElement)) return;
             const target = ev?.target;
@@ -1843,9 +3592,11 @@ if (!__tmIsCollectedOtherBlockTask(task) && diff.contentChanged) {
             if (!activeInlinePopover) return;
             positionInlinePopover();
         });
-        on(window, 'scroll', () => {
+        on(window, 'scroll', (ev) => {
             if (!activeInlinePopover) return;
             if (inlinePopoverCommitting) return;
+            const target = ev?.target;
+            if (target instanceof Node && activeInlinePopover.contains(target)) return;
             closeInlinePopover(false, 'window-scroll');
         }, { capture: true, passive: true });
         const clearSubtaskSaveTimer = (subtaskId) => {
@@ -2427,6 +4178,11 @@ if (!__tmIsCollectedOtherBlockTask(task) && diff.contentChanged) {
             closeMenu('init');
         };
         const bindCoreMetaControls = () => {
+            on(root.querySelector('[data-tm-detail-time-hub-trigger]'), 'click', (ev) => {
+                try { ev.preventDefault(); } catch (e) {}
+                try { ev.stopPropagation(); } catch (e) {}
+                openTaskTimeHubPopover(ev.currentTarget, { activeField: 'completionTime' });
+            });
             root.querySelectorAll('[data-tm-detail-date-trigger]').forEach((btn) => {
                 if (!(btn instanceof HTMLButtonElement)) return;
                 on(btn, 'click', (ev) => {
@@ -2434,30 +4190,7 @@ if (!__tmIsCollectedOtherBlockTask(task) && diff.contentChanged) {
                     try { ev.stopPropagation(); } catch (e) {}
                     const field = String(btn.getAttribute('data-tm-detail-date-trigger') || '').trim();
                     if (!field) return;
-                    if (field === 'completionTime') {
-                        openTaskDateSheetPopover(btn, field);
-                        return;
-                    }
-                    const title = field === 'startDate' ? '开始日期' : '截止日期';
-                    openInlinePopover(btn, {
-                        mode: 'date',
-                        title,
-                        value: readHiddenInputValue(field),
-                        normalize: (raw) => {
-                            const v = String(raw || '').trim();
-                            return v ? __tmNormalizeDateOnly(v) : '';
-                        },
-                        onCommit: async (nextValue) => {
-                            setHiddenInputValue(field, nextValue);
-                            syncMetaChipFaces();
-                            return await flushAutoSaveNow({
-                                showHint: false,
-                                closeAfterSave: false,
-                                preserveFocus: true,
-                                skipRerender: true,
-                            });
-                        }
-                    });
+                    openTaskTimeHubPopover(btn, { activeField: field === 'startDate' ? 'startDate' : 'completionTime' });
                 });
             });
             on(root.querySelector('[data-tm-detail-duration-trigger]'), 'click', (ev) => {
@@ -2762,6 +4495,7 @@ if (!__tmIsCollectedOtherBlockTask(task) && diff.contentChanged) {
         };
         syncMetaChipFaces();
         void refreshReminderButtonState();
+        void refreshTimeHubScheduleSummary();
         const titleTextarea = root.querySelector('[data-tm-detail="content"]');
         if (titleTextarea instanceof HTMLTextAreaElement) {
             syncAutoHeight(titleTextarea, 36);
@@ -3121,6 +4855,9 @@ if (!__tmIsCollectedOtherBlockTask(task) && diff.contentChanged) {
         bindCustomFieldEditors();
         bindSubtaskEditors();
         try { __tmBindFloatingTooltips(root); } catch (e) {}
+        on(window, 'tm:calendar-schedule-updated', () => {
+            void refreshTimeHubScheduleSummary();
+        });
         on(window, 'tm-task-attr-updated', async (ev) => {
             const rawTaskId = String(ev?.detail?.taskId || '').trim();
             if (!rawTaskId) return;
@@ -3394,11 +5131,40 @@ return true;
             else coreMeta.appendChild(chip);
             touched = true;
         };
+        const syncTimeHubChip = () => {
+            const trigger = panel.querySelector('[data-tm-detail-time-hub-trigger]');
+            const face = panel.querySelector('[data-tm-detail-chip-face="timeHub"]');
+            if (!(trigger instanceof HTMLElement) && !(face instanceof HTMLElement)) return;
+            const startDate = __tmNormalizeDateOnly(String(task?.startDate || task?.start_date || '').trim());
+            const completionTime = __tmNormalizeDateOnly(String(task?.completionTime || task?.completion_time || '').trim());
+            const reminderSnapshot = SettingsStore.data.enableTomatoIntegration ? __tmPeekTaskReminderSnapshotByAnyId(task) : null;
+            const hasReminder = SettingsStore.data.enableTomatoIntegration && (reminderSnapshot?.hasReminder === true || __tmHasReminderMark(task));
+            const repeatSummary = __tmGetTaskRepeatSummary(__tmGetTaskRepeatRule(task), { startDate, completionTime });
+            const options = {
+                startDate,
+                completionTime,
+                hasReminder,
+                reminderText: hasReminder ? String(reminderSnapshot?.displayText || '').trim() : '',
+                scheduleText: String(panel.__tmTaskDetailTimeHubScheduleText || '').trim(),
+                repeatSummary,
+            };
+            const hasValue = __tmTaskDetailTimeHubHasValue(task, options);
+            const label = __tmGetTaskDetailTimeHubLabel(task, options);
+            if (face instanceof HTMLElement) face.innerHTML = __tmBuildTaskDetailTimeHubFace(task, options);
+            if (trigger instanceof HTMLElement) {
+                trigger.classList.toggle('has-value', hasValue);
+                try { __tmApplyTooltipAttrsToElement(trigger, label, { side: 'bottom' }); } catch (e) {}
+                try { trigger.setAttribute('aria-label', label); } catch (e) {}
+                try { trigger.removeAttribute('title'); } catch (e) {}
+            }
+            touched = true;
+        };
 
         if (Object.prototype.hasOwnProperty.call(nextPatch, 'startDate')) syncChipField('startDate', String(task?.startDate || task?.start_date || '').trim(), 'startDate');
         if (Object.prototype.hasOwnProperty.call(nextPatch, 'completionTime')) syncChipField('completionTime', String(task?.completionTime || task?.completion_time || '').trim(), 'completionTime');
         if (Object.prototype.hasOwnProperty.call(nextPatch, 'done') || Object.prototype.hasOwnProperty.call(nextPatch, 'taskCompleteAt')) syncTaskCompleteAtChip();
         if (Object.prototype.hasOwnProperty.call(nextPatch, 'duration')) syncChipField('duration', String(task?.duration || '').trim(), 'duration');
+        if (Object.prototype.hasOwnProperty.call(nextPatch, 'startDate') || Object.prototype.hasOwnProperty.call(nextPatch, 'completionTime')) syncTimeHubChip();
 
         if (Object.prototype.hasOwnProperty.call(nextPatch, 'pinned')) {
             const pinnedValue = !!(task?.pinned === true || task?.pinned === '1' || task?.pinned === 1 || String(task?.custom_pinned || '').trim() === '1');

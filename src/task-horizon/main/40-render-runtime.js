@@ -744,7 +744,7 @@ return;
                             const nameTip = alias && alias !== rawName ? `别名: ${alias} ｜ 原名: ${rawName} ｜ ` : '';
                             const tip = `${nameTip}全局新建文档 ｜ ${source}: ${__tmDescribeViewProfile(p)}${expectedTip ? ` ｜ 预期进度: ${expectedTip}` : ''}`;
                             setTimeout(() => __tmUpdateDocTabProgress(id, '', expectedPid), 0);
-                            return `<div class="tm-doc-tab ${isActive ? 'active' : ''}" data-tm-doc-id="${esc(id)}" style="--tm-doc-color:${esc(c)}" oncontextmenu="tmShowDocTabContextMenu(event, '${id}')" onclick="tmSwitchDoc('${id}')"${__tmBuildTooltipAttrs(tip, { side: 'bottom', ariaLabel: false })}><div class="tm-doc-tab-expected${expectedPercent == null ? '' : ' is-visible'}" id="${expectedPid}" style="width:${expectedPercent || 0}%"></div><div class="tm-doc-tab-text">${__tmRenderDocIcon(id, { fallbackText: '📥', size: 14 })}<span>${esc(docName)}</span></div></div>`;
+                            return `<div class="tm-doc-tab ${isActive ? 'active' : ''}" data-tm-doc-id="${esc(id)}" style="--tm-doc-color:${esc(c)}" oncontextmenu="tmShowDocTabContextMenu(event, '${id}')" ondragenter="tmDocTabDragEnter(event)" ondragleave="tmDocTabDragLeave(event)" ondragover="tmDocTabDragOver(event)" ondrop="tmDocTabDrop(event, '${id}')" onclick="tmSwitchDoc('${id}')"${__tmBuildTooltipAttrs(tip, { side: 'bottom', ariaLabel: false })}><div class="tm-doc-tab-expected${expectedPercent == null ? '' : ' is-visible'}" id="${expectedPid}" style="width:${expectedPercent || 0}%"></div><div class="tm-doc-tab-text">${__tmRenderDocIcon(id, { fallbackText: '📥', size: 14 })}<span>${esc(docName)}</span></div></div>`;
                         })()}
                         ${showOtherBlocksTab ? (() => {
                             const isActive = __tmIsOtherBlockTabId(state.activeDocId);
@@ -1362,7 +1362,8 @@ return;
                     }
                     .tm-main-body-with-cal-dock.tm-main-body-with-cal-dock--calendar-dock-hidden > .tm-calendar-side-dock,
                     .tm-main-body-with-cal-dock.tm-main-body-with-cal-dock--calendar-dock-hidden > .tm-calendar-side-dock-resizer {
-                        display: none !important;
+                        pointer-events: auto;
+                        visibility: visible;
                     }
                     .tm-calendar-side-dock {
                         border-left: none;
@@ -2944,6 +2945,7 @@ return;
         } catch (e) {}
         state.__tmKanbanDragId = taskId;
         state.__tmKanbanDragIds = [taskId];
+        try { __tmBindKanbanDocumentAutoScroll(); } catch (e) {}
         try { ev.currentTarget?.classList?.add?.('tm-kanban-card--dragging'); } catch (e) {}
         try {
             const meta = (typeof window.tmCalendarGetTaskDragMeta === 'function') ? window.tmCalendarGetTaskDragMeta(taskId) : null;
@@ -2979,6 +2981,7 @@ return;
         try { __tmClearDocTabDropTarget(); } catch (e) {}
         try { __tmSetCalendarSideDockDragHidden(false); } catch (e) {}
         try { __tmCalendarFloatingDragEnd(); } catch (e) {}
+        try { __tmUnbindKanbanDocumentAutoScroll(); } catch (e) {}
         try { delete state.__tmKanbanDragId; } catch (e) {}
         try { delete state.__tmKanbanDragIds; } catch (e) {}
         __tmKanbanClearDragOver();
@@ -3053,36 +3056,72 @@ return;
         try { window.tmKanbanDrop(ev); } catch (e) {}
     };
 
-    window.tmKanbanAutoScroll = function(ev) {
-        try { ev.preventDefault(); } catch (e) {}
+    function __tmKanbanAutoScrollByPoint(clientX, clientY, target) {
         const modal = state.modal;
-        if (!modal) return;
+        if (!modal) return false;
         const body = modal.querySelector('.tm-body.tm-body--kanban');
-        if (!body) return;
+        if (!(body instanceof HTMLElement)) return false;
         const rect = body.getBoundingClientRect();
-        const x = ev.clientX;
-        const y = ev.clientY;
+        const x = Number(clientX);
+        const y = Number(clientY);
+        if (!Number.isFinite(x) || !Number.isFinite(y)) return false;
         const edge = 48;
         const speed = 18;
+        const verticalBand = edge + 16;
+        if (y < rect.top - verticalBand || y > rect.bottom + verticalBand) return false;
 
         const dx = x < rect.left + edge ? -speed : x > rect.right - edge ? speed : 0;
         const dy = y < rect.top + edge ? -speed : y > rect.bottom - edge ? speed : 0;
-        if (!dx && !dy) return;
+        if (!dx && !dy) return false;
 
         const prevTs = Number(state.__tmKanbanAutoScrollTs) || 0;
         const now = Date.now();
-        if (now - prevTs < 16) return;
+        if (now - prevTs < 16) return false;
         state.__tmKanbanAutoScrollTs = now;
 
         try { if (dx) body.scrollLeft += dx; } catch (e) {}
         try {
             if (dy) {
-                const host = __tmResolveKanbanDropHost(ev);
+                const host = __tmResolveKanbanDropHost({
+                    target: target instanceof Element ? target : null,
+                    clientX: x,
+                    clientY: y,
+                });
                 const col = host?.closest?.('.tm-kanban-col') || null;
                 const colBody = col?.querySelector?.('.tm-kanban-col-body');
                 if (colBody) colBody.scrollTop += dy;
             }
         } catch (e) {}
+        return true;
+    }
+
+    function __tmBindKanbanDocumentAutoScroll() {
+        if (state.__tmKanbanDocumentAutoScrollBound) return;
+        const onDragOver = (ev) => {
+            const active = String(state.__tmKanbanDragId || state.draggingTaskId || '').trim();
+            if (!active) return;
+            if (!(globalThis.__tmRuntimeState?.isViewMode?.('kanban') ?? (String(state.viewMode || '').trim() === 'kanban'))) return;
+            try { __tmKanbanAutoScrollByPoint(ev?.clientX, ev?.clientY, ev?.target); } catch (e) {}
+        };
+        state.__tmKanbanDocumentAutoScrollBound = onDragOver;
+        try { document.addEventListener('dragover', onDragOver, true); } catch (e) {}
+    }
+
+    function __tmUnbindKanbanDocumentAutoScroll() {
+        const onDragOver = state.__tmKanbanDocumentAutoScrollBound;
+        if (typeof onDragOver !== 'function') return;
+        try { document.removeEventListener('dragover', onDragOver, true); } catch (e) {}
+        state.__tmKanbanDocumentAutoScrollBound = null;
+    }
+    try {
+        window.__tmKanbanAutoScrollByPoint = __tmKanbanAutoScrollByPoint;
+        window.__tmBindKanbanDocumentAutoScroll = __tmBindKanbanDocumentAutoScroll;
+        window.__tmUnbindKanbanDocumentAutoScroll = __tmUnbindKanbanDocumentAutoScroll;
+    } catch (e) {}
+
+    window.tmKanbanAutoScroll = function(ev) {
+        try { ev.preventDefault(); } catch (e) {}
+        __tmKanbanAutoScrollByPoint(ev?.clientX, ev?.clientY, ev?.target);
     };
 
     function __tmIsKanbanTouchPointer(ev) {
@@ -3400,6 +3439,7 @@ return;
             state.draggingTaskId = taskId;
             state.__tmKanbanDragId = taskId;
             state.__tmKanbanDragIds = [taskId];
+            try { __tmBindKanbanDocumentAutoScroll(); } catch (e2) {}
             try { __tmSetCalendarSideDockDragHidden(true); } catch (e2) {}
             try { cardEl.classList.add('tm-kanban-card--dragging'); } catch (e2) {}
             ghostMeta = __tmBuildKanbanTouchDragGhost(cardEl, lastX, lastY);
@@ -3468,6 +3508,7 @@ return;
             try { __tmKanbanClearDragOver(); } catch (e2) {}
             try { __tmSetCalendarSideDockDragHidden(false); } catch (e2) {}
             try { __tmCalendarFloatingDragEnd(); } catch (e2) {}
+            try { __tmUnbindKanbanDocumentAutoScroll(); } catch (e2) {}
             if (String(state.draggingTaskId || '').trim() === taskId) state.draggingTaskId = '';
             try { delete state.__tmKanbanDragId; } catch (e2) {}
             try { delete state.__tmKanbanDragIds; } catch (e2) {}
@@ -3935,6 +3976,14 @@ return;
             ? ev.currentTarget
             : (ev?.target instanceof Element ? ev.target.closest('.tm-kanban-chip') : null);
         const current = String(task.completionTime || '').trim() || String(task.startDate || '').trim();
+
+        if (anchorEl instanceof HTMLElement && typeof window.tmOpenTaskTimeHub === 'function') {
+            await window.tmOpenTaskTimeHub(tid, anchorEl, {
+                activeField: 'completionTime',
+                source: 'kanban-card',
+            });
+            return;
+        }
 
         if (!(anchorEl instanceof Element)) {
             const next = await showDatePrompt('设置日期', current);

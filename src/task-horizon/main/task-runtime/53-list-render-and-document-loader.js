@@ -289,7 +289,7 @@
                             </span>
                             <span class="tm-task-text ${done ? 'tm-task-done' : ''}"
                                   data-level="${depth}">
-                                <span class="tm-task-content-clickable" onclick="tmJumpToTask('${taskId}', event)"${contentTooltip}>${renderedContent}${__tmRenderRecurringTaskInlineIcon(task)}${reminderHtml}${__tmRenderRecurringInstanceBadge(task, recurringBadgeInlineOptions)}</span>
+                                <span class="tm-task-content-clickable" onclick="tmJumpToTask('${taskId}', event)"${contentTooltip} style="${__tmBuildTaskTitleOpacityStyle(task)}">${renderedContent}${__tmRenderRecurringTaskInlineIcon(task)}${reminderHtml}${__tmRenderRecurringInstanceBadge(task, recurringBadgeInlineOptions)}</span>
                             </span>
                             <button class="tm-subtask-create-btn"
                                     type="button"
@@ -3889,7 +3889,8 @@ hint(`❌ 操作失败: ${e.message}`, 'error');
         if (!task) return;
         const showDialog = globalThis.__tomatoReminder?.showDialog;
         if (typeof showDialog === 'function') {
-            showDialog(taskId, task.content || '任务');
+            const taskName = __tmNormalizeTimerTaskName(task?.content || task?.raw_content || task?.markdown || '', '任务');
+            showDialog(taskId, taskName || '任务');
             try { __tmRefreshReminderMarkForTask(taskId, 1200); } catch (e) {}
             return;
         }
@@ -4992,6 +4993,20 @@ hint(`❌ 操作失败: ${e.message}`, 'error');
         return true;
     }
 
+    function __tmRefreshAfterOptimisticTaskCreate(taskId, reason = 'task-create-optimistic') {
+        const tid = String(taskId || '').trim();
+        try {
+            __tmRefreshMainViewInPlace({
+                withFilters: true,
+                reason: String(reason || 'task-create-optimistic').trim() || 'task-create-optimistic',
+                taskIds: tid ? [tid] : [],
+            });
+            return true;
+        } catch (e) {}
+        try { __tmScheduleRender({ withFilters: true, reason }); } catch (e) {}
+        return false;
+    }
+
     function __tmGetMoveTargetHeadingMeta(payload = {}) {
         const targetTask = state.flatTasks?.[String(payload.targetTaskId || '').trim()] || null;
         const rank0 = Number(payload.targetHeadingRank);
@@ -5026,6 +5041,8 @@ hint(`❌ 操作失败: ${e.message}`, 'error');
             priority: priority || '',
             duration: '',
             remark: '',
+            startDate: String(payload.startDate || '').trim(),
+            start_date: String(payload.startDate || '').trim(),
             completionTime: String(payload.completionTime || '').trim(),
             customTime: '',
             customStatus: String(payload.customStatus || '').trim(),
@@ -5055,6 +5072,7 @@ hint(`❌ 操作失败: ${e.message}`, 'error');
         });
         try { recalcStats(); } catch (e) {}
         try { applyFilters(); } catch (e) {}
+        __tmRefreshAfterOptimisticTaskCreate(tempId, 'create-task-optimistic');
         return nextTask;
     }
 
@@ -5521,7 +5539,7 @@ hint(`❌ 操作失败: ${e.message}`, 'error');
         return __tmRollbackDeleteOptimisticLocal(snapshot);
     }
 
-    async function __tmCreateTaskInDocKernel({ docId, content, priority, completionTime, pinned, customStatus, atTop, appendToBottom, insertBeforeId, localInsert = true } = {}) {
+    async function __tmCreateTaskInDocKernel({ docId, content, priority, startDate, completionTime, pinned, customStatus, atTop, appendToBottom, insertBeforeId, localInsert = true } = {}) {
         const parentDocId = String(docId || '').trim();
         const text = String(content || '').trim();
         if (!parentDocId) throw new Error('未设置文档');
@@ -5557,6 +5575,8 @@ hint(`❌ 操作失败: ${e.message}`, 'error');
         };
         const pr = prMap.hasOwnProperty(pr0) ? prMap[pr0] : pr0;
         if (pr === 'high' || pr === 'medium' || pr === 'low') patch.priority = pr;
+        const sd = String(startDate || '').trim();
+        if (sd) patch.startDate = sd;
         const ct = String(completionTime || '').trim();
         if (ct) patch.completionTime = ct;
         const st0 = String(customStatus || '').trim();
@@ -5579,6 +5599,8 @@ hint(`❌ 操作失败: ${e.message}`, 'error');
             priority: patch.priority || '',
             duration: '',
             remark: '',
+            startDate: patch.startDate || '',
+            start_date: patch.startDate || '',
             completionTime: patch.completionTime || '',
             customTime: '',
             customStatus: patch.customStatus || '',
@@ -6221,6 +6243,7 @@ hint(`❌ 操作失败: ${e.message}`, 'error');
             docMode: initialMode,
             customStatus: defaultStatusId,
             priority: 'none',
+            startDate: '',
             completionTime: '',
             openReminderAfterCreate: false,
         };
@@ -6244,7 +6267,7 @@ hint(`❌ 操作失败: ${e.message}`, 'error');
                     <button class="tm-btn tm-btn-gray" id="tmQuickAddCloseBtn" onclick="tmQuickAddClose()" style="padding: 6px 12px; font-size: 13px;">关闭</button>
                 </div>
 
-                <input type="text" id="tmQuickAddInput" class="tm-prompt-input" placeholder="输入事项…" style="margin-top:16px; font-size: 16px; padding: 12px;">
+                <input type="text" id="tmQuickAddInput" class="tm-prompt-input" placeholder="输入事项…" enterkeyhint="done" style="margin-top:16px; font-size: 16px; padding: 12px;">
 
                 <div style="display:flex;gap:10px;align-items:flex-start;flex-wrap:wrap;margin-top:16px;">
                     <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;flex:1 1 280px;min-width:0;">
@@ -6266,7 +6289,7 @@ hint(`❌ 操作失败: ${e.message}`, 'error');
                             <!-- 桌面端/移动端通用的日期选择器 -->
                             <div style="position:relative; display:inline-block; max-width:100%;">
                                 <button class="tm-btn tm-btn-secondary" onclick="tmQuickAddOpenDatePicker()" style="padding: 6px 12px; font-size: 13px; display:flex; align-items:center; gap:4px; max-width:100%;">
-                                    🗓 <span id="tmQuickAddDateLabel" style="display:inline-block; max-width:120px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">截止日期</span>
+                                    🗓 <span id="tmQuickAddDateLabel" style="display:inline-block; max-width:120px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">日期</span>
                                 </button>
                                 <input type="date" id="tmQuickAddDateInput" oninput="tmQuickAddDateChanged(this.value)" onchange="tmQuickAddDateChanged(this.value)"
                                        style="position:absolute; opacity:0; width:1px; height:1px; left:0; bottom:0; pointer-events:none; border:0; padding:0; margin:0; overflow:hidden; z-index:-1;">
@@ -6293,6 +6316,8 @@ hint(`❌ 操作失败: ${e.message}`, 'error');
         // 自动聚焦 (兼容移动端)
         const input = document.getElementById('tmQuickAddInput');
         if (input) {
+            input.enterKeyHint = 'done';
+            input.setAttribute('enterkeyhint', 'done');
             setTimeout(() => {
                 input.focus();
                 try { input.click(); } catch(e) {}
@@ -6411,13 +6436,17 @@ hint(`❌ 操作失败: ${e.message}`, 'error');
             const dateLabel = document.getElementById('tmQuickAddDateLabel');
             const dateInput = document.getElementById('tmQuickAddDateInput');
             if (dateLabel && dateInput) {
-                const ct = qa.completionTime ? __tmFormatTaskTime(qa.completionTime) : '截止日期';
+                const sd = String(qa.startDate || '').trim();
+                const ctValue = String(qa.completionTime || '').trim();
+                const ct = ctValue
+                    ? (sd && sd !== ctValue ? `${__tmFormatTaskTimeCompact(sd)}-${__tmFormatTaskTimeCompact(ctValue)}` : __tmFormatTaskTime(ctValue))
+                    : (sd ? `开始 ${__tmFormatTaskTimeCompact(sd)}` : '日期');
                 dateLabel.textContent = ct;
                 dateInput.value = qa.completionTime ? __tmNormalizeDateOnly(qa.completionTime) : '';
 
                 const btn = document.getElementById('tmQuickAddDateLabel')?.parentElement;
                 if (btn) {
-                    if (qa.completionTime) {
+                    if (qa.startDate || qa.completionTime) {
                         btn.style.color = 'var(--tm-primary-color)';
                         btn.style.borderColor = 'var(--tm-primary-color)';
                     } else {
@@ -6527,14 +6556,36 @@ hint(`❌ 操作失败: ${e.message}`, 'error');
     window.tmQuickAddOpenDatePicker = async function() {
         const qa = state.quickAdd;
         if (!qa) return;
-        const input = document.getElementById('tmQuickAddDateInput');
-        if (__tmIsMobileDevice()) {
-            const next = await showDatePrompt('设置截止日期', __tmNormalizeDateOnly(String(qa.completionTime || '')));
-            if (next === null) return;
-            qa.completionTime = String(next || '').trim();
-            window.tmQuickAddRenderMeta?.();
+        const btn = document.getElementById('tmQuickAddDateLabel')?.parentElement;
+        if (btn instanceof HTMLElement && typeof window.tmOpenTaskTimeHub === 'function') {
+            await window.tmOpenTaskTimeHub('__tm_quick_add_draft__', btn, {
+                draft: true,
+                activeField: 'completionTime',
+                hideReminder: true,
+                hideSchedule: true,
+                hideRepeat: true,
+                task: {
+                    id: '__tm_quick_add_draft__',
+                    content: String(document.getElementById('tmQuickAddInput')?.value || '新建任务').trim() || '新建任务',
+                    startDate: String(qa.startDate || '').trim(),
+                    start_date: String(qa.startDate || '').trim(),
+                    completionTime: String(qa.completionTime || '').trim(),
+                    completion_time: String(qa.completionTime || '').trim(),
+                },
+                onChange: async (payload = {}) => {
+                    const patch = (payload?.patch && typeof payload.patch === 'object') ? payload.patch : {};
+                    if (Object.prototype.hasOwnProperty.call(patch, 'startDate')) {
+                        qa.startDate = String(patch.startDate || '').trim();
+                    }
+                    if (Object.prototype.hasOwnProperty.call(patch, 'completionTime')) {
+                        qa.completionTime = String(patch.completionTime || '').trim();
+                    }
+                    window.tmQuickAddRenderMeta?.();
+                },
+            });
             return;
         }
+        const input = document.getElementById('tmQuickAddDateInput');
         if (!(input instanceof HTMLInputElement)) return;
         try {
             if (typeof input.showPicker === 'function') input.showPicker();
@@ -6875,12 +6926,14 @@ hint(`❌ 操作失败: ${e.message}`, 'error');
         const dateInput = document.getElementById('tmQuickAddDateInput');
         const content = String(input?.value || '').trim();
         if (!content) return;
+        const startDate = String(qa.startDate || '').trim() ? __tmNormalizeDateOnly(qa.startDate) : '';
         const completionTime = (() => {
             const raw = dateInput instanceof HTMLInputElement
                 ? String(dateInput.value || '').trim()
                 : String(qa.completionTime || '').trim();
             return raw ? __tmNormalizeDateOnly(raw) : '';
         })();
+        qa.startDate = startDate;
         qa.completionTime = completionTime;
         state.quickAddSubmitting = true;
         const payload = {
@@ -6888,6 +6941,7 @@ hint(`❌ 操作失败: ${e.message}`, 'error');
             docMode: qa.docMode,
             priority: qa.priority,
             customStatus: qa.customStatus,
+            startDate,
             completionTime,
             openReminderAfterCreate: !!qa.openReminderAfterCreate,
             content,
@@ -6913,6 +6967,7 @@ hint(`❌ 操作失败: ${e.message}`, 'error');
                     content: payload.content,
                     priority: payload.priority,
                     customStatus: payload.customStatus,
+                    startDate: payload.startDate,
                     completionTime: payload.completionTime,
                     appendToBottom: payload.docMode === 'dailyNote' && SettingsStore.data.newTaskDailyNoteAppendToBottom === true,
                 });
@@ -7725,6 +7780,65 @@ hint(`❌ 操作失败: ${e.message}`, 'error');
                 return false;
             }
         };
+        let inlineLoadingWatchdogTimer = 0;
+        const clearInlineLoadingWatchdog = () => {
+            if (!inlineLoadingWatchdogTimer) return;
+            try { clearTimeout(inlineLoadingWatchdogTimer); } catch (e) {}
+            inlineLoadingWatchdogTimer = 0;
+        };
+        const clearInlineLoadingForCurrentToken = () => {
+            if (!showInlineLoading || Number(state.uiInlineLoadingToken) !== token) return false;
+            try {
+                __tmSetInlineLoading(false);
+                return true;
+            } catch (e) {
+                return false;
+            }
+        };
+        const armInlineLoadingWatchdog = () => {
+            const defaultWatchdogMs = sourceLabel === 'openManager' ? 18000 : 30000;
+            const watchdogMs = Math.max(6000, Math.min(60000, Math.round(Number(options?.loadingWatchdogMs) || defaultWatchdogMs)));
+            inlineLoadingWatchdogTimer = setTimeout(() => {
+                inlineLoadingWatchdogTimer = 0;
+                if (!isTokenCurrent()) return;
+                if (Number(state.uiInlineLoadingToken) !== token) return;
+                const recovered = clearInlineLoadingForCurrentToken();
+                try {
+                    __tmPerfTraceMark(perfTrace, 'inline-loading-watchdog', {
+                        source: sourceLabel,
+                        token,
+                        recovered: recovered ? 1 : 0,
+                        hasTaskData: __tmHasTaskDataReadyForUi() ? 1 : 0,
+                    });
+                } catch (e) {}
+                if (sourceLabel !== 'openManager' || __tmHasTaskDataReadyForUi()) return;
+                try {
+                    if (runtimeState && typeof runtimeState.nextOpenToken === 'function') {
+                        runtimeState.nextOpenToken();
+                    } else {
+                        state.openToken = (Number(state.openToken) || 0) + 1;
+                    }
+                } catch (e) {
+                    state.openToken = (Number(state.openToken) || 0) + 1;
+                }
+                try {
+                    loadSelectedDocuments({
+                        skipRender: false,
+                        preferFastFirstPaint: false,
+                        forceFreshTasks: true,
+                        skipSnapshotFirstPaint: true,
+                        skipTaskIndexFirstPaint: true,
+                        skipSessionRestoreFirstPaint: true,
+                        skipDocSessionRestoreFirstPaint: true,
+                        showInlineLoading: true,
+                        loadingStyleKind: 'topbar',
+                        loadingDelayMs: 0,
+                        loadingWatchdogMs: 30000,
+                        source: 'openManager-watchdog-retry',
+                    }).catch(() => null);
+                } catch (e) {}
+            }, watchdogMs);
+        };
         if (showInlineLoading) {
             try {
                 __tmSetInlineLoading(true, {
@@ -7732,8 +7846,10 @@ hint(`❌ 操作失败: ${e.message}`, 'error');
                     styleKind: options?.loadingStyleKind,
                     delayMs: Number(options?.loadingDelayMs),
                 });
+                armInlineLoadingWatchdog();
             } catch (e) {}
         }
+        try {
         try { state.doneOverrides = {}; } catch (e) {}
         // 加载设置（包括文档ID列表）
         await __tmEnsureSettingsLoaded();
@@ -9530,6 +9646,17 @@ hint(`❌ 操作失败: ${e.message}`, 'error');
             if (showInlineLoading && Number(state.uiInlineLoadingToken) === token) {
                 try { __tmSetInlineLoading(false); } catch (e) {}
             }
+        }
+        } catch (e) {
+            finishPerfTrace({
+                error: String(e?.message || e || '').trim() || 'load-failed',
+                source: sourceLabel,
+            });
+            try { console.error('[加载] 获取任务失败:', e); } catch (e2) {}
+            try { hint('❌ 加载任务失败', 'error'); } catch (e3) {}
+        } finally {
+            clearInlineLoadingWatchdog();
+            clearInlineLoadingForCurrentToken();
         }
     }
 

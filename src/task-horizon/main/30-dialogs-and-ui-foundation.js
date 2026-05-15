@@ -2938,6 +2938,8 @@ if (mode === 'checklist') {
             input.className = 'tm-prompt-input';
             input.placeholder = String(placeholder ?? '');
             input.value = String(defaultValue ?? '');
+            input.enterKeyHint = 'done';
+            input.setAttribute('enterkeyhint', 'done');
             try { input.autofocus = true; } catch (e) {}
 
             const buttons = document.createElement('div');
@@ -5722,6 +5724,12 @@ if (mode === 'checklist') {
                 { maxMinutes: 240, delta: -5 },
                 { maxMinutes: 999999, delta: -10 }
             ],
+            titleOpacityEnabled: false,
+            titleOpacityRanges: [
+                { minScore: 140, maxScore: '', opacity: 1, color: '#F15B5D' },
+                { minScore: 120, maxScore: 139, opacity: 0.86, color: '#F7AC39' },
+                { minScore: '', maxScore: 119, opacity: 0.62, color: '#499CE7' }
+            ],
             docDeltas: {},
             groupDeltas: {}
         };
@@ -5729,6 +5737,34 @@ if (mode === 'checklist') {
 
     function __tmCloneJson(obj) {
         try { return JSON.parse(JSON.stringify(obj || {})); } catch (e) { return {}; }
+    }
+
+    function __tmNormalizePriorityTitleOpacityRanges(ranges, fallbackRanges) {
+        const source = Array.isArray(ranges) ? ranges : (Array.isArray(fallbackRanges) ? fallbackRanges : []);
+        const out = [];
+        source.forEach((row, index) => {
+            const item = (row && typeof row === 'object') ? row : {};
+            const minRaw = String(item.minScore ?? '').trim();
+            const maxRaw = String(item.maxScore ?? '').trim();
+            const minNum = minRaw === '' ? null : Number(minRaw);
+            const maxNum = maxRaw === '' ? null : Number(maxRaw);
+            const minScore = Number.isFinite(minNum) ? minNum : '';
+            const maxScore = Number.isFinite(maxNum) ? maxNum : '';
+            const opacityRaw = Number(item.opacity);
+            const opacity = Number.isFinite(opacityRaw)
+                ? Math.max(0.2, Math.min(1, opacityRaw > 1 ? opacityRaw / 100 : opacityRaw))
+                : 1;
+            const fallbackColor = __tmGetStatusPresetColor(index);
+            const color = __tmNormalizeHexColor(item.color, fallbackColor) || fallbackColor;
+            if (minScore === '' && maxScore === '') return;
+            out.push({
+                minScore,
+                maxScore,
+                opacity: Math.round(opacity * 100) / 100,
+                color,
+            });
+        });
+        return out;
     }
 
     function __tmEnsurePriorityDraft() {
@@ -5743,6 +5779,8 @@ if (mode === 'checklist') {
         merged.dueRanges = Array.isArray(merged.dueRanges) ? merged.dueRanges : base.dueRanges;
         merged.durationUnit = (merged.durationUnit === 'hours' || merged.durationUnit === 'minutes') ? merged.durationUnit : 'minutes';
         merged.durationBuckets = Array.isArray(merged.durationBuckets) ? merged.durationBuckets : base.durationBuckets;
+        merged.titleOpacityEnabled = merged.titleOpacityEnabled === true;
+        merged.titleOpacityRanges = __tmNormalizePriorityTitleOpacityRanges(merged.titleOpacityRanges, base.titleOpacityRanges);
         merged.docDeltas = (merged.docDeltas && typeof merged.docDeltas === 'object') ? merged.docDeltas : {};
         merged.groupDeltas = (merged.groupDeltas && typeof merged.groupDeltas === 'object') ? merged.groupDeltas : {};
 
@@ -5761,6 +5799,44 @@ if (mode === 'checklist') {
         const statuses = SettingsStore.data.customStatusOptions || [];
         const docs = state.allDocuments || [];
         const groups = Array.isArray(SettingsStore.data.docGroups) ? SettingsStore.data.docGroups : [];
+        const titleOpacityEnabled = cfg.titleOpacityEnabled === true;
+        const titleOpacityRows = __tmNormalizePriorityTitleOpacityRanges(cfg.titleOpacityRanges, []).map((r, i) => {
+            const opacityPercent = Math.round(Math.max(0.2, Math.min(1, Number(r.opacity) || 1)) * 100);
+            const fallbackColor = __tmGetStatusPresetColor(i);
+            const rowColor = __tmNormalizeHexColor(r.color, fallbackColor) || fallbackColor;
+            return `
+                <div style="display:flex;gap:8px;align-items:center;margin-bottom:6px;flex-wrap:wrap;">
+                    <button
+                        type="button"
+                        data-tm-call="tmPickPriorityTitleOpacityRangeColor"
+                        data-tm-args='[${i}]'
+                        style="width:24px;height:24px;border:1px solid var(--tm-border-color);padding:0;background:${esc(rowColor)};cursor:pointer;border-radius:6px;box-shadow:inset 0 0 0 1px rgba(255,255,255,0.18);"
+                        title="点击选择分段颜色"
+                    ></button>
+                    <span style="width:52px;color:var(--tm-secondary-text);">最低分</span>
+                    <input class="tm-input" style="width:100px;" type="number" placeholder="-∞" value="${r.minScore === '' ? '' : Number(r.minScore)}" data-tm-call="tmSetPriorityTitleOpacityRange" data-tm-args='[${i},"minScore"]'>
+                    <span style="width:52px;color:var(--tm-secondary-text);">最高分</span>
+                    <input class="tm-input" style="width:100px;" type="number" placeholder="+∞" value="${r.maxScore === '' ? '' : Number(r.maxScore)}" data-tm-call="tmSetPriorityTitleOpacityRange" data-tm-args='[${i},"maxScore"]'>
+                    <span style="width:58px;color:var(--tm-secondary-text);">透明度</span>
+                    <input class="tm-input" style="width:96px;" type="number" min="20" max="100" step="1" value="${opacityPercent}" data-tm-call="tmSetPriorityTitleOpacityRange" data-tm-args='[${i},"opacity"]'>
+                    <span style="color:var(--tm-secondary-text);">%</span>
+                    <button class="tm-btn tm-btn-gray" data-tm-call="tmRemovePriorityTitleOpacityRange" data-tm-args='[${i}]'>删除</button>
+                </div>
+            `;
+        }).join('');
+        const titleOpacitySection = `
+            <div class="${embedded ? 'tm-rule-section' : ''}" style="margin-bottom:${embedded ? '0' : '14px'};">
+                <div style="display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:10px;flex-wrap:wrap;">
+                    <label style="display:flex;align-items:center;gap:8px;font-weight:700;">
+                        <input class="b3-switch fn__flex-center" type="checkbox" ${titleOpacityEnabled ? 'checked' : ''} data-tm-call="tmTogglePriorityTitleOpacity">
+                        分值分段显示任务名称颜色和透明度
+                    </label>
+                    <button class="tm-btn tm-btn-secondary" data-tm-call="tmAddPriorityTitleOpacityRange">+ 添加</button>
+                </div>
+                <div style="font-size:12px;color:var(--tm-secondary-text);margin-bottom:8px;">按优先级分值匹配区间，只改变任务名称颜色和透明度，不影响排序和奖励分值。</div>
+                ${titleOpacityRows || '<div style="color: var(--tm-secondary-text);">暂无配置</div>'}
+            </div>
+        `;
         const docRows = Object.entries(cfg.docDeltas || {}).map(([docId, delta]) => {
             const dName = docs.find(d => d.id === docId)?.name;
             return `
@@ -5887,6 +5963,8 @@ if (mode === 'checklist') {
                         ${durRows || '<div style="color: var(--tm-secondary-text);">暂无配置</div>'}
                     </div>
 
+                    ${titleOpacitySection}
+
                     <div class="tm-rule-section" style="margin-bottom:0;">
                         <div style="display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:10px;">
                             <div style="font-weight: 700;">文档加减分</div>
@@ -5975,6 +6053,8 @@ if (mode === 'checklist') {
                         </div>
                         ${durRows || '<div style="color: var(--tm-secondary-text);">暂无配置</div>'}
                     </div>
+
+                    ${titleOpacitySection}
 
                     <div style="margin-bottom: 14px;">
                         <div style="display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:8px;">
@@ -6340,6 +6420,58 @@ if (mode === 'checklist') {
         } else {
             row[field] = Number(value) || 0;
         }
+    };
+    window.tmTogglePriorityTitleOpacity = function(value) {
+        if (!state.priorityScoreDraft) return;
+        state.priorityScoreDraft.titleOpacityEnabled = value === true;
+        if (!Array.isArray(state.priorityScoreDraft.titleOpacityRanges)) state.priorityScoreDraft.titleOpacityRanges = [];
+    };
+    window.tmAddPriorityTitleOpacityRange = function() {
+        if (!state.priorityScoreDraft) return;
+        if (!Array.isArray(state.priorityScoreDraft.titleOpacityRanges)) state.priorityScoreDraft.titleOpacityRanges = [];
+        const index = state.priorityScoreDraft.titleOpacityRanges.length;
+        state.priorityScoreDraft.titleOpacityRanges.push({ minScore: 0, maxScore: '', opacity: 0.8, color: __tmGetStatusPresetColor(index) });
+        __tmRerenderPriorityScoreSettings();
+    };
+    window.tmRemovePriorityTitleOpacityRange = function(index) {
+        if (!state.priorityScoreDraft) return;
+        if (!Array.isArray(state.priorityScoreDraft.titleOpacityRanges)) return;
+        state.priorityScoreDraft.titleOpacityRanges.splice(index, 1);
+        __tmRerenderPriorityScoreSettings();
+    };
+    window.tmSetPriorityTitleOpacityRange = function(index, field, value) {
+        if (!state.priorityScoreDraft) return;
+        if (!Array.isArray(state.priorityScoreDraft.titleOpacityRanges)) state.priorityScoreDraft.titleOpacityRanges = [];
+        const row = state.priorityScoreDraft.titleOpacityRanges[index];
+        if (!row) return;
+        const key = String(field || '').trim();
+        if (key === 'minScore' || key === 'maxScore') {
+            const raw = String(value ?? '').trim();
+            row[key] = raw === '' ? '' : (Number.isFinite(Number(raw)) ? Number(raw) : '');
+            return;
+        }
+        if (key === 'opacity') {
+            const n = Number(value);
+            row.opacity = Number.isFinite(n) ? Math.max(0.2, Math.min(1, n / 100)) : 1;
+            return;
+        }
+        if (key === 'color') {
+            const fallback = __tmGetStatusPresetColor(index);
+            row.color = __tmNormalizeHexColor(value, fallback) || fallback;
+        }
+    };
+    window.tmPickPriorityTitleOpacityRangeColor = function(index) {
+        if (!state.priorityScoreDraft) return;
+        if (!Array.isArray(state.priorityScoreDraft.titleOpacityRanges)) state.priorityScoreDraft.titleOpacityRanges = [];
+        const row = state.priorityScoreDraft.titleOpacityRanges[index];
+        if (!row) return;
+        const fallback = __tmGetStatusPresetColor(index);
+        const current = __tmNormalizeHexColor(row.color, fallback) || fallback;
+        __tmOpenColorPickerDialog('分段颜色', current, (next) => {
+            const v = __tmNormalizeHexColor(next, fallback) || fallback;
+            row.color = v;
+            __tmRerenderPriorityScoreSettings();
+        }, __tmBuildPresetColorPickerOptions(fallback));
     };
     window.tmAddPriorityDocDelta = function() {
         if (!state.priorityScoreDraft) return;
@@ -11276,6 +11408,7 @@ if (mode === 'checklist') {
                     }
                 }
                 if (sourceType === 'kanban') {
+                    try { window.__tmKanbanAutoScrollByPoint?.(lastX, lastY, pointTarget); } catch (e) {}
                     try { __tmApplyKanbanDragHoverFromTarget(pointTarget); } catch (e) {}
                 }
             };
@@ -11297,6 +11430,7 @@ if (mode === 'checklist') {
                     try { sourceEl.classList.remove('tm-kanban-card--dragging'); } catch (e) {}
                     try { delete state.__tmKanbanDragId; } catch (e) {}
                     try { delete state.__tmKanbanDragIds; } catch (e) {}
+                    try { window.__tmUnbindKanbanDocumentAutoScroll?.(); } catch (e) {}
                 }
                 clearDocHover();
                 clearKanbanHover();
@@ -11389,6 +11523,7 @@ if (mode === 'checklist') {
                 if (sourceType === 'kanban') {
                     state.__tmKanbanDragId = taskId;
                     state.__tmKanbanDragIds = [taskId];
+                    try { window.__tmBindKanbanDocumentAutoScroll?.(); } catch (e) {}
                     try { sourceEl.classList.add('tm-kanban-card--dragging'); } catch (e) {}
                 }
                 try { __tmSetCalendarSideDockDragHidden(true); } catch (e) {}

@@ -236,11 +236,24 @@
         };
         const renderAiSettingsPanel = () => {
             const contextMode = String(SettingsStore.data.aiDefaultContextMode || 'nearby').trim() === 'fulltext' ? 'fulltext' : 'nearby';
-            const provider = String(SettingsStore.data.aiProvider || '').trim() === 'deepseek' ? 'deepseek' : 'minimax';
-            const providerLabel = provider === 'deepseek' ? 'DeepSeek' : 'MiniMax';
+            const providerRaw = String(SettingsStore.data.aiProvider || '').trim();
+            const provider = providerRaw === 'deepseek'
+                ? 'deepseek'
+                : (providerRaw === 'openai'
+                    ? 'openai'
+                    : (providerRaw === 'anthropic' ? 'anthropic' : 'minimax'));
+            const providerLabel = provider === 'deepseek'
+                ? 'DeepSeek'
+                : (provider === 'openai'
+                    ? 'OpenAI 兼容'
+                    : (provider === 'anthropic' ? 'Anthropic 兼容' : 'MiniMax'));
             const model = provider === 'deepseek'
-                ? (String(SettingsStore.data.aiDeepSeekModel || 'deepseek-chat').trim() || 'deepseek-chat')
-                : (String(SettingsStore.data.aiMiniMaxModel || 'MiniMax-M2.5').trim() || 'MiniMax-M2.5');
+                ? (String(SettingsStore.data.aiDeepSeekModel || 'deepseek-v4-flash').trim() || 'deepseek-v4-flash')
+                : (provider === 'openai'
+                    ? (String(SettingsStore.data.aiOpenAIModel || 'gpt-5.4-mini').trim() || 'gpt-5.4-mini')
+                    : (provider === 'anthropic'
+                        ? (String(SettingsStore.data.aiAnthropicModel || 'claude-sonnet-4-5').trim() || 'claude-sonnet-4-5')
+                        : (String(SettingsStore.data.aiMiniMaxModel || 'MiniMax-M2.7-highspeed').trim() || 'MiniMax-M2.7-highspeed')));
             const temperature = Number.isFinite(Number(SettingsStore.data.aiMiniMaxTemperature)) ? Number(SettingsStore.data.aiMiniMaxTemperature) : 0.2;
             const maxTokens = Number.isFinite(Number(SettingsStore.data.aiMiniMaxMaxTokens)) ? Math.max(256, Math.min(8192, Math.round(Number(SettingsStore.data.aiMiniMaxMaxTokens)))) : 1600;
             const timeoutMs = Number.isFinite(Number(SettingsStore.data.aiMiniMaxTimeoutMs)) ? Math.max(5000, Math.min(180000, Math.round(Number(SettingsStore.data.aiMiniMaxTimeoutMs)))) : 30000;
@@ -249,14 +262,22 @@
                 : '09:00-18:00';
             const baseUrl = esc(provider === 'deepseek'
                 ? (String(SettingsStore.data.aiDeepSeekBaseUrl || 'https://api.deepseek.com').trim() || 'https://api.deepseek.com')
-                : (String(SettingsStore.data.aiMiniMaxBaseUrl || 'https://api.minimaxi.com/anthropic').trim() || 'https://api.minimaxi.com/anthropic'));
+                : (provider === 'openai'
+                    ? (String(SettingsStore.data.aiOpenAIBaseUrl || 'https://api.openai.com/v1').trim() || 'https://api.openai.com/v1')
+                    : (provider === 'anthropic'
+                        ? (String(SettingsStore.data.aiAnthropicBaseUrl || 'https://api.anthropic.com').trim() || 'https://api.anthropic.com')
+                        : (String(SettingsStore.data.aiMiniMaxBaseUrl || 'https://api.minimaxi.com/anthropic').trim() || 'https://api.minimaxi.com/anthropic'))));
             const apiKey = esc(provider === 'deepseek'
                 ? String(SettingsStore.data.aiDeepSeekApiKey || '')
-                : String(SettingsStore.data.aiMiniMaxApiKey || ''));
+                : (provider === 'openai'
+                    ? String(SettingsStore.data.aiOpenAIApiKey || '')
+                    : (provider === 'anthropic'
+                        ? String(SettingsStore.data.aiAnthropicApiKey || '')
+                        : String(SettingsStore.data.aiMiniMaxApiKey || ''))));
             return `
                 <div class="tm-settings-panel">
                     <div class="tm-settings-section-title">🤖 AI 接入</div>
-                    <div class="tm-settings-section-desc">可在 MiniMax 和 DeepSeek 之间切换，用于任务命名优化、自然语言字段编辑和 SMART 分析。</div>
+                    <div class="tm-settings-section-desc">可在 MiniMax、DeepSeek、OpenAI 兼容和 Anthropic 兼容之间切换，用于任务命名优化、自然语言字段编辑和 SMART 分析。</div>
                     ${renderSingleSwitchSetting(
                         '启用 AI 功能',
                         '关闭后会隐藏所有 AI 相关入口、菜单和 quickbar 图标。',
@@ -268,33 +289,51 @@
                         `<select class="b3-select" onchange="tmUpdateAiProvider(this.value)" style="width:220px;">
                             <option value="minimax" ${provider === 'minimax' ? 'selected' : ''}>MiniMax</option>
                             <option value="deepseek" ${provider === 'deepseek' ? 'selected' : ''}>DeepSeek</option>
+                            <option value="openai" ${provider === 'openai' ? 'selected' : ''}>OpenAI 兼容</option>
+                            <option value="anthropic" ${provider === 'anthropic' ? 'selected' : ''}>Anthropic 兼容</option>
                         </select>`,
                         { style: 'margin-top:10px;' }
                     )}
                     ${renderSingleFieldSetting(
                         'API Key',
-                        provider === 'deepseek' ? 'DeepSeek 控制台创建的 API Key，会随插件设置保存。' : 'MiniMax 控制台创建的 API Key，会随插件设置保存。',
+                        provider === 'deepseek'
+                            ? 'DeepSeek 控制台创建的 API Key，会随插件设置保存。'
+                            : (provider === 'openai'
+                                ? 'OpenAI 控制台创建的 API Key（sk-...），会随插件设置保存。'
+                                : (provider === 'anthropic'
+                                    ? 'Anthropic 控制台创建的 API Key（sk-ant-...），会随插件设置保存。'
+                                    : 'MiniMax 控制台创建的 API Key，会随插件设置保存。')),
                         `<input class="b3-text-field" type="password" value="${apiKey}" placeholder="请输入 ${providerLabel} API Key" onchange="tmUpdateAiApiKey(this.value)" style="width:100%;">`
                     )}
                     ${renderSingleFieldSetting(
                         'Base URL',
-                        provider === 'deepseek' ? '默认走 DeepSeek OpenAI 兼容接口。' : '默认走 MiniMax Anthropic 兼容接口。',
+                        provider === 'deepseek'
+                            ? '默认走 DeepSeek OpenAI 兼容接口。'
+                            : (provider === 'openai'
+                                ? '默认走 OpenAI 官方 /v1 接口；可改为 Azure / 兼容代理地址。'
+                                : (provider === 'anthropic'
+                                    ? '默认走 Anthropic 官方 /v1/messages 接口；可改为兼容代理地址。'
+                                    : '默认走 MiniMax Anthropic 兼容接口。')),
                         `<input class="b3-text-field" type="text" value="${baseUrl}" onchange="tmUpdateAiBaseUrl(this.value)" style="width:100%;">`
                     )}
                     ${renderSingleFieldSetting(
                         '模型',
-                        provider === 'deepseek' ? '默认使用 deepseek-chat，可切到 deepseek-reasoner。' : '默认使用 MiniMax-M2.5。',
                         provider === 'deepseek'
-                            ? `<select class="b3-select" onchange="tmUpdateAiModel(this.value)" style="width:220px;">
-                                <option value="deepseek-chat" ${model === 'deepseek-chat' ? 'selected' : ''}>deepseek-chat</option>
-                                <option value="deepseek-reasoner" ${model === 'deepseek-reasoner' ? 'selected' : ''}>deepseek-reasoner</option>
-                            </select>`
-                            : `<select class="b3-select" onchange="tmUpdateAiModel(this.value)" style="width:220px;">
-                                <option value="MiniMax-M2.5" ${model === 'MiniMax-M2.5' ? 'selected' : ''}>MiniMax-M2.5</option>
-                                <option value="MiniMax-M2.5-highspeed" ${model === 'MiniMax-M2.5-highspeed' ? 'selected' : ''}>MiniMax-M2.5-highspeed</option>
-                            </select>`
+                            ? '默认 deepseek-v4-flash，可手填 deepseek-v4-pro 等模型名。'
+                            : (provider === 'openai'
+                                ? '默认 gpt-5.4-mini，可手填 gpt-5.5 / gpt-5.4 等模型名。'
+                                : (provider === 'anthropic'
+                                    ? '默认 claude-sonnet-4-5，可手填其它 Claude 或兼容模型名。'
+                                    : '默认 MiniMax-M2.7-highspeed，可手填 MiniMax-M2.7 等模型名。')),
+                        provider === 'deepseek'
+                            ? `<input class="b3-text-field" type="text" value="${esc(model)}" placeholder="deepseek-v4-flash" onchange="tmUpdateAiModel(this.value)" style="width:220px;">`
+                            : (provider === 'openai'
+                                ? `<input class="b3-text-field" type="text" value="${esc(model)}" placeholder="gpt-5.4-mini" onchange="tmUpdateAiModel(this.value)" style="width:220px;">`
+                                : (provider === 'anthropic'
+                                    ? `<input class="b3-text-field" type="text" value="${esc(model)}" placeholder="claude-sonnet-4-5" onchange="tmUpdateAiModel(this.value)" style="width:220px;">`
+                                    : `<input class="b3-text-field" type="text" value="${esc(model)}" placeholder="MiniMax-M2.7-highspeed" onchange="tmUpdateAiModel(this.value)" style="width:220px;">`))
                     )}
-                    ${renderSingleFieldSetting(
+                    ${provider === 'openai' ? '' : renderSingleFieldSetting(
                         '温度',
                         '数值越低越稳定，越高越发散。',
                         `<input class="b3-text-field" type="number" step="0.1" min="0" max="1.5" value="${temperature}" onchange="tmUpdateAiTemperature(this.value)" style="width:88px;">`

@@ -1,0 +1,1374 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>任务管理器左侧导航原型</title>
+  <style>
+    :root {
+      --b3-theme-background: oklch(98% 0.006 230);
+      --b3-theme-surface: oklch(96.2% 0.008 230);
+      --b3-theme-surface-light: oklch(92.4% 0.012 230);
+      --b3-theme-on-background: oklch(24% 0.018 235);
+      --b3-theme-on-surface: oklch(31% 0.018 235);
+      --b3-theme-on-surface-light: oklch(52% 0.018 235);
+      --b3-theme-primary: oklch(55% 0.13 235);
+      --b3-theme-primary-light: oklch(92.4% 0.04 235);
+      --tm-bg: var(--b3-theme-background);
+      --tm-surface: color-mix(in oklch, var(--b3-theme-background) 88%, var(--b3-theme-surface));
+      --tm-surface-2: color-mix(in oklch, var(--b3-theme-surface) 82%, var(--b3-theme-background));
+      --tm-surface-3: color-mix(in oklch, var(--b3-theme-surface-light) 74%, var(--b3-theme-background));
+      --tm-border: color-mix(in oklch, var(--b3-theme-on-background) 12%, transparent);
+      --tm-border-soft: color-mix(in oklch, var(--b3-theme-on-background) 7%, transparent);
+      --tm-text: var(--b3-theme-on-background);
+      --tm-muted: var(--b3-theme-on-surface-light);
+      --tm-primary: var(--b3-theme-primary);
+      --tm-primary-soft: var(--b3-theme-primary-light);
+      --tm-danger: oklch(57% 0.16 25);
+      --tm-warning: oklch(67% 0.14 72);
+      --tm-success: oklch(54% 0.12 152);
+      --tm-row-hover: color-mix(in oklch, var(--tm-primary-soft) 46%, transparent);
+      --tm-shadow: 0 18px 52px color-mix(in oklch, var(--b3-theme-on-background) 10%, transparent);
+      --tm-nav-width: 236px;
+      color-scheme: light;
+    }
+
+    [data-theme="dark"] {
+      --b3-theme-background: oklch(23% 0.008 240);
+      --b3-theme-surface: oklch(27% 0.009 240);
+      --b3-theme-surface-light: oklch(34% 0.011 240);
+      --b3-theme-on-background: oklch(91% 0.01 240);
+      --b3-theme-on-surface: oklch(86% 0.01 240);
+      --b3-theme-on-surface-light: oklch(68% 0.012 240);
+      --b3-theme-primary: oklch(68% 0.12 235);
+      --b3-theme-primary-light: oklch(34% 0.042 235);
+      --tm-danger: oklch(67% 0.14 25);
+      --tm-warning: oklch(73% 0.12 72);
+      --tm-success: oklch(66% 0.11 152);
+      --tm-shadow: 0 20px 54px color-mix(in oklch, black 30%, transparent);
+      color-scheme: dark;
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    html,
+    body {
+      min-height: 100%;
+    }
+
+    body {
+      margin: 0;
+      background: var(--tm-bg);
+      color: var(--tm-text);
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
+      font-size: 14px;
+      line-height: 1.45;
+      letter-spacing: 0;
+    }
+
+    button {
+      font: inherit;
+      color: inherit;
+      cursor: pointer;
+    }
+
+    .icon-sprite {
+      position: absolute;
+      width: 0;
+      height: 0;
+      overflow: hidden;
+    }
+
+    .icon {
+      width: 16px;
+      height: 16px;
+      flex: 0 0 auto;
+      stroke: currentColor;
+      stroke-width: 1.8;
+      stroke-linecap: round;
+      stroke-linejoin: round;
+      fill: none;
+    }
+
+    .prototype-shell {
+      min-height: 100vh;
+      display: grid;
+      grid-template-columns: var(--tm-nav-width) minmax(0, 1fr);
+      background: var(--tm-bg);
+    }
+
+    .sidebar {
+      position: sticky;
+      top: 0;
+      height: 100vh;
+      min-width: 0;
+      display: flex;
+      flex-direction: column;
+      border-right: 1px solid var(--tm-border-soft);
+      background: var(--tm-surface-2);
+    }
+
+    .sidebar-head {
+      min-height: 56px;
+      padding: 10px 10px 9px 12px;
+      display: flex;
+      align-items: center;
+      gap: 9px;
+      border-bottom: 1px solid var(--tm-border-soft);
+    }
+
+    .brand-mark {
+      width: 30px;
+      height: 30px;
+      border-radius: 8px;
+      display: grid;
+      place-items: center;
+      color: oklch(98% 0.004 235);
+      background: var(--tm-primary);
+      box-shadow: inset 0 0 0 1px color-mix(in oklch, white 12%, transparent);
+    }
+
+    .brand-copy {
+      min-width: 0;
+      flex: 1 1 auto;
+    }
+
+    .brand-title {
+      display: block;
+      font-weight: 720;
+      line-height: 1.15;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    .brand-subtitle {
+      display: block;
+      margin-top: 2px;
+      color: var(--tm-muted);
+      font-size: 12px;
+      line-height: 1.15;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    .icon-button,
+    .action-button,
+    .mobile-tab {
+      border: 1px solid var(--tm-border-soft);
+      border-radius: 7px;
+      background: var(--tm-surface);
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 7px;
+      transition: background 160ms ease, border-color 160ms ease, color 160ms ease, transform 160ms ease;
+    }
+
+    .icon-button {
+      width: 30px;
+      height: 30px;
+      padding: 0;
+    }
+
+    .icon-button:hover,
+    .action-button:hover,
+    .mobile-tab:hover {
+      background: var(--tm-row-hover);
+      border-color: color-mix(in oklch, var(--tm-primary) 24%, var(--tm-border));
+    }
+
+    .icon-button:focus-visible,
+    .action-button:focus-visible,
+    .nav-item:focus-visible,
+    .doc-tab:focus-visible,
+    .mobile-tab:focus-visible {
+      outline: 2px solid color-mix(in oklch, var(--tm-primary) 60%, transparent);
+      outline-offset: 2px;
+    }
+
+    .nav-scroll {
+      flex: 1 1 auto;
+      min-height: 0;
+      padding: 10px;
+      overflow: auto;
+      scrollbar-gutter: stable;
+    }
+
+    .nav-section {
+      display: grid;
+      gap: 3px;
+      margin-bottom: 14px;
+    }
+
+    .nav-section-title {
+      height: 22px;
+      padding: 4px 8px;
+      color: var(--tm-muted);
+      font-size: 12px;
+      font-weight: 650;
+      line-height: 1;
+      display: flex;
+      align-items: center;
+    }
+
+    .nav-item {
+      width: 100%;
+      min-width: 0;
+      min-height: 34px;
+      padding: 6px 8px;
+      border: 1px solid transparent;
+      border-radius: 7px;
+      background: transparent;
+      display: grid;
+      grid-template-columns: 22px minmax(0, 1fr) auto;
+      align-items: center;
+      gap: 8px;
+      color: var(--tm-muted);
+      text-align: left;
+      transition: background 160ms ease, border-color 160ms ease, color 160ms ease;
+    }
+
+    .nav-item:hover {
+      color: var(--tm-text);
+      background: color-mix(in oklch, var(--tm-surface) 72%, transparent);
+    }
+
+    .nav-item.is-current,
+    .nav-item.is-active {
+      color: var(--tm-text);
+      background: var(--tm-surface);
+      border-color: var(--tm-border-soft);
+    }
+
+    .nav-item.is-current {
+      box-shadow: inset 0 0 0 1px color-mix(in oklch, var(--tm-primary) 14%, transparent);
+    }
+
+    .nav-item.is-selected {
+      color: var(--tm-text);
+      background: color-mix(in oklch, var(--tm-primary-soft) 54%, transparent);
+      border-color: color-mix(in oklch, var(--tm-primary) 18%, var(--tm-border-soft));
+    }
+
+    .nav-label,
+    .nav-meta,
+    .nav-badge {
+      min-width: 0;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    .nav-badge {
+      min-width: 22px;
+      height: 20px;
+      padding: 0 6px;
+      border-radius: 6px;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      background: var(--tm-surface-3);
+      color: var(--tm-muted);
+      font-size: 12px;
+      font-variant-numeric: tabular-nums;
+    }
+
+    .nav-badge:empty {
+      display: none;
+    }
+
+    .nav-badge--danger {
+      color: var(--tm-danger);
+      background: color-mix(in oklch, var(--tm-danger) 13%, transparent);
+    }
+
+    .sidebar-foot {
+      padding: 10px;
+      border-top: 1px solid var(--tm-border-soft);
+      display: grid;
+      gap: 8px;
+    }
+
+    .sidebar-profile {
+      min-width: 0;
+      min-height: 42px;
+      border: 1px solid var(--tm-border-soft);
+      border-radius: 8px;
+      background: var(--tm-surface);
+      padding: 7px;
+      display: grid;
+      grid-template-columns: 28px minmax(0, 1fr);
+      gap: 8px;
+      align-items: center;
+    }
+
+    .avatar {
+      width: 28px;
+      height: 28px;
+      border-radius: 8px;
+      display: grid;
+      place-items: center;
+      color: var(--tm-primary);
+      background: var(--tm-primary-soft);
+      font-weight: 760;
+    }
+
+    .profile-name {
+      display: block;
+      font-weight: 650;
+      line-height: 1.1;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    .profile-meta {
+      display: block;
+      margin-top: 2px;
+      color: var(--tm-muted);
+      font-size: 12px;
+      line-height: 1.1;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    .workspace {
+      min-width: 0;
+      height: 100vh;
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+      background: var(--tm-bg);
+    }
+
+    .topbar {
+      flex: 0 0 auto;
+      min-height: 56px;
+      padding: 10px 16px;
+      border-bottom: 1px solid var(--tm-border-soft);
+      background: color-mix(in oklch, var(--tm-bg) 86%, var(--tm-surface));
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 14px;
+    }
+
+    .topbar-context {
+      min-width: 0;
+      display: flex;
+      flex-direction: column;
+      gap: 2px;
+    }
+
+    .context-kicker {
+      color: var(--tm-muted);
+      font-size: 12px;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    .context-title {
+      margin: 0;
+      font-size: 16px;
+      font-weight: 720;
+      line-height: 1.2;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    .topbar-actions {
+      flex: 0 0 auto;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .action-button {
+      min-height: 30px;
+      padding: 0 10px;
+      white-space: nowrap;
+    }
+
+    .action-button--primary {
+      border-color: color-mix(in oklch, var(--tm-primary) 78%, transparent);
+      background: var(--tm-primary);
+      color: oklch(98% 0.004 235);
+    }
+
+    .action-button--primary:hover {
+      background: color-mix(in oklch, var(--tm-primary) 88%, var(--tm-text));
+      border-color: color-mix(in oklch, var(--tm-primary) 88%, var(--tm-text));
+    }
+
+    .stage {
+      flex: 1 1 auto;
+      min-height: 0;
+      overflow: auto;
+      padding: 16px 18px 24px;
+    }
+
+    .stats-row {
+      display: grid;
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+      gap: 10px;
+      margin-bottom: 12px;
+    }
+
+    .stat-card {
+      min-width: 0;
+      border: 1px solid var(--tm-border-soft);
+      border-radius: 8px;
+      background: var(--tm-surface);
+      padding: 10px 12px;
+    }
+
+    .stat-card__label {
+      color: var(--tm-muted);
+      font-size: 12px;
+      line-height: 1.1;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    .stat-card__value {
+      margin-top: 7px;
+      font-size: 22px;
+      font-weight: 760;
+      line-height: 1;
+      font-variant-numeric: tabular-nums;
+    }
+
+    .stat-card__note {
+      margin-top: 6px;
+      color: var(--tm-muted);
+      font-size: 12px;
+      line-height: 1.25;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    .stat-card--danger .stat-card__value {
+      color: var(--tm-danger);
+    }
+
+    .doc-tabs {
+      min-width: 0;
+      margin-bottom: 12px;
+      border: 1px solid var(--tm-border-soft);
+      border-radius: 8px;
+      background: var(--tm-surface);
+      padding: 7px;
+      display: flex;
+      gap: 7px;
+      overflow-x: auto;
+      scrollbar-gutter: stable;
+    }
+
+    .doc-tab {
+      flex: 0 0 auto;
+      min-height: 30px;
+      max-width: 210px;
+      padding: 5px 9px;
+      border: 1px solid transparent;
+      border-radius: 7px;
+      background: transparent;
+      color: var(--tm-muted);
+      display: inline-flex;
+      align-items: center;
+      gap: 7px;
+      white-space: nowrap;
+    }
+
+    .doc-tab:hover {
+      color: var(--tm-text);
+      background: var(--tm-row-hover);
+    }
+
+    .doc-tab.is-active {
+      color: var(--tm-text);
+      background: var(--tm-primary-soft);
+      border-color: color-mix(in oklch, var(--tm-primary) 22%, transparent);
+    }
+
+    .doc-dot {
+      width: 7px;
+      height: 7px;
+      border-radius: 3px;
+      background: var(--tm-primary);
+    }
+
+    .work-panel {
+      min-width: 0;
+      border: 1px solid var(--tm-border-soft);
+      border-radius: 8px;
+      background: var(--tm-surface);
+      box-shadow: var(--tm-shadow);
+      overflow: hidden;
+    }
+
+    .panel-head {
+      min-height: 50px;
+      padding: 10px 12px;
+      border-bottom: 1px solid var(--tm-border-soft);
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+    }
+
+    .panel-title {
+      min-width: 0;
+    }
+
+    .panel-title strong {
+      display: block;
+      font-size: 14px;
+      line-height: 1.2;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    .panel-title span {
+      display: block;
+      margin-top: 3px;
+      color: var(--tm-muted);
+      font-size: 12px;
+      line-height: 1.15;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    .panel-tools {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      flex: 0 0 auto;
+    }
+
+    .mode-pill {
+      min-height: 28px;
+      padding: 4px 8px;
+      border: 1px solid var(--tm-border-soft);
+      border-radius: 7px;
+      color: var(--tm-muted);
+      background: var(--tm-surface-2);
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      white-space: nowrap;
+    }
+
+    .task-grid {
+      min-width: 0;
+    }
+
+    .task-row {
+      min-width: 0;
+      min-height: 44px;
+      display: grid;
+      grid-template-columns: 38px minmax(240px, 1fr) minmax(110px, 140px) 120px 92px 86px;
+      align-items: center;
+      border-bottom: 1px solid var(--tm-border-soft);
+    }
+
+    .task-row:last-child {
+      border-bottom: 0;
+    }
+
+    .task-row:not(.task-row--head):hover {
+      background: var(--tm-row-hover);
+    }
+
+    .task-row--head {
+      min-height: 36px;
+      color: var(--tm-muted);
+      background: var(--tm-surface-2);
+      font-size: 12px;
+      font-weight: 650;
+    }
+
+    .task-cell {
+      min-width: 0;
+      padding: 8px 10px;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    .task-cell--check {
+      display: flex;
+      justify-content: center;
+      padding-inline: 8px;
+    }
+
+    .task-check {
+      width: 16px;
+      height: 16px;
+      border-radius: 5px;
+      border: 1px solid color-mix(in oklch, var(--tm-muted) 54%, transparent);
+      background: var(--tm-surface);
+      display: inline-grid;
+      place-items: center;
+      color: transparent;
+    }
+
+    .task-row.is-done .task-check {
+      border-color: var(--tm-success);
+      background: color-mix(in oklch, var(--tm-success) 16%, transparent);
+      color: var(--tm-success);
+    }
+
+    .task-title-line {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      min-width: 0;
+    }
+
+    .task-title-text {
+      min-width: 0;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+      font-weight: 610;
+    }
+
+    .task-meta {
+      margin-top: 2px;
+      color: var(--tm-muted);
+      font-size: 12px;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    .task-tag,
+    .priority-tag,
+    .status-tag {
+      min-width: 0;
+      max-width: 100%;
+      min-height: 22px;
+      padding: 2px 7px;
+      border-radius: 6px;
+      display: inline-flex;
+      align-items: center;
+      gap: 5px;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+      border: 1px solid var(--tm-border-soft);
+      background: var(--tm-surface-2);
+      color: var(--tm-muted);
+      font-size: 12px;
+    }
+
+    .priority-tag--high {
+      color: var(--tm-danger);
+      background: color-mix(in oklch, var(--tm-danger) 10%, transparent);
+      border-color: color-mix(in oklch, var(--tm-danger) 18%, transparent);
+    }
+
+    .priority-tag--mid {
+      color: var(--tm-warning);
+      background: color-mix(in oklch, var(--tm-warning) 13%, transparent);
+      border-color: color-mix(in oklch, var(--tm-warning) 18%, transparent);
+    }
+
+    .status-tag--doing {
+      color: var(--tm-primary);
+      background: color-mix(in oklch, var(--tm-primary) 12%, transparent);
+      border-color: color-mix(in oklch, var(--tm-primary) 20%, transparent);
+    }
+
+    .status-tag--done {
+      color: var(--tm-success);
+      background: color-mix(in oklch, var(--tm-success) 12%, transparent);
+      border-color: color-mix(in oklch, var(--tm-success) 20%, transparent);
+    }
+
+    .mobile-bottom-nav {
+      display: none;
+    }
+
+    .is-nav-collapsed {
+      --tm-nav-width: 56px;
+    }
+
+    .is-nav-collapsed .sidebar-head {
+      padding-inline: 12px;
+      justify-content: center;
+    }
+
+    .is-nav-collapsed .brand-copy,
+    .is-nav-collapsed .collapse-button,
+    .is-nav-collapsed .nav-section-title,
+    .is-nav-collapsed .nav-label,
+    .is-nav-collapsed .nav-badge,
+    .is-nav-collapsed .profile-copy {
+      display: none;
+    }
+
+    .is-nav-collapsed .nav-scroll {
+      padding-inline: 8px;
+    }
+
+    .is-nav-collapsed .nav-section {
+      margin-bottom: 10px;
+    }
+
+    .is-nav-collapsed .nav-item {
+      min-height: 38px;
+      padding: 0;
+      grid-template-columns: 1fr;
+      justify-items: center;
+      text-align: center;
+    }
+
+    .is-nav-collapsed .sidebar-profile {
+      min-height: 38px;
+      grid-template-columns: 1fr;
+      padding: 5px;
+    }
+
+    .is-nav-collapsed .avatar {
+      margin: 0 auto;
+    }
+
+    @media (max-width: 1120px) {
+      :root {
+        --tm-nav-width: 220px;
+      }
+
+      .task-row {
+        grid-template-columns: 38px minmax(220px, 1fr) 116px 110px 84px;
+      }
+
+      .task-cell--status {
+        display: none;
+      }
+    }
+
+    @media (max-width: 920px) {
+      .stats-row {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+      }
+
+      .task-row {
+        grid-template-columns: 38px minmax(220px, 1fr) 104px 86px;
+      }
+
+      .task-cell--doc,
+      .task-cell--priority {
+        display: none;
+      }
+    }
+
+    @media (max-width: 768px) {
+      .prototype-shell {
+        min-height: 100vh;
+        display: block;
+      }
+
+      .sidebar {
+        display: none;
+      }
+
+      .workspace {
+        height: auto;
+        min-height: 100vh;
+        overflow: visible;
+      }
+
+      .topbar {
+        position: sticky;
+        top: 0;
+        z-index: 10;
+        min-height: 54px;
+        padding: 9px 12px;
+      }
+
+      .topbar-actions .action-button:not(.action-button--primary),
+      .topbar-actions .icon-button:nth-of-type(2) {
+        display: none;
+      }
+
+      .stage {
+        padding: 12px 12px 76px;
+        overflow: visible;
+      }
+
+      .stats-row {
+        gap: 8px;
+        margin-bottom: 10px;
+      }
+
+      .stat-card {
+        padding: 9px;
+      }
+
+      .stat-card__value {
+        font-size: 19px;
+      }
+
+      .doc-tabs {
+        margin-bottom: 10px;
+      }
+
+      .panel-head {
+        align-items: flex-start;
+      }
+
+      .panel-tools {
+        display: none;
+      }
+
+      .task-row--head {
+        display: none;
+      }
+
+      .task-grid {
+        padding: 8px;
+        display: grid;
+        gap: 8px;
+      }
+
+      .task-row,
+      .task-row:last-child {
+        min-height: 0;
+        border: 1px solid var(--tm-border-soft);
+        border-radius: 8px;
+        background: var(--tm-bg);
+        display: grid;
+        grid-template-columns: 28px minmax(0, 1fr);
+        grid-template-areas:
+          "check content"
+          "check date"
+          "check meta";
+        align-items: start;
+      }
+
+      .task-cell {
+        padding: 7px 8px;
+      }
+
+      .task-cell--check {
+        grid-area: check;
+        padding-top: 11px;
+      }
+
+      .task-cell--content {
+        grid-area: content;
+        padding-bottom: 2px;
+      }
+
+      .task-cell--date {
+        grid-area: date;
+        padding-top: 2px;
+        color: var(--tm-muted);
+      }
+
+      .task-cell--doc {
+        grid-area: meta;
+        display: block;
+        padding-top: 2px;
+      }
+
+      .task-cell--priority,
+      .task-cell--status {
+        display: none;
+      }
+
+      .task-title-line {
+        align-items: flex-start;
+      }
+
+      .mobile-bottom-nav {
+        position: fixed;
+        z-index: 20;
+        left: 10px;
+        right: 10px;
+        bottom: calc(10px + env(safe-area-inset-bottom, 0px));
+        min-height: 52px;
+        padding: 6px;
+        border: 1px solid var(--tm-border);
+        border-radius: 8px;
+        background: color-mix(in oklch, var(--tm-surface) 94%, transparent);
+        box-shadow: 0 12px 38px color-mix(in oklch, var(--tm-text) 14%, transparent);
+        display: grid;
+        grid-template-columns: repeat(5, minmax(0, 1fr));
+        gap: 4px;
+      }
+
+      .mobile-tab {
+        min-width: 0;
+        min-height: 40px;
+        padding: 4px 2px;
+        border-color: transparent;
+        background: transparent;
+        color: var(--tm-muted);
+        flex-direction: column;
+        gap: 2px;
+        font-size: 11px;
+      }
+
+      .mobile-tab.is-active {
+        color: var(--tm-primary);
+        background: var(--tm-primary-soft);
+        border-color: color-mix(in oklch, var(--tm-primary) 18%, transparent);
+      }
+
+      .mobile-tab .icon {
+        width: 17px;
+        height: 17px;
+      }
+    }
+
+    @media (prefers-reduced-motion: reduce) {
+      *,
+      *::before,
+      *::after {
+        transition-duration: 0.001ms !important;
+        animation-duration: 0.001ms !important;
+        scroll-behavior: auto !important;
+      }
+    }
+  </style>
+</head>
+<body>
+  <svg class="icon-sprite" aria-hidden="true">
+    <symbol id="i-logo" viewBox="0 0 24 24">
+      <path d="M5 6.5h14M5 12h9M5 17.5h14"></path>
+      <path d="M17 10l2 2-2 2"></path>
+    </symbol>
+    <symbol id="i-panel-left" viewBox="0 0 24 24">
+      <rect x="3" y="4" width="18" height="16" rx="2"></rect>
+      <path d="M9 4v16M14 9l-3 3 3 3"></path>
+    </symbol>
+    <symbol id="i-home" viewBox="0 0 24 24">
+      <path d="M3 11.5 12 4l9 7.5"></path>
+      <path d="M5.5 10.5V20h13v-9.5"></path>
+      <path d="M9.5 20v-6h5v6"></path>
+    </symbol>
+    <symbol id="i-list-check" viewBox="0 0 24 24">
+      <path d="m4 7 1.7 1.7L9 5.4"></path>
+      <path d="M11 7h9M11 13h9M4 13h4M4 19h4M11 19h9"></path>
+    </symbol>
+    <symbol id="i-bot" viewBox="0 0 24 24">
+      <rect x="5" y="8" width="14" height="10" rx="3"></rect>
+      <path d="M12 8V4M9 4h6M9 13h.01M15 13h.01M9 18v2M15 18v2"></path>
+    </symbol>
+    <symbol id="i-table" viewBox="0 0 24 24">
+      <rect x="3" y="5" width="18" height="14" rx="2"></rect>
+      <path d="M3 10h18M9 5v14M15 5v14"></path>
+    </symbol>
+    <symbol id="i-check-square" viewBox="0 0 24 24">
+      <rect x="4" y="4" width="16" height="16" rx="2"></rect>
+      <path d="m8 12 2.5 2.5L16 9"></path>
+    </symbol>
+    <symbol id="i-timeline" viewBox="0 0 24 24">
+      <path d="M4 6h6M4 12h12M4 18h8"></path>
+      <path d="M18 6h2M18 18h2"></path>
+      <path d="M14 6h.01M18 12h.01M14 18h.01"></path>
+    </symbol>
+    <symbol id="i-kanban" viewBox="0 0 24 24">
+      <rect x="4" y="5" width="4" height="14" rx="1"></rect>
+      <rect x="10" y="5" width="4" height="9" rx="1"></rect>
+      <rect x="16" y="5" width="4" height="12" rx="1"></rect>
+    </symbol>
+    <symbol id="i-calendar" viewBox="0 0 24 24">
+      <rect x="4" y="5" width="16" height="15" rx="2"></rect>
+      <path d="M8 3v4M16 3v4M4 10h16"></path>
+    </symbol>
+    <symbol id="i-whiteboard" viewBox="0 0 24 24">
+      <rect x="4" y="4" width="16" height="13" rx="2"></rect>
+      <path d="M8 21h8M12 17v4M8 9h8M8 12h5"></path>
+    </symbol>
+    <symbol id="i-folder" viewBox="0 0 24 24">
+      <path d="M4 6h6l2 2h8v9.5A2.5 2.5 0 0 1 17.5 20h-11A2.5 2.5 0 0 1 4 17.5z"></path>
+    </symbol>
+    <symbol id="i-filter" viewBox="0 0 24 24">
+      <path d="M4 5h16l-6 7v5l-4 2v-7z"></path>
+    </symbol>
+    <symbol id="i-clock" viewBox="0 0 24 24">
+      <circle cx="12" cy="12" r="8"></circle>
+      <path d="M12 8v4l3 2"></path>
+    </symbol>
+    <symbol id="i-alert" viewBox="0 0 24 24">
+      <path d="M12 4 21 20H3z"></path>
+      <path d="M12 9v4M12 17h.01"></path>
+    </symbol>
+    <symbol id="i-circle-check" viewBox="0 0 24 24">
+      <circle cx="12" cy="12" r="8"></circle>
+      <path d="m8 12 2.6 2.6L16 9.5"></path>
+    </symbol>
+    <symbol id="i-search" viewBox="0 0 24 24">
+      <circle cx="11" cy="11" r="6"></circle>
+      <path d="m16 16 4 4"></path>
+    </symbol>
+    <symbol id="i-file-text" viewBox="0 0 24 24">
+      <path d="M6 3h8l4 4v14H6z"></path>
+      <path d="M14 3v5h5M8.5 12h7M8.5 16h7"></path>
+    </symbol>
+    <symbol id="i-settings" viewBox="0 0 24 24">
+      <circle cx="12" cy="12" r="3"></circle>
+      <path d="M19 12a7 7 0 0 0-.1-1.1l2-1.5-2-3.4-2.4 1a7 7 0 0 0-1.9-1.1L14.3 3h-4.6l-.4 2.9A7 7 0 0 0 7.4 7l-2.4-1-2 3.4 2 1.5A7 7 0 0 0 5 12a7 7 0 0 0 .1 1.1l-2 1.5 2 3.4 2.4-1a7 7 0 0 0 1.9 1.1l.4 2.9h4.6l.4-2.9a7 7 0 0 0 1.9-1.1l2.4 1 2-3.4-2-1.5A7 7 0 0 0 19 12z"></path>
+    </symbol>
+    <symbol id="i-plus" viewBox="0 0 24 24">
+      <path d="M12 5v14M5 12h14"></path>
+    </symbol>
+    <symbol id="i-refresh" viewBox="0 0 24 24">
+      <path d="M20 12a8 8 0 0 1-14 5"></path>
+      <path d="M6 17H3v3"></path>
+      <path d="M4 12a8 8 0 0 1 14-5"></path>
+      <path d="M18 7h3V4"></path>
+    </symbol>
+    <symbol id="i-moon" viewBox="0 0 24 24">
+      <path d="M20 15.5A8 8 0 0 1 8.5 4 7 7 0 1 0 20 15.5z"></path>
+    </symbol>
+    <symbol id="i-chevron-down" viewBox="0 0 24 24">
+      <path d="m6 9 6 6 6-6"></path>
+    </symbol>
+  </svg>
+
+  <div class="prototype-shell">
+    <aside class="sidebar" aria-label="任务管理器导航">
+      <div class="sidebar-head">
+        <div class="brand-mark" aria-hidden="true"><svg class="icon"><use href="#i-logo"></use></svg></div>
+        <div class="brand-copy">
+          <span class="brand-title">任务管理器</span>
+          <span class="brand-subtitle">Task Horizon</span>
+        </div>
+        <button class="icon-button collapse-button" type="button" data-toggle-nav aria-label="折叠侧栏" title="折叠侧栏">
+          <svg class="icon"><use href="#i-panel-left"></use></svg>
+        </button>
+      </div>
+
+      <div class="nav-scroll">
+        <nav class="nav-section" aria-labelledby="workspace-nav">
+          <div class="nav-section-title" id="workspace-nav">工作区</div>
+          <button class="nav-item" type="button" title="主页总览">
+            <svg class="icon"><use href="#i-home"></use></svg>
+            <span class="nav-label">主页总览</span>
+            <span class="nav-badge">26</span>
+          </button>
+          <button class="nav-item is-current" type="button" aria-current="page" title="任务工作区">
+            <svg class="icon"><use href="#i-list-check"></use></svg>
+            <span class="nav-label">任务工作区</span>
+            <span class="nav-badge">128</span>
+          </button>
+          <button class="nav-item" type="button" title="AI 工作台">
+            <svg class="icon"><use href="#i-bot"></use></svg>
+            <span class="nav-label">AI 工作台</span>
+            <span class="nav-badge">3</span>
+          </button>
+        </nav>
+
+        <nav class="nav-section" aria-labelledby="view-nav">
+          <div class="nav-section-title" id="view-nav">视图</div>
+          <button class="nav-item" type="button" data-view="表格视图" title="表格视图">
+            <svg class="icon"><use href="#i-table"></use></svg>
+            <span class="nav-label">表格</span>
+            <span class="nav-badge">128</span>
+          </button>
+          <button class="nav-item is-active" type="button" data-view="清单视图" title="清单视图">
+            <svg class="icon"><use href="#i-check-square"></use></svg>
+            <span class="nav-label">清单</span>
+            <span class="nav-badge">57</span>
+          </button>
+          <button class="nav-item" type="button" data-view="时间轴视图" title="时间轴视图">
+            <svg class="icon"><use href="#i-timeline"></use></svg>
+            <span class="nav-label">时间轴</span>
+            <span class="nav-badge">42</span>
+          </button>
+          <button class="nav-item" type="button" data-view="看板视图" title="看板视图">
+            <svg class="icon"><use href="#i-kanban"></use></svg>
+            <span class="nav-label">看板</span>
+            <span class="nav-badge">18</span>
+          </button>
+          <button class="nav-item" type="button" data-view="日历视图" title="日历视图">
+            <svg class="icon"><use href="#i-calendar"></use></svg>
+            <span class="nav-label">日历</span>
+            <span class="nav-badge">12</span>
+          </button>
+          <button class="nav-item" type="button" data-view="白板视图" title="白板视图">
+            <svg class="icon"><use href="#i-whiteboard"></use></svg>
+            <span class="nav-label">白板</span>
+            <span class="nav-badge">9</span>
+          </button>
+        </nav>
+
+        <nav class="nav-section" aria-labelledby="scope-nav">
+          <div class="nav-section-title" id="scope-nav">范围</div>
+          <button class="nav-item is-selected" type="button" title="全部文档">
+            <svg class="icon"><use href="#i-folder"></use></svg>
+            <span class="nav-label">全部文档</span>
+            <span class="nav-badge">8</span>
+          </button>
+          <button class="nav-item" type="button" title="文档分组">
+            <svg class="icon"><use href="#i-folder"></use></svg>
+            <span class="nav-label">文档分组</span>
+            <span class="nav-badge">4</span>
+          </button>
+          <button class="nav-item" type="button" title="自定义规则">
+            <svg class="icon"><use href="#i-filter"></use></svg>
+            <span class="nav-label">自定义规则</span>
+            <span class="nav-badge">6</span>
+          </button>
+        </nav>
+
+        <nav class="nav-section" aria-labelledby="tool-nav">
+          <div class="nav-section-title" id="tool-nav">状态和工具</div>
+          <button class="nav-item" type="button" title="今日">
+            <svg class="icon"><use href="#i-clock"></use></svg>
+            <span class="nav-label">今日</span>
+            <span class="nav-badge">12</span>
+          </button>
+          <button class="nav-item" type="button" title="已逾期">
+            <svg class="icon"><use href="#i-alert"></use></svg>
+            <span class="nav-label">已逾期</span>
+            <span class="nav-badge nav-badge--danger">5</span>
+          </button>
+          <button class="nav-item" type="button" title="已完成">
+            <svg class="icon"><use href="#i-circle-check"></use></svg>
+            <span class="nav-label">已完成</span>
+            <span class="nav-badge">71</span>
+          </button>
+          <button class="nav-item" type="button" title="搜索">
+            <svg class="icon"><use href="#i-search"></use></svg>
+            <span class="nav-label">搜索</span>
+            <span class="nav-badge"></span>
+          </button>
+          <button class="nav-item" type="button" title="摘要">
+            <svg class="icon"><use href="#i-file-text"></use></svg>
+            <span class="nav-label">摘要</span>
+            <span class="nav-badge">新</span>
+          </button>
+          <button class="nav-item" type="button" title="设置">
+            <svg class="icon"><use href="#i-settings"></use></svg>
+            <span class="nav-label">设置</span>
+            <span class="nav-badge"></span>
+          </button>
+        </nav>
+      </div>
+
+      <div class="sidebar-foot">
+        <div class="sidebar-profile">
+          <div class="avatar">TH</div>
+          <div class="profile-copy">
+            <span class="profile-name">全部文档</span>
+            <span class="profile-meta">当前分组 · 默认规则</span>
+          </div>
+        </div>
+      </div>
+    </aside>
+
+    <main class="workspace">
+      <header class="topbar">
+        <div class="topbar-context">
+          <div class="context-kicker">全部文档 · 默认规则 · <span data-current-view>清单视图</span></div>
+          <h1 class="context-title">任务工作区</h1>
+        </div>
+        <div class="topbar-actions">
+          <button class="action-button action-button--primary" type="button">
+            <svg class="icon"><use href="#i-plus"></use></svg>
+            新建任务
+          </button>
+          <button class="icon-button" type="button" aria-label="刷新" title="刷新">
+            <svg class="icon"><use href="#i-refresh"></use></svg>
+          </button>
+          <button class="icon-button" type="button" data-toggle-theme aria-label="切换明暗主题" title="切换明暗主题">
+            <svg class="icon"><use href="#i-moon"></use></svg>
+          </button>
+          <button class="icon-button" type="button" aria-label="设置" title="设置">
+            <svg class="icon"><use href="#i-settings"></use></svg>
+          </button>
+        </div>
+      </header>
+
+      <section class="stage">
+        <div class="stats-row" aria-label="任务概览">
+          <article class="stat-card">
+            <div class="stat-card__label">任务总数</div>
+            <div class="stat-card__value">128</div>
+            <div class="stat-card__note">全部文档 · 8 个页签</div>
+          </article>
+          <article class="stat-card">
+            <div class="stat-card__label">今日</div>
+            <div class="stat-card__value">12</div>
+            <div class="stat-card__note">已安排 6 个时间段</div>
+          </article>
+          <article class="stat-card stat-card--danger">
+            <div class="stat-card__label">已逾期</div>
+            <div class="stat-card__value">5</div>
+            <div class="stat-card__note">2 个高优先级</div>
+          </article>
+          <article class="stat-card">
+            <div class="stat-card__label">规则筛选</div>
+            <div class="stat-card__value">57</div>
+            <div class="stat-card__note">默认规则 · 未完成</div>
+          </article>
+        </div>
+
+        <div class="doc-tabs" role="tablist" aria-label="文档页签">
+          <button class="doc-tab is-active" type="button" role="tab" aria-selected="true"><span class="doc-dot"></span>全部</button>
+          <button class="doc-tab" type="button" role="tab" aria-selected="false"><span class="doc-dot" style="background:var(--tm-success)"></span>项目推进</button>
+          <button class="doc-tab" type="button" role="tab" aria-selected="false"><span class="doc-dot" style="background:var(--tm-warning)"></span>日计划</button>
+          <button class="doc-tab" type="button" role="tab" aria-selected="false"><span class="doc-dot" style="background:var(--tm-danger)"></span>工作复盘</button>
+          <button class="doc-tab" type="button" role="tab" aria-selected="false"><span class="doc-dot" style="background:var(--tm-muted)"></span>归档页签</button>
+        </div>
+
+        <section class="work-panel" aria-label="任务列表">
+          <div class="panel-head">
+            <div class="panel-title">
+              <strong>当前范围任务</strong>
+              <span>全部文档 · 清单视图 · 按时间分组</span>
+            </div>
+            <div class="panel-tools">
+              <span class="mode-pill"><svg class="icon"><use href="#i-filter"></use></svg>默认规则</span>
+              <span class="mode-pill"><svg class="icon"><use href="#i-chevron-down"></use></svg>按时间</span>
+            </div>
+          </div>
+
+          <div class="task-grid">
+            <div class="task-row task-row--head" role="row">
+              <div class="task-cell task-cell--check"></div>
+              <div class="task-cell task-cell--content">任务</div>
+              <div class="task-cell task-cell--doc">文档</div>
+              <div class="task-cell task-cell--date">时间</div>
+              <div class="task-cell task-cell--priority">优先级</div>
+              <div class="task-cell task-cell--status">状态</div>
+            </div>
+
+            <div class="task-row" role="row">
+              <div class="task-cell task-cell--check"><span class="task-check"></span></div>
+              <div class="task-cell task-cell--content">
+                <div class="task-title-line">
+                  <span class="task-title-text">整理本周项目推进清单</span>
+                </div>
+                <div class="task-meta">路线图评审 · 需要同步到日计划</div>
+              </div>
+              <div class="task-cell task-cell--doc"><span class="task-tag">项目推进</span></div>
+              <div class="task-cell task-cell--date">今天 14:00</div>
+              <div class="task-cell task-cell--priority"><span class="priority-tag priority-tag--high">高</span></div>
+              <div class="task-cell task-cell--status"><span class="status-tag status-tag--doing">进行中</span></div>
+            </div>
+
+            <div class="task-row" role="row">
+              <div class="task-cell task-cell--check"><span class="task-check"></span></div>
+              <div class="task-cell task-cell--content">
+                <div class="task-title-line">
+                  <span class="task-title-text">核对客户反馈的待办归类</span>
+                </div>
+                <div class="task-meta">产品回访 · 分配负责人和截止时间</div>
+              </div>
+              <div class="task-cell task-cell--doc"><span class="task-tag">工作复盘</span></div>
+              <div class="task-cell task-cell--date">今天 16:30</div>
+              <div class="task-cell task-cell--priority"><span class="priority-tag priority-tag--mid">中</span></div>
+              <div class="task-cell task-cell--status"><span class="status-tag status-tag--doing">进行中</span></div>
+            </div>
+
+            <div class="task-row" role="row">
+              <div class="task-cell task-cell--check"><span class="task-check"></span></div>
+              <div class="task-cell task-cell--content">
+                <div class="task-title-line">
+                  <span class="task-title-text">补齐五月复盘里的关键结论</span>
+                </div>
+                <div class="task-meta">工作复盘 · 关联三条未完成任务</div>
+              </div>
+              <div class="task-cell task-cell--doc"><span class="task-tag">日计划</span></div>
+              <div class="task-cell task-cell--date">明天 09:20</div>
+              <div class="task-cell task-cell--priority"><span class="priority-tag">低</span></div>
+              <div class="task-cell task-cell--status"><span class="status-tag">待处理</span></div>
+            </div>
+
+            <div class="task-row" role="row">
+              <div class="task-cell task-cell--check"><span class="task-check"></span></div>
+              <div class="task-cell task-cell--content">
+                <div class="task-title-line">
+                  <span class="task-title-text">安排周五演示材料检查</span>
+                </div>
+                <div class="task-meta">项目推进 · 演示前需要二次确认</div>
+              </div>
+              <div class="task-cell task-cell--doc"><span class="task-tag">项目推进</span></div>
+              <div class="task-cell task-cell--date">5月15日</div>
+              <div class="task-cell task-cell--priority"><span class="priority-tag priority-tag--mid">中</span></div>
+              <div class="task-cell task-cell--status"><span class="status-tag">待处理</span></div>
+            </div>
+
+            <div class="task-row is-done" role="row">
+              <div class="task-cell task-cell--check"><span class="task-check"><svg class="icon" style="width:12px;height:12px;"><use href="#i-circle-check"></use></svg></span></div>
+              <div class="task-cell task-cell--content">
+                <div class="task-title-line">
+                  <span class="task-title-text">确认移动端日程通知的复测结果</span>
+                </div>
+                <div class="task-meta">测试记录 · 已同步到版本清单</div>
+              </div>
+              <div class="task-cell task-cell--doc"><span class="task-tag">日计划</span></div>
+              <div class="task-cell task-cell--date">已完成</div>
+              <div class="task-cell task-cell--priority"><span class="priority-tag">低</span></div>
+              <div class="task-cell task-cell--status"><span class="status-tag status-tag--done">完成</span></div>
+            </div>
+          </div>
+        </section>
+      </section>
+    </main>
+  </div>
+
+  <nav class="mobile-bottom-nav" aria-label="移动端视图">
+    <button class="mobile-tab" type="button" data-view="表格视图"><svg class="icon"><use href="#i-table"></use></svg><span>表格</span></button>
+    <button class="mobile-tab is-active" type="button" data-view="清单视图"><svg class="icon"><use href="#i-check-square"></use></svg><span>清单</span></button>
+    <button class="mobile-tab" type="button" data-view="看板视图"><svg class="icon"><use href="#i-kanban"></use></svg><span>看板</span></button>
+    <button class="mobile-tab" type="button" data-view="日历视图"><svg class="icon"><use href="#i-calendar"></use></svg><span>日历</span></button>
+    <button class="mobile-tab" type="button" data-view="白板视图"><svg class="icon"><use href="#i-whiteboard"></use></svg><span>白板</span></button>
+  </nav>
+
+  <script>
+    const root = document.documentElement;
+    const body = document.body;
+    const viewLabels = document.querySelectorAll("[data-current-view]");
+    const navToggle = document.querySelector("[data-toggle-nav]");
+    const themeToggle = document.querySelector("[data-toggle-theme]");
+
+    navToggle?.addEventListener("click", () => {
+      const collapsed = body.classList.toggle("is-nav-collapsed");
+      navToggle.setAttribute("aria-label", collapsed ? "展开侧栏" : "折叠侧栏");
+      navToggle.setAttribute("title", collapsed ? "展开侧栏" : "折叠侧栏");
+    });
+
+    themeToggle?.addEventListener("click", () => {
+      const dark = root.getAttribute("data-theme") !== "dark";
+      if (dark) {
+        root.setAttribute("data-theme", "dark");
+      } else {
+        root.removeAttribute("data-theme");
+      }
+    });
+
+    document.querySelectorAll("[data-view]").forEach((button) => {
+      button.addEventListener("click", () => {
+        const label = button.getAttribute("data-view") || "清单视图";
+        document.querySelectorAll(".nav-section [data-view]").forEach((item) => {
+          item.classList.toggle("is-active", item.getAttribute("data-view") === label);
+        });
+        document.querySelectorAll(".mobile-tab[data-view]").forEach((item) => {
+          item.classList.toggle("is-active", item.getAttribute("data-view") === label);
+        });
+        viewLabels.forEach((node) => {
+          node.textContent = label;
+        });
+      });
+    });
+  </script>
+</body>
+</html>

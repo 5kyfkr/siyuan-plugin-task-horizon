@@ -758,6 +758,9 @@ if (shouldMarkDirty) {
                 }
             } catch (e) {}
         }).catch(e => {
+            try {
+                if (Number(state.uiInlineLoadingToken) === token) __tmSetInlineLoading(false);
+            } catch (e2) {}
             __tmPerfTraceFinish(perfTrace, {
                 error: String(e?.message || e || '').trim() || 'open-load-failed',
                 viewMode: globalThis.__tmRuntimeState?.getViewMode?.('list') || String(state.viewMode || '').trim() || 'list',

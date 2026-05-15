@@ -261,7 +261,7 @@
                         <td style="${tableLayout.cellStyle('content')}">
                             <div class="tm-task-cell" style="padding-left:${depthPad}px;">
                                 <span class="tm-task-text">
-                                    <span class="tm-task-content-clickable"${__tmBuildTooltipAttrs(String(item.title || '').trim() || '(无内容)', { side: 'bottom', ariaLabel: false })}>${contentHtml}</span>
+                                    <span class="tm-task-content-clickable"${__tmBuildTooltipAttrs(String(item.title || '').trim() || '(无内容)', { side: 'bottom', ariaLabel: false })} style="${__tmBuildTaskTitleOpacityStyle(item.task)}">${contentHtml}</span>
                                 </span>
                             </div>
                         </td>

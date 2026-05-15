@@ -514,13 +514,25 @@
         getSettings() {
             return __tmAiClone({
                 aiEnabled: !!SettingsStore.data.aiEnabled,
-                aiProvider: String(SettingsStore.data.aiProvider || '').trim() === 'deepseek' ? 'deepseek' : 'minimax',
+                aiProvider: (() => {
+                    const v = String(SettingsStore.data.aiProvider || '').trim();
+                    if (v === 'deepseek') return 'deepseek';
+                    if (v === 'openai') return 'openai';
+                    if (v === 'anthropic') return 'anthropic';
+                    return 'minimax';
+                })(),
                 aiMiniMaxApiKey: String(SettingsStore.data.aiMiniMaxApiKey || ''),
                 aiMiniMaxBaseUrl: String(SettingsStore.data.aiMiniMaxBaseUrl || 'https://api.minimaxi.com/anthropic').trim() || 'https://api.minimaxi.com/anthropic',
-                aiMiniMaxModel: String(SettingsStore.data.aiMiniMaxModel || 'MiniMax-M2.5').trim() || 'MiniMax-M2.5',
+                aiMiniMaxModel: String(SettingsStore.data.aiMiniMaxModel || 'MiniMax-M2.7-highspeed').trim() || 'MiniMax-M2.7-highspeed',
                 aiDeepSeekApiKey: String(SettingsStore.data.aiDeepSeekApiKey || ''),
                 aiDeepSeekBaseUrl: String(SettingsStore.data.aiDeepSeekBaseUrl || 'https://api.deepseek.com').trim() || 'https://api.deepseek.com',
-                aiDeepSeekModel: String(SettingsStore.data.aiDeepSeekModel || 'deepseek-chat').trim() || 'deepseek-chat',
+                aiDeepSeekModel: String(SettingsStore.data.aiDeepSeekModel || 'deepseek-v4-flash').trim() || 'deepseek-v4-flash',
+                aiOpenAIApiKey: String(SettingsStore.data.aiOpenAIApiKey || ''),
+                aiOpenAIBaseUrl: String(SettingsStore.data.aiOpenAIBaseUrl || 'https://api.openai.com/v1').trim() || 'https://api.openai.com/v1',
+                aiOpenAIModel: String(SettingsStore.data.aiOpenAIModel || 'gpt-5.4-mini').trim() || 'gpt-5.4-mini',
+                aiAnthropicApiKey: String(SettingsStore.data.aiAnthropicApiKey || ''),
+                aiAnthropicBaseUrl: String(SettingsStore.data.aiAnthropicBaseUrl || 'https://api.anthropic.com').trim() || 'https://api.anthropic.com',
+                aiAnthropicModel: String(SettingsStore.data.aiAnthropicModel || 'claude-sonnet-4-5').trim() || 'claude-sonnet-4-5',
                 aiMiniMaxTemperature: Number(SettingsStore.data.aiMiniMaxTemperature),
                 aiMiniMaxMaxTokens: Number(SettingsStore.data.aiMiniMaxMaxTokens),
                 aiMiniMaxTimeoutMs: Number(SettingsStore.data.aiMiniMaxTimeoutMs),
@@ -669,13 +681,18 @@
         return props;
     }
 
-    async function __tmGetQuickbarTaskCustomPropsByAnyId(taskIdOrBlockId) {
+    async function __tmGetQuickbarTaskCustomPropsByAnyId(taskIdOrBlockId, options = {}) {
         const requestedId = String(taskIdOrBlockId || '').trim();
         if (!requestedId) return null;
+        const opts = (options && typeof options === 'object') ? options : {};
         let binding = null;
         try { binding = await __tmResolveTaskBindingFromAnyBlockId(requestedId); } catch (e) { binding = null; }
         const taskId = String(binding?.taskId || requestedId).trim();
-        let task = (binding?.task && typeof binding.task === 'object') ? binding.task : null;
+        let task = null;
+        if (opts.forceFresh === true) {
+            try { task = await __tmAiGetTaskSnapshot(taskId || requestedId, { forceFresh: true }); } catch (e) { task = null; }
+        }
+        if (!task) task = (binding?.task && typeof binding.task === 'object') ? binding.task : null;
         if (!task && taskId) {
             try { task = globalThis.__tmRuntimeState?.getTaskById?.(taskId, { includePending: true }) || state.flatTasks?.[taskId] || state.pendingInsertedTasks?.[taskId] || null; } catch (e) {}
         }
@@ -709,8 +726,8 @@
         debugPush(channel, tag, payload = {}) {
             return __tmPushDebugChannel(channel, tag, payload);
         },
-        async getTaskCustomPropsByAnyId(taskIdOrBlockId) {
-            return await __tmGetQuickbarTaskCustomPropsByAnyId(taskIdOrBlockId);
+        async getTaskCustomPropsByAnyId(taskIdOrBlockId, options = {}) {
+            return await __tmGetQuickbarTaskCustomPropsByAnyId(taskIdOrBlockId, options);
         },
         formatTaskTime(value) {
             try { return __tmFormatTaskTime(value); } catch (e) { return String(value || '').trim(); }
@@ -911,6 +928,12 @@
                 'tm_ai_deepseek_api_key',
                 'tm_ai_deepseek_base_url',
                 'tm_ai_deepseek_model',
+                'tm_ai_openai_api_key',
+                'tm_ai_openai_base_url',
+                'tm_ai_openai_model',
+                'tm_ai_anthropic_api_key',
+                'tm_ai_anthropic_base_url',
+                'tm_ai_anthropic_model',
                 'tm_ai_minimax_temperature',
                 'tm_ai_minimax_max_tokens',
                 'tm_ai_minimax_timeout_ms',

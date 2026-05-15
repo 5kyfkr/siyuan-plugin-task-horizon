@@ -284,11 +284,13 @@
                 if (Array.isArray(openedDocs) && openedDocs.length > 0) return openedDocs;
             } catch (e) {}
             try {
+                const fileTreeDocs = await this.getNotebookDocumentsFromFileTree(box, options);
+                if (Array.isArray(fileTreeDocs) && fileTreeDocs.length > 0) return fileTreeDocs;
+            } catch (e) {}
+            try {
                 if (SettingsStore.data?.legacyWin7CompatMode === true) {
                     const taskDocs = await this.getNotebookTaskDocumentsBySql(box, options);
                     if (Array.isArray(taskDocs) && taskDocs.length > 0) return taskDocs;
-                    const fileTreeDocs = await this.getNotebookDocumentsFromFileTree(box, options);
-                    return fileTreeDocs;
                 }
             } catch (e) {}
             return [];
@@ -6117,6 +6119,7 @@
             '#tmTaskTable tbody tr[data-id] .tm-task-content-clickable',
             '#tmTimelineLeftTable tbody tr[data-id] .tm-task-content-clickable',
             '.tm-checklist-item[data-id] .tm-checklist-title',
+            '.tm-checklist-item[data-id] .tm-checklist-title-button > span',
             '.tm-body--kanban .tm-kanban-card[data-id] .tm-task-content-clickable',
         ].join(',');
         const items = modal.querySelectorAll(selectors);
@@ -6126,9 +6129,144 @@
             const tid = String(owner?.getAttribute?.('data-id') || '').trim();
             if (!tid) return;
             if (__tmHasTaskScheduledToday(tid)) el.style.color = 'var(--tm-primary-color)';
-            else el.style.removeProperty('color');
+            else {
+                const task = state.flatTasks?.[tid] || state.pendingInsertedTasks?.[tid] || null;
+                const target = el.matches?.('.tm-checklist-title')
+                    ? (el.querySelector?.('.tm-checklist-title-button > span') || el)
+                    : el;
+                if (target !== el) el.style.removeProperty('color');
+                if (task && target instanceof HTMLElement) __tmApplyTaskTitleOpacityToElement(target, task);
+                else el.style.removeProperty('color');
+            }
         });
     }
+
+    function __tmGetPriorityTitleOpacityRanges(config = null) {
+        const cfg = (config && typeof config === 'object')
+            ? config
+            : ((SettingsStore?.data?.priorityScoreConfig && typeof SettingsStore.data.priorityScoreConfig === 'object')
+                ? SettingsStore.data.priorityScoreConfig
+                : {});
+        if (cfg.titleOpacityEnabled !== true) return [];
+        const ranges0 = Array.isArray(cfg.titleOpacityRanges) ? cfg.titleOpacityRanges : [];
+        return ranges0.map((row, index) => {
+            const item = (row && typeof row === 'object') ? row : {};
+            const minRaw = String(item.minScore ?? '').trim();
+            const maxRaw = String(item.maxScore ?? '').trim();
+            if (minRaw === '' && maxRaw === '') return null;
+            const minScore = minRaw === '' ? Number.NEGATIVE_INFINITY : Number(minRaw);
+            const maxScore = maxRaw === '' ? Number.POSITIVE_INFINITY : Number(maxRaw);
+            const opacity0 = Number(item.opacity);
+            const opacity = Number.isFinite(opacity0)
+                ? Math.max(0.2, Math.min(1, opacity0 > 1 ? opacity0 / 100 : opacity0))
+                : 1;
+            const fallbackColor = __tmGetStatusPresetColor(index);
+            const color = __tmNormalizeHexColor(item.color, fallbackColor) || fallbackColor;
+            return { minScore, maxScore, opacity, color, index };
+        }).filter((row) => row && (
+            Number.isFinite(row.minScore)
+            || row.minScore === Number.NEGATIVE_INFINITY
+        ) && (
+            Number.isFinite(row.maxScore)
+            || row.maxScore === Number.POSITIVE_INFINITY
+        ) && row.minScore <= row.maxScore);
+    }
+
+    function __tmResolveTaskTitleOpacity(taskLike, config = null) {
+        const task = (taskLike && typeof taskLike === 'object') ? taskLike : null;
+        if (!task) return null;
+        const ranges = __tmGetPriorityTitleOpacityRanges(config);
+        if (!ranges.length) return null;
+        let score = Number(task.priorityScore);
+        if (!Number.isFinite(score)) {
+            try { score = Number(__tmEnsureTaskPriorityScore(task)); } catch (e) { score = Number.NaN; }
+        }
+        if (!Number.isFinite(score)) return null;
+        const sorted = ranges.slice().sort((a, b) => {
+            const spanA = (Number.isFinite(a.maxScore) ? a.maxScore : score) - (Number.isFinite(a.minScore) ? a.minScore : score);
+            const spanB = (Number.isFinite(b.maxScore) ? b.maxScore : score) - (Number.isFinite(b.minScore) ? b.minScore : score);
+            return spanA - spanB || a.index - b.index;
+        });
+        const hit = sorted.find((row) => score >= row.minScore && score <= row.maxScore);
+        return hit ? hit.opacity : null;
+    }
+
+    function __tmResolveTaskTitleVisual(taskLike, config = null) {
+        const task = (taskLike && typeof taskLike === 'object') ? taskLike : null;
+        if (!task) return null;
+        const ranges = __tmGetPriorityTitleOpacityRanges(config);
+        if (!ranges.length) return null;
+        let score = Number(task.priorityScore);
+        if (!Number.isFinite(score)) {
+            try { score = Number(__tmEnsureTaskPriorityScore(task)); } catch (e) { score = Number.NaN; }
+        }
+        if (!Number.isFinite(score)) return null;
+        const sorted = ranges.slice().sort((a, b) => {
+            const spanA = (Number.isFinite(a.maxScore) ? a.maxScore : score) - (Number.isFinite(a.minScore) ? a.minScore : score);
+            const spanB = (Number.isFinite(b.maxScore) ? b.maxScore : score) - (Number.isFinite(b.minScore) ? b.minScore : score);
+            return spanA - spanB || a.index - b.index;
+        });
+        const hit = sorted.find((row) => score >= row.minScore && score <= row.maxScore);
+        return hit ? { opacity: hit.opacity, color: task.done === true ? '' : hit.color } : null;
+    }
+
+    function __tmApplyTaskTitleOpacityToElement(el, taskLike, config = null) {
+        if (!(el instanceof HTMLElement)) return false;
+        const visual = __tmResolveTaskTitleVisual(taskLike, config);
+        const opacity = visual?.opacity;
+        const color = visual?.color;
+        try {
+            if (opacity == null) {
+                el.style.removeProperty('opacity');
+                el.removeAttribute('data-tm-title-opacity');
+            } else {
+                el.style.opacity = String(Math.round(opacity * 100) / 100);
+                el.setAttribute('data-tm-title-opacity', String(Math.round(opacity * 100) / 100));
+            }
+            if (color) {
+                el.style.color = color;
+                el.setAttribute('data-tm-title-color', color);
+            } else {
+                el.style.removeProperty('color');
+                el.removeAttribute('data-tm-title-color');
+            }
+            return true;
+        } catch (e) {
+            return false;
+        }
+    }
+
+    function __tmBuildTaskTitleOpacityStyle(taskLike, config = null) {
+        const visual = __tmResolveTaskTitleVisual(taskLike, config);
+        if (!visual) return '';
+        const parts = [];
+        if (visual.opacity != null) parts.push(`opacity:${Math.round(visual.opacity * 100) / 100};`);
+        const color = String(visual.color || '').trim();
+        if (color && !/[;"<>]/.test(color)) parts.push(`color:${color};`);
+        return parts.join('');
+    }
+
+    function __tmApplyTaskTitleOpacityInContainer(container, taskLike, options = {}) {
+        const root = container instanceof Element ? container : null;
+        const task = (taskLike && typeof taskLike === 'object') ? taskLike : null;
+        if (!root || !task) return false;
+        const selector = String(options?.selector || '.tm-task-content-clickable, .tm-checklist-title-button > span, .tm-whiteboard-stream-task-title, .tm-kanban-card-title-inline, .tm-cal-task-event-title-text').trim();
+        let touched = false;
+        try {
+            root.querySelectorAll(selector).forEach((el) => {
+                touched = __tmApplyTaskTitleOpacityToElement(el, task) || touched;
+            });
+        } catch (e) {}
+        return touched;
+    }
+
+    try {
+        globalThis.__tmResolveTaskTitleOpacity = __tmResolveTaskTitleOpacity;
+        globalThis.__tmResolveTaskTitleVisual = __tmResolveTaskTitleVisual;
+        globalThis.__tmBuildTaskTitleOpacityStyle = __tmBuildTaskTitleOpacityStyle;
+        globalThis.__tmApplyTaskTitleOpacityToElement = __tmApplyTaskTitleOpacityToElement;
+        globalThis.__tmApplyTaskTitleOpacityInContainer = __tmApplyTaskTitleOpacityInContainer;
+    } catch (e) {}
 
     const __tmReminderMarkCache = new Map();
     const __tmReminderMarkLoading = new Set();
@@ -6198,6 +6336,10 @@
         return 'manual';
     }
 
+    function __tmNormalizeReminderMonthlyMode(value) {
+        return String(value || '').trim().toLowerCase() === 'weekday' ? 'weekday' : 'date';
+    }
+
     function __tmNormalizeReminderTaskRepeatRule(value) {
         let raw = value;
         if (typeof raw === 'string') {
@@ -6213,8 +6355,12 @@
         const enabled = raw.enabled === undefined ? (type !== 'none') : !!raw.enabled;
         return {
             enabled: enabled && type !== 'none',
+            trigger: String(raw.trigger || '').trim().toLowerCase() === 'complete' ? 'complete' : 'due',
             type,
             every: Math.max(1, Math.min(3650, parseInt(raw.every, 10) || 1)),
+            monthlyMode: __tmNormalizeReminderMonthlyMode(raw.monthlyMode || ''),
+            until: __tmNormalizeReminderDateKey(raw.until || raw.repeatUntil || ''),
+            anchorDate: __tmNormalizeReminderDateKey(raw.anchorDate || ''),
         };
     }
 
@@ -6271,6 +6417,78 @@
         }
     }
 
+    function __tmGetReminderMonthlyMode(reminder) {
+        return __tmNormalizeReminderMonthlyMode(
+            reminder?.monthlyMode
+            || reminder?.repeatMonthlyMode
+            || reminder?.monthly_mode
+            || reminder?.taskRepeatRule?.monthlyMode
+            || ''
+        );
+    }
+
+    function __tmIsReminderWorkdayDate(date) {
+        const d = date instanceof Date ? date : __tmReminderToDateSafe(date);
+        if (!(d instanceof Date) || Number.isNaN(d.getTime())) return false;
+        const day = d.getDay();
+        return day >= 1 && day <= 5;
+    }
+
+    function __tmGetReminderWorkdayIndex(anchorDate, targetDate) {
+        const start = anchorDate instanceof Date ? new Date(anchorDate.getTime()) : __tmReminderToDateSafe(anchorDate);
+        const target = targetDate instanceof Date ? new Date(targetDate.getTime()) : __tmReminderToDateSafe(targetDate);
+        if (!(start instanceof Date) || !(target instanceof Date) || Number.isNaN(start.getTime()) || Number.isNaN(target.getTime())) return -1;
+        start.setHours(0, 0, 0, 0);
+        target.setHours(0, 0, 0, 0);
+        if (target.getTime() < start.getTime()) return -1;
+        if (!__tmIsReminderWorkdayDate(target)) return -1;
+        let index = -1;
+        const cursor = new Date(start.getTime());
+        for (let guard = 0; cursor.getTime() <= target.getTime() && guard < 4000; guard += 1) {
+            if (__tmIsReminderWorkdayDate(cursor)) index += 1;
+            cursor.setDate(cursor.getDate() + 1);
+        }
+        return index;
+    }
+
+    function __tmIsReminderWorkdayOccurrence(targetDate, anchorDate, every) {
+        const index = __tmGetReminderWorkdayIndex(anchorDate, targetDate);
+        return index >= 0 && index % Math.max(1, Number(every) || 1) === 0;
+    }
+
+    function __tmGetReminderMonthWeekOrdinal(date) {
+        const d = date instanceof Date ? date : __tmReminderToDateSafe(date);
+        if (!(d instanceof Date) || Number.isNaN(d.getTime())) return 1;
+        return Math.max(1, Math.min(5, Math.floor((d.getDate() - 1) / 7) + 1));
+    }
+
+    function __tmBuildReminderMonthlyDate(anchorDate, monthOffset) {
+        const anchor = anchorDate instanceof Date ? new Date(anchorDate.getTime()) : __tmReminderToDateSafe(anchorDate);
+        if (!(anchor instanceof Date) || Number.isNaN(anchor.getTime())) return null;
+        const total = anchor.getFullYear() * 12 + anchor.getMonth() + (Number(monthOffset) || 0);
+        const year = Math.floor(total / 12);
+        const month = ((total % 12) + 12) % 12;
+        const lastDay = new Date(year, month + 1, 0).getDate();
+        return new Date(year, month, Math.min(anchor.getDate(), lastDay), 0, 0, 0, 0);
+    }
+
+    function __tmBuildReminderMonthlyWeekdayDate(anchorDate, monthOffset) {
+        const anchor = anchorDate instanceof Date ? new Date(anchorDate.getTime()) : __tmReminderToDateSafe(anchorDate);
+        if (!(anchor instanceof Date) || Number.isNaN(anchor.getTime())) return null;
+        const total = anchor.getFullYear() * 12 + anchor.getMonth() + (Number(monthOffset) || 0);
+        const year = Math.floor(total / 12);
+        const month = ((total % 12) + 12) % 12;
+        const weekday = anchor.getDay();
+        const ordinal = __tmGetReminderMonthWeekOrdinal(anchor);
+        const first = new Date(year, month, 1, 0, 0, 0, 0);
+        const offset = (weekday - first.getDay() + 7) % 7;
+        const day = 1 + offset + (ordinal - 1) * 7;
+        const lastDay = new Date(year, month + 1, 0).getDate();
+        if (day > lastDay) return null;
+        return new Date(year, month, day, 0, 0, 0, 0);
+    }
+
+
     function __tmCollectReminderTimes(reminder) {
         const out = [];
         const seen = new Set();
@@ -6306,16 +6524,24 @@
     }
 
     function __tmNormalizeReminderInterval(reminder) {
+        const source = (reminder && typeof reminder === 'object' && !Array.isArray(reminder))
+            ? (
+                reminder?.interval
+                || reminder?.repeatType
+                || reminder?.repeat_type
+                || reminder?.type
+                || reminder?.repeat
+                || ''
+            )
+            : reminder;
         const raw = String(
-            reminder?.interval
-            || reminder?.repeatType
-            || reminder?.repeat_type
-            || reminder?.type
-            || reminder?.repeat
-            || ''
+            source
         ).trim().toLowerCase();
-        if (['once', 'daily', 'weekly', 'monthly', 'yearly'].includes(raw)) return raw;
+        if (raw === 'weekday' || raw === 'weekdays') return 'workday';
+        if (raw === 'everyday') return 'daily';
+        if (['once', 'daily', 'workday', 'weekly', 'monthly', 'yearly'].includes(raw)) return raw;
         if (raw === 'day') return 'daily';
+        if (raw === 'workdays') return 'workday';
         if (raw === 'week') return 'weekly';
         if (raw === 'month') return 'monthly';
         if (raw === 'year') return 'yearly';
@@ -6345,6 +6571,7 @@
             enabled,
             interval: __tmNormalizeReminderInterval(raw),
             every: __tmGetReminderEvery(raw),
+            monthlyMode: __tmNormalizeReminderMonthlyMode(raw.monthlyMode || raw.repeatMonthlyMode || raw.monthly_mode || ''),
             times,
             startDate: __tmNormalizeReminderDateKey(
                 raw.startDate
@@ -6385,7 +6612,7 @@
         const nowKey = __tmNormalizeReminderDateKey(from);
         const nowMinutes = from.getHours() * 60 + from.getMinutes();
         const startKey = __tmGetReminderStartDateKey(reminder);
-        const interval = String(reminder?.interval || 'daily').trim() || 'daily';
+        const interval = __tmNormalizeReminderInterval(reminder?.interval || 'daily');
         const every = interval === 'once' ? 1 : __tmGetReminderEvery(reminder);
         const endDate = reminder?.endDate ? __tmNormalizeReminderDateKey(reminder.endDate) : '';
         const isBeforeStartDate = (dateKey) => dateKey < startKey;
@@ -6456,6 +6683,29 @@
             return null;
         }
 
+        if (interval === 'workday') {
+            const anchor = new Date(`${startKey}T00:00:00`);
+            if (Number.isNaN(anchor.getTime())) return null;
+            const fromDay = new Date(from);
+            fromDay.setHours(0, 0, 0, 0);
+            let candidateDay = fromDay.getTime() < anchor.getTime() ? new Date(anchor) : new Date(fromDay);
+            for (let i = 0; i < 1830; i += 1) {
+                const candidateKey = __tmNormalizeReminderDateKey(candidateDay);
+                if (isBeyondEndDate(candidateKey)) return null;
+                if (__tmIsReminderWorkdayOccurrence(candidateDay, anchor, every)) {
+                    if (candidateKey === nowKey) {
+                        const at = pickOnDate(candidateKey, true);
+                        if (at) return at;
+                    } else {
+                        const at = pickEarliest(candidateKey);
+                        if (at) return at;
+                    }
+                }
+                candidateDay.setDate(candidateDay.getDate() + 1);
+            }
+            return null;
+        }
+
         if (interval === 'weekly') {
             const anchor = new Date(`${startKey}T00:00:00`);
             if (Number.isNaN(anchor.getTime())) return null;
@@ -6491,27 +6741,28 @@
         if (interval === 'monthly') {
             const anchor = new Date(`${startKey}T00:00:00`);
             if (Number.isNaN(anchor.getTime())) return null;
-            const targetDay = anchor.getDate();
             const anchorY = anchor.getFullYear();
             const anchorM = anchor.getMonth();
             const fromY = from.getFullYear();
             const fromM = from.getMonth();
+            const monthlyMode = __tmGetReminderMonthlyMode(reminder);
             let monthsFromAnchor = (fromY - anchorY) * 12 + (fromM - anchorM);
             if (!Number.isFinite(monthsFromAnchor)) monthsFromAnchor = 0;
             if (monthsFromAnchor < 0) monthsFromAnchor = 0;
             const mod = monthsFromAnchor % every;
             if (mod !== 0) monthsFromAnchor += (every - mod);
             const buildCandidate = (monthOffset) => {
-                const d = new Date(anchorY, anchorM + monthOffset, 1, 0, 0, 0, 0);
-                const y = d.getFullYear();
-                const m = d.getMonth();
-                const lastDay = new Date(y, m + 1, 0).getDate();
-                d.setDate(Math.min(targetDay, lastDay));
-                return d;
+                return monthlyMode === 'weekday'
+                    ? __tmBuildReminderMonthlyWeekdayDate(anchor, monthOffset)
+                    : __tmBuildReminderMonthlyDate(anchor, monthOffset);
             };
             let offset = monthsFromAnchor;
             for (let i = 0; i < 120; i += 1) {
                 const candidate = buildCandidate(offset);
+                if (!candidate) {
+                    offset += every;
+                    continue;
+                }
                 const candidateKey = __tmNormalizeReminderDateKey(candidate);
                 if (isBeyondEndDate(candidateKey)) return null;
                 if (candidateKey < nowKey) {
@@ -6583,7 +6834,7 @@
             const nowKey = __tmNormalizeReminderDateKey(to);
             const nowMinutes = to.getHours() * 60 + to.getMinutes();
             const startKey = __tmGetReminderStartDateKey(reminder);
-            const interval = String(reminder?.interval || 'daily').trim() || 'daily';
+            const interval = __tmNormalizeReminderInterval(reminder?.interval || 'daily');
             const every = interval === 'once' ? 1 : __tmGetReminderEvery(reminder);
 
             const pickLatestOnDate = (dateKey, requirePastTime) => {
@@ -6635,6 +6886,23 @@
                 return null;
             }
 
+            if (interval === 'workday') {
+                const anchor = new Date(`${startKey}T00:00:00`);
+                if (Number.isNaN(anchor.getTime())) return null;
+                let candidate = new Date(to);
+                candidate.setHours(0, 0, 0, 0);
+                for (let i = 0; i < 1830; i += 1) {
+                    if (candidate.getTime() < anchor.getTime()) break;
+                    if (__tmIsReminderWorkdayOccurrence(candidate, anchor, every)) {
+                        const candidateKey = __tmNormalizeReminderDateKey(candidate);
+                        const at = pickLatestOnDate(candidateKey, candidateKey === nowKey);
+                        if (at) return at;
+                    }
+                    candidate.setDate(candidate.getDate() - 1);
+                }
+                return null;
+            }
+
             if (interval === 'weekly') {
                 const anchor = new Date(`${startKey}T00:00:00`);
                 if (Number.isNaN(anchor.getTime())) return null;
@@ -6664,25 +6932,27 @@
             if (interval === 'monthly') {
                 const anchor = new Date(`${startKey}T00:00:00`);
                 if (Number.isNaN(anchor.getTime())) return null;
-                const targetDay = anchor.getDate();
                 const anchorY = anchor.getFullYear();
                 const anchorM = anchor.getMonth();
                 const toY = to.getFullYear();
                 const toM = to.getMonth();
+                const monthlyMode = __tmGetReminderMonthlyMode(reminder);
                 let monthsFromAnchor = (toY - anchorY) * 12 + (toM - anchorM);
                 if (!Number.isFinite(monthsFromAnchor) || monthsFromAnchor < 0) return null;
                 monthsFromAnchor -= monthsFromAnchor % every;
                 const buildCandidate = (monthOffset) => {
-                    const d = new Date(anchorY, anchorM + monthOffset, 1, 0, 0, 0, 0);
-                    const y = d.getFullYear();
-                    const m = d.getMonth();
-                    const lastDay = new Date(y, m + 1, 0).getDate();
-                    d.setDate(Math.min(targetDay, lastDay));
-                    return d;
+                    return monthlyMode === 'weekday'
+                        ? __tmBuildReminderMonthlyWeekdayDate(anchor, monthOffset)
+                        : __tmBuildReminderMonthlyDate(anchor, monthOffset);
                 };
                 let offset = monthsFromAnchor;
                 for (let i = 0; i < 120; i += 1) {
                     const candidate = buildCandidate(offset);
+                    if (!candidate) {
+                        offset -= every;
+                        if (offset < 0) break;
+                        continue;
+                    }
                     if (candidate.getTime() > to.getTime()) {
                         offset -= every;
                         continue;
