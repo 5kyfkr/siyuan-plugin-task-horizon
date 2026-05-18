@@ -5787,6 +5787,10 @@
         return __tmSemanticBuildSuggestionPayload(task, source, startInfo, completionInfo, { completionTimeInfo });
     }
 
+    function __tmIsSemanticDateAutoPromptEnabled() {
+        return !!SettingsStore?.data?.semanticDateAutoPromptEnabled && Storage.get('tm_semantic_date_auto_prompt_enabled', true) !== false;
+    }
+
     function __tmBuildSemanticTaskLegacySignature(task, completionValue, sourceKey) {
         return [
             String(task?.content || '').trim(),
@@ -5960,10 +5964,12 @@
     }
 
     async function __tmLoadSemanticDateTasksForAutoPrompt(token) {
+        if (!__tmIsSemanticDateAutoPromptEnabled()) return [];
         try { await MetaStore.load(); } catch (e) {}
         const mergedTasks = [];
         const seenTaskIds = new Set();
         Object.values(state.flatTasks || {}).forEach((rawTask) => {
+            if (!__tmIsSemanticDateAutoPromptEnabled()) return;
             const task = __tmPrepareTaskForSemanticScan(rawTask);
             const taskId = String(task?.id || '').trim();
             if (!taskId || seenTaskIds.has(taskId)) return;
@@ -5971,6 +5977,7 @@
             mergedTasks.push(task);
         });
 
+        if (!__tmIsSemanticDateAutoPromptEnabled()) return mergedTasks;
         const currentGroupId = String(SettingsStore?.data?.currentGroupId || 'all').trim() || 'all';
         if (currentGroupId === 'all') return mergedTasks;
 
@@ -5998,6 +6005,7 @@
             });
             const extraTasks = Array.isArray(res?.tasks) ? res.tasks : [];
             extraTasks.forEach((rawTask) => {
+                if (!__tmIsSemanticDateAutoPromptEnabled()) return;
                 const task = __tmPrepareTaskForSemanticScan(rawTask);
                 const taskId = String(task?.id || '').trim();
                 if (!taskId || seenTaskIds.has(taskId)) return;
@@ -6261,25 +6269,28 @@
 
     async function __tmMaybeAutoPromptSemanticDates(token) {
         if (token !== undefined && token !== null && token !== (Number(state.openToken) || 0)) return;
-        if (!SettingsStore?.data?.semanticDateAutoPromptEnabled) return;
+        if (!__tmIsSemanticDateAutoPromptEnabled()) return;
         if (state.semanticDateAutoApplying) return;
         if (state.semanticDateConfirmModal && document.body.contains(state.semanticDateConfirmModal)) return;
         if (typeof __tmIsPluginVisibleNow === 'function' && !__tmIsPluginVisibleNow()) return;
         const tasks = await __tmLoadSemanticDateTasksForAutoPrompt(token);
         if (token !== undefined && token !== null && token !== (Number(state.openToken) || 0)) return;
+        if (!__tmIsSemanticDateAutoPromptEnabled()) return;
         const { items: suggestions, interrupted } = await __tmCollectSemanticDateSuggestions(tasks, {
             batchSize: __TM_SEMANTIC_DATE_AUTO_SCAN_BATCH_SIZE,
             shouldStop: () => {
                 if (token !== undefined && token !== null && token !== (Number(state.openToken) || 0)) return true;
+                if (!__tmIsSemanticDateAutoPromptEnabled()) return true;
                 if (typeof __tmIsPluginVisibleNow === 'function' && !__tmIsPluginVisibleNow()) return true;
                 return false;
             },
         });
         if (interrupted) return;
         if (token !== undefined && token !== null && token !== (Number(state.openToken) || 0)) return;
+        if (!__tmIsSemanticDateAutoPromptEnabled()) return;
         if (typeof __tmIsPluginVisibleNow === 'function' && !__tmIsPluginVisibleNow()) return;
         if (!suggestions.length) return;
-        __tmMarkSemanticDateSuggestionsRecognized(suggestions, { persist: false });
+        __tmMarkSemanticDateSuggestionsRecognized(suggestions);
         const batchCount = Math.max(1, Math.ceil(suggestions.length / __TM_SEMANTIC_DATE_AUTO_PROMPT_BATCH_SIZE));
         const firstBatch = suggestions.slice(0, __TM_SEMANTIC_DATE_AUTO_PROMPT_BATCH_SIZE);
         const remainingItems = suggestions.slice(__TM_SEMANTIC_DATE_AUTO_PROMPT_BATCH_SIZE);
