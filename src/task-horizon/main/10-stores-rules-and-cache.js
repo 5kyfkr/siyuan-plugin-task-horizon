@@ -4672,6 +4672,7 @@
             headingGroupCreateAtSectionEnd: false,
             enableTomatoIntegration: true,
             enablePointsRewardIntegration: false,
+            pointsRewardExcludedGroupIds: [],
             enablePointsPenaltyIntegration: false,
             pointsPenaltyScheduleEnabled: true,
             pointsPenaltyDeadlineEnabled: true,
@@ -4719,6 +4720,7 @@
             calendarSidebarCollapseTomato: false,
             calendarSidebarCollapseTasks: false,
             calendarShowTomatoMaster: true,
+            calendarShowTaskReminders: true,
             calendarShowTaskDates: true,
             calendarHideScheduledTaskDatesInAllDay: false,
             calendarShowOtherBlockCheckbox: true,
@@ -5221,6 +5223,7 @@
                                 if (typeof cloudData.headingGroupCreateAtSectionEnd === 'boolean') this.data.headingGroupCreateAtSectionEnd = cloudData.headingGroupCreateAtSectionEnd;
                                 if (typeof cloudData.enableTomatoIntegration === 'boolean') this.data.enableTomatoIntegration = cloudData.enableTomatoIntegration;
                                 if (typeof cloudData.enablePointsRewardIntegration === 'boolean') this.data.enablePointsRewardIntegration = cloudData.enablePointsRewardIntegration;
+                                if (Array.isArray(cloudData.pointsRewardExcludedGroupIds)) this.data.pointsRewardExcludedGroupIds = cloudData.pointsRewardExcludedGroupIds;
                                 if (typeof cloudData.enablePointsPenaltyIntegration === 'boolean') this.data.enablePointsPenaltyIntegration = cloudData.enablePointsPenaltyIntegration;
                                 if (typeof cloudData.pointsPenaltyScheduleEnabled === 'boolean') this.data.pointsPenaltyScheduleEnabled = cloudData.pointsPenaltyScheduleEnabled;
                                 if (typeof cloudData.pointsPenaltyDeadlineEnabled === 'boolean') this.data.pointsPenaltyDeadlineEnabled = cloudData.pointsPenaltyDeadlineEnabled;
@@ -5268,6 +5271,7 @@
                                 if (typeof cloudData.calendarSidebarCollapseDocGroups === 'boolean') this.data.calendarSidebarCollapseDocGroups = cloudData.calendarSidebarCollapseDocGroups;
                                 if (typeof cloudData.calendarSidebarCollapseTomato === 'boolean') this.data.calendarSidebarCollapseTomato = cloudData.calendarSidebarCollapseTomato;
                                 if (typeof cloudData.calendarSidebarCollapseTasks === 'boolean') this.data.calendarSidebarCollapseTasks = cloudData.calendarSidebarCollapseTasks;
+                                if (typeof cloudData.calendarShowTaskReminders === 'boolean') this.data.calendarShowTaskReminders = cloudData.calendarShowTaskReminders;
                                 if (typeof cloudData.calendarShowTaskDates === 'boolean') this.data.calendarShowTaskDates = cloudData.calendarShowTaskDates;
                                 if (typeof cloudData.calendarHideScheduledTaskDatesInAllDay === 'boolean') this.data.calendarHideScheduledTaskDatesInAllDay = cloudData.calendarHideScheduledTaskDatesInAllDay;
                                 if (typeof cloudData.calendarShowOtherBlockCheckbox === 'boolean') this.data.calendarShowOtherBlockCheckbox = cloudData.calendarShowOtherBlockCheckbox;
@@ -5631,6 +5635,7 @@
             this.data.taskRemarkWrapMaxLines = Number(Storage.get('tm_task_remark_wrap_max_lines', this.data.taskRemarkWrapMaxLines));
             this.data.enableTomatoIntegration = Storage.get('tm_enable_tomato_integration', true);
             this.data.enablePointsRewardIntegration = !!Storage.get('tm_enable_points_reward_integration', this.data.enablePointsRewardIntegration);
+            this.data.pointsRewardExcludedGroupIds = Storage.get('tm_points_reward_excluded_group_ids', this.data.pointsRewardExcludedGroupIds);
             this.data.enablePointsPenaltyIntegration = !!Storage.get('tm_enable_points_penalty_integration', this.data.enablePointsPenaltyIntegration);
             this.data.pointsPenaltyScheduleEnabled = !!Storage.get('tm_points_penalty_schedule_enabled', this.data.pointsPenaltyScheduleEnabled);
             this.data.pointsPenaltyDeadlineEnabled = !!Storage.get('tm_points_penalty_deadline_enabled', this.data.pointsPenaltyDeadlineEnabled);
@@ -5705,6 +5710,7 @@
             this.data.calendarSidebarCollapseDocGroups = Storage.get('tm_calendar_sidebar_collapse_doc_groups', this.data.calendarSidebarCollapseDocGroups);
             this.data.calendarSidebarCollapseTomato = Storage.get('tm_calendar_sidebar_collapse_tomato', this.data.calendarSidebarCollapseTomato);
             this.data.calendarSidebarCollapseTasks = Storage.get('tm_calendar_sidebar_collapse_tasks', this.data.calendarSidebarCollapseTasks);
+            this.data.calendarShowTaskReminders = Storage.get('tm_calendar_show_task_reminders', this.data.calendarShowTaskReminders);
             this.data.defaultDocId = Storage.get('tm_default_doc_id', '');
             this.data.defaultDocIdByGroup = Storage.get('tm_default_doc_id_by_group', {}) || {};
             this.data.allDocsExcludedDocIds = Storage.get('tm_all_docs_excluded_doc_ids', this.data.allDocsExcludedDocIds) || [];
@@ -5805,7 +5811,7 @@
             this.data.dockChecklistCompactMetaFields = __tmNormalizeCompactChecklistMetaFields(this.data.dockChecklistCompactMetaFields);
             this.data.mobileChecklistCompactMetaFields = __tmNormalizeCompactChecklistMetaFields(this.data.mobileChecklistCompactMetaFields, this.data.dockChecklistCompactMetaFields);
             {
-                const allowInlineFields = new Set(['custom-status', 'custom-completion-time', 'custom-priority', 'custom-start-date', 'custom-duration', 'custom-remark']);
+                const allowInlineFields = new Set(['custom-status', 'custom-completion-time', 'taskCompleteAt', 'custom-priority', 'custom-start-date', 'custom-duration', 'custom-remark']);
                 const rawInlineFields = Array.isArray(this.data.quickbarInlineFields) ? this.data.quickbarInlineFields : ['custom-status', 'custom-completion-time'];
                 const seenInlineFields = new Set();
                 this.data.quickbarInlineFields = rawInlineFields.map((v) => {
@@ -5820,7 +5826,7 @@
                 if (!this.data.quickbarInlineFields.length) this.data.quickbarInlineFields = ['custom-status', 'custom-completion-time'];
             }
             {
-                const allowQuickbarVisibleItems = new Set(['custom-status', 'custom-priority', 'custom-start-date', 'custom-completion-time', 'custom-duration', 'custom-remark', 'action-ai-title', 'action-reminder', 'action-more']);
+                const allowQuickbarVisibleItems = new Set(['custom-status', 'custom-priority', 'custom-start-date', 'custom-completion-time', 'taskCompleteAt', 'custom-duration', 'custom-remark', 'action-ai-title', 'action-reminder', 'action-more']);
                 const rawQuickbarVisibleItems = Array.isArray(this.data.quickbarVisibleItems) ? this.data.quickbarVisibleItems : ['custom-status', 'custom-priority', 'custom-start-date', 'custom-completion-time', 'custom-duration', 'custom-remark', 'action-ai-title', 'action-reminder', 'action-more'];
                 const seenQuickbarVisibleItems = new Set();
                 this.data.quickbarVisibleItems = rawQuickbarVisibleItems.map((v) => {
@@ -6034,6 +6040,7 @@
             Storage.set('tm_task_remark_wrap_max_lines', Number(this.data.taskRemarkWrapMaxLines) || 2);
             Storage.set('tm_enable_tomato_integration', !!this.data.enableTomatoIntegration);
             Storage.set('tm_enable_points_reward_integration', !!this.data.enablePointsRewardIntegration);
+            Storage.set('tm_points_reward_excluded_group_ids', Array.isArray(this.data.pointsRewardExcludedGroupIds) ? this.data.pointsRewardExcludedGroupIds : []);
             Storage.set('tm_enable_points_penalty_integration', !!this.data.enablePointsPenaltyIntegration);
             Storage.set('tm_points_penalty_schedule_enabled', !!this.data.pointsPenaltyScheduleEnabled);
             Storage.set('tm_points_penalty_deadline_enabled', !!this.data.pointsPenaltyDeadlineEnabled);
@@ -6108,6 +6115,7 @@
             Storage.set('tm_calendar_sidebar_collapse_doc_groups', !!this.data.calendarSidebarCollapseDocGroups);
             Storage.set('tm_calendar_sidebar_collapse_tomato', !!this.data.calendarSidebarCollapseTomato);
             Storage.set('tm_calendar_sidebar_collapse_tasks', !!this.data.calendarSidebarCollapseTasks);
+            Storage.set('tm_calendar_show_task_reminders', !!this.data.calendarShowTaskReminders);
             Storage.set('tm_default_doc_id', this.data.defaultDocId);
             Storage.set('tm_default_doc_id_by_group', this.data.defaultDocIdByGroup || {});
             Storage.set('tm_all_docs_excluded_doc_ids', __tmNormalizeDocGroupExcludedDocIds(this.data.allDocsExcludedDocIds));
@@ -6344,6 +6352,9 @@
             const wrapRemarkLines = Number(this.data.taskRemarkWrapMaxLines);
             this.data.taskRemarkWrapMaxLines = Number.isFinite(wrapRemarkLines) ? Math.max(1, Math.min(10, Math.round(wrapRemarkLines))) : 2;
             this.data.enableMoveBlockToDailyNote = !!this.data.enableMoveBlockToDailyNote;
+            this.data.pointsRewardExcludedGroupIds = Array.from(new Set((Array.isArray(this.data.pointsRewardExcludedGroupIds) ? this.data.pointsRewardExcludedGroupIds : [])
+                .map((id) => String(id || '').trim())
+                .filter((id) => id && (Array.isArray(this.data.docGroups) ? this.data.docGroups : []).some((group) => String(group?.id || '').trim() === id))));
             this.data.enablePointsPenaltyIntegration = !!this.data.enablePointsPenaltyIntegration;
             this.data.pointsPenaltyScheduleEnabled = this.data.pointsPenaltyScheduleEnabled !== false;
             this.data.pointsPenaltyDeadlineEnabled = this.data.pointsPenaltyDeadlineEnabled !== false;

@@ -1775,6 +1775,9 @@ return false;
         const reason = String(opts.reason || 'task-field-projection').trim() || 'task-field-projection';
         const refreshWithFilters = opts.withFilters !== false
             || __tmDoesPatchNeedProjectionRefresh(tid, nextPatch, opts);
+        if (refreshWithFilters && (viewMode === 'list' || viewMode === 'checklist')) {
+            try { state.listDomRenderSignature = ''; } catch (e) {}
+        }
         if (viewMode === 'list' && refreshWithFilters) {
             return __tmScheduleListProjectionRefresh({
                 mode: 'current',
@@ -3139,14 +3142,14 @@ return false;
                 }
                 if (Object.prototype.hasOwnProperty.call(patch, 'done')) {
                     card.classList.toggle('tm-kanban-card--done', !!task.done);
-                    const checkbox = card.querySelector('.tm-task-checkbox');
+                    const checkbox = card.querySelector(':scope > .tm-kanban-card-top .tm-kanban-card-head > .tm-task-checkbox-wrap .tm-task-checkbox');
                     if (checkbox instanceof HTMLInputElement) checkbox.checked = !!task.done;
-                    const title = card.querySelector('.tm-task-content-clickable');
+                    const title = card.querySelector(':scope > .tm-kanban-card-top .tm-kanban-card-head > .tm-kanban-card-title-inline');
                     if (title instanceof HTMLElement) title.classList.toggle('tm-task-done', !!task.done);
                     touched = true;
                 }
                 if (Object.prototype.hasOwnProperty.call(patch, 'priority')) {
-                    const chip = card.querySelector('.tm-kanban-priority-chip');
+                    const chip = card.querySelector(':scope > .tm-kanban-card-meta .tm-kanban-priority-chip');
                     if (chip instanceof HTMLElement) {
                         chip.setAttribute('style', __tmBuildPriorityChipStyle(task?.priority));
                         chip.innerHTML = __tmRenderPriorityJira(task?.priority, false);
@@ -3154,7 +3157,7 @@ return false;
                     }
                 }
                 if (Object.prototype.hasOwnProperty.call(patch, 'customStatus')) {
-                    const chip = card.querySelector('.tm-status-tag');
+                    const chip = card.querySelector(':scope > .tm-kanban-card-meta .tm-status-tag');
                     if (chip instanceof HTMLElement) {
                         const opt = __tmResolveTaskStatusDisplayOption(task, __tmGetStatusOptions(SettingsStore.data.customStatusOptions || []), {
                             fallbackColor: task?.done ? '#9e9e9e' : '#757575',
@@ -3168,7 +3171,10 @@ return false;
                 if (Object.prototype.hasOwnProperty.call(patch, 'completionTime') || Object.prototype.hasOwnProperty.call(patch, 'startDate')) {
                     touched = !!__tmUpdateKanbanTaskTimeInDOM(tid) || touched;
                 }
-                if (__tmDoesPatchAffectPriorityScore(patch)) touched = !!__tmApplyTaskTitleOpacityInContainer(card, task) || touched;
+                if (__tmDoesPatchAffectPriorityScore(patch)) {
+                    const title = card.querySelector(':scope > .tm-kanban-card-top .tm-kanban-card-head > .tm-kanban-card-title-inline');
+                    if (title instanceof HTMLElement) touched = !!__tmApplyTaskTitleOpacityToElement(title, task) || touched;
+                }
                 if (Object.prototype.hasOwnProperty.call(patch, 'remark')) {
                     const nextRemark = __tmRenderTaskCardRemark(task);
                     let remarkEl = card.querySelector('.tm-task-card-remark');
@@ -6254,7 +6260,7 @@ throw error;
                 : '';
             const childrenHtml = kids.map((child) => renderNode(child, depth + 1)).join('');
             return `
-                <div class="tm-task-detail-subtask" style="--tm-task-detail-depth:${depth};">
+                <div class="tm-task-detail-subtask${childrenHtml ? ' tm-task-detail-subtask--has-children' : ''}" style="--tm-task-detail-depth:${depth};">
                     <div class="tm-task-detail-subtask-row" data-tm-detail-subtask-menu="${esc(tid)}">
                         <div class="tm-task-detail-subtask-main">
                             ${__tmRenderTaskCheckbox(tid, viewTask, { checked: viewTask?.done, extraClass: GlobalLock.isLocked() ? 'tm-operating' : '', stopMouseDown: true, stopClick: true, priority: canonicalPriority })}

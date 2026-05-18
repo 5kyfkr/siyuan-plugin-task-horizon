@@ -2364,6 +2364,10 @@ return Number(state.contextInteractionQuietUntil || 0);
                 push(task.markdown || task.content || task.text || '');
                 push(task.priority || '');
                 push(task.customStatus || task.status || '');
+                push(task.startDate || task.start_date || '');
+                push(task.completionTime || task.completion_time || '');
+                push(task.customTime || task.custom_time || '');
+                push(task.taskCompleteAt || task.task_complete_at || '');
                 push(task.done ? '1' : '0');
             }
             return `${n}:${(hash >>> 0).toString(16)}`;
@@ -7907,11 +7911,57 @@ if (mode === 'checklist') {
         return visible;
     }
 
+    function __tmBuildWhiteboardSequenceActiveTaskList(tasks) {
+        const list = Array.isArray(tasks) ? tasks : [];
+        if (!list.length) return list;
+        const taskMap = state.flatTasks || {};
+        const hasIncompleteAncestorMemo = new Map();
+        const hasIncompleteAncestor = (task) => {
+            const tid = String(task?.id || '').trim();
+            if (tid && hasIncompleteAncestorMemo.has(tid)) return hasIncompleteAncestorMemo.get(tid);
+            let parentId = task?.parentTaskId;
+            const seen = new Set();
+            while (parentId) {
+                if (seen.has(parentId)) break;
+                seen.add(parentId);
+                const parent = taskMap[parentId];
+                if (!parent) {
+                    if (tid) hasIncompleteAncestorMemo.set(tid, null);
+                    return null;
+                }
+                if (!parent.done) {
+                    if (tid) hasIncompleteAncestorMemo.set(tid, true);
+                    return true;
+                }
+                parentId = parent.parentTaskId;
+            }
+            if (tid) hasIncompleteAncestorMemo.set(tid, false);
+            return false;
+        };
+        return list.filter((task) => {
+            if (!task || typeof task !== 'object') return false;
+            if (task.done) return false;
+            const ancestorState = task.parentTaskId ? hasIncompleteAncestor(task) : null;
+            if (task.parentTaskId && ancestorState === false) return false;
+            return true;
+        });
+    }
+
     function __tmApplyWhiteboardSequenceFilter(tasks) {
         const list = Array.isArray(tasks) ? tasks : [];
         if (!list.length) return list;
         if (state.viewMode === 'whiteboard') return list;
         if (!SettingsStore.data.whiteboardSequenceMode) return list;
+        const hasCompletedTasks = list.some((task) => !!task?.done);
+        if (hasCompletedTasks) {
+            const activeList = __tmBuildWhiteboardSequenceActiveTaskList(list);
+            if (activeList.length > 0 && activeList.length < list.length) {
+                const activeVisibleSet = __tmBuildWhiteboardSequenceVisibleTaskSet(activeList);
+                if (activeVisibleSet instanceof Set && activeVisibleSet.size) {
+                    return list.filter((task) => !!task?.done || activeVisibleSet.has(String(task?.id || '').trim()));
+                }
+            }
+        }
         const visibleSet = __tmBuildWhiteboardSequenceVisibleTaskSet(list);
         if (!(visibleSet instanceof Set) || !visibleSet.size) return list;
         return list.filter((t) => visibleSet.has(String(t?.id || '').trim()));

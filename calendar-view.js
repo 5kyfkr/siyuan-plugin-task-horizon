@@ -146,6 +146,7 @@
         settingsStore: null,
         opts: null,
         tomatoListener: null,
+        reminderRefreshListener: null,
         tomatoRefetchTimer: null,
         _persistTimer: null,
         sidePage: 'calendar',
@@ -1905,6 +1906,12 @@
         return { title, titleText, timeText };
     }
 
+    function isTaskRepeatRuleEnabled(rule) {
+        const base = (rule && typeof rule === 'object') ? rule : {};
+        const type = String(base.type || base.repeatType || '').trim().toLowerCase();
+        return base.enabled === true && type && type !== 'none';
+    }
+
     function buildCnHolidayEventContent(arg) {
         const ext = arg?.event?.extendedProps || {};
         const type = Number(ext.__tmCnHolidayType);
@@ -3633,6 +3640,7 @@
             cnHolidayColor: String(s.calendarCnHolidayColor || '#ff3333').trim() || '#ff3333',
             showLunar: !!s.calendarShowLunar,
             showTomatoMaster: tomatoMaster,
+            showTaskReminders: s.calendarShowTaskReminders !== false,
             showFocus: tomatoMaster && (s.calendarShowFocus !== false),
             showBreak: tomatoMaster && (s.calendarShowBreak !== false),
             showStopwatch: tomatoMaster && (s.calendarShowStopwatch !== false),
@@ -3988,6 +3996,15 @@
 
         if (calList) {
             const calItems = [];
+            calItems.push(`
+                <label class="tm-calendar-nav-item">
+                    <span class="tm-calendar-nav-left">
+                        <span class="tm-calendar-nav-dot tm-calendar-nav-dot--reminder"></span>
+                        <span class="tm-calendar-nav-label">任务提醒</span>
+                    </span>
+                    <input class="tm-calendar-nav-check" type="checkbox" data-tm-cal-filter="taskReminders" ${settings.showTaskReminders ? 'checked' : ''}>
+                </label>
+            `);
             calItems.push(`
                 <div class="tm-calendar-nav-item-row">
                     <label class="tm-calendar-nav-item tm-calendar-nav-item--grow">
@@ -6380,6 +6397,7 @@
             const repeatMonthlyMode0 = getScheduleRepeatMonthlyMode(base, repeatType0);
             const notificationSchedules0 = sanitizeScheduleNotificationSchedules(base.notificationSchedules);
             const completedOccurrences0 = normalizeScheduleCompletedOccurrences(base.completedOccurrences);
+            const skippedOccurrences0 = normalizeScheduleSkippedOccurrences(base.skippedOccurrences);
             if (String(base.reminderMode || '').trim() !== reminderMode0) changed = true;
             if (getScheduleRepeatType({
                 repeatType: base.repeatType,
@@ -6410,6 +6428,7 @@
             }, repeatType0) !== repeatMonthlyMode0) changed = true;
             if (JSON.stringify(base.notificationSchedules || {}) !== JSON.stringify(notificationSchedules0)) changed = true;
             if (JSON.stringify(Array.isArray(base.completedOccurrences) ? base.completedOccurrences : []) !== JSON.stringify(completedOccurrences0)) changed = true;
+            if (JSON.stringify(Array.isArray(base.skippedOccurrences) ? base.skippedOccurrences : []) !== JSON.stringify(skippedOccurrences0)) changed = true;
             return {
                 ...base,
                 id,
@@ -6424,6 +6443,7 @@
                 repeatMonthlyMode: repeatMonthlyMode0,
                 notificationSchedules: notificationSchedules0,
                 completedOccurrences: completedOccurrences0,
+                skippedOccurrences: skippedOccurrences0,
             };
         });
         return { out, changed };
@@ -6560,6 +6580,38 @@
         return getScheduleCompletedOccurrenceSet(item).has(key);
     }
 
+    function normalizeScheduleSkippedOccurrenceKey(value) {
+        const n = Math.trunc(Number(value));
+        if (!Number.isFinite(n) || n <= 0) return '';
+        return String(n);
+    }
+
+    function normalizeScheduleSkippedOccurrences(value) {
+        const list = Array.isArray(value) ? value : [];
+        const out = [];
+        const seen = new Set();
+        for (const entry of list) {
+            const key = normalizeScheduleSkippedOccurrenceKey(
+                entry?.startMs
+                ?? entry?.occurrenceStartMs
+                ?? entry?.time
+                ?? entry
+            );
+            if (!key || seen.has(key)) continue;
+            seen.add(key);
+            out.push(key);
+        }
+        out.sort((a, b) => Number(a) - Number(b));
+        return out;
+    }
+
+    function getScheduleSkippedOccurrenceSet(item) {
+        const set = new Set();
+        const arr = normalizeScheduleSkippedOccurrences(item?.skippedOccurrences);
+        for (const key of arr) set.add(key);
+        return set;
+    }
+
     function getScheduleWeekdayLabel(weekday) {
         const labels = ['周日', '周一', '周二', '周三', '周四', '周五', '周六'];
         const idx = Number(weekday);
@@ -6659,6 +6711,7 @@
         const repeatEvery = getScheduleRepeatEvery(item, repeatType);
         const repeatUntil = getScheduleRepeatUntil(item);
         const repeatMonthlyMode = getScheduleRepeatMonthlyMode(item, repeatType);
+        const skippedOccurrenceSet = getScheduleSkippedOccurrenceSet(item);
         const limit = Math.max(1, Math.min(Number(options?.limit) || 400, 2400));
         const out = [];
         const dayMs = 86400000;
@@ -6667,6 +6720,7 @@
             if (repeatUntil && formatDateKey(occStart) > repeatUntil) return false;
             const occStartMs = occStart.getTime();
             if (occStartMs >= rangeEndMs) return false;
+            if (repeatType !== 'none' && skippedOccurrenceSet.has(String(Math.trunc(occStartMs)))) return true;
             const occEndMs = occStartMs + durationMs;
             if (!overlap(occStartMs, occEndMs, rangeStartMs, rangeEndMs)) return true;
             out.push({
@@ -8742,6 +8796,15 @@
             reminderEnabled: null,
             reminderOffsetMin: null,
         };
+        if (base.taskDateRecurringException === true || base.detachedTaskOccurrence === true) {
+            item.taskDateRecurringException = true;
+            item.detachedTaskOccurrence = true;
+            item.source = 'taskdate-recurring-exception';
+            item.scheduleDone = base.scheduleDone === true || base.completed === true;
+            item.completed = item.scheduleDone;
+            item.detachedCompletedAt = String(base.detachedCompletedAt || base.repeatHistoryCompletedAt || '').trim();
+            item.repeatHistoryCompletedAt = item.detachedCompletedAt;
+        }
         list.push(item);
         await saveScheduleAll(list, {
             reason: 'add-task-schedule',
@@ -8836,6 +8899,74 @@
         return nextItem;
     }
 
+    function isTaskDateRecurringExceptionScheduleItem(item) {
+        const base = (item && typeof item === 'object') ? item : {};
+        return base.taskDateRecurringException === true
+            || base.detachedTaskOccurrence === true
+            || String(base.source || base.origin || '').trim() === 'taskdate-recurring-exception';
+    }
+
+    function isTaskDateRecurringExceptionDone(item) {
+        const base = (item && typeof item === 'object') ? item : {};
+        return base.scheduleDone === true
+            || base.completed === true
+            || base.done === true;
+    }
+
+    async function isLinkedTaskRecurringTask(taskId) {
+        const tid = String(taskId || '').trim();
+        if (!tid || typeof window.tmGetTaskRepeatRule !== 'function') return false;
+        try {
+            const rule = await window.tmGetTaskRepeatRule(tid);
+            return !!isTaskRepeatRuleEnabled(rule);
+        } catch (e) {
+            return false;
+        }
+    }
+
+    function buildTaskDateRecurringExceptionHistoryEntry(item, completedAt) {
+        const base = (item && typeof item === 'object') ? item : {};
+        const startMs = toMs(base.start);
+        const endMs = toMs(base.end);
+        const sourceStart = Number.isFinite(startMs) ? formatDateKey(new Date(startMs)) : '';
+        let sourceDue = sourceStart;
+        if (Number.isFinite(endMs) && endMs > startMs) {
+            const endDate = new Date(endMs - ((base.allDay === true || isAllDayRange(new Date(startMs), new Date(endMs))) ? 86400000 : 0));
+            const endKey = formatDateKey(endDate);
+            if (endKey) sourceDue = endKey;
+        }
+        return {
+            completedAt: String(completedAt || '').trim(),
+            sourceStart,
+            sourceDue,
+            content: String(base.title || '').trim(),
+        };
+    }
+
+    async function syncTaskDateRecurringExceptionHistory(item, nextDone, options = {}) {
+        const base = (item && typeof item === 'object') ? item : {};
+        const taskId = String(base.taskId || base.task_id || base.linkedTaskId || base.linked_task_id || '').trim();
+        if (!taskId || typeof window.tmSetDetachedTaskRepeatHistoryEntry !== 'function') return '';
+        const prevCompletedAt = String(base.detachedCompletedAt || base.repeatHistoryCompletedAt || '').trim();
+        const completedAt = nextDone
+            ? (prevCompletedAt || new Date().toISOString())
+            : prevCompletedAt;
+        if (!completedAt) return '';
+        const opt = (options && typeof options === 'object') ? options : {};
+        const result = await window.tmSetDetachedTaskRepeatHistoryEntry(
+            taskId,
+            nextDone === true,
+            buildTaskDateRecurringExceptionHistoryEntry(base, completedAt),
+            {
+                source: String(opt.source || 'calendar-detached-schedule-done').trim() || 'calendar-detached-schedule-done',
+                refresh: opt.refresh !== false,
+                refreshCalendar: opt.refreshCalendar !== false,
+                withFilters: true,
+            }
+        );
+        return String(result?.completedAt || completedAt || '').trim();
+    }
+
     async function setScheduleOccurrenceDone(scheduleId, occurrenceStartMs, done, options = {}) {
         const sid = String(scheduleId || '').trim();
         const occurrenceKey = normalizeScheduleCompletedOccurrenceKey(occurrenceStartMs);
@@ -8844,7 +8975,56 @@
         const idx = list.findIndex((item) => String(item?.id || '').trim() === sid);
         if (idx < 0) throw new Error('未找到日程');
         const prevItem = (list[idx] && typeof list[idx] === 'object') ? list[idx] : {};
-        if (normalizeScheduleRepeatType(getScheduleRepeatType(prevItem)) === 'none') return false;
+        const opt = (options && typeof options === 'object') ? options : {};
+        if (normalizeScheduleRepeatType(getScheduleRepeatType(prevItem)) === 'none') {
+            if (!isTaskDateRecurringExceptionScheduleItem(prevItem) && opt.detachedTaskOccurrence !== true) {
+                const taskId = String(prevItem.taskId || prevItem.task_id || prevItem.linkedTaskId || prevItem.linked_task_id || '').trim();
+                const startMs = toMs(prevItem.start);
+                const endMs = toMs(prevItem.end);
+                const isAllDayLinkedRecurringTask = !!taskId
+                    && (prevItem.allDay === true || (Number.isFinite(startMs) && Number.isFinite(endMs) && endMs > startMs && isAllDayRange(new Date(startMs), new Date(endMs))))
+                    && await isLinkedTaskRecurringTask(taskId);
+                if (!isAllDayLinkedRecurringTask) return false;
+            }
+            const nextDone = done === true;
+            const prevDone = isTaskDateRecurringExceptionDone(prevItem);
+            if (prevDone === nextDone && isTaskDateRecurringExceptionScheduleItem(prevItem)) return true;
+            const historyCompletedAt = await syncTaskDateRecurringExceptionHistory(prevItem, nextDone, {
+                source: String(opt.source || 'calendar-detached-schedule-done').trim() || 'calendar-detached-schedule-done',
+                refresh: true,
+                refreshCalendar: false,
+            });
+            const nextItem = {
+                ...prevItem,
+                taskDateRecurringException: true,
+                detachedTaskOccurrence: true,
+                source: String(prevItem.source || '').trim() || 'taskdate-recurring-exception',
+                scheduleDone: nextDone,
+                completed: nextDone,
+                detachedCompletedAt: nextDone ? historyCompletedAt : '',
+                repeatHistoryCompletedAt: nextDone ? historyCompletedAt : '',
+            };
+            list[idx] = nextItem;
+            await saveScheduleAll(list, {
+                reason: 'schedule-occurrence-done',
+                source: String(opt.source || 'schedule-occurrence').trim() || 'schedule-occurrence',
+                op: 'update',
+                scheduleId: sid,
+                scheduleIds: [sid],
+                rangeStart: nextItem.start,
+                rangeEnd: nextItem.end,
+            });
+            if (opt.refresh !== false) {
+                __tmSchedulePostMutationRefresh(nextItem, 'upsert', {
+                    reason: 'schedule-occurrence-done',
+                    flushTaskPanel: false,
+                    rangeStart: nextItem.start,
+                    rangeEnd: nextItem.end,
+                    version: Number(state.calendarMutationVersion) || 0,
+                });
+            }
+            return true;
+        }
         const nextDone = done === true;
         const completedSet = getScheduleCompletedOccurrenceSet(prevItem);
         if (nextDone) completedSet.add(occurrenceKey);
@@ -8857,7 +9037,6 @@
             completedOccurrences: nextCompletedOccurrences,
         };
         list[idx] = nextItem;
-        const opt = (options && typeof options === 'object') ? options : {};
         await saveScheduleAll(list, {
             reason: 'schedule-occurrence-done',
             source: String(opt.source || 'schedule-occurrence').trim() || 'schedule-occurrence',
@@ -8880,6 +9059,459 @@
             });
         }
         return true;
+    }
+
+    function showScheduleRecurringEditScopeDialog(options = {}) {
+        const opt = (options && typeof options === 'object') ? options : {};
+        return new Promise((resolve) => {
+            const prev = document.getElementById('tm-calendar-recurring-scope-dialog');
+            if (prev) {
+                try { prev.remove(); } catch (e) {}
+            }
+            const modal = document.createElement('div');
+            modal.id = 'tm-calendar-recurring-scope-dialog';
+            modal.className = 'tm-calendar-edit-modal';
+            modal.style.zIndex = String(getOverlayZIndex(state.modalEl, 200000) + 4);
+            const title = String(opt.title || '修改循环日程').trim() || '修改循环日程';
+            const message = String(opt.message || '这是一个循环重复的日程。请选择本次修改的范围。').trim() || '这是一个循环重复的日程。请选择本次修改的范围。';
+            modal.innerHTML = `
+                <div class="tm-calendar-edit-box" role="dialog" aria-modal="true" aria-label="${esc(title)}">
+                    <div class="tm-calendar-edit-title">${esc(title)}</div>
+                    <div class="tm-calendar-edit-value" style="white-space:normal;line-height:1.55;margin-bottom:12px;">${esc(message)}</div>
+                    <div class="tm-calendar-edit-actions" style="flex-wrap:wrap;">
+                        <button class="tm-btn tm-btn-secondary" type="button" data-tm-recurring-scope="cancel">取消</button>
+                        <div style="flex:1;"></div>
+                        <button class="tm-btn tm-btn-primary" type="button" data-tm-recurring-scope="one">仅当前这一次</button>
+                        <button class="tm-btn tm-btn-success" type="button" data-tm-recurring-scope="all">全部日程</button>
+                    </div>
+                </div>
+            `;
+            let settled = false;
+            const finish = (scope) => {
+                if (settled) return;
+                settled = true;
+                try { window.removeEventListener('keydown', onKeydown, true); } catch (e) {}
+                try { modal.remove(); } catch (e) {}
+                resolve(scope || '');
+            };
+            const onKeydown = (event) => {
+                if (event?.key === 'Escape') {
+                    try { event.preventDefault?.(); } catch (e) {}
+                    finish('');
+                }
+            };
+            modal.addEventListener('click', (event) => {
+                if (event.target === modal) {
+                    finish('');
+                    return;
+                }
+                const btn = findActionTarget(event?.target, 'data-tm-recurring-scope');
+                const scope = String(btn?.getAttribute?.('data-tm-recurring-scope') || '').trim();
+                if (!scope) return;
+                try { event.preventDefault?.(); } catch (e) {}
+                try { event.stopPropagation?.(); } catch (e) {}
+                finish(scope === 'all' || scope === 'one' ? scope : '');
+            });
+            window.addEventListener('keydown', onKeydown, true);
+            document.body.appendChild(modal);
+            try { modal.querySelector('[data-tm-recurring-scope="one"]')?.focus?.(); } catch (e) {}
+        });
+    }
+
+    function showScheduleRecurringDeleteScopeDialog(options = {}) {
+        const opt = (options && typeof options === 'object') ? options : {};
+        return new Promise((resolve) => {
+            const prev = document.getElementById('tm-calendar-recurring-delete-scope-dialog');
+            if (prev) {
+                try { prev.remove(); } catch (e) {}
+            }
+            const modal = document.createElement('div');
+            modal.id = 'tm-calendar-recurring-delete-scope-dialog';
+            modal.className = 'tm-calendar-edit-modal';
+            modal.style.zIndex = String(getOverlayZIndex(state.modalEl, 200000) + 4);
+            const title = String(opt.title || '删除循环日程').trim() || '删除循环日程';
+            const message = String(opt.message || '这是一个循环重复的日程。请选择删除范围。').trim() || '这是一个循环重复的日程。请选择删除范围。';
+            modal.innerHTML = `
+                <div class="tm-calendar-edit-box" role="dialog" aria-modal="true" aria-label="${esc(title)}">
+                    <div class="tm-calendar-edit-title">${esc(title)}</div>
+                    <div class="tm-calendar-edit-value" style="white-space:normal;line-height:1.55;margin-bottom:12px;">${esc(message)}</div>
+                    <div class="tm-calendar-edit-actions" style="flex-wrap:wrap;">
+                        <button class="tm-btn tm-btn-secondary" type="button" data-tm-recurring-delete-scope="cancel">取消</button>
+                        <div style="flex:1;"></div>
+                        <button class="tm-btn tm-btn-primary" type="button" data-tm-recurring-delete-scope="one">仅当前这一次</button>
+                        <button class="tm-btn tm-btn-danger" type="button" data-tm-recurring-delete-scope="future">当前及以后</button>
+                    </div>
+                </div>
+            `;
+            let settled = false;
+            const finish = (scope) => {
+                if (settled) return;
+                settled = true;
+                try { window.removeEventListener('keydown', onKeydown, true); } catch (e) {}
+                try { modal.remove(); } catch (e) {}
+                resolve(scope || '');
+            };
+            const onKeydown = (event) => {
+                if (event?.key === 'Escape') {
+                    try { event.preventDefault?.(); } catch (e) {}
+                    finish('');
+                }
+            };
+            modal.addEventListener('click', (event) => {
+                if (event.target === modal) {
+                    finish('');
+                    return;
+                }
+                const btn = findActionTarget(event?.target, 'data-tm-recurring-delete-scope');
+                const scope = String(btn?.getAttribute?.('data-tm-recurring-delete-scope') || '').trim();
+                if (!scope) return;
+                try { event.preventDefault?.(); } catch (e) {}
+                try { event.stopPropagation?.(); } catch (e) {}
+                finish(scope === 'future' || scope === 'one' ? scope : '');
+            });
+            window.addEventListener('keydown', onKeydown, true);
+            document.body.appendChild(modal);
+            try { modal.querySelector('[data-tm-recurring-delete-scope="one"]')?.focus?.(); } catch (e) {}
+        });
+    }
+
+    function resolveScheduleOccurrenceStartMs(item, meta = {}) {
+        const base = (item && typeof item === 'object') ? item : {};
+        const info = (meta && typeof meta === 'object') ? meta : {};
+        const candidates = [
+            info.occurrenceStartMs,
+            info.__tmOccurrenceStartMs,
+            info.parentOccurrenceStartMs,
+            info.occurrenceStart,
+            info.oldStart,
+            info.start,
+            base.start,
+        ];
+        for (const candidate of candidates) {
+            const ms = toMs(candidate);
+            if (Number.isFinite(ms) && ms > 0) return Math.trunc(ms);
+            const n = Math.trunc(Number(candidate));
+            if (Number.isFinite(n) && n > 0) return n;
+        }
+        return 0;
+    }
+
+    function shiftScheduleOccurrenceKeys(keys, deltaMs, normalizer) {
+        const normalize = typeof normalizer === 'function' ? normalizer : normalizeScheduleCompletedOccurrenceKey;
+        const delta = Math.trunc(Number(deltaMs) || 0);
+        const list = Array.isArray(keys) ? keys : [];
+        const out = [];
+        const seen = new Set();
+        for (const entry of list) {
+            const key = normalize(entry);
+            if (!key) continue;
+            const next = normalize(Number(key) + delta);
+            if (!next || seen.has(next)) continue;
+            seen.add(next);
+            out.push(next);
+        }
+        out.sort((a, b) => Number(a) - Number(b));
+        return out;
+    }
+
+    function pruneScheduleOccurrenceKeysBefore(keys, occurrenceStartMs, normalizer) {
+        const normalize = typeof normalizer === 'function' ? normalizer : normalizeScheduleCompletedOccurrenceKey;
+        const threshold = Math.trunc(Number(occurrenceStartMs) || 0);
+        const list = Array.isArray(keys) ? keys : [];
+        const out = [];
+        const seen = new Set();
+        for (const entry of list) {
+            const key = normalize(entry);
+            if (!key || seen.has(key)) continue;
+            if (threshold > 0 && Number(key) >= threshold) continue;
+            seen.add(key);
+            out.push(key);
+        }
+        out.sort((a, b) => Number(a) - Number(b));
+        return out;
+    }
+
+    function formatScheduleRepeatUntilBeforeOccurrence(occurrenceStartMs) {
+        const ms = Math.trunc(Number(occurrenceStartMs) || 0);
+        if (!Number.isFinite(ms) || ms <= 0) return '';
+        const dt = new Date(ms);
+        if (!(dt instanceof Date) || Number.isNaN(dt.getTime())) return '';
+        dt.setDate(dt.getDate() - 1);
+        return formatDateKey(dt);
+    }
+
+    function addScheduleSkippedOccurrence(item, occurrenceStartMs) {
+        const base = (item && typeof item === 'object') ? item : {};
+        const key = normalizeScheduleSkippedOccurrenceKey(occurrenceStartMs);
+        if (!key) return { ...base };
+        const skippedSet = getScheduleSkippedOccurrenceSet(base);
+        skippedSet.add(key);
+        return {
+            ...base,
+            skippedOccurrences: Array.from(skippedSet).sort((a, b) => Number(a) - Number(b)),
+        };
+    }
+
+    function buildScheduleRecurringSeriesUpdate(prevItem, draftItem, occurrenceStartMs) {
+        const prev = (prevItem && typeof prevItem === 'object') ? prevItem : {};
+        const draft = (draftItem && typeof draftItem === 'object') ? draftItem : {};
+        const baseStartMs = toMs(prev.start);
+        const nextStartMs = toMs(draft.start);
+        const nextEndMs = toMs(draft.end);
+        if (!Number.isFinite(baseStartMs) || !Number.isFinite(nextStartMs) || !Number.isFinite(nextEndMs) || nextEndMs <= nextStartMs) {
+            return { ...prev, ...draft, id: String(prev.id || draft.id || '').trim() };
+        }
+        const occurrenceMs = resolveScheduleOccurrenceStartMs(prev, { occurrenceStartMs });
+        const anchorMs = Number.isFinite(occurrenceMs) && occurrenceMs > 0 ? occurrenceMs : baseStartMs;
+        const deltaMs = nextStartMs - anchorMs;
+        const durationMs = Math.max(60000, nextEndMs - nextStartMs);
+        const shiftedStart = new Date(baseStartMs + deltaMs);
+        const shiftedEnd = new Date(shiftedStart.getTime() + durationMs);
+        return {
+            ...prev,
+            ...draft,
+            id: String(prev.id || draft.id || '').trim(),
+            start: safeISO(shiftedStart),
+            end: safeISO(shiftedEnd),
+            completedOccurrences: shiftScheduleOccurrenceKeys(prev.completedOccurrences, deltaMs, normalizeScheduleCompletedOccurrenceKey),
+            skippedOccurrences: shiftScheduleOccurrenceKeys(prev.skippedOccurrences, deltaMs, normalizeScheduleSkippedOccurrenceKey),
+        };
+    }
+
+    function buildScheduleSingleOccurrenceOverride(parentItem, draftItem, occurrenceStartMs) {
+        const parent = (parentItem && typeof parentItem === 'object') ? parentItem : {};
+        const draft = (draftItem && typeof draftItem === 'object') ? draftItem : {};
+        const occurrenceKey = normalizeScheduleSkippedOccurrenceKey(occurrenceStartMs);
+        return {
+            ...parent,
+            ...draft,
+            id: uuid(),
+            parentScheduleId: String(parent.id || '').trim(),
+            parentOccurrenceStartMs: occurrenceKey,
+            repeatType: 'none',
+            recurrenceType: 'none',
+            repeat: 'none',
+            recurrence: 'none',
+            repeatEvery: 1,
+            recurrenceEvery: 1,
+            intervalEvery: 1,
+            repeatInterval: 1,
+            repeatUntil: '',
+            recurrenceUntil: '',
+            repeatEnd: '',
+            repeatMonthlyMode: 'date',
+            recurrenceMonthlyMode: 'date',
+            completedOccurrences: [],
+            skippedOccurrences: [],
+            notificationSchedules: sanitizeScheduleNotificationSchedules(draft.notificationSchedules || parent.notificationSchedules),
+        };
+    }
+
+    function applyScheduleRecurringScopeMutation(list, index, draftItem, scope, meta = {}) {
+        const arr = Array.isArray(list) ? list : [];
+        const idx = Number(index);
+        const prevItem = arr[idx] && typeof arr[idx] === 'object' ? arr[idx] : {};
+        const occurrenceStartMs = resolveScheduleOccurrenceStartMs(prevItem, meta);
+        if (scope === 'one') {
+            const parentItem = addScheduleSkippedOccurrence(prevItem, occurrenceStartMs);
+            const singleItem = buildScheduleSingleOccurrenceOverride(prevItem, draftItem, occurrenceStartMs);
+            arr[idx] = parentItem;
+            arr.push(singleItem);
+            return {
+                item: singleItem,
+                parentItem,
+                scheduleIds: [String(parentItem.id || '').trim(), String(singleItem.id || '').trim()].filter(Boolean),
+                rangeStart: singleItem.start,
+                rangeEnd: singleItem.end,
+                needsRefetch: true,
+            };
+        }
+        const item = buildScheduleRecurringSeriesUpdate(prevItem, draftItem, occurrenceStartMs);
+        arr[idx] = item;
+        return {
+            item,
+            parentItem: item,
+            scheduleIds: [String(item.id || '').trim()].filter(Boolean),
+            rangeStart: item.start,
+            rangeEnd: item.end,
+            needsRefetch: false,
+        };
+    }
+
+    function isScheduleChildOverrideOnOrAfter(item, parentScheduleId, occurrenceStartMs) {
+        const parentId = String(parentScheduleId || '').trim();
+        if (!parentId) return false;
+        const base = (item && typeof item === 'object') ? item : {};
+        if (String(base.parentScheduleId || '').trim() !== parentId) return false;
+        const key = normalizeScheduleSkippedOccurrenceKey(base.parentOccurrenceStartMs);
+        if (!key) return false;
+        const threshold = Math.trunc(Number(occurrenceStartMs) || 0);
+        return threshold > 0 && Number(key) >= threshold;
+    }
+
+    function applyScheduleRecurringDeleteScopeMutation(list, index, scope, meta = {}) {
+        const arr = Array.isArray(list) ? list : [];
+        const idx = Number(index);
+        const prevItem = arr[idx] && typeof arr[idx] === 'object' ? arr[idx] : {};
+        const scheduleId = String(prevItem.id || '').trim();
+        const occurrenceStartMs = resolveScheduleOccurrenceStartMs(prevItem, meta);
+        if (scope === 'one') {
+            const item = addScheduleSkippedOccurrence(prevItem, occurrenceStartMs);
+            arr[idx] = item;
+            return {
+                action: 'update',
+                item,
+                removedItem: null,
+                scheduleIds: [scheduleId].filter(Boolean),
+                rangeStart: item.start,
+                rangeEnd: item.end,
+                needsRefetch: true,
+            };
+        }
+
+        const baseStartMs = toMs(prevItem.start);
+        const removeParent = !Number.isFinite(baseStartMs) || !Number.isFinite(occurrenceStartMs) || occurrenceStartMs <= baseStartMs;
+        const removedChildren = [];
+        for (let i = arr.length - 1; i >= 0; i -= 1) {
+            if (i === idx) continue;
+            if (isScheduleChildOverrideOnOrAfter(arr[i], scheduleId, occurrenceStartMs)) {
+                removedChildren.push(arr[i]);
+                arr.splice(i, 1);
+            }
+        }
+        const parentIdx = arr.findIndex((item) => String(item?.id || '').trim() === scheduleId);
+        if (parentIdx < 0) {
+            return {
+                action: 'delete',
+                item: null,
+                removedItem: prevItem,
+                removedChildren,
+                scheduleIds: [scheduleId, ...removedChildren.map((item) => String(item?.id || '').trim())].filter(Boolean),
+                rangeStart: prevItem?.start,
+                rangeEnd: prevItem?.end,
+                needsRefetch: true,
+            };
+        }
+        if (removeParent) {
+            const removedItem = arr[parentIdx];
+            arr.splice(parentIdx, 1);
+            return {
+                action: 'delete',
+                item: null,
+                removedItem,
+                removedChildren,
+                scheduleIds: [scheduleId, ...removedChildren.map((item) => String(item?.id || '').trim())].filter(Boolean),
+                rangeStart: removedItem?.start,
+                rangeEnd: removedItem?.end,
+                needsRefetch: true,
+            };
+        }
+
+        const repeatUntil = formatScheduleRepeatUntilBeforeOccurrence(occurrenceStartMs);
+        const item = {
+            ...prevItem,
+            repeatUntil,
+            completedOccurrences: pruneScheduleOccurrenceKeysBefore(prevItem.completedOccurrences, occurrenceStartMs, normalizeScheduleCompletedOccurrenceKey),
+            skippedOccurrences: pruneScheduleOccurrenceKeysBefore(prevItem.skippedOccurrences, occurrenceStartMs, normalizeScheduleSkippedOccurrenceKey),
+        };
+        arr[parentIdx] = item;
+        return {
+            action: 'update',
+            item,
+            removedItem: prevItem,
+            removedChildren,
+            scheduleIds: [scheduleId, ...removedChildren.map((entry) => String(entry?.id || '').trim())].filter(Boolean),
+            rangeStart: item.start,
+            rangeEnd: item.end,
+            needsRefetch: true,
+        };
+    }
+
+    function refreshScheduleAfterMutationResult(result, reason, options = {}) {
+        const res = (result && typeof result === 'object') ? result : {};
+        const opt = (options && typeof options === 'object') ? options : {};
+        const item = res.item || res.parentItem || null;
+        if (res.needsRefetch) {
+            scheduleCalendarRefresh({
+                reason,
+                main: true,
+                side: true,
+                flushTaskPanel: true,
+                hard: opt.hard === true,
+                rangeStart: res.rangeStart || item?.start,
+                rangeEnd: res.rangeEnd || item?.end,
+                version: Number(state.calendarMutationVersion) || 0,
+            });
+            return;
+        }
+        __tmSchedulePostMutationRefresh(item, 'upsert', {
+            reason,
+            flushTaskPanel: true,
+            hard: opt.hard === true,
+            version: Number(state.calendarMutationVersion) || 0,
+        });
+    }
+
+    async function persistScheduleEventTimeChange(arg, reason) {
+        const ext = arg?.event?.extendedProps || {};
+        const id = String(ext.__tmScheduleId || arg?.event?.id || '').trim();
+        const start = arg?.event?.start;
+        const end0 = arg?.event?.end;
+        if (!id || !(start instanceof Date) || Number.isNaN(start.getTime())) {
+            throw new Error('invalid schedule event payload');
+        }
+        const isAllDay = arg?.event?.allDay === true;
+        const end = (end0 instanceof Date && !Number.isNaN(end0.getTime()) && end0.getTime() > start.getTime())
+            ? end0
+            : new Date(start.getTime() + (isAllDay ? 24 * 60 : 60) * 60000);
+        if (!(end instanceof Date) || Number.isNaN(end.getTime()) || end.getTime() <= start.getTime()) {
+            throw new Error('invalid schedule event time');
+        }
+        const list = await loadScheduleAll();
+        const idx = list.findIndex((x) => String(x?.id || '') === id);
+        if (idx < 0) {
+            throw new Error('schedule not found');
+        }
+        const prevItem = list[idx] && typeof list[idx] === 'object' ? list[idx] : {};
+        const allDay = isAllDay || isAllDayRange(start, end);
+        const draftItem = {
+            ...prevItem,
+            start: safeISO(start),
+            end: safeISO(end),
+            allDay,
+        };
+        const repeatType = normalizeScheduleRepeatType(getScheduleRepeatType(prevItem));
+        let mutationResult;
+        if (repeatType !== 'none') {
+            const scope = await showScheduleRecurringEditScopeDialog({
+                message: '这是一个循环重复的日程。要把这次拖拽/调整应用到全部日程，还是只改当前这一次？',
+            });
+            if (!scope) return { cancelled: true };
+            mutationResult = applyScheduleRecurringScopeMutation(list, idx, draftItem, scope, {
+                occurrenceStartMs: ext.__tmOccurrenceStartMs,
+                oldStart: arg?.oldEvent?.start,
+                start,
+            });
+        } else {
+            list[idx] = draftItem;
+            mutationResult = {
+                item: draftItem,
+                scheduleIds: [id],
+                rangeStart: draftItem.start,
+                rangeEnd: draftItem.end,
+                needsRefetch: false,
+            };
+        }
+        await saveScheduleAll(list, {
+            reason,
+            op: 'update',
+            scheduleId: id,
+            scheduleIds: mutationResult.scheduleIds,
+            rangeStart: mutationResult.rangeStart,
+            rangeEnd: mutationResult.rangeEnd,
+        });
+        refreshScheduleAfterMutationResult(mutationResult, reason);
+        return { saved: true, item: mutationResult.item, recurring: repeatType !== 'none' };
     }
 
     function parseTaskDurationMinutes(raw) {
@@ -9099,10 +9731,25 @@
             && !!normalizeScheduleCompletedOccurrenceKey(ext?.__tmOccurrenceStartMs);
     }
 
+    function isDetachedTaskOccurrenceEventExt(ext) {
+        return String(ext?.__tmSource || '').trim() === 'schedule'
+            && ext?.__tmDetachedTaskOccurrence === true
+            && !!String(ext?.__tmScheduleId || '').trim()
+            && !!normalizeScheduleCompletedOccurrenceKey(ext?.__tmOccurrenceStartMs);
+    }
+
+    function isLinkedAllDayTaskScheduleCandidateEventExt(ext) {
+        return String(ext?.__tmSource || '').trim() === 'schedule'
+            && ext?.__tmLinkedAllDayTaskSchedule === true
+            && !!String(ext?.__tmScheduleId || '').trim()
+            && !!normalizeScheduleCompletedOccurrenceKey(ext?.__tmOccurrenceStartMs);
+    }
+
     function resolveCalendarEventDoneState(ext, options = {}) {
         const source = String(ext?.__tmSource || '').trim();
         if (source === 'reminder') return ext?.__tmReminderDone === true;
         if (!(source === 'taskdate' || source === 'schedule')) return false;
+        if (isDetachedTaskOccurrenceEventExt(ext)) return ext?.__tmScheduleOccurrenceDone === true;
         const tid = String(ext?.__tmTaskId || ext?.__tmBlockId || '').trim();
         const opt = (options && typeof options === 'object') ? options : {};
         let taskDone = false;
@@ -9125,12 +9772,26 @@
         const nextDone = cb.checked === true;
         applyTaskDoneVisual(wrapEl, titleText, nextDone);
         try {
-            if (source === 'schedule' && isRecurringScheduleEventExt(ext)) {
+            if (source === 'schedule' && (isRecurringScheduleEventExt(ext) || isDetachedTaskOccurrenceEventExt(ext))) {
                 const scheduleId = String(ext?.__tmScheduleId || '').trim();
                 const occurrenceStartMs = Number(ext?.__tmOccurrenceStartMs);
                 const setter = globalThis.__tmCalendar?.setScheduleOccurrenceDone;
                 if (!scheduleId || !Number.isFinite(occurrenceStartMs) || typeof setter !== 'function') {
-                    throw new Error('循环日程实例状态接口不可用');
+                    throw new Error('日程实例状态接口不可用');
+                }
+                const result = setter(scheduleId, occurrenceStartMs, nextDone, {
+                    source: 'calendar-checkbox',
+                    detachedTaskOccurrence: isDetachedTaskOccurrenceEventExt(ext),
+                });
+                if (result && typeof result.then === 'function') await result;
+                return true;
+            }
+            if (source === 'schedule' && isLinkedAllDayTaskScheduleCandidateEventExt(ext) && tid && await isLinkedTaskRecurringTask(tid)) {
+                const scheduleId = String(ext?.__tmScheduleId || '').trim();
+                const occurrenceStartMs = Number(ext?.__tmOccurrenceStartMs);
+                const setter = globalThis.__tmCalendar?.setScheduleOccurrenceDone;
+                if (!scheduleId || !Number.isFinite(occurrenceStartMs) || typeof setter !== 'function') {
+                    throw new Error('日程实例状态接口不可用');
                 }
                 const result = setter(scheduleId, occurrenceStartMs, nextDone, {
                     source: 'calendar-checkbox',
@@ -10155,7 +10816,9 @@
                             return false;
                         };
                     }
-                    const rangeText = !hideRangeText && source === 'schedule'
+                    const suppressAllDayRangeText = isDetachedTaskOccurrenceEventExt(ext)
+                        || isLinkedAllDayTaskScheduleCandidateEventExt(ext);
+                    const rangeText = !hideRangeText && source === 'schedule' && !suppressAllDayRangeText
                         ? formatScheduleEventRangeText(arg?.event?.start, arg?.event?.end, arg?.event?.allDay === true)
                         : '';
                     const { title, titleText } = buildTaskEventTitleNode(String(arg?.event?.title || '').trim() || '任务', rangeText);
@@ -10292,6 +10955,8 @@
                                             title: String(arg?.event?.title || '').trim(),
                                             start: arg?.event?.start,
                                             end: arg?.event?.end,
+                                            occurrenceStartMs: ext.__tmOccurrenceStartMs,
+                                            repeatType: ext.__tmRepeatType,
                                         });
                                         return;
                                     }
@@ -10301,6 +10966,8 @@
                                         title: String(arg?.event?.title || '').trim(),
                                         start: arg?.event?.start,
                                         end: arg?.event?.end,
+                                        occurrenceStartMs: ext.__tmOccurrenceStartMs,
+                                        repeatType: ext.__tmRepeatType,
                                     });
                                 } catch (e) {}
                             });
@@ -10389,7 +11056,7 @@
                         (curSettings.showCnHoliday || curSettings.showLunar)
                             ? Promise.all(years.map((y) => loadCnHolidayYear(y))).then((arr) => arr.flat())
                             : Promise.resolve([]),
-                        curSettings.linkDockTomato ? loadReminderBlocks().catch(() => []) : Promise.resolve([]),
+                        (curSettings.linkDockTomato && curSettings.showTaskReminders !== false) ? loadReminderBlocks().catch(() => []) : Promise.resolve([]),
                     ]);
                     try {
                         const wantMap = !!(curSettings.showCnHoliday || curSettings.showLunar);
@@ -10489,11 +11156,15 @@
                     try {
                         const baseStart = String(ext.__tmScheduleBaseStart || '').trim();
                         const baseEnd = String(ext.__tmScheduleBaseEnd || '').trim();
+                        const occurrenceStartMs = normalizeScheduleSkippedOccurrenceKey(ext.__tmOccurrenceStartMs);
                         openScheduleModal({
                             id: String(ext.__tmScheduleId || activeEvent?.id || ''),
                             title: String(activeEvent?.title || ''),
-                            start: baseStart ? new Date(baseStart) : activeEvent?.start,
-                            end: baseEnd ? new Date(baseEnd) : activeEvent?.end,
+                            start: activeEvent?.start || (baseStart ? new Date(baseStart) : null),
+                            end: activeEvent?.end || (baseEnd ? new Date(baseEnd) : null),
+                            baseStart: baseStart ? new Date(baseStart) : null,
+                            baseEnd: baseEnd ? new Date(baseEnd) : null,
+                            occurrenceStartMs,
                             allDay: activeEvent?.allDay === true,
                             color: String(activeEvent?.backgroundColor || activeEvent?.borderColor || 'var(--tm-primary-color)'),
                             calendarId: String(ext.calendarId || 'default'),
@@ -10516,44 +11187,17 @@
                 const ext = arg?.event?.extendedProps || {};
                 const source = String(ext.__tmSource || '').trim();
                 if (source === 'schedule') {
-                    if (getScheduleRepeatType({ repeatType: ext.__tmRepeatType }) !== 'none') {
-                        toast('⚠ 循环日程请在编辑窗口中修改', 'warning');
-                        try { arg.revert(); } catch (e) {}
-                        return;
+                    try {
+                        const result = await persistScheduleEventTimeChange(arg, 'schedule-event-drop');
+                        if (result?.cancelled) {
+                            try { arg.revert(); } catch (e) {}
+                            return;
+                        }
+                        toast('✅ 已更新日程', 'success');
+                    } catch (e) {
+                        try { arg.revert(); } catch (e2) {}
+                        toast(`❌ 更新日程失败：${String(e?.message || e || '')}`, 'error');
                     }
-                    const id = String(ext.__tmScheduleId || arg?.event?.id || '').trim();
-                    const start = arg?.event?.start;
-                    const end0 = arg?.event?.end;
-                    if (!id || !(start instanceof Date) || Number.isNaN(start.getTime())) {
-                        try { arg.revert(); } catch (e) {}
-                        return;
-                    }
-                    const isAllDay = arg?.event?.allDay === true;
-                    const end = (end0 instanceof Date && !Number.isNaN(end0.getTime()) && end0.getTime() > start.getTime())
-                        ? end0
-                        : new Date(start.getTime() + (isAllDay ? 24 * 60 : 60) * 60000);
-                    const list = await loadScheduleAll();
-                    const idx = list.findIndex((x) => String(x?.id || '') === id);
-                    if (idx < 0) {
-                        try { arg.revert(); } catch (e) {}
-                        return;
-                    }
-                    const allDay = (arg?.event?.allDay === true) || isAllDayRange(start, end);
-                    list[idx] = { ...list[idx], start: safeISO(start), end: safeISO(end), allDay };
-                    await saveScheduleAll(list, {
-                        reason: 'schedule-event-drop',
-                        op: 'update',
-                        scheduleId: id,
-                        scheduleIds: [id],
-                        rangeStart: list[idx]?.start,
-                        rangeEnd: list[idx]?.end,
-                    });
-                    __tmSchedulePostMutationRefresh(list[idx], 'upsert', {
-                        reason: 'schedule-event-drop',
-                        flushTaskPanel: true,
-                        version: Number(state.calendarMutationVersion) || 0,
-                    });
-                    toast('✅ 已更新日程', 'success');
                     return;
                 }
                 if (source === 'taskdate') {
@@ -10563,8 +11207,12 @@
                             toast('✅ 已加入日程', 'success');
                             return;
                         }
-                        await persistTaskDateEventChange(arg);
-                        toast('✅ 已更新任务日期', 'success');
+                        const result = await persistTaskDateEventChange(arg);
+                        if (result?.cancelled) {
+                            try { arg.revert(); } catch (e) {}
+                            return;
+                        }
+                        toast(result?.scope === 'one' ? '✅ 已新增本次例外日程' : '✅ 已更新任务日期', 'success');
                     } catch (e) {
                         try { arg.revert(); } catch (e2) {}
                         toast(`❌ 更新任务日期失败：${String(e?.message || e || '')}`, 'error');
@@ -10578,8 +11226,12 @@
                 const source = String(ext.__tmSource || '').trim();
                 if (source === 'taskdate') {
                     try {
-                        await persistTaskDateEventChange(arg);
-                        toast('✅ 已更新任务日期', 'success');
+                        const result = await persistTaskDateEventChange(arg);
+                        if (result?.cancelled) {
+                            try { arg.revert(); } catch (e) {}
+                            return;
+                        }
+                        toast(result?.scope === 'one' ? '✅ 已新增本次例外日程' : '✅ 已更新任务日期', 'success');
                     } catch (e) {
                         try { arg.revert(); } catch (e2) {}
                         toast(`❌ 更新任务日期失败：${String(e?.message || e || '')}`, 'error');
@@ -10590,40 +11242,17 @@
                     try { arg.revert(); } catch (e) {}
                     return;
                 }
-                if (getScheduleRepeatType({ repeatType: ext.__tmRepeatType }) !== 'none') {
-                    toast('⚠ 循环日程请在编辑窗口中修改', 'warning');
-                    try { arg.revert(); } catch (e) {}
-                    return;
+                try {
+                    const result = await persistScheduleEventTimeChange(arg, 'schedule-event-resize');
+                    if (result?.cancelled) {
+                        try { arg.revert(); } catch (e) {}
+                        return;
+                    }
+                    toast('✅ 已更新日程', 'success');
+                } catch (e) {
+                    try { arg.revert(); } catch (e2) {}
+                    toast(`❌ 更新日程失败：${String(e?.message || e || '')}`, 'error');
                 }
-                const id = String(ext.__tmScheduleId || arg?.event?.id || '').trim();
-                const start = arg?.event?.start;
-                const end = arg?.event?.end;
-                if (!id || !(start instanceof Date) || !(end instanceof Date) || Number.isNaN(start.getTime()) || Number.isNaN(end.getTime()) || end.getTime() <= start.getTime()) {
-                    try { arg.revert(); } catch (e) {}
-                    return;
-                }
-                const list = await loadScheduleAll();
-                const idx = list.findIndex((x) => String(x?.id || '') === id);
-                if (idx < 0) {
-                    try { arg.revert(); } catch (e) {}
-                    return;
-                }
-                const allDay = (arg?.event?.allDay === true) || isAllDayRange(start, end);
-                list[idx] = { ...list[idx], start: safeISO(start), end: safeISO(end), allDay };
-                await saveScheduleAll(list, {
-                    reason: 'schedule-event-resize',
-                    op: 'update',
-                    scheduleId: id,
-                    scheduleIds: [id],
-                    rangeStart: list[idx]?.start,
-                    rangeEnd: list[idx]?.end,
-                });
-                __tmSchedulePostMutationRefresh(list[idx], 'upsert', {
-                    reason: 'schedule-event-resize',
-                    flushTaskPanel: true,
-                    version: Number(state.calendarMutationVersion) || 0,
-                });
-                toast('✅ 已更新日程', 'success');
             },
             dateClick: (info) => {
                 try {
@@ -10994,6 +11623,9 @@
             const repeatUntil = getScheduleRepeatUntil(it);
             const repeatMonthlyMode = getScheduleRepeatMonthlyMode(it, repeatType);
             const completedOccurrenceSet = getScheduleCompletedOccurrenceSet(it);
+            const isDetachedTaskOccurrence = isTaskDateRecurringExceptionScheduleItem(it);
+            const detachedTaskOccurrenceDone = isTaskDateRecurringExceptionDone(it);
+            const isLinkedAllDayTaskSchedule = !!taskId && repeatType === 'none' && allDayBase;
             const occurrences = collectScheduleOccurrencesInRange(it, rangeStart, rangeEnd, {
                 limit: String(repeatType || 'none') === 'none' ? 1 : 300,
             });
@@ -11002,7 +11634,9 @@
                 const occEnd = occurrence?.end instanceof Date ? occurrence.end : end;
                 const allDay = allDayBase || isAllDayRange(occStart, occEnd);
                 const occStartMs = Number(occurrence?.startMs || occStart.getTime());
-                const occurrenceDone = Number.isFinite(occStartMs) && completedOccurrenceSet.has(String(Math.trunc(occStartMs)));
+                const occurrenceDone = isDetachedTaskOccurrence
+                    ? detachedTaskOccurrenceDone
+                    : (Number.isFinite(occStartMs) && completedOccurrenceSet.has(String(Math.trunc(occStartMs))));
                 out.push({
                     id: repeatType === 'none' ? String(it?.id || uuid()) : `${String(it?.id || uuid())}:${occStartMs}`,
                     title: titleBase,
@@ -11010,9 +11644,9 @@
                     end: occEnd,
                     allDay,
                     classNames: allDay ? ['tm-cal-allday-soft-event'] : ['tm-cal-schedule-event'],
-                    editable: repeatType === 'none',
-                    startEditable: repeatType === 'none',
-                    durationEditable: repeatType === 'none',
+                    editable: true,
+                    startEditable: true,
+                    durationEditable: true,
                     backgroundColor: color,
                     borderColor: color,
                     __tmRank: 1,
@@ -11034,6 +11668,8 @@
                         __tmScheduleBaseEnd: safeISO(end),
                         __tmOccurrenceStartMs: occStartMs,
                         __tmScheduleOccurrenceDone: occurrenceDone,
+                        __tmDetachedTaskOccurrence: isDetachedTaskOccurrence,
+                        __tmLinkedAllDayTaskSchedule: isLinkedAllDayTaskSchedule,
                         __tmDocId: linkedDocId,
                         calendarId,
                     },
@@ -11118,6 +11754,8 @@
             '__tmScheduleBaseEnd',
             '__tmOccurrenceStartMs',
             '__tmScheduleOccurrenceDone',
+            '__tmDetachedTaskOccurrence',
+            '__tmLinkedAllDayTaskSchedule',
             '__tmDocId',
             'calendarId',
         ];
@@ -11656,10 +12294,120 @@
         try { eventApi.setExtendedProp('__tmTaskDateSourceCompletionKey', String(patch.completionTime || '').trim()); } catch (e) {}
     }
 
+    async function getTaskDateEventRepeatRule(eventApi) {
+        const ext = eventApi?.extendedProps || {};
+        const taskId = String(ext.__tmTaskId || '').trim();
+        if (!taskId || typeof window.tmGetTaskRepeatRule !== 'function') return null;
+        let rule = null;
+        try { rule = await window.tmGetTaskRepeatRule(taskId); } catch (e) { rule = null; }
+        return isTaskRepeatRuleEnabled(rule) ? rule : null;
+    }
+
+    function isAllDayTaskDateEvent(eventApi) {
+        if (eventApi?.allDay !== true) return false;
+        const start = eventApi?.start instanceof Date ? eventApi.start : null;
+        if (!(start instanceof Date) || Number.isNaN(start.getTime())) return false;
+        const end0 = eventApi?.end instanceof Date ? eventApi.end : null;
+        if (!(end0 instanceof Date) || Number.isNaN(end0.getTime()) || end0.getTime() <= start.getTime()) return true;
+        return isAllDayRange(start, end0);
+    }
+
+    async function createAllDayScheduleFromTaskDateEvent(arg, options = {}) {
+        const eventApi = arg?.event;
+        const ext = eventApi?.extendedProps || {};
+        const taskId = String(ext.__tmTaskId || '').trim();
+        const start = eventApi?.start instanceof Date ? eventApi.start : null;
+        if (!taskId || !(start instanceof Date) || Number.isNaN(start.getTime())) {
+            throw new Error('无效的任务日期事件');
+        }
+        const end0 = eventApi?.end instanceof Date ? eventApi.end : null;
+        const end = (end0 instanceof Date && !Number.isNaN(end0.getTime()) && end0.getTime() > start.getTime())
+            ? end0
+            : new Date(start.getTime() + 24 * 60 * 60000);
+        const settings = getSettings();
+        let dragMeta = null;
+        try {
+            dragMeta = (typeof window.tmCalendarGetTaskDragMeta === 'function')
+                ? window.tmCalendarGetTaskDragMeta(taskId)
+                : null;
+        } catch (e) {}
+        const title = String(eventApi?.title || dragMeta?.title || '').trim() || '任务';
+        const calendarId = String(dragMeta?.calendarId || ext.calendarId || '').trim() || pickDefaultCalendarId(settings);
+        const defs = getCalendarDefs(settings);
+        const sourceColor = String(
+            eventApi?.backgroundColor
+            || eventApi?.borderColor
+            || defs.find((d) => String(d?.id || '').trim() === calendarId)?.color
+            || ''
+        ).trim();
+        const opt = (options && typeof options === 'object') ? options : {};
+        return await addTaskSchedule({
+            taskId,
+            title,
+            start,
+            end,
+            calendarId,
+            color: sourceColor,
+            durationMin: 24 * 60,
+            allDay: true,
+            taskDateRecurringException: true,
+            detachedTaskOccurrence: true,
+            scheduleDone: false,
+            refresh: opt.refresh !== false,
+        });
+    }
+
+    async function persistTaskDateRecurringSingleOccurrenceChange(arg, patch) {
+        if (typeof window.tmSkipRecurringTaskOccurrence !== 'function') {
+            throw new Error('未检测到循环任务跳过接口');
+        }
+        const created = await createAllDayScheduleFromTaskDateEvent(arg, { refresh: false });
+        try {
+            await window.tmSkipRecurringTaskOccurrence(patch.taskId, {
+                source: 'calendar-taskdate-recurring-single',
+                refresh: false,
+                refreshCalendar: false,
+                withFilters: true,
+            });
+        } catch (e) {
+            try {
+                const sid = String(created?.id || '').trim();
+                if (sid) await deleteScheduleById(sid, { closeModal: false });
+            } catch (e2) {}
+            throw e;
+        }
+        try { arg?.revert?.(); } catch (e) {}
+        try {
+            scheduleCalendarRefresh({
+                reason: 'taskdate-recurring-single-exception',
+                main: true,
+                side: true,
+                flushTaskPanel: true,
+                hard: true,
+                rangeStart: patch.startDate || patch.startKey,
+                rangeEnd: patch.completionTime || patch.endExclusiveKey,
+            });
+        } catch (e) {}
+        return { saved: true, recurring: true, scope: 'one', item: created, patch, reverted: true };
+    }
+
     async function persistTaskDateEventChange(arg) {
         const patch = buildTaskDatePatchFromEvent(arg?.event);
         if (!patch) throw new Error('无效的任务日期事件');
         if (typeof window.tmUpdateTaskDates !== 'function') throw new Error('未检测到任务日期更新接口');
+        const repeatRule = isAllDayTaskDateEvent(arg?.event)
+            ? await getTaskDateEventRepeatRule(arg?.event)
+            : null;
+        if (repeatRule) {
+            const scope = await showScheduleRecurringEditScopeDialog({
+                title: '修改循环任务日期',
+                message: '这是一个时间中心循环任务。要把这次拖拽/调整应用到全部循环，还是只为当前这一次创建普通全天日程例外？',
+            });
+            if (!scope) return { cancelled: true };
+            if (scope === 'one') {
+                return await persistTaskDateRecurringSingleOccurrenceChange(arg, patch);
+            }
+        }
         await window.tmUpdateTaskDates(patch.taskId, {
             startDate: patch.startDate,
             completionTime: patch.completionTime,
@@ -11675,7 +12423,7 @@
                 rangeEnd: patch.completionTime || patch.endExclusiveKey,
             });
         } catch (e) {}
-        return patch;
+        return repeatRule ? { ...patch, saved: true, recurring: true, scope: 'all' } : patch;
     }
 
     function shouldCreateScheduleFromTaskDateDrop(arg) {
@@ -11989,6 +12737,7 @@
 
     function buildEventsFromReminders(reminders, rangeStart, rangeEnd, settings) {
         if (!settings.linkDockTomato) return [];
+        if (settings.showTaskReminders === false) return [];
         const start = parseDateOnly(rangeStart instanceof Date ? formatDateKey(rangeStart) : String(rangeStart || ''));
         const end = parseDateOnly(rangeEnd instanceof Date ? formatDateKey(rangeEnd) : String(rangeEnd || ''));
         if (!(start instanceof Date) || !(end instanceof Date)) return [];
@@ -13573,8 +14322,13 @@
             }
             if (action === 'delete') {
                 if (!scheduleId) return;
-                await deleteScheduleById(scheduleId, { closeModal: true });
-                toast('✅ 已删除', 'success');
+                const ok = await deleteScheduleById(scheduleId, {
+                    closeModal: true,
+                    occurrenceStartMs: init.occurrenceStartMs,
+                    occurrenceStart: init.occurrenceStart,
+                    start,
+                });
+                if (ok) toast('✅ 已删除', 'success');
                 return;
             }
             if (action === 'save') {
@@ -13678,15 +14432,36 @@
                     repeatUntil: repeatDraft.repeatUntil,
                     repeatMonthlyMode: repeatDraft.repeatMonthlyMode,
                 };
-                if (idx >= 0) list[idx] = item;
-                else list.push(item);
+                const isRecurringEdit = idx >= 0 && normalizeScheduleRepeatType(getScheduleRepeatType(prevItem)) !== 'none';
+                let mutationResult = null;
+                if (isRecurringEdit) {
+                    const scope = await showScheduleRecurringEditScopeDialog({
+                        message: '这是一个循环重复的日程。要把这次保存应用到全部日程，还是只改当前这一次？',
+                    });
+                    if (!scope) return;
+                    mutationResult = applyScheduleRecurringScopeMutation(list, idx, item, scope, {
+                        occurrenceStartMs: init.occurrenceStartMs,
+                        occurrenceStart: init.occurrenceStart,
+                        start,
+                    });
+                } else {
+                    if (idx >= 0) list[idx] = item;
+                    else list.push(item);
+                    mutationResult = {
+                        item,
+                        scheduleIds: [id],
+                        rangeStart: item.start,
+                        rangeEnd: item.end,
+                        needsRefetch: false,
+                    };
+                }
                 await saveScheduleAll(list, {
                     reason: 'save-schedule-modal',
                     op: idx >= 0 ? 'update' : 'add',
                     scheduleId: id,
-                    scheduleIds: [id],
-                    rangeStart: item.start,
-                    rangeEnd: item.end,
+                    scheduleIds: mutationResult.scheduleIds,
+                    rangeStart: mutationResult.rangeStart,
+                    rangeEnd: mutationResult.rangeEnd,
                 });
                 try {
                     const store = state.settingsStore;
@@ -13705,11 +14480,8 @@
                     } catch (e2) {}
                 }
                 closeModal();
-                __tmSchedulePostMutationRefresh(item, 'upsert', {
-                    reason: 'save-schedule-modal',
-                    flushTaskPanel: true,
+                refreshScheduleAfterMutationResult(mutationResult, 'save-schedule-modal', {
                     hard: String(state.calendar?.view?.type || '').trim() === 'dayGridMonth',
-                    version: Number(state.calendarMutationVersion) || 0,
                 });
                 toast('✅ 已保存', 'success');
             }
@@ -13723,6 +14495,17 @@
             state.tomatoRefetchTimer = null;
             try { state.calendar?.refetchEvents?.(); } catch (e) {}
         }, 120);
+    }
+
+    function clearReminderCalendarCache() {
+        try {
+            state.reminderCache = { list: [], loadedAt: 0, inflight: null };
+        } catch (e) {}
+    }
+
+    function scheduleReminderCalendarRefetch() {
+        clearReminderCalendarCache();
+        scheduleTomatoRefetch();
     }
 
     function stabilizeCalendarLayout(cal, wrap, opt) {
@@ -14163,7 +14946,9 @@
                             return false;
                         };
                     }
-                    const rangeText = !hideRangeText && source === 'schedule'
+                    const suppressAllDayRangeText = isDetachedTaskOccurrenceEventExt(ext)
+                        || isLinkedAllDayTaskScheduleCandidateEventExt(ext);
+                    const rangeText = !hideRangeText && source === 'schedule' && !suppressAllDayRangeText
                         ? formatScheduleEventRangeText(arg?.event?.start, arg?.event?.end, arg?.event?.allDay === true)
                         : '';
                     const { title, titleText } = buildTaskEventTitleNode(String(arg?.event?.title || '').trim() || '任务', rangeText);
@@ -14328,6 +15113,8 @@
                                             title: String(arg?.event?.title || '').trim(),
                                             start: arg?.event?.start,
                                             end: arg?.event?.end,
+                                            occurrenceStartMs: ext.__tmOccurrenceStartMs,
+                                            repeatType: ext.__tmRepeatType,
                                         });
                                         return;
                                     }
@@ -14337,6 +15124,8 @@
                                         title: String(arg?.event?.title || '').trim(),
                                         start: arg?.event?.start,
                                         end: arg?.event?.end,
+                                        occurrenceStartMs: ext.__tmOccurrenceStartMs,
+                                        repeatType: ext.__tmRepeatType,
                                     });
                                 } catch (e) {}
                             });
@@ -14487,7 +15276,7 @@
                     const [records, cnHolidayDays, reminders] = await Promise.all([
                         loadRecordsForRange(info.start, info.end),
                         (settings.showCnHoliday || settings.showLunar) ? Promise.all(years.map((y) => loadCnHolidayYear(y))).then((arr) => arr.flat()) : Promise.resolve([]),
-                        settings.linkDockTomato ? loadReminderBlocks().catch(() => []) : Promise.resolve([]),
+                        (settings.linkDockTomato && settings.showTaskReminders !== false) ? loadReminderBlocks().catch(() => []) : Promise.resolve([]),
                     ]);
                     try {
                         const wantMap = !!(settings.showCnHoliday || settings.showLunar);
@@ -14673,11 +15462,15 @@
                     try {
                         const baseStart = String(ext.__tmScheduleBaseStart || '').trim();
                         const baseEnd = String(ext.__tmScheduleBaseEnd || '').trim();
+                        const occurrenceStartMs = normalizeScheduleSkippedOccurrenceKey(ext.__tmOccurrenceStartMs);
                         openScheduleModal({
                             id: String(ext.__tmScheduleId || activeEvent?.id || ''),
                             title: String(activeEvent?.title || ''),
-                            start: baseStart ? new Date(baseStart) : activeEvent?.start,
-                            end: baseEnd ? new Date(baseEnd) : activeEvent?.end,
+                            start: activeEvent?.start || (baseStart ? new Date(baseStart) : null),
+                            end: activeEvent?.end || (baseEnd ? new Date(baseEnd) : null),
+                            baseStart: baseStart ? new Date(baseStart) : null,
+                            baseEnd: baseEnd ? new Date(baseEnd) : null,
+                            occurrenceStartMs,
                             allDay: activeEvent?.allDay === true,
                             color: String(activeEvent?.backgroundColor || activeEvent?.borderColor || 'var(--tm-primary-color)'),
                             calendarId: String(ext.calendarId || 'default'),
@@ -14724,40 +15517,17 @@
                 const ext = arg?.event?.extendedProps || {};
                 const source = String(ext.__tmSource || '').trim();
                 if (source === 'schedule') {
-                    if (getScheduleRepeatType({ repeatType: ext.__tmRepeatType }) !== 'none') {
-                        toast('⚠ 循环日程请在编辑窗口中修改', 'warning');
-                        try { arg.revert(); } catch (e) {}
-                        return;
+                    try {
+                        const result = await persistScheduleEventTimeChange(arg, 'side-schedule-event-drop');
+                        if (result?.cancelled) {
+                            try { arg.revert(); } catch (e) {}
+                            return;
+                        }
+                        toast('✅ 已更新日程', 'success');
+                    } catch (e) {
+                        try { arg.revert(); } catch (e2) {}
+                        toast(`❌ 更新日程失败：${String(e?.message || e || '')}`, 'error');
                     }
-                    const id = String(ext.__tmScheduleId || arg?.event?.id || '').trim();
-                    const start = arg?.event?.start;
-                    const end = arg?.event?.end;
-                    if (!id || !(start instanceof Date) || !(end instanceof Date) || Number.isNaN(start.getTime()) || Number.isNaN(end.getTime()) || end.getTime() <= start.getTime()) {
-                        try { arg.revert(); } catch (e) {}
-                        return;
-                    }
-                    const list = await loadScheduleAll();
-                    const idx = list.findIndex((x) => String(x?.id || '') === id);
-                    if (idx < 0) {
-                        try { arg.revert(); } catch (e) {}
-                        return;
-                    }
-                    const allDay = (arg?.event?.allDay === true) || isAllDayRange(start, end);
-                    list[idx] = { ...list[idx], start: safeISO(start), end: safeISO(end), allDay };
-                    await saveScheduleAll(list, {
-                        reason: 'side-schedule-event-drop',
-                        op: 'update',
-                        scheduleId: id,
-                        scheduleIds: [id],
-                        rangeStart: list[idx]?.start,
-                        rangeEnd: list[idx]?.end,
-                    });
-                    __tmSchedulePostMutationRefresh(list[idx], 'upsert', {
-                        reason: 'side-schedule-event-drop',
-                        flushTaskPanel: true,
-                        version: Number(state.calendarMutationVersion) || 0,
-                    });
-                    toast('✅ 已更新日程', 'success');
                     return;
                 }
                 if (source === 'taskdate') {
@@ -14767,8 +15537,12 @@
                             toast('✅ 已加入日程', 'success');
                             return;
                         }
-                        await persistTaskDateEventChange(arg);
-                        toast('✅ 已更新任务日期', 'success');
+                        const result = await persistTaskDateEventChange(arg);
+                        if (result?.cancelled) {
+                            try { arg.revert(); } catch (e) {}
+                            return;
+                        }
+                        toast(result?.scope === 'one' ? '✅ 已新增本次例外日程' : '✅ 已更新任务日期', 'success');
                     } catch (e) {
                         try { arg.revert(); } catch (e2) {}
                         toast(`❌ 更新任务日期失败：${String(e?.message || e || '')}`, 'error');
@@ -14805,46 +15579,27 @@
                 const ext = arg?.event?.extendedProps || {};
                 const source = String(ext.__tmSource || '').trim();
                 if (source === 'schedule') {
-                    if (getScheduleRepeatType({ repeatType: ext.__tmRepeatType }) !== 'none') {
-                        toast('⚠ 循环日程请在编辑窗口中修改', 'warning');
-                        try { arg.revert(); } catch (e) {}
-                        return;
+                    try {
+                        const result = await persistScheduleEventTimeChange(arg, 'side-schedule-event-resize');
+                        if (result?.cancelled) {
+                            try { arg.revert(); } catch (e) {}
+                            return;
+                        }
+                        toast('✅ 已更新日程', 'success');
+                    } catch (e) {
+                        try { arg.revert(); } catch (e2) {}
+                        toast(`❌ 更新日程失败：${String(e?.message || e || '')}`, 'error');
                     }
-                    const id = String(ext.__tmScheduleId || arg?.event?.id || '').trim();
-                    const start = arg?.event?.start;
-                    const end = arg?.event?.end;
-                    if (!id || !(start instanceof Date) || !(end instanceof Date) || Number.isNaN(start.getTime()) || Number.isNaN(end.getTime()) || end.getTime() <= start.getTime()) {
-                        try { arg.revert(); } catch (e) {}
-                        return;
-                    }
-                    const list = await loadScheduleAll();
-                    const idx = list.findIndex((x) => String(x?.id || '') === id);
-                    if (idx < 0) {
-                        try { arg.revert(); } catch (e) {}
-                        return;
-                    }
-                    const allDay = (arg?.event?.allDay === true) || isAllDayRange(start, end);
-                    list[idx] = { ...list[idx], start: safeISO(start), end: safeISO(end), allDay };
-                    await saveScheduleAll(list, {
-                        reason: 'side-schedule-event-resize',
-                        op: 'update',
-                        scheduleId: id,
-                        scheduleIds: [id],
-                        rangeStart: list[idx]?.start,
-                        rangeEnd: list[idx]?.end,
-                    });
-                    __tmSchedulePostMutationRefresh(list[idx], 'upsert', {
-                        reason: 'side-schedule-event-resize',
-                        flushTaskPanel: true,
-                        version: Number(state.calendarMutationVersion) || 0,
-                    });
-                    toast('✅ 已更新日程', 'success');
                     return;
                 }
                 if (source === 'taskdate') {
                     try {
-                        await persistTaskDateEventChange(arg);
-                        toast('✅ 已更新任务日期', 'success');
+                        const result = await persistTaskDateEventChange(arg);
+                        if (result?.cancelled) {
+                            try { arg.revert(); } catch (e) {}
+                            return;
+                        }
+                        toast(result?.scope === 'one' ? '✅ 已新增本次例外日程' : '✅ 已更新任务日期', 'success');
                     } catch (e) {
                         try { arg.revert(); } catch (e2) {}
                         toast(`❌ 更新任务日期失败：${String(e?.message || e || '')}`, 'error');
@@ -15507,6 +16262,7 @@
 
             if (key) {
                 if (key === 'scheduleMaster') store.data.calendarShowSchedule = checked;
+                if (key === 'taskReminders') store.data.calendarShowTaskReminders = checked;
                 if (key === 'taskDatesMaster') store.data.calendarShowTaskDates = checked;
                 if (key === 'cnHoliday') store.data.calendarShowCnHoliday = checked;
                 if (key === 'focus') store.data.calendarShowFocus = checked;
@@ -15524,9 +16280,25 @@
         state.tomatoListener = (ev) => {
             const s2 = getSettings();
             if (!s2.linkDockTomato) return;
-            scheduleTomatoRefetch();
+            scheduleReminderCalendarRefetch();
         };
         window.addEventListener('tomato:history-updated', state.tomatoListener);
+        state.reminderRefreshListener = (ev) => {
+            const s2 = getSettings();
+            if (!s2.linkDockTomato) return;
+            const type = String(ev?.type || '').trim();
+            const detail = ev?.detail || {};
+            if (type === 'tm-task-attr-updated') {
+                const attrName = String(detail?.attrKey || detail?.attrName || detail?.name || detail?.key || '').trim();
+                const attrNames = Array.isArray(detail?.attrNames) ? detail.attrNames.map((it) => String(it || '').trim()) : [];
+                const names = attrName ? [attrName, ...attrNames] : attrNames;
+                if (!names.some((name) => name === 'custom-tomato-reminder')) return;
+            }
+            scheduleReminderCalendarRefetch();
+        };
+        ['tomato-reminder-updated', 'tomato-reminder-badge-update', 'tm-task-attr-updated', 'task-horizon:task-completed'].forEach((eventName) => {
+            try { window.addEventListener(eventName, state.reminderRefreshListener); } catch (e) {}
+        });
         try { bindScheduleReminderEngine(); } catch (e) {}
 
         return true;
@@ -15610,6 +16382,12 @@
         if (state.tomatoListener) {
             try { window.removeEventListener('tomato:history-updated', state.tomatoListener); } catch (e) {}
             state.tomatoListener = null;
+        }
+        if (state.reminderRefreshListener) {
+            ['tomato-reminder-updated', 'tomato-reminder-badge-update', 'tm-task-attr-updated', 'task-horizon:task-completed'].forEach((eventName) => {
+                try { window.removeEventListener(eventName, state.reminderRefreshListener); } catch (e) {}
+            });
+            state.reminderRefreshListener = null;
         }
         if (state.filteredTasksListener) {
             try { window.removeEventListener('tm:filtered-tasks-updated', state.filteredTasksListener); } catch (e) {}
@@ -15798,6 +16576,10 @@
                 </div>
                 ${tomatoRows}
                 <div class="tm-calendar-settings-row">
+                    <div class="tm-calendar-settings-label">显示任务提醒</div>
+                    <input class="b3-switch fn__flex-center" type="checkbox" data-tm-cal-setting="calendarShowTaskReminders" ${s.showTaskReminders ? 'checked' : ''}>
+                </div>
+                <div class="tm-calendar-settings-row">
                     <div class="tm-calendar-settings-label">显示跨天任务</div>
                     <input class="b3-switch fn__flex-center" type="checkbox" data-tm-cal-setting="calendarShowTaskDates" ${s.showTaskDates ? 'checked' : ''}>
                 </div>
@@ -15966,7 +16748,7 @@
                 } else if (key === 'calendarScheduleReminderEnabled' || key === 'calendarScheduleReminderSystemEnabled' || key === 'calendarScheduleReminderDefaultMode' || key === 'calendarAllDayReminderEnabled' || key === 'calendarAllDayReminderTime' || key === 'calendarTaskDateAllDayReminderEnabled' || key === 'calendarAllDaySummaryIncludeExtras') {
                     try { renderSettings(containerEl, store); } catch (e2) {}
                     try { scheduleScheduleReminderRefresh('settings'); } catch (e2) {}
-                } else if (key === 'calendarShowOtherBlockCheckbox' || key === 'calendarHideScheduledTaskDatesInAllDay' || key === 'calendarTaskDateColorMode' || key === 'calendarScheduleFollowDocColor') {
+                } else if (key === 'calendarShowOtherBlockCheckbox' || key === 'calendarHideScheduledTaskDatesInAllDay' || key === 'calendarShowTaskReminders' || key === 'calendarTaskDateColorMode' || key === 'calendarScheduleFollowDocColor') {
                     try {
                         const root = state.wrapEl;
                         if (root) renderSidebar(root, getSettings());
@@ -16020,10 +16802,11 @@
         return true;
     }
 
-    async function openScheduleEditorById(scheduleId) {
+    async function openScheduleEditorById(scheduleId, options = {}) {
         const id = String(scheduleId || '').trim();
         if (!id) return false;
         try {
+            const opt = (options && typeof options === 'object') ? options : {};
             const list = await loadScheduleAll();
             const item = (Array.isArray(list) ? list : []).find((x) => String(x?.id || '').trim() === id) || null;
             if (!item) {
@@ -16038,12 +16821,30 @@
             }
             const start = new Date(startMs);
             const end = new Date(endMs);
-            const allDay = (item.allDay === true) || isAllDayRange(start, end);
+            const repeatType = getScheduleRepeatType(item);
+            const occurrenceStartMs = normalizeScheduleRepeatType(repeatType) !== 'none'
+                ? resolveScheduleOccurrenceStartMs(item, {
+                    occurrenceStartMs: opt.occurrenceStartMs,
+                    start: opt.start,
+                })
+                : '';
+            const displayStartMs = normalizeScheduleRepeatType(repeatType) !== 'none' && Number.isFinite(toMs(opt.start))
+                ? toMs(opt.start)
+                : startMs;
+            const displayEndMs = normalizeScheduleRepeatType(repeatType) !== 'none' && Number.isFinite(toMs(opt.end)) && toMs(opt.end) > displayStartMs
+                ? toMs(opt.end)
+                : (displayStartMs + (endMs - startMs));
+            const displayStart = new Date(displayStartMs);
+            const displayEnd = new Date(displayEndMs);
+            const allDay = (item.allDay === true) || isAllDayRange(displayStart, displayEnd);
             openScheduleModal({
                 id,
                 title: String(item.title || '').trim(),
-                start,
-                end,
+                start: displayStart,
+                end: displayEnd,
+                baseStart: start,
+                baseEnd: end,
+                occurrenceStartMs,
                 allDay,
                 color: String(item.color || 'var(--tm-primary-color)'),
                 calendarId: String(item.calendarId || 'default'),
@@ -16052,7 +16853,7 @@
                 reminderMode: String(item.reminderMode || ''),
                 reminderEnabled: item.reminderEnabled,
                 reminderOffsetMin: item.reminderOffsetMin,
-                repeatType: getScheduleRepeatType(item),
+                repeatType,
                 repeatEvery: getScheduleRepeatEvery(item),
                 repeatUntil: getScheduleRepeatUntil(item),
                 repeatMonthlyMode: getScheduleRepeatMonthlyMode(item),
@@ -16153,7 +16954,7 @@
     async function openScheduleEditor(input) {
         const extra = (input && typeof input === 'object') ? input : {};
         const sid = String(extra.id || extra.scheduleId || '').trim();
-        if (sid) return await openScheduleEditorById(sid);
+        if (sid) return await openScheduleEditorById(sid, extra);
         const tid = String(extra.taskId || '').trim();
         const blockId = getScheduleLinkedBlockId(extra);
         try {
@@ -16240,29 +17041,69 @@
         if (!id) return false;
         const opts = (options && typeof options === 'object') ? options : {};
         const list = await loadScheduleAll();
-        const removedItem = list.find((x) => String(x?.id || '').trim() === id) || null;
-        const next = list.filter((x) => String(x?.id || '').trim() !== id);
-        if (next.length === list.length) return false;
-        await saveScheduleAll(next, {
+        const idx = list.findIndex((x) => String(x?.id || '').trim() === id);
+        if (idx < 0) return false;
+        const prevItem = list[idx] && typeof list[idx] === 'object' ? list[idx] : {};
+        const repeatType = normalizeScheduleRepeatType(getScheduleRepeatType(prevItem));
+        let mutationResult = null;
+        if (repeatType !== 'none') {
+            const requestedScope = String(opts.scope || opts.deleteScope || '').trim();
+            const scope = (requestedScope === 'one' || requestedScope === 'future' ? requestedScope : '')
+                || await showScheduleRecurringDeleteScopeDialog({
+                    message: '这是一个循环重复的日程。要只删除当前这一次，还是删除当前及以后的日程？',
+                });
+            if (!scope) return false;
+            mutationResult = applyScheduleRecurringDeleteScopeMutation(list, idx, scope, {
+                occurrenceStartMs: opts.occurrenceStartMs,
+                occurrenceStart: opts.occurrenceStart,
+                start: opts.start,
+            });
+        } else {
+            const removedItem = list[idx];
+            list.splice(idx, 1);
+            mutationResult = {
+                action: 'delete',
+                item: null,
+                removedItem,
+                scheduleIds: [id],
+                rangeStart: removedItem?.start,
+                rangeEnd: removedItem?.end,
+                needsRefetch: false,
+            };
+        }
+        await saveScheduleAll(list, {
             reason: 'delete-schedule',
-            op: 'delete',
+            op: mutationResult.action === 'update' ? 'update' : 'delete',
             scheduleId: id,
-            scheduleIds: [id],
-            rangeStart: removedItem?.start,
-            rangeEnd: removedItem?.end,
+            scheduleIds: mutationResult.scheduleIds,
+            rangeStart: mutationResult.rangeStart,
+            rangeEnd: mutationResult.rangeEnd,
         });
         if (opts.closeModal !== false) {
             try { closeModal(); } catch (e) {}
         }
         try {
-            __tmSchedulePostMutationRefresh(removedItem, 'delete', {
-                reason: 'delete-schedule',
-                flushTaskPanel: true,
-                hard: String(state.calendar?.view?.type || '').trim() === 'dayGridMonth',
-                rangeStart: removedItem?.start,
-                rangeEnd: removedItem?.end,
-                version: Number(state.calendarMutationVersion) || 0,
-            });
+            if (mutationResult.needsRefetch) {
+                scheduleCalendarRefresh({
+                    reason: 'delete-schedule',
+                    main: true,
+                    side: true,
+                    flushTaskPanel: true,
+                    hard: String(state.calendar?.view?.type || '').trim() === 'dayGridMonth',
+                    rangeStart: mutationResult.rangeStart,
+                    rangeEnd: mutationResult.rangeEnd,
+                    version: Number(state.calendarMutationVersion) || 0,
+                });
+            } else {
+                __tmSchedulePostMutationRefresh(mutationResult.removedItem, 'delete', {
+                    reason: 'delete-schedule',
+                    flushTaskPanel: true,
+                    hard: String(state.calendar?.view?.type || '').trim() === 'dayGridMonth',
+                    rangeStart: mutationResult.rangeStart,
+                    rangeEnd: mutationResult.rangeEnd,
+                    version: Number(state.calendarMutationVersion) || 0,
+                });
+            }
         } catch (e) {}
         return true;
     }
@@ -16362,7 +17203,7 @@
             return item;
         };
         menu.appendChild(createItem('编辑日程', async () => {
-            try { await openScheduleEditorById(scheduleId); } catch (e) { try { toast(`❌ ${String(e?.message || e)}`, 'error'); } catch (e2) {} }
+            try { await openScheduleEditorById(scheduleId, meta); } catch (e) { try { toast(`❌ ${String(e?.message || e)}`, 'error'); } catch (e2) {} }
         }));
         const taskId = String(meta?.taskId || '').trim();
         const taskName = String(meta?.title || '').trim() || '任务';
@@ -16393,9 +17234,12 @@
             }));
         }
         menu.appendChild(createItem('删除日程', async () => {
-            const ok = await deleteScheduleById(scheduleId, { closeModal: false });
+            const ok = await deleteScheduleById(scheduleId, {
+                closeModal: false,
+                occurrenceStartMs: meta?.occurrenceStartMs,
+                start: meta?.start,
+            });
             if (ok) toast('✅ 已删除', 'success');
-            else toast('⚠ 未找到日程', 'warning');
         }, true));
         document.body.appendChild(menu);
         const rect = menu.getBoundingClientRect();

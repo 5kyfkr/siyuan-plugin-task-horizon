@@ -10,6 +10,15 @@
         return `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}`;
     }
 
+    function __tmExcelResolveExportFileBaseName() {
+        const activeDocId = String(state.activeDocId || '').trim();
+        if (activeDocId && activeDocId !== 'all' && !__tmIsOtherBlockTabId(activeDocId)) {
+            const docName = String(__tmGetDocDisplayName(activeDocId, '') || '').trim();
+            if (docName) return docName;
+        }
+        return '任务管理器';
+    }
+
     function __tmExcelGetNoHeadingLabel() {
         const headingLevel = String(SettingsStore.data.taskHeadingLevel || 'h2').trim() || 'h2';
         const headingLabelMap = { h1: '一级标题', h2: '二级标题', h3: '三级标题', h4: '四级标题', h5: '五级标题', h6: '六级标题' };
@@ -502,7 +511,8 @@
         });
         const wb = XLSX.utils.book_new();
         XLSX.utils.book_append_sheet(wb, ws, '任务导出');
-        const filename = __tmExcelSanitizeFileName(`任务管理器_表格导出_${__tmExcelDateStamp()}.xlsx`);
+        const fileBaseName = __tmExcelResolveExportFileBaseName();
+        const filename = __tmExcelSanitizeFileName(`${fileBaseName}_表格导出_${__tmExcelDateStamp()}.xlsx`);
         if (typeof XLSX.writeFileXLSX === 'function') XLSX.writeFileXLSX(wb, filename, { compression: true, cellStyles: true });
         else XLSX.writeFile(wb, filename, { bookType: 'xlsx', compression: true, cellStyles: true });
         hint(`✅ 已导出 Excel（${model.rows.length} 条任务）`, 'success');

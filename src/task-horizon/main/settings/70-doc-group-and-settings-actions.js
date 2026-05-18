@@ -545,43 +545,55 @@
         showSettings();
     };
 
+    function __tmNormalizeQuickbarSettingItems(items, allow, fallbackItems) {
+        const source = Array.isArray(items) ? items : fallbackItems;
+        const seen = new Set();
+        return source.map((v) => {
+            const rawKey = String(v || '').trim();
+            const customFieldId = __tmParseCustomFieldColumnKey(rawKey);
+            return customFieldId ? `customField:${customFieldId}` : rawKey;
+        }).filter((v) => {
+            if ((!allow.has(v) && !__tmParseCustomFieldColumnKey(v)) || seen.has(v)) return false;
+            seen.add(v);
+            return true;
+        });
+    }
+
+    function __tmSetQuickbarSettingItemEnabled(items, key, enabled, allow, fallbackItems, insertAfterKey = '') {
+        const normalized = __tmNormalizeQuickbarSettingItems(items, allow, fallbackItems);
+        const next = normalized.filter((item) => item !== key);
+        if (enabled) {
+            const insertIndex = insertAfterKey ? next.indexOf(insertAfterKey) : -1;
+            if (insertIndex >= 0) next.splice(insertIndex + 1, 0, key);
+            else next.push(key);
+        }
+        return next;
+    }
+
     window.updateQuickbarInlineField = async function(field, enabled) {
-        const allow = new Set(['custom-status', 'custom-completion-time', 'custom-priority', 'custom-start-date', 'custom-duration', 'custom-remark']);
+        const allow = new Set(['custom-status', 'custom-completion-time', 'taskCompleteAt', 'custom-priority', 'custom-start-date', 'custom-duration', 'custom-remark']);
         const rawKey = String(field || '').trim();
         const customFieldId = __tmParseCustomFieldColumnKey(rawKey);
         const key = customFieldId ? `customField:${customFieldId}` : rawKey;
         if (!allow.has(key) && !customFieldId) return;
         const prev = Array.isArray(SettingsStore.data.quickbarInlineFields) ? SettingsStore.data.quickbarInlineFields : ['custom-status', 'custom-completion-time'];
-        const nextSet = new Set(prev.map((v) => {
-            const prevKey = String(v || '').trim();
-            const prevCustomFieldId = __tmParseCustomFieldColumnKey(prevKey);
-            return prevCustomFieldId ? `customField:${prevCustomFieldId}` : prevKey;
-        }).filter((v) => allow.has(v) || __tmParseCustomFieldColumnKey(v)));
-        if (enabled) nextSet.add(key);
-        else nextSet.delete(key);
-        if (nextSet.size === 0) nextSet.add('custom-status');
-        SettingsStore.data.quickbarInlineFields = Array.from(nextSet);
+        const next = __tmSetQuickbarSettingItemEnabled(prev, key, !!enabled, allow, ['custom-status', 'custom-completion-time'], key === 'taskCompleteAt' ? 'custom-completion-time' : '');
+        if (!next.length) next.push('custom-status');
+        SettingsStore.data.quickbarInlineFields = next;
         await SettingsStore.save();
         try { globalThis.__taskHorizonQuickbarRefreshInline?.(); } catch (e) {}
         showSettings();
     };
 
     window.updateQuickbarVisibleItem = async function(field, enabled) {
-        const allow = new Set(['custom-status', 'custom-priority', 'custom-start-date', 'custom-completion-time', 'custom-duration', 'custom-remark', 'action-ai-title', 'action-reminder', 'action-more']);
+        const allow = new Set(['custom-status', 'custom-priority', 'custom-start-date', 'custom-completion-time', 'taskCompleteAt', 'custom-duration', 'custom-remark', 'action-ai-title', 'action-reminder', 'action-more']);
         const rawKey = String(field || '').trim();
         const customFieldId = __tmParseCustomFieldColumnKey(rawKey);
         const key = customFieldId ? `customField:${customFieldId}` : rawKey;
         if (!allow.has(key) && !customFieldId) return;
         const defaults = ['custom-status', 'custom-priority', 'custom-start-date', 'custom-completion-time', 'custom-duration', 'custom-remark', 'action-ai-title', 'action-reminder', 'action-more'];
         const prev = Array.isArray(SettingsStore.data.quickbarVisibleItems) ? SettingsStore.data.quickbarVisibleItems : defaults;
-        const nextSet = new Set(prev.map((v) => {
-            const prevKey = String(v || '').trim();
-            const prevCustomFieldId = __tmParseCustomFieldColumnKey(prevKey);
-            return prevCustomFieldId ? `customField:${prevCustomFieldId}` : prevKey;
-        }).filter((v) => allow.has(v) || __tmParseCustomFieldColumnKey(v)));
-        if (enabled) nextSet.add(key);
-        else nextSet.delete(key);
-        SettingsStore.data.quickbarVisibleItems = Array.from(nextSet);
+        SettingsStore.data.quickbarVisibleItems = __tmSetQuickbarSettingItemEnabled(prev, key, !!enabled, allow, defaults, key === 'taskCompleteAt' ? 'custom-completion-time' : '');
         await SettingsStore.save();
         try { globalThis.__taskHorizonQuickbarRefresh?.(); } catch (e) {}
         showSettings();
@@ -608,6 +620,33 @@
         SettingsStore.data.enablePointsRewardIntegration = !!enabled;
         await SettingsStore.save();
         try { globalThis.__tmPointsPenaltyRuntimeRefresh?.({ reason: 'points-reward-integration-toggle' }); } catch (e) {}
+        showSettings();
+    };
+
+    window.updatePointsRewardExcludedGroup = async function(groupId, excluded) {
+        const gid = String(groupId || '').trim();
+        if (!gid) return;
+        const validGroupIds = new Set((Array.isArray(SettingsStore.data.docGroups) ? SettingsStore.data.docGroups : [])
+            .map((group) => String(group?.id || '').trim())
+            .filter(Boolean));
+        if (!validGroupIds.has(gid)) return;
+        const current = new Set((Array.isArray(SettingsStore.data.pointsRewardExcludedGroupIds) ? SettingsStore.data.pointsRewardExcludedGroupIds : [])
+            .map((id) => String(id || '').trim())
+            .filter((id) => id && validGroupIds.has(id)));
+        if (excluded) current.add(gid);
+        else current.delete(gid);
+        SettingsStore.data.pointsRewardExcludedGroupIds = Array.from(current);
+        await SettingsStore.save();
+        if (excluded && typeof resolveDocIdsFromGroups === 'function') {
+            try {
+                void resolveDocIdsFromGroups({
+                    groupId: gid,
+                    includeQuickAddDoc: false,
+                    skipPersistedScope: true,
+                    forceRefreshScope: true,
+                });
+            } catch (e) {}
+        }
         showSettings();
     };
 

@@ -3479,9 +3479,11 @@ hint(`❌ 操作失败: ${e.message}`, 'error');
         // 首页会保留上一个工作区视图的 state.viewMode，不能把首页里的点击误判成看板内详情打开。
         const activeRenderMode = globalThis.__tmRuntimeState?.getActiveRenderMode?.('') || (state.homepageOpen ? 'home' : String(state.viewMode || '').trim());
         if (activeRenderMode === 'kanban' && !__tmIsMobileDevice()) {
-            state.kanbanDetailTaskId = tid;
-            state.kanbanDetailAnchorTaskId = tid;
-            render();
+            if (!__tmOpenKanbanDetailFloatingInPlace(tid, state.modal)) {
+                state.kanbanDetailTaskId = tid;
+                state.kanbanDetailAnchorTaskId = tid;
+                render();
+            }
             return true;
         }
 
@@ -4352,14 +4354,19 @@ hint(`❌ 操作失败: ${e.message}`, 'error');
                     start: extra0.start || null,
                     end: extra0.end || null,
                     allDay: extra0.allDay === true,
+                    occurrenceStartMs: extra0.occurrenceStartMs,
+                    repeatType: extra0.repeatType,
                 });
             }));
             if (scheduleId0 && typeof globalThis.__tmCalendar.deleteScheduleById === 'function') {
                 menu.appendChild(createItem(__tmRenderContextMenuLabel('trash-2', '删除日程'), async () => {
                     try {
-                        const ok = await globalThis.__tmCalendar.deleteScheduleById(scheduleId0, { closeModal: false });
+                        const ok = await globalThis.__tmCalendar.deleteScheduleById(scheduleId0, {
+                            closeModal: false,
+                            occurrenceStartMs: extra0.occurrenceStartMs,
+                            start: extra0.start || null,
+                        });
                         if (ok) hint('✅ 已删除日程', 'success');
-                        else hint('⚠️ 未找到日程', 'warning');
                     } catch (e) {
                         hint(`❌ ${String(e?.message || e || '删除日程失败')}`, 'error');
                     }
@@ -6217,10 +6224,14 @@ hint(`❌ 操作失败: ${e.message}`, 'error');
 
     window.tmQuickAddOpen = async function() {
         if (state.quickAddModal) {
+            state.__quickAddUnstack?.();
+            state.__quickAddUnstack = null;
             try { state.quickAddModal.remove(); } catch (e) {}
             state.quickAddModal = null;
         }
         if (state.quickAddDocPicker) {
+            state.__quickAddDocPickerUnstack?.();
+            state.__quickAddDocPickerUnstack = null;
             try { state.quickAddDocPicker.remove(); } catch (e) {}
             state.quickAddDocPicker = null;
         }
@@ -6628,6 +6639,8 @@ hint(`❌ 操作失败: ${e.message}`, 'error');
         const qa = state.quickAdd;
         if (!qa) return;
         if (state.quickAddDocPicker) {
+            state.__quickAddDocPickerUnstack?.();
+            state.__quickAddDocPickerUnstack = null;
             try { state.quickAddDocPicker.remove(); } catch (e) {}
             state.quickAddDocPicker = null;
         }

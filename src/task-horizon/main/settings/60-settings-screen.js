@@ -948,7 +948,7 @@
                         )}
                         ${renderSingleSwitchSetting(
                             '自动识别语义日期（全量分批）',
-                            '开启后，刷新任务后会分批扫描全部任务里的“明天/下周五/今晚8点”等表达，并弹窗确认写入截止日期。默认开启，如需避免同步后自动弹窗可关闭。',
+                            '开启后，刷新任务后会分批扫描全部任务里的“明天/下周五/今晚8点/从明天到周五”等表达，并弹窗确认写入开始日期或截止日期。默认开启，如需避免同步后自动弹窗可关闭。',
                             `<input class="b3-switch fn__flex-center" type="checkbox" ${SettingsStore.data.semanticDateAutoPromptEnabled ? 'checked' : ''} onchange="updateSemanticDateAutoPromptEnabled(this.checked)">`,
                             { style: 'margin-bottom:10px;' }
                         )}
@@ -1044,6 +1044,7 @@
                                             { key: 'custom-priority', label: '重要性' },
                                             { key: 'custom-start-date', label: '开始日期' },
                                             { key: 'custom-completion-time', label: '截止日期' },
+                                            { key: 'taskCompleteAt', label: '完成时间' },
                                             { key: 'custom-duration', label: '时长' },
                                             { key: 'custom-remark', label: '备注' },
                                             ...customFieldItems,
@@ -1078,6 +1079,7 @@
                                         return [
                                             { key: 'custom-status', label: '状态' },
                                             { key: 'custom-completion-time', label: '截止日期' },
+                                            { key: 'taskCompleteAt', label: '完成时间' },
                                             { key: 'custom-priority', label: '重要性' },
                                             { key: 'custom-start-date', label: '开始日期' },
                                             { key: 'custom-duration', label: '时长' },
@@ -1138,6 +1140,27 @@
                             `<input class="b3-switch fn__flex-center" type="checkbox" ${SettingsStore.data.enablePointsRewardIntegration ? 'checked' : ''} onchange="updateEnablePointsRewardIntegration(this.checked)">`
                         )}
                         <div style="margin-top:10px;opacity:${SettingsStore.data.enablePointsRewardIntegration ? 1 : 0.6};">
+                            ${renderSingleFieldSetting(
+                                '不联动的文档分组',
+                                '所选文档分组中的任务完成后，不会触发凡人修仙传:打卡插件奖励。',
+                                `<div style="display:flex;gap:8px;flex-wrap:wrap;max-width:520px;">
+                                    ${(() => {
+                                        const groups = Array.isArray(SettingsStore.data.docGroups) ? SettingsStore.data.docGroups : [];
+                                        const selected = new Set((Array.isArray(SettingsStore.data.pointsRewardExcludedGroupIds) ? SettingsStore.data.pointsRewardExcludedGroupIds : []).map((id) => String(id || '').trim()).filter(Boolean));
+                                        if (!groups.length) return `<span class="tm-setting-field-unit">暂无文档分组</span>`;
+                                        return groups.map((group) => {
+                                            const gid = String(group?.id || '').trim();
+                                            if (!gid) return '';
+                                            const checked = selected.has(gid);
+                                            return `<label style="display:inline-flex;align-items:center;gap:6px;padding:6px 10px;border:1px solid var(--tm-border-color);border-radius:999px;background:var(--tm-card-bg);cursor:${SettingsStore.data.enablePointsRewardIntegration ? 'pointer' : 'not-allowed'};opacity:${SettingsStore.data.enablePointsRewardIntegration ? 1 : 0.6};">
+                                                <input class="b3-switch fn__flex-center" type="checkbox" ${checked ? 'checked' : ''} ${SettingsStore.data.enablePointsRewardIntegration ? '' : 'disabled'} onchange="updatePointsRewardExcludedGroup('${escSq(gid)}', this.checked)">
+                                                <span>${esc(__tmResolveDocGroupName(group))}</span>
+                                            </label>`;
+                                        }).join('');
+                                    })()}
+                                </div>`,
+                                { style: 'margin-bottom:10px;' }
+                            )}
                             ${renderSingleSwitchSetting(
                                 '启用任务逾期扣分',
                                 '按设定时间检查未完成任务，支持截止日期和日程两类扣分。',

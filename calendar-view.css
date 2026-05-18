@@ -386,6 +386,10 @@
     border: 1px solid rgba(0,0,0,0.1);
 }
 
+.tm-calendar-nav-dot--reminder {
+    background: #f2994a;
+}
+
 .tm-calendar-nav-label {
     overflow: hidden;
     text-overflow: ellipsis;

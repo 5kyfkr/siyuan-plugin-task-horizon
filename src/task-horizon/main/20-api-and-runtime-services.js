@@ -5130,6 +5130,32 @@
     const __tmModalStack = [];
     let __tmModalStackEscHandler = null;
 
+    function __tmBindModalStackEscHandler(handler) {
+        if (typeof handler !== 'function') return false;
+        try {
+            if (globalThis.__tmRuntimeEvents?.on?.(document, 'keydown', handler, true)) return true;
+        } catch (e) {}
+        try {
+            document.addEventListener('keydown', handler, true);
+            return true;
+        } catch (e) {
+            return false;
+        }
+    }
+
+    function __tmUnbindModalStackEscHandler(handler) {
+        if (typeof handler !== 'function') return false;
+        let removed = false;
+        try {
+            if (globalThis.__tmRuntimeEvents?.off?.(document, 'keydown', handler, true)) removed = true;
+        } catch (e) {}
+        try {
+            document.removeEventListener('keydown', handler, true);
+            removed = true;
+        } catch (e) {}
+        return removed;
+    }
+
     function __tmModalStackPush(entry) {
         if (!entry || typeof entry.close !== 'function') return __tmModalStack.length;
         __tmModalStack.push(entry);
@@ -5160,7 +5186,7 @@
 
     (function __tmInitModalStackEscHandler() {
         if (__tmModalStackEscHandler) {
-            try { globalThis.__tmRuntimeEvents?.off?.(document, 'keydown', __tmModalStackEscHandler, true); } catch (e) {}
+            try { __tmUnbindModalStackEscHandler(__tmModalStackEscHandler); } catch (e) {}
         }
         __tmModalStackEscHandler = (e) => {
             if (e.key !== 'Escape') return;
@@ -5169,7 +5195,7 @@
             try { e.stopPropagation(); } catch (e2) {}
             __tmModalStackPop();
         };
-        try { globalThis.__tmRuntimeEvents?.on?.(document, 'keydown', __tmModalStackEscHandler, true); } catch (e) {}
+        try { __tmBindModalStackEscHandler(__tmModalStackEscHandler); } catch (e) {}
     })();
 
     function __tmGetTodayDateKey() {
@@ -5210,6 +5236,7 @@
                 out[id] = {
                     signature,
                     recognizedAt: Number(item.recognizedAt) || Date.now(),
+                    startValue: String(item.startValue || '').trim(),
                     completionValue: String(item.completionValue || '').trim(),
                     hasTime: !!item.hasTime,
                 };
@@ -5284,6 +5311,7 @@
                 base[taskId] = {
                     signature,
                     recognizedAt: now,
+                    startValue: String(item?.startDateValue || item?.startValue || '').trim(),
                     completionValue: String(item?.completionValue || '').trim(),
                     hasTime: !!item?.hasTime,
                 };
@@ -5553,6 +5581,212 @@
         };
     }
 
+    function __tmSemanticCollectDateInfos(rawText, baseDate) {
+        const text = String(rawText || '')
+            .replace(/[，。；、]/g, ' ')
+            .replace(/\s+/g, ' ')
+            .trim();
+        if (!text) return [];
+        const today = __tmSemanticStartOfDay(baseDate);
+        const todayMs = today.getTime();
+        const out = [];
+        const push = (match, type, build, startOffset = 0, displayText = '') => {
+            if (!match) return;
+            const idx = Number(match.index) + (Number(startOffset) || 0);
+            if (!Number.isFinite(idx) || idx < 0) return;
+            const matched = String(displayText || match[0] || '');
+            const built = build(match);
+            if (!built?.date || Number.isNaN(built.date.getTime())) return;
+            out.push({
+                ...built,
+                type,
+                index: idx,
+                end: idx + matched.length,
+                matchedText: __tmSemanticNormalizeMatchText(matched),
+            });
+        };
+        for (const m of text.matchAll(/(\d{4})[./-](\d{1,2})[./-](\d{1,2})/g)) {
+            push(m, 'ymd', (match) => ({
+                date: __tmSemanticClampYmd(match[1], match[2], match[3]),
+                reason: '识别到明确日期',
+                stableKey: `ymd:${__tmSemanticNormalizeMatchText(match[0])}`,
+                isRelative: false,
+            }));
+        }
+        for (const m of text.matchAll(/(\d{1,2})\s*月\s*(\d{1,2})\s*(日|号)?/g)) {
+            push(m, 'mdcn', (match) => {
+                const dt = __tmSemanticClampYmd(today.getFullYear(), match[1], match[2]);
+                if (dt && dt.getTime() < todayMs) dt.setFullYear(dt.getFullYear() + 1);
+                return {
+                    date: dt,
+                    reason: '识别到月日表达',
+                    stableKey: `mdcn:${__tmSemanticNormalizeMatchText(match[0])}`,
+                    isRelative: false,
+                };
+            });
+        }
+        for (const m of text.matchAll(/(^|[^\d])(\d{1,2})\/(\d{1,2})(?!\d)/g)) {
+            push(m, 'md', (match) => {
+                const dt = __tmSemanticClampYmd(today.getFullYear(), match[2], match[3]);
+                if (dt && dt.getTime() < todayMs) dt.setFullYear(dt.getFullYear() + 1);
+                return {
+                    date: dt,
+                    reason: '识别到数字日期',
+                    stableKey: `md:${__tmSemanticNormalizeMatchText(`${match[2]}/${match[3]}`)}`,
+                    isRelative: false,
+                };
+            }, String(m[1] || '').length, `${m[2]}/${m[3]}`);
+        }
+        for (const m of text.matchAll(/今天|今日|今早|今晨|今晚|明天|明早|明晨|明晚|后天|大后天/g)) {
+            push(m, 'rel', (match) => {
+                const dt = new Date(today.getTime());
+                const token = String(match[0] || '').trim();
+                if (token.startsWith('明')) dt.setDate(dt.getDate() + 1);
+                else if (token === '后天') dt.setDate(dt.getDate() + 2);
+                else if (token === '大后天') dt.setDate(dt.getDate() + 3);
+                return {
+                    date: dt,
+                    reason: `识别到${token}`,
+                    stableKey: `rel:${__tmSemanticNormalizeMatchText(match[0])}`,
+                    isRelative: true,
+                };
+            });
+        }
+        for (const m of text.matchAll(/(\d+)\s*(天|日|周|星期|礼拜)\s*后/g)) {
+            push(m, 'dur', (match) => {
+                const dt = new Date(today.getTime());
+                const n = parseInt(match[1], 10) || 0;
+                if (match[2] === '天' || match[2] === '日') dt.setDate(dt.getDate() + n);
+                else dt.setDate(dt.getDate() + n * 7);
+                return {
+                    date: dt,
+                    reason: `识别到“${match[0]}”`,
+                    stableKey: `dur:${__tmSemanticNormalizeMatchText(match[0])}`,
+                    isRelative: true,
+                };
+            });
+        }
+        for (const m of text.matchAll(/((本周|这周|下周|下下周)?\s*(周|星期|礼拜)\s*([一二三四五六日天1-7]))/g)) {
+            push(m, 'weekday', (match) => {
+                const scope = String(match[2] || '').trim();
+                const targetDow = __tmSemanticDowFromToken(match[4]);
+                if (!Number.isFinite(targetDow)) return null;
+                const dt = new Date(today.getTime());
+                let forward = (targetDow - dt.getDay() + 7) % 7;
+                if (scope === '下周') forward += 7;
+                else if (scope === '下下周') forward += 14;
+                else if (!scope && forward === 0) forward += 7;
+                dt.setDate(dt.getDate() + forward);
+                return {
+                    date: dt,
+                    reason: `识别到${match[1]}`,
+                    stableKey: `weekday:${__tmSemanticNormalizeMatchText(match[1])}`,
+                    isRelative: true,
+                };
+            });
+        }
+        const filtered = [];
+        out.sort((a, b) => (a.index - b.index) || ((b.end - b.index) - (a.end - a.index)));
+        out.forEach((item) => {
+            const overlaps = filtered.some((prev) => item.index < prev.end && item.end > prev.index);
+            if (!overlaps) filtered.push(item);
+        });
+        return filtered;
+    }
+
+    function __tmSemanticBuildDateValue(dateInfo, timeInfo) {
+        if (!dateInfo?.date || Number.isNaN(dateInfo.date.getTime())) return { value: '', date: null };
+        const dt = new Date(dateInfo.date.getTime());
+        if (timeInfo) {
+            dt.setHours(timeInfo.hour, timeInfo.minute, 0, 0);
+            return { value: __tmSemanticFormatDateTime(dt), date: dt };
+        }
+        return { value: __tmSemanticFormatDateKey(dt), date: dt };
+    }
+
+    function __tmSemanticFindTimeNearDate(text, current, next) {
+        const source = String(text || '');
+        if (!current) return null;
+        const afterEnd = next ? Math.max(current.end, next.index) : Math.min(source.length, current.end + 18);
+        const segment = source.slice(current.index, afterEnd);
+        return __tmSemanticExtractTimeInfo(segment);
+    }
+
+    function __tmSemanticBuildSuggestionPayload(target, source, startInfo, completionInfo, options = {}) {
+        const currentStartDate = String(target?.startDate || target?.start_date || '').trim();
+        const currentCompletionTime = String(target?.completionTime || target?.completion_time || '').trim();
+        const startBuilt = startInfo ? __tmSemanticBuildDateValue(startInfo, null) : { value: '', date: null };
+        const completionBuilt = completionInfo
+            ? __tmSemanticBuildDateValue(completionInfo, options?.completionTimeInfo || null)
+            : { value: '', date: null };
+        const startDateValue = currentStartDate ? '' : String(startBuilt.value || '').trim();
+        const completionValue = currentCompletionTime ? '' : String(completionBuilt.value || '').trim();
+        if (!startDateValue && !completionValue) return null;
+        const reasonParts = [];
+        if (startDateValue && startInfo) reasonParts.push(`开始日期：${startInfo.reason}`);
+        if (completionValue && completionInfo) {
+            reasonParts.push(`截止日期：${completionInfo.reason}${options?.completionTimeInfo ? `，识别到 ${options.completionTimeInfo.label}` : ''}`);
+        }
+        const startStableKey = startInfo ? String(startInfo.stableKey || '').trim() : '';
+        const completionStableKey = completionInfo ? String(completionInfo.stableKey || '').trim() : '';
+        const timeStableKey = String(options?.completionTimeInfo?.stableKey || '').trim();
+        return {
+            taskId: String(target?.id || '').trim(),
+            docId: String(target?.root_id || target?.docId || '').trim(),
+            content: String(target?.content || '').trim() || '未命名任务',
+            remark: String(target?.remark || '').trim(),
+            currentStartDate,
+            currentCompletionTime,
+            startDateValue,
+            completionValue,
+            hasTime: !!options?.completionTimeInfo,
+            start: options?.completionTimeInfo ? new Date(completionBuilt.date.getTime()) : null,
+            reason: `${source.label}：${reasonParts.join('；') || '识别到日期表达'}`,
+            isRelativeDate: !!(startInfo?.isRelative || completionInfo?.isRelative),
+            sourceKey: String(source.key || '').trim(),
+            dateStableKey: completionStableKey || startStableKey,
+            timeStableKey,
+            startStableKey,
+            completionStableKey,
+            signature: __tmBuildSemanticTaskSignature(target, source.key, startStableKey, completionStableKey, timeStableKey),
+        };
+    }
+
+    function __tmSemanticExtractStartEndSuggestion(task, source, baseDate) {
+        const text = String(source?.text || '')
+            .replace(/[，。；、]/g, ' ')
+            .replace(/\s+/g, ' ')
+            .trim();
+        const dates = __tmSemanticCollectDateInfos(text, baseDate);
+        if (!dates.length) return null;
+        for (let i = 0; i < dates.length - 1; i += 1) {
+            const left = dates[i];
+            const right = dates[i + 1];
+            const between = text.slice(left.end, right.index);
+            if (!/(到|至|~|～|-|—|－)/.test(between)) continue;
+            const completionTimeInfo = __tmSemanticFindTimeNearDate(text, right, dates[i + 2]);
+            const payload = __tmSemanticBuildSuggestionPayload(task, source, left, right, { completionTimeInfo });
+            if (payload) return payload;
+        }
+        const timeThen = '(?:\\d{1,2}\\s*[:：]\\s*\\d{1,2}|\\d{1,2}\\s*点\\s*(?:半|一刻|三刻|整|\\d{1,2}\\s*分?)?)?';
+        const startBeforeKeyword = /(开始于|开始日期|开始时间|开始|起始|启动|开工时间|开工|从|自)\s*$/;
+        const startAfterKeyword = new RegExp(`^\\s*${timeThen}\\s*(开始|起)`);
+        const completionBeforeKeyword = /(截止到|截止日期|截止时间|截止|到期|最晚|期限|完成于|交付|ddl|deadline|due)\s*$/i;
+        const completionAfterKeyword = new RegExp(`^\\s*${timeThen}\\s*(截止到|截止|到期|完成|交付|之前|前|deadline|due)`, 'i');
+        let startInfo = null;
+        let completionInfo = null;
+        dates.forEach((item, index) => {
+            const before = text.slice(Math.max(0, item.index - 16), item.index);
+            const after = text.slice(item.end, Math.min(text.length, item.end + 16));
+            if (!startInfo && (startBeforeKeyword.test(before) || startAfterKeyword.test(after))) startInfo = item;
+            if (!completionInfo && (completionBeforeKeyword.test(before) || completionAfterKeyword.test(after))) completionInfo = item;
+        });
+        if (!startInfo && !completionInfo) return null;
+        const completionIndex = completionInfo ? dates.indexOf(completionInfo) : -1;
+        const completionTimeInfo = completionInfo ? __tmSemanticFindTimeNearDate(text, completionInfo, dates[completionIndex + 1]) : null;
+        return __tmSemanticBuildSuggestionPayload(task, source, startInfo, completionInfo, { completionTimeInfo });
+    }
+
     function __tmBuildSemanticTaskLegacySignature(task, completionValue, sourceKey) {
         return [
             String(task?.content || '').trim(),
@@ -5562,9 +5796,10 @@
         ].join('||');
     }
 
-    function __tmBuildSemanticTaskSignature(task, sourceKey, dateStableKey, timeStableKey) {
+    function __tmBuildSemanticTaskSignature(task, sourceKey, startStableKey, dateStableKey, timeStableKey) {
         return [
             String(sourceKey || '').trim(),
+            String(startStableKey || '').trim(),
             String(dateStableKey || '').trim(),
             String(timeStableKey || '').trim(),
         ].join('||');
@@ -5602,32 +5837,13 @@
             { key: 'remark', label: '备注', text: String(target?.remark || '').trim() },
         ].filter((item) => item.text);
         for (const source of sources) {
+            const ranged = __tmSemanticExtractStartEndSuggestion(target, source, baseDate);
+            if (ranged) return ranged;
             const dateInfo = __tmSemanticExtractDateInfo(source.text, baseDate);
             if (!dateInfo) continue;
             const timeInfo = __tmSemanticExtractTimeInfo(source.text);
-            const resolved = new Date(dateInfo.date.getTime());
-            let completionValue = __tmSemanticFormatDateKey(resolved);
-            if (timeInfo) {
-                resolved.setHours(timeInfo.hour, timeInfo.minute, 0, 0);
-                completionValue = __tmSemanticFormatDateTime(resolved);
-            }
-            if (!completionValue) continue;
-            return {
-                taskId: String(target?.id || '').trim(),
-                docId: String(target?.root_id || target?.docId || '').trim(),
-                content: String(target?.content || '').trim() || '未命名任务',
-                remark: String(target?.remark || '').trim(),
-                currentCompletionTime: String(target?.completionTime || '').trim(),
-                completionValue,
-                hasTime: !!timeInfo,
-                start: timeInfo ? new Date(resolved.getTime()) : null,
-                reason: `${source.label}：${dateInfo.reason}${timeInfo ? `，识别到 ${timeInfo.label}` : ''}`,
-                isRelativeDate: !!dateInfo.isRelative,
-                sourceKey: String(source.key || '').trim(),
-                dateStableKey: String(dateInfo.stableKey || '').trim(),
-                timeStableKey: String(timeInfo?.stableKey || '').trim(),
-                signature: __tmBuildSemanticTaskSignature(target, source.key, dateInfo.stableKey, timeInfo?.stableKey),
-            };
+            const payload = __tmSemanticBuildSuggestionPayload(target, source, null, dateInfo, { completionTimeInfo: timeInfo });
+            if (payload) return payload;
         }
         return null;
     }
@@ -5658,7 +5874,7 @@
             const task = list[index];
             if (truncated) break;
             const taskId = String(task?.id || '').trim();
-            if (taskId && task && !task.done && !String(task?.completionTime || '').trim()) {
+            if (taskId && task && !task.done && (!String(task?.startDate || task?.start_date || '').trim() || !String(task?.completionTime || task?.completion_time || '').trim())) {
                 const suggestion = __tmExtractSemanticTaskDateSuggestion(task, now);
                 if (suggestion) {
                     const recognized = recognizedMap[taskId];
@@ -5670,16 +5886,21 @@
                     }
                     if (!skipSuggestion) {
                         const scheduleExists = scheduledTaskIds.has(taskId);
-                        const calendarEligible = !!suggestion.hasTime && !scheduleExists && hasCalendarModule;
+                        const hasCompletionWrite = !!String(suggestion.completionValue || '').trim();
+                        const hasStartWrite = !!String(suggestion.startDateValue || '').trim();
+                        const calendarEligible = hasCompletionWrite && !!suggestion.hasTime && !scheduleExists && hasCalendarModule;
+                        const writeLabel = hasStartWrite && hasCompletionWrite
+                            ? '写入开始日期和截止日期'
+                            : (hasStartWrite ? '写入开始日期' : '写入截止日期');
                         out.push({
                             ...suggestion,
                             scheduleExists,
                             calendarEligible,
-                            actionLabel: suggestion.hasTime
+                            actionLabel: suggestion.hasTime && hasCompletionWrite
                                 ? (calendarEligible
-                                    ? '写入截止日期并添加到日历'
-                                    : (scheduleExists ? '写入截止日期（该任务已有日历）' : '写入截止日期（日历模块未加载）'))
-                                : '写入截止日期',
+                                    ? `${writeLabel}并添加到日历`
+                                    : (scheduleExists ? `${writeLabel}（该任务已有日历）` : `${writeLabel}（日历模块未加载）`))
+                                : writeLabel,
                         });
                         if (maxSuggestions > 0 && out.length >= maxSuggestions) {
                             truncated = true;
@@ -5789,7 +6010,7 @@
 
     async function __tmApplySemanticDateSuggestions(items) {
         const chosen = Array.isArray(items) ? items.filter(Boolean) : [];
-        if (!chosen.length) return { completionApplied: 0, calendarApplied: 0, failures: [], appliedItems: [] };
+        if (!chosen.length) return { startApplied: 0, completionApplied: 0, calendarApplied: 0, failures: [], appliedItems: [] };
         const failures = [];
         const touchedDocIds = new Set();
         const appliedItems = [];
@@ -5799,6 +6020,7 @@
                 docsToGroupMap = __tmGetCalendarDocsToGroupMapSync();
             }
         } catch (e) {}
+        let startApplied = 0;
         let completionApplied = 0;
         let calendarApplied = 0;
         let calendarChanged = false;
@@ -5807,19 +6029,27 @@
             if (!taskId) continue;
             const task = state.flatTasks?.[taskId] || null;
             const taskTitle = String(item?.content || task?.content || taskId).trim() || taskId;
+            const startDateValue = String(item?.startDateValue || '').trim();
             const completionValue = String(item?.completionValue || '').trim();
-            if (!completionValue) continue;
+            if (!startDateValue && !completionValue) continue;
             try {
-                await __tmPersistMetaAndAttrsAsync(taskId, { completionTime: completionValue });
-                if (task && typeof task === 'object') task.completionTime = completionValue;
+                const patch = {};
+                if (startDateValue) patch.startDate = startDateValue;
+                if (completionValue) patch.completionTime = completionValue;
+                await __tmPersistMetaAndAttrsAsync(taskId, patch);
+                if (task && typeof task === 'object') {
+                    if (startDateValue) task.startDate = startDateValue;
+                    if (completionValue) task.completionTime = completionValue;
+                }
                 touchedDocIds.add(String(item?.docId || task?.root_id || task?.docId || '').trim());
-                completionApplied += 1;
+                if (startDateValue) startApplied += 1;
+                if (completionValue) completionApplied += 1;
                 appliedItems.push(item);
             } catch (e) {
-                failures.push(`${taskTitle}：截止日期写入失败（${String(e?.message || e || '未知错误')}）`);
+                failures.push(`${taskTitle}：日期写入失败（${String(e?.message || e || '未知错误')}）`);
                 continue;
             }
-            if (item?.calendarEligible && item?.start instanceof Date && !Number.isNaN(item.start.getTime())) {
+            if (completionValue && item?.calendarEligible && item?.start instanceof Date && !Number.isNaN(item.start.getTime())) {
                 try {
                     const calendar = globalThis.__tmCalendar;
                     if (!calendar?.addTaskSchedule) throw new Error('日历模块未加载');
@@ -5873,7 +6103,7 @@
                 }
             } catch (e) {}
         }
-        return { completionApplied, calendarApplied, failures, appliedItems };
+        return { startApplied, completionApplied, calendarApplied, failures, appliedItems };
     }
 
     function __tmShowSemanticDateConfirmModal(items, options = {}) {
@@ -5892,6 +6122,8 @@
         __tmCloseSemanticDateConfirmModal();
         const dateOnlyCount = list.filter((item) => !item?.hasTime).length;
         const dateTimeCount = list.filter((item) => !!item?.hasTime).length;
+        const startCount = list.filter((item) => !!String(item?.startDateValue || '').trim()).length;
+        const completionCount = list.filter((item) => !!String(item?.completionValue || '').trim()).length;
         const modal = document.createElement('div');
         modal.className = 'tm-modal';
         modal.style.cssText = scopedToManager
@@ -5909,7 +6141,7 @@
                 <div style="font-size:13px;color:var(--tm-secondary-text);line-height:1.6;">
                     本次刷新自动识别到 <b>${totalCount}</b> 条语义日期。
                     ${batchCount > 1 ? `当前展示第 <b>${batchIndex}</b> / <b>${batchCount}</b> 批，本批 <b>${list.length}</b> 条。` : `本批共 <b>${list.length}</b> 条。`}
-                    其中仅日期 <b>${dateOnlyCount}</b> 条，带时分 <b>${dateTimeCount}</b> 条。
+                    其中开始日期 <b>${startCount}</b> 条，截止日期 <b>${completionCount}</b> 条；仅日期 <b>${dateOnlyCount}</b> 条，带时分 <b>${dateTimeCount}</b> 条。
                     已识别过的同一任务内容后续重载不会再次扫描；新建任务刷新后会继续识别。
                 </div>
                 ${batchCount > 1 ? `
@@ -5928,10 +6160,9 @@
                             <input type="checkbox" data-tm-semantic-item="${index}" checked style="margin-top:2px;">
                             <div style="flex:1;min-width:0;">
                                 <div style="font-size:14px;font-weight:600;line-height:1.5;word-break:break-word;">${esc(item.content || '未命名任务')}</div>
-                                <div style="font-size:12px;color:var(--tm-secondary-text);line-height:1.6;">当前截止日期：${esc(item.currentCompletionTime || '未设置')}</div>
-                                <div style="font-size:12px;color:var(--tm-secondary-text);line-height:1.6;">识别结果：${esc(item.completionValue || '')}</div>
+                                ${item.startDateValue ? `<div style="font-size:12px;color:var(--tm-secondary-text);line-height:1.6;">识别开始日期：${esc(item.startDateValue || '')}</div>` : ''}
+                                ${item.completionValue ? `<div style="font-size:12px;color:var(--tm-secondary-text);line-height:1.6;">识别截止日期：${esc(item.completionValue || '')}</div>` : ''}
                                 <div style="font-size:12px;color:var(--tm-secondary-text);line-height:1.6;">将执行：${esc(item.actionLabel || '写入截止日期')}</div>
-                                <div style="font-size:12px;color:var(--tm-secondary-text);line-height:1.6;">依据：${esc(item.reason || '识别到日期表达')}</div>
                             </div>
                         </label>
                     `).join('')}
@@ -5981,8 +6212,8 @@
                 if (Array.isArray(result.appliedItems) && result.appliedItems.length > 0) {
                     __tmMarkSemanticDateSuggestionsRecognized(result.appliedItems);
                 }
-                if (result.completionApplied > 0 || result.calendarApplied > 0) {
-                    hint(`✅ 已写入 ${result.completionApplied} 条截止日期${result.calendarApplied > 0 ? `，新增 ${result.calendarApplied} 条日历` : ''}`, 'success');
+                if (result.startApplied > 0 || result.completionApplied > 0 || result.calendarApplied > 0) {
+                    hint(`✅ 已写入 ${result.startApplied || 0} 条开始日期、${result.completionApplied || 0} 条截止日期${result.calendarApplied > 0 ? `，新增 ${result.calendarApplied} 条日历` : ''}`, 'success');
                 }
                 if (result.failures.length > 0) {
                     try { console.warn('[task-horizon] semantic date apply failures:', result.failures); } catch (e2) {}
@@ -8197,12 +8428,68 @@
         return false;
     }
 
+    function __tmGetTaskRewardDocNotebookId(task) {
+        const direct = String(
+            task?.notebook
+            || task?.box
+            || task?.docNotebook
+            || task?.docNotebookId
+            || task?.notebookId
+            || ''
+        ).trim();
+        if (direct) return direct;
+        const docId = String(task?.root_id || task?.docId || '').trim();
+        if (!docId) return '';
+        try {
+            const doc = (Array.isArray(state.allDocuments) ? state.allDocuments : [])
+                .find((item) => String(item?.id || '').trim() === docId);
+            return String(doc?.notebook || doc?.box || doc?.notebookId || '').trim();
+        } catch (e) {
+            return '';
+        }
+    }
+
+    function __tmIsTaskInPointsRewardExcludedGroup(taskLike, detail = {}) {
+        const excludedGroupIds = Array.from(new Set((Array.isArray(SettingsStore?.data?.pointsRewardExcludedGroupIds) ? SettingsStore.data.pointsRewardExcludedGroupIds : [])
+            .map((id) => String(id || '').trim())
+            .filter(Boolean)));
+        if (!excludedGroupIds.length) return false;
+        const task = (taskLike && typeof taskLike === 'object') ? taskLike : {};
+        const docId = String(detail.docId || task.root_id || task.docId || '').trim();
+        if (!docId) return false;
+        const notebookId = __tmGetTaskRewardDocNotebookId(task);
+        const groups = Array.isArray(SettingsStore?.data?.docGroups) ? SettingsStore.data.docGroups : [];
+        return excludedGroupIds.some((groupId) => {
+            const group = groups.find((item) => String(item?.id || '').trim() === groupId);
+            if (!group) return false;
+            try {
+                if (typeof __tmBuildDocGroupLoaderContext === 'function') {
+                    const ctx = __tmBuildDocGroupLoaderContext({
+                        groupId,
+                        includeQuickAddDoc: false,
+                    });
+                    const cachedIds = (typeof __tmGetDocGroupResolvedMemoryCache === 'function' ? __tmGetDocGroupResolvedMemoryCache(ctx) : null)
+                        || (typeof __tmGetCachedDocScope === 'function' ? __tmGetCachedDocScope(ctx.scopeKey)?.docIds : null);
+                    if (Array.isArray(cachedIds) && cachedIds.length > 0) {
+                        return cachedIds.map((id) => String(id || '').trim()).includes(docId);
+                    }
+                }
+            } catch (e) {}
+            const notebookGroupId = String(group?.notebookId || '').trim();
+            if (notebookGroupId && notebookId && notebookGroupId === notebookId) {
+                return !__tmGetGroupExcludedDocIds(group).includes(docId);
+            }
+            return __tmNormalizeGroupDocEntries(group).some((entry) => String(entry?.id || '').trim() === docId);
+        });
+    }
+
     function __tmDispatchTaskCompletedForReward(taskLike, detail = {}) {
         if (!SettingsStore?.data?.enablePointsRewardIntegration) return false;
         try {
             const task = (taskLike && typeof taskLike === 'object') ? taskLike : {};
             const taskId = String(detail.taskId || task.id || '').trim();
             if (!taskId) return false;
+            if (__tmIsTaskInPointsRewardExcludedGroup(task, detail)) return false;
             const attrHostId = String(detail.attrHostId || __tmGetTaskAttrHostId(task) || taskId).trim();
             const previousDone = Object.prototype.hasOwnProperty.call(detail, 'previousDone') ? !!detail.previousDone : false;
             const nextDone = Object.prototype.hasOwnProperty.call(detail, 'nextDone') ? !!detail.nextDone : true;
@@ -8845,6 +9132,7 @@
             if (__tmHasFinalPointsPenaltyRecord('schedule', entry.taskId, dayKey)) continue;
             const task = await __tmResolvePointsPenaltyTaskById(entry.taskId, taskCache);
             if (task && task.done) continue;
+            if (__tmIsTaskInPointsRewardExcludedGroup(task || {}, { taskId: entry.taskId })) continue;
             if (task && await __tmIsPointsPenaltyBlockedByDoneParent(task, taskCache, parentDoneMemo)) continue;
             const candidate = __tmBuildPointsPenaltyCandidate('schedule', task || {}, {
                 taskId: entry.taskId,
@@ -8883,6 +9171,7 @@
             if (!taskId || seen.has(taskId)) continue;
             seen.add(taskId);
             if (!!task?.done) continue;
+            if (__tmIsTaskInPointsRewardExcludedGroup(task, { taskId })) continue;
             if (await __tmIsPointsPenaltyBlockedByDoneParent(task, taskCache, parentDoneMemo)) continue;
             const deadlineValue = String(task?.completionTime || task?.completion_time || '').trim();
             if (!deadlineValue) continue;
@@ -9038,7 +9327,70 @@
         if (!item) return false;
         let task = null;
         try { task = globalThis.__tmRuntimeState?.getTaskById?.(item.taskId, { includePending: true }) || state.flatTasks?.[item.taskId] || null; } catch (e) {}
+        if (!task) {
+            try { task = await __tmResolvePointsPenaltyTaskById(item.taskId, null); } catch (e) { task = null; }
+        }
         const current = __tmNormalizeDateOnly(String(task?.completionTime || task?.completion_time || item?.deadlineText || '').trim());
+        if (typeof window.tmOpenTaskTimeHub === 'function') {
+            const row = document.querySelector(`tr[data-tm-penalty-row="${String(item.id || '').replace(/\\/g, '\\\\').replace(/"/g, '\\"')}"]`);
+            const anchor = row?.querySelector?.('[data-tm-penalty-action="edit"]') || row || __tmPointsPenaltyConfirmModal?.querySelector?.('.tm-points-penalty-box');
+            if (anchor instanceof HTMLElement) {
+                let savedDeadline = '';
+                const draftTaskId = `__tm_points_penalty_deadline_draft_${String(item.id || item.taskId || Date.now()).replace(/[^a-zA-Z0-9_-]/g, '_')}`;
+                await window.tmOpenTaskTimeHub(draftTaskId, anchor, {
+                    draft: true,
+                    persist: false,
+                    activeField: 'completionTime',
+                    hideReminder: true,
+                    hideSchedule: true,
+                    hideRepeat: true,
+                    task: {
+                        ...(task && typeof task === 'object' ? task : {}),
+                        id: draftTaskId,
+                        content: String(task?.content || task?.raw_content || item.title || '任务').trim() || '任务',
+                        startDate: String(task?.startDate || task?.start_date || '').trim(),
+                        start_date: String(task?.startDate || task?.start_date || '').trim(),
+                        completionTime: current,
+                        completion_time: current,
+                    },
+                    onChange: async (payload = {}) => {
+                        const patch = (payload?.patch && typeof payload.patch === 'object') ? payload.patch : {};
+                        if (!Object.prototype.hasOwnProperty.call(patch, 'completionTime')) return;
+                        const normalized = __tmNormalizeDateOnly(String(patch.completionTime || '').trim());
+                        if (!normalized) return;
+                        savedDeadline = normalized;
+                    },
+                    onClose: () => {
+                        if (!savedDeadline || savedDeadline === current) return;
+                        void (async () => {
+                            try {
+                                if (typeof window.tmUpdateTaskDates === 'function') {
+                                    await window.tmUpdateTaskDates(item.taskId, { completionTime: savedDeadline }, {
+                                        source: 'points-penalty-edit-deadline',
+                                    });
+                                } else {
+                                    await __tmPersistMetaAndAttrsAsync(item.taskId, { completionTime: savedDeadline }, {
+                                        queued: true,
+                                        source: 'points-penalty-edit-deadline',
+                                    });
+                                }
+                                item.deadlineText = savedDeadline;
+                                item.dueTs = __tmParseDeadlinePenaltyDueTs(savedDeadline);
+                                item.dueText = Number.isFinite(Number(item.dueTs)) ? __tmFormatPointsPenaltyTs(item.dueTs) : savedDeadline;
+                                __tmMarkPointsPenaltyExempt(item, 'edited-deadline');
+                                __tmPointsPenaltyPendingCandidates = (Array.isArray(__tmPointsPenaltyPendingCandidates) ? __tmPointsPenaltyPendingCandidates : [])
+                                    .filter((candidate0) => String(candidate0?.id || '').trim() !== String(item.id || '').trim());
+                                if (__tmPointsPenaltyConfirmModal && document.body.contains(__tmPointsPenaltyConfirmModal)) __tmRenderPointsPenaltyConfirmModal();
+                                hint(`✅ 已更新截止日期：${item.title}`, 'success');
+                            } catch (e) {
+                                hint(`❌ 截止日期更新失败：${String(e?.message || e || '')}`, 'error');
+                            }
+                        })();
+                    },
+                });
+                return 'opened';
+            }
+        }
         let next = null;
         if (typeof showPrompt === 'function') {
             try {
@@ -9369,6 +9721,9 @@
                             }
                         } else {
                             const ok = await __tmEditPointsPenaltyDeadline(candidate);
+                            if (ok === 'opened') {
+                                return;
+                            }
                             if (ok) {
                                 removeCandidate(candidate.id);
                                 hint(`✅ 已更新截止日期：${candidate.title}`, 'success');
@@ -17196,6 +17551,19 @@ const renderBodyHtml = state.renderChecklistBodyHtml;
         }
         state.pendingChecklistRenderRestore = null;
         return true;
+    }
+
+    function __tmGetKanbanColScrollKey(colEl) {
+        if (!(colEl instanceof Element)) return '';
+        const status = String(colEl.getAttribute('data-status') || '').trim();
+        if (status) return `status:${status}`;
+        const kind = String(colEl.getAttribute('data-kind') || '').trim();
+        const time = String(colEl.getAttribute('data-time') || '').trim();
+        if (kind === 'time' || time) return `time:${time || kind}`;
+        const doc = String(colEl.getAttribute('data-doc') || '').trim();
+        const heading = String(colEl.getAttribute('data-heading') || '').trim();
+        if (kind || doc || heading) return `kind:${kind}|doc:${doc}|heading:${heading}`;
+        return '';
     }
 
     function __tmRerenderKanbanInPlace(modalEl) {

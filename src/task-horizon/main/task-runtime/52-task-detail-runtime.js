@@ -22,6 +22,19 @@
         return '';
     }
 
+    function __tmShouldDismissTaskTimeHubEditor(popover, editorKey, target) {
+        if (!(popover instanceof HTMLElement) || !(target instanceof Element)) return false;
+        const activeEditor = String(editorKey || '').trim();
+        if (!activeEditor || !popover.contains(target)) return false;
+        const editorPanel = target.closest('[data-tm-time-hub-editor-panel]');
+        if (editorPanel instanceof Element && popover.contains(editorPanel)) return false;
+        const activeCard = target.closest('[data-tm-time-hub-card]');
+        if (activeCard instanceof Element && popover.contains(activeCard)) {
+            return String(activeCard.getAttribute('data-tm-time-hub-card') || '').trim() !== activeEditor;
+        }
+        return true;
+    }
+
     function __tmGetStableTaskTimeHubAnchorRect(element, fallbackRect = null) {
         if (!(element instanceof HTMLElement)) return fallbackRect;
         let rect = null;
@@ -125,6 +138,28 @@
             : `${year}年${month}月${day}日`;
     }
 
+    function __tmGetTaskTimeHubCalendarFirstDay() {
+        try {
+            return Number(SettingsStore?.data?.calendarFirstDay) === 0 ? 0 : 1;
+        } catch (e) {
+            return 1;
+        }
+    }
+
+    function __tmGetTaskTimeHubWeekdayLabels(firstDay = __tmGetTaskTimeHubCalendarFirstDay()) {
+        const labels = ['日', '一', '二', '三', '四', '五', '六'];
+        const start = Number(firstDay) === 0 ? 0 : 1;
+        return labels.slice(start).concat(labels.slice(0, start));
+    }
+
+    function __tmGetTaskTimeHubMonthGridStart(month, firstDay = __tmGetTaskTimeHubCalendarFirstDay()) {
+        const first = new Date(month.getFullYear(), month.getMonth(), 1, 12, 0, 0, 0);
+        const gridStart = new Date(first.getTime());
+        const offset = (first.getDay() - (Number(firstDay) === 0 ? 0 : 1) + 7) % 7;
+        gridStart.setDate(first.getDate() - offset);
+        return gridStart;
+    }
+
     function __tmNormalizeTaskTimeHubTitle(value, fallback = '任务') {
         const backup = String(fallback || '').trim() || '任务';
         let text = String(value || '').trim() || backup;
@@ -195,6 +230,16 @@
         const state0 = __tmStandaloneTaskTimeHub;
         if (!state0) return false;
         __tmStandaloneTaskTimeHub = null;
+        try {
+            if (typeof state0.onClose === 'function') {
+                state0.onClose({
+                    reason: String(reason || '').trim() || 'manual',
+                    popover: state0.popover,
+                    trigger: state0.trigger,
+                });
+            }
+        } catch (e) {}
+        try { state0.unstack?.(); } catch (e) {}
         try { state0.abort?.abort?.(); } catch (e) {}
         try { state0.trigger?.classList?.remove?.('is-open'); } catch (e) {}
         try { state0.trigger?.setAttribute?.('aria-expanded', 'false'); } catch (e) {}
@@ -464,9 +509,8 @@
         };
         const renderCalendarHtml = () => {
             const month = startOfMonth(hubState.monthDate);
-            const first = new Date(month.getFullYear(), month.getMonth(), 1, 12, 0, 0, 0);
-            const gridStart = new Date(first.getTime());
-            gridStart.setDate(first.getDate() - first.getDay());
+            const firstDay = __tmGetTaskTimeHubCalendarFirstDay();
+            const gridStart = __tmGetTaskTimeHubMonthGridStart(month, firstDay);
             const startValue = readTaskDate('startDate');
             const endValue = readTaskDate('completionTime');
             const activeValue = readTaskDate(hubState.activeField);
@@ -504,7 +548,7 @@
                     </div>
                 </div>
                 <div class="tm-task-time-hub__weekdays">
-                    ${['日', '一', '二', '三', '四', '五', '六'].map((d) => `<span>${d}</span>`).join('')}
+                    ${__tmGetTaskTimeHubWeekdayLabels(firstDay).map((d) => `<span>${d}</span>`).join('')}
                 </div>
                 <div class="tm-task-time-hub__calendar">${days.join('')}</div>
             `;
@@ -725,6 +769,7 @@
                 }
                 await refreshTask();
                 await notifyChange({}, { kind: 'repeat' });
+                hubState.editor = '';
                 render();
             } catch (e) {
                 hint(`❌ 循环更新失败: ${e.message}`, 'error');
@@ -748,6 +793,7 @@
                 }, { source: 'task-time-hub-until' });
                 await refreshTask();
                 await notifyChange({}, { kind: 'repeat' });
+                hubState.editor = '';
                 render();
             } catch (e) {
                 hint(`❌ 结束规则更新失败: ${e.message}`, 'error');
@@ -778,7 +824,10 @@
         };
 
         document.body.appendChild(popover);
-        __tmStandaloneTaskTimeHub = { popover, trigger, abort };
+        const unstack = typeof __tmModalStackBind === 'function'
+            ? __tmModalStackBind(() => __tmCloseStandaloneTaskTimeHub('escape-stack'))
+            : null;
+        __tmStandaloneTaskTimeHub = { popover, trigger, abort, unstack, onClose: typeof opts.onClose === 'function' ? opts.onClose : null };
         try { trigger.classList.add('is-open'); } catch (e) {}
         render();
         try { __tmAnimatePopupIn(popover, { origin: 'top-left', duration: 150 }); } catch (e) {}
@@ -787,6 +836,10 @@
         on(popover, 'click', async (ev) => {
             const target = ev.target instanceof Element ? ev.target : null;
             if (!target || busy) return;
+            if (__tmShouldDismissTaskTimeHubEditor(popover, hubState.editor, target)) {
+                hubState.editor = '';
+                render();
+            }
             const closeBtn = target.closest('[data-tm-time-hub-close]');
             if (closeBtn) {
                 try { ev.preventDefault(); } catch (e) {}
@@ -2448,6 +2501,7 @@ if (!__tmIsCollectedOtherBlockTask(task) && diff.contentChanged) {
         let activeInlinePopoverTriggerRect = null;
         let inlinePopoverCommitting = false;
         const subtaskSaveTimers = new Map();
+        const subtaskTextareaMinHeight = 30;
         const syncAutoHeight = (textarea, minHeight = 34) => {
             if (!(textarea instanceof HTMLTextAreaElement)) return;
             const nextMinHeight = Math.max(0, Number(minHeight) || 0);
@@ -2991,9 +3045,8 @@ if (!__tmIsCollectedOtherBlockTask(task) && diff.contentChanged) {
             };
             const renderCalendarHtml = () => {
                 const month = startOfMonth(hubState.monthDate);
-                const first = new Date(month.getFullYear(), month.getMonth(), 1, 12, 0, 0, 0);
-                const gridStart = new Date(first.getTime());
-                gridStart.setDate(first.getDate() - first.getDay());
+                const firstDay = __tmGetTaskTimeHubCalendarFirstDay();
+                const gridStart = __tmGetTaskTimeHubMonthGridStart(month, firstDay);
                 const startValue = readHiddenInputValue('startDate');
                 const endValue = readHiddenInputValue('completionTime');
                 const activeValue = readHiddenInputValue(hubState.activeField);
@@ -3033,7 +3086,7 @@ if (!__tmIsCollectedOtherBlockTask(task) && diff.contentChanged) {
                         </div>
                     </div>
                     <div class="tm-task-time-hub__weekdays">
-                        ${['日', '一', '二', '三', '四', '五', '六'].map((d) => `<span>${d}</span>`).join('')}
+                        ${__tmGetTaskTimeHubWeekdayLabels(firstDay).map((d) => `<span>${d}</span>`).join('')}
                     </div>
                     <div class="tm-task-time-hub__calendar">${days.join('')}</div>
                 `;
@@ -3297,6 +3350,7 @@ if (!__tmIsCollectedOtherBlockTask(task) && diff.contentChanged) {
                     }
                     syncMetaChipFaces();
                     syncSerializedSnapshot();
+                    hubState.editor = '';
                     render();
                 } catch (e) {
                     hint(`❌ 循环更新失败: ${e.message}`, 'error');
@@ -3323,6 +3377,7 @@ if (!__tmIsCollectedOtherBlockTask(task) && diff.contentChanged) {
                     }
                     syncMetaChipFaces();
                     syncSerializedSnapshot();
+                    hubState.editor = '';
                     render();
                 } catch (e) {
                     hint(`❌ 结束规则更新失败: ${e.message}`, 'error');
@@ -3363,6 +3418,10 @@ if (!__tmIsCollectedOtherBlockTask(task) && diff.contentChanged) {
             on(popover, 'click', async (ev) => {
                 const target = ev.target instanceof Element ? ev.target : null;
                 if (!target) return;
+                if (__tmShouldDismissTaskTimeHubEditor(popover, hubState.editor, target)) {
+                    hubState.editor = '';
+                    render();
+                }
                 const closeBtn = target.closest('[data-tm-time-hub-close]');
                 if (closeBtn) {
                     try { ev.preventDefault(); } catch (e) {}
@@ -3655,14 +3714,14 @@ if (!__tmIsCollectedOtherBlockTask(task) && diff.contentChanged) {
             const nextValue = String(textarea.value || '').trim();
             if (!nextValue) {
                 textarea.value = savedValue;
-                syncAutoHeight(textarea, 34);
+                syncAutoHeight(textarea, subtaskTextareaMinHeight);
                 if (options.showHint !== false) hint('⚠️ 子任务内容不能为空', 'warning');
                 return false;
             }
             if (nextValue === savedValue) {
                 textarea.value = nextValue;
                 textarea.dataset.savedValue = nextValue;
-                syncAutoHeight(textarea, 34);
+                syncAutoHeight(textarea, subtaskTextareaMinHeight);
                 return true;
             }
             if (textarea.dataset.saving === 'true') return false;
@@ -3678,12 +3737,12 @@ if (!__tmIsCollectedOtherBlockTask(task) && diff.contentChanged) {
                 try { __tmInvalidateTasksQueryCacheByDocId(task.root_id || task.docId); } catch (e) {}
                 textarea.dataset.savedValue = nextValue;
                 textarea.value = nextValue;
-                syncAutoHeight(textarea, 34);
+                syncAutoHeight(textarea, subtaskTextareaMinHeight);
                 try { syncTaskContentInVisibleViews(task); } catch (e) {}
                 return true;
             } catch (e) {
                 textarea.value = savedValue;
-                syncAutoHeight(textarea, 34);
+                syncAutoHeight(textarea, subtaskTextareaMinHeight);
                 if (options.showHint !== false) hint(`❌ 子任务更新失败: ${e.message}`, 'error');
                 return false;
             } finally {
@@ -3745,9 +3804,9 @@ if (!__tmIsCollectedOtherBlockTask(task) && diff.contentChanged) {
                         const subtaskId = String(el.getAttribute('data-tm-detail-subtask-content') || '').trim();
                         if (!subtaskId) return;
                         if (!el.dataset.savedValue) el.dataset.savedValue = String(el.value || '').trim();
-                        syncAutoHeight(el, 34);
+                        syncAutoHeight(el, subtaskTextareaMinHeight);
                         on(el, 'input', () => {
-                            syncAutoHeight(el, 34);
+                            syncAutoHeight(el, subtaskTextareaMinHeight);
                             if (el.readOnly) return;
                             scheduleSubtaskSave(el, subtaskId);
                         });
@@ -3817,8 +3876,8 @@ if (!__tmIsCollectedOtherBlockTask(task) && diff.contentChanged) {
                     setTaskDetailPendingSave(false, 420);
                 }
             };
-            syncAutoHeight(input, 34);
-            on(input, 'input', () => syncAutoHeight(input, 34));
+            syncAutoHeight(input, subtaskTextareaMinHeight);
+            on(input, 'input', () => syncAutoHeight(input, subtaskTextareaMinHeight));
             on(input, 'keydown', (ev) => {
                 if (ev.key === 'Escape') {
                     try { ev.preventDefault(); } catch (e) {}
@@ -3856,7 +3915,7 @@ if (!__tmIsCollectedOtherBlockTask(task) && diff.contentChanged) {
                     const existingInput = existing.querySelector('[data-tm-detail-subtask-draft-input]');
                     if (existingInput instanceof HTMLTextAreaElement) {
                         if (draftOpts.value != null) existingInput.value = String(draftOpts.value || '');
-                        syncAutoHeight(existingInput, 34);
+                        syncAutoHeight(existingInput, subtaskTextareaMinHeight);
                         existingInput.focus();
                         if (Number.isFinite(Number(draftOpts.selectionStart))) {
                             const start = Math.max(0, Number(draftOpts.selectionStart || 0));
@@ -3894,7 +3953,7 @@ if (!__tmIsCollectedOtherBlockTask(task) && diff.contentChanged) {
                 const input = draftRow.querySelector('[data-tm-detail-subtask-draft-input]');
                 if (input instanceof HTMLTextAreaElement && draftOpts.value != null) {
                     input.value = String(draftOpts.value || '');
-                    syncAutoHeight(input, 34);
+                    syncAutoHeight(input, subtaskTextareaMinHeight);
                 }
                 if (input instanceof HTMLTextAreaElement && draftOpts.focus !== false) {
                     requestAnimationFrame(() => {
@@ -3925,9 +3984,9 @@ if (!__tmIsCollectedOtherBlockTask(task) && diff.contentChanged) {
                 const tid = String(el.getAttribute('data-tm-detail-subtask-content') || '').trim();
                 if (!tid) return;
                 if (!el.dataset.savedValue) el.dataset.savedValue = String(el.value || '').trim();
-                syncAutoHeight(el, 34);
+                syncAutoHeight(el, subtaskTextareaMinHeight);
                 on(el, 'input', () => {
-                    syncAutoHeight(el, 34);
+                    syncAutoHeight(el, subtaskTextareaMinHeight);
                     if (el.readOnly) return;
                     scheduleSubtaskSave(el, tid);
                 });
@@ -3946,6 +4005,28 @@ if (!__tmIsCollectedOtherBlockTask(task) && diff.contentChanged) {
                 });
             });
         };
+        const syncSubtaskEditorHeights = () => {
+            root.querySelectorAll('[data-tm-detail-subtask-content], [data-tm-detail-subtask-draft-input]').forEach((el) => {
+                if (el instanceof HTMLTextAreaElement) syncAutoHeight(el, subtaskTextareaMinHeight);
+            });
+        };
+        try {
+            if (typeof ResizeObserver === 'function') {
+                let resizeRaf = 0;
+                const resizeObserver = new ResizeObserver(() => {
+                    try { if (resizeRaf) cancelAnimationFrame(resizeRaf); } catch (e) {}
+                    resizeRaf = requestAnimationFrame(() => {
+                        resizeRaf = 0;
+                        syncSubtaskEditorHeights();
+                    });
+                });
+                resizeObserver.observe(root);
+                abortController.signal.addEventListener('abort', () => {
+                    try { if (resizeRaf) cancelAnimationFrame(resizeRaf); } catch (e) {}
+                    try { resizeObserver.disconnect(); } catch (e) {}
+                }, { once: true });
+            }
+        } catch (e) {}
         const bindCustomFieldEditors = () => {
             root.querySelectorAll('[data-tm-detail-custom-field]').forEach((button) => {
                 if (!(button instanceof HTMLButtonElement)) return;
@@ -4993,6 +5074,7 @@ return true;
                     startDate: true,
                     completionTime: true,
                     taskCompleteAt: true,
+                    repeatHistory: true,
                     duration: true,
                     pinned: true,
                     remark: true,
@@ -5057,6 +5139,10 @@ return true;
 
         try { panel.__tmTaskDetailTask = task; } catch (e) {}
         try { panel.dataset.tmDetailTaskId = tid; } catch (e) {}
+
+        if (Object.prototype.hasOwnProperty.call(nextPatch, 'repeatHistory')) {
+            return false;
+        }
 
         if (Object.prototype.hasOwnProperty.call(nextPatch, 'customStatus') || Object.prototype.hasOwnProperty.call(nextPatch, 'done')) {
             const statusOpt = __tmResolveTaskStatusDisplayOption(task, __tmGetStatusOptions(SettingsStore.data.customStatusOptions || []), {
@@ -5251,6 +5337,7 @@ return true;
                     startDate: true,
                     completionTime: true,
                     taskCompleteAt: true,
+                    repeatHistory: true,
                     duration: true,
                     pinned: true,
                     remark: true,
@@ -5409,13 +5496,22 @@ refreshed = !!__tmRefreshChecklistSelectionInPlace(state.modal, 'visible-task-de
 
     function __tmCloseKanbanDetailFloating() {
         if (!String(state.kanbanDetailTaskId || '').trim()) return;
+        const modal = state.modal instanceof Element ? state.modal : null;
         try {
-            const panel = state.modal?.querySelector?.('#tmKanbanDetailPanel');
+            const panel = modal?.querySelector?.('#tmKanbanDetailPanel');
             __tmMarkTaskDetailRootClosing(panel, { holdMs: 900 });
             __tmMarkTaskDetailRootClosed(panel);
         } catch (e) {}
         state.kanbanDetailTaskId = '';
         state.kanbanDetailAnchorTaskId = '';
+        try { __tmClearKanbanDetailFloatingHandlers(); } catch (e) {}
+        const floatPanel = modal?.querySelector?.('#tmKanbanDetailFloat');
+        if (floatPanel instanceof HTMLElement) {
+            try { __tmAnimatePopupOutAndRemove(floatPanel, { duration: 110 }); } catch (e) {
+                try { floatPanel.remove(); } catch (e2) {}
+            }
+            return;
+        }
         render();
     }
 
@@ -5576,6 +5672,54 @@ refreshed = !!__tmRefreshChecklistSelectionInPlace(state.modal, 'visible-task-de
         if (detailScrollSnapshot && String(detailScrollSnapshot.selectedId || '').trim() === selectedId) {
             __tmRestoreKanbanDetailScrollSnapshot(detailScrollSnapshot, modal);
         }
+        return true;
+    }
+
+    function __tmOpenKanbanDetailFloatingInPlace(taskId, modalEl = null) {
+        const modal = modalEl instanceof Element ? modalEl : state.modal;
+        const tid = String(taskId || '').trim();
+        if (!(modal instanceof Element) || !tid) return false;
+        if (String(state.viewMode || '').trim() !== 'kanban') return false;
+        const body = modal.querySelector('.tm-body.tm-body--kanban');
+        if (!(body instanceof HTMLElement)) return false;
+        const task = state.flatTasks?.[tid] || globalThis.__tmRuntimeState?.getFlatTaskById?.(tid) || null;
+        if (!task) return false;
+
+        state.kanbanDetailTaskId = tid;
+        state.kanbanDetailAnchorTaskId = tid;
+
+        let floatPanel = modal.querySelector('#tmKanbanDetailFloat');
+        let panel = modal.querySelector('#tmKanbanDetailPanel');
+        if (!(floatPanel instanceof HTMLElement)) {
+            floatPanel = document.createElement('aside');
+            floatPanel.className = 'tm-kanban-detail-float';
+            floatPanel.id = 'tmKanbanDetailFloat';
+        }
+        if (!(panel instanceof HTMLElement)) {
+            panel = document.createElement('div');
+            panel.className = 'tm-kanban-detail-float__body';
+            panel.id = 'tmKanbanDetailPanel';
+            floatPanel.replaceChildren(panel);
+        } else if (panel.parentElement !== floatPanel) {
+            floatPanel.replaceChildren(panel);
+        }
+        if (!floatPanel.isConnected) {
+            body.appendChild(floatPanel);
+        }
+
+        panel.innerHTML = __tmBuildTaskDetailInnerHtml(task, { embedded: true, floating: true });
+        try { panel.__tmTaskDetailTask = task; } catch (e) {}
+        try { panel.dataset.tmDetailTaskId = tid; } catch (e) {}
+        __tmBindTaskDetailEditor(panel, tid, {
+            embedded: true,
+            source: 'kanban-detail-open-in-place',
+            task,
+            onClose: () => {
+                __tmCloseKanbanDetailFloating();
+            }
+        });
+        try { __tmRefreshKanbanDetailInPlace(modal, { source: 'kanban-detail-open-in-place' }); } catch (e) {}
+        try { __tmAnimatePopupIn(floatPanel, { origin: 'top-left', duration: 120 }); } catch (e) {}
         return true;
     }
 

@@ -653,11 +653,29 @@
     __tmNs.applyTaskMetaPatchWithUndo = __tmApplyTaskMetaPatchWithUndo;
     __tmNs.applyTaskStatus = __tmApplyTaskStatus;
 
+    function __tmIsQuickbarTaskDone(task) {
+        if (!(task && typeof task === 'object')) return false;
+        if (task.done === true) return true;
+        const statusId = String(task.customStatus || task.custom_status || '').trim();
+        if (statusId) {
+            try {
+                if (typeof __tmDoesStatusIdResolveToDone === 'function' && __tmDoesStatusIdResolveToDone(statusId, SettingsStore?.data?.customStatusOptions || [])) return true;
+            } catch (e) {}
+        }
+        try {
+            const marker = typeof __tmResolveTaskMarker === 'function' ? __tmResolveTaskMarker(task, SettingsStore?.data?.customStatusOptions || []) : '';
+            return typeof __tmIsTaskMarkerDone === 'function' ? __tmIsTaskMarkerDone(marker) : false;
+        } catch (e) {
+            return false;
+        }
+    }
+
     function __tmBuildQuickbarTaskCustomProps(task) {
         if (!(task && typeof task === 'object')) return null;
         const normalizeDate = (value) => {
             try { return value ? __tmNormalizeDateOnly(value) : ''; } catch (e) { return String(value || '').trim(); }
         };
+        const done = __tmIsQuickbarTaskDone(task);
         const props = {
             'custom-priority': String(task.priority || task.custom_priority || 'none').trim() || 'none',
             'custom-status': String(task.customStatus || task.custom_status || '').trim(),
@@ -667,6 +685,8 @@
             'custom-remark': String(task.remark || task.custom_remark || '').trim(),
             'custom-pinned': String(task.pinned || task.custom_pinned || '').trim(),
             'bookmark': String(task.bookmark || '').trim(),
+            done,
+            taskCompleteAt: done ? __tmResolveTaskCompletedAtRaw(task, { completedOnly: false }) : '',
         };
         try {
             __tmGetCustomFieldDefs().forEach((field) => {
@@ -731,6 +751,9 @@
         },
         formatTaskTime(value) {
             try { return __tmFormatTaskTime(value); } catch (e) { return String(value || '').trim(); }
+        },
+        formatTaskCompletedAtTime(value) {
+            try { return __tmFormatTaskCompletedAtTime(value); } catch (e) { return String(value || '').trim(); }
         },
         notifyAttrUpdated(detail = {}) {
             const next = (detail && typeof detail === 'object' && !Array.isArray(detail)) ? detail : {};

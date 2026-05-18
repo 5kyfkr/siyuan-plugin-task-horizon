@@ -779,7 +779,12 @@ if (shouldMarkDirty) {
         try { globalThis.__tmHomepage?.unmount?.(); } catch (e) {}
         try {
             if (__tmModalStackEscHandler) {
-                globalThis.__tmRuntimeEvents?.off?.(document, 'keydown', __tmModalStackEscHandler, true);
+                if (typeof __tmUnbindModalStackEscHandler === 'function') {
+                    __tmUnbindModalStackEscHandler(__tmModalStackEscHandler);
+                } else {
+                    try { globalThis.__tmRuntimeEvents?.off?.(document, 'keydown', __tmModalStackEscHandler, true); } catch (e2) {}
+                    try { document.removeEventListener('keydown', __tmModalStackEscHandler, true); } catch (e2) {}
+                }
                 __tmModalStackEscHandler = null;
             }
         } catch (e) {}

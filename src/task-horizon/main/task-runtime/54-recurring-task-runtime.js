@@ -90,6 +90,63 @@
         return true;
     }
 
+    async function __tmSetDetachedTaskRepeatHistoryEntry(taskId, done, entryInput = {}, options = {}) {
+        const task = await __tmResolveTaskForRepeat(taskId);
+        if (!task?.id) throw new Error('未找到任务');
+        const opts = (options && typeof options === 'object') ? options : {};
+        const entry = (entryInput && typeof entryInput === 'object') ? entryInput : {};
+        const completedAt = String(entry.completedAt || opts.completedAt || __tmNowInChinaTimezoneIso()).trim() || __tmNowInChinaTimezoneIso();
+        const currentHistory = __tmNormalizeTaskRepeatHistory(task?.repeatHistory || task?.repeat_history || '');
+        const withoutEntry = currentHistory.filter((item) => String(item?.completedAt || '').trim() !== completedAt);
+        const nextDone = done === true;
+        const nextHistory = nextDone
+            ? __tmNormalizeTaskRepeatHistory([
+                {
+                    completedAt,
+                    sourceStart: __tmNormalizeDateOnly(entry.sourceStart || entry.startDate || ''),
+                    sourceDue: __tmNormalizeDateOnly(entry.sourceDue || entry.completionTime || entry.dueDate || ''),
+                    nextStart: __tmNormalizeDateOnly(task?.startDate || ''),
+                    nextDue: __tmNormalizeDateOnly(task?.completionTime || ''),
+                    content: String(entry.content || task?.content || task?.raw_content || '').trim(),
+                    docId: String(task?.root_id || task?.docId || '').trim(),
+                    docName: String(task?.docName || task?.doc_name || '').trim(),
+                    h2: String(task?.h2 || '').trim(),
+                    h2Id: String(task?.h2Id || '').trim(),
+                    h2Path: String(task?.h2Path || '').trim(),
+                    priority: String(task?.priority || '').trim(),
+                    customStatus: String(task?.customStatus || '').trim(),
+                    duration: String(task?.duration || '').trim(),
+                    remark: String(task?.remark || '').trim(),
+                    docSeq: Number.isFinite(Number(task?.docSeq)) ? Number(task.docSeq) : Number.NaN,
+                },
+                ...withoutEntry,
+            ])
+            : withoutEntry;
+        if (JSON.stringify(currentHistory) === JSON.stringify(nextHistory)) {
+            return { changed: false, completedAt, taskId: task.id, repeatHistory: nextHistory };
+        }
+        const result = await __tmApplyTaskMetaPatchWithUndo(task.id, {
+            repeatHistory: nextHistory,
+        }, {
+            source: String(opts.source || 'task-repeat-detached-history').trim() || 'task-repeat-detached-history',
+            label: nextDone ? '循环例外完成记录' : '删除循环例外完成记录',
+            refresh: opts.refresh !== false,
+            refreshCalendar: opts.refreshCalendar !== false,
+            withFilters: opts.withFilters !== false,
+            hard: opts.hard === true,
+            recordUndo: opts.recordUndo !== false,
+            broadcast: opts.broadcast !== false,
+        });
+        if (!nextDone) {
+            __tmPurgeRecurringInstanceTasks(task.id, [completedAt]);
+        }
+        return {
+            ...result,
+            completedAt,
+            repeatHistory: nextHistory,
+        };
+    }
+
     const __tmRecurringAdvanceTimers = new Map();
 
     function __tmClearRecurringTaskAdvanceTimer(taskId) {
@@ -391,6 +448,47 @@
                 completionTime: task?.completionTime,
             }),
         };
+    };
+
+    window.tmSkipRecurringTaskOccurrence = async function(taskId, options = {}) {
+        const task = await __tmResolveTaskForRepeat(taskId);
+        if (!task?.id) throw new Error('未找到任务');
+        const opts = (options && typeof options === 'object') ? options : {};
+        const rule = __tmGetTaskRepeatRule(task);
+        if (!rule.enabled || rule.type === 'none') throw new Error('该任务未开启循环');
+        const nextPatch = __tmBuildTaskRepeatAdvancePatch(task, rule, {
+            advancedAt: String(opts.advancedAt || new Date().toISOString()).trim() || new Date().toISOString(),
+            completedAt: String(task?.repeatState?.lastCompletedAt || '').trim(),
+        });
+        if (!nextPatch) throw new Error('没有可跳过到的下一次循环');
+        const sourceStart = __tmNormalizeDateOnly(task?.startDate || '');
+        const sourceDue = __tmNormalizeDateOnly(task?.completionTime || '');
+        const result = await __tmApplyTaskMetaPatchWithUndo(task.id, nextPatch, {
+            source: String(opts.source || 'task-repeat-skip').trim() || 'task-repeat-skip',
+            label: String(opts.label || '跳过循环本次').trim() || '跳过循环本次',
+            refresh: opts.refresh !== false,
+            refreshCalendar: opts.refreshCalendar !== false,
+            withFilters: opts.withFilters !== false,
+            hard: opts.hard === true,
+            recordUndo: opts.recordUndo !== false,
+            broadcast: opts.broadcast !== false,
+        });
+        return {
+            ...result,
+            rule,
+            skippedStart: sourceStart,
+            skippedDue: sourceDue,
+            nextStart: __tmNormalizeDateOnly(nextPatch.startDate || ''),
+            nextDue: __tmNormalizeDateOnly(nextPatch.completionTime || ''),
+            summary: __tmGetTaskRepeatSummary(rule, {
+                startDate: nextPatch.startDate,
+                completionTime: nextPatch.completionTime,
+            }),
+        };
+    };
+
+    window.tmSetDetachedTaskRepeatHistoryEntry = async function(taskId, done, entryInput = {}, options = {}) {
+        return await __tmSetDetachedTaskRepeatHistoryEntry(taskId, done, entryInput, options);
     };
 
     window.tmSetTaskRepeatRule = async function(taskId, ruleInput = {}, options = {}) {

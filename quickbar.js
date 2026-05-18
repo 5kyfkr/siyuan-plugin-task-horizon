@@ -49,6 +49,13 @@
                 defaultValue: ''
             },
             {
+                name: '完成时间',
+                attrKey: 'taskCompleteAt',
+                type: 'completed-time',
+                defaultValue: '',
+                readonly: true
+            },
+            {
                 name: '时长',
                 attrKey: 'custom-duration',
                 type: 'text',
@@ -99,6 +106,7 @@
     const quickbarInlineFieldDefs = [
         { attrKey: 'custom-status', name: '状态', type: 'select' },
         { attrKey: 'custom-completion-time', name: '截止日期', type: 'date' },
+        { attrKey: 'taskCompleteAt', name: '完成时间', type: 'completed-time', readonly: true },
         { attrKey: 'custom-priority', name: '重要性', type: 'select' },
         { attrKey: 'custom-start-date', name: '开始日期', type: 'date' },
         { attrKey: 'custom-duration', name: '时长', type: 'text', placeholder: '输入时长' },
@@ -106,7 +114,7 @@
     ];
     const quickbarInlineFieldAllowSet = new Set(quickbarInlineFieldDefs.map(item => item.attrKey));
     const quickbarVisibleItemDefaults = ['custom-status', 'custom-priority', 'custom-start-date', 'custom-completion-time', 'custom-duration', 'custom-remark', 'action-ai-title', 'action-reminder', 'action-more'];
-    const quickbarVisibleItemAllowSet = new Set(quickbarVisibleItemDefaults);
+    const quickbarVisibleItemAllowSet = new Set([...quickbarVisibleItemDefaults, 'taskCompleteAt']);
     let inlineMetaCache = new Map();
     let inlineMetaCacheTs = new Map();
     let inlineMetaLayoutCache = new Map();
@@ -140,6 +148,10 @@
     let inlineMetaPropsInflight = new Map();
     let inlineMetaScrollDirection = 0;
     let inlineMetaLastScrollPos = 0;
+    let inlineMetaRecentScrollUntil = 0;
+    let inlineMetaDeferredPruneTimer = 0;
+    let inlineMetaDeferredStructural = false;
+    let inlineMetaDeferredStructuralAnchor = null;
     let inlineMetaWsHandler = null;
     let inlineMetaWsTimer = null;
     let inlineMetaIsComposing = false;
@@ -538,6 +550,46 @@
         return String(statusOptions[0]?.id || '').trim() || 'todo';
     }
 
+    function normalizeQuickbarStatusMarker(value, fallback = ' ') {
+        const raw = value == null ? '' : String(value);
+        const first = Array.from(raw === '__space__' ? ' ' : raw)[0] || '';
+        if (first && first !== '[' && first !== ']') return first;
+        if (fallback === '') return '';
+        return fallback == null ? ' ' : String(fallback || ' ').slice(0, 1) || ' ';
+    }
+
+    function isQuickbarDoneStatusValue(value, statusOptionsInput = null) {
+        const statusId = String(value || '').trim();
+        if (!statusId) return false;
+        const statusOptions = Array.isArray(statusOptionsInput) && statusOptionsInput.length
+            ? statusOptionsInput
+            : getStatusOptionsSnapshot();
+        let configuredDone = '';
+        try {
+            configuredDone = String(localStorage.getItem('tm_checkbox_done_status_id') || '').trim();
+        } catch (e) {}
+        if (configuredDone && configuredDone !== '__none__' && statusId === configuredDone) return true;
+        const matched = statusOptions.find((item) => String(item?.id || '').trim() === statusId) || null;
+        if (matched) {
+            const marker = normalizeQuickbarStatusMarker(matched.marker, '');
+            if (marker) return marker !== ' ';
+            const source = `${String(matched.id || '').trim()} ${String(matched.name || '').trim()}`.toLowerCase();
+            return source.includes('done') || source.includes('finish') || source.includes('完成');
+        }
+        return statusId === 'done';
+    }
+
+    function isQuickbarPropsDone(props) {
+        const data = props && typeof props === 'object' ? props : {};
+        if (data.done === true || data.done === 'true' || data.done === '1' || data.done === 1) return true;
+        return isQuickbarDoneStatusValue(data['custom-status'] || data.customStatus || data.custom_status);
+    }
+
+    function shouldShowQuickbarTaskCompleteAt(props) {
+        const data = props && typeof props === 'object' ? props : {};
+        return isQuickbarPropsDone(data) && !!String(data.taskCompleteAt || '').trim();
+    }
+
     async function getManagedTaskStatusSnapshot(taskIdOrBlockId) {
         const rawId = String(taskIdOrBlockId || '').trim();
         if (!rawId) return null;
@@ -698,6 +750,11 @@
         return true;
     }
 
+    function quickbarInlineFieldsIncludeCompleteAt(cfg = null) {
+        const settings = cfg && Array.isArray(cfg.fields) ? cfg : getQuickbarInlineSettings();
+        return Array.isArray(settings?.fields) && settings.fields.includes('taskCompleteAt');
+    }
+
     const QUICKBAR_INLINE_RENDER_BATCH_LIMIT = 6;
 
     function hasTaskMarkerEl(el) {
@@ -757,6 +814,17 @@
         return block;
     }
 
+    function shouldRejectInlineTextParent(parent, textRoot = null) {
+        if (!(parent instanceof Element)) return false;
+        if (parent.closest?.('.sy-custom-props-inline-host,.protyle-attr,.protyle-custom')) return true;
+        const falseHost = parent.closest?.('[contenteditable="false"]');
+        if (!falseHost) return false;
+        if (textRoot instanceof Element && falseHost.contains(textRoot) && !textRoot.contains(falseHost)) {
+            return false;
+        }
+        return true;
+    }
+
         function getTaskTitleFromBlockEl(blockEl) {
             if (!blockEl) return '';
             try {
@@ -769,8 +837,7 @@
                 const walker = document.createTreeWalker(textAnchor, NodeFilter.SHOW_TEXT, {
                     acceptNode(node) {
                         const parent = node?.parentElement;
-                        if (parent?.closest?.('.sy-custom-props-inline-host')) return NodeFilter.FILTER_REJECT;
-                        if (parent?.closest?.('[contenteditable="false"],.protyle-attr,.protyle-custom')) return NodeFilter.FILTER_REJECT;
+                        if (shouldRejectInlineTextParent(parent, textAnchor)) return NodeFilter.FILTER_REJECT;
                         const text = String(node?.nodeValue || '').replace(/\u200b/g, '').trim();
                         return text ? NodeFilter.FILTER_ACCEPT : NodeFilter.FILTER_REJECT;
                     }
@@ -2732,6 +2799,7 @@
             const key = String(attrKey || '').trim();
             if (key === 'custom-start-date') return 'calendar-plus-2';
             if (key === 'custom-completion-time') return 'calendar-check';
+            if (key === 'taskCompleteAt') return 'check-circle';
             if (key === 'custom-duration') return 'timer';
             if (key === 'custom-remark') return 'note-pencil';
             return '';
@@ -2741,6 +2809,7 @@
             const attrKey = String(config?.attrKey || '').trim();
             const rawValue = String(value ?? '').trim();
             if (!rawValue) return '';
+            if (attrKey === 'taskCompleteAt') return formatTaskCompletedAtLikeManager(rawValue);
             if (config?.type === 'date') return formatTaskTimeLikeManager(rawValue);
             if (attrKey === 'custom-remark') return truncateInlineValue(rawValue, 24);
             if (attrKey === 'custom-duration') return truncateInlineValue(rawValue, 12);
@@ -2863,6 +2932,7 @@
             const data = attrs && typeof attrs === 'object' ? attrs : {};
             const statusOptions = getStatusOptionsSnapshot();
             const defaultUndoneStatusId = getDefaultUndoneStatusId(statusOptions);
+            const done = data.done === true || data.done === 'true' || data.done === '1' || data.done === 1;
             const out = {
                 'custom-priority': data['custom-priority'] || 'none',
                 'custom-status': String(data['custom-status'] || '').trim() || defaultUndoneStatusId,
@@ -2871,7 +2941,9 @@
                 'custom-duration': data['custom-duration'] || '',
                 'custom-remark': data['custom-remark'] || '',
                 'custom-pinned': data['custom-pinned'] || '',
-                'bookmark': data['bookmark'] || ''
+                'bookmark': data['bookmark'] || '',
+                done,
+                taskCompleteAt: String(data.taskCompleteAt || data.task_complete_at || data['custom-task-complete-at'] || '').trim()
             };
             getQuickbarCustomFieldDefs().forEach((field) => {
                 const config = buildQuickbarCustomFieldConfig(field);
@@ -2931,6 +3003,31 @@
             return String(normalized || '').trim();
         }
 
+        function isQuickbarTaskLikeDone(task) {
+            if (!(task && typeof task === 'object')) return false;
+            return isQuickbarPropsDone({
+                done: task.done,
+                'custom-status': task.customStatus || task.custom_status || ''
+            });
+        }
+
+        function resolveTaskCompleteAtFromTaskLike(task) {
+            if (!(task && typeof task === 'object') || !isQuickbarTaskLikeDone(task)) return '';
+            return String(
+                task.taskCompleteAt
+                || task.task_complete_at
+                || task['custom-task-complete-at']
+                || task.completedAt
+                || task.updated
+                || task.updatedAt
+                || task.updateTime
+                || task.update_time
+                || task.completionTime
+                || task.completion_time
+                || ''
+            ).trim();
+        }
+
         function getRuntimeTaskCustomProps(blockId, blockEl = null) {
             const task = getRuntimeTaskByQuickbarId(blockId, blockEl);
             if (!(task && typeof task === 'object')) return null;
@@ -2942,6 +3039,8 @@
                 'custom-duration': String(task.duration || task.custom_duration || '').trim(),
                 'custom-remark': String(task.remark || task.custom_remark || '').trim(),
                 'custom-pinned': String(task.pinned || task.custom_pinned || '').trim(),
+                done: isQuickbarTaskLikeDone(task),
+                taskCompleteAt: resolveTaskCompleteAtFromTaskLike(task),
                 'bookmark': String(task.bookmark || '').trim()
             });
             const customValues = (task.customFieldValues && typeof task.customFieldValues === 'object' && !Array.isArray(task.customFieldValues))
@@ -3119,6 +3218,23 @@
             return formatDate(s);
         }
 
+        function formatTaskCompletedAtLikeManager(value) {
+            const s = String(value || '').trim();
+            if (!s) return '';
+            try {
+                const formatter = getTaskHorizonSharedApi()?.quickbarBridge?.formatTaskCompletedAtTime;
+                if (typeof formatter === 'function') {
+                    const text = String(formatter(s) || '').trim();
+                    if (text) return text;
+                }
+            } catch (e) {}
+            if (/^\d{4}-\d{2}-\d{2}(?:[T\s]\d{2}:\d{2})?/.test(s)) {
+                return /(?:T|\s)\d{2}:\d{2}/.test(s) ? s.slice(0, 16).replace('T', ' ') : s.slice(0, 10);
+            }
+            if (/^\d{14}$/.test(s)) return `${s.slice(0, 4)}-${s.slice(4, 6)}-${s.slice(6, 8)} ${s.slice(8, 10)}:${s.slice(10, 12)}`;
+            return formatTaskTimeLikeManager(s);
+        }
+
         function renderInlineMetaField(config, value) {
             if (!config) return '';
             const attrKey = String(config.attrKey || '').trim();
@@ -3164,6 +3280,15 @@
                     </span>
                 `.trim();
             }
+            if (attrKey === 'taskCompleteAt') {
+                const timeText = formatTaskCompletedAtLikeManager(rawValue);
+                if (!timeText) return '';
+                return `
+                    <span class="sy-custom-props-inline-chip sy-custom-props-inline-chip--time sy-custom-props-inline-chip--completed-time" data-inline-attr="${escapedAttr}" data-inline-type="${config.type}" data-inline-name="${escapedName}" data-inline-value="${escapedValue}" title="${escapedName}">
+                        <span class="sy-custom-props-inline-chip-value">${esc(timeText)}</span>
+                    </span>
+                `.trim();
+            }
             const isDate = config.type === 'date';
             const displayValue = isDate
                 ? formatTaskTimeLikeManager(rawValue)
@@ -3197,8 +3322,9 @@
                 if (!props) {
                     return null;
                 }
+                const normalizedProps = normalizeCustomProps(props);
                 return {
-                    props: normalizeCustomProps(props),
+                    props: normalizedProps,
                     taskId: String(result?.taskId || '').trim(),
                     attrHostId: String(result?.attrHostId || '').trim(),
                 };
@@ -3268,7 +3394,7 @@
 
         function inlineMetaFieldsIncludeDate(cfg) {
             const fields = Array.isArray(cfg?.fields) ? cfg.fields : [];
-            return fields.includes('custom-start-date') || fields.includes('custom-completion-time');
+            return fields.includes('custom-start-date') || fields.includes('custom-completion-time') || fields.includes('taskCompleteAt');
         }
 
         function patchInlineMetaCache(taskId, patch) {
@@ -3386,6 +3512,9 @@
             return settings.fields
                 .map((attrKey) => {
                     const config = getInlineFieldConfig(attrKey);
+                    if (String(config?.attrKey || attrKey || '').trim() === 'taskCompleteAt') {
+                        if (!shouldShowQuickbarTaskCompleteAt(sourceProps)) return '';
+                    }
                     return renderInlineMetaField(config, config ? sourceProps[config.attrKey] : sourceProps[attrKey]);
                 })
                 .filter(Boolean).join('');
@@ -3417,6 +3546,7 @@
             const rows = [];
             const visibleSettings = getQuickbarVisibleSettings();
             const visibleSet = new Set(visibleSettings.items);
+            const shouldShowTaskCompleteAt = shouldShowQuickbarTaskCompleteAt(currentProps);
             const splitRemarkRow = shouldSplitRemarkIntoOwnRow(visibleSet);
             const mainConfigs = [
                 ...customPropsConfig.firstRow,
@@ -3424,6 +3554,7 @@
             ];
             const mainProps = mainConfigs
                 .filter(config => visibleSet.has(String(config?.attrKey || '').trim()))
+                .filter(config => String(config?.attrKey || '').trim() !== 'taskCompleteAt' || shouldShowTaskCompleteAt)
                 .map(config => renderPropElement(config, currentProps[config.attrKey]));
             visibleSettings.items
                 .map((itemKey) => getQuickbarCustomFieldConfigByToken(itemKey))
@@ -3455,6 +3586,7 @@
             if (splitRemarkRow) {
                 const remarkProps = customPropsConfig.secondRow
                     .filter(config => visibleSet.has(String(config?.attrKey || '').trim()))
+                    .filter(config => String(config?.attrKey || '').trim() !== 'taskCompleteAt' || shouldShowTaskCompleteAt)
                     .map(config => renderPropElement(config, currentProps[config.attrKey]))
                     .filter(Boolean);
                 if (remarkProps.length) {
@@ -3520,6 +3652,8 @@
                     </span>
                 `;
             } else if (config.type === 'date') {
+                return renderFloatbarCoreLikeProp(config, value);
+            } else if (config.type === 'completed-time') {
                 return renderFloatbarCoreLikeProp(config, value);
             } else {
                 // 文本类型属性（时长、备注）
@@ -3619,6 +3753,7 @@
                 const allProps = [...customPropsConfig.firstRow, ...customPropsConfig.secondRow];
                 activePropConfig = allProps.find(p => p.attrKey === attrKey) || getQuickbarCustomFieldConfigByAttrKey(attrKey);
                 if (!activePropConfig) return;
+                if (activePropConfig.readonly || propType === 'completed-time') return;
 
                 // 如果是状态属性，每次打开前重新加载选项
                 if (attrKey === 'custom-status') {
@@ -4496,8 +4631,7 @@
                         const text = String(node?.nodeValue || '').replace(/\u200b/g, '').trim();
                         if (!text) return NodeFilter.FILTER_REJECT;
                         const parent = node.parentElement;
-                        if (parent?.closest?.('.sy-custom-props-inline-host')) return NodeFilter.FILTER_REJECT;
-                        if (parent?.closest?.('[contenteditable="false"],.protyle-attr,.protyle-custom')) return NodeFilter.FILTER_REJECT;
+                        if (shouldRejectInlineTextParent(parent, textAnchor)) return NodeFilter.FILTER_REJECT;
                         return NodeFilter.FILTER_ACCEPT;
                     }
                 });
@@ -4549,8 +4683,7 @@
                 const walker = document.createTreeWalker(textAnchor, NodeFilter.SHOW_TEXT, {
                     acceptNode(node) {
                         const parent = node?.parentElement;
-                        if (parent?.closest?.('.sy-custom-props-inline-host')) return NodeFilter.FILTER_REJECT;
-                        if (parent?.closest?.('[contenteditable="false"],.protyle-attr,.protyle-custom')) return NodeFilter.FILTER_REJECT;
+                        if (shouldRejectInlineTextParent(parent, textAnchor)) return NodeFilter.FILTER_REJECT;
                         return NodeFilter.FILTER_ACCEPT;
                     }
                 });
@@ -4611,6 +4744,7 @@
                     const attrKey = String(chip.dataset.inlineAttr || '').trim();
                     const config = getInlineFieldConfig(attrKey);
                     if (!blockRef || !config) return;
+                    if (config.readonly || String(config.type || '').trim() === 'completed-time') return;
                     updateCurrentTaskContext(blockRef, blockId || String(blockRef.dataset.nodeId || '').trim());
                     currentProps = await getTaskCustomProps(currentBlockId, false);
                     activePropConfig = config;
@@ -4698,14 +4832,18 @@
         function getInlineDirectionalTaskBlocks(upBuffer = 360, downBuffer = 360, maxCount = 96) {
             const viewportTop = 0 - Math.max(0, Number(upBuffer) || 0);
             const viewportBottom = (window.innerHeight || document.documentElement?.clientHeight || 0) + Math.max(0, Number(downBuffer) || 0);
-            // Fall back to the observed set whenever the IntersectionObserver
-            // hasn't dispatched yet (initial entries fire async, so the very
-            // first render after a tab switch / loaded-protyle-static would
-            // otherwise paint nothing on docs with more than a handful of
-            // tasks). The viewport rect filter below caps the actual work.
-            const sourceBlocks = inlineMetaVisibleTaskBlocks.size
-                ? Array.from(inlineMetaVisibleTaskBlocks.values())
-                : Array.from(inlineMetaObservedTaskBlocks.values());
+            // Always source from the observed set. The IO-driven visible
+            // set lags behind reality on tab switches (IO entries are
+            // delivered async; the newly-activated tab's blocks aren't
+            // in visible yet, while the previously-active tab's blocks
+            // may still linger). Driving keepBlocks/coreBlocks from the
+            // lagged visible set caused prune to evict hosts of the
+            // active tab right after a switch, and the user only saw
+            // them reappear once a mouseover re-triggered render. The
+            // observed set is updated synchronously by sync, so it
+            // always reflects the currently-active protyles. The rect
+            // filter below caps the work to blocks near the viewport.
+            const sourceBlocks = Array.from(inlineMetaObservedTaskBlocks.values());
             const out = [];
             const seen = new Set();
             for (let i = 0; i < sourceBlocks.length; i += 1) {
@@ -4734,12 +4872,11 @@
             const preDown = dir > 0 ? 3200 : (dir < 0 ? 900 : 2200);
             const keepUp = dir > 0 ? 1400 : (dir < 0 ? 4200 : 3200);
             const keepDown = dir > 0 ? 4200 : (dir < 0 ? 1400 : 3200);
-            // Same fallback as getInlineDirectionalTaskBlocks: when IO
-            // entries haven't dispatched yet, render from the observed set so
-            // freshly-switched tabs don't paint blank until the user scrolls.
-            const sourceBlocks = inlineMetaVisibleTaskBlocks.size
-                ? Array.from(inlineMetaVisibleTaskBlocks.values())
-                : Array.from(inlineMetaObservedTaskBlocks.values());
+            // Always source from observed (see getInlineDirectionalTaskBlocks
+            // for rationale). Prune and keep decisions need a synchronously-
+            // accurate picture of the active tab's blocks; the IO-driven
+            // visible set lags on tab switches.
+            const sourceBlocks = Array.from(inlineMetaObservedTaskBlocks.values());
             const buckets = { coreBlocks: [], preRenderBlocks: [], keepBlocks: [] };
             const seen = new Set();
             for (let i = 0; i < sourceBlocks.length; i += 1) {
@@ -4794,7 +4931,92 @@
             return ids;
         }
 
+        function applyInlineMetaStructuralInvalidation(topmostAffected = null) {
+            if (topmostAffected instanceof Element) {
+                try {
+                    const stale = [];
+                    inlineMetaLayoutCache.forEach((_, taskId) => {
+                        const blockEl = inlineMetaObservedTaskBlocks.get(taskId);
+                        if (!(blockEl instanceof Element) || !blockEl.isConnected) {
+                            stale.push(taskId);
+                            return;
+                        }
+                        if (blockEl === topmostAffected) {
+                            stale.push(taskId);
+                            return;
+                        }
+                        const rel = topmostAffected.compareDocumentPosition(blockEl);
+                        if (rel & Node.DOCUMENT_POSITION_FOLLOWING) stale.push(taskId);
+                    });
+                    stale.forEach((taskId) => inlineMetaLayoutCache.delete(taskId));
+                    return;
+                } catch (e) {}
+            }
+            inlineMetaLayoutCache.clear();
+        }
+
+        function rememberInlineMetaDeferredStructuralAnchor(topmostAffected = null) {
+            inlineMetaDeferredStructural = true;
+            if (!(topmostAffected instanceof Element) || !topmostAffected.isConnected) {
+                inlineMetaDeferredStructuralAnchor = null;
+                return;
+            }
+            if (!(inlineMetaDeferredStructuralAnchor instanceof Element) || !inlineMetaDeferredStructuralAnchor.isConnected) {
+                inlineMetaDeferredStructuralAnchor = topmostAffected;
+                return;
+            }
+            try {
+                if (topmostAffected.compareDocumentPosition(inlineMetaDeferredStructuralAnchor) & Node.DOCUMENT_POSITION_FOLLOWING) {
+                    inlineMetaDeferredStructuralAnchor = topmostAffected;
+                }
+            } catch (e) {
+                inlineMetaDeferredStructuralAnchor = null;
+            }
+        }
+
+        function scheduleInlineMetaDeferredPrune() {
+            if (inlineMetaDeferredPruneTimer || !inlineMetaStarted) return;
+            const delay = Math.max(24, inlineMetaRecentScrollUntil - Date.now() + 24);
+            inlineMetaDeferredPruneTimer = setTimeout(() => {
+                inlineMetaDeferredPruneTimer = 0;
+                if (!inlineMetaStarted || !isInlineMetaEnabled()) return;
+                if (Date.now() < inlineMetaRecentScrollUntil) {
+                    scheduleInlineMetaDeferredPrune();
+                    return;
+                }
+                if (inlineMetaDeferredStructural) {
+                    applyInlineMetaStructuralInvalidation(inlineMetaDeferredStructuralAnchor);
+                    inlineMetaDeferredStructural = false;
+                    inlineMetaDeferredStructuralAnchor = null;
+                }
+                inlineMetaNeedSyncBlocks = true;
+                requestInlineMetaRender(true);
+            }, delay);
+        }
+
         function pruneInlineMetaOutsideViewport(keepBlocks) {
+            // Defer pruning during active scroll. Removing a host here and
+            // recreating it on the next render frame leaves a one-frame
+            // gap where the freshly-created host has no is-ready class —
+            // that's the chip flicker the user sees. SiYuan transiently
+            // detaches blocks during lazy-render scrolling, which
+            // shrinks keepBlocks below its true size; pruning on that
+            // shrunken set would evict hosts we're about to need again.
+            // The scroll-idle render pass runs this same prune with a
+            // stable keep set.
+            if (inlineMetaScrolling) return;
+            // Also defer for a grace window after the most recent scroll
+            // event. Back-and-forth scrolling typically pauses 200–500ms
+            // at the direction reversal — that crosses the 150ms
+            // scroll-idle threshold and would fire prune mid-pause. The
+            // reverse scroll then has to rebuild any chip whose owner
+            // sat just outside the keep zone. Extending the prune
+            // deferral past the layout-idle threshold lets the user
+            // oscillate freely without losing edge hosts.
+            if (Date.now() < inlineMetaRecentScrollUntil) {
+                scheduleInlineMetaDeferredPrune();
+                return;
+            }
             const keepIds = new Set();
             (keepBlocks || []).forEach((blockEl) => {
                 collectInlineMetaOwnerIds(blockEl).forEach((id) => keepIds.add(id));
@@ -5045,8 +5267,27 @@
                     const blockEl = entry?.target;
                     const blockId = String(blockEl?.dataset?.nodeId || '').trim();
                     if (!blockId) return;
-                    if (entry.isIntersecting) inlineMetaVisibleTaskBlocks.set(blockId, blockEl);
-                    else inlineMetaVisibleTaskBlocks.delete(blockId);
+                    if (entry.isIntersecting) {
+                        const wasVisible = inlineMetaVisibleTaskBlocks.has(blockId);
+                        inlineMetaVisibleTaskBlocks.set(blockId, blockEl);
+                        // A block just entered the 2400px IO margin. Pre-render
+                        // its chip now so a fast scroll that brings several
+                        // rows into the viewport at once doesn't reveal blank
+                        // rows — the host is built and populated while the
+                        // row is still off-screen, and layoutInlineMetaHost's
+                        // bounds check leaves is-ready off until the row
+                        // actually crosses into protyle viewport. By then
+                        // there's no async work left to do, so the chip just
+                        // toggles visible. Without this hook, blocks beyond
+                        // the scroll-core zone (240–720px) wait until the
+                        // next scroll-driven render pass even gets to them,
+                        // which during fast scroll is too late.
+                        if (!wasVisible && blockEl instanceof Element && blockEl.isConnected) {
+                            try { queueInlineMetaRenderBlock(blockEl, false, 2400); } catch (e) {}
+                        }
+                    } else {
+                        inlineMetaVisibleTaskBlocks.delete(blockId);
+                    }
                 });
             }, {
                 root: null,
@@ -5069,19 +5310,40 @@
                     const blockId = String(blockEl?.dataset?.nodeId || '').trim();
                     if (!blockId || nextBlocks.has(blockId)) continue;
                     if (!isTaskBlockElement(blockEl)) continue;
-                    if (isInlineMetaHiddenDoneTaskBlock(blockEl)) continue;
+                    if (isInlineMetaHiddenDoneTaskBlock(blockEl) && !quickbarInlineFieldsIncludeCompleteAt()) continue;
                     nextBlocks.set(blockId, blockEl);
                 }
             });
             const io = ensureInlineMetaBlockObserver();
+            const isScrolling = inlineMetaScrolling;
             inlineMetaObservedTaskBlocks.forEach((prevEl, blockId) => {
                 if (nextBlocks.has(blockId)) return;
+                // During scroll, SiYuan transiently detaches and re-attaches
+                // task rows for lazy-render. A detached pass leaves the
+                // block missing from this scan, so without the guard we'd
+                // wipe the layout cache and visible-set entry for a block
+                // that's about to come back. The next frame's layout would
+                // see prevLayout=undefined, fail my preserve guards in
+                // layoutInlineMetaHost, and strip is-ready — that's the
+                // flicker. Defer evict to the next scroll-idle sync.
+                if (isScrolling) return;
                 if (io) {
                     try { io.unobserve(prevEl); } catch (e) {}
                 }
                 inlineMetaVisibleTaskBlocks.delete(blockId);
-                inlineMetaLayoutCache.delete(blockId);
+                // Intentionally NOT deleting inlineMetaLayoutCache here.
+                // The cache stays alive even when the block leaves the
+                // observed scan. Scroll-back-and-forth past SiYuan's
+                // virtualization boundary fires this eviction at the 150ms
+                // scroll-idle threshold (a brief reversal pause is enough),
+                // and wiping the cache here would leave prevLayout=undefined
+                // for the re-materialized block — the preserve guards in
+                // layoutInlineMetaHost then fail and a transient measurement
+                // failure strips is-ready, flickering the chip. The cache
+                // is reclaimed via pruneInlineMetaOutsideViewport once
+                // the block is genuinely far from the viewport.
             });
+            const viewportHeight = window.innerHeight || document.documentElement?.clientHeight || 0;
             nextBlocks.forEach((nextEl, blockId) => {
                 const prevEl = inlineMetaObservedTaskBlocks.get(blockId);
                 if (prevEl === nextEl) return;
@@ -5091,9 +5353,43 @@
                 if (io) {
                     try { io.observe(nextEl); } catch (e) {}
                 }
+                // Queue a pre-render now for blocks near the viewport.
+                // IO's first entry is delivered async — by the time it
+                // fires, a fast scroll may have already revealed the
+                // row, so the chip lags behind. Inspecting the rect
+                // synchronously here lets us queue the build during
+                // the same mutation-driven render cycle that surfaced
+                // the block.
+                if (nextEl instanceof Element && nextEl.isConnected) {
+                    try {
+                        const rect = nextEl.getBoundingClientRect();
+                        if (rect && rect.bottom > -2400 && rect.top < (viewportHeight + 2400)) {
+                            queueInlineMetaRenderBlock(nextEl, false, 2400);
+                        }
+                    } catch (e) {}
+                }
             });
-            inlineMetaObservedTaskBlocks = nextBlocks;
-            if (!io) inlineMetaVisibleTaskBlocks = new Map(nextBlocks);
+            if (isScrolling) {
+                // Merge mode: keep stale (possibly-still-detached) entries
+                // alongside fresh ones, so their cache survives. Schedule
+                // a clean resync at scroll-idle to drop entries that
+                // really did leave.
+                nextBlocks.forEach((nextEl, blockId) => {
+                    inlineMetaObservedTaskBlocks.set(blockId, nextEl);
+                });
+                inlineMetaNeedSyncBlocks = true;
+            } else {
+                inlineMetaObservedTaskBlocks = nextBlocks;
+            }
+            if (!io) {
+                if (isScrolling) {
+                    nextBlocks.forEach((nextEl, blockId) => {
+                        inlineMetaVisibleTaskBlocks.set(blockId, nextEl);
+                    });
+                } else {
+                    inlineMetaVisibleTaskBlocks = new Map(nextBlocks);
+                }
+            }
             invalidateInlineMetaActiveTargetsCache();
         }
 
@@ -5165,34 +5461,12 @@
                 });
                 inlineMetaNeedSyncBlocks = true;
                 if (hasStructuralChange && !inlineMetaScrolling) {
-                    inlineMetaMutationHasStructural = true;
-                    if (topmostAffected instanceof Element) {
-                        // Targeted invalidation: only cache entries whose blocks
-                        // are at or after the topmost affected element can be
-                        // wrong (blocks before are visually undisturbed and their
-                        // cached left/top remain accurate). For typing in one
-                        // task in a long doc this preserves N-1 cache entries.
-                        try {
-                            const stale = [];
-                            inlineMetaLayoutCache.forEach((_, taskId) => {
-                                const blockEl = inlineMetaObservedTaskBlocks.get(taskId);
-                                if (!(blockEl instanceof Element) || !blockEl.isConnected) {
-                                    stale.push(taskId);
-                                    return;
-                                }
-                                if (blockEl === topmostAffected) {
-                                    stale.push(taskId);
-                                    return;
-                                }
-                                const rel = topmostAffected.compareDocumentPosition(blockEl);
-                                if (rel & Node.DOCUMENT_POSITION_FOLLOWING) stale.push(taskId);
-                            });
-                            stale.forEach((taskId) => inlineMetaLayoutCache.delete(taskId));
-                        } catch (e) {
-                            inlineMetaLayoutCache.clear();
-                        }
+                    if (Date.now() >= inlineMetaRecentScrollUntil) {
+                        inlineMetaMutationHasStructural = true;
+                        applyInlineMetaStructuralInvalidation(topmostAffected);
                     } else {
-                        inlineMetaLayoutCache.clear();
+                        rememberInlineMetaDeferredStructuralAnchor(topmostAffected);
+                        scheduleInlineMetaDeferredPrune();
                     }
                 }
                 if (inlineMetaMutationTimer) clearTimeout(inlineMetaMutationTimer);
@@ -5268,6 +5542,15 @@
                     //   Trust the textSig/widthSig signatures to invalidate
                     //   per-host when content shifted.
                     const wakeFromProtyleEvent = (delayMs = 40, e = null, mode = 'mount') => {
+                        // Bump the prune-defer window for tab switches /
+                        // protyle loads. Without this, a switch back to
+                        // a doc that hasn't been scrolled in >2.5s would
+                        // let pruneInlineMetaOutsideViewport fire on the
+                        // first post-wake render, evicting hosts before
+                        // the new render pass had a chance to lay them
+                        // out. The chip would disappear and only reappear
+                        // after the next mouseover-induced re-render.
+                        inlineMetaRecentScrollUntil = Math.max(inlineMetaRecentScrollUntil, Date.now() + 2500);
                         const protyle = e?.protyle || e?.detail?.protyle || null;
                         const wysiwygEl = protyle?.wysiwyg?.element || null;
                         const hint = wysiwygEl?.closest?.('.protyle') || wysiwygEl || null;
@@ -5345,7 +5628,9 @@
             }
             const textSig = getInlineTextFastSignature(textAnchor);
             const prevLayout = inlineMetaLayoutCache.get(taskId);
-            const layoutHtml = String(html ?? prevLayout?.html ?? host.innerHTML ?? '');
+            // Prefer the source string we last wrote over host.innerHTML,
+            // which can differ after browser serialization.
+            const layoutHtml = String(html ?? prevLayout?.html ?? host._inlineMetaHtml ?? host.innerHTML ?? '');
             // --- FAST PATH 0: block lives in a hidden protyle. Cheap O(1)
             // check via the protyle-visibility WeakMap (no rect reads, no
             // forced reflow). The host is inside a display:none ancestor,
@@ -5395,13 +5680,26 @@
                 if (editing && prevLayout) {
                     return true;
                 }
-                host.classList.remove('is-ready');
-                inlineMetaLayoutCache.delete(taskId);
+                // Transient measurement failure (0×0 rect during SiYuan
+                // virtualization repaint, missing text anchor while the
+                // row is being mounted, layer with no dimensions during
+                // a tab transition). Never strip is-ready or evict the
+                // layout cache here — that's what flickers the chip
+                // until the next render. The host keeps its last good
+                // style, the cache keeps its last good prevLayout, and
+                // the next layoutInlineMetaHost pass updates the chip
+                // once measurements are valid again. The caller's
+                // prev-layout restore (refreshInlineMetaPositions) may
+                // also re-apply cached styles on this returned false.
                 return false;
             }
             if (!isInlineRectVisibleInBounds(textRect, bounds, visibilityBuffer)) {
-                host.classList.remove('is-ready');
-                inlineMetaLayoutCache.delete(taskId);
+                // Block is offscreen. Don't strip is-ready — the chip
+                // stays at its last visible position, which is clipped
+                // by protyle-content's overflow:auto. When the row
+                // scrolls back into the protyle viewport, the next
+                // refreshInlineMetaPositions pass writes a fresh
+                // position and the chip seamlessly re-anchors.
                 return false;
             }
             const localTextRect = {
@@ -5482,8 +5780,14 @@
                     inlineMetaLayoutCache.set(taskId, { textSig, widthSig, viewportSig, html: layoutHtml, left: leftPx, top: topPx, maxWidth: maxWidthPx, wrapMode, hostWidth: estHostWidth, hostHeight: estHostHeight });
                     return true;
                 }
-                host.classList.remove('is-ready');
-                inlineMetaLayoutCache.delete(taskId);
+                // Same preservation as the failure paths above:
+                // collisions are usually transient (a sibling chip's
+                // rect briefly overlaps ours while positions shift on
+                // a scroll tick). Stripping is-ready here was the
+                // primary flicker source — sibling chips bouncing as
+                // they re-collide on every render. The chip keeps its
+                // last position; the next layout pass after the
+                // sibling moves resolves the collision cleanly.
                 return false;
             }
             // --- WRITE PHASE: batch all DOM writes together ---
@@ -5541,17 +5845,23 @@
                         }
                     } catch (e) {}
                 }
-                entries.push({ host, taskId, blockEl, textAnchor, html: inlineMetaLayoutCache.get(taskId)?.html || host.innerHTML || '', skip: false });
+                entries.push({ host, taskId, blockEl, textAnchor, html: inlineMetaLayoutCache.get(taskId)?.html || host._inlineMetaHtml || host.innerHTML || '', skip: false });
             }
             let laidOut = 0;
             let restored = 0;
             for (let i = 0; i < entries.length; i++) {
                 const e = entries[i];
                 if (e.skip) {
-                    if (!inlineMetaScrolling) {
-                        e.host.classList.remove('is-ready');
-                        inlineMetaLayoutCache.delete(e.taskId);
-                    }
+                    // Block is missing from DOM (SiYuan may have
+                    // virtualized it, or it's truly gone). Don't strip
+                    // is-ready here either — the chip's host stays in
+                    // its layer at its last position. If the block
+                    // truly is gone for good, pruneInlineMetaOutsideViewport
+                    // removes the host once the recent-scroll grace
+                    // window expires; meanwhile a re-materialized row
+                    // (back-and-forth scroll, virtualization reflow)
+                    // finds its chip already in place and just gets a
+                    // fresh position from the next successful pass.
                     continue;
                 }
                 const prevLayout = inlineMetaScrolling ? inlineMetaLayoutCache.get(e.taskId) : null;
@@ -5572,7 +5882,9 @@
             if (!isInlineMetaEnabled()) return;
             const taskId = String(resolveTaskAttrNodeIdForDetail(blockEl) || blockEl?.dataset?.nodeId || '').trim();
             if (!taskId) return;
-            if (isInlineMetaHiddenDoneTaskBlock(blockEl)) {
+            const cfg = getQuickbarInlineSettings();
+            const hasCompleteAtInlineField = quickbarInlineFieldsIncludeCompleteAt(cfg);
+            if (isInlineMetaHiddenDoneTaskBlock(blockEl) && !hasCompleteAtInlineField) {
                 removeInlineMetaHostByTaskId(taskId);
                 inlineMetaLayoutCache.delete(taskId);
                 return;
@@ -5590,13 +5902,20 @@
             const host = ensureInlineHost(blockEl);
             if (!host) return;
             host.dataset.blockId = taskId;
-            const cfg = getQuickbarInlineSettings();
             const hasDateInlineField = inlineMetaFieldsIncludeDate(cfg);
             const hasRemarkInlineField = Array.isArray(cfg?.fields) && cfg.fields.includes('custom-remark');
             const runtimeProps = hasRemarkInlineField ? null : (hasDateInlineField ? getRuntimeTaskCustomProps(taskId, blockEl) : null);
             const hasCacheForRender = inlineMetaCache.has(taskId) && !runtimeProps?.props;
             const hasCached = hasCacheForRender && !forceRefresh;
-            if (hasDateInlineField && !runtimeProps?.props && !hasCacheForRender) host.classList.remove('is-ready');
+            // (Removed an aggressive is-ready strip here: when a date
+            // field was configured and neither runtime props nor cache
+            // were available, the original code blanked the chip until
+            // fresh props arrived. For an already-rendered chip this
+            // produced a visible blink on every render where the cache
+            // had been wiped or the runtime task wasn't registered yet.
+            // The applyFreshProps callback below updates innerHTML when
+            // fresh data actually differs, so the strip wasn't load-
+            // bearing — it was just a flicker source.)
             if (runtimeProps?.props) {
                 setInlineMetaCache(taskId, runtimeProps.props);
                 if (runtimeProps.taskId && runtimeProps.taskId !== taskId) setInlineMetaCache(runtimeProps.taskId, runtimeProps.props);
@@ -5617,10 +5936,20 @@
                     inlineMetaLayoutCache.delete(taskId);
                     return;
                 }
-                if (host.innerHTML === freshHtml) {
+                // Compare against the cached source string, not host.innerHTML.
+                // The browser may serialize back attributes / CSS variables in a
+                // slightly different shape than what we wrote (whitespace in
+                // style values, attribute reordering on some engines), making
+                // `host.innerHTML !== freshHtml` spuriously true every render.
+                // That false positive triggers a real innerHTML rewrite, which
+                // tears down and rebuilds the chip's children — the user sees
+                // it as a flicker during scroll, even though the content
+                // didn't actually change.
+                if (host._inlineMetaHtml === freshHtml) {
                     return;
                 }
                 host.innerHTML = freshHtml;
+                host._inlineMetaHtml = freshHtml;
                 inlineMetaLayoutCache.delete(taskId);
                 requestInlineMetaRender(false);
             };
@@ -5638,10 +5967,16 @@
                 }
                 return;
             }
-            const htmlChanged = host.innerHTML !== html;
+            // Same comparison fix as applyFreshProps: track the last
+            // source string we wrote, not the browser-serialized
+            // host.innerHTML. Comparing against innerHTML caused a
+            // rewrite every render-during-scroll for stable content,
+            // which is the visible chip flicker.
+            const htmlChanged = host._inlineMetaHtml !== html;
             const layoutOk = layoutInlineMetaHost(hostParent, host, taskId, textAnchor, html, forceRefresh, visibilityBuffer);
             if (htmlChanged && layoutOk && host.isConnected && String(host.dataset.blockId || '').trim() === taskId) {
                 host.innerHTML = html;
+                host._inlineMetaHtml = html;
             }
             if (runtimeProps?.props) {
                 return;
@@ -5745,6 +6080,16 @@
                     return;
                 }
                 setInlineMetaScrolling(true);
+                // Grace window for pruning after each scroll event. The
+                // 150ms scroll-idle threshold below is fine for ending
+                // the is-scrolling class and re-running layout, but
+                // back-and-forth scrolling typically pauses 200–500ms
+                // at the direction reversal. If pruning fires during
+                // that pause, hosts at the keep-zone edge get evicted
+                // and the reverse scroll then has to rebuild them.
+                // Extending the prune deferral past the layout-idle
+                // threshold keeps those hosts alive across the reversal.
+                inlineMetaRecentScrollUntil = Date.now() + 2500;
                 if (e?.type !== 'resize') {
                     pos = getInlineScrollPositionFromEventTarget(e?.target || document.documentElement);
                     delta = pos - inlineMetaLastScrollPos;
@@ -5834,6 +6179,10 @@
             inlineMetaPositionRafId = 0;
             if (inlineMetaScrollIdleTimer) clearTimeout(inlineMetaScrollIdleTimer);
             inlineMetaScrollIdleTimer = null;
+            if (inlineMetaDeferredPruneTimer) clearTimeout(inlineMetaDeferredPruneTimer);
+            inlineMetaDeferredPruneTimer = 0;
+            inlineMetaDeferredStructural = false;
+            inlineMetaDeferredStructuralAnchor = null;
             cleanupInlineMetaTaskBlocks();
             try { inlineMetaObserver?.disconnect?.(); } catch (e) {}
             inlineMetaObserver = null;

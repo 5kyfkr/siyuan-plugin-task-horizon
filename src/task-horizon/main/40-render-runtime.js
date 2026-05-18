@@ -74,6 +74,8 @@ return;
             const status = String(colEl.getAttribute('data-status') || '').trim();
             if (status) return `status:${status}`;
             const kind = String(colEl.getAttribute('data-kind') || '').trim();
+            const time = String(colEl.getAttribute('data-time') || '').trim();
+            if (kind === 'time' || time) return `time:${time || kind}`;
             const doc = String(colEl.getAttribute('data-doc') || '').trim();
             const heading = String(colEl.getAttribute('data-heading') || '').trim();
             if (kind || doc || heading) return `kind:${kind}|doc:${doc}|heading:${heading}`;
