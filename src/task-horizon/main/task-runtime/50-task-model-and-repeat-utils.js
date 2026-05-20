@@ -78,6 +78,34 @@
         return __tmRememberSmallCache(__tmTaskCompletedAtFormatCache, raw, out, 1600);
     }
 
+    function __tmGetTaskCompletedAtDateKey(task) {
+        const raw = __tmResolveTaskCompletedAtRaw(task, { completedOnly: false });
+        if (!raw) return '';
+        const normalized = __tmNormalizeDateOnly(raw);
+        if (normalized) return normalized;
+        const ts = __tmParseTimeToTs(raw);
+        if (!Number.isFinite(ts) || ts <= 0) return '';
+        return __tmFormatDateKeyFromDate(new Date(ts));
+    }
+
+    function __tmIsTaskCompletedToday(task, todayKey = '') {
+        if (!(task && typeof task === 'object')) return false;
+        let done = task.done === true;
+        try {
+            if (typeof __tmIsTaskDoneEffective === 'function') done = __tmIsTaskDoneEffective(task);
+        } catch (e) {}
+        if (!done) return false;
+        const targetKey = String(todayKey || '').trim() || __tmNormalizeDateOnly(new Date());
+        return !!targetKey && __tmGetTaskCompletedAtDateKey(task) === targetKey;
+    }
+
+    function __tmRenderCompletedTodayBadge(task, options = {}) {
+        const opts = (options && typeof options === 'object') ? options : {};
+        if (!__tmIsTaskCompletedToday(task, opts.todayKey || '')) return '';
+        const label = String(opts.label || '今天').trim() || '今天';
+        return `<span class="tm-task-completed-today-badge">${esc(label)}</span>`;
+    }
+
     const __TM_TASK_CARD_FIELD_OPTIONS = [
         { key: 'priority', label: '重要性' },
         { key: 'status', label: '状态' },
@@ -559,6 +587,11 @@
         const taskId = String(source.id || '').trim();
         if (!taskId) return null;
         const virtualId = `repeatinst:${taskId}:${completedStamp || orderIndex}`;
+        const doneStatusId = String(
+            typeof __tmResolveCheckboxLinkedStatusId === 'function'
+                ? (__tmResolveCheckboxLinkedStatusId(true, SettingsStore?.data?.customStatusOptions || []) || 'done')
+                : 'done'
+        ).trim() || 'done';
         const next = {
             ...source,
             id: virtualId,
@@ -581,8 +614,10 @@
             h2Path: String(history.h2Path || source.h2Path || '').trim(),
             priority: String(history.priority || source.priority || '').trim(),
             custom_priority: String(history.priority || source.priority || '').trim(),
-            customStatus: String(history.customStatus || source.customStatus || '').trim(),
-            custom_status: String(history.customStatus || source.customStatus || '').trim(),
+            customStatus: doneStatusId,
+            custom_status: doneStatusId,
+            taskMarker: 'X',
+            task_marker: 'X',
             duration: String(history.duration || source.duration || '').trim(),
             custom_duration: String(history.duration || source.duration || '').trim(),
             remark: String(history.remark || source.remark || '').trim(),
@@ -630,6 +665,14 @@
         });
         const tooltip = summary ? `循环任务：${summary}` : '循环任务';
         return `<span class="${classes.join(' ')}"${__tmBuildTooltipAttrs(tooltip, { side: String(options?.tooltipSide || 'bottom').trim() || 'bottom', ariaLabel: false })}>${__tmRenderLucideIcon('repeat')}</span>`;
+    }
+
+    function __tmRenderPinnedTaskInlineIcon(task, options = {}) {
+        if (!__tmIsTaskPinned(task)) return '';
+        const cls = String(options?.className || '').trim();
+        const classes = ['tm-pinned-task-icon'];
+        if (cls) classes.push(cls);
+        return `<span class="${classes.join(' ')}" data-tm-inline-field="pinned"${__tmBuildTooltipAttrs('置顶任务', { side: String(options?.tooltipSide || 'bottom').trim() || 'bottom', ariaLabel: false })}>${__tmRenderLucideIcon('pin')}</span>`;
     }
 
     function __tmPurgeRecurringInstanceTasks(sourceTaskId, completedAtList = []) {

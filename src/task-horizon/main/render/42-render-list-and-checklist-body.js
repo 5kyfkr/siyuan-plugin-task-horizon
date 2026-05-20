@@ -38,6 +38,7 @@
 
         function __tmRenderChecklistBodyHtml() {
             const rowModel = __tmBuildTaskRowModel();
+            const completedTodayKey = __tmNormalizeDateOnly(new Date());
             const filteredTaskById = new Map();
             try {
                 const visibleDateAliases = [
@@ -351,6 +352,9 @@
                 const activeCls = String(task.id) === activeId ? ' tm-checklist-item--active' : '';
                 const doneCls = task.done ? ' tm-checklist-item--done' : '';
                 const reminderHtml = __tmHasReminderMark(task) ? __tmRenderReminderIcon() : '';
+                const completedTodayBadgeHtml = row?.inCompletedRootGroup === true
+                    ? __tmRenderCompletedTodayBadge(task, { todayKey: completedTodayKey })
+                    : '';
                 const remarkIconHtml = __tmRenderRemarkIcon(task.remark);
                 const attachmentIconHtml = __tmRenderTaskAttachmentIcon(task);
                 const statusOptions = __tmGetStatusOptions(SettingsStore.data.customStatusOptions || []);
@@ -367,7 +371,7 @@
                     : '';
                 const showCompactRemainingTime = !!compactRemainingTimeLabel && !!(String(task?.startDate || '').trim() || String(task?.completionTime || '').trim());
                 const compactDurationText = checklistCompact && compactChecklistMetaFieldSet.has('duration')
-                    ? String(task.duration || '').trim()
+                    ? __tmFormatDurationDisplayValue(task.duration || '')
                     : '';
                 const showCompactDuration = !!compactDurationText;
                 const showCompactStatusTag = !checklistCompact || compactChecklistMetaFieldSet.has('status');
@@ -377,7 +381,7 @@
                 if (task.h2) meta.push(`<span class="tm-checklist-meta-chip">${__tmRenderHeadingLevelInlineIcon(task.headingLevel || SettingsStore.data.taskHeadingLevel || 'h2', { size: 14 })} ${esc(__tmNormalizeHeadingText(task.h2))}</span>`);
                 if (String(task.priority || '').trim() && String(task.priority || '').trim() !== 'none') meta.push(`<span class="tm-checklist-meta-chip" data-tm-field="priority">${priorityIcon}</span>`);
                 if (task.completionTime) meta.push(`<span class="tm-checklist-meta-chip" data-tm-task-time-field="completionTime">${esc(__tmFormatTaskTime(task.completionTime))}</span>`);
-                if (task.duration) meta.push(`<span class="tm-checklist-meta-chip" data-tm-task-time-field="duration">${__tmRenderLucideIcon('timer')} ${esc(String(task.duration || ''))}</span>`);
+                if (task.duration) meta.push(`<span class="tm-checklist-meta-chip" data-tm-task-time-field="duration">${__tmRenderLucideIcon('timer')} ${esc(__tmFormatDurationDisplayValue(task.duration || ''))}</span>`);
                 if (totalChildren > 0) meta.push(`<span class="tm-checklist-meta-chip">子任务 ${completedChildren}/${totalChildren}</span>`);
                 const compactMetaParts = [];
                 if (showCompactDocName) compactMetaParts.push(`<span class="tm-checklist-meta-compact-doc">${esc(String(task.docName || ''))}</span>`);
@@ -436,11 +440,10 @@
                         </div>
                         <div class="tm-checklist-item-main">
                             <div class="${titleRowClass}">
-                                <div class="tm-checklist-title-main"><div class="tm-checklist-title"><span class="tm-checklist-title-button"><span ${titleDragAttrs} onclick="tmChecklistTitleClick('${escSq(String(task.id || ''))}', event)"${__tmBuildTooltipAttrs(String(task.content || '').trim() || '(无内容)', { side: 'bottom', ariaLabel: false })} style="${__tmBuildTaskTitleOpacityStyle(task)}">${API.renderTaskContentHtml(task.markdown, String(task.content || '').trim() || '(无内容)')}${__tmRenderRecurringTaskInlineIcon(task)}${__tmRenderRecurringInstanceBadge(task, { className: 'tm-recurring-instance-badge--inline' })}</span></span>${reminderHtml}<span data-tm-field="remarkIcon">${remarkIconHtml}</span><span data-tm-field="attachmentIcon">${attachmentIconHtml}</span></div></div>
+                                <div class="tm-checklist-title-main"><div class="tm-checklist-title"><span class="tm-checklist-title-button"><span ${titleDragAttrs} onclick="tmChecklistTitleClick('${escSq(String(task.id || ''))}', event)"${__tmBuildTooltipAttrs(String(task.content || '').trim() || '(无内容)', { side: 'bottom', ariaLabel: false })} style="${__tmBuildTaskTitleOpacityStyle(task)}">${API.renderTaskContentHtml(task.markdown, String(task.content || '').trim() || '(无内容)')}${completedTodayBadgeHtml}${__tmRenderRecurringTaskInlineIcon(task)}${__tmRenderPinnedTaskInlineIcon(task)}${__tmRenderRecurringInstanceBadge(task, { className: 'tm-recurring-instance-badge--inline' })}</span></span>${reminderHtml}<span data-tm-field="remarkIcon">${remarkIconHtml}</span><span data-tm-field="attachmentIcon">${attachmentIconHtml}</span></div></div>
                                 ${compactMeta}
                                 ${showCompactStatusTag ? `<span class="tm-status-tag" data-tm-field="status" style="${statusChipStyle}">${esc(String(statusOption?.name || statusOption?.id || ''))}</span>` : ''}
                                 ${normalCustomFieldTagsHtml}
-                                ${task.pinned ? `<span class="tm-checklist-meta-chip" data-tm-field="pinned" title="置顶">${__tmRenderLucideIcon('pin')}</span>` : ''}
                                 ${hasChildren ? `<span class="tm-checklist-mobile-toggle" onclick="tmToggleCollapse('${escSq(String(task.id || ''))}', event)" style="opacity:1;pointer-events:auto;">${__tmRenderToggleIcon(16, collapsed ? 0 : 90, 'tm-tree-toggle-icon')}</span>` : ''}
                             </div>
                             ${meta.length ? `<div class="tm-checklist-meta">${meta.join('')}</div>` : ''}

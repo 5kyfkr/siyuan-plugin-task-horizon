@@ -2618,7 +2618,8 @@ return;
 
     function __tmKanbanResolveTaskStatusColumnKey(task) {
         if (!task) return '';
-        const doneBoardEnabled = __tmGetKanbanBoardMode() === 'heading'
+        const kanbanBoardMode = __tmGetKanbanBoardMode();
+        const doneBoardEnabled = (kanbanBoardMode === 'heading' || kanbanBoardMode === 'time')
             && !!state.showCompletedTasks
             && !!SettingsStore.data.kanbanShowDoneColumn;
         if (!!task.done && doneBoardEnabled) return '__done__';
@@ -3789,11 +3790,12 @@ return;
         if (!id) id = String(state.__tmKanbanDragId || '').trim();
         if (!id) return;
         const baseIds = Array.isArray(state.__tmKanbanDragIds) && state.__tmKanbanDragIds.length ? state.__tmKanbanDragIds : [id];
-        const headingDoneBoardEnabled = __tmGetKanbanBoardMode() === 'heading'
+        const kanbanBoardMode = __tmGetKanbanBoardMode();
+        const doneBoardEnabled = (kanbanBoardMode === 'heading' || kanbanBoardMode === 'time')
             && !!state.showCompletedTasks
             && !!SettingsStore.data.kanbanShowDoneColumn;
         const restoreIdsFromDoneBoard = async (seedIds) => {
-            if (!headingDoneBoardEnabled) return true;
+            if (!doneBoardEnabled) return true;
             let ids = Array.isArray(seedIds) ? seedIds.slice() : [];
             if (SettingsStore.data.kanbanDragSyncSubtasks) {
                 const allIds = new Set(ids);
@@ -3846,6 +3848,12 @@ return;
             let changed = 0;
             let editableBlocked = false;
             const ids = baseIds.map((tid) => String(tid || '').trim()).filter(Boolean);
+            const restoredFromDoneBoard = doneBoardEnabled && ids.some((tid) => {
+                const task = globalThis.__tmRuntimeState?.getFlatTaskById?.(tid) || state.flatTasks?.[tid];
+                return !!task?.done;
+            });
+            const ok = await restoreIdsFromDoneBoard(ids);
+            if (!ok) return;
             for (const tid of ids) {
                 const task = globalThis.__tmRuntimeState?.getFlatTaskById?.(tid) || state.flatTasks?.[tid];
                 if (!task) continue;
@@ -3869,6 +3877,14 @@ return;
                 if (ok !== false) changed += 1;
             }
             if (!changed) {
+                if (restoredFromDoneBoard) {
+                    try { applyFilters(); } catch (e2) {}
+                    if (!__tmRerenderKanbanInPlace(state.modal)) {
+                        try { render(); } catch (e2) {}
+                    }
+                    hint(target.dateKey ? `✅ 已移回${target.label}看板` : '✅ 已移回待定看板', 'success');
+                    return;
+                }
                 if (!editableBlocked) hint(target.dateKey ? `截止日期已是 ${target.dateKey}` : '截止日期已是待定', 'info');
                 return;
             }

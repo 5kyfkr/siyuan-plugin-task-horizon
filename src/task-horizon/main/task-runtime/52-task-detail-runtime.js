@@ -134,8 +134,8 @@
         const day = Number(m[3]);
         const now = new Date();
         return year === now.getFullYear()
-            ? `${month}月${day}日`
-            : `${year}年${month}月${day}日`;
+            ? `${month}-${day}`
+            : `${year}-${month}-${day}`;
     }
 
     function __tmGetTaskTimeHubCalendarFirstDay() {
@@ -2599,7 +2599,7 @@ if (!__tmIsCollectedOtherBlockTask(task) && diff.contentChanged) {
                         <div class="tm-duration-preset-list tm-duration-preset-list--compact">
                             ${__tmBuildDurationPresetOptionsHtml(value, durationPresets)}
                         </div>
-                        <div class="tm-duration-preset-helper">可选预设，也可直接填写自定义时长</div>
+                        <div class="tm-duration-preset-helper">选预设或直接输入</div>
                     </div>
                 ` : ''}
                 <input class="tm-input tm-task-detail-inline-popover__input${mode === 'duration' ? ' tm-duration-editor-input' : ''}" data-tm-detail-inline-popover-input type="${mode === 'date' ? 'date' : 'text'}" value="${esc(value)}" ${placeholder ? `placeholder="${esc(placeholder)}"` : ''}>

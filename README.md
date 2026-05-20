@@ -77,10 +77,33 @@
     <a href="https://ld246.com/member/Clymer" style="font-size:12px;color:var(--b3-theme-on-surface);text-decoration:none;padding:4px 10px;background:var(--b3-theme-surface);border:1px solid var(--b3-border-color);border-radius:18px;">Clymer</a>
     <a href="https://ld246.com/member/Wolkasem" style="font-size:12px;color:var(--b3-theme-on-surface);text-decoration:none;padding:4px 10px;background:var(--b3-theme-surface);border:1px solid var(--b3-border-color);border-radius:18px;">Wolkasem</a>
     <a href="https://ld246.com/member/ming883" style="font-size:12px;color:var(--b3-theme-on-surface);text-decoration:none;padding:4px 10px;background:var(--b3-theme-surface);border:1px solid var(--b3-border-color);border-radius:18px;">ming883</a>
+    <a href="https://ld246.com/member/jidenanian" style="font-size:12px;color:var(--b3-theme-on-surface);text-decoration:none;padding:4px 10px;background:var(--b3-theme-surface);border:1px solid var(--b3-border-color);border-radius:18px;">jidenanian</a>
   </div>
 </div>
 
 # 更新记录
+
+## 2.5.0更新内容 5/20
+- **新增：设置->日历->任务日期跟随日程(默认开启)**
+  - 日程只有当天一个/同日多日程：调整日程后，开始或截止日期跟随调整，例如5/8的日程移动至5/9，则开始/截止日期跟随移动至5/9
+  - 多个日程不在同一天：最早的日程调整开始日期，最晚的日程调整截止日期，中间的日程不动
+    - 例1：多天前后日程变化：5/5 日程之一拖到 5/8，任务日期变为 5/5-5/8。5/5 日程再移至 5/1，任务日期变为 5/1-5/8
+    - 例2：多天中间日程变化：5/1 和 5/3 和 5/8 中 5/3 改为 5/4，任务日期不变
+- **新增：常规设置->搜索分组->已完成分组仅显示今天完成，开启后已完成任务分组只显示今天完成的任务**
+- **新增：常规设置->搜索分组->分组内置顶任务。开启后，表格视图和清单视图在按文档、时间、四象限、任务名分组时，不再把置顶任务抽到外面的“置顶”分组，而是留在所属分组里，并排在该组最前面**
+- **新增：常规设置->新建任务->子任务继承父任务字段，可以设置继承父任务已填写的重要性、状态等字段值**
+- 优化：按时间分组行的时长标签一起统计子任务的时长
+- 优化：多选功能增加批量修改时长选项
+- 优化：时长列分钟min单位缩减为m
+- 优化：时长设置界面选项排布
+- 优化：时间看板模式的看板右上角补充时长统计标签
+- 优化：剩余时间列已完成任务直接显示完成
+- 优化：已完成任务分组今天完成任务名称后面增加今天标签
+- 优化：置顶任务名称后增加置顶图标标识
+- 优化：日程拖拽减少全局刷新
+- 优化：日历显示已完成全天任务
+- 修复：全部页签的已完成区域漏显示其他-[]非空的任务
+- 修复：循环任务推进完成的任务会显示默认未完成的状态
 
 ## 2.4.9更新内容 5/18
 - **新增：悬浮条设置和常驻显示设置，增加 完成时间 的显示开关，文档中已完成任务可显示对应完成时间**
@@ -107,6 +130,9 @@
 - 修复：Esc有些弹窗无法关闭
 - 修复：时间设置界面的日历本周起始日跟随日历设置
 
+<details>
+<summary>历史版本更新（点击展开）</summary>
+
 ## 2.4.8更新内容 5/15
 - **新增：优先级设置->分值分段显示任务名称颜色和透明度，可以对不同优先级数值的任务名称设置不同颜色和透明度，区分不同优先级任务**
 - **新增：AI设置增加OpenAI和Anthropic兼容格式 PR贡献：ProgramFan**
@@ -129,9 +155,6 @@
 - 优化：按时间分组余15天以后的任务统一进入更远分组
 - 修复：修复Quickbar常驻显示数据不同步问题
 - 修复：打卡插件截止确认全部扣分只扣了一次
-
-<details>
-<summary>历史版本更新（点击展开）</summary>
 
 ## 2.4.6更新内容 5/12
 - **新增：凡人修仙传:打卡联动：常规设置最底部->启用任务逾期扣分选项**

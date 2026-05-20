@@ -573,6 +573,20 @@
         render();
     };
 
+    window.updatePinTasksWithinGroups = async function(enabled) {
+        SettingsStore.data.pinTasksWithinGroups = !!enabled;
+        await SettingsStore.save();
+        render();
+    };
+
+    window.updateCompletedTasksTodayOnly = async function(enabled) {
+        SettingsStore.data.completedTasksTodayOnly = !!enabled;
+        await SettingsStore.save();
+        state.listRenderSignature = '';
+        showSettings();
+        render();
+    };
+
     window.updateCollapseAllIncludesGroups = async function(enabled) {
         SettingsStore.data.collapseAllIncludesGroups = !!enabled;
         await SettingsStore.save();

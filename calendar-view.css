@@ -2284,14 +2284,21 @@
     display: inline-flex;
     align-items: center;
     justify-content: center;
+    box-sizing: border-box;
     width: 16px;
+    min-width: 16px;
+    max-width: 16px;
     height: 16px;
-    border-radius: 999px;
+    min-height: 16px;
+    max-height: 16px;
+    aspect-ratio: 1 / 1;
+    padding: 0;
+    border-radius: 50%;
     margin-left: 6px;
     font-size: 10px;
     font-weight: 700;
-    line-height: 1;
-    flex: 0 0 auto;
+    line-height: 16px;
+    flex: 0 0 16px;
     vertical-align: middle;
     transform: translateY(-1px);
 }
@@ -2299,8 +2306,17 @@
 .tm-calendar-wrap .fc .fc-daygrid-day-number .tm-cn-holiday-dot,
 #tmCalendarSideDockTimeline .fc .fc-daygrid-day-number .tm-cn-holiday-dot {
     order: 1;
+    width: 14px;
+    min-width: 14px;
+    max-width: 14px;
+    height: 14px;
+    min-height: 14px;
+    max-height: 14px;
+    padding: 0;
+    line-height: 14px;
+    flex: 0 0 14px;
     margin: 0;
-    transform: none;
+    transform: translateY(1px);
 }
 
 .tm-calendar-wrap .fc .tm-cn-day-number-text,
@@ -2629,8 +2645,21 @@
     .tm-calendar-wrap--mobile .fc .fc-toolbar-chunk:first-child > .fc-next-button,
     .tm-calendar-wrap--mobile .fc .fc-toolbar-chunk:first-child .fc-button-group > .fc-prev-button,
     .tm-calendar-wrap--mobile .fc .fc-toolbar-chunk:first-child .fc-button-group > .fc-next-button {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
         width: 26px;
         min-width: 26px;
+        line-height: 1;
+    }
+
+    .tm-calendar-wrap--mobile .fc .fc-toolbar-chunk:first-child > .fc-prev-button .fc-icon,
+    .tm-calendar-wrap--mobile .fc .fc-toolbar-chunk:first-child > .fc-next-button .fc-icon,
+    .tm-calendar-wrap--mobile .fc .fc-toolbar-chunk:first-child .fc-button-group > .fc-prev-button .fc-icon,
+    .tm-calendar-wrap--mobile .fc .fc-toolbar-chunk:first-child .fc-button-group > .fc-next-button .fc-icon {
+        display: block;
+        line-height: 1;
+        transform: translateY(-1px);
     }
 
     .tm-calendar-wrap--mobile .fc .fc-toolbar-chunk:last-child > :not(.tm-calendar-view-select-wrap) {
@@ -3504,13 +3533,20 @@
     display: inline-flex;
     align-items: center;
     justify-content: center;
+    box-sizing: border-box;
     width: 16px;
+    min-width: 16px;
+    max-width: 16px;
     height: 16px;
-    border-radius: 999px;
+    min-height: 16px;
+    max-height: 16px;
+    aspect-ratio: 1 / 1;
+    padding: 0;
+    border-radius: 50%;
     font-size: 10px;
     font-weight: 700;
-    line-height: 1;
-    flex: 0 0 auto;
+    line-height: 16px;
+    flex: 0 0 16px;
 }
 
 .tm-calendar-host .fc .tm-cn-holiday-label,
@@ -3864,12 +3900,20 @@
     display: inline-flex;
     align-items: center;
     justify-content: center;
+    box-sizing: border-box;
     width: 14px;
+    min-width: 14px;
+    max-width: 14px;
     height: 14px;
-    border-radius: 999px;
+    min-height: 14px;
+    max-height: 14px;
+    aspect-ratio: 1 / 1;
+    padding: 0;
+    border-radius: 50%;
     font-size: 9px;
     font-weight: 700;
     line-height: 14px;
+    flex: 0 0 14px;
     vertical-align: middle;
     align-self: center;
 }
@@ -3877,9 +3921,17 @@
 .tm-calendar-host .fc .fc-daygrid-day-number .tm-cn-holiday-dot,
 #tmCalendarSideDockTimeline .fc .fc-daygrid-day-number .tm-cn-holiday-dot {
     order: 1;
+    width: 14px;
+    min-width: 14px;
+    max-width: 14px;
+    height: 14px;
+    min-height: 14px;
+    max-height: 14px;
+    padding: 0;
+    line-height: 14px;
     flex: 0 0 14px;
     margin: 0;
-    transform: none;
+    transform: translateY(1px);
 }
 
 .tm-calendar-host .fc .tm-cn-day-number-text,
@@ -3926,8 +3978,14 @@
 
 #tmCalendarSideDockTimeline .fc .fc-col-header-cell-cushion .tm-cn-holiday-dot {
     display: inline-flex !important;
+    box-sizing: border-box;
     width: 14px;
+    min-width: 14px;
+    max-width: 14px;
     height: 14px;
+    min-height: 14px;
+    max-height: 14px;
+    padding: 0;
     flex: 0 0 14px;
     border-radius: 999px;
     margin: 0 4px 0 0 !important;
@@ -4535,6 +4593,13 @@
 .tm-calendar-settings-label {
     font-size: 13px;
     color: var(--tm-text-color);
+}
+
+.tm-calendar-settings-label-desc {
+    margin-top: 4px;
+    font-size: 12px;
+    line-height: 1.35;
+    color: var(--tm-secondary-text);
 }
 
 .tm-calendar-settings-select {

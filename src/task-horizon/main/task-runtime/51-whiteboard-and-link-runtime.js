@@ -2617,10 +2617,52 @@ return false;
         const root = container instanceof Element ? container : null;
         const taskLike = (task && typeof task === 'object') ? task : null;
         if (!(root instanceof Element) || !taskLike) return false;
+        let touched = false;
         const input = root.querySelector('input[type="checkbox"][title="置顶"]');
-        if (!(input instanceof HTMLInputElement)) return true;
-        input.checked = !!taskLike.pinned;
-        return true;
+        if (input instanceof HTMLInputElement) {
+            input.checked = !!taskLike.pinned;
+            touched = true;
+        }
+        touched = !!__tmUpdatePinnedInlineIconInDOM(root, taskLike) || touched;
+        return touched || !(input instanceof HTMLInputElement);
+    }
+
+    function __tmUpdatePinnedInlineIconInDOM(container, task) {
+        const root = container instanceof Element ? container : null;
+        const taskLike = (task && typeof task === 'object') ? task : null;
+        if (!(root instanceof Element) || !taskLike) return false;
+        const visible = __tmIsTaskPinned(taskLike);
+        let touched = false;
+        const targets = root.querySelectorAll('.tm-task-content-clickable, .tm-checklist-title-button > span, .tm-whiteboard-stream-task-title');
+        targets.forEach((target) => {
+            if (!(target instanceof HTMLElement)) return;
+            let icon = target.querySelector(':scope > [data-tm-inline-field="pinned"]');
+            if (!visible) {
+                if (icon instanceof HTMLElement) {
+                    try { icon.remove(); } catch (e) { icon.style.display = 'none'; }
+                    touched = true;
+                }
+                return;
+            }
+            if (icon instanceof HTMLElement) {
+                icon.style.display = '';
+                touched = true;
+                return;
+            }
+            const html = __tmRenderPinnedTaskInlineIcon(taskLike);
+            if (!html) return;
+            const template = document.createElement('template');
+            template.innerHTML = html.trim();
+            icon = template.content.firstElementChild;
+            if (!(icon instanceof HTMLElement)) return;
+            const recurringIcon = target.querySelector(':scope > .tm-recurring-task-icon');
+            const recurringBadge = target.querySelector(':scope > .tm-recurring-instance-badge--inline');
+            if (recurringIcon instanceof HTMLElement) recurringIcon.insertAdjacentElement('afterend', icon);
+            else if (recurringBadge instanceof HTMLElement) target.insertBefore(icon, recurringBadge);
+            else target.appendChild(icon);
+            touched = true;
+        });
+        return touched;
     }
 
     function __tmEnsureChecklistMetaContainer(itemEl) {
@@ -2754,29 +2796,14 @@ return false;
         if (!(item instanceof HTMLElement) || !task) return false;
         const titleRow = item.querySelector('.tm-checklist-title-row');
         if (!(titleRow instanceof HTMLElement)) return false;
-        let chip = titleRow.querySelector('[data-tm-field="pinned"]');
-        const visible = !!task.pinned;
-        if (!visible) {
-            if (chip instanceof HTMLElement) {
-                try { chip.remove(); } catch (e) {
-                    chip.style.display = 'none';
-                    chip.innerHTML = '';
-                }
+        const chip = titleRow.querySelector('[data-tm-field="pinned"]');
+        if (chip instanceof HTMLElement) {
+            try { chip.remove(); } catch (e) {
+                chip.style.display = 'none';
+                chip.innerHTML = '';
             }
-            return true;
         }
-        if (!(chip instanceof HTMLElement)) {
-            chip = document.createElement('span');
-            chip.className = 'tm-checklist-meta-chip';
-            chip.setAttribute('data-tm-field', 'pinned');
-            chip.setAttribute('title', '置顶');
-            const before = titleRow.querySelector(':scope > .tm-checklist-mobile-toggle');
-            if (before instanceof HTMLElement) titleRow.insertBefore(chip, before);
-            else titleRow.appendChild(chip);
-        }
-        chip.style.display = '';
-        chip.innerHTML = __tmRenderLucideIcon('pin');
-        return true;
+        return !!__tmUpdatePinnedInlineIconInDOM(item, task) || true;
     }
 
     function __tmUpdateTaskCustomFieldsInDOM(container, task, patch = {}) {
@@ -2966,7 +2993,7 @@ return false;
     function __tmBuildTaskInlineContentHtml(task, fallbackText = '(无内容)') {
         const taskLike = (task && typeof task === 'object') ? task : {};
         const content = String(taskLike.content || '').trim() || String(fallbackText || '(无内容)').trim() || '(无内容)';
-        return `${API.renderTaskContentHtml(taskLike.markdown, content)}${__tmRenderRecurringTaskInlineIcon(taskLike)}${__tmRenderRecurringInstanceBadge(taskLike, { className: 'tm-recurring-instance-badge--inline' })}`;
+        return `${API.renderTaskContentHtml(taskLike.markdown, content)}${__tmRenderRecurringTaskInlineIcon(taskLike)}${__tmRenderPinnedTaskInlineIcon(taskLike)}${__tmRenderRecurringInstanceBadge(taskLike, { className: 'tm-recurring-instance-badge--inline' })}`;
     }
 
     function __tmUpdateTaskContentInDOM(container, task) {
@@ -4133,7 +4160,7 @@ throw error;
 
                 const helper = document.createElement('div');
                 helper.className = 'tm-duration-preset-helper';
-                helper.textContent = '可选预设，也可继续直接填写自定义时长';
+                helper.textContent = '选预设或直接输入';
                 editor.appendChild(helper);
 
                 const input = document.createElement('input');
@@ -4707,7 +4734,7 @@ throw error;
 
                 const helper = document.createElement('div');
                 helper.className = 'tm-duration-preset-helper';
-                helper.textContent = '可选预设，也可继续直接填写自定义时长';
+                helper.textContent = '选预设或直接输入';
                 editor.appendChild(helper);
             }
             const input = document.createElement('input');
@@ -5577,7 +5604,13 @@ throw error;
     }
 
     function __tmIsTaskDoneForTailGroup(task) {
-        return !!(task && task.done);
+        try {
+            return typeof __tmIsTaskDoneEffective === 'function'
+                ? __tmIsTaskDoneEffective(task)
+                : !!(task && task.done);
+        } catch (e) {
+            return !!(task && task.done);
+        }
     }
 
     function __tmGetArchivedDocIdsForAllTabCompletedTailGroup() {
@@ -5600,9 +5633,12 @@ throw error;
             if (__tmIsTaskDoneForTailGroup(task)) {
                 const docId = String(task?.root_id || task?.docId || '').trim();
                 if (docId && archivedDocIds.has(docId)) return;
+                if (!__tmShouldShowTaskInCompletedRootGroup(task)) return;
                 done.push(task);
             }
-            else active.push(task);
+            else {
+                active.push(task);
+            }
         });
         return { active, done };
     }
@@ -5618,6 +5654,17 @@ throw error;
         const diff = __tmGetTaskDoneSortTs(b) - __tmGetTaskDoneSortTs(a);
         if (diff !== 0) return diff;
         return typeof fallbackCompareFn === 'function' ? fallbackCompareFn(a, b) : 0;
+    }
+
+    function __tmShouldShowTaskInCompletedRootGroup(task) {
+        if (SettingsStore?.data?.completedTasksTodayOnly !== true) return true;
+        try {
+            return typeof __tmIsTaskCompletedToday === 'function'
+                ? __tmIsTaskCompletedToday(task)
+                : false;
+        } catch (e) {
+            return false;
+        }
     }
 
     function __tmBuildTaskRowModel() {
@@ -5730,22 +5777,27 @@ throw error;
         const rootTasks = derived.rootTasks;
         const docRootTasksByDoc = derived.docRootTasksByDoc;
         const isUngroupForRowModel = !state.groupByDocName && !state.groupByTaskName && !state.groupByTime && !state.quadrantEnabled;
+        const pinWithinGroups = !!SettingsStore.data.pinTasksWithinGroups
+            && !isUngroupForRowModel
+            && (state.viewMode === 'list' || state.viewMode === 'checklist');
         const timelineKeepH2Order = (state.viewMode === 'timeline')
             && !!state.groupByDocName
             && (SettingsStore.data.docH2SubgroupEnabled !== false);
         const rootSplit = __tmSplitTasksByDoneState(rootTasks);
         const activeRoots = rootSplit.active;
         const completedRoots = rootSplit.done;
-        const pinnedRoots = timelineKeepH2Order ? [] : activeRoots.filter(t => t.pinned);
-        const normalRoots = timelineKeepH2Order ? activeRoots.slice() : activeRoots.filter(t => !t.pinned);
+        const keepPinnedInGroups = timelineKeepH2Order || pinWithinGroups;
+        const pinnedRoots = keepPinnedInGroups ? [] : activeRoots.filter(t => t.pinned);
+        const normalRoots = keepPinnedInGroups ? activeRoots.slice() : activeRoots.filter(t => !t.pinned);
 
-        const emitTask = (task, depth, hasChildren, collapsed) => {
+        const emitTask = (task, depth, hasChildren, collapsed, inCompletedRootGroup = false) => {
             rows.push({
                 type: 'task',
                 id: String(task?.id || ''),
                 depth: Math.max(0, Number(depth) || 0),
                 hasChildren: !!hasChildren,
                 collapsed: !!collapsed,
+                inCompletedRootGroup: inCompletedRootGroup === true,
             });
         };
 
@@ -5761,17 +5813,17 @@ throw error;
             });
         };
 
-        const walkTaskTree = (task, depth, inheritedHideCompleted = false) => {
+        const walkTaskTree = (task, depth, inheritedHideCompleted = false, inCompletedRootGroup = false) => {
             const hideCompletedDescendants = __tmResolveHideCompletedDescendantsFlag(task, inheritedHideCompleted);
             const childTasks = (task.children || []).filter((c) => filteredIdSet.has(c.id) && __tmShouldKeepChildTaskVisible(task, c, inheritedHideCompleted));
             childTasks.sort((a, b) => getTaskOrder(a.id) - getTaskOrder(b.id));
             const hasChildren = childTasks.length > 0;
             const collapsed = state.collapsedTaskIds.has(String(task.id));
             const showChildren = hasChildren;
-            emitTask(task, depth, showChildren, collapsed);
+            emitTask(task, depth, showChildren, collapsed, inCompletedRootGroup);
             if (showChildren && !collapsed) {
                 emitChildDropGap(task, depth + 1);
-                childTasks.forEach(child => walkTaskTree(child, depth + 1, hideCompletedDescendants));
+                childTasks.forEach(child => walkTaskTree(child, depth + 1, hideCompletedDescendants, inCompletedRootGroup));
             }
         };
 
@@ -5790,7 +5842,7 @@ throw error;
                 collapsed: !!doneCollapsed,
             });
             if (!doneCollapsed) {
-                completedRoots.forEach(task => walkTaskTree(task, 0));
+                completedRoots.forEach(task => walkTaskTree(task, 0, false, true));
             }
         };
 
@@ -5905,7 +5957,8 @@ throw error;
                 });
                 if (!isCollapsed) {
                     const prefer = !!SettingsStore.data.groupSortByBestSubtaskTimeInTimeQuadrant;
-                    if (prefer) group.items.sort(compareByTimePriority);
+                    if (pinWithinGroups) __tmSortPinnedTasksFirst(group.items, prefer ? compareByTimePriority : null);
+                    else if (prefer) group.items.sort(compareByTimePriority);
                     group.items.forEach(task => walkTaskTree(task, 0));
                 }
             });
@@ -5922,10 +5975,11 @@ throw error;
                 const docEntry = docEntryById.get(String(docId || '').trim());
                 if (!docEntry) return;
                 const docRootTasks = docRootTasksByDoc.get(String(docId || '').trim()) || [];
-                const docNormal = timelineKeepH2Order ? docRootTasks.slice() : docRootTasks.filter(t => !t.pinned);
+                const docNormal = keepPinnedInGroups ? docRootTasks.slice() : docRootTasks.filter(t => !t.pinned);
                 const activeDocRootTasks = docNormal.filter((task) => !__tmIsTaskDoneForTailGroup(task));
                 if (activeDocRootTasks.length === 0) return;
                 const docTasks = activeDocRootTasks;
+                const renderDocTasks = pinWithinGroups ? __tmSortPinnedTasksFirst(activeDocRootTasks.slice()) : activeDocRootTasks;
                 const docName = docEntry.name || '未知文档';
                 const groupKey = `doc_${docId}`;
                 const isCollapsed = state.collapsedGroups?.has(groupKey);
@@ -5943,13 +5997,13 @@ throw error;
                 if (!isCollapsed) {
                     const useDocH2Subgroup = enableDocH2Subgroup && __tmDocHasAnyHeading(docId, docTasks);
                     if (!useDocH2Subgroup) {
-                        activeDocRootTasks.forEach(task => walkTaskTree(task, 0));
+                        renderDocTasks.forEach(task => walkTaskTree(task, 0));
                         return;
                     }
                     const h2Groups = new Map();
                     const h2OrderSource = docTasks;
                     const h2Buckets = __tmBuildDocHeadingBuckets(h2OrderSource, noHeadingLabel);
-                    activeDocRootTasks.forEach(task => {
+                    docTasks.forEach(task => {
                         const b = __tmGetDocHeadingBucket(task, noHeadingLabel);
                         if (!h2Groups.has(b.key)) h2Groups.set(b.key, { label: b.label, id: String(b.id || '').trim(), items: [] });
                         h2Groups.get(b.key).items.push(task);
@@ -5976,7 +6030,8 @@ throw error;
                             collapsed: !!h2Collapsed,
                         });
                         if (!h2Collapsed) {
-                            items.forEach(task => walkTaskTree(task, 0));
+                            const renderItems = pinWithinGroups ? __tmSortPinnedTasksFirst(items.slice()) : items;
+                            renderItems.forEach(task => walkTaskTree(task, 0));
                         }
                     });
                 }
@@ -6028,6 +6083,7 @@ throw error;
                 });
 
                 if (!isCollapsed) {
+                    if (pinWithinGroups) __tmSortPinnedTasksFirst(tasks);
                     tasks.forEach(task => walkTaskTree(task, 0));
                 }
             });
@@ -6076,7 +6132,8 @@ throw error;
                 });
                 if (!isCollapsed) {
                     const prefer = !!SettingsStore.data.groupSortByBestSubtaskTimeInTimeQuadrant;
-                    if (prefer) group.items.sort(compareByTimePriority);
+                    if (pinWithinGroups) __tmSortPinnedTasksFirst(group.items, prefer ? compareByTimePriority : null);
+                    else if (prefer) group.items.sort(compareByTimePriority);
                     group.items.forEach(task => walkTaskTree(task, 0));
                 }
             });
@@ -6203,7 +6260,7 @@ throw error;
         }
         if (kind === 'duration') {
             const icon = __tmRenderLucideIcon('timer', 'tm-task-detail-core-chip__icon');
-            return value ? `${icon}<span class="tm-task-detail-core-chip__text">${esc(value)}</span>` : icon;
+            return value ? `${icon}<span class="tm-task-detail-core-chip__text">${esc(__tmFormatDurationDisplayValue(value))}</span>` : icon;
         }
         if (kind === 'completionTime') {
             const icon = __tmRenderLucideIcon('calendar-check', 'tm-task-detail-core-chip__icon');

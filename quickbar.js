@@ -1452,22 +1452,63 @@
                 max-width: calc(100vw - 12px);
             }
             .sy-custom-props-floatbar__input-editor.is-duration {
-                width: auto;
-                min-width: 0;
+                width: min(228px, calc(100vw - 12px));
+                min-width: min(188px, calc(100vw - 12px));
                 max-width: calc(100vw - 12px);
+                padding: 8px;
             }
             .sy-custom-props-floatbar__input-editor.is-duration .sy-custom-props-floatbar__input {
-                width: 124px;
+                width: 100%;
                 max-width: 100%;
             }
-            .sy-custom-props-floatbar__input-editor.is-duration .sy-custom-props-floatbar__input-extra {
-                width: 124px;
+            .sy-custom-props-floatbar__input-editor.is-duration .sy-custom-props-floatbar__input-extra.is-visible {
+                width: 100%;
                 max-width: 100%;
-                align-items: flex-start;
+                display: grid;
+                grid-template-columns: repeat(2, minmax(0, 1fr));
+                gap: 6px;
+                margin-top: 8px;
             }
             .sy-custom-props-floatbar__input-editor.is-duration .sy-custom-props-floatbar__input-extra-row {
-                width: 124px;
+                width: 100%;
                 max-width: 100%;
+                min-height: 30px;
+                border-radius: 7px;
+                gap: 4px;
+                padding: 5px 8px;
+            }
+            .sy-custom-props-floatbar__input-editor.is-duration .sy-custom-props-floatbar__input-extra-main {
+                gap: 4px;
+            }
+            .sy-custom-props-floatbar__input-editor.is-duration .sy-custom-props-floatbar__input-extra-icon {
+                display: none;
+            }
+            .sy-custom-props-floatbar__input-editor.is-duration .sy-custom-props-floatbar__input-extra-title {
+                font-size: 12px;
+                line-height: 1.2;
+            }
+            .sy-custom-props-floatbar__input-editor.is-duration .sy-custom-props-floatbar__input-extra-tail {
+                visibility: hidden;
+                width: 14px;
+                height: 14px;
+                color: var(--b3-theme-primary);
+            }
+            .sy-custom-props-floatbar__input-editor.is-duration .sy-custom-props-floatbar__input-extra-row.is-active {
+                border-color: var(--b3-theme-primary);
+                background: var(--b3-theme-primary-light, var(--b3-theme-surface-light));
+                color: var(--b3-theme-primary);
+            }
+            .sy-custom-props-floatbar__input-editor.is-duration .sy-custom-props-floatbar__input-extra-row.is-active .sy-custom-props-floatbar__input-extra-tail {
+                visibility: visible;
+            }
+            .sy-custom-props-floatbar__input-editor.is-duration .sy-custom-props-floatbar__duration-helper {
+                grid-column: 1 / -1;
+                margin: -1px 0 0;
+                white-space: normal;
+                line-height: 1.35;
+            }
+            .sy-custom-props-floatbar__input-editor.is-duration .sy-custom-props-floatbar__input-actions {
+                margin-top: 8px;
             }
             .sy-custom-props-floatbar__remark-toolbar {
                 display: none;
@@ -4217,9 +4258,9 @@
             if (extraPanel instanceof HTMLElement) {
                 if (isDuration && durationPresetOptions.length) {
                     extraPanel.innerHTML = `
-                        <div class="sy-custom-props-floatbar__duration-helper">可选预设，也可直接填写自定义时长</div>
+                        <div class="sy-custom-props-floatbar__duration-helper">选预设或直接输入</div>
                         ${durationPresetOptions.map((value) => `
-                            <button type="button" class="sy-custom-props-floatbar__input-extra-row" data-duration-preset-value="${esc(value)}">
+                            <button type="button" class="sy-custom-props-floatbar__input-extra-row ${normalizeDurationPresetValue(currentValue) === value ? 'is-active' : ''}" data-duration-preset-value="${esc(value)}">
                                 <span class="sy-custom-props-floatbar__input-extra-main">
                                     <span class="sy-custom-props-floatbar__input-extra-icon">${renderPhosphorBoldIcon('timer', 14)}</span>
                                     <span class="sy-custom-props-floatbar__input-extra-text">

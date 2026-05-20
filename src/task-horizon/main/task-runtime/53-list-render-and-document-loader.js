@@ -53,6 +53,7 @@
         const tomatoFocusModeEnabled = __tmIsTomatoFocusModeEnabled();
         const checkboxExtraClass = isGloballyLocked ? 'tm-operating' : '';
         const recurringBadgeInlineOptions = { className: 'tm-recurring-instance-badge--inline' };
+        const completedTodayKey = __tmNormalizeDateOnly(new Date());
         const hasContentCol = colSet.has('content');
         const hasStartDateCol = colSet.has('startDate');
         const hasCompletionTimeCol = colSet.has('completionTime');
@@ -177,8 +178,11 @@
         const rootSplit = __tmSplitTasksByDoneState(rootTasks);
         const activeRoots = rootSplit.active;
         const completedRoots = rootSplit.done;
-        const pinnedRoots = activeRoots.filter(t => t.pinned);
-        const normalRoots = activeRoots.filter(t => !t.pinned);
+        const pinWithinGroups = !!SettingsStore.data.pinTasksWithinGroups
+            && !isUngroupForRender
+            && (state.viewMode === 'list' || state.viewMode === 'checklist');
+        const pinnedRoots = pinWithinGroups ? [] : activeRoots.filter(t => t.pinned);
+        const normalRoots = pinWithinGroups ? activeRoots.slice() : activeRoots.filter(t => !t.pinned);
         const docRootTasksByDoc = derived.docRootTasksByDoc;
         const directChildStatsMemo = new Map();
         const getDirectChildStats = (task) => {
@@ -199,8 +203,9 @@
         };
 
         // 渲染单行（保持原有 emitRow 逻辑）
-        const emitRow = (task, depth, hasChildren, collapsed) => {
+        const emitRow = (task, depth, hasChildren, collapsed, options = {}) => {
             if (!hasTaskRowBudget()) return '';
+            const opts = (options && typeof options === 'object') ? options : {};
             const { done, content, priority, completionTime, duration, remark, docName, pinned, startDate } = task;
             const taskId = String(task?.id || '').trim();
             const isMultiSelected = __tmIsTaskMultiSelected(task.id);
@@ -241,6 +246,13 @@
                 ? __tmBuildStatusChipStyle(statusOption?.color)
                 : '';
             const reminderHtml = hasContentCol && __tmHasReminderMark(task) ? __tmRenderReminderIcon() : '';
+            const completedTodayBadgeHtml = opts.inCompletedRootGroup === true
+                ? __tmRenderCompletedTodayBadge(task, { todayKey: completedTodayKey })
+                : '';
+            const recurringInstanceBadgeHtml = __tmRenderRecurringInstanceBadge(task, recurringBadgeInlineOptions);
+            const titleInlineBadgeClass = (completedTodayBadgeHtml || recurringInstanceBadgeHtml)
+                ? ' tm-task-content-clickable--inline-badges'
+                : '';
 
             const contentIndent = 12 + depth * 16;
             const treeGuides = getTreeGuidesHtml(depth);
@@ -289,7 +301,7 @@
                             </span>
                             <span class="tm-task-text ${done ? 'tm-task-done' : ''}"
                                   data-level="${depth}">
-                                <span class="tm-task-content-clickable" onclick="tmJumpToTask('${taskId}', event)"${contentTooltip} style="${__tmBuildTaskTitleOpacityStyle(task)}">${renderedContent}${__tmRenderRecurringTaskInlineIcon(task)}${reminderHtml}${__tmRenderRecurringInstanceBadge(task, recurringBadgeInlineOptions)}</span>
+                                <span class="tm-task-content-clickable${titleInlineBadgeClass}" onclick="tmJumpToTask('${taskId}', event)"${contentTooltip} style="${__tmBuildTaskTitleOpacityStyle(task)}">${renderedContent}${completedTodayBadgeHtml}${__tmRenderRecurringTaskInlineIcon(task)}${__tmRenderPinnedTaskInlineIcon(task)}${reminderHtml}${recurringInstanceBadgeHtml}</span>
                             </span>
                             <button class="tm-subtask-create-btn"
                                     type="button"
@@ -338,7 +350,7 @@
                         break;
                     case 'duration':
                         rowHtml += `
-                    <td class="tm-cell-editable tm-task-meta-cell" data-tm-task-time-field="duration" style="${getTableCellStyle('duration')}" onclick="tmBeginCellEdit('${taskId}','duration',this,event)">${esc(duration || '')}</td>`;
+                    <td class="tm-cell-editable tm-task-meta-cell" data-tm-task-time-field="duration" style="${getTableCellStyle('duration')}" onclick="tmBeginCellEdit('${taskId}','duration',this,event)">${esc(__tmFormatDurationDisplayValue(duration || ''))}</td>`;
                         break;
                     case 'spent': {
                         const txt = useTomatoSpentHours
@@ -396,7 +408,7 @@
         };
 
         // 递归渲染任务树，子任务按照全局 filteredTasks 顺序排列
-        const renderTaskTree = (task, depth, inheritedHideCompleted = false) => {
+        const renderTaskTree = (task, depth, inheritedHideCompleted = false, inCompletedRootGroup = false) => {
             const rows = [];
             const hideCompletedDescendants = __tmResolveHideCompletedDescendantsFlag(task, inheritedHideCompleted);
 
@@ -409,14 +421,14 @@
             const collapsed = state.collapsedTaskIds.has(String(task.id));
             const showChildren = hasChildren;
 
-            const firstRow = emitRow(task, depth, showChildren, collapsed);
+            const firstRow = emitRow(task, depth, showChildren, collapsed, { inCompletedRootGroup });
             if (!firstRow) return rows;
             rows.push(firstRow);
 
             if (showChildren && !collapsed) {
                 childTasks.forEach(child => {
                     if (!hasTaskRowBudget()) return;
-                    rows.push(...renderTaskTree(child, depth + 1, hideCompletedDescendants));
+                    rows.push(...renderTaskTree(child, depth + 1, hideCompletedDescendants, inCompletedRootGroup));
                 });
             }
 
@@ -437,7 +449,7 @@
                 currentGroupBg = '';
                 completedRoots.forEach(task => {
                     if (!hasTaskRowBudget()) return;
-                    allRows.push(...renderTaskTree(task, 0));
+                    allRows.push(...renderTaskTree(task, 0, false, true));
                 });
             }
         };
@@ -594,7 +606,8 @@
                 if (!isCollapsed) {
                     currentGroupBg = enableGroupBg ? __tmGroupBgFromLabelColor(color, isDark) : '';
                     const prefer = !!SettingsStore.data.groupSortByBestSubtaskTimeInTimeQuadrant;
-                    if (prefer) group.items.sort(compareByTimePriority);
+                    if (pinWithinGroups) __tmSortPinnedTasksFirst(group.items, prefer ? compareByTimePriority : null);
+                    else if (prefer) group.items.sort(compareByTimePriority);
                     group.items.forEach(task => {
                         if (!hasTaskRowBudget()) return;
                         allRows.push(...renderTaskTree(task, 0));
@@ -615,10 +628,11 @@
                 const docRootTasks = docRootTasksByDoc.get(String(docId || '').trim()) || [];
 
                 // 分离置顶和非置顶
-                const docNormal = docRootTasks.filter(t => !t.pinned);
+                const docNormal = pinWithinGroups ? docRootTasks.slice() : docRootTasks.filter(t => !t.pinned);
                 const activeDocRootTasks = docNormal.filter((task) => !__tmIsTaskDoneForTailGroup(task));
                 if (activeDocRootTasks.length === 0) return;
                 const docTasks = activeDocRootTasks;
+                const renderDocTasks = pinWithinGroups ? __tmSortPinnedTasksFirst(activeDocRootTasks.slice()) : activeDocRootTasks;
 
                 // 渲染文档标题（支持折叠）
                 const docName = docEntry.name || '未知文档';
@@ -634,7 +648,7 @@
                     currentGroupBg = enableGroupBg ? __tmGroupBgFromLabelColor(labelColor, isDark) : '';
                     const useDocH2Subgroup = enableDocH2Subgroup && __tmDocHasAnyHeading(docId, docTasks);
                     if (!useDocH2Subgroup) {
-                        activeDocRootTasks.forEach(task => {
+                        renderDocTasks.forEach(task => {
                             if (!hasTaskRowBudget()) return;
                             allRows.push(...renderTaskTree(task, 0));
                         });
@@ -642,7 +656,7 @@
                         const h2Groups = new Map();
                         const h2OrderSource = docTasks;
                         const h2Buckets = __tmBuildDocHeadingBuckets(h2OrderSource, noHeadingLabel);
-                        activeDocRootTasks.forEach(task => {
+                        docTasks.forEach(task => {
                                 const b = __tmGetDocHeadingBucket(task, noHeadingLabel);
                                 if (!h2Groups.has(b.key)) h2Groups.set(b.key, { label: b.label, id: String(b.id || '').trim(), items: [] });
                                 h2Groups.get(b.key).items.push(task);
@@ -663,7 +677,8 @@
                             const h2LabelColor = __tmGetHeadingSubgroupLabelColor(labelColor, isDark);
                             allRows.push(`<tr class="tm-group-row" data-group-kind="h2" data-group-key="${esc(h2Key)}"><td colspan="${colCount}" onclick="tmToggleGroupCollapse('${h2Key}', event)" style="cursor:pointer;background:var(--tm-header-bg);font-weight:bold;color:var(--tm-text-color);"><div class="tm-group-sticky" style="padding-left:2ch;">${toggleH2}<span class="tm-group-label" style="color:${h2LabelColor};">${__tmRenderHeadingLevelIconLabel(g.label || '', SettingsStore.data.taskHeadingLevel || 'h2')}</span><span class="tm-badge tm-badge--count">${Array.isArray(items) ? items.length : 0}</span>${createBtnHtml}</div></td></tr>`);
                             if (!h2Collapsed) {
-                                items.forEach(task => {
+                                const renderItems = pinWithinGroups ? __tmSortPinnedTasksFirst(items.slice()) : items;
+                                renderItems.forEach(task => {
                                     if (!hasTaskRowBudget()) return;
                                     allRows.push(...renderTaskTree(task, 0));
                                 });
@@ -732,7 +747,8 @@
                         : '';
                     // 组内任务按照全局顺序排列
                     const prefer = !!SettingsStore.data.groupSortByBestSubtaskTimeInTimeQuadrant;
-                    if (prefer) group.items.sort(compareByTimePriority);
+                    if (pinWithinGroups) __tmSortPinnedTasksFirst(group.items, prefer ? compareByTimePriority : null);
+                    else if (prefer) group.items.sort(compareByTimePriority);
                     group.items.forEach(task => {
                         if (!hasTaskRowBudget()) return;
                         allRows.push(...renderTaskTree(task, 0));
@@ -774,6 +790,7 @@
 
                 // 渲染该组的顶级任务及其子任务（如果未折叠）
                 if (!isCollapsed) {
+                    if (pinWithinGroups) __tmSortPinnedTasksFirst(tasks);
                     // 按任务名分组时，每个任务使用自己文档的颜色
                     tasks.forEach(task => {
                         if (!hasTaskRowBudget()) return;
@@ -5792,16 +5809,20 @@ hint(`❌ 操作失败: ${e.message}`, 'error');
         throw lastErr || new Error('插入块失败');
     }
 
-    async function __tmCreateSubtaskForTaskKernel(parentTaskId, content) {
+    async function __tmCreateSubtaskForTaskKernel(parentTaskId, content, options = {}) {
         const pid = String(parentTaskId || '').trim();
         const parentTask = globalThis.__tmRuntimeState?.getFlatTaskById?.(pid) || state.flatTasks?.[pid];
         if (!pid || !parentTask) throw new Error('未找到父任务');
         const text = String(content || '').trim();
         if (!text) throw new Error('请输入子任务内容');
+        const opts = (options && typeof options === 'object') ? options : {};
+        const inheritedPatch = Object.prototype.hasOwnProperty.call(opts, 'inheritedPatch')
+            ? __tmNormalizeSubtaskInheritedPatch(opts.inheritedPatch)
+            : __tmBuildSubtaskInheritedPatch(parentTask);
 
         const insertedId = await __tmAppendBlockWithRetry(pid, `- [ ] ${text}`);
         const taskId = await __tmResolveInsertedTaskBlockId(insertedId);
-        try { await __tmPersistMetaAndAttrsAsync(taskId, { pinned: false }); } catch (e) {}
+        try { await __tmPersistMetaAndAttrsAsync(taskId, { pinned: false, ...inheritedPatch }); } catch (e) {}
         try {
             const docId = String(parentTask.docId || parentTask.root_id || '').trim();
             if (docId) __tmInvalidateTasksQueryCacheByDocId(docId);
@@ -5859,8 +5880,8 @@ hint(`❌ 操作失败: ${e.message}`, 'error');
         return await __tmCreateTaskInDocKernel(options);
     }
 
-    async function __tmCreateSubtaskForTask(parentTaskId, content) {
-        return await __tmCreateSubtaskForTaskKernel(parentTaskId, content);
+    async function __tmCreateSubtaskForTask(parentTaskId, content, options = {}) {
+        return await __tmCreateSubtaskForTaskKernel(parentTaskId, content, options);
     }
 
     async function __tmCreateSiblingTaskForTask(taskId, content) {
@@ -5876,6 +5897,7 @@ hint(`❌ 操作失败: ${e.message}`, 'error');
         const tempId = __tmGenerateTempTaskId('subtask');
         const task = globalThis.__tmRuntimeState?.getFlatTaskById?.(pid) || state.flatTasks?.[pid];
         const docId = String(task?.docId || task?.root_id || '').trim();
+        const inheritedPatch = __tmBuildSubtaskInheritedPatch(task);
         const opPromise = __tmEnqueueQueuedOp({
             type: 'createSubtask',
             docId,
@@ -5885,6 +5907,7 @@ hint(`❌ 操作失败: ${e.message}`, 'error');
                 tempId,
                 content: text,
                 docId,
+                inheritedPatch,
             },
         }, { wait: true });
         try { hooks.onQueued?.(tempId); } catch (e) {}
@@ -5902,25 +5925,38 @@ hint(`❌ 操作失败: ${e.message}`, 'error');
         return opPromise;
     }
 
-    function __tmApplyOptimisticSubtask(parentTaskId, subtaskId, content) {
+    function __tmApplyOptimisticSubtask(parentTaskId, subtaskId, content, inheritedPatchInput = null) {
         const pid = String(parentTaskId || '').trim();
         const tid = String(subtaskId || '').trim();
         const text = String(content || '').trim();
         const parentTask = globalThis.__tmRuntimeState?.getFlatTaskById?.(pid) || state.flatTasks?.[pid];
         if (!pid || !tid || !text || !parentTask) return;
+        const inheritedPatch = inheritedPatchInput && typeof inheritedPatchInput === 'object'
+            ? __tmNormalizeSubtaskInheritedPatch(inheritedPatchInput)
+            : __tmBuildSubtaskInheritedPatch(parentTask);
 
         const nextTask = {
             id: tid,
             done: false,
-            pinned: false,
+            pinned: inheritedPatch.pinned === true,
             content: text,
             markdown: `- [ ] ${text}`,
-            priority: '',
-            duration: '',
-            remark: '',
-            completionTime: '',
+            priority: inheritedPatch.priority || '',
+            custom_priority: inheritedPatch.priority || '',
+            duration: inheritedPatch.duration || '',
+            custom_duration: inheritedPatch.duration || '',
+            remark: inheritedPatch.remark || '',
+            custom_remark: inheritedPatch.remark || '',
+            startDate: inheritedPatch.startDate || '',
+            start_date: inheritedPatch.startDate || '',
+            completionTime: inheritedPatch.completionTime || '',
+            completion_time: inheritedPatch.completionTime || '',
             customTime: '',
-            customStatus: '',
+            customStatus: inheritedPatch.customStatus || '',
+            custom_status: inheritedPatch.customStatus || '',
+            customFieldValues: (inheritedPatch.customFieldValues && typeof inheritedPatch.customFieldValues === 'object')
+                ? { ...inheritedPatch.customFieldValues }
+                : {},
             docName: parentTask.docName || '',
             root_id: parentTask.root_id || parentTask.docId || '',
             docId: parentTask.docId || parentTask.root_id || '',
@@ -7006,7 +7042,15 @@ hint(`❌ 操作失败: ${e.message}`, 'error');
         if (__tmIsOtherBlockTabId(state.activeDocId)) {
             const otherBlocks = Array.isArray(state.otherBlocks) ? state.otherBlocks : [];
             total = otherBlocks.length;
-            done = otherBlocks.filter((task) => !!task?.done).length;
+            done = otherBlocks.filter((task) => {
+                try {
+                    return typeof __tmIsTaskDoneEffective === 'function'
+                        ? __tmIsTaskDoneEffective(task)
+                        : !!task?.done;
+                } catch (e) {
+                    return !!task?.done;
+                }
+            }).length;
             state.stats.totalTasks = total;
             state.stats.doneTasks = done;
             state.stats.todoTasks = Math.max(0, total - done);
@@ -7016,7 +7060,10 @@ hint(`❌ 操作失败: ${e.message}`, 'error');
         const traverse = (tasks) => {
             tasks.forEach(task => {
                 total++;
-                if (task.done) done++;
+                const taskDone = typeof __tmIsTaskDoneEffective === 'function'
+                    ? __tmIsTaskDoneEffective(task)
+                    : task.done === true;
+                if (taskDone) done++;
                 if (task.children && task.children.length > 0) {
                     traverse(task.children);
                 }
@@ -7106,7 +7153,7 @@ hint(`❌ 操作失败: ${e.message}`, 'error');
         }).join('|');
         const legacyCompat = SettingsStore?.data?.legacyWin7CompatMode === true ? 1 : 0;
         const scopeKey = [
-            'doc-group-scope-v2',
+            'doc-group-scope-v3',
             groupId,
             `compat${legacyCompat}`,
             includeQuickAddDoc ? quickAddDocId : '',
@@ -7474,7 +7521,7 @@ hint(`❌ 操作失败: ${e.message}`, 'error');
                         id,
                         String(task.blockId || '').trim(),
                         String(task.content || task.markdown || task.text || '').trim(),
-                        task.done ? 1 : 0,
+                        (typeof __tmIsTaskDoneEffective === 'function' ? __tmIsTaskDoneEffective(task) : task.done === true) ? 1 : 0,
                         task.pinned ? 1 : 0,
                         String(task.startDate || task.start_date || '').trim(),
                         String(task.completionTime || task.completion_time || task.taskCompleteAt || '').trim(),
@@ -7619,6 +7666,7 @@ hint(`❌ 操作失败: ${e.message}`, 'error');
                 currentRule: String(state.currentRule || '').trim(),
                 searchKeyword: String(state.searchKeyword || '').trim(),
                 showCompletedTasks: state.showCompletedTasks === true ? 1 : 0,
+                completedTasksTodayOnly: SettingsStore?.data?.completedTasksTodayOnly === true ? 1 : 0,
                 docTabsArchiveMode: state.docTabsArchiveMode === true ? 1 : 0,
                 groupByDocName: state.groupByDocName === true ? 1 : 0,
                 groupByTaskName: state.groupByTaskName === true ? 1 : 0,
@@ -7648,6 +7696,7 @@ hint(`❌ 操作失败: ${e.message}`, 'error');
             'rule-changed': true,
             'search-changed': true,
             'completed-toggle-changed': true,
+            'completed-today-only-changed': true,
             'archive-mode-changed': true,
             'group-doc-changed': true,
             'group-task-changed': true,
@@ -7664,6 +7713,7 @@ hint(`❌ 操作失败: ${e.message}`, 'error');
                 if (String(state.currentRule || '').trim() !== snapshotCacheVerifyBefore.currentRule) return 'rule-changed';
                 if (String(state.searchKeyword || '').trim() !== snapshotCacheVerifyBefore.searchKeyword) return 'search-changed';
                 if ((state.showCompletedTasks === true ? 1 : 0) !== snapshotCacheVerifyBefore.showCompletedTasks) return 'completed-toggle-changed';
+                if ((SettingsStore?.data?.completedTasksTodayOnly === true ? 1 : 0) !== snapshotCacheVerifyBefore.completedTasksTodayOnly) return 'completed-today-only-changed';
                 if ((state.docTabsArchiveMode === true ? 1 : 0) !== snapshotCacheVerifyBefore.docTabsArchiveMode) return 'archive-mode-changed';
                 if ((state.groupByDocName === true ? 1 : 0) !== snapshotCacheVerifyBefore.groupByDocName) return 'group-doc-changed';
                 if ((state.groupByTaskName === true ? 1 : 0) !== snapshotCacheVerifyBefore.groupByTaskName) return 'group-task-changed';
@@ -9308,6 +9358,7 @@ hint(`❌ 操作失败: ${e.message}`, 'error');
                         else if (String(state.currentRule || '').trim() !== snapshotCacheVerifyBefore.currentRule) remapSkipReason = 'rule-changed';
                         else if (String(state.searchKeyword || '').trim() !== snapshotCacheVerifyBefore.searchKeyword) remapSkipReason = 'search-changed';
                         else if ((state.showCompletedTasks === true ? 1 : 0) !== snapshotCacheVerifyBefore.showCompletedTasks) remapSkipReason = 'completed-toggle-changed';
+                        else if ((SettingsStore?.data?.completedTasksTodayOnly === true ? 1 : 0) !== snapshotCacheVerifyBefore.completedTasksTodayOnly) remapSkipReason = 'completed-today-only-changed';
                         else if ((state.docTabsArchiveMode === true ? 1 : 0) !== snapshotCacheVerifyBefore.docTabsArchiveMode) remapSkipReason = 'archive-mode-changed';
                         else if ((state.groupByDocName === true ? 1 : 0) !== snapshotCacheVerifyBefore.groupByDocName) remapSkipReason = 'group-doc-changed';
                         else if ((state.groupByTaskName === true ? 1 : 0) !== snapshotCacheVerifyBefore.groupByTaskName) remapSkipReason = 'group-task-changed';

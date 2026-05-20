@@ -617,6 +617,29 @@
                                 `<input class="b3-switch fn__flex-center" type="checkbox" ${SettingsStore.data.pinNewTasksByDefault ? 'checked' : ''} onchange="updatePinNewTasksByDefault(this.checked)">`
                             )}
                         </div>
+                        <div style="margin-top:10px;">
+                            ${renderSingleFieldSetting(
+                                '子任务继承父任务字段',
+                                '新建子任务时，仅继承父任务中已经填写的字段。默认不继承任何字段。',
+                                (() => {
+                                    const selected = new Set(__tmNormalizeSubtaskInheritedFields(SettingsStore.data.subtaskInheritedFields));
+                                    const customFieldOptions = __tmGetCustomFieldDefs()
+                                        .filter((field) => String(field?.id || '').trim() && field?.enabled !== false)
+                                        .map((field) => ({
+                                            key: `customField:${String(field?.id || '').trim()}`,
+                                            label: `自定义：${String(field?.name || field?.id || '').trim() || '未命名'}`
+                                        }))
+                                        .filter((item) => __tmParseCustomFieldColumnKey(item.key));
+                                    const options = __TM_SUBTASK_INHERIT_FIELD_OPTIONS.concat(customFieldOptions);
+                                    return `<div style="display:flex;gap:8px;flex-wrap:wrap;">${options.map((item) => `
+                                        <label style="display:inline-flex;align-items:center;gap:6px;padding:6px 10px;border:1px solid var(--tm-border-color);border-radius:999px;background:var(--tm-card-bg);cursor:pointer;">
+                                            <input class="b3-switch fn__flex-center" type="checkbox" ${selected.has(item.key) ? 'checked' : ''} onchange="updateSubtaskInheritedField('${escSq(item.key)}', this.checked)">
+                                            <span>${esc(item.label)}</span>
+                                        </label>
+                                    `).join('')}</div>`;
+                                })()
+                            )}
+                        </div>
                     </div>
 
                     <div class="tm-settings-panel" style="margin-bottom: 16px;" data-tm-settings-section="status">
@@ -931,9 +954,15 @@
                             `<input class="b3-switch fn__flex-center" type="checkbox" ${__tmGetShowCompletedTasksFromSettings(SettingsStore.data) ? 'checked' : ''} onchange="updateShowCompletedTasks(this.checked)">`
                         )}
                         <div style="font-size: 12px; color: var(--tm-secondary-text); margin-top: 6px; margin-bottom: 12px;">
-                            默认关闭以保持日常列表清爽。打开后会显示索引中的全部已完成任务，不限制完成时间。
+                            默认关闭以保持日常列表清爽。打开后默认显示索引中的全部已完成任务；若开启下方限制，则仅显示今天完成。
                             <br>规则设置中将「完成状态」设为「所有状态」或「是」时，也会显示对应已完成任务。
                         </div>
+                        ${renderSingleSwitchSetting(
+                            '已完成分组仅显示今天完成',
+                            '开启后，“已完成任务”尾部分组只保留完成日期为今天的任务；任务标题旁仍会用“今天”标签标识今天完成的任务。',
+                            `<input class="b3-switch fn__flex-center" type="checkbox" ${SettingsStore.data.completedTasksTodayOnly ? 'checked' : ''} onchange="updateCompletedTasksTodayOnly(this.checked)">`,
+                            { style: 'margin-bottom:10px;' }
+                        )}
                         ${renderSingleSwitchSetting(
                             '文档分组下按二级标题子分组',
                             '用于时间轴、表格、文档流和日历侧边栏。',
@@ -944,6 +973,12 @@
                             '分组模式增加“按任务名分组”',
                             '开启后，顶部“分组”下拉里会出现“按任务名”选项，用于把相同任务内容分为一组。',
                             `<input class="b3-switch fn__flex-center" type="checkbox" ${SettingsStore.data.groupByTaskName || SettingsStore.data.groupMode === 'task' ? 'checked' : ''} onchange="updateGroupByTaskName(this.checked)">`,
+                            { style: 'margin-bottom:10px;' }
+                        )}
+                        ${renderSingleSwitchSetting(
+                            '分组内置顶任务',
+                            '开启后，表格和清单视图在按文档、时间、四象限或任务名分组时，置顶任务留在所属分组内并排在组内最前。',
+                            `<input class="b3-switch fn__flex-center" type="checkbox" ${SettingsStore.data.pinTasksWithinGroups ? 'checked' : ''} onchange="updatePinTasksWithinGroups(this.checked)">`,
                             { style: 'margin-bottom:10px;' }
                         )}
                         ${renderSingleSwitchSetting(

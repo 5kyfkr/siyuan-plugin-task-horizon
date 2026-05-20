@@ -785,7 +785,9 @@
         if (out.hasAny) {
             const walk = (list, ancestorDone = false) => {
                 for (const t of (Array.isArray(list) ? list : [])) {
-                    const selfDone = !!t?.done;
+                    const selfDone = typeof __tmIsTaskDoneEffective === 'function'
+                        ? __tmIsTaskDoneEffective(t)
+                        : !!t?.done;
                     const blocked = ancestorDone || selfDone;
                     if (!blocked) {
                         out.hasUndone = true;
@@ -1445,9 +1447,11 @@
     }
 
     function __tmRuleNeedsDoneOnly(ruleOrId) {
+        if (String(ruleOrId || '').trim() === 'default_all') return false;
         const rule = (ruleOrId && typeof ruleOrId === 'object')
             ? ruleOrId
             : __tmFindRuleById(ruleOrId);
+        if (String(rule?.id || '').trim() === 'default_all') return false;
         return !!(rule && Array.isArray(rule.conditions) && rule.conditions.some((c) => {
             if (!c || c.field !== 'done' || c.operator !== '=') return false;
             return (c.value === true || String(c.value) === 'true' || c.value === '') && String(c.value) !== '__all__';
@@ -2368,7 +2372,10 @@ return Number(state.contextInteractionQuietUntil || 0);
                 push(task.completionTime || task.completion_time || '');
                 push(task.customTime || task.custom_time || '');
                 push(task.taskCompleteAt || task.task_complete_at || '');
-                push(task.done ? '1' : '0');
+                const taskDone = typeof __tmIsTaskDoneEffective === 'function'
+                    ? __tmIsTaskDoneEffective(task)
+                    : task.done === true;
+                push(taskDone ? '1' : '0');
             }
             return `${n}:${(hash >>> 0).toString(16)}`;
         } catch (e) {
@@ -2383,11 +2390,14 @@ return Number(state.contextInteractionQuietUntil || 0);
             (Array.isArray(state.filteredTasks) ? state.filteredTasks : []).forEach((task) => {
                 const id = String(task?.id || task?.blockId || '').trim();
                 if (!id) return;
+                const taskDone = typeof __tmIsTaskDoneEffective === 'function'
+                    ? __tmIsTaskDoneEffective(task)
+                    : task?.done === true;
                 ids.push(id);
                 revs.push([
                     id,
                     String(task?.updated || task?.updatedAt || '').trim(),
-                    task?.done ? 1 : 0,
+                    taskDone ? 1 : 0,
                     String(task?.startDate || task?.start_date || '').trim(),
                     String(task?.completionTime || task?.completion_time || task?.taskCompleteAt || '').trim(),
                     String(task?.customTime || task?.custom_time || '').trim(),
@@ -3072,12 +3082,12 @@ if (mode === 'checklist') {
             const modal = document.createElement('div');
             modal.className = 'tm-prompt-modal';
             modal.innerHTML = `
-                <div class="tm-prompt-box tm-prompt-box--duration" style="width:auto;max-width:min(92vw,220px);">
+                <div class="tm-prompt-box tm-prompt-box--duration">
                     <div class="tm-prompt-title">${esc(String(title || '设置时长').trim() || '设置时长')}</div>
-                    <div class="tm-duration-preset-list" style="margin-bottom:10px;">
+                    <div class="tm-duration-preset-list">
                         ${__tmBuildDurationPresetOptionsHtml(initialValue, presets)}
                     </div>
-                    <div class="tm-duration-preset-helper" style="margin-bottom:8px;">可选预设，也可直接填写自定义时长</div>
+                    <div class="tm-duration-preset-helper">选预设或直接输入</div>
                     <input class="tm-prompt-input tm-duration-editor-input" data-tm-duration-prompt-input type="text" value="${esc(initialValue)}" placeholder="例如：30 或 30m">
                     <div class="tm-prompt-buttons">
                         <button class="tm-prompt-btn tm-prompt-btn-secondary" id="tm-duration-cancel">取消</button>
@@ -4502,6 +4512,34 @@ if (mode === 'checklist') {
         }
     }
 
+    async function __tmBatchSetDuration() {
+        state.multiBulkEditFieldKey = 'duration';
+        try {
+            const targetIds = __tmGetMultiSelectTargetIds();
+            if (!targetIds.length) {
+                hint('⚠ 请先选择至少一条任务', 'warning');
+                return;
+            }
+            let defaultValue = '';
+            let hasCommonValue = true;
+            targetIds.forEach((id, index) => {
+                const task = globalThis.__tmRuntimeState?.getFlatTaskById?.(id) || state.flatTasks?.[id] || null;
+                const value = __tmNormalizeDurationPresetValue(task?.duration || task?.custom_duration || '');
+                if (index === 0) defaultValue = value;
+                else if (value !== defaultValue) hasCommonValue = false;
+            });
+            const next = await showDurationPrompt('批量修改时长', hasCommonValue ? defaultValue : '');
+            if (next === null) return;
+            const duration = __tmNormalizeDurationPresetValue(next);
+            await __tmApplyBatchAttrPatch({ duration }, {
+                source: 'multi-duration',
+                actionLabel: duration ? '批量修改时长' : '批量清空时长'
+            });
+        } finally {
+            state.multiBulkEditFieldKey = '';
+        }
+    }
+
     async function __tmBatchSetPriority() {
         state.multiBulkEditFieldKey = 'priority';
         try {
@@ -4681,6 +4719,10 @@ if (mode === 'checklist') {
         await __tmBatchSetStatus();
     };
 
+    window.tmMultiSelectBatchSetDuration = async function() {
+        await __tmBatchSetDuration();
+    };
+
     window.tmMultiSelectBatchSetStartDateTime = async function() {
         await __tmBatchSetStartDateTime();
     };
@@ -4759,6 +4801,12 @@ if (mode === 'checklist') {
         }
         menu.appendChild(__tmBuildMultiSelectMenuItem('置顶', 'pin', () => window.tmMultiSelectBatchPin?.()));
         menu.appendChild(__tmBuildMultiSelectMenuItem('取消置顶', 'x-circle', () => window.tmMultiSelectBatchUnpin?.()));
+        {
+            const separator = document.createElement('div');
+            separator.className = 'tm-multi-bulkbar__menu-separator';
+            menu.appendChild(separator);
+        }
+        menu.appendChild(__tmBuildMultiSelectMenuItem('修改时长', 'timer', () => window.tmMultiSelectBatchSetDuration?.()));
         {
             const separator = document.createElement('div');
             separator.className = 'tm-multi-bulkbar__menu-separator';
@@ -7154,6 +7202,7 @@ if (mode === 'checklist') {
 
     function __tmIsAllRuleLike(rule) {
         if (!rule || typeof rule !== 'object') return false;
+        if (String(rule.id || '').trim() === 'default_all') return true;
         const conds = Array.isArray(rule.conditions) ? rule.conditions.filter(Boolean) : [];
         if (conds.length === 0) return true;
         if (conds.length === 1) {
@@ -7293,7 +7342,10 @@ if (mode === 'checklist') {
                     if (tid) hasIncompleteAncestorMemo.set(tid, null);
                     return null;
                 }
-                if (!parent.done) {
+                const parentDone = typeof __tmIsTaskDoneEffective === 'function'
+                    ? __tmIsTaskDoneEffective(parent)
+                    : parent.done === true;
+                if (!parentDone) {
                     if (tid) hasIncompleteAncestorMemo.set(tid, true);
                     return true;
                 }
@@ -7353,7 +7405,10 @@ if (mode === 'checklist') {
             return source.filter((t) => {
                 const ancestorState = t.parentTaskId ? hasIncompleteAncestor(t) : null;
                 if (t.parentTaskId && ancestorState === false) return false;
-                if (t.done) return false;
+                const taskDone = typeof __tmIsTaskDoneEffective === 'function'
+                    ? __tmIsTaskDoneEffective(t)
+                    : t.done === true;
+                if (taskDone) return false;
                 return true;
             });
         };
@@ -7474,6 +7529,7 @@ if (mode === 'checklist') {
                     String(state.groupByTaskName ? 1 : 0),
                     String(state.groupByTime ? 1 : 0),
                     String(state.quadrantEnabled ? 1 : 0),
+                    String(SettingsStore?.data?.completedTasksTodayOnly ? 1 : 0),
                     String(total),
                     firstId,
                     lastId,
@@ -7580,6 +7636,7 @@ if (mode === 'checklist') {
                     String(state.groupByTaskName ? 1 : 0),
                     String(state.groupByTime ? 1 : 0),
                     String(state.quadrantEnabled ? 1 : 0),
+                    String(SettingsStore?.data?.completedTasksTodayOnly ? 1 : 0),
                     String(total),
                     firstId,
                     lastId,
@@ -7642,6 +7699,7 @@ if (mode === 'checklist') {
                 String(state.groupByTaskName ? 1 : 0),
                 String(state.groupByTime ? 1 : 0),
                 String(state.quadrantEnabled ? 1 : 0),
+                String(SettingsStore?.data?.completedTasksTodayOnly ? 1 : 0),
                 String(total),
                 firstId,
                 lastId,
@@ -7671,7 +7729,10 @@ if (mode === 'checklist') {
             v.delete(id);
             return true;
         }
-        if (!t.done) {
+        const taskDone = typeof __tmIsTaskDoneEffective === 'function'
+            ? __tmIsTaskDoneEffective(t)
+            : t.done === true;
+        if (!taskDone) {
             m[id] = false;
             v.delete(id);
             return false;
@@ -7705,7 +7766,10 @@ if (mode === 'checklist') {
             v.delete(id);
             return true;
         }
-        if (!t.done) {
+        const taskDone = typeof __tmIsTaskDoneEffective === 'function'
+            ? __tmIsTaskDoneEffective(t)
+            : t.done === true;
+        if (!taskDone) {
             m[id] = false;
             v.delete(id);
             return false;
@@ -7929,7 +7993,10 @@ if (mode === 'checklist') {
                     if (tid) hasIncompleteAncestorMemo.set(tid, null);
                     return null;
                 }
-                if (!parent.done) {
+                const parentDone = typeof __tmIsTaskDoneEffective === 'function'
+                    ? __tmIsTaskDoneEffective(parent)
+                    : parent.done === true;
+                if (!parentDone) {
                     if (tid) hasIncompleteAncestorMemo.set(tid, true);
                     return true;
                 }
@@ -7940,7 +8007,10 @@ if (mode === 'checklist') {
         };
         return list.filter((task) => {
             if (!task || typeof task !== 'object') return false;
-            if (task.done) return false;
+            const taskDone = typeof __tmIsTaskDoneEffective === 'function'
+                ? __tmIsTaskDoneEffective(task)
+                : task.done === true;
+            if (taskDone) return false;
             const ancestorState = task.parentTaskId ? hasIncompleteAncestor(task) : null;
             if (task.parentTaskId && ancestorState === false) return false;
             return true;
@@ -7952,13 +8022,26 @@ if (mode === 'checklist') {
         if (!list.length) return list;
         if (state.viewMode === 'whiteboard') return list;
         if (!SettingsStore.data.whiteboardSequenceMode) return list;
-        const hasCompletedTasks = list.some((task) => !!task?.done);
+        const hasCompletedTasks = list.some((task) => {
+            try {
+                return typeof __tmIsTaskDoneEffective === 'function'
+                    ? __tmIsTaskDoneEffective(task)
+                    : !!task?.done;
+            } catch (e) {
+                return !!task?.done;
+            }
+        });
         if (hasCompletedTasks) {
             const activeList = __tmBuildWhiteboardSequenceActiveTaskList(list);
             if (activeList.length > 0 && activeList.length < list.length) {
                 const activeVisibleSet = __tmBuildWhiteboardSequenceVisibleTaskSet(activeList);
                 if (activeVisibleSet instanceof Set && activeVisibleSet.size) {
-                    return list.filter((task) => !!task?.done || activeVisibleSet.has(String(task?.id || '').trim()));
+                    return list.filter((task) => {
+                        const taskDone = typeof __tmIsTaskDoneEffective === 'function'
+                            ? __tmIsTaskDoneEffective(task)
+                            : !!task?.done;
+                        return taskDone || activeVisibleSet.has(String(task?.id || '').trim());
+                    });
                 }
             }
         }
@@ -8508,19 +8591,52 @@ if (mode === 'checklist') {
         const list = Array.isArray(items) ? items : [];
         const durationFormat = SettingsStore.data.durationFormat || 'hours';
         let totalMinutes = 0;
-        list.forEach((task) => {
+        const visitedIds = new Set();
+        const visitedRefs = new Set();
+        const addTaskDuration = (task) => {
+            if (!task || typeof task !== 'object') return;
+            const taskId = String(task.id || '').trim();
+            if (taskId) {
+                if (visitedIds.has(taskId)) return;
+                visitedIds.add(taskId);
+            } else {
+                if (visitedRefs.has(task)) return;
+                visitedRefs.add(task);
+            }
             const minutes = __tmParseDurationMinutes(task?.duration);
-            if (!(Number.isFinite(minutes) && minutes > 0)) return;
-            totalMinutes += minutes;
-        });
+            if (Number.isFinite(minutes) && minutes > 0) totalMinutes += minutes;
+            if (Array.isArray(task.children)) task.children.forEach(addTaskDuration);
+            if (Array.isArray(task.subtasks)) task.subtasks.forEach(addTaskDuration);
+        };
+        list.forEach(addTaskDuration);
         if (totalMinutes <= 0) return '';
         if (durationFormat === 'hours') {
             const hours = totalMinutes / 60;
-            if (hours < 1) return `${Math.round(totalMinutes)}min`;
+            if (hours < 1) return `${Math.round(totalMinutes)}m`;
             if (hours === Math.floor(hours)) return `${Math.round(hours)}h`;
             return `${hours.toFixed(1)}h`;
         }
-        return `${totalMinutes}min`;
+        return `${totalMinutes}m`;
+    }
+
+    function __tmIsTaskPinned(task) {
+        const value = task?.pinned;
+        if (value === true || value === 1 || value === '1') return true;
+        const text = String(value || '').trim().toLowerCase();
+        return text === 'true' || text === 'yes';
+    }
+
+    function __tmSortPinnedTasksFirst(items, compare) {
+        const list = Array.isArray(items) ? items : [];
+        if (list.length <= 1) return list;
+        const tieBreak = typeof compare === 'function' ? compare : null;
+        list.sort((a, b) => {
+            const ap = __tmIsTaskPinned(a);
+            const bp = __tmIsTaskPinned(b);
+            if (ap !== bp) return ap ? -1 : 1;
+            return tieBreak ? tieBreak(a, b) : 0;
+        });
+        return list;
     }
 
     function __tmGetVisibleDocTabsForCurrentGroup() {

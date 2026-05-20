@@ -134,11 +134,13 @@
             overdue: __tmIsDarkMode()
                 ? (__tmNormalizeHexColor(SettingsStore.data.timeGroupOverdueColorDark, '#ff6b6b') || '#ff6b6b')
                 : (__tmNormalizeHexColor(SettingsStore.data.timeGroupOverdueColorLight, '#d93025') || '#d93025'),
+            done: '#4CAF50',
             active: '#5fc25f',
             activeStrong: '#05ba05',
             waiting: '#999999',
             pending: '#8e69c9',
         };
+        if (task?.done === true) return makeInfo('完成', colors.done, '9');
 
         const startStartTs = parseToLocalDayBoundaryTs(task?.startDate, 'start');
         const startEndTs = parseToLocalDayBoundaryTs(task?.startDate, 'end');

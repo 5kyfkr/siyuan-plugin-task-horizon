@@ -22,6 +22,7 @@
             const progressBarColor = isDark
                 ? __tmNormalizeHexColor(SettingsStore.data.progressBarColorDark, '#81c784')
                 : __tmNormalizeHexColor(SettingsStore.data.progressBarColorLight, '#4caf50');
+            const completedTodayKey = __tmNormalizeDateOnly(new Date());
             const enableGroupBg = !!SettingsStore.data.enableGroupTaskBgByGroupColor;
             let currentGroupBg = '';
             const resolvePinnedTaskGroupBg = (task) => {
@@ -169,6 +170,9 @@
                     : '';
                 const contentCellBgStyle = `${baseBg ? `background-color:${baseBg};` : ''}${progressBgStyle ? `${progressBgStyle};` : ''}`;
                 const otherCellBgStyle = groupBg ? `background-color:${groupBg};` : '';
+                const completedTodayBadgeHtml = row?.inCompletedRootGroup === true
+                    ? __tmRenderCompletedTodayBadge(task, { todayKey: completedTodayKey })
+                    : '';
 
                 return `
                     <tr class="tm-timeline-row ${finalRowClass}" data-id="${task.id}" data-depth="${row.depth}" onclick="tmRowClick(event, '${task.id}')" oncontextmenu="tmShowTaskContextMenu(event, '${task.id}')">
@@ -181,7 +185,7 @@
                                     ${toggle}
                                 </span>
                                 <span class="tm-task-text ${task.done ? 'tm-task-done' : ''}" data-level="${row.depth}">
-                                    <span class="tm-task-content-clickable" onclick="tmJumpToTask('${task.id}', event)"${__tmBuildTooltipAttrs(String(task.content || '').trim() || '(无内容)', { side: 'bottom', ariaLabel: false })} style="${__tmBuildTaskTitleOpacityStyle(task)}">${API.renderTaskContentHtml(task.markdown, task.content || '')}${__tmRenderRecurringTaskInlineIcon(task)}${__tmRenderRecurringInstanceBadge(task, { className: 'tm-recurring-instance-badge--inline' })}</span>
+                                    <span class="tm-task-content-clickable" onclick="tmJumpToTask('${task.id}', event)"${__tmBuildTooltipAttrs(String(task.content || '').trim() || '(无内容)', { side: 'bottom', ariaLabel: false })} style="${__tmBuildTaskTitleOpacityStyle(task)}">${API.renderTaskContentHtml(task.markdown, task.content || '')}${completedTodayBadgeHtml}${__tmRenderRecurringTaskInlineIcon(task)}${__tmRenderRecurringInstanceBadge(task, { className: 'tm-recurring-instance-badge--inline' })}</span>
                                 </span>
                             </div>
                         </td>
@@ -288,7 +292,7 @@
             const boardMode = __tmGetKanbanBoardMode();
             const headingMode = boardMode === 'heading';
             const timeBoardMode = boardMode === 'time';
-            const showDoneCol = headingMode && !!state.showCompletedTasks && !!SettingsStore.data.kanbanShowDoneColumn;
+            const showDoneCol = (headingMode || timeBoardMode) && !!state.showCompletedTasks && !!SettingsStore.data.kanbanShowDoneColumn;
             const currentGroupId = String(SettingsStore.data.currentGroupId || 'all').trim() || 'all';
             const statusOptionsRaw = Array.isArray(SettingsStore.data.customStatusOptions) ? SettingsStore.data.customStatusOptions : [];
             const statusOptions = __tmGetStatusOptions(statusOptionsRaw)
@@ -441,6 +445,7 @@
             const buildTimeBoardCols = () => {
                 const groups = new Map();
                 filtered.forEach((task) => {
+                    if (showDoneCol && !!task?.done) return;
                     const info = getTimeBoardGroup(task);
                     const key = String(info?.key || 'pending').trim() || 'pending';
                     if (!groups.has(key)) {
@@ -566,7 +571,10 @@
                 `;
             }
             const cols = (() => {
-                if (timeBoardMode) return buildTimeBoardCols();
+                if (timeBoardMode) {
+                    const timeCols = buildTimeBoardCols();
+                    return showDoneCol ? [...timeCols, doneOpt] : timeCols;
+                }
                 if (!headingMode) return colsStatus;
                 if (isAllTabsView) {
                     const globalNewTaskDocId = String(SettingsStore.data.newTaskDocId || '').trim();
@@ -722,7 +730,9 @@
             filtered.forEach(task => {
                 let key = '';
                 if (timeBoardMode) {
-                    key = String(getTimeBoardGroup(task)?.key || 'pending').trim() || 'pending';
+                    key = (showDoneCol && !!task?.done)
+                        ? '__done__'
+                        : (String(getTimeBoardGroup(task)?.key || 'pending').trim() || 'pending');
                 } else if (!headingMode) {
                     key = (showDoneCol && !!task?.done) ? '__done__' : __tmResolveTaskStatusId(task, statusOptions);
                 } else if (showDoneCol && !!task?.done) {
@@ -738,7 +748,8 @@
                 tasksByStatus.get(key).push(task);
             });
 
-            const renderCard = (task, depthInCol, isSub, isChildRoot, parentTxt, childrenHtml, toggleHtml, isParent) => {
+            const completedTodayKey = __tmNormalizeDateOnly(new Date());
+            const renderCard = (task, depthInCol, isSub, isChildRoot, parentTxt, childrenHtml, toggleHtml, isParent, inCompletedRootGroup = false) => {
                 const id = String(task?.id || '').trim();
                 if (!id) return '';
                 const content = String(task?.content || '').trim();
@@ -773,6 +784,9 @@
                 const cardContextMenuAttr = __tmIsRuntimeMobileClient()
                     ? 'oncontextmenu="event.preventDefault();event.stopPropagation();return false;"'
                     : `oncontextmenu="tmShowTaskContextMenu(event, '${id}')"`;
+                const completedTodayBadgeHtml = inCompletedRootGroup === true
+                    ? __tmRenderCompletedTodayBadge(task, { todayKey: completedTodayKey })
+                    : '';
 
                 return `
                     <div class="tm-kanban-card${isSub ? ' tm-kanban-card--sub' : ''}${isChildRoot ? ' tm-kanban-card--childroot' : ''}${isParent ? ' tm-kanban-card--parent' : ''}${task?.done ? ' tm-kanban-card--done' : ''}${remarkHtml ? ' tm-kanban-card--has-remark' : ''}${multiSelectCls}" data-id="${id}" ${cardDragAttrs} ${cardPointerDownAttr} ${cardClickAttr} ${cardContextMenuAttr} ondblclick="tmKanbanCardDblClick('${id}', event)" style="${isSub ? '' : ''}">
@@ -780,7 +794,7 @@
                             <div class="tm-kanban-card-head">
                                 ${toggleHtml || ''}
                                     ${__tmRenderTaskCheckboxWrap(id, task, { checked: task?.done, extraClass: isGloballyLocked ? 'tm-operating' : '', collapsed: !!(isParent && totalChildren > 0 && __tmKanbanGetCollapsedSet().has(id)) })}
-                                <span class="tm-kanban-card-title-inline tm-task-content-clickable" onclick="tmJumpToTask('${id}', event)"${__tmBuildTooltipAttrs(String(content || '(无内容)').trim() || '(无内容)', { side: 'bottom', ariaLabel: false })} style="${__tmBuildTaskTitleOpacityStyle(task)}">${API.renderTaskContentHtml(task.markdown, content || '(无内容)')}${__tmRenderRecurringTaskInlineIcon(task)}${__tmRenderRecurringInstanceBadge(task, { className: 'tm-recurring-instance-badge--inline' })}</span>
+                                <span class="tm-kanban-card-title-inline tm-task-content-clickable" onclick="tmJumpToTask('${id}', event)"${__tmBuildTooltipAttrs(String(content || '(无内容)').trim() || '(无内容)', { side: 'bottom', ariaLabel: false })} style="${__tmBuildTaskTitleOpacityStyle(task)}">${API.renderTaskContentHtml(task.markdown, content || '(无内容)')}${completedTodayBadgeHtml}${__tmRenderRecurringTaskInlineIcon(task)}${__tmRenderRecurringInstanceBadge(task, { className: 'tm-recurring-instance-badge--inline' })}</span>
                             </div>
                             <button class="tm-kanban-more" onclick="tmOpenTaskDetail('${id}', event)" title="任务详情">${__tmRenderLucideIcon('dots-three')}</button>
                         </div>
@@ -855,7 +869,7 @@
                 completedRoots.sort(completedRecentCompare);
                 childrenByParent.forEach(arr => arr.sort(childCompare));
 
-                const renderTree = (task, depthInCol, inheritedHideCompleted = false) => {
+                const renderTree = (task, depthInCol, inheritedHideCompleted = false, inCompletedRootGroup = false) => {
                     const id = String(task?.id || '').trim();
                     const pid = String(task?.parentTaskId || '').trim();
                     const parentInCol = !!(pid && map.has(pid));
@@ -884,7 +898,7 @@
                     const toggleHtml = childList.length
                         ? `<button class="tm-kanban-toggle" onclick="tmKanbanToggleCollapse('${id}', event)" title="${collapsed ? '展开子任务' : '折叠子任务'}"><svg class="tm-tree-toggle-icon" viewBox="0 0 16 16" width="10" height="10" style="transform:translate(-50%, -50%) rotate(${collapsed ? '0deg' : '90deg'});"><path d="M4.75 3.25l6.5 4.75-6.5 4.75" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></svg></button>`
                         : '';
-                    const childrenHtml = (!collapsed && childList.length) ? childList.map(ch => renderTree(ch, depthInCol + 1, hideCompletedDescendants)).join('') : '';
+                    const childrenHtml = (!collapsed && childList.length) ? childList.map(ch => renderTree(ch, depthInCol + 1, hideCompletedDescendants, inCompletedRootGroup)).join('') : '';
                     const cardHtml = renderCard(
                         task,
                         depthInCol,
@@ -893,7 +907,8 @@
                         parentTxt,
                         childrenHtml,
                         toggleHtml,
-                        depthInCol === 0 && childList.length > 0
+                        depthInCol === 0 && childList.length > 0,
+                        inCompletedRootGroup
                     );
                     return cardHtml;
                 };
@@ -929,7 +944,7 @@
                     const doneGroupKey = __tmBuildCompletedRootGroupKey(`kanban:${String(c.id || '').trim() || 'col'}`);
                     const doneCollapsed = __tmIsCompletedRootGroupCollapsed(doneGroupKey);
                     const doneTitle = `<span style="color:var(--tm-secondary-text);">已完成任务</span>`;
-                    const doneBody = doneCollapsed ? '' : `<div class="tm-kanban-group-items">${completedRoots.map(t => renderTree(t, 0)).join('')}</div>`;
+                    const doneBody = doneCollapsed ? '' : `<div class="tm-kanban-group-items">${completedRoots.map(t => renderTree(t, 0, false, true)).join('')}</div>`;
                     return `<div class="tm-kanban-group">${renderGroupTitle(doneGroupKey, doneTitle, completedRoots.length, 'var(--tm-secondary-text)')}${doneBody}</div>`;
                 };
 
@@ -1499,6 +1514,10 @@
                                 </button>`
                             : ''}
                         <span class="tm-badge tm-badge--count">${count}</span>
+                        ${timeBoardMode ? (() => {
+                            const durationSum = __tmCalcGroupDurationText(list0);
+                            return durationSum ? `<span class="tm-badge tm-badge--duration tm-badge--kanban-time-duration" style="color:${esc(colTitleColor)};"><span class="tm-badge__icon">${__tmRenderBadgeIcon('chart-column')}</span>${esc(durationSum)}</span>` : '';
+                        })() : ''}
                     </div>
                 `;
                 return `

@@ -225,6 +225,10 @@
                 ? Math.max(0, Math.min(500000, Math.round(limitRaw)))
                 : recursiveDocLimit;
             const limitSql = totalLimit > 0 ? ` LIMIT ${totalLimit}` : '';
+            const legacyCompat = SettingsStore.data?.legacyWin7CompatMode === true;
+            const taskMarkdownCondition = legacyCompat
+                ? "(b.markdown LIKE '%[ ]%' OR b.markdown LIKE '%[x]%' OR b.markdown LIKE '%[X]%')"
+                : "b.markdown IS NOT NULL AND b.markdown != ''";
             try {
                 const sql = `
                     SELECT
@@ -235,7 +239,7 @@
                     WHERE
                         b.type = 'i'
                         AND b.subtype = 't'
-                        AND (b.markdown LIKE '%[ ]%' OR b.markdown LIKE '%[x]%' OR b.markdown LIKE '%[X]%')
+                        AND ${taskMarkdownCondition}
                         AND b.box = '${box.replace(/'/g, "''")}'
                         AND b.root_id IS NOT NULL
                         AND b.root_id != ''
@@ -1070,7 +1074,11 @@
             attrReadTime = attrHostReadTime + customFieldReadTime;
             const filteredTasks = doneOnly
                 ? tasks.filter((task) => {
-                    try { return !!API.parseTaskStatus(task?.markdown).done; } catch (e) { return false; }
+                    try {
+                        return typeof __tmIsTaskDoneEffective === 'function'
+                            ? __tmIsTaskDoneEffective(task)
+                            : !!API.parseTaskStatus(task?.markdown).done;
+                    } catch (e) { return false; }
                 })
                 : tasks;
             // 注意：这里不能提前过滤已完成任务。
@@ -1546,7 +1554,11 @@
             const limitReachedDocIds = safeDocIds.filter((docId) => limitReachedDocIdSet.has(docId));
             const filteredTasks = doneOnly
                 ? tasks.filter((task) => {
-                    try { return !!API.parseTaskStatus(task?.markdown).done; } catch (e) { return false; }
+                    try {
+                        return typeof __tmIsTaskDoneEffective === 'function'
+                            ? __tmIsTaskDoneEffective(task)
+                            : !!API.parseTaskStatus(task?.markdown).done;
+                    } catch (e) { return false; }
                 })
                 : tasks;
             // 注意：这里不能提前过滤已完成任务。
@@ -2946,6 +2958,10 @@
         return matched ? String(matched[0] || '').trim() : '';
     }
 
+    function __tmFormatDurationDisplayValue(value) {
+        return String(value || '').trim().replace(/(\d+(?:\.\d+)?)\s*min\b/ig, '$1m');
+    }
+
     function __tmNormalizeCustomDurationOption(option) {
         const source = (option && typeof option === 'object' && !Array.isArray(option)) ? option : null;
         return __tmNormalizeDurationPresetValue(source ? (source.value ?? source.name ?? source.label) : option);
@@ -3177,6 +3193,31 @@
         return __tmIsTaskMarkerDone(marker)
             ? String(__tmResolveCheckboxLinkedStatusId(true, statusOptions) || 'done').trim() || 'done'
             : __tmGetDefaultUndoneStatusId(statusOptions);
+    }
+
+    function __tmIsTaskDoneEffective(task, statusOptionsInput = null) {
+        const taskLike = (task && typeof task === 'object') ? task : {};
+        let hasExplicitState = false;
+        const isDoneMarker = (value, hasValue = false) => {
+            const marker = __tmNormalizeCompatTaskStatusMarker(value, '');
+            if (hasValue || marker) hasExplicitState = true;
+            return marker ? __tmIsTaskMarkerDone(marker) : false;
+        };
+        const hasDirectMarker = Object.prototype.hasOwnProperty.call(taskLike, 'taskMarker')
+            || Object.prototype.hasOwnProperty.call(taskLike, 'task_marker')
+            || Object.prototype.hasOwnProperty.call(taskLike, 'marker');
+        if (isDoneMarker(taskLike.taskMarker ?? taskLike.task_marker ?? taskLike.marker, hasDirectMarker)) return true;
+        const markdownMarker = __tmResolveTaskMarkdownMarker(taskLike);
+        if (markdownMarker) {
+            hasExplicitState = true;
+            if (__tmIsTaskMarkerDone(markdownMarker)) return true;
+        }
+        const statusId = String(taskLike.customStatus ?? taskLike.custom_status ?? '').trim();
+        if (statusId) {
+            hasExplicitState = true;
+            if (__tmDoesStatusIdResolveToDone(statusId, statusOptionsInput)) return true;
+        }
+        return hasExplicitState ? false : taskLike.done === true;
     }
 
     function __tmNormalizeCheckboxStatusBindingValue(value) {
@@ -4353,7 +4394,10 @@
         }
         if (type === 'createSubtask') {
             const payload = (op?.data && typeof op.data === 'object') ? op.data : {};
-            const realId = await __tmCreateSubtaskForTaskKernel(payload.parentTaskId, payload.content);
+            const createOptions = Object.prototype.hasOwnProperty.call(payload, 'inheritedPatch')
+                ? { inheritedPatch: payload.inheritedPatch }
+                : {};
+            const realId = await __tmCreateSubtaskForTaskKernel(payload.parentTaskId, payload.content, createOptions);
             return { realId };
         }
         if (type === 'createSibling') {
@@ -4433,7 +4477,7 @@
             return;
         }
         if (type === 'createSubtask') {
-            __tmApplyOptimisticSubtask(op?.data?.parentTaskId, op?.data?.tempId, op?.data?.content);
+            __tmApplyOptimisticSubtask(op?.data?.parentTaskId, op?.data?.tempId, op?.data?.content, op?.data?.inheritedPatch);
             return;
         }
         if (type === 'createSibling') {
@@ -13369,6 +13413,8 @@ refreshOk = false;
         feed(__tmNormalizeDateOnly(new Date()));
         feed(SettingsStore.data.taskHeadingLevel || 'h2');
         feed(SettingsStore.data.groupSortByBestSubtaskTimeInTimeQuadrant ? 1 : 0);
+        feed(SettingsStore.data.pinTasksWithinGroups ? 1 : 0);
+        feed(SettingsStore.data.completedTasksTodayOnly ? 1 : 0);
         feed(SettingsStore.data.kanbanDragSyncSubtasks ? 1 : 0);
         feed(SettingsStore.data.newTaskDocId || '');
         feed(SettingsStore.data.timeGroupBaseColorLight || '');
@@ -13419,6 +13465,7 @@ refreshOk = false;
             feed(task?.done ? 1 : 0);
             feed(task?.customStatus);
             feed(task?.priority);
+            feed(task?.duration);
             feed(task?.startDate);
             feed(task?.completionTime);
             feed(task?.remark);
@@ -17131,6 +17178,7 @@ return true;
         const progressBarColor = isDark
             ? __tmNormalizeHexColor(SettingsStore.data.progressBarColorDark, '#81c784')
             : __tmNormalizeHexColor(SettingsStore.data.progressBarColorLight, '#4caf50');
+        const completedTodayKey = __tmNormalizeDateOnly(new Date());
         const enableGroupBg = !!SettingsStore.data.enableGroupTaskBgByGroupColor;
         let currentGroupBg = '';
 
@@ -17213,6 +17261,9 @@ return true;
                 : '';
             const contentCellBgStyle = `${baseBg ? `background-color:${baseBg};` : ''}${progressBgStyle ? `${progressBgStyle};` : ''}`;
             const otherCellBgStyle = groupBg ? `background-color:${groupBg};` : '';
+            const completedTodayBadgeHtml = row?.inCompletedRootGroup === true
+                ? __tmRenderCompletedTodayBadge(task, { todayKey: completedTodayKey })
+                : '';
 
             return `
                 <tr class="tm-timeline-row ${finalRowClass}" data-id="${task.id}" data-depth="${row.depth}" onclick="tmRowClick(event, '${task.id}')" oncontextmenu="tmShowTaskContextMenu(event, '${task.id}')">
@@ -17225,7 +17276,7 @@ return true;
                             ${toggle}
                                 </span>
                             <span class="tm-task-text ${task.done ? 'tm-task-done' : ''}" data-level="${row.depth}">
-                                <span class="tm-task-content-clickable" onclick="tmJumpToTask('${task.id}', event)"${__tmBuildTooltipAttrs(String(task.content || '').trim() || '(无内容)', { side: 'bottom', ariaLabel: false })}>${API.renderTaskContentHtml(task.markdown, task.content || '')}${__tmRenderRecurringTaskInlineIcon(task)}${__tmRenderRecurringInstanceBadge(task, { className: 'tm-recurring-instance-badge--inline' })}</span>
+                                <span class="tm-task-content-clickable" onclick="tmJumpToTask('${task.id}', event)"${__tmBuildTooltipAttrs(String(task.content || '').trim() || '(无内容)', { side: 'bottom', ariaLabel: false })}>${API.renderTaskContentHtml(task.markdown, task.content || '')}${completedTodayBadgeHtml}${__tmRenderRecurringTaskInlineIcon(task)}${__tmRenderRecurringInstanceBadge(task, { className: 'tm-recurring-instance-badge--inline' })}</span>
                             </span>
                         </div>
                     </td>

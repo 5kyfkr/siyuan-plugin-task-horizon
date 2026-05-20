@@ -111,6 +111,83 @@
         return title || fb || '(无标题)';
     }
 
+    function __tmBuildCalendarRepeatHistoryTask(sourceTask, historyItem, orderIndex = 0) {
+        const source = (sourceTask && typeof sourceTask === 'object') ? sourceTask : null;
+        const taskId = String(source?.id || '').trim();
+        if (!source || !taskId) return null;
+        const history = (() => {
+            try {
+                if (typeof __tmNormalizeTaskRepeatHistory === 'function') {
+                    return __tmNormalizeTaskRepeatHistory([historyItem])[0] || null;
+                }
+            } catch (e) {}
+            const raw = (historyItem && typeof historyItem === 'object') ? historyItem : {};
+            return {
+                completedAt: String(raw.completedAt || '').trim(),
+                sourceStart: __tmNormalizeDateOnly(raw.sourceStart || ''),
+                sourceDue: __tmNormalizeDateOnly(raw.sourceDue || ''),
+                content: String(raw.content || '').trim(),
+            };
+        })();
+        if (!history) return null;
+        const sourceStart = __tmNormalizeDateOnly(history.sourceStart || history.sourceDue || '');
+        const sourceDue = __tmNormalizeDateOnly(history.sourceDue || history.sourceStart || '');
+        if (!sourceStart && !sourceDue) return null;
+        const completedAt = String(history.completedAt || '').trim();
+        const historyStamp = completedAt || `${sourceStart}_${sourceDue}_${orderIndex}`;
+        const completedStamp = historyStamp.replace(/[^0-9A-Za-z_-]/g, '').slice(0, 32) || String(orderIndex);
+        const fallbackId = `repeatinst:${taskId}:${completedStamp || orderIndex}`;
+        let virtualTask = null;
+        try {
+            if (typeof __tmBuildRecurringInstanceTask === 'function') {
+                virtualTask = __tmBuildRecurringInstanceTask(source, history, orderIndex);
+            }
+        } catch (e) {
+            virtualTask = null;
+        }
+        const title = String(history.content || source.content || source.raw_content || '').trim() || '(无内容)';
+        const next = {
+            ...source,
+            ...(virtualTask && typeof virtualTask === 'object' ? virtualTask : {}),
+            id: String(virtualTask?.id || fallbackId).trim() || fallbackId,
+            sourceTaskId: taskId,
+            recurringSourceTaskId: taskId,
+            recurringCompletedAt: completedAt,
+            isRecurringInstance: true,
+            isRecurringInstanceReadOnly: true,
+            done: true,
+            content: title,
+            raw_content: title,
+            markdown: `- [x] ${title}`,
+            startDate: sourceStart,
+            start_date: sourceStart,
+            completionTime: sourceDue,
+            completion_time: sourceDue,
+            repeatHistory: [],
+            repeat_history: [],
+        };
+        try { normalizeTaskFields(next, next.docName || next.doc_name || source.docName || '未命名文档'); } catch (e) {}
+        return next;
+    }
+
+    function __tmAppendCalendarTaskAndRepeatHistory(out, task) {
+        const list = Array.isArray(out) ? out : null;
+        if (!list || !task || typeof task !== 'object') return;
+        list.push(task);
+        let repeatHistory = [];
+        try {
+            repeatHistory = typeof __tmNormalizeTaskRepeatHistory === 'function'
+                ? __tmNormalizeTaskRepeatHistory(task.repeatHistory || task.repeat_history || '')
+                : (Array.isArray(task.repeatHistory) ? task.repeatHistory : []);
+        } catch (e) {
+            repeatHistory = Array.isArray(task.repeatHistory) ? task.repeatHistory : [];
+        }
+        repeatHistory.forEach((historyItem, historyIndex) => {
+            const virtualTask = __tmBuildCalendarRepeatHistoryTask(task, historyItem, historyIndex);
+            if (virtualTask?.id) list.push(virtualTask);
+        });
+    }
+
     let __tmCalendarTaskCacheWarmPromise = null;
 
     async function __tmLoadAllTasksForCalendarCache(options = {}) {
@@ -150,7 +227,7 @@
             try { __tmMergeVisibleDateFieldsFromPrevTask(task, prevTask); } catch (e) {}
             task.done = parsedDone;
             try { normalizeTaskFields(task, task.docName || '未命名文档'); } catch (e) {}
-            out.push(task);
+            __tmAppendCalendarTaskAndRepeatHistory(out, task);
         }
         window.__tmCalendarAllTasksCache = { key, ts: Date.now(), tasks: out };
         return out;
@@ -442,7 +519,7 @@
                 try { __tmMergeVisibleDateFieldsFromPrevTask(task, prevTask); } catch (e) {}
                 task.done = parsedDone; // 以文档中的真实复选框状态为准
                 try { normalizeTaskFields(task, task.docName || '未命名文档'); } catch (e) {}
-                out.push(task);
+                __tmAppendCalendarTaskAndRepeatHistory(out, task);
             }
             window.__tmCalendarAllTasksCache = { key, ts: Date.now(), tasks: out };
             return out;
@@ -499,9 +576,17 @@
         const out = [];
         for (const t of filtered) {
             if (!t) continue;
-            if (t.done) continue;
             const id = String(t.id || '').trim();
             if (!id) continue;
+            let done = !!t.done;
+            try {
+                if (state.doneOverrides && Object.prototype.hasOwnProperty.call(state.doneOverrides, id)) {
+                    done = !!state.doneOverrides[id];
+                } else {
+                    const liveTask = __tmGetCalendarFlatTaskByIdSync(id);
+                    if (liveTask) done = !!liveTask.done;
+                }
+            } catch (e) {}
             const s0 = __tmNormalizeDateOnly(t?.startDate);
             const e0 = __tmNormalizeDateOnly(t?.completionTime);
             if (!s0 && !e0) continue;
@@ -532,6 +617,12 @@
                 sourceStart: s0 || '',
                 sourceCompletion: e0 || '',
                 milestone: isMilestone,
+                sourceTaskId: String(t?.sourceTaskId || '').trim(),
+                recurringSourceTaskId: String(t?.recurringSourceTaskId || '').trim(),
+                recurringCompletedAt: String(t?.recurringCompletedAt || '').trim(),
+                isRecurringInstance: t?.isRecurringInstance === true,
+                isRecurringInstanceReadOnly: t?.isRecurringInstanceReadOnly === true,
+                done,
             });
         }
         return out;
@@ -787,7 +878,15 @@
             }
         } catch (e) {}
         const t = __tmGetCalendarFlatTaskByIdSync(tid);
-        return !!(t && t.done);
+        if (t) return !!t.done;
+        try {
+            const cachedTasks = window.__tmCalendarAllTasksCache?.tasks;
+            if (Array.isArray(cachedTasks)) {
+                const cached = cachedTasks.find((item) => String(item?.id || '').trim() === tid);
+                if (cached) return !!cached.done;
+            }
+        } catch (e) {}
+        return false;
     };
 
     window.tmUpdateTaskDates = async function(taskId, patch = {}, options = {}) {
@@ -876,7 +975,7 @@ const hasStartDate = Object.prototype.hasOwnProperty.call(nextPatch, 'startDate'
             hard: opts.hard === true,
             broadcast: opts.broadcast !== false,
             queued: true,
-            background: false,
+            background: opts.background === true,
             skipFlush: opts.skipFlush,
             renderOptimistic: opts.renderOptimistic !== false,
         });

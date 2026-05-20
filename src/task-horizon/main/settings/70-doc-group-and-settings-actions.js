@@ -1092,6 +1092,19 @@
         showSettings();
     };
 
+    window.updateSubtaskInheritedField = async function(field, enabled) {
+        const rawKey = String(field || '').trim();
+        const customFieldId = __tmParseCustomFieldColumnKey(rawKey);
+        const key = customFieldId ? `customField:${customFieldId}` : rawKey;
+        if (!__TM_SUBTASK_INHERIT_FIELD_OPTIONS.some((item) => item.key === key) && !customFieldId) return;
+        const current = new Set(__tmNormalizeSubtaskInheritedFields(SettingsStore.data.subtaskInheritedFields, []));
+        if (enabled) current.add(key);
+        else current.delete(key);
+        SettingsStore.data.subtaskInheritedFields = __tmNormalizeSubtaskInheritedFields(Array.from(current), []);
+        await SettingsStore.save();
+        showSettings();
+    };
+
     window.updateEnableMoveBlockToDailyNote = async function(enabled) {
         SettingsStore.data.enableMoveBlockToDailyNote = !!enabled;
         await SettingsStore.save();
