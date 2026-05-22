@@ -328,7 +328,7 @@
             ? rows.map((item) => {
                 let contentHtml = '';
                 try {
-                    contentHtml = API.renderTaskContentHtml(item.task?.markdown, item.title);
+                    contentHtml = `${API.renderTaskContentHtml(item.task?.markdown, item.title)}${__tmRenderGlobalCollectDocTaskInlineIcon(item.task)}`;
                 } catch (e) {
                     contentHtml = esc(item.title);
                 }
@@ -596,7 +596,8 @@
                 : ['1', 'true'].includes(String(milestoneRaw || '').trim().toLowerCase());
             const hasBothDates = !!s0 && !!e0;
             const start = (isMilestone && hasBothDates) ? e0 : (s0 || e0);
-            const end = e0 || s0 || start;
+            let end = e0 || s0 || start;
+            if (start && end && start > end) end = start;
             const startTs = toTs(start);
             const endExKey = nextDay(end);
             const endExTs = toTs(endExKey);
@@ -979,7 +980,8 @@ const hasStartDate = Object.prototype.hasOwnProperty.call(nextPatch, 'startDate'
             skipFlush: opts.skipFlush,
             renderOptimistic: opts.renderOptimistic !== false,
         });
-        if (opts.refresh !== false) {
+        const refreshViaQueuedOptimisticPatch = opts.renderOptimistic !== false && opts.background !== true;
+        if (opts.refresh !== false && !refreshViaQueuedOptimisticPatch) {
             try {
                 __tmRefreshTaskTimeAcrossViews(persistId, {
                     patch: viewPatch,

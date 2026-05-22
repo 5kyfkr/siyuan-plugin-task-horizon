@@ -54,9 +54,6 @@
             || task?.taskCompleteAt
             || task?.task_complete_at
             || task?.completedAt
-            || task?.updated
-            || task?.updatedAt
-            || task?.completionTime
             || ''
         ).trim();
     }
@@ -673,6 +670,26 @@
         const classes = ['tm-pinned-task-icon'];
         if (cls) classes.push(cls);
         return `<span class="${classes.join(' ')}" data-tm-inline-field="pinned"${__tmBuildTooltipAttrs('置顶任务', { side: String(options?.tooltipSide || 'bottom').trim() || 'bottom', ariaLabel: false })}>${__tmRenderLucideIcon('pin')}</span>`;
+    }
+
+    function __tmIsGlobalCollectDocTask(task) {
+        if (!task || typeof task !== 'object') return false;
+        const collectDocId = String(SettingsStore?.data?.newTaskDocId || '').trim();
+        if (!collectDocId || collectDocId === '__dailyNote__') return false;
+        const taskDocId = String(task.docId || task.root_id || task.doc_id || '').trim();
+        if (!taskDocId || taskDocId !== collectDocId) return false;
+        if (Array.isArray(task.children) && task.children.length > 0) return true;
+        const parentTaskId = String(task.parentTaskId || task.parent_task_id || '').trim();
+        if (parentTaskId) return false;
+        return Math.max(0, Number(task.level) || 0) === 0;
+    }
+
+    function __tmRenderGlobalCollectDocTaskInlineIcon(task, options = {}) {
+        if (!__tmIsGlobalCollectDocTask(task)) return '';
+        const cls = String(options?.className || '').trim();
+        const classes = ['tm-global-collect-task-icon'];
+        if (cls) classes.push(cls);
+        return `<span class="${classes.join(' ')}" data-tm-inline-field="global-collect"${__tmBuildTooltipAttrs('全局收集文档任务', { side: String(options?.tooltipSide || 'bottom').trim() || 'bottom', ariaLabel: false })}>${__tmPhosphorBoldSvg('tray-arrow-down', { size: Number(options?.size) || 14, className: 'tm-inline-icon__svg' })}</span>`;
     }
 
     function __tmPurgeRecurringInstanceTasks(sourceTaskId, completedAtList = []) {

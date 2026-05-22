@@ -435,7 +435,37 @@ const openTaskHorizonSystemPath = async (absolutePath) => {
     return false;
 };
 
+const decodeTaskHorizonFilePathPart = (value) => {
+    const text = String(value || "");
+    try { return decodeURIComponent(text); } catch (e) {}
+    try { return decodeURI(text); } catch (e) {}
+    return text;
+};
+
+const normalizeTaskHorizonLocalSystemPath = (value) => {
+    const raw = String(value || "").trim();
+    if (!/^file:/i.test(raw)) return "";
+    let text = raw.replace(/\\/g, "/");
+    if (/^file:\/\/[A-Za-z]:\//i.test(text)) text = text.replace(/^file:\/\//i, "file:///");
+    try {
+        const url = new URL(text);
+        if (String(url.protocol || "").toLowerCase() !== "file:") return "";
+        const host = String(url.hostname || "").trim();
+        const pathname = decodeTaskHorizonFilePathPart(url.pathname || "");
+        if (/^[A-Za-z]:$/i.test(host)) {
+            return `${host}\\${pathname.replace(/^\/+/, "").replace(/\//g, "\\")}`;
+        }
+        if (host) return `\\\\${host}${pathname.replace(/\//g, "\\")}`;
+        return pathname.replace(/^\/([A-Za-z]:\/)/, "$1").replace(/\//g, "\\");
+    } catch (e) {
+        const body = decodeTaskHorizonFilePathPart(text.replace(/^file:(?:\/\/)?/i, ""));
+        return body.replace(/^\/([A-Za-z]:\/)/, "$1").replace(/\//g, "\\");
+    }
+};
+
 const openTaskHorizonAssetWithSystem = async (assetPath) => {
+    const localPath = normalizeTaskHorizonLocalSystemPath(assetPath);
+    if (localPath) return await openTaskHorizonSystemPath(localPath);
     const normalized = normalizeTaskHorizonAssetPath(assetPath);
     if (!normalized || !/^assets\//i.test(normalized)) return false;
     const workspaceDir = getTaskHorizonWorkspaceDir();

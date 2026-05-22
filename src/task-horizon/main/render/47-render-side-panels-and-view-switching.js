@@ -264,6 +264,7 @@
     };
 
     window.tmOpenHomepage = async function() {
+        state.attachmentLibraryOpen = false;
         state.homepageOpen = true;
         try { Storage.set('tm_homepage_open', true); } catch (e) {}
         const canRenderInCurrentDockHost = __tmIsDockHost()
@@ -281,6 +282,37 @@
         try { Storage.set('tm_homepage_open', false); } catch (e) {}
         render();
         return false;
+    };
+
+    window.tmOpenAttachmentLibrary = async function(ev) {
+        try { ev?.preventDefault?.(); } catch (e) {}
+        try { ev?.stopPropagation?.(); } catch (e) {}
+        state.attachmentLibraryOpen = true;
+        state.homepageOpen = false;
+        try { __tmInvalidateHomepageMount(); } catch (e) {}
+        try { Storage.set('tm_homepage_open', false); } catch (e) {}
+        const canRenderInCurrentDockHost = __tmIsDockHost()
+            && (globalThis.__tmRuntimeState?.hasLiveModal?.() ?? (state.modal && document.body.contains(state.modal)));
+        if (!canRenderInCurrentDockHost) {
+            await openManager({ preserveViewMode: true, skipLoadingHint: true });
+        }
+        try { render(); } catch (e) {}
+        return true;
+    };
+
+    window.tmCloseAttachmentLibrary = function(ev) {
+        try { ev?.preventDefault?.(); } catch (e) {}
+        try { ev?.stopPropagation?.(); } catch (e) {}
+        state.attachmentLibraryOpen = false;
+        render();
+        return false;
+    };
+
+    window.tmToggleAttachmentLibrary = async function(ev) {
+        try { ev?.preventDefault?.(); } catch (e) {}
+        try { ev?.stopPropagation?.(); } catch (e) {}
+        if (state.attachmentLibraryOpen) return window.tmCloseAttachmentLibrary();
+        return await window.tmOpenAttachmentLibrary();
     };
 
     window.tmToggleHomepage = async function(ev) {
@@ -304,6 +336,12 @@
             state.homepageOpen = false;
             try { __tmInvalidateHomepageMount(); } catch (e) {}
             try { Storage.set('tm_homepage_open', false); } catch (e) {}
+            if (prev === next) {
+                render();
+                return;
+            }
+        } else if (state.attachmentLibraryOpen) {
+            state.attachmentLibraryOpen = false;
             if (prev === next) {
                 render();
                 return;

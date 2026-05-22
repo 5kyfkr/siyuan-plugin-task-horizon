@@ -1219,6 +1219,8 @@
 
         await SettingsStore.updateDocGroups(groups);
         await SettingsStore.updateCurrentGroupId('all');
+        try { window.tmCloseTopbarSelects?.(); } catch (e) {}
+        try { window.tmRefreshDocGroupTopbarSelects?.('all'); } catch (e) {}
         showSettings();
     };
 

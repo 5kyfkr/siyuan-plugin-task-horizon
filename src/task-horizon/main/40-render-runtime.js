@@ -28,7 +28,7 @@ return;
         const isTimelineView = state.viewMode === 'timeline';
         if (!isTimelineView) __tmClearTimelineTodayIndicatorTimer();
         const useSoftSwap = isViewSwitchAnim;
-        const currentRenderMode = state.homepageOpen ? 'home' : (String(state.viewMode || 'list').trim() || 'list');
+        const currentRenderMode = state.attachmentLibraryOpen ? 'attachments' : (state.homepageOpen ? 'home' : (String(state.viewMode || 'list').trim() || 'list'));
         const isSnapshotFirstRenderFastPath = !!state.__tmSnapshotFirstRenderLimitMode;
         const deferSnapshotLayoutWork = (fn, delayMs = 0) => {
             if (typeof fn !== 'function') return false;
@@ -651,6 +651,11 @@ return;
                                 <div class="tm-mobile-only-item" style="display:flex; gap:10px; align-items:center;">
                                     <button class="tm-btn tm-btn-info bc-btn bc-btn--sm" onclick="tmShowSummaryModal(); tmHideMobileMenu();" style="flex:1; padding: 6px;">
                                         <span style="display:inline-flex;align-items:center;gap:6px;">${__tmRenderLucideIcon('file-text')}<span>摘要</span></span>
+                                    </button>
+                                </div>
+                                <div class="tm-mobile-only-item" style="display:flex; gap:10px; align-items:center;">
+                                    <button class="tm-btn tm-btn-info bc-btn bc-btn--sm" onclick="tmToggleAttachmentLibrary(); tmHideMobileMenu();" style="flex:1; padding: 8px; min-height:44px;">
+                                        <span style="display:inline-flex;align-items:center;gap:6px;">${__tmRenderLucideIcon('paperclip')}<span>${state.attachmentLibraryOpen ? '返回工作区' : '附件库'}</span></span>
                                     </button>
                                 </div>
                                 ${renderMode === 'list' ? `
@@ -4304,8 +4309,20 @@ return;
             if (!dbHasRepeatHistory && Object.prototype.hasOwnProperty.call(meta, 'repeatHistory')) {
                 task.repeatHistory = __tmNormalizeTaskRepeatHistory(meta.repeatHistory);
             }
-            if (!task.attachmentCount && Object.prototype.hasOwnProperty.call(meta, 'attachments')) {
-                __tmApplyTaskAttachmentPathsToTask(task, meta.attachments);
+            const hasAttachmentAttrSnapshot = typeof __tmHasTaskAttachmentAttrSnapshot === 'function'
+                && __tmHasTaskAttachmentAttrSnapshot(task);
+            const metaAttachmentPaths = Object.prototype.hasOwnProperty.call(meta, 'attachments')
+                ? __tmNormalizeTaskAttachmentPaths(meta.attachments)
+                : [];
+            const currentAttachmentPaths = __tmGetTaskAttachmentPaths(task);
+            const currentAttachmentsMatchMeta = currentAttachmentPaths.length === metaAttachmentPaths.length
+                && currentAttachmentPaths.every((path, index) => path === metaAttachmentPaths[index]);
+            if (!hasAttachmentAttrSnapshot && !task.attachmentCount && Object.prototype.hasOwnProperty.call(meta, 'attachments')) {
+                __tmApplyTaskAttachmentPathsToTask(task, metaAttachmentPaths, { meta: meta.attachmentMeta });
+            } else if (!hasAttachmentAttrSnapshot && task.attachmentCount && currentAttachmentsMatchMeta) {
+                __tmApplyTaskAttachmentPathsToTask(task, currentAttachmentPaths, { meta: meta.attachmentMeta });
+            } else if (task.attachmentCount && !__tmGetTaskAttachmentMetaMap(task).size && Object.prototype.hasOwnProperty.call(meta, 'attachmentMeta')) {
+                __tmApplyTaskAttachmentPathsToTask(task, currentAttachmentPaths, { meta: meta.attachmentMeta });
             }
             if (task.isOtherBlock === true && Object.prototype.hasOwnProperty.call(meta, 'done')) {
                 const doneRaw = meta.done;

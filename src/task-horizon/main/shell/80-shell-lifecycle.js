@@ -802,6 +802,7 @@ if (shouldMarkDirty) {
         } catch (e) {}
         try {
             if (__tmGlobalClickHandler) {
+                try { window.removeEventListener('click', __tmGlobalClickHandler); } catch (e2) {}
                 globalThis.__tmRuntimeEvents?.off?.(window, 'click', __tmGlobalClickHandler);
                 __tmGlobalClickHandler = null;
             }

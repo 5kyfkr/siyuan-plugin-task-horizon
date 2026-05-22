@@ -3670,7 +3670,7 @@ if (!__tmIsCollectedOtherBlockTask(task) && diff.contentChanged) {
             const tid = String(taskLike?.id || '').trim();
             if (!tid) return;
             const modal = state.modal instanceof Element ? state.modal : document;
-            const html = API.renderTaskContentHtml(taskLike?.markdown, String(taskLike?.content || '').trim() || '(无内容)');
+            const html = `${API.renderTaskContentHtml(taskLike?.markdown, String(taskLike?.content || '').trim() || '(无内容)')}${__tmRenderGlobalCollectDocTaskInlineIcon(taskLike)}`;
             const plainText = String(taskLike?.content || '').trim() || '(无内容)';
             const updateTitleNode = (el) => {
                 if (!(el instanceof HTMLElement)) return;
@@ -4434,6 +4434,7 @@ if (!__tmIsCollectedOtherBlockTask(task) && diff.contentChanged) {
                 const text = clipboardFiles.length ? '' : String(clipboardData.getData?.('text/plain') || '').trim();
                 const textLooksImportable = !clipboardFiles.length && (
                     __tmParseTaskAttachmentAssetPathsFromText(text).length > 0
+                    || __tmParseTaskAttachmentLocalPathsFromText(text).length > 0
                     || __tmParseTaskAttachmentBlockIdsFromText(text).length > 0
                 );
                 if (!clipboardFiles.length && !textLooksImportable) return;

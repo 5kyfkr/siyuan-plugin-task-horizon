@@ -2087,6 +2087,8 @@
             const useTextarea = mode === 'textarea';
             const remarkToolbar = inputEditor.querySelector('[data-remark-toolbar]');
             const extraPanel = inputEditor.querySelector('[data-input-extra]');
+            const cancelBtn = inputEditor.querySelector('[data-action="cancel"]');
+            if (cancelBtn instanceof HTMLButtonElement) cancelBtn.textContent = '取消';
             if (input instanceof HTMLInputElement) {
                 input.classList.toggle('is-hidden', useTextarea);
                 input.disabled = useTextarea;
@@ -4211,8 +4213,13 @@
             const remarkToolbar = inputEditor.querySelector('[data-remark-toolbar]');
             const remarkToolsBtn = inputEditor.querySelector('[data-action="remark-tools"]');
             const extraPanel = inputEditor.querySelector('[data-input-extra]');
+            const cancelBtn = inputEditor.querySelector('[data-action="cancel"]');
+            const saveBtn = inputEditor.querySelector('[data-action="save"]');
             if (!valueSource) return;
             if (isDuration) inputEditor.classList.add('is-duration');
+            if (cancelBtn instanceof HTMLButtonElement) {
+                cancelBtn.textContent = isDuration ? '清空' : '取消';
+            }
             if (input instanceof HTMLInputElement) {
                 input.type = 'text';
                 input.value = currentValue || '';
@@ -4418,8 +4425,12 @@
                 });
             }
 
-            inputEditor.querySelector('[data-action="save"]').onclick = saveText;
-            inputEditor.querySelector('[data-action="cancel"]').onclick = () => {
+            if (saveBtn instanceof HTMLButtonElement) saveBtn.onclick = saveText;
+            if (cancelBtn instanceof HTMLButtonElement) cancelBtn.onclick = async () => {
+                if (isDuration) {
+                    await saveDurationPreset('');
+                    return;
+                }
                 if (remarkToolbar instanceof HTMLElement) {
                     remarkToolbar.classList.remove('is-open');
                     remarkToolbar.hidden = true;

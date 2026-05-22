@@ -1618,6 +1618,9 @@ try {
     };
 
     function __tmGetPatchFieldKeys(patch = {}) {
+        if (typeof __tmGetPatchFieldKeysForTaskPatch === 'function') {
+            return __tmGetPatchFieldKeysForTaskPatch(patch);
+        }
         const nextPatch = (patch && typeof patch === 'object') ? patch : {};
         return Object.keys(nextPatch).filter((key) => Object.prototype.hasOwnProperty.call(nextPatch, key));
     }
@@ -1654,21 +1657,78 @@ try {
         const keys = __tmGetPatchFieldKeys(patch);
         if (!keys.length) return false;
         if (keys.some((key) => key === 'pinned')) return true;
-        if (!__tmIsSimpleProjectionContext()) {
-            return keys.some((key) => __tmGetFieldSpec(key)?.affectsProjection === true);
+        if (state.currentRule) {
+            const rule = __tmGetCurrentProjectionRule();
+            if (__tmRuleUsesPatchField(rule, keys)) return true;
+        }
+        return __tmDoesPatchAffectCurrentGroupOrOrder(taskId, patch);
+    }
+
+    function __tmGetCurrentProjectionRule() {
+        try {
+            if (typeof __tmGetCurrentRule === 'function') return __tmGetCurrentRule();
+        } catch (e) {}
+        try {
+            const ruleId = String(state?.currentRule || '').trim();
+            const rules = Array.isArray(state?.filterRules) ? state.filterRules : [];
+            return ruleId ? (rules.find((rule) => String(rule?.id || '').trim() === ruleId) || null) : null;
+        } catch (e) {
+            return null;
+        }
+    }
+
+    function __tmNormalizeProjectionFieldKey(key) {
+        if (typeof __tmNormalizeLocalPatchFieldKey === 'function') return __tmNormalizeLocalPatchFieldKey(key);
+        return String(key || '').trim();
+    }
+
+    function __tmRuleUsesPatchField(rule, patchKeys = []) {
+        const keys = new Set((Array.isArray(patchKeys) ? patchKeys : [])
+            .map((key) => __tmNormalizeProjectionFieldKey(key))
+            .filter(Boolean));
+        if (!keys.size || !rule || typeof rule !== 'object') return false;
+        const uses = (field) => {
+            const key = __tmNormalizeProjectionFieldKey(field);
+            if (!key) return false;
+            if (keys.has(key)) return true;
+            if (key.startsWith('customField:') && keys.has(key)) return true;
+            if (key === 'priorityScore' && (keys.has('priority') || keys.has('startDate') || keys.has('completionTime') || keys.has('customTime') || keys.has('taskCompleteAt') || keys.has('done') || keys.has('customStatus'))) return true;
+            return false;
+        };
+        if ((Array.isArray(rule.conditions) ? rule.conditions : []).some((condition) => uses(condition?.field))) return true;
+        if ((Array.isArray(rule.sort) ? rule.sort : []).some((sortRule) => uses(sortRule?.field))) return true;
+        return false;
+    }
+
+    function __tmDoesPatchAffectCurrentGroupOrOrder(taskId, patch = {}, options = {}) {
+        const keys = __tmGetPatchFieldKeys(patch);
+        if (!keys.length) return false;
+        const keySet = new Set(keys);
+        const opts = (options && typeof options === 'object') ? options : {};
+        if (state.currentRule) {
+            const rule = opts.rule || __tmGetCurrentProjectionRule();
+            if (__tmRuleUsesPatchField(rule, keys)) return true;
+        }
+        if (keySet.has('pinned')) return true;
+        const completionKeys = ['done', 'customStatus', 'taskCompleteAt'];
+        if (completionKeys.some((key) => keySet.has(key))) return true;
+        const timeKeys = ['startDate', 'completionTime', 'customTime'];
+        if (state.groupByTime && timeKeys.some((key) => keySet.has(key))) return true;
+        if (state.quadrantEnabled && (timeKeys.some((key) => keySet.has(key)) || keySet.has('priority') || keySet.has('priorityScore'))) return true;
+        if (state.groupByTaskName && keySet.has('content')) return true;
+        if (state.groupByDocName && (keySet.has('root_id') || keySet.has('docId') || keySet.has('h2') || keySet.has('h2Id') || keySet.has('h2Path') || keySet.has('h2Sort'))) return true;
+        if (!state.groupByDocName && !state.groupByTaskName && !state.groupByTime && !state.quadrantEnabled) {
+            if (keySet.has('priority') || keySet.has('priorityScore')) return true;
         }
         return false;
     }
 
     function __tmDoesPatchAffectCurrentSort(taskId, patch = {}) {
-        const keys = __tmGetPatchFieldKeys(patch);
-        if (!keys.length) return false;
-        if (state.currentRule) return true;
-        return !!(state.groupByTime || state.groupByTaskName || state.quadrantEnabled);
+        return __tmDoesPatchAffectCurrentGroupOrOrder(taskId, patch);
     }
 
     function __tmDoesPatchAffectCurrentGroup(taskId, patch = {}) {
-        return __tmDoesPatchAffectCurrentSort(taskId, patch);
+        return __tmDoesPatchAffectCurrentGroupOrOrder(taskId, patch);
     }
 
     function __tmDoesPatchAffectCurrentFilter(taskId, patch = {}) {
@@ -1745,6 +1805,80 @@ try {
 return true;
     }
 
+    function __tmShouldUseChecklistProjectionRefreshForPatch(taskId, patch = {}) {
+        const tid = String(taskId || '').trim();
+        const keys = __tmGetPatchFieldKeys(patch);
+        if (!tid || !keys.length) return false;
+        return __tmDoesPatchAffectCurrentGroupOrOrder(tid, patch)
+            || __tmDoesPatchAffectCurrentFilter(tid, patch);
+    }
+
+    function __tmIsChecklistProjectionContext() {
+        if (String(state.viewMode || '').trim() !== 'checklist') return false;
+        if (!(state.modal instanceof Element) || !document.body.contains(state.modal)) return false;
+        return true;
+    }
+
+    function __tmGetChecklistProjectionRefreshDelayMs() {
+        try {
+            const isMobile = !!(
+                state.modal?.classList?.contains?.('tm-modal--mobile')
+                || (typeof __tmIsMobileDevice === 'function' && __tmIsMobileDevice())
+            );
+            return isMobile ? 360 : 180;
+        } catch (e) {
+            return 240;
+        }
+    }
+
+    function __tmScheduleChecklistDeferredProjectionRefresh(taskId, patch = {}, reason = '', delayMs = __tmGetChecklistProjectionRefreshDelayMs()) {
+        const tid = String(taskId || '').trim();
+        if (!tid) return false;
+        if (!__tmIsChecklistProjectionContext()) return false;
+        if (!__tmShouldUseChecklistProjectionRefreshForPatch(tid, patch)) return false;
+        try {
+            state.__tmChecklistItemsOnlyRefreshUntil = 0;
+            state.__tmChecklistItemsOnlyRefreshReason = '';
+            state.__tmChecklistItemsOnlyRefreshTaskIds = [];
+        } catch (e) {}
+        const nextDetail = {
+            mode: 'current',
+            withFilters: true,
+            reason: String(reason || 'checklist-projection').trim() || 'checklist-projection',
+            taskIds: [tid],
+        };
+        state.__tmChecklistProjectionRefreshPending = __tmMergeViewRefreshDetail(
+            state.__tmChecklistProjectionRefreshPending,
+            nextDetail,
+        );
+        if (state.__tmChecklistProjectionRefreshTimer) {
+            try { clearTimeout(state.__tmChecklistProjectionRefreshTimer); } catch (e) {}
+            state.__tmChecklistProjectionRefreshTimer = 0;
+        }
+        const waitMs = Math.max(80, Number(delayMs) || __tmGetChecklistProjectionRefreshDelayMs());
+        state.__tmChecklistProjectionRefreshTimer = setTimeout(() => {
+            state.__tmChecklistProjectionRefreshTimer = 0;
+            const pending = state.__tmChecklistProjectionRefreshPending;
+            state.__tmChecklistProjectionRefreshPending = null;
+            if (!pending) return;
+            if (!__tmIsChecklistProjectionContext()) return;
+            try { state.listDomRenderSignature = ''; } catch (e) {}
+            try {
+                state.__tmChecklistProjectionGroupRefreshUntil = Date.now() + 1500;
+                state.__tmChecklistProjectionGroupRefreshTaskIds = Array.isArray(pending.taskIds)
+                    ? pending.taskIds.map((id) => String(id || '').trim()).filter(Boolean)
+                    : [];
+            } catch (e) {}
+            const nextReason = String(pending.reason || reason || 'checklist-projection').trim() || 'checklist-projection';
+            __tmScheduleViewRefresh({
+                ...pending,
+                withFilters: true,
+                reason: `${nextReason}-deferred`,
+            });
+        }, waitMs);
+        return true;
+    }
+
     function __tmShouldFallbackTaskFieldPatch(taskId, patch = {}, options = {}) {
         const opts = (options && typeof options === 'object') ? options : {};
         const patchKeys = __tmGetPatchFieldKeys(patch);
@@ -1766,6 +1900,17 @@ return false;
         return false;
     }
 
+    function __tmDoesPatchNeedOptimisticProjectionRefresh(taskId, patch = {}, options = {}) {
+        const opts = (options && typeof options === 'object') ? options : {};
+        if (opts.optimisticProjectionRefresh === true) return __tmDoesPatchNeedProjectionRefresh(taskId, patch, {
+            ...opts,
+            forceProjectionRefresh: opts.forceProjectionRefresh === true,
+        });
+        if (opts.optimisticProjectionRefresh === false) return false;
+        return __tmDoesPatchAffectCurrentGroupOrOrder(taskId, patch, opts)
+            || __tmDoesPatchAffectCurrentFilter(taskId, patch);
+    }
+
     function __tmScheduleTaskProjectionRefresh(taskId, patch = {}, options = {}) {
         const tid = String(taskId || '').trim();
         const nextPatch = (patch && typeof patch === 'object') ? patch : {};
@@ -1775,6 +1920,11 @@ return false;
         const reason = String(opts.reason || 'task-field-projection').trim() || 'task-field-projection';
         const refreshWithFilters = opts.withFilters !== false
             || __tmDoesPatchNeedProjectionRefresh(tid, nextPatch, opts);
+        if (viewMode === 'checklist'
+            && refreshWithFilters
+            && __tmScheduleChecklistDeferredProjectionRefresh(tid, nextPatch, reason)) {
+            return true;
+        }
         if (refreshWithFilters && (viewMode === 'list' || viewMode === 'checklist')) {
             try { state.listDomRenderSignature = ''; } catch (e) {}
         }
@@ -1965,6 +2115,9 @@ return false;
                         background: opts.background === true,
                         skipFlush: opts.skipFlush,
                         renderOptimistic: opts.queued !== true && opts.background !== true,
+                        previousAttachmentPaths: opts.previousAttachmentPaths,
+                        previousAttachmentMeta: opts.previousAttachmentMeta,
+                        previousAttachmentSlotCount: opts.previousAttachmentSlotCount,
                     });
                 }
                 return __tmTaskStateKernel.getTask(taskId);
@@ -2169,6 +2322,33 @@ return false;
         return out;
     }
 
+    function __tmParseTaskAttachmentLocalPathsFromText(text) {
+        const source = String(text || '');
+        if (!source.trim()) return [];
+        const out = [];
+        const seen = new Set();
+        const pushPath = (rawValue) => {
+            const normalized = __tmNormalizeTaskAttachmentLocalPath(rawValue);
+            if (!normalized || seen.has(normalized)) return;
+            seen.add(normalized);
+            out.push(normalized);
+        };
+        source.split(/\r?\n/).forEach((line) => {
+            const trimmed = String(line || '').trim();
+            if (trimmed) pushPath(trimmed);
+        });
+        let match;
+        const markdownPattern = /!?\[[^\]]*]\((file:\/\/[^)\s"'<>]+)\)/gi;
+        while ((match = markdownPattern.exec(source))) pushPath(match[1]);
+        const fileUriPattern = /file:\/\/\/?[^\s)"'<>]+/gi;
+        while ((match = fileUriPattern.exec(source))) pushPath(match[0]);
+        const drivePathPattern = /\b[A-Za-z]:[\\/][^\s)"'<>]+/g;
+        while ((match = drivePathPattern.exec(source))) pushPath(match[0]);
+        const uncPathPattern = /\\\\[^\\/\s"'<>]+[\\/][^\s"'<>]+/g;
+        while ((match = uncPathPattern.exec(source))) pushPath(match[0]);
+        return out;
+    }
+
     function __tmParseTaskAttachmentBlockIdsFromText(text) {
         const source = String(text || '').trim();
         if (!source) return [];
@@ -2194,6 +2374,8 @@ return false;
         if (!text) return [];
         const assetPaths = __tmParseTaskAttachmentAssetPathsFromText(text);
         if (assetPaths.length) return assetPaths;
+        const localPaths = __tmParseTaskAttachmentLocalPathsFromText(text);
+        if (localPaths.length) return localPaths;
         const blockIds = __tmParseTaskAttachmentBlockIdsFromText(text);
         if (!blockIds.length) return [];
         let rows = [];
@@ -2584,6 +2766,20 @@ return false;
             });
             return true;
         };
+        if (kind === 'local-path') {
+            const opener = globalThis.__taskHorizonOpenAssetWithSystem;
+            if (typeof opener !== 'function') {
+                try { hint('⚠ 当前环境不支持打开本地路径', 'warning'); } catch (e) {}
+                return true;
+            }
+            Promise.resolve(opener(normalizedPath)).then((opened) => {
+                if (opened) return;
+                try { hint('⚠ 当前环境无法打开本地路径', 'warning'); } catch (e) {}
+            }).catch(() => {
+                try { hint('⚠ 打开本地路径失败', 'warning'); } catch (e) {}
+            });
+            return true;
+        }
         if (kind === 'image') {
             void __tmOpenTaskAttachmentImageViewer(normalizedPath, {
                 galleryPaths: opts.galleryPaths,
@@ -2612,6 +2808,411 @@ return false;
             skipNoopCheck: options?.skipNoopCheck === true || normalizedPaths.length === 0,
         });
     }
+
+    const __TM_ATTACHMENT_LIBRARY_TYPE_OPTIONS = [
+        { value: 'all', label: '全部' },
+        { value: 'image', label: '图片' },
+        { value: 'pdf', label: 'PDF' },
+        { value: 'file', label: '普通文件' },
+        { value: 'block', label: '文档/块链接' },
+        { value: 'local', label: '本地路径' },
+    ];
+
+    function __tmNormalizeAttachmentLibraryTypeFilter(value) {
+        const next = String(value || '').trim().toLowerCase();
+        return __TM_ATTACHMENT_LIBRARY_TYPE_OPTIONS.some((item) => item.value === next) ? next : 'all';
+    }
+
+    function __tmGetAttachmentLibraryTypeInfo(entry) {
+        const item = (entry && typeof entry === 'object') ? entry : {};
+        if (item.isLocalPath || item.kind === 'local-path') return { key: 'local', label: '本地路径' };
+        if (item.isBlockRef || item.kind === 'block-ref') return { key: 'block', label: '文档/块链接' };
+        if (item.isImage || item.kind === 'image') return { key: 'image', label: '图片' };
+        if (item.isPdf || item.kind === 'pdf') return { key: 'pdf', label: 'PDF' };
+        return { key: 'file', label: '普通文件' };
+    }
+
+    function __tmGetAttachmentLibraryTaskTitle(taskLike) {
+        const task = (taskLike && typeof taskLike === 'object') ? taskLike : {};
+        const candidates = [
+            task.content,
+            task.raw_content,
+            task.rawContent,
+            task.title,
+            task.markdown,
+            task.name,
+        ];
+        for (const candidate of candidates) {
+            let text = String(candidate || '').trim();
+            if (!text) continue;
+            try {
+                if (typeof API?.extractTaskContentLine === 'function') {
+                    text = String(API.extractTaskContentLine(text) || text).trim();
+                }
+            } catch (e) {}
+            try {
+                if (typeof API?.parseTaskStatus === 'function') {
+                    const parsed = API.parseTaskStatus(text);
+                    text = String(parsed?.content || text).trim();
+                }
+            } catch (e) {}
+            text = text.replace(/^\s*(?:[-*+]|\d+[.)])\s*/, '').replace(/^\[[^\]]*]\s*/, '').trim();
+            try {
+                if (typeof API?.normalizeTaskContent === 'function') {
+                    text = String(API.normalizeTaskContent(text) || text).trim();
+                }
+            } catch (e) {}
+            text = text.replace(/^\s*(?:[-*+]|\d+[.)])\s*/, '').replace(/^\[[^\]]*]\s*/, '').trim();
+            if (text) return text;
+        }
+        return String(task.id || '').trim() || '未命名任务';
+    }
+
+    function __tmGetAttachmentLibraryDocName(taskLike) {
+        const task = (taskLike && typeof taskLike === 'object') ? taskLike : {};
+        const direct = String(
+            task.docName
+            || task.rawDocName
+            || task.doc_name
+            || task.raw_doc_name
+            || task.rootName
+            || ''
+        ).trim();
+        if (direct) return direct;
+        const docId = String(task.root_id || task.rootId || task.docId || '').trim();
+        if (docId) {
+            try {
+                return __tmGetDocDisplayName(docId, '未命名文档') || '未命名文档';
+            } catch (e) {}
+        }
+        return '未命名文档';
+    }
+
+    function __tmCollectAttachmentLibraryTasks() {
+        const out = [];
+        const seen = new Set();
+        const pushTask = (taskLike) => {
+            const task = (taskLike && typeof taskLike === 'object') ? taskLike : null;
+            const id = String(task?.id || '').trim();
+            if (!task || !id || seen.has(id)) return;
+            seen.add(id);
+            out.push(task);
+        };
+        try { Object.values(globalThis.__tmRuntimeState?.getFlatTasks?.() || state.flatTasks || {}).forEach(pushTask); } catch (e) {
+            try { Object.values(state.flatTasks || {}).forEach(pushTask); } catch (e2) {}
+        }
+        try { Object.values(state.pendingInsertedTasks || {}).forEach(pushTask); } catch (e) {}
+        return out;
+    }
+
+    function __tmBuildAttachmentLibraryItem(taskLike, entry, index) {
+        const task = (taskLike && typeof taskLike === 'object') ? taskLike : null;
+        const item = (entry && typeof entry === 'object') ? entry : null;
+        const taskId = String(task?.id || '').trim();
+        const path = __tmNormalizeTaskAttachmentPath(item?.path || '');
+        if (!task || !taskId || !path) return null;
+        const type = __tmGetAttachmentLibraryTypeInfo(item);
+        const taskTitle = __tmGetAttachmentLibraryTaskTitle(task);
+        const docName = __tmGetAttachmentLibraryDocName(task);
+        const displayPath = String(item.displayPath || (__tmGetTaskAttachmentLocalDisplayPath(path) || path)).trim() || path;
+        const name = String(item.name || __tmGetTaskAttachmentDisplayName(path) || displayPath).trim() || displayPath;
+        const identifier = item.isBlockRef
+            ? String(item.blockId || __tmExtractTaskAttachmentBlockId(path) || path).trim()
+            : (item.isLocalPath ? displayPath : path);
+        const addedAt = __tmGetTaskAttachmentAddedAt(task, path);
+        return {
+            id: `${taskId}::${index}::${path}`,
+            taskId,
+            taskTitle,
+            docName,
+            path,
+            displayPath,
+            name,
+            identifier,
+            addedAt,
+            typeKey: type.key,
+            typeLabel: type.label,
+            entry: item,
+            searchText: [
+                name,
+                displayPath,
+                path,
+                identifier,
+                taskTitle,
+                docName,
+                type.label,
+            ].join('\n').toLowerCase(),
+        };
+    }
+
+    function __tmCollectAttachmentLibraryItems() {
+        const items = [];
+        __tmCollectAttachmentLibraryTasks().forEach((task) => {
+            const paths = __tmGetTaskAttachmentPaths(task);
+            if (!paths.length) return;
+            const entries = __tmBuildTaskAttachmentEntries(paths);
+            try { __tmHydrateTaskAttachmentBlockMetaForTask(task, entries); } catch (e) {}
+            try {
+                const missingBlockIds = entries
+                    .filter((entry) => entry?.isBlockRef === true && entry?.hasResolvedMeta !== true)
+                    .map((entry) => entry.blockId)
+                    .filter(Boolean);
+                if (missingBlockIds.length) {
+                    void __tmEnsureTaskAttachmentBlockMeta(missingBlockIds).then((loadedCount) => {
+                        if (loadedCount && state.attachmentLibraryOpen) __tmRefreshAttachmentLibraryInPlace();
+                    }).catch(() => null);
+                }
+            } catch (e) {}
+            entries.forEach((entry, index) => {
+                const item = __tmBuildAttachmentLibraryItem(task, entry, index);
+                if (item) items.push(item);
+            });
+        });
+        items.sort((a, b) => {
+            const aHasTime = Number(a.addedAt || 0) > 0;
+            const bHasTime = Number(b.addedAt || 0) > 0;
+            if (aHasTime !== bHasTime) return aHasTime ? -1 : 1;
+            if (aHasTime && bHasTime && a.addedAt !== b.addedAt) return b.addedAt - a.addedAt;
+            const taskCmp = String(a.taskTitle || '').localeCompare(String(b.taskTitle || ''), 'zh-CN');
+            if (taskCmp) return taskCmp;
+            return String(a.displayPath || a.path || '').localeCompare(String(b.displayPath || b.path || ''), 'zh-CN');
+        });
+        return items;
+    }
+
+    function __tmFilterAttachmentLibraryItems(items) {
+        const list = Array.isArray(items) ? items : [];
+        const filter = __tmNormalizeAttachmentLibraryTypeFilter(state.attachmentLibraryTypeFilter);
+        const keyword = String(state.attachmentLibrarySearch || '').trim().toLowerCase();
+        return list.filter((item) => {
+            if (filter !== 'all' && item.typeKey !== filter) return false;
+            if (!keyword) return true;
+            return String(item.searchText || '').includes(keyword);
+        });
+    }
+
+    function __tmFormatAttachmentLibraryTime(value) {
+        const ts = Number(value || 0);
+        if (!Number.isFinite(ts) || ts <= 0) return '历史附件';
+        const date = new Date(ts);
+        if (Number.isNaN(date.getTime())) return '历史附件';
+        const pad = (part) => String(part).padStart(2, '0');
+        return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())} ${pad(date.getHours())}:${pad(date.getMinutes())}`;
+    }
+
+    function __tmRenderAttachmentLibraryTypeOptions() {
+        const current = __tmNormalizeAttachmentLibraryTypeFilter(state.attachmentLibraryTypeFilter);
+        return __TM_ATTACHMENT_LIBRARY_TYPE_OPTIONS.map((item) => (
+            `<option value="${esc(item.value)}"${current === item.value ? ' selected' : ''}>${esc(item.label)}</option>`
+        )).join('');
+    }
+
+    function __tmRenderAttachmentLibraryRowHtml(item) {
+        const row = (item && typeof item === 'object') ? item : null;
+        if (!row) return '';
+        const entry = row.entry || {};
+        const jsPath = esc(escSq(row.path));
+        const jsTaskId = esc(escSq(row.taskId));
+        const displayPath = row.displayPath || row.path;
+        const addedAt = Number(row.addedAt || 0);
+        const timeLabel = __tmFormatAttachmentLibraryTime(addedAt);
+        const timeTitle = addedAt > 0 ? new Date(addedAt).toISOString() : '历史附件';
+        const fileTitle = [row.name, displayPath].filter(Boolean).join('\n');
+        return `
+            <article class="tm-attachment-library-row" data-tm-task-id="${esc(row.taskId)}" data-tm-path="${esc(row.path)}">
+                <div class="tm-attachment-library-file">
+                    ${__tmBuildTaskAttachmentThumbHtml(entry, { size: 'detail' })}
+                    <div class="tm-attachment-library-file__text">
+                        <div class="tm-attachment-library-file__name" title="${esc(fileTitle)}">${esc(row.name || displayPath)}</div>
+                        <div class="tm-attachment-library-file__id" title="${esc(row.identifier || row.path)}">${esc(row.identifier || row.path)}</div>
+                    </div>
+                </div>
+                <div class="tm-attachment-library-type">
+                    <span class="tm-attachment-library-type-pill tm-attachment-library-type-pill--${esc(row.typeKey)}">${esc(row.typeLabel)}</span>
+                </div>
+                <button type="button" class="tm-attachment-library-task" onclick="tmAttachmentLibraryOpenTaskDetail('${jsTaskId}', event)" title="${esc(row.taskTitle)}">
+                    ${esc(row.taskTitle)}
+                </button>
+                <div class="tm-attachment-library-doc" title="${esc(row.docName)}">${esc(row.docName)}</div>
+                <div class="tm-attachment-library-time" title="${esc(timeTitle)}">${esc(timeLabel)}</div>
+                <div class="tm-attachment-library-actions">
+                    <button type="button" class="tm-icon-btn tm-attachment-library-action" onclick="tmAttachmentLibraryOpen('${jsPath}', event)" aria-label="打开"${__tmBuildTooltipAttrs('打开', { side: 'top' })}>${__tmRenderLucideIcon('file')}</button>
+                    <button type="button" class="tm-icon-btn tm-attachment-library-action" onclick="tmAttachmentLibraryOpenTask('${jsTaskId}', event)" aria-label="定位任务"${__tmBuildTooltipAttrs('定位任务', { side: 'top' })}>${__tmRenderLucideIcon('map-pin')}</button>
+                    <button type="button" class="tm-icon-btn tm-attachment-library-action tm-attachment-library-action--danger" onclick="tmAttachmentLibraryRemove('${jsTaskId}', '${jsPath}', event)" aria-label="移除关联"${__tmBuildTooltipAttrs('移除关联', { side: 'top' })}>${__tmRenderLucideIcon('trash-2')}</button>
+                </div>
+            </article>
+        `;
+    }
+
+    function __tmRenderAttachmentLibraryResultsHtml(filteredItems, totalCount) {
+        const items = Array.isArray(filteredItems) ? filteredItems : [];
+        const total = Math.max(0, Number(totalCount) || 0);
+        if (!total) {
+            return `
+                <div class="tm-attachment-library-empty">
+                    <div class="tm-attachment-library-empty__icon">${__tmRenderLucideIcon('paperclip')}</div>
+                    <div class="tm-attachment-library-empty__title">暂无附件</div>
+                </div>
+            `;
+        }
+        if (!items.length) {
+            return `
+                <div class="tm-attachment-library-empty">
+                    <div class="tm-attachment-library-empty__icon">${__tmRenderLucideIcon('search')}</div>
+                    <div class="tm-attachment-library-empty__title">没有匹配的附件</div>
+                </div>
+            `;
+        }
+        return `
+            <div class="tm-attachment-library-head" aria-hidden="true">
+                <div>附件</div>
+                <div>类型</div>
+                <div>关联任务</div>
+                <div>所属文档</div>
+                <div>添加时间</div>
+                <div>操作</div>
+            </div>
+            <div class="tm-attachment-library-list">
+                ${items.map((item) => __tmRenderAttachmentLibraryRowHtml(item)).join('')}
+            </div>
+        `;
+    }
+
+    function __tmRenderAttachmentLibraryBodyHtml(options = {}) {
+        const opts = (options && typeof options === 'object') ? options : {};
+        const bodyAnimClass = String(opts.bodyAnimClass || '');
+        const allItems = __tmCollectAttachmentLibraryItems();
+        const filteredItems = __tmFilterAttachmentLibraryItems(allItems);
+        const searchValue = String(state.attachmentLibrarySearch || '').trim();
+        return `
+            <div class="tm-body tm-body--attachment-library${bodyAnimClass}" data-tm-attachment-library-root>
+                <section class="tm-attachment-library">
+                    <header class="tm-attachment-library-header">
+                        <div class="tm-attachment-library-title">
+                            <span class="tm-attachment-library-title__icon">${__tmRenderLucideIcon('paperclip')}</span>
+                            <span>附件库</span>
+                            <span class="tm-attachment-library-count" data-tm-attachment-library-count>${filteredItems.length}/${allItems.length}</span>
+                            <span class="tm-attachment-library-note" title="仅展示当前文档分组的任务附件">仅展示当前文档分组的任务附件</span>
+                        </div>
+                        <button type="button" class="tm-icon-btn tm-attachment-library-close" onclick="tmCloseAttachmentLibrary(event)" aria-label="返回工作区"${__tmBuildTooltipAttrs('返回工作区', { side: 'bottom' })}>${__tmRenderLucideIcon('x')}</button>
+                    </header>
+                    <div class="tm-attachment-library-toolbar">
+                        <label class="tm-attachment-library-search">
+                            <span class="tm-attachment-library-search__icon">${__tmRenderLucideIcon('search')}</span>
+                            <input type="search" value="${esc(searchValue)}" placeholder="搜索附件、任务或文档" oninput="tmAttachmentLibrarySearch(this.value)" autocomplete="off">
+                        </label>
+                        <label class="tm-attachment-library-filter">
+                            <span>类型</span>
+                            <select onchange="tmAttachmentLibraryFilter(this.value)">
+                                ${__tmRenderAttachmentLibraryTypeOptions()}
+                            </select>
+                        </label>
+                    </div>
+                    <div class="tm-attachment-library-results" data-tm-attachment-library-results>
+                        ${__tmRenderAttachmentLibraryResultsHtml(filteredItems, allItems.length)}
+                    </div>
+                </section>
+            </div>
+        `;
+    }
+
+    function __tmRefreshAttachmentLibraryInPlace(modalEl) {
+        const modal = modalEl instanceof Element ? modalEl : state.modal;
+        const root = modal instanceof Element
+            ? modal.querySelector('[data-tm-attachment-library-root]')
+            : document.querySelector('[data-tm-attachment-library-root]');
+        if (!(root instanceof HTMLElement)) return false;
+        const allItems = __tmCollectAttachmentLibraryItems();
+        const filteredItems = __tmFilterAttachmentLibraryItems(allItems);
+        const countEl = root.querySelector('[data-tm-attachment-library-count]');
+        if (countEl instanceof HTMLElement) countEl.textContent = `${filteredItems.length}/${allItems.length}`;
+        const results = root.querySelector('[data-tm-attachment-library-results]');
+        if (results instanceof HTMLElement) {
+            results.innerHTML = __tmRenderAttachmentLibraryResultsHtml(filteredItems, allItems.length);
+            return true;
+        }
+        return false;
+    }
+
+    window.tmAttachmentLibrarySearch = function(value) {
+        state.attachmentLibrarySearch = String(value || '');
+        if (!__tmRefreshAttachmentLibraryInPlace()) {
+            try { render(); } catch (e) {}
+        }
+    };
+
+    window.tmAttachmentLibraryFilter = function(value) {
+        state.attachmentLibraryTypeFilter = __tmNormalizeAttachmentLibraryTypeFilter(value);
+        if (!__tmRefreshAttachmentLibraryInPlace()) {
+            try { render(); } catch (e) {}
+        }
+    };
+
+    window.tmAttachmentLibraryOpen = function(path, event) {
+        return __tmOpenAssetPath(path, event);
+    };
+
+    window.tmAttachmentLibraryOpenTaskDetail = async function(taskId, event) {
+        try { event?.preventDefault?.(); } catch (e) {}
+        try { event?.stopPropagation?.(); } catch (e) {}
+        const tid = String(taskId || '').trim();
+        if (!tid) return false;
+        try {
+            if (typeof window.tmOpenTaskDetail === 'function') return await window.tmOpenTaskDetail(tid, event);
+        } catch (e) {}
+        try { hint('⚠️ 未找到任务数据，无法打开详情', 'warning'); } catch (e) {}
+        return false;
+    };
+
+    window.tmAttachmentLibraryOpenTask = async function(taskId, event) {
+        try { event?.preventDefault?.(); } catch (e) {}
+        try { event?.stopPropagation?.(); } catch (e) {}
+        const tid = String(taskId || '').trim();
+        if (!tid) return false;
+        state.attachmentLibraryOpen = false;
+        try { render(); } catch (e) {}
+        try {
+            if (typeof window.tmJumpToTask === 'function') return await window.tmJumpToTask(tid);
+        } catch (e) {}
+        return false;
+    };
+
+    window.tmAttachmentLibraryRemove = async function(taskId, path, event) {
+        try { event?.preventDefault?.(); } catch (e) {}
+        try { event?.stopPropagation?.(); } catch (e) {}
+        const tid = String(taskId || '').trim();
+        const normalizedPath = __tmNormalizeTaskAttachmentPath(path);
+        if (!tid || !normalizedPath) return false;
+        let ok = true;
+        try {
+            ok = await showConfirm('移除附件关联', '仅从该任务移除此附件，不会删除思源资产文件或本地文件。是否继续？');
+        } catch (e) {
+            try { ok = confirm('仅从该任务移除此附件，不会删除原文件。是否继续？'); } catch (e2) { ok = true; }
+        }
+        if (!ok) return false;
+        const task = globalThis.__tmRuntimeState?.getTaskById?.(tid)
+            || state.flatTasks?.[tid]
+            || state.pendingInsertedTasks?.[tid]
+            || null;
+        if (!task) {
+            try { hint('⚠ 未找到关联任务', 'warning'); } catch (e) {}
+            return false;
+        }
+        const currentPaths = __tmGetTaskAttachmentPaths(task);
+        const nextPaths = currentPaths.filter((item) => item !== normalizedPath);
+        if (nextPaths.length === currentPaths.length) {
+            __tmRefreshAttachmentLibraryInPlace();
+            return false;
+        }
+        const updated = await __tmUpdateTaskAttachmentsField(tid, nextPaths, { source: 'attachment-library-remove' });
+        if (updated) {
+            try { hint('已移除附件关联', 'success'); } catch (e) {}
+        }
+        if (!__tmRefreshAttachmentLibraryInPlace()) {
+            try { render(); } catch (e) {}
+        }
+        return !!updated;
+    };
 
     function __tmUpdateTaskPinnedInDOM(container, task) {
         const root = container instanceof Element ? container : null;
@@ -2993,7 +3594,7 @@ return false;
     function __tmBuildTaskInlineContentHtml(task, fallbackText = '(无内容)') {
         const taskLike = (task && typeof task === 'object') ? task : {};
         const content = String(taskLike.content || '').trim() || String(fallbackText || '(无内容)').trim() || '(无内容)';
-        return `${API.renderTaskContentHtml(taskLike.markdown, content)}${__tmRenderRecurringTaskInlineIcon(taskLike)}${__tmRenderPinnedTaskInlineIcon(taskLike)}${__tmRenderRecurringInstanceBadge(taskLike, { className: 'tm-recurring-instance-badge--inline' })}`;
+        return `${API.renderTaskContentHtml(taskLike.markdown, content)}${__tmRenderGlobalCollectDocTaskInlineIcon(taskLike)}${__tmRenderRecurringTaskInlineIcon(taskLike)}${__tmRenderPinnedTaskInlineIcon(taskLike)}${__tmRenderRecurringInstanceBadge(taskLike, { className: 'tm-recurring-instance-badge--inline' })}`;
     }
 
     function __tmUpdateTaskContentInDOM(container, task) {
@@ -3461,6 +4062,13 @@ return false;
             const inversePatch = __tmCaptureTaskPatchInverse(tid, plan.normalizedPatch);
             if (opts.skipNoopCheck !== true && __tmIsPatchNoop(plan.normalizedPatch, inversePatch)) return Promise.resolve(false);
             const taskLike = __tmTaskStateKernel.getTask(tid);
+            const attachmentPreviousSnapshot = Object.prototype.hasOwnProperty.call(plan.normalizedPatch, 'attachments')
+                ? {
+                    paths: __tmGetTaskAttachmentPaths(taskLike || {}),
+                    meta: Array.from(__tmGetTaskAttachmentMetaMap(taskLike || {}).values()),
+                    slotCount: __tmGetTaskAttachmentAttrSlotCount(taskLike || {}),
+                }
+                : null;
             const suppressionIds = Array.from(new Set([
                 tid,
                 String(taskLike?.attrHostId || '').trim(),
@@ -3471,12 +4079,13 @@ return false;
                     && String(state.detailTaskId || '').trim() === tid
                     && (Object.prototype.hasOwnProperty.call(plan.normalizedPatch, 'done')
                         || Object.prototype.hasOwnProperty.call(plan.normalizedPatch, 'customStatus')));
-            const optimisticProjectionRefresh = opts.optimisticProjectionRefresh === true
-                && __tmDoesPatchNeedProjectionRefresh(tid, plan.normalizedPatch, {
-                    forceProjectionRefresh: plan.affectsProjection === true,
-                });
+            const optimisticProjectionRefresh = __tmDoesPatchNeedOptimisticProjectionRefresh(tid, plan.normalizedPatch, {
+                ...opts,
+                forceProjectionRefresh: opts.forceProjectionRefresh === true,
+            });
             if (allowOptimisticPatch) {
                 __tmTaskStateKernel.patchTaskLocal(tid, plan.normalizedPatch, opts);
+                try { __tmMarkLocalTaskPatchWatermark(tid, plan.normalizedPatch, opts); } catch (e) {}
                 if (!skipViewRefresh) {
                     __tmRefreshTaskFieldsAcrossViews(tid, plan.normalizedPatch, {
                         withFilters: optimisticProjectionRefresh,
@@ -3487,7 +4096,12 @@ return false;
                     });
                 }
             }
-            return this.withSuppressedTasks(suppressionIds, () => __tmWriteExecutor.executePlan(plan, opts)).then((result) => {
+            return this.withSuppressedTasks(suppressionIds, () => __tmWriteExecutor.executePlan(plan, attachmentPreviousSnapshot ? {
+                ...opts,
+                previousAttachmentPaths: attachmentPreviousSnapshot.paths,
+                previousAttachmentMeta: attachmentPreviousSnapshot.meta,
+                previousAttachmentSlotCount: attachmentPreviousSnapshot.slotCount,
+            } : opts)).then((result) => {
                 if (!skipViewRefresh && !skipSettledRefresh) {
                     __tmRefreshTaskFieldsAcrossViews(tid, plan.normalizedPatch, {
                         withFilters: true,
@@ -3500,6 +4114,7 @@ return false;
                 return result || true;
             }).catch((error) => {
                 __tmTaskStateKernel.rollbackTaskLocal(tid, inversePatch, opts);
+                try { __tmClearLocalTaskPatchWatermark(tid, plan.normalizedPatch); } catch (e) {}
                 if (!skipViewRefresh) {
                     __tmRefreshTaskFieldsAcrossViews(tid, inversePatch, {
                         withFilters: true,
@@ -3671,11 +4286,22 @@ return false;
         const inversePatch = __tmCaptureTaskPatchInverse(tid, plan.normalizedPatch);
         if (opts.skipNoopCheck !== true && __tmIsPatchNoop(plan.normalizedPatch, inversePatch)) return Promise.resolve(false);
         const taskLike = __tmTaskStateKernel.getTask(tid);
+        const attachmentPreviousSnapshot = Object.prototype.hasOwnProperty.call(plan.normalizedPatch, 'attachments')
+            ? {
+                paths: __tmGetTaskAttachmentPaths(taskLike || {}),
+                meta: Array.from(__tmGetTaskAttachmentMetaMap(taskLike || {}).values()),
+                slotCount: __tmGetTaskAttachmentAttrSlotCount(taskLike || {}),
+            }
+            : null;
         const optimisticSkipDetailPatch = opts.optimisticSkipDetailPatch === true
             || (((String(state.viewMode || '').trim() === 'checklist') || __tmHasCalendarSidebarChecklist(state.modal))
                 && String(state.detailTaskId || '').trim() === tid
                 && (Object.prototype.hasOwnProperty.call(plan.normalizedPatch, 'done')
                     || Object.prototype.hasOwnProperty.call(plan.normalizedPatch, 'customStatus')));
+        const optimisticProjectionRefresh = __tmDoesPatchNeedOptimisticProjectionRefresh(tid, plan.normalizedPatch, {
+            ...opts,
+            forceProjectionRefresh: opts.forceProjectionRefresh === true,
+        });
         return __tmEnqueueQueuedOp({
             type: 'taskPatch',
             docId: String(opts.docId || taskLike?.root_id || taskLike?.docId || '').trim(),
@@ -3697,9 +4323,12 @@ return false;
                 skipSettledRefresh: __tmShouldSkipSettledRefreshForUiPatch(tid, plan.normalizedPatch, opts),
                 broadcast: opts.broadcast !== false,
                 optimistic: opts.optimistic !== false,
-                optimisticProjectionRefresh: opts.optimisticProjectionRefresh === true,
+                optimisticProjectionRefresh,
                 affectsProjection: plan.affectsProjection === true,
                 skipFlush: opts.skipFlush !== false,
+                previousAttachmentPaths: attachmentPreviousSnapshot ? attachmentPreviousSnapshot.paths : null,
+                previousAttachmentMeta: attachmentPreviousSnapshot ? attachmentPreviousSnapshot.meta : null,
+                previousAttachmentSlotCount: attachmentPreviousSnapshot ? attachmentPreviousSnapshot.slotCount : null,
             },
             inversePatch,
         }, {
@@ -3729,7 +4358,10 @@ const handler = useQueued
                 broadcast: opts.broadcast !== false,
                 optimistic: opts.optimistic !== false,
                 optimisticSkipDetailPatch: opts.optimisticSkipDetailPatch === true,
-                optimisticProjectionRefresh: opts.optimisticProjectionRefresh === true,
+                optimisticProjectionRefresh: __tmDoesPatchNeedOptimisticProjectionRefresh(tid, nextPatch, {
+                    ...opts,
+                    forceProjectionRefresh: opts.forceProjectionRefresh === true,
+                }),
                 reason: String(opts.reason || opts.source || 'inline-field').trim() || 'inline-field',
             });
         const runOpts = (__tmIsChecklistUiFriendlyTaskPatchContext(opts) && !Object.prototype.hasOwnProperty.call(opts, 'defer'))
@@ -3772,7 +4404,10 @@ const restoreChecklistUi = () => {
             broadcast: opts.broadcast !== false,
             optimistic: opts.optimistic !== false,
             optimisticSkipDetailPatch: opts.optimisticSkipDetailPatch === true,
-            optimisticProjectionRefresh: opts.optimisticProjectionRefresh === true,
+            optimisticProjectionRefresh: __tmDoesPatchNeedOptimisticProjectionRefresh(tid, nextPatch, {
+                ...opts,
+                forceProjectionRefresh: opts.forceProjectionRefresh === true,
+            }),
             reason: String(opts.reason || opts.source || 'inline-field').trim() || 'inline-field',
         }).then((result) => {
             restoreChecklistUi();
@@ -4180,7 +4815,9 @@ throw error;
 
                 const { wrap } = __tmBuildActions('保存', async () => {
                     await saveDuration(input.value);
-                }, close);
+                }, async () => {
+                    await saveDuration('');
+                }, null, { cancelLabel: '清空' });
                 editor.appendChild(wrap);
                 try {
                     input.focus();
@@ -4636,7 +5273,7 @@ throw error;
         return __tmCollectTaskDetailFallbackDeferReasons(rootEl).length > 0;
     }
 
-    function __tmBuildActions(okLabel, onOk, onCancel, extraButtons) {
+    function __tmBuildActions(okLabel, onOk, onCancel, extraButtons, options = {}) {
         const wrap = document.createElement('div');
         wrap.className = 'tm-inline-editor-actions';
 
@@ -4646,7 +5283,7 @@ throw error;
 
         const cancelBtn = document.createElement('button');
         cancelBtn.className = 'tm-btn tm-btn-secondary';
-        cancelBtn.textContent = '取消';
+        cancelBtn.textContent = String(options?.cancelLabel || '').trim() || '取消';
         cancelBtn.onclick = () => onCancel?.();
 
         const okBtn = document.createElement('button');
@@ -4754,7 +5391,9 @@ throw error;
             }
             const { wrap } = __tmBuildActions('保存', async () => {
                 await saveDuration(input.value);
-            }, close);
+            }, async () => {
+                await saveDuration('');
+            }, null, { cancelLabel: '清空' });
             editor.appendChild(wrap);
             try {
                 input.focus();
@@ -5763,6 +6402,32 @@ throw error;
             if (ats !== bts) return ats - bts;
             return getTaskOrder(String(a?.id || '')) - getTaskOrder(String(b?.id || ''));
         };
+        const activeSortRuleForRowModel = (() => {
+            try {
+                if (typeof __tmGetCurrentRule === 'function') return __tmGetCurrentRule();
+            } catch (e) {}
+            return state.currentRule
+                ? (Array.isArray(state.filterRules) ? state.filterRules.find((rule) => rule?.id === state.currentRule) : null)
+                : null;
+        })();
+        const hasExplicitSortForRowModel = __tmRuleHasExplicitSort(activeSortRuleForRowModel);
+        const ruleSortRuntimeForRowModel = {
+            fieldInfoCache: new Map(),
+            valueMemo: new WeakMap(),
+            timeSortMemo: new Map(),
+        };
+        const sortRowModelGroupItems = (items, fallbackCompare = null) => {
+            const list = Array.isArray(items) ? items : [];
+            if (list.length <= 1) return list;
+            if (hasExplicitSortForRowModel) {
+                const sorted = RuleManager.applyRuleSort(list, activeSortRuleForRowModel, ruleSortRuntimeForRowModel);
+                list.splice(0, list.length, ...sorted);
+                return list;
+            }
+            if (pinWithinGroups) return __tmSortPinnedTasksFirst(list, fallbackCompare);
+            if (typeof fallbackCompare === 'function') list.sort(fallbackCompare);
+            return list;
+        };
         const buildTimeGroupLabelHtml = (label, diffDays) => {
             const safeLabel = esc(String(label || '').trim());
             const days = Number(diffDays);
@@ -5957,8 +6622,7 @@ throw error;
                 });
                 if (!isCollapsed) {
                     const prefer = !!SettingsStore.data.groupSortByBestSubtaskTimeInTimeQuadrant;
-                    if (pinWithinGroups) __tmSortPinnedTasksFirst(group.items, prefer ? compareByTimePriority : null);
-                    else if (prefer) group.items.sort(compareByTimePriority);
+                    sortRowModelGroupItems(group.items, prefer ? compareByTimePriority : null);
                     group.items.forEach(task => walkTaskTree(task, 0));
                 }
             });
@@ -5979,7 +6643,7 @@ throw error;
                 const activeDocRootTasks = docNormal.filter((task) => !__tmIsTaskDoneForTailGroup(task));
                 if (activeDocRootTasks.length === 0) return;
                 const docTasks = activeDocRootTasks;
-                const renderDocTasks = pinWithinGroups ? __tmSortPinnedTasksFirst(activeDocRootTasks.slice()) : activeDocRootTasks;
+                const renderDocTasks = sortRowModelGroupItems(activeDocRootTasks.slice());
                 const docName = docEntry.name || '未知文档';
                 const groupKey = `doc_${docId}`;
                 const isCollapsed = state.collapsedGroups?.has(groupKey);
@@ -6030,7 +6694,7 @@ throw error;
                             collapsed: !!h2Collapsed,
                         });
                         if (!h2Collapsed) {
-                            const renderItems = pinWithinGroups ? __tmSortPinnedTasksFirst(items.slice()) : items;
+                            const renderItems = sortRowModelGroupItems(items.slice());
                             renderItems.forEach(task => walkTaskTree(task, 0));
                         }
                     });
@@ -6083,7 +6747,7 @@ throw error;
                 });
 
                 if (!isCollapsed) {
-                    if (pinWithinGroups) __tmSortPinnedTasksFirst(tasks);
+                    sortRowModelGroupItems(tasks);
                     tasks.forEach(task => walkTaskTree(task, 0));
                 }
             });
@@ -6132,8 +6796,7 @@ throw error;
                 });
                 if (!isCollapsed) {
                     const prefer = !!SettingsStore.data.groupSortByBestSubtaskTimeInTimeQuadrant;
-                    if (pinWithinGroups) __tmSortPinnedTasksFirst(group.items, prefer ? compareByTimePriority : null);
-                    else if (prefer) group.items.sort(compareByTimePriority);
+                    sortRowModelGroupItems(group.items, prefer ? compareByTimePriority : null);
                     group.items.forEach(task => walkTaskTree(task, 0));
                 }
             });
@@ -6353,11 +7016,11 @@ throw error;
                         <input class="b3-switch" type="checkbox" data-tm-attachment-picker-doc-toggle>
                     </label>
                     <div class="tm-task-attachment-picker-toolbar">
-                        <input class="tm-prompt-input tm-task-attachment-picker-input" type="text" placeholder="搜索附件名，拖拽/上传文件，或粘贴 assets/… / 块链接">
+                        <input class="tm-prompt-input tm-task-attachment-picker-input" type="text" placeholder="搜索附件名，拖拽/上传文件，或粘贴 assets/… / 本地路径 / 块链接">
                         <button type="button" class="tm-prompt-btn tm-prompt-btn-secondary" data-tm-attachment-picker-upload>上传本地</button>
                         <input class="tm-task-attachment-picker-file-input" type="file" multiple data-tm-attachment-picker-file>
                     </div>
-                    <div class="tm-task-attachment-picker-helper" data-tm-attachment-picker-helper>支持搜索思源附件，也支持拖拽/上传本地文件、Ctrl+V 粘贴图片、assets 路径、Markdown 附件链接或文档/块链接。</div>
+                    <div class="tm-task-attachment-picker-helper" data-tm-attachment-picker-helper>支持搜索思源附件，也支持拖拽/上传本地文件、Ctrl+V 粘贴图片、assets 路径、本地路径、Markdown 附件链接或文档/块链接。</div>
                     <div class="tm-task-attachment-picker-list" data-tm-attachment-picker-list></div>
                     <div class="tm-prompt-buttons">
                         <button type="button" class="tm-prompt-btn tm-prompt-btn-secondary" data-tm-attachment-picker-cancel>取消</button>
@@ -6388,19 +7051,19 @@ throw error;
             const getModeEmptyText = () => (
                 getSearchMode() === 'doc'
                     ? '输入文档名开始搜索，或粘贴块链接'
-                    : '输入文件名开始搜索，或拖拽/粘贴图片、附件链接'
+                    : '输入文件名开始搜索，或拖拽/粘贴图片、附件链接、本地路径'
             );
             const getModeZeroText = () => (getSearchMode() === 'doc' ? '没有找到匹配文档' : '没有找到匹配附件');
             const getModeSearchText = () => (getSearchMode() === 'doc' ? '文档搜索中...' : '搜索中...');
             const getDefaultHelperText = () => (
                 getSearchMode() === 'doc'
                     ? '已切换到文档搜索，可直接搜索思源文档并作为附件添加，也支持粘贴块链接。'
-                    : '支持搜索思源附件，也支持拖拽/上传本地文件、Ctrl+V 粘贴图片、assets 路径、Markdown 附件链接或文档/块链接。'
+                    : '支持搜索思源附件，也支持拖拽/上传本地文件、Ctrl+V 粘贴图片、assets 路径、本地路径、Markdown 附件链接或文档/块链接。'
             );
             const getInputPlaceholder = () => (
                 getSearchMode() === 'doc'
                     ? '搜索文档名，或粘贴块链接'
-                    : '搜索附件名，拖拽/上传文件，或粘贴 assets/… / 块链接'
+                    : '搜索附件名，拖拽/上传文件，或粘贴 assets/… / 本地路径 / 块链接'
             );
             const getInputText = () => String(input instanceof HTMLInputElement ? input.value : '').trim();
             const setHelperText = (text) => {
@@ -6458,7 +7121,7 @@ throw error;
                     hintOnDuplicate: options.hintOnDuplicate === true,
                 });
                 if (options.hintOnMiss === true) {
-                    try { hint('⚠ 未识别到附件路径或块链接，可粘贴 assets/...、Markdown 附件链接或 siyuan://blocks/...', 'warning'); } catch (e) {}
+                    try { hint('⚠ 未识别到附件路径或块链接，可粘贴 assets/...、本地路径、Markdown 附件链接或 siyuan://blocks/...', 'warning'); } catch (e) {}
                 }
                 return false;
             };
@@ -6489,8 +7152,9 @@ throw error;
                 }
                 const text = String(clipboardData.getData?.('text/plain') || '').trim();
                 const directAssets = __tmParseTaskAttachmentAssetPathsFromText(text);
+                const directLocalPaths = __tmParseTaskAttachmentLocalPathsFromText(text);
                 const directBlocks = __tmParseTaskAttachmentBlockIdsFromText(text);
-                if (!directAssets.length && !directBlocks.length) return false;
+                if (!directAssets.length && !directLocalPaths.length && !directBlocks.length) return false;
                 try { ev.preventDefault(); } catch (e) {}
                 return await importTextAttachments(text, { hintOnDuplicate: true, hintOnMiss: false });
             };
@@ -6531,8 +7195,9 @@ throw error;
                     return;
                 }
                 const directAssetPaths = __tmParseTaskAttachmentAssetPathsFromText(query);
+                const directLocalPaths = __tmParseTaskAttachmentLocalPathsFromText(query);
                 const directBlockIds = __tmParseTaskAttachmentBlockIdsFromText(query);
-                if (directAssetPaths.length || directBlockIds.length) {
+                if (directAssetPaths.length || directLocalPaths.length || directBlockIds.length) {
                     results = [];
                     setHelperText('检测到可直接导入的附件路径或块链接，按回车即可添加。');
                     renderList('检测到可直接导入的内容，按回车添加');
@@ -6586,8 +7251,9 @@ throw error;
                         const query = getInputText();
                         if (!query) return;
                         const directAssetPaths = __tmParseTaskAttachmentAssetPathsFromText(query);
+                        const directLocalPaths = __tmParseTaskAttachmentLocalPathsFromText(query);
                         const directBlockIds = __tmParseTaskAttachmentBlockIdsFromText(query);
-                        if (!directAssetPaths.length && !directBlockIds.length) return;
+                        if (!directAssetPaths.length && !directLocalPaths.length && !directBlockIds.length) return;
                         try { ev.preventDefault(); } catch (e) {}
                         await importTextAttachments(query, { hintOnDuplicate: true, hintOnMiss: false });
                     }

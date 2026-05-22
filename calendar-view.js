@@ -171,6 +171,7 @@
         mobileDragCloseTimer: null,
         sidebarColorMenuCloseHandler: null,
         sidebarColorMenuBindTimer: null,
+        scheduleContextMenuCloseHandler: null,
         sidebarResizeCleanup: null,
         onVisibilityChange: null,
         calendarResizeObserver: null,
@@ -1285,6 +1286,20 @@
     function isTimeGridViewType(value) {
         const type = String(value || '').trim();
         return !!type && type.startsWith('timeGrid');
+    }
+
+    function inferMainCalendarEventSourceViewType(calendar, info, fallback = 'timeGridWeek') {
+        const activeViewType = String(calendar?.view?.type || '').trim();
+        const fallbackViewType = String(fallback || 'timeGridWeek').trim() || 'timeGridWeek';
+        const startMs = toMs(info?.start);
+        const endMs = toMs(info?.end);
+        const rangeSpanDays = (Number.isFinite(startMs) && Number.isFinite(endMs))
+            ? Math.max(0, Math.round((endMs - startMs) / 86400000))
+            : 0;
+        if (rangeSpanDays >= 27) return 'dayGridMonth';
+        if (activeViewType && activeViewType !== 'dayGridMonth') return activeViewType;
+        if (fallbackViewType && fallbackViewType !== 'dayGridMonth') return fallbackViewType;
+        return 'timeGridWeek';
     }
 
     function getTimeGridBodyScroller(rootEl) {
@@ -9625,6 +9640,53 @@
         return Array.from(map.values());
     }
 
+    function resolveScheduleDateFollowTask(target) {
+        const ids = [];
+        const pushId = (value) => {
+            const id = String(value || '').trim();
+            if (id && !ids.includes(id)) ids.push(id);
+        };
+        pushId(target?.targetId);
+        try {
+            if (target?.aliases instanceof Set) target.aliases.forEach(pushId);
+        } catch (e) {}
+        for (const id of ids) {
+            try {
+                const task = globalThis.__tmRuntimeState?.getTaskById?.(id, { includePending: true })
+                    || globalThis.__tmRuntimeState?.getFlatTaskById?.(id)
+                    || globalThis.__tmRuntimeState?.getPendingTaskById?.(id)
+                    || state.flatTasks?.[id]
+                    || state.pendingInsertedTasks?.[id]
+                    || null;
+                if (task && typeof task === 'object') return task;
+            } catch (e) {}
+        }
+        try {
+            const tasks = Array.isArray(window.__tmCalendarAllTasksCache?.tasks) ? window.__tmCalendarAllTasksCache.tasks : [];
+            return tasks.find((task) => ids.includes(String(task?.id || '').trim())) || null;
+        } catch (e) {}
+        return null;
+    }
+
+    function pickScheduleDateFollowTaskDate(task, keys) {
+        const source = (task && typeof task === 'object') ? task : {};
+        for (const key of keys) {
+            const raw = String(source?.[key] ?? '').trim();
+            if (!raw) continue;
+            const date = parseDateOnly(raw);
+            if (date) return formatDateKey(date);
+        }
+        return '';
+    }
+
+    function shouldMoveSingleScheduleStartDate(target) {
+        const task = resolveScheduleDateFollowTask(target);
+        if (!task) return false;
+        const startKey = pickScheduleDateFollowTaskDate(task, ['startDate', 'start_date', 'custom-start-date', 'custom_start_date']);
+        const dueKey = pickScheduleDateFollowTaskDate(task, ['completionTime', 'completion_time', 'custom-completion-time', 'custom_completion_time']);
+        return !!startKey && !!dueKey && startKey === dueKey;
+    }
+
     async function syncTaskDatesAfterScheduleMutation(seedItems, options = {}) {
         const settings = getSettings();
         if (settings.scheduleDatesFollowSchedule !== true) return { synced: false, skipped: 'disabled' };
@@ -9652,9 +9714,14 @@
             const earliest = startKeys[0] || '';
             const latest = dueKeys[dueKeys.length - 1] || '';
             if (!earliest || !latest) continue;
-            const patch = (bounds.length === 1 || earliest === latest)
-                ? { completionTime: latest }
-                : { startDate: earliest, completionTime: latest };
+            let patch;
+            if (bounds.length === 1 && shouldMoveSingleScheduleStartDate(target)) {
+                patch = { startDate: earliest, completionTime: latest };
+            } else if (bounds.length === 1 || earliest === latest) {
+                patch = { completionTime: latest };
+            } else {
+                patch = { startDate: earliest, completionTime: latest };
+            }
             try {
                 const result = await window.tmUpdateTaskDates(target.targetId, patch, {
                     source: 'calendar-schedule-dates-follow',
@@ -9674,6 +9741,7 @@
                         };
                         syncTaskDateEventFromDateFollowPatch(changedTaskId || target.targetId, localPatch, {
                             reason: 'calendar-schedule-dates-follow',
+                            scheduleList: list,
                         });
                     } catch (e) {}
                 }
@@ -9810,6 +9878,23 @@
         if (!title) title = fb;
         if (!title) return '';
         return title.split(/\r?\n/, 1)[0].replace(/\s+/g, ' ').trim();
+    }
+
+    function normalizeCalendarTaskTitleText(value, fallback = '任务') {
+        const fb = String(fallback || '').trim() || '任务';
+        let text = String(value || '').trim() || fb;
+        try {
+            if (typeof API?.normalizeTaskContent === 'function') {
+                text = String(API.normalizeTaskContent(text) || text).trim();
+            }
+        } catch (e) {}
+        text = text
+            .split(/\r?\n/, 1)[0]
+            .replace(/^\s*(?:[\*\-]|\d+\.)\s*\[[^\]]*\]\s*/, '')
+            .replace(/^\s*[-*]\s*/, '')
+            .replace(/\s+/g, ' ')
+            .trim();
+        return text || fb;
     }
 
     function parseTaskDropPayload(jsEvent, draggedEl, resolveTask) {
@@ -12279,6 +12364,16 @@
         return false;
     }
 
+    function resolveTaskDateDisplayRange(sourceStartKey, sourceCompletionKey, isMilestone = false) {
+        const startSource = String(sourceStartKey || '').trim();
+        const dueSource = String(sourceCompletionKey || '').trim();
+        const hasBothDates = !!startSource && !!dueSource;
+        const startKey = (isMilestone && hasBothDates) ? dueSource : (startSource || dueSource);
+        let endKey = dueSource || startSource || startKey;
+        if (startKey && endKey && startKey > endKey) endKey = startKey;
+        return { startKey, endKey };
+    }
+
     function buildEventsFromTaskDates(items, settings, options = {}) {
         if (!settings.showTaskDates) return [];
         const scheduleTaskDaySet = (options && options.scheduleTaskDaySet instanceof Set)
@@ -12291,11 +12386,15 @@
             const sourceTaskId = String(it?.sourceTaskId || it?.recurringSourceTaskId || '').trim();
             const actionTaskId = sourceTaskId || taskId;
             const title = String(it?.title || '').trim() || '任务';
-            const startKey = String(it?.start || '').trim();
-            const endExKey = String(it?.endExclusive || '').trim();
             const sourceStartKey = String(it?.sourceStart || '').trim();
             const sourceCompletionKey = String(it?.sourceCompletion || '').trim();
             const isMilestone = it?.milestone === true;
+            const displayRange = (sourceStartKey || sourceCompletionKey)
+                ? resolveTaskDateDisplayRange(sourceStartKey, sourceCompletionKey, isMilestone)
+                : { startKey: String(it?.start || '').trim(), endKey: shiftDateKey(String(it?.endExclusive || '').trim(), -1) };
+            const startKey = displayRange.startKey || String(it?.start || '').trim();
+            const endKey = displayRange.endKey || startKey;
+            const endExKey = endKey ? shiftDateKey(endKey, 1) : String(it?.endExclusive || '').trim();
             const isReadOnlyInstance = it?.isRecurringInstanceReadOnly === true || it?.isRecurringInstance === true;
             const calendarId = String(it?.calendarId || 'default').trim() || 'default';
             const docId = String(it?.docId || it?.rootId || it?.root_id || '').trim();
@@ -12536,32 +12635,41 @@
             || resolveTaskDisplayTitleForDrag(taskLike, '')
             || fallbackEvent?.title
             || ''
-        ).trim() || '任务';
+        ).trim();
         return {
-            title,
+            title: normalizeCalendarTaskTitleText(title, '任务'),
             docId,
             milestone,
             calendarId: nonDefaultCalendarId || fallbackCalendarId || 'default',
         };
     }
 
-    function buildTaskDateEventFromDateFollowPatch(taskId, patch, calendar, settings, fallbackEvent = null) {
+    function buildTaskDatePatchScheduleTaskDaySet(calendar, settings, scheduleList = null) {
+        const cal = calendar || null;
+        const range = __tmGetCalendarVisibleRange(cal);
+        if (!range) return null;
+        const viewType = String(cal?.view?.type || '').trim();
+        const rangeSpanDays = Math.max(0, Math.round((range.end.getTime() - range.start.getTime()) / 86400000));
+        const shouldApplyMonthTaskDateDedupe = rangeSpanDays >= 27 || viewType === 'dayGridMonth';
+        const isTimeGridRange = isTimeGridViewType(viewType);
+        if (!shouldApplyMonthTaskDateDedupe && !(isTimeGridRange && settings.hideScheduledTaskDatesInAllDay)) return null;
+        const list = Array.isArray(scheduleList)
+            ? scheduleList
+            : (Array.isArray(state.scheduleCache?.list) ? state.scheduleCache.list : []);
+        return buildScheduleTaskDayKeySet(list, range.start, range.end);
+    }
+
+    function buildTaskDateEventFromDateFollowPatch(taskId, patch, calendar, settings, fallbackEvent = null, options = {}) {
         const tid = String(taskId || '').trim();
         const p = (patch && typeof patch === 'object') ? patch : {};
+        const opt = (options && typeof options === 'object') ? options : {};
         const fallbackExt = fallbackEvent?.extendedProps || {};
         const hasPatchStart = Object.prototype.hasOwnProperty.call(p, 'startDate');
         const hasPatchCompletion = Object.prototype.hasOwnProperty.call(p, 'completionTime');
         const sourceStartKey = String(hasPatchStart ? p.startDate : (fallbackExt.__tmTaskDateSourceStartKey || '')).trim();
         const sourceCompletionKey = String(hasPatchCompletion ? p.completionTime : (fallbackExt.__tmTaskDateSourceCompletionKey || '')).trim();
         const meta = resolveTaskDateLocalEventMeta(tid, fallbackEvent);
-        const hasBothDates = !!sourceStartKey && !!sourceCompletionKey;
-        let startKey = (meta.milestone && hasBothDates) ? sourceCompletionKey : (sourceStartKey || sourceCompletionKey);
-        let endKey = sourceCompletionKey || sourceStartKey || startKey;
-        if (startKey && endKey && startKey > endKey) {
-            const tmp = startKey;
-            startKey = endKey;
-            endKey = tmp;
-        }
+        const { startKey, endKey } = resolveTaskDateDisplayRange(sourceStartKey, sourceCompletionKey, meta.milestone);
         if (!tid || !startKey || !endKey) return null;
         const cal = calendar || null;
         const range = __tmGetCalendarVisibleRange(cal);
@@ -12580,7 +12688,9 @@
             milestone: meta.milestone,
             calendarId: meta.calendarId,
             docId: meta.docId,
-        }], settings, { scheduleTaskDaySet: null });
+        }], settings, {
+            scheduleTaskDaySet: buildTaskDatePatchScheduleTaskDaySet(cal, settings, opt.scheduleList),
+        });
         return events.find((item) => String(item?.id || '').trim() === `taskdate:${tid}`) || null;
     }
 
@@ -12591,6 +12701,7 @@
         const allowAdd = opt.allowAdd !== false;
         const syncLayout = opt.syncLayout !== false;
         const skipEvent = opt.skipEvent || null;
+        const scheduleList = Array.isArray(opt.scheduleList) ? opt.scheduleList : null;
         const settings = getSettings();
         const targets = [];
         if (state.calendar) targets.push(state.calendar);
@@ -12599,7 +12710,7 @@
         targets.forEach((cal) => {
             const eventId = `taskdate:${tid}`;
             const existing = cal?.getEventById?.(eventId) || null;
-            const nextEvent = buildTaskDateEventFromDateFollowPatch(tid, patch, cal, settings, existing);
+            const nextEvent = buildTaskDateEventFromDateFollowPatch(tid, patch, cal, settings, existing, { scheduleList });
             try {
                 if (existing && skipEvent && existing === skipEvent) {
                     touched = true;
@@ -13028,6 +13139,7 @@
 
     function shouldCreateScheduleFromTaskDateDrop(arg) {
         const eventApi = arg?.event;
+        if (eventApi?.allDay === true) return false;
         const start = eventApi?.start instanceof Date ? eventApi.start : null;
         if (!(start instanceof Date) || Number.isNaN(start.getTime())) return false;
         const end0 = eventApi?.end instanceof Date ? eventApi.end : null;
@@ -15877,15 +15989,7 @@
                     const rangeSpanDays = (Number.isFinite(startMs) && Number.isFinite(endMs))
                         ? Math.max(0, Math.round((endMs - startMs) / 86400000))
                         : 0;
-                    const activeViewType = String((calendar && calendar.view && calendar.view.type) || '').trim();
-                    const fallbackViewType = String(state._lastViewType || preferredInitialView || 'timeGridWeek').trim();
-                    const viewType = activeViewType || fallbackViewType || 'timeGridWeek';
-                    const isTimeGridRange = isTimeGridViewType(viewType);
-                    const isMonthRange = rangeSpanDays >= 27;
-                    const shouldApplyMonthTaskDateDedupe = isMonthRange
-                        || String(viewType || '').trim() === 'dayGridMonth'
-                        || activeViewType === 'dayGridMonth'
-                        || fallbackViewType === 'dayGridMonth';
+                    const viewType = inferMainCalendarEventSourceViewType(calendar, info, state._lastViewType || preferredInitialView || 'timeGridWeek');
                     const settings = getSettings();
                     const tomatoKey = [
                         String(viewType || ''),
@@ -15998,9 +16102,7 @@
                     events: async (info, success, failure) => {
                         try {
                             const settings = getSettings();
-                            const activeViewType = String((calendar && calendar.view && calendar.view.type) || '').trim();
-                            const fallbackViewType = String(state._lastViewType || preferredInitialView || 'timeGridWeek').trim();
-                            const viewType = activeViewType || fallbackViewType || 'timeGridWeek';
+                            const viewType = inferMainCalendarEventSourceViewType(calendar, info, state._lastViewType || preferredInitialView || 'timeGridWeek');
                             const events = await __tmBuildTaskDateSourceEvents(info.start, info.end, settings, viewType);
                             __tmUpdateMainCalendarStatus({
                                 taskDates: Array.isArray(events) ? events.length : 0,
@@ -17055,6 +17157,10 @@
             state.mobileDragCloseTimer = null;
         }
         try { hideFloatingMiniCalendar(); } catch (e) {}
+        if (state.scheduleContextMenuCloseHandler) {
+            try { state.scheduleContextMenuCloseHandler(); } catch (e) {}
+            state.scheduleContextMenuCloseHandler = null;
+        }
         state.taskListEl = null;
         state.taskPageHost = null;
         state.taskPageHtml = '';
@@ -17803,6 +17909,10 @@
         if (!scheduleId) return false;
         try { event?.preventDefault?.(); } catch (e) {}
         try { event?.stopPropagation?.(); } catch (e) {}
+        if (state.scheduleContextMenuCloseHandler) {
+            try { state.scheduleContextMenuCloseHandler(); } catch (e) {}
+            state.scheduleContextMenuCloseHandler = null;
+        }
         const existing = document.getElementById('tm-calendar-schedule-context-menu');
         if (existing) {
             try { existing.remove(); } catch (e) {}
@@ -17826,7 +17936,9 @@
             try { menu.remove(); } catch (e) {}
             try { document.removeEventListener('click', close, true); } catch (e) {}
             try { document.removeEventListener('contextmenu', close, true); } catch (e) {}
+            if (state.scheduleContextMenuCloseHandler === close) state.scheduleContextMenuCloseHandler = null;
         };
+        state.scheduleContextMenuCloseHandler = close;
         const createItem = (label, onClick, danger = false) => {
             const item = document.createElement('button');
             item.type = 'button';

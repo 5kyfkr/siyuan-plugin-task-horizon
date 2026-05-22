@@ -108,6 +108,32 @@
             if (ats !== bts) return ats - bts;
             return getTaskOrder(String(a?.id || '')) - getTaskOrder(String(b?.id || ''));
         };
+        const activeSortRuleForRender = (() => {
+            try {
+                if (typeof __tmGetCurrentRule === 'function') return __tmGetCurrentRule();
+            } catch (e) {}
+            return state.currentRule
+                ? (Array.isArray(state.filterRules) ? state.filterRules.find((rule) => rule?.id === state.currentRule) : null)
+                : null;
+        })();
+        const hasExplicitSortForRender = __tmRuleHasExplicitSort(activeSortRuleForRender);
+        const ruleSortRuntimeForRender = {
+            fieldInfoCache: new Map(),
+            valueMemo: new WeakMap(),
+            timeSortMemo: new Map(),
+        };
+        const sortRenderGroupItems = (items, fallbackCompare = null) => {
+            const list = Array.isArray(items) ? items : [];
+            if (list.length <= 1) return list;
+            if (hasExplicitSortForRender) {
+                const sorted = RuleManager.applyRuleSort(list, activeSortRuleForRender, ruleSortRuntimeForRender);
+                list.splice(0, list.length, ...sorted);
+                return list;
+            }
+            if (pinWithinGroups) return __tmSortPinnedTasksFirst(list, fallbackCompare);
+            if (typeof fallbackCompare === 'function') list.sort(fallbackCompare);
+            return list;
+        };
         const buildTimeGroupLabelHtml = (label, diffDays) => {
             const safeLabel = esc(String(label || '').trim());
             const days = Number(diffDays);
@@ -229,7 +255,8 @@
                     ? `background-image: linear-gradient(90deg, ${progressBarColor} ${progressPercent}%, transparent ${progressPercent}%);background-repeat:no-repeat;background-size:100% 3px;background-position:left bottom;`
                     : `background-image: linear-gradient(90deg, ${progressBarColor} ${progressPercent}%, transparent ${progressPercent}%);background-repeat:no-repeat;`)
                 : '';
-            const renderedContent = hasContentCol ? API.renderTaskContentHtml(task.markdown, content) : '';
+            const globalCollectIconHtml = hasContentCol ? __tmRenderGlobalCollectDocTaskInlineIcon(task) : '';
+            const renderedContent = hasContentCol ? `${API.renderTaskContentHtml(task.markdown, content)}${globalCollectIconHtml}` : '';
             const contentTooltip = hasContentCol
                 ? __tmBuildTooltipAttrs(String(content || '').trim() || '(无内容)', { side: 'bottom', ariaLabel: false })
                 : '';
@@ -606,8 +633,7 @@
                 if (!isCollapsed) {
                     currentGroupBg = enableGroupBg ? __tmGroupBgFromLabelColor(color, isDark) : '';
                     const prefer = !!SettingsStore.data.groupSortByBestSubtaskTimeInTimeQuadrant;
-                    if (pinWithinGroups) __tmSortPinnedTasksFirst(group.items, prefer ? compareByTimePriority : null);
-                    else if (prefer) group.items.sort(compareByTimePriority);
+                    sortRenderGroupItems(group.items, prefer ? compareByTimePriority : null);
                     group.items.forEach(task => {
                         if (!hasTaskRowBudget()) return;
                         allRows.push(...renderTaskTree(task, 0));
@@ -632,7 +658,7 @@
                 const activeDocRootTasks = docNormal.filter((task) => !__tmIsTaskDoneForTailGroup(task));
                 if (activeDocRootTasks.length === 0) return;
                 const docTasks = activeDocRootTasks;
-                const renderDocTasks = pinWithinGroups ? __tmSortPinnedTasksFirst(activeDocRootTasks.slice()) : activeDocRootTasks;
+                const renderDocTasks = sortRenderGroupItems(activeDocRootTasks.slice());
 
                 // 渲染文档标题（支持折叠）
                 const docName = docEntry.name || '未知文档';
@@ -677,7 +703,7 @@
                             const h2LabelColor = __tmGetHeadingSubgroupLabelColor(labelColor, isDark);
                             allRows.push(`<tr class="tm-group-row" data-group-kind="h2" data-group-key="${esc(h2Key)}"><td colspan="${colCount}" onclick="tmToggleGroupCollapse('${h2Key}', event)" style="cursor:pointer;background:var(--tm-header-bg);font-weight:bold;color:var(--tm-text-color);"><div class="tm-group-sticky" style="padding-left:2ch;">${toggleH2}<span class="tm-group-label" style="color:${h2LabelColor};">${__tmRenderHeadingLevelIconLabel(g.label || '', SettingsStore.data.taskHeadingLevel || 'h2')}</span><span class="tm-badge tm-badge--count">${Array.isArray(items) ? items.length : 0}</span>${createBtnHtml}</div></td></tr>`);
                             if (!h2Collapsed) {
-                                const renderItems = pinWithinGroups ? __tmSortPinnedTasksFirst(items.slice()) : items;
+                                const renderItems = sortRenderGroupItems(items.slice());
                                 renderItems.forEach(task => {
                                     if (!hasTaskRowBudget()) return;
                                     allRows.push(...renderTaskTree(task, 0));
@@ -745,10 +771,8 @@
                     currentGroupBg = enableGroupBg
                         ? (group.key === 'pending' ? __tmGetPendingTimeGroupTaskBg(isDark) : __tmGroupBgFromLabelColor(labelColor, isDark))
                         : '';
-                    // 组内任务按照全局顺序排列
                     const prefer = !!SettingsStore.data.groupSortByBestSubtaskTimeInTimeQuadrant;
-                    if (pinWithinGroups) __tmSortPinnedTasksFirst(group.items, prefer ? compareByTimePriority : null);
-                    else if (prefer) group.items.sort(compareByTimePriority);
+                    sortRenderGroupItems(group.items, prefer ? compareByTimePriority : null);
                     group.items.forEach(task => {
                         if (!hasTaskRowBudget()) return;
                         allRows.push(...renderTaskTree(task, 0));
@@ -790,7 +814,7 @@
 
                 // 渲染该组的顶级任务及其子任务（如果未折叠）
                 if (!isCollapsed) {
-                    if (pinWithinGroups) __tmSortPinnedTasksFirst(tasks);
+                    sortRenderGroupItems(tasks);
                     // 按任务名分组时，每个任务使用自己文档的颜色
                     tasks.forEach(task => {
                         if (!hasTaskRowBudget()) return;
@@ -1295,7 +1319,7 @@ return finish(false, 'noop');
                         paths[index] = __tmNormalizeTaskAttachmentPath(rawValue);
                         return __tmNormalizeTaskAttachmentPaths(paths);
                     })();
-                    __tmApplyTaskAttachmentPathsToTask(task, nextPaths);
+                    __tmApplyTaskAttachmentPathsToTask(task, nextPaths, { attrsLoaded: true });
                     metaPatch = { attachments: nextPaths };
                     break;
                 }
@@ -1733,17 +1757,23 @@ return finish(false, 'noop');
         let kramdown = '';
         try { kramdown = await API.getBlockKramdown(tid); } catch (e) { kramdown = ''; }
         if (!kramdown) return false;
-        const statusRegex = /^(\s*(?:[\*\-]|\d+\.)\s*\[)([ xX])(\])/;
-        const fallbackRegex = /(\[)([ xX])(\])/;
+        const statusRegex = /^(\s*(?:[\*\-]|\d+\.)\s*\[)([^\]])(\])/;
+        const fallbackRegex = /(\[)([^\]])(\])/;
         let nextMd = '';
+        let wasDone = false;
         if (statusRegex.test(kramdown)) {
+            const match = kramdown.match(statusRegex);
+            wasDone = String(match?.[2] || '') !== ' ';
             nextMd = kramdown.replace(statusRegex, `$1${targetDone ? 'x' : ' '}$3`);
         } else if (fallbackRegex.test(kramdown)) {
+            const match = kramdown.match(fallbackRegex);
+            wasDone = String(match?.[2] || '') !== ' ';
             nextMd = kramdown.replace(fallbackRegex, `$1${targetDone ? 'x' : ' '}$3`);
         } else {
             return false;
         }
-        if (nextMd === kramdown) return true;
+        const changedToDone = targetDone && !wasDone;
+        if (nextMd === kramdown) return { ok: true, changed: false, changedToDone };
         try {
             try {
                 const task0 = globalThis.__tmRuntimeState?.getTaskById?.(tid) || state.flatTasks?.[tid] || state.pendingInsertedTasks?.[tid] || null;
@@ -1755,7 +1785,7 @@ return finish(false, 'noop');
                 id: tid
             });
             if (!(res && res.code === 0)) return false;
-            if (targetDone) {
+            if (changedToDone) {
                 try {
                     await __tmPersistMetaAndAttrsKernel(tid, __tmBuildTaskCompleteAtPatch(), {
                         touchMetaStore: false,
@@ -1763,7 +1793,7 @@ return finish(false, 'noop');
                     });
                 } catch (e) {}
             }
-            return true;
+            return { ok: true, changed: true, changedToDone };
         } catch (e) {
             return false;
         }
@@ -1885,13 +1915,19 @@ return finish(false, 'noop');
             return;
         }
         const statusPatch = __tmBuildCheckboxStatusPatch(task, targetDone, opts.statusPatch);
-        const completeAtPatch = targetDone ? __tmBuildTaskCompleteAtPatch() : null;
+        const taskWasDone = Object.prototype.hasOwnProperty.call(opts, 'previousDone')
+            ? !!opts.previousDone
+            : !!(task?.done);
+        const shouldStampTaskCompleteAt = targetDone && !taskWasDone;
+        const completeAtPatch = shouldStampTaskCompleteAt ? __tmBuildTaskCompleteAtPatch() : null;
         const touchPatch = {
             ...((statusPatch && typeof statusPatch === 'object') ? statusPatch : {}),
             ...((completeAtPatch && typeof completeAtPatch === 'object') ? completeAtPatch : {}),
         };
         if (!task) {
-            const ok = await __tmSetDoneByIdStateless(id, done);
+            const statelessResult = await __tmSetDoneByIdStateless(id, done);
+            const ok = statelessResult === true || !!statelessResult?.ok;
+            const statelessChangedToDone = statelessResult === true ? targetDone : statelessResult?.changedToDone === true;
             if (ok) {
                 if (statusPatch && Object.keys(statusPatch).length > 0) {
                     try {
@@ -1901,12 +1937,12 @@ return finish(false, 'noop');
                         });
                         MetaStore.set(String(id || '').trim(), {
                             ...statusPatch,
-                            ...((targetDone && completeAtPatch) ? completeAtPatch : {}),
+                            ...((statelessChangedToDone && completeAtPatch) ? completeAtPatch : {}),
                         });
                     } catch (statusErr) {
                         try { console.error('[完成状态] 状态联动保存失败:', statusErr); } catch (e) {}
                     }
-                } else if (targetDone && completeAtPatch) {
+                } else if (statelessChangedToDone && completeAtPatch) {
                     try { MetaStore.set(String(id || '').trim(), completeAtPatch); } catch (e) {}
                 }
                 try {
@@ -1923,9 +1959,10 @@ return finish(false, 'noop');
                 if (targetDone && opts.force !== true) __tmQueueTaskDoneDelight(id, { done: true, suppressHint: opts.suppressHint, source: opts.source });
                 if (targetDone) {
                     try {
+                        const completedAt = __tmNowInChinaTimezoneIso();
                         __tmScheduleRecurringTaskAdvanceAfterCompletion(id, {
                             source: opts.source,
-                            completedAt: __tmNowInChinaTimezoneIso(),
+                            completedAt,
                             scheduleId: String(opts.scheduleId || '').trim(),
                         });
                     } catch (e) {}
@@ -2316,9 +2353,10 @@ return finish(false, 'noop');
             }
             if (actualDone) {
                 try {
+                    const completedAt = __tmNowInChinaTimezoneIso();
                     __tmScheduleRecurringTaskAdvanceAfterCompletion(id, {
                         source: opts.source,
-                        completedAt: __tmNowInChinaTimezoneIso(),
+                        completedAt,
                         scheduleId: String(opts.scheduleId || '').trim(),
                     });
                 } catch (e) {}
@@ -9233,6 +9271,7 @@ hint(`❌ 操作失败: ${e.message}`, 'error');
                     else __tmSortTaskTreeBySiblingRankMap(rootTasks, siblingOrderRanks);
                     calcLevel(rootTasks, 0);
                     __tmAssignDocSeqByTree(rootTasks, 0);
+                    try { __tmMergeLocalTaskPatchIntoTaskTree([{ tasks: rootTasks }]); } catch (e) {}
 
                     // 添加到任务树
                     if (rawTasks.length > 0 || state.selectedDocIds.includes(docId) || otherBlockDocIdSet.has(docId) || (quickAddDocId && docId === quickAddDocId)) {

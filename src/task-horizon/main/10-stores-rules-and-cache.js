@@ -118,6 +118,7 @@
     const __TM_CUSTOM_FIELD_ATTR_PREFIX = 'custom-tm-';
     const __TM_CUSTOM_FIELD_COLUMN_PREFIX = 'cf:';
     const __TM_TASK_ATTACHMENT_ATTR_PREFIX = 'custom-data-assets-th-';
+    const __TM_TASK_ATTACHMENT_META_ATTR = 'custom-data-assets-th-meta';
     const __TM_TASK_ATTACHMENT_BLOCK_PREFIX = 'block:';
     const __TM_TASK_ATTACHMENT_BLOCK_ID_PATTERN = /^[0-9]{14}-[A-Za-z0-9]+$/;
     const __TM_TASK_ATTACHMENT_DETAIL_COLLAPSE_COUNT = 6;
@@ -342,6 +343,18 @@
         return __tmGetTaskAttachmentAttrIndex(key) >= 0;
     }
 
+    function __tmIsTaskAttachmentMetaAttrKey(key) {
+        return String(key || '').trim() === __TM_TASK_ATTACHMENT_META_ATTR;
+    }
+
+    function __tmHasTaskAttachmentAttrSnapshot(source) {
+        const target = (source && typeof source === 'object') ? source : null;
+        if (!target) return false;
+        return target.__attachmentAttrsLoaded === true
+            || target.attachmentAttrsLoaded === true
+            || target.attachment_attrs_loaded === true;
+    }
+
     function __tmNormalizeTaskAttachmentBlockId(value, options = {}) {
         const text = String(value ?? '').trim();
         if (!text) return '';
@@ -447,9 +460,90 @@
         return meta;
     }
 
+    function __tmStripTaskAttachmentLocalPathWrapper(value) {
+        let text = String(value ?? '').trim();
+        if (!text) return '';
+        const wrapped = text.match(/^[<"']([\s\S]+)[>"']$/);
+        if (wrapped) text = String(wrapped[1] || '').trim();
+        return text;
+    }
+
+    function __tmEncodeTaskAttachmentLocalUriPath(path) {
+        return String(path || '').split('/').map((part, index) => {
+            if (index === 0 && /^[A-Za-z]:$/.test(part)) return part;
+            try { return encodeURIComponent(part); } catch (e) { return part; }
+        }).join('/');
+    }
+
+    function __tmDecodeTaskAttachmentLocalUriPath(path) {
+        const text = String(path || '');
+        try { return decodeURIComponent(text); } catch (e) {}
+        try { return decodeURI(text); } catch (e) {}
+        return text;
+    }
+
+    function __tmBuildTaskAttachmentLocalFileUri(systemPath) {
+        let text = __tmStripTaskAttachmentLocalPathWrapper(systemPath).replace(/\\/g, '/');
+        if (!text) return '';
+        while (text.length > 3 && text.endsWith('/')) text = text.slice(0, -1);
+        const driveMatch = text.match(/^([A-Za-z]):(?:\/(.*))?$/);
+        if (driveMatch) {
+            const drive = String(driveMatch[1] || '').toUpperCase();
+            const rest = String(driveMatch[2] || '');
+            return `file:///${drive}:/${rest ? __tmEncodeTaskAttachmentLocalUriPath(rest) : ''}`;
+        }
+        const uncMatch = text.match(/^\/\/([^/]+)\/(.+)$/);
+        if (uncMatch) {
+            const host = String(uncMatch[1] || '').trim();
+            const rest = String(uncMatch[2] || '').trim();
+            if (!host || !rest) return '';
+            return `file://${host}/${__tmEncodeTaskAttachmentLocalUriPath(rest)}`;
+        }
+        return '';
+    }
+
+    function __tmNormalizeTaskAttachmentLocalPath(value) {
+        const raw = __tmStripTaskAttachmentLocalPathWrapper(value);
+        if (!raw) return '';
+        if (/^file:/i.test(raw)) {
+            let text = raw.replace(/\\/g, '/');
+            if (/^file:\/\/[A-Za-z]:\//i.test(text)) text = text.replace(/^file:\/\//i, 'file:///');
+            try {
+                const url = new URL(text);
+                if (String(url.protocol || '').toLowerCase() !== 'file:') return '';
+                const host = String(url.hostname || '').trim();
+                const pathname = __tmDecodeTaskAttachmentLocalUriPath(url.pathname || '');
+                if (/^[A-Za-z]:$/i.test(host)) {
+                    return __tmBuildTaskAttachmentLocalFileUri(`${host}/${pathname.replace(/^\/+/, '')}`);
+                }
+                if (host) return __tmBuildTaskAttachmentLocalFileUri(`//${host}${pathname}`);
+                return __tmBuildTaskAttachmentLocalFileUri(pathname.replace(/^\/([A-Za-z]:\/)/, '$1'));
+            } catch (e) {
+                const body = text.replace(/^file:(?:\/\/)?/i, '');
+                return __tmBuildTaskAttachmentLocalFileUri(__tmDecodeTaskAttachmentLocalUriPath(body).replace(/^\/([A-Za-z]:\/)/, '$1'));
+            }
+        }
+        return __tmBuildTaskAttachmentLocalFileUri(raw);
+    }
+
+    function __tmIsTaskAttachmentLocalPath(value) {
+        return !!__tmNormalizeTaskAttachmentLocalPath(value);
+    }
+
+    function __tmGetTaskAttachmentLocalDisplayPath(value) {
+        const normalized = __tmNormalizeTaskAttachmentLocalPath(value);
+        if (!normalized) return '';
+        const body = normalized.replace(/^file:/i, '');
+        if (/^\/\/\/[A-Za-z]:\//.test(body)) return __tmDecodeTaskAttachmentLocalUriPath(body.slice(3)).replace(/\//g, '\\');
+        if (/^\/\/[^/]+\/.+/.test(body)) return `\\\\${__tmDecodeTaskAttachmentLocalUriPath(body.slice(2)).replace(/\//g, '\\')}`;
+        return normalized;
+    }
+
     function __tmNormalizeTaskAttachmentPath(value) {
         const blockId = __tmNormalizeTaskAttachmentBlockId(value);
         if (blockId) return __tmBuildTaskAttachmentBlockToken(blockId);
+        const localPath = __tmNormalizeTaskAttachmentLocalPath(value);
+        if (localPath) return localPath;
         let text = String(value ?? '').trim().replace(/\\/g, '/');
         if (!text) return '';
         text = text.replace(/^\/+/, '');
@@ -462,6 +556,12 @@
         const blockId = __tmExtractTaskAttachmentBlockId(path);
         if (blockId) {
             return __tmGetTaskAttachmentBlockMeta(blockId)?.name || `块链接 ${blockId.slice(0, 8)}`;
+        }
+        const localDisplayPath = __tmGetTaskAttachmentLocalDisplayPath(path);
+        if (localDisplayPath) {
+            const clean = localDisplayPath.split(/[?#]/)[0];
+            const segments = clean.split(/[\\/]+/).filter(Boolean);
+            return segments[segments.length - 1] || clean;
         }
         const normalized = __tmNormalizeTaskAttachmentPath(path);
         if (!normalized) return '';
@@ -503,8 +603,108 @@
         return out;
     }
 
+    function __tmNormalizeTaskAttachmentAddedAt(value) {
+        if (value == null || value === '') return 0;
+        const numberValue = Number(value);
+        if (Number.isFinite(numberValue) && numberValue > 0) return Math.round(numberValue);
+        const parsed = Date.parse(String(value || '').trim());
+        return Number.isFinite(parsed) && parsed > 0 ? Math.round(parsed) : 0;
+    }
+
+    function __tmNormalizeTaskAttachmentMetaMap(value) {
+        let source = value;
+        if (typeof source === 'string') {
+            const raw = String(source || '').trim();
+            if (!raw) return new Map();
+            try {
+                source = JSON.parse(raw);
+            } catch (e) {
+                return new Map();
+            }
+        }
+        if (source instanceof Map) {
+            source = Array.from(source.values());
+        } else if (source && typeof source === 'object' && !Array.isArray(source)) {
+            source = Array.isArray(source.items)
+                ? source.items
+                : Object.entries(source).map(([path, meta]) => ({
+                    path,
+                    ...((meta && typeof meta === 'object') ? meta : { addedAt: meta }),
+                }));
+        }
+        const list = Array.isArray(source) ? source : [];
+        const out = new Map();
+        list.forEach((item) => {
+            const rawPath = typeof item === 'string'
+                ? item
+                : (item?.path || item?.assetPath || item?.value || item?.token || '');
+            const path = __tmNormalizeTaskAttachmentPath(rawPath);
+            if (!path) return;
+            const addedAt = __tmNormalizeTaskAttachmentAddedAt(
+                (item && typeof item === 'object') ? (item.addedAt ?? item.added_at ?? item.ts ?? item.time) : 0
+            );
+            if (addedAt > 0) out.set(path, { path, addedAt });
+        });
+        return out;
+    }
+
+    function __tmGetTaskAttachmentMetaMap(source) {
+        const target = (source && typeof source === 'object') ? source : null;
+        if (!target) return new Map();
+        const out = new Map();
+        [
+            target[__TM_TASK_ATTACHMENT_META_ATTR],
+            target.attachment_meta,
+            target.attachmentMeta,
+            target.__attachmentMeta,
+        ].forEach((candidate) => {
+            const map = __tmNormalizeTaskAttachmentMetaMap(candidate);
+            map.forEach((item, path) => {
+                if (path && item?.addedAt > 0) out.set(path, item);
+            });
+        });
+        return out;
+    }
+
+    function __tmGetTaskAttachmentAddedAt(task, path) {
+        const normalizedPath = __tmNormalizeTaskAttachmentPath(path);
+        if (!normalizedPath) return 0;
+        return Number(__tmGetTaskAttachmentMetaMap(task).get(normalizedPath)?.addedAt || 0) || 0;
+    }
+
+    function __tmBuildTaskAttachmentMetaForPaths(nextPaths, currentPaths = [], currentMeta = null, options = {}) {
+        const normalizedNext = __tmNormalizeTaskAttachmentPaths(nextPaths);
+        const normalizedCurrent = __tmNormalizeTaskAttachmentPaths(currentPaths);
+        const currentSet = new Set(normalizedCurrent);
+        const metaMap = __tmNormalizeTaskAttachmentMetaMap(currentMeta);
+        const now = Math.max(1, Math.round(Number(options?.now) || Date.now()));
+        const out = [];
+        normalizedNext.forEach((path) => {
+            const existing = metaMap.get(path);
+            const addedAt = __tmNormalizeTaskAttachmentAddedAt(existing?.addedAt);
+            if (addedAt > 0) {
+                out.push({ path, addedAt });
+                return;
+            }
+            if (!currentSet.has(path)) out.push({ path, addedAt: now });
+        });
+        return out;
+    }
+
+    function __tmSerializeTaskAttachmentMeta(value) {
+        const map = __tmNormalizeTaskAttachmentMetaMap(value);
+        const items = Array.from(map.values())
+            .map((item) => ({
+                path: __tmNormalizeTaskAttachmentPath(item.path),
+                addedAt: __tmNormalizeTaskAttachmentAddedAt(item.addedAt),
+            }))
+            .filter((item) => item.path && item.addedAt > 0);
+        return items.length ? JSON.stringify({ version: 1, items }) : '';
+    }
+
     function __tmGetTaskAttachmentKind(path) {
         if (__tmIsTaskAttachmentBlockRef(path)) return 'block-ref';
+        if (__tmIsTaskAttachmentLocalPath(path)) return 'local-path';
         const normalized = __tmNormalizeTaskAttachmentPath(path);
         const clean = normalized.split(/[?#]/)[0];
         const ext = clean.includes('.') ? clean.slice(clean.lastIndexOf('.') + 1).toLowerCase() : '';
@@ -544,9 +744,11 @@
                 };
             }
             const kind = __tmGetTaskAttachmentKind(path);
-            const clean = path.split(/[?#]/)[0];
+            const isLocalPath = kind === 'local-path';
+            const displayPath = isLocalPath ? (__tmGetTaskAttachmentLocalDisplayPath(path) || path) : path;
+            const clean = displayPath.split(/[?#]/)[0];
             const ext = clean.includes('.') ? clean.slice(clean.lastIndexOf('.') + 1).toLowerCase() : '';
-            const label = ext ? ext.toUpperCase().slice(0, 4) : 'FILE';
+            const label = isLocalPath ? 'PATH' : (ext ? ext.toUpperCase().slice(0, 4) : 'FILE');
             const name = __tmGetTaskAttachmentDisplayName(path);
             return {
                 index,
@@ -555,10 +757,11 @@
                 ext,
                 label,
                 kind,
-                displayPath: path,
-                tooltip: [name, path].filter(Boolean).join('\n'),
+                displayPath,
+                tooltip: [name, displayPath].filter(Boolean).join('\n'),
                 isBlockRef: false,
                 isDocBlock: false,
+                isLocalPath,
                 isImage: kind === 'image',
                 isAudio: kind === 'audio',
                 isVideo: kind === 'video',
@@ -573,12 +776,28 @@
         if (!target) return target;
         const opts = (options && typeof options === 'object') ? options : {};
         const paths = __tmNormalizeTaskAttachmentPaths(value);
+        const explicitMeta = Object.prototype.hasOwnProperty.call(opts, 'meta')
+            ? opts.meta
+            : (Object.prototype.hasOwnProperty.call(opts, 'attachmentMeta') ? opts.attachmentMeta : null);
+        const meta = explicitMeta != null
+            ? __tmNormalizeTaskAttachmentMetaMap(explicitMeta)
+            : __tmGetTaskAttachmentMetaMap(target);
+        const attrsLoaded = opts.attrsLoaded === true
+            || opts.attrRow === true
+            || opts.fromAttrs === true
+            || __tmHasTaskAttachmentAttrSnapshot(target);
         const slotCount = Math.max(
             paths.length,
             Math.max(0, Math.floor(Number(opts.slotCount) || 0))
         );
         target.__attachmentPaths = paths;
         target.__attachmentAttrSlotCount = slotCount;
+        target.__attachmentAttrsLoaded = attrsLoaded;
+        target.attachmentAttrsLoaded = attrsLoaded;
+        target.attachment_attrs_loaded = attrsLoaded;
+        target.__attachmentMeta = Array.from(meta.values()).filter((item) => paths.includes(item.path));
+        target.attachmentMeta = target.__attachmentMeta.slice();
+        target[__TM_TASK_ATTACHMENT_META_ATTR] = __tmSerializeTaskAttachmentMeta(target.__attachmentMeta);
         target.attachments = __tmBuildTaskAttachmentEntries(paths);
         target.attachmentCount = paths.length;
         return target;
@@ -620,16 +839,26 @@
         return __tmNormalizeTaskAttachmentPaths(indexed.map((item) => source[item.key]));
     }
 
+    function __tmExtractTaskAttachmentMetaFromAttrRow(row) {
+        const source = (row && typeof row === 'object') ? row : {};
+        return __tmNormalizeTaskAttachmentMetaMap(source[__TM_TASK_ATTACHMENT_META_ATTR] || '');
+    }
+
     function __tmBuildTaskAttachmentAttrPayload(nextPaths, currentPaths = [], options = {}) {
         const opts = (options && typeof options === 'object') ? options : {};
         const normalizedNext = __tmNormalizeTaskAttachmentPaths(nextPaths);
         const normalizedCurrent = __tmNormalizeTaskAttachmentPaths(currentPaths);
         const currentSlotCount = Math.max(0, Math.floor(Number(opts.currentSlotCount ?? opts.slotCount) || 0));
+        const currentMeta = opts.currentMeta || opts.previousAttachmentMeta || opts.meta || null;
+        const nextMeta = __tmBuildTaskAttachmentMetaForPaths(normalizedNext, normalizedCurrent, currentMeta, {
+            now: opts.now,
+        });
         const total = Math.max(normalizedNext.length, normalizedCurrent.length, currentSlotCount);
         const attrs = {};
         for (let i = 0; i < total; i += 1) {
             attrs[`${__TM_TASK_ATTACHMENT_ATTR_PREFIX}${i}`] = normalizedNext[i] || '';
         }
+        attrs[__TM_TASK_ATTACHMENT_META_ATTR] = __tmSerializeTaskAttachmentMeta(nextMeta);
         return attrs;
     }
 
@@ -739,6 +968,191 @@
     function __tmBuildTaskSnapshotScopeKey(docIds = [], groupId = 'all') {
         const gid = String(groupId || 'all').trim() || 'all';
         return `${gid}|${__tmNormalizeTaskSnapshotDocIds(docIds).join(',')}`;
+    }
+
+    const __TM_LOCAL_TASK_PATCH_WATERMARK_TTL_MS = 8 * 1000;
+    const __TM_LOCAL_TASK_PATCH_WATERMARK_MAX = 256;
+
+    function __tmNormalizeLocalPatchFieldKey(key) {
+        const raw = String(key || '').trim();
+        if (!raw) return '';
+        const customFieldId = typeof __tmParseCustomFieldColumnKey === 'function'
+            ? __tmParseCustomFieldColumnKey(raw)
+            : '';
+        if (customFieldId) return `customField:${customFieldId}`;
+        if (raw === 'customFieldValues') return raw;
+        const map = {
+            custom_priority: 'priority',
+            'custom-priority': 'priority',
+            custom_duration: 'duration',
+            'custom-duration': 'duration',
+            custom_remark: 'remark',
+            'custom-remark': 'remark',
+            start_date: 'startDate',
+            'custom-start-date': 'startDate',
+            custom_start_date: 'startDate',
+            completion_time: 'completionTime',
+            'custom-completion-time': 'completionTime',
+            custom_completion_time: 'completionTime',
+            task_complete_at: 'taskCompleteAt',
+            custom_time: 'customTime',
+            custom_status: 'customStatus',
+            'custom-status': 'customStatus',
+            custom_pinned: 'pinned',
+            'custom-pinned': 'pinned',
+            'task-complete-at': 'taskCompleteAt',
+            raw_content: 'content',
+        };
+        return map[raw] || raw;
+    }
+
+    function __tmGetPatchFieldKeysForTaskPatch(patch = {}) {
+        const source = (patch && typeof patch === 'object') ? patch : {};
+        const keys = [];
+        Object.keys(source).forEach((key) => {
+            if (key === 'customFieldValues') {
+                keys.push('customFieldValues');
+                const values = (source.customFieldValues && typeof source.customFieldValues === 'object' && !Array.isArray(source.customFieldValues))
+                    ? source.customFieldValues
+                    : {};
+                Object.keys(values).forEach((fieldId) => {
+                    const id = String(fieldId || '').trim();
+                    if (id) keys.push(`customField:${id}`);
+                });
+                return;
+            }
+            const normalized = __tmNormalizeLocalPatchFieldKey(key);
+            if (normalized) keys.push(normalized);
+        });
+        return Array.from(new Set(keys));
+    }
+
+    function __tmPruneLocalTaskPatchWatermarks(now = Date.now()) {
+        const map = state.__tmLocalTaskPatchWatermarks instanceof Map ? state.__tmLocalTaskPatchWatermarks : null;
+        if (!map) return;
+        map.forEach((entry, taskId) => {
+            if (!entry || typeof entry !== 'object' || (now - Number(entry.t || 0)) > __TM_LOCAL_TASK_PATCH_WATERMARK_TTL_MS) {
+                try { map.delete(taskId); } catch (e) {}
+            }
+        });
+        if (map.size <= __TM_LOCAL_TASK_PATCH_WATERMARK_MAX) return;
+        const rows = Array.from(map.entries())
+            .map(([taskId, entry]) => [taskId, Number(entry?.t || 0)])
+            .sort((a, b) => a[1] - b[1]);
+        while (map.size > __TM_LOCAL_TASK_PATCH_WATERMARK_MAX && rows.length) {
+            const row = rows.shift();
+            try { map.delete(row?.[0]); } catch (e) {}
+        }
+    }
+
+    function __tmMarkLocalTaskPatchWatermark(taskId, patch = {}, options = {}) {
+        const tid = String(taskId || '').trim();
+        const keys = __tmGetPatchFieldKeysForTaskPatch(patch);
+        if (!tid || !keys.length) return false;
+        const opts = (options && typeof options === 'object') ? options : {};
+        if (!(state.__tmLocalTaskPatchWatermarks instanceof Map)) state.__tmLocalTaskPatchWatermarks = new Map();
+        const map = state.__tmLocalTaskPatchWatermarks;
+        const now = Date.now();
+        __tmPruneLocalTaskPatchWatermarks(now);
+        const prev = map.get(tid);
+        const fields = new Set(Array.isArray(prev?.fields) ? prev.fields : []);
+        keys.forEach((key) => fields.add(key));
+        map.set(tid, {
+            t: now,
+            fields: Array.from(fields),
+            source: String(opts.source || opts.reason || '').trim(),
+        });
+        return true;
+    }
+
+    function __tmClearLocalTaskPatchWatermark(taskId, patch = {}) {
+        const tid = String(taskId || '').trim();
+        const map = state.__tmLocalTaskPatchWatermarks instanceof Map ? state.__tmLocalTaskPatchWatermarks : null;
+        if (!tid || !map) return false;
+        const keys = __tmGetPatchFieldKeysForTaskPatch(patch);
+        if (!keys.length) {
+            map.delete(tid);
+            return true;
+        }
+        const entry = map.get(tid);
+        if (!entry || !Array.isArray(entry.fields)) return false;
+        const remove = new Set(keys);
+        const fields = entry.fields.filter((key) => !remove.has(key));
+        if (fields.length) map.set(tid, { ...entry, fields, t: Date.now() });
+        else map.delete(tid);
+        return true;
+    }
+
+    function __tmGetLocalTaskPatchWatermark(taskId) {
+        const tid = String(taskId || '').trim();
+        const map = state.__tmLocalTaskPatchWatermarks instanceof Map ? state.__tmLocalTaskPatchWatermarks : null;
+        if (!tid || !map) return null;
+        __tmPruneLocalTaskPatchWatermarks();
+        const entry = map.get(tid);
+        return entry && typeof entry === 'object' ? entry : null;
+    }
+
+    function __tmTaskHasLocalPatchWatermark(taskId) {
+        return !!__tmGetLocalTaskPatchWatermark(taskId);
+    }
+
+    function __tmMergeLocalTaskPatchIntoTask(task) {
+        const target = (task && typeof task === 'object') ? task : null;
+        if (!target) return target;
+        const tid = String(target.id || '').trim();
+        const entry = tid ? __tmGetLocalTaskPatchWatermark(tid) : null;
+        if (!entry) return target;
+        const live = state?.flatTasks?.[tid] || state?.pendingInsertedTasks?.[tid] || null;
+        if (!live || typeof live !== 'object' || live === target) return target;
+        const fields = new Set(Array.isArray(entry.fields) ? entry.fields : []);
+        fields.forEach((field) => {
+            const key = __tmNormalizeLocalPatchFieldKey(field);
+            if (!key) return;
+            if (key.startsWith('customField:')) {
+                const fieldId = key.slice('customField:'.length);
+                if (!fieldId) return;
+                const liveValues = (live.customFieldValues && typeof live.customFieldValues === 'object' && !Array.isArray(live.customFieldValues))
+                    ? live.customFieldValues
+                    : {};
+                if (!Object.prototype.hasOwnProperty.call(liveValues, fieldId)) return;
+                const nextValues = (target.customFieldValues && typeof target.customFieldValues === 'object' && !Array.isArray(target.customFieldValues))
+                    ? { ...target.customFieldValues }
+                    : {};
+                nextValues[fieldId] = liveValues[fieldId];
+                target.customFieldValues = nextValues;
+                return;
+            }
+            if (key === 'customFieldValues') {
+                if (live.customFieldValues && typeof live.customFieldValues === 'object' && !Array.isArray(live.customFieldValues)) {
+                    target.customFieldValues = { ...((target.customFieldValues && typeof target.customFieldValues === 'object' && !Array.isArray(target.customFieldValues)) ? target.customFieldValues : {}), ...live.customFieldValues };
+                }
+                return;
+            }
+            if (!Object.prototype.hasOwnProperty.call(live, key)) return;
+            target[key] = live[key];
+            if (key === 'priority') target.custom_priority = live[key];
+            else if (key === 'duration') target.custom_duration = live[key];
+            else if (key === 'remark') target.custom_remark = live[key];
+            else if (key === 'startDate') target.start_date = live[key];
+            else if (key === 'completionTime') target.completion_time = live[key];
+            else if (key === 'taskCompleteAt') target.task_complete_at = live[key];
+            else if (key === 'customTime') target.custom_time = live[key];
+            else if (key === 'customStatus') target.custom_status = live[key];
+            else if (key === 'pinned') target.custom_pinned = live[key] ? '1' : '';
+        });
+        return target;
+    }
+
+    function __tmMergeLocalTaskPatchIntoTaskTree(taskTree) {
+        const walk = (task) => {
+            if (!task || typeof task !== 'object') return;
+            __tmMergeLocalTaskPatchIntoTask(task);
+            (Array.isArray(task.children) ? task.children : []).forEach(walk);
+        };
+        (Array.isArray(taskTree) ? taskTree : []).forEach((doc) => {
+            (Array.isArray(doc?.tasks) ? doc.tasks : []).forEach(walk);
+        });
+        return taskTree;
     }
 
     function __tmCloneTaskSnapshotValue(value, depth = 0, seen = null) {
@@ -1340,6 +1754,7 @@
                 }
             }
             const tasks = __tmCloneTaskSnapshotValue(cached.tasks, 0) || [];
+            __tmMergeLocalTaskPatchIntoTaskTree([{ tasks }]);
             if (tasks.length || cached.inTaskTree !== false) {
                 taskTree.push({
                     id: docId,
@@ -1356,6 +1771,7 @@
         }
         const flatTasks = __tmBuildFlatTasksFromTaskSnapshotTree(taskTree);
         if (!__tmHasExpectedTaskCountCoverage(docIds, Object.keys(flatTasks).length, opts)) return null;
+        __tmMergeLocalTaskPatchIntoTaskTree(taskTree);
         state.taskTree = __tmSortDocEntriesByPinned(
             taskTree,
             String(opts.groupId || SettingsStore?.data?.currentGroupId || 'all').trim() || 'all'
@@ -1434,6 +1850,7 @@
         }
         const taskTree = __tmCloneTaskSnapshotValue(cached.taskTree, 0) || [];
         if (!taskTree.length) return null;
+        __tmMergeLocalTaskPatchIntoTaskTree(taskTree);
         const flatTasks = __tmBuildFlatTasksFromTaskSnapshotTree(taskTree);
         if (!__tmHasExpectedTaskCountCoverage(docIds, Object.keys(flatTasks).length, opts)) return null;
         state.taskTree = __tmSortDocEntriesByPinned(
@@ -2137,6 +2554,7 @@
         const snap = (snapshot && typeof snapshot === 'object') ? snapshot : null;
         if (!snap || !Array.isArray(snap.taskTree)) return null;
         const taskTree = __tmCloneTaskSnapshotValue(snap.taskTree, 0) || [];
+        __tmMergeLocalTaskPatchIntoTaskTree(taskTree);
         const flatTasks = __tmBuildFlatTasksFromTaskSnapshotTree(taskTree);
         const coverage = __tmGetTaskCountCoverageStatus(snap.docIds || [], Object.keys(flatTasks).length, options);
         if (!coverage.ok) {
@@ -2202,6 +2620,11 @@
         const docId = String(source.root_id || source.docId || doc?.id || '').trim();
         if (!__tmIsLikelyBlockId(docId)) return null;
         const parentTaskId = String(source.parentTaskId || source.parent_task_id || fallbackParentTaskId || '').trim();
+        const attachmentPaths = __tmGetTaskAttachmentPaths(source);
+        const attachmentMeta = Array.from(__tmGetTaskAttachmentMetaMap(source).values());
+        const attachmentCount = Number.isFinite(Number(source.attachmentCount))
+            ? Number(source.attachmentCount)
+            : attachmentPaths.length;
         const effectiveDone = (() => {
             try {
                 return typeof __tmIsTaskDoneEffective === 'function'
@@ -2255,7 +2678,10 @@
             priorityScore: Number.isFinite(Number(source.priorityScore)) ? Number(source.priorityScore) : undefined,
             repeatRule: __tmCompactTaskIndexValue(source.repeatRule || source.repeat_rule, { maxBytes: 4096 }),
             repeatState: __tmCompactTaskIndexValue(source.repeatState || source.repeat_state, { maxBytes: 4096 }),
-            attachmentCount: Number.isFinite(Number(source.attachmentCount)) ? Number(source.attachmentCount) : undefined,
+            attachments: __tmCompactTaskIndexValue(attachmentPaths, { maxBytes: 16384 }),
+            attachmentMeta: __tmCompactTaskIndexValue(attachmentMeta, { maxBytes: 16384 }),
+            attachmentAttrsLoaded: __tmHasTaskAttachmentAttrSnapshot(source) === true,
+            attachmentCount: attachmentCount > 0 ? attachmentCount : undefined,
         };
         Object.keys(out).forEach((key) => {
             const next = __tmCompactTaskIndexValue(out[key]);
@@ -2314,6 +2740,13 @@
         })();
         const markerForMarkdown = String(resolvedMarker || '').trim() || (effectiveDone ? 'X' : ' ');
         const markdown = String(item.markdown || '').trim() || `- [${markerForMarkdown}] ${content}`;
+        const restoredAttachmentMeta = Array.from(__tmNormalizeTaskAttachmentMetaMap(
+            item.attachmentMeta
+            || item.attachment_meta
+            || item[__TM_TASK_ATTACHMENT_META_ATTR]
+            || []
+        ).values());
+        const restoredAttachmentMetaAttr = __tmSerializeTaskAttachmentMeta(restoredAttachmentMeta);
         const task = {
             id,
             root_id: docId,
@@ -2374,6 +2807,12 @@
             repeat_history: __tmCloneTaskSnapshotValue(item.repeatHistory, 0) || [],
             customFieldValues: __tmCloneTaskSnapshotValue(item.customFieldValues, 0) || {},
             attachments: __tmCloneTaskSnapshotValue(item.attachments, 0) || [],
+            attachmentMeta: restoredAttachmentMeta,
+            attachment_meta: restoredAttachmentMeta.slice(),
+            [__TM_TASK_ATTACHMENT_META_ATTR]: restoredAttachmentMetaAttr,
+            __attachmentAttrsLoaded: item.attachmentAttrsLoaded === true,
+            attachmentAttrsLoaded: item.attachmentAttrsLoaded === true,
+            attachment_attrs_loaded: item.attachmentAttrsLoaded === true,
             attachmentCount: Math.max(0, Math.round(Number(item.attachmentCount || 0) || 0)),
             children: [],
         };
@@ -4524,6 +4963,14 @@
                 || isValidValue(task?.[__TM_TASK_REPEAT_HISTORY_ATTR])
                 || (typeof task.repeatHistory === 'string' && isValidValue(task.repeatHistory));
             const dbHasAttachments = __tmGetTaskAttachmentPaths(task).length > 0;
+            const dbHasAttachmentAttrSnapshot = __tmHasTaskAttachmentAttrSnapshot(task);
+            const dbHasAttachmentMeta = __tmGetTaskAttachmentMetaMap(task).size > 0;
+            const metaAttachmentPaths = Object.prototype.hasOwnProperty.call(v, 'attachments')
+                ? __tmNormalizeTaskAttachmentPaths(v.attachments)
+                : [];
+            const dbAttachmentPaths = __tmGetTaskAttachmentPaths(task);
+            const dbAttachmentsMatchMeta = dbAttachmentPaths.length === metaAttachmentPaths.length
+                && dbAttachmentPaths.every((path, index) => path === metaAttachmentPaths[index]);
 
             // 只有当数据库没有有效值时，才使用 MetaStore 的缓存值
             if (!dbHasPriority && 'priority' in v && isValidValue(v.priority)) task.priority = v.priority;
@@ -4541,7 +4988,13 @@
             });
             if (!dbHasRepeatState && Object.prototype.hasOwnProperty.call(v, 'repeatState')) task.repeatState = __tmNormalizeTaskRepeatState(v.repeatState);
             if (!dbHasRepeatHistory && Object.prototype.hasOwnProperty.call(v, 'repeatHistory')) task.repeatHistory = __tmNormalizeTaskRepeatHistory(v.repeatHistory);
-            if (!dbHasAttachments && Object.prototype.hasOwnProperty.call(v, 'attachments')) __tmApplyTaskAttachmentPathsToTask(task, v.attachments);
+            if (!dbHasAttachmentAttrSnapshot && !dbHasAttachments && Object.prototype.hasOwnProperty.call(v, 'attachments')) {
+                __tmApplyTaskAttachmentPathsToTask(task, metaAttachmentPaths, { meta: v.attachmentMeta });
+            } else if (!dbHasAttachmentAttrSnapshot && dbHasAttachments && dbAttachmentsMatchMeta) {
+                __tmApplyTaskAttachmentPathsToTask(task, dbAttachmentPaths, { meta: v.attachmentMeta });
+            } else if (dbHasAttachments && !dbHasAttachmentMeta && Object.prototype.hasOwnProperty.call(v, 'attachmentMeta')) {
+                __tmApplyTaskAttachmentPathsToTask(task, dbAttachmentPaths, { meta: v.attachmentMeta });
+            }
             if (v.customFieldValues && typeof v.customFieldValues === 'object' && !Array.isArray(v.customFieldValues)) {
                 const current = (task.customFieldValues && typeof task.customFieldValues === 'object' && !Array.isArray(task.customFieldValues))
                     ? task.customFieldValues
@@ -4571,6 +5024,10 @@
             if (task.repeatState && typeof task.repeatState === 'object') candidate.repeatState = __tmNormalizeTaskRepeatState(task.repeatState);
             if (Array.isArray(task.repeatHistory) && task.repeatHistory.length) candidate.repeatHistory = __tmNormalizeTaskRepeatHistory(task.repeatHistory);
             if (__tmGetTaskAttachmentPaths(task).length) candidate.attachments = __tmGetTaskAttachmentPaths(task);
+            {
+                const attachmentMeta = Array.from(__tmGetTaskAttachmentMetaMap(task).values());
+                if (attachmentMeta.length) candidate.attachmentMeta = attachmentMeta;
+            }
             if (task.customFieldValues && typeof task.customFieldValues === 'object' && Object.keys(task.customFieldValues).length > 0) {
                 candidate.customFieldValues = { ...task.customFieldValues };
             }
@@ -7902,6 +8359,37 @@
                 }
                 return fieldInfoCache.get(key);
             };
+            const isDurationSortField = (field) => {
+                const raw = String(field || '').trim();
+                return raw === 'duration' || raw === 'custom-duration' || raw === 'custom_duration';
+            };
+            const getTaskDurationSortRaw = (task) => {
+                const source = (task && typeof task === 'object') ? task : {};
+                return [
+                    source.duration,
+                    source.custom_duration,
+                    source['custom-duration'],
+                ]
+                    .map((value) => String(value ?? '').trim())
+                    .find((value) => value !== '') || '';
+            };
+            const parseDurationSortMinutes = (value) => {
+                const raw = String(value ?? '').trim();
+                if (!raw) return 0;
+                if (typeof __tmParseDurationMinutes === 'function') {
+                    const parsed = __tmParseDurationMinutes(raw);
+                    return Number.isFinite(parsed) ? parsed : 0;
+                }
+                const numeric = Number(raw);
+                return Number.isFinite(numeric) ? numeric : 0;
+            };
+            const buildTaskDurationSortKey = (task) => {
+                const raw = getTaskDurationSortRaw(task);
+                return {
+                    has: raw !== '',
+                    minutes: parseDurationSortMinutes(raw),
+                };
+            };
 
             const priorityOrder = { high: 3, medium: 2, low: 1 };
             const statusOptions = __tmGetStatusOptions(Array.isArray(SettingsStore.data.customStatusOptions)
@@ -7915,6 +8403,7 @@
                 const kind = (() => {
                     if (field === 'priority') return 'priority';
                     if (field === 'priorityScore') return 'number';
+                    if (isDurationSortField(field)) return 'duration';
                     if (field === 'docSeq') return 'docSeq';
                     if (field === 'customStatus') return 'customStatus';
                     if (fieldInfo?.customFieldId) return 'customSelect';
@@ -7939,6 +8428,8 @@
                     raw = __tmGetTaskEffectiveCompletionTimeSortValue(task, { field: ctx.field, memo: timeSortMemo });
                 } else if (ctx.field === 'priorityScore') {
                     raw = __tmEnsureTaskPriorityScore(task, { timeInfoMemo: timeSortMemo });
+                } else if (isDurationSortField(ctx.field)) {
+                    raw = buildTaskDurationSortKey(task);
                 } else if (ctx.kind === 'customSelect') {
                     raw = this.getTaskSelectFieldValues(task, ctx.fieldInfo || ctx.field, opts);
                 } else {
@@ -7954,6 +8445,8 @@
                         const value = Number(raw);
                         return Number.isFinite(value) ? value : 0;
                     }
+                    case 'duration':
+                        return raw;
                     case 'docSeq': {
                         const value = Number(raw);
                         return Number.isFinite(value) ? value : Number.POSITIVE_INFINITY;
@@ -7988,12 +8481,21 @@
                 }
             };
 
-            const comparePreparedSortKey = (leftKey, rightKey, ctx) => {
+            const comparePreparedSortKey = (leftKey, rightKey, ctx, order = 'asc') => {
                 switch (ctx.kind) {
                     case 'priority':
                     case 'number':
                     case 'customStatus':
                         return Number(leftKey || 0) - Number(rightKey || 0);
+                    case 'duration': {
+                        const hasA = !!leftKey?.has;
+                        const hasB = !!rightKey?.has;
+                        if (!hasA && !hasB) return 0;
+                        if (!hasA) return 1;
+                        if (!hasB) return -1;
+                        const delta = Number(leftKey?.minutes || 0) - Number(rightKey?.minutes || 0);
+                        return order === 'desc' ? -delta : delta;
+                    }
                     case 'docSeq': {
                         const va = Number.isFinite(Number(leftKey)) ? Number(leftKey) : Number.POSITIVE_INFINITY;
                         const vb = Number.isFinite(Number(rightKey)) ? Number(rightKey) : Number.POSITIVE_INFINITY;
@@ -8045,8 +8547,9 @@
                 for (let i = 0; i < sortRules.length; i += 1) {
                     const sortRule = sortRules[i] || {};
                     const sortContext = sortContexts[i];
-                    const result = comparePreparedSortKey(left.keys[i], right.keys[i], sortContext);
+                    const result = comparePreparedSortKey(left.keys[i], right.keys[i], sortContext, sortRule.order);
                     if (result !== 0) {
+                        if (sortContext?.kind === 'duration') return result;
                         return sortRule.order === 'desc' ? -result : result;
                     }
                 }
@@ -8412,6 +8915,7 @@
             || normalized === __TM_TASK_REPEAT_RULE_ATTR
             || normalized === __TM_TASK_REPEAT_STATE_ATTR
             || normalized === __TM_TASK_REPEAT_HISTORY_ATTR
+            || normalized === __TM_TASK_ATTACHMENT_META_ATTR
             || normalized === 'bookmark'
             || normalized === 'custom-reminder') {
             return true;
@@ -9123,6 +9627,7 @@
             { name: __TM_TASK_REPEAT_RULE_ATTR, alias: 'repeat_rule', enabled: repeatInlineEnabled },
             { name: __TM_TASK_REPEAT_STATE_ATTR, alias: 'repeat_state', enabled: repeatInlineEnabled },
             { name: __TM_TASK_REPEAT_HISTORY_ATTR, alias: 'repeat_history', enabled: repeatInlineEnabled },
+            { name: __TM_TASK_ATTACHMENT_META_ATTR, alias: 'attachment_meta', enabled: true },
             { name: tomatoMinutesKey, alias: 'tomato_minutes', enabled: tomatoEnabled },
             { name: tomatoHoursKey, alias: 'tomato_hours', enabled: tomatoEnabled },
         ];
@@ -9308,6 +9813,7 @@
             __TM_TASK_REPEAT_RULE_ATTR,
             __TM_TASK_REPEAT_STATE_ATTR,
             __TM_TASK_REPEAT_HISTORY_ATTR,
+            __TM_TASK_ATTACHMENT_META_ATTR,
         ];
         if (keys.some((key) => Object.prototype.hasOwnProperty.call(row, key) && isValidValue(row[key]))) return true;
         return Object.keys(row).some((key) => __tmIsTaskAttachmentAttrKey(key) && isValidValue(row[key]));
@@ -9443,6 +9949,12 @@
         if (Object.keys(row).some((key) => __tmIsTaskAttachmentAttrKey(key))) {
             __tmApplyTaskAttachmentPathsToTask(target, __tmExtractTaskAttachmentsFromAttrRow(row), {
                 slotCount: __tmGetTaskAttachmentAttrSlotCount(row),
+                meta: __tmExtractTaskAttachmentMetaFromAttrRow(row),
+                attrsLoaded: true,
+            });
+        } else if (Object.prototype.hasOwnProperty.call(row, __TM_TASK_ATTACHMENT_META_ATTR)) {
+            __tmApplyTaskAttachmentPathsToTask(target, __tmGetTaskAttachmentPaths(target), {
+                meta: __tmExtractTaskAttachmentMetaFromAttrRow(row),
             });
         }
         return target;
@@ -9452,17 +9964,19 @@
         const list = Array.isArray(tasks) ? tasks.filter((task) => task && typeof task === 'object') : [];
         if (!list.length) return list;
         await __tmPopulateTaskAttrHostIds(list);
+        const taskIds = [];
         const hostIds = [];
         list.forEach((task) => {
             const taskId = String(task?.id || '').trim();
             const hostId = String(task?.attrHostId || task?.attr_host_id || taskId).trim();
             const parentId = String(task?.parent_id || '').trim();
+            if (taskId) taskIds.push(taskId);
             if (hostId && hostId !== taskId) hostIds.push(hostId);
             if (parentId && parentId !== taskId) hostIds.push(parentId);
         });
-        const uniqueHostIds = Array.from(new Set(hostIds.filter(Boolean)));
-        if (!uniqueHostIds.length) return list;
-        const rows = await __tmQueryTaskMetaAttrRowsByBlockIds(uniqueHostIds);
+        const uniqueQueryIds = Array.from(new Set(taskIds.concat(hostIds).filter(Boolean)));
+        if (!uniqueQueryIds.length) return list;
+        const rows = await __tmQueryTaskMetaAttrRowsByBlockIds(uniqueQueryIds);
         if (!rows.length) return list;
         const rowMap = new Map();
         rows.forEach((row) => {
@@ -9472,9 +9986,23 @@
             if (!rowMap.has(blockId)) rowMap.set(blockId, {});
             rowMap.get(blockId)[name] = String(row?.value ?? '');
         });
+        const shouldApplySelfRow = (row) => {
+            if (!row || typeof row !== 'object') return false;
+            if (__tmHasTaskMetaAttrRowValues(row)) return true;
+            if (Object.prototype.hasOwnProperty.call(row, __TM_TASK_ATTACHMENT_META_ATTR)) return true;
+            return Object.keys(row).some((key) => __tmIsTaskAttachmentAttrKey(key));
+        };
         list.forEach((task) => {
             const taskId = String(task?.id || '').trim();
             const parentId = String(task?.parent_id || '').trim();
+            const selfRow = taskId ? rowMap.get(taskId) : null;
+            if (shouldApplySelfRow(selfRow)) {
+                __tmApplyTaskMetaAttrRow(task, selfRow, {
+                    preferExisting: true,
+                    preferExistingVisibleDates: true,
+                    preserveExistingVisibleDatesOnBlank: true,
+                });
+            }
             let hostId = String(task?.attrHostId || task?.attr_host_id || taskId).trim();
             let hostRow = (hostId && hostId !== taskId) ? rowMap.get(hostId) : null;
             const parentRow = (parentId && parentId !== taskId) ? rowMap.get(parentId) : null;
@@ -11608,6 +12136,7 @@
             try { row = await API.getTaskById(taskId); } catch (e) { row = null; }
             if (!row || typeof row !== 'object') return false;
             const nextTask = __tmPrepareTaskBlockIncrementalRow(row, prevTask, normalizeTaskOptions);
+            try { __tmMergeLocalTaskPatchIntoTask(nextTask); } catch (e) {}
             if (!nextTask || !__tmCanPatchTaskBlockIncrementally(prevTask, nextTask)) return false;
             const visiblePatch = __tmBuildTaskBlockVisibleDomPatch(prevTask, nextTask);
             if (visiblePatch === null) return false;

@@ -87,6 +87,17 @@
         ];
     }
 
+    function __tmRenderTopbarSelectMenuItems(options = [], id = '') {
+        const selectId = String(id || '').trim();
+        return (Array.isArray(options) ? options : []).map((item) => {
+            const itemValue = String(item?.value || '');
+            const itemLabel = String(item?.label || itemValue);
+            const action = String(item?.action || '').trim();
+            const selected = item?.selected === true;
+            return `<button class="bc-select-option ${selected ? 'is-selected' : ''}" type="button" role="option" aria-selected="${selected ? 'true' : 'false'}" data-tm-option-value="${__tmEscAttr(itemValue)}" data-tm-option-label="${__tmEscAttr(itemLabel)}" data-tm-option-action="${__tmEscAttr(action)}" onclick="return tmHandleTopbarSelectOption('${escSq(selectId)}', '${escSq(itemValue)}', event);"><span>${esc(itemLabel)}</span><span class="bc-select-option__check" aria-hidden="true">✓</span></button>`;
+        }).join('');
+    }
+
     function __tmGetDocGroupSelectLabel(groupId) {
         const gid = String(groupId || 'all').trim() || 'all';
         if (gid === 'all') return '全部文档';
@@ -95,20 +106,34 @@
         return String(__tmResolveDocGroupName(group) || gid).trim() || gid;
     }
 
-    function __tmUpdateDocGroupTopbarSelectsInPlace(groupId) {
+    function __tmRefreshDocGroupTopbarSelectsInPlace(groupId) {
         const gid = String(groupId || 'all').trim() || 'all';
         const label = __tmGetDocGroupSelectLabel(gid);
+        const options = __tmBuildDocGroupMenuOptions();
+        const menuHtmlById = new Map();
         const selectIds = [
             'tmTopbarDocQuickSelect',
             'tmTopbarDocSelect',
             'tmMobileDocSelect',
             'tmDesktopDocSelect',
         ];
-        const updateRoot = (root) => {
+        const updateRoot = (root, id) => {
             if (!(root instanceof HTMLElement)) return;
             try {
                 const valueEl = root.querySelector('.bc-select-trigger__value');
                 if (valueEl) valueEl.textContent = label;
+            } catch (e) {}
+            try {
+                const sourceMenu = root.querySelector('.bc-select-menu');
+                if (sourceMenu instanceof HTMLElement) {
+                    const selectId = String(id || root.id || '').trim();
+                    let menuHtml = menuHtmlById.get(selectId);
+                    if (menuHtml == null) {
+                        menuHtml = __tmRenderTopbarSelectMenuItems(options, selectId);
+                        menuHtmlById.set(selectId, menuHtml);
+                    }
+                    sourceMenu.innerHTML = menuHtml;
+                }
             } catch (e) {}
             try {
                 root.querySelectorAll('.bc-select-option').forEach((option) => {
@@ -119,11 +144,21 @@
             } catch (e) {}
         };
         selectIds.forEach((id) => {
-            try { updateRoot(document.getElementById(id)); } catch (e) {}
+            try { updateRoot(document.getElementById(id), id); } catch (e) {}
         });
         try {
             const floating = document.getElementById('tmTopbarFloatingMenu');
             if (floating instanceof HTMLElement) {
+                const openRoot = document.querySelector('.tm-topbar-select[data-open="true"]');
+                const openId = String(openRoot?.id || '').trim();
+                if (__tmIsDocTopbarSelectId(openId)) {
+                    let menuHtml = menuHtmlById.get(openId);
+                    if (menuHtml == null) {
+                        menuHtml = __tmRenderTopbarSelectMenuItems(options, openId);
+                        menuHtmlById.set(openId, menuHtml);
+                    }
+                    floating.innerHTML = menuHtml;
+                }
                 floating.querySelectorAll('.bc-select-option').forEach((option) => {
                     const selected = String(option?.dataset?.tmOptionValue || '').trim() === gid;
                     option.classList.toggle('is-selected', selected);
@@ -132,6 +167,14 @@
             }
         } catch (e) {}
     }
+
+    function __tmUpdateDocGroupTopbarSelectsInPlace(groupId) {
+        __tmRefreshDocGroupTopbarSelectsInPlace(groupId);
+    }
+
+    window.tmRefreshDocGroupTopbarSelects = function(groupId) {
+        try { __tmRefreshDocGroupTopbarSelectsInPlace(groupId); } catch (e) {}
+    };
 
     function __tmUpdateTopbarSelectValueInPlace(id, value, label = '') {
         const selectId = String(id || '').trim();
@@ -319,7 +362,7 @@
             ${showTopbarSelectorsInMenu ? renderDesktopMenuSelect('文档', __tmRenderTopbarSelect({ id: 'tmDesktopDocSelect', label: '文档', options: docGroupMenuOptions, style: 'flex:1;' })) : ''}
             ${showTopbarSelectorsInMenu ? renderDesktopMenuSelect('规则', __tmRenderTopbarSelect({ id: 'tmDesktopRuleSelect', label: '规则', options: ruleMenuOptions, style: 'flex:1;' })) : ''}
             ${showTopbarSelectorsInMenu ? renderDesktopMenuSelect('分组', __tmRenderTopbarSelect({ id: 'tmDesktopGroupModeSelect', label: '分组', options: groupModeMenuOptions, style: 'flex:1;' })) : ''}
-            ${renderDesktopMenuButton(`${__tmRenderHomepageEntryIcon(14)}<span>${state.homepageOpen ? '返回工作区' : '主页总览'}</span>`, `tmToggleHomepage(); tmCloseDesktopMenu()`) }
+            ${renderDesktopMenuButton(`${__tmRenderLucideIcon('paperclip')}<span>${state.attachmentLibraryOpen ? '返回工作区' : '附件库'}</span>`, `tmToggleAttachmentLibrary(); tmCloseDesktopMenu()`) }
             ${renderDesktopMenuButton(`${__tmRenderLucideIcon('search')}<span>搜索${state.searchKeyword ? ` (${esc(String(state.searchKeyword || '').trim())})` : ''}</span>`, `tmShowSearchModal(); tmCloseDesktopMenu()`)}
             ${renderDesktopMenuButton(`${__tmRenderLucideIcon('file-text')}<span>摘要</span>`, `tmShowSummaryModal(); tmCloseDesktopMenu()`)}
             ${String(state.viewMode || '').trim() === 'list' ? renderDesktopMenuButton(`${__tmRenderLucideIcon('chart-column')}<span>导出 Excel</span>`, `tmExportCurrentTableExcel(); tmCloseDesktopMenu()`) : ''}

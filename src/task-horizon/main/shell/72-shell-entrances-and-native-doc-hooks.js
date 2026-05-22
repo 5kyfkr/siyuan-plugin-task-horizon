@@ -1487,7 +1487,7 @@
         const shouldPersistStatus = !!targetStatus && persistedStatusBefore !== targetStatus;
         const shouldSyncLocalStatus = !!targetStatus && currentStatus !== targetStatus;
         const statusPatch = shouldPersistStatus ? { customStatus: targetStatus } : (shouldSyncLocalStatus ? { customStatus: targetStatus } : null);
-        const completeAtPatch = (!!domDone && (!taskDoneBefore || !persistedTaskCompleteAtBefore)) ? __tmBuildTaskCompleteAtPatch() : null;
+        const completeAtPatch = (!!domDone && !wasDoneBefore) ? __tmBuildTaskCompleteAtPatch() : null;
         const attrPatch = {
             ...((statusPatch && typeof statusPatch === 'object') ? statusPatch : {}),
             ...((completeAtPatch && typeof completeAtPatch === 'object') ? completeAtPatch : {}),

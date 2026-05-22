@@ -3422,6 +3422,7 @@
             if (key === 'attachments') {
                 Object.assign(attrs, __tmBuildTaskAttachmentAttrPayload(val, opts.previousAttachmentPaths || [], {
                     currentSlotCount: opts.previousAttachmentSlotCount,
+                    currentMeta: opts.previousAttachmentMeta,
                 }));
             }
         });
@@ -3436,6 +3437,7 @@
             if (!attrKey) return;
             try {
                 if (typeof __tmIsTaskAttachmentAttrKey === 'function' && __tmIsTaskAttachmentAttrKey(attrKey)) return;
+                if (typeof __tmIsTaskAttachmentMetaAttrKey === 'function' && __tmIsTaskAttachmentMetaAttrKey(attrKey)) return;
             } catch (e) {}
             mirrorAttrs[attrKey] = String(value ?? '');
         });
@@ -3448,6 +3450,7 @@
         const taskId = String(id || '').trim();
         const currentTask = globalThis.__tmRuntimeState?.getTaskById?.(taskId) || state.flatTasks?.[taskId] || state.pendingInsertedTasks?.[taskId] || null;
         let previousAttachmentPaths = [];
+        let previousAttachmentMeta = new Map();
         let previousAttachmentSlotCount = 0;
         let attrTargetId = String(opts.attrTargetId || '').trim();
         if (!attrTargetId) {
@@ -3470,27 +3473,58 @@
             attrTargetId = String(id || '').trim();
         }
         if (Object.prototype.hasOwnProperty.call(patch, 'attachments')) {
+            const hasExplicitPreviousAttachmentPaths = Array.isArray(opts.previousAttachmentPaths);
+            const hasExplicitPreviousAttachmentMeta = opts.previousAttachmentMeta !== undefined && opts.previousAttachmentMeta !== null;
+            const hasExplicitPreviousAttachmentSlotCount = opts.previousAttachmentSlotCount !== undefined && opts.previousAttachmentSlotCount !== null;
             const fallbackAttachmentSource = MetaStore.get(taskId) || currentTask || {};
-            previousAttachmentPaths = __tmGetTaskAttachmentPaths(fallbackAttachmentSource);
-            previousAttachmentSlotCount = __tmGetTaskAttachmentAttrSlotCount(fallbackAttachmentSource);
+            previousAttachmentPaths = hasExplicitPreviousAttachmentPaths
+                ? __tmNormalizeTaskAttachmentPaths(opts.previousAttachmentPaths)
+                : __tmGetTaskAttachmentPaths(fallbackAttachmentSource);
+            previousAttachmentMeta = hasExplicitPreviousAttachmentMeta
+                ? __tmNormalizeTaskAttachmentMetaMap(opts.previousAttachmentMeta)
+                : __tmGetTaskAttachmentMetaMap(fallbackAttachmentSource);
+            previousAttachmentSlotCount = hasExplicitPreviousAttachmentSlotCount
+                ? Math.max(0, Math.floor(Number(opts.previousAttachmentSlotCount) || 0))
+                : __tmGetTaskAttachmentAttrSlotCount(fallbackAttachmentSource);
             if (attrTargetId) {
                 try {
                     const res = await API.call('/api/attr/getBlockAttrs', { id: attrTargetId });
                     const row = (res && res.code === 0 && res.data && typeof res.data === 'object') ? res.data : null;
                     if (row) {
-                        previousAttachmentPaths = __tmExtractTaskAttachmentsFromAttrRow(row);
-                        previousAttachmentSlotCount = __tmGetTaskAttachmentAttrSlotCount(row);
+                        const rowHasAttachmentAttrs = Object.keys(row).some((key) => __tmIsTaskAttachmentAttrKey(key));
+                        if (rowHasAttachmentAttrs) {
+                            previousAttachmentPaths = __tmExtractTaskAttachmentsFromAttrRow(row);
+                            previousAttachmentSlotCount = __tmGetTaskAttachmentAttrSlotCount(row);
+                        }
+                        if (Object.prototype.hasOwnProperty.call(row, __TM_TASK_ATTACHMENT_META_ATTR)) {
+                            previousAttachmentMeta = __tmExtractTaskAttachmentMetaFromAttrRow(row);
+                        }
                     }
                 } catch (e) {}
             }
             try {
                 opts.__resolvedPreviousAttachmentPaths = previousAttachmentPaths.slice();
+                opts.__resolvedPreviousAttachmentMeta = Array.from(previousAttachmentMeta.values());
                 opts.__resolvedPreviousAttachmentSlotCount = previousAttachmentSlotCount;
             } catch (e) {}
         }
-        if (opts.touchMetaStore !== false) MetaStore.set(id, patch);
+        if (opts.touchMetaStore !== false) {
+            let metaStorePatch = patch;
+            if (Object.prototype.hasOwnProperty.call(patch, 'attachments')) {
+                metaStorePatch = {
+                    ...patch,
+                    attachmentMeta: __tmBuildTaskAttachmentMetaForPaths(
+                        patch.attachments,
+                        previousAttachmentPaths,
+                        previousAttachmentMeta
+                    ),
+                };
+            }
+            MetaStore.set(id, metaStorePatch);
+        }
         const attrs = __tmBuildAttrPayloadFromPatch(patch, {
             previousAttachmentPaths,
+            previousAttachmentMeta,
             previousAttachmentSlotCount,
         });
         if (Object.keys(attrs).length === 0) return true;
@@ -3577,6 +3611,9 @@
                 skipFlush: opts.skipFlush !== false,
                 renderOptimistic: opts.renderOptimistic !== false,
                 withFilters: opts.withFilters !== false,
+                previousAttachmentPaths: Array.isArray(opts.previousAttachmentPaths) ? __tmNormalizeTaskAttachmentPaths(opts.previousAttachmentPaths) : null,
+                previousAttachmentMeta: opts.previousAttachmentMeta,
+                previousAttachmentSlotCount: opts.previousAttachmentSlotCount,
             },
             inversePatch,
         }, { wait: !!opts.wait });
@@ -3599,6 +3636,9 @@
                 attrTargetId: opts.attrTargetId,
                 renderOptimistic: opts.renderOptimistic !== false && opts.background !== true,
                 withFilters: opts.withFilters !== false,
+                previousAttachmentPaths: opts.previousAttachmentPaths,
+                previousAttachmentMeta: opts.previousAttachmentMeta,
+                previousAttachmentSlotCount: opts.previousAttachmentSlotCount,
             });
         }
         return await __tmPersistMetaAndAttrsKernel(id, patch, opts);
@@ -3619,6 +3659,9 @@
         priorityModal: null,
         semanticDateConfirmModal: null,
         homepageOpen: !!Storage.get('tm_homepage_open', false),
+        attachmentLibraryOpen: false,
+        attachmentLibrarySearch: '',
+        attachmentLibraryTypeFilter: 'all',
         aiSidebarOpen: !!Storage.get('tm_ai_sidebar_open', false),
         aiSidebarWidth: Math.max(320, Math.min(720, Math.round(Number(Storage.get('tm_ai_sidebar_width', 380)) || 380))),
         aiMobilePanelOpen: false,
@@ -4070,6 +4113,7 @@
         }
         const task = globalThis.__tmRuntimeState?.getFlatTaskById?.(tid) || state.flatTasks?.[tid] || null;
         const pending = globalThis.__tmRuntimeState?.getPendingTaskById?.(tid) || state.pendingInsertedTasks?.[tid] || null;
+        let attachmentMetaForStore = null;
         Object.entries(nextPatch).forEach(([key, rawValue]) => {
             const value = __tmNormalizeQueueTaskValue(key, rawValue);
             if (key === 'customFieldValues') {
@@ -4104,8 +4148,19 @@
                 return;
             }
             if (key === 'attachments') {
-                __tmApplyTaskAttachmentPathsToTask(task, value);
-                __tmApplyTaskAttachmentPathsToTask(pending, value);
+                const applyAttachmentPatch = (target) => {
+                    if (!(target && typeof target === 'object')) return;
+                    const currentPaths = __tmGetTaskAttachmentPaths(target);
+                    const currentMeta = __tmGetTaskAttachmentMetaMap(target);
+                    const nextMeta = __tmBuildTaskAttachmentMetaForPaths(value, currentPaths, currentMeta);
+                    if (!attachmentMetaForStore || nextMeta.length > attachmentMetaForStore.length) attachmentMetaForStore = nextMeta;
+                    __tmApplyTaskAttachmentPathsToTask(target, value, { meta: nextMeta, attrsLoaded: true });
+                };
+                applyAttachmentPatch(task);
+                applyAttachmentPatch(pending);
+                if (!attachmentMetaForStore) {
+                    attachmentMetaForStore = __tmBuildTaskAttachmentMetaForPaths(value, [], null);
+                }
                 return;
             }
             const applyOne = (target) => {
@@ -4190,7 +4245,11 @@
                 });
             } catch (e) {}
         }
-        try { MetaStore.set(tid, nextPatch); } catch (e) {}
+        try {
+            MetaStore.set(tid, attachmentMetaForStore
+                ? { ...nextPatch, attachmentMeta: attachmentMetaForStore }
+                : nextPatch);
+        } catch (e) {}
         if (hasStatusPatch) {
             __tmPushStatusDebug('attr-patch-local', {
                 taskId: tid,
@@ -4254,8 +4313,8 @@
                 return;
             }
             if (key === 'attachments') {
-                __tmApplyTaskAttachmentPathsToTask(task, value);
-                __tmApplyTaskAttachmentPathsToTask(pending, value);
+                __tmApplyTaskAttachmentPathsToTask(task, value, { attrsLoaded: true });
+                __tmApplyTaskAttachmentPathsToTask(pending, value, { attrsLoaded: true });
                 return;
             }
             const applyOne = (target) => {
@@ -4347,6 +4406,22 @@
         return true;
     }
 
+    function __tmShouldRefreshQueuedAttrPatchAsTaskFields(patch = {}) {
+        const nextPatch = (patch && typeof patch === 'object') ? patch : {};
+        if (!Object.keys(nextPatch).length) return false;
+        const keys = (typeof __tmGetPatchFieldKeysForTaskPatch === 'function')
+            ? __tmGetPatchFieldKeysForTaskPatch(nextPatch)
+            : Object.keys(nextPatch);
+        const taskFieldKeys = new Set([
+            'startDate',
+            'completionTime',
+            'customTime',
+            'taskCompleteAt',
+            'duration',
+        ]);
+        return keys.some((key) => taskFieldKeys.has(String(key || '').trim()));
+    }
+
     async function __tmExecuteQueuedOp(op) {
         const type = String(op?.type || '').trim();
         if (type === 'attrPatch') {
@@ -4357,6 +4432,9 @@
                 skipFlush: !!op?.data?.skipFlush,
                 source: String(op?.data?.source || 'attrPatch-queue').trim() || 'attrPatch-queue',
                 attrTargetId: String(op?.data?.attrTargetId || '').trim(),
+                previousAttachmentPaths: Array.isArray(op?.data?.previousAttachmentPaths) ? op.data.previousAttachmentPaths : undefined,
+                previousAttachmentMeta: op?.data?.previousAttachmentMeta,
+                previousAttachmentSlotCount: op?.data?.previousAttachmentSlotCount,
             });
         }
         if (type === 'taskPatch') {
@@ -4375,6 +4453,9 @@
                 broadcast: op?.data?.broadcast !== false,
                 queued: true,
                 skipFlush: op?.data?.skipFlush !== false,
+                previousAttachmentPaths: Array.isArray(op?.data?.previousAttachmentPaths) ? op.data.previousAttachmentPaths : undefined,
+                previousAttachmentMeta: op?.data?.previousAttachmentMeta,
+                previousAttachmentSlotCount: op?.data?.previousAttachmentSlotCount,
             }));
         }
         if (type === 'contentPatch') {
@@ -4439,10 +4520,46 @@
     function __tmApplyQueuedOpOptimistic(op) {
         const type = String(op?.type || '').trim();
         if (type === 'attrPatch') {
-            __tmApplyAttrPatchLocally(op?.data?.taskId, op?.data?.patch, {
-                render: op?.data?.renderOptimistic !== false,
+            const taskId = String(op?.data?.taskId || '').trim();
+            const patch = (op?.data?.patch && typeof op.data.patch === 'object') ? op.data.patch : {};
+            const refreshAsTaskFields = taskId
+                && op?.data?.renderOptimistic !== false
+                && __tmShouldRefreshQueuedAttrPatchAsTaskFields(patch);
+            __tmApplyAttrPatchLocally(taskId || op?.data?.taskId, patch, {
+                render: refreshAsTaskFields ? false : op?.data?.renderOptimistic !== false,
                 withFilters: op?.data?.withFilters !== false,
             });
+            if (refreshAsTaskFields) {
+                try { __tmMarkLocalTaskPatchWatermark(taskId, patch, op?.data || {}); } catch (e) {}
+                let optimisticProjectionRefresh = false;
+                try {
+                    optimisticProjectionRefresh = typeof __tmDoesPatchNeedOptimisticProjectionRefresh === 'function'
+                        ? __tmDoesPatchNeedOptimisticProjectionRefresh(taskId, patch, {
+                            source: String(op?.data?.source || '').trim(),
+                            withFilters: op?.data?.withFilters !== false,
+                        })
+                        : false;
+                } catch (e) {
+                    optimisticProjectionRefresh = false;
+                }
+                try {
+                    __tmRefreshTaskFieldsAcrossViews(taskId, patch, {
+                        withFilters: optimisticProjectionRefresh,
+                        reason: String(op?.data?.source || 'attr-patch-optimistic').trim() || 'attr-patch-optimistic',
+                        forceProjectionRefresh: optimisticProjectionRefresh,
+                        fallback: optimisticProjectionRefresh,
+                    });
+                } catch (e) {
+                    try {
+                        __tmScheduleViewRefresh({
+                            mode: 'current',
+                            withFilters: optimisticProjectionRefresh,
+                            reason: String(op?.data?.source || 'attr-patch-optimistic-fallback').trim() || 'attr-patch-optimistic-fallback',
+                            taskIds: [taskId],
+                        });
+                    } catch (e2) {}
+                }
+            }
             return;
         }
         if (type === 'taskPatch') {
@@ -4453,9 +4570,9 @@
             __tmTaskStateKernel.patchTaskLocal(taskId, patch, {
                 source: String(op?.data?.source || '').trim(),
             });
+            try { __tmMarkLocalTaskPatchWatermark(taskId, patch, op?.data || {}); } catch (e) {}
             if (op?.data?.skipViewRefresh === true) return;
-            const optimisticProjectionRefresh = op?.data?.optimisticProjectionRefresh === true
-                && op?.data?.affectsProjection === true;
+            const optimisticProjectionRefresh = op?.data?.optimisticProjectionRefresh === true;
             __tmRefreshTaskFieldsAcrossViews(taskId, patch, {
                 withFilters: optimisticProjectionRefresh,
                 reason: String(op?.data?.reason || op?.data?.source || 'task-patch-optimistic').trim() || 'task-patch-optimistic',
@@ -4502,6 +4619,7 @@
         const type = String(op?.type || '').trim();
         if (type === 'attrPatch') {
             __tmRollbackAttrPatchLocally(op?.data?.taskId, op?.inversePatch, { render: true, withFilters: true });
+            try { __tmClearLocalTaskPatchWatermark(op?.data?.taskId, op?.data?.patch || op?.inversePatch); } catch (e) {}
             return;
         }
         if (type === 'taskPatch') {
@@ -4512,6 +4630,7 @@
             __tmTaskStateKernel.rollbackTaskLocal(taskId, inversePatch, {
                 source: String(op?.data?.source || '').trim(),
             });
+            try { __tmClearLocalTaskPatchWatermark(taskId, op?.data?.patch || inversePatch); } catch (e) {}
             if (op?.data?.skipViewRefresh === true) return;
             __tmRefreshTaskFieldsAcrossViews(taskId, inversePatch, {
                 withFilters: true,
@@ -7624,7 +7743,11 @@
                     badge = document.createElement('span');
                     badge.className = 'tm-task-reminder-emoji';
                     badge.title = '已添加提醒';
-                    badge.textContent = '⏰';
+                    try {
+                        badge.innerHTML = __tmLucideIconSvg('alarm-clock', { size: 13, className: 'tm-task-reminder-emoji__svg' });
+                    } catch (e) {
+                        badge.textContent = '提醒';
+                    }
                     contentEl.appendChild(badge);
                 }
             } else if (badge instanceof HTMLElement) {
@@ -8052,7 +8175,7 @@
     }
 
     function __tmIsMultiSelectSupportedView(mode) {
-        const viewMode = String(mode || (state.homepageOpen ? 'home' : state.viewMode) || '').trim();
+        const viewMode = String(mode || (state.attachmentLibraryOpen ? 'attachments' : (state.homepageOpen ? 'home' : state.viewMode)) || '').trim();
         if (viewMode === 'whiteboard') return __tmIsWhiteboardAllTabsStreamMode();
         return viewMode === 'list' || viewMode === 'checklist' || viewMode === 'timeline' || viewMode === 'kanban';
     }
@@ -8287,6 +8410,7 @@
         const named = String(fallbackName || '').trim();
         if (named) return named;
         if (__tmIsTaskAttachmentAttrKey(key)) return '附件';
+        if (typeof __tmIsTaskAttachmentMetaAttrKey === 'function' && __tmIsTaskAttachmentMetaAttrKey(key)) return '附件';
         if (key === 'custom-status') return '状态';
         if (key === 'custom-priority') return '优先级';
         if (key === 'custom-start-date') return '开始日期';
@@ -8333,6 +8457,7 @@
         if (!key) return null;
         const rawValue = attrValue == null ? '' : String(attrValue);
         const trimmedValue = String(rawValue || '').trim();
+        if (typeof __tmIsTaskAttachmentMetaAttrKey === 'function' && __tmIsTaskAttachmentMetaAttrKey(key)) return null;
         if (__tmIsTaskAttachmentAttrKey(key)) {
             const currentPaths = __tmGetTaskAttachmentPaths(taskLike || {});
             const nextPaths = currentPaths.slice();
@@ -8396,9 +8521,11 @@
         const previousAttachmentPaths = Array.isArray(extra?.previousAttachmentPaths)
             ? extra.previousAttachmentPaths
             : __tmNormalizeTaskAttachmentPaths(extra?.previousPatch?.attachments || []);
+        const previousAttachmentMeta = extra?.previousAttachmentMeta || extra?.previousAttachmentMetadata || null;
         const previousAttachmentSlotCount = Math.max(0, Math.floor(Number(extra?.previousAttachmentSlotCount) || 0));
         const attrs = __tmBuildAttrPayloadFromPatch(patch, {
             previousAttachmentPaths,
+            previousAttachmentMeta,
             previousAttachmentSlotCount,
         });
         Object.entries(attrs || {}).forEach(([attrKey, value]) => {
@@ -10146,6 +10273,9 @@ if (hasStatusPatch) {
                 withFilters: opts.withFilters,
                 source: String(opts.source || '').trim(),
                 attrTargetId: context.attrHostId,
+                previousAttachmentPaths: opts.previousAttachmentPaths,
+                previousAttachmentMeta: opts.previousAttachmentMeta,
+                previousAttachmentSlotCount: opts.previousAttachmentSlotCount,
             };
             await __tmPersistMetaAndAttrsAsync(context.persistId, nextPatch, persistOptions);
             const settledInversePatch = Object.prototype.hasOwnProperty.call(nextPatch, 'attachments')
@@ -10214,6 +10344,7 @@ if (hasStatusPatch) {
                     source: String(opts.source || '').trim(),
                     previousPatch: settledInversePatch,
                     previousAttachmentPaths: persistOptions.__resolvedPreviousAttachmentPaths,
+                    previousAttachmentMeta: persistOptions.__resolvedPreviousAttachmentMeta,
                     previousAttachmentSlotCount: persistOptions.__resolvedPreviousAttachmentSlotCount,
                 });
             }
@@ -10566,7 +10697,8 @@ __tmPushStatusDebug('apply-status:start', {
 
         let markerResult = null;
         let rewardAttrHostId = String(__tmGetTaskAttrHostId(task) || context.persistId).trim();
-        const completeAtPatch = nextDone ? __tmBuildTaskCompleteAtPatch() : null;
+        const shouldStampTaskCompleteAt = nextDone && !prevDone;
+        const completeAtPatch = shouldStampTaskCompleteAt ? __tmBuildTaskCompleteAtPatch() : null;
         const persistPatch = {
             customStatus: nextStatusId,
             ...((completeAtPatch && typeof completeAtPatch === 'object') ? completeAtPatch : {}),
@@ -14435,6 +14567,9 @@ refreshOk = false;
     function __tmResolveDockTopbarScrollTarget(modalEl) {
         const modal = modalEl instanceof Element ? modalEl : state.modal;
         if (!(modal instanceof Element)) return null;
+        if (state.attachmentLibraryOpen) {
+            return modal.querySelector('.tm-body.tm-body--attachment-library');
+        }
         if (state.homepageOpen) {
             return modal.querySelector('.tm-body.tm-body--homepage');
         }
@@ -17048,12 +17183,25 @@ refreshOk = false;
                 SettingsStore.data.columnWidths = SettingsStore.data.calendarColumnWidths;
             } catch (e) {}
         }
-        try { tbody.innerHTML = renderTaskList(); } catch (e) { return false; } finally {
+        let nextRowsHtml = '';
+        try { nextRowsHtml = renderTaskList(); } catch (e) { return false; } finally {
             if (isCalendarTaskTable) {
                 SettingsStore.data.columnOrder = originalOrder;
                 SettingsStore.data.columnWidths = originalWidths;
             }
         }
+        try {
+            if (typeof __tmPrepareFlipAnimation === 'function'
+                && String(state.viewMode || '').trim() === 'list'
+                && state.groupByTime === true) {
+                __tmPrepareFlipAnimation({
+                    action: 'projection',
+                    kind: 'time-group',
+                    lite: true,
+                });
+            }
+        } catch (e) {}
+        try { tbody.innerHTML = nextRowsHtml; } catch (e) { return false; }
         try { if (body) body.scrollTop = top; } catch (e) {}
         try { if (body) body.scrollLeft = left; } catch (e) {}
         try { body?.__tmTableScrollUpdateThumb?.(); } catch (e) {}
@@ -17276,7 +17424,7 @@ return true;
                             ${toggle}
                                 </span>
                             <span class="tm-task-text ${task.done ? 'tm-task-done' : ''}" data-level="${row.depth}">
-                                <span class="tm-task-content-clickable" onclick="tmJumpToTask('${task.id}', event)"${__tmBuildTooltipAttrs(String(task.content || '').trim() || '(无内容)', { side: 'bottom', ariaLabel: false })}>${API.renderTaskContentHtml(task.markdown, task.content || '')}${completedTodayBadgeHtml}${__tmRenderRecurringTaskInlineIcon(task)}${__tmRenderRecurringInstanceBadge(task, { className: 'tm-recurring-instance-badge--inline' })}</span>
+                                <span class="tm-task-content-clickable" onclick="tmJumpToTask('${task.id}', event)"${__tmBuildTooltipAttrs(String(task.content || '').trim() || '(无内容)', { side: 'bottom', ariaLabel: false })}>${API.renderTaskContentHtml(task.markdown, task.content || '')}${__tmRenderGlobalCollectDocTaskInlineIcon(task)}${completedTodayBadgeHtml}${__tmRenderRecurringTaskInlineIcon(task)}${__tmRenderRecurringInstanceBadge(task, { className: 'tm-recurring-instance-badge--inline' })}</span>
                             </span>
                         </div>
                     </td>
@@ -17532,6 +17680,335 @@ return true;
         return updated;
     }
 
+    function __tmGetChecklistProjectionGroupRefreshTaskIds() {
+        try {
+            const until = Number(state.__tmChecklistProjectionGroupRefreshUntil || 0);
+            if (!Number.isFinite(until) || until <= Date.now()) return [];
+            return (Array.isArray(state.__tmChecklistProjectionGroupRefreshTaskIds)
+                ? state.__tmChecklistProjectionGroupRefreshTaskIds
+                : [])
+                .map((id) => String(id || '').trim())
+                .filter(Boolean);
+        } catch (e) {
+            return [];
+        }
+    }
+
+    function __tmClearChecklistProjectionGroupRefresh() {
+        try {
+            state.__tmChecklistProjectionGroupRefreshUntil = 0;
+            state.__tmChecklistProjectionGroupRefreshTaskIds = [];
+            state.__tmMobileChecklistProjectionGroupRefreshUntil = 0;
+            state.__tmMobileChecklistProjectionGroupRefreshTaskIds = [];
+        } catch (e) {}
+    }
+
+    function __tmGetChecklistGroupKeyFromCard(cardEl) {
+        const card = cardEl instanceof Element ? cardEl : null;
+        if (!card) return '';
+        const group = card.querySelector?.('.tm-checklist-group[data-group-key]');
+        return String(group?.getAttribute?.('data-group-key') || '').trim();
+    }
+
+    function __tmFindChecklistCardByTask(itemsEl, taskId) {
+        const items = itemsEl instanceof Element ? itemsEl : null;
+        const tid = String(taskId || '').trim();
+        if (!items || !tid) return null;
+        const task = items.querySelector(`.tm-checklist-item[data-id="${CSS.escape(tid)}"]`);
+        const card = task?.closest?.('.tm-checklist-group-card');
+        return card instanceof HTMLElement ? card : null;
+    }
+
+    function __tmBuildChecklistCardMap(itemsEl) {
+        const map = new Map();
+        const items = itemsEl instanceof Element ? itemsEl : null;
+        if (!items) return map;
+        Array.from(items.children || []).forEach((child) => {
+            if (!(child instanceof HTMLElement)) return;
+            if (!child.classList.contains('tm-checklist-group-card')) return;
+            const key = __tmGetChecklistGroupKeyFromCard(child);
+            if (key && !map.has(key)) map.set(key, child);
+        });
+        return map;
+    }
+
+    function __tmInsertChecklistCardByNextOrder(currentItems, nextCards, nextCard) {
+        if (!(currentItems instanceof HTMLElement) || !(nextCard instanceof HTMLElement)) return false;
+        const ordered = Array.isArray(nextCards) ? nextCards : [];
+        const nextIndex = ordered.indexOf(nextCard);
+        if (nextIndex < 0) return false;
+        const clone = nextCard.cloneNode(true);
+        for (let i = nextIndex + 1; i < ordered.length; i++) {
+            const key = __tmGetChecklistGroupKeyFromCard(ordered[i]);
+            if (!key) continue;
+            const anchor = Array.from(currentItems.children || []).find((child) => (
+                child instanceof HTMLElement
+                && child.classList.contains('tm-checklist-group-card')
+                && __tmGetChecklistGroupKeyFromCard(child) === key
+            ));
+            if (anchor instanceof HTMLElement) {
+                currentItems.insertBefore(clone, anchor);
+                return true;
+            }
+        }
+        for (let i = nextIndex - 1; i >= 0; i--) {
+            const key = __tmGetChecklistGroupKeyFromCard(ordered[i]);
+            if (!key) continue;
+            const anchor = Array.from(currentItems.children || []).find((child) => (
+                child instanceof HTMLElement
+                && child.classList.contains('tm-checklist-group-card')
+                && __tmGetChecklistGroupKeyFromCard(child) === key
+            ));
+            if (anchor instanceof HTMLElement) {
+                anchor.after(clone);
+                return true;
+            }
+        }
+        const loadMore = Array.from(currentItems.children || []).find((child) => child instanceof HTMLElement && child.classList.contains('tm-checklist-load-more'));
+        if (loadMore instanceof HTMLElement) currentItems.insertBefore(clone, loadMore);
+        else currentItems.appendChild(clone);
+        return true;
+    }
+
+    function __tmIsChecklistGroupHeader(el) {
+        return !!(el instanceof HTMLElement
+            && el.classList.contains('tm-checklist-group')
+            && String(el.getAttribute('data-group-key') || '').trim());
+    }
+
+    function __tmGetChecklistGroupKeyFromHeader(headerEl) {
+        return __tmIsChecklistGroupHeader(headerEl)
+            ? String(headerEl.getAttribute('data-group-key') || '').trim()
+            : '';
+    }
+
+    function __tmBuildChecklistSegmentMap(itemsEl) {
+        const map = new Map();
+        const ordered = [];
+        const items = itemsEl instanceof Element ? itemsEl : null;
+        if (!items) return { map, ordered };
+        let current = null;
+        Array.from(items.children || []).forEach((child) => {
+            if (!(child instanceof HTMLElement)) return;
+            if (__tmIsChecklistGroupHeader(child)) {
+                const key = __tmGetChecklistGroupKeyFromHeader(child);
+                current = { key, nodes: [child] };
+                if (key && !map.has(key)) {
+                    map.set(key, current);
+                    ordered.push(current);
+                }
+                return;
+            }
+            if (current) current.nodes.push(child);
+        });
+        return { map, ordered };
+    }
+
+    function __tmFindChecklistSegmentKeyByTask(itemsEl, taskId) {
+        const items = itemsEl instanceof Element ? itemsEl : null;
+        const tid = String(taskId || '').trim();
+        if (!items || !tid) return '';
+        const task = items.querySelector(`.tm-checklist-item[data-id="${CSS.escape(tid)}"]`);
+        if (!(task instanceof HTMLElement)) return '';
+        let node = task.previousElementSibling;
+        while (node) {
+            if (__tmIsChecklistGroupHeader(node)) return __tmGetChecklistGroupKeyFromHeader(node);
+            node = node.previousElementSibling;
+        }
+        return '';
+    }
+
+    function __tmCloneChecklistSegmentNodes(segment) {
+        const frag = document.createDocumentFragment();
+        (Array.isArray(segment?.nodes) ? segment.nodes : []).forEach((node) => {
+            if (node instanceof Node) frag.appendChild(node.cloneNode(true));
+        });
+        return frag;
+    }
+
+    function __tmReplaceChecklistSegment(currentSegment, nextSegment) {
+        const currentNodes = Array.isArray(currentSegment?.nodes) ? currentSegment.nodes : [];
+        if (!currentNodes.length || !nextSegment) return false;
+        const first = currentNodes[0];
+        if (!(first instanceof Node)) return false;
+        const frag = __tmCloneChecklistSegmentNodes(nextSegment);
+        currentNodes.slice(1).forEach((node) => {
+            try { node?.remove?.(); } catch (e) {}
+        });
+        try { first.replaceWith(frag); return true; } catch (e) { return false; }
+    }
+
+    function __tmRemoveChecklistSegment(segment) {
+        const nodes = Array.isArray(segment?.nodes) ? segment.nodes : [];
+        if (!nodes.length) return false;
+        let changed = false;
+        nodes.forEach((node) => {
+            try {
+                if (node instanceof Node) {
+                    node.remove();
+                    changed = true;
+                }
+            } catch (e) {}
+        });
+        return changed;
+    }
+
+    function __tmInsertChecklistSegmentByNextOrder(currentItems, currentSegments, nextSegments, nextSegment) {
+        if (!(currentItems instanceof HTMLElement) || !nextSegment) return false;
+        const ordered = Array.isArray(nextSegments) ? nextSegments : [];
+        const nextIndex = ordered.indexOf(nextSegment);
+        if (nextIndex < 0) return false;
+        const frag = __tmCloneChecklistSegmentNodes(nextSegment);
+        const findCurrent = (key) => {
+            const current = currentSegments?.map?.get?.(key);
+            const first = Array.isArray(current?.nodes) ? current.nodes[0] : null;
+            return first instanceof Node && currentItems.contains(first) ? current : null;
+        };
+        for (let i = nextIndex + 1; i < ordered.length; i++) {
+            const anchorSegment = findCurrent(ordered[i]?.key);
+            const anchor = Array.isArray(anchorSegment?.nodes) ? anchorSegment.nodes[0] : null;
+            if (anchor instanceof Node) {
+                try { currentItems.insertBefore(frag, anchor); return true; } catch (e) { return false; }
+            }
+        }
+        for (let i = nextIndex - 1; i >= 0; i--) {
+            const anchorSegment = findCurrent(ordered[i]?.key);
+            const nodes = Array.isArray(anchorSegment?.nodes) ? anchorSegment.nodes : [];
+            const last = nodes[nodes.length - 1];
+            if (last instanceof Node) {
+                try { currentItems.insertBefore(frag, last.nextSibling); return true; } catch (e) { return false; }
+            }
+        }
+        const loadMore = Array.from(currentItems.children || []).find((child) => child instanceof HTMLElement && child.classList.contains('tm-checklist-load-more'));
+        try {
+            if (loadMore instanceof HTMLElement) currentItems.insertBefore(frag, loadMore);
+            else currentItems.appendChild(frag);
+            return true;
+        } catch (e) {
+            return false;
+        }
+    }
+
+    function __tmTryRefreshChecklistProjectionSegments(modal, body, nextBody, taskIds, context = {}) {
+        const currentItems = body?.querySelector?.('.tm-checklist-items');
+        const nextItems = nextBody?.querySelector?.('.tm-checklist-items');
+        if (!(currentItems instanceof HTMLElement) || !(nextItems instanceof HTMLElement)) return false;
+        const currentSegments = __tmBuildChecklistSegmentMap(currentItems);
+        const nextSegments = __tmBuildChecklistSegmentMap(nextItems);
+        if (!currentSegments.map.size && !nextSegments.map.size) return false;
+        const keys = new Set();
+        (Array.isArray(taskIds) ? taskIds : []).forEach((id) => {
+            const oldKey = __tmFindChecklistSegmentKeyByTask(currentItems, id);
+            const newKey = __tmFindChecklistSegmentKeyByTask(nextItems, id);
+            if (oldKey) keys.add(oldKey);
+            if (newKey) keys.add(newKey);
+        });
+        if (!keys.size) return false;
+        let changed = false;
+        Array.from(keys).forEach((key) => {
+            const currentSegment = currentSegments.map.get(key) || null;
+            const nextSegment = nextSegments.map.get(key) || null;
+            if (currentSegment && nextSegment) {
+                changed = __tmReplaceChecklistSegment(currentSegment, nextSegment) || changed;
+                return;
+            }
+            if (currentSegment && !nextSegment) {
+                changed = __tmRemoveChecklistSegment(currentSegment) || changed;
+                return;
+            }
+            if (!currentSegment && nextSegment) {
+                changed = __tmInsertChecklistSegmentByNextOrder(currentItems, currentSegments, nextSegments.ordered, nextSegment) || changed;
+            }
+        });
+        if (!changed) return false;
+        try { __tmRefreshChecklistSelectionInPlace(modal, 'checklist-segment-projection'); } catch (e) {}
+        try { __tmApplyReminderTaskNameMarks(modal); } catch (e) {}
+        try { __tmScheduleReminderTaskNameMarksRefresh(modal); } catch (e) {}
+        try { __tmApplyTodayScheduledTaskNameMarks(modal); } catch (e) {}
+        try { __tmScheduleTodayScheduledTaskNameMarksRefresh(modal); } catch (e) {}
+        const restore = () => {
+            try {
+                const nextPane = modal.querySelector('.tm-checklist-scroll');
+                if (nextPane instanceof HTMLElement) {
+                    nextPane.scrollTop = Number(context?.paneTop || 0);
+                    nextPane.scrollLeft = Number(context?.paneLeft || 0);
+                    try { nextPane.__tmChecklistScrollUpdateThumb?.(); } catch (e2) {}
+                }
+            } catch (e) {}
+        };
+        try { restore(); } catch (e) {}
+        try { requestAnimationFrame(restore); } catch (e) {}
+        if (context?.renderSignature) {
+            try { state.listDomRenderSignature = String(context.renderSignature || ''); } catch (e) {}
+        }
+        state.pendingChecklistRenderRestore = null;
+        __tmClearChecklistProjectionGroupRefresh();
+        return true;
+    }
+
+    function __tmTryRefreshChecklistProjectionGroups(modal, body, nextBody, taskIds, context = {}) {
+        const currentItems = body?.querySelector?.('.tm-checklist-items');
+        const nextItems = nextBody?.querySelector?.('.tm-checklist-items');
+        if (!(currentItems instanceof HTMLElement) || !(nextItems instanceof HTMLElement)) return false;
+        const currentCards = Array.from(currentItems.children || []).filter((child) => child instanceof HTMLElement && child.classList.contains('tm-checklist-group-card'));
+        const nextCards = Array.from(nextItems.children || []).filter((child) => child instanceof HTMLElement && child.classList.contains('tm-checklist-group-card'));
+        if (!currentCards.length && !nextCards.length) {
+            return __tmTryRefreshChecklistProjectionSegments(modal, body, nextBody, taskIds, context);
+        }
+        const keys = new Set();
+        (Array.isArray(taskIds) ? taskIds : []).forEach((id) => {
+            const oldCard = __tmFindChecklistCardByTask(currentItems, id);
+            const newCard = __tmFindChecklistCardByTask(nextItems, id);
+            const oldKey = __tmGetChecklistGroupKeyFromCard(oldCard);
+            const newKey = __tmGetChecklistGroupKeyFromCard(newCard);
+            if (oldKey) keys.add(oldKey);
+            if (newKey) keys.add(newKey);
+        });
+        if (!keys.size) return false;
+        const currentMap = __tmBuildChecklistCardMap(currentItems);
+        const nextMap = __tmBuildChecklistCardMap(nextItems);
+        let changed = false;
+        Array.from(keys).forEach((key) => {
+            const currentCard = currentMap.get(key) || null;
+            const nextCard = nextMap.get(key) || null;
+            if (currentCard instanceof HTMLElement && nextCard instanceof HTMLElement) {
+                try { currentCard.replaceWith(nextCard.cloneNode(true)); changed = true; } catch (e) {}
+                return;
+            }
+            if (currentCard instanceof HTMLElement && !nextCard) {
+                try { currentCard.remove(); changed = true; } catch (e) {}
+                return;
+            }
+            if (!currentCard && nextCard instanceof HTMLElement) {
+                try { changed = __tmInsertChecklistCardByNextOrder(currentItems, nextCards, nextCard) || changed; } catch (e) {}
+            }
+        });
+        if (!changed) return false;
+        try { __tmRefreshChecklistSelectionInPlace(modal, 'checklist-group-projection'); } catch (e) {}
+        try { __tmApplyReminderTaskNameMarks(modal); } catch (e) {}
+        try { __tmScheduleReminderTaskNameMarksRefresh(modal); } catch (e) {}
+        try { __tmApplyTodayScheduledTaskNameMarks(modal); } catch (e) {}
+        try { __tmScheduleTodayScheduledTaskNameMarksRefresh(modal); } catch (e) {}
+        const restore = () => {
+            try {
+                const nextPane = modal.querySelector('.tm-checklist-scroll');
+                if (nextPane instanceof HTMLElement) {
+                    nextPane.scrollTop = Number(context?.paneTop || 0);
+                    nextPane.scrollLeft = Number(context?.paneLeft || 0);
+                    try { nextPane.__tmChecklistScrollUpdateThumb?.(); } catch (e2) {}
+                }
+            } catch (e) {}
+        };
+        try { restore(); } catch (e) {}
+        try { requestAnimationFrame(restore); } catch (e) {}
+        if (context?.renderSignature) {
+            try { state.listDomRenderSignature = String(context.renderSignature || ''); } catch (e) {}
+        }
+        state.pendingChecklistRenderRestore = null;
+        __tmClearChecklistProjectionGroupRefresh();
+        return true;
+    }
+
     function __tmRerenderChecklistInPlace(modalEl) {
         const modal = modalEl instanceof Element ? modalEl : state.modal;
         if (!(modal instanceof Element)) return false;
@@ -17579,6 +18056,16 @@ const renderBodyHtml = state.renderChecklistBodyHtml;
         }
         const nextBody = __tmBuildElementFromHtml(renderBodyHtml());
         if (!(nextBody instanceof HTMLElement)) return false;
+        const checklistProjectionTaskIds = __tmGetChecklistProjectionGroupRefreshTaskIds();
+        if (checklistProjectionTaskIds.length > 0
+            && __tmTryRefreshChecklistProjectionGroups(modal, body, nextBody, checklistProjectionTaskIds, {
+                paneTop,
+                paneLeft,
+                renderSignature,
+            })) {
+            return true;
+        }
+        __tmClearChecklistProjectionGroupRefresh();
         __tmCleanupChecklistScrollFxForEl(pane);
         try { body.replaceWith(nextBody); } catch (e) { return false; }
         try { __tmBindChecklistScrollVisibility(modal); } catch (e) {}
@@ -17741,6 +18228,10 @@ const renderBodyHtml = state.renderChecklistBodyHtml;
     function __tmRerenderCurrentViewInPlace(modalEl) {
         const modal = modalEl instanceof Element ? modalEl : state.modal;
         if (!(modal instanceof Element)) return false;
+        if (state.attachmentLibraryOpen) {
+            try { return !!__tmRefreshAttachmentLibraryInPlace(modal); } catch (e) {}
+            return false;
+        }
         if (state.homepageOpen) {
             try { __tmRefreshHomepageInPlace().catch(() => null); } catch (e) {}
             return true;

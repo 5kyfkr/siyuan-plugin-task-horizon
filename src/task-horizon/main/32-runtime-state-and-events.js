@@ -58,6 +58,7 @@
 
     const getActiveRenderMode = (fallback = '') => {
         try {
+            if (state?.attachmentLibraryOpen) return 'attachments';
             if (state?.homepageOpen) return 'home';
         } catch (e) {}
         return getViewMode(fallback);

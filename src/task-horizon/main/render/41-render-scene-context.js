@@ -50,10 +50,12 @@
         state.renderKanbanBodyHtml = __tmRenderKanbanBodyHtml;
         state.renderWhiteboardBodyHtml = __tmRenderWhiteboardBodyHtml;
 
-        const renderMode = state.homepageOpen ? 'home' : String(state.viewMode || '').trim();
+        const renderMode = state.attachmentLibraryOpen ? 'attachments' : (state.homepageOpen ? 'home' : String(state.viewMode || '').trim());
         const homepageBodyAnimClass = renderMode === 'home' ? '' : bodyAnimClass;
         const __tmTimelineRowModel = renderMode === 'timeline' ? __tmBuildTaskRowModel() : null;
-        const mainBodyHtml = renderMode === 'home'
+        const mainBodyHtml = renderMode === 'attachments'
+            ? __tmRenderAttachmentLibraryBodyHtml({ bodyAnimClass })
+            : renderMode === 'home'
             ? `<div class="tm-body tm-body--homepage${homepageBodyAnimClass}" style="display:flex;flex-direction:column;min-height:0;"><div id="tmHomepageRoot" style="flex:1;min-height:0;"></div></div>`
             : renderMode === 'calendar'
             ? __tmRenderCalendarBodyHtml()
@@ -66,8 +68,8 @@
                 : renderMode === 'kanban'
                     ? __tmRenderKanbanBodyHtml({ withBodyAnimation: true })
                     : __tmRenderListBodyHtml();
-        const showCalendarSideDock = !state.homepageOpen && __tmShouldShowCalendarSideDock() && !isMobile;
-        const showAiSideDock = __tmShouldShowAiSidebar() && !!state.aiSidebarOpen && !isMobile;
+        const showCalendarSideDock = !state.homepageOpen && !state.attachmentLibraryOpen && __tmShouldShowCalendarSideDock() && !isMobile;
+        const showAiSideDock = !state.attachmentLibraryOpen && __tmShouldShowAiSidebar() && !!state.aiSidebarOpen && !isMobile;
         const calendarSideDockWidth = Math.max(260, Math.min(760, Math.round(Number(SettingsStore.data.calendarSideDockWidth) || 340)));
         const aiSideDockWidth = Math.max(320, Math.min(720, Math.round(Number(state.aiSidebarWidth) || 380)));
         const showWhiteboardMobileDetailSheet = renderMode === 'whiteboard' && (__tmIsMobileDevice() || __tmHostUsesMobileUI()) && __tmChecklistUseSheetMode();

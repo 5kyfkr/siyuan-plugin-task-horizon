@@ -95,7 +95,7 @@
     }
 
     function __tmSummaryTaskDate(task) {
-        const ts = __tmParseTimeToTs(task?.taskCompleteAt || task?.task_complete_at || task?.updated || '');
+        const ts = __tmParseTimeToTs(task?.taskCompleteAt || task?.task_complete_at || '');
         return __tmSummaryDateKeyFromTs(ts);
     }
 

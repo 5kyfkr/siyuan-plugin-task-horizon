@@ -78,10 +78,25 @@
     <a href="https://ld246.com/member/Wolkasem" style="font-size:12px;color:var(--b3-theme-on-surface);text-decoration:none;padding:4px 10px;background:var(--b3-theme-surface);border:1px solid var(--b3-border-color);border-radius:18px;">Wolkasem</a>
     <a href="https://ld246.com/member/ming883" style="font-size:12px;color:var(--b3-theme-on-surface);text-decoration:none;padding:4px 10px;background:var(--b3-theme-surface);border:1px solid var(--b3-border-color);border-radius:18px;">ming883</a>
     <a href="https://ld246.com/member/jidenanian" style="font-size:12px;color:var(--b3-theme-on-surface);text-decoration:none;padding:4px 10px;background:var(--b3-theme-surface);border:1px solid var(--b3-border-color);border-radius:18px;">jidenanian</a>
+    <a href="https://ld246.com/member/Auroenix" style="font-size:12px;color:var(--b3-theme-on-surface);text-decoration:none;padding:4px 10px;background:var(--b3-theme-surface);border:1px solid var(--b3-border-color);border-radius:18px;">Auroenix</a>
   </div>
 </div>
 
 # 更新记录
+
+## 2.5.1更新内容 5/22
+- **新增：顶栏菜单加入「附件库」入口**
+  - **支持筛选：全部、图片、PDF、普通文件、文档/块链接、本地路径**
+  - **支持搜索附件名、显示路径、原始路径、任务标题、文档名**
+- **新增：附件支持粘贴/输入Windows本地路径，如C:\Users\Default，点击后打开文件夹**
+- 优化：文档分组在设置中删除后残留选项
+- 优化：任务字段变更后分组刷新
+- 优化：日程跟随日期拖动逻辑
+- 优化：全局收集箱内的任务增加图标标识
+- 优化：任务名称后图标样式
+- 修复：已完成任务分组内任务异常刷新完成时间
+- 修复：时长排序未按数值大小排序
+- 修复：按时间分组会在任务时间变动后分组没有局部刷新
 
 ## 2.5.0更新内容 5/20
 - **新增：设置->日历->任务日期跟随日程(默认开启)**
