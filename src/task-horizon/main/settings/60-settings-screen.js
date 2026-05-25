@@ -49,6 +49,16 @@
             : (groups.find((g) => String(g?.id || '').trim() === String(currentGroupId || '').trim()) || null);
         const currentGroupCalendarOptimization = __tmGetGroupCalendarSearchOptimization(currentGroup);
         const currentGroupExcludedDocIds = __tmGetExcludedDocIdsForGroup(currentGroupId);
+        let activeTab = 'docs';
+        if (state.settingsActiveTab === 'main') activeTab = 'main';
+        if (state.settingsActiveTab === 'docs') activeTab = 'docs';
+        if (state.settingsActiveTab === 'appearance') activeTab = 'appearance';
+        if (state.settingsActiveTab === 'calendar') activeTab = 'calendar';
+        if (state.settingsActiveTab === 'ai') activeTab = 'ai';
+        if (state.settingsActiveTab === 'rules') activeTab = 'rules';
+        if (state.settingsActiveTab === 'quadrant') activeTab = 'quadrant';
+        if (state.settingsActiveTab === 'priority') activeTab = 'priority';
+        if (state.settingsActiveTab === 'about') activeTab = 'about';
 
         // 渲染分组选择器
         const renderGroupSelector = () => {
@@ -70,26 +80,122 @@
         };
 
 
+        const resolveOtherBlockSourceGroupsForSettings = () => {
+            if (currentGroupId === 'all') return groups;
+            return currentGroup ? [currentGroup] : [];
+        };
+        const normalizeOtherBlockSourceDocsForSettings = (group) => {
+            const gid = String(group?.id || '').trim();
+            if (!gid) return [];
+            const sourceList = Array.isArray(state.otherBlockSourceDocsByGroup?.[gid])
+                ? state.otherBlockSourceDocsByGroup[gid]
+                : [];
+            const groupName = __tmResolveDocGroupName(group);
+            return sourceList.map((item) => {
+                const id = String(item?.id || item?.docId || '').trim();
+                if (!id) return null;
+                return {
+                    id,
+                    kind: 'doc',
+                    recursive: false,
+                    hasOtherBlockSource: true,
+                    otherBlockCount: Math.max(1, Number(item?.otherBlockCount) || 1),
+                    otherBlockIds: Array.isArray(item?.otherBlockIds) ? item.otherBlockIds.slice() : [],
+                    docName: String(item?.docName || '').trim(),
+                    sourceGroupId: gid,
+                    sourceGroupName: groupName
+                };
+            }).filter(Boolean);
+        };
+        const scheduleOtherBlockSourceDocRefresh = () => {
+            if (activeTab !== 'docs' || typeof __tmEnsureOtherBlockSourceDocsForGroup !== 'function') return;
+            if (!state.otherBlockSourceDocsLoadingByGroup || typeof state.otherBlockSourceDocsLoadingByGroup !== 'object') {
+                state.otherBlockSourceDocsLoadingByGroup = {};
+            }
+            if (!state.otherBlockSourceDocRefsSigByGroup || typeof state.otherBlockSourceDocRefsSigByGroup !== 'object') {
+                state.otherBlockSourceDocRefsSigByGroup = {};
+            }
+            resolveOtherBlockSourceGroupsForSettings().forEach((group) => {
+                const gid = String(group?.id || '').trim();
+                if (!gid || state.otherBlockSourceDocsLoadingByGroup[gid]) return;
+                const refs = __tmGetOtherBlockRefsByGroup(gid);
+                const refsSig = __tmNormalizeOtherBlockRefs(refs).map((item) => item.id).join(',');
+                if (!refs.length) {
+                    if (!state.otherBlockSourceDocsByGroup || typeof state.otherBlockSourceDocsByGroup !== 'object') {
+                        state.otherBlockSourceDocsByGroup = {};
+                    }
+                    state.otherBlockSourceDocsByGroup[gid] = [];
+                    state.otherBlockSourceDocRefsSigByGroup[gid] = refsSig;
+                    return;
+                }
+                if (state.otherBlockSourceDocRefsSigByGroup[gid] === refsSig
+                    && Array.isArray(state.otherBlockSourceDocsByGroup?.[gid])) return;
+                state.otherBlockSourceDocsLoadingByGroup[gid] = true;
+                Promise.resolve(__tmEnsureOtherBlockSourceDocsForGroup(gid)).then(() => {
+                    delete state.otherBlockSourceDocsLoadingByGroup[gid];
+                    if (state.settingsModal && document.body.contains(state.settingsModal)) showSettings();
+                }).catch(() => {
+                    delete state.otherBlockSourceDocsLoadingByGroup[gid];
+                });
+            });
+        };
+        scheduleOtherBlockSourceDocRefresh();
+
         // 获取当前显示的文档列表
         let currentDocs = [];
+        const pushDirectDocEntries = (entries) => {
+            (Array.isArray(entries) ? entries : []).forEach((entry) => {
+                const docId = String((typeof entry === 'object' ? entry?.id : entry) || '').trim();
+                const kind = String((typeof entry === 'object' ? entry?.kind : '') || 'doc').trim() || 'doc';
+                if (!docId) return;
+                currentDocs.push({
+                    ...(typeof entry === 'object' ? entry : { id: docId }),
+                    id: docId,
+                    kind,
+                    hasDirectDocSource: kind === 'doc'
+                });
+            });
+        };
         if (currentGroupId === 'all') {
             // 显示所有（包括旧版和各分组）
             const legacyIds = SettingsStore.data.selectedDocIds || [];
-            legacyIds.forEach(id => currentDocs.push({ id, kind: 'doc', recursive: false }));
+            pushDirectDocEntries(legacyIds.map((id) => ({ id, kind: 'doc', recursive: false })));
             groups.forEach(g => {
-                currentDocs.push(...__tmGetGroupSourceEntries(g));
-            });
-            // 去重
-            const seen = new Set();
-            currentDocs = currentDocs.filter(d => {
-                const key = `${String(d?.kind || 'doc')}:${String(d?.id || '')}`;
-                if (seen.has(key)) return false;
-                seen.add(key);
-                return true;
+                pushDirectDocEntries(__tmGetGroupSourceEntries(g));
             });
         } else {
-            if (currentGroup) currentDocs = __tmGetGroupSourceEntries(currentGroup);
+            if (currentGroup) pushDirectDocEntries(__tmGetGroupSourceEntries(currentGroup));
         }
+        resolveOtherBlockSourceGroupsForSettings().forEach((group) => {
+            currentDocs.push(...normalizeOtherBlockSourceDocsForSettings(group));
+        });
+        const seenDocs = new Map();
+        currentDocs.forEach((docItem) => {
+            const docId = String((typeof docItem === 'object' ? docItem?.id : docItem) || '').trim();
+            const itemKind = String((typeof docItem === 'object' ? docItem?.kind : '') || 'doc').trim() || 'doc';
+            if (!docId) return;
+            const key = `${itemKind}:${docId}`;
+            const existing = seenDocs.get(key);
+            if (!existing) {
+                seenDocs.set(key, docItem);
+                return;
+            }
+            existing.hasDirectDocSource = !!(existing.hasDirectDocSource || docItem.hasDirectDocSource);
+            existing.hasOtherBlockSource = !!(existing.hasOtherBlockSource || docItem.hasOtherBlockSource);
+            existing.otherBlockCount = (Number(existing.otherBlockCount) || 0) + (Number(docItem.otherBlockCount) || 0);
+            existing.otherBlockIds = Array.from(new Set([
+                ...(Array.isArray(existing.otherBlockIds) ? existing.otherBlockIds : []),
+                ...(Array.isArray(docItem.otherBlockIds) ? docItem.otherBlockIds : [])
+            ]));
+            existing.sourceGroupIds = Array.from(new Set([
+                ...(Array.isArray(existing.sourceGroupIds) ? existing.sourceGroupIds : (existing.sourceGroupId ? [existing.sourceGroupId] : [])),
+                ...(Array.isArray(docItem.sourceGroupIds) ? docItem.sourceGroupIds : (docItem.sourceGroupId ? [docItem.sourceGroupId] : []))
+            ].map((item) => String(item || '').trim()).filter(Boolean)));
+            if (!existing.docName && docItem.docName) existing.docName = docItem.docName;
+            if (!existing.sourceGroupName && docItem.sourceGroupName) existing.sourceGroupName = docItem.sourceGroupName;
+            if (!existing.sourceGroupId && docItem.sourceGroupId) existing.sourceGroupId = docItem.sourceGroupId;
+        });
+        currentDocs = Array.from(seenDocs.values());
 
         const resolveDocName = (docId) => {
             if (!docId) return '未知文档';
@@ -166,16 +272,6 @@
         if (newTaskDailyNoteNotebookId && !(Array.isArray(state.notebooks) ? state.notebooks : []).some((item) => String(item?.id || item?.box || '').trim() === newTaskDailyNoteNotebookId)) {
             dailyNoteNotebookOptions.push(`<option value="${newTaskDailyNoteNotebookId}" selected>${esc(__tmGetNotebookDisplayName(newTaskDailyNoteNotebookId, newTaskDailyNoteNotebookId))} (不在当前列表)</option>`);
         }
-        let activeTab = 'docs';
-        if (state.settingsActiveTab === 'main') activeTab = 'main';
-        if (state.settingsActiveTab === 'docs') activeTab = 'docs';
-        if (state.settingsActiveTab === 'appearance') activeTab = 'appearance';
-        if (state.settingsActiveTab === 'calendar') activeTab = 'calendar';
-        if (state.settingsActiveTab === 'ai') activeTab = 'ai';
-        if (state.settingsActiveTab === 'rules') activeTab = 'rules';
-        if (state.settingsActiveTab === 'quadrant') activeTab = 'quadrant';
-        if (state.settingsActiveTab === 'priority') activeTab = 'priority';
-        if (state.settingsActiveTab === 'about') activeTab = 'about';
         if (activeTab === 'main' || activeTab === 'docs') {
             try { __tmEnsureAllDocumentsLoaded(false); } catch (e) {}
         }
@@ -219,17 +315,142 @@
         const renderSingleFieldSetting = (title, desc, controlHtml, opt = {}) => {
             const extraClass = String(opt?.className || '').trim();
             const extraStyle = String(opt?.style || '').trim();
+            const controlMode = String(opt?.controlMode || opt?.layout || '').trim();
+            const controlText = String(controlHtml || '');
+            const isChipControl = /tm-settings-chip-(?:setting|stack|group)/.test(controlText);
+            const isStacked = ['block', 'stack', 'full'].includes(controlMode) || isChipControl;
             const descHtml = String(desc || '').trim()
                 ? `<div class="tm-setting-field-desc">${desc}</div>`
                 : '';
             return `
-                <div class="tm-setting-field-row${extraClass ? ` ${extraClass}` : ''}"${extraStyle ? ` style="${extraStyle}"` : ''}>
+                <div class="tm-setting-field-row${isStacked ? ' tm-setting-field-row--stack' : ''}${extraClass ? ` ${extraClass}` : ''}"${extraStyle ? ` style="${extraStyle}"` : ''}>
                     <div class="tm-setting-field-copy">
                         <div class="tm-setting-field-title">${title}</div>
                         ${descHtml}
                     </div>
-                    <div class="tm-setting-field-control">
+                    <div class="tm-setting-field-control${isStacked ? ' tm-setting-field-control--block' : ''}">
                         ${controlHtml}
+                    </div>
+                </div>
+            `;
+        };
+        const __tmBuildSettingsCustomFieldChipItem = (field) => {
+            const fieldId = String(field?.id || '').trim();
+            if (!fieldId) return null;
+            const fieldLabel = String(field?.name || fieldId || '').trim() || '未命名';
+            return {
+                key: `customField:${fieldId}`,
+                label: `${fieldLabel}（自定义）`,
+                title: `自定义列：${fieldLabel}`
+            };
+        };
+        const __tmBuildSettingsCustomFieldChipItems = () => __tmGetCustomFieldDefs()
+            .filter((field) => String(field?.id || '').trim() && field?.enabled !== false && String(field?.type || '').trim() !== 'text')
+            .map((field) => __tmBuildSettingsCustomFieldChipItem(field))
+            .filter((item) => item && __tmParseCustomFieldColumnKey(item.key));
+        const __tmBuildSettingsChipGroup = (title, items, opt = {}) => ({
+            title: String(title || '').trim(),
+            items: Array.isArray(items) ? items : [],
+            selectedSet: opt.selectedSet instanceof Set ? opt.selectedSet : undefined,
+            selectedKeys: Array.isArray(opt.selectedKeys) ? opt.selectedKeys : undefined,
+            disabled: !!opt.disabled,
+            className: String(opt.className || '').trim(),
+            style: String(opt.style || '').trim(),
+            gridClass: String(opt.gridClass || '').trim(),
+            itemClassName: String(opt.itemClassName || '').trim(),
+            onToggle: typeof opt.onToggle === 'function' ? opt.onToggle : null,
+            desc: String(opt.desc || '').trim()
+        });
+        const renderSettingsChipItems = (items, opt = {}) => {
+            const selectedSet = opt.selectedSet instanceof Set
+                ? opt.selectedSet
+                : new Set((Array.isArray(opt.selectedKeys) ? opt.selectedKeys : []).map((value) => String(value || '').trim()).filter(Boolean));
+            const disabled = !!opt.disabled;
+            const itemClassName = String(opt.itemClassName || '').trim();
+            const onToggle = typeof opt.onToggle === 'function' ? opt.onToggle : null;
+            return (Array.isArray(items) ? items : []).map((rawItem) => {
+                const item = (rawItem && typeof rawItem === 'object') ? rawItem : { key: rawItem, label: rawItem };
+                const key = String(item?.key || '').trim();
+                if (!key) return '';
+                const label = String(item?.label || item?.name || key).trim() || key;
+                const title = String(item?.title || item?.tip || '').trim() || label;
+                const checked = item?.checked != null ? !!item.checked : selectedSet.has(key);
+                const itemDisabled = disabled || item?.disabled === true;
+                const classes = [itemClassName, item?.className, checked ? 'is-selected' : '', itemDisabled ? 'is-disabled' : '', item?.muted ? 'is-muted' : '']
+                    .map((value) => String(value || '').trim())
+                    .filter(Boolean)
+                    .join(' ');
+                const onchange = onToggle ? String(onToggle(item, checked, itemDisabled) || '').trim() : '';
+                return `
+                    <label class="tm-settings-chip${classes ? ` ${classes}` : ''}" title="${esc(title)}"${itemDisabled ? ' aria-disabled="true"' : ''}>
+                        <input class="tm-settings-chip__input" type="checkbox" ${checked ? 'checked' : ''} ${itemDisabled ? 'disabled' : ''} onchange="${esc(onchange)}">
+                        <span class="tm-settings-chip__check" aria-hidden="true"></span>
+                        <span class="tm-settings-chip__label">${esc(label)}</span>
+                    </label>
+                `;
+            }).join('');
+        };
+        const renderSettingsChipGroup = (group = {}) => {
+            const items = Array.isArray(group.items) ? group.items.filter(Boolean) : [];
+            const selectedSet = group.selectedSet instanceof Set
+                ? group.selectedSet
+                : new Set((Array.isArray(group.selectedKeys) ? group.selectedKeys : []).map((value) => String(value || '').trim()).filter(Boolean));
+            const disabled = !!group.disabled;
+            const extraClass = String(group.className || '').trim();
+            const extraStyle = String(group.style || '').trim();
+            const gridClass = String(group.gridClass || '').trim();
+            const totalCount = items.length;
+            const selectedCount = items.reduce((count, item) => count + (selectedSet.has(String(item?.key || '').trim()) ? 1 : 0), 0);
+            const title = String(group.title || '').trim();
+            const desc = String(group.desc || '').trim();
+            const descHtml = desc ? `<div class="tm-settings-chip-group-desc">${esc(desc)}</div>` : '';
+            const headHtml = title || desc ? `
+                    <div class="tm-settings-chip-group-head">
+                        <div class="tm-settings-chip-group-title-wrap">
+                            ${title ? `<div class="tm-settings-chip-group-title">${esc(title)}</div>` : ''}
+                            ${descHtml}
+                        </div>
+                        <div class="tm-settings-chip-group-count">已选 ${selectedCount}/${totalCount}</div>
+                    </div>
+            ` : '';
+            return `
+                <section class="tm-settings-chip-group${disabled ? ' is-disabled' : ''}${extraClass ? ` ${extraClass}` : ''}"${extraStyle ? ` style="${extraStyle}"` : ''}>
+                    ${headHtml}
+                    <div class="tm-settings-chip-grid${gridClass ? ` ${gridClass}` : ''}">
+                        ${renderSettingsChipItems(items, {
+                            selectedSet,
+                            disabled,
+                            itemClassName: String(group.itemClassName || '').trim(),
+                            onToggle: typeof group.onToggle === 'function' ? group.onToggle : null
+                        })}
+                    </div>
+                </section>
+            `;
+        };
+        const renderSettingsChipSetting = (title, desc, groups, opt = {}) => {
+            const extraClass = String(opt?.className || '').trim();
+            const extraStyle = String(opt?.style || '').trim();
+            const groupsList = Array.isArray(groups) ? groups : [];
+            const heading = String(title || '').trim();
+            const description = String(desc || '').trim();
+            const descHtml = String(desc || '').trim()
+                ? `<div class="tm-settings-chip-setting-desc">${desc}</div>`
+                : '';
+            if (!heading && !description) {
+                return `
+                    <div class="tm-settings-chip-stack${groupsList.length > 1 ? ' tm-settings-chip-stack--multi' : ''}${extraClass ? ` ${extraClass}` : ''}"${extraStyle ? ` style="${extraStyle}"` : ''}>
+                        ${groupsList.map((group) => renderSettingsChipGroup(group)).join('')}
+                    </div>
+                `;
+            }
+            return `
+                <div class="tm-settings-chip-setting${extraClass ? ` ${extraClass}` : ''}"${extraStyle ? ` style="${extraStyle}"` : ''}>
+                    <div class="tm-settings-chip-setting-copy">
+                        <div class="tm-settings-chip-setting-title">${esc(heading)}</div>
+                        ${description ? `<div class="tm-settings-chip-setting-desc">${esc(description)}</div>` : ''}
+                    </div>
+                    <div class="tm-settings-chip-stack${groupsList.length > 1 ? ' tm-settings-chip-stack--multi' : ''}">
+                        ${groupsList.map((group) => renderSettingsChipGroup(group)).join('')}
                     </div>
                 </div>
             `;
@@ -618,28 +839,17 @@
                             )}
                         </div>
                         <div style="margin-top:10px;">
-                            ${renderSingleFieldSetting(
-                                '子任务继承父任务字段',
-                                '新建子任务时，仅继承父任务中已经填写的字段。默认不继承任何字段。',
-                                (() => {
-                                    const selected = new Set(__tmNormalizeSubtaskInheritedFields(SettingsStore.data.subtaskInheritedFields));
-                                    const customFieldOptions = __tmGetCustomFieldDefs()
-                                        .filter((field) => String(field?.id || '').trim() && field?.enabled !== false)
-                                        .map((field) => ({
-                                            key: `customField:${String(field?.id || '').trim()}`,
-                                            label: `自定义：${String(field?.name || field?.id || '').trim() || '未命名'}`
-                                        }))
-                                        .filter((item) => __tmParseCustomFieldColumnKey(item.key));
-                                    const options = __TM_SUBTASK_INHERIT_FIELD_OPTIONS.concat(customFieldOptions);
-                                    return `<div style="display:flex;gap:8px;flex-wrap:wrap;">${options.map((item) => `
-                                        <label style="display:inline-flex;align-items:center;gap:6px;padding:6px 10px;border:1px solid var(--tm-border-color);border-radius:999px;background:var(--tm-card-bg);cursor:pointer;">
-                                            <input class="b3-switch fn__flex-center" type="checkbox" ${selected.has(item.key) ? 'checked' : ''} onchange="updateSubtaskInheritedField('${escSq(item.key)}', this.checked)">
-                                            <span>${esc(item.label)}</span>
-                                        </label>
-                                    `).join('')}</div>`;
-                                })()
-                            )}
-                        </div>
+                        ${renderSingleFieldSetting(
+                            '子任务继承父任务字段',
+                            '新建子任务时，仅继承父任务中已经填写的字段。默认不继承任何字段。',
+                            renderSettingsChipSetting('', '', [
+                                __tmBuildSettingsChipGroup('字段', __TM_SUBTASK_INHERIT_FIELD_OPTIONS.concat(__tmBuildSettingsCustomFieldChipItems()), {
+                                    selectedSet: new Set(__tmNormalizeSubtaskInheritedFields(SettingsStore.data.subtaskInheritedFields)),
+                                    onToggle: (item) => `updateSubtaskInheritedField('${escSq(String(item?.key || '').trim())}', this.checked)`
+                                })
+                            ])
+                        )}
+                    </div>
                     </div>
 
                     <div class="tm-settings-panel" style="margin-bottom: 16px;" data-tm-settings-section="status">
@@ -733,19 +943,16 @@
                                     const selected = new Set(__tmNormalizeCompactChecklistMetaFields(SettingsStore.data.dockChecklistCompactMetaFields));
                                     const customFieldOptions = __tmGetCustomFieldDefs()
                                         .filter((field) => String(field?.id || '').trim() && field?.enabled !== false && String(field?.type || '').trim() !== 'text')
-                                        .map((field) => ({
-                                            key: `customField:${String(field?.id || '').trim()}`,
-                                            label: `自定义：${String(field?.name || field?.id || '').trim() || '未命名'}`
-                                        }))
-                                        .filter((item) => __tmParseCustomFieldColumnKey(item.key));
+                                        .map((field) => __tmBuildSettingsCustomFieldChipItem(field))
+                                        .filter((item) => item && __tmParseCustomFieldColumnKey(item.key));
                                     const options = __TM_CHECKLIST_COMPACT_META_FIELD_OPTIONS.concat(customFieldOptions);
-                                    return `<div style="display:flex;gap:8px;flex-wrap:wrap;">${options.map((item) => `
-                                        <label style="display:inline-flex;align-items:center;gap:6px;padding:6px 10px;border:1px solid var(--tm-border-color);border-radius:999px;background:var(--tm-card-bg);cursor:pointer;">
-                                            <input class="b3-switch fn__flex-center" type="checkbox" ${selected.has(item.key) ? 'checked' : ''} onchange="updateChecklistCompactMetaFieldVisibility('dock', '${item.key}', this.checked)">
-                                            <span>${esc(item.label)}</span>
-                                        </label>
-                                    `).join('')}</div>`;
-                                })()
+                                return renderSettingsChipSetting('', '', [
+                                    __tmBuildSettingsChipGroup('字段', options, {
+                                        selectedSet: selected,
+                                        onToggle: (item) => `updateChecklistCompactMetaFieldVisibility('dock', '${escSq(String(item?.key || '').trim())}', this.checked)`
+                                    })
+                                ]);
+                            })()
                             )}
                         </div>
                         ${renderSingleFieldSetting(
@@ -753,20 +960,17 @@
                             '控制桌面端清单紧凑视图里任务右侧显示哪些信息。默认显示截止日期和状态标签，文档名仅在全部页签下显示。',
                             (() => {
                                 const selected = new Set(__tmNormalizeCompactChecklistMetaFields(SettingsStore.data.desktopChecklistCompactMetaFields));
-                                const customFieldOptions = __tmGetCustomFieldDefs()
-                                    .filter((field) => String(field?.id || '').trim() && field?.enabled !== false && String(field?.type || '').trim() !== 'text')
-                                    .map((field) => ({
-                                        key: `customField:${String(field?.id || '').trim()}`,
-                                        label: `自定义：${String(field?.name || field?.id || '').trim() || '未命名'}`
-                                    }))
-                                    .filter((item) => __tmParseCustomFieldColumnKey(item.key));
+                                    const customFieldOptions = __tmGetCustomFieldDefs()
+                                        .filter((field) => String(field?.id || '').trim() && field?.enabled !== false && String(field?.type || '').trim() !== 'text')
+                                        .map((field) => __tmBuildSettingsCustomFieldChipItem(field))
+                                        .filter((item) => item && __tmParseCustomFieldColumnKey(item.key));
                                 const options = __TM_CHECKLIST_COMPACT_META_FIELD_OPTIONS.concat(customFieldOptions);
-                                return `<div style="display:flex;gap:8px;flex-wrap:wrap;">${options.map((item) => `
-                                    <label style="display:inline-flex;align-items:center;gap:6px;padding:6px 10px;border:1px solid var(--tm-border-color);border-radius:999px;background:var(--tm-card-bg);cursor:pointer;">
-                                        <input class="b3-switch fn__flex-center" type="checkbox" ${selected.has(item.key) ? 'checked' : ''} onchange="updateChecklistCompactMetaFieldVisibility('desktop', '${item.key}', this.checked)">
-                                        <span>${esc(item.label)}</span>
-                                    </label>
-                                `).join('')}</div>`;
+                                return renderSettingsChipSetting('', '', [
+                                    __tmBuildSettingsChipGroup('字段', options, {
+                                        selectedSet: selected,
+                                        onToggle: (item) => `updateChecklistCompactMetaFieldVisibility('desktop', '${escSq(String(item?.key || '').trim())}', this.checked)`
+                                    })
+                                ]);
                             })(),
                             { style: 'margin-bottom:10px;' }
                         )}
@@ -783,12 +987,12 @@
                             '控制时间轴卡片显示任务名称和状态标签。两个都关闭时，前导图标会自动隐藏。',
                             (() => {
                                 const selected = new Set(__tmNormalizeTimelineCardFields(SettingsStore.data.timelineCardFields));
-                                return `<div style="display:flex;gap:8px;flex-wrap:wrap;">${__TM_TIMELINE_CARD_FIELD_OPTIONS.map((item) => `
-                                    <label style="display:inline-flex;align-items:center;gap:6px;padding:6px 10px;border:1px solid var(--tm-border-color);border-radius:999px;background:var(--tm-card-bg);cursor:pointer;">
-                                        <input class="b3-switch fn__flex-center" type="checkbox" ${selected.has(item.key) ? 'checked' : ''} onchange="updateTimelineCardFieldVisibility('${item.key}', this.checked)">
-                                        <span>${item.label}</span>
-                                    </label>
-                                `).join('')}</div>`;
+                                return renderSettingsChipSetting('', '', [
+                                    __tmBuildSettingsChipGroup('字段', __TM_TIMELINE_CARD_FIELD_OPTIONS, {
+                                        selectedSet: selected,
+                                        onToggle: (item) => `updateTimelineCardFieldVisibility('${escSq(String(item?.key || '').trim())}', this.checked)`
+                                    })
+                                ]);
                             })(),
                             { style: 'margin-bottom:10px;' }
                         )}
@@ -799,22 +1003,22 @@
                             { style: 'margin-bottom:10px;' }
                         )}
                         <div style="margin-bottom:10px;">
-                            <div style="font-size:12px;color:var(--tm-secondary-text);margin-bottom:8px;">显示视图:</div>
-                            <div style="display:flex;gap:8px;flex-wrap:wrap;">
-                                ${(() => {
+                            ${renderSettingsChipSetting('', '', [
+                                __tmBuildSettingsChipGroup('显示视图', __TM_ALL_VIEWS.map((view) => {
                                     const enabledViews = __tmGetEnabledViews();
-                                    return __TM_ALL_VIEWS.map((view) => {
-                                        const checked = enabledViews.includes(view.id);
-                                        const disabled = checked && enabledViews.length <= 1;
-                                        return `
-                                            <label style="display:inline-flex;align-items:center;gap:6px;padding:6px 10px;border:1px solid var(--tm-border-color);border-radius:999px;background:var(--tm-card-bg);cursor:${disabled ? 'not-allowed' : 'pointer'};opacity:${disabled ? 0.6 : 1};">
-                                                <input class="b3-switch fn__flex-center" type="checkbox" ${checked ? 'checked' : ''} ${disabled ? 'disabled' : ''} onchange="updateEnabledView('${view.id}', this.checked)">
-                                                <span>${view.longLabel}</span>
-                                            </label>
-                                        `;
-                                    }).join('');
-                                })()}
-                            </div>
+                                    const checked = enabledViews.includes(view.id);
+                                    const disabled = checked && enabledViews.length <= 1;
+                                    return {
+                                        key: view.id,
+                                        label: view.longLabel,
+                                        disabled,
+                                        title: view.longLabel
+                                    };
+                                }), {
+                                    selectedSet: new Set(__tmGetEnabledViews()),
+                                    onToggle: (item) => `updateEnabledView('${escSq(String(item?.key || '').trim())}', this.checked)`
+                                })
+                            ])}
                             <div style="font-size:12px;color:var(--tm-secondary-text);margin-top:6px;">顶栏和移动端视图切换会同步隐藏这里关闭的视图，至少保留一个。</div>
                         </div>
                         ${renderSingleSwitchSetting(
@@ -853,12 +1057,12 @@
                             '控制看板卡片中显示哪些任务字段。',
                             (() => {
                                 const selected = new Set(__tmGetTaskCardFieldList('kanban'));
-                                return `<div style="display:flex;gap:8px;flex-wrap:wrap;">${__TM_TASK_CARD_FIELD_OPTIONS.map((item) => `
-                                    <label style="display:inline-flex;align-items:center;gap:6px;padding:6px 10px;border:1px solid var(--tm-border-color);border-radius:999px;background:var(--tm-card-bg);cursor:pointer;">
-                                        <input class="b3-switch fn__flex-center" type="checkbox" ${selected.has(item.key) ? 'checked' : ''} onchange="updateTaskCardFieldVisibility('kanban', '${item.key}', this.checked)">
-                                        <span>${item.label}</span>
-                                    </label>
-                                `).join('')}</div>`;
+                                return renderSettingsChipSetting('', '', [
+                                    __tmBuildSettingsChipGroup('字段', __TM_TASK_CARD_FIELD_OPTIONS, {
+                                        selectedSet: selected,
+                                        onToggle: (item) => `updateTaskCardFieldVisibility('kanban', '${escSq(String(item?.key || '').trim())}', this.checked)`
+                                    })
+                                ]);
                             })(),
                             { style: 'margin-bottom:10px;' }
                         )}
@@ -867,12 +1071,12 @@
                             '控制白板卡片中显示哪些任务字段。',
                             (() => {
                                 const selected = new Set(__tmGetTaskCardFieldList('whiteboard'));
-                                return `<div style="display:flex;gap:8px;flex-wrap:wrap;">${__TM_TASK_CARD_FIELD_OPTIONS.map((item) => `
-                                    <label style="display:inline-flex;align-items:center;gap:6px;padding:6px 10px;border:1px solid var(--tm-border-color);border-radius:999px;background:var(--tm-card-bg);cursor:pointer;">
-                                        <input class="b3-switch fn__flex-center" type="checkbox" ${selected.has(item.key) ? 'checked' : ''} onchange="updateTaskCardFieldVisibility('whiteboard', '${item.key}', this.checked)">
-                                        <span>${item.label}</span>
-                                    </label>
-                                `).join('')}</div>`;
+                                return renderSettingsChipSetting('', '', [
+                                    __tmBuildSettingsChipGroup('字段', __TM_TASK_CARD_FIELD_OPTIONS, {
+                                        selectedSet: selected,
+                                        onToggle: (item) => `updateTaskCardFieldVisibility('whiteboard', '${escSq(String(item?.key || '').trim())}', this.checked)`
+                                    })
+                                ]);
                             })(),
                             { style: 'margin-bottom:10px;' }
                         )}
@@ -1065,36 +1269,31 @@
                             ${renderSingleFieldSetting(
                                 '悬浮条显示图标',
                                 '控制任务悬浮条里显示哪些字段和动作图标；取消勾选后对应按钮会隐藏。',
-                                `<div style="display:flex;gap:8px;flex-wrap:wrap;">
-                                    ${(() => {
-                                        const customFieldItems = __tmGetCustomFieldDefs()
-                                            .filter((field) => String(field?.id || '').trim() && field?.enabled !== false && String(field?.type || '').trim() !== 'text')
-                                            .map((field) => ({
-                                                key: `customField:${String(field?.id || '').trim()}`,
-                                                label: `自定义：${String(field?.name || field?.id || '').trim() || '未命名'}`
-                                            }))
-                                            .filter((item) => __tmParseCustomFieldColumnKey(item.key));
-                                        return [
-                                            { key: 'custom-status', label: '状态' },
-                                            { key: 'custom-priority', label: '重要性' },
-                                            { key: 'custom-start-date', label: '开始日期' },
-                                            { key: 'custom-completion-time', label: '截止日期' },
-                                            { key: 'taskCompleteAt', label: '完成时间' },
-                                            { key: 'custom-duration', label: '时长' },
-                                            { key: 'custom-remark', label: '备注' },
-                                            ...customFieldItems,
-                                            { key: 'action-ai-title', label: 'AI 优化' },
-                                            { key: 'action-reminder', label: '提醒' },
-                                            { key: 'action-more', label: '更多' }
-                                        ];
-                                    })().map((item) => {
-                                        const checked = (SettingsStore.data.quickbarVisibleItems || []).includes(item.key);
-                                        return `<label style="display:inline-flex;align-items:center;gap:6px;padding:6px 10px;border:1px solid var(--tm-border-color);border-radius:999px;background:var(--tm-card-bg);cursor:${SettingsStore.data.enableQuickbar ? 'pointer' : 'not-allowed'};opacity:${SettingsStore.data.enableQuickbar ? 1 : 0.6};">
-                                            <input class="b3-switch fn__flex-center" type="checkbox" ${checked ? 'checked' : ''} ${SettingsStore.data.enableQuickbar ? '' : 'disabled'} onchange="updateQuickbarVisibleItem('${item.key}', this.checked)">
-                                            <span>${esc(item.label)}</span>
-                                        </label>`;
-                                    }).join('')}
-                                </div>`,
+                                renderSettingsChipSetting('', '', [
+                                    __tmBuildSettingsChipGroup('字段', [
+                                        { key: 'custom-status', label: '状态' },
+                                        { key: 'custom-priority', label: '重要性' },
+                                        { key: 'custom-start-date', label: '开始日期' },
+                                        { key: 'custom-completion-time', label: '截止日期' },
+                                        { key: 'taskCompleteAt', label: '完成时间' },
+                                        { key: 'custom-duration', label: '时长' },
+                                        { key: 'custom-remark', label: '备注' },
+                                        ...__tmBuildSettingsCustomFieldChipItems(),
+                                    ], {
+                                        selectedSet: new Set((SettingsStore.data.quickbarVisibleItems || []).map((value) => String(value || '').trim()).filter(Boolean)),
+                                        disabled: !SettingsStore.data.enableQuickbar,
+                                        onToggle: (item) => `updateQuickbarVisibleItem('${escSq(String(item?.key || '').trim())}', this.checked)`
+                                    }),
+                                    __tmBuildSettingsChipGroup('动作', [
+                                        { key: 'action-ai-title', label: 'AI 优化' },
+                                        { key: 'action-reminder', label: '提醒' },
+                                        { key: 'action-more', label: '更多' }
+                                    ], {
+                                        selectedSet: new Set((SettingsStore.data.quickbarVisibleItems || []).map((value) => String(value || '').trim()).filter(Boolean)),
+                                        disabled: !SettingsStore.data.enableQuickbar,
+                                        onToggle: (item) => `updateQuickbarVisibleItem('${escSq(String(item?.key || '').trim())}', this.checked)`
+                                    })
+                                ]),
                                 { style: 'margin-top:8px;margin-bottom:10px;' }
                             )}
                         </div>
@@ -1102,34 +1301,29 @@
                             ${renderSingleFieldSetting(
                                 '常驻显示字段',
                                 '默认显示状态和截止日期，字段越多越容易挤占任务正文空间。',
-                                `<div style="display:flex;gap:8px;flex-wrap:wrap;">
-                                    ${(() => {
-                                        const customFieldItems = __tmGetCustomFieldDefs()
-                                            .filter((field) => String(field?.id || '').trim() && field?.enabled !== false && String(field?.type || '').trim() !== 'text')
-                                            .map((field) => ({
-                                                key: `customField:${String(field?.id || '').trim()}`,
-                                                label: `自定义：${String(field?.name || field?.id || '').trim() || '未命名'}`
-                                            }))
-                                            .filter((item) => __tmParseCustomFieldColumnKey(item.key));
-                                        return [
-                                            { key: 'custom-status', label: '状态' },
-                                            { key: 'custom-completion-time', label: '截止日期' },
-                                            { key: 'taskCompleteAt', label: '完成时间' },
-                                            { key: 'custom-priority', label: '重要性' },
-                                            { key: 'custom-start-date', label: '开始日期' },
-                                            { key: 'custom-duration', label: '时长' },
-                                            { key: 'custom-remark', label: '备注' },
-                                            ...customFieldItems
-                                        ];
-                                    })().map((item) => {
-                                        const checked = (SettingsStore.data.quickbarInlineFields || []).includes(item.key);
-                                        return `<label style="display:inline-flex;align-items:center;gap:6px;padding:6px 10px;border:1px solid var(--tm-border-color);border-radius:999px;background:var(--tm-card-bg);cursor:${SettingsStore.data.enableQuickbarInlineMeta ? 'pointer' : 'not-allowed'};opacity:${SettingsStore.data.enableQuickbarInlineMeta ? 1 : 0.6};">
-                                            <input class="b3-switch fn__flex-center" type="checkbox" ${checked ? 'checked' : ''} ${SettingsStore.data.enableQuickbarInlineMeta ? '' : 'disabled'} onchange="updateQuickbarInlineField('${item.key}', this.checked)">
-                                            <span>${esc(item.label)}</span>
-                                        </label>`;
-                                    }).join('')}
-                                </div>`,
+                                renderSettingsChipSetting('', '', [
+                                    __tmBuildSettingsChipGroup('字段', [
+                                        { key: 'subtask-count', label: '子任务数量' },
+                                        { key: 'custom-status', label: '状态' },
+                                        { key: 'custom-completion-time', label: '截止日期' },
+                                        { key: 'taskCompleteAt', label: '完成时间' },
+                                        { key: 'custom-priority', label: '重要性' },
+                                        { key: 'custom-start-date', label: '开始日期' },
+                                        { key: 'custom-duration', label: '时长' },
+                                        { key: 'custom-remark', label: '备注' },
+                                        ...__tmBuildSettingsCustomFieldChipItems()
+                                    ], {
+                                        selectedSet: new Set((SettingsStore.data.quickbarInlineFields || []).map((value) => String(value || '').trim()).filter(Boolean)),
+                                        disabled: !SettingsStore.data.enableQuickbarInlineMeta,
+                                        onToggle: (item) => `updateQuickbarInlineField('${escSq(String(item?.key || '').trim())}', this.checked)`
+                                    })
+                                ]),
                                 { style: 'margin-bottom:10px;' }
+                            )}
+                            ${renderSingleSwitchSetting(
+                                '子任务数量显示未完成数',
+                                '开启后，子任务数量常驻标签显示未完成子任务数量；关闭时显示已完成/总数。',
+                                `<input class="b3-switch fn__flex-center" type="checkbox" ${SettingsStore.data.quickbarSubtaskCountUnfinishedOnly ? 'checked' : ''} ${SettingsStore.data.enableQuickbarInlineMeta ? '' : 'disabled'} onchange="updateQuickbarSubtaskCountUnfinishedOnly(this.checked)">`
                             )}
                             ${renderSingleSwitchSetting(
                                 '移动端启用常驻显示',
@@ -1178,22 +1372,26 @@
                             ${renderSingleFieldSetting(
                                 '不联动的文档分组',
                                 '所选文档分组中的任务完成后，不会触发凡人修仙传:打卡插件奖励。',
-                                `<div style="display:flex;gap:8px;flex-wrap:wrap;max-width:520px;">
-                                    ${(() => {
-                                        const groups = Array.isArray(SettingsStore.data.docGroups) ? SettingsStore.data.docGroups : [];
-                                        const selected = new Set((Array.isArray(SettingsStore.data.pointsRewardExcludedGroupIds) ? SettingsStore.data.pointsRewardExcludedGroupIds : []).map((id) => String(id || '').trim()).filter(Boolean));
-                                        if (!groups.length) return `<span class="tm-setting-field-unit">暂无文档分组</span>`;
-                                        return groups.map((group) => {
+                                (() => {
+                                    const groups = Array.isArray(SettingsStore.data.docGroups) ? SettingsStore.data.docGroups : [];
+                                    const selected = new Set((Array.isArray(SettingsStore.data.pointsRewardExcludedGroupIds) ? SettingsStore.data.pointsRewardExcludedGroupIds : []).map((id) => String(id || '').trim()).filter(Boolean));
+                                    if (!groups.length) return `<span class="tm-setting-field-unit">暂无文档分组</span>`;
+                                    return renderSettingsChipSetting('', '', [
+                                        __tmBuildSettingsChipGroup('文档分组', groups.map((group) => {
                                             const gid = String(group?.id || '').trim();
-                                            if (!gid) return '';
-                                            const checked = selected.has(gid);
-                                            return `<label style="display:inline-flex;align-items:center;gap:6px;padding:6px 10px;border:1px solid var(--tm-border-color);border-radius:999px;background:var(--tm-card-bg);cursor:${SettingsStore.data.enablePointsRewardIntegration ? 'pointer' : 'not-allowed'};opacity:${SettingsStore.data.enablePointsRewardIntegration ? 1 : 0.6};">
-                                                <input class="b3-switch fn__flex-center" type="checkbox" ${checked ? 'checked' : ''} ${SettingsStore.data.enablePointsRewardIntegration ? '' : 'disabled'} onchange="updatePointsRewardExcludedGroup('${escSq(gid)}', this.checked)">
-                                                <span>${esc(__tmResolveDocGroupName(group))}</span>
-                                            </label>`;
-                                        }).join('');
-                                    })()}
-                                </div>`,
+                                            if (!gid) return null;
+                                            return {
+                                                key: gid,
+                                                label: __tmResolveDocGroupName(group),
+                                                title: __tmResolveDocGroupName(group)
+                                            };
+                                        }).filter(Boolean), {
+                                            selectedSet: selected,
+                                            disabled: !SettingsStore.data.enablePointsRewardIntegration,
+                                            onToggle: (item) => `updatePointsRewardExcludedGroup('${escSq(String(item?.key || '').trim())}', this.checked)`
+                                        })
+                                    ]);
+                                })(),
                                 { style: 'margin-bottom:10px;' }
                             )}
                             ${renderSingleSwitchSetting(
@@ -1312,6 +1510,11 @@
                                     const itemKind = String((typeof docItem === 'object' ? docItem.kind : '') || 'doc').trim() || 'doc';
                                     const isNotebook = itemKind === 'notebook';
                                     const isRecursive = !isNotebook && (typeof docItem === 'object' ? !!docItem.recursive : false);
+                                    const hasOtherBlockSource = !isNotebook && !!(typeof docItem === 'object' ? docItem.hasOtherBlockSource : false);
+                                    const hasDirectDocSource = isNotebook || !!(typeof docItem === 'object' ? docItem.hasDirectDocSource : true);
+                                    const otherBlockCount = Math.max(0, Number(typeof docItem === 'object' ? docItem.otherBlockCount : 0) || 0);
+                                    const sourceGroupName = String((typeof docItem === 'object' ? docItem.sourceGroupName : '') || '').trim();
+                                    const sourceGroupId = String((typeof docItem === 'object' ? (docItem.sourceGroupId || (Array.isArray(docItem.sourceGroupIds) ? docItem.sourceGroupIds[0] : '')) : '') || '').trim();
 
                                     let doc = isNotebook ? null : state.allDocuments.find(d => d.id === docId);
 
@@ -1323,8 +1526,10 @@
                                         }
                                     }
 
-                                    const docName = isNotebook ? __tmGetNotebookDisplayName(docId, '未知笔记本') : (doc ? doc.name : '未知文档');
+                                    const fallbackOtherBlockDocName = String((typeof docItem === 'object' ? docItem.docName : '') || '').trim();
+                                    const docName = isNotebook ? __tmGetNotebookDisplayName(docId, '未知笔记本') : (doc ? doc.name : (fallbackOtherBlockDocName || '未知文档'));
                                     const displayName = docName.length > 25 ? docName.substring(0, 25) + '...' : docName;
+                                    const otherBlockBadgeTitle = `${sourceGroupName ? `${sourceGroupName}：` : ''}其他块页签来源${otherBlockCount > 0 ? `，${otherBlockCount} 个块` : ''}`;
 
                                     return `
                                         <div style="display: flex; align-items: center; justify-content: space-between; padding: 6px 8px; background: var(--tm-card-bg); border-radius: 4px; margin-bottom: 4px;">
@@ -1334,16 +1539,23 @@
                                                     <span title="${esc(docName)}">${esc(displayName)}</span>
                                                     ${isNotebook ? '<span style="font-size: 10px; background: var(--tm-info-bg); color: var(--tm-primary-color); padding: 1px 4px; border-radius: 4px; margin-left: 4px;">笔记本</span>' : ''}
                                                     ${isRecursive ? '<span style="font-size: 10px; background: var(--tm-info-bg); color: var(--tm-primary-color); padding: 1px 4px; border-radius: 4px; margin-left: 4px;">+子文档</span>' : ''}
+                                                    ${hasOtherBlockSource ? `<span title="${esc(otherBlockBadgeTitle)}" style="font-size: 10px; background: color-mix(in srgb, var(--tm-warning-color, #f9ab00) 12%, transparent); color: var(--tm-warning-color, #f9ab00); padding: 1px 4px; border-radius: 4px; margin-left: 4px;">其他块${otherBlockCount > 1 ? ` ${otherBlockCount}` : ''}</span>` : ''}
                                                 </div>
                                                 <span style="font-size: 11px; color: var(--tm-task-done-color); font-family: monospace;">${docId.slice(0, 8)}...</span>
                                             </div>
                                             ${currentGroupId !== 'all' ? `
                                                 ${isNotebook ? `<span style="font-size: 11px; color: var(--tm-secondary-text);">使用“清空分组内文档”移除</span>` : `
-                                                <button class="tm-btn tm-btn-danger" onclick="removeDocFromGroup(${index})" style="padding: 2px 6px; font-size: 11px;">移除</button>
+                                                <div style="display:flex;align-items:center;gap:6px;flex-shrink:0;">
+                                                    ${hasDirectDocSource ? `<button class="tm-btn tm-btn-danger" onclick="removeDocFromGroupById('${escSq(docId)}')" style="padding: 2px 6px; font-size: 11px;">移除</button>` : ''}
+                                                    ${hasOtherBlockSource ? `<button class="tm-btn tm-btn-danger" onclick="removeOtherBlockSourceDocFromGroup('${escSq(docId)}', '${escSq(sourceGroupId)}')" style="padding: 2px 6px; font-size: 11px;">移除</button>` : ''}
+                                                </div>
                                                 `}
                                             ` : `
                                                 ${isNotebook ? `<span style="font-size: 11px; color: var(--tm-secondary-text);">来自笔记本分组</span>` : `
-                                                <button class="tm-btn tm-btn-danger" onclick="removeDocFromAll('${docId}')" style="padding: 2px 6px; font-size: 11px;">移除</button>
+                                                <div style="display:flex;align-items:center;gap:6px;flex-shrink:0;">
+                                                    ${hasDirectDocSource ? `<button class="tm-btn tm-btn-danger" onclick="removeDocFromAll('${escSq(docId)}')" style="padding: 2px 6px; font-size: 11px;">移除</button>` : ''}
+                                                    ${hasOtherBlockSource ? `<button class="tm-btn tm-btn-danger" onclick="removeOtherBlockSourceDocFromGroup('${escSq(docId)}', '${escSq(sourceGroupId)}')" style="padding: 2px 6px; font-size: 11px;">移除</button>` : ''}
+                                                </div>
                                                 `}
                                             `}
                                         </div>

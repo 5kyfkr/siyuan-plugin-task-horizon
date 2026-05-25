@@ -956,6 +956,7 @@
                     '' as custom_time,
                     '' as custom_status,
                     '' as pinned,
+                    '' as custom_all_day_bottom,
                     '' as repeat_rule,
                     '' as repeat_state,
                     '' as repeat_history,
@@ -996,6 +997,7 @@
                     attr.custom_time,
                     attr.custom_status,
                     attr.pinned,
+                    attr.custom_all_day_bottom,
                     attr.repeat_rule,
                     attr.repeat_state,
                     attr.repeat_history,
@@ -1435,6 +1437,7 @@
                     attr.custom_time,
                     attr.custom_status,
                     attr.pinned,
+                    attr.custom_all_day_bottom,
                     attr.repeat_rule,
                     attr.repeat_state,
                     attr.repeat_history,
@@ -1627,6 +1630,7 @@
                     attr.custom_time,
                     attr.custom_status,
                     attr.pinned,
+                    attr.custom_all_day_bottom,
                     attr.repeat_rule,
                     attr.repeat_state,
                     attr.repeat_history,
@@ -2788,6 +2792,7 @@
                     b.type,
                     b.subtype,
                     b.content,
+                    b.fcontent,
                     b.path,
                     b.sort,
                     b.created,
@@ -2834,6 +2839,7 @@
         customTime: 'custom-time',
         customStatus: 'custom-status',
         pinned: 'custom-pinned',
+        allDayBottom: 'custom-all-day-bottom',
         repeatRule: __TM_TASK_REPEAT_RULE_ATTR,
         repeatState: __TM_TASK_REPEAT_STATE_ATTR,
         repeatHistory: __TM_TASK_REPEAT_HISTORY_ATTR,
@@ -3844,6 +3850,9 @@
         kanbanDocHeadingsLevel: '',
         kanbanDocHeadingsLoadedAt: 0,
         __tmLoadedDocIdsForTasks: [],
+        otherBlockSourceDocsByGroup: {},
+        otherBlockSourceDocRefsSigByGroup: {},
+        otherBlockSourceDocsLoadingByGroup: {},
     };
 
     const __TM_OP_QUEUE_STORAGE_KEY = 'tm_op_queue_v1';
@@ -3869,6 +3878,7 @@
     function __tmNormalizeQueueTaskValue(field, value) {
         const key = String(field || '').trim();
         if (key === 'pinned') return !!(value === true || value === '1' || value === 1);
+        if (key === 'allDayBottom') return (value === true || value === '1' || value === 1) ? '1' : '';
         if (key === 'milestone') return (value === true || value === '1' || value === 1) ? '1' : '';
         if (key === 'remark') return __tmNormalizeRemarkMarkdown(value);
         if (key === 'attachments') return __tmNormalizeTaskAttachmentPaths(value);
@@ -4221,6 +4231,13 @@
                             target.custom_pinned = pin ? '1' : '';
                         }
                         break;
+                    case 'allDayBottom':
+                        {
+                            const bottom = !!(value === true || value === '1' || value === 1 || String(value || '').trim().toLowerCase() === 'true');
+                            target.allDayBottom = bottom;
+                            target.custom_all_day_bottom = bottom ? '1' : '';
+                        }
+                        break;
                     case 'milestone':
                         {
                             const milestone = !!(value === true || value === '1' || value === 1 || String(value || '').trim().toLowerCase() === 'true');
@@ -4375,6 +4392,13 @@
                             target.custom_pinned = pin ? '1' : '';
                         }
                         break;
+                    case 'allDayBottom':
+                        {
+                            const bottom = !!(value === true || value === '1' || value === 1 || String(value || '').trim().toLowerCase() === 'true');
+                            target.allDayBottom = bottom;
+                            target.custom_all_day_bottom = bottom ? '1' : '';
+                        }
+                        break;
                     case 'milestone':
                         {
                             const milestone = !!(value === true || value === '1' || value === 1 || String(value || '').trim().toLowerCase() === 'true');
@@ -4487,7 +4511,9 @@
             return { realId };
         }
         if (type === 'deleteTask') {
-            return await __tmDeleteTaskKernel(op?.data?.taskId);
+            return await __tmDeleteTaskKernel(op?.data?.taskId, {
+                scheduleCleanupTaskIds: op?.data?.scheduleCleanupTaskIds,
+            });
         }
         if (type === 'setDone') {
             return await __tmSetDoneKernel(op?.data?.taskId, !!op?.data?.done, null, {
@@ -5067,6 +5093,12 @@
                 const pinned = !!(value === true || value === '1' || value === 1 || String(value || '').trim().toLowerCase() === 'true');
                 target.pinned = pinned;
                 target.custom_pinned = pinned ? '1' : '';
+                return;
+            }
+            if (key === 'allDayBottom') {
+                const bottom = !!(value === true || value === '1' || value === 1 || String(value || '').trim().toLowerCase() === 'true');
+                target.allDayBottom = bottom;
+                target.custom_all_day_bottom = bottom ? '1' : '';
                 return;
             }
             if (key === 'milestone') {
@@ -8491,6 +8523,10 @@
         if (key === 'custom-pinned') {
             const pin = trimmedValue === '1' || trimmedValue.toLowerCase() === 'true';
             return { patch: { pinned: pin ? '1' : '' }, attrValue: pin ? '1' : '' };
+        }
+        if (key === 'custom-all-day-bottom') {
+            const bottom = trimmedValue === '1' || trimmedValue.toLowerCase() === 'true';
+            return { patch: { allDayBottom: bottom ? '1' : '' }, attrValue: bottom ? '1' : '' };
         }
         const field = __tmGetCustomFieldDefByAttrStorageKey(key);
         const fieldId = String(field?.id || '').trim();
@@ -11937,6 +11973,8 @@ async function __tmRefreshAfterWake(reason) {
 
                 if (__tmHasAutoRefreshPendingSync()) {
                     await __tmMaybeAutoRefreshOnEnter('visibilitychange');
+                } else if (await __tmRefreshVisibleViewAfterTaskSnapshotSync?.('visibilitychange-task-snapshot-sync')) {
+                    return;
                 } else if (state.modal && document.body.contains(state.modal)) {
                     const syncedCollapsed = await __tmSyncRemoteCollapsedSessionStateIfNeeded({ rerender: true });
                     if (!syncedCollapsed) {
@@ -11949,6 +11987,8 @@ async function __tmRefreshAfterWake(reason) {
 			try {
                 if (__tmWasPluginVisibleBeforeHide && __tmHasAutoRefreshPendingSync()) {
                     await __tmMaybeAutoRefreshOnEnter('focus');
+                } else if (await __tmRefreshVisibleViewAfterTaskSnapshotSync?.('focus-task-snapshot-sync')) {
+                    return;
                 } else if (state.modal && document.body.contains(state.modal)) {
                     const syncedCollapsed = await __tmSyncRemoteCollapsedSessionStateIfNeeded({ rerender: true });
                     if (!syncedCollapsed) {
@@ -14070,6 +14110,20 @@ refreshOk = false;
             ['plugin.json backends', snapshot.plugin.backends],
         ];
         return `
+            <div class="tm-settings-panel" style="margin-bottom:14px;">
+                <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:12px;flex-wrap:wrap;">
+                    <div style="min-width:220px;flex:1;">
+                        <div style="font-weight:700;font-size:15px;">设置备份/迁移</div>
+                        <div style="font-size:12px;color:var(--tm-secondary-text);margin-top:6px;line-height:1.7;">
+                            按模块导出或导入任务管理器设置包。AI 接入设置会包含 API Key；节假日/农历只迁移已有或成功刷新到的真实缓存。
+                        </div>
+                    </div>
+                    <div style="display:flex;gap:8px;flex-wrap:wrap;">
+                        <button class="tm-btn tm-btn-primary" data-tm-action="tmOpenSettingsExportDialog">导出设置包</button>
+                        <button class="tm-btn tm-btn-secondary" data-tm-action="tmOpenSettingsImportDialog">导入设置包</button>
+                    </div>
+                </div>
+            </div>
             <div class="tm-settings-panel">
                 <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:12px;flex-wrap:wrap;margin-bottom:14px;">
                     <div>

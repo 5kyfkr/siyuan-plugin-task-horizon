@@ -3640,6 +3640,7 @@
             allDayReminderTime: allDayTime0 || '09:00',
             showTaskDates: s.calendarShowTaskDates !== false,
             hideScheduledTaskDatesInAllDay: readStoredBool('tm_calendar_hide_scheduled_task_dates_in_all_day', typeof s.calendarHideScheduledTaskDatesInAllDay === 'boolean' ? !!s.calendarHideScheduledTaskDatesInAllDay : undefined),
+            showCompletedAllDaySchedules: readStoredBool('tm_calendar_show_completed_all_day_schedules', typeof s.calendarShowCompletedAllDaySchedules === 'boolean' ? !!s.calendarShowCompletedAllDaySchedules : true),
             newScheduleMaxDurationMin: normalizeNewScheduleMaxDuration(s.calendarNewScheduleMaxDurationMin),
             quickAddScheduleTimeMode: quickAddScheduleTimeMode0,
             quickAddScheduleCustomTime: quickAddScheduleCustomTime0,
@@ -4035,6 +4036,15 @@
                         <input class="tm-calendar-nav-check" type="checkbox" data-tm-cal-filter="taskDatesMaster" ${settings.showTaskDates ? 'checked' : ''}>
                     </label>
                 </div>
+            `);
+            calItems.push(`
+                <label class="tm-calendar-nav-item">
+                    <span class="tm-calendar-nav-left">
+                        <span class="tm-calendar-nav-dot" style="background:var(--tm-secondary-text);"></span>
+                        <span class="tm-calendar-nav-label">已完成全天日程</span>
+                    </span>
+                    <input class="tm-calendar-nav-check" type="checkbox" data-tm-cal-filter="completedAllDaySchedules" ${settings.showCompletedAllDaySchedules !== false ? 'checked' : ''}>
+                </label>
             `);
             calItems.push(`
                 <label class="tm-calendar-nav-item">
@@ -6282,6 +6292,10 @@
                     : new Date(start.getTime() + safeMin * 60000);
                 const settings = getSettings();
                 const calId = calendarId || pickDefaultCalendarId(settings);
+                if (await maybeUpdateEmptyTaskDueDateFromAllDayDrop(payload, start, allDay, {
+                    source: 'calendar-drop-task-due-date',
+                    viewType: String(state.calendar?.view?.type || '').trim(),
+                })) return;
                 await addTaskSchedule({
                     taskId,
                     title: title || '任务',
@@ -7020,24 +7034,6 @@
         return false;
     }
 
-    function isCalendarRefreshDebugEnabled() {
-        try {
-            if (globalThis.__tmCalendarRefreshDebug === false) return false;
-            const raw = String(localStorage.getItem('tm_calendar_refresh_debug') || '').trim().toLowerCase();
-            return raw !== '0' && raw !== 'false' && raw !== 'off';
-        } catch (e) {
-            return true;
-        }
-    }
-
-    function getCalendarDebugName(calendar) {
-        const cal = calendar || null;
-        if (!cal) return '';
-        if (cal === state.calendar) return 'main';
-        if (cal === state.sideDay?.calendar) return 'side';
-        return String(cal?.view?.type || 'unknown').trim() || 'unknown';
-    }
-
     function getScheduleIdFromCalendarEvent(eventApi) {
         const ext = eventApi?.extendedProps || {};
         const direct = String(ext.__tmScheduleId || '').trim();
@@ -7052,15 +7048,76 @@
         return colonIdx > 0 ? rawId.slice(0, colonIdx) : rawId;
     }
 
-    function logCalendarRefreshDebug(label, payload = {}) {
-        if (!isCalendarRefreshDebugEnabled()) return;
+    function isScheduleAllDayBottom(item) {
+        const base = (item && typeof item === 'object') ? item : {};
+        const raw = base.allDayBottom ?? base.customAllDayBottom ?? base.custom_all_day_bottom ?? base.allDay_bottom ?? base.allDayPlacement ?? base.allDayOrder;
+        if (raw === true || raw === 1) return true;
+        const text = String(raw || '').trim().toLowerCase();
+        return text === '1' || text === 'true' || text === 'bottom';
+    }
+
+    function compareCalendarAllDayBottomOrder(a, b) {
+        const av = Number(a?.allDay) === 1 && (a?.__tmAllDayBottom === true || isScheduleAllDayBottom(a)) ? 1 : 0;
+        const bv = Number(b?.allDay) === 1 && (b?.__tmAllDayBottom === true || isScheduleAllDayBottom(b)) ? 1 : 0;
+        return av - bv;
+    }
+
+    async function setScheduleAllDayBottomById(scheduleId, bottom, options = {}) {
+        const id = String(scheduleId || '').trim();
+        if (!id) return false;
+        const opt = (options && typeof options === 'object') ? options : {};
         try {
-            const detail = (payload && typeof payload === 'object') ? payload : { value: payload };
-            console.info('[task-horizon][calendar-refresh]', String(label || 'log'), {
-                ts: new Date().toISOString(),
-                ...detail,
+            const list = await loadScheduleAll();
+            const idx = (Array.isArray(list) ? list : []).findIndex((item) => String(item?.id || '').trim() === id);
+            if (idx < 0) {
+                toast('⚠ 未找到日程', 'warning');
+                return false;
+            }
+            const prev = (list[idx] && typeof list[idx] === 'object') ? list[idx] : {};
+            const startMs = toMs(prev.start);
+            const endMs = toMs(prev.end);
+            const isAllDay = prev.allDay === true
+                || (Number.isFinite(startMs) && Number.isFinite(endMs) && endMs > startMs && isAllDayRange(new Date(startMs), new Date(endMs)))
+                || opt.allDay === true;
+            if (!isAllDay) {
+                toast('⚠ 仅全天日程支持置底', 'warning');
+                return false;
+            }
+            const next = { ...prev };
+            if (bottom) {
+                next.allDayBottom = true;
+            } else {
+                delete next.allDayBottom;
+                delete next.allDay_bottom;
+                if (String(next.allDayPlacement || '').trim().toLowerCase() === 'bottom') delete next.allDayPlacement;
+                if (String(next.allDayOrder || '').trim().toLowerCase() === 'bottom') delete next.allDayOrder;
+            }
+            list[idx] = next;
+            await saveScheduleAll(list, {
+                reason: 'set-all-day-schedule-bottom',
+                source: 'context-menu',
+                op: 'update',
+                scheduleId: id,
+                scheduleIds: [id],
+                rangeStart: next.start,
+                rangeEnd: next.end,
+                skipDeviceSync: true,
             });
-        } catch (e) {}
+            scheduleCalendarRefresh({
+                reason: 'set-all-day-schedule-bottom',
+                main: true,
+                side: true,
+                flushTaskPanel: false,
+                rangeStart: next.start,
+                rangeEnd: next.end,
+                version: Number(state.calendarMutationVersion) || 0,
+            });
+            toast(`✅ 已${bottom ? '置底' : '取消置底'}全天日程`, 'success');
+            return true;
+        } catch (e) {
+            toast(`❌ 操作失败：${String(e?.message || e || '')}`, 'error');
+            return false;
+        }
     }
 
     function suppressReminderCalendarRefetchAfterScheduleMutation(reason, durationMs = 1400) {
@@ -9897,12 +9954,92 @@
         return text || fb;
     }
 
+    function readTaskDropDateFields(taskLike) {
+        if (!taskLike || typeof taskLike !== 'object') return { known: false, startDate: '', completionTime: '' };
+        const hasStartDate = Object.prototype.hasOwnProperty.call(taskLike, 'startDate')
+            || Object.prototype.hasOwnProperty.call(taskLike, 'start_date');
+        const hasCompletionTime = Object.prototype.hasOwnProperty.call(taskLike, 'completionTime')
+            || Object.prototype.hasOwnProperty.call(taskLike, 'completion_time');
+        if (!hasStartDate && !hasCompletionTime) return { known: false, startDate: '', completionTime: '' };
+        return {
+            known: true,
+            startDate: String(taskLike.startDate || taskLike.start_date || '').trim(),
+            completionTime: String(taskLike.completionTime || taskLike.completion_time || '').trim(),
+        };
+    }
+
+    function resolveTaskDropDateFields(payload, resolveTask) {
+        const source = (payload && typeof payload === 'object') ? payload : {};
+        const taskId = String(source.taskId || '').trim();
+        if (!taskId) return { known: false, startDate: '', completionTime: '' };
+        if (source.dateFieldsKnown === true) {
+            return {
+                known: true,
+                startDate: String(source.startDate || source.start_date || '').trim(),
+                completionTime: String(source.completionTime || source.completion_time || '').trim(),
+            };
+        }
+        try {
+            const meta = (typeof window.tmCalendarGetTaskDragMeta === 'function')
+                ? window.tmCalendarGetTaskDragMeta(taskId)
+                : null;
+            const fields = readTaskDropDateFields(meta);
+            if (fields.known) return fields;
+        } catch (e) {}
+        try {
+            const resolver = typeof resolveTask === 'function' ? resolveTask : null;
+            const fields = readTaskDropDateFields(resolver ? resolver(taskId) : null);
+            if (fields.known) return fields;
+        } catch (e) {}
+        return { known: false, startDate: '', completionTime: '' };
+    }
+
+    async function maybeUpdateEmptyTaskDueDateFromAllDayDrop(payload, start, allDay, options = {}) {
+        const source = (payload && typeof payload === 'object') ? payload : {};
+        const taskId = String(source.taskId || '').trim();
+        const opt = (options && typeof options === 'object') ? options : {};
+        const viewType = String(opt.viewType || '').trim();
+        const isDateDrop = allDay === true || viewType === 'dayGridMonth';
+        if (!taskId || !isDateDrop || !(start instanceof Date) || Number.isNaN(start.getTime())) return false;
+        const dateKey = formatDateKey(start);
+        if (!dateKey) return false;
+        const fields = resolveTaskDropDateFields(source, opt.resolveTask);
+        if (!fields.known || fields.startDate || fields.completionTime) return false;
+        if (typeof window.tmUpdateTaskDates !== 'function') {
+            toast('⚠ 未找到任务日期更新接口', 'warning');
+            return true;
+        }
+        try {
+            await window.tmUpdateTaskDates(taskId, { completionTime: dateKey }, {
+                source: String(opt.source || 'calendar-drop-task-due-date').trim() || 'calendar-drop-task-due-date',
+                immediateProjectionRefresh: true,
+            });
+            try {
+                scheduleCalendarRefresh({
+                    reason: String(opt.source || 'calendar-drop-task-due-date').trim() || 'calendar-drop-task-due-date',
+                    main: true,
+                    side: true,
+                    flushTaskPanel: true,
+                    rangeStart: dateKey,
+                    rangeEnd: dateKey,
+                });
+            } catch (e2) {}
+            toast(`✅ 截止日期已更新为 ${dateKey}`, 'success');
+        } catch (e) {
+            toast(`❌ 更新截止日期失败：${String(e?.message || e || '')}`, 'error');
+        }
+        return true;
+    }
+
     function parseTaskDropPayload(jsEvent, draggedEl, resolveTask) {
         const dt = jsEvent?.dataTransfer;
         let taskId = '';
         let calendarId = '';
         let titleFromPayload = '';
         let durationFromPayload = NaN;
+        let startDate = '';
+        let completionTime = '';
+        let dateFieldsKnown = false;
         const tryJson = (raw) => {
             try { return JSON.parse(raw); } catch (e) {}
             return null;
@@ -9916,6 +10053,12 @@
                 titleFromPayload = String(pTask.title || '').trim() || titleFromPayload;
                 const m = Number(pTask.durationMin);
                 if (Number.isFinite(m) && m > 0) durationFromPayload = Math.max(15, Math.round(m));
+                const payloadDateFields = readTaskDropDateFields(pTask);
+                if (payloadDateFields.known) {
+                    startDate = payloadDateFields.startDate;
+                    completionTime = payloadDateFields.completionTime;
+                    dateFieldsKnown = true;
+                }
             }
         } catch (e) {}
         try {
@@ -9952,6 +10095,12 @@
         const task = resolver ? resolver(taskId) : null;
         let title = resolveTaskDisplayTitleForDrag(task, taskId) || taskId;
         let durationMin = parseTaskDurationMinutes(task?.duration);
+        const taskDateFields = readTaskDropDateFields(task);
+        if (taskDateFields.known) {
+            startDate = taskDateFields.startDate;
+            completionTime = taskDateFields.completionTime;
+            dateFieldsKnown = true;
+        }
         if (titleFromPayload) title = titleFromPayload;
         if (Number.isFinite(durationFromPayload) && durationFromPayload > 0) durationMin = durationFromPayload;
         try {
@@ -9968,9 +10117,15 @@
                     const mt = String(meta.title || '').trim();
                     if (mt) title = mt;
                 }
+                const metaDateFields = readTaskDropDateFields(meta);
+                if (metaDateFields.known) {
+                    startDate = metaDateFields.startDate;
+                    completionTime = metaDateFields.completionTime;
+                    dateFieldsKnown = true;
+                }
             }
         } catch (e) {}
-        return { taskId, title, durationMin, calendarId: String(calendarId || '').trim() };
+        return { taskId, title, durationMin, calendarId: String(calendarId || '').trim(), startDate, completionTime, dateFieldsKnown };
     }
 
     function buildDraggingTaskPayload(resolveTask) {
@@ -9986,6 +10141,15 @@
         let title = resolveTaskDisplayTitleForDrag(task, taskId) || taskId;
         let durationMin = parseTaskDurationMinutes(task?.duration);
         let calendarId = '';
+        let startDate = '';
+        let completionTime = '';
+        let dateFieldsKnown = false;
+        const taskDateFields = readTaskDropDateFields(task);
+        if (taskDateFields.known) {
+            startDate = taskDateFields.startDate;
+            completionTime = taskDateFields.completionTime;
+            dateFieldsKnown = true;
+        }
         try {
             const meta = (typeof window.tmCalendarGetTaskDragMeta === 'function')
                 ? window.tmCalendarGetTaskDragMeta(taskId)
@@ -9999,9 +10163,15 @@
                 if (Number.isFinite(metaDuration) && metaDuration > 0) {
                     durationMin = Math.max(15, Math.round(metaDuration));
                 }
+                const metaDateFields = readTaskDropDateFields(meta);
+                if (metaDateFields.known) {
+                    startDate = metaDateFields.startDate;
+                    completionTime = metaDateFields.completionTime;
+                    dateFieldsKnown = true;
+                }
             }
         } catch (e) {}
-        return { taskId, title, durationMin, calendarId };
+        return { taskId, title, durationMin, calendarId, startDate, completionTime, dateFieldsKnown };
     }
 
     function applyTaskDoneVisual(wrapEl, titleEl, done) {
@@ -10124,11 +10294,20 @@
         return false;
     }
 
-    async function handleCalendarEventCheckboxToggle(cb, wrapEl, titleText, ext, taskId) {
+    function shouldHideCompletedAllDayCalendarEvent(eventLike, settings, options = {}) {
+        if (!eventLike || !settings || settings.showCompletedAllDaySchedules !== false) return false;
+        const viewType = String(options?.viewType || '').trim();
+        if (eventLike.allDay !== true && !viewType.startsWith('dayGrid')) return false;
+        return resolveCalendarEventDoneState(eventLike.extendedProps || {}, options) === true;
+    }
+
+    async function handleCalendarEventCheckboxToggle(cb, wrapEl, titleText, ext, taskId, options = {}) {
         if (!(cb instanceof HTMLInputElement)) return false;
         const source = String(ext?.__tmSource || '').trim();
         const tid = String(taskId || '').trim();
+        const opt = (options && typeof options === 'object') ? options : {};
         const nextDone = cb.checked === true;
+        let applied = false;
         applyTaskDoneVisual(wrapEl, titleText, nextDone);
         try {
             if (source === 'schedule' && (isRecurringScheduleEventExt(ext) || isDetachedTaskOccurrenceEventExt(ext))) {
@@ -10143,6 +10322,7 @@
                     detachedTaskOccurrence: isDetachedTaskOccurrenceEventExt(ext),
                 });
                 if (result && typeof result.then === 'function') await result;
+                applied = true;
                 return true;
             }
             if (source === 'schedule' && isLinkedAllDayTaskScheduleCandidateEventExt(ext) && tid && await isLinkedTaskRecurringTask(tid)) {
@@ -10156,6 +10336,7 @@
                     source: 'calendar-checkbox',
                 });
                 if (result && typeof result.then === 'function') await result;
+                applied = true;
                 return true;
             }
             if (!tid || typeof window.tmSetDone !== 'function') {
@@ -10166,11 +10347,21 @@
                 : '';
             const result = window.tmSetDone(tid, nextDone, null, { source: 'calendar', scheduleId });
             if (result && typeof result.then === 'function') await result;
+            applied = true;
             return true;
         } catch (e) {
             cb.checked = !nextDone;
             applyTaskDoneVisual(wrapEl, titleText, !nextDone);
             throw e;
+        } finally {
+            if (applied && nextDone && shouldHideCompletedAllDayCalendarEvent({
+                allDay: opt.allDay === true,
+                extendedProps: ext,
+            }, getSettings(), { viewType: opt.viewType, taskDoneOverride: true })) {
+                try { opt.eventApi?.remove?.(); } catch (e2) {}
+                try { cb.closest?.('.fc-event')?.remove?.(); } catch (e2) {}
+                try { refetchAllCalendars({ reason: 'completed-all-day-visibility', flushTaskPanel: false }); } catch (e2) {}
+            }
         }
     }
 
@@ -10182,9 +10373,13 @@
     }
 
     function shouldShowCalendarEventCheckbox(ext) {
-        if (ext?.__tmTaskDateReadOnly === true) return false;
+        if (ext?.__tmTaskDateReadOnly === true) return resolveCalendarEventDoneState(ext) === true;
         if (!isOtherBlockCalendarEvent(ext)) return true;
         return getSettings().showOtherBlockCheckbox === true;
+    }
+
+    function shouldDisableCalendarEventCheckbox(ext) {
+        return ext?.__tmTaskDateReadOnly === true;
     }
 
     function applyTaskEventTitleClamp(wrapEl, titleEl, options = {}) {
@@ -11003,6 +11198,11 @@
                     ? new Date(start.getTime() + 24 * 60 * 60000)
                     : new Date(start.getTime() + safeMin * 60000);
                 const calendarId = String(payload.calendarId || '').trim() || pickDefaultCalendarId(getSettings());
+                if (await maybeUpdateEmptyTaskDueDateFromAllDayDrop(payload, start, allDay, {
+                    source: 'side-calendar-drop-task-due-date',
+                    viewType: String(state.sideDay?.calendar?.view?.type || '').trim(),
+                    resolveTask,
+                })) return;
                 await addTaskSchedule({
                     taskId: String(payload.taskId || '').trim(),
                     title: String(payload.title || '').trim() || '任务',
@@ -11142,7 +11342,7 @@
             handleWindowResize: true,
             ...slotLayout,
             dayCellDidMount: normalizeCalendarMonthDayNumberCell,
-            eventOrder: 'start,-duration,__tmRank,title',
+            eventOrder: [compareCalendarAllDayBottomOrder, 'start', '-duration', '__tmRank', 'title'],
             eventOrderStrict: false,
             eventClassNames: (arg) => {
                 return resolveCalendarEventClassNames(arg);
@@ -11168,8 +11368,8 @@
                             if (tid && typeof window.tmShowTaskContextMenu === 'function') {
                                 const sid0 = String(ext.__tmScheduleId || '').trim();
                                 try {
-                                    if (source === 'schedule' && sid0) window.tmShowTaskContextMenu(ev, tid, { scheduleId: sid0, title: String(arg?.event?.title || '').trim(), start: arg?.event?.start, end: arg?.event?.end });
-                                    else if (source === 'taskdate') window.tmShowTaskContextMenu(ev, tid, { taskDateStartKey: String(ext.__tmTaskDateStartKey || '').trim(), taskDateEndExclusiveKey: String(ext.__tmTaskDateEndExclusiveKey || '').trim(), calendarId: String(ext.calendarId || 'default').trim(), title: String(arg?.event?.title || '').trim() });
+                                    if (source === 'schedule' && sid0) window.tmShowTaskContextMenu(ev, tid, { scheduleId: sid0, title: String(arg?.event?.title || '').trim(), start: arg?.event?.start, end: arg?.event?.end, allDay: arg?.event?.allDay === true, allDayBottom: ext.__tmAllDayBottom === true });
+                                    else if (source === 'taskdate') window.tmShowTaskContextMenu(ev, tid, { taskDateStartKey: String(ext.__tmTaskDateStartKey || '').trim(), taskDateEndExclusiveKey: String(ext.__tmTaskDateEndExclusiveKey || '').trim(), calendarId: String(ext.calendarId || 'default').trim(), title: String(arg?.event?.title || '').trim(), start: arg?.event?.start, end: arg?.event?.end, allDay: arg?.event?.allDay === true, allDayBottom: ext.__tmAllDayBottom === true });
                                     else window.tmShowTaskContextMenu(ev, tid);
                                 } catch (e2) {}
                             }
@@ -11193,6 +11393,10 @@
                         cb.type = 'checkbox';
                         cb.className = 'tm-cal-task-event-check';
                         cb.checked = done;
+                        if (shouldDisableCalendarEventCheckbox(ext)) {
+                            cb.disabled = true;
+                            cb.title = '已完成的循环实例';
+                        }
                         cb.onclick = (ev) => {
                             try { ev.stopPropagation(); } catch (e) {}
                         };
@@ -11203,7 +11407,11 @@
                         cb.onchange = async (ev) => {
                             try { ev.stopPropagation(); } catch (e) {}
                             try {
-                                await handleCalendarEventCheckboxToggle(cb, wrapEl, titleText, ext, tid);
+                                await handleCalendarEventCheckboxToggle(cb, wrapEl, titleText, ext, tid, {
+                                    allDay: arg?.event?.allDay === true,
+                                    viewType: String(arg?.view?.type || '').trim(),
+                                    eventApi: arg?.event || null,
+                                });
                             } catch (e) {
                                 return;
                             }
@@ -11315,6 +11523,8 @@
                                             title: String(arg?.event?.title || '').trim(),
                                             start: arg?.event?.start,
                                             end: arg?.event?.end,
+                                            allDay: arg?.event?.allDay === true,
+                                            allDayBottom: ext.__tmAllDayBottom === true,
                                             occurrenceStartMs: ext.__tmOccurrenceStartMs,
                                             repeatType: ext.__tmRepeatType,
                                         });
@@ -11326,6 +11536,8 @@
                                         title: String(arg?.event?.title || '').trim(),
                                         start: arg?.event?.start,
                                         end: arg?.event?.end,
+                                        allDay: arg?.event?.allDay === true,
+                                        allDayBottom: ext.__tmAllDayBottom === true,
                                         occurrenceStartMs: ext.__tmOccurrenceStartMs,
                                         repeatType: ext.__tmRepeatType,
                                     });
@@ -11343,8 +11555,8 @@
                                 if (typeof window.tmShowTaskContextMenu === 'function') {
                                     const sid0 = String(ext.__tmScheduleId || '').trim();
                                     try {
-                                        if (source === 'schedule' && sid0) window.tmShowTaskContextMenu(ev, tid, { scheduleId: sid0, title: String(arg?.event?.title || '').trim(), start: arg?.event?.start, end: arg?.event?.end });
-                                        else if (source === 'taskdate') window.tmShowTaskContextMenu(ev, tid, { taskDateStartKey: String(ext.__tmTaskDateStartKey || '').trim(), taskDateEndExclusiveKey: String(ext.__tmTaskDateEndExclusiveKey || '').trim(), calendarId: String(ext.calendarId || 'default').trim(), title: String(arg?.event?.title || '').trim() });
+                                        if (source === 'schedule' && sid0) window.tmShowTaskContextMenu(ev, tid, { scheduleId: sid0, title: String(arg?.event?.title || '').trim(), start: arg?.event?.start, end: arg?.event?.end, allDay: arg?.event?.allDay === true, allDayBottom: ext.__tmAllDayBottom === true });
+                                        else if (source === 'taskdate') window.tmShowTaskContextMenu(ev, tid, { taskDateStartKey: String(ext.__tmTaskDateStartKey || '').trim(), taskDateEndExclusiveKey: String(ext.__tmTaskDateEndExclusiveKey || '').trim(), calendarId: String(ext.calendarId || 'default').trim(), title: String(arg?.event?.title || '').trim(), start: arg?.event?.start, end: arg?.event?.end, allDay: arg?.event?.allDay === true, allDayBottom: ext.__tmAllDayBottom === true });
                                         else window.tmShowTaskContextMenu(ev, tid);
                                     } catch (e) {}
                                 }
@@ -11393,6 +11605,14 @@
                         return !!t.closest('.fc-timegrid-all-day, .fc-timegrid-allday, .fc-daygrid-day');
                     })();
                     const allDay = (info?.event?.allDay === true) || dropAllDayHint;
+                    if (await maybeUpdateEmptyTaskDueDateFromAllDayDrop({ ...(payload || {}), taskId }, start, allDay, {
+                        source: 'side-calendar-receive-task-due-date',
+                        viewType: String(state.sideDay?.calendar?.view?.type || '').trim(),
+                        resolveTask: state.sideDay.resolveTask,
+                    })) {
+                        try { info?.event?.remove?.(); } catch (e2) {}
+                        return;
+                    }
                     await addTaskSchedule({ taskId, title, start, end, calendarId, durationMin: durMin, allDay });
                     try { info?.event?.remove?.(); } catch (e2) {}
                     toast('✅ 已加入日程', 'success');
@@ -11443,7 +11663,7 @@
                     events: async (info, success, failure) => {
                         try {
                             const curSettings = getSettings();
-                            const events = await __tmBuildScheduleSourceEvents(info.start, info.end, curSettings);
+                            const events = await __tmBuildScheduleSourceEvents(info.start, info.end, curSettings, 'timeGridDay');
                             success(events);
                         } catch (e) {
                             failure(e);
@@ -11848,6 +12068,62 @@
         });
     }
 
+    async function deleteTaskSchedulesByTaskIds(taskIds, options = {}) {
+        const ids = (Array.isArray(taskIds) ? taskIds : [taskIds])
+            .map((item) => String(item || '').trim())
+            .filter(Boolean);
+        const idSet = new Set(ids);
+        if (!idSet.size) return { deleted: 0, scheduleIds: [] };
+        const opts = (options && typeof options === 'object') ? options : {};
+        const list = await loadScheduleAll();
+        const removedItems = [];
+        const nextList = [];
+        for (const item of (Array.isArray(list) ? list : [])) {
+            const linkedIds = [
+                item?.taskId,
+                item?.task_id,
+                item?.linkedTaskId,
+                item?.linked_task_id,
+                getScheduleLinkedBlockId(item),
+            ].map((value) => String(value || '').trim()).filter(Boolean);
+            if (linkedIds.some((value) => idSet.has(value))) {
+                removedItems.push(item);
+            } else {
+                nextList.push(item);
+            }
+        }
+        if (!removedItems.length) return { deleted: 0, scheduleIds: [] };
+        const scheduleIds = removedItems.map((item) => String(item?.id || '').trim()).filter(Boolean);
+        const rangeStart = removedItems.reduce((min, item) => {
+            const value = String(item?.start || '').trim();
+            return value && (!min || value < min) ? value : min;
+        }, '');
+        const rangeEnd = removedItems.reduce((max, item) => {
+            const value = String(item?.end || item?.start || '').trim();
+            return value && (!max || value > max) ? value : max;
+        }, '');
+        await saveScheduleAll(nextList, {
+            reason: String(opts.reason || 'delete-task-schedules').trim() || 'delete-task-schedules',
+            source: String(opts.source || 'task-delete').trim() || 'task-delete',
+            op: 'delete',
+            scheduleId: scheduleIds[0] || '',
+            scheduleIds,
+            rangeStart,
+            rangeEnd,
+        });
+        scheduleCalendarRefresh({
+            reason: String(opts.reason || 'delete-task-schedules').trim() || 'delete-task-schedules',
+            main: true,
+            side: true,
+            flushTaskPanel: true,
+            hard: String(state.calendar?.view?.type || '').trim() === 'dayGridMonth',
+            rangeStart,
+            rangeEnd,
+            version: Number(state.calendarMutationVersion) || 0,
+        });
+        return { deleted: removedItems.length, scheduleIds };
+    }
+
     async function loadScheduleForRange(rangeStart, rangeEnd) {
         const list = await loadScheduleAll();
         return list.filter((it) => hasScheduleOccurrenceInRange(it, rangeStart, rangeEnd));
@@ -11943,8 +12219,9 @@
         return out;
     }
 
-    function buildEventsFromSchedule(items, rangeStart, rangeEnd, settings, linkedTaskTitleMap, linkedDocIdMap) {
+    function buildEventsFromSchedule(items, rangeStart, rangeEnd, settings, linkedTaskTitleMap, linkedDocIdMap, options = {}) {
         if (!settings.showSchedule) return [];
+        const viewType = String(options?.viewType || '').trim();
         const defs = getCalendarDefs(settings);
         const defMap = new Map(defs.map((d) => [d.id, d]));
         const registry = shouldPreferDeviceNotificationBackend() ? loadScheduleMobileRegistry() : null;
@@ -11997,6 +12274,7 @@
             const isDetachedTaskOccurrence = isTaskDateRecurringExceptionScheduleItem(it);
             const detachedTaskOccurrenceDone = isTaskDateRecurringExceptionDone(it);
             const isLinkedAllDayTaskSchedule = !!taskId && repeatType === 'none' && allDayBase;
+            const allDayBottom = isScheduleAllDayBottom(it);
             const occurrences = collectScheduleOccurrencesInRange(it, rangeStart, rangeEnd, {
                 limit: String(repeatType || 'none') === 'none' ? 1 : 300,
             });
@@ -12008,7 +12286,7 @@
                 const occurrenceDone = isDetachedTaskOccurrence
                     ? detachedTaskOccurrenceDone
                     : (Number.isFinite(occStartMs) && completedOccurrenceSet.has(String(Math.trunc(occStartMs))));
-                out.push({
+                const event = {
                     id: repeatType === 'none' ? String(it?.id || uuid()) : `${String(it?.id || uuid())}:${occStartMs}`,
                     title: titleBase,
                     start: occStart,
@@ -12020,12 +12298,14 @@
                     durationEditable: true,
                     backgroundColor: color,
                     borderColor: color,
+                    __tmAllDayBottom: allDay && allDayBottom,
                     __tmRank: 1,
                     extendedProps: {
                         __tmSource: 'schedule',
                         __tmScheduleId: String(it?.id || ''),
                         __tmTaskId: taskLikeId,
                         __tmBlockId: blockId,
+                        __tmAllDayBottom: allDay && allDayBottom,
                         __tmRank: 1,
                         __tmReminderMode: reminderMode,
                         __tmReminderEnabled: reminderEnabled,
@@ -12044,7 +12324,9 @@
                         __tmDocId: linkedDocId,
                         calendarId,
                     },
-                });
+                };
+                if (shouldHideCompletedAllDayCalendarEvent(event, settings, { viewType })) continue;
+                out.push(event);
             }
         }
         return out;
@@ -12101,7 +12383,7 @@
         }
         let titleMap = new Map();
         try { titleMap = __tmBuildTaskTitleIndexFromCalendarCache(); } catch (e) { titleMap = new Map(); }
-        return buildEventsFromSchedule([item], range.start, range.end, settings, titleMap, docMap);
+        return buildEventsFromSchedule([item], range.start, range.end, settings, titleMap, docMap, { viewType: String(calendar?.view?.type || '').trim() });
     }
 
     function __tmApplyScheduleExtendedPropsInPlace(eventApi, nextEvent) {
@@ -12129,6 +12411,7 @@
             '__tmScheduleOccurrenceDone',
             '__tmDetachedTaskOccurrence',
             '__tmLinkedAllDayTaskSchedule',
+            '__tmAllDayBottom',
             '__tmDocId',
             'calendarId',
         ];
@@ -12376,6 +12659,7 @@
 
     function buildEventsFromTaskDates(items, settings, options = {}) {
         if (!settings.showTaskDates) return [];
+        const viewType = String(options?.viewType || '').trim();
         const scheduleTaskDaySet = (options && options.scheduleTaskDaySet instanceof Set)
             ? options.scheduleTaskDaySet
             : null;
@@ -12398,6 +12682,7 @@
             const isReadOnlyInstance = it?.isRecurringInstanceReadOnly === true || it?.isRecurringInstance === true;
             const calendarId = String(it?.calendarId || 'default').trim() || 'default';
             const docId = String(it?.docId || it?.rootId || it?.root_id || '').trim();
+            const allDayBottom = isScheduleAllDayBottom(it);
             if (!taskId || !startKey || !endExKey) return null;
             if (!isCalendarEnabled(calendarId, settings)) return null;
             if (!isCalendarDocVisibleForEvent(calendarId, docId, settings)) return null;
@@ -12409,7 +12694,7 @@
                 ? resolveCalendarDocColor(docId, '')
                 : '';
             const bg = docColor || ((mode === 'group') ? calColor : (settings.taskDatesColor || '#6b7280'));
-            return {
+            const event = {
                 id: `taskdate:${taskId}`,
                 title,
                 start: startKey,
@@ -12419,6 +12704,7 @@
                 borderColor: bg,
                 textColor: '#fff',
                 __tmRank: 2,
+                __tmAllDayBottom: allDayBottom,
                 editable: !isReadOnlyInstance,
                 startEditable: !isReadOnlyInstance,
                 durationEditable: !isReadOnlyInstance,
@@ -12428,6 +12714,7 @@
                     __tmTaskDateEventTaskId: taskId,
                     __tmSourceTaskId: sourceTaskId,
                     __tmRank: 2,
+                    __tmAllDayBottom: allDayBottom,
                     __tmTaskDateStartKey: startKey,
                     __tmTaskDateEndExclusiveKey: endExKey,
                     __tmTaskDateSourceStartKey: sourceStartKey,
@@ -12440,6 +12727,7 @@
                     calendarId,
                 },
             };
+            return shouldHideCompletedAllDayCalendarEvent(event, settings, { viewType }) ? null : event;
         }).filter(Boolean);
     }
 
@@ -12469,7 +12757,7 @@
         return next;
     }
 
-    async function __tmBuildScheduleSourceEvents(rangeStart, rangeEnd, settings) {
+    async function __tmBuildScheduleSourceEvents(rangeStart, rangeEnd, settings, viewType = '') {
         const start = rangeStart instanceof Date ? rangeStart : null;
         const end = rangeEnd instanceof Date ? rangeEnd : null;
         if (!(start instanceof Date) || Number.isNaN(start.getTime()) || !(end instanceof Date) || Number.isNaN(end.getTime())) return [];
@@ -12479,7 +12767,7 @@
             __tmBuildScheduleLinkedTaskTitleMap(schedules).catch(() => new Map()),
             buildScheduleLinkedDocIdMap(schedules).catch(() => new Map()),
         ]);
-        const events = buildEventsFromSchedule(schedules, start, end, settings, scheduleTaskTitleMap, scheduleTaskDocIdMap);
+        const events = buildEventsFromSchedule(schedules, start, end, settings, scheduleTaskTitleMap, scheduleTaskDocIdMap, { viewType });
         return isMonthScheduleEventRange(start, end) ? dedupeMonthScheduleEvents(events) : events;
     }
 
@@ -12500,7 +12788,7 @@
         const scheduleTaskDaySet = (shouldApplyMonthTaskDateDedupe || (isTimeGridRange && settings.hideScheduledTaskDatesInAllDay))
             ? buildScheduleTaskDayKeySet(schedules, start, end)
             : null;
-        return buildEventsFromTaskDates(taskDates, settings, { scheduleTaskDaySet });
+        return buildEventsFromTaskDates(taskDates, settings, { scheduleTaskDaySet, viewType: view });
     }
 
     function __tmRefetchCalendarSource(calendar, sourceId) {
@@ -12510,25 +12798,11 @@
         try {
             const source = cal.getEventSourceById?.(id) || null;
             if (!source || typeof source.refetch !== 'function') {
-                logCalendarRefreshDebug('refetchCalendarSource:missingSource', {
-                    calendar: getCalendarDebugName(cal),
-                    sourceId: id,
-                });
                 return false;
             }
-            logCalendarRefreshDebug('refetchCalendarSource:refetch', {
-                calendar: getCalendarDebugName(cal),
-                sourceId: id,
-                view: String(cal?.view?.type || '').trim(),
-            });
             source.refetch();
             return true;
         } catch (e) {
-            logCalendarRefreshDebug('refetchCalendarSource:error', {
-                calendar: getCalendarDebugName(cal),
-                sourceId: id,
-                error: String(e?.message || e || ''),
-            });
             return false;
         }
     }
@@ -12555,7 +12829,7 @@
             .catch(() => []);
         const single = (Array.isArray(taskDates) ? taskDates : []).filter((item) => String(item?.id || '').trim() === tid);
         if (!single.length) return null;
-        const events = buildEventsFromTaskDates(single, settings, { scheduleTaskDaySet });
+        const events = buildEventsFromTaskDates(single, settings, { scheduleTaskDaySet, viewType });
         return events.find((item) => String(item?.id || '').trim() === `taskdate:${tid}`) || null;
     }
 
@@ -12577,6 +12851,7 @@
             '__tmTaskDateEventTaskId',
             '__tmSourceTaskId',
             '__tmRank',
+            '__tmAllDayBottom',
             '__tmTaskDateStartKey',
             '__tmTaskDateEndExclusiveKey',
             '__tmTaskDateSourceStartKey',
@@ -12690,6 +12965,7 @@
             docId: meta.docId,
         }], settings, {
             scheduleTaskDaySet: buildTaskDatePatchScheduleTaskDaySet(cal, settings, opt.scheduleList),
+            viewType: String(cal?.view?.type || '').trim(),
         });
         return events.find((item) => String(item?.id || '').trim() === `taskdate:${tid}`) || null;
     }
@@ -12733,11 +13009,6 @@
                     touched = true;
                 }
             } catch (e) {
-                logCalendarRefreshDebug('syncTaskDateEventFromDateFollowPatch:error', {
-                    taskId: tid,
-                    calendar: getCalendarDebugName(cal),
-                    error: String(e?.message || e || ''),
-                });
             }
         });
         if (touched && syncLayout) {
@@ -12783,14 +13054,6 @@
         if (opt.main !== false && state.calendar) targets.push({ key: 'main', calendar: state.calendar, sourceId: EVENT_SOURCE_IDS.mainTaskDate });
         if (opt.side !== false && state.sideDay?.calendar && state.sideDay.calendar !== state.calendar) targets.push({ key: 'side', calendar: state.sideDay.calendar, sourceId: EVENT_SOURCE_IDS.sideTaskDate });
         const summary = { touched: false, needsMainRefresh: false, needsSideRefresh: false };
-        logCalendarRefreshDebug('syncTaskDateInPlace:start', {
-            taskId: tid,
-            targets: targets.map((target) => ({
-                key: target.key,
-                calendar: getCalendarDebugName(target.calendar),
-                sourceId: target.sourceId,
-            })),
-        });
         for (const target of targets) {
             let result = { touched: false, needsRefresh: false };
             try {
@@ -12807,11 +13070,6 @@
                 result = { touched: false, needsRefresh: true };
             }
             if (result.needsRefresh === true) {
-                logCalendarRefreshDebug('syncTaskDateInPlace:sourceRefetchFallback', {
-                    taskId: tid,
-                    target: target.key,
-                    sourceId: target.sourceId,
-                });
                 const refetched = __tmRefetchCalendarSource(target.calendar, target.sourceId);
                 result = {
                     touched: refetched,
@@ -12822,10 +13080,6 @@
             if (target.key === 'main') summary.needsMainRefresh = result.needsRefresh === true;
             if (target.key === 'side') summary.needsSideRefresh = result.needsRefresh === true;
         }
-        logCalendarRefreshDebug('syncTaskDateInPlace:done', {
-            taskId: tid,
-            summary,
-        });
         return summary;
     }
 
@@ -13497,12 +13751,21 @@
         return out;
     }
 
-    async function loadCnHolidayYear(year) {
+    async function loadCnHolidayYear(year, options = {}) {
+        const opts = (options && typeof options === 'object') ? options : {};
+        const meta = (opts.result && typeof opts.result === 'object') ? opts.result : null;
+        const mark = (status) => { if (meta) meta.status = status; };
         const y = Number(year);
-        if (!Number.isFinite(y) || y < 1900 || y > 2100) return [];
+        if (!Number.isFinite(y) || y < 1900 || y > 2100) {
+            mark('missing');
+            return [];
+        }
         if (!state.cnHolidayCache) state.cnHolidayCache = new Map();
         const cached = state.cnHolidayCache.get(y);
-        if (cached && Array.isArray(cached.data) && (Date.now() - (cached.ts || 0) < 12 * 3600 * 1000)) return cached.data;
+        if (!opts.forceRefresh && cached && Array.isArray(cached.data) && (Date.now() - (cached.ts || 0) < 12 * 3600 * 1000)) {
+            mark('cached');
+            return cached.data;
+        }
         const lsKey = `tm_cn_holiday_${y}`;
         let localData = [];
         let localTs = 0;
@@ -13516,8 +13779,9 @@
                     localData = data;
                     localTs = ts;
                 }
-                if (data.length && ts && (Date.now() - ts < 72 * 3600 * 1000)) {
+                if (!opts.forceRefresh && data.length && ts && (Date.now() - ts < 72 * 3600 * 1000)) {
                     state.cnHolidayCache.set(y, { ts, data });
+                    mark('cached');
                     return data;
                 }
             }
@@ -13590,6 +13854,7 @@
             const ts = Date.now();
             state.cnHolidayCache.set(y, { ts, data });
             try { localStorage.setItem(lsKey, JSON.stringify({ ts, data })); } catch (e2) {}
+            mark('refreshed');
             return data;
         }
 
@@ -13600,8 +13865,10 @@
         if (fallback.length) {
             const ts = localTs || Number(cached?.ts) || Date.now();
             state.cnHolidayCache.set(y, { ts, data: fallback });
+            mark('cached');
             return fallback;
         }
+        mark('missing');
         return [];
     }
 
@@ -15079,12 +15346,7 @@
                             startDate: String(result?.startDate ?? nextStartDate ?? '').trim(),
                             completionTime: String(result?.completionTime ?? nextCompletionDate ?? '').trim(),
                         };
-                        const localSummary = patchVisibleTaskDateEventsFromModal(resolvedTaskId || targetId, localPatch);
-                        logCalendarRefreshDebug('taskDateEditorSave:localPatch', {
-                            taskId: resolvedTaskId || targetId,
-                            localPatch,
-                            localSummary,
-                        });
+                        patchVisibleTaskDateEventsFromModal(resolvedTaskId || targetId, localPatch);
                         closeModal();
                         toast('✅ 已同步任务日期', 'success');
                     } catch (err) {
@@ -15220,15 +15482,8 @@
             return;
         }
         if (state.tomatoRefetchTimer) return;
-        logCalendarRefreshDebug('scheduleTomatoRefetch:queued', {
-            view: String(state.calendar?.view?.type || '').trim(),
-        });
         state.tomatoRefetchTimer = setTimeout(() => {
             state.tomatoRefetchTimer = null;
-            logCalendarRefreshDebug('scheduleTomatoRefetch:refetchAuxSources', {
-                view: String(state.calendar?.view?.type || '').trim(),
-                sideView: String(state.sideDay?.calendar?.view?.type || '').trim(),
-            });
             try { __tmRefetchCalendarSource(state.calendar, EVENT_SOURCE_IDS.mainAux); } catch (e) {}
             try {
                 if (state.sideDay?.calendar && state.sideDay.calendar !== state.calendar) {
@@ -15249,7 +15504,6 @@
         if (suppressed) {
             return;
         }
-        logCalendarRefreshDebug('scheduleReminderCalendarRefetch', {});
         clearReminderCalendarCache();
         scheduleTomatoRefetch();
     }
@@ -15681,8 +15935,8 @@
                             if (tid && typeof window.tmShowTaskContextMenu === 'function') {
                                 const sid0 = String(ext.__tmScheduleId || '').trim();
                                 try {
-                                    if (source === 'schedule' && sid0) window.tmShowTaskContextMenu(ev, tid, { scheduleId: sid0, title: String(arg?.event?.title || '').trim(), start: arg?.event?.start, end: arg?.event?.end });
-                                    else if (source === 'taskdate') window.tmShowTaskContextMenu(ev, tid, { taskDateStartKey: String(ext.__tmTaskDateStartKey || '').trim(), taskDateEndExclusiveKey: String(ext.__tmTaskDateEndExclusiveKey || '').trim(), calendarId: String(ext.calendarId || 'default').trim(), title: String(arg?.event?.title || '').trim() });
+                                    if (source === 'schedule' && sid0) window.tmShowTaskContextMenu(ev, tid, { scheduleId: sid0, title: String(arg?.event?.title || '').trim(), start: arg?.event?.start, end: arg?.event?.end, allDay: arg?.event?.allDay === true, allDayBottom: ext.__tmAllDayBottom === true });
+                                    else if (source === 'taskdate') window.tmShowTaskContextMenu(ev, tid, { taskDateStartKey: String(ext.__tmTaskDateStartKey || '').trim(), taskDateEndExclusiveKey: String(ext.__tmTaskDateEndExclusiveKey || '').trim(), calendarId: String(ext.calendarId || 'default').trim(), title: String(arg?.event?.title || '').trim(), start: arg?.event?.start, end: arg?.event?.end, allDay: arg?.event?.allDay === true, allDayBottom: ext.__tmAllDayBottom === true });
                                     else window.tmShowTaskContextMenu(ev, tid);
                                 } catch (e) {}
                             }
@@ -15706,6 +15960,10 @@
                         cb.type = 'checkbox';
                         cb.className = 'tm-cal-task-event-check';
                         cb.checked = done;
+                        if (shouldDisableCalendarEventCheckbox(ext)) {
+                            cb.disabled = true;
+                            cb.title = '已完成的循环实例';
+                        }
                         cb.onclick = (ev) => {
                             try { ev.stopPropagation(); } catch (e) {}
                         };
@@ -15716,7 +15974,11 @@
                         cb.onchange = async (ev) => {
                             try { ev.stopPropagation(); } catch (e) {}
                             try {
-                                await handleCalendarEventCheckboxToggle(cb, wrapEl, titleText, ext, tid);
+                                await handleCalendarEventCheckboxToggle(cb, wrapEl, titleText, ext, tid, {
+                                    allDay: arg?.event?.allDay === true,
+                                    viewType: String(arg?.view?.type || '').trim(),
+                                    eventApi: arg?.event || null,
+                                });
                             } catch (e) {
                                 return;
                             }
@@ -15856,6 +16118,8 @@
                                             title: String(arg?.event?.title || '').trim(),
                                             start: arg?.event?.start,
                                             end: arg?.event?.end,
+                                            allDay: arg?.event?.allDay === true,
+                                            allDayBottom: ext.__tmAllDayBottom === true,
                                             occurrenceStartMs: ext.__tmOccurrenceStartMs,
                                             repeatType: ext.__tmRepeatType,
                                         });
@@ -15867,6 +16131,8 @@
                                         title: String(arg?.event?.title || '').trim(),
                                         start: arg?.event?.start,
                                         end: arg?.event?.end,
+                                        allDay: arg?.event?.allDay === true,
+                                        allDayBottom: ext.__tmAllDayBottom === true,
                                         occurrenceStartMs: ext.__tmOccurrenceStartMs,
                                         repeatType: ext.__tmRepeatType,
                                     });
@@ -15885,8 +16151,8 @@
                                 if (typeof window.tmShowTaskContextMenu === 'function') {
                                     const sid0 = String(ext.__tmScheduleId || '').trim();
                                     try {
-                                        if (source === 'schedule' && sid0) window.tmShowTaskContextMenu(ev, tid, { scheduleId: sid0, title: String(arg?.event?.title || '').trim(), start: arg?.event?.start, end: arg?.event?.end });
-                                        else if (source === 'taskdate') window.tmShowTaskContextMenu(ev, tid, { taskDateStartKey: String(ext.__tmTaskDateStartKey || '').trim(), taskDateEndExclusiveKey: String(ext.__tmTaskDateEndExclusiveKey || '').trim(), calendarId: String(ext.calendarId || 'default').trim(), title: String(arg?.event?.title || '').trim() });
+                                        if (source === 'schedule' && sid0) window.tmShowTaskContextMenu(ev, tid, { scheduleId: sid0, title: String(arg?.event?.title || '').trim(), start: arg?.event?.start, end: arg?.event?.end, allDay: arg?.event?.allDay === true, allDayBottom: ext.__tmAllDayBottom === true });
+                                        else if (source === 'taskdate') window.tmShowTaskContextMenu(ev, tid, { taskDateStartKey: String(ext.__tmTaskDateStartKey || '').trim(), taskDateEndExclusiveKey: String(ext.__tmTaskDateEndExclusiveKey || '').trim(), calendarId: String(ext.calendarId || 'default').trim(), title: String(arg?.event?.title || '').trim(), start: arg?.event?.start, end: arg?.event?.end, allDay: arg?.event?.allDay === true, allDayBottom: ext.__tmAllDayBottom === true });
                                         else window.tmShowTaskContextMenu(ev, tid);
                                     } catch (e) {}
                                 }
@@ -15917,7 +16183,7 @@
             eventResizeStop: () => {
                 try { setCalendarTouchGestureLock(host, false); } catch (e) {}
             },
-            eventOrder: 'start,-duration,__tmRank,title',
+            eventOrder: [compareCalendarAllDayBottomOrder, 'start', '-duration', '__tmRank', 'title'],
             eventOrderStrict: false,
             eventClassNames: (arg) => {
                 return resolveCalendarEventClassNames(arg);
@@ -15970,6 +16236,13 @@
                         return !!t.closest('.fc-timegrid-all-day, .fc-timegrid-allday, .fc-daygrid-day');
                     })();
                     const allDay = (info?.event?.allDay === true) || dropAllDayHint;
+                    if (await maybeUpdateEmptyTaskDueDateFromAllDayDrop({ ...(payload || {}), taskId }, start, allDay, {
+                        source: 'calendar-receive-task-due-date',
+                        viewType: String(calendar?.view?.type || '').trim(),
+                    })) {
+                        try { info?.event?.remove?.(); } catch (e2) {}
+                        return;
+                    }
                     await addTaskSchedule({ taskId, title, start, end, calendarId, durationMin: durMin, allDay });
                     try { info?.event?.remove?.(); } catch (e2) {}
                     toast('✅ 已加入日程', 'success');
@@ -16085,7 +16358,8 @@
                     events: async (info, success, failure) => {
                         try {
                             const settings = getSettings();
-                            const events = await __tmBuildScheduleSourceEvents(info.start, info.end, settings);
+                            const sourceViewType = inferMainCalendarEventSourceViewType(calendar, info, state._lastViewType || preferredInitialView || 'timeGridWeek');
+                            const events = await __tmBuildScheduleSourceEvents(info.start, info.end, settings, sourceViewType);
                             __tmUpdateMainCalendarStatus({
                                 schedules: Array.isArray(events) ? events.length : 0,
                                 rangeStart: formatDateKey(info?.start),
@@ -17000,6 +17274,7 @@
                 if (key === 'scheduleMaster') store.data.calendarShowSchedule = checked;
                 if (key === 'taskReminders') store.data.calendarShowTaskReminders = checked;
                 if (key === 'taskDatesMaster') store.data.calendarShowTaskDates = checked;
+                if (key === 'completedAllDaySchedules') store.data.calendarShowCompletedAllDaySchedules = checked;
                 if (key === 'cnHoliday') store.data.calendarShowCnHoliday = checked;
                 if (key === 'focus') store.data.calendarShowFocus = checked;
                 if (key === 'break') store.data.calendarShowBreak = checked;
@@ -17331,6 +17606,10 @@
                     <input class="b3-switch fn__flex-center" type="checkbox" data-tm-cal-setting="calendarShowTaskDates" ${s.showTaskDates ? 'checked' : ''}>
                 </div>
                 <div class="tm-calendar-settings-row">
+                    <div class="tm-calendar-settings-label">显示已完成全天日程</div>
+                    <input class="b3-switch fn__flex-center" type="checkbox" data-tm-cal-setting="calendarShowCompletedAllDaySchedules" ${s.showCompletedAllDaySchedules !== false ? 'checked' : ''}>
+                </div>
+                <div class="tm-calendar-settings-row">
                     <div class="tm-calendar-settings-label">全天区隐藏已安排任务</div>
                     <input class="b3-switch fn__flex-center" type="checkbox" data-tm-cal-setting="calendarHideScheduledTaskDatesInAllDay" ${s.hideScheduledTaskDatesInAllDay ? 'checked' : ''}>
                 </div>
@@ -17497,7 +17776,7 @@
                     try { scheduleScheduleReminderRefresh('settings'); } catch (e2) {}
                 } else if (key === 'calendarScheduleDatesFollowSchedule') {
                     // No visual refresh is required; the flag affects subsequent schedule mutations.
-                } else if (key === 'calendarShowOtherBlockCheckbox' || key === 'calendarHideScheduledTaskDatesInAllDay' || key === 'calendarShowTaskReminders' || key === 'calendarTaskDateColorMode' || key === 'calendarScheduleFollowDocColor') {
+                } else if (key === 'calendarShowOtherBlockCheckbox' || key === 'calendarHideScheduledTaskDatesInAllDay' || key === 'calendarShowCompletedAllDaySchedules' || key === 'calendarShowTaskReminders' || key === 'calendarTaskDateColorMode' || key === 'calendarScheduleFollowDocColor') {
                     try {
                         const root = state.wrapEl;
                         if (root) renderSidebar(root, getSettings());
@@ -17970,6 +18249,9 @@
         const taskName = String(meta?.title || '').trim() || '任务';
         const startMs = toMs(meta?.start);
         const endMs = toMs(meta?.end);
+        const isAllDaySchedule = meta?.allDay === true
+            || (Number.isFinite(startMs) && Number.isFinite(endMs) && endMs > startMs && isAllDayRange(new Date(startMs), new Date(endMs)));
+        const isAllDayBottom = meta?.allDayBottom === true;
         const durationMin = (Number.isFinite(startMs) && Number.isFinite(endMs) && endMs > startMs)
             ? Math.max(1, Math.round((endMs - startMs) / 60000))
             : 25;
@@ -17992,6 +18274,15 @@
             }));
             menu.appendChild(createItem('跳转关联任务', async () => {
                 try { window.tmJumpToTask?.(taskId, event); } catch (e) {}
+            }));
+        }
+        if (isAllDaySchedule) {
+            menu.appendChild(createItem(isAllDayBottom ? '取消置底全天日程' : '置底全天日程', async () => {
+                await setScheduleAllDayBottomById(scheduleId, !isAllDayBottom, {
+                    allDay: true,
+                    start: meta?.start,
+                    end: meta?.end,
+                });
             }));
         }
         menu.appendChild(createItem('删除日程', async () => {
@@ -18018,6 +18309,117 @@
             try { document.addEventListener('contextmenu', close, true); } catch (e) {}
         }, 0);
         return true;
+    }
+
+    function getCnHolidayLocalCache(year) {
+        const y = Number(year);
+        if (!Number.isFinite(y) || y < 1900 || y > 2100) return null;
+        const key = `tm_cn_holiday_${Math.round(y)}`;
+        try {
+            const raw = String(localStorage.getItem(key) || '');
+            if (!raw.trim()) return null;
+            const parsed = JSON.parse(raw);
+            const data = Array.isArray(parsed?.data) ? parsed.data : [];
+            if (!data.length) return null;
+            return { year: Math.round(y), key, ts: Number(parsed?.ts) || 0, data };
+        } catch (e) {
+            return null;
+        }
+    }
+
+    async function exportMigrationData(options = {}) {
+        const opts = (options && typeof options === 'object') ? options : {};
+        const out = {
+            schedules: [],
+            cnHolidays: {},
+            holidayStatuses: [],
+            summary: {
+                schedules: 0,
+                holidayYears: 0,
+                holidayMissingYears: [],
+            },
+        };
+        if (opts.includeSchedule !== false) {
+            try { out.schedules = await loadScheduleAll(); } catch (e) { out.schedules = []; }
+            out.summary.schedules = Array.isArray(out.schedules) ? out.schedules.length : 0;
+        }
+        if (opts.includeHolidays !== false) {
+            const years = Array.from(new Set((Array.isArray(opts.holidayYears) ? opts.holidayYears : [])
+                .map((item) => Number(item))
+                .filter((item) => Number.isFinite(item) && item >= 1900 && item <= 2100)
+                .map((item) => Math.round(item))));
+            for (const year of years) {
+                const before = getCnHolidayLocalCache(year);
+                let refreshed = false;
+                let data = before?.data || [];
+                let ts = Number(before?.ts) || 0;
+                if (opts.refreshCurrentYear === true && year === new Date().getFullYear()) {
+                    try {
+                        const refreshResult = {};
+                        const next = await loadCnHolidayYear(year, { forceRefresh: true, result: refreshResult });
+                        if (Array.isArray(next) && next.length) {
+                            const after = getCnHolidayLocalCache(year);
+                            refreshed = refreshResult.status === 'refreshed';
+                            data = next;
+                            ts = Number(after?.ts) || Number(before?.ts) || Date.now();
+                        }
+                    } catch (e) {}
+                }
+                if (Array.isArray(data) && data.length) {
+                    out.cnHolidays[String(year)] = { ts, data };
+                    out.holidayStatuses.push({ year, status: refreshed ? 'refreshed' : 'cached', count: data.length });
+                } else {
+                    out.holidayStatuses.push({ year, status: 'missing', count: 0 });
+                    out.summary.holidayMissingYears.push(year);
+                }
+            }
+            out.summary.holidayYears = Object.keys(out.cnHolidays || {}).length;
+        }
+        return out;
+    }
+
+    async function importMigrationData(payload = {}) {
+        const source = (payload && typeof payload === 'object') ? payload : {};
+        const result = { schedules: 0, holidayYears: 0 };
+        if (Array.isArray(source.schedules)) {
+            const current = await loadScheduleAll().catch(() => []);
+            const map = new Map();
+            (Array.isArray(current) ? current : []).forEach((item) => {
+                const id = String(item?.id || '').trim();
+                if (id) map.set(id, item);
+            });
+            source.schedules.forEach((item) => {
+                const src = (item && typeof item === 'object') ? item : null;
+                const id = String(src?.id || '').trim();
+                if (!src || !id) return;
+                map.set(id, src);
+                result.schedules += 1;
+            });
+            await saveScheduleAll(Array.from(map.values()), {
+                reason: 'settings-migration-import',
+                source: 'settings-migration',
+            });
+        }
+        const holidays = (source.cnHolidays && typeof source.cnHolidays === 'object' && !Array.isArray(source.cnHolidays))
+            ? source.cnHolidays
+            : {};
+        Object.entries(holidays).forEach(([yearKey, value]) => {
+            const year = Number(yearKey);
+            const y = Math.round(year);
+            const data = Array.isArray(value?.data) ? value.data : [];
+            if (!Number.isFinite(year) || y < 1900 || y > 2100 || !data.length) return;
+            const ts = Number(value?.ts) || Date.now();
+            try {
+                localStorage.setItem(`tm_cn_holiday_${y}`, JSON.stringify({ ts, data }));
+                if (!state.cnHolidayCache) state.cnHolidayCache = new Map();
+                state.cnHolidayCache.set(y, { ts, data });
+                result.holidayYears += 1;
+            } catch (e) {}
+        });
+        if (result.schedules || result.holidayYears) {
+            try { scheduleCalendarRefresh({ reason: 'settings-migration-import', main: true, side: true, hard: true }); } catch (e) {}
+        }
+        return result;
     }
 
     globalThis.__tmCalendar = {
@@ -18055,10 +18457,12 @@
         setScheduleOccurrenceDone,
         listTaskSchedulesByDay,
         listTaskSchedulesByTaskId,
+        deleteTaskSchedulesByTaskIds,
         openScheduleEditor,
         openScheduleEditorById,
         openScheduleEditorByTaskId,
         deleteScheduleById,
+        setScheduleAllDayBottomById,
         reassignScheduleLinkedTask,
         setSettingsStore,
         requestRefresh: scheduleCalendarRefresh,
@@ -18066,5 +18470,7 @@
         syncTaskDateInPlace,
         syncTaskDoneInPlace,
         refreshSideDayLayout,
+        exportMigrationData,
+        importMigrationData,
     };
 })();

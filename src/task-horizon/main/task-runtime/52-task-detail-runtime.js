@@ -437,6 +437,34 @@
             scheduleExpanded: false,
             rangeDrag: null,
         };
+        const getHubMonthDate = () => {
+            const current = hubState.monthDate instanceof Date ? hubState.monthDate : initialMonth;
+            const normalized = startOfMonth(current instanceof Date ? current : initialMonth);
+            if (!(normalized instanceof Date) || Number.isNaN(normalized.getTime())) {
+                return startOfMonth(initialMonth);
+            }
+            return normalized;
+        };
+        const setHubMonthDate = (nextDate, options = {}) => {
+            const date = nextDate instanceof Date ? nextDate : null;
+            if (!(date instanceof Date) || Number.isNaN(date.getTime())) return false;
+            const normalized = startOfMonth(date);
+            if (!(normalized instanceof Date) || Number.isNaN(normalized.getTime())) return false;
+            hubState.monthDate = normalized;
+            if ((options && typeof options === 'object' ? options.close : true) !== false) {
+                hubState.editor = '';
+            }
+            render();
+            return true;
+        };
+        const setHubMonthYear = (yearValue, options = {}) => {
+            const year = Math.trunc(Number(yearValue));
+            if (!Number.isFinite(year) || year < 1000 || year > 9999) return false;
+            const current = getHubMonthDate();
+            const next = new Date(year, current.getMonth(), 1, 12, 0, 0, 0);
+            if (!(next instanceof Date) || Number.isNaN(next.getTime())) return false;
+            return setHubMonthDate(next, options);
+        };
         let scheduleText = '';
         let suppressNextDayClick = false;
         let busy = false;
@@ -458,7 +486,9 @@
         };
         const positionEditorPanel = () => {
             const panel = popover.querySelector('[data-tm-time-hub-editor-panel]');
-            const card = hubState.editor ? popover.querySelector(`[data-tm-time-hub-card="${hubState.editor}"]`) : null;
+            const card = hubState.editor === 'month'
+                ? popover.querySelector('[data-tm-time-hub-month-open]')
+                : (hubState.editor ? popover.querySelector(`[data-tm-time-hub-card="${hubState.editor}"]`) : null);
             if (!(panel instanceof HTMLElement) || !(card instanceof HTMLElement)) return;
             if (window.matchMedia && window.matchMedia('(max-width: 640px)').matches) {
                 panel.style.left = '';
@@ -466,12 +496,20 @@
                 return;
             }
             const popRect = popover.getBoundingClientRect();
+            const baseEl = panel.offsetParent instanceof HTMLElement ? panel.offsetParent : popover;
+            const baseRect = baseEl.getBoundingClientRect();
             const cardRect = card.getBoundingClientRect();
             const panelRect = panel.getBoundingClientRect();
-            const maxLeft = Math.max(8, popRect.width - panelRect.width - 8);
-            const left = Math.max(8, Math.min(maxLeft, Math.round(cardRect.left - popRect.left)));
-            let top = Math.round(cardRect.top - popRect.top - panelRect.height - 8);
-            if (top < 8) top = Math.round(cardRect.bottom - popRect.top + 8);
+            const baseWidth = Math.round(baseRect.width || popRect.width || 0);
+            const maxLeft = Math.max(8, baseWidth - panelRect.width - 8);
+            const rawLeft = hubState.editor === 'month'
+                ? cardRect.left - baseRect.left + (cardRect.width / 2) - (panelRect.width / 2)
+                : cardRect.left - baseRect.left;
+            const left = Math.max(8, Math.min(maxLeft, Math.round(rawLeft)));
+            let top = hubState.editor === 'month'
+                ? Math.round(cardRect.bottom - baseRect.top + 4)
+                : Math.round(cardRect.top - baseRect.top - panelRect.height - 8);
+            if (top < 8) top = Math.round(cardRect.bottom - baseRect.top + 8);
             panel.style.left = `${left}px`;
             panel.style.top = `${top}px`;
         };
@@ -508,7 +546,7 @@
             `).join('');
         };
         const renderCalendarHtml = () => {
-            const month = startOfMonth(hubState.monthDate);
+            const month = getHubMonthDate();
             const firstDay = __tmGetTaskTimeHubCalendarFirstDay();
             const gridStart = __tmGetTaskTimeHubMonthGridStart(month, firstDay);
             const startValue = readTaskDate('startDate');
@@ -540,7 +578,9 @@
             }
             return `
                 <div class="tm-task-time-hub__calendar-head">
-                    <strong>${month.getFullYear()}年${month.getMonth() + 1}月</strong>
+                    <button type="button" class="tm-task-time-hub__calendar-title${hubState.editor === 'month' ? ' is-active' : ''}" data-tm-time-hub-month-open aria-haspopup="dialog" aria-expanded="${hubState.editor === 'month' ? 'true' : 'false'}" title="选择年月">
+                        <strong>${month.getFullYear()}年${month.getMonth() + 1}月</strong>
+                    </button>
                     <div class="tm-task-time-hub__month-actions">
                         <button type="button" data-tm-time-hub-month="-1" aria-label="上个月">${__tmTaskDetailTimeHubIcon('chevron-left', 'tm-task-time-hub__small-icon', 14)}</button>
                         <button type="button" data-tm-time-hub-month="0" aria-label="回到本月">今</button>
@@ -552,6 +592,26 @@
                 </div>
                 <div class="tm-task-time-hub__calendar">${days.join('')}</div>
             `;
+        };
+        const renderMonthEditorHtml = () => {
+            if (hubState.editor !== 'month') return '';
+            const month = getHubMonthDate();
+            const year = month.getFullYear();
+            const currentMonthIndex = month.getMonth();
+            const today = new Date();
+            const monthLabels = ['1月', '2月', '3月', '4月', '5月', '6月', '7月', '8月', '9月', '10月', '11月', '12月'];
+            return `<div class="tm-task-time-hub__subpanel tm-task-time-hub__subpanel--month" data-tm-time-hub-editor-panel>
+                <div class="tm-task-time-hub__month-year-row">
+                    <button type="button" class="tm-task-time-hub__month-step-btn" data-tm-time-hub-year-step="-1" aria-label="上一年">${__tmTaskDetailTimeHubIcon('chevron-left', 'tm-task-time-hub__small-icon', 14)}</button>
+                    <input class="tm-input tm-task-time-hub__month-year-input" type="text" inputmode="numeric" autocomplete="off" maxlength="4" value="${esc(String(year))}" aria-label="年份" data-tm-time-hub-year-input>
+                    <button type="button" class="tm-task-time-hub__month-step-btn" data-tm-time-hub-year-step="1" aria-label="下一年">${__tmTaskDetailTimeHubIcon('chevron-right', 'tm-task-time-hub__small-icon', 14)}</button>
+                </div>
+                <div class="tm-task-time-hub__month-grid">
+                    ${monthLabels.map((label, index) => `
+                        <button type="button" class="tm-task-time-hub__month-btn${index === currentMonthIndex ? ' is-active' : ''}${year === today.getFullYear() && index === today.getMonth() ? ' is-current' : ''}" data-tm-time-hub-month-pick="${index}" aria-label="跳转到${esc(label)}">${esc(label)}</button>
+                    `).join('')}
+                </div>
+            </div>`;
         };
         const renderSettingCards = () => {
             const disabled = hubState.activeField === 'startDate';
@@ -651,6 +711,7 @@
                     <div class="tm-task-time-hub__panel tm-task-time-hub__panel--date">
                         <div class="tm-task-time-hub__date-cards">${renderDateCards()}</div>
                         ${renderCalendarHtml()}
+                        ${renderMonthEditorHtml()}
                         ${(() => {
                             const settingsHtml = renderSettingCards();
                             return settingsHtml ? `<div class="tm-task-time-hub__settings">${settingsHtml}</div>` : '';
@@ -836,6 +897,13 @@
         on(popover, 'click', async (ev) => {
             const target = ev.target instanceof Element ? ev.target : null;
             if (!target || busy) return;
+            const monthOpenBtn = target.closest('[data-tm-time-hub-month-open]');
+            if (monthOpenBtn) {
+                try { ev.preventDefault(); } catch (e) {}
+                hubState.editor = hubState.editor === 'month' ? '' : 'month';
+                render();
+                return;
+            }
             if (__tmShouldDismissTaskTimeHubEditor(popover, hubState.editor, target)) {
                 hubState.editor = '';
                 render();
@@ -862,6 +930,25 @@
                 if (field === 'startDate' || field === 'completionTime') await updateDateField(field, '');
                 return;
             }
+            const monthStepBtn = target.closest('[data-tm-time-hub-year-step]');
+            if (monthStepBtn) {
+                try { ev.preventDefault(); } catch (e) {}
+                const delta = Number(monthStepBtn.getAttribute('data-tm-time-hub-year-step') || 0);
+                const current = getHubMonthDate();
+                const nextYear = Math.max(1000, Math.min(9999, current.getFullYear() + (delta || 0)));
+                setHubMonthYear(nextYear, { close: false });
+                return;
+            }
+            const monthPickBtn = target.closest('[data-tm-time-hub-month-pick]');
+            if (monthPickBtn) {
+                try { ev.preventDefault(); } catch (e) {}
+                const monthIndex = Number(monthPickBtn.getAttribute('data-tm-time-hub-month-pick') || 0);
+                if (Number.isFinite(monthIndex) && monthIndex >= 0 && monthIndex <= 11) {
+                    const current = getHubMonthDate();
+                    setHubMonthDate(new Date(current.getFullYear(), monthIndex, 1, 12, 0, 0, 0));
+                }
+                return;
+            }
             const dateCard = target.closest('[data-tm-time-hub-date-card]');
             if (dateCard) {
                 try { ev.preventDefault(); } catch (e) {}
@@ -877,7 +964,7 @@
             if (monthBtn) {
                 try { ev.preventDefault(); } catch (e) {}
                 const delta = Number(monthBtn.getAttribute('data-tm-time-hub-month') || 0);
-                hubState.monthDate = delta === 0 ? startOfMonth(parseDateKey(todayKey) || new Date()) : shiftMonth(hubState.monthDate, delta);
+                hubState.monthDate = delta === 0 ? startOfMonth(parseDateKey(todayKey) || new Date()) : shiftMonth(getHubMonthDate(), delta);
                 render();
                 return;
             }
@@ -979,6 +1066,23 @@
                 }
             }
         });
+        on(popover, 'input', (ev) => {
+            const target = ev.target instanceof Element ? ev.target : null;
+            const input = target?.closest?.('[data-tm-time-hub-year-input]');
+            if (!(input instanceof HTMLInputElement)) return;
+            const raw = String(input.value || '').trim();
+            if (/^\d{4}$/.test(raw)) {
+                setHubMonthYear(raw, { close: false });
+            }
+        });
+        on(popover, 'focusout', (ev) => {
+            const target = ev.target instanceof Element ? ev.target : null;
+            const input = target?.closest?.('[data-tm-time-hub-year-input]');
+            if (!(input instanceof HTMLInputElement)) return;
+            const raw = String(input.value || '').trim();
+            if (/^\d{4}$/.test(raw)) return;
+            input.value = String(getHubMonthDate().getFullYear());
+        });
         on(popover, 'pointerdown', (ev) => {
             const target = ev.target instanceof Element ? ev.target : null;
             const dayBtn = target?.closest?.('[data-tm-time-hub-date]');
@@ -1009,6 +1113,26 @@
             if (!drag.moved) await updateDateField(hubState.activeField, drag.anchor);
             else await updateDateRange(drag.anchor, drag.current);
         });
+        on(popover, 'keydown', async (ev) => {
+            const target = ev.target instanceof Element ? ev.target : null;
+            if (String(ev.key || '') !== 'Enter') return;
+            const yearInput = target?.closest?.('[data-tm-time-hub-year-input]');
+            if (yearInput instanceof HTMLInputElement) {
+                try { ev.preventDefault(); } catch (e) {}
+                const raw = String(yearInput.value || '').trim();
+                if (/^\d{4}$/.test(raw)) {
+                    setHubMonthYear(raw, { close: false });
+                } else {
+                    yearInput.value = String(getHubMonthDate().getFullYear());
+                }
+                return;
+            }
+            const card = target?.closest?.('[data-tm-time-hub-date-card]');
+            if (card) {
+                try { ev.preventDefault(); } catch (e) {}
+                card.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+            }
+        });
         on(document, 'pointerdown', (ev) => {
             const target = ev.target;
             if (target instanceof Node) {
@@ -1024,11 +1148,15 @@
         on(document, 'keydown', (ev) => {
             if (ev.key === 'Escape') __tmCloseStandaloneTaskTimeHub('escape');
         });
-        on(window, 'resize', position, { capture: true });
+        on(window, 'resize', () => {
+            position();
+            positionEditorPanel();
+        }, { capture: true });
         on(window, 'scroll', (ev) => {
             const target = ev?.target;
             if (target instanceof Node && popover.contains(target)) return;
             position();
+            positionEditorPanel();
         }, { capture: true });
         on(window, 'tm:calendar-schedule-updated', () => {
             void loadHubSchedules(true);
@@ -2996,11 +3124,39 @@ if (!__tmIsCollectedOtherBlockTask(task) && diff.contentChanged) {
                 editor: '',
                 schedules: [],
                 schedulesLoaded: false,
-                schedulesLoading: false,
-                scheduleExpanded: false,
-                rangeDrag: null,
-            };
-            let suppressNextDayClick = false;
+            schedulesLoading: false,
+            scheduleExpanded: false,
+            rangeDrag: null,
+        };
+        const getHubMonthDate = () => {
+            const current = hubState.monthDate instanceof Date ? hubState.monthDate : initialMonth;
+            const normalized = startOfMonth(current instanceof Date ? current : initialMonth);
+            if (!(normalized instanceof Date) || Number.isNaN(normalized.getTime())) {
+                return startOfMonth(initialMonth);
+            }
+            return normalized;
+        };
+        const setHubMonthDate = (nextDate, options = {}) => {
+            const date = nextDate instanceof Date ? nextDate : null;
+            if (!(date instanceof Date) || Number.isNaN(date.getTime())) return false;
+            const normalized = startOfMonth(date);
+            if (!(normalized instanceof Date) || Number.isNaN(normalized.getTime())) return false;
+            hubState.monthDate = normalized;
+            if ((options && typeof options === 'object' ? options.close : true) !== false) {
+                hubState.editor = '';
+            }
+            render();
+            return true;
+        };
+        const setHubMonthYear = (yearValue, options = {}) => {
+            const year = Math.trunc(Number(yearValue));
+            if (!Number.isFinite(year) || year < 1000 || year > 9999) return false;
+            const current = getHubMonthDate();
+            const next = new Date(year, current.getMonth(), 1, 12, 0, 0, 0);
+            if (!(next instanceof Date) || Number.isNaN(next.getTime())) return false;
+            return setHubMonthDate(next, options);
+        };
+        let suppressNextDayClick = false;
             const sortDateRange = (left, right) => {
                 const a = __tmNormalizeDateOnly(left);
                 const b = __tmNormalizeDateOnly(right);
@@ -3044,7 +3200,7 @@ if (!__tmIsCollectedOtherBlockTask(task) && diff.contentChanged) {
                 `).join('');
             };
             const renderCalendarHtml = () => {
-                const month = startOfMonth(hubState.monthDate);
+                const month = getHubMonthDate();
                 const firstDay = __tmGetTaskTimeHubCalendarFirstDay();
                 const gridStart = __tmGetTaskTimeHubMonthGridStart(month, firstDay);
                 const startValue = readHiddenInputValue('startDate');
@@ -3078,7 +3234,9 @@ if (!__tmIsCollectedOtherBlockTask(task) && diff.contentChanged) {
                 }
                 return `
                     <div class="tm-task-time-hub__calendar-head">
-                        <strong>${month.getFullYear()}年${month.getMonth() + 1}月</strong>
+                        <button type="button" class="tm-task-time-hub__calendar-title${hubState.editor === 'month' ? ' is-active' : ''}" data-tm-time-hub-month-open aria-haspopup="dialog" aria-expanded="${hubState.editor === 'month' ? 'true' : 'false'}" title="选择年月">
+                            <strong>${month.getFullYear()}年${month.getMonth() + 1}月</strong>
+                        </button>
                         <div class="tm-task-time-hub__month-actions">
                             <button type="button" data-tm-time-hub-month="-1" aria-label="上个月">${__tmTaskDetailTimeHubIcon('chevron-left', 'tm-task-time-hub__small-icon', 14)}</button>
                             <button type="button" data-tm-time-hub-month="0" aria-label="回到本月">今</button>
@@ -3091,11 +3249,31 @@ if (!__tmIsCollectedOtherBlockTask(task) && diff.contentChanged) {
                     <div class="tm-task-time-hub__calendar">${days.join('')}</div>
                 `;
             };
+            const renderMonthEditorHtml = () => {
+                if (hubState.editor !== 'month') return '';
+                const month = getHubMonthDate();
+                const year = month.getFullYear();
+                const currentMonthIndex = month.getMonth();
+                const today = new Date();
+                const monthLabels = ['1月', '2月', '3月', '4月', '5月', '6月', '7月', '8月', '9月', '10月', '11月', '12月'];
+                return `<div class="tm-task-time-hub__subpanel tm-task-time-hub__subpanel--month" data-tm-time-hub-editor-panel>
+                    <div class="tm-task-time-hub__month-year-row">
+                        <button type="button" class="tm-task-time-hub__month-step-btn" data-tm-time-hub-year-step="-1" aria-label="上一年">${__tmTaskDetailTimeHubIcon('chevron-left', 'tm-task-time-hub__small-icon', 14)}</button>
+                        <input class="tm-input tm-task-time-hub__month-year-input" type="text" inputmode="numeric" autocomplete="off" maxlength="4" value="${esc(String(year))}" aria-label="年份" data-tm-time-hub-year-input>
+                        <button type="button" class="tm-task-time-hub__month-step-btn" data-tm-time-hub-year-step="1" aria-label="下一年">${__tmTaskDetailTimeHubIcon('chevron-right', 'tm-task-time-hub__small-icon', 14)}</button>
+                    </div>
+                    <div class="tm-task-time-hub__month-grid">
+                        ${monthLabels.map((label, index) => `
+                            <button type="button" class="tm-task-time-hub__month-btn${index === currentMonthIndex ? ' is-active' : ''}${year === today.getFullYear() && index === today.getMonth() ? ' is-current' : ''}" data-tm-time-hub-month-pick="${index}" aria-label="跳转到${esc(label)}">${esc(label)}</button>
+                        `).join('')}
+                    </div>
+                </div>`;
+            };
             const renderSettingCards = () => {
-            const disabled = hubState.activeField === 'startDate';
-            const reminderText = readReminderValue() ? (readReminderDisplayValue() || '已提醒') : '不提醒';
-            const repeatText = getRepeatSummary() || '不循环';
-            const rule = getRepeatRule();
+                const disabled = hubState.activeField === 'startDate';
+                const reminderText = readReminderValue() ? (readReminderDisplayValue() || '已提醒') : '不提醒';
+                const repeatText = getRepeatSummary() || '不循环';
+                const rule = getRepeatRule();
             const endText = rule?.enabled ? (rule.until ? `至 ${__tmFormatTaskDetailShortDate(rule.until)}` : '永不结束') : '未设置';
             const cards = [];
             if (!hideRepeat) {
@@ -3201,6 +3379,7 @@ if (!__tmIsCollectedOtherBlockTask(task) && diff.contentChanged) {
                         <div class="tm-task-time-hub__panel tm-task-time-hub__panel--date">
                         <div class="tm-task-time-hub__date-cards">${renderDateCards()}</div>
                         ${renderCalendarHtml()}
+                        ${renderMonthEditorHtml()}
                         ${(() => {
                             const settingsHtml = renderSettingCards();
                             return settingsHtml ? `<div class="tm-task-time-hub__settings">${settingsHtml}</div>` : '';
@@ -3237,7 +3416,9 @@ if (!__tmIsCollectedOtherBlockTask(task) && diff.contentChanged) {
             };
             const positionEditorPanel = () => {
                 const panel = popover.querySelector('[data-tm-time-hub-editor-panel]');
-                const card = hubState.editor ? popover.querySelector(`[data-tm-time-hub-card="${hubState.editor}"]`) : null;
+                const card = hubState.editor === 'month'
+                    ? popover.querySelector('[data-tm-time-hub-month-open]')
+                    : (hubState.editor ? popover.querySelector(`[data-tm-time-hub-card="${hubState.editor}"]`) : null);
                 if (!(panel instanceof HTMLElement) || !(card instanceof HTMLElement)) return;
                 if (window.matchMedia && window.matchMedia('(max-width: 640px)').matches) {
                     panel.style.left = '';
@@ -3245,12 +3426,20 @@ if (!__tmIsCollectedOtherBlockTask(task) && diff.contentChanged) {
                     return;
                 }
                 const popRect = popover.getBoundingClientRect();
+                const baseEl = panel.offsetParent instanceof HTMLElement ? panel.offsetParent : popover;
+                const baseRect = baseEl.getBoundingClientRect();
                 const cardRect = card.getBoundingClientRect();
                 const panelRect = panel.getBoundingClientRect();
-                const maxLeft = Math.max(8, popRect.width - panelRect.width - 8);
-                const left = Math.max(8, Math.min(maxLeft, Math.round(cardRect.left - popRect.left)));
-                let top = Math.round(cardRect.top - popRect.top - panelRect.height - 8);
-                if (top < 8) top = Math.round(cardRect.bottom - popRect.top + 8);
+                const baseWidth = Math.round(baseRect.width || popRect.width || 0);
+                const maxLeft = Math.max(8, baseWidth - panelRect.width - 8);
+                const rawLeft = hubState.editor === 'month'
+                    ? cardRect.left - baseRect.left + (cardRect.width / 2) - (panelRect.width / 2)
+                    : cardRect.left - baseRect.left;
+                const left = Math.max(8, Math.min(maxLeft, Math.round(rawLeft)));
+                let top = hubState.editor === 'month'
+                    ? Math.round(cardRect.bottom - baseRect.top + 4)
+                    : Math.round(cardRect.top - baseRect.top - panelRect.height - 8);
+                if (top < 8) top = Math.round(cardRect.bottom - baseRect.top + 8);
                 panel.style.left = `${left}px`;
                 panel.style.top = `${top}px`;
             };
@@ -3418,6 +3607,13 @@ if (!__tmIsCollectedOtherBlockTask(task) && diff.contentChanged) {
             on(popover, 'click', async (ev) => {
                 const target = ev.target instanceof Element ? ev.target : null;
                 if (!target) return;
+                const monthOpenBtn = target.closest('[data-tm-time-hub-month-open]');
+                if (monthOpenBtn) {
+                    try { ev.preventDefault(); } catch (e) {}
+                    hubState.editor = hubState.editor === 'month' ? '' : 'month';
+                    render();
+                    return;
+                }
                 if (__tmShouldDismissTaskTimeHubEditor(popover, hubState.editor, target)) {
                     hubState.editor = '';
                     render();
@@ -3445,6 +3641,25 @@ if (!__tmIsCollectedOtherBlockTask(task) && diff.contentChanged) {
                     if (field === 'startDate' || field === 'completionTime') await updateDateField(field, '');
                     return;
                 }
+                const monthStepBtn = target.closest('[data-tm-time-hub-year-step]');
+                if (monthStepBtn) {
+                    try { ev.preventDefault(); } catch (e) {}
+                    const delta = Number(monthStepBtn.getAttribute('data-tm-time-hub-year-step') || 0);
+                    const current = getHubMonthDate();
+                    const nextYear = Math.max(1000, Math.min(9999, current.getFullYear() + (delta || 0)));
+                    setHubMonthYear(nextYear, { close: false });
+                    return;
+                }
+                const monthPickBtn = target.closest('[data-tm-time-hub-month-pick]');
+                if (monthPickBtn) {
+                    try { ev.preventDefault(); } catch (e) {}
+                    const monthIndex = Number(monthPickBtn.getAttribute('data-tm-time-hub-month-pick') || 0);
+                    if (Number.isFinite(monthIndex) && monthIndex >= 0 && monthIndex <= 11) {
+                        const current = getHubMonthDate();
+                        setHubMonthDate(new Date(current.getFullYear(), monthIndex, 1, 12, 0, 0, 0));
+                    }
+                    return;
+                }
                 const dateCard = target.closest('[data-tm-time-hub-date-card]');
                 if (dateCard) {
                     try { ev.preventDefault(); } catch (e) {}
@@ -3460,7 +3675,7 @@ if (!__tmIsCollectedOtherBlockTask(task) && diff.contentChanged) {
                 if (monthBtn) {
                     try { ev.preventDefault(); } catch (e) {}
                     const delta = Number(monthBtn.getAttribute('data-tm-time-hub-month') || 0);
-                    hubState.monthDate = delta === 0 ? startOfMonth(parseDateKey(todayKey) || new Date()) : shiftMonth(hubState.monthDate, delta);
+                    hubState.monthDate = delta === 0 ? startOfMonth(parseDateKey(todayKey) || new Date()) : shiftMonth(getHubMonthDate(), delta);
                     render();
                     return;
                 }
@@ -3568,6 +3783,23 @@ if (!__tmIsCollectedOtherBlockTask(task) && diff.contentChanged) {
                     }
                 }
             });
+            on(popover, 'input', (ev) => {
+                const target = ev.target instanceof Element ? ev.target : null;
+                const input = target?.closest?.('[data-tm-time-hub-year-input]');
+                if (!(input instanceof HTMLInputElement)) return;
+                const raw = String(input.value || '').trim();
+                if (/^\d{4}$/.test(raw)) {
+                    setHubMonthYear(raw, { close: false });
+                }
+            });
+            on(popover, 'focusout', (ev) => {
+                const target = ev.target instanceof Element ? ev.target : null;
+                const input = target?.closest?.('[data-tm-time-hub-year-input]');
+                if (!(input instanceof HTMLInputElement)) return;
+                const raw = String(input.value || '').trim();
+                if (/^\d{4}$/.test(raw)) return;
+                input.value = String(getHubMonthDate().getFullYear());
+            });
             on(popover, 'pointerdown', (ev) => {
                 const target = ev.target instanceof Element ? ev.target : null;
                 const dayBtn = target?.closest?.('[data-tm-time-hub-date]');
@@ -3610,6 +3842,17 @@ if (!__tmIsCollectedOtherBlockTask(task) && diff.contentChanged) {
             on(popover, 'keydown', async (ev) => {
                 const target = ev.target instanceof Element ? ev.target : null;
                 if (String(ev.key || '') === 'Enter') {
+                    const yearInput = target?.closest?.('[data-tm-time-hub-year-input]');
+                    if (yearInput instanceof HTMLInputElement) {
+                        try { ev.preventDefault(); } catch (e) {}
+                        const raw = String(yearInput.value || '').trim();
+                        if (/^\d{4}$/.test(raw)) {
+                            setHubMonthYear(raw, { close: false });
+                        } else {
+                            yearInput.value = String(getHubMonthDate().getFullYear());
+                        }
+                        return;
+                    }
                     const card = target?.closest?.('[data-tm-time-hub-date-card]');
                     if (card) {
                         try { ev.preventDefault(); } catch (e) {}
@@ -3650,6 +3893,7 @@ if (!__tmIsCollectedOtherBlockTask(task) && diff.contentChanged) {
         on(window, 'resize', () => {
             if (!activeInlinePopover) return;
             positionInlinePopover();
+            positionEditorPanel();
         });
         on(window, 'scroll', (ev) => {
             if (!activeInlinePopover) return;

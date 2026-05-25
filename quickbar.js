@@ -104,6 +104,7 @@
         { id: 'review', name: '待审核', color: '#FF9800' }
     ];
     const quickbarInlineFieldDefs = [
+        { attrKey: 'subtask-count', name: '子任务数量', type: 'readonly', readonly: true },
         { attrKey: 'custom-status', name: '状态', type: 'select' },
         { attrKey: 'custom-completion-time', name: '截止日期', type: 'date' },
         { attrKey: 'taskCompleteAt', name: '完成时间', type: 'completed-time', readonly: true },
@@ -336,6 +337,16 @@
         return getQuickbarCustomFieldDefById(customFieldId) ? `customField:${customFieldId}` : '';
     }
 
+    function prioritizeQuickbarInlineFieldOrder(fields) {
+        const next = Array.isArray(fields) ? fields.slice() : [];
+        const index = next.indexOf('subtask-count');
+        if (index > 0) {
+            next.splice(index, 1);
+            next.unshift('subtask-count');
+        }
+        return next;
+    }
+
     function getQuickbarInlineSettings(forceRefresh = false) {
         if (!forceRefresh && !quickbarInlineSettingsCacheDirty && quickbarInlineSettingsCache) {
             return quickbarInlineSettingsCache;
@@ -344,19 +355,21 @@
         try {
             const enabled = !!JSON.parse(localStorage.getItem('tm_enable_quickbar_inline_meta') || 'false');
             const showOnMobile = !!JSON.parse(localStorage.getItem('tm_quickbar_inline_show_on_mobile') || 'false');
+            const subtaskCountUnfinishedOnly = !!JSON.parse(localStorage.getItem('tm_quickbar_subtask_count_unfinished_only') || 'false');
             const rawFields = JSON.parse(localStorage.getItem('tm_quickbar_inline_fields') || 'null');
-            const fields = Array.isArray(rawFields)
+            const fields = prioritizeQuickbarInlineFieldOrder(Array.isArray(rawFields)
                 ? rawFields.map(v => normalizeQuickbarSettingFieldKey(v, quickbarInlineFieldAllowSet)).filter(Boolean)
-                : fallbackFields.slice();
+                : fallbackFields.slice());
             quickbarInlineSettingsCache = {
                 enabled,
                 showOnMobile,
+                subtaskCountUnfinishedOnly,
                 fields: fields.length ? fields : fallbackFields.slice()
             };
             quickbarInlineSettingsCacheDirty = false;
             return quickbarInlineSettingsCache;
         } catch (e) {
-            quickbarInlineSettingsCache = { enabled: false, showOnMobile: false, fields: fallbackFields.slice() };
+            quickbarInlineSettingsCache = { enabled: false, showOnMobile: false, subtaskCountUnfinishedOnly: false, fields: fallbackFields.slice() };
             quickbarInlineSettingsCacheDirty = false;
             return quickbarInlineSettingsCache;
         }
@@ -1837,6 +1850,12 @@
                 min-width: 0;
                 padding: 0 6px;
             }
+            .sy-custom-props-inline-chip--subtask-count {
+                cursor: default;
+            }
+            .sy-custom-props-inline-chip--subtask-count:hover {
+                border-color: var(--b3-border-color);
+            }
             .sy-custom-props-inline-chip--remark {
                 display: inline-flex;
                 align-items: center;
@@ -2478,7 +2497,7 @@
                 });
                 return;
             }
-            if (e.key === 'tm_enable_quickbar_inline_meta' || e.key === 'tm_quickbar_inline_fields' || e.key === 'tm_quickbar_inline_show_on_mobile') {
+            if (e.key === 'tm_enable_quickbar_inline_meta' || e.key === 'tm_quickbar_inline_fields' || e.key === 'tm_quickbar_inline_show_on_mobile' || e.key === 'tm_quickbar_subtask_count_unfinished_only') {
                 try { refreshInlineMetaMode(true); } catch (e) {}
                 return;
             }
@@ -3054,6 +3073,30 @@
             });
         }
 
+        function getQuickbarDomSubtaskStats(blockEl) {
+            if (!(blockEl instanceof Element)) return { total: 0, completed: 0 };
+            const listItemEl = blockEl.matches?.('.li,[data-type="NodeListItem"]')
+                ? blockEl
+                : blockEl.closest?.('.li,[data-type="NodeListItem"]');
+            if (!(listItemEl instanceof Element)) return { total: 0, completed: 0 };
+            const listEls = Array.from(listItemEl.children || []).filter((child) => {
+                if (!(child instanceof Element)) return false;
+                return child.matches?.('.list,[data-type="NodeList"]');
+            });
+            let total = 0;
+            let completed = 0;
+            listEls.forEach((listEl) => {
+                const items = Array.from(listEl.children || []).filter((child) => {
+                    if (!(child instanceof Element)) return false;
+                    return child.matches?.('.li[data-type="NodeListItem"],[data-type="NodeListItem"]');
+                });
+                total += items.length;
+                completed += items.filter((child) => child.classList?.contains('protyle-task--done')).length;
+            });
+            if (completed > total) completed = total;
+            return { total, completed };
+        }
+
         function resolveTaskCompleteAtFromTaskLike(task) {
             if (!(task && typeof task === 'object') || !isQuickbarTaskLikeDone(task)) return '';
             return String(
@@ -3278,7 +3321,7 @@
             return formatTaskTimeLikeManager(s);
         }
 
-        function renderInlineMetaField(config, value) {
+        function renderInlineMetaField(config, value, blockEl = null) {
             if (!config) return '';
             const attrKey = String(config.attrKey || '').trim();
             const escapedAttr = attrKey.replace(/"/g, '&quot;');
@@ -3332,6 +3375,20 @@
                     </span>
                 `.trim();
             }
+            if (attrKey === 'subtask-count') {
+                const stats = getQuickbarDomSubtaskStats(blockEl);
+                if (stats.total <= 0) return '';
+                const cfg = getQuickbarInlineSettings();
+                const remaining = Math.max(0, stats.total - stats.completed);
+                const displayValue = cfg.subtaskCountUnfinishedOnly ? String(remaining) : `${stats.completed}/${stats.total}`;
+                const escapedDisplayValue = esc(displayValue).replace(/"/g, '&quot;');
+                const escapedTitle = esc(`子任务数量：共${stats.total}个，已完成${stats.completed}个，未完成${remaining}个`).replace(/"/g, '&quot;');
+                return `
+                    <span class="sy-custom-props-inline-chip sy-custom-props-inline-chip--subtask-count" data-inline-attr="${escapedAttr}" data-inline-type="readonly" data-inline-name="${escapedName}" data-inline-value="${escapedDisplayValue}" title="${escapedTitle}">
+                        <span class="sy-custom-props-inline-chip-value">${esc(displayValue)}</span>
+                    </span>
+                `.trim();
+            }
             const isDate = config.type === 'date';
             const displayValue = isDate
                 ? formatTaskTimeLikeManager(rawValue)
@@ -3344,55 +3401,17 @@
             `.trim();
         }
 
-        async function getTaskCustomPropsFromTaskHorizon(blockId, options = {}) {
-            const id = String(blockId || '').trim();
-            if (!id) return null;
-            try {
-                const opts = (options && typeof options === 'object') ? options : {};
-                const sharedApi = getTaskHorizonSharedApi();
-                const bridge = sharedApi?.quickbarBridge || null;
-                const getter = bridge?.getTaskCustomPropsByAnyId || sharedApi?.getTaskCustomPropsByAnyId;
-                if (typeof getter !== 'function') {
-                    return null;
-                }
-                const result = await Promise.resolve(getter.call(bridge || sharedApi, id, {
-                    source: 'quickbar-inline',
-                    forceFresh: opts.forceFresh === true,
-                }));
-                const props = (result?.props && typeof result.props === 'object' && !Array.isArray(result.props))
-                    ? result.props
-                    : ((result && typeof result === 'object' && !Array.isArray(result)) ? result : null);
-                if (!props) {
-                    return null;
-                }
-                const normalizedProps = normalizeCustomProps(props);
-                return {
-                    props: normalizedProps,
-                    taskId: String(result?.taskId || '').trim(),
-                    attrHostId: String(result?.attrHostId || '').trim(),
-                };
-            } catch (e) {
-                return null;
-            }
-        }
-
         async function getTaskCustomProps(blockId, forceRefresh = false, options = {}) {
             const opts = (options && typeof options === 'object') ? options : {};
             const id = String(blockId || '').trim();
             if (!id) return normalizeCustomProps();
-            const shouldUseFreshManagerProps = opts.forceFresh === true || opts.includeRemark === true;
-            if (!forceRefresh && !shouldUseFreshManagerProps && !opts.skipAttrFallback && inlineMetaCache.has(id)) {
+            if (!forceRefresh && !opts.includeRemark && !opts.skipAttrFallback && inlineMetaCache.has(id)) {
                 const cached = inlineMetaCache.get(id);
                 return cached;
             }
-            const managerProps = shouldUseFreshManagerProps
-                ? await getTaskCustomPropsFromTaskHorizon(id, { forceFresh: true })
-                : null;
-            const runtimeProps = managerProps
-                ? null
-                : getRuntimeTaskCustomProps(id);
-            const resolvedManagerProps = managerProps || runtimeProps || await getTaskCustomPropsFromTaskHorizon(id);
-            let props = resolvedManagerProps?.props || null;
+            const blockEl = opts.blockEl instanceof Element ? opts.blockEl : getBlockElById(id);
+            const runtimeProps = getRuntimeTaskCustomProps(id, blockEl);
+            let props = runtimeProps?.props || null;
             if (!props && opts.skipAttrFallback !== true) {
                 const attrs = await getMergedTaskCustomAttrs(id);
                 props = normalizeCustomProps(attrs);
@@ -3408,8 +3427,6 @@
                 }
             } catch (e) {}
             setInlineMetaCache(id, props);
-            if (resolvedManagerProps?.taskId && resolvedManagerProps.taskId !== id) setInlineMetaCache(resolvedManagerProps.taskId, props);
-            if (resolvedManagerProps?.attrHostId && resolvedManagerProps.attrHostId !== id) setInlineMetaCache(resolvedManagerProps.attrHostId, props);
             return props;
         }
 
@@ -3433,11 +3450,6 @@
             const ts = Number(inlineMetaCacheTs.get(id) || 0);
             if (!ts) return true;
             return (Date.now() - ts) > Math.max(1000, Number(maxAgeMs) || 12000);
-        }
-
-        function inlineMetaFieldsIncludeDate(cfg) {
-            const fields = Array.isArray(cfg?.fields) ? cfg.fields : [];
-            return fields.includes('custom-start-date') || fields.includes('custom-completion-time') || fields.includes('taskCompleteAt');
         }
 
         function patchInlineMetaCache(taskId, patch) {
@@ -3549,7 +3561,7 @@
             }
         }
 
-        function renderInlineMetaHtml(cfg, props) {
+        function renderInlineMetaHtml(cfg, props, blockEl = null) {
             const settings = cfg && Array.isArray(cfg.fields) ? cfg : getQuickbarInlineSettings();
             const sourceProps = props && typeof props === 'object' ? props : normalizeCustomProps();
             return settings.fields
@@ -3558,7 +3570,7 @@
                     if (String(config?.attrKey || attrKey || '').trim() === 'taskCompleteAt') {
                         if (!shouldShowQuickbarTaskCompleteAt(sourceProps)) return '';
                     }
-                    return renderInlineMetaField(config, config ? sourceProps[config.attrKey] : sourceProps[attrKey]);
+                    return renderInlineMetaField(config, config ? sourceProps[config.attrKey] : sourceProps[attrKey], blockEl);
                 })
                 .filter(Boolean).join('');
         }
@@ -5954,9 +5966,8 @@
             const host = ensureInlineHost(blockEl);
             if (!host) return;
             host.dataset.blockId = taskId;
-            const hasDateInlineField = inlineMetaFieldsIncludeDate(cfg);
             const hasRemarkInlineField = Array.isArray(cfg?.fields) && cfg.fields.includes('custom-remark');
-            const runtimeProps = hasRemarkInlineField ? null : (hasDateInlineField ? getRuntimeTaskCustomProps(taskId, blockEl) : null);
+            const runtimeProps = hasRemarkInlineField ? null : getRuntimeTaskCustomProps(taskId, blockEl);
             const hasCacheForRender = inlineMetaCache.has(taskId) && !runtimeProps?.props;
             const hasCached = hasCacheForRender && !forceRefresh;
             // (Removed an aggressive is-ready strip here: when a date
@@ -5973,38 +5984,12 @@
                 if (runtimeProps.taskId && runtimeProps.taskId !== taskId) setInlineMetaCache(runtimeProps.taskId, runtimeProps.props);
                 if (runtimeProps.attrHostId && runtimeProps.attrHostId !== taskId) setInlineMetaCache(runtimeProps.attrHostId, runtimeProps.props);
             }
-            const revalidateCached = (hasCached && (hasRemarkInlineField || isInlineMetaCacheStale(taskId))) || (hasDateInlineField && !runtimeProps?.props);
-            const useEmptyPropsForRender = hasDateInlineField && !runtimeProps?.props && !hasCacheForRender;
+            const revalidateCached = hasCached && (hasRemarkInlineField || isInlineMetaCacheStale(taskId));
+            const useEmptyPropsForRender = !runtimeProps?.props && !hasCacheForRender;
             const cachedPropsForRender = useEmptyPropsForRender
                 ? normalizeCustomProps()
                 : getInlineCachedProps(taskId);
-            const html = renderInlineMetaHtml(cfg, cachedPropsForRender);
-            const applyFreshProps = (freshProps) => {
-                if (!host.isConnected) return;
-                if (String(host.dataset.blockId || '').trim() !== taskId) return;
-                const freshHtml = renderInlineMetaHtml(cfg, freshProps);
-                if (!freshHtml) {
-                    try { host.remove(); } catch (e) {}
-                    inlineMetaLayoutCache.delete(taskId);
-                    return;
-                }
-                // Compare against the cached source string, not host.innerHTML.
-                // The browser may serialize back attributes / CSS variables in a
-                // slightly different shape than what we wrote (whitespace in
-                // style values, attribute reordering on some engines), making
-                // `host.innerHTML !== freshHtml` spuriously true every render.
-                // That false positive triggers a real innerHTML rewrite, which
-                // tears down and rebuilds the chip's children — the user sees
-                // it as a flicker during scroll, even though the content
-                // didn't actually change.
-                if (host._inlineMetaHtml === freshHtml) {
-                    return;
-                }
-                host.innerHTML = freshHtml;
-                host._inlineMetaHtml = freshHtml;
-                inlineMetaLayoutCache.delete(taskId);
-                requestInlineMetaRender(false);
-            };
+            const html = renderInlineMetaHtml(cfg, cachedPropsForRender, blockEl);
             if (!html) {
                 if (runtimeProps?.props) {
                     host.remove();
@@ -6012,7 +5997,7 @@
                     return;
                 }
                 if (!hasCached || revalidateCached || forceRefresh) {
-                    Promise.resolve(ensureTaskPropsReady(taskId, forceRefresh || revalidateCached, { skipAttrFallback: hasDateInlineField, blockEl, includeRemark: hasRemarkInlineField })).then(applyFreshProps).catch(() => null);
+                    Promise.resolve(ensureTaskPropsReady(taskId, forceRefresh || revalidateCached, { skipAttrFallback: false, blockEl, includeRemark: hasRemarkInlineField })).catch(() => null);
                 } else {
                     host.remove();
                     inlineMetaLayoutCache.delete(taskId);
@@ -6025,18 +6010,13 @@
             // rewrite every render-during-scroll for stable content,
             // which is the visible chip flicker.
             const htmlChanged = host._inlineMetaHtml !== html;
-            const layoutOk = layoutInlineMetaHost(hostParent, host, taskId, textAnchor, html, forceRefresh, visibilityBuffer);
+            const layoutOk = layoutInlineMetaHost(blockEl, host, taskId, textAnchor, html, forceRefresh, visibilityBuffer);
             if (htmlChanged && layoutOk && host.isConnected && String(host.dataset.blockId || '').trim() === taskId) {
                 host.innerHTML = html;
                 host._inlineMetaHtml = html;
             }
-            if (runtimeProps?.props) {
-                return;
-            }
-            if (hasCached && !revalidateCached) {
-                return;
-            }
-            Promise.resolve(ensureTaskPropsReady(taskId, forceRefresh || revalidateCached, { skipAttrFallback: hasDateInlineField, blockEl, includeRemark: hasRemarkInlineField })).then(applyFreshProps).catch(() => null);
+            if (runtimeProps?.props || (hasCached && !revalidateCached)) return;
+            Promise.resolve(ensureTaskPropsReady(taskId, forceRefresh || revalidateCached, { skipAttrFallback: false, blockEl, includeRemark: hasRemarkInlineField })).catch(() => null);
         }
 
         function scheduleInlineMetaRender(forceRefresh = false, immediate = false) {

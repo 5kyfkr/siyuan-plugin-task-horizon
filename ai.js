@@ -5411,6 +5411,75 @@
         toast(`✅ ${label} 连接成功`, 'success');
     }
 
+    async function exportMigrationData() {
+        await Promise.all([
+            ConversationStore.ensureLoaded(),
+            PromptTemplateStore.ensureLoaded(),
+        ]);
+        const conversations = ConversationStore.normalizePayload(ConversationStore.data);
+        const promptTemplates = PromptTemplateStore.normalizePayload(PromptTemplateStore.data);
+        return {
+            conversations: clone(conversations),
+            promptTemplates: clone(promptTemplates),
+            summary: {
+                conversations: Array.isArray(conversations.conversations) ? conversations.conversations.length : 0,
+                promptTemplates: Array.isArray(promptTemplates.templates) ? promptTemplates.templates.length : 0,
+            },
+        };
+    }
+
+    async function importMigrationData(payload = {}) {
+        const source = (payload && typeof payload === 'object') ? payload : {};
+        await Promise.all([
+            ConversationStore.ensureLoaded(),
+            PromptTemplateStore.ensureLoaded(),
+        ]);
+        let conversationCount = 0;
+        let promptTemplateCount = 0;
+
+        if (source.conversations && typeof source.conversations === 'object') {
+            const incoming = ConversationStore.normalizePayload(source.conversations);
+            const current = ConversationStore.normalizePayload(ConversationStore.data);
+            const map = new Map();
+            (Array.isArray(current.conversations) ? current.conversations : []).forEach((item) => {
+                const id = String(item?.id || '').trim();
+                if (id) map.set(id, item);
+            });
+            (Array.isArray(incoming.conversations) ? incoming.conversations : []).forEach((item) => {
+                const id = String(item?.id || '').trim();
+                if (!id) return;
+                map.set(id, item);
+                conversationCount += 1;
+            });
+            const activeId = String(incoming.activeId || current.activeId || '').trim();
+            ConversationStore.data = ConversationStore.normalizePayload({
+                activeId,
+                conversations: Array.from(map.values()),
+            });
+            await ConversationStore.saveNow();
+        }
+
+        if (source.promptTemplates && typeof source.promptTemplates === 'object') {
+            const incoming = PromptTemplateStore.normalizePayload(source.promptTemplates);
+            const current = PromptTemplateStore.normalizePayload(PromptTemplateStore.data);
+            const map = new Map();
+            (Array.isArray(current.templates) ? current.templates : []).forEach((item) => {
+                const id = String(item?.id || '').trim();
+                if (id) map.set(id, item);
+            });
+            (Array.isArray(incoming.templates) ? incoming.templates : []).forEach((item) => {
+                const id = String(item?.id || '').trim();
+                if (!id) return;
+                map.set(id, item);
+                promptTemplateCount += 1;
+            });
+            PromptTemplateStore.data = PromptTemplateStore.normalizePayload({ templates: Array.from(map.values()) });
+            await PromptTemplateStore.saveNow();
+        }
+
+        return { conversations: conversationCount, promptTemplates: promptTemplateCount };
+    }
+
     function cleanup() {
         closeModal();
         aiRuntime.host = null;
@@ -5455,5 +5524,7 @@
         runSmartConversation,
         runScheduleConversation,
         applyConversationSchedule,
+        exportMigrationData,
+        importMigrationData,
     };
 })();

@@ -296,6 +296,9 @@
         if (!canRenderInCurrentDockHost) {
             await openManager({ preserveViewMode: true, skipLoadingHint: true });
         }
+        try {
+            await __tmRefreshAttachmentLibraryRealAttrs({ saveMetaNow: true });
+        } catch (e) {}
         try { render(); } catch (e) {}
         return true;
     };

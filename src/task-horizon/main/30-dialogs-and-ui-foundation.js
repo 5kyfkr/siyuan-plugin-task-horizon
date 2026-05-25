@@ -2532,6 +2532,67 @@ return Number(state.contextInteractionQuietUntil || 0);
         return true;
     }
 
+    async function __tmRefreshVisibleViewAfterTaskSnapshotSync(reason = 'task-snapshot-sync') {
+        const source = String(reason || 'task-snapshot-sync').trim() || 'task-snapshot-sync';
+        try {
+            if (typeof __tmRefreshTaskSnapshotStoreCacheIfChanged !== 'function') {
+                return false;
+            }
+            if (typeof __tmIsPluginVisibleNow === 'function' && !__tmIsPluginVisibleNow()) {
+                return false;
+            }
+            if (state.__tmTaskSnapshotSyncRefreshInFlight) {
+                return false;
+            }
+            const quietUntil = Number(state.contextInteractionQuietUntil || 0) || 0;
+            if (quietUntil > Date.now()) {
+                return false;
+            }
+            const now = Date.now();
+            if (now - (Number(state.__tmTaskSnapshotSyncLastCheckAt) || 0) < 1500) {
+                return false;
+            }
+            state.__tmTaskSnapshotSyncLastCheckAt = now;
+            const meta = await __tmRefreshTaskSnapshotStoreCacheIfChanged({ source });
+            if (!meta?.changed) {
+                return false;
+            }
+            state.__tmTaskSnapshotSyncRefreshInFlight = true;
+            try {
+                if (typeof __tmRefreshCore === 'function') {
+                    return await __tmRefreshCore({
+                        silent: true,
+                        reason: source,
+                        preserveUi: true,
+                    });
+                }
+                await loadSelectedDocuments({
+                    skipRender: true,
+                    showInlineLoading: false,
+                    forceFreshTasks: true,
+                    skipSnapshotFirstPaint: true,
+                    skipTaskIndexFirstPaint: true,
+                    skipSessionRestoreFirstPaint: true,
+                    skipDocSessionRestoreFirstPaint: true,
+                    source,
+                });
+                try { applyFilters(); } catch (e) {}
+                try {
+                    const modal = state.modal instanceof Element ? state.modal : null;
+                    if (!modal || !__tmRerenderCurrentViewInPlace(modal)) render();
+                } catch (e) {
+                    try { render(); } catch (e2) {}
+                }
+                return true;
+            } finally {
+                state.__tmTaskSnapshotSyncRefreshInFlight = false;
+            }
+        } catch (e) {
+            try { state.__tmTaskSnapshotSyncRefreshInFlight = false; } catch (e2) {}
+            return false;
+        }
+    }
+
     function __tmGetListAutoLoadMoreBatchSize(meta = null) {
         const stateMeta = (meta && typeof meta === 'object') ? meta : __tmGetListAutoLoadMoreState();
         const step = Math.max(20, Number(stateMeta.step || 0) || 20);
@@ -3641,7 +3702,9 @@ if (mode === 'checklist') {
             const isParagraph = !!(el?.classList?.contains?.('p') || dataType === 'NodeParagraph');
             const isList = !!(el?.classList?.contains?.('list') || dataType === 'NodeList');
             const isListItem = !!(el?.classList?.contains?.('li') || dataType === 'NodeListItem');
+            const isSuperBlock = !!(el?.classList?.contains?.('sb') || dataType === 'NodeSuperBlock');
             if (isHeading || isParagraph) return nodeId;
+            if (isSuperBlock) return nodeId;
             if ((isList || isListItem) && (subtype === 'o' || subtype === 'u')) return nodeId;
             return '';
         } catch (e) {
@@ -9965,7 +10028,7 @@ if (mode === 'checklist') {
                 const snapshotStart = Date.now();
                 const snapshotRaceTimeoutMs = runtimeMobileFastPath ? 260 : 220;
                 snapshot = await Promise.race([
-                    __tmLoadLatestTaskSnapshotForGroup(nextGroupId, { cachedOnly: false }),
+                    __tmLoadLatestTaskSnapshotForGroup(nextGroupId, { cachedOnly: false, checkRemote: false }),
                     new Promise((resolve) => setTimeout(() => resolve(null), snapshotRaceTimeoutMs)),
                 ]);
                 logSwitchGroup('snapshot-race-done', {
@@ -10148,6 +10211,32 @@ if (mode === 'checklist') {
                     durationMs: Date.now() - loadStart,
                     mobileFastPath: runtimeMobileFastPath ? 1 : 0,
                 });
+                try {
+                    if (Array.isArray(state.__tmLoadedDocIdsForTasks) && state.__tmLoadedDocIdsForTasks.length > 0) {
+                        const snapshotSaveScheduled = __tmSchedulePersistTaskSnapshot?.({
+                            docIds: state.__tmLoadedDocIdsForTasks,
+                            groupId: nextGroupId,
+                            activeDocId: state.activeDocId,
+                            queryLimit: __TM_TASK_INDEX_QUERY_LIMIT,
+                            delayMs: 260,
+                            idleDelayMs: 160,
+                            source: 'switch-doc-group-full-load',
+                        });
+                        logSwitchGroup('snapshot-save-after-full-load', {
+                            scheduled: snapshotSaveScheduled ? 1 : 0,
+                            docCount: state.__tmLoadedDocIdsForTasks.length,
+                        });
+                    } else {
+                        logSwitchGroup('snapshot-save-after-full-load', {
+                            scheduled: 0,
+                            reason: 'empty-loaded-docs',
+                        });
+                    }
+                } catch (e) {
+                    logSwitchGroup('snapshot-save-after-full-load-error', {
+                        error: String(e?.message || e || '').trim() || 'schedule-failed',
+                    });
+                }
             }
             if (!isSwitchCurrent()) {
                 logSwitchGroup('cancelled-after-load', { token: switchToken, currentToken: Number(state.openToken) || 0 });

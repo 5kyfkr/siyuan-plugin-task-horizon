@@ -1480,6 +1480,15 @@ try {
             supportsLocalPatch: true,
             coalesceKey: 'pinned',
         },
+        allDayBottom: {
+            key: 'allDayBottom',
+            storageKind: 'attr-only',
+            requiresBlockUpdate: false,
+            requiresAttrWrite: true,
+            affectsProjection: false,
+            supportsLocalPatch: true,
+            coalesceKey: 'allDayBottom',
+        },
         startDate: {
             key: 'startDate',
             storageKind: 'attr-only',
@@ -1792,6 +1801,7 @@ try {
             'repeatRule',
             'repeatState',
             'repeatHistory',
+            'allDayBottom',
         ]);
         return keys.some((key) => calendarKeys.has(String(key || '').trim()));
     }
@@ -2894,6 +2904,7 @@ return false;
         const pushTask = (taskLike) => {
             const task = (taskLike && typeof taskLike === 'object') ? taskLike : null;
             const id = String(task?.id || '').trim();
+            if (task && typeof __tmIsRecurringInstanceTask === 'function' && __tmIsRecurringInstanceTask(task)) return;
             if (!task || !id || seen.has(id)) return;
             seen.add(id);
             out.push(task);
@@ -2903,6 +2914,199 @@ return false;
         }
         try { Object.values(state.pendingInsertedTasks || {}).forEach(pushTask); } catch (e) {}
         return out;
+    }
+
+    let __tmAttachmentLibraryAttrRefreshPromise = null;
+
+    function __tmAttachmentLibraryRowHasAttachmentAttrs(row) {
+        const source = (row && typeof row === 'object') ? row : null;
+        if (!source) return false;
+        return Object.keys(source).some((key) => __tmIsTaskAttachmentAttrKey(key));
+    }
+
+    function __tmAttachmentLibraryRowHasAttachmentMeta(row) {
+        const source = (row && typeof row === 'object') ? row : null;
+        if (!source) return false;
+        return Object.prototype.hasOwnProperty.call(source, __TM_TASK_ATTACHMENT_META_ATTR);
+    }
+
+    async function __tmQueryAttachmentLibraryAttachmentAttrRows(blockIds) {
+        const safeBlockIds = Array.from(new Set((Array.isArray(blockIds) ? blockIds : [])
+            .map((id) => String(id || '').trim())
+            .filter((id) => /^[0-9]+-[a-zA-Z0-9]+$/.test(id))));
+        const rowMap = new Map();
+        if (!safeBlockIds.length) return { ok: true, rowMap, queriedIds: [] };
+        let ok = true;
+        const chunkSize = 400;
+        for (let i = 0; i < safeBlockIds.length; i += chunkSize) {
+            const chunk = safeBlockIds.slice(i, i + chunkSize);
+            const idList = chunk.map((id) => `'${id.replace(/'/g, "''")}'`).join(',');
+            const metaAttr = String(__TM_TASK_ATTACHMENT_META_ATTR || '').replace(/'/g, "''");
+            const attrPrefix = String(__TM_TASK_ATTACHMENT_ATTR_PREFIX || '').replace(/'/g, "''");
+            const sql = `
+                SELECT block_id, name, value
+                FROM attributes
+                WHERE block_id IN (${idList})
+                  AND (
+                      name = '${metaAttr}'
+                      OR name LIKE '${attrPrefix}%'
+                  )
+            `;
+            let res = null;
+            try { res = await API.call('/api/query/sql', { stmt: sql }); } catch (e) { res = null; }
+            if (!res || res.code !== 0 || !Array.isArray(res.data)) {
+                ok = false;
+                continue;
+            }
+            res.data.forEach((row) => {
+                const blockId = String(row?.block_id || '').trim();
+                const name = String(row?.name || '').trim();
+                if (!blockId || !name) return;
+                if (!rowMap.has(blockId)) rowMap.set(blockId, {});
+                rowMap.get(blockId)[name] = String(row?.value ?? '');
+            });
+        }
+        return { ok, rowMap, queriedIds: safeBlockIds };
+    }
+
+    function __tmResolveAttachmentLibraryAttrSource(task, rowMap) {
+        const taskLike = (task && typeof task === 'object') ? task : {};
+        const taskId = String(taskLike.id || '').trim();
+        const hostId = String(taskLike.attrHostId || taskLike.attr_host_id || taskId).trim();
+        const selfRow = taskId ? rowMap.get(taskId) : null;
+        const hostRow = hostId ? rowMap.get(hostId) : null;
+        const hostHasAttachmentData = __tmAttachmentLibraryRowHasAttachmentAttrs(hostRow)
+            || __tmAttachmentLibraryRowHasAttachmentMeta(hostRow);
+        if (hostId && hostId !== taskId) {
+            if (hostHasAttachmentData) return { id: hostId, row: hostRow };
+            if (__tmAttachmentLibraryRowHasAttachmentAttrs(selfRow)) return { id: taskId, row: selfRow };
+            return { id: hostId, row: null };
+        }
+        if (__tmAttachmentLibraryRowHasAttachmentAttrs(selfRow)
+            || __tmAttachmentLibraryRowHasAttachmentMeta(selfRow)) {
+            return { id: taskId, row: selfRow };
+        }
+        return { id: taskId, row: null };
+    }
+
+    function __tmApplyAttachmentLibraryAttrSnapshot(task, paths, metaMap, slotCount, options = {}) {
+        const tid = String(task?.id || '').trim();
+        if (!tid) return false;
+        const opts = (options && typeof options === 'object') ? options : {};
+        const forceAttrsLoaded = opts.attrsLoaded !== false;
+        const targets = Array.from(new Set([
+            task,
+            state.flatTasks?.[tid],
+            state.pendingInsertedTasks?.[tid],
+        ].filter((item) => item && typeof item === 'object')));
+        const beforePaths = __tmTaskBlockJsonValue(__tmGetTaskAttachmentPaths(task));
+        const beforeMeta = __tmTaskBlockJsonValue(Array.from(__tmGetTaskAttachmentMetaMap(task).values()));
+        const beforeLoaded = __tmHasTaskAttachmentAttrSnapshot(task) === true;
+        const meta = Array.from(__tmNormalizeTaskAttachmentMetaMap(metaMap).values());
+        targets.forEach((target) => {
+            __tmApplyTaskAttachmentPathsToTask(target, paths, {
+                meta,
+                slotCount,
+                attrsLoaded: forceAttrsLoaded,
+            });
+        });
+        const afterPaths = __tmTaskBlockJsonValue(__tmGetTaskAttachmentPaths(task));
+        const afterMeta = __tmTaskBlockJsonValue(Array.from(__tmGetTaskAttachmentMetaMap(task).values()));
+        return beforePaths !== afterPaths || beforeMeta !== afterMeta || (forceAttrsLoaded && !beforeLoaded);
+    }
+
+    async function __tmRefreshAttachmentLibraryRealAttrs(options = {}) {
+        if (__tmAttachmentLibraryAttrRefreshPromise) return await __tmAttachmentLibraryAttrRefreshPromise;
+        const opts = (options && typeof options === 'object') ? options : {};
+        __tmAttachmentLibraryAttrRefreshPromise = (async () => {
+            const tasks = __tmCollectAttachmentLibraryTasks();
+            if (!tasks.length) return { changed: false, changedCount: 0 };
+            let hostRefreshOk = true;
+            try { await __tmApplyTaskAttrHostOverrides(tasks); } catch (e) { hostRefreshOk = false; }
+            const queryIds = [];
+            tasks.forEach((task) => {
+                const taskId = String(task?.id || '').trim();
+                const hostId = String(task?.attrHostId || task?.attr_host_id || taskId).trim();
+                const parentId = String(task?.parent_id || task?.parentId || '').trim();
+                if (taskId) queryIds.push(taskId);
+                if (hostId) queryIds.push(hostId);
+                if (parentId) queryIds.push(parentId);
+            });
+            const result = await __tmQueryAttachmentLibraryAttachmentAttrRows(queryIds);
+            if (!result.ok) return { changed: false, changedCount: 0, skipped: true };
+            const rowMap = result.rowMap instanceof Map ? result.rowMap : new Map();
+            const queriedIdSet = new Set(Array.isArray(result.queriedIds) ? result.queriedIds : []);
+            let changedCount = 0;
+            let metaStoreTouched = false;
+            const changedDocIds = new Set();
+            tasks.forEach((task) => {
+                const tid = String(task?.id || '').trim();
+                if (!tid) return;
+                const source = __tmResolveAttachmentLibraryAttrSource(task, rowMap);
+                if (!hostRefreshOk && !source.row) return;
+                if (!source.row && !queriedIdSet.has(String(source.id || '').trim())) return;
+                const row = source.row && typeof source.row === 'object' ? source.row : null;
+                const rowHasAttachmentAttrs = row && __tmAttachmentLibraryRowHasAttachmentAttrs(row);
+                const rowHasAttachmentMeta = row && __tmAttachmentLibraryRowHasAttachmentMeta(row);
+                const authoritativePaths = !row || rowHasAttachmentAttrs;
+                const currentPaths = __tmGetTaskAttachmentPaths(task);
+                const nextPaths = rowHasAttachmentAttrs
+                    ? __tmExtractTaskAttachmentsFromAttrRow(row)
+                    : (row ? currentPaths : []);
+                const nextMetaMap = row
+                    ? __tmExtractTaskAttachmentMetaFromAttrRow(row)
+                    : new Map();
+                const slotCount = rowHasAttachmentAttrs ? __tmGetTaskAttachmentAttrSlotCount(row) : __tmGetTaskAttachmentAttrSlotCount(task);
+                const changed = __tmApplyAttachmentLibraryAttrSnapshot(task, nextPaths, nextMetaMap, slotCount, {
+                    attrsLoaded: authoritativePaths,
+                });
+                if (changed) {
+                    changedCount += 1;
+                    const docId = String(task?.root_id || task?.docId || task?.rootId || '').trim();
+                    if (docId) changedDocIds.add(docId);
+                }
+                const stored = MetaStore.get(tid) || null;
+                const storedPaths = stored && Object.prototype.hasOwnProperty.call(stored, 'attachments')
+                    ? __tmNormalizeTaskAttachmentPaths(stored.attachments)
+                    : [];
+                const storedMeta = stored && Object.prototype.hasOwnProperty.call(stored, 'attachmentMeta')
+                    ? Array.from(__tmNormalizeTaskAttachmentMetaMap(stored.attachmentMeta).values())
+                    : [];
+                const nextMeta = Array.from(__tmNormalizeTaskAttachmentMetaMap(nextMetaMap).values());
+                const shouldTouchStore = authoritativePaths && (
+                    changed
+                    || nextPaths.length > 0
+                    || storedPaths.length > 0
+                    || storedMeta.length > 0
+                    || !!row
+                );
+                if (shouldTouchStore
+                    && (__tmTaskBlockJsonValue(storedPaths) !== __tmTaskBlockJsonValue(nextPaths)
+                        || __tmTaskBlockJsonValue(storedMeta) !== __tmTaskBlockJsonValue(nextMeta))) {
+                    try { MetaStore.set(tid, { attachments: nextPaths, attachmentMeta: nextMeta }); } catch (e) {}
+                    metaStoreTouched = true;
+                } else if (!authoritativePaths && rowHasAttachmentMeta
+                    && __tmTaskBlockJsonValue(storedMeta) !== __tmTaskBlockJsonValue(nextMeta)) {
+                    try { MetaStore.set(tid, { attachmentMeta: nextMeta }); } catch (e) {}
+                    metaStoreTouched = true;
+                }
+            });
+            if (changedDocIds.size > 0) {
+                try {
+                    __tmSchedulePersistTaskIndex({
+                        docIds: Array.from(changedDocIds),
+                        delayMs: 500,
+                    });
+                } catch (e) {}
+            }
+            if (metaStoreTouched && opts.saveMetaNow === true) {
+                try { await MetaStore.saveNow(); } catch (e) {}
+            }
+            return { changed: changedCount > 0 || metaStoreTouched, changedCount, metaStoreTouched };
+        })().finally(() => {
+            __tmAttachmentLibraryAttrRefreshPromise = null;
+        });
+        return await __tmAttachmentLibraryAttrRefreshPromise;
     }
 
     function __tmBuildAttachmentLibraryItem(taskLike, entry, index) {

@@ -868,10 +868,14 @@ return;
                         max-height: 132px;
                         overflow-x: hidden;
                         overflow-y: auto;
+                        padding-left: 6px !important;
                         padding-right: 4px !important;
                     }
                     .tm-doc-tabs--multirow:not(.tm-doc-tabs--collapsed) .tm-doc-tab {
                         max-width: min(220px, calc(50% - 8px));
+                    }
+                    .tm-doc-tabs--multirow:not(.tm-doc-tabs--collapsed) .tm-doc-tab--all {
+                        margin-left: 2px;
                     }
                     .tm-doc-tabs-actions {
                         display: none;
@@ -4277,6 +4281,9 @@ return;
                 : {});
         const pin0 = task.custom_pinned ?? task.customPinned ?? task.pinned ?? '';
         task.pinned = __tmParseTaskLooseBoolean(pin0);
+        const allDayBottom0 = task.custom_all_day_bottom ?? task.customAllDayBottom ?? task.allDayBottom ?? '';
+        task.allDayBottom = __tmParseTaskLooseBoolean(allDayBottom0);
+        task.custom_all_day_bottom = task.allDayBottom ? '1' : '';
 
         const meta = taskId ? MetaStore.get(taskId) : null;
         if (meta) {
@@ -4287,6 +4294,11 @@ return;
             if ('milestone' in meta) {
                 const ms = meta.milestone;
                 if (typeof ms === 'boolean' || String(ms || '').trim() === '') task.milestone = __tmParseTaskLooseBoolean(ms);
+            }
+            if ('allDayBottom' in meta) {
+                const ms = meta.allDayBottom;
+                if (typeof ms === 'boolean' || String(ms || '').trim() === '') task.allDayBottom = __tmParseTaskLooseBoolean(ms);
+                task.custom_all_day_bottom = task.allDayBottom ? '1' : '';
             }
             if (!isValidValue(task.priority) && isValidValue(meta.priority)) task.priority = __tmNormalizeTaskPriorityValue(meta.priority);
             if (!isValidValue(task.duration) && isValidValue(meta.duration)) task.duration = meta.duration;
@@ -4692,6 +4704,113 @@ return;
         return __tmNormalizeOtherBlockRefs(group?.otherBlockRefs);
     }
 
+    function __tmCanResolveOtherBlockSourceDoc(type, subtype) {
+        const t = String(type || '').trim().toLowerCase();
+        const st = String(subtype || '').trim().toLowerCase();
+        if (t === 'i' && st === 't') return true;
+        return __tmIsSupportedOtherBlockType(t, st);
+    }
+
+    function __tmExtractOtherBlockSourceDocFromRow(row) {
+        if (!row) return null;
+        const type = String(row?.type || row?.otherBlockType || '').trim().toLowerCase();
+        const subtype = String(row?.subtype || row?.otherBlockSubtype || '').trim().toLowerCase();
+        if (!__tmCanResolveOtherBlockSourceDoc(type, subtype)) return null;
+        const blockId = String(row?.id || '').trim();
+        const docId = type === 'd'
+            ? String(row?.id || row?.root_id || '').trim()
+            : String(row?.root_id || row?.docId || '').trim();
+        if (!docId) return null;
+        return {
+            docId,
+            blockId,
+            docName: type === 'd'
+                ? (String(row?.content || '').trim() || String(row?.doc_name || '').trim())
+                : String(row?.docName || row?.doc_name || '').trim()
+        };
+    }
+
+    function __tmRememberOtherBlockSourceDocs(groupId, rows) {
+        const gid = __tmResolveOtherBlockGroupId(groupId);
+        if (!gid) return [];
+        const out = [];
+        const byDoc = new Map();
+        (Array.isArray(rows) ? rows : []).forEach((row) => {
+            const source = __tmExtractOtherBlockSourceDocFromRow(row);
+            if (!source) return;
+            const current = byDoc.get(source.docId) || {
+                id: source.docId,
+                kind: 'doc',
+                recursive: false,
+                source: 'otherBlock',
+                otherBlockCount: 0,
+                otherBlockIds: [],
+                docName: ''
+            };
+            current.otherBlockCount += 1;
+            if (source.blockId) current.otherBlockIds.push(source.blockId);
+            if (source.docName && !current.docName) current.docName = source.docName;
+            byDoc.set(source.docId, current);
+        });
+        byDoc.forEach((entry) => out.push(entry));
+        if (!state.otherBlockSourceDocsByGroup || typeof state.otherBlockSourceDocsByGroup !== 'object') {
+            state.otherBlockSourceDocsByGroup = {};
+        }
+        state.otherBlockSourceDocsByGroup[gid] = out;
+        return out;
+    }
+
+    function __tmGetOtherBlockRefsSig(refs) {
+        return __tmNormalizeOtherBlockRefs(refs).map((item) => item.id).join(',');
+    }
+
+    function __tmMarkOtherBlockSourceDocsStale(groupId) {
+        const gid = __tmResolveOtherBlockGroupId(groupId);
+        if (!gid) return;
+        if (!state.otherBlockSourceDocRefsSigByGroup || typeof state.otherBlockSourceDocRefsSigByGroup !== 'object') {
+            state.otherBlockSourceDocRefsSigByGroup = {};
+        }
+        delete state.otherBlockSourceDocRefsSigByGroup[gid];
+    }
+
+    async function __tmEnsureOtherBlockSourceDocsForGroup(groupId, options = {}) {
+        const gid = __tmResolveOtherBlockGroupId(groupId);
+        if (!gid) return [];
+        const refs = __tmGetOtherBlockRefsByGroup(gid);
+        const refsSig = __tmGetOtherBlockRefsSig(refs);
+        if (!state.otherBlockSourceDocsByGroup || typeof state.otherBlockSourceDocsByGroup !== 'object') {
+            state.otherBlockSourceDocsByGroup = {};
+        }
+        if (!state.otherBlockSourceDocRefsSigByGroup || typeof state.otherBlockSourceDocRefsSigByGroup !== 'object') {
+            state.otherBlockSourceDocRefsSigByGroup = {};
+        }
+        if (!refs.length) {
+            state.otherBlockSourceDocsByGroup[gid] = [];
+            state.otherBlockSourceDocRefsSigByGroup[gid] = refsSig;
+            return [];
+        }
+        if (options?.force !== true
+            && state.otherBlockSourceDocRefsSigByGroup[gid] === refsSig
+            && Array.isArray(state.otherBlockSourceDocsByGroup[gid])) {
+            return Array.isArray(state.otherBlockSourceDocsByGroup[gid]) ? state.otherBlockSourceDocsByGroup[gid] : [];
+        }
+        let rows = [];
+        try { rows = await API.getOtherBlocksByIds(refs.map((item) => item.id)); } catch (e) { rows = []; }
+        const rowsById = new Map();
+        (Array.isArray(rows) ? rows : []).forEach((row) => {
+            const id = String(row?.id || '').trim();
+            if (id && !rowsById.has(id)) rowsById.set(id, row);
+        });
+        const orderedRows = [];
+        refs.forEach((ref) => {
+            const row = rowsById.get(String(ref?.id || '').trim());
+            if (row) orderedRows.push(row);
+        });
+        const out = __tmRememberOtherBlockSourceDocs(gid, orderedRows);
+        state.otherBlockSourceDocRefsSigByGroup[gid] = refsSig;
+        return out;
+    }
+
     function __tmResolveAutoOtherBlockTargetGroupId(groupId) {
         const preferred = __tmResolveOtherBlockGroupId(groupId);
         if (preferred && __tmGetDocGroupById(preferred)) return preferred;
@@ -4782,7 +4901,7 @@ return;
     function __tmIsSupportedOtherBlockType(type, subtype) {
         const t = String(type || '').trim().toLowerCase();
         const st = String(subtype || '').trim().toLowerCase();
-        if (t === 'd' || t === 'h' || t === 'p') return true;
+        if (t === 'd' || t === 'h' || t === 'p' || t === 's') return true;
         if ((t === 'i' || t === 'l') && (st === 'o' || st === 'u')) return true;
         return false;
     }
@@ -4793,6 +4912,7 @@ return;
         if (t === 'd') return '文档块';
         if (t === 'h') return '标题块';
         if (t === 'p') return '内容块';
+        if (t === 's') return '超级块';
         if (st === 'o') return '有序列表块';
         if (st === 'u') return '无序列表块';
         return '其他块';
@@ -4808,13 +4928,16 @@ return;
         const label = __tmGetOtherBlockTypeLabel(type, subtype);
         const id = String(row?.id || '').trim();
         const isDocBlock = type === 'd';
+        const isSuperBlock = type === 's';
         const docId = isDocBlock
             ? id
             : (String(row?.root_id || '').trim() || id);
         const docName = isDocBlock
             ? (String(row?.content || '').trim() || String(row?.doc_name || '').trim() || '未命名文档')
             : (String(row?.doc_name || '').trim() || '未命名文档');
-        const rawContent = String(row?.content || '').trim() || (isDocBlock ? docName : '');
+        const rawContent = isSuperBlock
+            ? (String(row?.fcontent || '').trim() || String(row?.content || '').trim())
+            : (String(row?.content || '').trim() || (isDocBlock ? docName : ''));
         const displayContent = rawContent || '(无内容)';
         const task = {
             id,
@@ -4923,6 +5046,10 @@ return;
         let changed = normalizedRefs.length !== rawCount;
         if (!currentGroupId || !normalizedRefs.length) {
             if (currentGroupId) __tmSetOtherBlockRefsByGroup(currentGroupId, []);
+            if (currentGroupId) __tmRememberOtherBlockSourceDocs(currentGroupId, []);
+            if (currentGroupId && state.otherBlockSourceDocRefsSigByGroup && typeof state.otherBlockSourceDocRefsSigByGroup === 'object') {
+                state.otherBlockSourceDocRefsSigByGroup[currentGroupId] = '';
+            }
             state.otherBlocks = [];
             state.flatTasks = __tmMergeOtherBlocksIntoFlatTasks(state.flatTasks);
             if (__tmIsOtherBlockTabId(state.activeDocId)) state.activeDocId = 'all';
@@ -4937,24 +5064,33 @@ return;
         const rowMap = new Map();
         (Array.isArray(rows) ? rows : []).forEach((row) => {
             const id = String(row?.id || '').trim();
-            if (!id || !__tmIsSupportedOtherBlockType(row?.type, row?.subtype)) return;
+            if (!id) return;
             rowMap.set(id, row);
         });
 
         const nextRefs = [];
         const nextTasks = [];
+        const nextSourceRows = [];
         normalizedRefs.forEach((item, idx) => {
             const id = String(item?.id || '').trim();
             const row = rowMap.get(id);
-            if (!row) {
+            if (!row || !__tmCanResolveOtherBlockSourceDoc(row?.type, row?.subtype)) {
                 changed = true;
                 return;
             }
             nextRefs.push({ id });
-            nextTasks.push(__tmBuildCollectedOtherBlockTask(row, idx, currentGroupId));
+            nextSourceRows.push(row);
+            if (__tmIsSupportedOtherBlockType(row?.type, row?.subtype)) {
+                nextTasks.push(__tmBuildCollectedOtherBlockTask(row, idx, currentGroupId));
+            }
         });
 
         __tmSetOtherBlockRefsByGroup(currentGroupId, nextRefs);
+        __tmRememberOtherBlockSourceDocs(currentGroupId, nextSourceRows);
+        if (!state.otherBlockSourceDocRefsSigByGroup || typeof state.otherBlockSourceDocRefsSigByGroup !== 'object') {
+            state.otherBlockSourceDocRefsSigByGroup = {};
+        }
+        state.otherBlockSourceDocRefsSigByGroup[currentGroupId] = __tmGetOtherBlockRefsSig(nextRefs);
         state.otherBlocks = nextTasks;
         state.flatTasks = __tmMergeOtherBlocksIntoFlatTasks(state.flatTasks);
         if (__tmIsOtherBlockTabId(state.activeDocId) && !nextTasks.length) state.activeDocId = 'all';
@@ -5022,12 +5158,13 @@ return;
                         : `⚠ 该块已在“${groupName}”中`, 'warning');
                 }
             } else if (invalid > 0) {
-                if (!silent) hint('⚠ 当前仅支持文档块、标题块、内容块和有序/无序列表块', 'warning');
+                if (!silent) hint('⚠ 当前仅支持文档块、标题块、内容块、超级块和有序/无序列表块', 'warning');
             }
             return { added, existed, invalid, group, reason: existed > 0 ? 'exists' : (invalid > 0 ? 'invalid' : 'unchanged') };
         }
 
         __tmSetOtherBlockRefsByGroup(targetGroupId, nextRefs);
+        __tmMarkOtherBlockSourceDocsStale(targetGroupId);
         try { await SettingsStore.save(); } catch (e) {}
         const currentGroupId = __tmResolveOtherBlockGroupId();
         if (currentGroupId === targetGroupId || options.forceRefresh) {
@@ -5058,6 +5195,7 @@ return;
         if (removed <= 0) return { removed: 0 };
 
         __tmSetOtherBlockRefsByGroup(targetGroupId, nextRefs);
+        try { __tmMarkOtherBlockSourceDocsStale(targetGroupId); } catch (e) {}
         try { await SettingsStore.save(); } catch (e) {}
         const currentGroupId = __tmResolveOtherBlockGroupId();
         if (currentGroupId === targetGroupId || options.forceRefresh) {

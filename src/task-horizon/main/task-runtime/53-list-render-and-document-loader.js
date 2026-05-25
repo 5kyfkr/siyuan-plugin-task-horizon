@@ -1367,6 +1367,14 @@ return finish(false, 'noop');
                     metaPatch = { pinned: pin ? '1' : '' };
                 }
                 break;
+            case 'custom-all-day-bottom':
+                {
+                    const bottom = trimmedValue === '1' || trimmedValue.toLowerCase() === 'true';
+                    task.allDayBottom = bottom;
+                    task.custom_all_day_bottom = bottom ? '1' : '';
+                    metaPatch = { allDayBottom: bottom ? '1' : '' };
+                }
+                break;
             case 'custom-milestone-event':
                 {
                     const milestone = trimmedValue === '1' || trimmedValue.toLowerCase() === 'true';
@@ -1660,6 +1668,8 @@ return finish(false, 'noop');
             customStatus: String(attrs['custom-status'] || '').trim(),
             custom_status: String(attrs['custom-status'] || '').trim(),
             pinned: String(attrs['custom-pinned'] || '').trim(),
+            allDayBottom: String(attrs['custom-all-day-bottom'] || '').trim(),
+            custom_all_day_bottom: String(attrs['custom-all-day-bottom'] || '').trim(),
             milestone: String(attrs['custom-milestone-event'] || '').trim(),
             custom_time: String(attrs['custom-time'] || '').trim(),
             customTime: String(attrs['custom-time'] || '').trim(),
@@ -1880,6 +1890,88 @@ return finish(false, 'noop');
                 if (ev?.target) ev.target.checked = !val;
             },
         });
+    };
+
+    window.tmSetTaskAllDayBottom = async function(id, bottom, ev) {
+        if (ev) ev.stopPropagation();
+
+        const rawId = String(id || '').trim();
+        if (!rawId) return false;
+        let task = globalThis.__tmRuntimeState?.getFlatTaskById?.(rawId) || state.flatTasks?.[rawId] || null;
+        let persistId = rawId;
+        if (!task) {
+            try {
+                const resolvedId = await __tmResolveTaskIdFromAnyBlockId(rawId);
+                if (resolvedId) persistId = String(resolvedId || '').trim() || rawId;
+            } catch (e) {}
+        }
+        if (!task && persistId !== rawId) {
+            task = globalThis.__tmRuntimeState?.getFlatTaskById?.(persistId) || state.flatTasks?.[persistId] || null;
+        }
+        if (!task) {
+            try { task = await __tmEnsureTaskInStateById(persistId); } catch (e) { task = null; }
+        }
+        if (!task && persistId !== rawId) {
+            try { task = await __tmBuildTaskLikeFromBlockId(persistId); } catch (e) { task = null; }
+        }
+        if (!task) {
+            try { task = await __tmBuildTaskLikeFromBlockId(rawId); } catch (e) { task = null; }
+        }
+        persistId = String(task?.id || persistId || rawId).trim();
+        if (!persistId) return false;
+        try {
+            if (task && typeof task === 'object' && !state.flatTasks?.[persistId]) {
+                __tmCacheTaskInState(task, {
+                    docNameFallback: task.doc_name || task.docName || '未命名文档',
+                });
+            }
+        } catch (e) {}
+
+        const val = !!bottom;
+        const patch = { allDayBottom: val ? '1' : '' };
+        const opts = {
+            source: 'toggle-all-day-bottom',
+            label: val ? '置底全天日程' : '取消置底全天日程',
+            withFilters: false,
+            optimisticProjectionRefresh: false,
+            skipSettledRefresh: true,
+        };
+        const apply = () => __tmShouldUseChecklistLegacyFieldCommit()
+            ? __tmRequestChecklistLegacyTaskPatch(persistId, patch, opts)
+            : __tmCommitUiFriendlyTaskPatch(persistId, patch, opts);
+        try {
+            const ok = await apply();
+            try { window.__tmCalendarAllTasksCache = null; } catch (e) {}
+            try {
+                const calApi = globalThis.__tmCalendar;
+                if (calApi && typeof calApi.syncTaskDateInPlace === 'function') {
+                    const summary = await calApi.syncTaskDateInPlace(persistId, { main: true, side: true });
+                    if (summary?.needsMainRefresh || summary?.needsSideRefresh) {
+                        calApi.requestRefresh?.({
+                            reason: 'toggle-all-day-bottom',
+                            main: summary.needsMainRefresh,
+                            side: summary.needsSideRefresh,
+                            flushTaskPanel: false,
+                        });
+                    }
+                    if (summary?.touched === true && typeof calApi.refreshSideDayLayout === 'function') {
+                        try { calApi.refreshSideDayLayout(); } catch (e) {}
+                    }
+                } else if (typeof __tmRequestCalendarRefresh === 'function') {
+                    __tmRequestCalendarRefresh({
+                        reason: 'toggle-all-day-bottom',
+                        main: String(state.viewMode || '').trim() === 'calendar',
+                        side: __tmShouldShowCalendarSideDock(),
+                        flushTaskPanel: false,
+                    });
+                }
+            } catch (e) {}
+            hint(`✅ ${val ? '已置底全天日程' : '已取消置底全天日程'}`, 'success');
+            return ok !== false;
+        } catch (e) {
+            hint(`❌ 操作失败: ${e?.message || String(e)}`, 'error');
+            return false;
+        }
     };
 
     async function __tmSetDoneKernel(id, done, ev, options = {}) {
@@ -2758,8 +2850,17 @@ hint(`❌ 操作失败: ${e.message}`, 'error');
             const docSeq = Number(t?.doc_seq);
             const preservedDocSeq = Number(oldTaskState?.docSeq);
             const resolvedFlowRank = Number(t?.resolvedFlowRank ?? t?.resolved_flow_rank ?? t?.__tmResolvedFlowRank);
+            const dbAttachmentPaths = __tmGetTaskAttachmentPaths(t);
+            const metaAttachmentPaths = Object.prototype.hasOwnProperty.call(meta, 'attachments')
+                ? __tmNormalizeTaskAttachmentPaths(meta.attachments)
+                : [];
+            const nextAttachmentPaths = dbAttachmentPaths.length ? dbAttachmentPaths : metaAttachmentPaths;
+            const dbAttachmentMeta = Array.from(__tmGetTaskAttachmentMetaMap(t).values());
+            const metaAttachmentMeta = Object.prototype.hasOwnProperty.call(meta, 'attachmentMeta')
+                ? meta.attachmentMeta
+                : [];
 
-            taskMap.set(taskId, {
+            const nextTask = {
                 id: taskId,
                 content: parsed.content,
                 // 关键：优先使用 MetaStore 中的 done 状态，而不是从 markdown 解析
@@ -2845,7 +2946,13 @@ hint(`❌ 操作失败: ${e.message}`, 'error');
                     if (isValidValue(mv)) return mv;
                     return dbv;
                 })()
+            };
+            __tmApplyTaskAttachmentPathsToTask(nextTask, nextAttachmentPaths, {
+                meta: dbAttachmentMeta.length ? dbAttachmentMeta : metaAttachmentMeta,
+                attrsLoaded: __tmHasTaskAttachmentAttrSnapshot(t),
+                slotCount: __tmGetTaskAttachmentAttrSlotCount(t),
             });
+            taskMap.set(taskId, nextTask);
         });
 
         // 建立父子关系：统一复用主加载的父级回溯逻辑，避免局部刷新把夹在普通列表中的子任务还原成根任务。
@@ -3883,16 +3990,31 @@ hint(`❌ 操作失败: ${e.message}`, 'error');
         try { setTimeout(restore, 30); } catch (e) {}
     }
 
-    async function __tmDeleteTaskKernel(id) {
+    async function __tmDeleteTaskKernel(id, options = {}) {
         const tid = String(id || '').trim();
         if (!tid) throw new Error('未找到任务');
+        const opts = (options && typeof options === 'object') ? options : {};
+        const taskBeforeDelete = globalThis.__tmRuntimeState?.getFlatTaskById?.(tid) || state.flatTasks?.[tid] || null;
+        const scheduleCleanupTaskIds = __tmCollectTaskTreeIdsForScheduleCleanup(taskBeforeDelete, [
+            tid,
+            ...(Array.isArray(opts.scheduleCleanupTaskIds) ? opts.scheduleCleanupTaskIds : []),
+        ]);
         await API.deleteBlock(tid);
         try {
-            const task = globalThis.__tmRuntimeState?.getFlatTaskById?.(tid) || state.flatTasks?.[tid] || null;
-            const docId = String(task?.root_id || task?.docId || '').trim();
+            const docId = String(taskBeforeDelete?.root_id || taskBeforeDelete?.docId || '').trim();
             if (docId) __tmInvalidateTasksQueryCacheByDocId(docId);
             else __tmInvalidateAllSqlCaches();
         } catch (e) {}
+        try {
+            const calendarApi = globalThis.__tmCalendar;
+            if (calendarApi && typeof calendarApi.deleteTaskSchedulesByTaskIds === 'function') {
+                await calendarApi.deleteTaskSchedulesByTaskIds(scheduleCleanupTaskIds, {
+                    source: 'task-delete',
+                });
+            }
+        } catch (e) {
+            try { console.warn('[task-horizon] delete linked schedules after task delete failed', e); } catch (e2) {}
+        }
         return true;
     }
 
@@ -3919,12 +4041,14 @@ hint(`❌ 操作失败: ${e.message}`, 'error');
 
         try {
             const snapshot = __tmCaptureTaskLocalSnapshot(id);
+            const scheduleCleanupTaskIds = __tmCollectTaskTreeIdsForScheduleCleanup(snapshot?.task || task, id);
             await __tmEnqueueQueuedOp({
                 type: 'deleteTask',
                 docId: String(task?.root_id || task?.docId || '').trim(),
                 laneKey: String(task?.root_id || task?.docId || '').trim() ? `doc:${String(task?.root_id || task?.docId || '').trim()}` : `task:${String(id || '').trim()}`,
                 data: {
                     taskId: String(id || '').trim(),
+                    scheduleCleanupTaskIds,
                     snapshot,
                 },
             }, { wait: true });
@@ -4199,6 +4323,25 @@ hint(`❌ 操作失败: ${e.message}`, 'error');
         };
         const scheduleStartMs = toMs(extra0.start);
         const scheduleEndMs = toMs(extra0.end);
+        const scheduleStartDate = Number.isFinite(scheduleStartMs) ? new Date(scheduleStartMs) : null;
+        const scheduleEndDate = Number.isFinite(scheduleEndMs) ? new Date(scheduleEndMs) : null;
+        const scheduleLooksAllDay = scheduleStartDate instanceof Date
+            && scheduleEndDate instanceof Date
+            && scheduleEndMs > scheduleStartMs
+            && scheduleStartDate.getHours() === 0
+            && scheduleStartDate.getMinutes() === 0
+            && scheduleStartDate.getSeconds() === 0
+            && scheduleEndDate.getHours() === 0
+            && scheduleEndDate.getMinutes() === 0
+            && scheduleEndDate.getSeconds() === 0
+            && (scheduleEndMs - scheduleStartMs) % 86400000 === 0;
+        const scheduleAllDay = extra0.allDay === true
+            || scheduleLooksAllDay;
+        const taskAllDayBottom = task?.allDayBottom === true
+            || task?.allDayBottom === '1'
+            || task?.custom_all_day_bottom === true
+            || String(task?.custom_all_day_bottom || '').trim() === '1';
+        const scheduleAllDayBottom = extra0.allDayBottom === true || (!scheduleId0 && taskAllDayBottom);
         const scheduleDurationMin = (Number.isFinite(scheduleStartMs) && Number.isFinite(scheduleEndMs) && scheduleEndMs > scheduleStartMs)
             ? Math.max(1, Math.round((scheduleEndMs - scheduleStartMs) / 60000))
             : 0;
@@ -4413,6 +4556,25 @@ hint(`❌ 操作失败: ${e.message}`, 'error');
                     repeatType: extra0.repeatType,
                 });
             }));
+            if (scheduleAllDay) {
+                menu.appendChild(createItem(__tmRenderContextMenuLabel('arrow-down', scheduleAllDayBottom ? '取消置底全天日程' : '置底全天日程'), async () => {
+                    try {
+                        if (scheduleId0 && typeof globalThis.__tmCalendar.setScheduleAllDayBottomById === 'function') {
+                            await globalThis.__tmCalendar.setScheduleAllDayBottomById(scheduleId0, !scheduleAllDayBottom, {
+                                allDay: true,
+                                start: extra0.start || null,
+                                end: extra0.end || null,
+                            });
+                            return;
+                        }
+                        if (typeof window.tmSetTaskAllDayBottom === 'function') {
+                            await window.tmSetTaskAllDayBottom(taskId, !scheduleAllDayBottom);
+                        }
+                    } catch (e) {
+                        hint(`❌ ${String(e?.message || e || '操作失败')}`, 'error');
+                    }
+                }));
+            }
             if (scheduleId0 && typeof globalThis.__tmCalendar.deleteScheduleById === 'function') {
                 menu.appendChild(createItem(__tmRenderContextMenuLabel('trash-2', '删除日程'), async () => {
                     try {
@@ -5349,6 +5511,26 @@ hint(`❌ 操作失败: ${e.message}`, 'error');
         state.flatTasks[taskId] = nextTask;
         const children = Array.isArray(nextTask.children) ? nextTask.children : [];
         children.forEach((child) => __tmRestoreTaskFlatMap(child));
+    }
+
+    function __tmCollectTaskTreeIdsForScheduleCleanup(taskLike, fallbackIds = []) {
+        const out = [];
+        const seen = new Set();
+        const pushId = (value) => {
+            const id = String(value || '').trim();
+            if (!id || seen.has(id)) return;
+            seen.add(id);
+            out.push(id);
+        };
+        const walk = (task) => {
+            if (!task || typeof task !== 'object') return;
+            pushId(task.id);
+            const children = Array.isArray(task.children) ? task.children : [];
+            children.forEach(walk);
+        };
+        walk(taskLike);
+        (Array.isArray(fallbackIds) ? fallbackIds : [fallbackIds]).forEach(pushId);
+        return out;
     }
 
     function __tmApplyDeleteOptimisticLocal(snapshot) {
@@ -7284,9 +7466,20 @@ hint(`❌ 操作失败: ${e.message}`, 'error');
         (Array.isArray(rows) ? rows : []).forEach((row) => {
             if (!orderedRows.includes(row)) orderedRows.push(row);
         });
+        try {
+            if (ctx.groupId !== 'all' && typeof __tmRememberOtherBlockSourceDocs === 'function') {
+                __tmRememberOtherBlockSourceDocs(ctx.groupId, orderedRows);
+                if (!state.otherBlockSourceDocRefsSigByGroup || typeof state.otherBlockSourceDocRefsSigByGroup !== 'object') {
+                    state.otherBlockSourceDocRefsSigByGroup = {};
+                }
+                state.otherBlockSourceDocRefsSigByGroup[ctx.groupId] = refs.map((item) => item.id).join(',');
+            }
+        } catch (e) {}
         const docIds = [];
         orderedRows.forEach((row) => {
-            if (!__tmIsSupportedOtherBlockType(row?.type, row?.subtype)) return;
+            if (typeof __tmCanResolveOtherBlockSourceDoc === 'function'
+                ? !__tmCanResolveOtherBlockSourceDoc(row?.type, row?.subtype)
+                : !__tmIsSupportedOtherBlockType(row?.type, row?.subtype)) return;
             const type = String(row?.type || '').trim().toLowerCase();
             const docId = type === 'd'
                 ? String(row?.id || row?.root_id || '').trim()
@@ -8093,7 +8286,9 @@ hint(`❌ 操作失败: ${e.message}`, 'error');
             let rows = [];
             try { rows = await API.getOtherBlocksByIds(currentOtherBlockRefs.map((item) => item.id)); } catch (e) { rows = []; }
             (Array.isArray(rows) ? rows : []).forEach((row) => {
-                if (!__tmIsSupportedOtherBlockType(row?.type, row?.subtype)) return;
+                if (typeof __tmCanResolveOtherBlockSourceDoc === 'function'
+                    ? !__tmCanResolveOtherBlockSourceDoc(row?.type, row?.subtype)
+                    : !__tmIsSupportedOtherBlockType(row?.type, row?.subtype)) return;
                 const type = String(row?.type || '').trim().toLowerCase();
                 const docId = type === 'd'
                     ? String(row?.id || row?.root_id || '').trim()
@@ -8136,6 +8331,7 @@ hint(`❌ 操作失败: ${e.message}`, 'error');
         if (preferFastFirstPaint && !skipSnapshotFirstPaint && !skipRender && !forceFullLoadBudget && !forceFreshTasks && !stableSwitchNeedsCompleteLoad) {
             try {
                 const countMeta = await ensureTaskCountMapForCacheRestore('snapshot-cache');
+                try { await __tmRefreshTaskSnapshotStoreCacheIfChanged?.({ source: 'snapshot-first-paint' }); } catch (e) {}
                 const snapshot = await __tmLoadTaskSnapshotForScope({
                     docIds: allDocIds,
                     groupId: currentGroupId,

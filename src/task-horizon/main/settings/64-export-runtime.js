@@ -25,6 +25,572 @@
         return `无${headingLabelMap[headingLevel] || '标题'}`;
     }
 
+    const TM_SETTINGS_EXPORT_SCHEMA = 'task-horizon-settings-export';
+    const TM_SETTINGS_EXPORT_VERSION = 1;
+    const TM_SETTINGS_EXPORT_MODULES = Object.freeze([
+        { id: 'settings', label: '常规设置', desc: '常规、外观、规则、状态、自定义字段、视图布局、白板、优先级等。', defaultChecked: true },
+        { id: 'docGroups', label: '文档分组', desc: '文档分组、默认文档、排除文档、文档颜色、页签排序/钉住等。', defaultChecked: true },
+        { id: 'ai', label: 'AI 接入设置', desc: 'AI 供应商、API Key、Base URL、模型、上下文与排期窗口。', defaultChecked: false },
+        { id: 'aiData', label: 'AI 会话/提示词', desc: 'AI 提示词模板与会话记录。', defaultChecked: false },
+        { id: 'calendar', label: '日历设置/日程', desc: '日历配置与用户自建日程。', defaultChecked: true },
+        { id: 'calendarOffline', label: '节假日/农历缓存', desc: '去年、今年、明年范围内真实可用的节假日/农历缓存。', defaultChecked: true },
+    ]);
+    const TM_DOC_GROUP_SETTING_KEYS = Object.freeze([
+        'selectedDocIds',
+        'docGroups',
+        'otherBlockRefs',
+        'docPinnedByGroup',
+        'docTabSortMode',
+        'docDisplayNameMode',
+        'currentGroupId',
+        'defaultDocId',
+        'defaultDocIdByGroup',
+        'allDocsExcludedDocIds',
+        'newTaskDocId',
+        'newTaskDailyNoteNotebookId',
+        'newTaskDailyNoteAppendToBottom',
+        'quickAddRecentDocs',
+        'docColorMap',
+        'docColorSeed',
+        'docDefaultColorScheme',
+        'serverSyncOnManualRefresh',
+        'serverSyncSessionStateOnManualRefresh',
+    ]);
+    const TM_AI_SETTING_KEYS = Object.freeze([
+        'aiEnabled',
+        'aiProvider',
+        'aiMiniMaxApiKey',
+        'aiMiniMaxBaseUrl',
+        'aiMiniMaxModel',
+        'aiDeepSeekApiKey',
+        'aiDeepSeekBaseUrl',
+        'aiDeepSeekModel',
+        'aiOpenAIApiKey',
+        'aiOpenAIBaseUrl',
+        'aiOpenAIModel',
+        'aiAnthropicApiKey',
+        'aiAnthropicBaseUrl',
+        'aiAnthropicModel',
+        'aiMiniMaxTemperature',
+        'aiMiniMaxMaxTokens',
+        'aiMiniMaxTimeoutMs',
+        'aiDefaultContextMode',
+        'aiScheduleWindows',
+        'aiSideDockEnabled',
+    ]);
+    const TM_CALENDAR_SETTING_KEYS = Object.freeze([
+        'calendarEnabled',
+        'calendarLinkDockTomato',
+        'calendarInitialView',
+        'calendarFirstDay',
+        'calendarMonthAggregate',
+        'calendarMonthAdaptiveRowHeight',
+        'calendarMonthMinVisibleEvents',
+        'calendarShowSchedule',
+        'calendarScheduleReminderEnabled',
+        'calendarScheduleReminderSystemEnabled',
+        'calendarScheduleReminderDefaultMode',
+        'calendarAllDayReminderEnabled',
+        'calendarAllDayReminderTime',
+        'calendarTaskDateAllDayReminderEnabled',
+        'calendarAllDaySummaryIncludeExtras',
+        'calendarShowFocus',
+        'calendarShowBreak',
+        'calendarShowStopwatch',
+        'calendarShowIdle',
+        'calendarColorFocus',
+        'calendarColorBreak',
+        'calendarColorStopwatch',
+        'calendarColorIdle',
+        'calendarCalendarsConfig',
+        'calendarDefaultCalendarId',
+        'calendarLastViewType',
+        'calendarLastDate',
+        'calendarSidebarWidth',
+        'calendarSidebarDefaultPage',
+        'calendarSidebarCollapsedDesktopDefault',
+        'calendarColumnWidths',
+        'calendarSidebarCollapseCalendars',
+        'calendarSidebarCollapseDocGroups',
+        'calendarSidebarCollapseTomato',
+        'calendarSidebarCollapseTasks',
+        'calendarShowTomatoMaster',
+        'calendarShowTaskReminders',
+        'calendarShowTaskDates',
+        'calendarHideScheduledTaskDatesInAllDay',
+        'calendarShowCompletedAllDaySchedules',
+        'calendarShowOtherBlockCheckbox',
+        'calendarTaskDateColorMode',
+        'calendarScheduleDatesFollowSchedule',
+        'calendarScheduleFollowDocColor',
+        'calendar3DayTodayPosition',
+        'calendarNewScheduleMaxDurationMin',
+        'calendarQuickAddScheduleTimeMode',
+        'calendarQuickAddScheduleCustomTime',
+        'calendarHourSlotHeightMode',
+        'calendarVisibleStartTime',
+        'calendarVisibleEndTime',
+        'calendarScheduleColor',
+        'calendarTaskDatesColor',
+        'calendarTodayHighlightColorLight',
+        'calendarTodayHighlightColorDark',
+        'calendarGridBorderColorLight',
+        'calendarGridBorderColorDark',
+        'calendarShowCnHoliday',
+        'calendarCnHolidayColor',
+        'calendarShowLunar',
+        'calendarSideDockEnabled',
+        'calendarSideDockWidth',
+    ]);
+    const TM_SETTINGS_EXPORT_EXCLUDED_KEYS = new Set([
+        'settingsUpdatedAt',
+        'settingsFieldUpdatedAt',
+        'docGroupSettingsUpdatedAt',
+        'collapseStateUpdatedAt',
+        ...TM_DOC_GROUP_SETTING_KEYS,
+        ...TM_AI_SETTING_KEYS,
+        ...TM_CALENDAR_SETTING_KEYS,
+    ]);
+
+    function __tmCloneMigrationValue(value, fallback = null) {
+        try { return JSON.parse(JSON.stringify(value)); } catch (e) { return fallback; }
+    }
+
+    function __tmPickSettingsKeys(keys) {
+        const out = {};
+        (Array.isArray(keys) ? keys : []).forEach((key) => {
+            if (!Object.prototype.hasOwnProperty.call(SettingsStore.data || {}, key)) return;
+            out[key] = __tmCloneMigrationValue(SettingsStore.data[key], SettingsStore.data[key]);
+        });
+        return out;
+    }
+
+    function __tmBuildGeneralSettingsMigrationData() {
+        const out = {};
+        Object.keys(SettingsStore.data || {}).forEach((key) => {
+            if (TM_SETTINGS_EXPORT_EXCLUDED_KEYS.has(key)) return;
+            out[key] = __tmCloneMigrationValue(SettingsStore.data[key], SettingsStore.data[key]);
+        });
+        return out;
+    }
+
+    function __tmMergeArrayById(current, incoming) {
+        const map = new Map();
+        const push = (item) => {
+            const src = (item && typeof item === 'object') ? item : null;
+            const id = String(src?.id || '').trim();
+            if (!src || !id) return;
+            map.set(id, __tmCloneMigrationValue(src, src));
+        };
+        (Array.isArray(current) ? current : []).forEach(push);
+        (Array.isArray(incoming) ? incoming : []).forEach(push);
+        return Array.from(map.values());
+    }
+
+    function __tmMergeStringArray(current, incoming) {
+        return Array.from(new Set([
+            ...(Array.isArray(current) ? current : []),
+            ...(Array.isArray(incoming) ? incoming : []),
+        ].map((item) => String(item || '').trim()).filter(Boolean)));
+    }
+
+    function __tmApplyMigrationSettingsPatch(patch, mode) {
+        if (!patch || typeof patch !== 'object' || Array.isArray(patch)) return;
+        Object.entries(patch).forEach(([key, value]) => {
+            if (!key) return;
+            if (mode === 'docGroups') {
+                if (key === 'docGroups') {
+                    SettingsStore.data.docGroups = __tmMergeArrayById(SettingsStore.data.docGroups, value);
+                    return;
+                }
+                if (key === 'selectedDocIds' || key === 'allDocsExcludedDocIds') {
+                    SettingsStore.data[key] = __tmMergeStringArray(SettingsStore.data[key], value);
+                    return;
+                }
+                if (key === 'quickAddRecentDocs') {
+                    SettingsStore.data[key] = __tmMergeArrayById(SettingsStore.data[key], value).slice(0, 6);
+                    return;
+                }
+                if (key === 'docColorMap' || key === 'defaultDocIdByGroup' || key === 'docPinnedByGroup') {
+                    SettingsStore.data[key] = {
+                        ...(SettingsStore.data[key] && typeof SettingsStore.data[key] === 'object' ? SettingsStore.data[key] : {}),
+                        ...(value && typeof value === 'object' && !Array.isArray(value) ? value : {}),
+                    };
+                    return;
+                }
+            }
+            if (Array.isArray(value)) {
+                const hasIds = value.some((item) => item && typeof item === 'object' && String(item.id || '').trim());
+                if (hasIds) {
+                    SettingsStore.data[key] = __tmMergeArrayById(SettingsStore.data[key], value);
+                    return;
+                }
+            }
+            SettingsStore.data[key] = __tmCloneMigrationValue(value, value);
+        });
+    }
+
+    function __tmGetHolidayMigrationYears() {
+        const y = new Date().getFullYear();
+        return [y - 1, y, y + 1];
+    }
+
+    function __tmBuildSettingsMigrationSummary(modules = {}) {
+        const m = modules && typeof modules === 'object' ? modules : {};
+        const holidays = m.calendarOffline?.calendarData?.holidayStatuses || [];
+        return {
+            settingsKeys: m.settings?.settings ? Object.keys(m.settings.settings).length : 0,
+            docGroups: Array.isArray(m.docGroups?.settings?.docGroups) ? m.docGroups.settings.docGroups.length : 0,
+            aiIncluded: !!m.ai,
+            aiConversations: Number(m.aiData?.summary?.conversations || 0),
+            aiPromptTemplates: Number(m.aiData?.summary?.promptTemplates || 0),
+            schedules: Number(m.calendar?.calendarData?.summary?.schedules || 0),
+            holidayYears: Number(m.calendarOffline?.calendarData?.summary?.holidayYears || 0),
+            holidayMissingYears: Array.isArray(m.calendarOffline?.calendarData?.summary?.holidayMissingYears) ? m.calendarOffline.calendarData.summary.holidayMissingYears : [],
+            holidayStatuses: Array.isArray(m.calendarOffline?.calendarData?.holidayStatuses) ? m.calendarOffline.calendarData.holidayStatuses : holidays,
+        };
+    }
+
+    function __tmFilterSettingsMigrationModules(payload, selected = null) {
+        const modules = payload?.modules && typeof payload.modules === 'object' ? payload.modules : {};
+        if (!(selected instanceof Set)) return modules;
+        const out = {};
+        Object.entries(modules).forEach(([key, value]) => {
+            if (selected.has(key)) out[key] = value;
+        });
+        return out;
+    }
+
+    function __tmSettingsMigrationStatusText(status) {
+        const s = String(status || '').trim();
+        if (s === 'refreshed') return '已刷新';
+        if (s === 'cached') return '已缓存';
+        if (s === 'missing') return '缺失';
+        return s || '未知';
+    }
+
+    function __tmDownloadTextFile(filename, content, mimeType = 'application/json') {
+        const blob = new Blob([String(content || '')], { type: `${mimeType};charset=utf-8` });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = filename;
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        URL.revokeObjectURL(url);
+    }
+
+    async function __tmEnsureMigrationAiRuntime() {
+        if (globalThis.__tmAI?.loaded) return true;
+        try {
+            if (typeof __tmEnsureAiRuntimeLoaded === 'function') return await __tmEnsureAiRuntimeLoaded();
+        } catch (e) {}
+        return !!globalThis.__tmAI?.loaded;
+    }
+
+    async function __tmBuildSettingsMigrationPackage(selectedModules) {
+        const selected = new Set(Array.isArray(selectedModules) ? selectedModules : []);
+        if (!selected.size) throw new Error('请至少选择一个导出模块');
+        if (typeof __tmEnsureSettingsLoaded === 'function') {
+            try { await __tmEnsureSettingsLoaded(false); } catch (e) {}
+        }
+        const modules = {};
+        if (selected.has('settings')) {
+            modules.settings = { settings: __tmBuildGeneralSettingsMigrationData() };
+        }
+        if (selected.has('docGroups')) {
+            modules.docGroups = { settings: __tmPickSettingsKeys(TM_DOC_GROUP_SETTING_KEYS) };
+        }
+        if (selected.has('ai')) {
+            modules.ai = { settings: __tmPickSettingsKeys(TM_AI_SETTING_KEYS), includesApiKeys: true };
+        }
+        if (selected.has('calendar')) {
+            const calendarData = globalThis.__tmCalendar?.exportMigrationData
+                ? await globalThis.__tmCalendar.exportMigrationData({ includeSchedule: true, includeHolidays: false })
+                : { schedules: [], summary: { schedules: 0 } };
+            modules.calendar = {
+                settings: __tmPickSettingsKeys(TM_CALENDAR_SETTING_KEYS),
+                calendarData,
+            };
+        }
+        if (selected.has('calendarOffline')) {
+            const years = __tmGetHolidayMigrationYears();
+            const calendarData = globalThis.__tmCalendar?.exportMigrationData
+                ? await globalThis.__tmCalendar.exportMigrationData({
+                    includeSchedule: false,
+                    includeHolidays: true,
+                    holidayYears: years,
+                    refreshCurrentYear: true,
+                })
+                : {
+                    cnHolidays: {},
+                    holidayStatuses: years.map((year) => ({ year, status: 'missing', count: 0 })),
+                    summary: { holidayYears: 0, holidayMissingYears: years },
+                };
+            modules.calendarOffline = { calendarData };
+        }
+        if (selected.has('aiData')) {
+            const ready = await __tmEnsureMigrationAiRuntime();
+            modules.aiData = ready && globalThis.__tmAI?.exportMigrationData
+                ? await globalThis.__tmAI.exportMigrationData()
+                : { conversations: { activeId: '', conversations: [] }, promptTemplates: { templates: [] }, summary: { conversations: 0, promptTemplates: 0 } };
+        }
+        const payload = {
+            schema: TM_SETTINGS_EXPORT_SCHEMA,
+            version: TM_SETTINGS_EXPORT_VERSION,
+            exportedAt: new Date().toISOString(),
+            pluginVersion: String(globalThis?.siyuan?.plugins?.find?.((p) => p?.name === 'siyuan-plugin-task-horizon')?.version || ''),
+            modules,
+        };
+        payload.summary = __tmBuildSettingsMigrationSummary(modules);
+        return payload;
+    }
+
+    function __tmRenderMigrationModuleOptions(prefix, defaults = null) {
+        const selected = defaults instanceof Set ? defaults : null;
+        return TM_SETTINGS_EXPORT_MODULES.map((mod) => {
+            const checked = selected ? selected.has(mod.id) : mod.defaultChecked;
+            const warning = mod.id === 'ai'
+                ? '<div style="font-size:12px;color:var(--tm-danger-color);line-height:1.5;margin-top:3px;">包含 API Key，设置包为明文 JSON。</div>'
+                : '';
+            return `
+                <label style="display:flex;align-items:flex-start;gap:10px;padding:10px 12px;border:1px solid var(--tm-border-color);border-radius:8px;background:var(--tm-card-bg);cursor:pointer;">
+                    <input class="b3-switch fn__flex-center" type="checkbox" data-tm-migration-module="${esc(mod.id)}" ${checked ? 'checked' : ''} style="margin-top:2px;">
+                    <span style="display:block;min-width:0;">
+                        <span style="display:block;font-weight:600;color:var(--tm-text-color);">${esc(mod.label)}</span>
+                        <span style="display:block;font-size:12px;color:var(--tm-secondary-text);line-height:1.5;margin-top:3px;">${esc(mod.desc)}</span>
+                        ${warning}
+                    </span>
+                </label>
+            `;
+        }).join('');
+    }
+
+    function __tmRenderMigrationSummary(payload, selected = null) {
+        const visibleModules = __tmFilterSettingsMigrationModules(payload, selected);
+        const summary = __tmBuildSettingsMigrationSummary(visibleModules);
+        const moduleIds = Object.keys(payload?.modules || {});
+        const selectedSet = selected instanceof Set ? selected : new Set(moduleIds);
+        const labels = TM_SETTINGS_EXPORT_MODULES
+            .filter((mod) => moduleIds.includes(mod.id))
+            .map((mod) => `${selectedSet.has(mod.id) ? '✓' : '○'} ${mod.label}`)
+            .join(' · ');
+        const holidayStatuses = Array.isArray(summary.holidayStatuses) ? summary.holidayStatuses : [];
+        const holidayText = holidayStatuses.length
+            ? holidayStatuses.map((it) => `${it.year}:${__tmSettingsMigrationStatusText(it.status)}`).join('，')
+            : '无';
+        return `
+            <div style="padding:10px 12px;border:1px solid var(--tm-border-color);border-radius:8px;background:var(--tm-card-bg);font-size:12px;line-height:1.8;color:var(--tm-secondary-text);">
+                <div style="color:var(--tm-text-color);font-weight:600;margin-bottom:4px;">设置包摘要</div>
+                <div>导出时间：${esc(String(payload?.exportedAt || '未知'))}</div>
+                <div>模块：${esc(labels || '无')}</div>
+                <div>文档分组：${Number(summary.docGroups || 0)} 个 · AI 会话：${Number(summary.aiConversations || 0)} 个 · 提示词：${Number(summary.aiPromptTemplates || 0)} 个</div>
+                <div>日程：${Number(summary.schedules || 0)} 条 · 节假日年份：${Number(summary.holidayYears || 0)} 个（${esc(holidayText)}）</div>
+                <div style="margin-top:4px;color:var(--tm-warning-color, #f9ab00);">节假日调休通常只有最近一年较可靠，缺失年份不会生成空数据。</div>
+            </div>
+        `;
+    }
+
+    window.tmOpenSettingsExportDialog = function() {
+        const modal = document.createElement('div');
+        modal.className = 'tm-prompt-modal';
+        modal.innerHTML = `
+            <div class="tm-prompt-box" style="max-width:640px;width:min(92vw,640px);">
+                <h3 style="margin-bottom:8px;">导出设置包</h3>
+                <div style="font-size:12px;color:var(--tm-secondary-text);line-height:1.7;margin-bottom:12px;">
+                    选择要导出的内容。设置包是明文 JSON；勾选 AI 接入设置时会包含 API Key。
+                </div>
+                <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:8px;margin-bottom:12px;">
+                    ${__tmRenderMigrationModuleOptions('export')}
+                </div>
+                <div style="padding:10px 12px;border:1px solid rgba(249,171,0,0.35);background:rgba(249,171,0,0.10);border-radius:8px;font-size:12px;line-height:1.7;color:var(--tm-text-color);">
+                    节假日/农历会检查去年、今年、明年；只导出已有缓存或成功刷新到的真实数据。
+                </div>
+                <div data-tm-migration-export-summary style="display:none;margin-top:12px;"></div>
+                <div class="tm-prompt-buttons" style="margin-top:14px;">
+                    <button class="tm-prompt-btn tm-prompt-btn-secondary" data-tm-migration-cancel>取消</button>
+                    <button class="tm-prompt-btn tm-prompt-btn-primary" data-tm-migration-export>导出</button>
+                </div>
+            </div>
+        `;
+        document.body.appendChild(modal);
+        try { __tmApplyPopupOpenAnimation(modal, modal.querySelector('.tm-prompt-box')); } catch (e) {}
+        let removeFromStack = () => {};
+        const close = () => {
+            removeFromStack();
+            try { modal.remove(); } catch (e) {}
+        };
+        removeFromStack = __tmModalStackBind(close);
+        modal.addEventListener('click', async (event) => {
+            if (event.target === modal || event.target?.closest?.('[data-tm-migration-cancel]')) {
+                close();
+                return;
+            }
+            if (!event.target?.closest?.('[data-tm-migration-export]')) return;
+            const btn = event.target.closest('[data-tm-migration-export]');
+            const selected = Array.from(modal.querySelectorAll('[data-tm-migration-module]:checked'))
+                .map((input) => String(input.getAttribute('data-tm-migration-module') || '').trim())
+                .filter(Boolean);
+            try {
+                btn.disabled = true;
+                btn.textContent = '正在导出...';
+                const payload = await __tmBuildSettingsMigrationPackage(selected);
+                const stamp = new Date().toISOString().slice(0, 10);
+                __tmDownloadTextFile(`task-horizon-settings-${stamp}.json`, JSON.stringify(payload, null, 2), 'application/json');
+                const summaryEl = modal.querySelector('[data-tm-migration-export-summary]');
+                if (summaryEl) {
+                    summaryEl.style.display = '';
+                    summaryEl.innerHTML = __tmRenderMigrationSummary(payload, new Set(selected));
+                }
+                hint('✅ 设置包已导出', 'success');
+                btn.disabled = false;
+                btn.textContent = '再次导出';
+                const cancelBtn = modal.querySelector('[data-tm-migration-cancel]');
+                if (cancelBtn) cancelBtn.textContent = '关闭';
+            } catch (e) {
+                hint(`❌ 导出失败：${String(e?.message || e || '')}`, 'error');
+                btn.disabled = false;
+                btn.textContent = '导出';
+            }
+        });
+    };
+
+    function __tmParseSettingsImportFile(file) {
+        return new Promise((resolve, reject) => {
+            const reader = new FileReader();
+            reader.onload = () => {
+                try { resolve(JSON.parse(String(reader.result || ''))); }
+                catch (e) { reject(new Error('设置包不是合法 JSON')); }
+            };
+            reader.onerror = () => reject(new Error('读取文件失败'));
+            reader.readAsText(file, 'utf-8');
+        });
+    }
+
+    async function __tmApplySettingsMigrationPackage(payload, selectedModules) {
+        const selected = new Set(Array.isArray(selectedModules) ? selectedModules : []);
+        const modules = payload?.modules || {};
+        if (selected.has('settings')) __tmApplyMigrationSettingsPatch(modules.settings?.settings, 'settings');
+        if (selected.has('docGroups')) __tmApplyMigrationSettingsPatch(modules.docGroups?.settings, 'docGroups');
+        if (selected.has('ai')) __tmApplyMigrationSettingsPatch(modules.ai?.settings, 'ai');
+        if (selected.has('calendar')) {
+            __tmApplyMigrationSettingsPatch(modules.calendar?.settings, 'calendar');
+            if (modules.calendar?.calendarData && globalThis.__tmCalendar?.importMigrationData) {
+                await globalThis.__tmCalendar.importMigrationData(modules.calendar.calendarData);
+            }
+        }
+        if (selected.has('calendarOffline') && modules.calendarOffline?.calendarData && globalThis.__tmCalendar?.importMigrationData) {
+            await globalThis.__tmCalendar.importMigrationData(modules.calendarOffline.calendarData);
+        }
+        if (selected.has('aiData')) {
+            const ready = await __tmEnsureMigrationAiRuntime();
+            if (ready && globalThis.__tmAI?.importMigrationData) {
+                await globalThis.__tmAI.importMigrationData(modules.aiData || {});
+            }
+        }
+        SettingsStore.normalizeColumns?.();
+        SettingsStore.syncToLocal?.();
+        SettingsStore.saveDirty = true;
+        if (typeof SettingsStore.saveNow === 'function') await SettingsStore.saveNow();
+        else await SettingsStore.save();
+        try { render(); } catch (e) {}
+        try { if (state.settingsModal) showSettings(); } catch (e) {}
+        try { globalThis.__tmCalendar?.refreshInPlace?.({ hard: true }); } catch (e) {}
+    }
+
+    window.tmOpenSettingsImportDialog = function() {
+        const input = document.createElement('input');
+        input.type = 'file';
+        input.accept = '.json,application/json';
+        input.style.display = 'none';
+        document.body.appendChild(input);
+        input.onchange = async () => {
+            const file = input.files && input.files[0];
+            try { input.remove(); } catch (e) {}
+            if (!file) return;
+            let payload = null;
+            try {
+                payload = await __tmParseSettingsImportFile(file);
+                if (!payload || payload.schema !== TM_SETTINGS_EXPORT_SCHEMA || !payload.modules || typeof payload.modules !== 'object') {
+                    throw new Error('这不是任务管理器设置包');
+                }
+            } catch (e) {
+                hint(`❌ 读取失败：${String(e?.message || e || '')}`, 'error');
+                return;
+            }
+            const moduleIds = Object.keys(payload.modules || {});
+            const selected = new Set(moduleIds);
+            const modal = document.createElement('div');
+            modal.className = 'tm-prompt-modal';
+            modal.innerHTML = `
+                <div class="tm-prompt-box" style="max-width:680px;width:min(92vw,680px);">
+                    <h3 style="margin-bottom:8px;">导入设置包</h3>
+                    <div style="font-size:12px;color:var(--tm-secondary-text);line-height:1.7;margin-bottom:12px;">
+                        先确认要导入的模块。导入会与当前配置合并；同 ID 的分组、日程、提示词和会话以设置包为准。
+                    </div>
+                    <div data-tm-migration-summary style="margin-bottom:12px;">${__tmRenderMigrationSummary(payload, selected)}</div>
+                    <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:8px;margin-bottom:12px;">
+                        ${TM_SETTINGS_EXPORT_MODULES.filter((mod) => moduleIds.includes(mod.id)).map((mod) => `
+                            <label style="display:flex;align-items:flex-start;gap:10px;padding:10px 12px;border:1px solid var(--tm-border-color);border-radius:8px;background:var(--tm-card-bg);cursor:pointer;">
+                                <input class="b3-switch fn__flex-center" type="checkbox" data-tm-migration-module="${esc(mod.id)}" checked style="margin-top:2px;">
+                                <span style="display:block;min-width:0;">
+                                    <span style="display:block;font-weight:600;">${esc(mod.label)}</span>
+                                    <span style="display:block;font-size:12px;color:var(--tm-secondary-text);line-height:1.5;margin-top:3px;">${esc(mod.desc)}</span>
+                                </span>
+                            </label>
+                        `).join('')}
+                    </div>
+                    <div class="tm-prompt-buttons" style="margin-top:14px;">
+                        <button class="tm-prompt-btn tm-prompt-btn-secondary" data-tm-migration-cancel>取消</button>
+                        <button class="tm-prompt-btn tm-prompt-btn-primary" data-tm-migration-import>确认导入</button>
+                    </div>
+                </div>
+            `;
+            document.body.appendChild(modal);
+            try { __tmApplyPopupOpenAnimation(modal, modal.querySelector('.tm-prompt-box')); } catch (e) {}
+            let removeFromStack = () => {};
+            const close = () => {
+                removeFromStack();
+                try { modal.remove(); } catch (e) {}
+            };
+            removeFromStack = __tmModalStackBind(close);
+            const refreshSummary = () => {
+                const current = new Set(Array.from(modal.querySelectorAll('[data-tm-migration-module]:checked')).map((el) => String(el.getAttribute('data-tm-migration-module') || '').trim()).filter(Boolean));
+                const summaryEl = modal.querySelector('[data-tm-migration-summary]');
+                if (summaryEl) summaryEl.innerHTML = __tmRenderMigrationSummary(payload, current);
+            };
+            modal.addEventListener('change', refreshSummary);
+            modal.addEventListener('click', async (event) => {
+                if (event.target === modal || event.target?.closest?.('[data-tm-migration-cancel]')) {
+                    close();
+                    return;
+                }
+                if (!event.target?.closest?.('[data-tm-migration-import]')) return;
+                const btn = event.target.closest('[data-tm-migration-import]');
+                const selectedModules = Array.from(modal.querySelectorAll('[data-tm-migration-module]:checked'))
+                    .map((el) => String(el.getAttribute('data-tm-migration-module') || '').trim())
+                    .filter(Boolean);
+                if (!selectedModules.length) {
+                    hint('⚠ 请至少选择一个导入模块', 'warning');
+                    return;
+                }
+                try {
+                    btn.disabled = true;
+                    btn.textContent = '正在导入...';
+                    await __tmApplySettingsMigrationPackage(payload, selectedModules);
+                    hint('✅ 设置包已导入', 'success');
+                    close();
+                } catch (e) {
+                    hint(`❌ 导入失败：${String(e?.message || e || '')}`, 'error');
+                    btn.disabled = false;
+                    btn.textContent = '确认导入';
+                }
+            });
+        };
+        input.click();
+    };
+
     function __tmResolveXlsxRuntime() {
         const candidates = [
             globalThis.XLSX,

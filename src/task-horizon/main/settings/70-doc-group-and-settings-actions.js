@@ -33,6 +33,94 @@
         }
     };
 
+    window.removeDocFromGroupById = async function(docId) {
+        const id = String(docId || '').trim();
+        const currentId = String(SettingsStore.data.currentGroupId || 'all').trim() || 'all';
+        if (!id || currentId === 'all') return;
+
+        const groups = SettingsStore.data.docGroups || [];
+        const group = groups.find(g => String(g?.id || '').trim() === currentId);
+        if (!group || !Array.isArray(group.docs)) {
+            hint('⚠ 未找到该分组文档', 'warning');
+            return;
+        }
+        const before = group.docs.length;
+        group.docs = group.docs.filter((doc) => String((typeof doc === 'object' ? doc?.id : doc) || '').trim() !== id);
+        if (group.docs.length === before) {
+            hint('⚠ 该文档不是手动添加的分组文档', 'warning');
+            return;
+        }
+        group.excludedDocIds = __tmGetGroupExcludedDocIds(group).filter((item) => item !== id);
+        await SettingsStore.updateDocGroups(groups);
+        showSettings();
+    };
+
+    window.removeOtherBlockSourceDocFromGroup = async function(docId, groupId) {
+        const id = String(docId || '').trim();
+        let targetGroupId = String(groupId || '').trim();
+        const currentId = String(SettingsStore.data.currentGroupId || 'all').trim() || 'all';
+        if (!id) return;
+        if (!targetGroupId) targetGroupId = currentId === 'all' ? '' : currentId;
+        if (!targetGroupId) {
+            hint('⚠ 未找到其他块所在分组', 'warning');
+            return;
+        }
+
+        let sourceDocs = Array.isArray(state.otherBlockSourceDocsByGroup?.[targetGroupId])
+            ? state.otherBlockSourceDocsByGroup[targetGroupId]
+            : [];
+        let sourceDoc = sourceDocs.find((item) => String(item?.id || item?.docId || '').trim() === id);
+
+        if (!sourceDoc && typeof __tmEnsureOtherBlockSourceDocsForGroup === 'function') {
+            try {
+                sourceDocs = await __tmEnsureOtherBlockSourceDocsForGroup(targetGroupId, { force: true });
+                sourceDoc = (Array.isArray(sourceDocs) ? sourceDocs : [])
+                    .find((item) => String(item?.id || item?.docId || '').trim() === id);
+            } catch (e) {}
+        }
+
+        let blockIds = Array.from(new Set((Array.isArray(sourceDoc?.otherBlockIds) ? sourceDoc.otherBlockIds : [])
+            .map((item) => String(item || '').trim())
+            .filter(Boolean)));
+
+        try {
+            const refs = typeof __tmGetOtherBlockRefsByGroup === 'function'
+                ? __tmGetOtherBlockRefsByGroup(targetGroupId)
+                : [];
+            if (Array.isArray(refs) && refs.length) {
+                const rows = await API.getOtherBlocksByIds(refs.map((item) => item.id));
+                const byId = new Map();
+                (Array.isArray(rows) ? rows : []).forEach((row) => {
+                    const blockId = String(row?.id || '').trim();
+                    const type = String(row?.type || '').trim().toLowerCase();
+                    const rowDocId = type === 'd'
+                        ? String(row?.id || row?.root_id || '').trim()
+                        : String(row?.root_id || row?.docId || '').trim();
+                    const canResolve = typeof __tmCanResolveOtherBlockSourceDoc === 'function'
+                        ? __tmCanResolveOtherBlockSourceDoc(row?.type, row?.subtype)
+                        : (typeof __tmIsSupportedOtherBlockType === 'function' && __tmIsSupportedOtherBlockType(row?.type, row?.subtype));
+                    if (blockId && rowDocId === id && canResolve) byId.set(blockId, true);
+                });
+                blockIds.forEach((blockId) => byId.set(blockId, true));
+                blockIds = Array.from(byId.keys());
+            }
+        } catch (e) {}
+
+        if (!blockIds.length) {
+            hint('⚠ 未找到该文档对应的其他块', 'warning');
+            return;
+        }
+
+        const result = await __tmRemoveOtherBlocksFromCollection(blockIds, targetGroupId, {
+            forceRefresh: targetGroupId === currentId,
+        });
+        if (result?.removed > 0) {
+            try { await __tmEnsureOtherBlockSourceDocsForGroup?.(targetGroupId, { force: true }); } catch (e) {}
+            hint(`✅ 已移除 ${result.removed} 个其他块`, 'success');
+            showSettings();
+        }
+    };
+
     window.removeExcludedDocFromCurrentGroup = async function(docId) {
         const currentId = String(SettingsStore.data.currentGroupId || 'all').trim() || 'all';
         const result = await __tmSetDocExcludedForGroup(docId, false, currentId);
@@ -571,7 +659,7 @@
     }
 
     window.updateQuickbarInlineField = async function(field, enabled) {
-        const allow = new Set(['custom-status', 'custom-completion-time', 'taskCompleteAt', 'custom-priority', 'custom-start-date', 'custom-duration', 'custom-remark']);
+        const allow = new Set(['custom-status', 'custom-completion-time', 'taskCompleteAt', 'subtask-count', 'custom-priority', 'custom-start-date', 'custom-duration', 'custom-remark']);
         const rawKey = String(field || '').trim();
         const customFieldId = __tmParseCustomFieldColumnKey(rawKey);
         const key = customFieldId ? `customField:${customFieldId}` : rawKey;
@@ -601,6 +689,13 @@
 
     window.updateQuickbarInlineShowOnMobile = async function(enabled) {
         SettingsStore.data.quickbarInlineShowOnMobile = !!enabled;
+        await SettingsStore.save();
+        try { globalThis.__taskHorizonQuickbarRefreshInline?.(); } catch (e) {}
+        showSettings();
+    };
+
+    window.updateQuickbarSubtaskCountUnfinishedOnly = async function(enabled) {
+        SettingsStore.data.quickbarSubtaskCountUnfinishedOnly = !!enabled;
         await SettingsStore.save();
         try { globalThis.__taskHorizonQuickbarRefreshInline?.(); } catch (e) {}
         showSettings();

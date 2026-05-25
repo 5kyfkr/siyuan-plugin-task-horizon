@@ -905,13 +905,41 @@
             const menu = detail.menu;
             if (!menu || typeof menu.addItem !== 'function') return;
             const rawBlockElements = [];
-            if (detail?.blockElement) rawBlockElements.push(detail.blockElement);
-            if (detail?.element) rawBlockElements.push(detail.element);
-            try { rawBlockElements.push(...Array.from(detail?.blockElements || [])); } catch (e) {}
-            __tmAddMoveBlockToDailyNoteMenuItem(menu, __tmCollectBlockIdsFromElements(rawBlockElements), {
+            const pushRawBlockElement = (item) => {
+                if (!(item instanceof Element) || rawBlockElements.includes(item)) return;
+                rawBlockElements.push(item);
+            };
+            const resolveRawBlockElementById = (rawId) => {
+                const id = String(rawId || '').trim();
+                if (!id) return null;
+                try {
+                    const protyle = __tmResolveProtyleElement(detail?.protyle || null);
+                    const root = protyle?.querySelector?.('.protyle-wysiwyg, .protyle-content') || protyle;
+                    if (!root) return null;
+                    const escId = globalThis.CSS?.escape ? globalThis.CSS.escape(id) : id.replace(/["\\]/g, '\\$&');
+                    const found = root.querySelector?.(`[data-node-id="${escId}"], [data-id="${escId}"]`);
+                    return found instanceof Element ? found : null;
+                } catch (e) {}
+                return null;
+            };
+            const pushRawBlockElementById = (rawId) => {
+                pushRawBlockElement(resolveRawBlockElementById(rawId));
+            };
+            const pushSelectedBlockElementsForOtherBlocks = () => {
+                try {
+                    const protyle = __tmResolveProtyleElement(detail?.protyle || null);
+                    const root = protyle?.querySelector?.('.protyle-wysiwyg, .protyle-content') || protyle;
+                    Array.from(root?.querySelectorAll?.('.protyle-wysiwyg--select, .protyle-content--select') || []).forEach(pushRawBlockElement);
+                } catch (e) {}
+            };
+            pushRawBlockElement(detail?.blockElement);
+            pushRawBlockElement(detail?.element);
+            try { Array.from(detail?.blockElements || []).forEach(pushRawBlockElement); } catch (e) {}
+            const rawBlockIds = __tmCollectBlockIdsFromElements(rawBlockElements);
+            __tmAddMoveBlockToDailyNoteMenuItem(menu, rawBlockIds, {
                 protyle: detail?.protyle || null
             });
-            const scheduleBlockIds = __tmCollectBlockIdsFromElements(rawBlockElements);
+            const scheduleBlockIds = rawBlockIds;
             if (
                 scheduleBlockIds.length === 1
                 && globalThis.__tmCalendar
@@ -929,7 +957,18 @@
                     });
                 }
             }
-            const blockIds = __tmCollectOtherBlockIdsFromElements(rawBlockElements);
+            let blockIds = __tmCollectOtherBlockIdsFromElements(rawBlockElements);
+            if (!blockIds.length) {
+                pushRawBlockElement(detail?.buttonElement);
+                pushRawBlockElementById(detail?.id);
+                pushRawBlockElementById(detail?.nodeId);
+                pushRawBlockElementById(detail?.blockId);
+                pushRawBlockElementById(detail?.data?.id);
+                pushRawBlockElementById(detail?.data?.nodeId);
+                pushRawBlockElementById(detail?.data?.blockId);
+                pushSelectedBlockElementsForOtherBlocks();
+                blockIds = __tmCollectOtherBlockIdsFromElements(rawBlockElements);
+            }
             if (!blockIds.length) return;
             menu.addItem({
                 icon: 'iconTaskHorizon',

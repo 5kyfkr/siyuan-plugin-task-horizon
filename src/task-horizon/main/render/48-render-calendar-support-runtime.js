@@ -608,6 +608,10 @@
             const docId = String(t.root_id || '').trim();
             const gid = docId ? docsToGroup.get(docId) : '';
             const calendarId = gid ? `group:${gid}` : 'default';
+            const allDayBottomRaw = t?.allDayBottom ?? t?.custom_all_day_bottom ?? t?.customAllDayBottom;
+            const allDayBottom = allDayBottomRaw === true
+                || allDayBottomRaw === 1
+                || ['1', 'true'].includes(String(allDayBottomRaw || '').trim().toLowerCase());
             out.push({
                 id,
                 title,
@@ -623,6 +627,7 @@
                 recurringCompletedAt: String(t?.recurringCompletedAt || '').trim(),
                 isRecurringInstance: t?.isRecurringInstance === true,
                 isRecurringInstanceReadOnly: t?.isRecurringInstanceReadOnly === true,
+                allDayBottom,
                 done,
             });
         }
@@ -779,6 +784,7 @@
             priority: String(t.priority || '').trim(),
             startDate: String(t.startDate || '').trim(),
             completionTime: String(t.completionTime || '').trim(),
+            allDayBottom: t.allDayBottom === true || t.allDayBottom === '1' || String(t.custom_all_day_bottom || '').trim() === '1',
         };
     };
 

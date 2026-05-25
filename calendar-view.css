@@ -3615,6 +3615,24 @@
     position: relative;
 }
 
+.tm-calendar-root--month-view .tm-calendar-host .fc .fc-dayGridMonth-view .fc-daygrid-day.fc-day-today,
+.tm-calendar-host--month-view .fc .fc-dayGridMonth-view .fc-daygrid-day.fc-day-today,
+.tm-calendar-host--month-view.fc .fc-dayGridMonth-view .fc-daygrid-day.fc-day-today {
+    position: relative;
+}
+
+.tm-calendar-root--month-view .tm-calendar-host .fc .fc-dayGridMonth-view .fc-daygrid-day.fc-day-today::after,
+.tm-calendar-host--month-view .fc .fc-dayGridMonth-view .fc-daygrid-day.fc-day-today::after,
+.tm-calendar-host--month-view.fc .fc-dayGridMonth-view .fc-daygrid-day.fc-day-today::after {
+    content: '';
+    position: absolute;
+    inset: 0;
+    z-index: 9;
+    box-sizing: border-box;
+    border: 1px solid color-mix(in srgb, var(--tm-primary-color) 72%, var(--fc-border-color));
+    pointer-events: none;
+}
+
 .tm-calendar-root--month-view .tm-calendar-host .fc .fc-daygrid-body tr,
 .tm-calendar-root--month-view .tm-calendar-host .fc .fc-daygrid-body td,
 .tm-calendar-root--month-view .tm-calendar-host .fc .fc-daygrid-day,

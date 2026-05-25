@@ -899,7 +899,11 @@
             const jsonText = compactJson ? JSON.stringify(data) : JSON.stringify(data, null, 2);
             form.append('file', new Blob([jsonText], { type: 'application/json' }));
             const res = await fetch('/api/file/putFile', { method: 'POST', body: form });
-            return !!(res && res.ok);
+            const ok = !!(res && res.ok);
+            if (ok && targetPath === TASK_SNAPSHOT_FILE_PATH) {
+                try { __tmScheduleTaskSnapshotFileMetaCacheRefresh(450); } catch (e) {}
+            }
+            return ok;
         } catch (e) {
             return false;
         }
@@ -1000,6 +1004,8 @@
             'custom-status': 'customStatus',
             custom_pinned: 'pinned',
             'custom-pinned': 'pinned',
+            custom_all_day_bottom: 'allDayBottom',
+            'custom-all-day-bottom': 'allDayBottom',
             'task-complete-at': 'taskCompleteAt',
             raw_content: 'content',
         };
@@ -1139,6 +1145,7 @@
             else if (key === 'customTime') target.custom_time = live[key];
             else if (key === 'customStatus') target.custom_status = live[key];
             else if (key === 'pinned') target.custom_pinned = live[key] ? '1' : '';
+            else if (key === 'allDayBottom') target.custom_all_day_bottom = live[key] ? '1' : '';
         });
         return target;
     }
@@ -1299,6 +1306,7 @@
             'custom_time',
             'custom_status',
             'custom_pinned',
+            'custom_all_day_bottom',
             'repeatRule',
             'repeatState',
             'repeatHistory',
@@ -1339,6 +1347,8 @@
         if (__tmIsTaskSnapshotMeaningfulValue(nextCustomStatus)) out.customStatus = String(nextCustomStatus).trim();
         const nextPinned = __tmSnapshotPickBooleanTrue(source, ['pinned', 'custom_pinned', 'customPinned']);
         if (nextPinned) out.pinned = true;
+        const nextAllDayBottom = __tmSnapshotPickBooleanTrue(source, ['allDayBottom', 'custom_all_day_bottom', 'customAllDayBottom']);
+        if (nextAllDayBottom) out.allDayBottom = true;
         const nextRepeatRule = __tmSnapshotNormalizeTaskRepeatRuleForStore(source);
         if (nextRepeatRule) out.repeatRule = nextRepeatRule;
         const nextRepeatState = __tmSnapshotNormalizeTaskRepeatStateForStore(source);
@@ -1378,6 +1388,7 @@
         if (!isValidValue(target.customTime) && isValidValue(target.custom_time)) target.customTime = String(target.custom_time || '').trim();
         if (!isValidValue(target.customStatus) && isValidValue(target.custom_status)) target.customStatus = String(target.custom_status || '').trim();
         if (!isValidValue(target.pinned) && isValidValue(target.custom_pinned)) target.pinned = String(target.custom_pinned || '').trim() === '1';
+        if (!isValidValue(target.allDayBottom) && isValidValue(target.custom_all_day_bottom)) target.allDayBottom = String(target.custom_all_day_bottom || '').trim() === '1';
         if (!isValidValue(target.milestone) && isValidValue(target.custom_milestone)) target.milestone = String(target.custom_milestone || '').trim() === '1';
         try {
             if (typeof __tmIsTaskDoneEffective === 'function') target.done = __tmIsTaskDoneEffective(target);
@@ -2154,9 +2165,11 @@
         const groupId = String(opts.groupId || SettingsStore?.data?.currentGroupId || 'all').trim() || 'all';
         const activeDocId = String(opts.activeDocId || state?.activeDocId || 'all').trim() || 'all';
         const preserve = groupId !== 'all' && activeDocId === 'all';
+        const now = Date.now();
         const payload = {
             version: __TM_TASK_SNAPSHOT_VERSION,
-            createdAt: Date.now(),
+            createdAt: now,
+            updatedAt: now,
             groupId,
             scopeKey: __tmBuildTaskSnapshotScopeKey(docIds, groupId),
             docIds,
@@ -2276,10 +2289,141 @@
         };
     }
 
+    function __tmGetTaskSnapshotStoreUpdatedAt(raw = null) {
+        const source = (raw && typeof raw === 'object') ? raw : null;
+        if (!source) return 0;
+        let maxUpdatedAt = Math.max(
+            __tmParseUpdatedAtNumber(source.updatedAt),
+            __tmParseUpdatedAtNumber(source.snapshotUpdatedAt)
+        );
+        const scanSnapshot = (snap) => {
+            const item = (snap && typeof snap === 'object') ? snap : null;
+            if (!item) return;
+            maxUpdatedAt = Math.max(
+                maxUpdatedAt,
+                __tmParseUpdatedAtNumber(item.updatedAt),
+                __tmParseUpdatedAtNumber(item.createdAt)
+            );
+        };
+        if (source.snapshots && typeof source.snapshots === 'object' && !Array.isArray(source.snapshots)) {
+            Object.values(source.snapshots).forEach(scanSnapshot);
+        } else {
+            scanSnapshot(source);
+        }
+        return Number.isFinite(maxUpdatedAt) && maxUpdatedAt > 0 ? maxUpdatedAt : 0;
+    }
+
+    function __tmGetTaskSnapshotStoreVersionSignature(raw = null) {
+        const updatedAt = __tmGetTaskSnapshotStoreUpdatedAt(raw);
+        return updatedAt > 0 ? String(updatedAt) : '';
+    }
+
+    function __tmGetFileNameFromPath(path) {
+        const normalized = String(path || '').replace(/\\/g, '/').trim();
+        const parts = normalized.split('/').filter(Boolean);
+        return parts.length ? parts[parts.length - 1] : normalized;
+    }
+
+    function __tmFindTaskSnapshotFileEntry(entries) {
+        const list = Array.isArray(entries) ? entries : [];
+        const fileName = __tmGetFileNameFromPath(TASK_SNAPSHOT_FILE_PATH).toLowerCase();
+        const fullPath = String(TASK_SNAPSHOT_FILE_PATH || '').replace(/\\/g, '/').toLowerCase();
+        return list.find((entry) => {
+            const item = (entry && typeof entry === 'object') ? entry : null;
+            if (!item) return false;
+            const name = String(item.name || item.fileName || item.basename || '').trim().toLowerCase();
+            if (name === fileName) return true;
+            const path = String(item.path || item.fullPath || '').replace(/\\/g, '/').trim().toLowerCase();
+            return path === fullPath || path.endsWith(`/${fileName}`);
+        }) || null;
+    }
+
+    function __tmBuildTaskSnapshotFileMetaSignature(entry = null) {
+        const item = (entry && typeof entry === 'object') ? entry : null;
+        if (!item) return '';
+        const name = String(item.name || item.fileName || item.basename || __tmGetFileNameFromPath(TASK_SNAPSHOT_FILE_PATH)).trim();
+        const updateKeys = ['updated', 'updatedAt', 'mtime', 'mtimeMs', 'modTime', 'modified', 'modifiedAt', 'lastModified', 'updatedTime'];
+        const updateTokens = updateKeys
+            .map((key) => {
+                const value = item[key];
+                const text = value == null ? '' : String(value).trim();
+                return text ? `${key}:${text}` : '';
+            })
+            .filter(Boolean);
+        const parsedUpdatedAt = updateKeys.reduce((max, key) => Math.max(max, __tmParseUpdatedAtNumber(item[key])), 0);
+        const checksum = String(item.hash || item.sha || item.sha256 || item.checksum || item.etag || '').trim();
+        if (!updateTokens.length && !parsedUpdatedAt && !checksum) return '';
+        const sizeRaw = item.size ?? item.fileSize ?? item.length ?? item.byteSize;
+        const sizeNum = Number(sizeRaw);
+        return JSON.stringify({
+            name,
+            updated: updateTokens.join('|') || String(parsedUpdatedAt || ''),
+            size: Number.isFinite(sizeNum) && sizeNum >= 0 ? sizeNum : '',
+            checksum,
+        });
+    }
+
+    async function __tmPeekTaskSnapshotFileMeta(options = {}) {
+        const opts = (options && typeof options === 'object') ? options : {};
+        const run = async () => {
+            try {
+                const res = await fetch('/api/file/readDir', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ path: PLUGIN_STORAGE_DIR }),
+                });
+                if (!res.ok) return { available: false, signature: '', found: false };
+                const text = await res.text();
+                let json = null;
+                try { json = text ? JSON.parse(text) : null; } catch (e) { json = null; }
+                const entries = Array.isArray(json?.data)
+                    ? json.data
+                    : (Array.isArray(json) ? json : []);
+                const entry = __tmFindTaskSnapshotFileEntry(entries);
+                const signature = __tmBuildTaskSnapshotFileMetaSignature(entry);
+                return { available: !!signature, signature, found: !!entry };
+            } catch (e) {
+                return { available: false, signature: '', found: false };
+            }
+        };
+        if (opts.dedup === false) return await run();
+        if (__tmTaskSnapshotFileMetaCheckPromise) return await __tmTaskSnapshotFileMetaCheckPromise;
+        __tmTaskSnapshotFileMetaCheckPromise = run()
+            .finally(() => {
+                __tmTaskSnapshotFileMetaCheckPromise = null;
+            });
+        return await __tmTaskSnapshotFileMetaCheckPromise;
+    }
+
+    function __tmRememberTaskSnapshotFileMeta(meta = null) {
+        const signature = String(
+            (meta && typeof meta === 'object') ? meta.signature : meta
+        || '').trim();
+        if (!signature) return false;
+        __tmTaskSnapshotFileMetaSignatureCache = signature;
+        return true;
+    }
+
+    function __tmScheduleTaskSnapshotFileMetaCacheRefresh(delayMs = 600) {
+        const waitMs = Math.max(80, Number(delayMs || 0) || 600);
+        const run = async () => {
+            try {
+                const meta = await __tmPeekTaskSnapshotFileMeta({ dedup: false });
+                __tmRememberTaskSnapshotFileMeta(meta);
+            } catch (e) {}
+        };
+        try { __tmScheduleIdleTask(run, waitMs); } catch (e) { setTimeout(run, waitMs); }
+    }
+
+    function __tmGetTaskSnapshotFileMetaSignatureCached() {
+        return String(__tmTaskSnapshotFileMetaSignatureCache || '').trim();
+    }
+
     function __tmBuildTaskSnapshotStore(raw = null) {
         const snapshots = {};
         const pooledDocs = __tmNormalizeTaskSnapshotStoreDocPool(raw?.docs);
         const pooledOtherBlockSets = __tmNormalizeTaskSnapshotStoreOtherBlockPool(raw?.otherBlockSets);
+        const sourceUpdatedAt = __tmGetTaskSnapshotStoreUpdatedAt(raw) || Date.now();
         const skipStats = {
             unusable: 0,
             maxEntries: 0,
@@ -2305,11 +2449,11 @@
         } else {
             push(raw);
         }
-        const out = __tmCreateEmptyTaskSnapshotStore(Date.now());
+        const out = __tmCreateEmptyTaskSnapshotStore(sourceUpdatedAt);
         out.docs = {};
         out.otherBlockSets = {};
         const candidates = Object.values(snapshots)
-            .sort((a, b) => Number(b?.createdAt || 0) - Number(a?.createdAt || 0));
+            .sort((a, b) => Math.max(Number(b?.updatedAt || 0), Number(b?.createdAt || 0)) - Math.max(Number(a?.updatedAt || 0), Number(a?.createdAt || 0)));
         const preservedCandidates = candidates.filter((snap) => __tmIsPreservedTaskSnapshot(snap));
         const normalCandidates = candidates.filter((snap) => !__tmIsPreservedTaskSnapshot(snap));
         const addSnapshot = (snap, countTowardsLimit = true) => {
@@ -2450,7 +2594,7 @@
                     ).trim() || 'all';
                     return snapGroupId === gid;
                 })
-                .sort((a, b) => Number(b?.createdAt || 0) - Number(a?.createdAt || 0));
+                .sort((a, b) => Math.max(Number(b?.updatedAt || 0), Number(b?.createdAt || 0)) - Math.max(Number(a?.updatedAt || 0), Number(a?.createdAt || 0)));
             let selected = null;
             let materialized = null;
             for (const item of items) {
@@ -2488,6 +2632,12 @@
                 const raw = await __tmReadJsonFile(TASK_SNAPSHOT_FILE_PATH);
                 const store = __tmBuildTaskSnapshotStore(raw);
                 __tmTaskSnapshotStoreCache = store;
+                __tmTaskSnapshotStoreLoadedAt = Date.now();
+                try {
+                    __tmPeekTaskSnapshotFileMeta()
+                        .then((meta) => __tmRememberTaskSnapshotFileMeta(meta))
+                        .catch(() => null);
+                } catch (e) {}
                 try {
                     const rawBytes = raw ? __tmEstimateJsonByteSize(raw) : 0;
                     const storeBytes = __tmEstimateJsonByteSize(store);
@@ -2500,6 +2650,17 @@
                             pooledDocCount: Object.keys(store?.docs || {}).length,
                         });
                         __tmScheduleIdleTask(async () => {
+                            const latestMeta = await __tmPeekTaskSnapshotStoreVersionMeta({ cachedOnly: false });
+                            const latestSignature = String(latestMeta?.versionSignature || '').trim();
+                            const storeSignature = __tmGetTaskSnapshotStoreVersionSignature(store);
+                            if (latestSignature && storeSignature && latestSignature !== storeSignature) {
+                                __tmLogTaskSnapshot('store-compaction-skip', {
+                                    reason: 'snapshot-file-changed',
+                                    latestSignature,
+                                    storeSignature,
+                                });
+                                return;
+                            }
                             const ok = await __tmWriteJsonFile(TASK_SNAPSHOT_FILE_PATH, store);
                             __tmLogTaskSnapshot('store-compaction-done', {
                                 ok: ok ? 1 : 0,
@@ -2520,11 +2681,127 @@
         return await __tmTaskSnapshotStoreLoadPromise;
     }
 
+    async function __tmPeekTaskSnapshotStoreVersionMeta(options = {}) {
+        const opts = (options && typeof options === 'object') ? options : {};
+        try {
+            if (opts.cachedOnly && __tmTaskSnapshotStoreCache) {
+                return {
+                    updatedAt: Number(__tmTaskSnapshotStoreCache.updatedAt || 0) || 0,
+                    versionSignature: __tmGetTaskSnapshotStoreVersionSignature(__tmTaskSnapshotStoreCache),
+                };
+            }
+            const raw = await __tmReadJsonFile(TASK_SNAPSHOT_FILE_PATH);
+            return {
+                updatedAt: __tmGetTaskSnapshotStoreUpdatedAt(raw),
+                versionSignature: __tmGetTaskSnapshotStoreVersionSignature(raw),
+            };
+        } catch (e) {
+            return { updatedAt: 0, versionSignature: '' };
+        }
+    }
+
+    async function __tmPeekTaskSnapshotStoreUpdatedAt(options = {}) {
+        const opts = (options && typeof options === 'object') ? options : {};
+        try {
+            const meta = await __tmPeekTaskSnapshotStoreVersionMeta(opts);
+            return Number(meta?.updatedAt || 0) || 0;
+        } catch (e) {
+            return 0;
+        }
+    }
+
+    async function __tmPeekTaskSnapshotStoreVersionSignature(options = {}) {
+        const opts = (options && typeof options === 'object') ? options : {};
+        try {
+            const meta = await __tmPeekTaskSnapshotStoreVersionMeta(opts);
+            return String(meta?.versionSignature || '').trim();
+        } catch (e) {
+            return '';
+        }
+    }
+
+    async function __tmRefreshTaskSnapshotStoreCacheIfChanged(options = {}) {
+        const opts = (options && typeof options === 'object') ? options : {};
+        try {
+            const localUpdatedAt = Number(__tmTaskSnapshotStoreCache?.updatedAt || 0) || 0;
+            const localVersionSignature = __tmGetTaskSnapshotStoreVersionSignature(__tmTaskSnapshotStoreCache);
+            if (!__tmTaskSnapshotStoreCache && opts.force !== true) {
+                const store = await __tmLoadTaskSnapshotStore({ force: true });
+                return {
+                    changed: false,
+                    remoteUpdatedAt: Number(store?.updatedAt || 0) || 0,
+                    localUpdatedAt: 0,
+                    remoteVersionSignature: __tmGetTaskSnapshotStoreVersionSignature(store),
+                    localVersionSignature: '',
+                    initialized: true,
+                };
+            }
+            let observedFileMeta = null;
+            if (opts.force !== true) {
+                const cachedFileMetaSignature = __tmGetTaskSnapshotFileMetaSignatureCached();
+                if (!cachedFileMetaSignature && Date.now() - (Number(__tmTaskSnapshotStoreLoadedAt) || 0) < 5000) {
+                    try { __tmScheduleTaskSnapshotFileMetaCacheRefresh(260); } catch (e) {}
+                    return {
+                        changed: false,
+                        remoteUpdatedAt: localUpdatedAt,
+                        localUpdatedAt,
+                        remoteVersionSignature: localVersionSignature,
+                        localVersionSignature,
+                        recentlyLoaded: true,
+                    };
+                }
+                const fileMeta = await __tmPeekTaskSnapshotFileMeta();
+                const fileMetaSignature = String(fileMeta?.signature || '').trim();
+                if (fileMetaSignature && cachedFileMetaSignature && fileMetaSignature === cachedFileMetaSignature) {
+                    return {
+                        changed: false,
+                        remoteUpdatedAt: localUpdatedAt,
+                        localUpdatedAt,
+                        remoteVersionSignature: localVersionSignature,
+                        localVersionSignature,
+                        fileMetaUnchanged: true,
+                    };
+                }
+                if (fileMetaSignature) observedFileMeta = fileMeta;
+            }
+            const remoteMeta = await __tmPeekTaskSnapshotStoreVersionMeta({ cachedOnly: false });
+            const remoteUpdatedAt = Number(remoteMeta?.updatedAt || 0) || 0;
+            const remoteVersionSignature = String(remoteMeta?.versionSignature || '').trim();
+            if (!remoteUpdatedAt && !remoteVersionSignature) {
+                return { changed: false, remoteUpdatedAt: 0, localUpdatedAt, remoteVersionSignature: '', localVersionSignature };
+            }
+            const changed = opts.force === true
+                || (remoteVersionSignature && remoteVersionSignature !== localVersionSignature)
+                || (!remoteVersionSignature && remoteUpdatedAt !== localUpdatedAt);
+            if (!changed) {
+                if (observedFileMeta) __tmRememberTaskSnapshotFileMeta(observedFileMeta);
+                try { __tmScheduleTaskSnapshotFileMetaCacheRefresh(700); } catch (e) {}
+                return { changed: false, remoteUpdatedAt, localUpdatedAt, remoteVersionSignature, localVersionSignature };
+            }
+            const store = await __tmLoadTaskSnapshotStore({ force: true });
+            if (observedFileMeta) __tmRememberTaskSnapshotFileMeta(observedFileMeta);
+            return {
+                changed: true,
+                remoteUpdatedAt,
+                localUpdatedAt,
+                remoteVersionSignature,
+                localVersionSignature,
+                storeUpdatedAt: Number(store?.updatedAt || 0) || remoteUpdatedAt,
+                storeVersionSignature: __tmGetTaskSnapshotStoreVersionSignature(store),
+            };
+        } catch (e) {
+            return { changed: false, error: String(e?.message || e || '').trim() || 'check-failed' };
+        }
+    }
+
     async function __tmLoadLatestTaskSnapshotForGroup(groupId = 'all', options = {}) {
         const opts = (options && typeof options === 'object') ? options : {};
         try {
             if (opts.cachedOnly) {
                 return __tmSelectLatestTaskSnapshotForGroupFromStore(__tmTaskSnapshotStoreCache, groupId);
+            }
+            if (opts.checkRemote !== false) {
+                try { await __tmRefreshTaskSnapshotStoreCacheIfChanged({ source: 'latest-snapshot-for-group' }); } catch (e) {}
             }
             const store = await __tmLoadTaskSnapshotStore({ force: !!opts.force });
             return __tmSelectLatestTaskSnapshotForGroupFromStore(store, groupId);
@@ -2548,6 +2825,12 @@
         };
         try { __tmScheduleIdleTask(run, waitMs); } catch (e) { setTimeout(run, waitMs); }
         return true;
+    }
+
+    function __tmInvalidateTaskSnapshotStoreCache() {
+        try { __tmTaskSnapshotStoreCache = null; } catch (e) {}
+        try { __tmTaskSnapshotStoreLoadPromise = null; } catch (e) {}
+        try { __tmTaskSnapshotPersistSignatureCache.clear(); } catch (e) {}
     }
 
     function __tmRestoreTaskSnapshotIntoState(snapshot, options = {}) {
@@ -2654,6 +2937,7 @@
             taskMarker: String(resolvedMarker || '').trim() || (effectiveDone ? 'X' : ''),
             priority: String(source.priority || source.custom_priority || '').trim(),
             pinned: source.pinned === true || source.custom_pinned === true || String(source.custom_pinned || '').trim() === '1',
+            allDayBottom: source.allDayBottom === true || source.custom_all_day_bottom === true || String(source.custom_all_day_bottom || '').trim() === '1',
             milestone: source.milestone === true || source.custom_milestone === true || String(source.custom_milestone || '').trim() === '1',
             completionTime: String(source.completionTime || source.completion_time || '').trim(),
             startDate: String(source.startDate || source.start_date || '').trim(),
@@ -2770,6 +3054,8 @@
             custom_priority: String(item.priority || '').trim(),
             pinned: item.pinned === true,
             custom_pinned: item.pinned === true ? '1' : '',
+            allDayBottom: item.allDayBottom === true,
+            custom_all_day_bottom: item.allDayBottom === true ? '1' : '',
             milestone: item.milestone === true,
             custom_milestone: item.milestone === true ? '1' : '',
             completionTime: String(item.completionTime || '').trim(),
@@ -4946,6 +5232,7 @@
             // 注意：数据库返回的字段名是 custom_priority, custom_status 等，会被规范化为 priority, customStatus
             const dbHasPriority = isValidValue(task.priority) || isValidValue(task.custom_priority);
             const dbHasPinned = isValidValue(task.pinned);
+            const dbHasAllDayBottom = isValidValue(task.allDayBottom) || isValidValue(task.custom_all_day_bottom);
             const dbHasMilestone = isValidValue(task.milestone);
             const dbHasDuration = isValidValue(task.duration);
             const dbHasRemark = isValidValue(task.remark);
@@ -4975,7 +5262,11 @@
             // 只有当数据库没有有效值时，才使用 MetaStore 的缓存值
             if (!dbHasPriority && 'priority' in v && isValidValue(v.priority)) task.priority = v.priority;
             if (!dbHasPinned && 'pinned' in v && isValidValue(v.pinned)) task.pinned = v.pinned;
-            if (!dbHasMilestone && 'milestone' in v && isValidValue(v.milestone)) task.milestone = v.milestone;
+        if (!dbHasAllDayBottom && 'allDayBottom' in v && isValidValue(v.allDayBottom)) task.allDayBottom = v.allDayBottom;
+        if (!isValidValue(task.custom_all_day_bottom) && isValidValue(task.allDayBottom)) {
+            task.custom_all_day_bottom = (task.allDayBottom === true || task.allDayBottom === '1' || task.allDayBottom === 1) ? '1' : '';
+        }
+        if (!dbHasMilestone && 'milestone' in v && isValidValue(v.milestone)) task.milestone = v.milestone;
             if (!dbHasDuration && 'duration' in v && isValidValue(v.duration)) task.duration = v.duration;
             if (!dbHasRemark && 'remark' in v && isValidValue(v.remark)) task.remark = v.remark;
             if (!dbHasCompletionTime && allowVisibleDateFallback && 'completionTime' in v && isValidValue(v.completionTime)) task.completionTime = v.completionTime;
@@ -5010,6 +5301,7 @@
             const candidate = {};
             if (task.priority) candidate.priority = task.priority;
             if (task.pinned !== undefined) candidate.pinned = task.pinned;
+            if (task.allDayBottom !== undefined) candidate.allDayBottom = task.allDayBottom;
             if (task.milestone !== undefined) candidate.milestone = task.milestone;
             if (task.duration) candidate.duration = task.duration;
             if (task.remark) candidate.remark = task.remark;
@@ -5385,6 +5677,7 @@
             calendarShowTaskReminders: true,
             calendarShowTaskDates: true,
             calendarHideScheduledTaskDatesInAllDay: false,
+            calendarShowCompletedAllDaySchedules: true,
             calendarShowOtherBlockCheckbox: true,
             calendarTaskDateColorMode: 'group',
             calendarScheduleDatesFollowSchedule: true,
@@ -5550,6 +5843,7 @@
             quickbarInlineFields: ['custom-status', 'custom-completion-time'],
             quickbarVisibleItems: ['custom-status', 'custom-priority', 'custom-start-date', 'custom-completion-time', 'custom-duration', 'custom-remark', 'action-ai-title', 'action-reminder', 'action-more'],
             quickbarInlineShowOnMobile: false,
+            quickbarSubtaskCountUnfinishedOnly: false,
             priorityScoreConfig: {
                 base: 100,
                 weights: { importance: 1, status: 1, due: 1, duration: 1, doc: 1 },
@@ -5878,6 +6172,7 @@
                                 if (Array.isArray(cloudData.quickbarInlineFields)) this.data.quickbarInlineFields = cloudData.quickbarInlineFields;
                                 if (Array.isArray(cloudData.quickbarVisibleItems)) this.data.quickbarVisibleItems = cloudData.quickbarVisibleItems;
                                 if (typeof cloudData.quickbarInlineShowOnMobile === 'boolean') this.data.quickbarInlineShowOnMobile = cloudData.quickbarInlineShowOnMobile;
+                                if (typeof cloudData.quickbarSubtaskCountUnfinishedOnly === 'boolean') this.data.quickbarSubtaskCountUnfinishedOnly = cloudData.quickbarSubtaskCountUnfinishedOnly;
                                 if (typeof cloudData.aiSideDockEnabled === 'boolean') this.data.aiSideDockEnabled = cloudData.aiSideDockEnabled;
                                 if (typeof cloudData.pinNewTasksByDefault === 'boolean') this.data.pinNewTasksByDefault = cloudData.pinNewTasksByDefault;
                                 if (cloudData.taskDetailCompletedSubtasksVisibilityByTask && typeof cloudData.taskDetailCompletedSubtasksVisibilityByTask === 'object') {
@@ -5942,6 +6237,7 @@
                                 if (typeof cloudData.calendarShowTaskReminders === 'boolean') this.data.calendarShowTaskReminders = cloudData.calendarShowTaskReminders;
                                 if (typeof cloudData.calendarShowTaskDates === 'boolean') this.data.calendarShowTaskDates = cloudData.calendarShowTaskDates;
                                 if (typeof cloudData.calendarHideScheduledTaskDatesInAllDay === 'boolean') this.data.calendarHideScheduledTaskDatesInAllDay = cloudData.calendarHideScheduledTaskDatesInAllDay;
+                                if (typeof cloudData.calendarShowCompletedAllDaySchedules === 'boolean') this.data.calendarShowCompletedAllDaySchedules = cloudData.calendarShowCompletedAllDaySchedules;
                                 if (typeof cloudData.calendarShowOtherBlockCheckbox === 'boolean') this.data.calendarShowOtherBlockCheckbox = cloudData.calendarShowOtherBlockCheckbox;
                                 if (typeof cloudData.calendarTaskDateColorMode === 'string') this.data.calendarTaskDateColorMode = cloudData.calendarTaskDateColorMode;
                                 if (typeof cloudData.calendarScheduleDatesFollowSchedule === 'boolean') this.data.calendarScheduleDatesFollowSchedule = cloudData.calendarScheduleDatesFollowSchedule;
@@ -6294,6 +6590,7 @@
             this.data.quickbarInlineFields = Storage.get('tm_quickbar_inline_fields', this.data.quickbarInlineFields) || this.data.quickbarInlineFields;
             this.data.quickbarVisibleItems = Storage.get('tm_quickbar_visible_items', this.data.quickbarVisibleItems) || this.data.quickbarVisibleItems;
             this.data.quickbarInlineShowOnMobile = !!Storage.get('tm_quickbar_inline_show_on_mobile', this.data.quickbarInlineShowOnMobile);
+            this.data.quickbarSubtaskCountUnfinishedOnly = !!Storage.get('tm_quickbar_subtask_count_unfinished_only', this.data.quickbarSubtaskCountUnfinishedOnly);
             this.data.pinNewTasksByDefault = Storage.get('tm_pin_new_tasks_by_default', false);
             this.data.taskDetailCompletedSubtasksVisibilityByTask = Storage.get('tm_task_detail_show_completed_subtasks_by_task', this.data.taskDetailCompletedSubtasksVisibilityByTask) || this.data.taskDetailCompletedSubtasksVisibilityByTask;
             this.data.subtaskInheritedFields = __tmNormalizeSubtaskInheritedFields(Storage.get('tm_subtask_inherited_fields', this.data.subtaskInheritedFields));
@@ -6341,6 +6638,7 @@
             this.data.calendarShowIdle = Storage.get('tm_calendar_show_idle', this.data.calendarShowIdle);
             this.data.calendarShowTaskDates = Storage.get('tm_calendar_show_task_dates', this.data.calendarShowTaskDates);
             this.data.calendarHideScheduledTaskDatesInAllDay = !!Storage.get('tm_calendar_hide_scheduled_task_dates_in_all_day', this.data.calendarHideScheduledTaskDatesInAllDay);
+            this.data.calendarShowCompletedAllDaySchedules = !!Storage.get('tm_calendar_show_completed_all_day_schedules', this.data.calendarShowCompletedAllDaySchedules);
             this.data.calendarShowOtherBlockCheckbox = Storage.get('tm_calendar_show_other_block_checkbox', this.data.calendarShowOtherBlockCheckbox);
             this.data.calendarTaskDateColorMode = Storage.get('tm_calendar_task_date_color_mode', this.data.calendarTaskDateColorMode);
             this.data.calendarScheduleDatesFollowSchedule = !!Storage.get('tm_calendar_schedule_dates_follow_schedule', this.data.calendarScheduleDatesFollowSchedule);
@@ -6486,7 +6784,7 @@
             this.data.dockChecklistCompactMetaFields = __tmNormalizeCompactChecklistMetaFields(this.data.dockChecklistCompactMetaFields);
             this.data.mobileChecklistCompactMetaFields = __tmNormalizeCompactChecklistMetaFields(this.data.mobileChecklistCompactMetaFields, this.data.dockChecklistCompactMetaFields);
             {
-                const allowInlineFields = new Set(['custom-status', 'custom-completion-time', 'taskCompleteAt', 'custom-priority', 'custom-start-date', 'custom-duration', 'custom-remark']);
+                const allowInlineFields = new Set(['custom-status', 'custom-completion-time', 'taskCompleteAt', 'subtask-count', 'custom-priority', 'custom-start-date', 'custom-duration', 'custom-remark']);
                 const rawInlineFields = Array.isArray(this.data.quickbarInlineFields) ? this.data.quickbarInlineFields : ['custom-status', 'custom-completion-time'];
                 const seenInlineFields = new Set();
                 this.data.quickbarInlineFields = rawInlineFields.map((v) => {
@@ -6700,6 +6998,7 @@
             Storage.set('tm_quickbar_inline_fields', Array.isArray(this.data.quickbarInlineFields) ? this.data.quickbarInlineFields : ['custom-status', 'custom-completion-time']);
             Storage.set('tm_quickbar_visible_items', Array.isArray(this.data.quickbarVisibleItems) ? this.data.quickbarVisibleItems : ['custom-status', 'custom-priority', 'custom-start-date', 'custom-completion-time', 'custom-duration', 'custom-remark', 'action-ai-title', 'action-reminder', 'action-more']);
             Storage.set('tm_quickbar_inline_show_on_mobile', !!this.data.quickbarInlineShowOnMobile);
+            Storage.set('tm_quickbar_subtask_count_unfinished_only', !!this.data.quickbarSubtaskCountUnfinishedOnly);
             Storage.set('tm_pin_new_tasks_by_default', !!this.data.pinNewTasksByDefault);
             Storage.set('tm_task_detail_show_completed_subtasks_by_task', this.data.taskDetailCompletedSubtasksVisibilityByTask || {});
             Storage.set('tm_subtask_inherited_fields', __tmNormalizeSubtaskInheritedFields(this.data.subtaskInheritedFields, []));
@@ -6750,6 +7049,7 @@
             Storage.set('tm_calendar_show_idle', !!this.data.calendarShowIdle);
             Storage.set('tm_calendar_show_task_dates', !!this.data.calendarShowTaskDates);
             Storage.set('tm_calendar_hide_scheduled_task_dates_in_all_day', !!this.data.calendarHideScheduledTaskDatesInAllDay);
+            Storage.set('tm_calendar_show_completed_all_day_schedules', !!this.data.calendarShowCompletedAllDaySchedules);
             Storage.set('tm_calendar_show_other_block_checkbox', !!this.data.calendarShowOtherBlockCheckbox);
             Storage.set('tm_calendar_task_date_color_mode', String(this.data.calendarTaskDateColorMode || 'group').trim() || 'group');
             Storage.set('tm_calendar_schedule_dates_follow_schedule', !!this.data.calendarScheduleDatesFollowSchedule);
@@ -8682,6 +8982,9 @@
     let __tmTaskSnapshotSaveInFlight = false;
     let __tmTaskSnapshotStoreCache = null;
     let __tmTaskSnapshotStoreLoadPromise = null;
+    let __tmTaskSnapshotStoreLoadedAt = 0;
+    let __tmTaskSnapshotFileMetaSignatureCache = '';
+    let __tmTaskSnapshotFileMetaCheckPromise = null;
     const __tmTaskSnapshotPersistSignatureCache = new Map();
     const __tmTxTaskRefreshDocIds = new Set();
     const __tmTxTaskRefreshBlockIds = new Set();
@@ -8912,6 +9215,7 @@
             || normalized === 'custom-remark'
             || normalized === 'custom-milestone-event'
             || normalized === 'custom-pinned'
+            || normalized === 'custom-all-day-bottom'
             || normalized === __TM_TASK_REPEAT_RULE_ATTR
             || normalized === __TM_TASK_REPEAT_STATE_ATTR
             || normalized === __TM_TASK_REPEAT_HISTORY_ATTR
@@ -9471,6 +9775,7 @@
                 'custom-time',
                 'custom-status',
                 'custom-pinned',
+                'custom-all-day-bottom',
             ]);
             const keys = updates.map((update) => String(update?.key || '').trim());
             const ok = updates.every((update) => allowed.has(String(update?.key || '').trim()));
@@ -9624,6 +9929,7 @@
             { name: 'custom-time', alias: 'custom_time', enabled: true },
             { name: 'custom-status', alias: 'custom_status', enabled: true },
             { name: 'custom-pinned', alias: 'pinned', enabled: true },
+            { name: 'custom-all-day-bottom', alias: 'custom_all_day_bottom', enabled: true },
             { name: __TM_TASK_REPEAT_RULE_ATTR, alias: 'repeat_rule', enabled: repeatInlineEnabled },
             { name: __TM_TASK_REPEAT_STATE_ATTR, alias: 'repeat_state', enabled: repeatInlineEnabled },
             { name: __TM_TASK_REPEAT_HISTORY_ATTR, alias: 'repeat_history', enabled: repeatInlineEnabled },
@@ -9810,6 +10116,7 @@
             'custom-time',
             'custom-status',
             'custom-pinned',
+            'custom-all-day-bottom',
             __TM_TASK_REPEAT_RULE_ATTR,
             __TM_TASK_REPEAT_STATE_ATTR,
             __TM_TASK_REPEAT_HISTORY_ATTR,
@@ -9906,6 +10213,13 @@
             if (shouldApply(target.pinned, target.custom_pinned)) {
                 target.pinned = value;
                 target.custom_pinned = value;
+            }
+        }
+        if (Object.prototype.hasOwnProperty.call(row, 'custom-all-day-bottom')) {
+            const value = String(row['custom-all-day-bottom'] ?? '');
+            if (shouldApply(target.allDayBottom, target.custom_all_day_bottom)) {
+                target.allDayBottom = value;
+                target.custom_all_day_bottom = value;
             }
         }
         if (Object.prototype.hasOwnProperty.call(row, __TM_TASK_REPEAT_RULE_ATTR)) {
@@ -12690,8 +13004,10 @@
                         } catch (e) {}
                         return;
                     }
+                    const snapshotUpdatedAt = Date.now();
+                    payload.updatedAt = snapshotUpdatedAt;
                     store.snapshots[payload.scopeKey] = payload;
-                    store.updatedAt = Date.now();
+                    store.updatedAt = snapshotUpdatedAt;
                     const nextStore = __tmBuildTaskSnapshotStore(store);
                     __tmTaskSnapshotStoreCache = nextStore;
                     await __tmWriteJsonFile(TASK_SNAPSHOT_FILE_PATH, nextStore);
@@ -12726,7 +13042,8 @@
                     __tmTaskSnapshotSaveInFlight = false;
                     });
             };
-            try { __tmScheduleIdleTask(runSave, Math.max(900, Math.round(delayMs))); } catch (e) { setTimeout(runSave, 0); }
+            const idleDelayMs = Math.max(80, Math.round(Number(opts.idleDelayMs ?? Math.max(900, delayMs)) || Math.max(900, delayMs)));
+            try { __tmScheduleIdleTask(runSave, idleDelayMs); } catch (e) { setTimeout(runSave, 0); }
         }, delayMs);
         return true;
     }
