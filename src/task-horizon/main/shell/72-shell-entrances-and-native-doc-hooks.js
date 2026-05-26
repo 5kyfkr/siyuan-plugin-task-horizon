@@ -1354,11 +1354,19 @@
         const nextDone = !!done;
         const nextStatus = String(statusValue || '').trim();
         const nextTaskCompleteAt = __tmNormalizeTaskCompleteAtValue(taskCompleteAtValue);
+        const nextMarker = nextDone ? 'X' : ' ';
         if (!tid) return false;
+        const applyMarkerState = (target) => {
+            if (!(target && typeof target === 'object')) return;
+            target.done = nextDone;
+            target.taskMarker = nextMarker;
+            target.task_marker = nextMarker;
+            try { target.markdown = __tmBuildTaskMarkdownWithMarker(target, nextMarker); } catch (e) {}
+        };
         try {
             const liveTask = globalThis.__tmRuntimeState?.getFlatTaskById?.(tid) || state.flatTasks?.[tid];
             if (liveTask && typeof liveTask === 'object') {
-                liveTask.done = nextDone;
+                applyMarkerState(liveTask);
                 if (nextStatus) {
                     liveTask.customStatus = nextStatus;
                     liveTask.custom_status = nextStatus;
@@ -1372,7 +1380,7 @@
         try {
             const pendingTask = globalThis.__tmRuntimeState?.getPendingTaskById?.(tid) || state.pendingInsertedTasks?.[tid];
             if (pendingTask && typeof pendingTask === 'object') {
-                pendingTask.done = nextDone;
+                applyMarkerState(pendingTask);
                 if (nextStatus) {
                     pendingTask.customStatus = nextStatus;
                     pendingTask.custom_status = nextStatus;
@@ -1397,9 +1405,16 @@
                 || ''
             ).trim();
             const metaPatch = { done: nextDone, content };
+            metaPatch.taskMarker = nextMarker;
+            metaPatch.markdown = String((globalThis.__tmRuntimeState?.getTaskById?.(tid) || state.flatTasks?.[tid] || state.pendingInsertedTasks?.[tid])?.markdown || '').trim();
             if (nextStatus) metaPatch.customStatus = nextStatus;
             if (nextTaskCompleteAt) metaPatch.taskCompleteAt = nextTaskCompleteAt;
             MetaStore.set(tid, metaPatch);
+            try {
+                __tmScheduleTaskSnapshotAfterLocalPatch?.(tid, metaPatch, {
+                    source: 'native-doc-checkbox-sync',
+                });
+            } catch (e) {}
         } catch (e) {}
         return true;
     }
@@ -1638,6 +1653,7 @@
             __tmApplyAttrPatchLocally(tid, attrPatch, {
                 render: false,
                 withFilters: false,
+                source: 'native-doc-checkbox-sync',
             });
             if (statusPatch) __tmMirrorDocCheckboxStatusPatch(tid, statusPatch);
         } catch (e) {}

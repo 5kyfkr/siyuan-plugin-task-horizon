@@ -78,7 +78,7 @@
     const WHITEBOARD_DATA_CACHE_KEY = 'tm_whiteboard_data_cache';
     const __TM_QUICK_ADD_RECENT_DOCS_KEY = 'tm_quick_add_recent_docs';
     const __TM_QUICK_ADD_RECENT_DOCS_LIMIT = 6;
-    const __TM_BUILTIN_COLUMN_DEFAULT_ORDER = ['pinned', 'content', 'status', 'score', 'doc', 'h2', 'priority', 'startDate', 'completionTime', 'taskCompleteAt', 'remainingTime', 'duration', 'spent', 'remark', 'attachments'];
+    const __TM_BUILTIN_COLUMN_DEFAULT_ORDER = ['pinned', 'content', 'status', 'score', 'doc', 'h2', 'priority', 'startDate', 'completionTime', 'taskCompleteAt', 'remainingTime', 'tomatoSummary', 'remark', 'attachments'];
     const __TM_BUILTIN_COLUMN_WIDTHS = {
         pinned: 48,
         content: 360,
@@ -91,8 +91,7 @@
         completionTime: 90,
         taskCompleteAt: 140,
         remainingTime: 116,
-        duration: 96,
-        spent: 96,
+        tomatoSummary: 132,
         remark: 240,
         attachments: 180,
     };
@@ -108,8 +107,7 @@
         completionTime: 7,
         taskCompleteAt: 11,
         remainingTime: 10,
-        duration: 8,
-        spent: 8,
+        tomatoSummary: 10,
         remark: 19,
         attachments: 14,
     };
@@ -138,6 +136,27 @@
 
     function __tmIsFixedDateColumn(key) {
         return __TM_FIXED_DATE_COLUMN_KEYS.includes(String(key || '').trim());
+    }
+
+    function __tmNormalizeTomatoCountValue(value) {
+        const raw = String(value ?? '').trim();
+        if (!raw) return '';
+        const num = Number(raw);
+        if (!Number.isFinite(num)) return '';
+        return String(Math.max(0, Math.floor(num)));
+    }
+
+    function __tmGetTomatoCountDisplay(value) {
+        const normalized = __tmNormalizeTomatoCountValue(value);
+        return normalized ? `🍅 ${normalized}` : '';
+    }
+
+    function __tmGetTaskTomatoEstimateCount(task) {
+        return __tmNormalizeTomatoCountValue(task?.tomatoEstimateCount ?? task?.tomato_estimate_count ?? task?.tomatoEstimate ?? '');
+    }
+
+    function __tmGetTaskTomatoCount(task) {
+        return __tmNormalizeTomatoCountValue(task?.tomatoCount ?? task?.tomato_count ?? '');
     }
 
     function __tmGetMeasureFontFromStyle(style) {
@@ -931,25 +950,6 @@
         return text.length * 2;
     }
 
-    function __tmLogTaskSnapshot(stage, payload = {}) {
-        void stage;
-        void payload;
-    }
-
-    function __tmGetTaskSnapshotSignatureDiffKeys(actualSignature, expectedSignature) {
-        try {
-            const actual = JSON.parse(String(actualSignature || '{}'));
-            const expected = JSON.parse(String(expectedSignature || '{}'));
-            const keys = Array.from(new Set([
-                ...Object.keys(actual || {}),
-                ...Object.keys(expected || {}),
-            ]));
-            return keys.filter((key) => JSON.stringify(actual?.[key]) !== JSON.stringify(expected?.[key])).slice(0, 12);
-        } catch (e) {
-            return [];
-        }
-    }
-
     function __tmNormalizeTaskSnapshotDocIds(docIds = []) {
         return Array.from(new Set((Array.isArray(docIds) ? docIds : [])
             .map((id) => String(id || '').trim())
@@ -1136,6 +1136,27 @@
             }
             if (!Object.prototype.hasOwnProperty.call(live, key)) return;
             target[key] = live[key];
+            if (key === 'done') {
+                target.done = live[key] === true;
+                const liveMarker = String(live.taskMarker || live.task_marker || '').trim();
+                const targetMarker = String(target.taskMarker || target.task_marker || '').trim();
+                target.taskMarker = target.done
+                    ? (liveMarker || 'x')
+                    : ((__tmIsTaskMarkerDone(liveMarker) || __tmIsTaskMarkerDone(targetMarker)) ? ' ' : (liveMarker || targetMarker || ' '));
+                target.task_marker = target.taskMarker;
+                if (Object.prototype.hasOwnProperty.call(live, 'markdown')) {
+                    target.markdown = target.done
+                        ? live.markdown
+                        : (typeof __tmBuildTaskMarkdownWithMarker === 'function'
+                            ? __tmBuildTaskMarkdownWithMarker(live, ' ')
+                            : String(live.markdown || '').replace(/(\[[xX]\])/, '[ ]'));
+                }
+            }
+            else if (key === 'content') {
+                target.content = live[key];
+                if (Object.prototype.hasOwnProperty.call(live, 'markdown')) target.markdown = live.markdown;
+            }
+            else if (key === 'markdown') target.markdown = live[key];
             if (key === 'priority') target.custom_priority = live[key];
             else if (key === 'duration') target.custom_duration = live[key];
             else if (key === 'remark') target.custom_remark = live[key];
@@ -1150,16 +1171,26 @@
         return target;
     }
 
-    function __tmMergeLocalTaskPatchIntoTaskTree(taskTree) {
+    function __tmMergeLocalTaskPatchIntoTaskList(tasks) {
         const walk = (task) => {
             if (!task || typeof task !== 'object') return;
             __tmMergeLocalTaskPatchIntoTask(task);
             (Array.isArray(task.children) ? task.children : []).forEach(walk);
         };
+        (Array.isArray(tasks) ? tasks : []).forEach(walk);
+        return tasks;
+    }
+
+    function __tmMergeLocalTaskPatchIntoTaskTree(taskTree) {
         (Array.isArray(taskTree) ? taskTree : []).forEach((doc) => {
-            (Array.isArray(doc?.tasks) ? doc.tasks : []).forEach(walk);
+            __tmMergeLocalTaskPatchIntoTaskList(doc?.tasks);
         });
         return taskTree;
+    }
+
+    function __tmMergeLocalTaskPatchIntoTaskStateForSnapshot() {
+        try { __tmMergeLocalTaskPatchIntoTaskTree(state.taskTree); } catch (e) {}
+        try { __tmMergeLocalTaskPatchIntoTaskList(state.otherBlocks); } catch (e) {}
     }
 
     function __tmCloneTaskSnapshotValue(value, depth = 0, seen = null) {
@@ -1316,6 +1347,8 @@
             'customFieldValues',
             'tomato_minutes',
             'tomato_hours',
+            'tomato_count',
+            'tomato_estimate_count',
             'attachments',
             'tasks',
             '__customFieldRawValues',
@@ -1637,17 +1670,17 @@
             return { ok: true, reason: 'unknown-expected-task-count', actual, expected: Number.NaN, overageTolerance: 0 };
         }
         const rawOverageTolerance = options?.taskCountOverageTolerance ?? options?.expectedTaskCountOverageTolerance;
-        const defaultOverageTolerance = Math.min(8, Math.max(0, Math.ceil(expected * 0.01)));
+        const defaultOverageTolerance = Math.min(32, Math.max(4, Math.ceil(expected * 0.02)));
         const overageTolerance = Number.isFinite(Number(rawOverageTolerance))
             ? Math.max(0, Math.round(Number(rawOverageTolerance)))
             : defaultOverageTolerance;
         if (actual < expected) {
-            return { ok: false, reason: 'underfilled-task-count', actual, expected, overageTolerance };
+            return { ok: false, reason: 'underfilled-task-count', actual, expected, overageTolerance, delta: actual - expected };
         }
         if (actual > expected + overageTolerance) {
-            return { ok: false, reason: 'overfilled-task-count', actual, expected, overageTolerance };
+            return { ok: false, reason: 'overfilled-task-count', actual, expected, overageTolerance, delta: actual - expected };
         }
-        return { ok: true, reason: 'ok', actual, expected, overageTolerance };
+        return { ok: true, reason: 'ok', actual, expected, overageTolerance, delta: actual - expected };
     }
 
     function __tmRememberSmallCache(map, key, value, limit = 12) {
@@ -2056,39 +2089,20 @@
 
     function __tmRestoreTaskSnapshotViewState(snapshot, options = {}) {
         const snap = (snapshot && typeof snapshot === 'object') ? snapshot : null;
-        const logViewMiss = (reason, extra = {}) => {
-            __tmLogTaskSnapshot('view-restore-miss', {
-                reason: String(reason || '').trim() || 'unknown',
-                groupId: String(options?.groupId || snap?.groupId || 'all').trim() || 'all',
-                viewMode: String(options?.viewMode || state?.viewMode || '').trim(),
-                docCount: Array.isArray(snap?.docIds) ? snap.docIds.length : 0,
-                ...((extra && typeof extra === 'object') ? extra : {}),
-            });
-        };
         const expected = __tmBuildTaskSnapshotViewSignature(options);
         const candidates = __tmGetTaskSnapshotViewStateCandidates(snap, expected);
         const view = candidates.find((item) => item.signature === expected)?.view || null;
         if (!view) {
-            const newest = candidates[0] || null;
-            logViewMiss(candidates.length ? 'signature-mismatch' : 'missing-view-state', {
-                candidateCount: candidates.length,
-                diffKeys: __tmGetTaskSnapshotSignatureDiffKeys(newest?.signature || '', expected),
-                diffKeyText: __tmGetTaskSnapshotSignatureDiffKeys(newest?.signature || '', expected).join(','),
-                source: String(newest?.source || ''),
-            });
             return null;
         }
         if (Number(view.version || 0) !== 1) {
-            logViewMiss('version-mismatch', { version: Number(view.version || 0) || 0 });
             return null;
         }
         if (!expected) {
-            logViewMiss('empty-expected-signature');
             return null;
         }
         const ids = Array.isArray(view.filteredTaskIds) ? view.filteredTaskIds.map((id) => String(id || '').trim()) : null;
         if (!ids) {
-            logViewMiss('missing-filtered-ids');
             return null;
         }
         const flat = state?.flatTasks && typeof state.flatTasks === 'object' ? state.flatTasks : {};
@@ -2106,24 +2120,8 @@
         if (missingIds.length > 0) {
             const missingLimit = Math.max(3, Math.min(24, Math.ceil(ids.length * 0.01)));
             if (missingIds.length > missingLimit || filtered.length === 0) {
-                logViewMiss('missing-task', {
-                    taskId: missingIds[0],
-                    missingCount: missingIds.length,
-                    missingLimit,
-                    filteredIdCount: ids.length,
-                });
                 return null;
             }
-            __tmLogTaskSnapshot('view-restore-partial', {
-                reason: 'missing-small-task-set',
-                groupId: String(options?.groupId || snap?.groupId || 'all').trim() || 'all',
-                viewMode: String(options?.viewMode || state?.viewMode || '').trim(),
-                missingCount: missingIds.length,
-                missingLimit,
-                filteredCount: filtered.length,
-                filteredIdCount: ids.length,
-                sampleTaskIds: missingIds.slice(0, 5),
-            });
         }
         state.filteredTasks = filtered;
         state.filteredDocIdsForTabs = (Array.isArray(view.filteredDocIdsForTabs) ? view.filteredDocIdsForTabs : [])
@@ -2179,6 +2177,8 @@
             taskTree: __tmCloneTaskSnapshotValue(Array.isArray(state.taskTree) ? state.taskTree : [], 0) || [],
             otherBlocks: __tmCloneTaskSnapshotValue(Array.isArray(state.otherBlocks) ? state.otherBlocks : [], 0) || [],
         };
+        try { __tmMergeLocalTaskPatchIntoTaskTree(payload.taskTree); } catch (e) {}
+        try { __tmMergeLocalTaskPatchIntoTaskList(payload.otherBlocks); } catch (e) {}
         return __tmAttachTaskSnapshotViewState(payload, { groupId });
     }
 
@@ -2187,6 +2187,16 @@
             const snap = (payload && typeof payload === 'object') ? payload : null;
             if (!snap) return '';
             const taskTree = Array.isArray(snap.taskTree) ? snap.taskTree : [];
+            const stableValueText = (value) => {
+                try {
+                    return JSON.stringify(typeof __tmStableSettingsJsonValue === 'function'
+                        ? __tmStableSettingsJsonValue(value)
+                        : value);
+                } catch (e) {
+                    try { return JSON.stringify(value); } catch (e2) {}
+                    return '';
+                }
+            };
             const taskSig = [];
             const walk = (task) => {
                 if (!task || typeof task !== 'object') return;
@@ -2214,11 +2224,29 @@
                         id,
                         effectiveDone ? 1 : 0,
                         String(marker || '').trim(),
+                        String(task.content || task.name || task.title || '').trim(),
+                        String(task.markdown || '').trim(),
                         String(task.customStatus || task.custom_status || '').trim(),
                         String(task.updated || task.updatedAt || '').trim(),
                         String(task.startDate || task.start_date || '').trim(),
                         String(task.completionTime || task.completion_time || task.taskCompleteAt || '').trim(),
+                        String(task.taskCompleteAt || task.task_complete_at || '').trim(),
                         String(task.customTime || task.custom_time || '').trim(),
+                        String(task.priority || task.custom_priority || task.customPriority || '').trim(),
+                        String(task.duration || task.custom_duration || '').trim(),
+                        String(task.remark || task.custom_remark || '').trim(),
+                        String(task.tomatoMinutes || task.tomato_minutes || '').trim(),
+                        String(task.tomatoHours || task.tomato_hours || '').trim(),
+                        String(task.tomatoCount || task.tomato_count || '').trim(),
+                        String(task.tomatoEstimateCount || task.tomato_estimate_count || task.tomatoEstimate || '').trim(),
+                        task.pinned === true || task.custom_pinned === true || String(task.custom_pinned || '').trim() === '1' ? 1 : 0,
+                        task.allDayBottom === true || task.custom_all_day_bottom === true || String(task.custom_all_day_bottom || '').trim() === '1' ? 1 : 0,
+                        task.milestone === true || task.custom_milestone === true || String(task.custom_milestone || '').trim() === '1' ? 1 : 0,
+                        stableValueText(task.customFieldValues || task.__customFieldRawValues || {}),
+                        stableValueText(task.attachments || []),
+                        stableValueText(task.repeatRule || task.repeat_rule || null),
+                        stableValueText(task.repeatState || task.repeat_state || null),
+                        stableValueText(task.repeatHistory || task.repeat_history || []),
                         String(task.parentTaskId || task.parent_task_id || '').trim(),
                         Number.isFinite(Number(task.level)) ? Number(task.level) : '',
                         Number.isFinite(Number(task.docSeq)) ? Number(task.docSeq) : '',
@@ -2236,9 +2264,13 @@
             const viewKeys = Object.keys(snap.viewStates || {}).sort();
             const viewSig = viewKeys.map((key) => {
                 const view = snap.viewStates?.[key];
+                const filteredTaskIds = Array.isArray(view?.filteredTaskIds) ? view.filteredTaskIds : [];
+                const filteredDocIdsForTabs = Array.isArray(view?.filteredDocIdsForTabs) ? view.filteredDocIdsForTabs : [];
                 return [
                     key,
-                    Array.isArray(view?.filteredTaskIds) ? view.filteredTaskIds.length : 0,
+                    filteredTaskIds.length,
+                    filteredTaskIds.join(','),
+                    filteredDocIdsForTabs.join(','),
                     String(view?.listRenderSignature || '').trim(),
                     Number(view?.listRenderLimit || 0) || 0,
                 ].join(':');
@@ -2424,24 +2456,13 @@
         const pooledDocs = __tmNormalizeTaskSnapshotStoreDocPool(raw?.docs);
         const pooledOtherBlockSets = __tmNormalizeTaskSnapshotStoreOtherBlockPool(raw?.otherBlockSets);
         const sourceUpdatedAt = __tmGetTaskSnapshotStoreUpdatedAt(raw) || Date.now();
-        const skipStats = {
-            unusable: 0,
-            maxEntries: 0,
-            missingKey: 0,
-            tooLarge: 0,
-            storeTooLarge: 0,
-            preserved: 0,
-        };
         const push = (item) => {
             const snap = (item && typeof item === 'object') ? item : null;
             const materialized = __tmMaterializeTaskSnapshotRecord(snap, {
                 docs: pooledDocs,
                 otherBlockSets: pooledOtherBlockSets,
             });
-            if (!__tmIsUsableTaskSnapshot(materialized)) {
-                skipStats.unusable += 1;
-                return;
-            }
+            if (!__tmIsUsableTaskSnapshot(materialized)) return;
             snapshots[String(materialized.scopeKey || '').trim()] = materialized;
         };
         if (raw && typeof raw === 'object' && raw.snapshots && typeof raw.snapshots === 'object') {
@@ -2458,55 +2479,31 @@
         const normalCandidates = candidates.filter((snap) => !__tmIsPreservedTaskSnapshot(snap));
         const addSnapshot = (snap, countTowardsLimit = true) => {
             const key = String(snap?.scopeKey || '').trim();
-            if (!key) {
-                skipStats.missingKey += 1;
-                return false;
-            }
+            if (!key) return false;
             const record = __tmBuildTaskSnapshotRecordForStore(snap, {
                 docs: out.docs,
                 otherBlockSets: out.otherBlockSets,
             });
-            if (!record) {
-                skipStats.unusable += 1;
-                return false;
-            }
-            if (__tmEstimateJsonByteSize(record) > __TM_TASK_SNAPSHOT_MAX_SINGLE_BYTES) {
-                skipStats.tooLarge += 1;
-                return false;
-            }
-            if (countTowardsLimit && out.order.length >= __TM_TASK_SNAPSHOT_MAX_ENTRIES) {
-                skipStats.maxEntries += 1;
-                return false;
-            }
+            if (!record) return false;
+            if (__tmEstimateJsonByteSize(record) > __TM_TASK_SNAPSHOT_MAX_SINGLE_BYTES) return false;
+            if (countTowardsLimit && out.order.length >= __TM_TASK_SNAPSHOT_MAX_ENTRIES) return false;
             out.order.push(key);
             out.snapshots[key] = record;
             if (countTowardsLimit && __tmEstimateJsonByteSize(out) > __TM_TASK_SNAPSHOT_MAX_BYTES) {
                 out.order.pop();
                 delete out.snapshots[key];
                 __tmPruneTaskSnapshotStorePools(out);
-                skipStats.storeTooLarge += 1;
                 return false;
             }
             return true;
         };
         preservedCandidates.forEach((snap) => {
-            if (addSnapshot(snap, false)) skipStats.preserved += 1;
+            addSnapshot(snap, false);
         });
         normalCandidates.forEach((snap) => {
             addSnapshot(snap, true);
         });
         __tmPruneTaskSnapshotStorePools(out);
-        try {
-            const skipped = Object.values(skipStats).reduce((sum, value) => sum + Number(value || 0), 0);
-            if (skipped > 0) {
-                __tmLogTaskSnapshot('store-pruned', {
-                    kept: out.order.length,
-                    candidateCount: candidates.length,
-                    maxEntries: __TM_TASK_SNAPSHOT_MAX_ENTRIES,
-                    ...skipStats,
-                });
-            }
-        } catch (e) {}
         return out;
     }
 
@@ -2522,55 +2519,25 @@
     async function __tmLoadTaskSnapshotForScope(options = {}) {
         try {
             const opts = (options && typeof options === 'object') ? options : {};
+            const scopeKey = __tmBuildTaskSnapshotScopeKey(opts.docIds, opts.groupId || 'all');
             if (opts.cachedOnly && !__tmTaskSnapshotStoreCache) {
                 __tmScheduleWarmTaskSnapshotStore(1800);
-                __tmLogTaskSnapshot('scope-miss', {
-                    reason: 'cached-store-empty',
-                    cachedOnly: 1,
-                    groupId: String(opts.groupId || 'all').trim() || 'all',
-                    docCount: __tmNormalizeTaskSnapshotDocIds(opts.docIds || []).length,
-                });
                 return null;
             }
             const store = opts.cachedOnly
                 ? __tmTaskSnapshotStoreCache
                 : await __tmLoadTaskSnapshotStore();
-            const scopeKey = __tmBuildTaskSnapshotScopeKey(opts.docIds, opts.groupId || 'all');
             const snapshot = store?.snapshots?.[scopeKey];
             const valid = __tmValidateTaskSnapshotForScope(snapshot, options);
             if (!valid) {
-                __tmLogTaskSnapshot('scope-miss', {
-                    reason: snapshot ? 'invalid-scope' : 'not-found',
-                    cachedOnly: opts.cachedOnly ? 1 : 0,
-                    groupId: String(opts.groupId || 'all').trim() || 'all',
-                    docCount: __tmNormalizeTaskSnapshotDocIds(opts.docIds || []).length,
-                    storeEntryCount: Object.keys(store?.snapshots || {}).length,
-                });
                 return null;
             }
             const materialized = __tmMaterializeTaskSnapshotRecord(snapshot, store);
             if (!materialized || !__tmValidateTaskSnapshotForScope(materialized, options)) {
-                __tmLogTaskSnapshot('scope-miss', {
-                    reason: 'missing-pooled-data',
-                    cachedOnly: opts.cachedOnly ? 1 : 0,
-                    groupId: String(opts.groupId || 'all').trim() || 'all',
-                    docCount: __tmNormalizeTaskSnapshotDocIds(opts.docIds || []).length,
-                    storeEntryCount: Object.keys(store?.snapshots || {}).length,
-                });
                 return null;
             }
-            __tmLogTaskSnapshot('scope-hit', {
-                cachedOnly: opts.cachedOnly ? 1 : 0,
-                groupId: String(materialized?.groupId || opts.groupId || 'all').trim() || 'all',
-                docCount: Array.isArray(materialized?.docIds) ? materialized.docIds.length : 0,
-                ageMs: Math.max(0, Date.now() - Number(materialized?.createdAt || 0)),
-                dataMode: String(snapshot?.dataMode || ''),
-            });
             return materialized;
         } catch (e) {
-            __tmLogTaskSnapshot('scope-error', {
-                error: String(e?.message || e || '').trim() || 'load-failed',
-            });
             return null;
         }
     }
@@ -2579,11 +2546,6 @@
         try {
             const gid = String(groupId || 'all').trim() || 'all';
             const snapshots = Object.values(store?.snapshots || {});
-            const groups = Array.from(new Set(snapshots.map((snap) => String(
-                snap?.groupId
-                || String(snap?.scopeKey || '').split('|')[0]
-                || 'all'
-            ).trim() || 'all'))).slice(0, 12);
             const items = snapshots
                 .filter((snap) => {
                     if (!__tmIsUsableTaskSnapshot(snap)) return false;
@@ -2604,21 +2566,8 @@
                 materialized = next;
                 break;
             }
-            __tmLogTaskSnapshot(materialized ? 'latest-hit' : 'latest-miss', {
-                groupId: gid,
-                storeEntryCount: snapshots.length,
-                matchingCount: items.length,
-                groups,
-                ageMs: selected ? Math.max(0, Date.now() - Number(selected?.createdAt || 0)) : 0,
-                docCount: materialized && Array.isArray(materialized?.docIds) ? materialized.docIds.length : 0,
-                dataMode: String(selected?.dataMode || ''),
-            });
             return materialized;
         } catch (e) {
-            __tmLogTaskSnapshot('latest-error', {
-                groupId: String(groupId || 'all').trim() || 'all',
-                error: String(e?.message || e || '').trim() || 'select-failed',
-            });
             return null;
         }
     }
@@ -2642,34 +2591,14 @@
                     const rawBytes = raw ? __tmEstimateJsonByteSize(raw) : 0;
                     const storeBytes = __tmEstimateJsonByteSize(store);
                     if (rawBytes > (storeBytes + 1024)) {
-                        __tmLogTaskSnapshot('store-compaction-scheduled', {
-                            rawBytes,
-                            storeBytes,
-                            savedBytes: Math.max(0, rawBytes - storeBytes),
-                            storeEntryCount: Object.keys(store?.snapshots || {}).length,
-                            pooledDocCount: Object.keys(store?.docs || {}).length,
-                        });
                         __tmScheduleIdleTask(async () => {
                             const latestMeta = await __tmPeekTaskSnapshotStoreVersionMeta({ cachedOnly: false });
                             const latestSignature = String(latestMeta?.versionSignature || '').trim();
                             const storeSignature = __tmGetTaskSnapshotStoreVersionSignature(store);
                             if (latestSignature && storeSignature && latestSignature !== storeSignature) {
-                                __tmLogTaskSnapshot('store-compaction-skip', {
-                                    reason: 'snapshot-file-changed',
-                                    latestSignature,
-                                    storeSignature,
-                                });
                                 return;
                             }
-                            const ok = await __tmWriteJsonFile(TASK_SNAPSHOT_FILE_PATH, store);
-                            __tmLogTaskSnapshot('store-compaction-done', {
-                                ok: ok ? 1 : 0,
-                                rawBytes,
-                                storeBytes,
-                                savedBytes: Math.max(0, rawBytes - storeBytes),
-                                storeEntryCount: Object.keys(store?.snapshots || {}).length,
-                                pooledDocCount: Object.keys(store?.docs || {}).length,
-                            });
+                            await __tmWriteJsonFile(TASK_SNAPSHOT_FILE_PATH, store);
                         }, 2200);
                     }
                 } catch (e) {}
@@ -2797,9 +2726,7 @@
     async function __tmLoadLatestTaskSnapshotForGroup(groupId = 'all', options = {}) {
         const opts = (options && typeof options === 'object') ? options : {};
         try {
-            if (opts.cachedOnly) {
-                return __tmSelectLatestTaskSnapshotForGroupFromStore(__tmTaskSnapshotStoreCache, groupId);
-            }
+            if (opts.cachedOnly) return __tmSelectLatestTaskSnapshotForGroupFromStore(__tmTaskSnapshotStoreCache, groupId);
             if (opts.checkRemote !== false) {
                 try { await __tmRefreshTaskSnapshotStoreCacheIfChanged({ source: 'latest-snapshot-for-group' }); } catch (e) {}
             }
@@ -2841,14 +2768,6 @@
         const flatTasks = __tmBuildFlatTasksFromTaskSnapshotTree(taskTree);
         const coverage = __tmGetTaskCountCoverageStatus(snap.docIds || [], Object.keys(flatTasks).length, options);
         if (!coverage.ok) {
-            __tmLogTaskSnapshot('restore-reject', {
-                reason: coverage.reason,
-                groupId: String(snap.groupId || options?.groupId || SettingsStore?.data?.currentGroupId || 'all').trim() || 'all',
-                docCount: Array.isArray(snap.docIds) ? snap.docIds.length : 0,
-                taskCount: coverage.actual,
-                expectedTaskCount: coverage.expected,
-                overageTolerance: coverage.overageTolerance,
-            });
             return null;
         }
         state.taskTree = taskTree;
@@ -2948,6 +2867,8 @@
             taskCompleteAt: String(source.taskCompleteAt || source.task_complete_at || '').trim(),
             tomatoHours: String(source.tomatoHours || source.tomato_hours || '').trim(),
             tomatoMinutes: String(source.tomatoMinutes || source.tomato_minutes || '').trim(),
+            tomatoCount: __tmNormalizeTomatoCountValue(source.tomatoCount || source.tomato_count || ''),
+            tomatoEstimateCount: __tmNormalizeTomatoCountValue(source.tomatoEstimateCount || source.tomato_estimate_count || source.tomatoEstimate || ''),
             docName: __tmCompactTaskIndexText(source.docName || source.rawDocName || source.doc_name || doc?.name || '', 180),
             blockPath: __tmCompactTaskIndexText(source.blockPath || source.block_path || source.hPath || '', 800),
             docSeq: Number.isFinite(Number(source.docSeq ?? source.doc_seq)) ? Number(source.docSeq ?? source.doc_seq) : undefined,
@@ -3074,6 +2995,10 @@
             tomato_hours: String(item.tomatoHours || '').trim(),
             tomatoMinutes: String(item.tomatoMinutes || '').trim(),
             tomato_minutes: String(item.tomatoMinutes || '').trim(),
+            tomatoCount: __tmNormalizeTomatoCountValue(item.tomatoCount || ''),
+            tomato_count: __tmNormalizeTomatoCountValue(item.tomatoCount || ''),
+            tomatoEstimateCount: __tmNormalizeTomatoCountValue(item.tomatoEstimateCount || ''),
+            tomato_estimate_count: __tmNormalizeTomatoCountValue(item.tomatoEstimateCount || ''),
             docSeq: Number.isFinite(Number(item.docSeq)) ? Number(item.docSeq) : Number.POSITIVE_INFINITY,
             doc_seq: Number.isFinite(Number(item.docSeq)) ? Number(item.docSeq) : Number.POSITIVE_INFINITY,
             h2: String(item.h2 || '').trim(),
@@ -4767,7 +4692,7 @@
     }
 
     function __tmGetKnownColumnKeys() {
-        return new Set(__tmGetDefaultColumnOrder());
+        return new Set(__tmGetAllColumnDefs().map((def) => String(def?.key || '').trim()).filter(Boolean));
     }
 
     function __tmResolveColumnLabel(key) {
@@ -4784,8 +4709,7 @@
         if (raw === 'completionTime') return '截止日期';
         if (raw === 'taskCompleteAt') return '完成时间';
         if (raw === 'remainingTime') return '剩余时间';
-        if (raw === 'duration') return '时长';
-        if (raw === 'spent') return '耗时';
+        if (raw === 'tomatoSummary') return '专注';
         if (raw === 'remark') return '备注';
         if (raw === 'attachments') return '附件';
         const fieldId = __tmParseCustomFieldColumnKey(raw);
@@ -4807,8 +4731,7 @@
             { key: 'completionTime', label: '截止日期', kind: 'builtin' },
             { key: 'taskCompleteAt', label: '完成时间', kind: 'builtin' },
             { key: 'remainingTime', label: '剩余时间', kind: 'builtin' },
-            { key: 'duration', label: '时长', kind: 'builtin' },
-            { key: 'spent', label: '耗时', kind: 'builtin' },
+            { key: 'tomatoSummary', label: '专注', kind: 'builtin' },
             { key: 'remark', label: '备注', kind: 'builtin' },
             { key: 'attachments', label: '附件', kind: 'builtin' },
         ];
@@ -5235,6 +5158,8 @@
             const dbHasAllDayBottom = isValidValue(task.allDayBottom) || isValidValue(task.custom_all_day_bottom);
             const dbHasMilestone = isValidValue(task.milestone);
             const dbHasDuration = isValidValue(task.duration);
+            const dbHasTomatoEstimateCount = isValidValue(task.tomatoEstimateCount) || isValidValue(task.tomato_estimate_count);
+            const dbHasTomatoCount = isValidValue(task.tomatoCount) || isValidValue(task.tomato_count);
             const dbHasRemark = isValidValue(task.remark);
             const dbHasCompletionTime = isValidValue(task.completionTime) || isValidValue(task.completion_time);
             const dbHasTaskCompleteAt = isValidValue(task.taskCompleteAt) || isValidValue(task.task_complete_at);
@@ -5268,6 +5193,14 @@
         }
         if (!dbHasMilestone && 'milestone' in v && isValidValue(v.milestone)) task.milestone = v.milestone;
             if (!dbHasDuration && 'duration' in v && isValidValue(v.duration)) task.duration = v.duration;
+            if (!dbHasTomatoEstimateCount && 'tomatoEstimateCount' in v && isValidValue(v.tomatoEstimateCount)) {
+                task.tomatoEstimateCount = __tmNormalizeTomatoCountValue(v.tomatoEstimateCount);
+                task.tomato_estimate_count = task.tomatoEstimateCount;
+            }
+            if (!dbHasTomatoCount && 'tomatoCount' in v && isValidValue(v.tomatoCount)) {
+                task.tomatoCount = __tmNormalizeTomatoCountValue(v.tomatoCount);
+                task.tomato_count = task.tomatoCount;
+            }
             if (!dbHasRemark && 'remark' in v && isValidValue(v.remark)) task.remark = v.remark;
             if (!dbHasCompletionTime && allowVisibleDateFallback && 'completionTime' in v && isValidValue(v.completionTime)) task.completionTime = v.completionTime;
             if (!dbHasTaskCompleteAt && 'taskCompleteAt' in v && isValidValue(v.taskCompleteAt)) task.taskCompleteAt = v.taskCompleteAt;
@@ -5304,6 +5237,8 @@
             if (task.allDayBottom !== undefined) candidate.allDayBottom = task.allDayBottom;
             if (task.milestone !== undefined) candidate.milestone = task.milestone;
             if (task.duration) candidate.duration = task.duration;
+            if (task.tomatoEstimateCount) candidate.tomatoEstimateCount = __tmNormalizeTomatoCountValue(task.tomatoEstimateCount);
+            if (task.tomatoCount) candidate.tomatoCount = __tmNormalizeTomatoCountValue(task.tomatoCount);
             if (task.remark) candidate.remark = task.remark;
             if (task.completionTime) candidate.completionTime = task.completionTime;
             if (task.taskCompleteAt) candidate.taskCompleteAt = task.taskCompleteAt;
@@ -5638,6 +5573,8 @@
             tomatoSpentAttrMode: 'minutes',
             tomatoSpentAttrKeyMinutes: 'custom-tomato-minutes',
             tomatoSpentAttrKeyHours: 'custom-tomato-time',
+            tomatoCountAttrKey: 'custom-tomato-count',
+            tomatoEstimateAttrKey: 'custom-tomato-estimate-count',
             calendarEnabled: true,
             calendarLinkDockTomato: true,
             calendarInitialView: 'timeGridWeek',
@@ -5668,7 +5605,7 @@
             calendarSidebarWidth: 280,
             calendarSidebarDefaultPage: 'calendar',
             calendarSidebarCollapsedDesktopDefault: false,
-            calendarColumnWidths: { content: 140, duration: 60, spent: 60 },
+            calendarColumnWidths: { content: 140, tomatoSummary: 112 },
             calendarSidebarCollapseCalendars: false,
             calendarSidebarCollapseDocGroups: false,
             calendarSidebarCollapseTomato: false,
@@ -5841,7 +5778,7 @@
             enableGroupTaskBgByGroupColor: true,
             enableQuickbarInlineMeta: false,
             quickbarInlineFields: ['custom-status', 'custom-completion-time'],
-            quickbarVisibleItems: ['custom-status', 'custom-priority', 'custom-start-date', 'custom-completion-time', 'custom-duration', 'custom-remark', 'action-ai-title', 'action-reminder', 'action-more'],
+            quickbarVisibleItems: ['custom-status', 'custom-priority', 'custom-start-date', 'custom-completion-time', 'custom-focus-summary', 'custom-remark', 'action-ai-title', 'action-reminder', 'action-more'],
             quickbarInlineShowOnMobile: false,
             quickbarSubtaskCountUnfinishedOnly: false,
             priorityScoreConfig: {
@@ -6198,6 +6135,8 @@
                                 if (typeof cloudData.tomatoSpentAttrMode === 'string') this.data.tomatoSpentAttrMode = cloudData.tomatoSpentAttrMode;
                                 if (typeof cloudData.tomatoSpentAttrKeyMinutes === 'string') this.data.tomatoSpentAttrKeyMinutes = cloudData.tomatoSpentAttrKeyMinutes;
                                 if (typeof cloudData.tomatoSpentAttrKeyHours === 'string') this.data.tomatoSpentAttrKeyHours = cloudData.tomatoSpentAttrKeyHours;
+                                if (typeof cloudData.tomatoCountAttrKey === 'string') this.data.tomatoCountAttrKey = cloudData.tomatoCountAttrKey;
+                                if (typeof cloudData.tomatoEstimateAttrKey === 'string') this.data.tomatoEstimateAttrKey = cloudData.tomatoEstimateAttrKey;
                                 if (typeof cloudData.calendarEnabled === 'boolean') this.data.calendarEnabled = cloudData.calendarEnabled;
                                 if (typeof cloudData.calendarLinkDockTomato === 'boolean') this.data.calendarLinkDockTomato = cloudData.calendarLinkDockTomato;
                                 if (typeof cloudData.calendarInitialView === 'string') this.data.calendarInitialView = cloudData.calendarInitialView;
@@ -6616,6 +6555,8 @@
             this.data.tomatoSpentAttrMode = Storage.get('tm_tomato_spent_attr_mode', 'minutes');
             this.data.tomatoSpentAttrKeyMinutes = Storage.get('tm_tomato_spent_attr_key_minutes', this.data.tomatoSpentAttrKeyMinutes);
             this.data.tomatoSpentAttrKeyHours = Storage.get('tm_tomato_spent_attr_key_hours', this.data.tomatoSpentAttrKeyHours);
+            this.data.tomatoCountAttrKey = Storage.get('tm_tomato_count_attr_key', this.data.tomatoCountAttrKey);
+            this.data.tomatoEstimateAttrKey = Storage.get('tm_tomato_estimate_attr_key', this.data.tomatoEstimateAttrKey);
             this.data.calendarEnabled = Storage.get('tm_calendar_enabled', this.data.calendarEnabled);
             this.data.calendarLinkDockTomato = Storage.get('tm_calendar_link_docktomato', this.data.calendarLinkDockTomato);
             this.data.calendarInitialView = Storage.get('tm_calendar_initial_view', this.data.calendarInitialView);
@@ -6784,11 +6725,12 @@
             this.data.dockChecklistCompactMetaFields = __tmNormalizeCompactChecklistMetaFields(this.data.dockChecklistCompactMetaFields);
             this.data.mobileChecklistCompactMetaFields = __tmNormalizeCompactChecklistMetaFields(this.data.mobileChecklistCompactMetaFields, this.data.dockChecklistCompactMetaFields);
             {
-                const allowInlineFields = new Set(['custom-status', 'custom-completion-time', 'taskCompleteAt', 'subtask-count', 'custom-priority', 'custom-start-date', 'custom-duration', 'custom-remark']);
+                const allowInlineFields = new Set(['custom-status', 'custom-completion-time', 'taskCompleteAt', 'subtask-count', 'custom-priority', 'custom-start-date', 'custom-focus-summary', 'custom-tomato-estimate-count', 'custom-tomato-count', 'custom-remark']);
                 const rawInlineFields = Array.isArray(this.data.quickbarInlineFields) ? this.data.quickbarInlineFields : ['custom-status', 'custom-completion-time'];
                 const seenInlineFields = new Set();
                 this.data.quickbarInlineFields = rawInlineFields.map((v) => {
-                    const key = String(v || '').trim();
+                    const rawKey = String(v || '').trim();
+                    const key = rawKey === 'custom-duration' ? 'custom-focus-summary' : rawKey;
                     const customFieldId = __tmParseCustomFieldColumnKey(key);
                     return customFieldId ? `customField:${customFieldId}` : key;
                 }).filter((v) => {
@@ -6799,11 +6741,12 @@
                 if (!this.data.quickbarInlineFields.length) this.data.quickbarInlineFields = ['custom-status', 'custom-completion-time'];
             }
             {
-                const allowQuickbarVisibleItems = new Set(['custom-status', 'custom-priority', 'custom-start-date', 'custom-completion-time', 'taskCompleteAt', 'custom-duration', 'custom-remark', 'action-ai-title', 'action-reminder', 'action-more']);
-                const rawQuickbarVisibleItems = Array.isArray(this.data.quickbarVisibleItems) ? this.data.quickbarVisibleItems : ['custom-status', 'custom-priority', 'custom-start-date', 'custom-completion-time', 'custom-duration', 'custom-remark', 'action-ai-title', 'action-reminder', 'action-more'];
+                const allowQuickbarVisibleItems = new Set(['custom-status', 'custom-priority', 'custom-start-date', 'custom-completion-time', 'taskCompleteAt', 'custom-focus-summary', 'custom-tomato-estimate-count', 'custom-tomato-count', 'custom-remark', 'action-ai-title', 'action-reminder', 'action-more']);
+                const rawQuickbarVisibleItems = Array.isArray(this.data.quickbarVisibleItems) ? this.data.quickbarVisibleItems : ['custom-status', 'custom-priority', 'custom-start-date', 'custom-completion-time', 'custom-focus-summary', 'custom-remark', 'action-ai-title', 'action-reminder', 'action-more'];
                 const seenQuickbarVisibleItems = new Set();
                 this.data.quickbarVisibleItems = rawQuickbarVisibleItems.map((v) => {
-                    const key = String(v || '').trim();
+                    const rawKey = String(v || '').trim();
+                    const key = rawKey === 'custom-duration' ? 'custom-focus-summary' : rawKey;
                     const customFieldId = __tmParseCustomFieldColumnKey(key);
                     return customFieldId ? `customField:${customFieldId}` : key;
                 }).filter((v) => {
@@ -6996,7 +6939,7 @@
             Storage.set('tm_task_done_delight_enabled', !!this.data.taskDoneDelightEnabled);
             Storage.set('tm_enable_move_block_to_daily_note', !!this.data.enableMoveBlockToDailyNote);
             Storage.set('tm_quickbar_inline_fields', Array.isArray(this.data.quickbarInlineFields) ? this.data.quickbarInlineFields : ['custom-status', 'custom-completion-time']);
-            Storage.set('tm_quickbar_visible_items', Array.isArray(this.data.quickbarVisibleItems) ? this.data.quickbarVisibleItems : ['custom-status', 'custom-priority', 'custom-start-date', 'custom-completion-time', 'custom-duration', 'custom-remark', 'action-ai-title', 'action-reminder', 'action-more']);
+            Storage.set('tm_quickbar_visible_items', Array.isArray(this.data.quickbarVisibleItems) ? this.data.quickbarVisibleItems : ['custom-status', 'custom-priority', 'custom-start-date', 'custom-completion-time', 'custom-focus-summary', 'custom-remark', 'action-ai-title', 'action-reminder', 'action-more']);
             Storage.set('tm_quickbar_inline_show_on_mobile', !!this.data.quickbarInlineShowOnMobile);
             Storage.set('tm_quickbar_subtask_count_unfinished_only', !!this.data.quickbarSubtaskCountUnfinishedOnly);
             Storage.set('tm_pin_new_tasks_by_default', !!this.data.pinNewTasksByDefault);
@@ -7027,6 +6970,8 @@
             Storage.set('tm_tomato_spent_attr_mode', String(this.data.tomatoSpentAttrMode || 'minutes'));
             Storage.set('tm_tomato_spent_attr_key_minutes', String(this.data.tomatoSpentAttrKeyMinutes || '').trim());
             Storage.set('tm_tomato_spent_attr_key_hours', String(this.data.tomatoSpentAttrKeyHours || '').trim());
+            Storage.set('tm_tomato_count_attr_key', String(this.data.tomatoCountAttrKey || '').trim());
+            Storage.set('tm_tomato_estimate_attr_key', String(this.data.tomatoEstimateAttrKey || '').trim());
             Storage.set('tm_calendar_enabled', !!this.data.calendarEnabled);
             Storage.set('tm_calendar_link_docktomato', !!this.data.calendarLinkDockTomato);
             Storage.set('tm_calendar_initial_view', String(this.data.calendarInitialView || 'timeGridWeek').trim() || 'timeGridWeek');
@@ -8092,6 +8037,8 @@
                 { value: 'created', label: '创建时间', type: 'datetime' },
                 { value: 'updated', label: '更新时间', type: 'datetime' },
                 { value: 'duration', label: '任务时长', type: 'text' },
+                { value: 'tomatoEstimateCount', label: '预计番茄', type: 'number' },
+                { value: 'tomatoCount', label: '实际番茄', type: 'number' },
                 { value: 'remark', label: '备注', type: 'text' },
                 { value: 'docName', label: '文档名称', type: 'text' },
                 { value: 'level', label: '任务层级', type: 'number' }
@@ -8152,6 +8099,8 @@
             if (customFieldId) result = __tmGetTaskCustomFieldValue(task, customFieldId);
             else if (key === 'customStatus') result = __tmResolveTaskStatusId(task, fieldInfo?.statusOptions || null);
             else if (key === 'priorityScore') result = __tmEnsureTaskPriorityScore(task);
+            else if (key === 'tomatoEstimateCount') result = Number(__tmGetTaskTomatoEstimateCount(task) || 0);
+            else if (key === 'tomatoCount') result = Number(__tmGetTaskTomatoCount(task) || 0);
             else if (key === 'startDate') result = task?.startDate ?? task?.start_date;
             else if (key === 'completionTime') result = task?.completionTime ?? task?.completion_time;
             else if (key === 'taskCompleteAt') result = typeof __tmResolveTaskCompletedAtRaw === 'function'
@@ -8405,7 +8354,9 @@
                     const labels = { h1: '一级标题', h2: '二级标题', h3: '三级标题', h4: '四级标题', h5: '五级标题', h6: '六级标题' };
                     return labels[level] || '标题';
                 })() },
-                { value: 'duration', label: '任务时长' }
+                { value: 'duration', label: '任务时长' },
+                { value: 'tomatoEstimateCount', label: '预计番茄' },
+                { value: 'tomatoCount', label: '实际番茄' }
             ];
             __tmGetCustomFieldDefs().forEach((field) => {
                 const fieldId = String(field?.id || '').trim();
@@ -8703,6 +8654,7 @@
                 const kind = (() => {
                     if (field === 'priority') return 'priority';
                     if (field === 'priorityScore') return 'number';
+                    if (field === 'tomatoEstimateCount' || field === 'tomatoCount') return 'number';
                     if (isDurationSortField(field)) return 'duration';
                     if (field === 'docSeq') return 'docSeq';
                     if (field === 'customStatus') return 'customStatus';
@@ -9917,6 +9869,8 @@
         const tomatoEnabled = !!SettingsStore.data.enableTomatoIntegration;
         const tomatoMinutesKey = __tmSafeAttrName(SettingsStore.data.tomatoSpentAttrKeyMinutes, 'custom-tomato-minutes');
         const tomatoHoursKey = __tmSafeAttrName(SettingsStore.data.tomatoSpentAttrKeyHours, 'custom-tomato-time');
+        const tomatoCountKey = __tmSafeAttrName(SettingsStore.data.tomatoCountAttrKey, 'custom-tomato-count');
+        const tomatoEstimateKey = __tmSafeAttrName(SettingsStore.data.tomatoEstimateAttrKey, 'custom-tomato-estimate-count');
         const repeatInlineEnabled = __tmShouldReadRepeatAttrsInline();
         return [
             { name: 'custom-priority', alias: 'custom_priority', enabled: true },
@@ -9936,6 +9890,8 @@
             { name: __TM_TASK_ATTACHMENT_META_ATTR, alias: 'attachment_meta', enabled: true },
             { name: tomatoMinutesKey, alias: 'tomato_minutes', enabled: tomatoEnabled },
             { name: tomatoHoursKey, alias: 'tomato_hours', enabled: tomatoEnabled },
+            { name: tomatoCountKey, alias: 'tomato_count', enabled: tomatoEnabled },
+            { name: tomatoEstimateKey, alias: 'tomato_estimate_count', enabled: tomatoEnabled },
         ];
     }
 
@@ -10258,6 +10214,20 @@
             if (shouldApply(target.tomatoHours, target.tomato_hours)) {
                 target.tomato_hours = value;
                 target.tomatoHours = value;
+            }
+        }
+        if (Object.prototype.hasOwnProperty.call(row, String(__tmSafeAttrName(SettingsStore.data.tomatoCountAttrKey, 'custom-tomato-count')))) {
+            const value = __tmNormalizeTomatoCountValue(row[__tmSafeAttrName(SettingsStore.data.tomatoCountAttrKey, 'custom-tomato-count')] ?? '');
+            if (shouldApply(target.tomatoCount, target.tomato_count)) {
+                target.tomato_count = value;
+                target.tomatoCount = value;
+            }
+        }
+        if (Object.prototype.hasOwnProperty.call(row, String(__tmSafeAttrName(SettingsStore.data.tomatoEstimateAttrKey, 'custom-tomato-estimate-count')))) {
+            const value = __tmNormalizeTomatoCountValue(row[__tmSafeAttrName(SettingsStore.data.tomatoEstimateAttrKey, 'custom-tomato-estimate-count')] ?? '');
+            if (shouldApply(target.tomatoEstimateCount, target.tomato_estimate_count)) {
+                target.tomato_estimate_count = value;
+                target.tomatoEstimateCount = value;
             }
         }
         if (Object.keys(row).some((key) => __tmIsTaskAttachmentAttrKey(key))) {
@@ -12328,6 +12298,8 @@
             ['completionTime', ['completionTime', 'completion_time']],
             ['taskCompleteAt', ['taskCompleteAt', 'task_complete_at']],
             ['duration', ['duration']],
+            ['tomatoEstimateCount', ['tomatoEstimateCount', 'tomato_estimate_count']],
+            ['tomatoCount', ['tomatoCount', 'tomato_count']],
             ['customTime', ['customTime', 'custom_time']],
             ['remark', ['remark']],
         ];
@@ -12354,8 +12326,8 @@
         const viewMode = String(state.viewMode || '').trim();
         if (viewMode === 'calendar') return false;
         const supportedByView = {
-            list: new Set(['content', 'done', 'customStatus', 'priority', 'pinned', 'startDate', 'completionTime', 'taskCompleteAt', 'duration', 'customTime', 'remark', 'attachments']),
-            checklist: new Set(['content', 'done', 'customStatus', 'priority', 'pinned', 'startDate', 'completionTime', 'taskCompleteAt', 'duration', 'customTime', 'remark', 'attachments']),
+            list: new Set(['content', 'done', 'customStatus', 'priority', 'pinned', 'startDate', 'completionTime', 'taskCompleteAt', 'duration', 'tomatoSummary', 'tomatoEstimateCount', 'tomatoCount', 'customTime', 'remark', 'attachments']),
+            checklist: new Set(['content', 'done', 'customStatus', 'priority', 'pinned', 'startDate', 'completionTime', 'taskCompleteAt', 'duration', 'tomatoSummary', 'tomatoEstimateCount', 'tomatoCount', 'customTime', 'remark', 'attachments']),
             timeline: new Set(['content', 'done', 'startDate', 'completionTime']),
             kanban: new Set(['content', 'done', 'customStatus', 'priority', 'startDate', 'completionTime', 'remark']),
             whiteboard: new Set(['content', 'done', 'startDate', 'completionTime']),
@@ -12836,77 +12808,30 @@
 
     function __tmSchedulePersistTaskSnapshot(options = {}) {
         const opts = (options && typeof options === 'object') ? options : {};
-        const groupIdForLog = String(opts.groupId || SettingsStore?.data?.currentGroupId || 'all').trim() || 'all';
-        const activeDocIdForLog = String(opts.activeDocId || state?.activeDocId || 'all').trim() || 'all';
-        if (opts.forceFullLoadBudget === true) {
-            __tmLogTaskSnapshot('save-skip', {
-                reason: 'force-full-load-budget',
-                groupId: groupIdForLog,
-            });
-            return false;
-        }
+        const groupId = String(opts.groupId || SettingsStore?.data?.currentGroupId || 'all').trim() || 'all';
+        const activeDocId = String(opts.activeDocId || state?.activeDocId || 'all').trim() || 'all';
+        if (opts.forceFullLoadBudget === true) return false;
         const docIds = __tmNormalizeTaskSnapshotDocIds(opts.docIds || state.__tmLoadedDocIdsForTasks || []);
-        if (!docIds.length) {
-            __tmLogTaskSnapshot('save-skip', {
-                reason: 'empty-docs',
-                groupId: groupIdForLog,
-            });
-            return false;
-        }
-        if (!Array.isArray(state.taskTree) || state.taskTree.length === 0) {
-            __tmLogTaskSnapshot('save-skip', {
-                reason: 'empty-task-tree',
-                groupId: groupIdForLog,
-                docCount: docIds.length,
-            });
-            return false;
-        }
+        if (!docIds.length) return false;
+        if (!Array.isArray(state.taskTree) || state.taskTree.length === 0) return false;
         try {
             const flatTasks = __tmBuildFlatTasksFromTaskSnapshotTree(state.taskTree);
             const taskCount = Object.keys(flatTasks).length;
             const coverage = __tmGetTaskCountCoverageStatus(docIds, taskCount, opts);
-            if (!coverage.ok) {
-                __tmLogTaskSnapshot('save-skip', {
-                    reason: coverage.reason,
-                    groupId: groupIdForLog,
-                    docCount: docIds.length,
-                    taskCount: coverage.actual,
-                    expectedTaskCount: coverage.expected,
-                    overageTolerance: coverage.overageTolerance,
-                });
-                return false;
-            }
+            if (!coverage.ok) return false;
         } catch (e) {}
-        if (state.__tmCacheFirstPaintNeedsVerify && opts.allowCacheFirstPaintPersist !== true) {
-            __tmLogTaskSnapshot('save-skip', {
-                reason: 'cache-first-paint-needs-verify',
-                groupId: groupIdForLog,
-                docCount: docIds.length,
-            });
-            return false;
-        }
+        if (state.__tmCacheFirstPaintNeedsVerify && opts.allowCacheFirstPaintPersist !== true) return false;
         try {
             if (__tmTaskSnapshotSaveTimer) clearTimeout(__tmTaskSnapshotSaveTimer);
         } catch (e) {}
         const delayMs = Math.max(200, Number(opts.delayMs || 900) || 900);
-        const scheduledGroupId = groupIdForLog;
+        const scheduledGroupId = groupId;
         const scheduledDocKey = docIds.join(',');
-        const scheduledActiveDocId = activeDocIdForLog;
-        const scheduledOpenToken = Number(state.openToken) || 0;
-        __tmLogTaskSnapshot('save-scheduled', {
-            groupId: groupIdForLog,
-            docCount: docIds.length,
-            delayMs,
-        });
+        const scheduledActiveDocId = activeDocId;
         __tmTaskSnapshotSaveTimer = setTimeout(() => {
             __tmTaskSnapshotSaveTimer = null;
             const runSave = () => {
                 if (__tmTaskSnapshotSaveInFlight) {
-                    __tmLogTaskSnapshot('save-rescheduled', {
-                        reason: 'in-flight',
-                        groupId: groupIdForLog,
-                        docCount: docIds.length,
-                    });
                     __tmSchedulePersistTaskSnapshot({ ...opts, delayMs: 1200 });
                     return;
                 }
@@ -12924,21 +12849,15 @@
                         || currentActiveDocId !== scheduledActiveDocId
                         || (currentLoadedDocKey && currentLoadedDocKey !== scheduledDocKey)
                         || hasUnexpectedTreeDoc) {
-                        __tmLogTaskSnapshot('save-skip', {
-                            reason: 'stale-state',
-                            groupId: scheduledGroupId,
-                            currentGroupId,
-                            currentActiveDocId,
-                            docCount: docIds.length,
-                            currentLoadedDocCount: currentLoadedDocKey ? currentLoadedDocKey.split(',').filter(Boolean).length : 0,
-                            currentTreeDocCount: currentTreeDocIds.length,
-                            unexpectedTreeDocCount: hasUnexpectedTreeDoc
-                                ? currentTreeDocIds.filter((docId) => !scheduledDocSet.has(docId)).length
-                                : 0,
-                            scheduledOpenToken,
-                            currentOpenToken: Number(state.openToken) || 0,
-                        });
                         return;
+                    }
+                    if (opts.refreshViewStateBeforeSave !== false) {
+                        try { __tmMergeLocalTaskPatchIntoTaskStateForSnapshot(); } catch (e) {}
+                        try {
+                            if (typeof applyFilters === 'function') {
+                                applyFilters();
+                            }
+                        } catch (e) {}
                     }
                     let payload = __tmBuildTaskSnapshotPayload({
                         docIds,
@@ -12954,50 +12873,16 @@
                     }) || payload;
                     const payloadFlatTasks = __tmBuildFlatTasksFromTaskSnapshotTree(Array.isArray(payload?.taskTree) ? payload.taskTree : []);
                     const payloadCoverage = __tmGetTaskCountCoverageStatus(payload?.docIds || docIds, Object.keys(payloadFlatTasks).length, opts);
-                    if (!payloadCoverage.ok) {
-                        __tmLogTaskSnapshot('save-skip', {
-                            reason: payloadCoverage.reason,
-                            groupId: String(payload?.groupId || groupIdForLog).trim() || 'all',
-                            docCount: Array.isArray(payload?.docIds) ? payload.docIds.length : docIds.length,
-                            taskDocCount: Array.isArray(payload?.taskTree) ? payload.taskTree.length : 0,
-                            otherBlockCount: Array.isArray(payload?.otherBlocks) ? payload.otherBlocks.length : 0,
-                            taskCount: payloadCoverage.actual,
-                            expectedTaskCount: payloadCoverage.expected,
-                            overageTolerance: payloadCoverage.overageTolerance,
-                        });
-                        return;
-                    }
+                    if (!payloadCoverage.ok) return;
                     const persistSignature = __tmBuildTaskSnapshotPersistSignature(payload);
                     const prevPersistSignature = String(__tmTaskSnapshotPersistSignatureCache.get(payload?.scopeKey) || '').trim();
-                    if (persistSignature && prevPersistSignature && persistSignature === prevPersistSignature) {
-                        __tmLogTaskSnapshot('save-skip', {
-                            reason: 'unchanged-signature',
-                            groupId: String(payload?.groupId || groupIdForLog).trim() || 'all',
-                            docCount: Array.isArray(payload?.docIds) ? payload.docIds.length : docIds.length,
-                            taskDocCount: Array.isArray(payload?.taskTree) ? payload.taskTree.length : 0,
-                            otherBlockCount: Array.isArray(payload?.otherBlocks) ? payload.otherBlocks.length : 0,
-                            hasViewState: payload?.viewState ? 1 : 0,
-                            viewStatesCount: payload?.viewStates && typeof payload.viewStates === 'object'
-                                ? Object.keys(payload.viewStates).length
-                                : 0,
-                        });
-                        return;
-                    }
+                    if (persistSignature && prevPersistSignature && persistSignature === prevPersistSignature) return;
                     const pooledPayloadPreview = __tmBuildTaskSnapshotRecordForStore(payload, {
                         docs: {},
                         otherBlockSets: {},
                     });
                     const payloadBytes = __tmEstimateJsonByteSize(pooledPayloadPreview || payload);
                     if (payloadBytes > __TM_TASK_SNAPSHOT_MAX_SINGLE_BYTES) {
-                        __tmLogTaskSnapshot('save-skip', {
-                            reason: 'payload-too-large',
-                            groupId: String(payload?.groupId || groupIdForLog).trim() || 'all',
-                            docCount: Array.isArray(payload?.docIds) ? payload.docIds.length : docIds.length,
-                            taskDocCount: Array.isArray(payload?.taskTree) ? payload.taskTree.length : 0,
-                            otherBlockCount: Array.isArray(payload?.otherBlocks) ? payload.otherBlocks.length : 0,
-                            bytes: payloadBytes,
-                            maxBytes: __TM_TASK_SNAPSHOT_MAX_SINGLE_BYTES,
-                        });
                         try {
                             __tmTaskSnapshotStoreCache = store;
                             await __tmWriteJsonFile(TASK_SNAPSHOT_FILE_PATH, store);
@@ -13014,30 +12899,8 @@
                     if (persistSignature) {
                         try { __tmTaskSnapshotPersistSignatureCache.set(payload.scopeKey, persistSignature); } catch (e) {}
                     }
-                    __tmLogTaskSnapshot('save-done', {
-                        groupId: String(payload?.groupId || groupIdForLog).trim() || 'all',
-                        docCount: Array.isArray(payload?.docIds) ? payload.docIds.length : docIds.length,
-                        taskDocCount: Array.isArray(payload?.taskTree) ? payload.taskTree.length : 0,
-                        otherBlockCount: Array.isArray(payload?.otherBlocks) ? payload.otherBlocks.length : 0,
-                        bytes: payloadBytes,
-                        hasViewState: payload?.viewState ? 1 : 0,
-                        viewStatesCount: payload?.viewStates && typeof payload.viewStates === 'object'
-                            ? Object.keys(payload.viewStates).length
-                            : 0,
-                        storeEntryCount: Object.keys(nextStore?.snapshots || {}).length,
-                        storeBytes: __tmEstimateJsonByteSize(nextStore),
-                        pooledDocCount: Object.keys(nextStore?.docs || {}).length,
-                        pooledOtherBlockSetCount: Object.keys(nextStore?.otherBlockSets || {}).length,
-                        dataMode: String(nextStore?.snapshots?.[payload.scopeKey]?.dataMode || ''),
-                        maxEntries: __TM_TASK_SNAPSHOT_MAX_ENTRIES,
-                    });
                     })
-                    .catch((e) => {
-                    __tmLogTaskSnapshot('save-error', {
-                        groupId: groupIdForLog,
-                        error: String(e?.message || e || '').trim() || 'save-failed',
-                    });
-                    })
+                    .catch(() => {})
                     .finally(() => {
                     __tmTaskSnapshotSaveInFlight = false;
                     });

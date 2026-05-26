@@ -1207,7 +1207,8 @@
         const startValue = __tmNormalizeDateOnly(taskStartDateValue);
         const endValue = __tmNormalizeDateOnly(taskCompletionTimeValue);
         const durationValue = String(task?.duration || '').trim();
-        const spentValue = __tmGetTaskSpentDisplay(task);
+        const tomatoEstimateValue = __tmGetTaskTomatoEstimateCount(task);
+        const focusSummaryValue = __tmGetTaskTomatoSummaryText(task);
         const remarkValue = __tmNormalizeRemarkMarkdown(task?.remark || '');
         const cleanDetailTitle = (value, fallback = '') => {
             const stripTaskSyntax = (input) => String(input || '')
@@ -1379,12 +1380,10 @@
                         </button>
                         ${__tmBuildTaskCompleteAtDetailChipHtml(task, detailTip)}
                         <input type="hidden" data-tm-detail="duration" value="${esc(durationValue)}">
-                        <button type="button" class="bc-btn bc-btn--sm tm-task-detail-core-chip ${durationValue ? 'has-value' : ''}" data-tm-detail-duration-trigger${detailTip('时长', { ariaLabel: false })}>
-                            <span class="tm-task-detail-core-chip__face" data-tm-detail-chip-face="duration">${__tmBuildTaskDetailCoreChipFace('duration', durationValue)}</span>
+                        <input type="hidden" data-tm-detail="tomatoEstimateCount" value="${esc(tomatoEstimateValue)}">
+                        <button type="button" class="bc-btn bc-btn--sm tm-task-detail-core-chip ${focusSummaryValue ? 'has-value' : ''}" data-tm-detail-focus-summary-trigger${detailTip('时长与番茄', { ariaLabel: false })}>
+                            <span class="tm-task-detail-core-chip__face" data-tm-detail-chip-face="tomatoSummary">${__tmBuildTaskDetailCoreChipFace('tomatoSummary', task)}</span>
                         </button>
-                        ${spentValue ? `<div class="bc-btn bc-btn--sm tm-task-detail-core-chip tm-task-detail-core-chip--static has-value"${detailTip('耗时', { ariaLabel: false })}>
-                            <span class="tm-task-detail-core-chip__face" data-tm-detail-chip-face="spent">${__tmBuildTaskDetailCoreChipFace('spent', spentValue)}</span>
-                        </div>` : ''}
                         <input type="hidden" data-tm-detail="pinned" value="${curPinned ? '1' : ''}">
                     </div>
                     ${customFieldsHtml}
@@ -1916,6 +1915,14 @@
             const startValue = readHiddenInputValue('startDate');
             const endValue = readHiddenInputValue('completionTime');
             const durationValue = readHiddenInputValue('duration');
+            const tomatoEstimateValue = readHiddenInputValue('tomatoEstimateCount');
+            const focusTaskLike = {
+                ...(getBoundTask() || {}),
+                duration: durationValue,
+                tomatoEstimateCount: tomatoEstimateValue,
+                tomato_estimate_count: tomatoEstimateValue,
+            };
+            const focusSummaryValue = __tmGetTaskTomatoSummaryText(focusTaskLike);
             const pinned = readPinnedValue();
 
             const startFace = root.querySelector('[data-tm-detail-chip-face="startDate"]');
@@ -1928,10 +1935,10 @@
             const endBtn = root.querySelector('[data-tm-detail-date-trigger="completionTime"]');
             if (endBtn instanceof HTMLElement) endBtn.classList.toggle('has-value', !!endValue);
 
-            const durationFace = root.querySelector('[data-tm-detail-chip-face="duration"]');
-            if (durationFace instanceof HTMLElement) durationFace.innerHTML = __tmBuildTaskDetailCoreChipFace('duration', durationValue);
-            const durationBtn = root.querySelector('[data-tm-detail-duration-trigger]');
-            if (durationBtn instanceof HTMLElement) durationBtn.classList.toggle('has-value', !!durationValue);
+            const focusSummaryFace = root.querySelector('[data-tm-detail-chip-face="tomatoSummary"]');
+            if (focusSummaryFace instanceof HTMLElement) focusSummaryFace.innerHTML = __tmBuildTaskDetailCoreChipFace('tomatoSummary', focusTaskLike);
+            const focusSummaryBtn = root.querySelector('[data-tm-detail-focus-summary-trigger]');
+            if (focusSummaryBtn instanceof HTMLElement) focusSummaryBtn.classList.toggle('has-value', !!focusSummaryValue);
 
             syncRepeatChipFace();
             syncReminderChipFace();
@@ -1948,7 +1955,7 @@
         };
         const serializeFormState = (formState = null) => {
             const s = (formState && typeof formState === 'object') ? formState : collectFormState();
-            return JSON.stringify([s.nextContent, s.nextStatus, s.nextPriority, s.nextPinned, s.nextStart, s.nextEnd, s.nextDuration, s.nextRemark, s.nextCustomFieldTextValues]);
+            return JSON.stringify([s.nextContent, s.nextStatus, s.nextPriority, s.nextPinned, s.nextStart, s.nextEnd, s.nextDuration, s.nextTomatoEstimateCount, s.nextRemark, s.nextCustomFieldTextValues]);
         };
         const syncSerializedSnapshot = () => {
             try {
@@ -2070,6 +2077,26 @@
                     }) || nextTask;
                     setHiddenInputValue('duration', String(nextTask.duration || '').trim());
                     syncMetaChipFaces();
+                    break;
+                case __tmGetTomatoEstimateAttrKey():
+                case 'custom-tomato-estimate-count':
+                    nextTask.tomatoEstimateCount = __tmNormalizeTomatoCountValue(value);
+                    nextTask.tomato_estimate_count = nextTask.tomatoEstimateCount;
+                    nextTask = __tmCacheTaskInState(nextTask, {
+                        docNameFallback: nextTask.doc_name || nextTask.docName || '未命名文档'
+                    }) || nextTask;
+                    setHiddenInputValue('tomatoEstimateCount', nextTask.tomatoEstimateCount);
+                    syncMetaChipFaces();
+                    break;
+                case __tmGetTomatoCountAttrKey():
+                case 'custom-tomato-count':
+                    nextTask.tomatoCount = __tmNormalizeTomatoCountValue(value);
+                    nextTask.tomato_count = nextTask.tomatoCount;
+                    nextTask = __tmCacheTaskInState(nextTask, {
+                        docNameFallback: nextTask.doc_name || nextTask.docName || '未命名文档'
+                    }) || nextTask;
+                    syncMetaChipFaces();
+                    try { __tmRefreshVisibleTaskDetailForTask(String(nextTask.id || taskId || '').trim()); } catch (e) {}
                     break;
                 case __TM_TASK_REPEAT_RULE_ATTR:
                     nextTask.repeatRule = __tmNormalizeTaskRepeatRule(value, {
@@ -2226,6 +2253,7 @@
             const nextStart = normalize(root.querySelector('[data-tm-detail="startDate"]')?.value);
             const nextEnd = normalize(root.querySelector('[data-tm-detail="completionTime"]')?.value);
             const nextDuration = String(root.querySelector('[data-tm-detail="duration"]')?.value || '').trim();
+            const nextTomatoEstimateCount = __tmNormalizeTomatoCountValue(root.querySelector('[data-tm-detail="tomatoEstimateCount"]')?.value || '');
             const nextRemark = __tmNormalizeRemarkMarkdown(root.querySelector('[data-tm-detail="remark"]')?.value || '');
             const nextCustomFieldTextValues = collectCustomTextFieldValues();
             return {
@@ -2237,6 +2265,7 @@
                 nextStart,
                 nextEnd,
                 nextDuration,
+                nextTomatoEstimateCount,
                 nextRemark,
                 nextCustomFieldTextValues
             };
@@ -2250,6 +2279,7 @@
             const currentStart = String(task0.startDate || task0.start_date || '').trim();
             const currentEnd = String(task0.completionTime || task0.completion_time || '').trim();
             const currentDuration = String(task0.duration || '').trim();
+            const currentTomatoEstimateCount = __tmGetTaskTomatoEstimateCount(task0);
             const currentRemark = __tmNormalizeRemarkMarkdown(task0.remark || '');
 
             const metaPatch = {};
@@ -2280,6 +2310,10 @@
                 timePatch.duration = formState.nextDuration;
                 changedKeys.push('duration');
             }
+            if (formState.nextTomatoEstimateCount !== currentTomatoEstimateCount) {
+                metaPatch.tomatoEstimateCount = formState.nextTomatoEstimateCount;
+                changedKeys.push('tomatoEstimateCount');
+            }
             if (formState.nextRemark !== currentRemark) {
                 metaPatch.remark = formState.nextRemark;
                 changedKeys.push('remark');
@@ -2302,7 +2336,7 @@
             const pureTimeOnly = !contentChanged
                 && !statusChanged
                 && changedKeys.length > 0
-                && changedKeys.every((key) => key === 'startDate' || key === 'completionTime' || key === 'duration');
+                && changedKeys.every((key) => key === 'startDate' || key === 'completionTime' || key === 'duration' || key === 'tomatoEstimateCount');
 
             return {
                 contentChanged,
@@ -2330,6 +2364,7 @@
                 nextStart,
                 nextEnd,
                 nextDuration,
+                nextTomatoEstimateCount,
                 nextRemark,
                 nextCustomFieldTextValues
             } = formState;
@@ -2717,9 +2752,21 @@ if (!__tmIsCollectedOtherBlockTask(task) && diff.contentChanged) {
             const title = String(config.title || '').trim();
             const value = String(config.value || '').trim();
             const placeholder = String(config.placeholder || '').trim();
-            const durationPresets = mode === 'duration' ? __tmGetDurationPresetOptions() : [];
+            const isFocusSummary = mode === 'focus-summary';
+            const durationPresets = (mode === 'duration' || isFocusSummary) ? __tmGetDurationPresetOptions() : [];
+            const tomatoEstimateValue = __tmNormalizeTomatoCountValue(config.tomatoEstimateValue || '');
+            const actualTomatoValue = __tmNormalizeTomatoCountValue(config.actualTomatoValue || '');
+            const spentValue = String(config.spentValue || '').trim();
+            let focusSummaryMode = isFocusSummary
+                ? (value ? 'duration' : (tomatoEstimateValue ? 'tomato' : 'duration'))
+                : '';
+            const shouldSkipFocusSummaryAutoFocus = () => (
+                isFocusSummary
+                && typeof __tmIsMobileDevice === 'function'
+                && __tmIsMobileDevice()
+            );
             const popover = document.createElement('div');
-            popover.className = `tm-task-detail-inline-popover${mode === 'duration' && durationPresets.length ? ' tm-task-detail-inline-popover--duration' : ''}`;
+            popover.className = `tm-task-detail-inline-popover${mode === 'duration' && durationPresets.length ? ' tm-task-detail-inline-popover--duration' : ''}${isFocusSummary ? ' tm-task-detail-inline-popover--focus-summary' : ''}`;
             popover.innerHTML = `
                 ${title ? `<div class="tm-task-detail-inline-popover__title">${esc(title)}</div>` : ''}
                 ${mode === 'duration' && durationPresets.length ? `
@@ -2730,7 +2777,29 @@ if (!__tmIsCollectedOtherBlockTask(task) && diff.contentChanged) {
                         <div class="tm-duration-preset-helper">选预设或直接输入</div>
                     </div>
                 ` : ''}
-                <input class="tm-input tm-task-detail-inline-popover__input${mode === 'duration' ? ' tm-duration-editor-input' : ''}" data-tm-detail-inline-popover-input type="${mode === 'date' ? 'date' : 'text'}" value="${esc(value)}" ${placeholder ? `placeholder="${esc(placeholder)}"` : ''}>
+                ${isFocusSummary ? `
+                    <div class="tm-focus-summary-editor__tabs" role="tablist" aria-label="时长与番茄">
+                        <button type="button" class="${focusSummaryMode === 'duration' ? 'is-active' : ''}" data-tm-focus-summary-tab="duration" role="tab" aria-selected="${focusSummaryMode === 'duration' ? 'true' : 'false'}">预计时长</button>
+                        <button type="button" class="${focusSummaryMode === 'tomato' ? 'is-active' : ''}" data-tm-focus-summary-tab="tomato" role="tab" aria-selected="${focusSummaryMode === 'tomato' ? 'true' : 'false'}">预计番茄</button>
+                    </div>
+                    <div class="tm-focus-summary-editor__panel" data-tm-focus-summary-panel="duration" ${focusSummaryMode === 'duration' ? '' : 'hidden'}>
+                        ${durationPresets.length ? `
+                            <div class="tm-task-detail-inline-popover__section">
+                                <div class="tm-duration-preset-list tm-duration-preset-list--compact">
+                                    ${__tmBuildDurationPresetOptionsHtml(value, durationPresets)}
+                                </div>
+                            </div>
+                        ` : ''}
+                        <label class="tm-focus-summary-editor__field"><span>预计时长</span><input class="tm-input tm-task-detail-inline-popover__input tm-duration-editor-input" data-tm-detail-inline-popover-input data-tm-focus-duration type="text" value="${esc(value)}" placeholder="例如：30 或 30m"></label>
+                    </div>
+                    <div class="tm-focus-summary-editor__panel" data-tm-focus-summary-panel="tomato" ${focusSummaryMode === 'tomato' ? '' : 'hidden'}>
+                        <label class="tm-focus-summary-editor__field"><span>预计番茄</span><input class="tm-input tm-task-detail-inline-popover__input" data-tm-focus-estimate type="number" min="0" step="1" inputmode="numeric" value="${esc(tomatoEstimateValue)}" placeholder="空或整数"></label>
+                    </div>
+                    <div class="tm-focus-summary-editor__readonly">
+                        <span>实际番茄 <b class="tm-focus-summary-actual">${esc(actualTomatoValue || '0')}</b></span>
+                        <span>实际耗时 <b>${esc(spentValue || '0m')}</b></span>
+                    </div>
+                ` : `<input class="tm-input tm-task-detail-inline-popover__input${mode === 'duration' ? ' tm-duration-editor-input' : ''}" data-tm-detail-inline-popover-input type="${mode === 'date' ? 'date' : 'text'}" value="${esc(value)}" ${placeholder ? `placeholder="${esc(placeholder)}"` : ''}>`}
                 <div class="tm-task-detail-inline-popover__actions">
                     <button type="button" class="tm-btn tm-btn-secondary" data-tm-detail-inline-popover-clear>清空</button>
                     <button type="button" class="tm-btn tm-btn-primary" data-tm-detail-inline-popover-apply>确定</button>
@@ -2754,8 +2823,46 @@ if (!__tmIsCollectedOtherBlockTask(task) && diff.contentChanged) {
             try { __tmAnimatePopupIn(popover, { origin: 'top-left', duration: 150 }); } catch (e) {}
 
             const input = popover.querySelector('[data-tm-detail-inline-popover-input]');
+            const estimateInput = popover.querySelector('[data-tm-focus-estimate]');
             const clearBtn = popover.querySelector('[data-tm-detail-inline-popover-clear]');
             const applyBtn = popover.querySelector('[data-tm-detail-inline-popover-apply]');
+            const durationPanel = popover.querySelector('[data-tm-focus-summary-panel="duration"]');
+            const tomatoPanel = popover.querySelector('[data-tm-focus-summary-panel="tomato"]');
+            let durationPresetBinding = null;
+            const setFocusSummaryMode = (nextMode, options = {}) => {
+                if (!isFocusSummary) return;
+                focusSummaryMode = nextMode === 'tomato' ? 'tomato' : 'duration';
+                popover.querySelectorAll('[data-tm-focus-summary-tab]').forEach((btn) => {
+                    if (!(btn instanceof HTMLButtonElement)) return;
+                    const selected = String(btn.dataset.tmFocusSummaryTab || '').trim() === focusSummaryMode;
+                    btn.classList.toggle('is-active', selected);
+                    btn.setAttribute('aria-selected', selected ? 'true' : 'false');
+                });
+                if (durationPanel instanceof HTMLElement) durationPanel.hidden = focusSummaryMode !== 'duration';
+                if (tomatoPanel instanceof HTMLElement) tomatoPanel.hidden = focusSummaryMode !== 'tomato';
+                positionInlinePopover();
+                if (options?.focus === true && !shouldSkipFocusSummaryAutoFocus()) {
+                    try {
+                        requestAnimationFrame(() => {
+                            const target = focusSummaryMode === 'tomato' ? estimateInput : input;
+                            if (target instanceof HTMLInputElement) {
+                                target.focus();
+                                target.select?.();
+                            }
+                        });
+                    } catch (e) {}
+                }
+            };
+            if (isFocusSummary) {
+                popover.querySelectorAll('[data-tm-focus-summary-tab]').forEach((btn) => {
+                    if (!(btn instanceof HTMLButtonElement)) return;
+                    on(btn, 'click', (ev) => {
+                        try { ev.preventDefault(); } catch (e) {}
+                        try { ev.stopPropagation(); } catch (e) {}
+                        setFocusSummaryMode(String(btn.dataset.tmFocusSummaryTab || '').trim(), { focus: true });
+                    });
+                });
+            }
             if (mode === 'date' && input instanceof HTMLInputElement) {
                 try {
                     input.focus();
@@ -2767,9 +2874,26 @@ if (!__tmIsCollectedOtherBlockTask(task) && diff.contentChanged) {
                 const inputValue = rawValue == null && input instanceof HTMLInputElement
                     ? input.value
                     : String(rawValue ?? '');
-                const nextValue = typeof config.normalize === 'function'
-                    ? config.normalize(inputValue)
-                    : String(inputValue || '').trim();
+                const nextValue = isFocusSummary
+                    ? (() => {
+                        const durationDraft = input instanceof HTMLInputElement
+                            ? String(input.value || '').trim()
+                            : String(inputValue || '').trim();
+                        const tomatoDraft = estimateInput instanceof HTMLInputElement
+                            ? __tmNormalizeTomatoCountValue(estimateInput.value)
+                            : '';
+                        if (focusSummaryMode === 'duration') {
+                            return durationDraft
+                                ? { duration: durationDraft, tomatoEstimateCount: '' }
+                                : { duration: '', tomatoEstimateCount: tomatoDraft };
+                        }
+                        return tomatoDraft
+                            ? { duration: '', tomatoEstimateCount: tomatoDraft }
+                            : { duration: durationDraft, tomatoEstimateCount: '' };
+                    })()
+                    : (typeof config.normalize === 'function'
+                        ? config.normalize(inputValue)
+                        : String(inputValue || '').trim());
                 try {
                     try {
                         __tmPushDetailDebug('detail-inline-popover-commit', {
@@ -2794,18 +2918,24 @@ if (!__tmIsCollectedOtherBlockTask(task) && diff.contentChanged) {
                     setInlinePopoverBusyState(false, popover);
                 }
             };
-            if (mode === 'duration' && input instanceof HTMLInputElement && durationPresets.length) {
-                __tmBindDurationPresetSelection(popover, input, {
+            if ((mode === 'duration' || isFocusSummary) && input instanceof HTMLInputElement && durationPresets.length) {
+                durationPresetBinding = __tmBindDurationPresetSelection(popover, input, {
                     onSelect: async (nextValue) => {
+                        if (isFocusSummary && estimateInput instanceof HTMLInputElement) estimateInput.value = '';
                         if (config.commitPresetOnSelect === true) {
                             await commit(nextValue);
                         }
                     },
-                    focusInputOnSelect: config.commitPresetOnSelect !== true,
-                    selectInput: config.commitPresetOnSelect !== true,
+                    focusInputOnSelect: config.commitPresetOnSelect !== true && !shouldSkipFocusSummaryAutoFocus(),
+                    selectInput: config.commitPresetOnSelect !== true && !shouldSkipFocusSummaryAutoFocus(),
                 });
             }
             if (input instanceof HTMLInputElement) {
+                if (isFocusSummary) {
+                    on(input, 'input', () => {
+                        if (String(input.value || '').trim() && estimateInput instanceof HTMLInputElement) estimateInput.value = '';
+                    });
+                }
                 on(input, 'keydown', async (ev) => {
                     if (ev.key === 'Escape') {
                         if (inlinePopoverCommitting) return;
@@ -2824,25 +2954,55 @@ if (!__tmIsCollectedOtherBlockTask(task) && diff.contentChanged) {
                         await commit();
                     });
                 }
-                try {
-                    requestAnimationFrame(() => {
-                        try { input.focus(); } catch (e) {}
-                        if (mode === 'date') {
-                            try {
-                                if (typeof input.showPicker === 'function') input.showPicker();
-                                else input.click();
-                            } catch (e) {
-                                try { input.click(); } catch (e2) {}
+                if (!shouldSkipFocusSummaryAutoFocus()) {
+                    try {
+                        requestAnimationFrame(() => {
+                            const focusTarget = isFocusSummary && focusSummaryMode === 'tomato' && estimateInput instanceof HTMLInputElement
+                                ? estimateInput
+                                : input;
+                            try { focusTarget.focus(); } catch (e) {}
+                            if (mode === 'date') {
+                                try {
+                                    if (typeof input.showPicker === 'function') input.showPicker();
+                                    else input.click();
+                                } catch (e) {
+                                    try { input.click(); } catch (e2) {}
+                                }
+                            } else {
+                                try { focusTarget.select(); } catch (e) {}
                             }
-                        } else {
-                            try { input.select(); } catch (e) {}
-                        }
-                    });
-                } catch (e) {}
+                        });
+                    } catch (e) {}
+                }
+            }
+            if (estimateInput instanceof HTMLInputElement) {
+                on(estimateInput, 'input', () => {
+                    if (!isFocusSummary || !__tmNormalizeTomatoCountValue(estimateInput.value)) return;
+                    if (input instanceof HTMLInputElement) {
+                        input.value = '';
+                        try { durationPresetBinding?.sync?.(); } catch (e) {}
+                    }
+                });
+                on(estimateInput, 'keydown', async (ev) => {
+                    if (ev.key === 'Escape') {
+                        if (inlinePopoverCommitting) return;
+                        try { ev.preventDefault(); } catch (e) {}
+                        closeInlinePopover(false, 'estimate-escape');
+                        try { trigger.focus(); } catch (e) {}
+                        return;
+                    }
+                    if (ev.key === 'Enter' && !ev.shiftKey && !ev.isComposing) {
+                        try { ev.preventDefault(); } catch (e) {}
+                        await commit();
+                    }
+                });
             }
             on(clearBtn, 'click', async (ev) => {
                 try { ev.preventDefault(); } catch (e) {}
                 try { ev.stopPropagation(); } catch (e) {}
+                if (isFocusSummary && estimateInput instanceof HTMLInputElement) estimateInput.value = '';
+                if (isFocusSummary && input instanceof HTMLInputElement) input.value = '';
+                try { durationPresetBinding?.sync?.(); } catch (e) {}
                 await commit('');
             });
             on(applyBtn, 'click', async (ev) => {
@@ -4518,18 +4678,20 @@ if (!__tmIsCollectedOtherBlockTask(task) && diff.contentChanged) {
                     openTaskTimeHubPopover(btn, { activeField: field === 'startDate' ? 'startDate' : 'completionTime' });
                 });
             });
-            on(root.querySelector('[data-tm-detail-duration-trigger]'), 'click', (ev) => {
+            on(root.querySelector('[data-tm-detail-focus-summary-trigger]'), 'click', (ev) => {
                 try { ev.preventDefault(); } catch (e) {}
                 try { ev.stopPropagation(); } catch (e) {}
                 openInlinePopover(ev.currentTarget, {
-                    mode: 'duration',
-                    title: '时长',
+                    mode: 'focus-summary',
+                    title: '时长与番茄',
                     value: readHiddenInputValue('duration'),
-                    placeholder: '1h / 30min',
-                    commitPresetOnSelect: true,
-                    normalize: (raw) => String(raw || '').trim(),
+                    tomatoEstimateValue: readHiddenInputValue('tomatoEstimateCount'),
+                    actualTomatoValue: __tmGetTaskTomatoCount(getBoundTask()),
+                    spentValue: __tmGetTaskSpentDisplay(getBoundTask()),
                     onCommit: async (nextValue) => {
-                        setHiddenInputValue('duration', nextValue);
+                        const nextPatch = (nextValue && typeof nextValue === 'object') ? nextValue : {};
+                        setHiddenInputValue('duration', String(nextPatch.duration || '').trim());
+                        setHiddenInputValue('tomatoEstimateCount', __tmNormalizeTomatoCountValue(nextPatch.tomatoEstimateCount || ''));
                         syncMetaChipFaces();
                         return await flushAutoSaveNow({
                             showHint: false,
@@ -5321,6 +5483,8 @@ return true;
                     taskCompleteAt: true,
                     repeatHistory: true,
                     duration: true,
+                    tomatoEstimateCount: true,
+                    tomatoCount: true,
                     pinned: true,
                     remark: true,
                     attachments: true,
@@ -5420,8 +5584,8 @@ return true;
         const syncChipField = (field, value, kind = field) => {
             const input = panel.querySelector(`input[type="hidden"][data-tm-detail="${field}"]`);
             if (input instanceof HTMLInputElement) input.value = String(value || '').trim();
-            const btn = field === 'duration'
-                ? panel.querySelector('[data-tm-detail-duration-trigger]')
+            const btn = (field === 'tomatoEstimateCount' || field === 'duration')
+                ? panel.querySelector('[data-tm-detail-focus-summary-trigger]')
                 : panel.querySelector(`[data-tm-detail-date-trigger="${field}"]`);
             if (btn instanceof HTMLElement) {
                 btn.classList.toggle('has-value', !!String(value || '').trim());
@@ -5431,6 +5595,19 @@ return true;
                 face.innerHTML = __tmBuildTaskDetailCoreChipFace(kind, value);
                 touched = true;
             }
+        };
+        const syncFocusSummaryChip = () => {
+            const durationInput = panel.querySelector('input[type="hidden"][data-tm-detail="duration"]');
+            const estimateInput = panel.querySelector('input[type="hidden"][data-tm-detail="tomatoEstimateCount"]');
+            if (durationInput instanceof HTMLInputElement) durationInput.value = String(task?.duration || '').trim();
+            const estimateValue = __tmGetTaskTomatoEstimateCount(task);
+            if (estimateInput instanceof HTMLInputElement) estimateInput.value = estimateValue;
+            const summaryText = __tmGetTaskTomatoSummaryText(task);
+            const face = panel.querySelector('[data-tm-detail-chip-face="tomatoSummary"]');
+            if (face instanceof HTMLElement) face.innerHTML = __tmBuildTaskDetailCoreChipFace('tomatoSummary', task);
+            const trigger = panel.querySelector('[data-tm-detail-focus-summary-trigger]');
+            if (trigger instanceof HTMLElement) trigger.classList.toggle('has-value', !!summaryText);
+            touched = true;
         };
         const syncTaskCompleteAtChip = () => {
             const existing = panel.querySelector('[data-tm-detail-complete-at-chip]');
@@ -5494,7 +5671,11 @@ return true;
         if (Object.prototype.hasOwnProperty.call(nextPatch, 'startDate')) syncChipField('startDate', String(task?.startDate || task?.start_date || '').trim(), 'startDate');
         if (Object.prototype.hasOwnProperty.call(nextPatch, 'completionTime')) syncChipField('completionTime', String(task?.completionTime || task?.completion_time || '').trim(), 'completionTime');
         if (Object.prototype.hasOwnProperty.call(nextPatch, 'done') || Object.prototype.hasOwnProperty.call(nextPatch, 'taskCompleteAt')) syncTaskCompleteAtChip();
-        if (Object.prototype.hasOwnProperty.call(nextPatch, 'duration')) syncChipField('duration', String(task?.duration || '').trim(), 'duration');
+        if (Object.prototype.hasOwnProperty.call(nextPatch, 'duration')
+            || Object.prototype.hasOwnProperty.call(nextPatch, 'tomatoEstimateCount')
+            || Object.prototype.hasOwnProperty.call(nextPatch, 'tomatoCount')
+            || Object.prototype.hasOwnProperty.call(nextPatch, 'tomatoMinutes')
+            || Object.prototype.hasOwnProperty.call(nextPatch, 'tomatoHours')) syncFocusSummaryChip();
         if (Object.prototype.hasOwnProperty.call(nextPatch, 'startDate') || Object.prototype.hasOwnProperty.call(nextPatch, 'completionTime')) syncTimeHubChip();
 
         if (Object.prototype.hasOwnProperty.call(nextPatch, 'pinned')) {
@@ -5584,6 +5765,8 @@ return true;
                     taskCompleteAt: true,
                     repeatHistory: true,
                     duration: true,
+                    tomatoEstimateCount: true,
+                    tomatoCount: true,
                     pinned: true,
                     remark: true,
                     attachments: true,
@@ -5641,6 +5824,8 @@ refreshed = !!__tmRefreshChecklistSelectionInPlace(state.modal, 'visible-task-de
                     completionTime: true,
                     taskCompleteAt: true,
                     duration: true,
+                    tomatoEstimateCount: true,
+                    tomatoCount: true,
                     pinned: true,
                     remark: true,
                     attachments: true,

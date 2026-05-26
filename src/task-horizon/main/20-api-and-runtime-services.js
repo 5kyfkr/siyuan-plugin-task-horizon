@@ -961,7 +961,9 @@
                     '' as repeat_state,
                     '' as repeat_history,
                     '' as tomato_minutes,
-                    '' as tomato_hours
+                    '' as tomato_hours,
+                    '' as tomato_count,
+                    '' as tomato_estimate_count
                 FROM blocks
                 WHERE
                     type = 'i'
@@ -1002,7 +1004,9 @@
                     attr.repeat_state,
                     attr.repeat_history,
                     attr.tomato_minutes,
-                    attr.tomato_hours
+                    attr.tomato_hours,
+                    attr.tomato_count,
+                    attr.tomato_estimate_count
 
                 FROM blocks AS task
 
@@ -1442,7 +1446,9 @@
                     attr.repeat_state,
                     attr.repeat_history,
                     attr.tomato_minutes,
-                    attr.tomato_hours
+                    attr.tomato_hours,
+                    attr.tomato_count,
+                    attr.tomato_estimate_count
                 FROM tasks t
                 ${parentTaskJoinSql}
                 LEFT JOIN attr ON attr.block_id = t.id
@@ -1635,7 +1641,9 @@
                     attr.repeat_state,
                     attr.repeat_history,
                     attr.tomato_minutes,
-                    attr.tomato_hours
+                    attr.tomato_hours,
+                    attr.tomato_count,
+                    attr.tomato_estimate_count
                 FROM blocks AS task
                 INNER JOIN blocks AS doc ON task.root_id = doc.id
                 LEFT JOIN blocks AS parent_list ON parent_list.id = task.parent_id
@@ -2845,6 +2853,22 @@
         repeatHistory: __TM_TASK_REPEAT_HISTORY_ATTR,
     };
 
+    function __tmGetTomatoCountAttrKey() {
+        return __tmSafeAttrName(SettingsStore?.data?.tomatoCountAttrKey, 'custom-tomato-count');
+    }
+
+    function __tmGetTomatoEstimateAttrKey() {
+        return __tmSafeAttrName(SettingsStore?.data?.tomatoEstimateAttrKey, 'custom-tomato-estimate-count');
+    }
+
+    function __tmGetTomatoSpentMinutesAttrKey() {
+        return __tmSafeAttrName(SettingsStore?.data?.tomatoSpentAttrKeyMinutes, 'custom-tomato-minutes');
+    }
+
+    function __tmGetTomatoSpentHoursAttrKey() {
+        return __tmSafeAttrName(SettingsStore?.data?.tomatoSpentAttrKeyHours, 'custom-tomato-time');
+    }
+
     function __tmFormatTsToChinaTimezoneIso(ts) {
         const num = Number(ts);
         if (!Number.isFinite(num) || num <= 0) return '';
@@ -2965,7 +2989,13 @@
     }
 
     function __tmFormatDurationDisplayValue(value) {
-        return String(value || '').trim().replace(/(\d+(?:\.\d+)?)\s*min\b/ig, '$1m');
+        const normalized = String(value || '').trim().replace(/(\d+(?:\.\d+)?)\s*min\b/ig, '$1m');
+        if (!normalized) return '';
+        if (/^\d+(?:\.\d+)?$/.test(normalized)) {
+            const fmt = String(SettingsStore?.data?.durationFormat || 'hours').trim();
+            return `${normalized}${fmt === 'minutes' ? 'm' : 'h'}`;
+        }
+        return normalized;
     }
 
     function __tmNormalizeCustomDurationOption(option) {
@@ -3398,6 +3428,22 @@
         const attrs = {};
         const opts = (options && typeof options === 'object') ? options : {};
         Object.entries(patch || {}).forEach(([key, val]) => {
+            if (key === 'tomatoEstimateCount') {
+                attrs[__tmGetTomatoEstimateAttrKey()] = __tmNormalizeTomatoCountValue(val);
+                return;
+            }
+            if (key === 'tomatoCount') {
+                attrs[__tmGetTomatoCountAttrKey()] = __tmNormalizeTomatoCountValue(val);
+                return;
+            }
+            if (key === 'tomatoMinutes') {
+                attrs[__tmGetTomatoSpentMinutesAttrKey()] = String(val ?? '').trim();
+                return;
+            }
+            if (key === 'tomatoHours') {
+                attrs[__tmGetTomatoSpentHoursAttrKey()] = String(val ?? '').trim();
+                return;
+            }
             const attrKey = __tmMetaAttrMap[key];
             if (attrKey) {
                 if (key === 'repeatRule') {
@@ -3881,6 +3927,8 @@
         if (key === 'allDayBottom') return (value === true || value === '1' || value === 1) ? '1' : '';
         if (key === 'milestone') return (value === true || value === '1' || value === 1) ? '1' : '';
         if (key === 'remark') return __tmNormalizeRemarkMarkdown(value);
+        if (key === 'tomatoEstimateCount' || key === 'tomatoCount') return __tmNormalizeTomatoCountValue(value);
+        if (key === 'tomatoMinutes' || key === 'tomatoHours') return String(value ?? '').trim();
         if (key === 'attachments') return __tmNormalizeTaskAttachmentPaths(value);
         if (key === 'repeatRule') return __tmNormalizeTaskRepeatRule(value);
         if (key === 'repeatState') return __tmNormalizeTaskRepeatState(value);
@@ -4035,6 +4083,8 @@
             'taskCompleteAt',
             'customTime',
             'duration',
+            'tomatoEstimateCount',
+            'tomatoCount',
             'docId',
             'root_id',
         ]);
@@ -4109,6 +4159,32 @@
             });
         }
         return touched;
+    }
+
+    function __tmScheduleTaskSnapshotAfterLocalPatch(taskId, patch = {}, options = {}) {
+        const tid = String(taskId || '').trim();
+        const nextPatch = (patch && typeof patch === 'object' && !Array.isArray(patch)) ? patch : {};
+        if (!tid || !Object.keys(nextPatch).length) return false;
+        const opts = (options && typeof options === 'object') ? options : {};
+        if (opts.persistSnapshot === false || opts.skipSnapshotPersist === true) return false;
+        try { __tmMarkLocalTaskPatchWatermark?.(tid, nextPatch, opts); } catch (e) {}
+        try {
+            if (!Array.isArray(state.__tmLoadedDocIdsForTasks) || state.__tmLoadedDocIdsForTasks.length <= 0) return false;
+            const source = String(opts.snapshotSource || opts.source || opts.reason || 'task-field-patch').trim() || 'task-field-patch';
+            __tmSchedulePersistTaskSnapshot?.({
+                docIds: state.__tmLoadedDocIdsForTasks,
+                groupId: SettingsStore?.data?.currentGroupId || 'all',
+                activeDocId: state?.activeDocId || 'all',
+                queryLimit: __TM_TASK_INDEX_QUERY_LIMIT,
+                delayMs: Math.max(300, Number(opts.snapshotDelayMs || 650) || 650),
+                idleDelayMs: Math.max(0, Number(opts.snapshotIdleDelayMs || 180) || 180),
+                source,
+                refreshViewStateBeforeSave: true,
+            });
+            return true;
+        } catch (e) {
+            return false;
+        }
     }
 
     function __tmApplyAttrPatchLocally(taskId, patch, options = {}) {
@@ -4220,6 +4296,22 @@
                         target.duration = String(value ?? '').trim();
                         target.custom_duration = target.duration;
                         break;
+                    case 'tomatoEstimateCount':
+                        target.tomatoEstimateCount = __tmNormalizeTomatoCountValue(value);
+                        target.tomato_estimate_count = target.tomatoEstimateCount;
+                        break;
+                    case 'tomatoCount':
+                        target.tomatoCount = __tmNormalizeTomatoCountValue(value);
+                        target.tomato_count = target.tomatoCount;
+                        break;
+                    case 'tomatoMinutes':
+                        target.tomatoMinutes = String(value ?? '').trim();
+                        target.tomato_minutes = target.tomatoMinutes;
+                        break;
+                    case 'tomatoHours':
+                        target.tomatoHours = String(value ?? '').trim();
+                        target.tomato_hours = target.tomatoHours;
+                        break;
                     case 'remark':
                         target.remark = String(value ?? '');
                         target.custom_remark = target.remark;
@@ -4266,6 +4358,12 @@
             MetaStore.set(tid, attachmentMetaForStore
                 ? { ...nextPatch, attachmentMeta: attachmentMetaForStore }
                 : nextPatch);
+        } catch (e) {}
+        try {
+            __tmScheduleTaskSnapshotAfterLocalPatch(tid, nextPatch, {
+                ...((options && typeof options === 'object') ? options : {}),
+                source: String(options.source || options.reason || 'attr-patch-local').trim() || 'attr-patch-local',
+            });
         } catch (e) {}
         if (hasStatusPatch) {
             __tmPushStatusDebug('attr-patch-local', {
@@ -4381,6 +4479,22 @@
                         target.duration = String(value ?? '').trim();
                         target.custom_duration = target.duration;
                         break;
+                    case 'tomatoEstimateCount':
+                        target.tomatoEstimateCount = __tmNormalizeTomatoCountValue(value);
+                        target.tomato_estimate_count = target.tomatoEstimateCount;
+                        break;
+                    case 'tomatoCount':
+                        target.tomatoCount = __tmNormalizeTomatoCountValue(value);
+                        target.tomato_count = target.tomatoCount;
+                        break;
+                    case 'tomatoMinutes':
+                        target.tomatoMinutes = String(value ?? '').trim();
+                        target.tomato_minutes = target.tomatoMinutes;
+                        break;
+                    case 'tomatoHours':
+                        target.tomatoHours = String(value ?? '').trim();
+                        target.tomato_hours = target.tomatoHours;
+                        break;
                     case 'remark':
                         target.remark = String(value ?? '');
                         target.custom_remark = target.remark;
@@ -4442,6 +4556,8 @@
             'customTime',
             'taskCompleteAt',
             'duration',
+            'tomatoEstimateCount',
+            'tomatoCount',
         ]);
         return keys.some((key) => taskFieldKeys.has(String(key || '').trim()));
     }
@@ -4554,6 +4670,7 @@
             __tmApplyAttrPatchLocally(taskId || op?.data?.taskId, patch, {
                 render: refreshAsTaskFields ? false : op?.data?.renderOptimistic !== false,
                 withFilters: op?.data?.withFilters !== false,
+                source: String(op?.data?.source || op?.data?.reason || 'attr-patch-optimistic').trim() || 'attr-patch-optimistic',
             });
             if (refreshAsTaskFields) {
                 try { __tmMarkLocalTaskPatchWatermark(taskId, patch, op?.data || {}); } catch (e) {}
@@ -5082,6 +5199,16 @@
             if (key === 'duration') {
                 target.duration = String(value ?? '').trim();
                 target.custom_duration = target.duration;
+                return;
+            }
+            if (key === 'tomatoEstimateCount') {
+                target.tomatoEstimateCount = __tmNormalizeTomatoCountValue(value);
+                target.tomato_estimate_count = target.tomatoEstimateCount;
+                return;
+            }
+            if (key === 'tomatoCount') {
+                target.tomatoCount = __tmNormalizeTomatoCountValue(value);
+                target.tomato_count = target.tomatoCount;
                 return;
             }
             if (key === 'remark') {
@@ -8449,6 +8576,8 @@
         if (key === 'custom-completion-time') return '截止日期';
         if (key === __TM_TASK_COMPLETE_AT_ATTR) return '截止时间';
         if (key === 'custom-duration') return '时长';
+        if (key === __tmGetTomatoEstimateAttrKey()) return '预计番茄';
+        if (key === __tmGetTomatoCountAttrKey()) return '实际番茄';
         if (key === 'custom-remark') return '备注';
         if (key === __TM_TASK_REPEAT_RULE_ATTR) return '循环规则';
         if (key === __TM_TASK_REPEAT_STATE_ATTR) return '循环状态';
@@ -8460,7 +8589,7 @@
     function __tmExtractUndoEligibleMetaPatch(patch) {
         const input = (patch && typeof patch === 'object') ? patch : {};
         const out = {};
-        ['customStatus', 'startDate', 'completionTime', 'duration', 'remark', 'attachments', 'repeatRule', 'repeatState'].forEach((key) => {
+        ['customStatus', 'startDate', 'completionTime', 'duration', 'tomatoEstimateCount', 'tomatoCount', 'remark', 'attachments', 'repeatRule', 'repeatState'].forEach((key) => {
             if (Object.prototype.hasOwnProperty.call(input, key)) out[key] = input[key];
         });
         return out;
@@ -8475,6 +8604,8 @@
             if (key === 'startDate') return '开始日期';
             if (key === 'completionTime') return '截止日期';
             if (key === 'duration') return '时长';
+            if (key === 'tomatoEstimateCount') return '预计番茄';
+            if (key === 'tomatoCount') return '实际番茄';
             if (key === 'remark') return '备注';
             if (key === 'attachments') return '附件';
             if (key === 'repeatRule') return '循环规则';
@@ -8512,6 +8643,16 @@
             return { patch: { taskCompleteAt: normalizedValue }, attrValue: normalizedValue };
         }
         if (key === 'custom-duration') return { patch: { duration: trimmedValue }, attrValue: trimmedValue };
+        if (key === __tmGetTomatoEstimateAttrKey()) {
+            const normalizedValue = __tmNormalizeTomatoCountValue(trimmedValue);
+            return { patch: { tomatoEstimateCount: normalizedValue }, attrValue: normalizedValue };
+        }
+        if (key === __tmGetTomatoCountAttrKey()) {
+            const normalizedValue = __tmNormalizeTomatoCountValue(trimmedValue);
+            return { patch: { tomatoCount: normalizedValue }, attrValue: normalizedValue };
+        }
+        if (key === __tmGetTomatoSpentMinutesAttrKey()) return { patch: { tomatoMinutes: trimmedValue }, attrValue: trimmedValue };
+        if (key === __tmGetTomatoSpentHoursAttrKey()) return { patch: { tomatoHours: trimmedValue }, attrValue: trimmedValue };
         if (key === 'custom-remark') return { patch: { remark: rawValue }, attrValue: rawValue };
         if (key === 'custom-milestone-event') {
             const milestone = !!(trimmedValue === '1' || trimmedValue.toLowerCase() === 'true');
@@ -10332,7 +10473,11 @@ if (hasStatusPatch) {
                     readback: statusReadback,
                 }, suppressionIds, { force: true });
             }
-            __tmApplyAttrPatchLocally(context.persistId, nextPatch, { render: false, withFilters: opts.withFilters !== false });
+            __tmApplyAttrPatchLocally(context.persistId, nextPatch, {
+                render: false,
+                withFilters: opts.withFilters !== false,
+                source: String(opts.source || 'attr-patch').trim() || 'attr-patch',
+            });
             try {
                 if (context.docId) __tmInvalidateTasksQueryCacheByDocId(context.docId);
                 else __tmInvalidateAllSqlCaches();
@@ -10598,6 +10743,22 @@ if (hasStatusPatch) {
             MetaStore.set(tid, { customStatus: nextStatusId, done: nextDone, content });
         } catch (e) {}
         try {
+            const liveTask = globalThis.__tmRuntimeState?.getFlatTaskById?.(tid)
+                || globalThis.__tmRuntimeState?.getPendingTaskById?.(tid)
+                || state.flatTasks?.[tid]
+                || state.pendingInsertedTasks?.[tid]
+                || null;
+            __tmScheduleTaskSnapshotAfterLocalPatch?.(tid, {
+                customStatus: nextStatusId,
+                done: nextDone,
+                taskMarker: nextMarker,
+                markdown: String(liveTask?.markdown || '').trim(),
+            }, {
+                ...opts,
+                source: String(opts.source || 'status-local-state').trim() || 'status-local-state',
+            });
+        } catch (e) {}
+        try {
             __tmSyncTaskPriorityScoreLocal(tid, {
                 includeAncestors: true,
                 refreshAncestorViews: true,
@@ -10802,8 +10963,19 @@ __tmPushStatusDebug('apply-status:start', {
                 throw e;
             }
 
-            try { __tmApplyAttrPatchLocally(context.persistId, persistPatch, { render: false, withFilters: false }); } catch (e) {}
-            try { __tmApplyTaskStatusLocalState(context.persistId, nextStatusId, nextMarker, { markdown: markerResult?.markdown || '' }); } catch (e) {}
+            try {
+                __tmApplyAttrPatchLocally(context.persistId, persistPatch, {
+                    render: false,
+                    withFilters: false,
+                    source: String(opts.source || 'task-status').trim() || 'task-status',
+                });
+            } catch (e) {}
+            try {
+                __tmApplyTaskStatusLocalState(context.persistId, nextStatusId, nextMarker, {
+                    markdown: markerResult?.markdown || '',
+                    source: String(opts.source || 'task-status').trim() || 'task-status',
+                });
+            } catch (e) {}
             try {
                 if (context.docId) __tmInvalidateTasksQueryCacheByDocId(context.docId);
                 else __tmInvalidateAllSqlCaches();
@@ -14267,6 +14439,9 @@ refreshOk = false;
         { key: 'completionTime', label: '截止日期' },
         { key: 'remainingTime', label: '剩余时间' },
         { key: 'duration', label: '时长' },
+        { key: 'tomatoSummary', label: '专注/耗时' },
+        { key: 'tomatoEstimateCount', label: '预计番茄' },
+        { key: 'tomatoCount', label: '实际番茄' },
         { key: 'status', label: '状态标签' },
     ]);
 
@@ -14465,7 +14640,63 @@ refreshOk = false;
         try { el.removeAttribute('title'); } catch (e) {}
     };
 
+    function __tmStopFloatingTooltipGuard() {
+        try {
+            if (state.floatingTooltipGuardTimer) {
+                clearTimeout(state.floatingTooltipGuardTimer);
+                state.floatingTooltipGuardTimer = null;
+            }
+        } catch (e) {}
+    }
+
+    function __tmIsFloatingTooltipTargetStillActive(target) {
+        if (!(target instanceof HTMLElement)) return false;
+        try {
+            if (document.visibilityState === 'hidden') return false;
+        } catch (e) {}
+        try {
+            if (!target.isConnected || !document.body?.contains?.(target)) return false;
+        } catch (e) {
+            return false;
+        }
+        try {
+            if (!String(target.getAttribute('data-tm-floating-tooltip-label') || '').trim()) return false;
+        } catch (e) {
+            return false;
+        }
+        try {
+            if (target.getClientRects().length <= 0) return false;
+        } catch (e) {}
+        try {
+            if (target.matches(':hover')) return true;
+        } catch (e) {}
+        try {
+            const active = document.activeElement;
+            if (active instanceof Node && target.contains(active)) return true;
+        } catch (e) {}
+        return false;
+    }
+
+    function __tmStartFloatingTooltipGuard(target) {
+        __tmStopFloatingTooltipGuard();
+        if (!(target instanceof HTMLElement)) return;
+        const check = () => {
+            try {
+                if (state.floatingTooltipTarget !== target) return;
+                if (!__tmIsFloatingTooltipTargetStillActive(target)) {
+                    __tmHideFloatingTooltip();
+                    return;
+                }
+                state.floatingTooltipGuardTimer = setTimeout(check, 120);
+            } catch (e) {
+                __tmHideFloatingTooltip();
+            }
+        };
+        state.floatingTooltipGuardTimer = setTimeout(check, 120);
+    }
+
     function __tmHideFloatingTooltip() {
+        __tmStopFloatingTooltipGuard();
         try {
             if (state.floatingTooltipHideTimer) {
                 clearTimeout(state.floatingTooltipHideTimer);
@@ -14554,6 +14785,7 @@ refreshOk = false;
         tooltipEl.style.opacity = '0';
         state.floatingTooltipTarget = target;
         __tmPositionFloatingTooltip(target, tooltipEl, opts);
+        __tmStartFloatingTooltipGuard(target);
         requestAnimationFrame(() => {
             if (state.floatingTooltipEl === tooltipEl && state.floatingTooltipTarget === target) {
                 tooltipEl.style.opacity = '1';
@@ -14586,11 +14818,17 @@ refreshOk = false;
             el.addEventListener('mouseenter', show);
             el.addEventListener('focus', show, true);
             el.addEventListener('mouseleave', hide);
+            el.addEventListener('pointerleave', hide);
+            el.addEventListener('pointercancel', hide);
             el.addEventListener('blur', hide, true);
             el.addEventListener('mousedown', () => __tmHideFloatingTooltip(), true);
             el.addEventListener('click', () => __tmHideFloatingTooltip(), true);
             el.__tmFloatingTooltipBound = true;
         });
+    }
+
+    function __tmBindFloatingTooltipsAfterLocalRerender(modalEl) {
+        try { __tmBindFloatingTooltips(modalEl instanceof Element ? modalEl : state.modal); } catch (e) {}
     }
 
     window.tmBindFloatingTooltipsForTaskModal = function(modalEl) {
@@ -14814,10 +15052,28 @@ refreshOk = false;
         try { __tmHideFloatingTooltip(); } catch (e) {}
     }
 
+    function __tmOnFloatingTooltipWindowBlur() {
+        try { __tmHideFloatingTooltip(); } catch (e) {}
+    }
+
+    function __tmOnFloatingTooltipDocumentVisibilityChange() {
+        try {
+            if (document.visibilityState === 'hidden') __tmHideFloatingTooltip();
+        } catch (e) {}
+    }
+
+    function __tmOnFloatingTooltipDocumentPointerDown() {
+        try { __tmHideFloatingTooltip(); } catch (e) {}
+    }
+
     if (!window.__tmFloatingTooltipWindowBound) {
         window.__tmFloatingTooltipWindowBound = true;
         try { globalThis.__tmRuntimeEvents?.on?.(window, 'resize', __tmOnFloatingTooltipWindowResize, { passive: true }); } catch (e) {}
         try { globalThis.__tmRuntimeEvents?.on?.(window, 'scroll', __tmOnFloatingTooltipWindowScroll, { passive: true, capture: true }); } catch (e) {}
+        try { globalThis.__tmRuntimeEvents?.on?.(window, 'blur', __tmOnFloatingTooltipWindowBlur, { passive: true }); } catch (e) {}
+        try { globalThis.__tmRuntimeEvents?.on?.(document, 'visibilitychange', __tmOnFloatingTooltipDocumentVisibilityChange); } catch (e) {}
+        try { globalThis.__tmRuntimeEvents?.on?.(document, 'pointerdown', __tmOnFloatingTooltipDocumentPointerDown, true); } catch (e) {}
+        try { globalThis.__tmRuntimeEvents?.on?.(document, 'mousedown', __tmOnFloatingTooltipDocumentPointerDown, true); } catch (e) {}
     }
 
     function __tmComputeMobileBottomViewbarLayoutSig() {
@@ -17221,6 +17477,7 @@ refreshOk = false;
             try { __tmScheduleReminderTaskNameMarksRefresh(modal); } catch (e) {}
             try { __tmApplyTodayScheduledTaskNameMarks(modal); } catch (e) {}
             try { __tmScheduleTodayScheduledTaskNameMarksRefresh(modal); } catch (e) {}
+            __tmBindFloatingTooltipsAfterLocalRerender(modal);
             return true;
         }
         const top = Number(body?.scrollTop) || 0;
@@ -17231,9 +17488,9 @@ refreshOk = false;
         if (isCalendarTaskTable) {
             try {
                 if (!SettingsStore.data.calendarColumnWidths || Object.keys(SettingsStore.data.calendarColumnWidths).length === 0) {
-                    SettingsStore.data.calendarColumnWidths = { content: 140, duration: 60, spent: 60 };
+                    SettingsStore.data.calendarColumnWidths = { content: 140, tomatoSummary: 112 };
                 }
-                SettingsStore.data.columnOrder = ['content', 'duration', 'spent'];
+                SettingsStore.data.columnOrder = ['content', 'tomatoSummary'];
                 SettingsStore.data.columnWidths = SettingsStore.data.calendarColumnWidths;
             } catch (e) {}
         }
@@ -17263,6 +17520,7 @@ refreshOk = false;
         try { __tmScheduleReminderTaskNameMarksRefresh(modal); } catch (e) {}
         try { __tmApplyTodayScheduledTaskNameMarks(modal); } catch (e) {}
         try { __tmScheduleTodayScheduledTaskNameMarksRefresh(modal); } catch (e) {}
+        __tmBindFloatingTooltipsAfterLocalRerender(modal);
         if (renderSignature) {
             try { state.listDomRenderSignature = renderSignature; } catch (e) {}
         }
@@ -17648,6 +17906,7 @@ return true;
         try { __tmScheduleReminderTaskNameMarksRefresh(modal); } catch (e) {}
         try { __tmApplyTodayScheduledTaskNameMarks(modal); } catch (e) {}
         try { __tmScheduleTodayScheduledTaskNameMarksRefresh(modal); } catch (e) {}
+        __tmBindFloatingTooltipsAfterLocalRerender(modal);
         return true;
     }
 
@@ -17980,6 +18239,7 @@ return true;
         try { __tmScheduleReminderTaskNameMarksRefresh(modal); } catch (e) {}
         try { __tmApplyTodayScheduledTaskNameMarks(modal); } catch (e) {}
         try { __tmScheduleTodayScheduledTaskNameMarksRefresh(modal); } catch (e) {}
+        __tmBindFloatingTooltipsAfterLocalRerender(modal);
         const restore = () => {
             try {
                 const nextPane = modal.querySelector('.tm-checklist-scroll');
@@ -18043,6 +18303,7 @@ return true;
         try { __tmScheduleReminderTaskNameMarksRefresh(modal); } catch (e) {}
         try { __tmApplyTodayScheduledTaskNameMarks(modal); } catch (e) {}
         try { __tmScheduleTodayScheduledTaskNameMarksRefresh(modal); } catch (e) {}
+        __tmBindFloatingTooltipsAfterLocalRerender(modal);
         const restore = () => {
             try {
                 const nextPane = modal.querySelector('.tm-checklist-scroll');
@@ -18082,6 +18343,7 @@ const renderBodyHtml = state.renderChecklistBodyHtml;
             try { __tmScheduleReminderTaskNameMarksRefresh(modal); } catch (e) {}
             try { __tmApplyTodayScheduledTaskNameMarks(modal); } catch (e) {}
             try { __tmScheduleTodayScheduledTaskNameMarksRefresh(modal); } catch (e) {}
+            __tmBindFloatingTooltipsAfterLocalRerender(modal);
             state.pendingChecklistRenderRestore = null;
             return true;
         }
@@ -18128,6 +18390,7 @@ const renderBodyHtml = state.renderChecklistBodyHtml;
         try { __tmScheduleReminderTaskNameMarksRefresh(modal); } catch (e) {}
         try { __tmApplyTodayScheduledTaskNameMarks(modal); } catch (e) {}
         try { __tmScheduleTodayScheduledTaskNameMarksRefresh(modal); } catch (e) {}
+        __tmBindFloatingTooltipsAfterLocalRerender(modal);
         const restore = () => {
             try {
                 const nextPane = modal.querySelector('.tm-checklist-scroll');
@@ -18215,6 +18478,7 @@ const renderBodyHtml = state.renderChecklistBodyHtml;
         try { __tmApplyTodayScheduledTaskNameMarks(modal); } catch (e) {}
         try { __tmScheduleTodayScheduledTaskNameMarksRefresh(modal); } catch (e) {}
         try { __tmSyncKanbanHeadingModeSegmentedUi(modal); } catch (e) {}
+        __tmBindFloatingTooltipsAfterLocalRerender(modal);
         const restore = () => {
             try {
                 const nextBodyEl = modal.querySelector('.tm-body.tm-body--kanban');
@@ -18258,6 +18522,7 @@ const renderBodyHtml = state.renderChecklistBodyHtml;
         try { __tmBindWhiteboardViewportInput(modal); } catch (e) {}
         try { if (typeof __tmUpdateWhiteboardNavigator === 'function') __tmUpdateWhiteboardNavigator(); } catch (e) {}
         try { __tmRefreshChecklistSelectionInPlace(modal, 'whiteboard-rerender'); } catch (e) {}
+        __tmBindFloatingTooltipsAfterLocalRerender(modal);
         const restore = () => {
             try {
                 const nextBodyEl = modal.querySelector('.tm-body.tm-body--whiteboard');

@@ -169,6 +169,9 @@ return false;
         const taskCompleteAtText = __tmFormatTaskCompletedAtTime(__tmResolveTaskCompletedAtRaw(task));
         setCell('taskCompleteAt', taskCompleteAtText, { title: taskCompleteAtText });
         setCell('duration', esc(__tmFormatDurationDisplayValue(task.duration || '')), { html: true });
+        setCell('tomatoSummary', __tmGetTaskTomatoSummaryHtml(task), { html: true });
+        setCell('tomatoEstimateCount', esc(__tmGetTomatoCountDisplay(__tmGetTaskTomatoEstimateCount(task))), { html: true });
+        setCell('tomatoCount', __tmGetActualTomatoCountDisplayHtml(__tmGetTaskTomatoCount(task)), { html: true });
         const remainingInfo = __tmGetTaskRemainingTimeInfo(task);
         const remainingLabel = String(remainingInfo?.label || '').trim();
         const remainingHtml = __tmRenderTaskRemainingTimeInfoHtml(remainingInfo);
@@ -192,6 +195,9 @@ return ok;
             completionTimeCompact: 'completionTime',
             remainingTimeCompact: 'remainingTime',
             durationCompact: 'duration',
+            tomatoSummaryCompact: 'tomatoSummary',
+            tomatoEstimateCountCompact: 'tomatoEstimateCount',
+            tomatoCountCompact: 'tomatoCount',
         };
         const enabledCompactFields = (!!SettingsStore?.data?.checklistCompactMode)
             ? (globalThis.__tmViewPolicy?.getCompactChecklistMetaFieldSetForCurrentHost?.() || new Set(__tmGetCompactChecklistMetaFieldsForCurrentHost()))
@@ -232,17 +238,33 @@ return ok;
         };
         const completionText = __tmFormatTaskTime(taskCompletionTimeValue);
         const durationText = __tmFormatDurationDisplayValue(task.duration || '');
+        const focusSummaryText = __tmGetTaskTomatoSummaryText(task);
+        const focusSummaryHtml = __tmGetTaskTomatoSummaryHtml(task);
+        const tomatoEstimateText = __tmGetTomatoCountDisplay(__tmGetTaskTomatoEstimateCount(task));
+        const tomatoCountText = __tmGetTomatoCountDisplay(__tmGetTaskTomatoCount(task));
+        const tomatoCountHtml = __tmGetActualTomatoCountDisplayHtml(__tmGetTaskTomatoCount(task));
         const compactStartText = __tmFormatTaskTimeCompact(taskStartDateValue);
         const compactCompletionText = __tmFormatTaskTimeCompact(taskCompletionTimeValue);
         const compactRemainingText = String(__tmGetTaskRemainingTimeLabel(task) || '').trim();
         const compactDurationText = __tmFormatDurationDisplayValue(task.duration || '');
+        const compactFocusSummaryText = focusSummaryText;
+        const compactFocusSummaryHtml = focusSummaryHtml;
+        const compactTomatoEstimateText = tomatoEstimateText;
+        const compactTomatoCountText = tomatoCountText;
+        const compactTomatoCountHtml = tomatoCountHtml;
 
         if (!syncNode('completionTime', esc(completionText), { html: true, shouldExist: !!taskCompletionTimeValue })) valid = false;
         if (!syncNode('duration', `${__tmRenderLucideIcon('timer')} ${esc(durationText)}`, { html: true, shouldExist: !!durationText })) valid = false;
+        if (!syncNode('tomatoSummary', `${__tmRenderLucideIcon('timer')} ${focusSummaryHtml}`, { html: true, shouldExist: !!focusSummaryText })) valid = false;
+        if (!syncNode('tomatoEstimateCount', esc(tomatoEstimateText), { html: true, shouldExist: !!tomatoEstimateText })) valid = false;
+        if (!syncNode('tomatoCount', tomatoCountHtml, { html: true, shouldExist: !!tomatoCountText })) valid = false;
         if (!syncNode('startDateCompact', compactStartText, { shouldExist: !!compactStartText })) valid = false;
         if (!syncNode('completionTimeCompact', compactCompletionText, { shouldExist: !!compactCompletionText })) valid = false;
         if (!syncNode('remainingTimeCompact', compactRemainingText, { shouldExist: !!compactRemainingText && !!(taskStartDateValue || taskCompletionTimeValue) })) valid = false;
         if (!syncNode('durationCompact', compactDurationText, { shouldExist: !!compactDurationText })) valid = false;
+        if (!syncNode('tomatoSummaryCompact', compactFocusSummaryHtml, { html: true, shouldExist: !!compactFocusSummaryText })) valid = false;
+        if (!syncNode('tomatoEstimateCountCompact', compactTomatoEstimateText, { shouldExist: !!compactTomatoEstimateText })) valid = false;
+        if (!syncNode('tomatoCountCompact', compactTomatoCountHtml, { html: true, shouldExist: !!compactTomatoCountText })) valid = false;
         __tmSyncChecklistMetaContainerVisibility(item);
         return valid && (touched || !sawNode);
     }
@@ -254,11 +276,19 @@ return ok;
         if (!task || !(state.modal instanceof Element)) return false;
         const card = state.modal.querySelector(`.tm-kanban-card[data-id="${CSS.escape(id)}"]`);
         if (!(card instanceof HTMLElement)) return false;
+        let touched = false;
         const dateNode = card.querySelector('[data-tm-task-time-field="date"]');
-        if (!(dateNode instanceof HTMLElement)) return !__tmShouldRenderTaskCardDate(task);
-        if (!__tmShouldRenderTaskCardDate(task)) return false;
-        dateNode.textContent = __tmGetTaskCardDateValue(task) || '日期';
-        return true;
+        if (dateNode instanceof HTMLElement) {
+            if (!__tmShouldRenderTaskCardDate(task)) return false;
+            dateNode.textContent = __tmGetTaskCardDateValue(task) || '日期';
+            touched = true;
+        }
+        const focusNode = card.querySelector('[data-tm-task-time-field="tomatoSummary"]');
+        if (focusNode instanceof HTMLElement) {
+            focusNode.innerHTML = __tmGetTaskTomatoSummaryHtml(task);
+            touched = true;
+        }
+        return touched || (!dateNode && !focusNode);
     }
 
     function __tmUpdateWhiteboardTaskTimeInDOM(taskId) {
@@ -269,13 +299,18 @@ return ok;
         const nodes = state.modal.querySelectorAll(
             `.tm-whiteboard-node[data-task-id="${CSS.escape(id)}"] [data-tm-task-time-field="date"], ` +
             `.tm-whiteboard-stream-task-head[data-id="${CSS.escape(id)}"] [data-tm-task-time-field="date"], ` +
-            `.tm-whiteboard-stream-task-node[data-id="${CSS.escape(id)}"] [data-tm-task-time-field="date"]`
+            `.tm-whiteboard-stream-task-node[data-id="${CSS.escape(id)}"] [data-tm-task-time-field="date"], ` +
+            `.tm-whiteboard-node[data-task-id="${CSS.escape(id)}"] [data-tm-task-time-field="tomatoSummary"], ` +
+            `.tm-whiteboard-stream-task-head[data-id="${CSS.escape(id)}"] [data-tm-task-time-field="tomatoSummary"], ` +
+            `.tm-whiteboard-stream-task-node[data-id="${CSS.escape(id)}"] [data-tm-task-time-field="tomatoSummary"]`
         );
-        if (!nodes.length) return !__tmShouldRenderTaskCardDate(task);
-        if (!__tmShouldRenderTaskCardDate(task)) return false;
         const text = __tmGetTaskCardDateValue(task) || '日期';
+        const focusHtml = __tmGetTaskTomatoSummaryHtml(task);
         nodes.forEach((node) => {
-            if (node instanceof HTMLElement) node.textContent = text;
+            if (!(node instanceof HTMLElement)) return;
+            const field = String(node.getAttribute('data-tm-task-time-field') || '').trim();
+            if (field === 'tomatoSummary') node.innerHTML = focusHtml;
+            else node.textContent = text;
         });
         return true;
     }
@@ -303,6 +338,7 @@ return ok;
         if (Object.prototype.hasOwnProperty.call(nextPatch, 'startDate')) datePatch.startDate = String(nextPatch.startDate || '').trim();
         if (Object.prototype.hasOwnProperty.call(nextPatch, 'completionTime')) datePatch.completionTime = String(nextPatch.completionTime || '').trim();
         if (Object.prototype.hasOwnProperty.call(nextPatch, 'duration')) metaPatch.duration = String(nextPatch.duration || '').trim();
+        if (Object.prototype.hasOwnProperty.call(nextPatch, 'tomatoEstimateCount')) metaPatch.tomatoEstimateCount = __tmNormalizeTomatoCountValue(nextPatch.tomatoEstimateCount);
         if (Object.prototype.hasOwnProperty.call(nextPatch, 'customTime')) metaPatch.customTime = String(nextPatch.customTime || '').trim();
         let changed = false;
         if (Object.keys(datePatch).length > 0) {

@@ -4274,6 +4274,10 @@ return;
         __tmApplyTaskAttachmentPathsToTask(task, task.__attachmentPaths || task.attachments || []);
         task.tomatoMinutes = isValidValue(task.tomatoMinutes) ? String(task.tomatoMinutes) : (isValidValue(task.tomato_minutes) ? String(task.tomato_minutes) : '');
         task.tomatoHours = isValidValue(task.tomatoHours) ? String(task.tomatoHours) : (isValidValue(task.tomato_hours) ? String(task.tomato_hours) : '');
+        task.tomatoCount = __tmNormalizeTomatoCountValue(isValidValue(task.tomatoCount) ? task.tomatoCount : (isValidValue(task.tomato_count) ? task.tomato_count : ''));
+        task.tomato_count = task.tomatoCount;
+        task.tomatoEstimateCount = __tmNormalizeTomatoCountValue(isValidValue(task.tomatoEstimateCount) ? task.tomatoEstimateCount : (isValidValue(task.tomato_estimate_count) ? task.tomato_estimate_count : ''));
+        task.tomato_estimate_count = task.tomatoEstimateCount;
         const rawCustomFieldValues = (task.__customFieldRawValues && typeof task.__customFieldRawValues === 'object' && !Array.isArray(task.__customFieldRawValues))
             ? task.__customFieldRawValues
             : ((task.customFieldValues && typeof task.customFieldValues === 'object' && !Array.isArray(task.customFieldValues))

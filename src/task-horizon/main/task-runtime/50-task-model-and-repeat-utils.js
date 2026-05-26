@@ -107,6 +107,9 @@
         { key: 'priority', label: '重要性' },
         { key: 'status', label: '状态' },
         { key: 'date', label: '截止日期' },
+        { key: 'tomatoSummary', label: '专注' },
+        { key: 'tomatoEstimateCount', label: '预计番茄' },
+        { key: 'tomatoCount', label: '实际番茄' },
         { key: 'remark', label: '备注' },
     ];
 
@@ -218,7 +221,7 @@
         const n = Number(hours);
         if (!Number.isFinite(n) || n <= 0) return '';
         const rounded = Math.round(n * 100) / 100;
-        return String(rounded);
+        return `${rounded}h`;
     }
 
     function __tmFormatSpentMinutes(minutes) {
@@ -241,6 +244,71 @@
         } catch (e) {
             return '';
         }
+    }
+
+    function __tmGetTaskTomatoSummaryParts(task) {
+        const actual = typeof __tmGetTaskTomatoCount === 'function'
+            ? __tmGetTaskTomatoCount(task)
+            : __tmNormalizeTomatoCountValue(task?.tomatoCount ?? task?.tomato_count ?? '');
+        const estimate = typeof __tmGetTaskTomatoEstimateCount === 'function'
+            ? __tmGetTaskTomatoEstimateCount(task)
+            : __tmNormalizeTomatoCountValue(task?.tomatoEstimateCount ?? task?.tomato_estimate_count ?? '');
+        const spent = __tmGetTaskSpentDisplay(task);
+        const duration = __tmFormatDurationDisplayValue(task?.duration || '');
+        return {
+            actual,
+            actualNumber: Number(actual || 0),
+            actualText: actual || '',
+            estimate,
+            spent,
+            duration,
+        };
+    }
+
+    function __tmGetTaskTomatoSummaryText(task) {
+        const parts = __tmGetTaskTomatoSummaryParts(task);
+        const actualForPlan = parts.actual || '0';
+        const durationProgress = parts.duration ? `${parts.spent || '0'}/${parts.duration}` : '';
+        const tomatoPlanText = parts.estimate ? `🍅 ${actualForPlan}/${parts.estimate}` : '';
+        if (parts.duration) {
+            return `${tomatoPlanText ? `${tomatoPlanText} ` : ''}${durationProgress}`.trim();
+        }
+        if (parts.estimate) {
+            return `${tomatoPlanText}${parts.spent ? ` ${parts.spent}` : ''}`.trim();
+        }
+        return parts.spent || '';
+    }
+
+    function __tmRenderFocusActualValueHtml(value) {
+        const text = String(value ?? '').trim();
+        return text ? `<span class="tm-focus-summary-actual">${esc(text)}</span>` : '';
+    }
+
+    function __tmGetTaskTomatoSummaryHtml(task) {
+        const parts = __tmGetTaskTomatoSummaryParts(task);
+        const actualForPlan = parts.actual || '0';
+        const actualHtml = (value) => __tmRenderFocusActualValueHtml(value);
+        const spentHtml = (value) => esc(String(value ?? '').trim());
+        const durationProgress = parts.duration ? `${spentHtml(parts.spent || '0')}/${esc(parts.duration)}` : '';
+        const tomatoPlanHtml = parts.estimate ? `🍅 ${actualHtml(actualForPlan)}/${esc(parts.estimate)}` : '';
+        if (parts.duration) {
+            return `${tomatoPlanHtml ? `${tomatoPlanHtml} ` : ''}${durationProgress}`.trim();
+        }
+        if (parts.estimate) {
+            return `${tomatoPlanHtml}${parts.spent ? ` ${spentHtml(parts.spent)}` : ''}`.trim();
+        }
+        if (parts.spent) return spentHtml(parts.spent);
+        return '';
+    }
+
+    function __tmGetActualTomatoCountDisplayHtml(value) {
+        const count = __tmNormalizeTomatoCountValue(value);
+        return count ? `🍅 ${__tmRenderFocusActualValueHtml(count)}` : '';
+    }
+
+    function __tmGetTaskSpentDisplayHtml(task) {
+        const text = __tmGetTaskSpentDisplay(task);
+        return text ? esc(text) : '';
     }
 
     function __tmNormalizeDateOnly(value) {

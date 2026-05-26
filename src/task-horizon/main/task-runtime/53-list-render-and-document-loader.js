@@ -263,6 +263,11 @@
             const startDateText = hasStartDateCol ? __tmFormatTaskTime(startDate) : '';
             const completionTimeText = hasCompletionTimeCol ? __tmFormatTaskTime(completionTime) : '';
             const taskCompleteAtText = hasTaskCompleteAtCol ? __tmFormatTaskCompletedAtTime(__tmResolveTaskCompletedAtRaw(task)) : '';
+            const tomatoSummaryText = colSet.has('tomatoSummary') ? __tmGetTaskTomatoSummaryText(task) : '';
+            const tomatoSummaryHtml = colSet.has('tomatoSummary') ? __tmGetTaskTomatoSummaryHtml(task) : '';
+            const tomatoEstimateText = colSet.has('tomatoEstimateCount') ? __tmGetTomatoCountDisplay(__tmGetTaskTomatoEstimateCount(task)) : '';
+            const tomatoCountText = colSet.has('tomatoCount') ? __tmGetTomatoCountDisplay(__tmGetTaskTomatoCount(task)) : '';
+            const tomatoCountHtml = colSet.has('tomatoCount') ? __tmGetActualTomatoCountDisplayHtml(__tmGetTaskTomatoCount(task)) : '';
             const remainingInfo = hasRemainingTimeCol ? __tmGetTaskRemainingTimeInfo(task) : null;
             const remainingLabel = hasRemainingTimeCol ? String(remainingInfo?.label || '').trim() : '';
             const remainingHtml = hasRemainingTimeCol ? __tmRenderTaskRemainingTimeInfoHtml(remainingInfo) : '';
@@ -378,6 +383,15 @@
                     case 'duration':
                         rowHtml += `
                     <td class="tm-cell-editable tm-task-meta-cell" data-tm-task-time-field="duration" style="${getTableCellStyle('duration')}" onclick="tmBeginCellEdit('${taskId}','duration',this,event)">${esc(__tmFormatDurationDisplayValue(duration || ''))}</td>`;
+                        break;
+                    case 'tomatoSummary':
+                        rowHtml += `<td class="tm-cell-editable tm-task-meta-cell" data-tm-task-time-field="tomatoSummary" style="${getTableCellStyle('tomatoSummary', 'text-align:center; font-variant-numeric: inherit;')}" onclick="tmBeginCellEdit('${taskId}','tomatoSummary',this,event)">${tomatoSummaryHtml}</td>`;
+                        break;
+                    case 'tomatoEstimateCount':
+                        rowHtml += `<td class="tm-cell-editable tm-task-meta-cell" data-tm-task-time-field="tomatoEstimateCount" style="${getTableCellStyle('tomatoEstimateCount', 'text-align:center; font-variant-numeric: inherit;')}" onclick="tmBeginCellEdit('${taskId}','tomatoEstimateCount',this,event)">${esc(tomatoEstimateText)}</td>`;
+                        break;
+                    case 'tomatoCount':
+                        rowHtml += `<td class="tm-task-meta-cell" data-tm-task-time-field="tomatoCount" style="${getTableCellStyle('tomatoCount', 'text-align:center; font-variant-numeric: inherit;')}">${tomatoCountHtml || esc(tomatoCountText)}</td>`;
                         break;
                     case 'spent': {
                         const txt = useTomatoSpentHours
@@ -752,7 +766,7 @@
 
             // 计算时长总和的辅助函数
             const calculateGroupDuration = (items) => {
-                return __tmCalcGroupDurationText(items);
+                return __tmCalcGroupDurationText(items, { skipNonEmptyStatus: true });
             };
 
             sortedGroups.forEach(group => {
@@ -1305,6 +1319,34 @@ return finish(false, 'noop');
                 task.duration = trimmedValue;
                 metaPatch = { duration: trimmedValue };
                 break;
+            case __tmGetTomatoEstimateAttrKey():
+            case 'custom-tomato-estimate-count': {
+                const normalized = __tmNormalizeTomatoCountValue(trimmedValue);
+                task.tomatoEstimateCount = normalized;
+                task.tomato_estimate_count = normalized;
+                metaPatch = { tomatoEstimateCount: normalized };
+                break;
+            }
+            case __tmGetTomatoCountAttrKey():
+            case 'custom-tomato-count': {
+                const normalized = __tmNormalizeTomatoCountValue(trimmedValue);
+                task.tomatoCount = normalized;
+                task.tomato_count = normalized;
+                metaPatch = { tomatoCount: normalized };
+                break;
+            }
+            case __tmGetTomatoSpentMinutesAttrKey(): {
+                task.tomatoMinutes = trimmedValue;
+                task.tomato_minutes = trimmedValue;
+                metaPatch = { tomatoMinutes: trimmedValue };
+                break;
+            }
+            case __tmGetTomatoSpentHoursAttrKey(): {
+                task.tomatoHours = trimmedValue;
+                task.tomato_hours = trimmedValue;
+                metaPatch = { tomatoHours: trimmedValue };
+                break;
+            }
             case 'custom-remark':
                 task.remark = rawValue;
                 metaPatch = { remark: rawValue };
@@ -1650,6 +1692,10 @@ return finish(false, 'noop');
             blockRow = (res && res.code === 0 && Array.isArray(res.data)) ? res.data[0] : null;
         } catch (e) {}
         const docName = String(blockRow?.doc_name || '').trim() || '当前块';
+        const tomatoEstimateAttrKey = typeof __tmGetTomatoEstimateAttrKey === 'function' ? __tmGetTomatoEstimateAttrKey() : 'custom-tomato-estimate-count';
+        const tomatoCountAttrKey = typeof __tmGetTomatoCountAttrKey === 'function' ? __tmGetTomatoCountAttrKey() : 'custom-tomato-count';
+        const tomatoEstimateValue = __tmNormalizeTomatoCountValue(attrs[tomatoEstimateAttrKey] || attrs['custom-tomato-estimate-count'] || '');
+        const tomatoCountValue = __tmNormalizeTomatoCountValue(attrs[tomatoCountAttrKey] || attrs['custom-tomato-count'] || '');
         const row = {
             id: sourceId,
             markdown: km || '',
@@ -1658,6 +1704,10 @@ return finish(false, 'noop');
             done: !!parsed?.done,
             priority: String(attrs['custom-priority'] || '').trim(),
             duration: String(attrs['custom-duration'] || '').trim(),
+            tomatoEstimateCount: tomatoEstimateValue,
+            tomato_estimate_count: tomatoEstimateValue,
+            tomatoCount: tomatoCountValue,
+            tomato_count: tomatoCountValue,
             remark: __tmNormalizeRemarkMarkdown(attrs['custom-remark'] || ''),
             startDate: String(attrs['custom-start-date'] || '').trim(),
             start_date: String(attrs['custom-start-date'] || '').trim(),
@@ -2361,11 +2411,25 @@ return finish(false, 'noop');
 
             // 更新本地状态
             task.done = actualDone;
+            const actualMarker = actualDone ? 'X' : ' ';
+            task.taskMarker = actualMarker;
+            task.task_marker = actualMarker;
+            try { task.markdown = __tmBuildTaskMarkdownWithMarker(task, actualMarker); } catch (e) {}
             if (actualDone && completeAtPatch) {
                 task.taskCompleteAt = String(completeAtPatch.taskCompleteAt || '').trim();
                 task.task_complete_at = task.taskCompleteAt;
             }
             state.flatTasks[id] = task;
+            try {
+                __tmScheduleTaskSnapshotAfterLocalPatch?.(id, {
+                    done: !!actualDone,
+                    taskMarker: actualMarker,
+                    markdown: task.markdown,
+                    ...((touchPatch && typeof touchPatch === 'object') ? touchPatch : {}),
+                }, {
+                    source: String(opts.source || 'set-done-success').trim() || 'set-done-success',
+                });
+            } catch (e) {}
             try {
                 if (!state.doneOverrides || typeof state.doneOverrides !== 'object') state.doneOverrides = {};
                 state.doneOverrides[String(id)] = !!actualDone;
@@ -3772,6 +3836,12 @@ hint(`❌ 操作失败: ${e.message}`, 'error');
                 state.pendingInsertedTasks[tid].content = text;
                 state.pendingInsertedTasks[tid].markdown = nextMarkdown;
             }
+        } catch (e) {}
+        try {
+            __tmScheduleTaskSnapshotAfterLocalPatch?.(tid, { content: text }, {
+                ...((options && typeof options === 'object') ? options : {}),
+                source: String(options.source || 'content-patch-local').trim() || 'content-patch-local',
+            });
         } catch (e) {}
         if (options.render !== false) {
             try { __tmScheduleRender({ withFilters: options.withFilters !== false }); } catch (e) {}
@@ -5595,14 +5665,32 @@ hint(`❌ 操作失败: ${e.message}`, 'error');
         if (!task) return false;
         const nextStatusPatch = (statusPatch && typeof statusPatch === 'object' && !Array.isArray(statusPatch)) ? statusPatch : null;
         if (nextStatusPatch && Object.keys(nextStatusPatch).length > 0) {
-            __tmApplyAttrPatchLocally(tid, nextStatusPatch, { render: false, withFilters: true });
+            __tmApplyAttrPatchLocally(tid, nextStatusPatch, {
+                render: false,
+                withFilters: true,
+                source: String(source || 'done-local').trim() || 'done-local',
+            });
         }
         task.done = !!done;
+        const nextMarker = task.done ? 'X' : ' ';
+        task.taskMarker = nextMarker;
+        task.task_marker = nextMarker;
+        try { task.markdown = __tmBuildTaskMarkdownWithMarker(task, nextMarker); } catch (e) {}
         try {
             if (!state.doneOverrides || typeof state.doneOverrides !== 'object') state.doneOverrides = {};
             state.doneOverrides[tid] = !!done;
         } catch (e) {}
-        try { MetaStore.set(tid, { done: !!done, content: task.content }); } catch (e) {}
+        try { MetaStore.set(tid, { done: !!done, content: task.content, taskMarker: nextMarker, markdown: task.markdown }); } catch (e) {}
+        try {
+            __tmScheduleTaskSnapshotAfterLocalPatch?.(tid, {
+                done: !!done,
+                taskMarker: nextMarker,
+                markdown: task.markdown,
+                ...((nextStatusPatch && typeof nextStatusPatch === 'object') ? nextStatusPatch : {}),
+            }, {
+                source: String(source || 'done-local').trim() || 'done-local',
+            });
+        } catch (e) {}
         try {
             __tmSyncTaskPriorityScoreLocal(tid, {
                 includeAncestors: true,

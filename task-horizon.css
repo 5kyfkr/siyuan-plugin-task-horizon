@@ -510,13 +510,104 @@
     padding: 8px;
 }
 
+.tm-inline-editor--focus-summary,
+.tm-task-detail-inline-popover--focus-summary {
+    width: min(228px, calc(100vw - 20px));
+}
+
+.tm-focus-summary-editor__title {
+    font-size: 12px;
+    font-weight: 700;
+    color: var(--tm-secondary-text);
+}
+
+.tm-focus-summary-editor__tabs {
+    min-width: 0;
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 3px;
+    padding: 3px;
+    border-radius: calc(var(--radius) + 2px);
+    background: var(--tm-header-bg);
+}
+
+.tm-focus-summary-editor__tabs button {
+    min-height: 28px;
+    border: 1px solid transparent;
+    border-radius: calc(var(--radius) - 2px);
+    background: transparent;
+    color: var(--tm-secondary-text);
+    cursor: pointer;
+    font-size: 12px;
+    font-weight: 700;
+    box-sizing: border-box;
+}
+
+.tm-focus-summary-editor__tabs button.is-active {
+    background: var(--tm-bg-color);
+    color: var(--tm-text-color);
+    border-color: var(--tm-border-color);
+    box-shadow: 0 1px 2px rgba(15, 23, 42, 0.06);
+}
+
+.tm-focus-summary-editor__panel[hidden] {
+    display: none;
+}
+
+.tm-focus-summary-editor__field {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    font-size: 12px;
+    color: var(--tm-secondary-text);
+}
+
+.tm-focus-summary-editor__field + .tm-focus-summary-editor__field {
+    margin-top: 8px;
+}
+
+.tm-focus-summary-editor__readonly {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 6px;
+    margin-top: 8px;
+    font-size: 12px;
+    color: var(--tm-secondary-text);
+}
+
+.tm-focus-summary-editor__readonly span {
+    min-width: 0;
+    padding: 5px 6px;
+    border-radius: 6px;
+    background: var(--tm-hover-bg);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.tm-focus-summary-editor__readonly b {
+    color: var(--tm-text-color);
+    font-weight: 700;
+}
+
+.tm-focus-summary-actual {
+    color: var(--b3-theme-error, var(--tm-danger-color));
+    font-weight: 700;
+}
+
+.tm-focus-summary-editor__readonly b.tm-focus-summary-actual {
+    color: var(--b3-theme-error, var(--tm-danger-color));
+}
+
 .tm-inline-editor--duration .tm-duration-editor-input {
     width: 100%;
     max-width: 100%;
 }
 
 .tm-inline-editor--duration .tm-duration-preset-list,
-.tm-task-detail-inline-popover--duration .tm-duration-preset-list {
+.tm-task-detail-inline-popover--duration .tm-duration-preset-list,
+.tm-inline-editor--focus-summary .tm-duration-preset-list,
+.tm-task-detail-inline-popover--focus-summary .tm-duration-preset-list {
     width: 100%;
     max-width: 100%;
     align-self: stretch;
@@ -525,6 +616,26 @@
     gap: 6px;
     max-height: none;
     overflow: visible;
+}
+
+.tm-inline-editor--focus-summary .tm-duration-preset-option,
+.tm-task-detail-inline-popover--focus-summary .tm-duration-preset-option {
+    min-height: 30px;
+    justify-content: center;
+    padding: 5px 8px;
+    text-align: center;
+}
+
+.tm-inline-editor--focus-summary .tm-duration-preset-option__main,
+.tm-task-detail-inline-popover--focus-summary .tm-duration-preset-option__main {
+    align-items: center;
+}
+
+.tm-inline-editor--focus-summary .tm-duration-preset-option__check,
+.tm-inline-editor--focus-summary .tm-duration-preset-option__desc,
+.tm-task-detail-inline-popover--focus-summary .tm-duration-preset-option__check,
+.tm-task-detail-inline-popover--focus-summary .tm-duration-preset-option__desc {
+    display: none;
 }
 
 .tm-duration-preset-list {
@@ -667,10 +778,14 @@
     padding: 7px 10px;
 }
 
-.protyle-toolbar,
-.protyle-util {
-    /* Keep SiYuan's text editing tool overlays above the dock/tab host.
-       Avoid touching selection highlight layers, which caused issue #49. */
+.tm-modal .protyle-toolbar,
+.tm-modal .protyle-util,
+[data-tm-host-mode="dock"] .protyle-toolbar,
+[data-tm-host-mode="dock"] .protyle-util,
+[data-tm-host-mode="tab"] .protyle-toolbar,
+[data-tm-host-mode="tab"] .protyle-util {
+    /* Keep Task Horizon's embedded SiYuan editing overlays above the dock/tab host.
+       Avoid touching global protyle toolbars, which can be fixed by other plugins. */
     z-index: 100020 !important;
 }
 
@@ -9841,6 +9956,13 @@ select.tm-btn-secondary {
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
+}
+
+.tm-kanban-chip .tm-focus-summary-actual,
+.tm-checklist-meta-chip .tm-focus-summary-actual,
+.tm-checklist-meta-compact .tm-focus-summary-actual,
+.tm-task-detail-core-chip__text .tm-focus-summary-actual {
+    color: var(--b3-theme-error, var(--tm-danger-color));
 }
 
 .tm-checklist-meta-compact-time,

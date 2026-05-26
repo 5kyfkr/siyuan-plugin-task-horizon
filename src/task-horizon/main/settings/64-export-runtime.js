@@ -826,10 +826,11 @@
         const headingLabels = { h1: '一级标题', h2: '二级标题', h3: '三级标题', h4: '四级标题', h5: '五级标题', h6: '六级标题' };
         const seenColumnKeys = new Set();
         const columnOrder = [];
+        const knownColumnKeys = typeof __tmGetKnownColumnKeys === 'function' ? __tmGetKnownColumnKeys() : null;
         const appendColumnKeys = (keys) => {
             (Array.isArray(keys) ? keys : []).forEach((key) => {
                 const colKey = String(key || '').trim();
-                if (!colKey || seenColumnKeys.has(colKey)) return;
+                if (!colKey || seenColumnKeys.has(colKey) || (knownColumnKeys && !knownColumnKeys.has(colKey))) return;
                 seenColumnKeys.add(colKey);
                 columnOrder.push(colKey);
             });
@@ -916,6 +917,12 @@
                 label: '时长',
                 wch: pxToWch(widthMap.duration, 12),
                 value: (task) => String(task?.duration || '').trim()
+            },
+            tomatoSummary: {
+                key: 'tomatoSummary',
+                label: '专注',
+                wch: pxToWch(widthMap.tomatoSummary, 16),
+                value: (task) => __tmGetTaskTomatoSummaryText(task)
             },
             spent: {
                 key: 'spent',
@@ -1434,6 +1441,9 @@
                     startDate: task.startDate || null,
                     completionTime: task.completionTime || null,
                     duration: task.duration || null,
+                    tomatoSummary: __tmGetTaskTomatoSummaryText(task) || null,
+                    tomatoEstimateCount: __tmGetTaskTomatoEstimateCount(task) || null,
+                    tomatoCount: __tmGetTaskTomatoCount(task) || null,
                     remark: task.remark || null,
                     h2Id: task.h2Id || null,
                     h2Name: task.h2Name || null,

@@ -71,7 +71,16 @@
     // 渲染列设置（显示/排序/宽度）
     function renderColumnWidthSettings() {
         const availableCols = __tmGetAllColumnDefs();
-        const currentOrder = Array.isArray(SettingsStore.data.columnOrder) ? SettingsStore.data.columnOrder : __tmGetDefaultColumnOrder();
+        const availableKeys = new Set(availableCols.map((col) => String(col?.key || '').trim()).filter(Boolean));
+        const seenOrderKeys = new Set();
+        let currentOrder = (Array.isArray(SettingsStore.data.columnOrder) ? SettingsStore.data.columnOrder : __tmGetDefaultColumnOrder())
+            .map((key) => String(key || '').trim())
+            .filter((key) => {
+                if (!key || !availableKeys.has(key) || seenOrderKeys.has(key)) return false;
+                seenOrderKeys.add(key);
+                return true;
+            });
+        if (!currentOrder.length) currentOrder = __tmGetDefaultColumnOrder().filter((key) => availableKeys.has(key));
         const widths = SettingsStore.data.columnWidths || {};
         const defaultWidths = __tmGetColumnWidthDefaults();
 

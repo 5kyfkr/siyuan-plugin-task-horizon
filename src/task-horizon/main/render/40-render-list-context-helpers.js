@@ -7,7 +7,7 @@ function __tmBuildTableHeaderCellHtml(colKey, tableLayout) {
     if (!key) return '';
     const label = __tmResolveColumnLabel(key);
     const escapedKey = key.replace(/\\/g, '\\\\').replace(/'/g, "\\'");
-    const align = (key === 'pinned' || key === 'score' || key === 'priority' || key === 'status' || key === 'remainingTime')
+    const align = (key === 'pinned' || key === 'score' || key === 'priority' || key === 'status' || key === 'remainingTime' || key === 'tomatoSummary')
         ? 'text-align: center;'
         : '';
     const labelHtml = key === 'pinned'
@@ -26,18 +26,26 @@ function __tmBuildListRenderContext(options = {}) {
         : ((Array.isArray(SettingsStore.data.columnOrder) && SettingsStore.data.columnOrder.length)
             ? SettingsStore.data.columnOrder
             : __tmGetDefaultColumnOrder());
+    const knownColumnKeys = typeof __tmGetKnownColumnKeys === 'function' ? __tmGetKnownColumnKeys() : null;
+    let normalizedColOrder = colOrder
+        .map((col) => String(col || '').trim())
+        .filter((col, index, arr) => col && (!knownColumnKeys || knownColumnKeys.has(col)) && arr.indexOf(col) === index);
+    if (!normalizedColOrder.length) {
+        normalizedColOrder = __tmGetDefaultColumnOrder()
+            .filter((col) => !knownColumnKeys || knownColumnKeys.has(col));
+    }
     const columnWidths = (opts.columnWidths && typeof opts.columnWidths === 'object')
         ? opts.columnWidths
         : (SettingsStore.data.columnWidths || {});
     const tableAvailableWidth = Number.isFinite(Number(opts.tableAvailableWidth))
         ? Number(opts.tableAvailableWidth)
         : (Number(state.tableAvailableWidth) || 0);
-    const tableLayout = opts.tableLayout || __tmGetTableWidthLayout(colOrder, columnWidths, tableAvailableWidth);
+    const tableLayout = opts.tableLayout || __tmGetTableWidthLayout(normalizedColOrder, columnWidths, tableAvailableWidth);
     const statusOptions = Array.isArray(opts.statusOptions)
         ? opts.statusOptions
         : __tmGetStatusOptions(SettingsStore.data.customStatusOptions || []);
     const customFieldDefMap = __tmGetCustomFieldDefMap();
-    const customFieldColumns = colOrder.map((col) => {
+    const customFieldColumns = normalizedColOrder.map((col) => {
         const colKey = String(col || '').trim();
         const fieldId = __tmParseCustomFieldColumnKey(colKey);
         if (!colKey || !fieldId) return null;
@@ -51,8 +59,8 @@ function __tmBuildListRenderContext(options = {}) {
         };
     }).filter(Boolean);
     return {
-        colOrder,
-        colCount: colOrder.length || 7,
+        colOrder: normalizedColOrder,
+        colCount: normalizedColOrder.length || 7,
         tableLayout,
         statusOptions,
         customFieldColumns,

@@ -1020,6 +1020,10 @@ if (shouldMarkDirty) {
         try {
             globalThis.__tmRuntimeEvents?.off?.(window, 'resize', __tmOnFloatingTooltipWindowResize);
             globalThis.__tmRuntimeEvents?.off?.(window, 'scroll', __tmOnFloatingTooltipWindowScroll, true);
+            globalThis.__tmRuntimeEvents?.off?.(window, 'blur', __tmOnFloatingTooltipWindowBlur);
+            globalThis.__tmRuntimeEvents?.off?.(document, 'visibilitychange', __tmOnFloatingTooltipDocumentVisibilityChange);
+            globalThis.__tmRuntimeEvents?.off?.(document, 'pointerdown', __tmOnFloatingTooltipDocumentPointerDown, true);
+            globalThis.__tmRuntimeEvents?.off?.(document, 'mousedown', __tmOnFloatingTooltipDocumentPointerDown, true);
             try { delete window.__tmFloatingTooltipWindowBound; } catch (e2) { window.__tmFloatingTooltipWindowBound = false; }
         } catch (e) {}
         try {

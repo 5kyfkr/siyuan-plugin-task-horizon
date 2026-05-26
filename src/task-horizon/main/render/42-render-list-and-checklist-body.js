@@ -374,6 +374,23 @@
                     ? __tmFormatDurationDisplayValue(task.duration || '')
                     : '';
                 const showCompactDuration = !!compactDurationText;
+                const focusSummaryText = __tmGetTaskTomatoSummaryText(task);
+                const focusSummaryHtml = __tmGetTaskTomatoSummaryHtml(task);
+                const compactFocusSummaryText = checklistCompact && compactChecklistMetaFieldSet.has('tomatoSummary')
+                    ? focusSummaryText
+                    : '';
+                const compactFocusSummaryHtml = checklistCompact && compactChecklistMetaFieldSet.has('tomatoSummary')
+                    ? focusSummaryHtml
+                    : '';
+                const compactTomatoEstimateText = checklistCompact && compactChecklistMetaFieldSet.has('tomatoEstimateCount')
+                    ? __tmGetTomatoCountDisplay(__tmGetTaskTomatoEstimateCount(task))
+                    : '';
+                const compactTomatoCountText = checklistCompact && compactChecklistMetaFieldSet.has('tomatoCount')
+                    ? __tmGetTomatoCountDisplay(__tmGetTaskTomatoCount(task))
+                    : '';
+                const compactTomatoCountHtml = checklistCompact && compactChecklistMetaFieldSet.has('tomatoCount')
+                    ? __tmGetActualTomatoCountDisplayHtml(__tmGetTaskTomatoCount(task))
+                    : '';
                 const showCompactStatusTag = !checklistCompact || compactChecklistMetaFieldSet.has('status');
                 const meta = [];
                 const priorityIcon = __tmRenderPriorityJira(task.priority, false);
@@ -381,7 +398,7 @@
                 if (task.h2) meta.push(`<span class="tm-checklist-meta-chip">${__tmRenderHeadingLevelInlineIcon(task.headingLevel || SettingsStore.data.taskHeadingLevel || 'h2', { size: 14 })} ${esc(__tmNormalizeHeadingText(task.h2))}</span>`);
                 if (String(task.priority || '').trim() && String(task.priority || '').trim() !== 'none') meta.push(`<span class="tm-checklist-meta-chip" data-tm-field="priority">${priorityIcon}</span>`);
                 if (task.completionTime) meta.push(`<span class="tm-checklist-meta-chip" data-tm-task-time-field="completionTime">${esc(__tmFormatTaskTime(task.completionTime))}</span>`);
-                if (task.duration) meta.push(`<span class="tm-checklist-meta-chip" data-tm-task-time-field="duration">${__tmRenderLucideIcon('timer')} ${esc(__tmFormatDurationDisplayValue(task.duration || ''))}</span>`);
+                if (focusSummaryText) meta.push(`<span class="tm-checklist-meta-chip" data-tm-task-time-field="tomatoSummary" onclick="tmEditFocusSummaryInline('${esc(task.id)}', this)">${__tmRenderLucideIcon('timer')} ${focusSummaryHtml}</span>`);
                 if (totalChildren > 0) meta.push(`<span class="tm-checklist-meta-chip">子任务 ${completedChildren}/${totalChildren}</span>`);
                 const compactMetaParts = [];
                 if (showCompactDocName) compactMetaParts.push(`<span class="tm-checklist-meta-compact-doc">${esc(String(task.docName || ''))}</span>`);
@@ -389,6 +406,9 @@
                 if (showCompactCompletionTime) compactMetaParts.push(`<span class="tm-checklist-meta-compact-time" data-tm-task-time-field="completionTimeCompact">${esc(__tmFormatTaskTimeCompact(task.completionTime))}</span>`);
                 if (showCompactRemainingTime) compactMetaParts.push(`<span class="tm-checklist-meta-compact-remaining" data-tm-task-time-field="remainingTimeCompact">${esc(compactRemainingTimeLabel)}</span>`);
                 if (showCompactDuration) compactMetaParts.push(`<span class="tm-checklist-meta-compact-duration" data-tm-task-time-field="durationCompact">${esc(compactDurationText)}</span>`);
+                if (compactFocusSummaryText) compactMetaParts.push(`<span class="tm-checklist-meta-compact-duration" data-tm-task-time-field="tomatoSummaryCompact" onclick="tmEditFocusSummaryInline('${esc(task.id)}', this)">${compactFocusSummaryHtml}</span>`);
+                if (compactTomatoEstimateText) compactMetaParts.push(`<span class="tm-checklist-meta-compact-duration" data-tm-task-time-field="tomatoEstimateCountCompact">${esc(compactTomatoEstimateText)}</span>`);
+                if (compactTomatoCountText) compactMetaParts.push(`<span class="tm-checklist-meta-compact-duration" data-tm-task-time-field="tomatoCountCompact">${compactTomatoCountHtml || esc(compactTomatoCountText)}</span>`);
                 compactCustomFieldDefs.forEach((field) => {
                     const fieldId = String(field?.id || '').trim();
                     if (!fieldId) return;

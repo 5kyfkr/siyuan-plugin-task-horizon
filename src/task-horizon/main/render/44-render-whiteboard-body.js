@@ -600,6 +600,18 @@
                     if (whiteboardCardFields.has('date') && __tmShouldRenderTaskCardDate(task)) {
                         metaParts.push(`<span class="tm-kanban-chip tm-kanban-chip--muted" data-tm-task-time-field="date" style="cursor:${editableMeta ? 'pointer' : 'default'};" ${editableMeta ? `onclick="tmWhiteboardEditDate('${escSq(tid)}', event)"` : ''} title="${editableMeta ? '点击选择日期' : ''}">${esc(dateTxt || '日期')}</span>`);
                     }
+                    if (whiteboardCardFields.has('tomatoSummary')) {
+                        const text = __tmGetTaskTomatoSummaryText(task);
+                        if (text) metaParts.push(`<span class="tm-kanban-chip tm-kanban-chip--muted" data-tm-task-time-field="tomatoSummary" style="cursor:${editableMeta ? 'pointer' : 'default'};" ${editableMeta ? `onclick="tmEditFocusSummaryInline('${escSq(tid)}', this)"` : ''} title="${editableMeta ? '时长与番茄' : ''}">${__tmGetTaskTomatoSummaryHtml(task)}</span>`);
+                    }
+                    if (whiteboardCardFields.has('tomatoEstimateCount')) {
+                        const text = __tmGetTomatoCountDisplay(__tmGetTaskTomatoEstimateCount(task));
+                        if (text) metaParts.push(`<span class="tm-kanban-chip tm-kanban-chip--muted" data-tm-task-time-field="tomatoEstimateCount">${esc(text)}</span>`);
+                    }
+                    if (whiteboardCardFields.has('tomatoCount')) {
+                        const text = __tmGetTomatoCountDisplay(__tmGetTaskTomatoCount(task));
+                        if (text) metaParts.push(`<span class="tm-kanban-chip tm-kanban-chip--muted" data-tm-task-time-field="tomatoCount">${__tmGetActualTomatoCountDisplayHtml(__tmGetTaskTomatoCount(task))}</span>`);
+                    }
                     if (isGhost) metaParts.push(ghostTip);
                     const remarkHtml = whiteboardCardFields.has('remark') ? __tmRenderTaskCardRemark(task) : '';
                     return `

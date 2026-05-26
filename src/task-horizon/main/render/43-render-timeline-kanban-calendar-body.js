@@ -773,6 +773,18 @@
                 if (kanbanCardFields.has('priority')) metaParts.push(priorityChip);
                 if (kanbanCardFields.has('status')) metaParts.push(statusChip);
                 if (kanbanCardFields.has('date') && __tmShouldRenderTaskCardDate(task)) metaParts.push(`<span class="tm-kanban-chip tm-kanban-chip--muted" data-tm-task-time-field="date" onclick="tmKanbanPickDate('${id}', event)" title="点击选择日期">${esc(dateTxt || '日期')}</span>`);
+                if (kanbanCardFields.has('tomatoSummary')) {
+                    const text = __tmGetTaskTomatoSummaryText(task);
+                    if (text) metaParts.push(`<span class="tm-kanban-chip tm-kanban-chip--muted" data-tm-task-time-field="tomatoSummary" onclick="tmEditFocusSummaryInline('${id}', this)" title="时长与番茄">${__tmGetTaskTomatoSummaryHtml(task)}</span>`);
+                }
+                if (kanbanCardFields.has('tomatoEstimateCount')) {
+                    const text = __tmGetTomatoCountDisplay(__tmGetTaskTomatoEstimateCount(task));
+                    if (text) metaParts.push(`<span class="tm-kanban-chip tm-kanban-chip--muted" data-tm-task-time-field="tomatoEstimateCount">${esc(text)}</span>`);
+                }
+                if (kanbanCardFields.has('tomatoCount')) {
+                    const text = __tmGetTomatoCountDisplay(__tmGetTaskTomatoCount(task));
+                    if (text) metaParts.push(`<span class="tm-kanban-chip tm-kanban-chip--muted" data-tm-task-time-field="tomatoCount">${__tmGetActualTomatoCountDisplayHtml(__tmGetTaskTomatoCount(task))}</span>`);
+                }
                 if (kanbanCardFields.has('h2') && task?.h2) metaParts.push(`<span class="tm-kanban-chip tm-kanban-chip--muted" style="cursor:default;">${__tmRenderHeadingLevelInlineIcon(task.headingLevel || SettingsStore.data.taskHeadingLevel || 'h2', { size: 14 })} ${esc(__tmNormalizeHeadingText(task.h2))}</span>`);
                 const remarkHtml = kanbanCardFields.has('remark') ? __tmRenderTaskCardRemark(task) : '';
                 const multiSelectCls = __tmIsTaskMultiSelected(id) ? ' tm-task-row--multi-selected' : '';
@@ -1515,7 +1527,7 @@
                             : ''}
                         <span class="tm-badge tm-badge--count">${count}</span>
                         ${timeBoardMode ? (() => {
-                            const durationSum = __tmCalcGroupDurationText(list0);
+                            const durationSum = __tmCalcGroupDurationText(list0, { skipNonEmptyStatus: true });
                             return durationSum ? `<span class="tm-badge tm-badge--duration tm-badge--kanban-time-duration" style="color:${esc(colTitleColor)};"><span class="tm-badge__icon">${__tmRenderBadgeIcon('chart-column')}</span>${esc(durationSum)}</span>` : '';
                         })() : ''}
                     </div>

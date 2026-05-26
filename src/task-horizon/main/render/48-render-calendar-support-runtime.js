@@ -303,7 +303,12 @@
                 task,
                 title,
                 duration: String(task?.duration || '').trim(),
+                tomatoSummary: __tmGetTaskTomatoSummaryText(task),
+                tomatoSummaryHtml: __tmGetTaskTomatoSummaryHtml(task),
+                tomatoEstimateCount: __tmGetTomatoCountDisplay(__tmGetTaskTomatoEstimateCount(task)),
+                tomatoCount: __tmGetTomatoCountDisplay(__tmGetTaskTomatoCount(task)),
                 spent: __tmGetTaskSpentDisplay(task),
+                spentHtml: __tmGetTaskSpentDisplayHtml(task),
                 calendarId,
                 depth: getDepth(id),
             });
@@ -313,19 +318,22 @@
     }
 
     function __tmBuildCalendarTaskTableFallbackHtml() {
-        const colOrder = Array.isArray(SettingsStore.data.columnOrder) && SettingsStore.data.columnOrder.length
+        const rawColOrder = Array.isArray(SettingsStore.data.columnOrder) && SettingsStore.data.columnOrder.length
             ? SettingsStore.data.columnOrder
-            : ['content', 'duration', 'spent'];
+            : ['content', 'tomatoSummary'];
+        const knownColumnKeys = typeof __tmGetKnownColumnKeys === 'function' ? __tmGetKnownColumnKeys() : null;
+        const colOrder = rawColOrder
+            .map((col) => String(col || '').trim())
+            .filter((col, index, arr) => col && (!knownColumnKeys || knownColumnKeys.has(col)) && arr.indexOf(col) === index);
+        if (!colOrder.length) colOrder.push('content', 'tomatoSummary');
         const widths = SettingsStore.data.columnWidths || SettingsStore.data.calendarColumnWidths || {};
         const tableLayout = __tmGetTableWidthLayout(colOrder, widths, state.tableAvailableWidth);
         const headers = {
             content: `<th data-col="content" style="${tableLayout.cellStyle('content', 'white-space: nowrap; overflow: hidden;')}">任务内容<span class="tm-col-resize" onmousedown="startColResize(event, 'content')"></span></th>`,
-            duration: `<th data-col="duration" style="${tableLayout.cellStyle('duration', 'white-space: nowrap; overflow: hidden;')}">时长<span class="tm-col-resize" onmousedown="startColResize(event, 'duration')"></span></th>`,
-            spent: `<th data-col="spent" style="${tableLayout.cellStyle('spent', 'text-align: center; white-space: nowrap; overflow: hidden;')}">耗时<span class="tm-col-resize" onmousedown="startColResize(event, 'spent')"></span></th>`,
+            tomatoSummary: `<th data-col="tomatoSummary" style="${tableLayout.cellStyle('tomatoSummary', 'text-align: center; white-space: nowrap; overflow: hidden;')}">专注<span class="tm-col-resize" onmousedown="startColResize(event, 'tomatoSummary')"></span></th>`,
         };
-        const rows = __tmBuildCalendarTaskRowsSync(300);
-        const tbody = rows.length
-            ? rows.map((item) => {
+        const buildCell = (item, col) => {
+            if (col === 'content') {
                 let contentHtml = '';
                 try {
                     contentHtml = `${API.renderTaskContentHtml(item.task?.markdown, item.title)}${__tmRenderGlobalCollectDocTaskInlineIcon(item.task)}`;
@@ -334,16 +342,23 @@
                 }
                 const depthPad = 8 + Math.min(6, Math.max(0, Number(item.depth) || 0)) * 14;
                 return `
-                    <tr data-id="${esc(item.id)}" data-calendar-id="${esc(item.calendarId)}">
                         <td style="${tableLayout.cellStyle('content')}">
                             <div class="tm-task-cell" style="padding-left:${depthPad}px;">
                                 <span class="tm-task-text">
                                     <span class="tm-task-content-clickable"${__tmBuildTooltipAttrs(String(item.title || '').trim() || '(无内容)', { side: 'bottom', ariaLabel: false })} style="${__tmBuildTaskTitleOpacityStyle(item.task)}">${contentHtml}</span>
                                 </span>
                             </div>
-                        </td>
-                        <td class="tm-task-meta-cell" style="${tableLayout.cellStyle('duration')}">${esc(item.duration || '')}</td>
-                        <td class="tm-task-meta-cell" style="${tableLayout.cellStyle('spent', 'text-align: center; font-variant-numeric: inherit;')}">${esc(item.spent || '')}</td>
+                        </td>`;
+            }
+            if (col === 'tomatoSummary') return `<td class="tm-cell-editable tm-task-meta-cell" data-tm-task-time-field="tomatoSummary" style="${tableLayout.cellStyle('tomatoSummary', 'text-align: center; font-variant-numeric: inherit;')}" onclick="tmBeginCellEdit('${escSq(item.id)}','tomatoSummary',this,event)">${item.tomatoSummaryHtml || esc(item.tomatoSummary || '')}</td>`;
+            return '';
+        };
+        const rows = __tmBuildCalendarTaskRowsSync(300);
+        const tbody = rows.length
+            ? rows.map((item) => {
+                return `
+                    <tr data-id="${esc(item.id)}" data-calendar-id="${esc(item.calendarId)}">
+                        ${colOrder.map((col) => buildCell(item, col)).join('')}
                     </tr>
                 `;
             }).join('')
@@ -643,7 +658,7 @@
         try {
             // Ensure calendarColumnWidths is initialized with defaults if missing or empty
             if (!SettingsStore.data.calendarColumnWidths || Object.keys(SettingsStore.data.calendarColumnWidths).length === 0) {
-                SettingsStore.data.calendarColumnWidths = { content: 140, duration: 60, spent: 60 };
+                SettingsStore.data.calendarColumnWidths = { content: 140, tomatoSummary: 112 };
             }
             if (!(Array.isArray(state.filteredTasks) && state.filteredTasks.length > 0)) {
                 const fallbackTasks = __tmGetCalendarTaskCandidatesSync().tasks;
@@ -655,7 +670,7 @@
                 }
             }
 
-            SettingsStore.data.columnOrder = ['content', 'duration', 'spent'];
+            SettingsStore.data.columnOrder = ['content', 'tomatoSummary'];
             SettingsStore.data.columnWidths = SettingsStore.data.calendarColumnWidths;
 
             const colOrder = SettingsStore.data.columnOrder;
@@ -683,8 +698,7 @@
             const tableLayout = __tmGetTableWidthLayout(colOrder, widths, tableAvailableWidth);
             const headers = {
                 content: `<th data-col="content" style="${tableLayout.cellStyle('content', 'white-space: nowrap; overflow: hidden;')}">任务内容<span class="tm-col-resize" onmousedown="startColResize(event, 'content')"></span></th>`,
-                duration: `<th data-col="duration" style="${tableLayout.cellStyle('duration', 'white-space: nowrap; overflow: hidden;')}">时长<span class="tm-col-resize" onmousedown="startColResize(event, 'duration')"></span></th>`,
-                spent: `<th data-col="spent" style="${tableLayout.cellStyle('spent', 'text-align: center; white-space: nowrap; overflow: hidden;')}">耗时<span class="tm-col-resize" onmousedown="startColResize(event, 'spent')"></span></th>`,
+                tomatoSummary: `<th data-col="tomatoSummary" style="${tableLayout.cellStyle('tomatoSummary', 'text-align: center; white-space: nowrap; overflow: hidden;')}">专注<span class="tm-col-resize" onmousedown="startColResize(event, 'tomatoSummary')"></span></th>`,
             };
             const thead = colOrder.map((col) => headers[col] || __tmBuildTableHeaderCellHtml(col, tableLayout)).join('');
             return `

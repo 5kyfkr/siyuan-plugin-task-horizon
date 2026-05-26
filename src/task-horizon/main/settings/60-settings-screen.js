@@ -1127,6 +1127,21 @@
                             </div>
                             <button class="tm-btn tm-btn-primary" data-tm-action="addDurationOption" style="margin-top: 8px; font-size: 12px;">+ 添加时长预设</button>
                         </div>
+                        <div style="margin-top:12px;padding-top:12px;border-top:1px solid var(--tm-border-color);opacity:${SettingsStore.data.enableTomatoIntegration ? 1 : 0.6};">
+                            <div style="font-size:13px;font-weight:600;margin-bottom:6px;">时长与番茄属性</div>
+                            <div style="font-size:12px;color:var(--tm-secondary-text);margin-bottom:10px;">用于“时长与番茄”弹窗、专注列和常驻字段。实际番茄由 Dock Tomato 完成一次倒计时后累计 1。</div>
+                            ${renderSingleFieldSetting(
+                                '实际番茄数属性名',
+                                'Dock Tomato 单次完成累计 1 个番茄，例如 custom-tomato-count。',
+                                `<input class="b3-text-field" type="text" value="${esc(String(SettingsStore.data.tomatoCountAttrKey || 'custom-tomato-count'))}" ${SettingsStore.data.enableTomatoIntegration ? '' : 'disabled'} onchange="updateTomatoCountAttrKey(this.value)" style="width:100%;">`,
+                                { style: 'margin-bottom:10px;' }
+                            )}
+                            ${renderSingleFieldSetting(
+                                '预计番茄数属性名',
+                                '用于给任务填写预计番茄数量，例如 custom-tomato-estimate-count。',
+                                `<input class="b3-text-field" type="text" value="${esc(String(SettingsStore.data.tomatoEstimateAttrKey || 'custom-tomato-estimate-count'))}" ${SettingsStore.data.enableTomatoIntegration ? '' : 'disabled'} onchange="updateTomatoEstimateAttrKey(this.value)" style="width:100%;">`
+                            )}
+                        </div>
                     </div>
 
                     <div class="tm-settings-panel" data-tm-settings-section="search">
@@ -1276,7 +1291,7 @@
                                         { key: 'custom-start-date', label: '开始日期' },
                                         { key: 'custom-completion-time', label: '截止日期' },
                                         { key: 'taskCompleteAt', label: '完成时间' },
-                                        { key: 'custom-duration', label: '时长' },
+                                        { key: 'custom-focus-summary', label: '专注/耗时' },
                                         { key: 'custom-remark', label: '备注' },
                                         ...__tmBuildSettingsCustomFieldChipItems(),
                                     ], {
@@ -1309,7 +1324,7 @@
                                         { key: 'taskCompleteAt', label: '完成时间' },
                                         { key: 'custom-priority', label: '重要性' },
                                         { key: 'custom-start-date', label: '开始日期' },
-                                        { key: 'custom-duration', label: '时长' },
+                                        { key: 'custom-focus-summary', label: '专注/耗时' },
                                         { key: 'custom-remark', label: '备注' },
                                         ...__tmBuildSettingsCustomFieldChipItems()
                                     ], {
@@ -1360,7 +1375,8 @@
                             ${renderSingleFieldSetting(
                                 '小时属性名',
                                 '思源区块属性名，例如 custom-tomato-time。',
-                                `<input class="b3-text-field" type="text" value="${esc(String(SettingsStore.data.tomatoSpentAttrKeyHours || 'custom-tomato-time'))}" ${SettingsStore.data.enableTomatoIntegration ? '' : 'disabled'} onchange="updateTomatoSpentAttrKeyHours(this.value)" style="width:100%;">`
+                                `<input class="b3-text-field" type="text" value="${esc(String(SettingsStore.data.tomatoSpentAttrKeyHours || 'custom-tomato-time'))}" ${SettingsStore.data.enableTomatoIntegration ? '' : 'disabled'} onchange="updateTomatoSpentAttrKeyHours(this.value)" style="width:100%;">`,
+                                { style: 'margin-bottom:10px;' }
                             )}
                         </div>
                         ${renderSingleSwitchSetting(

@@ -8650,12 +8650,23 @@ if (mode === 'checklist') {
         return list;
     }
 
-    function __tmCalcGroupDurationText(items) {
+    function __tmCalcGroupDurationText(items, options = {}) {
         const list = Array.isArray(items) ? items : [];
         const durationFormat = SettingsStore.data.durationFormat || 'hours';
+        const skipNonEmptyStatus = !!(options?.skipNonEmptyStatus || options?.skipDone);
         let totalMinutes = 0;
         const visitedIds = new Set();
         const visitedRefs = new Set();
+        const shouldSkipTaskDuration = (task) => {
+            if (!skipNonEmptyStatus) return false;
+            const doneRaw = task?.done;
+            if (doneRaw === true || doneRaw === 1 || String(doneRaw ?? '').trim().toLowerCase() === 'true') return true;
+            const statusId = String(task?.customStatus ?? task?.custom_status ?? task?.status ?? '').trim();
+            if (statusId && typeof __tmDoesStatusIdResolveToDone === 'function' && __tmDoesStatusIdResolveToDone(statusId)) return true;
+            if (/^(?:__done__|done|completed|complete|finish|finished)$/i.test(statusId) || /完成/.test(statusId)) return true;
+            if (typeof __tmIsTaskDoneEffective === 'function') return __tmIsTaskDoneEffective(task);
+            return false;
+        };
         const addTaskDuration = (task) => {
             if (!task || typeof task !== 'object') return;
             const taskId = String(task.id || '').trim();
@@ -8666,8 +8677,10 @@ if (mode === 'checklist') {
                 if (visitedRefs.has(task)) return;
                 visitedRefs.add(task);
             }
-            const minutes = __tmParseDurationMinutes(task?.duration);
-            if (Number.isFinite(minutes) && minutes > 0) totalMinutes += minutes;
+            if (!shouldSkipTaskDuration(task)) {
+                const minutes = __tmParseDurationMinutes(task?.duration);
+                if (Number.isFinite(minutes) && minutes > 0) totalMinutes += minutes;
+            }
             if (Array.isArray(task.children)) task.children.forEach(addTaskDuration);
             if (Array.isArray(task.subtasks)) task.subtasks.forEach(addTaskDuration);
         };

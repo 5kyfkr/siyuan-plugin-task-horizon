@@ -659,8 +659,9 @@
     }
 
     window.updateQuickbarInlineField = async function(field, enabled) {
-        const allow = new Set(['custom-status', 'custom-completion-time', 'taskCompleteAt', 'subtask-count', 'custom-priority', 'custom-start-date', 'custom-duration', 'custom-remark']);
-        const rawKey = String(field || '').trim();
+        const allow = new Set(['custom-status', 'custom-completion-time', 'taskCompleteAt', 'subtask-count', 'custom-priority', 'custom-start-date', 'custom-focus-summary', 'custom-tomato-estimate-count', 'custom-tomato-count', 'custom-remark']);
+        const rawKey0 = String(field || '').trim();
+        const rawKey = rawKey0 === 'custom-duration' ? 'custom-focus-summary' : rawKey0;
         const customFieldId = __tmParseCustomFieldColumnKey(rawKey);
         const key = customFieldId ? `customField:${customFieldId}` : rawKey;
         if (!allow.has(key) && !customFieldId) return;
@@ -674,12 +675,13 @@
     };
 
     window.updateQuickbarVisibleItem = async function(field, enabled) {
-        const allow = new Set(['custom-status', 'custom-priority', 'custom-start-date', 'custom-completion-time', 'taskCompleteAt', 'custom-duration', 'custom-remark', 'action-ai-title', 'action-reminder', 'action-more']);
-        const rawKey = String(field || '').trim();
+        const allow = new Set(['custom-status', 'custom-priority', 'custom-start-date', 'custom-completion-time', 'taskCompleteAt', 'custom-focus-summary', 'custom-tomato-estimate-count', 'custom-tomato-count', 'custom-remark', 'action-ai-title', 'action-reminder', 'action-more']);
+        const rawKey0 = String(field || '').trim();
+        const rawKey = rawKey0 === 'custom-duration' ? 'custom-focus-summary' : rawKey0;
         const customFieldId = __tmParseCustomFieldColumnKey(rawKey);
         const key = customFieldId ? `customField:${customFieldId}` : rawKey;
         if (!allow.has(key) && !customFieldId) return;
-        const defaults = ['custom-status', 'custom-priority', 'custom-start-date', 'custom-completion-time', 'custom-duration', 'custom-remark', 'action-ai-title', 'action-reminder', 'action-more'];
+        const defaults = ['custom-status', 'custom-priority', 'custom-start-date', 'custom-completion-time', 'custom-focus-summary', 'custom-remark', 'action-ai-title', 'action-reminder', 'action-more'];
         const prev = Array.isArray(SettingsStore.data.quickbarVisibleItems) ? SettingsStore.data.quickbarVisibleItems : defaults;
         SettingsStore.data.quickbarVisibleItems = __tmSetQuickbarSettingItemEnabled(prev, key, !!enabled, allow, defaults, key === 'taskCompleteAt' ? 'custom-completion-time' : '');
         await SettingsStore.save();
@@ -865,6 +867,22 @@
 
     window.updateTomatoSpentAttrKeyHours = async function(value) {
         SettingsStore.data.tomatoSpentAttrKeyHours = String(value || '').trim();
+        await SettingsStore.save();
+        if (state.modal && document.body.contains(state.modal)) {
+            loadSelectedDocuments();
+        }
+    };
+
+    window.updateTomatoCountAttrKey = async function(value) {
+        SettingsStore.data.tomatoCountAttrKey = String(value || '').trim() || 'custom-tomato-count';
+        await SettingsStore.save();
+        if (state.modal && document.body.contains(state.modal)) {
+            loadSelectedDocuments();
+        }
+    };
+
+    window.updateTomatoEstimateAttrKey = async function(value) {
+        SettingsStore.data.tomatoEstimateAttrKey = String(value || '').trim() || 'custom-tomato-estimate-count';
         await SettingsStore.save();
         if (state.modal && document.body.contains(state.modal)) {
             loadSelectedDocuments();

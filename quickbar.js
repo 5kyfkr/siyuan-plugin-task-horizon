@@ -56,11 +56,25 @@
                 readonly: true
             },
             {
-                name: '时长',
-                attrKey: 'custom-duration',
-                type: 'text',
-                placeholder: '输入时长',
+                name: '专注/耗时',
+                attrKey: 'custom-focus-summary',
+                type: 'focus-summary',
+                placeholder: '设置时长与番茄',
                 defaultValue: ''
+            },
+            {
+                name: '预计番茄',
+                attrKey: 'custom-tomato-estimate-count',
+                type: 'tomato-count',
+                placeholder: '输入番茄数',
+                defaultValue: ''
+            },
+            {
+                name: '实际番茄',
+                attrKey: 'custom-tomato-count',
+                type: 'tomato-count',
+                defaultValue: '',
+                readonly: true
             }
         ],
         // 第二行显示的属性
@@ -110,12 +124,14 @@
         { attrKey: 'taskCompleteAt', name: '完成时间', type: 'completed-time', readonly: true },
         { attrKey: 'custom-priority', name: '重要性', type: 'select' },
         { attrKey: 'custom-start-date', name: '开始日期', type: 'date' },
-        { attrKey: 'custom-duration', name: '时长', type: 'text', placeholder: '输入时长' },
+        { attrKey: 'custom-focus-summary', name: '专注/耗时', type: 'focus-summary', placeholder: '设置时长与番茄' },
+        { attrKey: 'custom-tomato-estimate-count', name: '预计番茄', type: 'tomato-count', placeholder: '输入番茄数' },
+        { attrKey: 'custom-tomato-count', name: '实际番茄', type: 'tomato-count', readonly: true },
         { attrKey: 'custom-remark', name: '备注', type: 'text', placeholder: '输入备注' }
     ];
     const quickbarInlineFieldAllowSet = new Set(quickbarInlineFieldDefs.map(item => item.attrKey));
-    const quickbarVisibleItemDefaults = ['custom-status', 'custom-priority', 'custom-start-date', 'custom-completion-time', 'custom-duration', 'custom-remark', 'action-ai-title', 'action-reminder', 'action-more'];
-    const quickbarVisibleItemAllowSet = new Set([...quickbarVisibleItemDefaults, 'taskCompleteAt']);
+    const quickbarVisibleItemDefaults = ['custom-status', 'custom-priority', 'custom-start-date', 'custom-completion-time', 'custom-focus-summary', 'custom-remark', 'action-ai-title', 'action-reminder', 'action-more'];
+    const quickbarVisibleItemAllowSet = new Set([...quickbarVisibleItemDefaults, 'taskCompleteAt', 'custom-tomato-estimate-count', 'custom-tomato-count']);
     let inlineMetaCache = new Map();
     let inlineMetaCacheTs = new Map();
     let inlineMetaLayoutCache = new Map();
@@ -330,7 +346,8 @@
     }
 
     function normalizeQuickbarSettingFieldKey(value, allowSet) {
-        const key = String(value || '').trim();
+        const rawKey = String(value || '').trim();
+        const key = rawKey === 'custom-duration' ? 'custom-focus-summary' : rawKey;
         if (allowSet instanceof Set && allowSet.has(key)) return key;
         const customFieldId = parseQuickbarCustomFieldToken(key);
         if (!customFieldId) return '';
@@ -385,6 +402,189 @@
         } catch (e) {
             return { items: quickbarVisibleItemDefaults.slice() };
         }
+    }
+
+    function normalizeTomatoCountValue(value) {
+        const raw = String(value ?? '').trim();
+        if (!raw) return '';
+        const num = Number(raw);
+        if (!Number.isFinite(num)) return '';
+        return String(Math.max(0, Math.floor(num)));
+    }
+
+    function formatTomatoCountDisplay(value) {
+        const normalized = normalizeTomatoCountValue(value);
+        return normalized ? `🍅 ${normalized}` : '';
+    }
+
+    function parseQuickbarNumber(value) {
+        const raw = String(value ?? '').trim();
+        if (!raw) return Number.NaN;
+        const n = Number(raw);
+        return Number.isFinite(n) ? n : Number.NaN;
+    }
+
+    function formatQuickbarSpentMinutes(minutes) {
+        const n = Number(minutes);
+        if (!Number.isFinite(n) || n <= 0) return '';
+        const total = Math.round(n);
+        const h = Math.floor(total / 60);
+        const m = total % 60;
+        if (h > 0 && m > 0) return `${h}h${m}m`;
+        if (h > 0) return `${h}h`;
+        return `${m}m`;
+    }
+
+    function formatQuickbarSpentHours(hours) {
+        const n = Number(hours);
+        if (!Number.isFinite(n) || n <= 0) return '';
+        return `${Math.round(n * 100) / 100}h`;
+    }
+
+    function formatQuickbarDurationDisplay(value) {
+        const normalized = String(value || '').trim().replace(/(\d+(?:\.\d+)?)\s*min\b/ig, '$1m');
+        if (!normalized) return '';
+        if (/^\d+(?:\.\d+)?$/.test(normalized)) {
+            const fmt = (() => {
+                try {
+                    const parsed = JSON.parse(localStorage.getItem('tm_duration_format') || 'null');
+                    const value = String(parsed || '').trim();
+                    return value === 'minutes' ? 'minutes' : 'hours';
+                } catch (e) {
+                    try {
+                        const value = String(localStorage.getItem('tm_duration_format') || '').replace(/^"|"$/g, '').trim();
+                        return value === 'minutes' ? 'minutes' : 'hours';
+                    } catch (e2) {
+                        return 'hours';
+                    }
+                }
+            })();
+            return `${normalized}${fmt === 'minutes' ? 'm' : 'h'}`;
+        }
+        return normalized;
+    }
+
+    function getConfiguredTomatoSpentAttrMode() {
+        try {
+            const parsed = JSON.parse(localStorage.getItem('tm_tomato_spent_attr_mode') || 'null');
+            const value = String(parsed || '').trim();
+            return value === 'hours' ? 'hours' : 'minutes';
+        } catch (e) {
+            try {
+                const value = String(localStorage.getItem('tm_tomato_spent_attr_mode') || '').replace(/^"|"$/g, '').trim();
+                return value === 'hours' ? 'hours' : 'minutes';
+            } catch (e2) {
+                return 'minutes';
+            }
+        }
+    }
+
+    function getConfiguredTomatoSpentAttrKey(kind) {
+        const fallback = kind === 'hours' ? 'custom-tomato-time' : 'custom-tomato-minutes';
+        try {
+            const storageKey = kind === 'hours' ? 'tm_tomato_spent_attr_key_hours' : 'tm_tomato_spent_attr_key_minutes';
+            const parsed = JSON.parse(localStorage.getItem(storageKey) || 'null');
+            const value = String(parsed || '').trim();
+            return value || fallback;
+        } catch (e) {
+            try {
+                const storageKey = kind === 'hours' ? 'tm_tomato_spent_attr_key_hours' : 'tm_tomato_spent_attr_key_minutes';
+                const value = String(localStorage.getItem(storageKey) || '').replace(/^"|"$/g, '').trim();
+                return value || fallback;
+            } catch (e2) {
+                return fallback;
+            }
+        }
+    }
+
+    function formatFocusSummaryDisplay(props = {}) {
+        const source = (props && typeof props === 'object') ? props : {};
+        const actual = normalizeTomatoCountValue(source['custom-tomato-count'] || source.tomatoCount || source.tomato_count || '');
+        const estimate = normalizeTomatoCountValue(source['custom-tomato-estimate-count'] || source.tomatoEstimateCount || source.tomato_estimate_count || '');
+        const duration = formatQuickbarDurationDisplay(source['custom-duration'] || source.duration || '');
+        const spent = String(source['custom-focus-spent-display'] || source.spent || '').trim();
+        const actualForPlan = actual || '0';
+        const durationProgress = duration ? `${spent || '0'}/${duration}` : '';
+        const tomatoPlanText = estimate ? `🍅 ${actualForPlan}/${estimate}` : '';
+        if (duration) {
+            return `${tomatoPlanText ? `${tomatoPlanText} ` : ''}${durationProgress}`.trim();
+        }
+        if (estimate) return `${tomatoPlanText}${spent ? ` ${spent}` : ''}`.trim();
+        return spent || '';
+    }
+
+    function renderQuickbarFocusActualHtml(value) {
+        const text = String(value ?? '').trim();
+        return text ? `<span class="sy-custom-props-focus-actual">${esc(text)}</span>` : '';
+    }
+
+    function formatFocusSummaryDisplayHtml(props = {}) {
+        const source = (props && typeof props === 'object') ? props : {};
+        const actual = normalizeTomatoCountValue(source['custom-tomato-count'] || source.tomatoCount || source.tomato_count || '');
+        const estimate = normalizeTomatoCountValue(source['custom-tomato-estimate-count'] || source.tomatoEstimateCount || source.tomato_estimate_count || '');
+        const duration = formatQuickbarDurationDisplay(source['custom-duration'] || source.duration || '');
+        const spent = String(source['custom-focus-spent-display'] || source.spent || '').trim();
+        const actualForPlan = actual || '0';
+        const durationProgress = duration ? `${esc(spent || '0')}/${esc(duration)}` : '';
+        const tomatoPlanHtml = estimate ? `🍅 ${renderQuickbarFocusActualHtml(actualForPlan)}/${esc(estimate)}` : '';
+        if (duration) {
+            return `${tomatoPlanHtml ? `${tomatoPlanHtml} ` : ''}${durationProgress}`.trim();
+        }
+        if (estimate) return `${tomatoPlanHtml}${spent ? ` ${esc(spent)}` : ''}`.trim();
+        if (spent) return esc(spent);
+        return '';
+    }
+
+    function formatActualTomatoCountDisplayHtml(value) {
+        const count = normalizeTomatoCountValue(value);
+        return count ? `🍅 ${renderQuickbarFocusActualHtml(count)}` : '';
+    }
+
+    function getConfiguredTomatoCountAttrKey(kind) {
+        const fallback = kind === 'estimate' ? 'custom-tomato-estimate-count' : 'custom-tomato-count';
+        try {
+            const storageKey = kind === 'estimate' ? 'tm_tomato_estimate_attr_key' : 'tm_tomato_count_attr_key';
+            const parsed = JSON.parse(localStorage.getItem(storageKey) || 'null');
+            const value = String(parsed || '').trim();
+            return value || fallback;
+        } catch (e) {
+            try {
+                const storageKey = kind === 'estimate' ? 'tm_tomato_estimate_attr_key' : 'tm_tomato_count_attr_key';
+                const value = String(localStorage.getItem(storageKey) || '').replace(/^"|"$/g, '').trim();
+                return value || fallback;
+            } catch (e2) {
+                return fallback;
+            }
+        }
+    }
+
+    function normalizeTaskHorizonAttrKeyForSave(attrKey) {
+        const key = String(attrKey || '').trim();
+        if (key === 'custom-tomato-estimate-count') return getConfiguredTomatoCountAttrKey('estimate');
+        if (key === 'custom-tomato-count') return getConfiguredTomatoCountAttrKey('actual');
+        return key;
+    }
+
+    function normalizeTaskHorizonAttrKeyForDisplay(attrKey) {
+        const key = String(attrKey || '').trim();
+        if (!key) return '';
+        if (key === getConfiguredTomatoCountAttrKey('estimate')) return 'custom-tomato-estimate-count';
+        if (key === getConfiguredTomatoCountAttrKey('actual')) return 'custom-tomato-count';
+        return key;
+    }
+
+    function getQuickbarFocusSpentSourceAttrs(attrs = {}) {
+        const data = attrs && typeof attrs === 'object' ? attrs : {};
+        const minutesKey = getConfiguredTomatoSpentAttrKey('minutes');
+        const hoursKey = getConfiguredTomatoSpentAttrKey('hours');
+        return {
+            [minutesKey]: data[minutesKey] || data['custom-tomato-minutes'] || data.tomatoMinutes || data.tomato_minutes || '',
+            [hoursKey]: data[hoursKey] || data['custom-tomato-time'] || data.tomatoHours || data.tomato_hours || '',
+            'custom-tomato-minutes': data['custom-tomato-minutes'] || data[minutesKey] || data.tomatoMinutes || data.tomato_minutes || '',
+            'custom-tomato-time': data['custom-tomato-time'] || data[hoursKey] || data.tomatoHours || data.tomato_hours || '',
+            tomatoMinutes: data.tomatoMinutes || data.tomato_minutes || data[minutesKey] || data['custom-tomato-minutes'] || '',
+            tomatoHours: data.tomatoHours || data.tomato_hours || data[hoursKey] || data['custom-tomato-time'] || '',
+        };
     }
 
     function normalizeDurationPresetValue(value) {
@@ -1151,6 +1351,10 @@
             .sy-custom-props-floatbar__prop-value {
                 font-weight: 500;
             }
+            .sy-custom-props-focus-actual {
+                color: var(--b3-theme-error);
+                font-weight: 700;
+            }
             .sy-custom-props-floatbar__prop--core {
                 gap: 5px;
                 padding: 0 8px;
@@ -1523,6 +1727,117 @@
             .sy-custom-props-floatbar__input-editor.is-duration .sy-custom-props-floatbar__input-actions {
                 margin-top: 8px;
             }
+            .sy-custom-props-floatbar__input-editor.is-focus-summary {
+                width: min(228px, calc(100vw - 12px));
+                min-width: min(188px, calc(100vw - 12px));
+                padding: 8px;
+            }
+            .sy-custom-props-floatbar__input-editor.is-focus-summary .sy-custom-props-floatbar__input {
+                width: 100%;
+                max-width: 100%;
+            }
+            .sy-custom-props-floatbar__input-editor.is-focus-summary .sy-custom-props-floatbar__input-extra.is-visible {
+                width: 100%;
+                max-width: 100%;
+                display: grid;
+                grid-template-columns: repeat(2, minmax(0, 1fr));
+                gap: 6px;
+                margin-top: 8px;
+            }
+            .sy-custom-props-floatbar__input-editor.is-focus-summary .sy-custom-props-floatbar__input-extra-row {
+                width: 100%;
+                max-width: 100%;
+                min-height: 30px;
+                border-radius: 7px;
+                gap: 4px;
+                padding: 5px 8px;
+            }
+            .sy-custom-props-floatbar__input-editor.is-focus-summary .sy-custom-props-floatbar__input-extra-main {
+                gap: 4px;
+            }
+            .sy-custom-props-floatbar__input-editor.is-focus-summary .sy-custom-props-floatbar__input-extra-icon {
+                display: none;
+            }
+            .sy-custom-props-floatbar__input-editor.is-focus-summary .sy-custom-props-floatbar__input-extra-title {
+                font-size: 12px;
+                line-height: 1.2;
+            }
+            .sy-custom-props-floatbar__input-editor.is-focus-summary .sy-custom-props-floatbar__input-extra-tail {
+                visibility: hidden;
+                width: 14px;
+                height: 14px;
+                color: var(--b3-theme-primary);
+            }
+            .sy-custom-props-floatbar__input-editor.is-focus-summary .sy-custom-props-floatbar__input-extra-row.is-active {
+                border-color: var(--b3-theme-primary);
+                background: var(--b3-theme-primary-light, var(--b3-theme-surface-light));
+                color: var(--b3-theme-primary);
+            }
+            .sy-custom-props-floatbar__input-editor.is-focus-summary .sy-custom-props-floatbar__input-extra-row.is-active .sy-custom-props-floatbar__input-extra-tail {
+                visibility: visible;
+            }
+            .sy-custom-props-floatbar__focus-tabs {
+                min-width: 0;
+                display: grid;
+                grid-template-columns: 1fr 1fr;
+                gap: 3px;
+                padding: 3px;
+                margin-bottom: 8px;
+                border-radius: 9px;
+                background: var(--b3-theme-surface-light);
+            }
+            .sy-custom-props-floatbar__focus-tabs button {
+                min-height: 26px;
+                border: 1px solid transparent;
+                border-radius: 7px;
+                background: transparent;
+                color: var(--b3-theme-on-surface);
+                cursor: pointer;
+                font-size: 12px;
+                font-weight: 700;
+                box-sizing: border-box;
+            }
+            .sy-custom-props-floatbar__focus-tabs button.is-active {
+                background: var(--b3-theme-background);
+                color: var(--b3-theme-on-background);
+                border-color: var(--b3-border-color);
+                box-shadow: 0 1px 2px rgba(15, 23, 42, 0.06);
+            }
+            .sy-custom-props-floatbar__focus-field {
+                display: flex;
+                flex-direction: column;
+                gap: 4px;
+                margin-top: 8px;
+                font-size: 12px;
+                color: var(--b3-theme-on-surface);
+            }
+            .sy-custom-props-floatbar__focus-field:first-of-type {
+                margin-top: 0;
+            }
+            .sy-custom-props-floatbar__focus-panel[hidden] {
+                display: none;
+            }
+            .sy-custom-props-floatbar__focus-readonly {
+                display: grid;
+                grid-template-columns: repeat(2, minmax(0, 1fr));
+                gap: 6px;
+                margin-top: 8px;
+                color: var(--b3-theme-on-surface);
+                font-size: 12px;
+            }
+            .sy-custom-props-floatbar__focus-readonly span {
+                min-width: 0;
+                padding: 5px 6px;
+                border-radius: 6px;
+                background: var(--b3-theme-surface-light);
+                overflow: hidden;
+                text-overflow: ellipsis;
+                white-space: nowrap;
+            }
+            .sy-custom-props-floatbar__focus-readonly b.sy-custom-props-focus-actual {
+                color: var(--b3-theme-error);
+                font-weight: 700;
+            }
             .sy-custom-props-floatbar__remark-toolbar {
                 display: none;
                 align-items: center;
@@ -1856,6 +2171,15 @@
             .sy-custom-props-inline-chip--subtask-count:hover {
                 border-color: var(--b3-border-color);
             }
+            .sy-custom-props-inline-chip--tomato-count {
+                min-width: 0;
+                padding: 0 6px;
+            }
+            .sy-custom-props-inline-chip--focus-summary {
+                min-width: 0;
+                padding: 0 6px;
+                font-variant-numeric: tabular-nums;
+            }
             .sy-custom-props-inline-chip--remark {
                 display: inline-flex;
                 align-items: center;
@@ -1973,6 +2297,30 @@
                 input: inputEditor.querySelector('.sy-custom-props-floatbar__input'),
                 textarea: inputEditor.querySelector('.sy-custom-props-floatbar__textarea')
             };
+        }
+
+        function cleanupFocusSummaryEditorScaffold() {
+            try { inputEditor.querySelector('[data-focus-summary-tabs]')?.remove?.(); } catch (e) {}
+            try {
+                const durationPanel = inputEditor.querySelector('[data-focus-summary-duration-panel]');
+                if (durationPanel instanceof HTMLElement) {
+                    const input = durationPanel.querySelector('.sy-custom-props-floatbar__input');
+                    const extraPanel = durationPanel.querySelector('[data-input-extra]');
+                    if (input instanceof HTMLElement) {
+                        inputEditor.insertBefore(input, durationPanel);
+                    }
+                    if (extraPanel instanceof HTMLElement) {
+                        const remarkToolbar = inputEditor.querySelector('[data-remark-toolbar]');
+                        const actions = inputEditor.querySelector('.sy-custom-props-floatbar__input-actions');
+                        if (remarkToolbar instanceof HTMLElement) inputEditor.insertBefore(extraPanel, remarkToolbar);
+                        else if (actions instanceof HTMLElement) inputEditor.insertBefore(extraPanel, actions);
+                        else inputEditor.appendChild(extraPanel);
+                    }
+                    durationPanel.remove();
+                }
+            } catch (e) {}
+            try { inputEditor.querySelector('[data-focus-summary-estimate-field]')?.remove?.(); } catch (e) {}
+            try { inputEditor.querySelector('[data-focus-summary-readonly]')?.remove?.(); } catch (e) {}
         }
 
         function syncInputEditorTextareaHeight(textarea, minHeight = 76) {
@@ -2102,6 +2450,7 @@
         }
 
         function setInputEditorMode(mode = 'input') {
+            cleanupFocusSummaryEditorScaffold();
             const { input, textarea } = getInputEditorControls();
             const useTextarea = mode === 'textarea';
             const remarkToolbar = inputEditor.querySelector('[data-remark-toolbar]');
@@ -2123,7 +2472,7 @@
                 textarea.onkeydown = null;
             }
             inputEditor.classList.toggle('is-remark', useTextarea);
-            inputEditor.classList.remove('is-duration');
+            inputEditor.classList.remove('is-duration', 'is-focus-summary');
             if (remarkToolbar instanceof HTMLElement) {
                 remarkToolbar.classList.remove('is-open');
                 remarkToolbar.hidden = true;
@@ -2555,12 +2904,20 @@
 
         async function saveTaskAttrWithUndo(blockId, attrKey, value, options = {}) {
             const id = String(blockId || '').trim();
-            const key = String(attrKey || '').trim();
+            const requestedKey = String(attrKey || '').trim();
+            const key = normalizeTaskHorizonAttrKeyForSave(requestedKey);
             if (!id || !key) return { success: false, viaSharedApi: false };
+            const isTomatoCountKey = requestedKey === 'custom-tomato-estimate-count'
+                || requestedKey === 'custom-tomato-count'
+                || key === getConfiguredTomatoCountAttrKey('estimate')
+                || key === getConfiguredTomatoCountAttrKey('actual');
+            const normalizedValue = isTomatoCountKey
+                ? normalizeTomatoCountValue(value)
+                : value;
             pushTaskHorizonDebug('refresh', 'quickbar-save:start', {
                 taskId: id,
                 attrKey: key,
-                value: value == null ? '' : String(value),
+                value: normalizedValue == null ? '' : String(normalizedValue),
                 label: String(options?.label || '').trim(),
             });
             const sharedApi = getTaskHorizonSharedApi();
@@ -2638,7 +2995,7 @@
             const genericApplier = sharedApi?.applyTaskAttrUpdateWithUndo;
             if (typeof genericApplier === 'function') {
                 try {
-                    const nextValue = value == null ? '' : String(value);
+                    const nextValue = normalizedValue == null ? '' : String(normalizedValue);
                     suppressTaskHorizonMobileTopbarOpen();
                     const apiResult = await genericApplier(id, key, nextValue, {
                         source: 'quickbar-attr',
@@ -2671,7 +3028,7 @@
                     return result;
                 } catch (e) {}
             }
-            const fallbackAttrs = { [key]: value };
+            const fallbackAttrs = { [key]: normalizedValue };
             const result = await setBlockCustomAttrs(id, fallbackAttrs);
             const mirrorTaskId = String(resolveCurrentTaskId() || '').trim();
             if (result?.success && mirrorTaskId && mirrorTaskId !== id) {
@@ -2683,13 +3040,13 @@
                 viaSharedApi: false,
                 taskId: mirrorTaskId || id,
                 requestedTaskId: id,
-                value: value == null ? '' : String(value),
+                value: normalizedValue == null ? '' : String(normalizedValue),
             };
             pushTaskHorizonDebug('refresh', 'quickbar-save:end', {
                 taskId: finalResult.taskId,
                 requestedTaskId: finalResult.requestedTaskId,
                 attrKey: key,
-                value: value == null ? '' : String(value),
+                value: normalizedValue == null ? '' : String(normalizedValue),
                 label: String(options?.label || '').trim(),
                 viaSharedApi: false,
                 success: finalResult.success === true,
@@ -2863,8 +3220,48 @@
             if (key === 'custom-completion-time') return 'calendar-check';
             if (key === 'taskCompleteAt') return 'check-circle';
             if (key === 'custom-duration') return 'timer';
+            if (key === 'custom-focus-summary') return 'timer';
+            if (key === 'custom-tomato-estimate-count') return 'timer';
+            if (key === 'custom-tomato-count') return 'timer';
             if (key === 'custom-remark') return 'note-pencil';
             return '';
+        }
+
+        async function saveRawTaskAttrWithUndo(blockId, attrKey, value, options = {}) {
+            const id = String(blockId || '').trim();
+            const key = String(attrKey || '').trim();
+            if (!id || !key) return { success: false, viaSharedApi: false };
+            const rawValue = value == null ? '' : String(value);
+            const sharedApi = getTaskHorizonSharedApi();
+            const genericApplier = sharedApi?.applyTaskAttrUpdateWithUndo;
+            if (typeof genericApplier === 'function') {
+                try {
+                    suppressTaskHorizonMobileTopbarOpen();
+                    const apiResult = await genericApplier(id, key, rawValue, {
+                        source: 'quickbar-raw-attr',
+                        label: String(options?.label || ''),
+                        refresh: false,
+                        silent: true,
+                    });
+                    if (apiResult !== false) {
+                        return {
+                            success: true,
+                            viaSharedApi: true,
+                            taskId: String(apiResult?.taskId || apiResult?.id || id).trim() || id,
+                            requestedTaskId: String(apiResult?.requestedTaskId || id).trim() || id,
+                            value: rawValue,
+                        };
+                    }
+                } catch (e) {}
+            }
+            const result = await setBlockCustomAttrs(id, { [key]: rawValue });
+            return {
+                success: result?.success === true,
+                viaSharedApi: false,
+                taskId: id,
+                requestedTaskId: id,
+                value: rawValue,
+            };
         }
 
         function getFloatbarCoreDisplayValue(config, value) {
@@ -2874,7 +3271,9 @@
             if (attrKey === 'taskCompleteAt') return formatTaskCompletedAtLikeManager(rawValue);
             if (config?.type === 'date') return formatTaskTimeLikeManager(rawValue);
             if (attrKey === 'custom-remark') return truncateInlineValue(rawValue, 24);
-            if (attrKey === 'custom-duration') return truncateInlineValue(rawValue, 12);
+            if (attrKey === 'custom-duration') return truncateInlineValue(formatQuickbarDurationDisplay(rawValue), 12);
+            if (attrKey === 'custom-focus-summary') return formatFocusSummaryDisplay(currentProps);
+            if (attrKey === 'custom-tomato-estimate-count' || attrKey === 'custom-tomato-count') return formatTomatoCountDisplay(rawValue);
             return truncateInlineValue(rawValue, 15);
         }
 
@@ -2882,8 +3281,11 @@
             const attrKey = String(config?.attrKey || '').trim();
             const rawValue = String(value ?? '').trim();
             const displayValue = String(opts.displayValue ?? getFloatbarCoreDisplayValue(config, rawValue));
+            const displayHtml = opts.htmlValue === true
+                ? String(opts.displayHtml ?? displayValue)
+                : esc(displayValue);
             const hasValue = !!displayValue;
-            const tooltipSource = rawValue;
+            const tooltipSource = attrKey === 'custom-focus-summary' ? displayValue : rawValue;
             const tooltipText = tooltipSource ? `${String(config?.name || '').trim()}: ${tooltipSource}` : (config?.name || '');
             const className = [
                 'sy-custom-props-floatbar__prop',
@@ -2900,7 +3302,7 @@
                           data-value="${esc(String(value ?? ''))}"
                           ${buildTooltipAttrs(tooltipText)}
                           style="${style}">
-                        <span class="sy-custom-props-floatbar__prop-icon">${renderPhosphorBoldIcon(getFloatbarCoreIconName(attrKey), 14)}</span>${hasValue ? `<span class="sy-custom-props-floatbar__prop-value">${esc(displayValue)}</span>` : ''}
+                        <span class="sy-custom-props-floatbar__prop-icon">${renderPhosphorBoldIcon(getFloatbarCoreIconName(attrKey), 14)}</span>${hasValue ? `<span class="sy-custom-props-floatbar__prop-value">${displayHtml}</span>` : ''}
                     </span>
                 `;
         }
@@ -2995,18 +3397,31 @@
             const statusOptions = getStatusOptionsSnapshot();
             const defaultUndoneStatusId = getDefaultUndoneStatusId(statusOptions);
             const done = data.done === true || data.done === 'true' || data.done === '1' || data.done === 1;
+            const spentSource = getQuickbarFocusSpentSourceAttrs(data);
+            const tomatoEstimateAttrKey = getConfiguredTomatoCountAttrKey('estimate');
+            const tomatoCountAttrKey = getConfiguredTomatoCountAttrKey('actual');
+            const spentMode = getConfiguredTomatoSpentAttrMode();
+            const tomatoMinutesAttrKey = getConfiguredTomatoSpentAttrKey('minutes');
+            const tomatoHoursAttrKey = getConfiguredTomatoSpentAttrKey('hours');
+            const spentDisplay = spentMode === 'hours'
+                ? formatQuickbarSpentHours(parseQuickbarNumber(spentSource[tomatoHoursAttrKey] || spentSource['custom-tomato-time'] || spentSource.tomatoHours || ''))
+                : formatQuickbarSpentMinutes(parseQuickbarNumber(spentSource[tomatoMinutesAttrKey] || spentSource['custom-tomato-minutes'] || spentSource.tomatoMinutes || ''));
             const out = {
                 'custom-priority': data['custom-priority'] || 'none',
                 'custom-status': String(data['custom-status'] || '').trim() || defaultUndoneStatusId,
                 'custom-completion-time': data['custom-completion-time'] || '',
                 'custom-start-date': data['custom-start-date'] || '',
                 'custom-duration': data['custom-duration'] || '',
+                'custom-tomato-estimate-count': normalizeTomatoCountValue(data['custom-tomato-estimate-count'] || data[tomatoEstimateAttrKey] || data.tomatoEstimateCount || data.tomato_estimate_count || ''),
+                'custom-tomato-count': normalizeTomatoCountValue(data['custom-tomato-count'] || data[tomatoCountAttrKey] || data.tomatoCount || data.tomato_count || ''),
+                'custom-focus-spent-display': spentDisplay,
                 'custom-remark': data['custom-remark'] || '',
                 'custom-pinned': data['custom-pinned'] || '',
                 'bookmark': data['bookmark'] || '',
                 done,
                 taskCompleteAt: String(data.taskCompleteAt || data.task_complete_at || data['custom-task-complete-at'] || '').trim()
             };
+            out['custom-focus-summary'] = formatFocusSummaryDisplay(out);
             getQuickbarCustomFieldDefs().forEach((field) => {
                 const config = buildQuickbarCustomFieldConfig(field);
                 if (!config?.attrKey) return;
@@ -3123,6 +3538,10 @@
                 'custom-completion-time': String(task.completionTime || task.completion_time || '').trim(),
                 'custom-start-date': String(task.startDate || task.start_date || '').trim(),
                 'custom-duration': String(task.duration || task.custom_duration || '').trim(),
+                'custom-tomato-estimate-count': String(task.tomatoEstimateCount || task.tomato_estimate_count || task.tomatoEstimate || '').trim(),
+                'custom-tomato-count': String(task.tomatoCount || task.tomato_count || '').trim(),
+                tomatoMinutes: String(task.tomatoMinutes || task.tomato_minutes || '').trim(),
+                tomatoHours: String(task.tomatoHours || task.tomato_hours || '').trim(),
                 'custom-remark': String(task.remark || task.custom_remark || '').trim(),
                 'custom-pinned': String(task.pinned || task.custom_pinned || '').trim(),
                 done: isQuickbarTaskLikeDone(task),
@@ -3144,6 +3563,30 @@
                 taskId: String(task.id || '').trim(),
                 attrHostId: String(task.attrHostId || task.attr_host_id || '').trim()
             };
+        }
+
+        async function getTaskHorizonBridgeCustomProps(blockId, options = {}) {
+            const id = String(blockId || '').trim();
+            if (!id) return null;
+            const bridge = getTaskHorizonSharedApi()?.quickbarBridge;
+            const getter = bridge?.getTaskCustomPropsByAnyId;
+            if (typeof getter !== 'function') return null;
+            try {
+                const result = await getter(id, {
+                    forceFresh: options?.forceFresh === true,
+                });
+                const props = result?.props && typeof result.props === 'object'
+                    ? normalizeCustomProps(result.props)
+                    : null;
+                if (!props) return null;
+                return {
+                    props,
+                    taskId: String(result?.taskId || id).trim() || id,
+                    attrHostId: String(result?.attrHostId || result?.taskId || id).trim() || id,
+                };
+            } catch (e) {
+                return null;
+            }
         }
 
         function resolveQuickbarAttrBindingFromBlockId(blockId) {
@@ -3211,6 +3654,12 @@
                 || key === 'custom-reminder'
                 || key === 'custom-start-date'
                 || key === 'custom-completion-time'
+                || key === 'custom-duration'
+                || key === 'custom-focus-summary'
+                || key === 'custom-tomato-estimate-count'
+                || key === 'custom-tomato-count'
+                || key === getConfiguredTomatoSpentAttrKey('minutes')
+                || key === getConfiguredTomatoSpentAttrKey('hours')
                 || key === 'custom-task-repeat-rule'
                 || key === 'custom-task-repeat-state'
                 || key.startsWith('custom-tm-');
@@ -3321,8 +3770,9 @@
             return formatTaskTimeLikeManager(s);
         }
 
-        function renderInlineMetaField(config, value, blockEl = null) {
+        function renderInlineMetaField(config, value, blockEl = null, props = null) {
             if (!config) return '';
+            const sourceProps = props && typeof props === 'object' ? props : currentProps;
             const attrKey = String(config.attrKey || '').trim();
             const escapedAttr = attrKey.replace(/"/g, '&quot;');
             const escapedName = String(config.name || '').replace(/"/g, '&quot;');
@@ -3389,6 +3839,29 @@
                     </span>
                 `.trim();
             }
+            if (attrKey === 'custom-focus-summary') {
+                const displayValue = rawValue;
+                if (!displayValue) return '';
+                const escapedDisplayValue = esc(displayValue).replace(/"/g, '&quot;');
+                const displayHtml = formatFocusSummaryDisplayHtml(sourceProps);
+                return `
+                    <span class="sy-custom-props-inline-chip sy-custom-props-inline-chip--focus-summary" data-inline-attr="${escapedAttr}" data-inline-type="${config.type}" data-inline-name="${escapedName}" data-inline-value="${escapedDisplayValue}" title="${escapedName}">
+                        <span class="sy-custom-props-inline-chip-value">${displayHtml || esc(displayValue)}</span>
+                    </span>
+                `.trim();
+            }
+            if (attrKey === 'custom-tomato-estimate-count' || attrKey === 'custom-tomato-count') {
+                const displayValue = formatTomatoCountDisplay(rawValue);
+                if (!displayValue) return '';
+                const displayHtml = attrKey === 'custom-tomato-count'
+                    ? formatActualTomatoCountDisplayHtml(rawValue)
+                    : esc(displayValue);
+                return `
+                    <span class="sy-custom-props-inline-chip sy-custom-props-inline-chip--tomato-count" data-inline-attr="${escapedAttr}" data-inline-type="${config.type}" data-inline-name="${escapedName}" data-inline-value="${escapedValue}" title="${escapedName}">
+                        <span class="sy-custom-props-inline-chip-value">${displayHtml}</span>
+                    </span>
+                `.trim();
+            }
             const isDate = config.type === 'date';
             const displayValue = isDate
                 ? formatTaskTimeLikeManager(rawValue)
@@ -3410,8 +3883,12 @@
                 return cached;
             }
             const blockEl = opts.blockEl instanceof Element ? opts.blockEl : getBlockElById(id);
-            const runtimeProps = getRuntimeTaskCustomProps(id, blockEl);
-            let props = runtimeProps?.props || null;
+            const shouldUseTaskHorizonBridge = opts.forceFresh === true || forceRefresh || opts.includeRemark === true;
+            const bridgeProps = shouldUseTaskHorizonBridge
+                ? await getTaskHorizonBridgeCustomProps(id, { forceFresh: true })
+                : null;
+            const runtimeProps = bridgeProps ? null : getRuntimeTaskCustomProps(id, blockEl);
+            let props = bridgeProps?.props || runtimeProps?.props || null;
             if (!props && opts.skipAttrFallback !== true) {
                 const attrs = await getMergedTaskCustomAttrs(id);
                 props = normalizeCustomProps(attrs);
@@ -3495,7 +3972,7 @@
         }
 
         function syncInlineMetaCacheFromAttrUpdate(detail = {}) {
-            const attrKey = String(detail?.attrKey || '').trim();
+            const attrKey = normalizeTaskHorizonAttrKeyForDisplay(detail?.attrKey);
             if (!attrKey) return false;
             const config = getInlineFieldConfig(attrKey);
             if (!config && !quickbarInlineFieldAllowSet.has(attrKey)) return false;
@@ -3570,7 +4047,7 @@
                     if (String(config?.attrKey || attrKey || '').trim() === 'taskCompleteAt') {
                         if (!shouldShowQuickbarTaskCompleteAt(sourceProps)) return '';
                     }
-                    return renderInlineMetaField(config, config ? sourceProps[config.attrKey] : sourceProps[attrKey], blockEl);
+                    return renderInlineMetaField(config, config ? sourceProps[config.attrKey] : sourceProps[attrKey], blockEl, sourceProps);
                 })
                 .filter(Boolean).join('');
         }
@@ -3710,6 +4187,19 @@
                 return renderFloatbarCoreLikeProp(config, value);
             } else if (config.type === 'completed-time') {
                 return renderFloatbarCoreLikeProp(config, value);
+            } else if (config.type === 'focus-summary') {
+                return renderFloatbarCoreLikeProp(config, value, {
+                    displayValue: formatFocusSummaryDisplay(currentProps),
+                    displayHtml: formatFocusSummaryDisplayHtml(currentProps),
+                    htmlValue: true,
+                });
+            } else if (config.type === 'tomato-count') {
+                const isActualTomato = attrKey === 'custom-tomato-count';
+                return renderFloatbarCoreLikeProp(config, value, isActualTomato ? {
+                    displayValue: formatTomatoCountDisplay(value),
+                    displayHtml: formatActualTomatoCountDisplayHtml(value),
+                    htmlValue: true,
+                } : {});
             } else {
                 // 文本类型属性（时长、备注）
                 if (attrKey === 'custom-duration') {
@@ -3821,6 +4311,8 @@
                 } else if (propType === 'date') {
                     // 显示日期选择器
                     showDateEditor(propEl, activePropConfig, currentValue);
+                } else if (propType === 'focus-summary') {
+                    showFocusSummaryEditor(propEl, activePropConfig);
                 } else {
                     // 显示文本输入框
                     showTextEditor(propEl, activePropConfig, currentValue);
@@ -4213,9 +4705,292 @@
         }
 
         // 显示文本编辑器
+        async function saveFocusSummaryWithUndo(blockId, patch = {}, options = {}) {
+            const id = String(blockId || '').trim();
+            if (!id) return { success: false, viaSharedApi: false };
+            const nextDuration = String(patch?.duration || '').trim();
+            const nextEstimate = normalizeTomatoCountValue(patch?.tomatoEstimateCount || '');
+            const sharedApi = getTaskHorizonSharedApi();
+            const metaApplier = sharedApi?.applyTaskMetaPatchWithUndo;
+            if (typeof metaApplier === 'function') {
+                try {
+                    suppressTaskHorizonMobileTopbarOpen();
+                    const result = await metaApplier(id, {
+                        duration: nextDuration,
+                        tomatoEstimateCount: nextEstimate,
+                    }, {
+                        source: 'quickbar-focus-summary',
+                        label: String(options?.label || '时长与番茄'),
+                        refresh: false,
+                        silent: true,
+                    });
+                    if (result !== false) {
+                        return {
+                            success: true,
+                            viaSharedApi: true,
+                            taskId: String(result?.taskId || result?.id || id).trim() || id,
+                            requestedTaskId: String(result?.requestedTaskId || id).trim() || id,
+                        };
+                    }
+                } catch (e) {}
+            }
+            const durationResult = await saveRawTaskAttrWithUndo(id, 'custom-duration', nextDuration, { label: '时长' });
+            const estimateResult = await saveTaskAttrWithUndo(id, 'custom-tomato-estimate-count', nextEstimate, { label: '预计番茄' });
+            return {
+                success: durationResult?.success === true && estimateResult?.success === true,
+                viaSharedApi: !!(durationResult?.viaSharedApi || estimateResult?.viaSharedApi),
+                taskId: String(estimateResult?.taskId || durationResult?.taskId || id).trim() || id,
+                requestedTaskId: String(estimateResult?.requestedTaskId || durationResult?.requestedTaskId || id).trim() || id,
+            };
+        }
+
+        function applyFocusSummarySaveResult(blockId, patch = {}, result = {}) {
+            const id = String(blockId || '').trim();
+            const nextProps = {
+                'custom-duration': String(patch?.duration || '').trim(),
+                'custom-tomato-estimate-count': normalizeTomatoCountValue(patch?.tomatoEstimateCount || ''),
+            };
+            currentProps = normalizeCustomProps({ ...currentProps, ...nextProps });
+            renderFloatBar();
+            patchInlineMetaCache(id, {
+                ...nextProps,
+                'custom-focus-summary': formatFocusSummaryDisplay(currentProps),
+            });
+            refreshInlineMetaByTaskId(id, false);
+            const dispatchTaskId = String(result?.taskId || result?.id || id).trim() || id;
+            const requestedTaskId = String(result?.requestedTaskId || id).trim() || id;
+            Object.entries(nextProps).forEach(([key, value]) => {
+                dispatchTaskAttrUpdated(id, key, value, {
+                    taskId: dispatchTaskId,
+                    requestedTaskId,
+                });
+            });
+        }
+
+        function showFocusSummaryEditor(anchorEl, config) {
+            const blockIdAtOpen = String(currentBlockId || '').trim();
+            if (!blockIdAtOpen) {
+                showMessage('无法获取任务ID', true, 1800);
+                return;
+            }
+            if (anchorEl.closest?.('.sy-custom-props-inline-host')) {
+                const detailId = String(resolveCurrentTaskId() || blockIdAtOpen).trim() || blockIdAtOpen;
+                if (typeof window.tmEditFocusSummaryInline === 'function') {
+                    try {
+                        inputEditor.classList.remove('is-visible');
+                        window.tmEditFocusSummaryInline(detailId, anchorEl);
+                        return;
+                    } catch (e) {}
+                }
+            }
+            selectMenu.classList.remove('is-visible');
+            inputEditor.classList.remove('is-visible', 'is-duration', 'is-remark', 'is-focus-summary');
+            cleanupFocusSummaryEditorScaffold();
+            noteQuickbarActivity();
+            const durationPresetOptions = getQuickbarDurationPresetOptions();
+            const editorControl = setInputEditorMode('input');
+            const input = editorControl instanceof HTMLInputElement ? editorControl : null;
+            const extraPanel = inputEditor.querySelector('[data-input-extra]');
+            const cancelBtn = inputEditor.querySelector('[data-action="cancel"]');
+            const saveBtn = inputEditor.querySelector('[data-action="save"]');
+            if (!(input instanceof HTMLInputElement)) return;
+            inputEditor.classList.remove('is-duration', 'is-remark');
+            inputEditor.classList.add('is-focus-summary');
+            input.type = 'text';
+            input.value = String(currentProps['custom-duration'] || '');
+            input.placeholder = '例如：30 或 30m';
+            input.removeAttribute('min');
+            input.removeAttribute('step');
+            input.removeAttribute('inputmode');
+            input.classList.add('sy-custom-props-floatbar__input--duration');
+
+            const currentDurationValue = String(currentProps['custom-duration'] || '').trim();
+            const currentEstimateValue = normalizeTomatoCountValue(currentProps['custom-tomato-estimate-count'] || '');
+            let focusSummaryMode = currentDurationValue ? 'duration' : (currentEstimateValue ? 'tomato' : 'duration');
+
+            let tabs = inputEditor.querySelector('[data-focus-summary-tabs]');
+            if (tabs instanceof HTMLElement) tabs.remove();
+            tabs = document.createElement('div');
+            tabs.className = 'sy-custom-props-floatbar__focus-tabs';
+            tabs.setAttribute('data-focus-summary-tabs', 'true');
+            tabs.setAttribute('role', 'tablist');
+            tabs.setAttribute('aria-label', '时长与番茄');
+            tabs.innerHTML = `
+                <button type="button" data-focus-summary-tab="duration" role="tab">预计时长</button>
+                <button type="button" data-focus-summary-tab="tomato" role="tab">预计番茄</button>
+            `;
+            inputEditor.insertBefore(tabs, input);
+
+            let durationPanel = inputEditor.querySelector('[data-focus-summary-duration-panel]');
+            if (durationPanel instanceof HTMLElement) durationPanel.remove();
+            durationPanel = document.createElement('div');
+            durationPanel.className = 'sy-custom-props-floatbar__focus-panel';
+            durationPanel.setAttribute('data-focus-summary-duration-panel', 'true');
+            inputEditor.insertBefore(durationPanel, input);
+            durationPanel.appendChild(input);
+
+            let estimateInput = inputEditor.querySelector('[data-focus-summary-estimate]');
+            if (!(estimateInput instanceof HTMLInputElement)) {
+                estimateInput = document.createElement('input');
+                estimateInput.className = 'sy-custom-props-floatbar__input';
+                estimateInput.setAttribute('data-focus-summary-estimate', 'true');
+            }
+            estimateInput.type = 'number';
+            estimateInput.min = '0';
+            estimateInput.step = '1';
+            estimateInput.inputMode = 'numeric';
+            estimateInput.value = currentEstimateValue;
+            estimateInput.placeholder = '空或整数';
+
+            if (extraPanel instanceof HTMLElement) {
+                extraPanel.innerHTML = durationPresetOptions.length
+                    ? durationPresetOptions.map((value) => `
+                        <button type="button" class="sy-custom-props-floatbar__input-extra-row ${normalizeDurationPresetValue(input.value) === value ? 'is-active' : ''}" data-duration-preset-value="${esc(value)}">
+                            <span class="sy-custom-props-floatbar__input-extra-main">
+                                <span class="sy-custom-props-floatbar__input-extra-text"><span class="sy-custom-props-floatbar__input-extra-title">${esc(value)}</span></span>
+                            </span>
+                            <span class="sy-custom-props-floatbar__input-extra-tail">${renderPhosphorBoldIcon('check', 12)}</span>
+                        </button>
+                    `).join('')
+                    : '';
+                extraPanel.classList.toggle('is-visible', durationPresetOptions.length > 0);
+                durationPanel.appendChild(extraPanel);
+            }
+
+            const oldField = inputEditor.querySelector('[data-focus-summary-estimate-field]');
+            if (oldField instanceof HTMLElement) oldField.remove();
+            const estimateField = document.createElement('label');
+            estimateField.className = 'sy-custom-props-floatbar__focus-field';
+            estimateField.setAttribute('data-focus-summary-estimate-field', 'true');
+            estimateField.innerHTML = '<span>预计番茄</span>';
+            estimateField.appendChild(estimateInput);
+            const actions = inputEditor.querySelector('.sy-custom-props-floatbar__input-actions');
+            if (actions instanceof HTMLElement) inputEditor.insertBefore(estimateField, actions);
+            else inputEditor.appendChild(estimateField);
+
+            const oldReadonly = inputEditor.querySelector('[data-focus-summary-readonly]');
+            if (oldReadonly instanceof HTMLElement) oldReadonly.remove();
+            const readonly = document.createElement('div');
+            readonly.className = 'sy-custom-props-floatbar__focus-readonly';
+            readonly.setAttribute('data-focus-summary-readonly', 'true');
+            readonly.innerHTML = `
+                <span>实际 <b class="sy-custom-props-focus-actual">${esc(currentProps['custom-tomato-count'] || '0')}</b></span>
+                <span>耗时 <b>${esc(currentProps['custom-focus-spent-display'] || '0m')}</b></span>
+            `;
+            if (actions instanceof HTMLElement) inputEditor.insertBefore(readonly, actions);
+            else inputEditor.appendChild(readonly);
+
+            if (cancelBtn instanceof HTMLButtonElement) cancelBtn.textContent = '清空';
+            const repositionEditor = () => positionPopupNearAnchor(inputEditor, anchorEl, { gap: 4, viewportMargin: 6 });
+            const setFocusSummaryMode = (nextMode, options = {}) => {
+                focusSummaryMode = nextMode === 'tomato' ? 'tomato' : 'duration';
+                tabs.querySelectorAll('[data-focus-summary-tab]').forEach((button) => {
+                    if (!(button instanceof HTMLButtonElement)) return;
+                    const selected = String(button.dataset.focusSummaryTab || '').trim() === focusSummaryMode;
+                    button.classList.toggle('is-active', selected);
+                    button.setAttribute('aria-selected', selected ? 'true' : 'false');
+                });
+                durationPanel.hidden = focusSummaryMode !== 'duration';
+                estimateField.hidden = focusSummaryMode !== 'tomato';
+                repositionEditor();
+                if (options?.focus === true) {
+                    try {
+                        requestAnimationFrame(() => {
+                            const target = focusSummaryMode === 'tomato' ? estimateInput : input;
+                            target.focus();
+                            target.select();
+                        });
+                    } catch (e) {}
+                }
+            };
+            tabs.querySelectorAll('[data-focus-summary-tab]').forEach((button) => {
+                if (!(button instanceof HTMLButtonElement)) return;
+                button.onmousedown = (e) => e.preventDefault();
+                button.onclick = (e) => {
+                    e.preventDefault();
+                    setFocusSummaryMode(button.dataset.focusSummaryTab || 'duration', { focus: true });
+                };
+            });
+            setFocusSummaryMode(focusSummaryMode);
+            inputEditor.classList.add('is-visible');
+            noteQuickbarActivity();
+            repositionEditor();
+            try {
+                const target = focusSummaryMode === 'tomato' ? estimateInput : input;
+                target.focus();
+                target.select();
+            } catch (e) {}
+
+            const saveFocusSummary = async (patch) => {
+                const nextPatch = {
+                    duration: String(patch?.duration || '').trim(),
+                    tomatoEstimateCount: normalizeTomatoCountValue(patch?.tomatoEstimateCount || ''),
+                };
+                const result = await saveFocusSummaryWithUndo(blockIdAtOpen, nextPatch, { label: config?.name || '专注/耗时' });
+                if (!result.success) {
+                    showMessage('更新失败', true, 2000);
+                    return;
+                }
+                applyFocusSummarySaveResult(blockIdAtOpen, nextPatch, result);
+                inputEditor.classList.remove('is-visible');
+                showMessage(nextPatch.duration || nextPatch.tomatoEstimateCount ? '已更新专注/耗时' : '已清除专注/耗时', false, 1500);
+            };
+            const submit = () => {
+                const durationDraft = String(input.value || '').trim();
+                const tomatoDraft = normalizeTomatoCountValue(estimateInput.value);
+                return saveFocusSummary({
+                    duration: focusSummaryMode === 'duration'
+                        ? (durationDraft ? durationDraft : '')
+                        : (tomatoDraft ? '' : durationDraft),
+                    tomatoEstimateCount: focusSummaryMode === 'tomato'
+                        ? (tomatoDraft ? tomatoDraft : '')
+                        : (durationDraft ? '' : tomatoDraft),
+                });
+            };
+            input.oninput = () => {
+                if (String(input.value || '').trim()) estimateInput.value = '';
+            };
+            estimateInput.oninput = () => {
+                if (!normalizeTomatoCountValue(estimateInput.value)) return;
+                input.value = '';
+                if (extraPanel instanceof HTMLElement) {
+                    extraPanel.querySelectorAll('[data-duration-preset-value]').forEach((btn) => btn.classList.remove('is-active'));
+                }
+            };
+            input.onkeydown = (e) => {
+                if (e.key === 'Enter') {
+                    e.preventDefault();
+                    submit();
+                } else if (e.key === 'Escape') {
+                    e.preventDefault();
+                    inputEditor.classList.remove('is-visible');
+                }
+            };
+            estimateInput.onkeydown = input.onkeydown;
+            if (extraPanel instanceof HTMLElement && durationPresetOptions.length) {
+                extraPanel.querySelectorAll('[data-duration-preset-value]').forEach((button) => {
+                    if (!(button instanceof HTMLButtonElement)) return;
+                    button.onmousedown = (e) => e.preventDefault();
+                    button.onclick = (e) => {
+                        e.preventDefault();
+                        const nextValue = normalizeDurationPresetValue(button.dataset.durationPresetValue || '');
+                        if (!nextValue) return;
+                        input.value = nextValue;
+                        estimateInput.value = '';
+                        extraPanel.querySelectorAll('[data-duration-preset-value]').forEach((btn) => btn.classList.toggle('is-active', btn === button));
+                        try { input.focus(); input.select(); } catch (err) {}
+                    };
+                });
+            }
+            if (saveBtn instanceof HTMLButtonElement) saveBtn.onclick = submit;
+            if (cancelBtn instanceof HTMLButtonElement) cancelBtn.onclick = () => saveFocusSummary({ duration: '', tomatoEstimateCount: '' });
+        }
+
         function showTextEditor(anchorEl, config, currentValue) {
             const isRemark = String(config?.attrKey || '').trim() === 'custom-remark';
             const isDuration = String(config?.attrKey || '').trim() === 'custom-duration';
+            const isTomatoCount = String(config?.attrKey || '').trim() === 'custom-tomato-estimate-count'
+                || String(config?.attrKey || '').trim() === 'custom-tomato-count';
             const durationPresetOptions = isDuration ? getQuickbarDurationPresetOptions() : [];
             const remarkTools = getRemarkMarkdownTools();
             const editorControl = setInputEditorMode(isRemark ? 'textarea' : 'input');
@@ -4228,14 +5003,25 @@
             const cancelBtn = inputEditor.querySelector('[data-action="cancel"]');
             const saveBtn = inputEditor.querySelector('[data-action="save"]');
             if (!valueSource) return;
+            inputEditor.classList.remove('is-focus-summary');
+            cleanupFocusSummaryEditorScaffold();
             if (isDuration) inputEditor.classList.add('is-duration');
             if (cancelBtn instanceof HTMLButtonElement) {
                 cancelBtn.textContent = isDuration ? '清空' : '取消';
             }
             if (input instanceof HTMLInputElement) {
-                input.type = 'text';
-                input.value = currentValue || '';
+                input.type = isTomatoCount ? 'number' : 'text';
+                input.value = isTomatoCount ? normalizeTomatoCountValue(currentValue) : (currentValue || '');
                 input.placeholder = config.placeholder || '输入内容...';
+                if (isTomatoCount) {
+                    input.min = '0';
+                    input.step = '1';
+                    input.inputMode = 'numeric';
+                } else {
+                    input.removeAttribute('min');
+                    input.removeAttribute('step');
+                    input.removeAttribute('inputmode');
+                }
                 input.classList.toggle('sy-custom-props-floatbar__input--duration', isDuration);
             }
             if (textarea instanceof HTMLTextAreaElement) {
@@ -4322,6 +5108,8 @@
             const saveText = async () => {
                 const newValue = isRemark
                     ? normalizeRemarkMarkdown(valueSource.value || '')
+                    : isTomatoCount
+                    ? normalizeTomatoCountValue(valueSource.value || '')
                     : String(valueSource.value || '').trim();
 
                 const result = await saveTaskAttrWithUndo(blockIdAtOpen, config.attrKey, newValue, {
@@ -4455,6 +5243,8 @@
         function hideAllPopups() {
             selectMenu.classList.remove('is-visible');
             inputEditor.classList.remove('is-visible');
+            inputEditor.classList.remove('is-focus-summary');
+            cleanupFocusSummaryEditorScaffold();
         }
 
         // 更新悬浮条位置
@@ -4815,6 +5605,7 @@
                     const currentValue = String(chip.dataset.inlineValue || currentProps[attrKey] || '').trim();
                     if (config.type === 'select' || config.type === 'multi-select') showSelectMenu(chip, config, currentValue);
                     else if (config.type === 'date') showDateEditor(chip, config, currentValue);
+                    else if (config.type === 'focus-summary') showFocusSummaryEditor(chip, config);
                     else showTextEditor(chip, config, currentValue);
                 }, true);
                 layer.appendChild(host);
@@ -6434,7 +7225,8 @@
 
             taskAttrUpdatedHandler = async (e) => {
                 try { syncInlineMetaCacheFromAttrUpdate(e?.detail || {}); } catch (err) {}
-                if (!e?.detail || !isReminderRelatedAttrKey(e.detail.attrKey)) return;
+                const normalizedAttrKey = normalizeTaskHorizonAttrKeyForDisplay(e?.detail?.attrKey);
+                if (!e?.detail || !isReminderRelatedAttrKey(normalizedAttrKey)) return;
                 if (!floatBar || floatBar.style.display === 'none') return;
                 const incomingTaskId = String(e.detail.taskId || '').trim();
                 const incomingAttrHostId = String(e.detail.attrHostId || '').trim();
@@ -6444,7 +7236,7 @@
                     String(resolveCurrentTaskId() || '').trim(),
                 ].filter(Boolean));
                 if (!currentIds.has(incomingTaskId) && !currentIds.has(incomingAttrHostId)) return;
-                if (String(e.detail.attrKey || '').trim() === 'bookmark') {
+                if (normalizedAttrKey === 'bookmark') {
                     currentProps = normalizeCustomProps({ ...currentProps, bookmark: String(e.detail.value || '') });
                 } else if (currentBlockId) {
                     try {
