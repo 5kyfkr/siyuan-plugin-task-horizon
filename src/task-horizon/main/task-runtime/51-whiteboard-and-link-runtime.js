@@ -6733,14 +6733,23 @@ throw error;
         return ids;
     }
 
+    function __tmShouldSeparateCompletedRootGroup() {
+        return SettingsStore?.data?.completedTasksInlineInGroups !== true;
+    }
+
     function __tmSplitTasksByDoneState(tasks) {
         const active = [];
         const done = [];
+        const separateCompletedRootGroup = __tmShouldSeparateCompletedRootGroup();
         const archivedDocIds = __tmGetArchivedDocIdsForAllTabCompletedTailGroup();
         (Array.isArray(tasks) ? tasks : []).forEach((task) => {
             if (__tmIsTaskDoneForTailGroup(task)) {
                 const docId = String(task?.root_id || task?.docId || '').trim();
                 if (docId && archivedDocIds.has(docId)) return;
+                if (!separateCompletedRootGroup) {
+                    active.push(task);
+                    return;
+                }
                 if (!__tmShouldShowTaskInCompletedRootGroup(task)) return;
                 done.push(task);
             }
@@ -7109,7 +7118,9 @@ throw error;
                 if (!docEntry) return;
                 const docRootTasks = docRootTasksByDoc.get(String(docId || '').trim()) || [];
                 const docNormal = keepPinnedInGroups ? docRootTasks.slice() : docRootTasks.filter(t => !t.pinned);
-                const activeDocRootTasks = docNormal.filter((task) => !__tmIsTaskDoneForTailGroup(task));
+                const activeDocRootTasks = __tmShouldSeparateCompletedRootGroup()
+                    ? docNormal.filter((task) => !__tmIsTaskDoneForTailGroup(task))
+                    : docNormal.slice();
                 if (activeDocRootTasks.length === 0) return;
                 const docTasks = activeDocRootTasks;
                 const renderDocTasks = sortRowModelGroupItems(activeDocRootTasks.slice());

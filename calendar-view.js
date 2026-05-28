@@ -453,6 +453,8 @@
         const dow = date.getDay();
         if (viewType === 'dayGridMonth') return MAIN_CALENDAR_MONTH_DAY_HEADER_LABELS[dow] || true;
         if (!viewType.startsWith('timeGrid')) return true;
+        const head = document.createElement('span');
+        head.className = 'tm-cn-week-head';
         const wrap = document.createElement('span');
         wrap.className = 'tm-cal-timegrid-day-head';
         const day = document.createElement('span');
@@ -460,14 +462,11 @@
         day.textContent = String(date.getDate());
         const week = document.createElement('span');
         week.className = 'tm-cal-timegrid-day-head-week';
-        if (shouldUseCompactMobileWeekHeader(viewType)) {
-            week.textContent = MAIN_CALENDAR_WEEK_DAY_HEADER_LABELS_COMPACT[dow] || '';
-        } else {
-            week.textContent = MAIN_CALENDAR_WEEK_DAY_HEADER_LABELS[dow] || '';
-        }
+        week.textContent = MAIN_CALENDAR_WEEK_DAY_HEADER_LABELS_COMPACT[dow] || '';
         wrap.appendChild(day);
         wrap.appendChild(week);
-        return { domNodes: [wrap] };
+        head.appendChild(wrap);
+        return { domNodes: [head] };
     }
     const SCHEDULE_EDITOR_MORANDI_PRESET_COLORS = Object.freeze([
         '#D57A63',
@@ -1125,7 +1124,7 @@
 .tm-calendar-wrap .fc .fc-timegrid .fc-col-header th{box-shadow:none !important;}
 .tm-calendar-host .fc .fc-timegrid .fc-col-header-cell-cushion,
 .tm-calendar-host.fc .fc-timegrid .fc-col-header-cell-cushion,
-.tm-calendar-wrap .fc .fc-timegrid .fc-col-header-cell-cushion{flex-direction:row !important;gap:4px !important;min-height:24px !important;}
+.tm-calendar-wrap .fc .fc-timegrid .fc-col-header-cell-cushion{flex-direction:row !important;align-items:center !important;justify-content:center !important;gap:4px !important;min-height:24px !important;}
 .tm-calendar-host .fc .tm-cal-timegrid-day-head,
 .tm-calendar-host.fc .tm-cal-timegrid-day-head,
 .tm-calendar-wrap .fc .tm-cal-timegrid-day-head{display:inline-flex !important;align-items:center !important;justify-content:center !important;gap:4px !important;line-height:1 !important;white-space:nowrap !important;}
@@ -1166,6 +1165,20 @@
 .tm-calendar-host .fc .tm-cn-day-number-text,
 #tmCalendarSideDockTimeline .fc .tm-cn-day-number-text,
 .tm-calendar-wrap .fc .tm-cn-day-number-text{order:2 !important;display:inline-flex !important;align-items:center !important;justify-content:center !important;min-width:16px !important;height:16px !important;min-height:16px !important;padding:0 1px !important;border-radius:5px !important;line-height:16px !important;}
+.tm-calendar-host .fc .fc-dayGridMonth-view .tm-cn-lunar--month,
+.tm-calendar-wrap .fc .fc-dayGridMonth-view .tm-cn-lunar--month{order:1 !important;display:inline-flex !important;align-items:center !important;height:16px !important;margin-right:3px !important;font-size:10px !important;font-weight:400 !important;line-height:16px !important;transform:translateY(1px) !important;}
+.tm-calendar-host .fc .fc-timegrid .fc-col-header-cell-cushion .tm-cn-lunar--week,
+.tm-calendar-host.fc .fc-timegrid .fc-col-header-cell-cushion .tm-cn-lunar--week,
+.tm-calendar-wrap .fc .fc-timegrid .fc-col-header-cell-cushion .tm-cn-lunar--week,
+#tmCalendarSideDockTimeline .fc .fc-timegrid .fc-col-header-cell-cushion .tm-cn-lunar--week{order:1 !important;display:inline-flex !important;align-items:center !important;align-self:center !important;height:18px !important;margin-top:0 !important;font-size:10px !important;font-weight:400 !important;line-height:18px !important;opacity:.52 !important;transform:translateY(1px) !important;vertical-align:middle !important;}
+.tm-calendar-host .fc .fc-timegrid .fc-col-header-cell-cushion > .tm-cn-week-head,
+.tm-calendar-host.fc .fc-timegrid .fc-col-header-cell-cushion > .tm-cn-week-head,
+.tm-calendar-wrap .fc .fc-timegrid .fc-col-header-cell-cushion > .tm-cn-week-head,
+#tmCalendarSideDockTimeline .fc .fc-timegrid .fc-col-header-cell-cushion > .tm-cn-week-head{order:2 !important;display:inline-flex !important;align-items:center !important;}
+.tm-calendar-host .fc .fc-timegrid .fc-col-header-cell-cushion > .tm-cal-timegrid-day-head,
+.tm-calendar-host.fc .fc-timegrid .fc-col-header-cell-cushion > .tm-cal-timegrid-day-head,
+.tm-calendar-wrap .fc .fc-timegrid .fc-col-header-cell-cushion > .tm-cal-timegrid-day-head,
+#tmCalendarSideDockTimeline .fc .fc-timegrid .fc-col-header-cell-cushion > .tm-cal-timegrid-day-head{order:2 !important;}
         `.trim();
         const existing = document.getElementById(id);
         if (existing && existing.tagName === 'STYLE') {
@@ -1205,6 +1218,51 @@
         if (!(d instanceof Date)) return '';
         if (Number.isNaN(d.getTime())) return '';
         return `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}`;
+    }
+
+    const TM_CN_LUNAR_DAY_NAMES = [
+        '', '初一', '初二', '初三', '初四', '初五', '初六', '初七', '初八', '初九', '初十',
+        '十一', '十二', '十三', '十四', '十五', '十六', '十七', '十八', '十九', '二十',
+        '廿一', '廿二', '廿三', '廿四', '廿五', '廿六', '廿七', '廿八', '廿九', '三十',
+    ];
+    let __tmCnLunarDateFormatter = null;
+    let __tmCnLunarDateFormatterUnsupported = false;
+
+    function normalizeCnLunarDayText(raw) {
+        const s = String(raw || '').replace(/日/g, '').trim();
+        if (!s) return '';
+        const n = Number(s.replace(/[^\d]/g, ''));
+        if (Number.isFinite(n) && n >= 1 && n <= 30) return TM_CN_LUNAR_DAY_NAMES[Math.round(n)] || s;
+        return s;
+    }
+
+    function formatCnLunarDateKey(dateKey) {
+        if (__tmCnLunarDateFormatterUnsupported || typeof Intl === 'undefined' || typeof Intl.DateTimeFormat !== 'function') return '';
+        const d = parseDateOnly(dateKey);
+        if (!(d instanceof Date) || Number.isNaN(d.getTime())) return '';
+        try {
+            if (!__tmCnLunarDateFormatter) {
+                __tmCnLunarDateFormatter = new Intl.DateTimeFormat('zh-CN-u-ca-chinese', { month: 'long', day: 'numeric' });
+                const calendar = String(__tmCnLunarDateFormatter.resolvedOptions?.().calendar || '').trim();
+                if (calendar && calendar !== 'chinese') {
+                    __tmCnLunarDateFormatterUnsupported = true;
+                    __tmCnLunarDateFormatter = null;
+                    return '';
+                }
+            }
+            const parts = typeof __tmCnLunarDateFormatter.formatToParts === 'function'
+                ? __tmCnLunarDateFormatter.formatToParts(d)
+                : [];
+            const month = String(parts.find((it) => it?.type === 'month')?.value || '').trim();
+            const day = normalizeCnLunarDayText(parts.find((it) => it?.type === 'day')?.value || '');
+            if (month && day) return `${month}${day}`;
+            const text = String(__tmCnLunarDateFormatter.format(d) || '').replace(/日/g, '').trim();
+            const match = text.match(/^(.+月)(\d{1,2})$/);
+            if (match) return `${match[1]}${normalizeCnLunarDayText(match[2])}`;
+            return text;
+        } catch (e) {
+            return '';
+        }
     }
 
     function normalizeDateOnly(value) {
@@ -1552,7 +1610,7 @@
                 : null;
             titleEl.replaceChildren(document.createTextNode(nextTitle));
             if (lunarDayEl instanceof HTMLElement && String(lunarDayEl.textContent || '').trim()) {
-                titleEl.appendChild(lunarDayEl);
+                titleEl.insertBefore(lunarDayEl, titleEl.firstChild || null);
             }
             titleEl.setAttribute('data-tm-calendar-title', nextTitle);
             titleEl.title = nextTitle;
@@ -3280,15 +3338,91 @@
         return __tmApplyTimeGridHeightLayout(rootEl, settings);
     }
 
-    function applyTimeAxisColumnLayout(rootEl, axisWidthPx = 40) {
+    function getTimeAxisLabelColor() {
+        const mixed = 'color-mix(in srgb, var(--tm-text-color) 72%, var(--tm-secondary-text) 28%)';
+        try {
+            const css = globalThis.CSS;
+            if (css && typeof css.supports === 'function' && css.supports('color', 'color-mix(in srgb, #000 72%, #fff 28%)')) return mixed;
+        } catch (e) {}
+        return 'var(--tm-secondary-text, #8a8a8a)';
+    }
+
+    function normalizeTimeGridHourAxisTicks(rootEl) {
         if (!(rootEl instanceof HTMLElement)) return false;
+        let changed = false;
+        const parseDataTime = (node) => {
+            const raw = String(node?.getAttribute?.('data-time') || '').trim();
+            const m = raw.match(/^(\d{1,2}):(\d{2})(?::\d{2})?$/);
+            if (!m) return null;
+            return { hour: Number(m[1]), minute: Number(m[2]) };
+        };
+        const setClass = (node, className, enabled) => {
+            if (!(node instanceof HTMLElement)) return;
+            const has = node.classList.contains(className);
+            if (enabled && !has) {
+                node.classList.add(className);
+                changed = true;
+            } else if (!enabled && has) {
+                node.classList.remove(className);
+                changed = true;
+            }
+        };
+        const labels = Array.from(rootEl.querySelectorAll('.fc-timegrid-slots td.fc-timegrid-slot-label[data-time]'));
+        for (const label of labels) {
+            if (!(label instanceof HTMLElement)) continue;
+            const time = parseDataTime(label);
+            if (!time) continue;
+            const isHour = time.minute === 0;
+            const isHalfHour = time.minute === 30;
+            if (!isHour && !isHalfHour) continue;
+            setClass(label, 'fc-timegrid-slot-minor', isHalfHour);
+            setClass(label, 'fc-scrollgrid-shrink', isHour);
+            if (isHour) {
+                let frame = label.querySelector(':scope > .fc-timegrid-slot-label-frame');
+                if (!(frame instanceof HTMLElement)) {
+                    frame = document.createElement('div');
+                    frame.className = 'fc-timegrid-slot-label-frame fc-scrollgrid-shrink-frame';
+                    label.replaceChildren(frame);
+                    changed = true;
+                }
+                let cushion = frame.querySelector(':scope > .fc-timegrid-slot-label-cushion');
+                if (!(cushion instanceof HTMLElement)) {
+                    cushion = document.createElement('div');
+                    cushion.className = 'fc-timegrid-slot-label-cushion fc-scrollgrid-shrink-cushion';
+                    frame.replaceChildren(cushion);
+                    changed = true;
+                }
+                const text = String(time.hour);
+                if (String(cushion.textContent || '') !== text) {
+                    cushion.textContent = text;
+                    changed = true;
+                }
+            } else if (label.textContent) {
+                label.textContent = '';
+                changed = true;
+            }
+        }
+        rootEl.querySelectorAll('.fc-timegrid-slots td.fc-timegrid-slot-lane[data-time]').forEach((lane) => {
+            if (!(lane instanceof HTMLElement)) return;
+            const time = parseDataTime(lane);
+            if (!time) return;
+            if (time.minute === 0) setClass(lane, 'fc-timegrid-slot-minor', false);
+            else if (time.minute === 30) setClass(lane, 'fc-timegrid-slot-minor', true);
+        });
+        return changed;
+    }
+
+    function applyTimeAxisColumnLayout(rootEl, axisWidthPx = 40, options = {}) {
+        if (!(rootEl instanceof HTMLElement)) return false;
+        try { normalizeTimeGridHourAxisTicks(rootEl); } catch (e) {}
+        const force = options?.force === true;
         const width = `${Math.max(34, Math.round(Number(axisWidthPx) || 40))}px`;
         const isSideDockRoot = isSideDayTimelineRoot(rootEl);
         const hourFontSize = '14px';
         const allDayFontSize = '14px';
         const hourOpacity = '0.82';
         const allDayOpacity = '0.74';
-        const labelColor = 'color-mix(in srgb, var(--tm-text-color) 72%, var(--tm-secondary-text) 28%)';
+        const labelColor = getTimeAxisLabelColor();
         const hourTranslateY = isSideDockRoot ? '-46%' : '12%';
         const widthNodes = Array.from(rootEl.querySelectorAll('.fc-scrollgrid col:first-child, .fc-scrollgrid-section > td:first-child, .fc-scrollgrid-section > th:first-child, td.fc-timegrid-slot-label, .fc-timegrid-axis, .fc-timegrid-axis-frame, .fc-timegrid-slot-label-frame, .fc-timegrid-axis-cushion, .fc-timegrid-slot-label-cushion'));
         const centerNodes = Array.from(rootEl.querySelectorAll('.fc-timegrid-axis, td.fc-timegrid-slot-label, .fc-timegrid-axis-frame, .fc-timegrid-slot-label-frame, .fc-timegrid-axis-cushion, .fc-timegrid-slot-label-cushion'));
@@ -3314,7 +3448,7 @@
         ];
         try { rootEl.style.setProperty('--tm-calendar-axis-width', width); } catch (e) {}
         try { rootEl.style.setProperty('--tm-calendar-hour-translate-y', hourTranslateY); } catch (e) {}
-        if (__tmShouldSkipCalendarDomPass(__tmCalendarDomPassCache.timeAxis, rootEl, passKey, stamps)) return true;
+        if (!force && __tmShouldSkipCalendarDomPass(__tmCalendarDomPassCache.timeAxis, rootEl, passKey, stamps)) return true;
         for (const node of widthNodes) {
             if (!(node instanceof Element)) continue;
             try { node.style.setProperty('width', width, 'important'); } catch (e) {}
@@ -3418,7 +3552,7 @@
         if (!isTimeGridAllDayCollapseSupported(cal)) return false;
         const axisNodes = getAllDayAxisCushions(rootEl);
         if (!axisNodes.length) return false;
-        const labelColor = 'color-mix(in srgb, var(--tm-text-color) 72%, var(--tm-secondary-text) 28%)';
+        const labelColor = getTimeAxisLabelColor();
         const collapsed = getAllDayCollapsed(rootEl);
         for (const node of axisNodes) {
             if (!(node instanceof HTMLElement)) continue;
@@ -4639,9 +4773,10 @@
                 try { applyMainCalendarMonthMoreLinkLayout(nextHost, nextCalendar); } catch (e) {}
                 try { applyTimeGridAllDayMoreLinkLayout(nextHost, nextCalendar); } catch (e) {}
                 try { applyMainCalendarSlotHeightLayout(nextWrap, getSettings()); } catch (e) {}
-                try { if (nextHost instanceof Element) applyTimeAxisColumnLayout(nextHost, 40); } catch (e) {}
+                try { if (nextHost instanceof Element) applyTimeAxisColumnLayout(nextHost, 40, { force: true }); } catch (e) {}
                 if (needUpdateSize) {
                     try { nextCalendar.updateSize(); } catch (e) {}
+                    try { if (nextHost instanceof Element) applyTimeAxisColumnLayout(nextHost, 40, { force: true }); } catch (e) {}
                 }
                 try { applyMainCalendarMonthMoreLinkLayout(nextHost, nextCalendar); } catch (e) {}
                 try { applyTimeGridAllDayMoreLinkLayout(nextHost, nextCalendar); } catch (e) {}
@@ -4662,8 +4797,9 @@
             try { applyMainCalendarMonthMoreLinkLayout(targetHost, targetCalendar); } catch (e2) {}
             try { applyTimeGridAllDayMoreLinkLayout(targetHost, targetCalendar); } catch (e2) {}
             try { applyMainCalendarSlotHeightLayout(targetWrap, getSettings()); } catch (e2) {}
-            try { if (targetHost instanceof Element) applyTimeAxisColumnLayout(targetHost, 40); } catch (e2) {}
+            try { if (targetHost instanceof Element) applyTimeAxisColumnLayout(targetHost, 40, { force: true }); } catch (e2) {}
             try { if (options.updateSize === true) targetCalendar.updateSize(); } catch (e2) {}
+            try { if (options.updateSize === true && targetHost instanceof Element) applyTimeAxisColumnLayout(targetHost, 40, { force: true }); } catch (e2) {}
             try { applyMainCalendarMonthMoreLinkLayout(targetHost, targetCalendar); } catch (e2) {}
             try { applyTimeGridAllDayMoreLinkLayout(targetHost, targetCalendar); } catch (e2) {}
             try { clampMainCalendarPopover(targetWrap, targetHost); } catch (e2) {}
@@ -11636,14 +11772,14 @@
                         return Array.from(set.values()).filter((x) => Number.isFinite(Number(x)));
                     })();
                     const [cnHolidayDays, reminders] = await Promise.all([
-                        (curSettings.showCnHoliday || curSettings.showLunar)
+                        curSettings.showCnHoliday
                             ? Promise.all(years.map((y) => loadCnHolidayYear(y))).then((arr) => arr.flat())
                             : Promise.resolve([]),
                         (curSettings.linkDockTomato && curSettings.showTaskReminders !== false) ? loadReminderBlocks().catch(() => []) : Promise.resolve([]),
                     ]);
                     try {
-                        const wantMap = !!(curSettings.showCnHoliday || curSettings.showLunar);
-                        state.cnHolidayMap = wantMap ? buildCnHolidayMap(cnHolidayDays, info.start, info.end, !!curSettings.showLunar) : new Map();
+                        const wantMap = !!curSettings.showCnHoliday;
+                        state.cnHolidayMap = wantMap ? buildCnHolidayMap(cnHolidayDays, info.start, info.end, false) : new Map();
                         state.cnHolidaySignature = wantMap
                             ? `${info?.start?.toISOString?.() || ''}|${info?.end?.toISOString?.() || ''}|${cnHolidayDays.length}|${curSettings.showCnHoliday ? 1 : 0}|${curSettings.showLunar ? 1 : 0}`
                             : '';
@@ -13904,7 +14040,16 @@
         const ensureWeekHead = (labelEl) => {
             if (!labelEl) return null;
             const exist = labelEl.querySelector?.(':scope > .tm-cn-week-head');
-            if (exist) return exist;
+            if (exist) {
+                const dayHead = labelEl.querySelector?.(':scope > .tm-cal-timegrid-day-head');
+                if (dayHead) exist.appendChild(dayHead);
+                labelEl.querySelectorAll?.(':scope > .tm-cn-week-head')?.forEach?.((node) => {
+                    if (node !== exist && !String(node.textContent || '').trim()) {
+                        try { node.remove(); } catch (e) {}
+                    }
+                });
+                return exist;
+            }
             const head = document.createElement('span');
             head.className = 'tm-cn-week-head';
             while (labelEl.firstChild) {
@@ -13972,7 +14117,32 @@
         const map = state.cnHolidayMap instanceof Map ? state.cnHolidayMap : new Map();
         const monthCells = Array.from(root.querySelectorAll('.fc-daygrid-day[data-date]'));
         const headerCells = Array.from(root.querySelectorAll('.fc-col-header-cell[data-date]'));
-        const passKey = `${String(state.cnHolidaySignature || map.size)}|${settings.showLunar ? 1 : 0}|${String(state.calendar?.view?.type || '').trim()}|${monthCells.length}|${headerCells.length}`;
+        const calendarForRoot = (() => {
+            try {
+                const sideRoot = state.sideDay?.rootEl;
+                if (sideRoot instanceof Element && (root === sideRoot || sideRoot.contains(root))) {
+                    return state.sideDay?.calendar || state.calendar || null;
+                }
+            } catch (e) {}
+            return state.calendar || null;
+        })();
+        const visibleDateKey = monthCells.concat(headerCells)
+            .map((cell) => String(cell?.getAttribute?.('data-date') || '').trim())
+            .filter(Boolean)
+            .join(',');
+        const activeDateKey = (() => {
+            try {
+                const d = calendarForRoot?.getDate?.();
+                return d instanceof Date && !Number.isNaN(d.getTime()) ? formatDateKey(d) : '';
+            } catch (e) {
+                return '';
+            }
+        })();
+        const viewTypeNow = String(calendarForRoot?.view?.type || '').trim();
+        const isMobileLunarContext = !!(state.isMobileDevice || isLikelyMobileRuntime());
+        const canRenderLunarInCurrentContext = !!settings.showLunar
+            && (!isMobileLunarContext || viewTypeNow === 'timeGridDay' || viewTypeNow === 'timeGrid3Day');
+        const passKey = `${String(state.cnHolidaySignature || map.size)}|${canRenderLunarInCurrentContext ? 1 : 0}|${isMobileLunarContext ? 1 : 0}|${viewTypeNow}|${activeDateKey}|${visibleDateKey}|${monthCells.length}|${headerCells.length}`;
         const stamps = [
             __tmCreateNodeListStamp(monthCells),
             __tmCreateNodeListStamp(headerCells),
@@ -13980,7 +14150,7 @@
         const removeAll = () => {
             root.querySelectorAll('.tm-cn-lunar').forEach((el) => { try { el.remove(); } catch (e) {} });
         };
-        if (!settings.showLunar) {
+        if (!canRenderLunarInCurrentContext) {
             removeAll();
             __tmRememberCalendarDomPass(__tmCalendarDomPassCache.lunarLabels, root, passKey, stamps);
             return;
@@ -13997,7 +14167,16 @@
         const ensureWeekHead = (labelEl) => {
             if (!labelEl) return null;
             const exist = labelEl.querySelector?.(':scope > .tm-cn-week-head');
-            if (exist) return exist;
+            if (exist) {
+                const dayHead = labelEl.querySelector?.(':scope > .tm-cal-timegrid-day-head');
+                if (dayHead) exist.appendChild(dayHead);
+                labelEl.querySelectorAll?.(':scope > .tm-cn-week-head')?.forEach?.((node) => {
+                    if (node !== exist && !String(node.textContent || '').trim()) {
+                        try { node.remove(); } catch (e) {}
+                    }
+                });
+                return exist;
+            }
             const head = document.createElement('span');
             head.className = 'tm-cn-week-head';
             while (labelEl.firstChild) {
@@ -14006,21 +14185,43 @@
             labelEl.appendChild(head);
             return head;
         };
+        const ensureMonthDayNumberText = (labelEl) => {
+            if (!labelEl) return null;
+            const exist = labelEl.querySelector?.(':scope > .tm-cn-day-number-text');
+            if (exist) return exist;
+            const text = document.createElement('span');
+            text.className = 'tm-cn-day-number-text';
+            const move = [];
+            for (const node of Array.from(labelEl.childNodes || [])) {
+                if (node?.nodeType === Node.TEXT_NODE && String(node.textContent || '').trim()) move.push(node);
+            }
+            if (!move.length) return null;
+            for (const node of move) text.appendChild(node);
+            labelEl.appendChild(text);
+            return text;
+        };
         const lunarFor = (dateKey) => {
             const it = map.get(String(dateKey || ''));
             const l = String(it?.lunar || '').trim();
-            return lunarDayText(l);
+            return lunarDayText(l || formatCnLunarDateKey(dateKey));
         };
         const addWeek = (labelEl, dateKey) => {
             if (!labelEl) return;
             const lunar = lunarFor(dateKey);
             if (!lunar) return;
-            ensureWeekHead(labelEl);
+            const head = ensureWeekHead(labelEl);
             const el = document.createElement('span');
             el.className = 'tm-cn-lunar tm-cn-lunar--week';
             el.textContent = lunar;
-            try { el.style.setProperty('font-weight', '400', 'important'); } catch (e) {}
-            try { labelEl.appendChild(el); } catch (e) {}
+            try {
+                el.style.setProperty('order', '1', 'important');
+                el.style.setProperty('font-weight', '400', 'important');
+            } catch (e) {}
+            try {
+                if (head) head.style.setProperty('order', '2', 'important');
+                if (head) labelEl.insertBefore(el, head);
+                else labelEl.appendChild(el);
+            } catch (e) {}
         };
         const addMonth = (cellEl, dateKey) => {
             if (!cellEl) return;
@@ -14028,30 +14229,33 @@
             if (!lunar) return;
             const num = cellEl.querySelector('.fc-daygrid-day-number');
             if (!num) return;
-            const top = cellEl.querySelector('.fc-daygrid-day-top');
-            if (!top) return;
+            const dateText = ensureMonthDayNumberText(num);
             const el = document.createElement('span');
             el.className = 'tm-cn-lunar tm-cn-lunar--month';
             el.textContent = lunar;
             try {
+                el.style.setProperty('font-size', '10px', 'important');
+                el.style.setProperty('line-height', '16px', 'important');
+                el.style.setProperty('height', '16px', 'important');
+                el.style.setProperty('transform', 'translateY(1px)', 'important');
+                el.style.setProperty('font-weight', '400', 'important');
                 if (num && window.getComputedStyle) {
                     const cs = window.getComputedStyle(num);
-                    if (cs?.fontSize) el.style.fontSize = cs.fontSize;
-                    if (cs?.lineHeight) el.style.lineHeight = cs.lineHeight;
                     if (cs?.fontFamily) el.style.fontFamily = cs.fontFamily;
-                    el.style.setProperty('font-weight', '400', 'important');
                 }
             } catch (e) {}
             try {
-                top.insertBefore(el, num);
+                if (dateText) num.insertBefore(el, dateText);
+                else num.insertBefore(el, num.firstChild || null);
             } catch (e) {}
         };
         const addDayTitle = (wrap) => {
-            const vt = String(state.calendar?.view?.type || '').trim();
+            const cal = calendarForRoot || state.calendar;
+            const vt = String(cal?.view?.type || '').trim();
             if (vt !== 'timeGridDay') return;
             const titleEl = wrap?.querySelector?.('.fc-toolbar-title');
             if (!titleEl) return;
-            const d = state.calendar?.getDate?.();
+            const d = cal?.getDate?.();
             const key = (d instanceof Date && !Number.isNaN(d.getTime())) ? `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}` : '';
             if (!key) return;
             const lunar = lunarFor(key);
@@ -14059,21 +14263,25 @@
             const el = document.createElement('span');
             el.className = 'tm-cn-lunar tm-cn-lunar--day';
             el.textContent = lunar;
-            try { el.style.setProperty('font-weight', '400', 'important'); } catch (e) {}
-            try { titleEl.appendChild(el); } catch (e) {}
+            try {
+                el.style.setProperty('font-weight', '400', 'important');
+                el.style.setProperty('margin-left', '0', 'important');
+                el.style.setProperty('margin-right', '8px', 'important');
+            } catch (e) {}
+            try { titleEl.insertBefore(el, titleEl.firstChild || null); } catch (e) {}
         };
         for (const cell of monthCells) {
             const dateKey = cell.getAttribute('data-date') || '';
             addMonth(cell, dateKey);
         }
-        const vtNow = String(state.calendar?.view?.type || '').trim();
-        if (vtNow !== 'dayGridMonth') {
+        if (viewTypeNow !== 'dayGridMonth') {
             for (const cell of headerCells) {
                 const dateKey = cell.getAttribute('data-date') || '';
                 const label = cell.querySelector('.fc-col-header-cell-cushion');
                 addWeek(label, dateKey);
             }
         }
+        addDayTitle(root);
         __tmRememberCalendarDomPass(__tmCalendarDomPassCache.lunarLabels, root, passKey, stamps);
     }
 
@@ -15512,6 +15720,7 @@
         const hard = !!opt?.hard;
         const run = () => {
             try { cal.updateSize(); } catch (e3) {}
+            try { applyTimeAxisColumnLayout(state.calendarEl, 40, { force: true }); } catch (e3) {}
             try { applyMainCalendarMonthCellMinHeightLayout(state.calendarEl, cal); } catch (e3) {}
             try { applyMainCalendarMonthMoreLinkLayout(state.calendarEl, cal); } catch (e3) {}
             try { applyMainCalendarSlotHeightLayout(wrap, getSettings()); } catch (e3) {}
@@ -16286,12 +16495,12 @@
                     })();
                     const [records, cnHolidayDays, reminders] = await Promise.all([
                         loadRecordsForRange(info.start, info.end),
-                        (settings.showCnHoliday || settings.showLunar) ? Promise.all(years.map((y) => loadCnHolidayYear(y))).then((arr) => arr.flat()) : Promise.resolve([]),
+                        settings.showCnHoliday ? Promise.all(years.map((y) => loadCnHolidayYear(y))).then((arr) => arr.flat()) : Promise.resolve([]),
                         (settings.linkDockTomato && settings.showTaskReminders !== false) ? loadReminderBlocks().catch(() => []) : Promise.resolve([]),
                     ]);
                     try {
-                        const wantMap = !!(settings.showCnHoliday || settings.showLunar);
-                        state.cnHolidayMap = wantMap ? buildCnHolidayMap(cnHolidayDays, info.start, info.end, !!settings.showLunar) : new Map();
+                        const wantMap = !!settings.showCnHoliday;
+                        state.cnHolidayMap = wantMap ? buildCnHolidayMap(cnHolidayDays, info.start, info.end, false) : new Map();
                         state.cnHolidaySignature = wantMap
                             ? `${info?.start?.toISOString?.() || ''}|${info?.end?.toISOString?.() || ''}|${cnHolidayDays.length}|${settings.showCnHoliday ? 1 : 0}|${settings.showLunar ? 1 : 0}|${String(viewType || '').trim()}`
                             : '';

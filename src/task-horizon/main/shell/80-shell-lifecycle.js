@@ -980,6 +980,10 @@ if (shouldMarkDirty) {
                 globalThis.__tmRuntimeEvents?.off?.(window, 'tomato:association-cleared', __tmTomatoAssociationHandler);
                 __tmTomatoAssociationHandler = null;
             }
+            if (__tmTomatoAssociationChangedHandler) {
+                globalThis.__tmRuntimeEvents?.off?.(window, 'tomato:association-changed', __tmTomatoAssociationChangedHandler);
+                __tmTomatoAssociationChangedHandler = null;
+            }
             if (__tmTomatoFocusModeChangedHandler) {
                 globalThis.__tmRuntimeEvents?.off?.(window, 'tomato:focus-mode-changed', __tmTomatoFocusModeChangedHandler);
                 __tmTomatoFocusModeChangedHandler = null;
@@ -998,6 +1002,7 @@ if (shouldMarkDirty) {
             __tmTomatoTimerHooked = false;
         } catch (e) {}
         try {
+            if (globalThis.__taskHorizonOnTomatoAssociationChanged) delete globalThis.__taskHorizonOnTomatoAssociationChanged;
             if (globalThis.__taskHorizonOnTomatoAssociationCleared) delete globalThis.__taskHorizonOnTomatoAssociationCleared;
             __tmTomatoAssociationListenerAdded = false;
         } catch (e) {}

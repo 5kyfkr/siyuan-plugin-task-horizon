@@ -4610,20 +4610,23 @@
             const realId = await __tmCreateTaskInDocKernel({
                 ...payload,
                 localInsert: false,
+                scheduleSnapshotRefresh: false,
             });
             return { realId };
         }
         if (type === 'createSubtask') {
             const payload = (op?.data && typeof op.data === 'object') ? op.data : {};
             const createOptions = Object.prototype.hasOwnProperty.call(payload, 'inheritedPatch')
-                ? { inheritedPatch: payload.inheritedPatch }
-                : {};
+                ? { inheritedPatch: payload.inheritedPatch, scheduleSnapshotRefresh: false }
+                : { scheduleSnapshotRefresh: false };
             const realId = await __tmCreateSubtaskForTaskKernel(payload.parentTaskId, payload.content, createOptions);
             return { realId };
         }
         if (type === 'createSibling') {
             const payload = (op?.data && typeof op.data === 'object') ? op.data : {};
-            const realId = await __tmCreateSiblingTaskForTaskKernel(payload.sourceTaskId, payload.content);
+            const realId = await __tmCreateSiblingTaskForTaskKernel(payload.sourceTaskId, payload.content, {
+                scheduleSnapshotRefresh: false,
+            });
             return { realId };
         }
         if (type === 'deleteTask') {
@@ -4826,9 +4829,21 @@
         if (type === 'createTaskInDoc' || type === 'createSubtask' || type === 'createSibling') {
             const tempId = String(op?.data?.tempId || '').trim();
             const realId = String(result?.realId || '').trim();
+            const effectiveTaskId = realId || tempId;
             if (tempId && realId) {
                 __tmCommitOptimisticTaskId(tempId, realId);
                 try { __tmScheduleRender({ withFilters: true }); } catch (e) {}
+            }
+            if (effectiveTaskId) {
+                try {
+                    __tmScheduleCreatedTaskSnapshotRefresh(effectiveTaskId, {
+                        ...((op?.data && typeof op.data === 'object') ? op.data : {}),
+                        taskId: effectiveTaskId,
+                        realId,
+                        tempId,
+                        source: `queue-${type}`,
+                    });
+                } catch (e) {}
             }
             return;
         }
@@ -11507,6 +11522,7 @@ __tmPushStatusDebug('apply-status:start', {
     let __tmTomatoOriginalTimerFns = null;
     let __tmTomatoAssociationListenerAdded = false;
     let __tmTomatoAssociationHandler = null;
+    let __tmTomatoAssociationChangedHandler = null;
     let __tmTomatoFocusModeChangedHandler = null;
     let __tmPinnedListenerAdded = false;
     let __tmQuickAddGlobalClickHandler = null;
@@ -12855,6 +12871,17 @@ refreshOk = false;
                 if (state.modal && document.body.contains(state.modal)) render();
             } catch (e) {}
         };
+        __tmTomatoAssociationChangedHandler = (event) => {
+            try {
+                const focusTaskId = String(state.timerFocusTaskId || '').trim();
+                if (!focusTaskId) return;
+                const nextTaskId = String(event?.detail?.taskBlockId || '').trim();
+                if (nextTaskId === focusTaskId) return;
+                state.timerFocusTaskId = '';
+                __tmClearTomatoFocusRowClasses();
+                if (state.modal && document.body.contains(state.modal)) render();
+            } catch (e) {}
+        };
         __tmTomatoFocusModeChangedHandler = (event) => {
             try {
                 const enabled = event?.detail?.enabled !== false;
@@ -12865,7 +12892,11 @@ refreshOk = false;
             } catch (e) {}
         };
         try { globalThis.__tmRuntimeEvents?.on?.(window, 'tomato:association-cleared', __tmTomatoAssociationHandler); } catch (e) {}
+        try { globalThis.__tmRuntimeEvents?.on?.(window, 'tomato:association-changed', __tmTomatoAssociationChangedHandler); } catch (e) {}
         try { globalThis.__tmRuntimeEvents?.on?.(window, 'tomato:focus-mode-changed', __tmTomatoFocusModeChangedHandler); } catch (e) {}
+        globalThis.__taskHorizonOnTomatoAssociationChanged = (detail) => {
+            try { __tmTomatoAssociationChangedHandler({ detail }); } catch (e) {}
+        };
         globalThis.__taskHorizonOnTomatoAssociationCleared = () => {
             try {
                 state.timerFocusTaskId = '';
@@ -13759,6 +13790,7 @@ refreshOk = false;
         feed(SettingsStore.data.groupSortByBestSubtaskTimeInTimeQuadrant ? 1 : 0);
         feed(SettingsStore.data.pinTasksWithinGroups ? 1 : 0);
         feed(SettingsStore.data.completedTasksTodayOnly ? 1 : 0);
+        feed(SettingsStore.data.completedTasksInlineInGroups ? 1 : 0);
         feed(SettingsStore.data.kanbanDragSyncSubtasks ? 1 : 0);
         feed(SettingsStore.data.newTaskDocId || '');
         feed(SettingsStore.data.timeGroupBaseColorLight || '');

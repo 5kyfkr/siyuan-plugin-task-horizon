@@ -1844,6 +1844,7 @@
         const activeDocId = String(opts.activeDocId ?? state?.activeDocId ?? 'all').trim() || 'all';
         const showCompleted = __tmGetShowCompletedTasksFromSettings(SettingsStore?.data) ? 1 : 0;
         const completedTodayOnly = SettingsStore?.data?.completedTasksTodayOnly === true ? 1 : 0;
+        const completedInlineInGroups = SettingsStore?.data?.completedTasksInlineInGroups === true ? 1 : 0;
         const colOrder = Array.isArray(SettingsStore?.data?.columnOrder) ? SettingsStore.data.columnOrder.join(',') : '';
         const customFields = Array.isArray(opts.customFieldIds)
             ? opts.customFieldIds.map((id) => String(id || '').trim()).filter(Boolean).sort().join(',')
@@ -1856,6 +1857,7 @@
             currentRuleId,
             showCompleted,
             completedTodayOnly,
+            completedInlineInGroups,
             colOrder,
             customFields,
             docKey,
@@ -1986,6 +1988,7 @@
             pinTasksWithinGroups: data.pinTasksWithinGroups ? 1 : 0,
             showCompleted: __tmGetShowCompletedTasksFromSettings(data) ? 1 : 0,
             completedTodayOnly: data.completedTasksTodayOnly ? 1 : 0,
+            completedInlineInGroups: data.completedTasksInlineInGroups ? 1 : 0,
             docTabSortMode: String(data.docTabSortMode || '').trim(),
             taskHeadingLevel: String(data.taskHeadingLevel || 'h2').trim() || 'h2',
             docH2SubgroupEnabled: data.docH2SubgroupEnabled ? 1 : 0,
@@ -4931,6 +4934,7 @@
                 String(state?.groupByTime ? 1 : 0),
                 String(state?.quadrantEnabled ? 1 : 0),
                 String(state?.docTabsArchiveMode ? 1 : 0),
+                String(SettingsStore?.data?.completedTasksInlineInGroups ? 1 : 0),
                 String(state?.docTabsHidden ? 1 : 0),
                 String(state?.multiSelectModeEnabled ? 1 : 0),
                 String(Array.isArray(state?.multiSelectedTaskIds) ? state.multiSelectedTaskIds.length : 0),
@@ -5680,6 +5684,7 @@
             excludeCompletedTasks: true,
             showCompletedTasks: false,
             completedTasksTodayOnly: false,
+            completedTasksInlineInGroups: false,
             // 开始日期（新增列）
             startDate: 90,
             // 时间轴模式左侧宽度
@@ -6086,6 +6091,7 @@
                                 if (typeof cloudData.groupMode === 'string') this.data.groupMode = cloudData.groupMode;
                                 if (typeof cloudData.pinTasksWithinGroups === 'boolean') this.data.pinTasksWithinGroups = cloudData.pinTasksWithinGroups;
                                 if (typeof cloudData.completedTasksTodayOnly === 'boolean') this.data.completedTasksTodayOnly = cloudData.completedTasksTodayOnly;
+                                if (typeof cloudData.completedTasksInlineInGroups === 'boolean') this.data.completedTasksInlineInGroups = cloudData.completedTasksInlineInGroups;
                                 if (cloudCollapseUpdatedAt >= localCollapseUpdatedAt) {
                                     if (Array.isArray(cloudData.collapsedTaskIds)) this.data.collapsedTaskIds = cloudData.collapsedTaskIds;
                                     if (Array.isArray(cloudData.kanbanCollapsedTaskIds)) this.data.kanbanCollapsedTaskIds = cloudData.kanbanCollapsedTaskIds;
@@ -6293,6 +6299,7 @@
                                 if (typeof cloudData.groupSortByBestSubtaskTimeInTimeQuadrant === 'boolean') this.data.groupSortByBestSubtaskTimeInTimeQuadrant = cloudData.groupSortByBestSubtaskTimeInTimeQuadrant;
                                 if (typeof cloudData.pinTasksWithinGroups === 'boolean') this.data.pinTasksWithinGroups = cloudData.pinTasksWithinGroups;
                                 if (typeof cloudData.completedTasksTodayOnly === 'boolean') this.data.completedTasksTodayOnly = cloudData.completedTasksTodayOnly;
+                                if (typeof cloudData.completedTasksInlineInGroups === 'boolean') this.data.completedTasksInlineInGroups = cloudData.completedTasksInlineInGroups;
                                 if (typeof cloudData.collapseAllIncludesGroups === 'boolean') this.data.collapseAllIncludesGroups = cloudData.collapseAllIncludesGroups;
                                 if (typeof cloudData.enableGroupTaskBgByGroupColor === 'boolean') this.data.enableGroupTaskBgByGroupColor = cloudData.enableGroupTaskBgByGroupColor;
                                 __tmApplyMergedWhiteboardContentState(this.data, cloudData);
@@ -6658,6 +6665,7 @@
             this.data.groupSortByBestSubtaskTimeInTimeQuadrant = Storage.get('tm_group_sort_best_subtask_time_time_quadrant', this.data.groupSortByBestSubtaskTimeInTimeQuadrant);
             this.data.pinTasksWithinGroups = !!Storage.get('tm_pin_tasks_within_groups', this.data.pinTasksWithinGroups);
             this.data.completedTasksTodayOnly = !!Storage.get('tm_completed_tasks_today_only', this.data.completedTasksTodayOnly);
+            this.data.completedTasksInlineInGroups = !!Storage.get('tm_completed_tasks_inline_in_groups', this.data.completedTasksInlineInGroups);
             this.data.whiteboardLinks = Storage.get('tm_whiteboard_links', this.data.whiteboardLinks) || [];
             this.data.whiteboardAutoConnectByCreated = Storage.get('tm_whiteboard_auto_connect_by_created', this.data.whiteboardAutoConnectByCreated);
             this.data.whiteboardDetachedChildren = Storage.get('tm_whiteboard_detached_children', this.data.whiteboardDetachedChildren) || {};
@@ -7075,6 +7083,7 @@
             Storage.set('tm_group_sort_best_subtask_time_time_quadrant', !!this.data.groupSortByBestSubtaskTimeInTimeQuadrant);
             Storage.set('tm_pin_tasks_within_groups', !!this.data.pinTasksWithinGroups);
             Storage.set('tm_completed_tasks_today_only', !!this.data.completedTasksTodayOnly);
+            Storage.set('tm_completed_tasks_inline_in_groups', !!this.data.completedTasksInlineInGroups);
             Storage.set('tm_whiteboard_links', this.data.whiteboardLinks || []);
             Storage.set('tm_whiteboard_auto_connect_by_created', !!this.data.whiteboardAutoConnectByCreated);
             Storage.set('tm_whiteboard_detached_children', this.data.whiteboardDetachedChildren || {});
@@ -7361,6 +7370,7 @@
             this.data.groupSortByBestSubtaskTimeInTimeQuadrant = !!this.data.groupSortByBestSubtaskTimeInTimeQuadrant;
             this.data.pinTasksWithinGroups = !!this.data.pinTasksWithinGroups;
             this.data.completedTasksTodayOnly = !!this.data.completedTasksTodayOnly;
+            this.data.completedTasksInlineInGroups = !!this.data.completedTasksInlineInGroups;
             this.data.whiteboardLinks = Array.isArray(this.data.whiteboardLinks) ? this.data.whiteboardLinks : [];
             this.data.whiteboardAutoConnectByCreated = false;
             this.data.whiteboardDetachedChildren = (this.data.whiteboardDetachedChildren && typeof this.data.whiteboardDetachedChildren === 'object' && !Array.isArray(this.data.whiteboardDetachedChildren))
@@ -8182,6 +8192,22 @@
                         const endTs = new Date(nowDate.getFullYear(), nowDate.getMonth() + 1, 1).getTime();
                         return { startTs, endTs };
                     }
+                    case 'range_recent_days': {
+                        const rawDays = Number(value);
+                        const days = Number.isFinite(rawDays) ? Math.max(0, Math.floor(rawDays)) : 0;
+                        const todayStart = new Date(nowDate.getFullYear(), nowDate.getMonth(), nowDate.getDate());
+                        const startTs = new Date(todayStart.getFullYear(), todayStart.getMonth(), todayStart.getDate() - days).getTime();
+                        const endTs = todayStart.getTime() + 24 * 60 * 60 * 1000;
+                        return { startTs, endTs };
+                    }
+                    case 'range_next_days': {
+                        const rawDays = Number(value);
+                        const days = Number.isFinite(rawDays) ? Math.max(0, Math.floor(rawDays)) : 0;
+                        const todayStart = new Date(nowDate.getFullYear(), nowDate.getMonth(), nowDate.getDate());
+                        const startTs = todayStart.getTime();
+                        const endTs = new Date(todayStart.getFullYear(), todayStart.getMonth(), todayStart.getDate() + days + 1).getTime();
+                        return { startTs, endTs };
+                    }
                     case 'range_year': {
                         const startTs = new Date(nowDate.getFullYear(), 0, 1).getTime();
                         const endTs = new Date(nowDate.getFullYear() + 1, 0, 1).getTime();
@@ -8310,6 +8336,8 @@
                 { value: 'range_today', label: '今天' },
                 { value: 'range_week', label: '本周' },
                 { value: 'range_month', label: '本月' },
+                { value: 'range_recent_days', label: '今天至N天前' },
+                { value: 'range_next_days', label: '今天至N天后' },
                 { value: 'range_year', label: '今年' },
                 { value: 'before_today', label: '今天之前' },
                 { value: 'after_today', label: '今天之后' },
@@ -8560,6 +8588,12 @@
                     return taskTs >= Number(timeRuntime?.startTs || 0) && taskTs < Number(timeRuntime?.endTs || 0);
                 }
                 case 'range_month': {
+                    return taskTs >= Number(timeRuntime?.startTs || 0) && taskTs < Number(timeRuntime?.endTs || 0);
+                }
+                case 'range_recent_days': {
+                    return taskTs >= Number(timeRuntime?.startTs || 0) && taskTs < Number(timeRuntime?.endTs || 0);
+                }
+                case 'range_next_days': {
                     return taskTs >= Number(timeRuntime?.startTs || 0) && taskTs < Number(timeRuntime?.endTs || 0);
                 }
                 case 'range_year': {
@@ -12465,6 +12499,18 @@
                 delayMs: 250,
             });
         } catch (e) {}
+        try {
+            const loadedDocIds = __tmNormalizeTaskSnapshotDocIds(state.__tmLoadedDocIdsForTasks || []);
+            if (loadedDocIds.some((docId) => changedDocIds.has(docId))) {
+                __tmSchedulePersistTaskSnapshot({
+                    docIds: loadedDocIds,
+                    groupId: SettingsStore?.data?.currentGroupId || 'all',
+                    queryLimit: __TM_TASK_INDEX_QUERY_LIMIT,
+                    delayMs: 420,
+                    allowCacheFirstPaintPersist: true,
+                });
+            }
+        } catch (e) {}
         if (!canPatchDomOnly) {
             __tmRefreshMainViewInPlace({
                 withFilters: false,
@@ -12721,6 +12767,18 @@
             });
         } catch (e) {}
         if (opts.withFilters !== false) applyFilters();
+        try {
+            const loadedDocIds = __tmNormalizeTaskSnapshotDocIds(state.__tmLoadedDocIdsForTasks || []);
+            if (loadedDocIds.some((docId) => docIds.includes(docId))) {
+                __tmSchedulePersistTaskSnapshot({
+                    docIds: loadedDocIds,
+                    groupId: SettingsStore?.data?.currentGroupId || 'all',
+                    queryLimit,
+                    delayMs: 420,
+                    allowCacheFirstPaintPersist: true,
+                });
+            }
+        } catch (e) {}
         state.deferredListCustomFieldIds = String(state.viewMode || '').trim() === 'list'
             ? customFieldLoadPlan0.deferredListFieldIds.slice()
             : [];
@@ -12908,6 +12966,226 @@
             const idleDelayMs = Math.max(80, Math.round(Number(opts.idleDelayMs ?? Math.max(900, delayMs)) || Math.max(900, delayMs)));
             try { __tmScheduleIdleTask(runSave, idleDelayMs); } catch (e) { setTimeout(runSave, 0); }
         }, delayMs);
+        return true;
+    }
+
+    function __tmResolveCreatedTaskDocId(taskId = '', options = {}) {
+        const opts = (options && typeof options === 'object') ? options : {};
+        const tid = String(taskId || opts.taskId || opts.realId || '').trim();
+        const candidates = [
+            opts.docId,
+            opts.parentDocId,
+            opts.targetDocId,
+        ];
+        const task = tid ? (state.flatTasks?.[tid] || state.pendingInsertedTasks?.[tid] || null) : null;
+        candidates.push(task?.docId, task?.root_id);
+        const parentTaskId = String(opts.parentTaskId || task?.parentTaskId || '').trim();
+        const parentTask = parentTaskId ? (state.flatTasks?.[parentTaskId] || state.pendingInsertedTasks?.[parentTaskId] || null) : null;
+        candidates.push(parentTask?.docId, parentTask?.root_id);
+        const sourceTaskId = String(opts.sourceTaskId || opts.siblingOfTaskId || '').trim();
+        const sourceTask = sourceTaskId ? (state.flatTasks?.[sourceTaskId] || state.pendingInsertedTasks?.[sourceTaskId] || null) : null;
+        candidates.push(sourceTask?.docId, sourceTask?.root_id);
+        return candidates
+            .map((id) => String(id || '').trim())
+            .find((id) => __tmIsLikelyBlockId(id)) || '';
+    }
+
+    function __tmCloneLoadedTaskSnapshotDocEntry(docId) {
+        const did = String(docId || '').trim();
+        if (!__tmIsLikelyBlockId(did)) return null;
+        const doc = (Array.isArray(state.taskTree) ? state.taskTree : [])
+            .find((item) => String(item?.id || '').trim() === did);
+        if (!doc || typeof doc !== 'object') return null;
+        const cloned = __tmCloneTaskSnapshotValue(doc, 0);
+        if (!cloned || typeof cloned !== 'object') return null;
+        try { __tmMergeLocalTaskPatchIntoTaskTree([cloned]); } catch (e) {}
+        return cloned;
+    }
+
+    function __tmTaskSnapshotDocEntryHasTask(docEntry, taskId) {
+        const tid = String(taskId || '').trim();
+        if (!tid || !docEntry || typeof docEntry !== 'object') return false;
+        const walk = (list) => {
+            return (Array.isArray(list) ? list : []).some((task) => {
+                if (String(task?.id || task?.blockId || '').trim() === tid) return true;
+                return walk(task?.children);
+            });
+        };
+        return walk(docEntry.tasks);
+    }
+
+    async function __tmFetchTaskSnapshotDocEntryForCreatedTask(docId) {
+        const did = String(docId || '').trim();
+        if (!__tmIsLikelyBlockId(did) || !API || typeof API.getTasksByDocument !== 'function') return null;
+        let rows = [];
+        try {
+            const customFieldPlan = typeof __tmBuildRuntimeCustomFieldLoadPlan === 'function'
+                ? __tmBuildRuntimeCustomFieldLoadPlan()
+                : {};
+            const customFieldIds = typeof __tmNormalizeCustomFieldIdList === 'function'
+                ? __tmNormalizeCustomFieldIdList(customFieldPlan?.bulkFieldIds)
+                : [];
+            const res = await API.getTasksByDocument(did, __TM_TASK_INDEX_QUERY_LIMIT, {
+                doneOnly: false,
+                forceFresh: true,
+                skipParentTaskJoin: false,
+                skipDocJoin: true,
+                customFieldIds,
+            });
+            rows = Array.isArray(res?.tasks) ? res.tasks : [];
+        } catch (e) {
+            rows = [];
+        }
+        let entry = null;
+        try {
+            const entries = await __tmBuildTaskIndexEntriesFromRows([did], rows, {
+                queryLimit: __TM_TASK_INDEX_QUERY_LIMIT,
+            });
+            entry = (Array.isArray(entries) ? entries : [])
+                .find((item) => String(item?.id || '').trim() === did) || null;
+        } catch (e) {
+            entry = null;
+        }
+        if (!entry) return null;
+        let tasks = [];
+        try { tasks = __tmBuildTaskTreeFromTaskIndexBlocks(entry) || []; } catch (e) { tasks = []; }
+        return {
+            id: did,
+            name: String(entry.name || '').trim() || '未命名文档',
+            alias: __tmNormalizeDocAliasValue(entry.alias),
+            icon: __tmNormalizeDocIconValue(entry.icon),
+            created: String(entry.created || '').trim(),
+            docUpdated: String(entry.docUpdated || '').trim(),
+            tasks,
+        };
+    }
+
+    async function __tmUpdateSnapshotsContainingCreatedTaskDoc(docEntry, options = {}) {
+        const doc = (docEntry && typeof docEntry === 'object') ? docEntry : null;
+        const docId = String(doc?.id || '').trim();
+        if (!doc || !__tmIsLikelyBlockId(docId)) return false;
+        const opts = (options && typeof options === 'object') ? options : {};
+        try {
+            const rawStore = await __tmReadJsonFile(TASK_SNAPSHOT_FILE_PATH);
+            const store = __tmBuildTaskSnapshotStore(rawStore);
+            const snapshots = Object.values(store?.snapshots || {});
+            if (!snapshots.length) return false;
+            const now = Date.now();
+            let changed = false;
+            snapshots.forEach((snapshot) => {
+                const materialized = __tmMaterializeTaskSnapshotRecord(snapshot, store);
+                if (!__tmIsUsableTaskSnapshot(materialized)) return;
+                const snapshotDocIds = __tmNormalizeTaskSnapshotDocIds(
+                    Array.isArray(materialized.docIds) && materialized.docIds.length
+                        ? materialized.docIds
+                        : (Array.isArray(materialized.taskTree) ? materialized.taskTree.map((item) => item?.id) : [])
+                );
+                if (!snapshotDocIds.includes(docId)) return;
+                const nextDoc = __tmCloneTaskSnapshotValue(doc, 0);
+                if (!nextDoc) return;
+                let replaced = false;
+                const nextTaskTree = (Array.isArray(materialized.taskTree) ? materialized.taskTree : [])
+                    .map((item) => {
+                        if (String(item?.id || '').trim() !== docId) return item;
+                        replaced = true;
+                        return nextDoc;
+                    });
+                if (!replaced) nextTaskTree.push(nextDoc);
+                const nextSnapshot = {
+                    ...materialized,
+                    taskTree: nextTaskTree,
+                    updatedAt: now,
+                };
+                if (opts.keepViewState !== true) {
+                    delete nextSnapshot.viewState;
+                    delete nextSnapshot.viewStates;
+                }
+                store.snapshots[nextSnapshot.scopeKey] = nextSnapshot;
+                changed = true;
+            });
+            if (!changed) return false;
+            store.updatedAt = now;
+            const nextStore = __tmBuildTaskSnapshotStore(store);
+            __tmTaskSnapshotStoreCache = nextStore;
+            await __tmWriteJsonFile(TASK_SNAPSHOT_FILE_PATH, nextStore);
+            return true;
+        } catch (e) {
+            return false;
+        }
+    }
+
+    function __tmScheduleCreatedTaskSnapshotRefresh(taskId = '', options = {}) {
+        const opts = (options && typeof options === 'object') ? options : {};
+        const tid = String(taskId || opts.taskId || opts.realId || '').trim();
+        const docId = __tmResolveCreatedTaskDocId(tid, opts);
+        if (!__tmIsLikelyBlockId(docId)) return false;
+        const delayMs = Math.max(80, Number(opts.delayMs || 220) || 220);
+        const run = async () => {
+            try { __tmClearGroupSessionTaskCache(docId); } catch (e) {}
+            try { __tmClearDocSessionTaskCache(docId); } catch (e) {}
+
+            let docEntry = __tmCloneLoadedTaskSnapshotDocEntry(docId);
+            if (opts.fetchFreshDoc !== false && (!docEntry || !__tmTaskSnapshotDocEntryHasTask(docEntry, tid))) {
+                const freshDocEntry = await __tmFetchTaskSnapshotDocEntryForCreatedTask(docId);
+                if (freshDocEntry && (!tid || __tmTaskSnapshotDocEntryHasTask(freshDocEntry, tid))) {
+                    docEntry = freshDocEntry;
+                }
+            }
+            if (tid && docEntry && !__tmTaskSnapshotDocEntryHasTask(docEntry, tid)) {
+                const retry = Math.max(0, Number(opts.retry || 0) || 0);
+                if (retry < 2) {
+                    try {
+                        __tmScheduleCreatedTaskSnapshotRefresh(tid, {
+                            ...opts,
+                            retry: retry + 1,
+                            delayMs: retry === 0 ? 520 : 1100,
+                            fetchFreshDoc: true,
+                        });
+                    } catch (e) {}
+                }
+                try { __tmScheduleTaskIndexPrewarmForDocIds([docId], { delayMs: 240 }); } catch (e) {}
+                return;
+            }
+            if (docEntry) {
+                try {
+                    __tmRememberDocSessionTaskEntry(docEntry, { inTaskTree: true });
+                } catch (e) {}
+                try {
+                    const indexEntry = __tmBuildTaskIndexDocEntry(docEntry, {
+                        queryLimit: __TM_TASK_INDEX_QUERY_LIMIT,
+                        inTaskTree: true,
+                    });
+                    if (indexEntry) await __tmMergeTaskIndexEntries([indexEntry]);
+                } catch (e) {}
+                await __tmUpdateSnapshotsContainingCreatedTaskDoc(docEntry, {
+                    source: String(opts.source || 'task-create').trim() || 'task-create',
+                });
+            } else {
+                try { __tmScheduleTaskIndexPrewarmForDocIds([docId], { delayMs: 180 }); } catch (e) {}
+            }
+
+            const loadedDocIds = __tmNormalizeTaskSnapshotDocIds(state.__tmLoadedDocIdsForTasks || []);
+            const loadedDocEntryForPersist = loadedDocIds.includes(docId)
+                ? __tmCloneLoadedTaskSnapshotDocEntry(docId)
+                : null;
+            const canPersistLoadedViewSnapshot = loadedDocEntryForPersist
+                && (!tid || __tmTaskSnapshotDocEntryHasTask(loadedDocEntryForPersist, tid));
+            if (loadedDocIds.includes(docId) && canPersistLoadedViewSnapshot) {
+                try { __tmMergeLocalTaskPatchIntoTaskStateForSnapshot(); } catch (e) {}
+                try { if (typeof applyFilters === 'function') applyFilters(); } catch (e) {}
+                try {
+                    __tmSchedulePersistTaskSnapshot({
+                        docIds: loadedDocIds,
+                        groupId: SettingsStore?.data?.currentGroupId || 'all',
+                        queryLimit: __TM_TASK_INDEX_QUERY_LIMIT,
+                        delayMs: 240,
+                        idleDelayMs: 160,
+                        allowCacheFirstPaintPersist: true,
+                    });
+                } catch (e) {}
+            }
+        };
+        try { __tmScheduleIdleTask(run, delayMs); } catch (e) { setTimeout(() => { run().catch(() => null); }, delayMs); }
         return true;
     }
 

@@ -709,6 +709,15 @@ state.openToken = (Number(state.openToken) || 0) + 1;
                 }
             }
             try { __tmClearAutoRefreshDirtyFlags(); } catch (e) {}
+            try {
+                __tmSchedulePersistTaskSnapshot({
+                    docIds: state.__tmLoadedDocIdsForTasks,
+                    groupId: SettingsStore?.data?.currentGroupId || 'all',
+                    queryLimit: __TM_TASK_INDEX_QUERY_LIMIT,
+                    delayMs: 420,
+                    allowCacheFirstPaintPersist: true,
+                });
+            } catch (e) {}
 
             if (!silent) {
                 __tmRemoveHint(_refreshHint);

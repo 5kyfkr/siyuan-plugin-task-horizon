@@ -5821,9 +5821,9 @@ select.tm-btn-secondary {
     text-align: left;
     cursor: pointer;
     font: inherit;
-    flex: 1 1 auto;
+    flex: 0 1 auto;
     min-width: 0;
-    max-width: none;
+    max-width: 100%;
 }
 
 .tm-kanban-col-header-actions {
@@ -9756,19 +9756,6 @@ select.tm-btn-secondary {
     box-shadow: 0 0 0 1px color-mix(in srgb, var(--tm-primary-color) 26%, transparent);
 }
 
-.tm-checklist-item.tm-task-drop--child::after {
-    content: '';
-    position: absolute;
-    left: var(--tm-task-drop-indent, 30px);
-    top: 50%;
-    width: 18px;
-    height: 2px;
-    border-radius: 999px;
-    background: var(--tm-primary-color);
-    transform: translateY(-50%);
-    pointer-events: none;
-}
-
 .tm-checklist-item.tm-task-drop--child-top::after {
     content: '';
     position: absolute;
@@ -10380,7 +10367,6 @@ select.tm-btn-secondary {
         inset 0 0 0 1px color-mix(in srgb, var(--tm-primary-color) 30%, transparent);
 }
 
-.tm-checklist-pane--compact .tm-checklist-item.tm-task-drop--child::after,
 .tm-checklist-pane--compact .tm-checklist-item.tm-task-drop--child-top::after {
     display: block;
     z-index: 4;
@@ -12169,10 +12155,6 @@ select.tm-btn-secondary {
 
 .tm-table tbody tr.tm-task-drop--child > td:first-child,
 #tmTimelineLeftTable tbody tr.tm-task-drop--child > td:first-child {
-    background-image: linear-gradient(var(--tm-primary-color), var(--tm-primary-color));
-    background-repeat: no-repeat;
-    background-size: 18px 2px;
-    background-position: var(--tm-task-drop-indent, 24px) 50%;
     box-shadow:
         inset 3px 0 0 color-mix(in srgb, var(--tm-primary-color) 72%, transparent),
         inset 0 0 0 999px color-mix(in srgb, var(--tm-primary-color) 6%, transparent),

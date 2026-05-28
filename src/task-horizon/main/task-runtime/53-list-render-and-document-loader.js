@@ -669,7 +669,9 @@
 
                 // 分离置顶和非置顶
                 const docNormal = pinWithinGroups ? docRootTasks.slice() : docRootTasks.filter(t => !t.pinned);
-                const activeDocRootTasks = docNormal.filter((task) => !__tmIsTaskDoneForTailGroup(task));
+                const activeDocRootTasks = __tmShouldSeparateCompletedRootGroup()
+                    ? docNormal.filter((task) => !__tmIsTaskDoneForTailGroup(task))
+                    : docNormal.slice();
                 if (activeDocRootTasks.length === 0) return;
                 const docTasks = activeDocRootTasks;
                 const renderDocTasks = sortRenderGroupItems(activeDocRootTasks.slice());
@@ -4196,10 +4198,14 @@ hint(`❌ 操作失败: ${e.message}`, 'error');
         const startCountdown = timer?.startCountdown;
         const startPomodoro = timer?.startPomodoro;
         if (typeof startCountdown === 'function') {
+            state.timerFocusTaskId = resolvedId;
+            try { render(); } catch (e) {}
             startCountdown(resolvedId, taskName, 30);
             return;
         }
         if (typeof startPomodoro === 'function') {
+            state.timerFocusTaskId = resolvedId;
+            try { render(); } catch (e) {}
             startPomodoro(resolvedId, taskName, 30);
             return;
         }
@@ -5461,13 +5467,35 @@ hint(`❌ 操作失败: ${e.message}`, 'error');
             task.parent_task_id = parentTaskId;
         }
         if (local && typeof local === 'object') {
-            ['docId', 'root_id', 'docName', 'h2', 'h2Id', 'h2Rank', 'level'].forEach((key) => {
+            ['docId', 'root_id', 'docName', 'h2', 'h2Id', 'h2Rank', 'level', 'docSeq', 'doc_seq'].forEach((key) => {
                 if (task[key] == null || String(task[key] || '').trim() === '') task[key] = local[key];
             });
         }
         try { normalizeTaskFields(task, task.docName || local?.docName || '未命名文档'); } catch (e) {}
         try { task.priorityScore = __tmEnsureTaskPriorityScore(task, { force: true }); } catch (e) {}
         try { state.flatTasks[tid] = task; } catch (e) {}
+        try {
+            const syncTreeTask = (list) => {
+                if (!Array.isArray(list)) return false;
+                for (let i = 0; i < list.length; i += 1) {
+                    const item = list[i];
+                    if (!item || typeof item !== 'object') continue;
+                    if (String(item.id || '').trim() === tid) {
+                        list[i] = {
+                            ...item,
+                            ...task,
+                            children: Array.isArray(task.children) && task.children.length
+                                ? task.children
+                                : (Array.isArray(item.children) ? item.children : []),
+                        };
+                        return true;
+                    }
+                    if (syncTreeTask(item.children)) return true;
+                }
+                return false;
+            };
+            (Array.isArray(state.taskTree) ? state.taskTree : []).some((doc) => syncTreeTask(doc?.tasks));
+        } catch (e) {}
         try {
             if (state.pendingInsertedTasks?.[tid]) {
                 state.pendingInsertedTasks[tid] = {
@@ -5871,7 +5899,7 @@ hint(`❌ 操作失败: ${e.message}`, 'error');
         return __tmRollbackDeleteOptimisticLocal(snapshot);
     }
 
-    async function __tmCreateTaskInDocKernel({ docId, content, priority, startDate, completionTime, pinned, customStatus, atTop, appendToBottom, insertBeforeId, localInsert = true } = {}) {
+    async function __tmCreateTaskInDocKernel({ docId, content, priority, startDate, completionTime, pinned, customStatus, atTop, appendToBottom, insertBeforeId, localInsert = true, scheduleSnapshotRefresh = true } = {}) {
         const parentDocId = String(docId || '').trim();
         const text = String(content || '').trim();
         if (!parentDocId) throw new Error('未设置文档');
@@ -5960,6 +5988,15 @@ hint(`❌ 操作失败: ${e.message}`, 'error');
             try { applyFilters(); } catch (e) {}
             if (state.modal) render();
         }
+        if (scheduleSnapshotRefresh !== false) {
+            try {
+                __tmScheduleCreatedTaskSnapshotRefresh(taskId, {
+                    docId: parentDocId,
+                    taskId,
+                    source: 'create-task-in-doc',
+                });
+            } catch (e) {}
+        }
         return taskId;
     }
 
@@ -5995,57 +6032,68 @@ hint(`❌ 操作失败: ${e.message}`, 'error');
             hint('❌ 未找到文档', 'error');
             return;
         }
-        const text = await showPrompt('新建任务', '请输入任务内容', '');
+        const text = await showPrompt('新建任务', '每行一个任务；回车换行，Ctrl + 回车提交', '', {
+            multiline: true,
+            rows: 4,
+            minHeight: 96,
+        });
         if (text == null) return;
-        const nextText = String(text || '').trim();
-        if (!nextText) {
+        const taskLines = __tmSplitTaskInputLines(text);
+        if (taskLines.length === 0) {
             hint('⚠ 请输入任务内容', 'warning');
             return;
         }
         try {
-            let taskId = '';
             const useSectionEnd = !!SettingsStore.data.headingGroupCreateAtSectionEnd;
-            let createdAtSectionEnd = false;
+            const createdTaskIds = [];
             if (hid && hid !== '__none__' && useSectionEnd) {
                 const placement = await __tmResolveHeadingGroupInsertPlacement(did, hid, SettingsStore.data.taskHeadingLevel || 'h2');
                 if (placement.matched) {
-                    taskId = await __tmQueueCreateTaskInDoc({
-                        docId: did,
-                        content: nextText,
-                        insertBeforeId: placement.nextID || '',
-                        appendToBottom: placement.appendToBottom === true,
-                        pinned: false,
-                    });
-                    createdAtSectionEnd = true;
-                    const task = state.pendingInsertedTasks?.[String(taskId || '').trim()];
-                    if (task) {
-                        task.h2 = __tmNormalizeHeadingText(placement.heading?.content);
-                        task.h2Id = hid;
-                        task.h2Rank = Number(placement.heading?.rank);
-                        task.h2Path = '';
-                        task.h2Sort = Number.NaN;
-                        task.h2Created = '';
+                    for (const line of taskLines) {
+                        const taskId = await __tmQueueCreateTaskInDoc({
+                            docId: did,
+                            content: line,
+                            insertBeforeId: placement.nextID || '',
+                            appendToBottom: placement.appendToBottom === true,
+                            pinned: false,
+                        });
+                        createdTaskIds.push(taskId);
+                        const task = state.pendingInsertedTasks?.[String(taskId || '').trim()];
+                        if (task) {
+                            task.h2 = __tmNormalizeHeadingText(placement.heading?.content);
+                            task.h2Id = hid;
+                            task.h2Rank = Number(placement.heading?.rank);
+                            task.h2Path = '';
+                            task.h2Sort = Number.NaN;
+                            task.h2Created = '';
+                        }
                     }
                 }
             }
-            if (!taskId) {
-                taskId = await __tmQueueCreateTaskInDoc({ docId: did, content: nextText, atTop: true, pinned: false });
-            }
-            if (hid && hid !== '__none__' && !createdAtSectionEnd) {
-                await __tmQueueMoveTask(taskId, { targetDocId: did, headingId: hid, mode: 'heading' });
-            } else if (!hid || hid === '__none__') {
-                const task = state.pendingInsertedTasks?.[String(taskId || '').trim()];
-                if (task) {
-                    task.h2 = '';
-                    task.h2Id = '';
-                    if (state.pendingInsertedTasks?.[taskId]) {
-                        state.pendingInsertedTasks[taskId].h2 = '';
-                        state.pendingInsertedTasks[taskId].h2Id = '';
+            if (createdTaskIds.length === 0) {
+                for (const line of taskLines.slice().reverse()) {
+                    const taskId = await __tmQueueCreateTaskInDoc({ docId: did, content: line, atTop: true, pinned: false });
+                    createdTaskIds.push(taskId);
+                    if (hid && hid !== '__none__') {
+                        await __tmQueueMoveTask(taskId, { targetDocId: did, headingId: hid, mode: 'heading' });
+                    } else {
+                        const task = state.pendingInsertedTasks?.[String(taskId || '').trim()];
+                        if (task) {
+                            task.h2 = '';
+                            task.h2Id = '';
+                            if (state.pendingInsertedTasks?.[taskId]) {
+                                state.pendingInsertedTasks[taskId].h2 = '';
+                                state.pendingInsertedTasks[taskId].h2Id = '';
+                            }
+                        }
                     }
                 }
             }
-            const pendingTask = state.pendingInsertedTasks?.[String(taskId || '').trim()];
-            if (pendingTask) __tmUpsertLocalTask(pendingTask);
+            createdTaskIds.forEach((taskId) => {
+                const pendingTask = state.pendingInsertedTasks?.[String(taskId || '').trim()];
+                if (pendingTask) __tmUpsertLocalTask(pendingTask);
+            });
+            try { applyFilters(); } catch (e) {}
             __tmRefreshMainViewInPlace({ withFilters: true });
             __tmLoadSelectedDocumentsPreserveChecklistScroll({
                 source: 'heading-create-task',
@@ -6053,7 +6101,7 @@ hint(`❌ 操作失败: ${e.message}`, 'error');
             }).catch((err) => {
                 try { console.error('[标题分组新建任务] 刷新失败:', err); } catch (e) {}
             });
-            hint('✅ 任务已创建', 'success');
+            hint(taskLines.length > 1 ? `✅ 已创建 ${taskLines.length} 个任务` : '✅ 任务已创建', 'success');
         } catch (e) {
             hint(`❌ 新建任务失败: ${e.message}`, 'error');
         }
@@ -6135,6 +6183,16 @@ hint(`❌ 操作失败: ${e.message}`, 'error');
             const docId = String(parentTask.docId || parentTask.root_id || '').trim();
             if (docId) __tmInvalidateTasksQueryCacheByDocId(docId);
         } catch (e) {}
+        if (opts.scheduleSnapshotRefresh !== false) {
+            try {
+                __tmScheduleCreatedTaskSnapshotRefresh(taskId, {
+                    docId: String(parentTask.docId || parentTask.root_id || '').trim(),
+                    parentTaskId: pid,
+                    taskId,
+                    source: 'create-subtask-direct',
+                });
+            } catch (e) {}
+        }
         return taskId;
     }
 
@@ -6164,12 +6222,13 @@ hint(`❌ 操作失败: ${e.message}`, 'error');
         return '';
     }
 
-    async function __tmCreateSiblingTaskForTaskKernel(taskId, content) {
+    async function __tmCreateSiblingTaskForTaskKernel(taskId, content, options = {}) {
         const tid = String(taskId || '').trim();
         const currentTask = globalThis.__tmRuntimeState?.getFlatTaskById?.(tid) || state.flatTasks?.[tid];
         if (!tid || !currentTask) throw new Error('未找到当前任务');
         const text = String(content || '').trim();
         if (!text) throw new Error('请输入任务内容');
+        const opts = (options && typeof options === 'object') ? options : {};
 
         const listId = await __tmResolveTaskListBlockId(tid);
         if (!listId) throw new Error('未找到当前任务所在的任务列表');
@@ -6181,6 +6240,16 @@ hint(`❌ 操作失败: ${e.message}`, 'error');
             const docId = String(currentTask.docId || currentTask.root_id || '').trim();
             if (docId) __tmInvalidateTasksQueryCacheByDocId(docId);
         } catch (e) {}
+        if (opts.scheduleSnapshotRefresh !== false) {
+            try {
+                __tmScheduleCreatedTaskSnapshotRefresh(nextTaskId, {
+                    docId: String(currentTask.docId || currentTask.root_id || '').trim(),
+                    sourceTaskId: tid,
+                    taskId: nextTaskId,
+                    source: 'create-sibling-direct',
+                });
+            } catch (e) {}
+        }
         return nextTaskId;
     }
 
@@ -6192,8 +6261,8 @@ hint(`❌ 操作失败: ${e.message}`, 'error');
         return await __tmCreateSubtaskForTaskKernel(parentTaskId, content, options);
     }
 
-    async function __tmCreateSiblingTaskForTask(taskId, content) {
-        return await __tmCreateSiblingTaskForTaskKernel(taskId, content);
+    async function __tmCreateSiblingTaskForTask(taskId, content, options = {}) {
+        return await __tmCreateSiblingTaskForTaskKernel(taskId, content, options);
     }
 
     function __tmQueueCreateSubtask(parentTaskId, content, options = {}) {
@@ -6419,25 +6488,31 @@ hint(`❌ 操作失败: ${e.message}`, 'error');
         }
         if (!__tmEnsureEditableTaskLike(parentTask, '新建子任务')) return;
 
-        const text = await showPrompt('新建子任务', '请输入子任务内容', '');
+        const text = await showPrompt('新建子任务', '每行一个子任务；回车换行，Ctrl + 回车提交', '', {
+            multiline: true,
+            rows: 4,
+            minHeight: 96,
+        });
         if (text == null) return;
-        const nextText = String(text || '').trim();
-        if (!nextText) {
+        const taskLines = __tmSplitTaskInputLines(text);
+        if (taskLines.length === 0) {
             hint('⚠ 请输入子任务内容', 'warning');
             return;
         }
 
         try {
-            __tmQueueCreateSubtask(pid, nextText, {
-                onSuccess: () => {
-                    __tmRefreshMainViewInPlace({ withFilters: true });
-                    __tmLoadSelectedDocumentsPreserveChecklistScroll({
-                        source: 'create-subtask',
-                        forceSyncFlowRank: true,
-                    }).catch((err) => {
-                        try { console.error('[子任务] 刷新失败:', err); } catch (e) {}
-                    });
-                }
+            const createPromises = taskLines.map((line) => __tmQueueCreateSubtask(pid, line, { silent: true }));
+            Promise.all(createPromises).then(() => {
+                __tmRefreshMainViewInPlace({ withFilters: true });
+                __tmLoadSelectedDocumentsPreserveChecklistScroll({
+                    source: 'create-subtask',
+                    forceSyncFlowRank: true,
+                }).catch((err) => {
+                    try { console.error('[子任务] 刷新失败:', err); } catch (e) {}
+                });
+                hint(taskLines.length > 1 ? `✅ 已新增 ${taskLines.length} 个子任务` : '✅ 已新增', 'success');
+            }).catch((e) => {
+                hint(`❌ 新建子任务失败: ${e.message}`, 'error');
             });
         } catch (e) {
             hint(`❌ 新建子任务失败: ${e.message}`, 'error');
@@ -6622,7 +6697,7 @@ hint(`❌ 操作失败: ${e.message}`, 'error');
                     <button class="tm-btn tm-btn-gray" id="tmQuickAddCloseBtn" onclick="tmQuickAddClose()" style="padding: 6px 12px; font-size: 13px;">关闭</button>
                 </div>
 
-                <input type="text" id="tmQuickAddInput" class="tm-prompt-input" placeholder="输入事项…" enterkeyhint="done" style="margin-top:16px; font-size: 16px; padding: 12px;">
+                <textarea id="tmQuickAddInput" class="tm-prompt-input" placeholder="输入事项…每行一个任务；回车换行，Ctrl + 回车提交" enterkeyhint="enter" rows="3" style="margin-top:16px; font-size: 16px; padding: 12px; min-height: 86px; line-height: 1.45; resize: vertical;"></textarea>
 
                 <div style="display:flex;gap:10px;align-items:flex-start;flex-wrap:wrap;margin-top:16px;">
                     <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;flex:1 1 280px;min-width:0;">
@@ -6671,15 +6746,15 @@ hint(`❌ 操作失败: ${e.message}`, 'error');
         // 自动聚焦 (兼容移动端)
         const input = document.getElementById('tmQuickAddInput');
         if (input) {
-            input.enterKeyHint = 'done';
-            input.setAttribute('enterkeyhint', 'done');
+            input.enterKeyHint = 'enter';
+            input.setAttribute('enterkeyhint', 'enter');
             setTimeout(() => {
                 input.focus();
                 try { input.click(); } catch(e) {}
             }, 300);
             input.onkeydown = (e) => {
                 if (e.key !== 'Enter') return;
-                if (e.shiftKey || e.ctrlKey || e.altKey || e.metaKey) return;
+                if (!e.ctrlKey && !e.metaKey) return;
                 try { e.preventDefault(); } catch (e2) {}
                 try { e.stopPropagation(); } catch (e2) {}
                 window.tmQuickAddSubmit?.();
@@ -6921,7 +6996,7 @@ hint(`❌ 操作失败: ${e.message}`, 'error');
                 hideRepeat: true,
                 task: {
                     id: '__tm_quick_add_draft__',
-                    content: String(document.getElementById('tmQuickAddInput')?.value || '新建任务').trim() || '新建任务',
+                    content: __tmSplitTaskInputLines(document.getElementById('tmQuickAddInput')?.value || '')[0] || '新建任务',
                     startDate: String(qa.startDate || '').trim(),
                     start_date: String(qa.startDate || '').trim(),
                     completionTime: String(qa.completionTime || '').trim(),
@@ -7281,8 +7356,8 @@ hint(`❌ 操作失败: ${e.message}`, 'error');
         if (state.quickAddSubmitting) return;
         const input = document.getElementById('tmQuickAddInput');
         const dateInput = document.getElementById('tmQuickAddDateInput');
-        const content = String(input?.value || '').trim();
-        if (!content) return;
+        const taskLines = __tmSplitTaskInputLines(input?.value || '');
+        if (taskLines.length === 0) return;
         const startDate = String(qa.startDate || '').trim() ? __tmNormalizeDateOnly(qa.startDate) : '';
         const completionTime = (() => {
             const raw = dateInput instanceof HTMLInputElement
@@ -7301,7 +7376,7 @@ hint(`❌ 操作失败: ${e.message}`, 'error');
             startDate,
             completionTime,
             openReminderAfterCreate: !!qa.openReminderAfterCreate,
-            content,
+            contents: taskLines,
         };
         window.tmQuickAddClose?.();
         state.quickAddSubmitting = false;
@@ -7319,16 +7394,50 @@ hint(`❌ 操作失败: ${e.message}`, 'error');
                     targetDocId = await API.createDailyNote(notebook);
                     if (!String(targetDocId || '').trim()) throw new Error('获取日记文档失败');
                 }
-                const createdTaskId = await __tmQueueCreateTaskInDoc({
-                    docId: targetDocId,
-                    content: payload.content,
-                    priority: payload.priority,
-                    customStatus: payload.customStatus,
-                    startDate: payload.startDate,
-                    completionTime: payload.completionTime,
-                    appendToBottom: payload.docMode === 'dailyNote' && SettingsStore.data.newTaskDailyNoteAppendToBottom === true,
-                });
-                hint('✅ 任务已创建', 'success');
+                const createdTaskIds = [];
+                const appendToBottom = payload.docMode === 'dailyNote' && SettingsStore.data.newTaskDailyNoteAppendToBottom === true;
+                let insertBeforeId = '';
+                let topAnchorResolved = false;
+                if (!appendToBottom && payload.contents.length > 1) {
+                    try {
+                        insertBeforeId = String(await API.getFirstDirectChildIdOfDoc(targetDocId) || '').trim();
+                        topAnchorResolved = true;
+                    } catch (e) {}
+                }
+                const appendEmptyBatchToKeepOrder = !appendToBottom && topAnchorResolved && !insertBeforeId && payload.contents.length > 1;
+                for (const content of payload.contents) {
+                    const createdTaskId = await __tmQueueCreateTaskInDoc({
+                        docId: targetDocId,
+                        content,
+                        priority: payload.priority,
+                        customStatus: payload.customStatus,
+                        startDate: payload.startDate,
+                        completionTime: payload.completionTime,
+                        appendToBottom: appendToBottom || appendEmptyBatchToKeepOrder,
+                        insertBeforeId,
+                    });
+                    if (createdTaskId) createdTaskIds.push(createdTaskId);
+                }
+                try { applyFilters(); } catch (e) {}
+                try {
+                    __tmRefreshMainViewInPlace({
+                        withFilters: true,
+                        reason: 'quick-add-batch-create',
+                        taskIds: createdTaskIds,
+                    });
+                } catch (e) {
+                    try { __tmScheduleRender({ withFilters: true, reason: 'quick-add-batch-create' }); } catch (e2) {}
+                }
+                if (payload.contents.length > 1) {
+                    __tmLoadSelectedDocumentsPreserveChecklistScroll({
+                        source: 'quick-add-batch-create',
+                        forceSyncFlowRank: true,
+                    }).catch((err) => {
+                        try { console.error('[快速新建批量任务] 刷新失败:', err); } catch (e) {}
+                    });
+                }
+                hint(payload.contents.length > 1 ? `✅ 已创建 ${payload.contents.length} 个任务` : '✅ 任务已创建', 'success');
+                const createdTaskId = createdTaskIds[0] || '';
                 if (payload.openReminderAfterCreate && createdTaskId) {
                     setTimeout(() => {
                         try { window.tmReminder?.(createdTaskId); } catch (e) {}
@@ -7986,6 +8095,7 @@ hint(`❌ 操作失败: ${e.message}`, 'error');
                 searchKeyword: String(state.searchKeyword || '').trim(),
                 showCompletedTasks: state.showCompletedTasks === true ? 1 : 0,
                 completedTasksTodayOnly: SettingsStore?.data?.completedTasksTodayOnly === true ? 1 : 0,
+                completedTasksInlineInGroups: SettingsStore?.data?.completedTasksInlineInGroups === true ? 1 : 0,
                 docTabsArchiveMode: state.docTabsArchiveMode === true ? 1 : 0,
                 groupByDocName: state.groupByDocName === true ? 1 : 0,
                 groupByTaskName: state.groupByTaskName === true ? 1 : 0,
@@ -8016,6 +8126,7 @@ hint(`❌ 操作失败: ${e.message}`, 'error');
             'search-changed': true,
             'completed-toggle-changed': true,
             'completed-today-only-changed': true,
+            'completed-inline-groups-changed': true,
             'archive-mode-changed': true,
             'group-doc-changed': true,
             'group-task-changed': true,
@@ -8033,6 +8144,7 @@ hint(`❌ 操作失败: ${e.message}`, 'error');
                 if (String(state.searchKeyword || '').trim() !== snapshotCacheVerifyBefore.searchKeyword) return 'search-changed';
                 if ((state.showCompletedTasks === true ? 1 : 0) !== snapshotCacheVerifyBefore.showCompletedTasks) return 'completed-toggle-changed';
                 if ((SettingsStore?.data?.completedTasksTodayOnly === true ? 1 : 0) !== snapshotCacheVerifyBefore.completedTasksTodayOnly) return 'completed-today-only-changed';
+                if ((SettingsStore?.data?.completedTasksInlineInGroups === true ? 1 : 0) !== snapshotCacheVerifyBefore.completedTasksInlineInGroups) return 'completed-inline-groups-changed';
                 if ((state.docTabsArchiveMode === true ? 1 : 0) !== snapshotCacheVerifyBefore.docTabsArchiveMode) return 'archive-mode-changed';
                 if ((state.groupByDocName === true ? 1 : 0) !== snapshotCacheVerifyBefore.groupByDocName) return 'group-doc-changed';
                 if ((state.groupByTaskName === true ? 1 : 0) !== snapshotCacheVerifyBefore.groupByTaskName) return 'group-task-changed';
@@ -9682,6 +9794,7 @@ hint(`❌ 操作失败: ${e.message}`, 'error');
                         else if (String(state.searchKeyword || '').trim() !== snapshotCacheVerifyBefore.searchKeyword) remapSkipReason = 'search-changed';
                         else if ((state.showCompletedTasks === true ? 1 : 0) !== snapshotCacheVerifyBefore.showCompletedTasks) remapSkipReason = 'completed-toggle-changed';
                         else if ((SettingsStore?.data?.completedTasksTodayOnly === true ? 1 : 0) !== snapshotCacheVerifyBefore.completedTasksTodayOnly) remapSkipReason = 'completed-today-only-changed';
+                        else if ((SettingsStore?.data?.completedTasksInlineInGroups === true ? 1 : 0) !== snapshotCacheVerifyBefore.completedTasksInlineInGroups) remapSkipReason = 'completed-inline-groups-changed';
                         else if ((state.docTabsArchiveMode === true ? 1 : 0) !== snapshotCacheVerifyBefore.docTabsArchiveMode) remapSkipReason = 'archive-mode-changed';
                         else if ((state.groupByDocName === true ? 1 : 0) !== snapshotCacheVerifyBefore.groupByDocName) remapSkipReason = 'group-doc-changed';
                         else if ((state.groupByTaskName === true ? 1 : 0) !== snapshotCacheVerifyBefore.groupByTaskName) remapSkipReason = 'group-task-changed';

@@ -1380,6 +1380,88 @@
         return value || null;
     }
 
+    function __tmNormalizeViewProfileDefaultViewMode(mode) {
+        const raw = String(mode || '').trim();
+        if (!raw || raw === 'default' || raw === 'follow-default') return null;
+        return __tmGetSafeViewMode(raw);
+    }
+
+    function __tmNormalizeViewProfileDefaultViewModeMobileDisabled(value) {
+        if (value === true) return true;
+        const raw = String(value || '').trim().toLowerCase();
+        return raw === 'true' || raw === '1' || raw === 'yes' || raw === 'on';
+    }
+
+    function __tmNormalizeViewProfileKanbanBoardMode(mode) {
+        if (typeof __tmNormalizeKanbanBoardMode === 'function') {
+            return __tmNormalizeKanbanBoardMode(mode) || null;
+        }
+        const value = String(mode || '').trim().toLowerCase();
+        return ['time', 'heading', 'status'].includes(value) ? value : null;
+    }
+
+    function __tmGetExplicitViewProfileDefaultViewMode(profile) {
+        const source = (profile && typeof profile === 'object' && !Array.isArray(profile)) ? profile : {};
+        if (!Object.prototype.hasOwnProperty.call(source, 'defaultViewMode')) return null;
+        return __tmNormalizeViewProfileDefaultViewMode(source.defaultViewMode);
+    }
+
+    function __tmGetViewProfileDefaultViewModeMobileDisabled(profile) {
+        const source = (profile && typeof profile === 'object' && !Array.isArray(profile)) ? profile : {};
+        return __tmNormalizeViewProfileDefaultViewModeMobileDisabled(source.defaultViewModeMobileDisabled);
+    }
+
+    function __tmGetExplicitViewProfileKanbanBoardMode(profile) {
+        const source = (profile && typeof profile === 'object' && !Array.isArray(profile)) ? profile : {};
+        if (!Object.prototype.hasOwnProperty.call(source, 'defaultKanbanBoardMode')) return null;
+        return __tmNormalizeViewProfileKanbanBoardMode(source.defaultKanbanBoardMode);
+    }
+
+    function __tmIsViewProfileMobileContext() {
+        try {
+            const hostInfo = globalThis.__tmRuntimeHost?.getInfo?.() || null;
+            return !!(
+                (typeof __tmIsMobileDevice === 'function' && __tmIsMobileDevice())
+                || (hostInfo?.hostUsesMobileUI ?? (typeof __tmHostUsesMobileUI === 'function' && __tmHostUsesMobileUI()))
+                || (hostInfo?.runtimeMobileClient ?? (typeof __tmIsRuntimeMobileClient === 'function' && __tmIsRuntimeMobileClient()))
+            );
+        } catch (e) {
+            return false;
+        }
+    }
+
+    function __tmGetEffectiveViewProfileDefaultViewMode(profile, isMobile = __tmIsViewProfileMobileContext()) {
+        if (isMobile && __tmGetViewProfileDefaultViewModeMobileDisabled(profile)) return null;
+        return __tmGetExplicitViewProfileDefaultViewMode(profile);
+    }
+
+    function __tmResolveContextViewDefaults(activeDocId, currentGroupId, storeInput = null) {
+        const docId = String(activeDocId || 'all').trim() || 'all';
+        const groupId = String(currentGroupId || 'all').trim() || 'all';
+        const store = storeInput || __tmGetViewProfilesStore();
+        const isMobile = __tmIsViewProfileMobileContext();
+        const read = (profile) => {
+            const defaultViewMode = __tmGetEffectiveViewProfileDefaultViewMode(profile, isMobile);
+            if (!defaultViewMode) return null;
+            return {
+                defaultViewMode,
+                defaultKanbanBoardMode: defaultViewMode === 'kanban'
+                    ? __tmGetExplicitViewProfileKanbanBoardMode(profile)
+                    : null
+            };
+        };
+        if (docId !== 'all') {
+            const docDefaults = read(store.docs?.[docId]);
+            if (docDefaults) return docDefaults;
+        } else {
+            const allTabsDefaults = read(store.allTabs?.[groupId]);
+            if (allTabsDefaults) return allTabsDefaults;
+        }
+        const groupDefaults = read(store.groups?.[groupId]);
+        if (groupDefaults) return groupDefaults;
+        return { defaultViewMode: null, defaultKanbanBoardMode: null };
+    }
+
     function __tmNormalizeViewProfile(profile, fallback = {}) {
         const source = (profile && typeof profile === 'object' && !Array.isArray(profile)) ? profile : {};
         const hasRuleId = Object.prototype.hasOwnProperty.call(source, 'ruleId');
@@ -1387,9 +1469,13 @@
         const rawRuleId = hasRuleId
             ? source.ruleId
             : (hasCurrentRule ? source.currentRule : fallback.ruleId);
+        const defaultViewMode = __tmGetExplicitViewProfileDefaultViewMode(source);
         return {
             ruleId: __tmNormalizeRuleIdValue(rawRuleId),
-            groupMode: __tmNormalizeGroupModeValue(source.groupMode ?? fallback.groupMode, fallback.groupMode || 'none')
+            groupMode: __tmNormalizeGroupModeValue(source.groupMode ?? fallback.groupMode, fallback.groupMode || 'none'),
+            defaultViewMode,
+            defaultViewModeMobileDisabled: __tmGetViewProfileDefaultViewModeMobileDisabled(source),
+            defaultKanbanBoardMode: defaultViewMode === 'kanban' ? __tmGetExplicitViewProfileKanbanBoardMode(source) : null
         };
     }
 
@@ -1490,14 +1576,22 @@
     function __tmGetCurrentUiViewProfile() {
         return __tmNormalizeViewProfile({
             ruleId: state.currentRule,
-            groupMode: __tmGetCurrentGroupModeValue()
+            groupMode: __tmGetCurrentGroupModeValue(),
+            defaultViewMode: null,
+            defaultViewModeMobileDisabled: false,
+            defaultKanbanBoardMode: null
         }, {
             ruleId: SettingsStore?.data?.currentRule,
             groupMode: SettingsStore?.data?.groupMode
         });
     }
 
-    function __tmApplyViewProfileToRuntime(profile) {
+    function __tmResolveContextDefaultViewMode(activeDocId, currentGroupId, storeInput = null) {
+        return __tmResolveContextViewDefaults(activeDocId, currentGroupId, storeInput).defaultViewMode;
+    }
+
+    function __tmApplyViewProfileToRuntime(profile, options = {}) {
+        const opts = (options && typeof options === 'object') ? options : {};
         const fallback = {
             ruleId: SettingsStore?.data?.currentRule,
             groupMode: SettingsStore?.data?.groupMode
@@ -1507,6 +1601,11 @@
         const nextRuleId = rule ? String(rule.id || '').trim() : null;
         const prevDoneOnly = !!state.__tmQueryDoneOnly;
         const groupMode = __tmNormalizeGroupModeValue(normalized.groupMode, 'none');
+        const prevViewMode = globalThis.__tmRuntimeState?.getViewMode?.('') || String(state.viewMode || '').trim();
+        const profileDefaultViewMode = __tmNormalizeViewProfileDefaultViewMode(normalized.defaultViewMode);
+        const profileKanbanBoardMode = profileDefaultViewMode === 'kanban'
+            ? __tmNormalizeViewProfileKanbanBoardMode(normalized.defaultKanbanBoardMode)
+            : null;
 
         state.currentRule = nextRuleId;
         SettingsStore.data.currentRule = nextRuleId;
@@ -1524,12 +1623,27 @@
 
         const nextDoneOnly = __tmRuleNeedsDoneOnly(rule);
         state.__tmQueryDoneOnly = nextDoneOnly;
+        if (opts.applyDefaultViewMode !== false && profileDefaultViewMode) {
+            state.viewMode = __tmGetSafeViewMode(profileDefaultViewMode);
+            state.viewModeInitialized = true;
+        }
+        if (opts.applyDefaultViewMode !== false && profileDefaultViewMode === 'kanban' && profileKanbanBoardMode) {
+            if (typeof __tmSetKanbanBoardModeState === 'function') {
+                __tmSetKanbanBoardModeState(profileKanbanBoardMode);
+            } else {
+                SettingsStore.data.kanbanBoardMode = profileKanbanBoardMode;
+                SettingsStore.data.kanbanHeadingGroupMode = profileKanbanBoardMode === 'heading';
+            }
+        }
 
         return {
-            profile: { ruleId: nextRuleId, groupMode },
+            profile: { ruleId: nextRuleId, groupMode, defaultViewMode: profileDefaultViewMode, defaultKanbanBoardMode: profileKanbanBoardMode },
             prevDoneOnly,
             nextDoneOnly,
-            doneOnlyChanged: prevDoneOnly !== nextDoneOnly
+            doneOnlyChanged: prevDoneOnly !== nextDoneOnly,
+            viewMode: String(state.viewMode || '').trim(),
+            prevViewMode,
+            viewModeChanged: opts.applyDefaultViewMode !== false && !!profileDefaultViewMode && String(prevViewMode || '').trim() !== String(state.viewMode || '').trim()
         };
     }
 
@@ -1537,45 +1651,58 @@
         const activeDocId = String(docId || 'all').trim() || 'all';
         const currentGroupId = String(groupId || 'all').trim() || 'all';
         const store = __tmGetViewProfilesStore();
+        const viewDefaults = __tmResolveContextViewDefaults(activeDocId, currentGroupId, store);
         if (activeDocId !== 'all') {
             const docProfile = store.docs[activeDocId];
             if (docProfile) {
+                const profile = __tmNormalizeViewProfile(docProfile, store.global);
+                profile.defaultViewMode = viewDefaults.defaultViewMode;
+                profile.defaultKanbanBoardMode = viewDefaults.defaultKanbanBoardMode;
                 return {
                     source: 'doc',
                     docId: activeDocId,
                     groupId: currentGroupId,
-                    profile: __tmNormalizeViewProfile(docProfile, store.global)
+                    profile
                 };
             }
         }
         if (activeDocId === 'all') {
             const allTabsProfile = store.allTabs[currentGroupId];
             if (allTabsProfile) {
+                const profile = __tmNormalizeViewProfile(allTabsProfile, store.global);
+                profile.defaultViewMode = viewDefaults.defaultViewMode;
+                profile.defaultKanbanBoardMode = viewDefaults.defaultKanbanBoardMode;
                 return {
                     source: 'allTabs',
                     docId: '',
                     groupId: currentGroupId,
-                    profile: __tmNormalizeViewProfile(allTabsProfile, store.global)
+                    profile
                 };
             }
         }
         const groupProfile = store.groups[currentGroupId];
         if (groupProfile) {
+            const profile = __tmNormalizeViewProfile(groupProfile, store.global);
+            profile.defaultViewMode = viewDefaults.defaultViewMode;
+            profile.defaultKanbanBoardMode = viewDefaults.defaultKanbanBoardMode;
             return {
                 source: 'group',
                 docId: activeDocId !== 'all' ? activeDocId : '',
                 groupId: currentGroupId,
-                profile: __tmNormalizeViewProfile(groupProfile, store.global)
+                profile
             };
         }
+        const profile = __tmNormalizeViewProfile(store.global, {
+            ruleId: SettingsStore?.data?.currentRule,
+            groupMode: SettingsStore?.data?.groupMode
+        });
+        profile.defaultViewMode = viewDefaults.defaultViewMode;
+        profile.defaultKanbanBoardMode = viewDefaults.defaultKanbanBoardMode;
         return {
             source: 'default',
             docId: activeDocId !== 'all' ? activeDocId : '',
             groupId: currentGroupId,
-            profile: __tmNormalizeViewProfile(store.global, {
-                ruleId: SettingsStore?.data?.currentRule,
-                groupMode: SettingsStore?.data?.groupMode
-            })
+            profile
         };
     }
 
@@ -1584,7 +1711,15 @@
         try { await __tmEnsureFilterRulesLoaded(); } catch (e) {}
         const prevCustomFieldPlan = __tmBuildRuntimeCustomFieldLoadPlan();
         const resolved = __tmGetEffectiveViewProfileForContext();
-        const applied = __tmApplyViewProfileToRuntime(resolved.profile);
+        const contextViewDefaults = __tmResolveContextViewDefaults(
+            state.activeDocId,
+            SettingsStore?.data?.currentGroupId
+        );
+        const applied = __tmApplyViewProfileToRuntime({
+            ...resolved.profile,
+            defaultViewMode: contextViewDefaults.defaultViewMode,
+            defaultKanbanBoardMode: contextViewDefaults.defaultKanbanBoardMode
+        }, opts);
         const nextCustomFieldPlan = __tmBuildRuntimeCustomFieldLoadPlan();
         const customFieldReloadNeeded = __tmDoesCustomFieldPlanNeedReload(prevCustomFieldPlan, nextCustomFieldPlan);
         if (!customFieldReloadNeeded) {
@@ -1631,6 +1766,26 @@
         return '不分组';
     }
 
+    function __tmGetViewModeLongLabel(mode) {
+        const value = __tmNormalizeViewProfileDefaultViewMode(mode);
+        if (!value) return '默认视图未设置';
+        const view = __TM_ALL_VIEWS.find((item) => item.id === value);
+        return view?.longLabel || view?.label || value;
+    }
+
+    function __tmGetKanbanBoardModeLongLabel(mode) {
+        const value = __tmNormalizeViewProfileKanbanBoardMode(mode);
+        if (value === 'time') return '时间看板';
+        if (value === 'heading') return '标题看板';
+        if (value === 'status') return '状态看板';
+        return '';
+    }
+
+    function __tmGetViewProfileMobileViewLabel(profile) {
+        const source = (profile && typeof profile === 'object' && !Array.isArray(profile)) ? profile : {};
+        return __tmGetViewProfileDefaultViewModeMobileDisabled(source) ? '移动端不生效' : '移动端生效';
+    }
+
     function __tmGetViewProfileSourceLabel(source) {
         if (source === 'doc') return '页签自定义';
         if (source === 'allTabs') return '全部页签专用';
@@ -1639,6 +1794,20 @@
     }
 
     function __tmDescribeViewProfile(profile) {
+        const normalized = __tmNormalizeViewProfile(profile, {
+            ruleId: null,
+            groupMode: 'none'
+        });
+        const ruleName = __tmFindRuleById(normalized.ruleId)?.name || '全部规则';
+        const viewLabel = __tmGetViewModeLongLabel(normalized.defaultViewMode);
+        const kanbanLabel = normalized.defaultViewMode === 'kanban' && normalized.defaultKanbanBoardMode
+            ? ` / ${__tmGetKanbanBoardModeLongLabel(normalized.defaultKanbanBoardMode)}`
+            : '';
+        const mobileLabel = normalized.defaultViewMode ? ` / ${__tmGetViewProfileMobileViewLabel(normalized)}` : '';
+        return `${ruleName} / ${__tmGetGroupModeLabel(normalized.groupMode)} / ${viewLabel}${kanbanLabel}${mobileLabel}`;
+    }
+
+    function __tmDescribeViewProfileRuleAndGroup(profile) {
         const normalized = __tmNormalizeViewProfile(profile, {
             ruleId: null,
             groupMode: 'none'
@@ -2987,12 +3156,13 @@ if (mode === 'checklist') {
     function showPrompt(title, placeholder = '', defaultValue = '', options = {}) {
         return new Promise((resolve) => {
             const opts = (options && typeof options === 'object') ? options : {};
+            const multiline = opts.multiline === true;
             const inputTypeRaw = String(opts.inputType || 'text').trim().toLowerCase();
             const inputType = /^(text|search|email|url|tel|password|number|date|time|datetime-local|month|week)$/.test(inputTypeRaw)
                 ? inputTypeRaw
                 : 'text';
-            const shouldSelectOnFocus = opts.selectOnFocus !== false && inputType !== 'date';
-            const openPickerOnFocus = opts.openPickerOnFocus !== false && inputType === 'date';
+            const shouldSelectOnFocus = opts.selectOnFocus !== false && inputType !== 'date' && !multiline;
+            const openPickerOnFocus = opts.openPickerOnFocus !== false && inputType === 'date' && !multiline;
 
             const existing = Array.from(document.querySelectorAll('.tm-prompt-modal'))
                 .find((el) => !(el instanceof HTMLElement) || !el.classList.contains('tm-points-penalty-confirm-modal'));
@@ -3008,13 +3178,20 @@ if (mode === 'checklist') {
             titleEl.className = 'tm-prompt-title';
             titleEl.textContent = String(title ?? '');
 
-            const input = document.createElement('input');
-            input.type = inputType;
+            const input = multiline ? document.createElement('textarea') : document.createElement('input');
+            if (!multiline) input.type = inputType;
             input.className = 'tm-prompt-input';
             input.placeholder = String(placeholder ?? '');
             input.value = String(defaultValue ?? '');
-            input.enterKeyHint = 'done';
-            input.setAttribute('enterkeyhint', 'done');
+            const enterKeyHint = multiline ? 'enter' : 'done';
+            input.enterKeyHint = enterKeyHint;
+            input.setAttribute('enterkeyhint', enterKeyHint);
+            if (multiline) {
+                input.rows = Math.max(2, Number(opts.rows) || 3);
+                input.style.minHeight = `${Math.max(72, Number(opts.minHeight) || 88)}px`;
+                input.style.lineHeight = '1.45';
+                input.style.resize = 'vertical';
+            }
             try { input.autofocus = true; } catch (e) {}
 
             const buttons = document.createElement('div');
@@ -3072,9 +3249,11 @@ if (mode === 'checklist') {
             };
 
             input.onkeydown = (e) => {
-                if (e.key === 'Enter') {
-                    okBtn.click();
-                }
+                if (e.key !== 'Enter') return;
+                if (multiline && !e.ctrlKey && !e.metaKey) return;
+                try { e.preventDefault(); } catch (e2) {}
+                try { e.stopPropagation(); } catch (e2) {}
+                okBtn.click();
             };
 
             modal.onclick = (e) => {
@@ -3083,6 +3262,23 @@ if (mode === 'checklist') {
                 }
             };
         });
+    }
+
+    function __tmNormalizeTaskInputLine(line) {
+        let text = String(line ?? '').trim();
+        if (!text) return '';
+        text = text.replace(/^(?:[-*+]\s+)?\[[ xX]\]\s+/, '');
+        text = text.replace(/^[-*+]\s+/, '');
+        text = text.replace(/^\d+[.)]\s+/, '');
+        return text.trim();
+    }
+
+    function __tmSplitTaskInputLines(input) {
+        return String(input ?? '')
+            .replace(/\r\n?/g, '\n')
+            .split('\n')
+            .map(__tmNormalizeTaskInputLine)
+            .filter(Boolean);
     }
 
     function showConfirm(title, message) {
@@ -5466,6 +5662,12 @@ if (mode === 'checklist') {
                     if (c.value === true || c.value === 'true') valueDisplay = 'true';
                     else if (c.value === false || c.value === 'false') valueDisplay = 'false';
                     else valueDisplay = 'true';
+                } else if (field?.type === 'datetime' && String(c.operator || '').trim() === 'range_recent_days') {
+                    const days = Number(c.value);
+                    valueDisplay = Number.isFinite(days) && days >= 0 ? `${Math.floor(days)}天前` : '0天前';
+                } else if (field?.type === 'datetime' && String(c.operator || '').trim() === 'range_next_days') {
+                    const days = Number(c.value);
+                    valueDisplay = Number.isFinite(days) && days >= 0 ? `${Math.floor(days)}天后` : '0天后';
                 }
 
                 // 多值显示处理
@@ -5485,6 +5687,12 @@ if (mode === 'checklist') {
                     ? `（${RuleManager.normalizeConditionMatchMode(c, field) === 'all' ? '全部匹配' : '匹配任一'}）`
                     : '';
 
+                if (field?.type === 'datetime' && String(c.operator || '').trim() === 'range_recent_days') {
+                    return `${field?.label || c.field} 今天至${valueDisplay}`;
+                }
+                if (field?.type === 'datetime' && String(c.operator || '').trim() === 'range_next_days') {
+                    return `${field?.label || c.field} 今天至${valueDisplay}`;
+                }
                 const suffix = field?.type === 'datetime' && noValueDatetimeOperators.has(String(c.operator || '').trim())
                     ? ''
                     : ` ${valueDisplay}`;
@@ -5646,6 +5854,25 @@ if (mode === 'checklist') {
         ]);
         if (fieldType === 'datetime' && noValueDatetimeOperators.has(operator)) {
             return '<span class="tm-rule-condition-value tm-rule-condition-value-empty">无需填写</span>';
+        }
+        if (fieldType === 'datetime' && (operator === 'range_recent_days' || operator === 'range_next_days')) {
+            const days = Number(condition.value);
+            const normalizedDays = Number.isFinite(days) && days >= 0 ? String(Math.floor(days)) : '7';
+            const suffix = operator === 'range_next_days' ? '天后' : '天前';
+            return `
+                <label class="tm-rule-condition-value" style="display:flex; align-items:center; gap:6px; min-width:160px;">
+                    <span style="white-space:nowrap;">今天至</span>
+                    <input type="number"
+                           min="0"
+                           step="1"
+                           class="tm-time-input"
+                           style="width:80px;"
+                           value="${esc(normalizedDays)}"
+                           data-tm-change="updateConditionValue"
+                           data-index="${index}">
+                    <span style="white-space:nowrap;">${suffix}</span>
+                </label>
+            `;
         }
         if (fieldType === 'boolean') {
             return `
@@ -7038,6 +7265,11 @@ if (mode === 'checklist') {
                 condition.value = '';
                 delete condition.matchMode;
             }
+            else if (fieldInfo?.type === 'datetime' && (operator === 'range_recent_days' || operator === 'range_next_days')) {
+                const currentDays = Number(condition.value);
+                condition.value = Number.isFinite(currentDays) && currentDays >= 0 ? String(Math.floor(currentDays)) : '7';
+                delete condition.matchMode;
+            }
             else if (fieldInfo?.type === 'datetime' && ['=', '!=', 'before', 'after'].includes(operator)) {
                 if (condition.value && typeof condition.value === 'object') condition.value = '';
                 delete condition.matchMode;
@@ -7075,7 +7307,13 @@ if (mode === 'checklist') {
 
     window.updateConditionValue = function(index, value) {
         if (state.editingRule && state.editingRule.conditions[index]) {
-            state.editingRule.conditions[index].value = value;
+            const condition = state.editingRule.conditions[index];
+            if (['range_recent_days', 'range_next_days'].includes(String(condition.operator || '').trim())) {
+                const days = Number(value);
+                condition.value = Number.isFinite(days) && days >= 0 ? String(Math.floor(days)) : '7';
+                return;
+            }
+            condition.value = value;
         }
     };
 
@@ -7593,6 +7831,7 @@ if (mode === 'checklist') {
                     String(state.groupByTime ? 1 : 0),
                     String(state.quadrantEnabled ? 1 : 0),
                     String(SettingsStore?.data?.completedTasksTodayOnly ? 1 : 0),
+                    String(SettingsStore?.data?.completedTasksInlineInGroups ? 1 : 0),
                     String(total),
                     firstId,
                     lastId,
@@ -7700,6 +7939,7 @@ if (mode === 'checklist') {
                     String(state.groupByTime ? 1 : 0),
                     String(state.quadrantEnabled ? 1 : 0),
                     String(SettingsStore?.data?.completedTasksTodayOnly ? 1 : 0),
+                    String(SettingsStore?.data?.completedTasksInlineInGroups ? 1 : 0),
                     String(total),
                     firstId,
                     lastId,
@@ -7763,6 +8003,7 @@ if (mode === 'checklist') {
                 String(state.groupByTime ? 1 : 0),
                 String(state.quadrantEnabled ? 1 : 0),
                 String(SettingsStore?.data?.completedTasksTodayOnly ? 1 : 0),
+                String(SettingsStore?.data?.completedTasksInlineInGroups ? 1 : 0),
                 String(total),
                 firstId,
                 lastId,
@@ -8332,10 +8573,15 @@ if (mode === 'checklist') {
         const initialProfile = storedProfile || inheritedProfile || __tmGetCurrentUiViewProfile();
         const mode = __tmNormalizeGroupModeValue(initialProfile?.groupMode, 'none');
         const ruleId = String(initialProfile?.ruleId || '').trim();
+        const viewMode = __tmGetExplicitViewProfileDefaultViewMode(storedProfile);
+        const kanbanBoardMode = viewMode === 'kanban'
+            ? (__tmGetExplicitViewProfileKanbanBoardMode(storedProfile) || (typeof __tmGetKanbanBoardMode === 'function' ? __tmGetKanbanBoardMode() : 'status') || 'status')
+            : 'status';
+        const mobileViewDisabled = !!viewMode && __tmGetViewProfileDefaultViewModeMobileDisabled(storedProfile);
         const hasTaskModeOption = !!(SettingsStore.data.groupByTaskName || state.groupByTaskName || mode === 'task');
         const titleText = kind === 'doc'
-            ? `页签规则和分组设置`
-            : (kind === 'allTabs' ? `全部页签规则和分组设置` : `当前文档分组默认规则和分组设置`);
+            ? `页签规则、分组和默认视图设置`
+            : (kind === 'allTabs' ? `全部页签规则、分组和默认视图设置` : `当前文档分组默认规则、分组和默认视图设置`);
         const scopeText = kind === 'doc'
             ? `作用到页签：${docName}`
             : (kind === 'allTabs' ? `仅作用到“全部”页签：${groupName}` : `作用到分组内单文档：${groupName}`);
@@ -8351,18 +8597,38 @@ if (mode === 'checklist') {
                 .filter((rule) => !!rule?.enabled)
                 .map((rule) => `<option value="${esc(String(rule.id || ''))}" ${ruleId === String(rule.id || '') ? 'selected' : ''}>${esc(String(rule.name || '未命名规则'))}</option>`)
         ].join('');
+        const viewOptionsHtml = [
+            `<option value="" ${viewMode ? '' : 'selected'}>未设置，切换页签时保持当前视图</option>`,
+            ...__tmGetEnabledViews().map((viewId) => {
+                const view = __TM_ALL_VIEWS.find((item) => item.id === viewId);
+                if (!view) return '';
+                return `<option value="${esc(view.id)}" ${viewMode === view.id ? 'selected' : ''}>${esc(view.longLabel || view.label || view.id)}</option>`;
+            })
+        ].join('');
+        const kanbanOptionsHtml = [
+            { id: 'time', label: '时间看板' },
+            { id: 'heading', label: '标题看板' },
+            { id: 'status', label: '状态看板' }
+        ].map((item) => `<option value="${item.id}" ${kanbanBoardMode === item.id ? 'selected' : ''}>${item.label}</option>`).join('');
+        const isMobileProfileModal = __tmIsViewProfileMobileContext();
+        const boxStyle = isMobileProfileModal
+            ? 'width:100vw; height:100dvh; max-height:100dvh; border-radius:0; position:relative; display:flex; flex-direction:column; overflow:hidden;'
+            : 'width:min(92vw,520px); height:auto; max-height:80vh; position:relative; display:flex; flex-direction:column; overflow:hidden;';
+        const bodyStyle = isMobileProfileModal
+            ? 'padding:16px 16px max(18px, env(safe-area-inset-bottom)); display:flex; flex-direction:column; gap:14px; overflow-y:auto; overscroll-behavior:contain; min-height:0; flex:1;'
+            : 'padding:18px 20px; display:flex; flex-direction:column; gap:14px; overflow-y:auto; min-height:0;';
 
         __tmCloseViewProfileConfigModal();
         const modal = document.createElement('div');
         modal.className = 'tm-modal tm-view-profile-config-modal';
         modal.style.zIndex = '200003';
         modal.innerHTML = `
-            <div class="tm-box" style="width:min(92vw,520px); height:auto; max-height:80vh; position:relative;">
+            <div class="tm-box" style="${boxStyle}">
                 <div class="tm-header">
                     <div style="font-size:18px; font-weight:700; color:var(--tm-text-color);">${esc(titleText)}</div>
                     <button class="tm-btn tm-btn-gray" data-tm-vp-close>关闭</button>
                 </div>
-                <div style="padding:18px 20px; display:flex; flex-direction:column; gap:14px;">
+                <div style="${bodyStyle}">
                     <div style="font-size:14px; color:var(--tm-text-color); font-weight:600;">${esc(scopeText)}</div>
                     <div style="font-size:12px; color:var(--tm-secondary-text); line-height:1.6;">${esc(inheritText)}</div>
                     <label style="display:flex; flex-direction:column; gap:6px;">
@@ -8380,6 +8646,25 @@ if (mode === 'checklist') {
                             <option value="quadrant" ${mode === 'quadrant' ? 'selected' : ''}>四象限</option>
                             ${hasTaskModeOption ? `<option value="task" ${mode === 'task' ? 'selected' : ''}>按任务名</option>` : ''}
                         </select>
+                    </label>
+                    <label style="display:flex; flex-direction:column; gap:6px;">
+                        <span style="font-size:13px; color:var(--tm-text-color);">默认视图</span>
+                        <select class="tm-rule-select" data-tm-vp-field="view">
+                            ${viewOptionsHtml}
+                        </select>
+                    </label>
+                    <label data-tm-vp-kanban-row style="display:${viewMode === 'kanban' ? 'flex' : 'none'}; flex-direction:column; gap:6px;">
+                        <span style="font-size:13px; color:var(--tm-text-color);">看板默认</span>
+                        <select class="tm-rule-select" data-tm-vp-field="kanban">
+                            ${kanbanOptionsHtml}
+                        </select>
+                    </label>
+                    <label style="display:flex; align-items:center; justify-content:space-between; gap:12px; padding:6px 0;">
+                        <span style="display:flex; flex-direction:column; gap:4px; min-width:0;">
+                            <span style="font-size:13px; color:var(--tm-text-color);">移动端不生效</span>
+                            <span style="font-size:12px; color:var(--tm-secondary-text); line-height:1.5;">开启后移动端切换页签时会把这里的默认视图当作未设置。</span>
+                        </span>
+                        <input class="b3-switch fn__flex-center" type="checkbox" data-tm-vp-field="mobile-view-disabled" ${mobileViewDisabled ? 'checked' : ''}>
                     </label>
                     ${kind === 'allTabs'
                         ? `<div style="font-size:12px; color:var(--tm-secondary-text); line-height:1.6;">这套配置只在当前分组切到“全部”页签时生效，不会影响该分组里的单个文档页签。</div>`
@@ -8401,17 +8686,37 @@ if (mode === 'checklist') {
         const closeBtn = modal.querySelector('[data-tm-vp-close]');
         const ruleSelect = modal.querySelector('[data-tm-vp-field="rule"]');
         const modeSelect = modal.querySelector('[data-tm-vp-field="mode"]');
+        const viewSelect = modal.querySelector('[data-tm-vp-field="view"]');
+        const kanbanSelect = modal.querySelector('[data-tm-vp-field="kanban"]');
+        const kanbanRow = modal.querySelector('[data-tm-vp-kanban-row]');
+        const mobileViewDisabledInput = modal.querySelector('[data-tm-vp-field="mobile-view-disabled"]');
 
         closeBtn.onclick = close;
         cancelBtn.onclick = close;
         modal.onclick = (ev) => {
             if (ev.target === modal) close();
         };
+        if (viewSelect && kanbanRow instanceof HTMLElement) {
+            viewSelect.onchange = () => {
+                kanbanRow.style.display = __tmNormalizeViewProfileDefaultViewMode(viewSelect.value) === 'kanban' ? 'flex' : 'none';
+            };
+        }
         if (saveBtn) {
             saveBtn.onclick = async () => {
                 const nextRuleId = String(ruleSelect?.value || '').trim() || null;
                 const nextMode = __tmNormalizeGroupModeValue(modeSelect?.value, 'none');
-                await __tmSaveViewProfileConfig(kind, targetId, { ruleId: nextRuleId, groupMode: nextMode });
+                const nextViewMode = __tmNormalizeViewProfileDefaultViewMode(viewSelect?.value);
+                const nextKanbanBoardMode = nextViewMode === 'kanban'
+                    ? (__tmNormalizeViewProfileKanbanBoardMode(kanbanSelect?.value) || 'status')
+                    : null;
+                const nextMobileViewDisabled = !!nextViewMode && !!mobileViewDisabledInput?.checked;
+                await __tmSaveViewProfileConfig(kind, targetId, {
+                    ruleId: nextRuleId,
+                    groupMode: nextMode,
+                    defaultViewMode: nextViewMode,
+                    defaultKanbanBoardMode: nextKanbanBoardMode,
+                    defaultViewModeMobileDisabled: nextMobileViewDisabled
+                });
                 close();
             };
         }
@@ -9299,7 +9604,7 @@ if (mode === 'checklist') {
 
         const profileInfo = document.createElement('div');
         profileInfo.style.cssText = 'padding: 6px 10px 2px; font-size: 12px; opacity: 0.75; line-height: 1.5;';
-        profileInfo.innerHTML = `当前规则：<div style="margin-top:2px;">${esc(__tmGetViewProfileSourceLabel(currentProfileSource))} / ${esc(__tmDescribeViewProfile(docCustomProfile || groupCustomProfile || defaultProfile))}</div>`;
+        profileInfo.innerHTML = `当前规则：<div style="margin-top:2px;">${esc(__tmGetViewProfileSourceLabel(currentProfileSource))} / ${esc(__tmDescribeViewProfileRuleAndGroup(docCustomProfile || groupCustomProfile || defaultProfile))}</div>`;
         menu.appendChild(profileInfo);
 
         document.body.appendChild(menu);
@@ -9420,7 +9725,7 @@ if (mode === 'checklist') {
         const createSettingsInfoRow = () => {
             const info = document.createElement('div');
             info.style.cssText = 'padding: 4px 10px 2px; font-size: 12px; color:var(--tm-secondary-text); line-height: 1.5; min-width:0; white-space:normal; overflow-wrap:anywhere;';
-            info.innerHTML = `当前规则：<div style="margin-top:2px;">${esc(__tmGetViewProfileSourceLabel(currentProfileSource))} / ${esc(__tmDescribeViewProfile(currentProfile))}</div>`;
+            info.innerHTML = `当前规则：<div style="margin-top:2px;">${esc(__tmGetViewProfileSourceLabel(currentProfileSource))} / ${esc(__tmDescribeViewProfileRuleAndGroup(currentProfile))}</div>`;
             return info;
         };
 

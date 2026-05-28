@@ -596,6 +596,14 @@
         render();
     };
 
+    window.updateCompletedTasksInlineInGroups = async function(enabled) {
+        SettingsStore.data.completedTasksInlineInGroups = !!enabled;
+        await SettingsStore.save();
+        state.listRenderSignature = '';
+        showSettings();
+        render();
+    };
+
     window.updateCollapseAllIncludesGroups = async function(enabled) {
         SettingsStore.data.collapseAllIncludesGroups = !!enabled;
         await SettingsStore.save();

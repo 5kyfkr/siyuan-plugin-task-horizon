@@ -1183,6 +1183,12 @@
                             { style: 'margin-bottom:10px;' }
                         )}
                         ${renderSingleSwitchSetting(
+                            '已完成任务不单独分组',
+                            '开启后，已完成任务跟随当前文档、时间、四象限或任务名分组显示，不再统一放入尾部“已完成任务”分组。',
+                            `<input class="b3-switch fn__flex-center" type="checkbox" ${SettingsStore.data.completedTasksInlineInGroups ? 'checked' : ''} onchange="updateCompletedTasksInlineInGroups(this.checked)">`,
+                            { style: 'margin-bottom:10px;' }
+                        )}
+                        ${renderSingleSwitchSetting(
                             '文档分组下按二级标题子分组',
                             '用于时间轴、表格、文档流和日历侧边栏。',
                             `<input class="b3-switch fn__flex-center" type="checkbox" ${SettingsStore.data.docH2SubgroupEnabled !== false ? 'checked' : ''} onchange="updateDocH2SubgroupEnabled(this.checked)">`,

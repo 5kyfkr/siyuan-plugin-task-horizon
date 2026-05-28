@@ -4232,8 +4232,8 @@ if (!__tmIsCollectedOtherBlockTask(task) && diff.contentChanged) {
                 restoreSubtaskEmptyState();
             };
             const submitDraft = () => {
-                const nextText = String(input.value || '').trim();
-                if (!nextText) {
+                const taskLines = __tmSplitTaskInputLines(input.value || '');
+                if (taskLines.length === 0) {
                     hint('⚠️ 请输入子任务内容', 'warning');
                     try { input.focus(); } catch (e) {}
                     return;
@@ -4246,27 +4246,34 @@ if (!__tmIsCollectedOtherBlockTask(task) && diff.contentChanged) {
                 setTaskDetailPendingSave(true, 4200);
                 try {
                     const detailScrollSnapshot = captureEmbeddedDetailScroll();
-                    __tmQueueCreateSubtask(taskId, nextText, {
+                    const createPromises = taskLines.map((line, index) => __tmQueueCreateSubtask(taskId, line, {
+                        silent: true,
                         onQueued: (tempId) => {
-                            replaceDraftWithQueuedSubtask(tempId, nextText);
-                            restoreEmbeddedDetailScroll(detailScrollSnapshot, { onlyIfNear: true });
-                        },
-                        onSuccess: async () => {
-                            try {
-                                if (!root.querySelector('[data-tm-detail-subtask-draft]')) {
-                                    await refreshBoundDetail(taskId);
-                                }
-                            } catch (e) {}
-                            restoreEmbeddedDetailScroll(detailScrollSnapshot, { onlyIfNear: true });
-                            setTaskDetailPendingSave(false, 420);
+                            if (index === 0) {
+                                replaceDraftWithQueuedSubtask(tempId, line);
+                                restoreEmbeddedDetailScroll(detailScrollSnapshot, { onlyIfNear: true });
+                            }
                         },
                         onError: () => {
-                            removeQueuedSubtaskRow();
+                            if (index === 0) removeQueuedSubtaskRow();
                             setTaskDetailPendingSave(false, 420);
                         },
                         onFinally: () => {
                             try { delete draftRow.dataset.saving; } catch (e2) {}
                         }
+                    }));
+                    Promise.all(createPromises).then(async () => {
+                        try {
+                            if (!root.querySelector('[data-tm-detail-subtask-draft]')) {
+                                await refreshBoundDetail(taskId);
+                            }
+                        } catch (e) {}
+                        restoreEmbeddedDetailScroll(detailScrollSnapshot, { onlyIfNear: true });
+                        hint(taskLines.length > 1 ? `✅ 已新增 ${taskLines.length} 个子任务` : '✅ 已新增', 'success');
+                        setTaskDetailPendingSave(false, 420);
+                    }).catch((e) => {
+                        hint(`❌ 新建子任务失败: ${e.message}`, 'error');
+                        setTaskDetailPendingSave(false, 420);
                     });
                     try { refreshBoundDetail(taskId); } catch (e) {}
                     restoreEmbeddedDetailScroll(detailScrollSnapshot, { onlyIfNear: true });
@@ -4289,6 +4296,7 @@ if (!__tmIsCollectedOtherBlockTask(task) && diff.contentChanged) {
                     return;
                 }
                 if (ev.key === 'Enter' && !ev.shiftKey && !ev.isComposing) {
+                    if (!ev.ctrlKey && !ev.metaKey) return;
                     try { ev.preventDefault(); } catch (e) {}
                     submitDraft();
                 }
@@ -4341,7 +4349,7 @@ if (!__tmIsCollectedOtherBlockTask(task) && diff.contentChanged) {
                 <div class="tm-task-detail-subtask-row">
                     <div class="tm-task-detail-subtask-main">
                         <span class="tm-task-detail-subtask-draft-marker" aria-hidden="true"></span>
-                        <textarea class="tm-task-detail-subtask-title" data-tm-detail-subtask-draft-input rows="1" placeholder="输入子任务内容"></textarea>
+                        <textarea class="tm-task-detail-subtask-title" data-tm-detail-subtask-draft-input rows="2" placeholder="每行一个子任务；回车换行，Ctrl + 回车提交" enterkeyhint="enter"></textarea>
                     </div>
                     <div class="tm-task-detail-subtask-trailing">
                         <div class="tm-task-detail-subtask-actions">

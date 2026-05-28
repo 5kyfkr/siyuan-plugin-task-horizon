@@ -1712,6 +1712,8 @@
 .tm-calendar-host .fc .fc-timegrid .fc-col-header-cell-cushion,
 .tm-calendar-host.fc .fc-timegrid .fc-col-header-cell-cushion {
     flex-direction: row;
+    align-items: center;
+    justify-content: center;
     gap: 4px;
     min-height: 24px;
 }
@@ -2111,6 +2113,7 @@
     min-height: 100%;
     padding: 0 4px;
     text-align: center;
+    color: var(--tm-secondary-text, #8a8a8a);
     color: color-mix(in srgb, var(--tm-text-color) 72%, var(--tm-secondary-text) 28%);
     font-size: 14px;
     line-height: 1;
@@ -2872,6 +2875,7 @@
 .tm-calendar-host .fc .fc-timegrid-slot-label,
 #tmCalendarSideDockTimeline .fc .fc-timegrid-slot-label {
     font-size: 14px;
+    color: var(--tm-secondary-text, #8a8a8a);
     color: color-mix(in srgb, var(--tm-text-color) 72%, var(--tm-secondary-text) 28%);
     text-align: center;
 }
@@ -3573,10 +3577,10 @@
 }
 
 .tm-calendar-host .fc .tm-cn-lunar {
-    font-size: 10px;
+    font-size: 9px;
     line-height: 1.1;
     color: var(--tm-secondary-text);
-    opacity: 0.85;
+    opacity: 0.68;
     font-weight: 400 !important;
 }
 
@@ -3589,16 +3593,20 @@
 .tm-calendar-host .fc .tm-cn-lunar--week {
     display: inline;
     font-weight: 400 !important;
-    font-size: 11px;
+    font-size: 10px;
     color: var(--tm-secondary-text);
+    opacity: 0.56;
 }
 
 .tm-calendar-host .fc .tm-cn-lunar--month {
     display: inline-flex;
     align-items: center;
     pointer-events: none;
+    font-size: 10px !important;
     font-weight: 400 !important;
-    line-height: 1 !important;
+    height: 16px;
+    line-height: 16px !important;
+    transform: translateY(1px);
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
@@ -3606,7 +3614,7 @@
 }
 
 .tm-calendar-host .fc .tm-cn-lunar--day {
-    margin-left: 8px;
+    margin-right: 8px;
     font-size: 12px;
     font-weight: 400 !important;
 }
@@ -3881,7 +3889,11 @@
 
 .tm-calendar-host .fc .tm-cn-lunar--month {
     order: 1;
-    margin-right: 4px;
+    margin-right: 3px;
+    font-size: 10px !important;
+    height: 16px;
+    line-height: 16px !important;
+    transform: translateY(1px);
 }
 
 .tm-calendar-wrap .fc .fc-daygrid-day-top {
@@ -4011,9 +4023,41 @@
 }
 
 .tm-calendar-host .fc .fc-col-header-cell-cushion .tm-cn-lunar--week {
-    display: inline-block;
-    margin-top: 2px;
-    line-height: 1;
+    display: inline-flex;
+    align-items: center;
+    height: 18px;
+    margin-top: 0;
+    line-height: 18px;
+    font-size: 10px;
+    opacity: 0.56;
+    transform: translateY(1px);
+    vertical-align: middle;
+}
+
+.tm-calendar-host .fc .fc-timegrid .fc-col-header-cell-cushion .tm-cn-lunar--week,
+.tm-calendar-wrap .fc .fc-timegrid .fc-col-header-cell-cushion .tm-cn-lunar--week,
+#tmCalendarSideDockTimeline .fc .fc-timegrid .fc-col-header-cell-cushion .tm-cn-lunar--week {
+    order: 1;
+    align-self: center;
+    font-size: 10px;
+    height: 18px;
+    line-height: 18px;
+    opacity: 0.52;
+    transform: translateY(1px);
+}
+
+.tm-calendar-host .fc .fc-timegrid .fc-col-header-cell-cushion > .tm-cn-week-head,
+.tm-calendar-wrap .fc .fc-timegrid .fc-col-header-cell-cushion > .tm-cn-week-head,
+#tmCalendarSideDockTimeline .fc .fc-timegrid .fc-col-header-cell-cushion > .tm-cn-week-head {
+    order: 2;
+    display: inline-flex;
+    align-items: center;
+}
+
+.tm-calendar-host .fc .fc-timegrid .fc-col-header-cell-cushion > .tm-cal-timegrid-day-head,
+.tm-calendar-wrap .fc .fc-timegrid .fc-col-header-cell-cushion > .tm-cal-timegrid-day-head,
+#tmCalendarSideDockTimeline .fc .fc-timegrid .fc-col-header-cell-cushion > .tm-cal-timegrid-day-head {
+    order: 2;
 }
 
 .tm-calendar-host .fc .tm-cal-task-event {
