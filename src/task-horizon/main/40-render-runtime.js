@@ -1678,6 +1678,7 @@ return;
             __tmPruneMountedManagerShells(finalMountRoot, keepMountedShell);
         } catch (e) {}
         finalMountRoot.appendChild(state.modal);
+        try { if (renderMode === 'kanban') __tmScheduleKanbanScrollableColumnInsets(state.modal); } catch (e) {}
         rememberViewDomRenderSignature();
         try { __tmSyncInlineLoadingOverlay(state.modal); } catch (e) {}
         const bindDeferredNonCriticalShellWork = () => {
@@ -3658,6 +3659,80 @@ return;
         try { document.addEventListener('pointercancel', onUp, true); } catch (e2) {}
         try { window.addEventListener('blur', onUp, true); } catch (e2) {}
     };
+
+    function __tmSyncKanbanScrollableColumnInsets(modalEl) {
+        const modal = modalEl instanceof Element ? modalEl : state.modal;
+        if (!(modal instanceof Element)) return false;
+        const body = modal.querySelector('.tm-body.tm-body--kanban');
+        if (!(body instanceof HTMLElement)) return false;
+        const usesConditionalInset = modal.classList.contains('tm-modal--mobile')
+            || modal.classList.contains('tm-modal--dock')
+            || !!modal.closest?.('[data-tm-host-mode="dock"]');
+        let hasScrollableColumn = false;
+        try {
+            body.querySelectorAll('.tm-kanban-col-body').forEach((colBody) => {
+                if (!(colBody instanceof HTMLElement)) return;
+                const prevScrollTop = Number(colBody.scrollTop || 0);
+                try { colBody.classList.remove('tm-kanban-col-body--scrollable'); } catch (e2) {}
+                const canScroll = usesConditionalInset
+                    && (Math.ceil(Number(colBody.scrollHeight) || 0) > Math.ceil(Number(colBody.clientHeight) || 0) + 1);
+                try { colBody.classList.toggle('tm-kanban-col-body--scrollable', canScroll); } catch (e2) {}
+                if (prevScrollTop > 0) {
+                    try {
+                        const maxTop = Math.max(0, Number(colBody.scrollHeight || 0) - Number(colBody.clientHeight || 0));
+                        colBody.scrollTop = Math.min(prevScrollTop, maxTop);
+                    } catch (e2) {}
+                }
+                const col = colBody.closest?.('.tm-kanban-col');
+                if (col instanceof HTMLElement) {
+                    try { col.classList.toggle('tm-kanban-col--scrollable', canScroll); } catch (e2) {}
+                }
+                if (canScroll) hasScrollableColumn = true;
+            });
+            body.classList.toggle('tm-body--kanban-has-scrollable-col', hasScrollableColumn);
+            const board = body.querySelector('.tm-kanban');
+            if (board instanceof HTMLElement) board.classList.toggle('tm-kanban--has-scrollable-col', hasScrollableColumn);
+        } catch (e) {}
+        return hasScrollableColumn;
+    }
+
+    function __tmScheduleKanbanScrollableColumnInsets(modalEl) {
+        const modal = modalEl instanceof Element ? modalEl : state.modal;
+        if (!(modal instanceof Element)) return false;
+        const body = modal.querySelector('.tm-body.tm-body--kanban');
+        if (!(body instanceof HTMLElement)) return false;
+        const sync = () => {
+            try { __tmSyncKanbanScrollableColumnInsets(modal); } catch (e) {}
+        };
+        sync();
+        try { requestAnimationFrame(sync); } catch (e) {}
+        try { requestAnimationFrame(() => requestAnimationFrame(sync)); } catch (e) {}
+        if (typeof ResizeObserver === 'function' && !body.__tmKanbanScrollableInsetResizeObserver) {
+            const schedule = () => {
+                if (Number(body.__tmKanbanScrollableInsetRaf) > 0) return;
+                try {
+                    body.__tmKanbanScrollableInsetRaf = requestAnimationFrame(() => {
+                        body.__tmKanbanScrollableInsetRaf = 0;
+                        sync();
+                    });
+                } catch (e) {
+                    body.__tmKanbanScrollableInsetRaf = 0;
+                    sync();
+                }
+            };
+            try {
+                const ro = new ResizeObserver(schedule);
+                ro.observe(body);
+                body.querySelectorAll('.tm-kanban-col').forEach((col) => {
+                    if (col instanceof Element) ro.observe(col);
+                });
+                body.__tmKanbanScrollableInsetResizeObserver = ro;
+            } catch (e) {
+                body.__tmKanbanScrollableInsetResizeObserver = null;
+            }
+        }
+        return true;
+    }
 
     function __tmBindKanbanPan(modalEl) {
         const modal = modalEl instanceof Element ? modalEl : state.modal;

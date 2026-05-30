@@ -18556,6 +18556,7 @@ const renderBodyHtml = state.renderChecklistBodyHtml;
         try { __tmClearKanbanDetailFloatingHandlers(); } catch (e) {}
         try { body.replaceWith(nextBody); } catch (e) { return false; }
         try { __tmBindKanbanPan(modal); } catch (e) {}
+        try { __tmScheduleKanbanScrollableColumnInsets(modal); } catch (e) {}
         try { __tmRefreshKanbanDetailInPlace(modal, { scrollSnapshot: detailScrollSnapshot, source: 'kanban-rerender-in-place' }); } catch (e) {}
         try { __tmApplyReminderTaskNameMarks(modal); } catch (e) {}
         try { __tmScheduleReminderTaskNameMarksRefresh(modal); } catch (e) {}

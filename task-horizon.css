@@ -5886,7 +5886,8 @@ select.tm-btn-secondary {
 }
 
 .tm-kanban--compact .tm-kanban-col-body {
-    padding: 8px;
+    --tm-kanban-col-body-pad-bottom-base: 8px;
+    padding: 8px 8px calc(var(--tm-kanban-col-body-pad-bottom-base, 8px) + var(--tm-kanban-col-body-scroll-inset, 0px));
     gap: 6px;
 }
 
@@ -5957,7 +5958,9 @@ select.tm-btn-secondary {
 }
 
 .tm-kanban-col-body {
-    padding: 10px 10px calc(10px + var(--tm-view-bottom-inset, 0px));
+    --tm-kanban-col-body-pad-bottom-base: 10px;
+    --tm-kanban-col-body-scroll-inset: 0px;
+    padding: 10px 10px calc(var(--tm-kanban-col-body-pad-bottom-base, 10px) + var(--tm-kanban-col-body-scroll-inset, 0px));
     display: flex;
     flex-direction: column;
     gap: 8px;
@@ -5969,7 +5972,11 @@ select.tm-btn-secondary {
     -ms-overflow-style: none;
     -webkit-overflow-scrolling: touch;
     touch-action: pan-y;
-    scroll-padding-bottom: var(--tm-view-bottom-inset, 0px);
+    scroll-padding-bottom: var(--tm-kanban-col-body-scroll-inset, 0px);
+}
+
+.tm-kanban-col-body.tm-kanban-col-body--scrollable {
+    --tm-kanban-col-body-scroll-inset: clamp(14px, calc(var(--tm-view-bottom-inset, 0px) - 34px), 28px);
 }
 
 .tm-kanban-col-body::-webkit-scrollbar {
@@ -6604,11 +6611,11 @@ select.tm-btn-secondary {
 }
 
 .tm-kanban--clean .tm-kanban-col-body {
-    padding: 4px 6px calc(6px + var(--tm-view-bottom-inset, 0px));
+    --tm-kanban-col-body-pad-bottom-base: 6px;
+    padding: 4px 6px calc(var(--tm-kanban-col-body-pad-bottom-base, 6px) + var(--tm-kanban-col-body-scroll-inset, 0px));
     flex: 0 1 auto;
     gap: 8px;
     min-height: 0;
-    scroll-padding-bottom: var(--tm-view-bottom-inset, 0px);
 }
 
 .tm-kanban--clean .tm-kanban-group {
@@ -7064,7 +7071,8 @@ select.tm-btn-secondary {
 }
 
 .tm-kanban--clean.tm-kanban--compact .tm-kanban-col-body {
-    padding: 4px 5px calc(6px + var(--tm-view-bottom-inset, 0px));
+    --tm-kanban-col-body-pad-bottom-base: 6px;
+    padding: 4px 5px calc(var(--tm-kanban-col-body-pad-bottom-base, 6px) + var(--tm-kanban-col-body-scroll-inset, 0px));
     gap: 4px;
 }
 
