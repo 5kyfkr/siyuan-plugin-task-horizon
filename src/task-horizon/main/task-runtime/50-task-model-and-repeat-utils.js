@@ -875,7 +875,7 @@
             return `<svg viewBox="0 0 18 18" aria-hidden="true"><polyline points="2.5,10.1 9,6.1 15.5,10.1" fill="none" stroke="currentColor" stroke-width="2.8" stroke-linecap="round" stroke-linejoin="round"/></svg>`;
         }
         if (t === 'medium') {
-            return `<svg viewBox="0 0 18 18" aria-hidden="true"><line x1="2.5" y1="5.6" x2="15.5" y2="5.6" stroke="currentColor" stroke-width="2.8" stroke-linecap="round"/><line x1="2.5" y1="10.6" x2="15.5" y2="10.6" stroke="currentColor" stroke-width="2.8" stroke-linecap="round"/></svg>`;
+            return `<svg viewBox="0 0 18 18" aria-hidden="true"><line x1="2.5" y1="6.5" x2="15.5" y2="6.5" stroke="currentColor" stroke-width="2.8" stroke-linecap="round"/><line x1="2.5" y1="11.5" x2="15.5" y2="11.5" stroke="currentColor" stroke-width="2.8" stroke-linecap="round"/></svg>`;
         }
         if (t === 'low') {
             return `<svg viewBox="0 0 18 18" aria-hidden="true"><polyline points="2.5,7.1 9,11.1 15.5,7.1" fill="none" stroke="currentColor" stroke-width="2.8" stroke-linecap="round" stroke-linejoin="round"/></svg>`;

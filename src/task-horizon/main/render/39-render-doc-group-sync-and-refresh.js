@@ -437,6 +437,8 @@
         try {
             const ids = Array.isArray(SettingsStore.data.kanbanCollapsedTaskIds) ? SettingsStore.data.kanbanCollapsedTaskIds : [];
             state.__tmKanbanCollapsedIds = new Set(ids.map((id) => String(id || '').trim()).filter(Boolean));
+            const colKeys = Array.isArray(SettingsStore.data.kanbanCollapsedColumnKeys) ? SettingsStore.data.kanbanCollapsedColumnKeys : [];
+            state.__tmKanbanCollapsedColumnKeys = new Set(colKeys.map((id) => String(id || '').trim()).filter(Boolean));
         } catch (e) {}
 
         if (opt.rerender === true && state.modal && document.body.contains(state.modal) && !state.isRefreshing) {
@@ -462,6 +464,7 @@
             collapsedGroups: Array.from(state?.collapsedGroups || []),
             expandedCompletedGroups: Array.from(state?.expandedCompletedGroups || []),
             kanbanCollapsedTaskIds: Array.isArray(SettingsStore?.data?.kanbanCollapsedTaskIds) ? SettingsStore.data.kanbanCollapsedTaskIds.slice() : [],
+            kanbanCollapsedColumnKeys: Array.isArray(SettingsStore?.data?.kanbanCollapsedColumnKeys) ? SettingsStore.data.kanbanCollapsedColumnKeys.slice() : [],
             collapseStateUpdatedAt: __tmGetCollapsedSessionUpdatedAt(SettingsStore?.data),
             groupMode: String(SettingsStore?.data?.groupMode || 'none').trim() || 'none',
             groupByDocName: !!SettingsStore?.data?.groupByDocName,
@@ -479,12 +482,18 @@
         SettingsStore.data.collapsedGroups = Array.isArray(saved.collapsedGroups) ? saved.collapsedGroups.slice() : [];
         SettingsStore.data.expandedCompletedGroups = Array.isArray(saved.expandedCompletedGroups) ? saved.expandedCompletedGroups.slice() : [];
         SettingsStore.data.kanbanCollapsedTaskIds = Array.isArray(saved.kanbanCollapsedTaskIds) ? saved.kanbanCollapsedTaskIds.slice() : [];
+        SettingsStore.data.kanbanCollapsedColumnKeys = Array.isArray(saved.kanbanCollapsedColumnKeys) ? saved.kanbanCollapsedColumnKeys.slice() : [];
         SettingsStore.data.collapseStateUpdatedAt = __tmParseUpdatedAtNumber(saved.collapseStateUpdatedAt)
             || __tmGetCollapsedSessionUpdatedAt(SettingsStore.data);
         SettingsStore.data.groupMode = String(saved.groupMode || 'none').trim() || 'none';
         SettingsStore.data.groupByDocName = !!saved.groupByDocName;
         SettingsStore.data.groupByTime = !!saved.groupByTime;
         SettingsStore.data.groupByTaskName = !!saved.groupByTaskName;
+        try { state.collapsedTaskIds = new Set(SettingsStore.data.collapsedTaskIds || []); } catch (e) {}
+        try { state.collapsedGroups = new Set(SettingsStore.data.collapsedGroups || []); } catch (e) {}
+        try { state.expandedCompletedGroups = new Set(SettingsStore.data.expandedCompletedGroups || []); } catch (e) {}
+        try { state.__tmKanbanCollapsedIds = new Set((SettingsStore.data.kanbanCollapsedTaskIds || []).map((id) => String(id || '').trim()).filter(Boolean)); } catch (e) {}
+        try { state.__tmKanbanCollapsedColumnKeys = new Set((SettingsStore.data.kanbanCollapsedColumnKeys || []).map((id) => String(id || '').trim()).filter(Boolean)); } catch (e) {}
         SettingsStore.normalizeColumns();
         try { SettingsStore.syncToLocal(); } catch (e) {}
         try { SettingsStore.refreshCollapsedStateSyncState(SettingsStore.data.collapseStateUpdatedAt); } catch (e) {}
@@ -526,6 +535,8 @@
         try {
             const ids = Array.isArray(saved?.session?.kanbanCollapsedTaskIds) ? saved.session.kanbanCollapsedTaskIds : [];
             state.__tmKanbanCollapsedIds = new Set(ids.map((id) => String(id || '').trim()).filter(Boolean));
+            const colKeys = Array.isArray(saved?.session?.kanbanCollapsedColumnKeys) ? saved.session.kanbanCollapsedColumnKeys : [];
+            state.__tmKanbanCollapsedColumnKeys = new Set(colKeys.map((id) => String(id || '').trim()).filter(Boolean));
         } catch (e) {}
         state.viewMode = String(saved.viewMode || state.viewMode || 'list').trim() || 'list';
         state.viewModeInitialized = saved.viewModeInitialized === true;

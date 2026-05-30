@@ -2487,7 +2487,7 @@ if (!__tmIsCollectedOtherBlockTask(task) && diff.contentChanged) {
                 const latestTask = state.flatTasks?.[String(task.id || '').trim()] || task;
                 if (diff.contentChanged) {
                     try { syncTaskContentInVisibleViews(latestTask); } catch (e) {}
-                    if (state.currentRule || state.groupByTaskName) {
+                    if (shouldRefreshContentProjection(latestTask?.id || task.id, latestTask)) {
                         try {
                             __tmScheduleViewRefresh({
                                 mode: 'current',
@@ -4101,6 +4101,21 @@ if (!__tmIsCollectedOtherBlockTask(task) && diff.contentChanged) {
                 } catch (e) {}
             });
         };
+        const shouldRefreshContentProjection = (taskId, taskLike = null) => {
+            const tid = String(taskId || taskLike?.id || '').trim();
+            if (!tid) return false;
+            const patch = {
+                content: String(taskLike?.content || '').trim(),
+                markdown: String(taskLike?.markdown || '').trim(),
+            };
+            try {
+                if (typeof __tmDoesPatchNeedProjectionRefresh === 'function'
+                    && __tmDoesPatchNeedProjectionRefresh(tid, patch, { withFilters: true })) {
+                    return true;
+                }
+            } catch (e) {}
+            return !!(state.currentRule || state.groupByTaskName || String(state.searchKeyword || '').trim());
+        };
         try {
             abortController.signal.addEventListener('abort', () => {
                 subtaskSaveTimers.forEach((timer) => {
@@ -4143,6 +4158,16 @@ if (!__tmIsCollectedOtherBlockTask(task) && diff.contentChanged) {
                 textarea.value = nextValue;
                 syncAutoHeight(textarea, subtaskTextareaMinHeight);
                 try { syncTaskContentInVisibleViews(task); } catch (e) {}
+                if (shouldRefreshContentProjection(tid, task)) {
+                    try {
+                        __tmScheduleViewRefresh({
+                            mode: 'current',
+                            withFilters: true,
+                            reason: 'detail-subtask-content-save',
+                            taskIds: [tid],
+                        });
+                    } catch (e) {}
+                }
                 return true;
             } catch (e) {
                 textarea.value = savedValue;
@@ -4262,7 +4287,7 @@ if (!__tmIsCollectedOtherBlockTask(task) && diff.contentChanged) {
                             try { delete draftRow.dataset.saving; } catch (e2) {}
                         }
                     }));
-                    Promise.all(createPromises).then(async () => {
+                    Promise.all(createPromises).then(async (results = []) => {
                         try {
                             if (!root.querySelector('[data-tm-detail-subtask-draft]')) {
                                 await refreshBoundDetail(taskId);
@@ -4271,6 +4296,16 @@ if (!__tmIsCollectedOtherBlockTask(task) && diff.contentChanged) {
                         restoreEmbeddedDetailScroll(detailScrollSnapshot, { onlyIfNear: true });
                         hint(taskLines.length > 1 ? `✅ 已新增 ${taskLines.length} 个子任务` : '✅ 已新增', 'success');
                         setTaskDetailPendingSave(false, 420);
+                        try {
+                            const createdTaskIds = (Array.isArray(results) ? results : [])
+                                .map((item) => String(item?.realId || item || '').trim())
+                                .filter(Boolean);
+                            __tmRefreshMainViewInPlace({
+                                withFilters: true,
+                                reason: 'detail-create-subtask',
+                                taskIds: createdTaskIds,
+                            });
+                        } catch (e) {}
                     }).catch((e) => {
                         hint(`❌ 新建子任务失败: ${e.message}`, 'error');
                         setTaskDetailPendingSave(false, 420);
@@ -6003,14 +6038,18 @@ refreshed = !!__tmRefreshChecklistSelectionInPlace(state.modal, 'visible-task-de
 
         const prevVisibility = panel.style.visibility;
         const prevPointerEvents = panel.style.pointerEvents;
+        const prevTransform = panel.style.transform;
         panel.style.visibility = 'hidden';
         panel.style.pointerEvents = 'none';
+        panel.style.transform = 'none';
         panel.style.left = '24px';
         panel.style.top = '24px';
         panel.style.maxHeight = 'calc(100vh - 48px)';
 
         const cardRect = card.getBoundingClientRect();
         const panelRect = panel.getBoundingClientRect();
+        const fixedOriginLeft = Math.round(panelRect.left - 24);
+        const fixedOriginTop = Math.round(panelRect.top - 24);
         const viewportW = Number(window.innerWidth || document.documentElement.clientWidth || 0) || 0;
         const viewportH = Number(window.innerHeight || document.documentElement.clientHeight || 0) || 0;
         const gap = 12;
@@ -6029,12 +6068,58 @@ refreshed = !!__tmRefreshChecklistSelectionInPlace(state.modal, 'visible-task-de
         top = Math.max(minTop, Math.min(top, maxTop));
         const maxHeight = Math.max(240, viewportH - top - margin);
 
-        panel.style.left = `${Math.round(left)}px`;
-        panel.style.top = `${Math.round(top)}px`;
+        panel.style.left = `${Math.round(left - fixedOriginLeft)}px`;
+        panel.style.top = `${Math.round(top - fixedOriginTop)}px`;
         panel.style.maxHeight = `${Math.round(maxHeight)}px`;
         panel.style.visibility = prevVisibility || '';
         panel.style.pointerEvents = prevPointerEvents || '';
+        panel.style.transform = prevTransform || '';
         return true;
+    }
+
+    function __tmScheduleKanbanDetailFloatSettledPosition(modalEl, options = {}) {
+        const modal = modalEl instanceof Element ? modalEl : state.modal;
+        if (!(modal instanceof Element)) return;
+        const floatPanel = modal.querySelector('#tmKanbanDetailFloat');
+        if (!(floatPanel instanceof HTMLElement)) return;
+        const opts = (options && typeof options === 'object') ? options : {};
+        const hideDuringSettle = opts.hideDuringSettle === true;
+        const onFinish = typeof opts.onFinish === 'function' ? opts.onFinish : null;
+        const settleMs = Math.max(0, Number(opts.settleMs) || (hideDuringSettle ? 90 : 160));
+        const settleToken = (Number(floatPanel.__tmKanbanDetailSettleToken || 0) || 0) + 1;
+        let finished = false;
+        try { floatPanel.__tmKanbanDetailSettleToken = settleToken; } catch (e) {}
+        try { floatPanel.classList.add('tm-kanban-detail-float--settling'); } catch (e) {}
+        if (hideDuringSettle) {
+            try { floatPanel.classList.add('tm-kanban-detail-float--preopen'); } catch (e) {}
+        }
+        const run = (force = false) => {
+            try {
+                if (!force && finished) return;
+                if (Number(floatPanel.__tmKanbanDetailSettleToken || 0) !== settleToken) return;
+                if (String(state.viewMode || '').trim() !== 'kanban') return;
+                if (!String(state.kanbanDetailTaskId || '').trim()) return;
+                if (!(modal.querySelector('#tmKanbanDetailFloat') instanceof HTMLElement)) return;
+                __tmPositionKanbanDetailFloat(modal);
+            } catch (e) {}
+        };
+        const finish = () => {
+            try {
+                if (Number(floatPanel.__tmKanbanDetailSettleToken || 0) === settleToken) {
+                    if (hideDuringSettle) run(true);
+                    finished = true;
+                    floatPanel.classList.remove('tm-kanban-detail-float--settling');
+                    if (hideDuringSettle) floatPanel.classList.remove('tm-kanban-detail-float--preopen');
+                    if (onFinish) onFinish();
+                } else {
+                    finished = true;
+                }
+            } catch (e) {}
+        };
+        try { run(); } catch (e) {}
+        try { requestAnimationFrame(run); } catch (e) {}
+        try { requestAnimationFrame(() => requestAnimationFrame(run)); } catch (e) {}
+        try { setTimeout(finish, settleMs); } catch (e) {}
     }
 
     function __tmRefreshKanbanDetailInPlace(modalEl, options = {}) {
@@ -6046,6 +6131,7 @@ refreshed = !!__tmRefreshChecklistSelectionInPlace(state.modal, 'visible-task-de
         const task = selectedId ? (state.flatTasks?.[selectedId] || null) : null;
         const opts = (options && typeof options === 'object') ? options : {};
         const refreshSource = String(opts.source || '').trim() || 'unknown';
+        const shouldSchedulePosition = opts.schedulePosition !== false;
         const detailScrollSnapshot = opts.scrollSnapshot || __tmCaptureKanbanDetailScrollSnapshot(modal);
         if (!(panel instanceof HTMLElement) || !task) {
             __tmClearKanbanDetailFloatingHandlers();
@@ -6105,8 +6191,9 @@ refreshed = !!__tmRefreshChecklistSelectionInPlace(state.modal, 'visible-task-de
         __tmKanbanDetailRepositionModal = modal;
         try { globalThis.__tmRuntimeEvents?.on?.(modal, 'scroll', __tmKanbanDetailRepositionHandler, true); } catch (e) {}
         try { globalThis.__tmRuntimeEvents?.on?.(window, 'resize', __tmKanbanDetailRepositionHandler, true); } catch (e) {}
-        try { __tmPositionKanbanDetailFloat(modal); } catch (e) {}
-        try { requestAnimationFrame(() => { try { __tmPositionKanbanDetailFloat(modal); } catch (e) {} }); } catch (e) {}
+        if (shouldSchedulePosition) {
+            try { __tmScheduleKanbanDetailFloatSettledPosition(modal); } catch (e) {}
+        }
         if (detailScrollSnapshot && String(detailScrollSnapshot.selectedId || '').trim() === selectedId) {
             __tmRestoreKanbanDetailScrollSnapshot(detailScrollSnapshot, modal);
         }
@@ -6141,7 +6228,9 @@ refreshed = !!__tmRefreshChecklistSelectionInPlace(state.modal, 'visible-task-de
         } else if (panel.parentElement !== floatPanel) {
             floatPanel.replaceChildren(panel);
         }
-        if (!floatPanel.isConnected) {
+        const isNewFloatPanel = !floatPanel.isConnected;
+        if (isNewFloatPanel) {
+            try { floatPanel.classList.add('tm-kanban-detail-float--preopen'); } catch (e) {}
             body.appendChild(floatPanel);
         }
 
@@ -6156,8 +6245,21 @@ refreshed = !!__tmRefreshChecklistSelectionInPlace(state.modal, 'visible-task-de
                 __tmCloseKanbanDetailFloating();
             }
         });
-        try { __tmRefreshKanbanDetailInPlace(modal, { source: 'kanban-detail-open-in-place' }); } catch (e) {}
-        try { __tmAnimatePopupIn(floatPanel, { origin: 'top-left', duration: 120 }); } catch (e) {}
+        try { __tmRefreshKanbanDetailInPlace(modal, { source: 'kanban-detail-open-in-place', schedulePosition: false }); } catch (e) {}
+        if (isNewFloatPanel) {
+            try {
+                __tmScheduleKanbanDetailFloatSettledPosition(modal, {
+                    hideDuringSettle: true,
+                    settleMs: 90,
+                    onFinish: () => {
+                        try { __tmAnimatePopupIn(floatPanel, { origin: 'top-left', duration: 120 }); } catch (e) {}
+                    },
+                });
+            } catch (e) {}
+        } else {
+            try { __tmAnimatePopupIn(floatPanel, { origin: 'top-left', duration: 120 }); } catch (e) {}
+            try { __tmScheduleKanbanDetailFloatSettledPosition(modal); } catch (e) {}
+        }
         return true;
     }
 

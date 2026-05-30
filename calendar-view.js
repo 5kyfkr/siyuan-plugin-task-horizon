@@ -9238,6 +9238,12 @@
             || base.done === true;
     }
 
+    function isDetachedScheduleOccurrenceItem(item) {
+        const base = (item && typeof item === 'object') ? item : {};
+        return base.detachedScheduleOccurrence === true
+            || (!!String(base.parentScheduleId || '').trim() && !!normalizeScheduleSkippedOccurrenceKey(base.parentOccurrenceStartMs));
+    }
+
     async function isLinkedTaskRecurringTask(taskId) {
         const tid = String(taskId || '').trim();
         if (!tid || typeof window.tmGetTaskRepeatRule !== 'function') return false;
@@ -9302,32 +9308,41 @@
         const prevItem = (list[idx] && typeof list[idx] === 'object') ? list[idx] : {};
         const opt = (options && typeof options === 'object') ? options : {};
         if (normalizeScheduleRepeatType(getScheduleRepeatType(prevItem)) === 'none') {
-            if (!isTaskDateRecurringExceptionScheduleItem(prevItem) && opt.detachedTaskOccurrence !== true) {
-                const taskId = String(prevItem.taskId || prevItem.task_id || prevItem.linkedTaskId || prevItem.linked_task_id || '').trim();
-                const startMs = toMs(prevItem.start);
-                const endMs = toMs(prevItem.end);
-                const isAllDayLinkedRecurringTask = !!taskId
-                    && (prevItem.allDay === true || (Number.isFinite(startMs) && Number.isFinite(endMs) && endMs > startMs && isAllDayRange(new Date(startMs), new Date(endMs))))
-                    && await isLinkedTaskRecurringTask(taskId);
-                if (!isAllDayLinkedRecurringTask) return false;
-            }
+            const taskId = String(prevItem.taskId || prevItem.task_id || prevItem.linkedTaskId || prevItem.linked_task_id || '').trim();
+            const linkedRecurringTask = taskId ? await isLinkedTaskRecurringTask(taskId) : false;
+            const isDetachedTaskOccurrence = isTaskDateRecurringExceptionScheduleItem(prevItem) || opt.detachedTaskOccurrence === true;
+            const isDetachedScheduleOccurrence = isDetachedScheduleOccurrenceItem(prevItem) || opt.detachedScheduleOccurrence === true;
+            const startMs = toMs(prevItem.start);
+            const endMs = toMs(prevItem.end);
+            const isAllDayLinkedRecurringTask = !!taskId
+                && (prevItem.allDay === true || (Number.isFinite(startMs) && Number.isFinite(endMs) && endMs > startMs && isAllDayRange(new Date(startMs), new Date(endMs))))
+                && linkedRecurringTask;
+            if (!isDetachedTaskOccurrence && !isDetachedScheduleOccurrence && !isAllDayLinkedRecurringTask) return false;
             const nextDone = done === true;
             const prevDone = isTaskDateRecurringExceptionDone(prevItem);
-            if (prevDone === nextDone && isTaskDateRecurringExceptionScheduleItem(prevItem)) return true;
-            const historyCompletedAt = await syncTaskDateRecurringExceptionHistory(prevItem, nextDone, {
-                source: String(opt.source || 'calendar-detached-schedule-done').trim() || 'calendar-detached-schedule-done',
-                refresh: true,
-                refreshCalendar: false,
-            });
+            if (prevDone === nextDone && (isDetachedTaskOccurrence || isDetachedScheduleOccurrence)) return true;
+            const shouldStoreTaskDateException = isDetachedTaskOccurrence || isAllDayLinkedRecurringTask;
+            const shouldSyncTaskRepeatHistory = linkedRecurringTask && shouldStoreTaskDateException;
+            let historyCompletedAt = String(prevItem.detachedCompletedAt || prevItem.repeatHistoryCompletedAt || '').trim();
+            if (shouldSyncTaskRepeatHistory) {
+                historyCompletedAt = await syncTaskDateRecurringExceptionHistory(prevItem, nextDone, {
+                    source: String(opt.source || 'calendar-detached-schedule-done').trim() || 'calendar-detached-schedule-done',
+                    refresh: true,
+                    refreshCalendar: false,
+                });
+            } else if (nextDone && !historyCompletedAt) {
+                historyCompletedAt = new Date().toISOString();
+            }
             const nextItem = {
                 ...prevItem,
-                taskDateRecurringException: true,
-                detachedTaskOccurrence: true,
-                source: String(prevItem.source || '').trim() || 'taskdate-recurring-exception',
+                taskDateRecurringException: shouldStoreTaskDateException,
+                detachedTaskOccurrence: shouldStoreTaskDateException,
+                detachedScheduleOccurrence: isDetachedScheduleOccurrence,
+                source: String(prevItem.source || '').trim() || (shouldStoreTaskDateException ? 'taskdate-recurring-exception' : 'schedule-recurring-exception'),
                 scheduleDone: nextDone,
                 completed: nextDone,
                 detachedCompletedAt: nextDone ? historyCompletedAt : '',
-                repeatHistoryCompletedAt: nextDone ? historyCompletedAt : '',
+                repeatHistoryCompletedAt: nextDone && shouldSyncTaskRepeatHistory ? historyCompletedAt : '',
             };
             list[idx] = nextItem;
             await saveScheduleAll(list, {
@@ -9607,12 +9622,14 @@
         const parent = (parentItem && typeof parentItem === 'object') ? parentItem : {};
         const draft = (draftItem && typeof draftItem === 'object') ? draftItem : {};
         const occurrenceKey = normalizeScheduleSkippedOccurrenceKey(occurrenceStartMs);
+        const occurrenceDone = isScheduleOccurrenceDone(parent, occurrenceStartMs);
         return {
             ...parent,
             ...draft,
             id: uuid(),
             parentScheduleId: String(parent.id || '').trim(),
             parentOccurrenceStartMs: occurrenceKey,
+            detachedScheduleOccurrence: true,
             repeatType: 'none',
             recurrenceType: 'none',
             repeat: 'none',
@@ -9628,6 +9645,11 @@
             recurrenceMonthlyMode: 'date',
             completedOccurrences: [],
             skippedOccurrences: [],
+            scheduleDone: occurrenceDone,
+            completed: occurrenceDone,
+            done: occurrenceDone,
+            detachedCompletedAt: '',
+            repeatHistoryCompletedAt: '',
             notificationSchedules: sanitizeScheduleNotificationSchedules(draft.notificationSchedules || parent.notificationSchedules),
         };
     }
@@ -9880,6 +9902,22 @@
         return !!startKey && !!dueKey && startKey === dueKey;
     }
 
+    async function isScheduleDateFollowTargetRecurringTask(target) {
+        const ids = [];
+        const pushId = (value) => {
+            const id = String(value || '').trim();
+            if (id && !ids.includes(id)) ids.push(id);
+        };
+        pushId(target?.targetId);
+        try {
+            if (target?.aliases instanceof Set) target.aliases.forEach(pushId);
+        } catch (e) {}
+        for (const id of ids) {
+            if (await isLinkedTaskRecurringTask(id)) return true;
+        }
+        return false;
+    }
+
     async function syncTaskDatesAfterScheduleMutation(seedItems, options = {}) {
         const settings = getSettings();
         if (settings.scheduleDatesFollowSchedule !== true) return { synced: false, skipped: 'disabled' };
@@ -9896,6 +9934,7 @@
         const changedTaskIds = new Set();
 
         for (const target of targets) {
+            if (await isScheduleDateFollowTargetRecurringTask(target)) continue;
             const aliasSet = target.aliases instanceof Set ? target.aliases : new Set();
             const bounds = (Array.isArray(list) ? list : [])
                 .filter((item) => isScheduleLinkedToDateFollowTarget(item, aliasSet))
@@ -10400,6 +10439,13 @@
             && !!normalizeScheduleCompletedOccurrenceKey(ext?.__tmOccurrenceStartMs);
     }
 
+    function isDetachedScheduleOccurrenceEventExt(ext) {
+        return String(ext?.__tmSource || '').trim() === 'schedule'
+            && ext?.__tmDetachedScheduleOccurrence === true
+            && !!String(ext?.__tmScheduleId || '').trim()
+            && !!normalizeScheduleCompletedOccurrenceKey(ext?.__tmOccurrenceStartMs);
+    }
+
     function isLinkedAllDayTaskScheduleCandidateEventExt(ext) {
         return String(ext?.__tmSource || '').trim() === 'schedule'
             && ext?.__tmLinkedAllDayTaskSchedule === true
@@ -10411,7 +10457,7 @@
         const source = String(ext?.__tmSource || '').trim();
         if (source === 'reminder') return ext?.__tmReminderDone === true;
         if (!(source === 'taskdate' || source === 'schedule')) return false;
-        if (isDetachedTaskOccurrenceEventExt(ext)) return ext?.__tmScheduleOccurrenceDone === true;
+        if (isDetachedTaskOccurrenceEventExt(ext) || isDetachedScheduleOccurrenceEventExt(ext)) return ext?.__tmScheduleOccurrenceDone === true;
         const tid = String(ext?.__tmTaskId || ext?.__tmBlockId || '').trim();
         const opt = (options && typeof options === 'object') ? options : {};
         let taskDone = false;
@@ -10446,7 +10492,7 @@
         let applied = false;
         applyTaskDoneVisual(wrapEl, titleText, nextDone);
         try {
-            if (source === 'schedule' && (isRecurringScheduleEventExt(ext) || isDetachedTaskOccurrenceEventExt(ext))) {
+            if (source === 'schedule' && (isRecurringScheduleEventExt(ext) || isDetachedTaskOccurrenceEventExt(ext) || isDetachedScheduleOccurrenceEventExt(ext))) {
                 const scheduleId = String(ext?.__tmScheduleId || '').trim();
                 const occurrenceStartMs = Number(ext?.__tmOccurrenceStartMs);
                 const setter = globalThis.__tmCalendar?.setScheduleOccurrenceDone;
@@ -10456,6 +10502,7 @@
                 const result = setter(scheduleId, occurrenceStartMs, nextDone, {
                     source: 'calendar-checkbox',
                     detachedTaskOccurrence: isDetachedTaskOccurrenceEventExt(ext),
+                    detachedScheduleOccurrence: isDetachedScheduleOccurrenceEventExt(ext),
                 });
                 if (result && typeof result.then === 'function') await result;
                 applied = true;
@@ -11513,6 +11560,7 @@
                         };
                     }
                     const suppressAllDayRangeText = isDetachedTaskOccurrenceEventExt(ext)
+                        || isDetachedScheduleOccurrenceEventExt(ext)
                         || isLinkedAllDayTaskScheduleCandidateEventExt(ext);
                     const rangeText = !hideRangeText && source === 'schedule' && !suppressAllDayRangeText
                         ? formatScheduleEventRangeText(arg?.event?.start, arg?.event?.end, arg?.event?.allDay === true)
@@ -12408,7 +12456,8 @@
             const repeatMonthlyMode = getScheduleRepeatMonthlyMode(it, repeatType);
             const completedOccurrenceSet = getScheduleCompletedOccurrenceSet(it);
             const isDetachedTaskOccurrence = isTaskDateRecurringExceptionScheduleItem(it);
-            const detachedTaskOccurrenceDone = isTaskDateRecurringExceptionDone(it);
+            const isDetachedScheduleOccurrence = isDetachedScheduleOccurrenceItem(it);
+            const detachedOccurrenceDone = isTaskDateRecurringExceptionDone(it);
             const isLinkedAllDayTaskSchedule = !!taskId && repeatType === 'none' && allDayBase;
             const allDayBottom = isScheduleAllDayBottom(it);
             const occurrences = collectScheduleOccurrencesInRange(it, rangeStart, rangeEnd, {
@@ -12419,8 +12468,8 @@
                 const occEnd = occurrence?.end instanceof Date ? occurrence.end : end;
                 const allDay = allDayBase || isAllDayRange(occStart, occEnd);
                 const occStartMs = Number(occurrence?.startMs || occStart.getTime());
-                const occurrenceDone = isDetachedTaskOccurrence
-                    ? detachedTaskOccurrenceDone
+                const occurrenceDone = (isDetachedTaskOccurrence || isDetachedScheduleOccurrence)
+                    ? detachedOccurrenceDone
                     : (Number.isFinite(occStartMs) && completedOccurrenceSet.has(String(Math.trunc(occStartMs))));
                 const event = {
                     id: repeatType === 'none' ? String(it?.id || uuid()) : `${String(it?.id || uuid())}:${occStartMs}`,
@@ -12456,6 +12505,7 @@
                         __tmOccurrenceStartMs: occStartMs,
                         __tmScheduleOccurrenceDone: occurrenceDone,
                         __tmDetachedTaskOccurrence: isDetachedTaskOccurrence,
+                        __tmDetachedScheduleOccurrence: isDetachedScheduleOccurrence,
                         __tmLinkedAllDayTaskSchedule: isLinkedAllDayTaskSchedule,
                         __tmDocId: linkedDocId,
                         calendarId,
@@ -12546,6 +12596,7 @@
             '__tmOccurrenceStartMs',
             '__tmScheduleOccurrenceDone',
             '__tmDetachedTaskOccurrence',
+            '__tmDetachedScheduleOccurrence',
             '__tmLinkedAllDayTaskSchedule',
             '__tmAllDayBottom',
             '__tmDocId',
@@ -16153,6 +16204,7 @@
                         };
                     }
                     const suppressAllDayRangeText = isDetachedTaskOccurrenceEventExt(ext)
+                        || isDetachedScheduleOccurrenceEventExt(ext)
                         || isLinkedAllDayTaskScheduleCandidateEventExt(ext);
                     const rangeText = !hideRangeText && source === 'schedule' && !suppressAllDayRangeText
                         ? formatScheduleEventRangeText(arg?.event?.start, arg?.event?.end, arg?.event?.allDay === true)

@@ -1111,6 +1111,12 @@
                             `<input class="b3-switch fn__flex-center" type="checkbox" ${SettingsStore.data.kanbanDragSyncSubtasks ? 'checked' : ''} onchange="updateKanbanDragSyncSubtasks(this.checked)">`,
                             { style: 'margin-bottom:10px;' }
                         )}
+                        ${renderSingleSwitchSetting(
+                            '看板内子任务不与父任务分离',
+                            '开启后子任务始终跟随父任务显示，状态、日期、标题或完成列不同也不会单独拆出。',
+                            `<input class="b3-switch fn__flex-center" type="checkbox" ${SettingsStore.data.kanbanPreventSubtaskSeparation ? 'checked' : ''} onchange="updateKanbanPreventSubtaskSeparation(this.checked)">`,
+                            { style: 'margin-bottom:10px;' }
+                        )}
                         ${renderSingleFieldSetting(
                             '时长显示格式',
                             '控制耗时和番茄累计时间的展示形式。',

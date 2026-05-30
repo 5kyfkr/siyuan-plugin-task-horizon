@@ -9520,7 +9520,7 @@ if (mode === 'checklist') {
                 }
             }));
         }
-        menu.appendChild(item(__tmRenderContextMenuLabel('settings', '规则和分组设置'), () => {
+        menu.appendChild(item(__tmRenderContextMenuLabel('settings', '规则/分组/视图设置'), () => {
             window.tmOpenViewProfileConfigModal?.('doc', id);
         }));
         if (!isOtherBlocksTab) {
@@ -9874,7 +9874,7 @@ if (mode === 'checklist') {
 
         menu.appendChild(createSubmenuTrigger(__tmRenderContextMenuLabel('settings', '设置'), () => {
             const children = [];
-            children.push(__tmBuildAllDocTabMenuActionButton(__tmRenderContextMenuLabel('settings', '规则和分组设置'), () => {
+            children.push(__tmBuildAllDocTabMenuActionButton(__tmRenderContextMenuLabel('settings', '规则/分组/视图设置'), () => {
                 window.tmOpenViewProfileConfigModal?.('allTabs', groupId);
             }, { compact: true, stretch: false, mainRow: false }));
             children.push(__tmBuildAllDocTabMenuActionButton(__tmRenderContextMenuLabel('settings', '当前文档分组默认设置'), () => {
@@ -10556,6 +10556,15 @@ if (mode === 'checklist') {
                     });
                 }
             }
+            try {
+                if (typeof __tmFlushPendingCreatedTaskSnapshotRefreshesAfterGroupSwitch === 'function') {
+                    await __tmFlushPendingCreatedTaskSnapshotRefreshesAfterGroupSwitch({
+                        docIds: state.__tmLoadedDocIdsForTasks || [],
+                        groupId: nextGroupId,
+                        source: 'switch-doc-group-created-task',
+                    });
+                }
+            } catch (e) {}
             if (!isSwitchCurrent()) {
                 logSwitchGroup('cancelled-after-load', { token: switchToken, currentToken: Number(state.openToken) || 0 });
                 return;
@@ -11452,6 +11461,8 @@ if (mode === 'checklist') {
                 const targetDocId = String(data?.targetDocId || '').trim();
                 const sourceDocId = String(data?.snapshot?.docId || '').trim();
                 const expectId = String(data?.taskId || '').trim();
+                const moveMode = String(data?.mode || '').trim();
+                const forceHeadingContext = moveMode === 'heading' || moveMode === 'docTop';
                 const manualRelationships = __tmBuildMoveManualRelationships(data);
                 const injectedTasks = __tmBuildMoveInjectedTasks(data);
                 invalidateAffectedDocCaches();
@@ -11461,6 +11472,7 @@ if (mode === 'checklist') {
                         render: false,
                         saveMeta: false,
                         forceDocFlowOrder: true,
+                        forceHeadingContext,
                     });
                     if (sourceDocId && sourceDocId !== targetDocId) {
                         await reloadDocTasksProtected(sourceDocId, null, null, null, {
@@ -11468,6 +11480,7 @@ if (mode === 'checklist') {
                             render: false,
                             saveMeta: false,
                             forceDocFlowOrder: true,
+                            forceHeadingContext,
                         });
                     }
                     try { recalcStats(); } catch (e) {}
@@ -11685,9 +11698,12 @@ if (mode === 'checklist') {
             ? 'input,button,select,textarea,a,label,[contenteditable="true"],.tm-task-checkbox,.tm-task-checkbox-wrap,.tm-kanban-toggle,.tm-kanban-more,.tm-status-tag,.tm-kanban-chip,.tm-priority-jira,.tm-kanban-priority-chip'
             : 'input,button,select,textarea,a,label,[contenteditable="true"],.tm-tree-toggle,.tm-col-resize,.tm-checklist-mobile-toggle,.tm-status-tag';
         if (el.closest(skipSelector)) return null;
+        const resolvedKanbanDrag = isKanban && typeof __tmResolveKanbanEffectiveDragTarget === 'function'
+            ? __tmResolveKanbanEffectiveDragTarget(taskId, candidate)
+            : null;
         return {
-            taskId,
-            sourceEl: candidate,
+            taskId: String(resolvedKanbanDrag?.taskId || taskId || '').trim(),
+            sourceEl: resolvedKanbanDrag?.cardEl instanceof HTMLElement ? resolvedKanbanDrag.cardEl : candidate,
             sourceType: isKanban ? 'kanban' : 'task',
         };
     }
@@ -12959,6 +12975,8 @@ if (mode === 'checklist') {
         'arrow-clockwise': 'M244,56v48a12,12,0,0,1-12,12H184a12,12,0,1,1,0-24H201.1l-19-17.38c-.13-.12-.26-.24-.38-.37A76,76,0,1,0,127,204h1a75.53,75.53,0,0,0,52.15-20.72,12,12,0,0,1,16.49,17.45A99.45,99.45,0,0,1,128,228h-1.37A100,100,0,1,1,198.51,57.06L220,76.72V56a12,12,0,0,1,24,0Z',
         repeat: 'M20,128A76.08,76.08,0,0,1,96,52h99l-3.52-3.51a12,12,0,1,1,17-17l24,24a12,12,0,0,1,0,17l-24,24a12,12,0,0,1-17-17L195,76H96a52.06,52.06,0,0,0-52,52,12,12,0,0,1-24,0Zm204-12a12,12,0,0,0-12,12,52.06,52.06,0,0,1-52,52H61l3.52-3.51a12,12,0,1,0-17-17l-24,24a12,12,0,0,0,0,17l24,24a12,12,0,1,0,17-17L61,204h99a76.08,76.08,0,0,0,76-76A12,12,0,0,0,224,116Z',
         'arrows-clockwise': 'M224,48V96a8,8,0,0,1-8,8H168a8,8,0,0,1,0-16h28.69L182.06,73.37a79.56,79.56,0,0,0-56.13-23.43h-.45A79.52,79.52,0,0,0,69.59,72.71,8,8,0,0,1,58.41,61.27a96,96,0,0,1,135,.79L208,76.69V48a8,8,0,0,1,16,0ZM186.41,183.29a80,80,0,0,1-112.47-.66L59.31,168H88a8,8,0,0,0,0-16H40a8,8,0,0,0-8,8v48a8,8,0,0,0,16,0V179.31l14.63,14.63A95.43,95.43,0,0,0,130,222.06h.53a95.36,95.36,0,0,0,67.07-27.33,8,8,0,0,0-11.18-11.44Z',
+        'arrows-in-line-horizontal': 'M140,40V216a12,12,0,0,1-24,0V40a12,12,0,0,1,24,0ZM64.49,87.51a12,12,0,0,0-17,17L59,116H16a12,12,0,0,0,0,24H59L47.51,151.51a12,12,0,0,0,17,17l32-32a12,12,0,0,0,0-17ZM240,116H197l11.52-11.51a12,12,0,0,0-17-17l-32,32a12,12,0,0,0,0,17l32,32a12,12,0,0,0,17-17L197,140h43a12,12,0,0,0,0-24Z',
+        'arrows-out-line-horizontal': 'M140,40V216a12,12,0,0,1-24,0V40a12,12,0,0,1,24,0ZM88,116H45l11.52-11.51a12,12,0,0,0-17-17l-32,32a12,12,0,0,0,0,17l32,32a12,12,0,0,0,17-17L45,140H88a12,12,0,0,0,0-24Zm160.49,3.51-32-32a12,12,0,0,0-17,17L211,116H168a12,12,0,0,0,0,24h43l-11.52,11.51a12,12,0,0,0,17,17l32-32A12,12,0,0,0,248.49,119.51Z',
         'bot': 'M72,104a16,16,0,1,1,16,16A16,16,0,0,1,72,104Zm96,16a16,16,0,1,0-16-16A16,16,0,0,0,168,120Zm68-40V192a36,36,0,0,1-36,36H56a36,36,0,0,1-36-36V80A36,36,0,0,1,56,44h60V16a12,12,0,0,1,24,0V44h60A36,36,0,0,1,236,80Zm-24,0a12,12,0,0,0-12-12H56A12,12,0,0,0,44,80V192a12,12,0,0,0,12,12H200a12,12,0,0,0,12-12Zm-12,82a30,30,0,0,1-30,30H86a30,30,0,0,1,0-60h84A30,30,0,0,1,200,162Zm-80-6v12h16V156ZM86,168H96V156H86a6,6,0,0,0,0,12Zm90-6a6,6,0,0,0-6-6H160v12h10A6,6,0,0,0,176,162Z',
         'calendar-check': 'M208,28H188V20a12,12,0,0,0-24,0v8H92V20a12,12,0,0,0-24,0v8H48A20.02229,20.02229,0,0,0,28,48V208a20.02229,20.02229,0,0,0,20,20H208a20.02229,20.02229,0,0,0,20-20V48A20.02229,20.02229,0,0,0,208,28Zm-4,24V76H52V52ZM52,204V100H204V204Zm120.72559-84.2373a12.00022,12.00022,0,0,1-.499,16.96386l-46.6665,44a11.99953,11.99953,0,0,1-16.48486-.02051l-25.3335-24a11.99964,11.99964,0,1,1,16.50586-17.42187l17.1001,16.19922,38.415-36.21973A11.99993,11.99993,0,0,1,172.72559,119.7627Z',
         'calendar-clock': 'M208,28H188V24a12,12,0,0,0-24,0v4H92V24a12,12,0,0,0-24,0v4H48A20,20,0,0,0,28,48V208a20,20,0,0,0,20,20H208a20,20,0,0,0,20-20V48A20,20,0,0,0,208,28ZM68,52a12,12,0,0,0,24,0h72a12,12,0,0,0,24,0h16V76H52V52ZM52,204V100H204V204Z',

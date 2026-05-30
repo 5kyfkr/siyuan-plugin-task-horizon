@@ -251,6 +251,7 @@ if (shouldMarkDirty) {
             state.collapsedTaskIds = new Set(SettingsStore.data.collapsedTaskIds || []);
             state.collapsedGroups = new Set(SettingsStore.data.collapsedGroups || []);
             state.expandedCompletedGroups = new Set(SettingsStore.data.expandedCompletedGroups || []);
+            state.__tmKanbanCollapsedColumnKeys = new Set(SettingsStore.data.kanbanCollapsedColumnKeys || []);
             state.currentRule = SettingsStore.data.currentRule;
             state.columnWidths = SettingsStore.data.columnWidths;
             state.docTabsHidden = !!Storage.get('tm_doc_tabs_hidden', false);
@@ -571,8 +572,11 @@ if (shouldMarkDirty) {
         try {
             const ids = Array.isArray(SettingsStore.data.kanbanCollapsedTaskIds) ? SettingsStore.data.kanbanCollapsedTaskIds : [];
             state.__tmKanbanCollapsedIds = new Set(ids.map(x => String(x || '').trim()).filter(Boolean));
+            const colKeys = Array.isArray(SettingsStore.data.kanbanCollapsedColumnKeys) ? SettingsStore.data.kanbanCollapsedColumnKeys : [];
+            state.__tmKanbanCollapsedColumnKeys = new Set(colKeys.map(x => String(x || '').trim()).filter(Boolean));
         } catch (e) {
             state.__tmKanbanCollapsedIds = new Set();
+            state.__tmKanbanCollapsedColumnKeys = new Set();
         }
         if (SettingsStore.data.enableTomatoIntegration) {
             try { __tmHookTomatoTimer(); } catch (e) {}

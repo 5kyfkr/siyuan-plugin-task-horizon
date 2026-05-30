@@ -1147,6 +1147,15 @@
                 forceFastFirstPaintBudget: true,
                 source: 'legacy-switch-doc-group',
             });
+            try {
+                if (typeof __tmFlushPendingCreatedTaskSnapshotRefreshesAfterGroupSwitch === 'function') {
+                    await __tmFlushPendingCreatedTaskSnapshotRefreshesAfterGroupSwitch({
+                        docIds: state.__tmLoadedDocIdsForTasks || [],
+                        groupId: nextGroupId,
+                        source: 'legacy-switch-doc-group-created-task',
+                    });
+                }
+            } catch (e) {}
             await savePromise;
             render();
             showSettings();

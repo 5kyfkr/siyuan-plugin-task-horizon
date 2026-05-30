@@ -3720,6 +3720,7 @@
         'docPinnedByGroup',
         'collapsedTaskIds',
         'kanbanCollapsedTaskIds',
+        'kanbanCollapsedColumnKeys',
         'collapsedGroups',
         'expandedCompletedGroups',
         'customFieldDefs',
@@ -4005,6 +4006,7 @@
         return {
             collapsedTaskIds: normalizeList(src.collapsedTaskIds),
             kanbanCollapsedTaskIds: normalizeList(src.kanbanCollapsedTaskIds),
+            kanbanCollapsedColumnKeys: normalizeList(src.kanbanCollapsedColumnKeys),
             collapsedGroups: normalizeList(src.collapsedGroups),
             expandedCompletedGroups: normalizeList(src.expandedCompletedGroups),
         };
@@ -4015,6 +4017,7 @@
         const out = (target && typeof target === 'object') ? target : {};
         out.collapsedTaskIds = next.collapsedTaskIds.slice();
         out.kanbanCollapsedTaskIds = next.kanbanCollapsedTaskIds.slice();
+        out.kanbanCollapsedColumnKeys = next.kanbanCollapsedColumnKeys.slice();
         out.collapsedGroups = next.collapsedGroups.slice();
         out.expandedCompletedGroups = next.expandedCompletedGroups.slice();
         return next;
@@ -4921,6 +4924,9 @@
             const expandedCompletedGroups = state?.expandedCompletedGroups instanceof Set
                 ? Array.from(state.expandedCompletedGroups).map((id) => String(id || '').trim()).filter(Boolean).sort()
                 : [];
+            const kanbanCollapsedColumnKeys = state?.__tmKanbanCollapsedColumnKeys instanceof Set
+                ? Array.from(state.__tmKanbanCollapsedColumnKeys).map((id) => String(id || '').trim()).filter(Boolean).sort()
+                : [];
             return [
                 mode,
                 String(state?.activeDocId || 'all').trim() || 'all',
@@ -4945,6 +4951,8 @@
                 collapsedGroups.join(','),
                 String(expandedCompletedGroups.length),
                 expandedCompletedGroups.join(','),
+                String(kanbanCollapsedColumnKeys.length),
+                kanbanCollapsedColumnKeys.join(','),
                 String(state?.detailTaskId || '').trim(),
                 sampleIds.join(','),
             ].join('|');
@@ -5504,6 +5512,7 @@
             kanbanFillColumns: false,
             kanbanShowDoneColumn: false,
             kanbanDragSyncSubtasks: true,
+            kanbanPreventSubtaskSeparation: true,
             kanbanCardFields: ['priority', 'status', 'date'],
             taskCardDateOnlyWithValue: false,
             kanbanBoardMode: '',
@@ -5515,6 +5524,7 @@
             groupMode: 'doc',
             collapsedTaskIds: [],
             kanbanCollapsedTaskIds: [],
+            kanbanCollapsedColumnKeys: [],
             collapsedGroups: [],
             expandedCompletedGroups: [],
             currentRule: null,
@@ -6081,6 +6091,7 @@
                                 if (typeof cloudData.kanbanFillColumns === 'boolean') this.data.kanbanFillColumns = cloudData.kanbanFillColumns;
                                 if (typeof cloudData.kanbanShowDoneColumn === 'boolean') this.data.kanbanShowDoneColumn = cloudData.kanbanShowDoneColumn;
                                 if (typeof cloudData.kanbanDragSyncSubtasks === 'boolean') this.data.kanbanDragSyncSubtasks = cloudData.kanbanDragSyncSubtasks;
+                                if (typeof cloudData.kanbanPreventSubtaskSeparation === 'boolean') this.data.kanbanPreventSubtaskSeparation = cloudData.kanbanPreventSubtaskSeparation;
                                 if (Array.isArray(cloudData.kanbanCardFields)) this.data.kanbanCardFields = cloudData.kanbanCardFields;
                                 if (typeof cloudData.kanbanBoardMode === 'string') this.data.kanbanBoardMode = cloudData.kanbanBoardMode;
                                 if (typeof cloudData.kanbanHeadingGroupMode === 'boolean') this.data.kanbanHeadingGroupMode = cloudData.kanbanHeadingGroupMode;
@@ -6095,6 +6106,7 @@
                                 if (cloudCollapseUpdatedAt >= localCollapseUpdatedAt) {
                                     if (Array.isArray(cloudData.collapsedTaskIds)) this.data.collapsedTaskIds = cloudData.collapsedTaskIds;
                                     if (Array.isArray(cloudData.kanbanCollapsedTaskIds)) this.data.kanbanCollapsedTaskIds = cloudData.kanbanCollapsedTaskIds;
+                                    if (Array.isArray(cloudData.kanbanCollapsedColumnKeys)) this.data.kanbanCollapsedColumnKeys = cloudData.kanbanCollapsedColumnKeys;
                                     if (Array.isArray(cloudData.collapsedGroups)) this.data.collapsedGroups = cloudData.collapsedGroups;
                                     if (Array.isArray(cloudData.expandedCompletedGroups)) this.data.expandedCompletedGroups = cloudData.expandedCompletedGroups;
                                 }
@@ -6459,6 +6471,7 @@
             this.data.kanbanFillColumns = !!Storage.get('tm_kanban_fill_columns', this.data.kanbanFillColumns);
             this.data.kanbanShowDoneColumn = !!Storage.get('tm_kanban_show_done_column', this.data.kanbanShowDoneColumn);
             this.data.kanbanDragSyncSubtasks = !!Storage.get('tm_kanban_drag_sync_subtasks', this.data.kanbanDragSyncSubtasks);
+            this.data.kanbanPreventSubtaskSeparation = !!Storage.get('tm_kanban_prevent_subtask_separation', this.data.kanbanPreventSubtaskSeparation);
             this.data.kanbanCardFields = Storage.get('tm_kanban_card_fields', this.data.kanbanCardFields) || this.data.kanbanCardFields;
             this.data.taskCardDateOnlyWithValue = !!Storage.get('tm_task_card_date_only_with_value', this.data.taskCardDateOnlyWithValue);
             this.data.kanbanBoardMode = Storage.get('tm_kanban_board_mode', this.data.kanbanBoardMode);
@@ -6470,6 +6483,7 @@
             this.data.groupMode = Storage.get('tm_group_mode', this.data.groupMode);
             this.data.collapsedTaskIds = Storage.get('tm_collapsed_task_ids', []) || [];
             this.data.kanbanCollapsedTaskIds = Storage.get('tm_kanban_collapsed_task_ids', []) || [];
+            this.data.kanbanCollapsedColumnKeys = Storage.get('tm_kanban_collapsed_column_keys', []) || [];
             this.data.collapsedGroups = Storage.get('tm_collapsed_groups', []) || [];
             this.data.expandedCompletedGroups = Storage.get('tm_expanded_completed_groups', []) || [];
             this.data.currentRule = Storage.get('tm_current_rule', null);
@@ -6874,6 +6888,7 @@
             Storage.set('tm_kanban_fill_columns', !!this.data.kanbanFillColumns);
             Storage.set('tm_kanban_show_done_column', !!this.data.kanbanShowDoneColumn);
             Storage.set('tm_kanban_drag_sync_subtasks', !!this.data.kanbanDragSyncSubtasks);
+            Storage.set('tm_kanban_prevent_subtask_separation', !!this.data.kanbanPreventSubtaskSeparation);
             Storage.set('tm_kanban_card_fields', this.data.kanbanCardFields || []);
             Storage.set('tm_task_card_date_only_with_value', !!this.data.taskCardDateOnlyWithValue);
             Storage.set('tm_kanban_board_mode', typeof __tmGetKanbanBoardMode === 'function' ? __tmGetKanbanBoardMode() : (String(this.data.kanbanBoardMode || '').trim() || (this.data.kanbanHeadingGroupMode ? 'heading' : 'status')));
@@ -6885,6 +6900,7 @@
             Storage.set('tm_group_mode', String(this.data.groupMode || '').trim() || 'none');
             Storage.set('tm_collapsed_task_ids', this.data.collapsedTaskIds);
             Storage.set('tm_kanban_collapsed_task_ids', this.data.kanbanCollapsedTaskIds || []);
+            Storage.set('tm_kanban_collapsed_column_keys', this.data.kanbanCollapsedColumnKeys || []);
             Storage.set('tm_collapsed_groups', this.data.collapsedGroups || []);
             Storage.set('tm_expanded_completed_groups', this.data.expandedCompletedGroups || []);
             Storage.set('tm_current_rule', this.data.currentRule);
@@ -8972,6 +8988,7 @@
     let __tmTaskSnapshotFileMetaSignatureCache = '';
     let __tmTaskSnapshotFileMetaCheckPromise = null;
     const __tmTaskSnapshotPersistSignatureCache = new Map();
+    const __tmPendingCreatedTaskSnapshotRefreshes = new Map();
     const __tmTxTaskRefreshDocIds = new Set();
     const __tmTxTaskRefreshBlockIds = new Set();
     let __tmLocalTimeTxSuppressUntil = 0;
@@ -13014,6 +13031,144 @@
         return walk(docEntry.tasks);
     }
 
+    function __tmPrunePendingCreatedTaskSnapshotRefreshes() {
+        const now = Date.now();
+        __tmPendingCreatedTaskSnapshotRefreshes.forEach((entry, key) => {
+            if (!entry || Number(entry.expiresAt || 0) <= now) {
+                __tmPendingCreatedTaskSnapshotRefreshes.delete(key);
+            }
+        });
+    }
+
+    function __tmBuildPendingCreatedTaskSnapshotRefreshKey(docId, taskId) {
+        const did = String(docId || '').trim();
+        const tid = String(taskId || '').trim();
+        return did && tid ? `${did}:${tid}` : '';
+    }
+
+    function __tmRememberPendingCreatedTaskSnapshotRefresh(taskId, docId, options = {}) {
+        const did = String(docId || '').trim();
+        const tid = String(taskId || '').trim();
+        if (!__tmIsLikelyBlockId(did) || !__tmIsLikelyBlockId(tid)) return false;
+        __tmPrunePendingCreatedTaskSnapshotRefreshes();
+        const key = __tmBuildPendingCreatedTaskSnapshotRefreshKey(did, tid);
+        if (!key) return false;
+        const opts = (options && typeof options === 'object') ? options : {};
+        __tmPendingCreatedTaskSnapshotRefreshes.set(key, {
+            docId: did,
+            taskId: tid,
+            source: String(opts.source || 'task-create').trim() || 'task-create',
+            createdAt: Date.now(),
+            expiresAt: Date.now() + 60 * 60 * 1000,
+        });
+        return true;
+    }
+
+    function __tmForgetPendingCreatedTaskSnapshotRefresh(taskId, docId) {
+        const key = __tmBuildPendingCreatedTaskSnapshotRefreshKey(docId, taskId);
+        if (!key) return false;
+        return __tmPendingCreatedTaskSnapshotRefreshes.delete(key);
+    }
+
+    async function __tmApplyCreatedTaskDocSnapshotRefresh(docEntry, options = {}) {
+        const doc = (docEntry && typeof docEntry === 'object') ? docEntry : null;
+        const docId = String(doc?.id || '').trim();
+        if (!doc || !__tmIsLikelyBlockId(docId)) return false;
+        const opts = (options && typeof options === 'object') ? options : {};
+        try {
+            __tmRememberDocSessionTaskEntry(doc, { inTaskTree: true });
+        } catch (e) {}
+        try {
+            const indexEntry = __tmBuildTaskIndexDocEntry(doc, {
+                queryLimit: __TM_TASK_INDEX_QUERY_LIMIT,
+                inTaskTree: true,
+            });
+            if (indexEntry) await __tmMergeTaskIndexEntries([indexEntry]);
+        } catch (e) {}
+        return await __tmUpdateSnapshotsContainingCreatedTaskDoc(doc, {
+            source: String(opts.source || 'task-create').trim() || 'task-create',
+        });
+    }
+
+    async function __tmFlushPendingCreatedTaskSnapshotRefreshesAfterGroupSwitch(options = {}) {
+        const opts = (options && typeof options === 'object') ? options : {};
+        __tmPrunePendingCreatedTaskSnapshotRefreshes();
+        if (__tmPendingCreatedTaskSnapshotRefreshes.size === 0) return false;
+        const expectedGroupId = String(opts.groupId || '').trim();
+        const loadedDocIds = __tmNormalizeTaskSnapshotDocIds(
+            Array.isArray(opts.docIds) && opts.docIds.length
+                ? opts.docIds
+                : (state.__tmLoadedDocIdsForTasks || [])
+        );
+        let scopeDocIds = loadedDocIds.slice();
+        if (expectedGroupId && typeof resolveDocIdsFromGroups === 'function') {
+            try {
+                const resolvedDocIds = await resolveDocIdsFromGroups({
+                    groupId: expectedGroupId,
+                    forceRefreshScope: true,
+                    includeQuickAddDoc: true,
+                });
+                scopeDocIds = __tmNormalizeTaskSnapshotDocIds(scopeDocIds.concat(resolvedDocIds || []));
+            } catch (e) {}
+        }
+        if (!scopeDocIds.length) return false;
+        const pendingByDoc = new Map();
+        __tmPendingCreatedTaskSnapshotRefreshes.forEach((entry) => {
+            const docId = String(entry?.docId || '').trim();
+            const taskId = String(entry?.taskId || '').trim();
+            if (!scopeDocIds.includes(docId) || !__tmIsLikelyBlockId(taskId)) return;
+            if (!pendingByDoc.has(docId)) pendingByDoc.set(docId, []);
+            pendingByDoc.get(docId).push(entry);
+        });
+        if (pendingByDoc.size === 0) return false;
+
+        const isExpectedGroupActive = () => {
+            if (!expectedGroupId) return true;
+            return (String(SettingsStore?.data?.currentGroupId || 'all').trim() || 'all') === expectedGroupId;
+        };
+        let changed = false;
+        const refreshedDocIds = [];
+        for (const [docId, entries] of pendingByDoc.entries()) {
+            try { __tmClearGroupSessionTaskCache(docId); } catch (e) {}
+            try { __tmClearDocSessionTaskCache(docId); } catch (e) {}
+            let docEntry = __tmCloneLoadedTaskSnapshotDocEntry(docId);
+            const allTasksLoaded = docEntry
+                && entries.every((entry) => __tmTaskSnapshotDocEntryHasTask(docEntry, entry.taskId));
+            if (!allTasksLoaded && opts.fetchFreshDoc !== false) {
+                const freshDocEntry = await __tmFetchTaskSnapshotDocEntryForCreatedTask(docId);
+                if (freshDocEntry) docEntry = freshDocEntry;
+            }
+            if (!docEntry) continue;
+            const resolvedEntries = entries.filter((entry) => __tmTaskSnapshotDocEntryHasTask(docEntry, entry.taskId));
+            if (resolvedEntries.length === 0) continue;
+            const updated = await __tmApplyCreatedTaskDocSnapshotRefresh(docEntry, {
+                source: String(opts.source || 'switch-doc-group-created-task').trim() || 'switch-doc-group-created-task',
+            });
+            resolvedEntries.forEach((entry) => {
+                __tmForgetPendingCreatedTaskSnapshotRefresh(entry.taskId, docId);
+            });
+            if (isExpectedGroupActive() && scopeDocIds.includes(docId)) {
+                const currentLoadedDocIds = __tmNormalizeTaskSnapshotDocIds(state.__tmLoadedDocIdsForTasks || []);
+                if (!currentLoadedDocIds.includes(docId)) {
+                    state.__tmLoadedDocIdsForTasks = currentLoadedDocIds.concat(docId);
+                }
+            }
+            if (updated) changed = true;
+            refreshedDocIds.push(docId);
+        }
+
+        if (refreshedDocIds.length && opts.refreshCurrentView !== false && isExpectedGroupActive()) {
+            try {
+                await __tmRefreshAffectedDocsIncrementally({
+                    docIds: Array.from(new Set(refreshedDocIds)),
+                    reason: String(opts.source || 'switch-doc-group-created-task').trim() || 'switch-doc-group-created-task',
+                    deferIfDetailBusy: true,
+                });
+            } catch (e) {}
+        }
+        return changed || refreshedDocIds.length > 0;
+    }
+
     async function __tmFetchTaskSnapshotDocEntryForCreatedTask(docId) {
         const did = String(docId || '').trim();
         if (!__tmIsLikelyBlockId(did) || !API || typeof API.getTasksByDocument !== 'function') return null;
@@ -13025,13 +13180,23 @@
             const customFieldIds = typeof __tmNormalizeCustomFieldIdList === 'function'
                 ? __tmNormalizeCustomFieldIdList(customFieldPlan?.bulkFieldIds)
                 : [];
-            const res = await API.getTasksByDocument(did, __TM_TASK_INDEX_QUERY_LIMIT, {
-                doneOnly: false,
-                forceFresh: true,
-                skipParentTaskJoin: false,
-                skipDocJoin: true,
-                customFieldIds,
-            });
+            const res = (typeof API.getTasksByDocuments === 'function')
+                ? await API.getTasksByDocuments([did], __TM_TASK_INDEX_QUERY_LIMIT, {
+                    doneOnly: false,
+                    forceFresh: true,
+                    skipParentTaskJoin: false,
+                    skipDocJoin: true,
+                    customFieldIds,
+                    disableChunkedQuery: true,
+                    docChunkSize: 1,
+                })
+                : await API.getTasksByDocument(did, __TM_TASK_INDEX_QUERY_LIMIT, {
+                    doneOnly: false,
+                    forceFresh: true,
+                    skipParentTaskJoin: false,
+                    skipDocJoin: true,
+                    customFieldIds,
+                });
             rows = Array.isArray(res?.tasks) ? res.tasks : [];
         } catch (e) {
             rows = [];
@@ -13119,47 +13284,82 @@
         const tid = String(taskId || opts.taskId || opts.realId || '').trim();
         const docId = __tmResolveCreatedTaskDocId(tid, opts);
         if (!__tmIsLikelyBlockId(docId)) return false;
-        const delayMs = Math.max(80, Number(opts.delayMs || 220) || 220);
+        const delayMs = Math.max(0, Number(Object.prototype.hasOwnProperty.call(opts, 'delayMs') ? opts.delayMs : 220) || 0);
         const run = async () => {
             try { __tmClearGroupSessionTaskCache(docId); } catch (e) {}
             try { __tmClearDocSessionTaskCache(docId); } catch (e) {}
 
             let docEntry = __tmCloneLoadedTaskSnapshotDocEntry(docId);
+            const loadedDocHadCreatedTask = !!(docEntry && (!tid || __tmTaskSnapshotDocEntryHasTask(docEntry, tid)));
+            let docEntryFromFreshFetch = false;
             if (opts.fetchFreshDoc !== false && (!docEntry || !__tmTaskSnapshotDocEntryHasTask(docEntry, tid))) {
                 const freshDocEntry = await __tmFetchTaskSnapshotDocEntryForCreatedTask(docId);
                 if (freshDocEntry && (!tid || __tmTaskSnapshotDocEntryHasTask(freshDocEntry, tid))) {
                     docEntry = freshDocEntry;
+                    docEntryFromFreshFetch = true;
                 }
             }
-            if (tid && docEntry && !__tmTaskSnapshotDocEntryHasTask(docEntry, tid)) {
+            if (tid && (!docEntry || !__tmTaskSnapshotDocEntryHasTask(docEntry, tid))) {
                 const retry = Math.max(0, Number(opts.retry || 0) || 0);
-                if (retry < 2) {
+                const maxRetry = Math.max(0, Number(Object.prototype.hasOwnProperty.call(opts, 'maxRetry') ? opts.maxRetry : 3) || 0);
+                if (retry < maxRetry) {
+                    const retryDelay = retry === 0 ? 520 : (retry === 1 ? 1100 : 1800);
                     try {
                         __tmScheduleCreatedTaskSnapshotRefresh(tid, {
                             ...opts,
+                            docId,
+                            taskId: tid,
                             retry: retry + 1,
-                            delayMs: retry === 0 ? 520 : 1100,
+                            delayMs: retryDelay,
                             fetchFreshDoc: true,
                         });
                     } catch (e) {}
                 }
+                __tmRememberPendingCreatedTaskSnapshotRefresh(tid, docId, opts);
                 try { __tmScheduleTaskIndexPrewarmForDocIds([docId], { delayMs: 240 }); } catch (e) {}
                 return;
             }
             if (docEntry) {
-                try {
-                    __tmRememberDocSessionTaskEntry(docEntry, { inTaskTree: true });
-                } catch (e) {}
-                try {
-                    const indexEntry = __tmBuildTaskIndexDocEntry(docEntry, {
-                        queryLimit: __TM_TASK_INDEX_QUERY_LIMIT,
-                        inTaskTree: true,
-                    });
-                    if (indexEntry) await __tmMergeTaskIndexEntries([indexEntry]);
-                } catch (e) {}
-                await __tmUpdateSnapshotsContainingCreatedTaskDoc(docEntry, {
+                await __tmApplyCreatedTaskDocSnapshotRefresh(docEntry, {
                     source: String(opts.source || 'task-create').trim() || 'task-create',
                 });
+                const source = String(opts.source || 'task-create').trim() || 'task-create';
+                if (tid) {
+                    const loadedDocIds = __tmNormalizeTaskSnapshotDocIds(state.__tmLoadedDocIdsForTasks || []);
+                    if (loadedDocIds.includes(docId)) {
+                        __tmForgetPendingCreatedTaskSnapshotRefresh(tid, docId);
+                        if (docEntryFromFreshFetch && !loadedDocHadCreatedTask && opts.refreshCurrentView !== false) {
+                            try {
+                                await __tmRefreshAffectedDocsIncrementally({
+                                    docIds: [docId],
+                                    blockIds: [tid],
+                                    reason: source,
+                                    deferIfDetailBusy: opts.deferIfDetailBusy !== false,
+                                });
+                            } catch (e) {
+                                try { if (typeof applyFilters === 'function') applyFilters(); } catch (e2) {}
+                                try {
+                                    __tmRefreshMainViewInPlace({
+                                        withFilters: false,
+                                        reason: source,
+                                        deferIfDetailBusy: opts.deferIfDetailBusy !== false,
+                                    });
+                                } catch (e2) {}
+                            }
+                        } else if (opts.refreshCurrentView !== false) {
+                            try { if (typeof applyFilters === 'function') applyFilters(); } catch (e) {}
+                            try {
+                                __tmRefreshMainViewInPlace({
+                                    withFilters: false,
+                                    reason: source,
+                                    deferIfDetailBusy: opts.deferIfDetailBusy !== false,
+                                });
+                            } catch (e) {}
+                        }
+                    } else {
+                        __tmRememberPendingCreatedTaskSnapshotRefresh(tid, docId, opts);
+                    }
+                }
             } else {
                 try { __tmScheduleTaskIndexPrewarmForDocIds([docId], { delayMs: 180 }); } catch (e) {}
             }
@@ -13185,7 +13385,15 @@
                 } catch (e) {}
             }
         };
-        try { __tmScheduleIdleTask(run, delayMs); } catch (e) { setTimeout(() => { run().catch(() => null); }, delayMs); }
+        const scheduleRun = () => {
+            try { __tmScheduleIdleTask(run, 180); } catch (e) { setTimeout(() => { run().catch(() => null); }, 0); }
+        };
+        try {
+            if (delayMs > 0) setTimeout(scheduleRun, delayMs);
+            else scheduleRun();
+        } catch (e) {
+            setTimeout(() => { run().catch(() => null); }, delayMs);
+        }
         return true;
     }
 

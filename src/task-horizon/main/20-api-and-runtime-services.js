@@ -322,13 +322,14 @@
             const opts = (options && typeof options === 'object') ? options : {};
             const needH2Snapshot = opts.needH2 !== false;
             const needFlowSnapshot = opts.needFlow !== false;
+            const forceFresh = opts.forceFresh === true || opts.skipCache === true;
             const lvRaw = String(headingLevel || 'h2').trim().toLowerCase();
             const lvNum0 = Number((lvRaw.match(/^h([1-6])$/) || [])[1]);
             const lvNum = Number.isFinite(lvNum0) ? lvNum0 : 2;
             const cacheKey = `${did}:${lvRaw}:${needH2Snapshot ? 1 : 0}:${needFlowSnapshot ? 1 : 0}`;
             const now = Date.now();
             const ttlMs = 30000;
-            const cached = __tmDocEnhanceSnapshotCache.get(cacheKey);
+            const cached = forceFresh ? null : __tmDocEnhanceSnapshotCache.get(cacheKey);
             if (cached && cached.snapshot && (now - Number(cached.t || 0)) < ttlMs) {
                 return cached.snapshot;
             }
@@ -472,7 +473,7 @@
                 __tmDocEnhanceSnapshotCache.set(cacheKey, { t: Date.now(), snapshot });
                 return snapshot;
             });
-            __tmDocEnhanceSnapshotCache.set(cacheKey, { t: now, promise });
+            if (!forceFresh) __tmDocEnhanceSnapshotCache.set(cacheKey, { t: now, promise });
             try {
                 return await promise;
             } catch (e) {
@@ -485,6 +486,7 @@
             const ids = Array.from(new Set((taskIds || []).map(x => String(x || '').trim()).filter(Boolean))).sort();
             const needH2 = options?.needH2 !== false;
             const needFlow = options?.needFlow !== false;
+            const forceFresh = options?.forceFresh === true || options?.skipCache === true;
             if (!ids.length || (!needH2 && !needFlow)) {
                 return {
                     h2ContextMap: new Map(),
@@ -505,7 +507,7 @@
             }
             const headingLevel = String(SettingsStore.data.taskHeadingLevel || 'h2');
             const cacheKey = `enhance_bundle:${ids.length}:${__tmHashIds(ids)}:${headingLevel}:${needH2 ? 1 : 0}:${needFlow ? 1 : 0}`;
-            const cached = __tmGetAuxCache(cacheKey, 5000);
+            const cached = forceFresh ? null : __tmGetAuxCache(cacheKey, 5000);
             if (cached && cached.h2 && cached.flow) {
                 return {
                     h2ContextMap: new Map(cached.h2),
@@ -553,7 +555,7 @@
             const docEntries = Array.from(tasksByDoc.entries());
             perfMeta.docCount = docEntries.length;
             const perfTuning = __tmGetPerfTuningOptions();
-            const docConcurrency = docEntries.length > 0
+                const docConcurrency = docEntries.length > 0
                 ? Math.max(1, Math.min(docEntries.length, Number(perfTuning.docEnhanceFetchConcurrency) || 6))
                 : 0;
             perfMeta.docConcurrency = docConcurrency;
@@ -567,7 +569,7 @@
                         if (index >= docEntries.length) return;
                         const [docId, tidSet] = docEntries[index];
                         let snapshot = null;
-                        try { snapshot = await this.getDocEnhanceSnapshot(docId, headingLevel, { needH2, needFlow }); } catch (e) { snapshot = null; }
+                        try { snapshot = await this.getDocEnhanceSnapshot(docId, headingLevel, { needH2, needFlow, forceFresh }); } catch (e) { snapshot = null; }
                         if (!snapshot) continue;
                         tidSet.forEach((tid) => {
                             if (needFlow) {
@@ -611,6 +613,7 @@
                             taskDocMap,
                             skipHeadingOrderFetch: true,
                             skipKramdownRealign: false,
+                            forceFresh,
                         });
                         perfMeta.fallbackH2RecoveredCount = fallbackH2 instanceof Map ? fallbackH2.size : 0;
                         fallbackH2.forEach((ctx, taskId) => {
@@ -1760,9 +1763,10 @@
             const providedTaskDocMap = opts.taskDocMap instanceof Map ? opts.taskDocMap : null;
             const skipHeadingOrderFetch = opts.skipHeadingOrderFetch === true;
             const skipKramdownRealign = opts.skipKramdownRealign === true;
+            const forceFresh = opts.forceFresh === true || opts.skipCache === true;
             const cacheMode = `${skipHeadingOrderFetch ? 1 : 0}${skipKramdownRealign ? 1 : 0}`;
             const cacheKey = `h2ctx:${ids.length}:${__tmHashIds(ids)}:${String(SettingsStore.data.taskHeadingLevel || 'h2')}:${cacheMode}`;
-            const cached = __tmGetAuxCache(cacheKey, 8000);
+            const cached = forceFresh ? null : __tmGetAuxCache(cacheKey, 8000);
             if (cached) return new Map(cached);
             const batchSize = 100;
             const contextMap = new Map();
@@ -3833,6 +3837,7 @@
         collapsedTaskIds: new Set(),
         collapsedGroups: new Set(),
         expandedCompletedGroups: new Set(),
+        __tmKanbanCollapsedColumnKeys: new Set(),
         timerFocusTaskId: '',
 
         // 统计信息
@@ -13767,12 +13772,19 @@ refreshOk = false;
         const docs = Array.isArray(state.taskTree) ? state.taskTree : [];
         const collapsedGroups = state.collapsedGroups instanceof Set ? Array.from(state.collapsedGroups).sort() : [];
         const kanbanCollapsedIds = state.__tmKanbanCollapsedIds instanceof Set ? Array.from(state.__tmKanbanCollapsedIds).sort() : [];
+        const kanbanCollapsedColumnKeys = state.__tmKanbanCollapsedColumnKeys instanceof Set ? Array.from(state.__tmKanbanCollapsedColumnKeys).sort() : [];
         const quadrantRules = Array.isArray(SettingsStore.data?.quadrantConfig?.rules) ? SettingsStore.data.quadrantConfig.rules : [];
+        const completedSubtasksVisibility = (SettingsStore.data?.taskDetailCompletedSubtasksVisibilityByTask
+            && typeof SettingsStore.data.taskDetailCompletedSubtasksVisibilityByTask === 'object'
+            && !Array.isArray(SettingsStore.data.taskDetailCompletedSubtasksVisibilityByTask))
+            ? SettingsStore.data.taskDetailCompletedSubtasksVisibilityByTask
+            : {};
 
         feed(options.isAllTabsView ? 1 : 0);
         feed(options.isCompact ? 1 : 0);
         feed(options.kanbanColW);
         feed(options.kanbanFillColumns ? 1 : 0);
+        feed(options.showCompletedTasks ? 1 : 0);
         feed(options.showDoneCol ? 1 : 0);
         feed(options.boardMode || '');
         feed(options.headingMode ? 1 : 0);
@@ -13785,13 +13797,16 @@ refreshOk = false;
         feed(options.groupByTime ? 1 : 0);
         feed(options.quadrantEnabled ? 1 : 0);
         feed(options.kanbanCardFields || '');
+        feed(options.expandedTaskSignature || '');
         feed(__tmNormalizeDateOnly(new Date()));
         feed(SettingsStore.data.taskHeadingLevel || 'h2');
         feed(SettingsStore.data.groupSortByBestSubtaskTimeInTimeQuadrant ? 1 : 0);
         feed(SettingsStore.data.pinTasksWithinGroups ? 1 : 0);
         feed(SettingsStore.data.completedTasksTodayOnly ? 1 : 0);
         feed(SettingsStore.data.completedTasksInlineInGroups ? 1 : 0);
+        feed(SettingsStore.data.taskCardDateOnlyWithValue ? 1 : 0);
         feed(SettingsStore.data.kanbanDragSyncSubtasks ? 1 : 0);
+        feed(SettingsStore.data.kanbanPreventSubtaskSeparation ? 1 : 0);
         feed(SettingsStore.data.newTaskDocId || '');
         feed(SettingsStore.data.timeGroupBaseColorLight || '');
         feed(SettingsStore.data.timeGroupBaseColorDark || '');
@@ -13830,6 +13845,16 @@ refreshOk = false;
         feed(kanbanCollapsedIds.length);
         kanbanCollapsedIds.forEach(feed);
 
+        feed(kanbanCollapsedColumnKeys.length);
+        kanbanCollapsedColumnKeys.forEach(feed);
+
+        const completedSubtaskVisibilityKeys = Object.keys(completedSubtasksVisibility).sort();
+        feed(completedSubtaskVisibilityKeys.length);
+        completedSubtaskVisibilityKeys.forEach((key) => {
+            feed(key);
+            feed(completedSubtasksVisibility[key] === false ? 0 : 1);
+        });
+
         feed(filtered.length);
         filtered.forEach((task) => {
             const markdown = String(task?.markdown || '');
@@ -13841,11 +13866,19 @@ refreshOk = false;
             feed(task?.done ? 1 : 0);
             feed(task?.customStatus);
             feed(task?.priority);
+            feed(task?.priorityScore);
             feed(task?.duration);
             feed(task?.startDate);
             feed(task?.completionTime);
+            feed(task?.customTime);
+            feed(task?.taskCompleteAt);
+            feed(task?.tomatoEstimateCount);
+            feed(task?.tomatoCount);
+            feed(task?.tomatoMinutes);
+            feed(task?.tomatoHours);
             feed(task?.remark);
             feed(task?.root_id);
+            feed(task?.docId);
             feed(task?.parentTaskId);
             feed(task?.h2);
             feed(task?.h2Id);
@@ -13858,6 +13891,8 @@ refreshOk = false;
             feed(task?.blockSort);
             feed(task?.created);
             feed(task?.pinned ? 1 : 0);
+            feed(task?.repeatRule || task?.repeat_rule || '');
+            feed(task?.repeatState || task?.repeat_state || '');
             feed(Array.isArray(task?.children) ? task.children.length : 0);
         });
 
@@ -17589,17 +17624,34 @@ return true;
         return Number.isFinite(scrollWidth) && scrollWidth > 0 ? scrollWidth : 0;
     }
 
-    function __tmSyncTimelineMobileGroupStickyOffset(modalEl) {
+    function __tmSyncTimelineMobileGroupStickyOffset(modalEl, options = {}) {
         const modal = modalEl instanceof Element ? modalEl : state.modal;
         const scrollHost = __tmGetTimelineGlobalScrollHost(modal);
         if (!(scrollHost instanceof HTMLElement)) return false;
-        const offset = Math.max(0, Number(scrollHost.scrollLeft) || 0);
-        try {
-            scrollHost.style.setProperty('--tm-mobile-timeline-group-shift', `${offset}px`);
-        } catch (e) {
-            return false;
+        const apply = () => {
+            const offset = Math.max(0, Math.round(Number(scrollHost.scrollLeft) || 0));
+            if (Number(scrollHost.__tmMobileTimelineGroupShiftLast) === offset) return true;
+            try {
+                scrollHost.style.setProperty('--tm-mobile-timeline-group-shift', `${offset}px`);
+                scrollHost.__tmMobileTimelineGroupShiftLast = offset;
+            } catch (e) {
+                return false;
+            }
+            return true;
+        };
+        if (options && options.defer === true) {
+            if (Number(scrollHost.__tmMobileTimelineGroupShiftRaf) > 0) return true;
+            try {
+                scrollHost.__tmMobileTimelineGroupShiftRaf = requestAnimationFrame(() => {
+                    scrollHost.__tmMobileTimelineGroupShiftRaf = 0;
+                    try { apply(); } catch (e) {}
+                });
+            } catch (e) {
+                return apply();
+            }
+            return true;
         }
-        return true;
+        return apply();
     }
 
     function __tmSyncTimelineDateColumnWidths(modalEl) {

@@ -609,6 +609,8 @@
                 </div>
             `;
 
+            let lastGroupChipOffset = -1;
+            let groupChipScrollRaf = 0;
             const syncGroupChipOffset = () => {
                 let offset = 0;
                 if (isMobileTimelineGlobal) {
@@ -617,23 +619,42 @@
                 } else {
                     offset = Number(bodyEl.scrollLeft) || 0;
                 }
-                try { bodyEl.style.setProperty('--tm-gantt-group-chip-offset', `${Math.max(0, offset)}px`); } catch (e) {}
+                offset = Math.max(0, Math.round(offset));
+                if (offset === lastGroupChipOffset) return;
+                lastGroupChipOffset = offset;
+                try { bodyEl.style.setProperty('--tm-gantt-group-chip-offset', `${offset}px`); } catch (e) {}
+            };
+            const scheduleGroupChipOffsetSync = () => {
+                if (groupChipScrollRaf) return;
+                try {
+                    groupChipScrollRaf = requestAnimationFrame(() => {
+                        groupChipScrollRaf = 0;
+                        try { syncGroupChipOffset(); } catch (e) {}
+                    });
+                } catch (e) {
+                    groupChipScrollRaf = 0;
+                    try { syncGroupChipOffset(); } catch (e2) {}
+                }
             };
             try { syncGroupChipOffset(); } catch (e) {}
             try {
                 if (isMobileTimelineGlobal) {
                     const scrollHost = mobileTimelineModalEl?.querySelector?.('.tm-body.tm-body--timeline');
                     if (scrollHost instanceof HTMLElement) {
-                        const onGroupChipScroll = () => { try { syncGroupChipOffset(); } catch (e2) {} };
+                        const onGroupChipScroll = () => { try { scheduleGroupChipOffsetSync(); } catch (e2) {} };
                         globalThis.__tmRuntimeEvents?.on?.(scrollHost, 'scroll', onGroupChipScroll, { passive: true });
                         groupChipScrollCleanup = () => {
+                            try { if (groupChipScrollRaf) cancelAnimationFrame(groupChipScrollRaf); } catch (e2) {}
+                            groupChipScrollRaf = 0;
                             try { globalThis.__tmRuntimeEvents?.off?.(scrollHost, 'scroll', onGroupChipScroll, { passive: true }); } catch (e2) {}
                         };
                     }
                 } else {
-                    const onGroupChipScroll = () => { try { syncGroupChipOffset(); } catch (e2) {} };
+                    const onGroupChipScroll = () => { try { scheduleGroupChipOffsetSync(); } catch (e2) {} };
                     globalThis.__tmRuntimeEvents?.on?.(bodyEl, 'scroll', onGroupChipScroll, { passive: true });
                     groupChipScrollCleanup = () => {
+                        try { if (groupChipScrollRaf) cancelAnimationFrame(groupChipScrollRaf); } catch (e2) {}
+                        groupChipScrollRaf = 0;
                         try { globalThis.__tmRuntimeEvents?.off?.(bodyEl, 'scroll', onGroupChipScroll, { passive: true }); } catch (e2) {}
                     };
                 }

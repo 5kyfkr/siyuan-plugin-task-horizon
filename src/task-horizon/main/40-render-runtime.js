@@ -2028,10 +2028,15 @@ return;
                     };
                     if (useGlobalScroll) {
                         const syncMobileGroupX = () => {
-                            try { __tmSyncTimelineMobileGroupStickyOffset(state.modal); } catch (e) {}
+                            try { __tmSyncTimelineMobileGroupStickyOffset(state.modal, { defer: true }); } catch (e) {}
                         };
-                        try { syncMobileGroupX(); } catch (e) {}
-                        try { timelineScrollHost?.addEventListener('scroll', syncMobileGroupX, { passive: true }); } catch (e) {}
+                        try { __tmSyncTimelineMobileGroupStickyOffset(state.modal); } catch (e) {}
+                        try {
+                            const prevSync = timelineScrollHost?.__tmTimelineMobileGroupXSync;
+                            if (typeof prevSync === 'function') timelineScrollHost.removeEventListener('scroll', prevSync);
+                            timelineScrollHost.__tmTimelineMobileGroupXSync = syncMobileGroupX;
+                            timelineScrollHost.addEventListener('scroll', syncMobileGroupX, { passive: true });
+                        } catch (e) {}
                         ganttBody.addEventListener('click', onGroupClick, true);
                     } else {
                     const onGanttWheel = (ev) => {
@@ -2527,6 +2532,8 @@ return;
         if (targetDrop instanceof Element) return targetDrop;
         const currentDrop = currentTarget?.closest?.('[data-tm-kb-drop-kind]') || null;
         if (currentDrop instanceof Element) return currentDrop;
+        const hover = state.modal?.querySelector?.('.tm-kanban-col.tm-kanban-col--dragover');
+        if (String(ev?.type || '').toLowerCase() === 'drop' && hover instanceof Element) return hover;
         let el = currentTarget || target;
         if (!el && Number.isFinite(Number(ev?.clientX)) && Number.isFinite(Number(ev?.clientY))) {
             try {
@@ -2538,7 +2545,6 @@ return;
         }
         const direct = el?.closest?.('.tm-kanban-col') || null;
         if (direct instanceof Element) return direct;
-        const hover = state.modal?.querySelector?.('.tm-kanban-col.tm-kanban-col--dragover');
         return hover instanceof Element ? hover : null;
     }
 
@@ -2558,6 +2564,22 @@ return;
         } catch (e) {}
     }
 
+    function __tmKanbanGetCollapsedColumnSet() {
+        if (!(state.__tmKanbanCollapsedColumnKeys instanceof Set)) state.__tmKanbanCollapsedColumnKeys = new Set();
+        return state.__tmKanbanCollapsedColumnKeys;
+    }
+
+    function __tmKanbanPersistCollapsedColumns() {
+        try {
+            const s = __tmKanbanGetCollapsedColumnSet();
+            const arr = Array.from(s).map(x => String(x || '').trim()).filter(Boolean);
+            SettingsStore.data.kanbanCollapsedColumnKeys = arr;
+            __tmMarkCollapseStateChanged();
+            try { Storage.set('tm_kanban_collapsed_column_keys', arr); } catch (e) {}
+            SettingsStore.save();
+        } catch (e) {}
+    }
+
     window.tmKanbanToggleCollapse = function(id, ev) {
         try {
             ev?.stopPropagation?.();
@@ -2569,6 +2591,20 @@ return;
         if (s.has(tid)) s.delete(tid);
         else s.add(tid);
         __tmKanbanPersistCollapsed();
+        render();
+    };
+
+    window.tmKanbanToggleColumnCollapse = function(key, ev) {
+        try {
+            ev?.stopPropagation?.();
+            ev?.preventDefault?.();
+        } catch (e) {}
+        const colKey = String(key || '').trim();
+        if (!colKey) return;
+        const s = __tmKanbanGetCollapsedColumnSet();
+        if (s.has(colKey)) s.delete(colKey);
+        else s.add(colKey);
+        __tmKanbanPersistCollapsedColumns();
         render();
     };
 
@@ -2633,6 +2669,16 @@ return;
             && !!SettingsStore.data.kanbanShowDoneColumn;
         if (!!task.done && doneBoardEnabled) return '__done__';
         return String(__tmResolveTaskStatusId(task, SettingsStore.data.customStatusOptions || []) || '').trim();
+    }
+
+    function __tmResolveKanbanEffectiveDragTarget(taskId, sourceEl) {
+        const requestedId = String(taskId || '').trim();
+        const requestedCard = sourceEl instanceof HTMLElement
+            ? (sourceEl.classList?.contains?.('tm-kanban-card') ? sourceEl : sourceEl.closest?.('.tm-kanban-card[data-id]'))
+            : null;
+        const fallbackId = String(requestedCard?.getAttribute?.('data-id') || '').trim();
+        const currentId = requestedId || fallbackId;
+        return { taskId: currentId, cardEl: requestedCard || null };
     }
 
     function __tmKanbanCollectAttachedStatusDescendantIds(rootId) {
@@ -2935,7 +2981,12 @@ return;
 
     window.tmKanbanDragStart = function(ev, id) {
         try { ev.stopPropagation(); } catch (e) {}
-        const taskId = String(id || '').trim();
+        const sourceCard = ev?.currentTarget instanceof HTMLElement
+            ? ev.currentTarget
+            : (ev?.target instanceof Element ? ev.target.closest('.tm-kanban-card[data-id]') : null);
+        const resolvedDrag = __tmResolveKanbanEffectiveDragTarget(id, sourceCard);
+        const taskId = String(resolvedDrag?.taskId || '').trim();
+        const dragCard = resolvedDrag?.cardEl instanceof HTMLElement ? resolvedDrag.cardEl : sourceCard;
         if (!taskId) return;
         state.draggingTaskId = taskId;
         try { __tmSetCalendarSideDockDragHidden(true); } catch (e) {}
@@ -2957,8 +3008,9 @@ return;
         } catch (e) {}
         state.__tmKanbanDragId = taskId;
         state.__tmKanbanDragIds = [taskId];
+        state.__tmKanbanDragSourceEl = dragCard instanceof HTMLElement ? dragCard : null;
         try { __tmBindKanbanDocumentAutoScroll(); } catch (e) {}
-        try { ev.currentTarget?.classList?.add?.('tm-kanban-card--dragging'); } catch (e) {}
+        try { dragCard?.classList?.add?.('tm-kanban-card--dragging'); } catch (e) {}
         try {
             const meta = (typeof window.tmCalendarGetTaskDragMeta === 'function') ? window.tmCalendarGetTaskDragMeta(taskId) : null;
             __tmCalendarFloatingDragStart(taskId, meta, ev);
@@ -2966,7 +3018,7 @@ return;
 
         if (!SettingsStore.data.kanbanDragSyncSubtasks) {
             try {
-                const target = ev.currentTarget;
+                const target = dragCard;
                 if (target instanceof Element && target.querySelector('.tm-kanban-subtasks')) {
                     const clone = target.cloneNode(true);
                     const sub = clone.querySelector('.tm-kanban-subtasks');
@@ -2989,6 +3041,10 @@ return;
 
     window.tmKanbanDragEnd = function(ev, id) {
         try { ev.currentTarget?.classList?.remove?.('tm-kanban-card--dragging'); } catch (e) {}
+        try {
+            const sourceEl = state.__tmKanbanDragSourceEl;
+            if (sourceEl instanceof HTMLElement) sourceEl.classList.remove('tm-kanban-card--dragging');
+        } catch (e) {}
         state.draggingTaskId = '';
         try { __tmClearDocTabDropTarget(); } catch (e) {}
         try { __tmSetCalendarSideDockDragHidden(false); } catch (e) {}
@@ -2996,6 +3052,7 @@ return;
         try { __tmUnbindKanbanDocumentAutoScroll(); } catch (e) {}
         try { delete state.__tmKanbanDragId; } catch (e) {}
         try { delete state.__tmKanbanDragIds; } catch (e) {}
+        try { delete state.__tmKanbanDragSourceEl; } catch (e) {}
         __tmKanbanClearDragOver();
     };
 
@@ -3182,7 +3239,7 @@ return;
         ghost.style.margin = '0';
         ghost.style.width = `${Math.max(180, Math.round(rect.width || cardEl.offsetWidth || 280))}px`;
         ghost.style.maxWidth = ghost.style.width;
-        ghost.style.zIndex = '200030';
+        ghost.style.zIndex = '200160';
         ghost.style.pointerEvents = 'none';
         ghost.style.opacity = '0.96';
         ghost.style.transform = `translate(${Math.round(rect.left)}px, ${Math.round(rect.top)}px)`;
@@ -3255,14 +3312,18 @@ return;
         if (__tmIsMultiSelectActive('kanban')) return;
         if (!__tmIsKanbanTouchPointer(ev)) return;
         if (ev && typeof ev.button === 'number' && ev.button !== 0) return;
-        const cardEl = ev?.currentTarget instanceof HTMLElement
+        try { ev.stopPropagation?.(); } catch (e) {}
+        let cardEl = ev?.currentTarget instanceof HTMLElement
             ? ev.currentTarget
             : (ev?.target instanceof Element ? ev.target.closest('.tm-kanban-card[data-id]') : null);
         if (!(cardEl instanceof HTMLElement)) return;
+        const rawTaskId = String(id || cardEl.getAttribute('data-id') || '').trim();
+        const resolvedDrag = __tmResolveKanbanEffectiveDragTarget(rawTaskId, cardEl);
+        const taskId = String(resolvedDrag?.taskId || rawTaskId || '').trim();
+        if (resolvedDrag?.cardEl instanceof HTMLElement) cardEl = resolvedDrag.cardEl;
         const bodyEl = state.modal?.querySelector?.('.tm-body.tm-body--kanban');
         if (!(bodyEl instanceof HTMLElement)) return;
         const colBodyEl = cardEl.closest('.tm-kanban-col')?.querySelector?.('.tm-kanban-col-body');
-        const taskId = String(id || cardEl.getAttribute('data-id') || '').trim();
         if (!taskId) return;
         const calendarDragMeta = (() => {
             try {
@@ -3291,7 +3352,6 @@ return;
         const startX = Number(ev?.clientX) || 0;
         const startY = Number(ev?.clientY) || 0;
         const baseScrollLeft = Number(bodyEl.scrollLeft || 0);
-        const baseColScrollTop = colBodyEl instanceof HTMLElement ? Number(colBodyEl.scrollTop || 0) : 0;
         let lastX = startX;
         let lastY = startY;
         let mode = 'pending';
@@ -3308,9 +3368,16 @@ return;
         let dragStartY = NaN;
         let floatingMiniVisible = false;
         let floatingMiniRevealTimer = null;
+        let preventTouchGestureScrollBound = false;
         const preventTouchGestureScroll = (e2) => {
-            if (ended || (mode !== 'drag' && mode !== 'pan' && mode !== 'scroll')) return;
+            if (ended || (mode !== 'drag' && mode !== 'pan')) return;
             try { e2?.preventDefault?.(); } catch (e3) {}
+        };
+        const bindPreventTouchGestureScroll = () => {
+            if (preventTouchGestureScrollBound) return;
+            preventTouchGestureScrollBound = true;
+            try { window.addEventListener('touchmove', preventTouchGestureScroll, { capture: true, passive: false }); } catch (e2) {}
+            try { window.addEventListener('pointermove', preventTouchGestureScroll, { capture: true, passive: false }); } catch (e2) {}
         };
 
         const samePointer = (e2) => {
@@ -3326,11 +3393,6 @@ return;
         };
 
         const canPan = () => (bodyEl.scrollWidth - bodyEl.clientWidth) > 2;
-        const canScrollCol = () => (
-            colBodyEl instanceof HTMLElement
-            && (colBodyEl.scrollHeight - colBodyEl.clientHeight) > 2
-        );
-
         const cancelLongPress = () => {
             if (!longPressTimer) return;
             try { clearTimeout(longPressTimer); } catch (e2) {}
@@ -3426,18 +3488,11 @@ return;
             if (mode !== 'pending' || ended) return;
             mode = 'pan';
             cancelLongPress();
+            bindPreventTouchGestureScroll();
             capturePointer();
             panVelocity = 0;
             lastPanScrollLeft = Number(bodyEl.scrollLeft || 0);
             lastPanTs = 0;
-            setGestureActiveStyles();
-        };
-
-        const startScroll = () => {
-            if (mode !== 'pending' || ended) return;
-            mode = 'scroll';
-            cancelLongPress();
-            capturePointer();
             setGestureActiveStyles();
         };
 
@@ -3447,6 +3502,7 @@ return;
             cancelLongPress();
             capturePointer();
             cancelFloatingMiniStart();
+            bindPreventTouchGestureScroll();
             setGestureActiveStyles();
             state.draggingTaskId = taskId;
             state.__tmKanbanDragId = taskId;
@@ -3524,7 +3580,7 @@ return;
             if (String(state.draggingTaskId || '').trim() === taskId) state.draggingTaskId = '';
             try { delete state.__tmKanbanDragId; } catch (e2) {}
             try { delete state.__tmKanbanDragIds; } catch (e2) {}
-            if (mode === 'pan' || mode === 'scroll' || mode === 'drag') {
+            if (mode === 'pan' || mode === 'drag') {
                 state.__tmKanbanPanSuppressClickUntil = Date.now() + suppressClickMs;
             }
             try { bodyEl.style.cursor = ''; } catch (e2) {}
@@ -3560,13 +3616,6 @@ return;
                 try { e2.preventDefault(); } catch (e3) {}
                 return;
             }
-            if (mode === 'scroll') {
-                if (!(colBodyEl instanceof HTMLElement)) return;
-                const maxTop = Math.max(0, colBodyEl.scrollHeight - colBodyEl.clientHeight);
-                colBodyEl.scrollTop = clamp0(baseColScrollTop - dy, 0, maxTop);
-                try { e2.preventDefault(); } catch (e3) {}
-                return;
-            }
             const absX = Math.abs(dx);
             const absY = Math.abs(dy);
             const effectivePanThreshold = longPressTimer ? Math.max(panThreshold, longPressIntentThreshold) : panThreshold;
@@ -3583,13 +3632,9 @@ return;
                 try { e2.preventDefault(); } catch (e3) {}
                 return;
             }
-            if (verticalIntent && canScrollCol()) {
-                startScroll();
-                if (colBodyEl instanceof HTMLElement) {
-                    const maxTop = Math.max(0, colBodyEl.scrollHeight - colBodyEl.clientHeight);
-                    colBodyEl.scrollTop = clamp0(baseColScrollTop - dy, 0, maxTop);
-                }
-                try { e2.preventDefault(); } catch (e3) {}
+            if (verticalIntent) {
+                cancelLongPress();
+                cleanup();
                 return;
             }
             if ((dx * dx + dy * dy) >= (longPressMoveTolerance * longPressMoveTolerance)) {
@@ -3611,8 +3656,6 @@ return;
         try { document.addEventListener('pointermove', onMove, true); } catch (e2) {}
         try { document.addEventListener('pointerup', onUp, true); } catch (e2) {}
         try { document.addEventListener('pointercancel', onUp, true); } catch (e2) {}
-        try { window.addEventListener('touchmove', preventTouchGestureScroll, { capture: true, passive: false }); } catch (e2) {}
-        try { window.addEventListener('pointermove', preventTouchGestureScroll, { capture: true, passive: false }); } catch (e2) {}
         try { window.addEventListener('blur', onUp, true); } catch (e2) {}
     };
 
@@ -3883,7 +3926,9 @@ return;
                     optimisticProjectionRefresh: true,
                     showErrorHint: false,
                 });
-                if (ok !== false) changed += 1;
+                if (ok !== false) {
+                    changed += 1;
+                }
             }
             if (!changed) {
                 if (restoredFromDoneBoard) {
@@ -3974,7 +4019,13 @@ return;
                 if (!ok) return;
                 for (const tid of ids.slice().reverse()) {
                     if (targetHeadingId && targetHeadingId !== '__none__') {
-                        await __tmQueueMoveTask(tid, { targetDocId, headingId: targetHeadingId, mode: 'heading' });
+                        // 标题列移动先走后置重载，避免乐观渲染把整板短暂挤进第一列
+                        await __tmQueueMoveTask(tid, {
+                            targetDocId,
+                            headingId: targetHeadingId,
+                            mode: 'heading',
+                            deferOptimisticRender: true,
+                        });
                     } else {
                         await __tmQueueMoveTask(tid, { targetDocId, mode: 'docTop' });
                     }
@@ -3982,10 +4033,6 @@ return;
             } catch (e) {
                 hint(`❌ 操作失败: ${e.message}`, 'error');
             }
-
-            // 移动后刷新数据
-            applyFilters();
-            render();
             return;
         }
     };

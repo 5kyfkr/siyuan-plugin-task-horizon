@@ -277,18 +277,46 @@ return ok;
         const card = state.modal.querySelector(`.tm-kanban-card[data-id="${CSS.escape(id)}"]`);
         if (!(card instanceof HTMLElement)) return false;
         let touched = false;
+        const cardFields = (() => {
+            try { return new Set(__tmGetTaskCardFieldList('kanban')); } catch (e) { return new Set(); }
+        })();
+        const syncExistingMetaNode = (field, html, options = {}) => {
+            const node = card.querySelector(`[data-tm-task-time-field="${CSS.escape(field)}"]`);
+            const shouldExist = options.shouldExist !== false;
+            if (node instanceof HTMLElement) {
+                if (!shouldExist) return false;
+                if (options.html === true) node.innerHTML = String(html || '');
+                else node.textContent = String(html || '');
+                touched = true;
+                return true;
+            }
+            return !shouldExist;
+        };
         const dateNode = card.querySelector('[data-tm-task-time-field="date"]');
+        const dateEnabled = cardFields.has('date');
+        const dateShouldExist = dateEnabled && __tmShouldRenderTaskCardDate(task);
         if (dateNode instanceof HTMLElement) {
-            if (!__tmShouldRenderTaskCardDate(task)) return false;
+            if (!dateShouldExist) return false;
             dateNode.textContent = __tmGetTaskCardDateValue(task) || '日期';
             touched = true;
+        } else if (dateShouldExist) {
+            return false;
         }
-        const focusNode = card.querySelector('[data-tm-task-time-field="tomatoSummary"]');
-        if (focusNode instanceof HTMLElement) {
-            focusNode.innerHTML = __tmGetTaskTomatoSummaryHtml(task);
-            touched = true;
-        }
-        return touched || (!dateNode && !focusNode);
+        const focusText = __tmGetTaskTomatoSummaryText(task);
+        if (!syncExistingMetaNode('tomatoSummary', __tmGetTaskTomatoSummaryHtml(task), {
+            html: true,
+            shouldExist: cardFields.has('tomatoSummary') && !!focusText,
+        })) return false;
+        const estimateText = __tmGetTomatoCountDisplay(__tmGetTaskTomatoEstimateCount(task));
+        if (!syncExistingMetaNode('tomatoEstimateCount', estimateText, {
+            shouldExist: cardFields.has('tomatoEstimateCount') && !!estimateText,
+        })) return false;
+        const countText = __tmGetTomatoCountDisplay(__tmGetTaskTomatoCount(task));
+        if (!syncExistingMetaNode('tomatoCount', __tmGetActualTomatoCountDisplayHtml(__tmGetTaskTomatoCount(task)), {
+            html: true,
+            shouldExist: cardFields.has('tomatoCount') && !!countText,
+        })) return false;
+        return true;
     }
 
     function __tmUpdateWhiteboardTaskTimeInDOM(taskId) {
@@ -388,6 +416,14 @@ return ok;
         const patch = (opts.patch && typeof opts.patch === 'object') ? opts.patch : {};
         const hasCalendarDatePatch = Object.prototype.hasOwnProperty.call(patch, 'startDate')
             || Object.prototype.hasOwnProperty.call(patch, 'completionTime');
+        const isKanbanTimeBoard = (() => {
+            if (viewMode !== 'kanban') return false;
+            try {
+                return typeof __tmGetKanbanBoardMode === 'function' && __tmGetKanbanBoardMode() === 'time';
+            } catch (e) {
+                return false;
+            }
+        })();
         let refreshed = false;
         let shouldFallback = false;
 
@@ -401,8 +437,14 @@ return ok;
             if (__tmCanUpdateTaskTimeInListLike(task)) refreshed = !!__tmUpdateChecklistTaskTimeInDOM(tid) || refreshed;
             else shouldFallback = true;
         } else if (viewMode === 'kanban') {
-            refreshed = !!__tmUpdateKanbanTaskTimeInDOM(tid) || refreshed;
-            if (!refreshed) refreshed = !!__tmRerenderCurrentViewInPlace(state.modal) || refreshed;
+            if (hasCalendarDatePatch && isKanbanTimeBoard) {
+                try { applyFilters(); } catch (e) {}
+                refreshed = !!__tmRerenderKanbanInPlace(state.modal) || refreshed;
+                if (!refreshed) refreshed = !!__tmRerenderCurrentViewInPlace(state.modal) || refreshed;
+            } else {
+                refreshed = !!__tmUpdateKanbanTaskTimeInDOM(tid) || refreshed;
+                if (!refreshed) refreshed = !!__tmRerenderCurrentViewInPlace(state.modal) || refreshed;
+            }
         } else if (viewMode === 'whiteboard') {
             refreshed = !!__tmUpdateWhiteboardTaskTimeInDOM(tid) || refreshed;
             if (!refreshed) refreshed = !!__tmRerenderCurrentViewInPlace(state.modal) || refreshed;

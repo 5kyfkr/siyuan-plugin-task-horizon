@@ -557,6 +557,12 @@
         render();
     };
 
+    window.updateKanbanPreventSubtaskSeparation = async function(enabled) {
+        SettingsStore.data.kanbanPreventSubtaskSeparation = !!enabled;
+        await SettingsStore.save();
+        render();
+    };
+
     window.tmToggleGroupTaskBgByGroupColor = async function(enabled) {
         SettingsStore.data.enableGroupTaskBgByGroupColor = !!enabled;
         await SettingsStore.save();

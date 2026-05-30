@@ -1670,6 +1670,15 @@ try {
         return true;
     }
 
+    function __tmIsKanbanTimeBoardContext() {
+        if (String(state.viewMode || '').trim() !== 'kanban') return false;
+        try {
+            return typeof __tmGetKanbanBoardMode === 'function' && __tmGetKanbanBoardMode() === 'time';
+        } catch (e) {
+            return false;
+        }
+    }
+
     function __tmShouldSuppressChecklistDetailSaveRefresh(taskId, patch = {}, options = {}) {
         const tid = String(taskId || '').trim();
         const nextPatch = (patch && typeof patch === 'object') ? patch : {};
@@ -1746,7 +1755,23 @@ try {
         const completionKeys = ['done', 'customStatus', 'taskCompleteAt'];
         if (completionKeys.some((key) => keySet.has(key))) return true;
         const timeKeys = ['startDate', 'completionTime', 'customTime'];
-        if (state.groupByTime && timeKeys.some((key) => keySet.has(key))) return true;
+        if ((state.groupByTime || __tmIsKanbanTimeBoardContext()) && timeKeys.some((key) => keySet.has(key))) return true;
+        if (String(state.viewMode || '').trim() === 'kanban') {
+            let kanbanMode = '';
+            try {
+                kanbanMode = typeof __tmGetKanbanBoardMode === 'function' ? String(__tmGetKanbanBoardMode() || '').trim() : '';
+            } catch (e) {
+                kanbanMode = '';
+            }
+            const docHeadingKeys = ['root_id', 'docId', 'h2', 'h2Id', 'h2Path', 'h2Sort', 'h2Created', 'h2Rank', 'docSeq', 'blockPath', 'blockSort'];
+            const docHeadingChanged = docHeadingKeys.some((key) => keySet.has(key));
+            if (keySet.has('root_id') || keySet.has('docId')) return true;
+            if (kanbanMode === 'heading' && docHeadingChanged) return true;
+            try {
+                const cardFields = new Set(__tmGetTaskCardFieldList('kanban'));
+                if (cardFields.has('h2') && docHeadingChanged) return true;
+            } catch (e) {}
+        }
         if (state.quadrantEnabled && (timeKeys.some((key) => keySet.has(key)) || keySet.has('priority') || keySet.has('priorityScore'))) return true;
         if (state.groupByTaskName && keySet.has('content')) return true;
         if (state.groupByDocName && (keySet.has('root_id') || keySet.has('docId') || keySet.has('h2') || keySet.has('h2Id') || keySet.has('h2Path') || keySet.has('h2Sort'))) return true;
@@ -1765,6 +1790,20 @@ try {
     }
 
     function __tmDoesPatchAffectCurrentFilter(taskId, patch = {}) {
+        const keys = __tmGetPatchFieldKeys(patch);
+        if (String(state.searchKeyword || '').trim() && keys.length) {
+            const searchKeys = new Set([
+                'content',
+                'markdown',
+                'remark',
+                'customFieldValues',
+                'h2',
+                'h2Id',
+                'docId',
+                'root_id',
+            ]);
+            if (keys.some((key) => searchKeys.has(String(key || '').trim()) || String(key || '').trim().startsWith('customField:'))) return true;
+        }
         return __tmDoesPatchAffectProjection(taskId, patch);
     }
 
@@ -4006,6 +4045,9 @@ return false;
                 const task = __tmTaskStateKernel.getTask(tid);
                 const card = this.findCard(tid);
                 if (!(card instanceof HTMLElement) || !task) return false;
+                const hasDatePatch = Object.prototype.hasOwnProperty.call(patch, 'completionTime')
+                    || Object.prototype.hasOwnProperty.call(patch, 'startDate');
+                if (hasDatePatch && __tmIsKanbanTimeBoardContext()) return false;
                 let touched = false;
                 if (Object.prototype.hasOwnProperty.call(patch, 'content')) {
                     touched = !!__tmUpdateTaskContentInDOM(card, task) || touched;
@@ -7461,18 +7503,6 @@ throw error;
             const childStatsHtml = totalKids > 0
                 ? `<span class="tm-task-detail-subtask-count">${doneKids}/${totalKids}</span>`
                 : '';
-            const startDateValue = String(viewTask?.startDate || viewTask?.start_date || '').trim();
-            const completionTimeValue = String(viewTask?.completionTime || viewTask?.completion_time || '').trim();
-            const subtaskDateChips = [];
-            if (startDateValue) {
-                subtaskDateChips.push(`<span class="tm-task-detail-subtask-date" data-tm-detail-subtask-time-field="startDate" title="开始日期 ${esc(__tmFormatTaskTime(startDateValue))}">${__tmRenderLucideIcon('calendar-plus-2')}<span>${esc(__tmFormatTaskTimeCompact(startDateValue))}</span></span>`);
-            }
-            if (completionTimeValue) {
-                subtaskDateChips.push(`<span class="tm-task-detail-subtask-date" data-tm-detail-subtask-time-field="completionTime" title="截止日期 ${esc(__tmFormatTaskTime(completionTimeValue))}">${__tmRenderLucideIcon('calendar-check')}<span>${esc(__tmFormatTaskTimeCompact(completionTimeValue))}</span></span>`);
-            }
-            const subtaskDateHtml = subtaskDateChips.length
-                ? `<div class="tm-task-detail-subtask-dates">${subtaskDateChips.join('')}</div>`
-                : '';
             const childrenHtml = kids.map((child) => renderNode(child, depth + 1)).join('');
             return `
                 <div class="tm-task-detail-subtask${childrenHtml ? ' tm-task-detail-subtask--has-children' : ''}" style="--tm-task-detail-depth:${depth};">
@@ -7482,7 +7512,6 @@ throw error;
                             <textarea class="tm-task-detail-subtask-title${viewTask?.done ? ' is-done' : ''}" data-tm-detail-subtask-content="${esc(tid)}" rows="1" ${readOnly ? 'readonly' : ''} title="${readOnly ? '其他块内容请回原文档编辑' : '直接编辑子任务内容'}">${esc(String(viewTask?.content || '').trim() || '')}</textarea>
                         </div>
                         <div class="tm-task-detail-subtask-trailing">
-                            ${subtaskDateHtml}
                             ${childStatsHtml}
                             <div class="tm-task-detail-subtask-actions">
                                 <button type="button" class="bc-btn bc-btn--sm tm-task-detail-subtask-action" data-tm-detail-open-child="${esc(tid)}"${__tmBuildTooltipAttrs('打开子任务详情', { side: 'bottom' })}>${__tmRenderLucideIcon('chevron-right')}</button>

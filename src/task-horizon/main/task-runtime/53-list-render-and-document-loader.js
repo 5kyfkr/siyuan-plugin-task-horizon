@@ -2751,6 +2751,14 @@ hint(`❌ 操作失败: ${e.message}`, 'error');
                         parentId: String(t?.parentTaskId || '').trim(),
                         listId: String(t?.parent_id || t?.parentId || '').trim(),
                         docSeq: Number.isFinite(prevDocSeq) ? prevDocSeq : undefined,
+                        headingContext: {
+                            h2: String(t?.h2 || '').trim(),
+                            h2Id: String(t?.h2Id || '').trim(),
+                            h2Path: String(t?.h2Path || '').trim(),
+                            h2Sort: Number(t?.h2Sort),
+                            h2Created: String(t?.h2Created || '').trim(),
+                            h2Rank: Number(t?.h2Rank),
+                        },
                     });
                 }
                 if (t.parentTaskId) {
@@ -2833,6 +2841,14 @@ hint(`❌ 操作失败: ${e.message}`, 'error');
                 if (Object.prototype.hasOwnProperty.call(injected, 'doc_name') || Object.prototype.hasOwnProperty.call(injected, 'docName')) {
                     next.doc_name = String(injected?.doc_name || injected?.docName || '').trim();
                 }
+                if (Object.prototype.hasOwnProperty.call(injected, 'h2') || Object.prototype.hasOwnProperty.call(injected, 'h2Id')) {
+                    next.h2 = String(injected?.h2 || '').trim();
+                    next.h2Id = String(injected?.h2Id || '').trim();
+                    next.h2Path = String(injected?.h2Path || '').trim();
+                    next.h2Sort = Number(injected?.h2Sort);
+                    next.h2Created = String(injected?.h2Created || '').trim();
+                    next.h2Rank = Number(injected?.h2Rank);
+                }
                 mergedCount += 1;
                 return next;
             });
@@ -2844,22 +2860,31 @@ hint(`❌ 操作失败: ${e.message}`, 'error');
 }
 
         const protectedFlowRankMap = new Map();
-        if (forceDocFlowOrder && flatTasks.length > 0) {
+        const forceHeadingContext = opts.forceHeadingContext === true;
+        const protectedHeadingContextMap = new Map();
+        if ((forceDocFlowOrder || forceHeadingContext) && flatTasks.length > 0) {
             try {
                 const taskIds = Array.from(new Set(flatTasks.map((task) => String(task?.id || '').trim()).filter(Boolean)));
                 const taskDocMap = new Map(taskIds.map((taskId) => [taskId, String(docId || '').trim()]));
                 const bundle = await API.fetchTaskEnhanceBundle(taskIds, {
                     taskDocMap,
-                    needH2: false,
-                    needFlow: true,
+                    needH2: forceHeadingContext,
+                    needFlow: forceDocFlowOrder,
+                    forceFresh: forceHeadingContext,
                 });
                 const flowMap = bundle?.taskFlowRankMap instanceof Map ? bundle.taskFlowRankMap : new Map();
+                const headingMap = bundle?.h2ContextMap instanceof Map ? bundle.h2ContextMap : new Map();
                 flatTasks.forEach((task) => {
                     const taskId = String(task?.id || '').trim();
-                    const flowRank = Number(flowMap.get(taskId));
-                    if (Number.isFinite(flowRank)) {
-                        __tmApplyResolvedFlowRankIfNeeded(task, flowRank);
-                        protectedFlowRankMap.set(taskId, flowRank);
+                    if (forceDocFlowOrder) {
+                        const flowRank = Number(flowMap.get(taskId));
+                        if (Number.isFinite(flowRank)) {
+                            __tmApplyResolvedFlowRankIfNeeded(task, flowRank);
+                            protectedFlowRankMap.set(taskId, flowRank);
+                        }
+                    }
+                    if (forceHeadingContext && headingMap.has(taskId)) {
+                        protectedHeadingContextMap.set(taskId, headingMap.get(taskId));
                     }
                 });
             } catch (e) {}
@@ -3013,6 +3038,14 @@ hint(`❌ 操作失败: ${e.message}`, 'error');
                     return dbv;
                 })()
             };
+            if (forceHeadingContext) {
+                const fromTask = __tmTaskHasOwnHeadingContextFields(t) ? t : null;
+                const fromEnhance = protectedHeadingContextMap.has(taskId) ? protectedHeadingContextMap.get(taskId) : null;
+                const fromOld = oldTaskState?.headingContext || null;
+                if (fromTask) __tmCopyTaskHeadingContext(nextTask, fromTask);
+                else if (fromEnhance && typeof fromEnhance === 'object') __tmApplyTaskHeadingContext(nextTask, fromEnhance);
+                else if (fromOld && typeof fromOld === 'object') __tmCopyTaskHeadingContext(nextTask, fromOld);
+            }
             __tmApplyTaskAttachmentPathsToTask(nextTask, nextAttachmentPaths, {
                 meta: dbAttachmentMeta.length ? dbAttachmentMeta : metaAttachmentMeta,
                 attrsLoaded: __tmHasTaskAttachmentAttrSnapshot(t),
@@ -3880,6 +3913,7 @@ hint(`❌ 操作失败: ${e.message}`, 'error');
                 headingId: String(data.headingId || '').trim(),
                 mode,
                 snapshot,
+                deferOptimisticRender: data.deferOptimisticRender === true,
                 crossDoc: String(String(task.docId || task.root_id || '').trim() !== targetDocId ? '1' : ''),
             },
         }, { wait: true });
@@ -5887,7 +5921,9 @@ hint(`❌ 操作失败: ${e.message}`, 'error');
         } catch (e) {}
         try { recalcStats(); } catch (e) {}
         try { applyFilters(); } catch (e) {}
-        try { __tmScheduleRender({ withFilters: true }); } catch (e) {}
+        if (payload.deferOptimisticRender !== true) {
+            try { __tmScheduleRender({ withFilters: true }); } catch (e) {}
+        }
         return true;
     }
 
@@ -6358,6 +6394,9 @@ hint(`❌ 操作失败: ${e.message}`, 'error');
                 expiresAt: Date.now() + 10000,
             };
         } catch (e) {}
+        try { recalcStats(); } catch (e) {}
+        try { applyFilters(); } catch (e) {}
+        __tmRefreshAfterOptimisticTaskCreate(tid, 'create-subtask-optimistic');
     }
 
     function __tmApplyOptimisticSiblingTask(sourceTaskId, siblingTaskId, content) {
