@@ -2797,6 +2797,161 @@ return false;
         return touched || (!(cell instanceof HTMLElement) && !(attachmentIconSlot instanceof HTMLElement));
     }
 
+    let __tmTaskAttachmentContextMenuCloseHandler = null;
+
+    function __tmIsTaskAttachmentAssetPath(path) {
+        const normalizedPath = __tmNormalizeTaskAttachmentPath(path);
+        return !!(normalizedPath
+            && !__tmIsTaskAttachmentBlockRef(normalizedPath)
+            && !__tmIsTaskAttachmentLocalPath(normalizedPath)
+            && /^assets\//i.test(normalizedPath));
+    }
+
+    function __tmGetTaskAttachmentClipboardText(path) {
+        const normalizedPath = __tmNormalizeTaskAttachmentPath(path);
+        if (!normalizedPath) return '';
+        const blockId = __tmExtractTaskAttachmentBlockId(normalizedPath);
+        if (blockId) return `siyuan://blocks/${blockId}`;
+        return __tmGetTaskAttachmentLocalDisplayPath(normalizedPath) || normalizedPath;
+    }
+
+    async function __tmWriteTaskAttachmentTextToClipboard(text) {
+        const value = String(text || '').trim();
+        if (!value) throw new Error('没有可复制的内容');
+        try {
+            if (navigator?.clipboard?.writeText) {
+                await navigator.clipboard.writeText(value);
+                return true;
+            }
+        } catch (e) {}
+        const textarea = document.createElement('textarea');
+        textarea.value = value;
+        textarea.setAttribute('readonly', 'readonly');
+        textarea.style.cssText = 'position:fixed;left:-9999px;top:0;opacity:0;pointer-events:none;';
+        document.body.appendChild(textarea);
+        try {
+            textarea.focus();
+            textarea.select();
+            const ok = document.execCommand('copy');
+            if (!ok) throw new Error('复制失败');
+            return true;
+        } finally {
+            textarea.remove();
+        }
+    }
+
+    async function __tmCopyTaskAttachmentPathText(path) {
+        const text = __tmGetTaskAttachmentClipboardText(path);
+        await __tmWriteTaskAttachmentTextToClipboard(text);
+        return text;
+    }
+
+    async function __tmCopyTaskAttachmentFile(path) {
+        const normalizedPath = __tmNormalizeTaskAttachmentPath(path);
+        if (!__tmIsTaskAttachmentAssetPath(normalizedPath)) {
+            await __tmCopyTaskAttachmentPathText(normalizedPath);
+            return { kind: 'text' };
+        }
+        await API.writeAssetFilePathToClipboard(normalizedPath);
+        return { kind: 'file' };
+    }
+
+    function __tmCloseTaskAttachmentContextMenu() {
+        const existingMenu = document.getElementById('tm-task-attachment-context-menu');
+        if (existingMenu) existingMenu.remove();
+        if (__tmTaskAttachmentContextMenuCloseHandler) {
+            try { __tmClearOutsideCloseHandler(__tmTaskAttachmentContextMenuCloseHandler); } catch (e) {}
+            __tmTaskAttachmentContextMenuCloseHandler = null;
+        }
+    }
+
+    function __tmCreateTaskAttachmentContextMenuItem(menu, label, onClick) {
+        const item = document.createElement('div');
+        item.innerHTML = String(label || '');
+        item.style.cssText = `
+            padding: 6px 10px;
+            cursor: pointer;
+            font-size: 13px;
+            color: var(--b3-theme-on-background);
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            white-space: nowrap;
+            align-self: stretch;
+            width: 100%;
+            box-sizing: border-box;
+        `;
+        item.onmouseenter = () => item.style.backgroundColor = 'var(--b3-theme-surface-light)';
+        item.onmouseleave = () => item.style.backgroundColor = 'transparent';
+        item.onclick = async (ev) => {
+            try { ev.preventDefault(); } catch (e) {}
+            try { ev.stopPropagation(); } catch (e) {}
+            __tmCloseTaskAttachmentContextMenu();
+            try {
+                await onClick?.();
+            } catch (e) {
+                try { hint(`❌ ${String(e?.message || e || '操作失败')}`, 'error'); } catch (e2) {}
+            }
+        };
+        menu.appendChild(item);
+        return item;
+    }
+
+    function __tmShowTaskAttachmentContextMenu(event, path) {
+        const normalizedPath = __tmNormalizeTaskAttachmentPath(path);
+        if (!normalizedPath) return false;
+        try { event?.preventDefault?.(); } catch (e) {}
+        try { event?.stopPropagation?.(); } catch (e) {}
+        __tmCloseTaskAttachmentContextMenu();
+
+        const isAssetPath = __tmIsTaskAttachmentAssetPath(normalizedPath);
+        const isBlockRef = __tmIsTaskAttachmentBlockRef(normalizedPath);
+        const menu = document.createElement('div');
+        menu.id = 'tm-task-attachment-context-menu';
+        menu.style.cssText = `
+            position: fixed;
+            top: ${Number(event?.clientY) || 0}px;
+            left: ${Number(event?.clientX) || 0}px;
+            display: inline-flex;
+            flex-direction: column;
+            align-items: stretch;
+            background: var(--b3-theme-background);
+            border: 1px solid var(--b3-theme-surface-light);
+            border-radius: 4px;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.2);
+            padding: 4px 0;
+            z-index: 200040;
+            min-width: 136px;
+            max-width: calc(100vw - 16px);
+            box-sizing: border-box;
+            user-select: none;
+        `;
+        if (isAssetPath) {
+            __tmCreateTaskAttachmentContextMenuItem(menu, __tmRenderContextMenuLabel('paperclip', '复制附件'), async () => {
+                await __tmCopyTaskAttachmentFile(normalizedPath);
+                try { hint('✅ 已复制附件', 'success'); } catch (e) {}
+            });
+        }
+        __tmCreateTaskAttachmentContextMenuItem(menu, __tmRenderContextMenuLabel(isBlockRef ? 'link-simple' : 'file-text', isBlockRef ? '复制块链接' : '复制路径'), async () => {
+            await __tmCopyTaskAttachmentPathText(normalizedPath);
+            try { hint(isBlockRef ? '✅ 已复制块链接' : '✅ 已复制路径', 'success'); } catch (e) {}
+        });
+
+        document.body.appendChild(menu);
+        requestAnimationFrame(() => {
+            try { __tmClampFloatingMenuToViewport(menu, Number(event?.clientX) || 0, Number(event?.clientY) || 0); } catch (e) {}
+        });
+        const closeHandler = (ev) => {
+            try {
+                if (menu.contains(ev?.target)) return;
+            } catch (e) {}
+            __tmCloseTaskAttachmentContextMenu();
+        };
+        __tmTaskAttachmentContextMenuCloseHandler = closeHandler;
+        __tmScheduleBindOutsideCloseHandler(closeHandler);
+        return true;
+    }
+
     function __tmOpenAssetPath(path, event, options = {}) {
         const normalizedPath = __tmNormalizeTaskAttachmentPath(path);
         if (!normalizedPath) return false;
@@ -3285,6 +3440,9 @@ return false;
         const timeLabel = __tmFormatAttachmentLibraryTime(addedAt);
         const timeTitle = addedAt > 0 ? new Date(addedAt).toISOString() : '历史附件';
         const fileTitle = [row.name, displayPath].filter(Boolean).join('\n');
+        const copyLabel = __tmIsTaskAttachmentAssetPath(row.path)
+            ? '复制附件'
+            : (row.typeKey === 'block' ? '复制块链接' : '复制路径');
         return `
             <article class="tm-attachment-library-row" data-tm-task-id="${esc(row.taskId)}" data-tm-path="${esc(row.path)}">
                 <div class="tm-attachment-library-file">
@@ -3304,6 +3462,7 @@ return false;
                 <div class="tm-attachment-library-time" title="${esc(timeTitle)}">${esc(timeLabel)}</div>
                 <div class="tm-attachment-library-actions">
                     <button type="button" class="tm-icon-btn tm-attachment-library-action" onclick="tmAttachmentLibraryOpen('${jsPath}', event)" aria-label="打开"${__tmBuildTooltipAttrs('打开', { side: 'top' })}>${__tmRenderLucideIcon('file')}</button>
+                    <button type="button" class="tm-icon-btn tm-attachment-library-action" onclick="tmAttachmentLibraryCopy('${jsPath}', event)" aria-label="${esc(copyLabel)}"${__tmBuildTooltipAttrs(copyLabel, { side: 'top' })}>${__tmRenderLucideIcon('paperclip')}</button>
                     <button type="button" class="tm-icon-btn tm-attachment-library-action" onclick="tmAttachmentLibraryOpenTask('${jsTaskId}', event)" aria-label="定位任务"${__tmBuildTooltipAttrs('定位任务', { side: 'top' })}>${__tmRenderLucideIcon('map-pin')}</button>
                     <button type="button" class="tm-icon-btn tm-attachment-library-action tm-attachment-library-action--danger" onclick="tmAttachmentLibraryRemove('${jsTaskId}', '${jsPath}', event)" aria-label="移除关联"${__tmBuildTooltipAttrs('移除关联', { side: 'top' })}>${__tmRenderLucideIcon('trash-2')}</button>
                 </div>
@@ -3417,6 +3576,27 @@ return false;
 
     window.tmAttachmentLibraryOpen = function(path, event) {
         return __tmOpenAssetPath(path, event);
+    };
+
+    window.tmAttachmentLibraryCopy = async function(path, event) {
+        try { event?.preventDefault?.(); } catch (e) {}
+        try { event?.stopPropagation?.(); } catch (e) {}
+        const normalizedPath = __tmNormalizeTaskAttachmentPath(path);
+        if (!normalizedPath) return false;
+        try {
+            if (__tmIsTaskAttachmentAssetPath(normalizedPath)) {
+                await __tmCopyTaskAttachmentFile(normalizedPath);
+                try { hint('✅ 已复制附件', 'success'); } catch (e) {}
+            } else {
+                await __tmCopyTaskAttachmentPathText(normalizedPath);
+                const isBlockRef = __tmIsTaskAttachmentBlockRef(normalizedPath);
+                try { hint(isBlockRef ? '✅ 已复制块链接' : '✅ 已复制路径', 'success'); } catch (e) {}
+            }
+            return true;
+        } catch (e) {
+            try { hint(`❌ ${String(e?.message || e || '复制失败')}`, 'error'); } catch (e2) {}
+            return false;
+        }
     };
 
     window.tmAttachmentLibraryOpenTaskDetail = async function(taskId, event) {
@@ -7895,7 +8075,7 @@ throw error;
         const hiddenCount = Math.max(0, entries.length - collapseLimit);
         const cardsHtml = entries.length
             ? entries.map((entry, index) => `
-                <article class="tm-task-attachment-card" ${index >= collapseLimit ? 'data-tm-attachment-extra="true"' : ''}>
+                <article class="tm-task-attachment-card" data-tm-detail-attachment-context="${esc(entry.path)}" ${index >= collapseLimit ? 'data-tm-attachment-extra="true"' : ''}>
                     <button type="button" class="tm-task-attachment-card__preview" data-tm-detail-attachment-open="${esc(entry.path)}"${tip('打开附件', { ariaLabel: false })}>
                         ${__tmBuildTaskAttachmentThumbHtml(entry, { size: 'detail' })}
                     </button>

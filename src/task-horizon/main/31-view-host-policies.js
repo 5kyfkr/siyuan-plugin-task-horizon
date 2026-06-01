@@ -80,6 +80,41 @@
         return (Number(window.innerWidth || 0) > 0) ? window.innerWidth <= 960 : false;
     };
 
+    const taskDetailSheetViewModes = new Set(['list', 'kanban', 'whiteboard', 'calendar', 'timeline']);
+
+    const getHostWidth = (modalEl = null) => {
+        const modal = modalEl instanceof Element ? modalEl : state?.modal;
+        const modalWidth = Number(modal?.clientWidth || 0);
+        if (modalWidth > 0) return modalWidth;
+        try {
+            const mountWidth = Number(__tmMountEl?.clientWidth || 0);
+            if (mountWidth > 0) return mountWidth;
+        } catch (e) {}
+        try {
+            const windowWidth = Number(window.innerWidth || document.documentElement?.clientWidth || 0);
+            if (windowWidth > 0) return windowWidth;
+        } catch (e) {}
+        return 0;
+    };
+
+    const shouldUseTaskDetailSheetMode = (viewMode = '', modalEl = null) => {
+        const mode = String(viewMode || '').trim()
+            || (globalThis.__tmRuntimeState?.getActiveRenderMode?.('') || '')
+            || String(state?.viewMode || '').trim();
+        if (!taskDetailSheetViewModes.has(mode)) return false;
+        try {
+            const desktopDock = globalThis.__tmRuntimeHost?.isDesktopDockHost?.() ?? (__tmIsDockHost() && !__tmIsRuntimeMobileClient());
+            if (desktopDock) return true;
+        } catch (e) {}
+        let mobileLike = false;
+        try {
+            mobileLike = !!(__tmHostUsesMobileUI() || __tmIsRuntimeMobileClient() || __tmIsMobileDevice());
+        } catch (e) {}
+        if (!mobileLike) return false;
+        const width = getHostWidth(modalEl);
+        return width > 0 ? width < 768 : true;
+    };
+
     const shouldUseDockPointerTaskDrag = () => {
         try {
             return globalThis.__tmRuntimeHost?.isDesktopDockHost?.() ?? (__tmIsDockHost() && !__tmIsRuntimeMobileClient());
@@ -97,6 +132,7 @@
         shouldShowCompactChecklistDocName,
         getChecklistTitleClickPolicy,
         shouldUseChecklistSheetMode,
+        shouldUseTaskDetailSheetMode,
         shouldUseDockPointerTaskDrag,
     };
 })();

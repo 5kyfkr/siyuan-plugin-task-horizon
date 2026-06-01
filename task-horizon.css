@@ -2748,11 +2748,65 @@
     opacity: 0.8;
 }
 
+.bc-dropdown-menu.tm-task-detail-more-menu {
+    gap: 2px;
+    min-width: 176px;
+    padding: 4px;
+}
+
+.bc-dropdown-menu.tm-task-detail-more-menu__submenu-menu {
+    gap: 2px;
+    width: max-content;
+    min-width: 132px;
+    padding: 4px;
+}
+
+.tm-task-detail-more-menu .tm-multi-bulkbar__menu-item,
+.tm-task-detail-more-menu__submenu-menu .tm-multi-bulkbar__menu-item {
+    height: 24px;
+    min-height: 24px;
+    border-radius: 5px;
+    gap: 6px;
+    padding: 0 7px;
+}
+
+.tm-task-detail-more-menu .tm-multi-bulkbar__menu-separator,
+.tm-task-detail-more-menu__submenu-menu .tm-multi-bulkbar__menu-separator {
+    margin: 1px 4px;
+}
+
+.tm-task-detail-more-menu__submenu {
+    position: relative;
+    display: flex;
+    width: 100%;
+}
+
+.tm-task-detail-more-menu__submenu-trigger {
+    width: 100%;
+    padding-right: 8px;
+}
+
+.tm-task-detail-more-menu__submenu.is-open > .tm-task-detail-more-menu__submenu-trigger {
+    background: var(--b3-theme-surface);
+}
+
+.tm-task-detail-more-menu__submenu-arrow {
+    margin-left: auto;
+    color: var(--tm-secondary-text);
+    font-size: 15px;
+    line-height: 1;
+}
+
+.tm-task-detail-more-menu__submenu-menu {
+    position: absolute;
+    z-index: 200121;
+}
+
 .tm-task-detail-more-menu__timer-section {
     display: flex;
     flex-direction: column;
-    gap: 6px;
-    padding: 4px 6px 6px;
+    gap: 4px;
+    padding: 3px 5px 5px;
 }
 
 .tm-task-detail-more-menu__timer-title {
@@ -2765,13 +2819,13 @@
 .tm-task-detail-more-menu__timer-row {
     display: flex;
     flex-wrap: wrap;
-    gap: 6px;
+    gap: 4px;
 }
 
 .tm-task-detail-more-menu__timer-btn {
     min-width: 0;
-    height: 28px;
-    padding: 0 10px;
+    height: 24px;
+    padding: 0 8px;
     border: 1px solid var(--b3-border-color);
     border-radius: 8px;
     background: color-mix(in srgb, var(--b3-theme-background) 92%, var(--b3-theme-surface) 8%);
@@ -5976,7 +6030,7 @@ select.tm-btn-secondary {
 }
 
 .tm-kanban-col-body.tm-kanban-col-body--scrollable {
-    --tm-kanban-col-body-scroll-inset: clamp(14px, calc(var(--tm-view-bottom-inset, 0px) - 34px), 28px);
+    --tm-kanban-col-body-scroll-inset: clamp(25px, calc(var(--tm-view-bottom-inset, 0px) - 23px), 39px);
 }
 
 .tm-kanban-col-body::-webkit-scrollbar {
@@ -6288,6 +6342,8 @@ select.tm-btn-secondary {
     padding: 0 8px;
     cursor: pointer;
     line-height: 22px;
+    align-self: flex-start;
+    margin-top: -2px;
 }
 
 .tm-kanban-more:hover {
@@ -6772,7 +6828,7 @@ select.tm-btn-secondary {
     height: 24px;
     min-width: 26px;
     padding: 0 6px;
-    margin-top: 1px;
+    margin-top: -2px;
     border-color: transparent;
     border-radius: 7px;
     background: transparent;
@@ -8504,7 +8560,7 @@ select.tm-btn-secondary {
 .tm-attachment-library-head,
 .tm-attachment-library-row {
     display: grid;
-    grid-template-columns: minmax(240px, 1.8fr) 96px minmax(170px, 1.1fr) minmax(120px, .8fr) 118px 108px;
+    grid-template-columns: minmax(240px, 1.8fr) 96px minmax(170px, 1.1fr) minmax(120px, .8fr) 118px 154px;
     gap: 10px;
     align-items: center;
 }
@@ -11507,6 +11563,14 @@ select.tm-btn-secondary {
     flex-direction: column;
     overflow: hidden;
     pointer-events: none;
+}
+
+#tmTaskDetailSheetBackdrop {
+    z-index: 70;
+}
+
+#tmTaskDetailSheet {
+    z-index: 71;
 }
 
 .tm-checklist-sheet.tm-checklist-sheet--dragging {

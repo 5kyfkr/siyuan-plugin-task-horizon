@@ -755,17 +755,13 @@
             const source = __tmResolveTaskContentRenderSource(markdownSource, fallbackSource);
             const cached = __tmTaskContentHtmlCache.get(source);
             if (cached !== undefined) return cached;
-            const segments = this.getTaskContentSegments(source);
-            if (!segments.length) {
+            const html = __tmRenderTaskContentInlineHtml(source);
+            if (!html) {
                 const plain = this.normalizeTaskContent(source || fallback) || '(无内容)';
-                const html = esc(plain);
-                __tmRememberTaskContentHtml(source, html);
-                return html;
+                const fallbackHtml = esc(plain);
+                __tmRememberTaskContentHtml(source, fallbackHtml);
+                return fallbackHtml;
             }
-            const html = segments.map((seg) => {
-                const text = esc(seg.text);
-                return seg.linked ? `<span class="tm-linked-text">${text}</span>` : text;
-            }).join('');
             __tmRememberTaskContentHtml(source, html);
             return html;
         },
@@ -2398,6 +2394,16 @@
             return list
                 .map((file) => __tmNormalizeTaskAttachmentPath(succMap[file.name] || ''))
                 .filter(Boolean);
+        },
+
+        async writeAssetFilePathToClipboard(path) {
+            const normalizedPath = __tmNormalizeTaskAttachmentPath(path);
+            if (!normalizedPath || !/^assets\//i.test(normalizedPath)) {
+                throw new Error('仅支持复制 assets 目录附件');
+            }
+            const res = await this.call('/api/clipboard/writeFilePath', { path: normalizedPath });
+            if (res.code !== 0) throw new Error(res.msg || '复制附件失败');
+            return true;
         },
 
         async updateBlock(id, md, dataType = 'markdown') {
@@ -13916,6 +13922,119 @@ refreshOk = false;
 
     const __tmTaskContentHtmlCache = new Map();
     const __tmTaskStatusParseCache = new Map();
+
+    function __tmIsTaskInlineEscaped(source, index) {
+        let count = 0;
+        for (let i = Number(index) - 1; i >= 0 && source[i] === '\\'; i -= 1) count += 1;
+        return count % 2 === 1;
+    }
+
+    function __tmIsTaskInlineAsciiWord(ch) {
+        return !!ch && /[A-Za-z0-9_]/.test(ch);
+    }
+
+    function __tmIsTaskInlineMatchAllowed(source, match, def) {
+        if (!match || typeof match.index !== 'number') return false;
+        const marker = String(def?.marker || '');
+        const start = match.index;
+        const end = start + String(match[0] || '').length;
+        if (__tmIsTaskInlineEscaped(source, start)) return false;
+        if (marker && end - marker.length > start && __tmIsTaskInlineEscaped(source, end - marker.length)) return false;
+        if (marker.length === 1 && (marker === '*' || marker === '_')) {
+            if (source[start - 1] === marker || source[start + 1] === marker) return false;
+            if (source[end - 2] === marker || source[end] === marker) return false;
+        }
+        if (def?.boundary === 'not-ascii-word') {
+            if (__tmIsTaskInlineAsciiWord(source[start - 1] || '')) return false;
+            if (__tmIsTaskInlineAsciiWord(source[end] || '')) return false;
+        } else if (def?.boundary === 'avoid-ascii-word-pair') {
+            if (__tmIsTaskInlineAsciiWord(source[start - 1] || '') && __tmIsTaskInlineAsciiWord(source[end] || '')) return false;
+        }
+        return true;
+    }
+
+    function __tmFindTaskInlineMarkdownMatch(source) {
+        const defs = [
+            { type: 'code', marker: '`', re: /`([^`\n]+)`/g, group: 1 },
+            { type: 'blockRef', marker: '((', re: /\(\(([0-9]{14}-[A-Za-z0-9]+)(?:\s+(['"])([\s\S]*?)\2)?\)\)/g, group: 3 },
+            { type: 'linked', marker: '[[', re: /\[\[([^\]\n]+)\]\]/g, group: 1 },
+            { type: 'linked', marker: '[', re: /\[([^\]\n]+)\]\((?:[^)(]+|\([^)]*\))*\)/g, group: 1 },
+            { type: 'strong', tag: 'strong', marker: '**', re: /\*\*([^\s*](?:[\s\S]*?[^\s*])?)\*\*/g, group: 1 },
+            { type: 'strong', tag: 'strong', marker: '__', boundary: 'avoid-ascii-word-pair', re: /__([^\s_](?:[\s\S]*?[^\s_])?)__/g, group: 1 },
+            { type: 'underline', tag: 'u', marker: '++', boundary: 'not-ascii-word', re: /\+\+([^\s+](?:[\s\S]*?[^\s+])?)\+\+/g, group: 1 },
+            { type: 'delete', tag: 'del', marker: '~~', re: /~~([^\s~](?:[\s\S]*?[^\s~])?)~~/g, group: 1 },
+            { type: 'mark', tag: 'mark', marker: '==', re: /==([^\s=](?:[\s\S]*?[^\s=])?)==/g, group: 1 },
+            { type: 'em', tag: 'em', marker: '*', boundary: 'avoid-ascii-word-pair', re: /\*([^\s*](?:[^\*\n]*?[^\s*])?)\*/g, group: 1 },
+            { type: 'em', tag: 'em', marker: '_', boundary: 'avoid-ascii-word-pair', re: /_([^\s_](?:[^_\n]*?[^\s_])?)_/g, group: 1 },
+        ];
+        let best = null;
+        defs.forEach((def, priority) => {
+            def.re.lastIndex = 0;
+            let match;
+            while ((match = def.re.exec(source)) !== null) {
+                if (!match[0]) {
+                    def.re.lastIndex += 1;
+                    continue;
+                }
+                if (!__tmIsTaskInlineMatchAllowed(source, match, def)) continue;
+                if (!best || match.index < best.index || (match.index === best.index && priority < best.priority)) {
+                    best = { def, match, index: match.index, priority };
+                }
+                break;
+            }
+        });
+        return best;
+    }
+
+    function __tmEscapeTaskInlinePlainHtml(input) {
+        return esc(String(input || '').replace(/\\([\\`*_{}\[\]()#+\-.!~>=+])/g, '$1'));
+    }
+
+    function __tmRenderTaskInlineMarkdownHtml(input, depth = 0) {
+        const source = String(input || '');
+        if (!source) return '';
+        if (depth > 8) return __tmEscapeTaskInlinePlainHtml(source);
+        const hit = __tmFindTaskInlineMarkdownMatch(source);
+        if (!hit) return __tmEscapeTaskInlinePlainHtml(source);
+        const raw = String(hit.match[0] || '');
+        const before = source.slice(0, hit.index);
+        const after = source.slice(hit.index + raw.length);
+        const inner = String(hit.match[hit.def.group] || '');
+        let middle = '';
+        if (hit.def.type === 'code') {
+            middle = `<code>${esc(inner)}</code>`;
+        } else if (hit.def.type === 'blockRef' || hit.def.type === 'linked') {
+            middle = inner ? `<span class="tm-linked-text">${__tmRenderTaskInlineMarkdownHtml(inner, depth + 1)}</span>` : '';
+        } else {
+            middle = `<${hit.def.tag}>${__tmRenderTaskInlineMarkdownHtml(inner, depth + 1)}</${hit.def.tag}>`;
+        }
+        return `${__tmEscapeTaskInlinePlainHtml(before)}${middle}${__tmRenderTaskInlineMarkdownHtml(after, depth)}`;
+    }
+
+    function __tmPrepareTaskContentInlineSource(input) {
+        let text = String(input || '').trim();
+        if (!text) return '';
+        text = text
+            .replace(/<strong\b[^>]*>([\s\S]*?)<\/strong>/gi, '**$1**')
+            .replace(/<b\b[^>]*>([\s\S]*?)<\/b>/gi, '**$1**')
+            .replace(/<em\b[^>]*>([\s\S]*?)<\/em>/gi, '*$1*')
+            .replace(/<i\b[^>]*>([\s\S]*?)<\/i>/gi, '*$1*')
+            .replace(/<u\b[^>]*>([\s\S]*?)<\/u>/gi, '++$1++')
+            .replace(/<del\b[^>]*>([\s\S]*?)<\/del>/gi, '~~$1~~')
+            .replace(/<s\b[^>]*>([\s\S]*?)<\/s>/gi, '~~$1~~')
+            .replace(/<strike\b[^>]*>([\s\S]*?)<\/strike>/gi, '~~$1~~')
+            .replace(/<mark\b[^>]*>([\s\S]*?)<\/mark>/gi, '==$1==');
+        text = text.replace(/<span[^>]*>[\s\S]*?<\/span>/gi, '');
+        text = text.replace(/\{\:\s*[^}]*\}/g, '');
+        text = text.replace(/<[^>]+>/g, '');
+        return text.replace(/\s+/g, ' ').trim();
+    }
+
+    function __tmRenderTaskContentInlineHtml(input) {
+        const source = __tmPrepareTaskContentInlineSource(input);
+        return source ? __tmRenderTaskInlineMarkdownHtml(source) : '';
+    }
+
     function __tmResolveTaskContentRenderSource(markdownSource, fallbackSource) {
         const source = String(markdownSource || '').trim();
         const fallback = String(fallbackSource || '').trim();

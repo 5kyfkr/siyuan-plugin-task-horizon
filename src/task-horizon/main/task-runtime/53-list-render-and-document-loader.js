@@ -3739,6 +3739,10 @@ hint(`❌ 操作失败: ${e.message}`, 'error');
 
         // 首页会保留上一个工作区视图的 state.viewMode，不能把首页里的点击误判成看板内详情打开。
         const activeRenderMode = globalThis.__tmRuntimeState?.getActiveRenderMode?.('') || (state.homepageOpen ? 'home' : String(state.viewMode || '').trim());
+        if (globalThis.__tmViewPolicy?.shouldUseTaskDetailSheetMode?.(activeRenderMode, state.modal)) {
+            await __tmOpenTaskDetailSheetInPlace(tid, { source: `${String(activeRenderMode || 'task').trim() || 'task'}-detail-open` });
+            return true;
+        }
         if (activeRenderMode === 'kanban' && !__tmIsMobileDevice()) {
             if (!__tmOpenKanbanDetailFloatingInPlace(tid, state.modal)) {
                 state.kanbanDetailTaskId = tid;
@@ -4202,6 +4206,140 @@ hint(`❌ 操作失败: ${e.message}`, 'error');
         }
     };
 
+    function __tmStripTaskCopyPlainText(input) {
+        let text = String(input || '').trim();
+        if (!text) return '';
+        const escapedTokens = [];
+        const stashEscaped = (value) => `\u0000${escapedTokens.push(String(value || '')) - 1}\u0000`;
+        const restoreEscaped = (value) => String(value || '').replace(/\u0000(\d+)\u0000/g, (match, index) => escapedTokens[Number(index)] || '');
+        const isAsciiWord = (ch) => !!ch && /[A-Za-z0-9_]/.test(ch);
+        const stripSingleMarker = (source, marker, re) => String(source || '').replace(re, (match, prefix, inner, offset, full) => {
+            const start = Number(offset) + String(prefix || '').length;
+            const end = Number(offset) + String(match || '').length;
+            if (full[start - 1] === marker || full[start + 1] === marker) return match;
+            if (full[end - 2] === marker || full[end] === marker) return match;
+            if (isAsciiWord(full[start - 1] || '') && isAsciiWord(full[end] || '')) return match;
+            return `${prefix}${inner}`;
+        });
+        text = text.replace(/^\s*(?:[-*+]|\d+[.)])\s*\[[^\]]*\]\s*/, '').trim();
+        text = text.replace(/^\s*(?:[-*+]\s+|\d+[.)]\s+)/, '').trim();
+        text = text.replace(/^\[[^\]]*\]\s*/, '').trim();
+        text = text.replace(/\\([\\`*_{}\[\]()#+\-.!~>+=])/g, (match, ch) => stashEscaped(ch));
+        text = text.replace(/\{\:\s*[^}]*\}/g, '');
+        text = text.replace(/<br\s*\/?>/gi, ' ');
+        text = text.replace(/<span[^>]*>[\s\S]*?<\/span>/gi, '');
+        text = text.replace(/<(?:strong|b|em|i|u|del|s|strike|mark|code|kbd|sup|sub)\b[^>]*>([\s\S]*?)<\/(?:strong|b|em|i|u|del|s|strike|mark|code|kbd|sup|sub)>/gi, '$1');
+        text = text.replace(/<[^>]+>/g, '');
+        text = text.replace(/\(\(([0-9]{14}-[A-Za-z0-9]+)(?:\s+(['"])([\s\S]*?)\2)?\)\)/g, (match, id, quote, label) => String(label || id || '').trim());
+        text = text.replace(/\[\[([^\]]+)\]\]/g, '$1');
+        text = text.replace(/!\[([^\]]*)\]\((?:[^)(]+|\([^)]*\))*\)/g, '$1');
+        text = text.replace(/\[([^\]]+)\]\((?:[^)(]+|\([^)]*\))*\)/g, '$1');
+        text = text.replace(/(\*\*|__|~~|==|\+\+)([\s\S]+?)\1/g, '$2');
+        text = stripSingleMarker(text, '*', /(^|[^\*])\*([^\*\n]+)\*(?!\*)/g);
+        text = stripSingleMarker(text, '_', /(^|[^_])_([^_\n]+)_(?!_)/g);
+        text = text.replace(/`([^`\n]+)`/g, '$1');
+        text = restoreEscaped(text);
+        return text.replace(/\s+/g, ' ').trim();
+    }
+
+    function __tmGetTaskCopyPlainText(taskLike, fallback = '') {
+        const task = (taskLike && typeof taskLike === 'object') ? taskLike : {};
+        const candidates = [
+            task.content,
+            task.raw_content,
+            task.rawContent,
+            task.markdown,
+            fallback,
+        ];
+        for (const candidate of candidates) {
+            let text = String(candidate || '').trim();
+            if (!text) continue;
+            try {
+                const parsed = typeof API?.parseTaskStatus === 'function' ? API.parseTaskStatus(text) : null;
+                if (parsed?.content) text = String(parsed.content || '').trim();
+            } catch (e) {}
+            try {
+                if (typeof API?.extractTaskContentLine === 'function') {
+                    text = String(API.extractTaskContentLine(text) || text).trim();
+                }
+            } catch (e) {}
+            try {
+                if (typeof API?.normalizeTaskContent === 'function') {
+                    text = String(API.normalizeTaskContent(text) || text).trim();
+                }
+            } catch (e) {}
+            text = __tmStripTaskCopyPlainText(text);
+            if (text) return text;
+        }
+        return '';
+    }
+
+    async function __tmWriteTaskContextTextToClipboard(text) {
+        const value = String(text || '').trim();
+        if (!value) throw new Error('没有可复制的内容');
+        try {
+            if (navigator?.clipboard?.writeText) {
+                await navigator.clipboard.writeText(value);
+                return true;
+            }
+        } catch (e) {}
+        const textarea = document.createElement('textarea');
+        textarea.value = value;
+        textarea.setAttribute('readonly', 'readonly');
+        textarea.style.cssText = 'position:fixed;left:-9999px;top:0;opacity:0;pointer-events:none;';
+        document.body.appendChild(textarea);
+        try {
+            textarea.focus();
+            textarea.select();
+            const ok = document.execCommand('copy');
+            if (!ok) throw new Error('复制失败');
+            return true;
+        } finally {
+            textarea.remove();
+        }
+    }
+
+    async function __tmGetTaskCopyRefText(taskId, taskLike) {
+        const tid = String(taskId || '').trim();
+        if (!tid) return '';
+        try {
+            const res = await API.call('/api/block/getRefText', { id: tid });
+            const text = String(res?.data || '').trim();
+            if (res?.code === 0 && text) return text;
+        } catch (e) {}
+        return __tmGetTaskCopyPlainText(taskLike, tid) || tid;
+    }
+
+    async function __tmCopyTaskContextValue(taskId, taskLike, type) {
+        const tid = String(taskId || '').trim();
+        if (!tid) {
+            hint('⚠ 未找到任务块 ID', 'warning');
+            return false;
+        }
+        const mode = String(type || '').trim();
+        let text = '';
+        let label = '';
+        if (mode === 'plain') {
+            text = __tmGetTaskCopyPlainText(taskLike, tid);
+            label = '纯文本';
+        } else if (mode === 'blockRef') {
+            const refText = await __tmGetTaskCopyRefText(tid, taskLike);
+            text = `((${tid} '${refText}'))`;
+            label = '块引用';
+        } else if (mode === 'blockId') {
+            text = tid;
+            label = '块 ID';
+        }
+        try {
+            await __tmWriteTaskContextTextToClipboard(text);
+            hint(`✅ 已复制${label || '内容'}`, 'success');
+            return true;
+        } catch (e) {
+            hint(`❌ ${String(e?.message || e || '复制失败')}`, 'error');
+            return false;
+        }
+    }
+
     window.tmStartPomodoro = async function(id) {
         if (!SettingsStore.data.enableTomatoIntegration) {
             hint('⚠ 番茄钟联动已关闭', 'warning');
@@ -4643,6 +4781,17 @@ hint(`❌ 操作失败: ${e.message}`, 'error');
             }
         }
 
+        menu.appendChild(createSubmenu(__tmRenderContextMenuLabel('clipboard-list', '复制'), () => [
+            createItem(__tmRenderContextMenuLabel('cursor-text', '复制纯文本'), () => {
+                void __tmCopyTaskContextValue(taskId, task, 'plain');
+            }),
+            createItem(__tmRenderContextMenuLabel('link-simple', '复制块引用'), () => {
+                void __tmCopyTaskContextValue(taskId, task, 'blockRef');
+            }),
+            createItem(__tmRenderContextMenuLabel('file-text', '复制块 ID'), () => {
+                void __tmCopyTaskContextValue(taskId, task, 'blockId');
+            }),
+        ]));
         menu.appendChild(createItem(__tmRenderContextMenuLabel('text-indent', '新建子任务'), () => tmCreateSubtask(taskId)));
         menu.appendChild(createItem(__tmRenderContextMenuLabel('list-bullets', '新建同级任务'), () => tmCreateSiblingTask(taskId)));
         menu.appendChild(createItem(__tmRenderContextMenuLabel('pin', task?.pinned ? '取消置顶' : '置顶'), () => tmSetPinned(taskId, !task?.pinned)));

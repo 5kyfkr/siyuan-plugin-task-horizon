@@ -72,11 +72,13 @@
         const showAiSideDock = !state.attachmentLibraryOpen && __tmShouldShowAiSidebar() && !!state.aiSidebarOpen && !isMobile;
         const calendarSideDockWidth = Math.max(260, Math.min(760, Math.round(Number(SettingsStore.data.calendarSideDockWidth) || 340)));
         const aiSideDockWidth = Math.max(320, Math.min(720, Math.round(Number(state.aiSidebarWidth) || 380)));
-        const showWhiteboardMobileDetailSheet = renderMode === 'whiteboard' && (__tmIsMobileDevice() || __tmHostUsesMobileUI()) && __tmChecklistUseSheetMode();
-        const whiteboardDetailTaskId = String(state.detailTaskId || '').trim();
-        const whiteboardDetailTask = showWhiteboardMobileDetailSheet && whiteboardDetailTaskId ? (state.flatTasks?.[whiteboardDetailTaskId] || null) : null;
-        const whiteboardDetailHtml = whiteboardDetailTask
-            ? __tmBuildTaskDetailInnerHtml(whiteboardDetailTask, { embedded: true, closeable: true })
+        const showTaskDetailSheet = renderMode !== 'checklist' && !!globalThis.__tmViewPolicy?.shouldUseTaskDetailSheetMode?.(renderMode, state.modal);
+        const taskDetailSheetTaskId = String(state.detailTaskId || '').trim();
+        const taskDetailSheetTask = showTaskDetailSheet && taskDetailSheetTaskId
+            ? (state.flatTasks?.[taskDetailSheetTaskId] || globalThis.__tmRuntimeState?.getFlatTaskById?.(taskDetailSheetTaskId) || null)
+            : null;
+        const taskDetailSheetInnerHtml = taskDetailSheetTask
+            ? __tmBuildTaskDetailInnerHtml(taskDetailSheetTask, { embedded: true, closeable: true })
             : `<div class="tm-checklist-empty-detail">选择任务后，这里会显示可编辑的详情。</div>`;
         const showMobileBottomViewBar = isDockHost
             ? (!isRuntimeMobile || !isLandscape)
@@ -192,11 +194,11 @@
                 </div>
             `
             : '';
-        const whiteboardMobileDetailSheetHtml = showWhiteboardMobileDetailSheet
-            ? `<div id="tmChecklistSheetBackdrop" class="tm-checklist-sheet-backdrop ${state.checklistDetailSheetOpen && whiteboardDetailTask ? 'tm-checklist-sheet-backdrop--open' : ''}" onclick="tmChecklistCloseSheet(event)"></div>
-                <div id="tmChecklistSheet" class="tm-checklist-sheet ${state.checklistDetailSheetOpen && whiteboardDetailTask ? 'tm-checklist-sheet--open' : ''}" onpointerdown="tmChecklistSheetDragStart(event)">
+        const taskDetailSheetHtml = showTaskDetailSheet
+            ? `<div id="tmTaskDetailSheetBackdrop" class="tm-checklist-sheet-backdrop ${state.checklistDetailSheetOpen && taskDetailSheetTask ? 'tm-checklist-sheet-backdrop--open' : ''}" onclick="tmTaskDetailSheetClose(event)"></div>
+                <div id="tmTaskDetailSheet" class="tm-checklist-sheet ${state.checklistDetailSheetOpen && taskDetailSheetTask ? 'tm-checklist-sheet--open' : ''}" onpointerdown="tmTaskDetailSheetDragStart(event)">
                     <div class="tm-checklist-sheet-handle"></div>
-                    <div class="tm-checklist-sheet-body" id="tmChecklistSheetPanel">${whiteboardDetailHtml}</div>
+                    <div class="tm-checklist-sheet-body" id="tmTaskDetailSheetPanel">${taskDetailSheetInnerHtml}</div>
                 </div>`
             : '';
 
@@ -208,10 +210,10 @@
             showAiSideDock,
             calendarSideDockWidth,
             aiSideDockWidth,
-            showWhiteboardMobileDetailSheet,
-            whiteboardDetailTaskId,
-            whiteboardDetailTask,
-            whiteboardDetailHtml,
+            showTaskDetailSheet,
+            taskDetailSheetTaskId,
+            taskDetailSheetTask,
+            taskDetailSheetHtml,
             showMobileBottomViewBar,
             mobileBottomViewbarActive,
             useCompactTopbar,
@@ -246,6 +248,5 @@
             multiSelectBarBottom,
             multiSelectActionDisabledAttr,
             multiSelectBarHtml,
-            whiteboardMobileDetailSheetHtml,
         };
     }

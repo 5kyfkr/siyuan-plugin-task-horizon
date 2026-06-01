@@ -5146,6 +5146,95 @@ if (mode === 'checklist') {
         return btn;
     }
 
+    function __tmBuildTaskDetailMoreSubmenuItem(label, iconName, childrenBuilder, options = {}) {
+        const wrap = document.createElement('div');
+        wrap.className = 'tm-task-detail-more-menu__submenu';
+        const btn = document.createElement('button');
+        btn.type = 'button';
+        btn.className = 'tm-multi-bulkbar__menu-item tm-task-detail-more-menu__submenu-trigger';
+        btn.setAttribute('aria-haspopup', 'menu');
+        btn.setAttribute('aria-expanded', 'false');
+        if (String(options.labelHtml || '').trim()) {
+            btn.innerHTML = String(options.labelHtml || '').trim();
+        } else {
+            btn.innerHTML = `<span class="tm-multi-bulkbar__menu-icon">${__tmPhosphorBoldSvg(iconName, { size: 14, className: 'tm-multi-bulkbar__menu-icon-svg' })}</span><span>${esc(String(label || '').trim())}</span>`;
+        }
+        const arrow = document.createElement('span');
+        arrow.className = 'tm-task-detail-more-menu__submenu-arrow';
+        arrow.textContent = '›';
+        btn.appendChild(arrow);
+
+        const submenu = document.createElement('div');
+        submenu.className = 'tm-popup-menu bc-dropdown-menu tm-multi-bulkbar__menu tm-task-detail-more-menu__submenu-menu';
+        submenu.setAttribute('role', 'menu');
+        submenu.style.display = 'none';
+        const children = typeof childrenBuilder === 'function' ? childrenBuilder() : [];
+        (Array.isArray(children) ? children : []).forEach((child) => {
+            if (child instanceof Element) submenu.appendChild(child);
+        });
+        wrap.appendChild(btn);
+        wrap.appendChild(submenu);
+
+        let hideTimer = null;
+        const positionSubmenu = () => {
+            submenu.style.left = 'calc(100% + 4px)';
+            submenu.style.right = 'auto';
+            submenu.style.top = '-6px';
+            try {
+                const rect = submenu.getBoundingClientRect();
+                const vw = Math.max(0, window.innerWidth || document.documentElement?.clientWidth || 0);
+                const vh = Math.max(0, window.innerHeight || document.documentElement?.clientHeight || 0);
+                const margin = 8;
+                if (rect.right > vw - margin) {
+                    submenu.style.left = 'auto';
+                    submenu.style.right = 'calc(100% + 4px)';
+                }
+                const nextRect = submenu.getBoundingClientRect();
+                if (nextRect.bottom > vh - margin) {
+                    const overflow = nextRect.bottom - (vh - margin);
+                    submenu.style.top = `${Math.min(-6, -6 - Math.round(overflow))}px`;
+                }
+                const finalRect = submenu.getBoundingClientRect();
+                if (finalRect.top < margin) {
+                    const parentTop = wrap.getBoundingClientRect().top || 0;
+                    submenu.style.top = `${Math.max(margin - parentTop, -6)}px`;
+                }
+            } catch (e) {}
+        };
+        const show = () => {
+            if (hideTimer) {
+                clearTimeout(hideTimer);
+                hideTimer = null;
+            }
+            submenu.style.display = 'flex';
+            wrap.classList.add('is-open');
+            btn.setAttribute('aria-expanded', 'true');
+            positionSubmenu();
+        };
+        const hide = () => {
+            if (hideTimer) clearTimeout(hideTimer);
+            hideTimer = setTimeout(() => {
+                submenu.style.display = 'none';
+                wrap.classList.remove('is-open');
+                btn.setAttribute('aria-expanded', 'false');
+            }, 120);
+        };
+        wrap.addEventListener('mouseenter', show);
+        wrap.addEventListener('mouseleave', hide);
+        btn.onclick = (ev) => {
+            try { ev.preventDefault(); } catch (e) {}
+            try { ev.stopPropagation(); } catch (e) {}
+            if (submenu.style.display === 'flex') {
+                submenu.style.display = 'none';
+                wrap.classList.remove('is-open');
+                btn.setAttribute('aria-expanded', 'false');
+            } else {
+                show();
+            }
+        };
+        return wrap;
+    }
+
     async function __tmResolveTaskDetailTimerTarget(taskId) {
         const rawId = String(taskId || '').trim();
         if (!rawId) return null;
@@ -5309,6 +5398,38 @@ if (mode === 'checklist') {
                 run: async () => { await window.tmToggleTaskDetailCompletedSubtasks?.(tid, !showCompletedSubtasks); }
             });
         }
+        const copyTaskValue = (type) => async () => {
+            if (typeof __tmCopyTaskContextValue === 'function') {
+                await __tmCopyTaskContextValue(tid, task, type);
+            } else {
+                hint('⚠ 复制功能尚未初始化', 'warning');
+            }
+        };
+        actions.push({
+            label: '复制',
+            icon: 'clipboard-list',
+            labelHtml: __tmRenderContextMenuLabel('clipboard-list', '复制'),
+            submenu: [
+                {
+                    label: '复制纯文本',
+                    icon: 'cursor-text',
+                    labelHtml: __tmRenderContextMenuLabel('cursor-text', '复制纯文本'),
+                    run: copyTaskValue('plain')
+                },
+                {
+                    label: '复制块引用',
+                    icon: 'link-simple',
+                    labelHtml: __tmRenderContextMenuLabel('link-simple', '复制块引用'),
+                    run: copyTaskValue('blockRef')
+                },
+                {
+                    label: '复制块 ID',
+                    icon: 'file-text',
+                    labelHtml: __tmRenderContextMenuLabel('file-text', '复制块 ID'),
+                    run: copyTaskValue('blockId')
+                },
+            ]
+        });
 
         actions.push({ separator: true });
         actions.push({
@@ -5378,7 +5499,15 @@ if (mode === 'checklist') {
                 cleaned.push({ separator: true });
                 return;
             }
-            if (!item || typeof item.run !== 'function') return;
+            if (!item) return;
+            const submenu = Array.isArray(item.submenu)
+                ? item.submenu.filter((child) => child && typeof child.run === 'function')
+                : [];
+            if (submenu.length) {
+                cleaned.push({ ...item, submenu });
+                return;
+            }
+            if (typeof item.run !== 'function') return;
             cleaned.push(item);
         });
         while (cleaned.length && cleaned[cleaned.length - 1]?.separator === true) cleaned.pop();
@@ -5414,6 +5543,18 @@ if (mode === 'checklist') {
                 const separator = document.createElement('div');
                 separator.className = 'tm-multi-bulkbar__menu-separator';
                 menu.appendChild(separator);
+                return;
+            }
+            if (Array.isArray(item.submenu) && item.submenu.length) {
+                menu.appendChild(__tmBuildTaskDetailMoreSubmenuItem(item.label, item.icon, () => {
+                    return item.submenu.map((child) => __tmBuildTaskDetailMoreMenuItem(child.label, child.icon, child.run, {
+                        danger: child.danger === true,
+                        disabled: child.disabled === true,
+                        labelHtml: child.labelHtml,
+                    }));
+                }, {
+                    labelHtml: item.labelHtml,
+                }));
                 return;
             }
             menu.appendChild(__tmBuildTaskDetailMoreMenuItem(item.label, item.icon, item.run, {
@@ -12742,11 +12883,12 @@ if (mode === 'checklist') {
             window.tmOpenTaskDetail?.(id, ev);
             return true;
         }
+        if (globalThis.__tmViewPolicy?.shouldUseTaskDetailSheetMode?.('whiteboard', state.modal)) {
+            void __tmOpenTaskDetailSheetInPlace(id, { source: 'whiteboard-title-click' });
+            return true;
+        }
         if (__tmIsMobileDevice() || __tmHostUsesMobileUI()) {
-            state.detailTaskId = id;
-            state.checklistDetailDismissed = false;
-            state.checklistDetailSheetOpen = true;
-            if (!__tmRefreshChecklistSelectionInPlace(state.modal, 'whiteboard-title-click')) render();
+            void window.tmOpenTaskDetail?.(id, ev);
             return true;
         }
         return window.tmJumpToTask(id, ev);
@@ -12776,11 +12918,12 @@ if (mode === 'checklist') {
             __tmToggleTaskMultiSelection(id);
             return true;
         }
+        if (globalThis.__tmViewPolicy?.shouldUseTaskDetailSheetMode?.('whiteboard', state.modal)) {
+            void __tmOpenTaskDetailSheetInPlace(id, { source: 'whiteboard-head-click' });
+            return true;
+        }
         if (__tmIsMobileDevice() || __tmHostUsesMobileUI()) {
-            state.detailTaskId = id;
-            state.checklistDetailDismissed = false;
-            state.checklistDetailSheetOpen = true;
-            if (!__tmRefreshChecklistSelectionInPlace(state.modal, 'whiteboard-head-click')) render();
+            void window.tmOpenTaskDetail?.(id, ev);
             return true;
         }
         return window.tmJumpToTask(id, ev);
@@ -12805,6 +12948,25 @@ if (mode === 'checklist') {
         __tmRefreshChecklistSelectionInPlace(state.modal, 'checklist-close-sheet');
     };
 
+    window.tmTaskDetailSheetClose = async function(ev) {
+        try { ev?.stopPropagation?.(); } catch (e) {}
+        try { ev?.preventDefault?.(); } catch (e) {}
+        try {
+            const detailPanel = state.modal?.querySelector?.('#tmTaskDetailSheetPanel');
+            if (detailPanel instanceof HTMLElement) {
+                await detailPanel.__tmTaskDetailFlushSave?.({
+                    showHint: false,
+                    closeAfterSave: false,
+                    preserveFocus: false,
+                    skipRerender: true,
+                });
+            }
+        } catch (e) {}
+        state.checklistDetailDismissed = true;
+        state.checklistDetailSheetOpen = false;
+        __tmRefreshTaskDetailSheetInPlace(state.modal, 'task-detail-sheet-close');
+    };
+
     let __tmChecklistSheetLastTouchStartAt = 0;
 
     function __tmGetClientYFromPointerOrTouchEvent(ev) {
@@ -12815,11 +12977,18 @@ if (mode === 'checklist') {
         return Number.isFinite(touchY) ? touchY : 0;
     }
 
-    function __tmStartChecklistSheetDrag(ev, source = 'pointer') {
-        if (!__tmChecklistUseSheetMode(state.modal)) return;
+    function __tmStartChecklistSheetDrag(ev, source = 'pointer', options = {}) {
+        const opts = (options && typeof options === 'object') ? options : {};
+        if (!opts.skipSheetModeCheck && !__tmChecklistUseSheetMode(state.modal)) return;
         if (!state.checklistDetailSheetOpen) return;
-        const sheet = state.modal?.querySelector?.('#tmChecklistSheet');
-        const body = state.modal?.querySelector?.('#tmChecklistSheetPanel');
+        const sheetSelector = String(opts.sheetSelector || '#tmChecklistSheet').trim() || '#tmChecklistSheet';
+        const bodySelector = String(opts.bodySelector || '#tmChecklistSheetPanel').trim() || '#tmChecklistSheetPanel';
+        const sheet = state.modal?.querySelector?.(sheetSelector);
+        const body = state.modal?.querySelector?.(bodySelector);
+        const closeSheet = typeof opts.close === 'function' ? opts.close : window.tmChecklistCloseSheet;
+        const refreshSheet = typeof opts.refresh === 'function'
+            ? opts.refresh
+            : () => __tmRefreshChecklistSelectionInPlace(state.modal, 'checklist-sheet-drag-end');
         if (!(sheet instanceof HTMLElement)) return;
         const target = ev?.target;
         if (!(target instanceof Element)) return;
@@ -12867,10 +13036,10 @@ if (mode === 'checklist') {
             const closeByDistance = dy >= 88;
             const closeByVelocity = velocity > 0.55 && dy > 18;
             if (closeByDistance || closeByVelocity) {
-                window.tmChecklistCloseSheet(e2);
+                closeSheet(e2);
                 return;
             }
-            __tmRefreshChecklistSelectionInPlace(state.modal, 'checklist-sheet-drag-end');
+            refreshSheet(e2);
         };
         if (source === 'touch') {
             try { window.addEventListener('touchmove', onMove, { capture: true, passive: false }); } catch (e) {}
@@ -12887,6 +13056,17 @@ if (mode === 'checklist') {
     window.tmChecklistSheetDragStart = function(ev) {
         if ((Date.now() - __tmChecklistSheetLastTouchStartAt) < 700) return;
         __tmStartChecklistSheetDrag(ev, 'pointer');
+    };
+
+    window.tmTaskDetailSheetDragStart = function(ev) {
+        if ((Date.now() - __tmChecklistSheetLastTouchStartAt) < 700) return;
+        __tmStartChecklistSheetDrag(ev, 'pointer', {
+            skipSheetModeCheck: true,
+            sheetSelector: '#tmTaskDetailSheet',
+            bodySelector: '#tmTaskDetailSheetPanel',
+            close: window.tmTaskDetailSheetClose,
+            refresh: () => __tmRefreshTaskDetailSheetInPlace(state.modal, 'task-detail-sheet-drag-end'),
+        });
     };
 
     window.tmStartChecklistDetailResize = function(ev) {

@@ -4950,6 +4950,15 @@ if (!__tmIsCollectedOtherBlockTask(task) && diff.contentChanged) {
                     attachmentActionPending = false;
                 }
             });
+            on(root, 'contextmenu', (ev) => {
+                const target = ev.target instanceof Element
+                    ? ev.target.closest('[data-tm-detail-attachment-context]')
+                    : null;
+                if (!(target instanceof HTMLElement) || !root.contains(target)) return;
+                const path = String(target.getAttribute('data-tm-detail-attachment-context') || '').trim();
+                if (!path) return;
+                try { __tmShowTaskAttachmentContextMenu(ev, path); } catch (e) {}
+            });
             on(root, 'click', async (ev) => {
                 const target = ev.target instanceof Element
                     ? ev.target.closest('[data-tm-detail-attachment-add], [data-tm-detail-attachment-open], [data-tm-detail-attachment-toggle], [data-tm-detail-attachment-remove], [data-tm-detail-attachment-move]')
@@ -5578,6 +5587,153 @@ return true;
 return true;
     }
 
+    function __tmResolveTaskDetailSheetPanel(modalEl) {
+        const modal = modalEl instanceof Element ? modalEl : state.modal;
+        if (!(modal instanceof Element)) return null;
+        const panel = modal.querySelector('#tmTaskDetailSheetPanel');
+        return panel instanceof HTMLElement ? panel : null;
+    }
+
+    function __tmSyncTaskDetailSheetOpenState(modalEl, task = null) {
+        const modal = modalEl instanceof Element ? modalEl : state.modal;
+        if (!(modal instanceof Element)) return false;
+        const open = !!(state.checklistDetailSheetOpen && task);
+        const backdrop = modal.querySelector('#tmTaskDetailSheetBackdrop');
+        const sheet = modal.querySelector('#tmTaskDetailSheet');
+        if (backdrop instanceof HTMLElement) backdrop.classList.toggle('tm-checklist-sheet-backdrop--open', open);
+        if (sheet instanceof HTMLElement) sheet.classList.toggle('tm-checklist-sheet--open', open);
+        return open;
+    }
+
+    function __tmClearKanbanDetailForTaskSheet(modalEl) {
+        const modal = modalEl instanceof Element ? modalEl : state.modal;
+        state.kanbanDetailTaskId = '';
+        state.kanbanDetailAnchorTaskId = '';
+        try { __tmClearKanbanDetailFloatingHandlers(); } catch (e) {}
+        try {
+            const floatPanel = modal?.querySelector?.('#tmKanbanDetailFloat');
+            if (floatPanel instanceof HTMLElement) floatPanel.remove();
+        } catch (e) {}
+    }
+
+    function __tmRefreshTaskDetailSheetInPlace(modalEl, source = '') {
+        const modal = modalEl instanceof Element ? modalEl : state.modal;
+        if (!(modal instanceof Element)) return false;
+        const panel = __tmResolveTaskDetailSheetPanel(modal);
+        if (!(panel instanceof HTMLElement)) return false;
+        const selectedId = String(state.detailTaskId || '').trim();
+        const prevTaskId = String(panel.dataset?.tmDetailTaskId || panel.__tmTaskDetailTaskId || panel.__tmTaskDetailTask?.id || '').trim();
+        const task = selectedId ? (state.flatTasks?.[selectedId] || globalThis.__tmRuntimeState?.getFlatTaskById?.(selectedId) || null) : null;
+        const detailScrollSnapshot = prevTaskId && prevTaskId === selectedId
+            ? {
+                top: Number(panel.scrollTop || 0),
+                left: Number(panel.scrollLeft || 0),
+                selectedId,
+            }
+            : null;
+        const keepExistingDetail = !!task
+            && !!selectedId
+            && prevTaskId === selectedId
+            && panel.childElementCount > 0;
+        if (keepExistingDetail) {
+            try {
+                __tmPatchTaskDetailPanelInPlace(panel, selectedId, {
+                    done: true,
+                    customStatus: true,
+                    priority: true,
+                    startDate: true,
+                    completionTime: true,
+                    taskCompleteAt: true,
+                    repeatHistory: true,
+                    duration: true,
+                    tomatoEstimateCount: true,
+                    tomatoCount: true,
+                    pinned: true,
+                    remark: true,
+                    attachments: true,
+                    customFieldValues: true,
+                });
+            } catch (e) {}
+        } else {
+            const detailDraftSnapshot = __tmCaptureTaskDetailSubtaskDraftSnapshot(panel, selectedId);
+            try {
+                __tmPushDetailDebug('detail-rebuild-html', {
+                    taskId: String(selectedId || '').trim(),
+                    embedded: true,
+                    source: `task-detail-sheet-rebuild:${String(source || '').trim() || 'unknown'}`,
+                    rootTag: __tmDescribeDebugElement(panel),
+                    pendingSave: panel.__tmTaskDetailPendingSave === true,
+                    hasActivePopover: !!panel.__tmTaskDetailActiveInlinePopover,
+                    refreshHoldMsLeft: Math.max(0, Number(panel.__tmTaskDetailRefreshHoldUntil || 0) - Date.now()),
+                });
+            } catch (e) {}
+            panel.innerHTML = task
+                ? __tmBuildTaskDetailInnerHtml(task, { embedded: true, closeable: true })
+                : `<div class="tm-checklist-empty-detail">选择任务后，这里会显示可编辑的详情。</div>`;
+            try { panel.__tmTaskDetailTask = task || null; } catch (e) {}
+            try {
+                if (task) panel.dataset.tmDetailTaskId = selectedId;
+                else delete panel.dataset.tmDetailTaskId;
+            } catch (e) {}
+            if (task) __tmBindTaskDetailEditor(panel, selectedId, {
+                embedded: true,
+                source: `task-detail-sheet-rebuild:${String(source || '').trim() || 'unknown'}`,
+                task,
+                onClose: () => {
+                    window.tmTaskDetailSheetClose?.();
+                }
+            });
+            try { __tmRestoreTaskDetailSubtaskDraftSnapshot(panel, detailDraftSnapshot); } catch (e) {}
+        }
+        try { panel.__tmTaskDetailTask = task || null; } catch (e) {}
+        if (task && selectedId) {
+            try { panel.dataset.tmDetailTaskId = selectedId; } catch (e) {}
+        }
+        __tmSyncTaskDetailSheetOpenState(modal, task);
+        if (detailScrollSnapshot) {
+            const restore = () => {
+                try {
+                    if (String(state.detailTaskId || '').trim() !== String(detailScrollSnapshot.selectedId || '').trim()) return;
+                    const livePanel = __tmResolveTaskDetailSheetPanel(modal);
+                    if (!(livePanel instanceof HTMLElement)) return;
+                    livePanel.scrollTop = Number(detailScrollSnapshot.top || 0);
+                    livePanel.scrollLeft = Number(detailScrollSnapshot.left || 0);
+                } catch (e) {}
+            };
+            try { restore(); } catch (e) {}
+            try { requestAnimationFrame(restore); } catch (e) {}
+            try { setTimeout(restore, 30); } catch (e) {}
+        }
+        return true;
+    }
+
+    async function __tmOpenTaskDetailSheetInPlace(taskId, options = {}) {
+        const tid = String(taskId || '').trim();
+        if (!tid) return false;
+        const opts = (options && typeof options === 'object') ? options : {};
+        const modal = state.modal instanceof Element ? state.modal : null;
+        const panel = __tmResolveTaskDetailSheetPanel(modal);
+        const prevTaskId = String(panel?.dataset?.tmDetailTaskId || panel?.__tmTaskDetailTaskId || panel?.__tmTaskDetailTask?.id || '').trim();
+        if (panel instanceof HTMLElement && prevTaskId && prevTaskId !== tid) {
+            try {
+                await panel.__tmTaskDetailFlushSave?.({
+                    showHint: false,
+                    closeAfterSave: false,
+                    preserveFocus: false,
+                    skipRerender: true,
+                });
+            } catch (e) {}
+        }
+        state.detailTaskId = tid;
+        state.checklistDetailDismissed = false;
+        state.checklistDetailSheetOpen = true;
+        try { __tmRemoveElementsById('tm-task-detail-overlay'); } catch (e) {}
+        try { __tmClearKanbanDetailForTaskSheet(modal); } catch (e) {}
+        const refreshed = __tmRefreshTaskDetailSheetInPlace(modal, String(opts.source || '').trim() || 'task-detail-sheet-open');
+        if (!refreshed) render();
+        return true;
+    }
+
     function __tmPatchTaskDetailPanelInPlace(panelEl, taskId, patch = {}) {
         const panel = panelEl instanceof Element ? panelEl : null;
         const tid = String(taskId || '').trim();
@@ -5846,6 +6002,33 @@ refreshed = !!__tmRefreshChecklistSelectionInPlace(state.modal, 'visible-task-de
                     }
                 }
             }
+        }
+        if (String(state.detailTaskId || '').trim() === tid) {
+            try {
+                const panel = __tmResolveTaskDetailSheetPanel(state.modal);
+                if (panel instanceof HTMLElement) {
+                    const detailPatched = !!__tmPatchTaskDetailPanelInPlace(panel, tid, {
+                        done: true,
+                        customStatus: true,
+                        priority: true,
+                        startDate: true,
+                        completionTime: true,
+                        taskCompleteAt: true,
+                        repeatHistory: true,
+                        duration: true,
+                        tomatoEstimateCount: true,
+                        tomatoCount: true,
+                        pinned: true,
+                        remark: true,
+                        attachments: true,
+                        customFieldValues: true,
+                    });
+                    refreshed = detailPatched || refreshed;
+                    if (!detailPatched) {
+                        refreshed = !!__tmRefreshTaskDetailSheetInPlace(state.modal, 'visible-task-detail-fallback') || refreshed;
+                    }
+                }
+            } catch (e) {}
         }
         if (String(state.viewMode || '').trim() === 'kanban' && String(state.kanbanDetailTaskId || '').trim() === tid) {
             refreshed = !!__tmRefreshKanbanDetailInPlace(state.modal, { source: 'visible-task-detail-refresh' }) || refreshed;

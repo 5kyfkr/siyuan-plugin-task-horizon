@@ -445,10 +445,10 @@ return;
             showAiSideDock,
             calendarSideDockWidth,
             aiSideDockWidth,
-            showWhiteboardMobileDetailSheet,
-            whiteboardDetailTaskId,
-            whiteboardDetailTask,
-            whiteboardDetailHtml,
+            showTaskDetailSheet,
+            taskDetailSheetTaskId,
+            taskDetailSheetTask,
+            taskDetailSheetHtml,
             showMobileBottomViewBar,
             mobileBottomViewbarActive,
             useCompactTopbar,
@@ -483,7 +483,6 @@ return;
             multiSelectBarBottom,
             multiSelectActionDisabledAttr,
             multiSelectBarHtml,
-            whiteboardMobileDetailSheetHtml,
         } = __tmBuildRenderSceneContext({
             bodyAnimClass,
             tableAvailableWidth,
@@ -1647,8 +1646,8 @@ return;
                     ${timelineFloatingToolbarHtml}
                     ${bodyWithSideDockHtml}
                     ${multiSelectBarHtml}
+                    ${taskDetailSheetHtml}
                 </div>
-                ${whiteboardMobileDetailSheetHtml}
                 ${showMobileBottomViewBar ? `
                     <div class="tm-mobile-bottom-viewbar ${mobileBottomViewbarActive ? 'tm-mobile-bottom-viewbar--active' : ''}" onpointerdown="tmTouchMobileBottomViewbar(event)" onclick="tmTouchMobileBottomViewbar(event)">
                         <div class="tm-mobile-bottom-viewbar__inner">
@@ -1712,6 +1711,27 @@ return;
         };
         if (!deferSnapshotLayoutWork(bindDeferredMainScrollLayoutWork, 120)) bindDeferredMainScrollLayoutWork();
         try { __tmBindMobileViewportAutoRefresh(state.modal); } catch (e) {}
+        try {
+            if (showTaskDetailSheet) {
+                const selectedId = String(taskDetailSheetTaskId || '').trim();
+                const detailPanel = state.modal?.querySelector?.('#tmTaskDetailSheetPanel');
+                const selectedTask = selectedId
+                    ? (taskDetailSheetTask || globalThis.__tmRuntimeState?.getFlatTaskById?.(selectedId) || state.flatTasks?.[selectedId] || null)
+                    : null;
+                if (detailPanel instanceof HTMLElement && selectedTask) {
+                    try { detailPanel.__tmTaskDetailTask = selectedTask; } catch (e) {}
+                    try { detailPanel.dataset.tmDetailTaskId = selectedId; } catch (e) {}
+                    __tmBindTaskDetailEditor(detailPanel, selectedId, {
+                        embedded: true,
+                        source: 'render-task-detail-sheet-post-bind',
+                        task: selectedTask,
+                        onClose: () => {
+                            window.tmTaskDetailSheetClose?.();
+                        }
+                    });
+                }
+            }
+        } catch (e) {}
         try {
             if (renderMode === 'checklist') {
                 const selectedId = String(state.detailTaskId || '').trim();

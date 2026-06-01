@@ -8751,7 +8751,7 @@
                             const completedSet = getReminderCompletedSet(r);
                             const done = isReminderDateCompleted(r, dateKey, times, completedSet);
                             const timeLabel = times.length > 0 ? ` (${times.join(',')})` : '';
-                            const title = `${done ? '✓ ' : '⏰ '}${titleBase}${timeLabel}`;
+                            const title = `⏰ ${titleBase}${timeLabel}`;
                             const key = `reminder:${blockId || titleBase}:${dateKey}:${String(atMs)}`;
                             if (fired.has(key)) continue;
                             desired.set(key, { kind: 'reminder', atMs, scheduleId: '', title, allDay: true, dateKey });
@@ -10476,6 +10476,67 @@
         return false;
     }
 
+    async function setCalendarReminderOccurrenceDone(blockId, dateKey, timeKeys, done) {
+        const id = String(blockId || '').trim();
+        const day = String(dateKey || '').trim();
+        const times = (Array.isArray(timeKeys) ? timeKeys : [timeKeys])
+            .map((it) => String(it || '').trim())
+            .filter(Boolean);
+        if (!id || !day || !times.length) throw new Error('提醒实例信息不完整');
+        const api = globalThis.__tomatoReminder || null;
+        if (typeof api?.setOccurrenceDone === 'function') {
+            for (const timeKey of times) {
+                const result = api.setOccurrenceDone(id, day, timeKey, done !== false);
+                if (result && typeof result.then === 'function') await result;
+                if (result === false) throw new Error('提醒完成接口返回失败');
+            }
+        } else if (done !== false && typeof api?.completeOccurrence === 'function') {
+            for (const timeKey of times) {
+                const result = api.completeOccurrence(id, day, timeKey);
+                if (result && typeof result.then === 'function') await result;
+                if (result === false) throw new Error('提醒完成接口返回失败');
+            }
+        } else if (done === false && typeof api?.uncompleteOccurrence === 'function') {
+            for (const timeKey of times) {
+                const result = api.uncompleteOccurrence(id, day, timeKey);
+                if (result && typeof result.then === 'function') await result;
+                if (result === false) throw new Error('提醒撤销接口返回失败');
+            }
+        } else {
+            const list = await loadReminderBlocks().catch(() => []);
+            const existing = (Array.isArray(list) ? list : []).find((it) => String(
+                it?.blockId || it?.block_id || it?.taskBlockId || it?.task_block_id || it?.targetBlockId || it?.target_block_id || it?.id || ''
+            ).trim() === id);
+            if (!existing) throw new Error('提醒完成接口不可用');
+            const completed = Array.isArray(existing.completedOccurrences) ? existing.completedOccurrences.slice() : [];
+            const nowIso = new Date().toISOString();
+            const targetKeys = new Set(times.map((timeKey) => reminderOccurrenceKey(day, timeKey)).filter(Boolean));
+            const rest = completed.filter((it) => !targetKeys.has(reminderOccurrenceKey(it?.date || it?.dateKey || it?.day, it?.time || it?.timeKey)));
+            const completedOccurrences = done === false
+                ? rest
+                : times.map((timeKey) => ({ date: day, time: timeKey, doneAt: nowIso })).concat(rest);
+            const next = {
+                ...existing,
+                blockId: id,
+                completedOccurrences: completedOccurrences.slice(0, 30),
+                updatedAt: nowIso,
+            };
+            const res = await postJSON('/api/attr/setBlockAttrs', {
+                id,
+                attrs: {
+                    'custom-tomato-reminder': JSON.stringify(next),
+                    'bookmark': '⏰',
+                },
+            });
+            let json = null;
+            try { json = await res.json(); } catch (e) {}
+            if (!res.ok || json?.code !== 0) throw new Error('提醒完成状态保存失败');
+        }
+        try { clearReminderCalendarCache(); } catch (e) {}
+        try { scheduleReminderCalendarRefetch(); } catch (e) {}
+        return true;
+    }
+
     function shouldHideCompletedAllDayCalendarEvent(eventLike, settings, options = {}) {
         if (!eventLike || !settings || settings.showCompletedAllDaySchedules !== false) return false;
         const viewType = String(options?.viewType || '').trim();
@@ -10492,6 +10553,15 @@
         let applied = false;
         applyTaskDoneVisual(wrapEl, titleText, nextDone);
         try {
+            if (source === 'reminder') {
+                const reminderId = String(ext?.__tmReminderBlockId || tid || '').trim();
+                const dateKey = String(ext?.__tmReminderDate || '').trim();
+                const timeKeys = Array.isArray(ext?.__tmReminderTimes) ? ext.__tmReminderTimes : [ext?.__tmReminderTime];
+                await setCalendarReminderOccurrenceDone(reminderId, dateKey, timeKeys, nextDone);
+                try { ext.__tmReminderDone = nextDone; } catch (e) {}
+                applied = true;
+                return true;
+            }
             if (source === 'schedule' && (isRecurringScheduleEventExt(ext) || isDetachedTaskOccurrenceEventExt(ext) || isDetachedScheduleOccurrenceEventExt(ext))) {
                 const scheduleId = String(ext?.__tmScheduleId || '').trim();
                 const occurrenceStartMs = Number(ext?.__tmOccurrenceStartMs);
@@ -11646,7 +11716,35 @@
                     if (isBlockLike) wrapEl.classList.add('tm-cal-task-event--block');
                     if (useAllDayLayout) wrapEl.classList.add('tm-cal-task-event--allday');
                     applyTaskTitleOpacityFromTask(titleText, getTaskLikeForTitleOpacity(tid, null));
-                    applyTaskEventTitleClamp(wrapEl, title);
+                    let cb = null;
+                    let leadingEl = null;
+                    if (shouldShowCalendarEventCheckbox(ext)) {
+                        cb = document.createElement('input');
+                        cb.type = 'checkbox';
+                        cb.className = 'tm-cal-task-event-check';
+                        cb.checked = done;
+                        cb.onclick = (ev) => {
+                            try { ev.stopPropagation(); } catch (e) {}
+                        };
+                        applyTaskEventCheckboxOffset(cb, { allDay: useAllDayLayout, blockLike: isBlockLike });
+                        cb.onchange = async (ev) => {
+                            try { ev.stopPropagation(); } catch (e) {}
+                            try {
+                                await handleCalendarEventCheckboxToggle(cb, wrapEl, titleText, ext, tid, {
+                                    allDay: arg?.event?.allDay === true,
+                                    viewType: String(arg?.view?.type || '').trim(),
+                                    eventApi: arg?.event || null,
+                                });
+                            } catch (e) {
+                                return;
+                            }
+                        };
+                    }
+                    if (isBlockLike) {
+                        leadingEl = buildCalendarEventLeadingNode(cb ? '' : 'marker');
+                        if (cb) leadingEl.appendChild(cb);
+                    }
+                    applyTaskEventTitleClamp(wrapEl, title, { hasLeadingSlot: !!leadingEl });
                     applyTaskDoneVisual(wrapEl, titleText, done);
                     titleText.onclick = (ev) => {
                         try { ev.stopPropagation(); } catch (e) {}
@@ -11654,6 +11752,8 @@
                         if (!tid) return;
                         try { openCalendarLinkedTask(tid, ev); } catch (e) {}
                     };
+                    if (leadingEl) wrapEl.appendChild(leadingEl);
+                    else if (cb) wrapEl.appendChild(cb);
                     wrapEl.appendChild(title);
                     return { domNodes: [wrapEl] };
                 }
@@ -13915,7 +14015,7 @@
                 const timeLabel = times.length > 0 ? ` (${times.join(',')})` : '';
                 out.push({
                     id: `reminder:${blockId || titleBase}:${dateKey}`,
-                    title: `${done ? '✓ ' : '⏰ '}${titleBase}${timeLabel}`,
+                    title: `⏰ ${titleBase}${timeLabel}`,
                     start: dateKey,
                     end: formatDateKey(new Date(ts + dayMs)),
                     allDay: true,
@@ -13930,6 +14030,7 @@
                         __tmReminderBlockId: blockId,
                         __tmReminderDone: done,
                         __tmReminderDate: dateKey,
+                        __tmReminderTimes: times,
                         __tmRank: 3,
                     },
                 });
@@ -16300,7 +16401,35 @@
                     if (isBlockLike) wrapEl.classList.add('tm-cal-task-event--block');
                     if (useAllDayLayout) wrapEl.classList.add('tm-cal-task-event--allday');
                     applyTaskTitleOpacityFromTask(titleText, getTaskLikeForTitleOpacity(tid, null));
-                    applyTaskEventTitleClamp(wrapEl, title);
+                    let cb = null;
+                    let leadingEl = null;
+                    if (shouldShowCalendarEventCheckbox(ext)) {
+                        cb = document.createElement('input');
+                        cb.type = 'checkbox';
+                        cb.className = 'tm-cal-task-event-check';
+                        cb.checked = done;
+                        cb.onclick = (ev) => {
+                            try { ev.stopPropagation(); } catch (e) {}
+                        };
+                        applyTaskEventCheckboxOffset(cb, { allDay: useAllDayLayout, blockLike: isBlockLike });
+                        cb.onchange = async (ev) => {
+                            try { ev.stopPropagation(); } catch (e) {}
+                            try {
+                                await handleCalendarEventCheckboxToggle(cb, wrapEl, titleText, ext, tid, {
+                                    allDay: arg?.event?.allDay === true,
+                                    viewType: String(arg?.view?.type || '').trim(),
+                                    eventApi: arg?.event || null,
+                                });
+                            } catch (e) {
+                                return;
+                            }
+                        };
+                    }
+                    if (isBlockLike) {
+                        leadingEl = buildCalendarEventLeadingNode(cb ? '' : 'marker');
+                        if (cb) leadingEl.appendChild(cb);
+                    }
+                    applyTaskEventTitleClamp(wrapEl, title, { hasLeadingSlot: !!leadingEl });
                     applyTaskDoneVisual(wrapEl, titleText, done);
                     titleText.onclick = (ev) => {
                         try { ev.stopPropagation(); } catch (e) {}
@@ -16319,6 +16448,8 @@
                         if (!tid) return;
                         try { openCalendarLinkedTask(tid, ev); } catch (e) {}
                     };
+                    if (leadingEl) wrapEl.appendChild(leadingEl);
+                    else if (cb) wrapEl.appendChild(cb);
                     wrapEl.appendChild(title);
                     return { domNodes: [wrapEl] };
                 }
@@ -17233,6 +17364,14 @@
                     return;
                 }
                 if (source === 'reminder') {
+                    if (interactiveHit?.kind === 'checkbox') {
+                        const checkEl = interactiveHit.checkboxEl;
+                        if (checkEl && target !== checkEl && !target.closest('.tm-cal-task-event-check')) {
+                            try { e.preventDefault?.(); } catch (e2) {}
+                            try { checkEl.click?.(); } catch (e2) {}
+                        }
+                        return;
+                    }
                     if (rid) {
                         try { openCalendarLinkedTask(rid, e); } catch (e2) {}
                     }
