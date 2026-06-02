@@ -212,7 +212,7 @@
     function __tmGetTaskDetailTimeHubLabel(task, options = {}) {
         const text = __tmGetTaskDetailTimeHubParts(task, options).join(' · ');
         if (text) return text;
-        return __tmTaskDetailTimeHubHasRepeat(options) ? '循环' : '时间';
+        return __tmTaskDetailTimeHubHasRepeat(options) ? '循环' : '截止日期';
     }
 
     function __tmBuildTaskDetailTimeHubFace(task, options = {}) {
@@ -1389,16 +1389,14 @@
                     ${customFieldsHtml}
                 </div>
 
-                <section class="tm-task-detail-section tm-task-detail-section--subtasks">
+                <section class="tm-task-detail-section tm-task-detail-section--subtasks ${children.length ? '' : 'tm-task-detail-section--subtasks-empty'}">
                     <div class="tm-task-detail-section-head">
                         <div class="tm-task-detail-section-title">子任务</div>
                         <div class="tm-task-detail-section-tools">
                             ${children.length ? `<span class="tm-task-detail-section-count">${completedChildren}/${children.length}</span>` : ''}
                         </div>
                     </div>
-                    <div class="tm-task-detail-subtasks" data-tm-detail-subtasks>
-                        ${__tmBuildTaskDetailSubtasksHtml(task)}
-                    </div>
+                    <div class="tm-task-detail-subtasks" data-tm-detail-subtasks>${__tmBuildTaskDetailSubtasksHtml(task)}</div>
                     <div class="tm-task-detail-subtask-footer">
                         <button type="button" class="bc-btn bc-btn--sm tm-task-detail-subtask-add-btn" data-tm-detail="create-subtask"${detailTip('添加子任务', { ariaLabel: false })}>${__tmRenderLucideIcon('plus')}<span>添加子任务</span></button>
                     </div>
@@ -4191,9 +4189,14 @@ if (!__tmIsCollectedOtherBlockTask(task) && diff.contentChanged) {
         const restoreSubtaskEmptyState = () => {
             const list = root.querySelector('[data-tm-detail-subtasks]');
             if (!(list instanceof HTMLElement)) return;
+            const section = list.closest('.tm-task-detail-section--subtasks');
             const hasRealRows = Array.from(list.children).some((el) => el instanceof HTMLElement && el.classList.contains('tm-task-detail-subtask'));
-            if (hasRealRows) return;
+            if (hasRealRows) {
+                if (section instanceof HTMLElement) section.classList.remove('tm-task-detail-section--subtasks-empty');
+                return;
+            }
             list.innerHTML = '';
+            if (section instanceof HTMLElement) section.classList.add('tm-task-detail-section--subtasks-empty');
         };
         const bindSubtaskDraftRow = (draftRow) => {
             if (!(draftRow instanceof HTMLElement)) return;
@@ -4395,6 +4398,8 @@ if (!__tmIsCollectedOtherBlockTask(task) && diff.contentChanged) {
                 </div>
             `;
             list.appendChild(draftRow);
+            const section = list.closest('.tm-task-detail-section--subtasks');
+            if (section instanceof HTMLElement) section.classList.remove('tm-task-detail-section--subtasks-empty');
             bindSubtaskDraftRow(draftRow);
             try {
                 const input = draftRow.querySelector('[data-tm-detail-subtask-draft-input]');

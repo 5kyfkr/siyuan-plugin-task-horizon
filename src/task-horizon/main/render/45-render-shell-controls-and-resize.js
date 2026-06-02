@@ -906,6 +906,16 @@
         state.dockTaskPointerSuppressClickUntil = 0;
         state.multiSelectPointerGestureCleanup = null;
         state.multiSelectPointerSweepAbort = null;
+        try { __tmResetDocTabsAutoHideTouchState({ resetVisible: true, unbind: true }); } catch (e) {}
+        try {
+            __tmClearTopbarManagerIconLongPressTimer?.();
+            state.topbarManagerIconLongPressFired = false;
+            state.topbarManagerIconLongPressMoved = false;
+            state.topbarManagerIconTrigger = null;
+            state.topbarManagerIconSuppressClickUntil = 0;
+            state.topbarManagerIconIgnoreContextMenuUntil = 0;
+            state.__tmPluginIconLongPressing = false;
+        } catch (e) {}
         try { __tmUnbindMobileViewportAutoRefresh(); } catch (e) {}
         __tmClearTimelineTodayIndicatorTimer();
 

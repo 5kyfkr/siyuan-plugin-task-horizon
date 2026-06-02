@@ -721,6 +721,11 @@
                              <span class="tm-setting-field-unit">(0=跟随)</span>`
                         )}
                         ${renderSingleSwitchSetting(
+                            '父任务名称加粗',
+                            '开启后父任务名称保持加粗显示；关闭后任务名称使用普通字重。',
+                            `<input class="b3-switch fn__flex-center" type="checkbox" ${SettingsStore.data.parentTaskNameBoldEnabled !== false ? 'checked' : ''} onchange="updateParentTaskNameBoldEnabled(this.checked)">`
+                        )}
+                        ${renderSingleSwitchSetting(
                             '自动换行',
                             '任务内容、备注、看板和白板中的任务内容自动换行显示。',
                             `<input class="b3-switch fn__flex-center" type="checkbox" ${SettingsStore.data.taskAutoWrapEnabled !== false ? 'checked' : ''} onchange="updateTaskAutoWrapEnabled(this.checked)">`
@@ -900,6 +905,12 @@
                                     return view ? `<option value="${view.id}" ${String(__tmGetSafeViewMode(SettingsStore.data.defaultViewModeMobile || SettingsStore.data.defaultViewMode || 'checklist')) === view.id ? 'selected' : ''}>${view.longLabel}</option>` : '';
                                 }).join('')}
                             </select>`,
+                            { style: 'margin-bottom:10px;' }
+                        )}
+                        ${renderSingleSwitchSetting(
+                            '自动隐藏页签栏',
+                            '开启后文档页签栏默认收起；桌面端和 Dock 鼠标移入顶栏展开，移出顶栏和页签区域收起；移动端支持轻触、下滑展开，上滑或点击外部区域收起。',
+                            `<input class="b3-switch fn__flex-center" type="checkbox" ${SettingsStore.data.docTabsAutoHideEnabled ? 'checked' : ''} onchange="updateDocTabsAutoHideEnabled(this.checked)">`,
                             { style: 'margin-bottom:10px;' }
                         )}
                         ${!__tmIsRuntimeMobileClient() ? `

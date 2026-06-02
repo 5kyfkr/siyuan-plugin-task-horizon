@@ -628,7 +628,7 @@
                                 </div>
                                 ${opBtn}
                             </div>
-                            ${(detachedOrDetachedLike && parentText) ? `<div style="font-size:12px;color:var(--tm-secondary-text);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;margin-bottom:4px;" title="${esc(parentText)}"><span>父任务：</span><span style="font-weight:800;color:var(--tm-text-color);">${esc(parentText)}</span></div>` : ''}
+                            ${(detachedOrDetachedLike && parentText) ? `<div style="font-size:12px;color:var(--tm-secondary-text);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;margin-bottom:4px;" title="${esc(parentText)}"><span>父任务：</span><span style="font-weight:${SettingsStore.data.parentTaskNameBoldEnabled === false ? '400' : '800'};color:var(--tm-text-color);">${esc(parentText)}</span></div>` : ''}
                             ${remarkHtml}
                             ${metaParts.length ? `<div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap;">${metaParts.join('')}</div>` : ''}
                             ${childrenHtml}

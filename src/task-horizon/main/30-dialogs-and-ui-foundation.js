@@ -240,6 +240,19 @@
         __colorPickerUnstack = __tmModalStackBind(close);
     }
 
+    window.__tmOpenPresetColorPickerDialog = function(titleText, initialColor, onApply, options = {}) {
+        const fallback = __tmNormalizeHexColor(
+            options?.defaultColor || initialColor || '#3b82f6',
+            '#3b82f6'
+        ) || '#3b82f6';
+        __tmOpenColorPickerDialog(
+            titleText || '选择颜色',
+            __tmNormalizeHexColor(initialColor, fallback) || fallback,
+            onApply,
+            __tmBuildPresetColorPickerOptions(fallback, options)
+        );
+    };
+
     function __tmBuildDocColorSchemePreviewItems(groupId, limit = 6) {
         const max = Math.max(3, Number(limit) || 6);
         const items = [];
@@ -8495,6 +8508,33 @@ if (mode === 'checklist') {
         return list.filter((t) => visibleSet.has(String(t?.id || '').trim()));
     }
 
+    async function __tmTryRestoreCurrentDocTabViewSnapshot(docId, groupId) {
+        try {
+            if (typeof __tmLoadTaskSnapshotForScope !== 'function' || typeof __tmRestoreTaskSnapshotViewState !== 'function') return null;
+            const did = String(docId || 'all').trim() || 'all';
+            const gid = String(groupId || SettingsStore?.data?.currentGroupId || 'all').trim() || 'all';
+            const docIds = Array.isArray(state.__tmLoadedDocIdsForTasks) ? state.__tmLoadedDocIdsForTasks.slice() : [];
+            if (!docIds.length) return null;
+            const viewMode = String(state.viewMode || '').trim();
+            const snapshot = await __tmLoadTaskSnapshotForScope({
+                docIds,
+                groupId: gid,
+                cachedOnly: false,
+            });
+            if (!snapshot) return null;
+            if ((String(SettingsStore?.data?.currentGroupId || 'all').trim() || 'all') !== gid) return null;
+            if ((String(state.activeDocId || 'all').trim() || 'all') !== did) return null;
+            if (String(state.viewMode || '').trim() !== viewMode) return null;
+            return __tmRestoreTaskSnapshotViewState(snapshot, {
+                groupId: gid,
+                viewMode,
+                activeDocId: did,
+            });
+        } catch (e) {
+            return null;
+        }
+    }
+
     window.tmSwitchDoc = async function(docId) {
         if (Number(state.suppressDocTabClickUntil || 0) > Date.now()) return;
         const nextDocId = String(docId || 'all').trim() || 'all';
@@ -8545,7 +8585,13 @@ if (mode === 'checklist') {
         try { recalcStats(); } catch (e) {}
         const applied = await __tmApplyCurrentContextViewProfile();
         if (applied?.customFieldReloadNeeded) await loadSelectedDocuments();
-        else __tmScheduleRender({ withFilters: true });
+        else {
+            const viewSnapshotMeta = await __tmTryRestoreCurrentDocTabViewSnapshot(
+                resolvedDocId,
+                SettingsStore?.data?.currentGroupId || 'all'
+            );
+            __tmScheduleRender({ withFilters: !viewSnapshotMeta });
+        }
         try {
             if (state.__tmCacheFirstPaintNeedsVerify) {
                 __tmScheduleSilentCacheVerifyAfterFirstPaint({
@@ -10524,7 +10570,10 @@ if (mode === 'checklist') {
                         });
                     }
                 } catch (e) {}
-                const snapshotMeta = __tmRestoreTaskSnapshotIntoState(snapshot, { taskCountMap: snapshotTaskCountMap });
+                const snapshotMeta = __tmRestoreTaskSnapshotIntoState(snapshot, {
+                    groupId: nextGroupId,
+                    taskCountMap: snapshotTaskCountMap
+                });
                 logSwitchGroup('snapshot-restore-done', {
                     durationMs: Date.now() - restoreStart,
                     hit: snapshotMeta ? 1 : 0,
@@ -10631,7 +10680,28 @@ if (mode === 'checklist') {
                 logSwitchGroup('load-selected-documents-deferred', {
                     reason: 'snapshot-first-render',
                     mobileFastPath: runtimeMobileFastPath ? 1 : 0,
-                    mode: 'idle-prewarm-only',
+                    mode: 'fresh-load-after-snapshot',
+                });
+                await loadSelectedDocuments({
+                    showInlineLoading: false,
+                    preferFastFirstPaint: false,
+                    forceFastFirstPaintBudget: false,
+                    forceFreshTasks: true,
+                    forceRefreshScope: true,
+                    forceShellRender: true,
+                    switchGroupRenderCap: runtimeMobileFastPath ? 96 : 1200,
+                    skipSnapshotFirstPaint: true,
+                    skipSessionRestoreFirstPaint: true,
+                    skipDocSessionRestoreFirstPaint: true,
+                    skipTaskIndexFirstPaint: true,
+                    taskIndexFirstPaintCachedOnly: false,
+                    refreshAfterTaskIndexFirstPaint: false,
+                    source: 'switch-doc-group:full:snapshot',
+                });
+                logSwitchGroup('load-selected-documents-done', {
+                    durationMs: Date.now() - loadStart,
+                    mobileFastPath: runtimeMobileFastPath ? 1 : 0,
+                    reason: 'snapshot-first-render',
                 });
             } else {
                 const loadPromise = loadSelectedDocuments(runtimeMobileFastPath
@@ -10641,6 +10711,7 @@ if (mode === 'checklist') {
                     loadingDelayMs: 900,
                     preferFastFirstPaint: true,
                     forceFastFirstPaintBudget: false,
+                    forceShellRender: true,
                     switchGroupRenderCap: 96,
                     fullLoadAfterFastFirstPaintDelayMs: 2200,
                     skipSnapshotFirstPaint: true,
@@ -10656,6 +10727,7 @@ if (mode === 'checklist') {
                     loadingDelayMs: 900,
                     preferFastFirstPaint: true,
                     forceFastFirstPaintBudget: false,
+                    forceShellRender: true,
                     switchGroupRenderCap: 1200,
                     fullLoadAfterFastFirstPaintDelayMs: 1600,
                     skipSnapshotFirstPaint: true,
@@ -13094,20 +13166,294 @@ if (mode === 'checklist') {
         try { document.addEventListener('mouseup', onUp, true); } catch (e2) {}
     };
 
+    function __tmDocTabsAutoHideEnabled() {
+        try { return SettingsStore?.data?.docTabsAutoHideEnabled === true; } catch (e) { return false; }
+    }
+
+    function __tmDocTabsAutoHideUsesTouch() {
+        try {
+            const info = globalThis.__tmRuntimeHost?.getInfo?.() || null;
+            const runtimeMobile = info?.runtimeMobileClient ?? __tmIsRuntimeMobileClient();
+            if (runtimeMobile) return true;
+            const desktopDock = (info?.isDockHost ?? __tmIsDockHost()) && !runtimeMobile;
+            if (desktopDock) return false;
+        } catch (e) {}
+        try {
+            return !!(__tmIsMobileDevice() && window.matchMedia?.('(pointer: coarse)')?.matches);
+        } catch (e) {
+            try { return !!__tmIsMobileDevice(); } catch (e2) { return false; }
+        }
+    }
+
+    function __tmClearDocTabsAutoHideHoverTimer() {
+        try {
+            if (state.docTabsAutoHideHoverTimer) {
+                clearTimeout(state.docTabsAutoHideHoverTimer);
+                state.docTabsAutoHideHoverTimer = null;
+            }
+        } catch (e) {}
+    }
+
+    function __tmResetDocTabsAutoHideTouchState(options = {}) {
+        const opts = (options && typeof options === 'object') ? options : {};
+        __tmClearDocTabsAutoHideHoverTimer();
+        state.docTabsAutoHideTouch = null;
+        state.docTabsAutoHideSuppressClickUntil = 0;
+        if (opts.resetVisible) state.docTabsAutoVisible = false;
+        if (opts.unbind) {
+            const h = state.docTabsAutoHideTouchDelegationHandlers;
+            if (h) {
+                try { document.removeEventListener('touchstart', h.start); } catch (e) {}
+                try { document.removeEventListener('touchmove', h.move); } catch (e) {}
+                try { document.removeEventListener('touchend', h.end); } catch (e) {}
+                try { document.removeEventListener('touchcancel', h.end); } catch (e) {}
+                try { document.removeEventListener('click', h.click, true); } catch (e) {}
+            }
+            state.docTabsAutoHideTouchDelegationHandlers = null;
+            state.docTabsAutoHideTouchDelegationBound = false;
+        }
+    }
+
+    function __tmGetDocTabsAutoHideZone(modalEl = null) {
+        const modal = modalEl instanceof Element ? modalEl : state.modal;
+        const topbar = modal?.querySelector?.('.tm-filter-rule-bar') || null;
+        const tabs = modal?.querySelector?.('.tm-doc-tabs') || null;
+        return { modal, topbar, tabs };
+    }
+
+    function __tmIsDocTabsAutoHideInteractiveTarget(target) {
+        if (!(target instanceof Element)) return false;
+        return !!target.closest([
+            'button',
+            'a',
+            'input',
+            'select',
+            'textarea',
+            '[contenteditable="true"]',
+            '[role="button"]',
+            '.bc-select',
+            '.tm-topbar-select',
+            '.tm-mobile-menu-btn',
+            '.tm-doc-tab',
+            '.tm-doc-tabs-toggle',
+            '.tm-manager-brand-icon',
+            '#tmMobileMenu',
+            '.tm-popup-menu',
+            '[data-tm-action]',
+            '[data-tm-call]',
+            '[data-tm-topbar-select-trigger]',
+        ].join(','));
+    }
+
+    function __tmApplyDocTabsVisibilityClasses(modalEl = null) {
+        const { modal, tabs } = __tmGetDocTabsAutoHideZone(modalEl);
+        if (!(tabs instanceof HTMLElement)) return false;
+        const autoHide = __tmDocTabsAutoHideEnabled();
+        const hidden = autoHide ? state.docTabsAutoVisible !== true : !!state.docTabsHidden;
+        try {
+            tabs.classList.toggle('tm-doc-tabs--hidden', hidden);
+            tabs.classList.toggle('tm-doc-tabs--auto-hide', autoHide);
+            tabs.classList.toggle('tm-doc-tabs--auto-visible', autoHide && !hidden);
+            tabs.classList.toggle('tm-doc-tabs--auto-hidden', autoHide && hidden);
+            tabs.setAttribute('aria-hidden', hidden ? 'true' : 'false');
+        } catch (e) {}
+        try {
+            if (modal instanceof HTMLElement) {
+                modal.classList.toggle('tm-modal--doc-tabs-auto-hide', autoHide);
+                modal.classList.toggle('tm-modal--doc-tabs-auto-visible', autoHide && !hidden);
+                modal.classList.toggle('tm-modal--doc-tabs-auto-hidden', autoHide && hidden);
+            }
+        } catch (e) {}
+        return true;
+    }
+
+    function __tmSetDocTabsAutoVisible(visible, options = {}) {
+        if (!__tmDocTabsAutoHideEnabled()) return false;
+        __tmClearDocTabsAutoHideHoverTimer();
+        const next = visible === true;
+        state.docTabsAutoVisible = next;
+        if (options?.suppressOutsideClick) {
+            state.docTabsAutoHideSuppressClickUntil = Date.now() + 260;
+        }
+        const applied = __tmApplyDocTabsVisibilityClasses(state.modal);
+        if (next) {
+            const modal = state.modal;
+            const syncLayout = () => {
+                if (state.docTabsAutoVisible !== true || state.modal !== modal) return;
+                try { __tmBindDocTabsOverflowToggle(modal); } catch (e) {}
+                try { __tmRestoreDocTabScroll(modal, state.docTabsScrollLeft, state.docTabsScrollTop); } catch (e) {}
+                try { __tmEnsureActiveDocTabVisible(modal); } catch (e) {}
+            };
+            try {
+                setTimeout(() => {
+                    try { requestAnimationFrame(syncLayout); } catch (e) { syncLayout(); }
+                }, 320);
+            } catch (e) {
+                syncLayout();
+            }
+        }
+        if (!applied) render();
+        return true;
+    }
+
+    function __tmScheduleDocTabsAutoHide(delayMs = 90) {
+        if (!__tmDocTabsAutoHideEnabled()) return;
+        __tmClearDocTabsAutoHideHoverTimer();
+        state.docTabsAutoHideHoverTimer = setTimeout(() => {
+            state.docTabsAutoHideHoverTimer = null;
+            __tmSetDocTabsAutoVisible(false);
+        }, Math.max(0, Number(delayMs) || 0));
+    }
+
+    function __tmScheduleDocTabsAutoShow(delayMs = 300) {
+        if (!__tmDocTabsAutoHideEnabled()) return;
+        __tmClearDocTabsAutoHideHoverTimer();
+        state.docTabsAutoHideHoverTimer = setTimeout(() => {
+            state.docTabsAutoHideHoverTimer = null;
+            __tmSetDocTabsAutoVisible(true);
+        }, Math.max(0, Number(delayMs) || 0));
+    }
+
+    function __tmIsTargetInsideDocTabsAutoHideZone(target, modalEl = null) {
+        if (!(target instanceof Element)) return false;
+        const { topbar, tabs } = __tmGetDocTabsAutoHideZone(modalEl);
+        return !!((topbar instanceof Element && topbar.contains(target)) || (tabs instanceof Element && tabs.contains(target)));
+    }
+
+    function __tmBindDocTabsAutoHide(modalEl) {
+        const { modal, topbar, tabs } = __tmGetDocTabsAutoHideZone(modalEl);
+        if (!(modal instanceof HTMLElement) || !(topbar instanceof HTMLElement) || !(tabs instanceof HTMLElement)) return;
+        __tmApplyDocTabsVisibilityClasses(modal);
+        if (modal.__tmDocTabsAutoHideBound) return;
+        modal.__tmDocTabsAutoHideBound = true;
+        const enterTopbar = (event) => {
+            if (!__tmDocTabsAutoHideEnabled() || __tmDocTabsAutoHideUsesTouch()) return;
+            if (String(event?.pointerType || 'mouse') === 'touch') return;
+            if (state.docTabsAutoVisible === true) {
+                __tmClearDocTabsAutoHideHoverTimer();
+                return;
+            }
+            __tmScheduleDocTabsAutoShow(300);
+        };
+        const enterTabs = (event) => {
+            if (!__tmDocTabsAutoHideEnabled() || __tmDocTabsAutoHideUsesTouch()) return;
+            if (String(event?.pointerType || 'mouse') === 'touch') return;
+            __tmClearDocTabsAutoHideHoverTimer();
+        };
+        const leave = (event) => {
+            if (!__tmDocTabsAutoHideEnabled() || __tmDocTabsAutoHideUsesTouch()) return;
+            const related = event?.relatedTarget instanceof Element ? event.relatedTarget : null;
+            if (related && __tmIsTargetInsideDocTabsAutoHideZone(related, modal)) return;
+            __tmScheduleDocTabsAutoHide(110);
+        };
+        try { topbar.addEventListener('pointerenter', enterTopbar); } catch (e) {}
+        try { tabs.addEventListener('pointerenter', enterTabs); } catch (e) {}
+        try { topbar.addEventListener('pointerleave', leave); } catch (e) {}
+        try { tabs.addEventListener('pointerleave', leave); } catch (e) {}
+        modal.__tmDocTabsAutoHideHandlers = { enterTopbar, enterTabs, leave };
+    }
+
+    function __tmEnsureDocTabsAutoHideTouchDelegation() {
+        try { if (state.docTabsAutoHideTouchDelegationBound) return; } catch (e) {}
+        state.docTabsAutoHideTouchDelegationBound = true;
+        const getActiveModal = () => {
+            const modal = state.modal;
+            if (!(modal instanceof HTMLElement)) return null;
+            try { if (!document.body.contains(modal)) return null; } catch (e) { return null; }
+            return modal;
+        };
+        const isTouchInfoActive = (info) => {
+            if (!info) return false;
+            const modal = getActiveModal();
+            return !!(modal && info.modal === modal);
+        };
+        const start = (ev) => {
+            if (!__tmDocTabsAutoHideEnabled() || !__tmDocTabsAutoHideUsesTouch()) return;
+            const target = ev?.target instanceof Element ? ev.target : null;
+            const modal = getActiveModal();
+            if (!(modal instanceof HTMLElement) || !target || !modal.contains(target)) {
+                state.docTabsAutoHideTouch = null;
+                return;
+            }
+            const { topbar, tabs } = __tmGetDocTabsAutoHideZone(modal);
+            const inTopbar = topbar instanceof Element && topbar.contains(target);
+            const inTabs = tabs instanceof Element && tabs.contains(target);
+            if (!inTopbar && !inTabs) {
+                state.docTabsAutoHideTouch = null;
+                if (state.docTabsAutoVisible === true) __tmSetDocTabsAutoVisible(false);
+                return;
+            }
+            const point = ev?.touches?.[0] || ev;
+            state.docTabsAutoHideTouch = {
+                x: Number(point?.clientX) || 0,
+                y: Number(point?.clientY) || 0,
+                modal,
+                inTopbar,
+                inTabs,
+                blankTopbar: inTopbar && !__tmIsDocTabsAutoHideInteractiveTarget(target),
+                moved: false,
+                handled: false,
+            };
+        };
+        const move = (ev) => {
+            const info = state.docTabsAutoHideTouch;
+            if (!info || !__tmDocTabsAutoHideEnabled() || !__tmDocTabsAutoHideUsesTouch()) return;
+            if (!isTouchInfoActive(info)) {
+                state.docTabsAutoHideTouch = null;
+                return;
+            }
+            const point = ev?.touches?.[0] || ev;
+            const dx = (Number(point?.clientX) || 0) - (Number(info.x) || 0);
+            const dy = (Number(point?.clientY) || 0) - (Number(info.y) || 0);
+            if (Math.abs(dx) + Math.abs(dy) > 5) info.moved = true;
+            if (info.handled || Math.abs(dy) < 5 || Math.abs(dy) <= Math.abs(dx)) return;
+            if (dy > 0 && info.inTopbar) {
+                info.handled = true;
+                __tmSetDocTabsAutoVisible(true, { suppressOutsideClick: true });
+            } else if (dy < 0 && (info.inTopbar || info.inTabs)) {
+                info.handled = true;
+                __tmSetDocTabsAutoVisible(false);
+            }
+        };
+        const end = (ev) => {
+            const info = state.docTabsAutoHideTouch;
+            state.docTabsAutoHideTouch = null;
+            if (!info || !__tmDocTabsAutoHideEnabled() || !__tmDocTabsAutoHideUsesTouch()) return;
+            if (!isTouchInfoActive(info)) return;
+            if (info.handled) return;
+            if (!info.moved && info.blankTopbar) {
+                try { ev?.preventDefault?.(); } catch (e) {}
+                __tmSetDocTabsAutoVisible(state.docTabsAutoVisible !== true, { suppressOutsideClick: true });
+            }
+        };
+        const click = (ev) => {
+            if (!__tmDocTabsAutoHideEnabled() || !__tmDocTabsAutoHideUsesTouch()) return;
+            if (state.docTabsAutoVisible !== true) return;
+            if (Number(state.docTabsAutoHideSuppressClickUntil || 0) > Date.now()) return;
+            const target = ev?.target instanceof Element ? ev.target : null;
+            const modal = getActiveModal();
+            if (!(modal instanceof HTMLElement) || !target || !modal.contains(target)) return;
+            if (__tmIsTargetInsideDocTabsAutoHideZone(target, modal)) return;
+            __tmSetDocTabsAutoVisible(false);
+        };
+        state.docTabsAutoHideTouchDelegationHandlers = { start, move, end, click };
+        document.addEventListener('touchstart', start, { passive: true });
+        document.addEventListener('touchmove', move, { passive: true });
+        document.addEventListener('touchend', end, { passive: false });
+        document.addEventListener('touchcancel', end, { passive: false });
+        document.addEventListener('click', click, true);
+    }
+
     window.tmToggleDocTabs = function(ev) {
         try { ev?.stopPropagation?.(); } catch (e) {}
         try { ev?.preventDefault?.(); } catch (e) {}
-        state.docTabsHidden = !state.docTabsHidden;
-        try { Storage.set('tm_doc_tabs_hidden', !!state.docTabsHidden); } catch (e) {}
-        const el = state.modal?.querySelector?.('.tm-doc-tabs');
-        if (el) {
-            try {
-                if (state.docTabsHidden) el.classList.add('tm-doc-tabs--hidden');
-                else el.classList.remove('tm-doc-tabs--hidden');
-            } catch (e) {}
+        if (__tmDocTabsAutoHideEnabled()) {
+            __tmSetDocTabsAutoVisible(state.docTabsAutoVisible !== true, { suppressOutsideClick: true });
             return;
         }
-        render();
+        state.docTabsHidden = !state.docTabsHidden;
+        try { Storage.set('tm_doc_tabs_hidden', !!state.docTabsHidden); } catch (e) {}
+        if (!__tmApplyDocTabsVisibilityClasses(state.modal)) render();
     };
 
     window.tmToggleDocTabsCollapsed = function(ev) {
@@ -13400,9 +13746,7 @@ if (mode === 'checklist') {
         }
         try { ev?.stopPropagation?.(); } catch (e) {}
         try { ev?.preventDefault?.(); } catch (e) {}
-        try {
-            window.tmShowAllDocTabMenu?.(ev);
-        } catch (e) {}
+        try { window.tmToggleDocTabs?.(ev); } catch (e) {}
     };
 
     window.tmHandleManagerIconContextMenu = function(ev) {
@@ -13413,9 +13757,7 @@ if (mode === 'checklist') {
         }
         try { ev?.preventDefault?.(); } catch (e) {}
         try { ev?.stopPropagation?.(); } catch (e) {}
-        try {
-            window.tmToggleDocTabs?.(ev);
-        } catch (e) {}
+        try { window.tmShowAllDocTabMenu?.(ev); } catch (e) {}
         return false;
     };
 
@@ -13440,9 +13782,12 @@ if (mode === 'checklist') {
             state.topbarManagerIconSuppressClickUntil = Date.now() + 700;
             state.topbarManagerIconIgnoreContextMenuUntil = Date.now() + 1200;
             const trigger = state.topbarManagerIconTrigger;
-            window.tmToggleDocTabs?.({
+            try { state.__tmPluginIconLongPressing = false; } catch (e) {}
+            window.tmShowAllDocTabMenu?.({
                 currentTarget: trigger,
                 target: trigger,
+                clientX: Number(state.topbarManagerIconLongPressStartX) || 0,
+                clientY: Number(state.topbarManagerIconLongPressStartY) || 0,
                 preventDefault() {},
                 stopPropagation() {},
             });

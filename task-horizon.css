@@ -7939,6 +7939,10 @@ select.tm-btn-secondary {
     padding-left: 0;
 }
 
+.tm-task-detail-section--subtasks.tm-task-detail-section--subtasks-empty {
+    gap: 0;
+}
+
 .tm-task-detail-subtask-add-btn {
     display: inline-flex;
     align-items: center;
@@ -11571,6 +11575,18 @@ select.tm-btn-secondary {
 
 #tmTaskDetailSheet {
     z-index: 71;
+}
+
+.tm-modal.tm-modal--mobile:not(.tm-modal--dock) #tmTaskDetailSheetBackdrop {
+    position: fixed;
+    inset: 0;
+}
+
+.tm-modal.tm-modal--mobile:not(.tm-modal--dock) #tmTaskDetailSheet {
+    position: fixed;
+    left: 0;
+    right: 0;
+    bottom: 0;
 }
 
 .tm-checklist-sheet.tm-checklist-sheet--dragging {
@@ -15695,4 +15711,12 @@ th[data-col] {
     padding: 10px 14px 12px;
     border-top: 1px solid var(--tm-border-color);
     flex-shrink: 0;
+}
+
+.tm-box--parent-task-name-normal .tm-checklist-item[data-depth="0"] .tm-checklist-title,
+.tm-box--parent-task-name-normal .tm-task-text[data-level="0"],
+.tm-box--parent-task-name-normal .tm-kanban-card:not(.tm-kanban-card--sub):not(.tm-kanban-card--childroot) .tm-kanban-card-title-inline,
+.tm-box--parent-task-name-normal .tm-whiteboard-node--parent .tm-whiteboard-card-title,
+.tm-box--parent-task-name-normal .tm-whiteboard-node--root .tm-whiteboard-card-title {
+    font-weight: 400;
 }

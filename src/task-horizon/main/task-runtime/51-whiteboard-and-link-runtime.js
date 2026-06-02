@@ -6579,6 +6579,24 @@ throw error;
         render();
     };
 
+    window.updateParentTaskNameBoldEnabled = async function(enabled) {
+        SettingsStore.data.parentTaskNameBoldEnabled = !!enabled;
+        await SettingsStore.save();
+        if (state.settingsModal) showSettings();
+        render();
+    };
+
+    window.updateDocTabsAutoHideEnabled = async function(enabled) {
+        SettingsStore.data.docTabsAutoHideEnabled = !!enabled;
+        __tmClearDocTabsAutoHideHoverTimer();
+        state.docTabsAutoVisible = false;
+        state.docTabsAutoHideTouch = null;
+        state.docTabsAutoHideSuppressClickUntil = 0;
+        await SettingsStore.save();
+        if (state.settingsModal) showSettings();
+        render();
+    };
+
     window.updateTaskContentWrapMaxLines = async function(value) {
         const n = Math.max(1, Math.min(10, Math.round(Number(value) || 3)));
         SettingsStore.data.taskContentWrapMaxLines = n;

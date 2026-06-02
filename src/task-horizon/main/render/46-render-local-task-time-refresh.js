@@ -297,7 +297,7 @@ return ok;
         const dateShouldExist = dateEnabled && __tmShouldRenderTaskCardDate(task);
         if (dateNode instanceof HTMLElement) {
             if (!dateShouldExist) return false;
-            dateNode.textContent = __tmGetTaskCardDateValue(task) || '日期';
+            dateNode.textContent = __tmFormatTaskCardDateValue(task) || '日期';
             touched = true;
         } else if (dateShouldExist) {
             return false;

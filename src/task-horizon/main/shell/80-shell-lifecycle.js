@@ -1277,6 +1277,26 @@ if (shouldMarkDirty) {
         } catch (e) {}
 
         try {
+            const h = state.docTabsAutoHideTouchDelegationHandlers;
+            if (h) {
+                try { document.removeEventListener('touchstart', h.start); } catch (e2) {}
+                try { document.removeEventListener('touchmove', h.move); } catch (e2) {}
+                try { document.removeEventListener('touchend', h.end); } catch (e2) {}
+                try { document.removeEventListener('touchcancel', h.end); } catch (e2) {}
+                try { document.removeEventListener('click', h.click, true); } catch (e2) {}
+            }
+            state.docTabsAutoHideTouchDelegationHandlers = null;
+            state.docTabsAutoHideTouchDelegationBound = false;
+            state.docTabsAutoHideTouch = null;
+            state.docTabsAutoVisible = false;
+            state.docTabsAutoHideSuppressClickUntil = 0;
+            if (state.docTabsAutoHideHoverTimer) {
+                clearTimeout(state.docTabsAutoHideHoverTimer);
+                state.docTabsAutoHideHoverTimer = null;
+            }
+        } catch (e) {}
+
+        try {
             __tmClearAllDocTabLongPressTimer();
             state.allDocTabLongPressFired = false;
             state.allDocTabLongPressMoved = false;

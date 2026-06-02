@@ -3754,6 +3754,12 @@
         calendarDockDate: '',
         docTabsHidden: false,
         docTabsCollapsed: true,
+        docTabsAutoVisible: false,
+        docTabsAutoHideHoverTimer: null,
+        docTabsAutoHideTouch: null,
+        docTabsAutoHideTouchDelegationHandlers: null,
+        docTabsAutoHideTouchDelegationBound: false,
+        docTabsAutoHideSuppressClickUntil: 0,
         docTabsArchiveMode: false,
         topbarManagerIconLongPressTimer: null,
         topbarManagerIconLongPressFired: false,
@@ -8749,8 +8755,8 @@
 
     function __tmStripTaskRewardListMarker(input) {
         let text = String(input || '').trim();
-        text = text.replace(/^\s*(?:[-*+]|\d+[.)])\s*/, '').trim();
-        text = text.replace(/^\[[^\]]*\]\s*/, '').trim();
+        text = text.replace(/^\s*(?:[-*+]|\d+[.)])\s*(?=\[[ xX]\])/, '').trim();
+        text = text.replace(/^\[[ xX]\]\s*/, '').trim();
         return text;
     }
 

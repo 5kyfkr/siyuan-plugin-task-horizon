@@ -140,6 +140,14 @@
         return String(task?.completionTime || '').trim() || String(task?.startDate || '').trim();
     }
 
+    function __tmFormatTaskCardDateValue(task) {
+        const full = __tmFormatTaskTime(__tmGetTaskCardDateValue(task));
+        if (!/^\d{4}-\d{2}-\d{2}$/.test(full)) return full;
+        const year = Number(full.slice(0, 4));
+        const currentYear = new Date().getFullYear();
+        return year === currentYear ? full.slice(5) : full;
+    }
+
     function __tmShouldRenderTaskCardDate(task) {
         if (SettingsStore.data?.taskCardDateOnlyWithValue !== true) return true;
         return !!String(task?.completionTime || '').trim();

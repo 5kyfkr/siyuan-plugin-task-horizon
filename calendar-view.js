@@ -1638,6 +1638,36 @@
         return Number.isFinite(n) ? n : NaN;
     }
 
+    function parseRgbFunctionToRgb(rawColor) {
+        const rgb = String(rawColor || '').trim().match(/^rgba?\(\s*(\d{1,3})\s*[, ]\s*(\d{1,3})\s*[, ]\s*(\d{1,3})(?:\s*[,/]\s*[\d.]+\s*)?\)$/i);
+        if (!rgb) return null;
+        const r = Math.min(255, Math.max(0, Number(rgb[1])));
+        const g = Math.min(255, Math.max(0, Number(rgb[2])));
+        const b = Math.min(255, Math.max(0, Number(rgb[3])));
+        if (![r, g, b].every((v) => Number.isFinite(v))) return null;
+        return { r, g, b };
+    }
+
+    function resolveCssColorToRgb(color) {
+        const raw = String(color || '').trim();
+        if (!raw || typeof document === 'undefined' || typeof window === 'undefined' || typeof window.getComputedStyle !== 'function') return null;
+        const parent = document.body || document.documentElement;
+        if (!parent || typeof document.createElement !== 'function') return null;
+        let probe = null;
+        try {
+            probe = document.createElement('span');
+            probe.style.cssText = 'position:absolute;left:-9999px;top:-9999px;width:0;height:0;overflow:hidden;pointer-events:none;';
+            probe.style.color = raw;
+            parent.appendChild(probe);
+            const resolved = String(window.getComputedStyle(probe).color || '').trim();
+            return parseRgbFunctionToRgb(resolved);
+        } catch (e) {
+            return null;
+        } finally {
+            try { probe?.remove?.(); } catch (e) {}
+        }
+    }
+
     function parseColorToRgb(color) {
         const raw = String(color || '').trim();
         if (!raw) return null;
@@ -1657,13 +1687,7 @@
                 b: parseInt(body.slice(4, 6), 16),
             };
         }
-        const rgb = raw.match(/^rgba?\(\s*(\d{1,3})\s*[, ]\s*(\d{1,3})\s*[, ]\s*(\d{1,3})(?:\s*[,/]\s*[\d.]+\s*)?\)$/i);
-        if (!rgb) return null;
-        const r = Math.min(255, Math.max(0, Number(rgb[1])));
-        const g = Math.min(255, Math.max(0, Number(rgb[2])));
-        const b = Math.min(255, Math.max(0, Number(rgb[3])));
-        if (![r, g, b].every((v) => Number.isFinite(v))) return null;
-        return { r, g, b };
+        return parseRgbFunctionToRgb(raw) || resolveCssColorToRgb(raw);
     }
 
     function toRgbaString(rgb, alpha) {
@@ -4050,6 +4074,31 @@
         if (!docsEnabled) return true;
         if (!(did in docsEnabled)) return true;
         return docsEnabled[did] !== false;
+    }
+
+    async function closeTaskDetailSheetBeforeCalendarSidebarChange(wrap) {
+        if (!(wrap instanceof Element) || !wrap.classList.contains('tm-calendar-wrap--mobile')) return false;
+        try {
+            const active = document.activeElement;
+            if (active instanceof HTMLElement) active.blur();
+        } catch (e) {}
+        const scope = wrap.closest('.tm-main-stage') || wrap.closest('.tm-modal') || document;
+        const sheet = scope.querySelector?.('#tmTaskDetailSheet') || null;
+        const backdrop = scope.querySelector?.('#tmTaskDetailSheetBackdrop') || null;
+        const isOpen = !!(
+            (sheet && sheet.classList.contains('tm-checklist-sheet--open'))
+            || (backdrop && backdrop.classList.contains('tm-checklist-sheet-backdrop--open'))
+        );
+        if (!isOpen) return false;
+        try { sheet.classList.remove('tm-checklist-sheet--open', 'tm-checklist-sheet--dragging'); } catch (e) {}
+        try { backdrop?.classList?.remove?.('tm-checklist-sheet-backdrop--open'); } catch (e) {}
+        if (typeof window.tmTaskDetailSheetClose === 'function') {
+            try {
+                await window.tmTaskDetailSheetClose();
+                return true;
+            } catch (e) {}
+        }
+        return true;
     }
 
     function getCalendarSidebarDocItems(settings) {
@@ -17485,6 +17534,67 @@
             try { calendar.refetchEvents(); } catch (e2) {}
         };
 
+        const getSidebarColorPickerTitle = (kind, key) => {
+            const k = String(kind || '').trim();
+            const kk = String(key || '').trim();
+            if (k === 'calendar') {
+                const def = getCalendarDefinitions(getSettings()).find((item) => String(item?.id || '').trim() === kk);
+                const name = String(def?.name || '').trim();
+                return name ? `${name}颜色` : '日历颜色';
+            }
+            if (k === 'schedule') return '日程颜色';
+            if (k === 'taskDates') return '任务日期颜色';
+            if (k === 'cnHoliday') return '节假日颜色';
+            if (k === 'tomato') {
+                const labels = { focus: '专注颜色', break: '休息颜色', stopwatch: '正计时颜色', idle: '闲置颜色' };
+                return labels[kk] || '番茄颜色';
+            }
+            return '日历颜色';
+        };
+
+        const getSidebarColorPickerFallback = (kind, key, value) => {
+            const k = String(kind || '').trim();
+            const kk = String(key || '').trim();
+            const current = String(value || '').trim();
+            if (k === 'schedule') return current || 'var(--tm-primary-color)';
+            if (k === 'taskDates') return current || '#6b7280';
+            if (k === 'cnHoliday') return current || '#ff3333';
+            if (k === 'tomato') {
+                if (kk === 'focus') return current || 'var(--tm-primary-color)';
+                if (kk === 'break') return current || 'var(--tm-success-color)';
+                if (kk === 'stopwatch') return current || 'var(--tm-warning-color, #f9ab00)';
+                if (kk === 'idle') return current || '#9aa0a6';
+            }
+            return current || 'var(--tm-primary-color)';
+        };
+
+        const openSidebarColorPicker = (kind, key, value) => {
+            const k = String(kind || '').trim();
+            const kk = String(key || '').trim();
+            if (!k || !kk) return;
+            const fallback = getSidebarColorPickerFallback(k, kk, value);
+            const picker = globalThis.__tmOpenPresetColorPickerDialog || window.__tmOpenPresetColorPickerDialog;
+            if (typeof picker === 'function') {
+                try {
+                    picker(getSidebarColorPickerTitle(k, kk), value || fallback, (next) => {
+                        applySidebarColor(k, kk, next);
+                    }, { defaultColor: fallback });
+                    return;
+                } catch (e2) {}
+            }
+            const input = document.createElement('input');
+            input.type = 'color';
+            input.value = normalizeColorInputHex(value, normalizeColorInputHex(fallback, '#4285F4'));
+            input.style.position = 'fixed';
+            input.style.left = '-9999px';
+            input.style.top = '-9999px';
+            const cleanup = () => { try { input.remove(); } catch (e3) {} };
+            input.addEventListener('change', () => { applySidebarColor(k, kk, input.value).finally(cleanup); });
+            input.addEventListener('blur', cleanup);
+            document.body.appendChild(input);
+            try { input.click(); } catch (e2) { cleanup(); }
+        };
+
         const onSidebarContextMenu = (e) => {
             const target = e.target;
             if (!(target instanceof Element)) return;
@@ -17546,17 +17656,7 @@
                 return item;
             };
             menu.appendChild(createItem('设置颜色', () => {
-                const input = document.createElement('input');
-                input.type = 'color';
-                input.value = value;
-                input.style.position = 'fixed';
-                input.style.left = '-9999px';
-                input.style.top = '-9999px';
-                const cleanup = () => { try { input.remove(); } catch (e3) {} };
-                input.addEventListener('change', () => { applySidebarColor(kind, key, input.value).finally(cleanup); });
-                input.addEventListener('blur', cleanup);
-                document.body.appendChild(input);
-                try { input.click(); } catch (e2) { cleanup(); }
+                openSidebarColorPicker(kind, key, value);
             }));
             menu.appendChild(createItem('重置颜色', () => { resetSidebarColor(kind, key); }, true));
             document.body.appendChild(menu);
@@ -17586,6 +17686,9 @@
             if (!(el instanceof HTMLInputElement)) return;
             const store = state.settingsStore;
             if (!store || !store.data) return;
+            if (el.matches('[data-tm-cal-master], [data-tm-cal-filter], [data-tm-cal-calendar], [data-tm-cal-calendar-doc], [data-tm-cal-doc-id]')) {
+                await closeTaskDetailSheetBeforeCalendarSidebarChange(wrap);
+            }
             const colorCalId = String(el.getAttribute('data-tm-cal-calendar-color') || '').trim();
             if (colorCalId) {
                 const color = String(el.value || '').trim();

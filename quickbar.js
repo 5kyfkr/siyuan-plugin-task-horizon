@@ -3501,12 +3501,16 @@
             let total = 0;
             let completed = 0;
             listEls.forEach((listEl) => {
-                const items = Array.from(listEl.children || []).filter((child) => {
+                const taskItems = Array.from(listEl.children || []).filter((child) => {
                     if (!(child instanceof Element)) return false;
                     return child.matches?.('.li[data-type="NodeListItem"],[data-type="NodeListItem"]');
-                });
-                total += items.length;
-                completed += items.filter((child) => child.classList?.contains('protyle-task--done')).length;
+                }).filter((child) => isTaskBlockElement(child));
+                total += taskItems.length;
+                completed += taskItems.filter((child) => {
+                    if (child.classList?.contains('protyle-task--done')) return true;
+                    const marker = String(child.getAttribute?.('data-marker') || '').trim();
+                    return marker.includes('[x]') || marker.includes('[X]');
+                }).length;
             });
             if (completed > total) completed = total;
             return { total, completed };

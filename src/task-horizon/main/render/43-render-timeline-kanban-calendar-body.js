@@ -474,6 +474,14 @@
                 const weekday = __tmGetTaskRepeatWeekdayLabel(target);
                 return `<span class="tm-time-group-label-wrap"><span class="tm-time-group-label-text">${safeLabel}</span><span class="tm-time-group-weekday-chip">${esc(weekday)}</span></span>`;
             };
+            const buildTimeBoardCreateDate = (groupInfo) => {
+                const days = Number(groupInfo?.sortValue);
+                if (!Number.isInteger(days) || days < 0 || days > 15) return '';
+                const target = new Date();
+                target.setHours(12, 0, 0, 0);
+                target.setDate(target.getDate() + days);
+                return __tmNormalizeDateOnly(target);
+            };
             const getTimeGroup = (task) => {
                 const info = getTimePriorityInfo(task);
                 const diffDays = Number(info?.diffDays);
@@ -503,6 +511,7 @@
                             color: getTimeGroupLabelColor(info),
                             kind: 'time',
                             sortValue: Number(info?.sortValue),
+                            createDate: buildTimeBoardCreateDate(info),
                         });
                     }
                 });
@@ -813,7 +822,7 @@
                     fallbackName: task?.done ? '完成' : (defaultUndoneOpt?.name || '待办'),
                 });
                 const timeTxt = __tmGetTaskCardDateValue(task);
-                const dateTxt = timeTxt ? __tmFormatTaskTime(timeTxt) : '';
+                const dateTxt = timeTxt ? __tmFormatTaskCardDateValue(task) : '';
                 const directChildStats = getDirectChildStats(task);
                 const totalChildren = directChildStats.total;
                 const statusChipStyle = __tmBuildStatusChipStyle(opt.color || '#757575');
@@ -926,7 +935,7 @@
                             </div>
                             <button class="tm-kanban-more" onclick="tmOpenTaskDetail('${id}', event)" title="任务详情">${__tmRenderLucideIcon('dots-three')}</button>
                         </div>
-                        ${parentTxt ? `<div class="tm-kanban-parent-line" style="font-size:12px;color:var(--tm-secondary-text);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;margin-bottom:6px;" title="${esc(parentTxt)}"><span>父任务：</span><span style="font-weight:800;color:var(--card-foreground);">${esc(parentTxt)}</span></div>` : ''}
+                        ${parentTxt ? `<div class="tm-kanban-parent-line" style="font-size:12px;color:var(--tm-secondary-text);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;margin-bottom:6px;" title="${esc(parentTxt)}"><span>父任务：</span><span style="font-weight:${SettingsStore.data.parentTaskNameBoldEnabled === false ? '400' : '800'};color:var(--card-foreground);">${esc(parentTxt)}</span></div>` : ''}
                         ${remarkHtml}
                         ${subtasksSectionHtml}
                     </div>
@@ -1607,10 +1616,15 @@
                 const statusDocIdForCreate = (!headingMode && !isAllTabsView)
                     ? String(state.activeDocId || '').trim()
                     : '';
+                const timeDateForCreate = timeBoardMode && !isDoneCol ? __tmNormalizeDateOnly(c?.createDate || '') : '';
+                const timeDocIdForCreate = (timeBoardMode && !isDoneCol && !isAllTabsView && !__tmIsOtherBlockTabId(state.activeDocId))
+                    ? String(state.activeDocId || '').trim()
+                    : '';
                 const canOpenDocFromTitle = headingMode && !isDoneCol && kind === 'doc' && docIdForTitle && docIdForTitle !== '__unknown__';
                 const canQuickAddToDoc = headingMode && isAllTabsView && !isDoneCol && kind === 'doc' && docIdForTitle && docIdForTitle !== '__unknown__';
                 const canCreateInHeading = headingMode && !isAllTabsView && !isDoneCol && kind === 'heading' && !!headingDocId;
                 const canQuickAddToStatus = !headingMode && !timeBoardMode && !isDoneCol && !!statusIdForCreate;
+                const canQuickAddToTimeDate = timeBoardMode && !isDoneCol && !!timeDateForCreate;
                 const titleContentHtml = timeBoardMode && !isDoneCol
                     ? `<span>${String(c?.labelHtml || '').trim() || esc(String(c?.name || ''))}</span>`
                     : (headingMode && !isDoneCol && kind === 'doc'
@@ -1640,6 +1654,16 @@
                                        aria-label="新建任务"
                                        onpointerdown="event.stopPropagation()"
                                        onclick="event.preventDefault();event.stopPropagation();tmQuickAddOpenForPreset('${escSq(statusDocIdForCreate)}','${escSq(statusIdForCreate)}');">
+                                    ${__tmRenderLucideIcon('plus')}
+                                </button>`
+                            : ''}
+                        ${canQuickAddToTimeDate
+                            ? `<button class="tm-group-create-btn tm-kanban-col-add tm-whiteboard-stream-doc-add-btn"
+                                       type="button"
+                                       title="新建任务"
+                                       aria-label="新建任务"
+                                       onpointerdown="event.stopPropagation()"
+                                       onclick="event.preventDefault();event.stopPropagation();tmQuickAddOpenForPreset('${escSq(timeDocIdForCreate)}','', '${escSq(timeDateForCreate)}');">
                                     ${__tmRenderLucideIcon('plus')}
                                 </button>`
                             : ''}

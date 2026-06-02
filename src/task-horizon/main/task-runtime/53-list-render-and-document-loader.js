@@ -6972,9 +6972,10 @@ hint(`❌ 操作失败: ${e.message}`, 'error');
         } catch (e) {}
     };
 
-    window.tmQuickAddOpenForPreset = async function(docId, statusId) {
+    window.tmQuickAddOpenForPreset = async function(docId, statusId, completionTime) {
         const did = String(docId || '').trim();
         const sid = String(statusId || '').trim();
+        const date = __tmNormalizeDateOnly(String(completionTime || '').trim());
         await window.tmQuickAddOpen?.();
         const qa = state.quickAdd;
         if (!qa) return;
@@ -6987,6 +6988,9 @@ hint(`❌ 操作失败: ${e.message}`, 'error');
             if (__tmFindStatusOptionById(sid, statusOptions)) {
                 qa.customStatus = sid;
             }
+        }
+        if (date) {
+            qa.completionTime = date;
         }
         try { window.tmQuickAddRenderMeta?.(); } catch (e) {}
         try {
@@ -8223,6 +8227,7 @@ hint(`❌ 操作失败: ${e.message}`, 'error');
         const forceFreshTasks = !!(options && options.forceFreshTasks === true);
         const forceSyncFlowRank = !!(options && options.forceSyncFlowRank === true);
         const forceFullLoadBudget = !!(options && options.forceFullLoadBudget);
+        const forceShellRender = !!(options && options.forceShellRender === true);
         const refreshAfterTaskIndexFirstPaint = !!(options && options.refreshAfterTaskIndexFirstPaint === true);
         const waitForDocScopeResolve = !!(options && options.waitForDocScopeResolve === true);
         const skipFullLoadAfterFastFirstPaint = !!(options && options.skipFullLoadAfterFastFirstPaint === true);
@@ -8725,7 +8730,11 @@ hint(`❌ 操作失败: ${e.message}`, 'error');
                     groupId: currentGroupId,
                     cachedOnly: snapshotFirstPaintCachedOnly,
                 });
-                const snapshotMeta = __tmRestoreTaskSnapshotIntoState(snapshot, { taskCountMap: countMeta?.map });
+                const snapshotMeta = __tmRestoreTaskSnapshotIntoState(snapshot, {
+                    docIds: allDocIds,
+                    groupId: currentGroupId,
+                    taskCountMap: countMeta?.map
+                });
                 if (snapshotMeta && isTokenCurrent()) {
                     try { recalcStats(); } catch (e) {}
                     let viewSnapshotMeta = null;
@@ -9006,6 +9015,7 @@ hint(`❌ 操作失败: ${e.message}`, 'error');
                         let patchedTaskIndexView = false;
                         if (!skipRender) {
                             const shouldPatchTaskIndexView = isSwitchDocGroupLoad
+                                && !forceShellRender
                                 && String(sourceLabel || '').indexOf(':') !== -1
                                 && typeof __tmRerenderCurrentViewInPlace === 'function';
                             patchedTaskIndexView = shouldPatchTaskIndexView
@@ -10174,6 +10184,7 @@ hint(`❌ 操作失败: ${e.message}`, 'error');
                     try { if (showInlineLoading && Number(state.uiInlineLoadingToken) === token) __tmSetInlineLoading(false); } catch (e) {}
                     const renderStartedAt = Date.now();
                     const shouldPatchCurrentView = isSwitchDocGroupLoad
+                        && !forceShellRender
                         && !loadBudget.enabled
                         && String(sourceLabel || '').indexOf(':full') !== -1
                         && typeof __tmRerenderCurrentViewInPlace === 'function';

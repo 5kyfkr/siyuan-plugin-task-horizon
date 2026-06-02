@@ -2080,7 +2080,7 @@
         push(nextView);
         const kept = Object.values(viewStates)
             .sort((a, b) => Number(b?.createdAt || 0) - Number(a?.createdAt || 0))
-            .slice(0, 6);
+            .slice(0, 24);
         target.viewStates = {};
         kept.forEach((view) => {
             const sig = String(view?.signature || '').trim();
@@ -2182,7 +2182,7 @@
         };
         try { __tmMergeLocalTaskPatchIntoTaskTree(payload.taskTree); } catch (e) {}
         try { __tmMergeLocalTaskPatchIntoTaskList(payload.otherBlocks); } catch (e) {}
-        return __tmAttachTaskSnapshotViewState(payload, { groupId });
+        return __tmAttachTaskSnapshotViewState(payload, { groupId, activeDocId });
     }
 
     function __tmBuildTaskSnapshotPersistSignature(payload) {
@@ -2766,10 +2766,29 @@
     function __tmRestoreTaskSnapshotIntoState(snapshot, options = {}) {
         const snap = (snapshot && typeof snapshot === 'object') ? snapshot : null;
         if (!snap || !Array.isArray(snap.taskTree)) return null;
+        const opts = (options && typeof options === 'object') ? options : {};
+        const expectedGroupId = String(opts.groupId || opts.expectedGroupId || '').trim();
+        if (expectedGroupId) {
+            const snapGroupId = String(
+                snap.groupId
+                || String(snap.scopeKey || '').split('|')[0]
+                || 'all'
+            ).trim() || 'all';
+            if (snapGroupId !== expectedGroupId) return null;
+        }
         const taskTree = __tmCloneTaskSnapshotValue(snap.taskTree, 0) || [];
+        const expectedDocIds = __tmNormalizeTaskSnapshotDocIds(opts.docIds || opts.expectedDocIds || []);
+        if (expectedDocIds.length > 0) {
+            const snapDocIds = __tmNormalizeTaskSnapshotDocIds(
+                (Array.isArray(snap.docIds) && snap.docIds.length)
+                    ? snap.docIds
+                    : taskTree.map((doc) => doc?.id)
+            );
+            if (snapDocIds.join(',') !== expectedDocIds.join(',')) return null;
+        }
         __tmMergeLocalTaskPatchIntoTaskTree(taskTree);
         const flatTasks = __tmBuildFlatTasksFromTaskSnapshotTree(taskTree);
-        const coverage = __tmGetTaskCountCoverageStatus(snap.docIds || [], Object.keys(flatTasks).length, options);
+        const coverage = __tmGetTaskCountCoverageStatus(snap.docIds || [], Object.keys(flatTasks).length, opts);
         if (!coverage.ok) {
             return null;
         }
@@ -5542,6 +5561,8 @@
             taskAutoWrapEnabled: true,
             taskContentWrapMaxLines: 3,
             taskRemarkWrapMaxLines: 2,
+            parentTaskNameBoldEnabled: true,
+            docTabsAutoHideEnabled: true,
             enableQuickbar: true,
             taskDoneDelightEnabled: true,
             aiEnabled: false,
@@ -6120,6 +6141,8 @@
                                 if (typeof cloudData.taskAutoWrapEnabled === 'boolean') this.data.taskAutoWrapEnabled = cloudData.taskAutoWrapEnabled;
                                 if (typeof cloudData.taskContentWrapMaxLines === 'number') this.data.taskContentWrapMaxLines = cloudData.taskContentWrapMaxLines;
                                 if (typeof cloudData.taskRemarkWrapMaxLines === 'number') this.data.taskRemarkWrapMaxLines = cloudData.taskRemarkWrapMaxLines;
+                                if (typeof cloudData.parentTaskNameBoldEnabled === 'boolean') this.data.parentTaskNameBoldEnabled = cloudData.parentTaskNameBoldEnabled;
+                                if (typeof cloudData.docTabsAutoHideEnabled === 'boolean') this.data.docTabsAutoHideEnabled = cloudData.docTabsAutoHideEnabled;
                                 if (typeof cloudData.enableQuickbar === 'boolean') this.data.enableQuickbar = cloudData.enableQuickbar;
                                 if (typeof cloudData.taskDoneDelightEnabled === 'boolean') this.data.taskDoneDelightEnabled = cloudData.taskDoneDelightEnabled;
                                 if (typeof cloudData.enableQuickbarInlineMeta === 'boolean') this.data.enableQuickbarInlineMeta = cloudData.enableQuickbarInlineMeta;
@@ -6562,6 +6585,8 @@
             this.data.taskAutoWrapEnabled = Storage.get('tm_task_auto_wrap_enabled', this.data.taskAutoWrapEnabled);
             this.data.taskContentWrapMaxLines = Number(Storage.get('tm_task_content_wrap_max_lines', this.data.taskContentWrapMaxLines));
             this.data.taskRemarkWrapMaxLines = Number(Storage.get('tm_task_remark_wrap_max_lines', this.data.taskRemarkWrapMaxLines));
+            this.data.parentTaskNameBoldEnabled = Storage.get('tm_parent_task_name_bold_enabled', this.data.parentTaskNameBoldEnabled);
+            this.data.docTabsAutoHideEnabled = !!Storage.get('tm_doc_tabs_auto_hide_enabled', this.data.docTabsAutoHideEnabled);
             this.data.enableTomatoIntegration = Storage.get('tm_enable_tomato_integration', true);
             this.data.enablePointsRewardIntegration = !!Storage.get('tm_enable_points_reward_integration', this.data.enablePointsRewardIntegration);
             this.data.pointsRewardExcludedGroupIds = Storage.get('tm_points_reward_excluded_group_ids', this.data.pointsRewardExcludedGroupIds);
@@ -6980,6 +7005,8 @@
             Storage.set('tm_task_auto_wrap_enabled', !!this.data.taskAutoWrapEnabled);
             Storage.set('tm_task_content_wrap_max_lines', Number(this.data.taskContentWrapMaxLines) || 3);
             Storage.set('tm_task_remark_wrap_max_lines', Number(this.data.taskRemarkWrapMaxLines) || 2);
+            Storage.set('tm_parent_task_name_bold_enabled', this.data.parentTaskNameBoldEnabled !== false);
+            Storage.set('tm_doc_tabs_auto_hide_enabled', !!this.data.docTabsAutoHideEnabled);
             Storage.set('tm_enable_tomato_integration', !!this.data.enableTomatoIntegration);
             Storage.set('tm_enable_points_reward_integration', !!this.data.enablePointsRewardIntegration);
             Storage.set('tm_points_reward_excluded_group_ids', Array.isArray(this.data.pointsRewardExcludedGroupIds) ? this.data.pointsRewardExcludedGroupIds : []);
@@ -7267,6 +7294,8 @@
             this.data.settingsFieldUpdatedAt = __tmNormalizeSettingsFieldUpdatedAtMap(this.data.settingsFieldUpdatedAt, this.data);
             this.data.docH2SubgroupEnabled = this.data.docH2SubgroupEnabled !== false;
             this.data.taskAutoWrapEnabled = this.data.taskAutoWrapEnabled !== false;
+            this.data.parentTaskNameBoldEnabled = this.data.parentTaskNameBoldEnabled !== false;
+            this.data.docTabsAutoHideEnabled = !!this.data.docTabsAutoHideEnabled;
             this.data.aiSideDockEnabled = this.data.aiSideDockEnabled !== false;
             {
                 const validCalendarHourSlotHeightModes = new Set(['normal', 'high', 'higher', 'ultra']);
@@ -12944,6 +12973,7 @@
                     const store = __tmBuildTaskSnapshotStore(rawStore);
                     payload = __tmAttachTaskSnapshotViewState(payload, {
                         groupId: payload?.groupId || scheduledGroupId,
+                        activeDocId: payload?.activeDocId || scheduledActiveDocId,
                         previousSnapshot: store?.snapshots?.[payload?.scopeKey],
                     }) || payload;
                     const payloadFlatTasks = __tmBuildFlatTasksFromTaskSnapshotTree(Array.isArray(payload?.taskTree) ? payload.taskTree : []);
