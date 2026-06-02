@@ -4361,6 +4361,7 @@
             applyOne(task);
             applyOne(pending);
         });
+        try { __tmApplyTaskFieldPatchToLocalMirrors(tid, nextPatch); } catch (e) {}
         if (__tmDoesPatchAffectPriorityScore(nextPatch)) {
             try {
                 const affectAncestors = __tmDoesPatchAffectAncestorPriorityScore(nextPatch);
@@ -5285,6 +5286,38 @@
             }
         });
         return target;
+    }
+
+    function __tmApplyTaskFieldPatchToLocalMirrors(taskId, patch) {
+        const tid = String(taskId || '').trim();
+        const nextPatch = (patch && typeof patch === 'object' && !Array.isArray(patch)) ? patch : null;
+        if (!tid || !nextPatch || !Object.keys(nextPatch).length) return false;
+        const seen = typeof WeakSet === 'function' ? new WeakSet() : null;
+        let touched = false;
+        const applyTarget = (task) => {
+            if (!(task && typeof task === 'object')) return;
+            if (String(task.id || '').trim() !== tid) return;
+            if (seen) {
+                if (seen.has(task)) return;
+                seen.add(task);
+            }
+            __tmApplyQueuedTaskFieldPatchToTask(task, nextPatch);
+            touched = true;
+        };
+        const walk = (list) => {
+            (Array.isArray(list) ? list : []).forEach((task) => {
+                if (!(task && typeof task === 'object')) return;
+                applyTarget(task);
+                if (Array.isArray(task.children) && task.children.length) walk(task.children);
+            });
+        };
+        try { applyTarget(state.flatTasks?.[tid]); } catch (e) {}
+        try { applyTarget(state.pendingInsertedTasks?.[tid]); } catch (e) {}
+        try {
+            (Array.isArray(state.taskTree) ? state.taskTree : []).forEach((doc) => walk(doc?.tasks));
+        } catch (e) {}
+        try { walk(state.filteredTasks); } catch (e) {}
+        return touched;
     }
 
     function __tmClearInlineLoadingTimer() {

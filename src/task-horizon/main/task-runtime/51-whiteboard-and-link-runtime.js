@@ -2017,6 +2017,29 @@ return false;
         });
     }
 
+    function __tmRefreshKanbanProjectionPatchNow(taskId, patch = {}, options = {}) {
+        const tid = String(taskId || '').trim();
+        const nextPatch = (patch && typeof patch === 'object') ? patch : {};
+        if (!tid || !Object.keys(nextPatch).length) return false;
+        if (String(state.viewMode || '').trim() !== 'kanban') return false;
+        if (!Object.prototype.hasOwnProperty.call(nextPatch, 'pinned')) return false;
+        const opts = (options && typeof options === 'object') ? options : {};
+        const needsProjectionRefresh = __tmDoesPatchNeedProjectionRefresh(tid, nextPatch, opts)
+            || __tmDoesPatchAffectProjection(tid, nextPatch);
+        if (!needsProjectionRefresh) return false;
+        if (opts.withFilters !== false) {
+            try { applyFilters(); } catch (e) {}
+        }
+        try { __tmKanbanColsHtmlCache = null; } catch (e) {}
+        try {
+            if (__tmRerenderKanbanInPlace(state.modal)) return true;
+        } catch (e) {}
+        try {
+            if (__tmRerenderCurrentViewInPlace(state.modal)) return true;
+        } catch (e) {}
+        return false;
+    }
+
     function __tmBuildMergedAttrPatch(taskId, patch = {}, options = {}) {
         const task = __tmTaskStateKernel.getTask(taskId);
         const nextPatch = (patch && typeof patch === 'object') ? patch : {};
@@ -4398,6 +4421,25 @@ refreshed = checklistPatched || refreshed;
             });
         }
         if (fallbackNeeded) {
+            if (viewMode === 'kanban') {
+                const kanbanRefreshed = __tmRefreshKanbanProjectionPatchNow(tid, nextPatch, {
+                    ...opts,
+                    withFilters: refreshWithFilters,
+                    reason: String(opts.reason || 'task-field-projection').trim() || 'task-field-projection',
+                });
+                if (kanbanRefreshed) {
+                    if (hasCustomFieldPatch) {
+                        __tmQuickbarRefreshDebugLog('custom-field-refresh-kanban-projection-now', {
+                            taskId: tid,
+                            viewMode,
+                            reason: String(opts.reason || '').trim(),
+                            refreshWithFilters,
+                            needsProjectionRefresh,
+                        });
+                    }
+                    return true;
+                }
+            }
             __tmScheduleTaskProjectionRefresh(tid, nextPatch, {
                 ...opts,
                 withFilters: refreshWithFilters,
