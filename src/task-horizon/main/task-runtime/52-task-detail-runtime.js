@@ -2685,6 +2685,14 @@ if (!__tmIsCollectedOtherBlockTask(task) && diff.contentChanged) {
         let inlinePopoverCommitting = false;
         const subtaskSaveTimers = new Map();
         const subtaskTextareaMinHeight = 30;
+        let subtaskContentSaveDepth = 0;
+        const setSubtaskContentBusy = (active, holdMs = null) => {
+            subtaskContentSaveDepth = active
+                ? subtaskContentSaveDepth + 1
+                : Math.max(0, subtaskContentSaveDepth - 1);
+            try { root.__tmTaskDetailSubtaskContentSaving = subtaskContentSaveDepth > 0; } catch (e) {}
+            bumpDetailRefreshHold(active ? (holdMs ?? 1800) : (holdMs ?? 420));
+        };
         const syncAutoHeight = (textarea, minHeight = 34) => {
             if (!(textarea instanceof HTMLTextAreaElement)) return;
             const nextMinHeight = Math.max(0, Number(minHeight) || 0);
@@ -4142,6 +4150,8 @@ if (!__tmIsCollectedOtherBlockTask(task) && diff.contentChanged) {
                     try { clearTimeout(timer); } catch (e) {}
                 });
                 subtaskSaveTimers.clear();
+                subtaskContentSaveDepth = 0;
+                try { root.__tmTaskDetailSubtaskContentSaving = false; } catch (e) {}
             }, { once: true });
         } catch (e) {}
         const saveSubtaskContent = async (textarea, subtaskId, options = {}) => {
@@ -4165,6 +4175,7 @@ if (!__tmIsCollectedOtherBlockTask(task) && diff.contentChanged) {
             }
             if (textarea.dataset.saving === 'true') return false;
             textarea.dataset.saving = 'true';
+            setSubtaskContentBusy(true, 1800);
             try {
                 await __tmUpdateTaskContentBlock(task, nextValue, { background: true });
                 try {
@@ -4196,6 +4207,7 @@ if (!__tmIsCollectedOtherBlockTask(task) && diff.contentChanged) {
                 return false;
             } finally {
                 try { delete textarea.dataset.saving; } catch (e) {}
+                setSubtaskContentBusy(false, 420);
             }
         };
         const scheduleSubtaskSave = (textarea, subtaskId) => {
@@ -4207,6 +4219,50 @@ if (!__tmIsCollectedOtherBlockTask(task) && diff.contentChanged) {
                 saveSubtaskContent(textarea, tid, { showHint: false }).catch(() => null);
             }, 700);
             subtaskSaveTimers.set(tid, timer);
+        };
+        const bumpSubtaskContentEditHold = (holdMs = null) => {
+            bumpDetailRefreshHold(holdMs ?? (__tmIsMobileDevice() ? 1800 : 900));
+        };
+        const bindSubtaskContentEditor = (el, subtaskId) => {
+            if (!(el instanceof HTMLTextAreaElement)) return;
+            const tid = String(subtaskId || '').trim();
+            if (!tid) return;
+            if (!el.dataset.savedValue) el.dataset.savedValue = String(el.value || '').trim();
+            syncAutoHeight(el, subtaskTextareaMinHeight);
+            on(el, 'focus', () => {
+                bumpSubtaskContentEditHold();
+            });
+            on(el, 'compositionstart', () => {
+                try { el.dataset.composing = 'true'; } catch (e) {}
+                bumpSubtaskContentEditHold(2200);
+            });
+            on(el, 'compositionend', () => {
+                try { delete el.dataset.composing; } catch (e) {}
+                syncAutoHeight(el, subtaskTextareaMinHeight);
+                bumpSubtaskContentEditHold();
+                if (el.readOnly) return;
+                scheduleSubtaskSave(el, tid);
+            });
+            on(el, 'input', () => {
+                syncAutoHeight(el, subtaskTextareaMinHeight);
+                bumpSubtaskContentEditHold();
+                if (el.readOnly) return;
+                scheduleSubtaskSave(el, tid);
+            });
+            on(el, 'blur', () => {
+                try { delete el.dataset.composing; } catch (e) {}
+                clearSubtaskSaveTimer(tid);
+                if (el.readOnly) return;
+                saveSubtaskContent(el, tid, { showHint: false }).catch(() => null);
+            });
+            on(el, 'keydown', async (ev) => {
+                if (ev.key === 'Enter' && !ev.shiftKey && !ev.isComposing && el.dataset.composing !== 'true') {
+                    try { ev.preventDefault(); } catch (e) {}
+                    clearSubtaskSaveTimer(tid);
+                    await saveSubtaskContent(el, tid, { showHint: true });
+                    try { el.blur(); } catch (e) {}
+                }
+            });
         };
         const restoreSubtaskEmptyState = () => {
             const list = root.querySelector('[data-tm-detail-subtasks]');
@@ -4257,17 +4313,7 @@ if (!__tmIsCollectedOtherBlockTask(task) && diff.contentChanged) {
                         if (!(el instanceof HTMLTextAreaElement)) return;
                         const subtaskId = String(el.getAttribute('data-tm-detail-subtask-content') || '').trim();
                         if (!subtaskId) return;
-                        if (!el.dataset.savedValue) el.dataset.savedValue = String(el.value || '').trim();
-                        syncAutoHeight(el, subtaskTextareaMinHeight);
-                        on(el, 'input', () => {
-                            syncAutoHeight(el, subtaskTextareaMinHeight);
-                            if (el.readOnly) return;
-                            scheduleSubtaskSave(el, subtaskId);
-                        });
-                        on(el, 'blur', () => {
-                            clearSubtaskSaveTimer(subtaskId);
-                            saveSubtaskContent(el, subtaskId, { showHint: false }).catch(() => null);
-                        });
+                        bindSubtaskContentEditor(el, subtaskId);
                     });
                 } catch (e) {}
                 try { __tmBindFloatingTooltips(nextRow); } catch (e) {}
@@ -4457,26 +4503,7 @@ if (!__tmIsCollectedOtherBlockTask(task) && diff.contentChanged) {
                 if (!(el instanceof HTMLTextAreaElement)) return;
                 const tid = String(el.getAttribute('data-tm-detail-subtask-content') || '').trim();
                 if (!tid) return;
-                if (!el.dataset.savedValue) el.dataset.savedValue = String(el.value || '').trim();
-                syncAutoHeight(el, subtaskTextareaMinHeight);
-                on(el, 'input', () => {
-                    syncAutoHeight(el, subtaskTextareaMinHeight);
-                    if (el.readOnly) return;
-                    scheduleSubtaskSave(el, tid);
-                });
-                on(el, 'blur', () => {
-                    clearSubtaskSaveTimer(tid);
-                    if (el.readOnly) return;
-                    saveSubtaskContent(el, tid, { showHint: false }).catch(() => null);
-                });
-                on(el, 'keydown', async (ev) => {
-                    if (ev.key === 'Enter' && !ev.shiftKey && !ev.isComposing) {
-                        try { ev.preventDefault(); } catch (e) {}
-                        clearSubtaskSaveTimer(tid);
-                        await saveSubtaskContent(el, tid, { showHint: true });
-                        try { el.blur(); } catch (e) {}
-                    }
-                });
+                bindSubtaskContentEditor(el, tid);
             });
         };
         const syncSubtaskEditorHeights = () => {
@@ -6052,7 +6079,21 @@ refreshed = !!__tmRefreshChecklistSelectionInPlace(state.modal, 'visible-task-de
                     });
                     refreshed = detailPatched || refreshed;
                     if (!detailPatched) {
-                        refreshed = !!__tmRefreshTaskDetailSheetInPlace(state.modal, 'visible-task-detail-fallback') || refreshed;
+                        if (__tmIsTaskDetailRootUsable(panel, { taskId: tid }) && __tmShouldDeferTaskDetailFallback(panel)) {
+                            const task = __tmTaskStateKernel.getTask(tid);
+                            try { if (task) panel.__tmTaskDetailTask = task; } catch (e) {}
+                            try { panel.dataset.tmDetailTaskId = tid; } catch (e) {}
+                            try {
+                                __tmPushDetailDebug('detail-refresh-deferred-fallback', {
+                                    taskId: tid,
+                                    scope: 'task-sheet',
+                                    reasons: __tmCollectTaskDetailFallbackDeferReasons(panel),
+                                });
+                            } catch (e) {}
+                            refreshed = !!task || refreshed;
+                        } else {
+                            refreshed = !!__tmRefreshTaskDetailSheetInPlace(state.modal, 'visible-task-detail-fallback') || refreshed;
+                        }
                     }
                 }
             } catch (e) {}

@@ -7204,9 +7204,61 @@
         return [...nextList, ...missing];
     }
 
+    function getScheduleProcrastinationTaskId(item) {
+        return String(item?.taskId || item?.task_id || item?.linkedTaskId || item?.linked_task_id || '').trim();
+    }
+
+    function isScheduleProcrastinationTimeChanged(prevValue, nextValue) {
+        const prevMs = toMs(prevValue);
+        const nextMs = toMs(nextValue);
+        if (Number.isFinite(prevMs) && Number.isFinite(nextMs)) return prevMs !== nextMs;
+        return String(prevValue || '').trim() !== String(nextValue || '').trim();
+    }
+
+    function buildScheduleProcrastinationChanges(prevItems, nextItems, options) {
+        const opts = (options && typeof options === 'object') ? options : {};
+        const scheduleId = String(opts.scheduleId || '').trim();
+        const scheduleIds = Array.isArray(opts.scheduleIds)
+            ? opts.scheduleIds.map((id) => String(id || '').trim()).filter(Boolean)
+            : (scheduleId ? [scheduleId] : []);
+        const op = String(opts.op || '').trim();
+        if (op !== 'update' && scheduleIds.length <= 0) return [];
+        const targetIds = new Set(scheduleIds);
+        const prevById = new Map();
+        (Array.isArray(prevItems) ? prevItems : []).forEach((item) => {
+            const id = String(item?.id || '').trim();
+            if (id) prevById.set(id, item);
+        });
+        return (Array.isArray(nextItems) ? nextItems : [])
+            .map((item) => {
+                const id = String(item?.id || '').trim();
+                if (!id || (targetIds.size > 0 && !targetIds.has(id))) return null;
+                const prev = prevById.get(id);
+                if (!prev || typeof prev !== 'object') return null;
+                const taskId = getScheduleProcrastinationTaskId(item) || getScheduleProcrastinationTaskId(prev);
+                if (!taskId) return null;
+                const startChanged = isScheduleProcrastinationTimeChanged(prev.start, item.start);
+                const endChanged = isScheduleProcrastinationTimeChanged(prev.end, item.end);
+                if (!startChanged && !endChanged) return null;
+                return {
+                    scheduleId: id,
+                    taskId,
+                    docId: getScheduleLinkedDocId(item) || getScheduleLinkedDocId(prev),
+                    previousStart: String(prev.start || '').trim(),
+                    previousEnd: String(prev.end || '').trim(),
+                    nextStart: String(item.start || '').trim(),
+                    nextEnd: String(item.end || '').trim(),
+                    source: String(opts.source || opts.reason || 'schedule').trim(),
+                };
+            })
+            .filter(Boolean);
+    }
+
     async function saveScheduleAll(items, options) {
         const opts = (options && typeof options === 'object') ? options : {};
+        const previousList = Array.isArray(state.scheduleCache.list) ? cloneScheduleList(state.scheduleCache.list) : [];
         const list = await mergeSharedSchedulesForNonPruneSave(Array.isArray(items) ? items : [], opts);
+        const scheduleChanges = buildScheduleProcrastinationChanges(previousList, list, opts);
         let version = Number(opts.version);
         if (!Number.isFinite(version) || version <= 0) {
             version = (Number(state.calendarMutationVersion) || 0) + 1;
@@ -7236,6 +7288,7 @@
                     op: String(opts.op || 'replace').trim() || 'replace',
                     scheduleId,
                     scheduleIds,
+                    scheduleChanges,
                     rangeStart: String(opts.rangeStart || '').trim(),
                     rangeEnd: String(opts.rangeEnd || '').trim(),
                 },

@@ -42,6 +42,14 @@
         return full;
     }
 
+    function __tmFormatTaskCardDateValueFromValue(value) {
+        const full = __tmFormatTaskTime(value);
+        if (!/^\d{4}-\d{2}-\d{2}$/.test(full)) return full;
+        const year = Number(full.slice(0, 4));
+        const currentYear = new Date().getFullYear();
+        return year === currentYear ? `${Number(full.slice(5, 7))}月${Number(full.slice(8, 10))}日` : full;
+    }
+
     const __tmTaskCompletedAtFormatCache = new Map();
 
     function __tmResolveTaskCompletedAtRaw(task, options = {}) {
@@ -113,8 +121,28 @@
         { key: 'remark', label: '备注' },
     ];
 
+    const __TM_TASK_CARD_ALWAYS_SHOW_FIELD_OPTIONS = [
+        { key: 'priority', label: '重要性' },
+        { key: 'status', label: '状态' },
+        { key: 'date', label: '截止日期' },
+    ];
+
     function __tmNormalizeTaskCardFieldList(input, fallback = ['priority', 'status', 'date']) {
         const allow = new Set(__TM_TASK_CARD_FIELD_OPTIONS.map((item) => item.key));
+        const source = Array.isArray(input) ? input : fallback;
+        const seen = new Set();
+        const out = [];
+        source.forEach((item) => {
+            const key = String(item || '').trim();
+            if (!allow.has(key) || seen.has(key)) return;
+            seen.add(key);
+            out.push(key);
+        });
+        return out;
+    }
+
+    function __tmNormalizeTaskCardAlwaysShowFields(input, fallback = ['priority', 'status', 'date']) {
+        const allow = new Set(__TM_TASK_CARD_ALWAYS_SHOW_FIELD_OPTIONS.map((item) => item.key));
         const source = Array.isArray(input) ? input : fallback;
         const seen = new Set();
         const out = [];
@@ -136,21 +164,61 @@
         return __tmGetTaskCardFieldList(view).includes(String(field || '').trim());
     }
 
+    function __tmGetTaskCardAlwaysShowFieldList() {
+        return __tmNormalizeTaskCardAlwaysShowFields(SettingsStore.data?.taskCardAlwaysShowFields, ['priority', 'status', 'date']);
+    }
+
+    function __tmTaskCardAlwaysShowFieldEnabled(field) {
+        return __tmGetTaskCardAlwaysShowFieldList().includes(String(field || '').trim());
+    }
+
+    function __tmTaskCardPriorityHasValue(task) {
+        return String(__tmGetPriorityJiraInfo(task?.priority)?.key || 'none').trim() !== 'none';
+    }
+
+    function __tmTaskCardStatusHasValue(task) {
+        if (!(task && typeof task === 'object')) return false;
+        if (task.done === true) return true;
+        const statusId = String(task?.customStatus ?? task?.custom_status ?? '').trim();
+        if (!statusId) return false;
+        const statusOptions = Array.isArray(SettingsStore?.data?.customStatusOptions) ? SettingsStore.data.customStatusOptions : [];
+        const defaultUndoneId = String(__tmGetDefaultUndoneStatusId(statusOptions) || '').trim();
+        const checkboxUndoneId = String(__tmResolveCheckboxLinkedStatusId(false, statusOptions) || '').trim();
+        if (statusId === defaultUndoneId || statusId === checkboxUndoneId) return false;
+        return true;
+    }
+
+    function __tmShouldRenderTaskCardPriority(task) {
+        return __tmTaskCardAlwaysShowFieldEnabled('priority') || __tmTaskCardPriorityHasValue(task);
+    }
+
+    function __tmShouldRenderTaskCardStatus(task) {
+        return __tmTaskCardAlwaysShowFieldEnabled('status') || __tmTaskCardStatusHasValue(task);
+    }
+
     function __tmGetTaskCardDateValue(task) {
         return String(task?.completionTime || '').trim() || String(task?.startDate || '').trim();
     }
 
+    function __tmIsTaskCardDateOverdue(task, todayKey = '') {
+        if (!(task && typeof task === 'object')) return false;
+        let done = task.done === true;
+        try {
+            if (typeof __tmIsTaskDoneEffective === 'function') done = __tmIsTaskDoneEffective(task);
+        } catch (e) {}
+        if (done) return false;
+        const dueKey = __tmNormalizeDateOnly(task?.completionTime || task?.completion_time || '');
+        if (!dueKey) return false;
+        const targetKey = String(todayKey || '').trim() || __tmNormalizeDateOnly(new Date());
+        return !!targetKey && dueKey < targetKey;
+    }
+
     function __tmFormatTaskCardDateValue(task) {
-        const full = __tmFormatTaskTime(__tmGetTaskCardDateValue(task));
-        if (!/^\d{4}-\d{2}-\d{2}$/.test(full)) return full;
-        const year = Number(full.slice(0, 4));
-        const currentYear = new Date().getFullYear();
-        return year === currentYear ? full.slice(5) : full;
+        return __tmFormatTaskCardDateValueFromValue(__tmGetTaskCardDateValue(task));
     }
 
     function __tmShouldRenderTaskCardDate(task) {
-        if (SettingsStore.data?.taskCardDateOnlyWithValue !== true) return true;
-        return !!String(task?.completionTime || '').trim();
+        return __tmTaskCardAlwaysShowFieldEnabled('date') || !!String(__tmGetTaskCardDateValue(task) || '').trim();
     }
 
     function __tmRenderTaskCardRemark(task) {

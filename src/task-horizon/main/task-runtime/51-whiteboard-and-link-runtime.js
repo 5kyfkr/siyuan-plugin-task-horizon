@@ -1150,6 +1150,15 @@
                 const taskId = String(panel?.__tmTaskDetailTask?.id || panel?.dataset?.tmDetailTaskId || state.detailTaskId || '').trim();
                 if (panel instanceof HTMLElement && taskId) roots.push({ scope: 'checklist', root: panel, taskId });
             }
+            {
+                const panel = typeof __tmResolveTaskDetailSheetPanel === 'function'
+                    ? __tmResolveTaskDetailSheetPanel(modal)
+                    : modal.querySelector('#tmTaskDetailSheetPanel');
+                const taskId = String(panel?.__tmTaskDetailTask?.id || panel?.dataset?.tmDetailTaskId || state.detailTaskId || '').trim();
+                if (panel instanceof HTMLElement && taskId && !roots.some((entry) => entry?.root === panel)) {
+                    roots.push({ scope: 'task-sheet', root: panel, taskId });
+                }
+            }
             if (String(state.viewMode || '').trim() === 'kanban') {
                 const panel = modal.querySelector('#tmKanbanDetailPanel');
                 const taskId = String(panel?.__tmTaskDetailTask?.id || panel?.dataset?.tmDetailTaskId || state.kanbanDetailTaskId || '').trim();
@@ -1170,6 +1179,7 @@
             const holdMsLeft = Math.max(0, Number(meta.root?.__tmTaskDetailRefreshHoldUntil || 0) - Date.now());
             let waitMs = holdMsLeft;
             if (reasons.some((reason) => reason === 'active-popover' || reason === 'menu-open' || reason === 'inline-editor-open')) waitMs = Math.max(waitMs, 220);
+            if (reasons.some((reason) => reason === 'subtask-content-active' || reason === 'subtask-content-saving' || reason === 'subtask-content-composing')) waitMs = Math.max(waitMs, 220);
             if (reasons.some((reason) => reason === 'global-popover-open' || reason === 'global-inline-editor-open')) waitMs = Math.max(waitMs, 260);
             if (reasons.includes('global-menu-open')) waitMs = Math.max(waitMs, 220);
             if (reasons.includes('pending-save')) waitMs = Math.max(waitMs, 180);
@@ -3826,8 +3836,8 @@ return false;
             completionTime: 'tm-checklist-meta-chip',
             duration: 'tm-checklist-meta-chip',
             tomatoSummary: 'tm-checklist-meta-chip',
-            startDateCompact: 'tm-checklist-meta-compact-start',
-            completionTimeCompact: 'tm-checklist-meta-compact-time',
+            startDateCompact: 'tm-checklist-meta-compact-start tm-checklist-meta-compact-date tm-checklist-meta-compact-date--start',
+            completionTimeCompact: 'tm-checklist-meta-compact-time tm-checklist-meta-compact-date tm-checklist-meta-compact-date--completion',
             remainingTimeCompact: 'tm-checklist-meta-compact-remaining',
             durationCompact: 'tm-checklist-meta-compact-duration',
             tomatoSummaryCompact: 'tm-checklist-meta-compact-duration',
@@ -4280,10 +4290,30 @@ return false;
                     if (checkbox instanceof HTMLInputElement) checkbox.checked = !!task.done;
                     const title = card.querySelector(':scope > .tm-kanban-card-top .tm-kanban-card-head > .tm-kanban-card-title-inline');
                     if (title instanceof HTMLElement) title.classList.toggle('tm-task-done', !!task.done);
+                    const chip = card.querySelector(':scope > .tm-kanban-card-meta .tm-status-tag');
+                    const shouldRenderStatus = __tmTaskCardFieldEnabled('kanban', 'status') && __tmShouldRenderTaskCardStatus(task);
+                    if (!(chip instanceof HTMLElement)) {
+                        if (shouldRenderStatus) return false;
+                    } else if (!shouldRenderStatus) {
+                        return false;
+                    } else {
+                        const opt = __tmResolveTaskStatusDisplayOption(task, __tmGetStatusOptions(SettingsStore.data.customStatusOptions || []), {
+                            fallbackColor: task?.done ? '#9e9e9e' : '#757575',
+                            fallbackName: task?.done ? '完成' : '待办',
+                        });
+                        chip.setAttribute('style', __tmBuildStatusChipStyle(opt.color));
+                        chip.textContent = String(opt.name || opt.id || '').trim();
+                    }
                     touched = true;
                 }
                 if (Object.prototype.hasOwnProperty.call(patch, 'priority')) {
                     const chip = card.querySelector(':scope > .tm-kanban-card-meta .tm-kanban-priority-chip');
+                    const shouldRenderPriority = __tmTaskCardFieldEnabled('kanban', 'priority') && __tmShouldRenderTaskCardPriority(task);
+                    if (!(chip instanceof HTMLElement)) {
+                        if (shouldRenderPriority) return false;
+                    } else if (!shouldRenderPriority) {
+                        return false;
+                    }
                     if (chip instanceof HTMLElement) {
                         chip.setAttribute('style', __tmBuildPriorityChipStyle(task?.priority));
                         chip.innerHTML = __tmRenderPriorityJira(task?.priority, false);
@@ -4292,6 +4322,12 @@ return false;
                 }
                 if (Object.prototype.hasOwnProperty.call(patch, 'customStatus')) {
                     const chip = card.querySelector(':scope > .tm-kanban-card-meta .tm-status-tag');
+                    const shouldRenderStatus = __tmTaskCardFieldEnabled('kanban', 'status') && __tmShouldRenderTaskCardStatus(task);
+                    if (!(chip instanceof HTMLElement)) {
+                        if (shouldRenderStatus) return false;
+                    } else if (!shouldRenderStatus) {
+                        return false;
+                    }
                     if (chip instanceof HTMLElement) {
                         const opt = __tmResolveTaskStatusDisplayOption(task, __tmGetStatusOptions(SettingsStore.data.customStatusOptions || []), {
                             fallbackColor: task?.done ? '#9e9e9e' : '#757575',
@@ -5831,6 +5867,25 @@ throw error;
             }
         } catch (e) {}
         try {
+            const active = document.activeElement;
+            if (active instanceof Element
+                && root.contains(active)
+                && active.closest?.('[data-tm-detail-subtask-content]')) {
+                reasons.push('subtask-content-active');
+            }
+        } catch (e) {}
+        try {
+            if (root.__tmTaskDetailSubtaskContentSaving === true
+                || root.querySelector?.('[data-tm-detail-subtask-content][data-saving="true"]')) {
+                reasons.push('subtask-content-saving');
+            }
+        } catch (e) {}
+        try {
+            if (root.querySelector?.('[data-tm-detail-subtask-content][data-composing="true"]')) {
+                reasons.push('subtask-content-composing');
+            }
+        } catch (e) {}
+        try {
             const inlineAnchor = __tmInlineEditorState?.anchorEl;
             if (inlineAnchor instanceof Element && root.contains(inlineAnchor)) reasons.push('inline-editor-open');
         } catch (e) {}
@@ -6653,6 +6708,13 @@ throw error;
         state.docTabsAutoVisible = false;
         state.docTabsAutoHideTouch = null;
         state.docTabsAutoHideSuppressClickUntil = 0;
+        await SettingsStore.save();
+        if (state.settingsModal) showSettings();
+        render();
+    };
+
+    window.updateDocTabProcrastinationTintEnabled = async function(enabled) {
+        SettingsStore.data.docTabProcrastinationTintEnabled = !!enabled;
         await SettingsStore.save();
         if (state.settingsModal) showSettings();
         render();

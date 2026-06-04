@@ -13217,6 +13217,10 @@ if (mode === 'checklist') {
         if (opts.unbind) {
             const h = state.docTabsAutoHideTouchDelegationHandlers;
             if (h) {
+                try { document.removeEventListener('touchstart', h.start, true); } catch (e) {}
+                try { document.removeEventListener('touchmove', h.move, true); } catch (e) {}
+                try { document.removeEventListener('touchend', h.end, true); } catch (e) {}
+                try { document.removeEventListener('touchcancel', h.end, true); } catch (e) {}
                 try { document.removeEventListener('touchstart', h.start); } catch (e) {}
                 try { document.removeEventListener('touchmove', h.move); } catch (e) {}
                 try { document.removeEventListener('touchend', h.end); } catch (e) {}
@@ -13451,10 +13455,10 @@ if (mode === 'checklist') {
             __tmSetDocTabsAutoVisible(false);
         };
         state.docTabsAutoHideTouchDelegationHandlers = { start, move, end, click };
-        document.addEventListener('touchstart', start, { passive: true });
-        document.addEventListener('touchmove', move, { passive: true });
-        document.addEventListener('touchend', end, { passive: false });
-        document.addEventListener('touchcancel', end, { passive: false });
+        document.addEventListener('touchstart', start, { capture: true, passive: true });
+        document.addEventListener('touchmove', move, { capture: true, passive: true });
+        document.addEventListener('touchend', end, { capture: true, passive: false });
+        document.addEventListener('touchcancel', end, { capture: true, passive: false });
         document.addEventListener('click', click, true);
     }
 

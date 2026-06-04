@@ -769,9 +769,18 @@ return;
                             const expectedTip = __tmFormatDocExpectedProgressTip(expectedMeta);
                             const expectedPid = `tm-doc-expected-special-${id}`;
                             const nameTip = alias && alias !== rawName ? `别名: ${alias} ｜ 原名: ${rawName} ｜ ` : '';
-                            const tip = `${nameTip}全局新建文档 ｜ ${source}: ${__tmDescribeViewProfile(p)}${expectedTip ? ` ｜ 预期进度: ${expectedTip}` : ''}`;
+                            const procrastinationMetrics = typeof globalThis.__tmGetProcrastinationMetricsForDoc === 'function'
+                                ? globalThis.__tmGetProcrastinationMetricsForDoc(id)
+                                : null;
+                            const procrastinationStyle = typeof globalThis.__tmBuildDocProcrastinationStyle === 'function'
+                                ? globalThis.__tmBuildDocProcrastinationStyle(procrastinationMetrics)
+                                : '';
+                            const procrastinationTip = typeof globalThis.__tmFormatProcrastinationTip === 'function'
+                                ? globalThis.__tmFormatProcrastinationTip(procrastinationMetrics)
+                                : '';
+                            const tip = `${nameTip}全局新建文档 ｜ ${source}: ${__tmDescribeViewProfile(p)}${expectedTip ? ` ｜ 预期进度: ${expectedTip}` : ''}${procrastinationTip ? ` ｜ ${procrastinationTip}` : ''}`;
                             setTimeout(() => __tmUpdateDocTabProgress(id, '', expectedPid), 0);
-                            return `<div class="tm-doc-tab ${isActive ? 'active' : ''}" data-tm-doc-id="${esc(id)}" style="--tm-doc-color:${esc(c)}" oncontextmenu="tmShowDocTabContextMenu(event, '${id}')" ondragenter="tmDocTabDragEnter(event)" ondragleave="tmDocTabDragLeave(event)" ondragover="tmDocTabDragOver(event)" ondrop="tmDocTabDrop(event, '${id}')" onclick="tmSwitchDoc('${id}')"${__tmBuildTooltipAttrs(tip, { side: 'bottom', ariaLabel: false })}><div class="tm-doc-tab-expected${expectedPercent == null ? '' : ' is-visible'}" id="${expectedPid}" style="width:${expectedPercent || 0}%"></div><div class="tm-doc-tab-text">${__tmRenderDocIcon(id, { fallbackText: '📥', size: 14 })}<span>${esc(docName)}</span></div></div>`;
+                            return `<div class="tm-doc-tab ${isActive ? 'active' : ''}" data-tm-doc-id="${esc(id)}" style="--tm-doc-color:${esc(c)};${esc(procrastinationStyle)}" oncontextmenu="tmShowDocTabContextMenu(event, '${id}')" ondragenter="tmDocTabDragEnter(event)" ondragleave="tmDocTabDragLeave(event)" ondragover="tmDocTabDragOver(event)" ondrop="tmDocTabDrop(event, '${id}')" onclick="tmSwitchDoc('${id}')"${__tmBuildTooltipAttrs(tip, { side: 'bottom', ariaLabel: false })}><div class="tm-doc-tab-expected${expectedPercent == null ? '' : ' is-visible'}" id="${expectedPid}" style="width:${expectedPercent || 0}%"></div><div class="tm-doc-tab-text">${__tmRenderDocIcon(id, { fallbackText: '📥', size: 14 })}<span>${esc(docName)}</span></div></div>`;
                         })()}
                         ${showOtherBlocksTab ? (() => {
                             const isActive = __tmIsOtherBlockTabId(state.activeDocId);
@@ -796,7 +805,16 @@ return;
                             const expectedPercent = __tmComputeDocExpectedProgressPercent(expectedMeta);
                             const expectedTip = __tmFormatDocExpectedProgressTip(expectedMeta);
                             const profileTip = `${alias && alias !== rawDocName ? `别名: ${alias}\n原名: ${rawDocName}\n` : ''}${profileSource}: ${__tmDescribeViewProfile(docProfile || groupProfile || __tmGetViewProfilesStore().global)}${expectedTip ? `\n预期进度: ${expectedTip}` : ''}`;
-                            const profileTipOneLine = profileTip.replace(/\s*\n+\s*/g, ' ｜ ');
+                            const procrastinationMetrics = typeof globalThis.__tmGetProcrastinationMetricsForDoc === 'function'
+                                ? globalThis.__tmGetProcrastinationMetricsForDoc(doc.id)
+                                : null;
+                            const procrastinationStyle = typeof globalThis.__tmBuildDocProcrastinationStyle === 'function'
+                                ? globalThis.__tmBuildDocProcrastinationStyle(procrastinationMetrics)
+                                : '';
+                            const procrastinationTip = typeof globalThis.__tmFormatProcrastinationTip === 'function'
+                                ? globalThis.__tmFormatProcrastinationTip(procrastinationMetrics)
+                                : '';
+                            const profileTipOneLine = `${profileTip.replace(/\s*\n+\s*/g, ' ｜ ')}${procrastinationTip ? ` ｜ ${procrastinationTip}` : ''}`;
                             // 预设宽度（如果缓存有值，直接渲染，减少闪烁）
                             const cachedPercent = __tmDocProgressCache?.get(doc.id) || 0;
                             // 调度异步更新
@@ -804,7 +822,7 @@ return;
                             const iconHtml = __tmRenderDocIcon(doc, { size: 14 });
                             return `<div class="tm-doc-tab ${isActive ? 'active' : ''}"
                                 data-tm-doc-id="${esc(doc.id)}"
-                                style="--tm-doc-color:${esc(c)}"
+                                style="--tm-doc-color:${esc(c)};${esc(procrastinationStyle)}"
                                 oncontextmenu="tmShowDocTabContextMenu(event, '${doc.id}')"
                                 ondragenter="tmDocTabDragEnter(event)"
                                 ondragleave="tmDocTabDragLeave(event)"
@@ -991,9 +1009,10 @@ return;
                         -webkit-overflow-scrolling: touch;
                     }
                     .tm-doc-tab {
+                        --tm-doc-procrastination-bg-mix: 0%;
                         padding: 2px 8px;
                         border-radius: 6px;
-                        background: var(--tm-bg-color);
+                        background: color-mix(in srgb, var(--tm-danger-color) var(--tm-doc-procrastination-bg-mix), var(--tm-bg-color));
                         color: var(--tm-text-color);
                         font-size: 13px;
                         cursor: pointer;
@@ -1080,11 +1099,11 @@ return;
                         z-index: 2;
                     }
                     .tm-doc-tab:hover {
-                        background: var(--tm-hover-bg);
+                        background: color-mix(in srgb, var(--tm-danger-color) var(--tm-doc-procrastination-bg-mix), var(--tm-hover-bg));
                         border-color: var(--tm-text-color);
                     }
                     .tm-doc-tab.active {
-                        background: var(--tm-bg-color);
+                        background: color-mix(in srgb, var(--tm-danger-color) var(--tm-doc-procrastination-bg-mix), var(--tm-bg-color));
                         color: var(--tm-text-color);
                         border-color: var(--tm-primary-color);
                         box-shadow: inset 0 0 0 1px var(--tm-primary-color), 0 0 0 1px color-mix(in srgb, var(--tm-primary-color) 18%, transparent);

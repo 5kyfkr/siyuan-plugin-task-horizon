@@ -1079,6 +1079,19 @@
             throw e;
         }
         try {
+            const recordReschedule = globalThis.__tmRecordTaskProcrastinationDateReschedule;
+            if (hasCompletionTime && typeof recordReschedule === 'function') {
+                const recorded = recordReschedule(task, { completionTime: nextEnd }, { completionTime: prevEnd }, {
+                    taskId: persistId,
+                    docId: String(task?.root_id || task?.docId || '').trim(),
+                    source: refreshReason,
+                });
+                if (recorded && state.homepageOpen) {
+                    try { __tmScheduleHomepageRefresh('procrastination-task-reschedule'); } catch (e2) {}
+                }
+            }
+        } catch (e) {}
+        try {
             const calendarPatch = {};
             if (hasStartDate || hasCompletionTime) {
                 calendarPatch.startDate = nextStart;

@@ -227,14 +227,25 @@ return ok;
                     node.style.display = '';
                     if (options.html === true) node.innerHTML = String(content || '');
                     else node.textContent = String(content || '');
+                    if (typeof options.title === 'string') {
+                        try { node.setAttribute('title', options.title); } catch (e) {}
+                    }
                 } else {
                     node.style.display = 'none';
                     if (options.html === true) node.innerHTML = '';
                     else node.textContent = '';
+                    try { node.removeAttribute('title'); } catch (e) {}
                 }
                 touched = true;
             });
             return true;
+        };
+        const syncCompactDateClass = (field, className, overdue = false) => {
+            Array.from(item.querySelectorAll(`[data-tm-task-time-field="${CSS.escape(field)}"]`)).forEach((node) => {
+                if (!(node instanceof HTMLElement)) return;
+                node.classList.add('tm-checklist-meta-compact-date', className);
+                node.classList.toggle('tm-checklist-meta-compact-date--overdue', !!overdue);
+            });
         };
         const completionText = __tmFormatTaskTime(taskCompletionTimeValue);
         const durationText = __tmFormatDurationDisplayValue(task.duration || '');
@@ -243,9 +254,11 @@ return ok;
         const tomatoEstimateText = __tmGetTomatoCountDisplay(__tmGetTaskTomatoEstimateCount(task));
         const tomatoCountText = __tmGetTomatoCountDisplay(__tmGetTaskTomatoCount(task));
         const tomatoCountHtml = __tmGetActualTomatoCountDisplayHtml(__tmGetTaskTomatoCount(task));
-        const compactStartText = __tmFormatTaskTimeCompact(taskStartDateValue);
-        const compactCompletionText = __tmFormatTaskTimeCompact(taskCompletionTimeValue);
-        const compactRemainingText = String(__tmGetTaskRemainingTimeLabel(task) || '').trim();
+        const compactStartText = __tmFormatTaskCardDateValueFromValue(taskStartDateValue);
+        const compactCompletionText = __tmFormatTaskCardDateValueFromValue(taskCompletionTimeValue);
+        const compactRemainingInfo = __tmGetTaskRemainingTimeInfo(task);
+        const compactRemainingText = String(compactRemainingInfo?.label || '').trim();
+        const compactRemainingHtml = compactRemainingText ? __tmRenderTaskRemainingTimeInfoHtml(compactRemainingInfo) : '';
         const compactDurationText = __tmFormatDurationDisplayValue(task.duration || '');
         const compactFocusSummaryText = focusSummaryText;
         const compactFocusSummaryHtml = focusSummaryHtml;
@@ -260,13 +273,24 @@ return ok;
         if (!syncNode('tomatoCount', tomatoCountHtml, { html: true, shouldExist: !!tomatoCountText })) valid = false;
         if (!syncNode('startDateCompact', compactStartText, { shouldExist: !!compactStartText })) valid = false;
         if (!syncNode('completionTimeCompact', compactCompletionText, { shouldExist: !!compactCompletionText })) valid = false;
-        if (!syncNode('remainingTimeCompact', compactRemainingText, { shouldExist: !!compactRemainingText && !!(taskStartDateValue || taskCompletionTimeValue) })) valid = false;
+        syncCompactDateClass('startDateCompact', 'tm-checklist-meta-compact-date--start');
+        syncCompactDateClass('completionTimeCompact', 'tm-checklist-meta-compact-date--completion', !!taskCompletionTimeValue && __tmIsTaskCardDateOverdue(task));
+        if (!syncNode('remainingTimeCompact', compactRemainingHtml, { html: true, title: compactRemainingText, shouldExist: !!compactRemainingText && !!(taskStartDateValue || taskCompletionTimeValue) })) valid = false;
         if (!syncNode('durationCompact', compactDurationText, { shouldExist: !!compactDurationText })) valid = false;
         if (!syncNode('tomatoSummaryCompact', compactFocusSummaryHtml, { html: true, shouldExist: !!compactFocusSummaryText })) valid = false;
         if (!syncNode('tomatoEstimateCountCompact', compactTomatoEstimateText, { shouldExist: !!compactTomatoEstimateText })) valid = false;
         if (!syncNode('tomatoCountCompact', compactTomatoCountHtml, { html: true, shouldExist: !!compactTomatoCountText })) valid = false;
         __tmSyncChecklistMetaContainerVisibility(item);
         return valid && (touched || !sawNode);
+    }
+
+    function __tmApplyTaskCardDateChipState(node, task) {
+        if (!(node instanceof HTMLElement)) return;
+        const hasDateValue = !!String(__tmGetTaskCardDateValue(task) || '').trim();
+        node.classList.add('tm-kanban-chip--date');
+        node.classList.toggle('tm-kanban-chip--date-has-value', hasDateValue);
+        node.classList.toggle('tm-kanban-chip--date-empty', !hasDateValue);
+        node.classList.toggle('tm-kanban-chip--date-overdue', hasDateValue && __tmIsTaskCardDateOverdue(task));
     }
 
     function __tmUpdateKanbanTaskTimeInDOM(taskId) {
@@ -298,6 +322,7 @@ return ok;
         if (dateNode instanceof HTMLElement) {
             if (!dateShouldExist) return false;
             dateNode.textContent = __tmFormatTaskCardDateValue(task) || '日期';
+            __tmApplyTaskCardDateChipState(dateNode, task);
             touched = true;
         } else if (dateShouldExist) {
             return false;
@@ -324,21 +349,35 @@ return ok;
         if (!id || !(state.modal instanceof Element)) return false;
         const task = state.flatTasks?.[id] || null;
         if (!task) return false;
-        const nodes = state.modal.querySelectorAll(
+        const dateNodes = state.modal.querySelectorAll(
             `.tm-whiteboard-node[data-task-id="${CSS.escape(id)}"] [data-tm-task-time-field="date"], ` +
             `.tm-whiteboard-stream-task-head[data-id="${CSS.escape(id)}"] [data-tm-task-time-field="date"], ` +
-            `.tm-whiteboard-stream-task-node[data-id="${CSS.escape(id)}"] [data-tm-task-time-field="date"], ` +
+            `.tm-whiteboard-stream-task-node[data-id="${CSS.escape(id)}"] [data-tm-task-time-field="date"]`
+        );
+        const focusNodes = state.modal.querySelectorAll(
             `.tm-whiteboard-node[data-task-id="${CSS.escape(id)}"] [data-tm-task-time-field="tomatoSummary"], ` +
             `.tm-whiteboard-stream-task-head[data-id="${CSS.escape(id)}"] [data-tm-task-time-field="tomatoSummary"], ` +
             `.tm-whiteboard-stream-task-node[data-id="${CSS.escape(id)}"] [data-tm-task-time-field="tomatoSummary"]`
         );
+        const cardFields = (() => {
+            try { return new Set(__tmGetTaskCardFieldList('whiteboard')); } catch (e) { return new Set(); }
+        })();
+        const dateShouldExist = cardFields.has('date') && __tmShouldRenderTaskCardDate(task);
+        if (dateNodes.length) {
+            if (!dateShouldExist) return false;
+        } else if (dateShouldExist) {
+            return false;
+        }
         const text = __tmGetTaskCardDateValue(task) || '日期';
         const focusHtml = __tmGetTaskTomatoSummaryHtml(task);
-        nodes.forEach((node) => {
+        dateNodes.forEach((node) => {
             if (!(node instanceof HTMLElement)) return;
-            const field = String(node.getAttribute('data-tm-task-time-field') || '').trim();
-            if (field === 'tomatoSummary') node.innerHTML = focusHtml;
-            else node.textContent = text;
+            node.textContent = text;
+            __tmApplyTaskCardDateChipState(node, task);
+        });
+        focusNodes.forEach((node) => {
+            if (!(node instanceof HTMLElement)) return;
+            node.innerHTML = focusHtml;
         });
         return true;
     }

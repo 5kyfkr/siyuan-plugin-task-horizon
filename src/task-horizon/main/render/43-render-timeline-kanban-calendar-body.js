@@ -971,9 +971,12 @@
                 const priorityChipStyle = __tmBuildPriorityChipStyle(task?.priority);
                 const priorityChip = `<span class="tm-kanban-priority-chip" style="${priorityChipStyle}" onclick="tmPickPriority('${id}', this, event)">${__tmRenderPriorityJira(task?.priority, false)}</span>`;
                 const metaParts = [];
-                if (kanbanCardFields.has('priority')) metaParts.push(priorityChip);
-                if (kanbanCardFields.has('status')) metaParts.push(statusChip);
-                if (kanbanCardFields.has('date') && __tmShouldRenderTaskCardDate(task)) metaParts.push(`<span class="tm-kanban-chip tm-kanban-chip--muted" data-tm-task-time-field="date" onclick="tmKanbanPickDate('${id}', event)" title="点击选择日期">${esc(dateTxt || '日期')}</span>`);
+                if (kanbanCardFields.has('priority') && __tmShouldRenderTaskCardPriority(task)) metaParts.push(priorityChip);
+                if (kanbanCardFields.has('status') && __tmShouldRenderTaskCardStatus(task)) metaParts.push(statusChip);
+                if (kanbanCardFields.has('date') && __tmShouldRenderTaskCardDate(task)) {
+                    const dateChipClass = `${timeTxt ? ' tm-kanban-chip--date-has-value' : ' tm-kanban-chip--date-empty'}${__tmIsTaskCardDateOverdue(task, completedTodayKey) ? ' tm-kanban-chip--date-overdue' : ''}`;
+                    metaParts.push(`<span class="tm-kanban-chip tm-kanban-chip--muted tm-kanban-chip--date${dateChipClass}" data-tm-task-time-field="date" onclick="tmKanbanPickDate('${id}', event)" title="点击选择日期">${esc(dateTxt || '日期')}</span>`);
+                }
                 if (kanbanCardFields.has('tomatoSummary')) {
                     const text = __tmGetTaskTomatoSummaryText(task);
                     if (text) metaParts.push(`<span class="tm-kanban-chip tm-kanban-chip--muted" data-tm-task-time-field="tomatoSummary" onclick="tmEditFocusSummaryInline('${id}', this)" title="时长与番茄">${__tmGetTaskTomatoSummaryHtml(task)}</span>`);
@@ -1020,6 +1023,7 @@
                 });
                 const titleInnerHtml = `${API.renderTaskContentHtml(task.markdown, content || '(无内容)')}${__tmRenderGlobalCollectDocTaskInlineIcon(task)}${completedTodayBadgeHtml}${__tmRenderRecurringTaskInlineIcon(task)}${__tmRenderRecurringInstanceBadge(task, { className: 'tm-recurring-instance-badge--inline' })}`;
                 const titleAttrs = `onclick="tmJumpToTask('${id}', event)"${__tmBuildTooltipAttrs(String(content || '(无内容)').trim() || '(无内容)', { side: 'bottom', ariaLabel: false })} style="${__tmBuildTaskTitleOpacityStyle(task)}"`;
+                const parentTaskTitleCls = !isSub ? ' tm-parent-task-title' : '';
                 const cardMetaParts = docChipHtml ? [...metaParts, docChipHtml] : metaParts;
                 const cardMetaHtml = cardMetaParts.length ? `<div class="tm-kanban-card-meta">${cardMetaParts.join('')}</div>` : '';
                 const subtaskMetaHtml = metaParts.length ? `<div class="tm-kanban-subtask-meta">${metaParts.join('')}</div>` : '';
@@ -1076,7 +1080,7 @@
                                 ${!isParent ? (toggleHtml || '') : ''}
                                 ${checkboxHtml}
                                 <div class="tm-kanban-card-text">
-                                    <span class="tm-kanban-card-title-inline tm-task-content-clickable" ${titleAttrs}>${titleInnerHtml}</span>
+                                    <span class="tm-kanban-card-title-inline tm-task-content-clickable${parentTaskTitleCls}" ${titleAttrs}>${titleInnerHtml}</span>
                                     ${cardMetaHtml}
                                 </div>
                             </div>

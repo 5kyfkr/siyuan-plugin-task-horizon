@@ -5550,6 +5550,7 @@
             kanbanDragSyncSubtasks: true,
             kanbanPreventSubtaskSeparation: true,
             kanbanCardFields: ['priority', 'status', 'date'],
+            taskCardAlwaysShowFields: ['priority', 'status', 'date'],
             taskCardDateOnlyWithValue: false,
             kanbanBoardMode: '',
             kanbanHeadingGroupMode: false,
@@ -5580,6 +5581,7 @@
             taskRemarkWrapMaxLines: 2,
             parentTaskNameBoldEnabled: true,
             docTabsAutoHideEnabled: true,
+            docTabProcrastinationTintEnabled: true,
             enableQuickbar: true,
             taskDoneDelightEnabled: true,
             aiEnabled: false,
@@ -6131,6 +6133,7 @@
                                 if (typeof cloudData.kanbanDragSyncSubtasks === 'boolean') this.data.kanbanDragSyncSubtasks = cloudData.kanbanDragSyncSubtasks;
                                 if (typeof cloudData.kanbanPreventSubtaskSeparation === 'boolean') this.data.kanbanPreventSubtaskSeparation = cloudData.kanbanPreventSubtaskSeparation;
                                 if (Array.isArray(cloudData.kanbanCardFields)) this.data.kanbanCardFields = cloudData.kanbanCardFields;
+                                if (Array.isArray(cloudData.taskCardAlwaysShowFields)) this.data.taskCardAlwaysShowFields = cloudData.taskCardAlwaysShowFields;
                                 if (typeof cloudData.kanbanBoardMode === 'string') this.data.kanbanBoardMode = cloudData.kanbanBoardMode;
                                 if (typeof cloudData.kanbanHeadingGroupMode === 'boolean') this.data.kanbanHeadingGroupMode = cloudData.kanbanHeadingGroupMode;
                                 if (typeof cloudData.whiteboardAllTabsCardMinWidth === 'number') this.data.whiteboardAllTabsCardMinWidth = cloudData.whiteboardAllTabsCardMinWidth;
@@ -6160,6 +6163,7 @@
                                 if (typeof cloudData.taskRemarkWrapMaxLines === 'number') this.data.taskRemarkWrapMaxLines = cloudData.taskRemarkWrapMaxLines;
                                 if (typeof cloudData.parentTaskNameBoldEnabled === 'boolean') this.data.parentTaskNameBoldEnabled = cloudData.parentTaskNameBoldEnabled;
                                 if (typeof cloudData.docTabsAutoHideEnabled === 'boolean') this.data.docTabsAutoHideEnabled = cloudData.docTabsAutoHideEnabled;
+                                if (typeof cloudData.docTabProcrastinationTintEnabled === 'boolean') this.data.docTabProcrastinationTintEnabled = cloudData.docTabProcrastinationTintEnabled;
                                 if (typeof cloudData.enableQuickbar === 'boolean') this.data.enableQuickbar = cloudData.enableQuickbar;
                                 if (typeof cloudData.taskDoneDelightEnabled === 'boolean') this.data.taskDoneDelightEnabled = cloudData.taskDoneDelightEnabled;
                                 if (typeof cloudData.enableQuickbarInlineMeta === 'boolean') this.data.enableQuickbarInlineMeta = cloudData.enableQuickbarInlineMeta;
@@ -6513,7 +6517,14 @@
             this.data.kanbanDragSyncSubtasks = !!Storage.get('tm_kanban_drag_sync_subtasks', this.data.kanbanDragSyncSubtasks);
             this.data.kanbanPreventSubtaskSeparation = !!Storage.get('tm_kanban_prevent_subtask_separation', this.data.kanbanPreventSubtaskSeparation);
             this.data.kanbanCardFields = Storage.get('tm_kanban_card_fields', this.data.kanbanCardFields) || this.data.kanbanCardFields;
-            this.data.taskCardDateOnlyWithValue = !!Storage.get('tm_task_card_date_only_with_value', this.data.taskCardDateOnlyWithValue);
+            const taskCardAlwaysShowFieldsStored = Storage.get('tm_task_card_always_show_fields', null);
+            const taskCardDateOnlyWithValueStored = Storage.get('tm_task_card_date_only_with_value', null);
+            if (Array.isArray(taskCardAlwaysShowFieldsStored)) {
+                this.data.taskCardAlwaysShowFields = taskCardAlwaysShowFieldsStored;
+            } else if (taskCardDateOnlyWithValueStored === true) {
+                this.data.taskCardAlwaysShowFields = ['priority', 'status'];
+            }
+            this.data.taskCardDateOnlyWithValue = !!(taskCardDateOnlyWithValueStored ?? this.data.taskCardDateOnlyWithValue);
             this.data.kanbanBoardMode = Storage.get('tm_kanban_board_mode', this.data.kanbanBoardMode);
             this.data.kanbanHeadingGroupMode = !!Storage.get('tm_kanban_heading_group_mode', this.data.kanbanHeadingGroupMode);
             this.data.whiteboardAllTabsCardMinWidth = Storage.get('tm_whiteboard_all_tabs_card_min_width', this.data.whiteboardAllTabsCardMinWidth);
@@ -6604,6 +6615,7 @@
             this.data.taskRemarkWrapMaxLines = Number(Storage.get('tm_task_remark_wrap_max_lines', this.data.taskRemarkWrapMaxLines));
             this.data.parentTaskNameBoldEnabled = Storage.get('tm_parent_task_name_bold_enabled', this.data.parentTaskNameBoldEnabled);
             this.data.docTabsAutoHideEnabled = !!Storage.get('tm_doc_tabs_auto_hide_enabled', this.data.docTabsAutoHideEnabled);
+            this.data.docTabProcrastinationTintEnabled = Storage.get('tm_doc_tab_procrastination_tint_enabled', this.data.docTabProcrastinationTintEnabled) !== false;
             this.data.enableTomatoIntegration = Storage.get('tm_enable_tomato_integration', true);
             this.data.enablePointsRewardIntegration = !!Storage.get('tm_enable_points_reward_integration', this.data.enablePointsRewardIntegration);
             this.data.pointsRewardExcludedGroupIds = Storage.get('tm_points_reward_excluded_group_ids', this.data.pointsRewardExcludedGroupIds);
@@ -6932,7 +6944,9 @@
             Storage.set('tm_kanban_drag_sync_subtasks', !!this.data.kanbanDragSyncSubtasks);
             Storage.set('tm_kanban_prevent_subtask_separation', !!this.data.kanbanPreventSubtaskSeparation);
             Storage.set('tm_kanban_card_fields', this.data.kanbanCardFields || []);
-            Storage.set('tm_task_card_date_only_with_value', !!this.data.taskCardDateOnlyWithValue);
+            const taskCardAlwaysShowFields = __tmNormalizeTaskCardAlwaysShowFields(this.data.taskCardAlwaysShowFields, ['priority', 'status', 'date']);
+            Storage.set('tm_task_card_always_show_fields', taskCardAlwaysShowFields);
+            Storage.set('tm_task_card_date_only_with_value', !taskCardAlwaysShowFields.includes('date'));
             Storage.set('tm_kanban_board_mode', typeof __tmGetKanbanBoardMode === 'function' ? __tmGetKanbanBoardMode() : (String(this.data.kanbanBoardMode || '').trim() || (this.data.kanbanHeadingGroupMode ? 'heading' : 'status')));
             Storage.set('tm_kanban_heading_group_mode', !!this.data.kanbanHeadingGroupMode);
             Storage.set('tm_whiteboard_all_tabs_card_min_width', Number(this.data.whiteboardAllTabsCardMinWidth) || 320);
@@ -7024,6 +7038,7 @@
             Storage.set('tm_task_remark_wrap_max_lines', Number(this.data.taskRemarkWrapMaxLines) || 2);
             Storage.set('tm_parent_task_name_bold_enabled', this.data.parentTaskNameBoldEnabled !== false);
             Storage.set('tm_doc_tabs_auto_hide_enabled', !!this.data.docTabsAutoHideEnabled);
+            Storage.set('tm_doc_tab_procrastination_tint_enabled', this.data.docTabProcrastinationTintEnabled !== false);
             Storage.set('tm_enable_tomato_integration', !!this.data.enableTomatoIntegration);
             Storage.set('tm_enable_points_reward_integration', !!this.data.enablePointsRewardIntegration);
             Storage.set('tm_points_reward_excluded_group_ids', Array.isArray(this.data.pointsRewardExcludedGroupIds) ? this.data.pointsRewardExcludedGroupIds : []);
@@ -7305,7 +7320,8 @@
             this.data.whiteboardStreamMobileTwoColumns = this.data.whiteboardStreamMobileTwoColumns !== false;
             this.data.kanbanFillColumns = !!this.data.kanbanFillColumns;
             this.data.kanbanCardFields = __tmNormalizeTaskCardFieldList(this.data.kanbanCardFields, ['priority', 'status', 'date']);
-            this.data.taskCardDateOnlyWithValue = !!this.data.taskCardDateOnlyWithValue;
+            this.data.taskCardAlwaysShowFields = __tmNormalizeTaskCardAlwaysShowFields(this.data.taskCardAlwaysShowFields, ['priority', 'status', 'date']);
+            this.data.taskCardDateOnlyWithValue = !this.data.taskCardAlwaysShowFields.includes('date');
             this.data.checklistCompactTreeGuides = !!this.data.checklistCompactTreeGuides;
             this.data.checklistCompactTreeGuidesUpdatedAt = __tmParseUpdatedAtNumber(this.data.checklistCompactTreeGuidesUpdatedAt);
             this.data.settingsFieldUpdatedAt = __tmNormalizeSettingsFieldUpdatedAtMap(this.data.settingsFieldUpdatedAt, this.data);
@@ -7313,6 +7329,7 @@
             this.data.taskAutoWrapEnabled = this.data.taskAutoWrapEnabled !== false;
             this.data.parentTaskNameBoldEnabled = this.data.parentTaskNameBoldEnabled !== false;
             this.data.docTabsAutoHideEnabled = !!this.data.docTabsAutoHideEnabled;
+            this.data.docTabProcrastinationTintEnabled = this.data.docTabProcrastinationTintEnabled !== false;
             this.data.aiSideDockEnabled = this.data.aiSideDockEnabled !== false;
             {
                 const validCalendarHourSlotHeightModes = new Set(['normal', 'high', 'higher', 'ultra']);

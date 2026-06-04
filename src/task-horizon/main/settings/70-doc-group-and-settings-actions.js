@@ -1145,7 +1145,26 @@
         }
     };
 
+    window.updateTaskCardAlwaysShowField = async function(field, enabled) {
+        const current = new Set(__tmGetTaskCardAlwaysShowFieldList());
+        const key = String(field || '').trim();
+        if (!key) return;
+        if (enabled) current.add(key);
+        else current.delete(key);
+        SettingsStore.data.taskCardAlwaysShowFields = __tmNormalizeTaskCardAlwaysShowFields(Array.from(current), ['priority', 'status', 'date']);
+        SettingsStore.data.taskCardDateOnlyWithValue = !SettingsStore.data.taskCardAlwaysShowFields.includes('date');
+        await SettingsStore.save();
+        showSettings();
+        if (state.modal && document.body.contains(state.modal)) {
+            if (!__tmRerenderCurrentViewInPlace(state.modal)) render();
+        }
+    };
+
     window.updateTaskCardDateOnlyWithValue = async function(enabled) {
+        const current = new Set(__tmGetTaskCardAlwaysShowFieldList());
+        if (enabled) current.delete('date');
+        else current.add('date');
+        SettingsStore.data.taskCardAlwaysShowFields = __tmNormalizeTaskCardAlwaysShowFields(Array.from(current), ['priority', 'status', 'date']);
         SettingsStore.data.taskCardDateOnlyWithValue = !!enabled;
         await SettingsStore.save();
         showSettings();

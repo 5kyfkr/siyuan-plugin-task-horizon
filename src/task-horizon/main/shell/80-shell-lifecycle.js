@@ -1279,6 +1279,10 @@ if (shouldMarkDirty) {
         try {
             const h = state.docTabsAutoHideTouchDelegationHandlers;
             if (h) {
+                try { document.removeEventListener('touchstart', h.start, true); } catch (e2) {}
+                try { document.removeEventListener('touchmove', h.move, true); } catch (e2) {}
+                try { document.removeEventListener('touchend', h.end, true); } catch (e2) {}
+                try { document.removeEventListener('touchcancel', h.end, true); } catch (e2) {}
                 try { document.removeEventListener('touchstart', h.start); } catch (e2) {}
                 try { document.removeEventListener('touchmove', h.move); } catch (e2) {}
                 try { document.removeEventListener('touchend', h.end); } catch (e2) {}

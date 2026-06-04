@@ -515,6 +515,15 @@
     color: color-mix(in srgb, var(--tm-home-warning) 88%, var(--tm-home-text) 12%);
 }
 
+.tm-homepage-summary-row.is-procrastination {
+    border-color: color-mix(in srgb, var(--tm-home-danger) var(--tm-home-procrastination-border-mix, 18%), var(--tm-home-border-soft));
+    background: color-mix(in srgb, var(--tm-home-danger) var(--tm-home-procrastination-bg-mix, 5%), var(--tm-home-surface-alt));
+}
+
+.tm-homepage-summary-row.is-procrastination .tm-homepage-summary-row-value {
+    color: color-mix(in srgb, var(--tm-home-danger) var(--tm-home-procrastination-text-mix, 36%), var(--tm-home-text));
+}
+
 .tm-homepage-card {
     border: 1px solid var(--tm-home-border);
     border-radius: var(--tm-home-card-radius);
@@ -1883,6 +1892,63 @@
             .slice(0, 6);
     }
 
+    function getProcrastinationLevel(score) {
+        const value = Math.max(0, Math.min(100, Math.round(Number(score) || 0)));
+        if (value >= 75) return "爆红";
+        if (value >= 50) return "高风险";
+        if (value >= 25) return "注意";
+        return "健康";
+    }
+
+    function normalizeProcrastinationMetrics(metrics, fallback = {}) {
+        const source = (metrics && typeof metrics === "object") ? metrics : {};
+        const base = (fallback && typeof fallback === "object") ? fallback : {};
+        const score = Math.max(0, Math.min(100, Math.round(toNumber(source.score, base.score || 0))));
+        const dueTaskCount = Math.max(0, Math.round(toNumber(source.dueTaskCount, base.dueTaskCount || 0)));
+        const overdueCount = Math.max(0, Math.round(toNumber(source.overdueCount, base.overdueCount || 0)));
+        const fallbackOverduePercent = dueTaskCount > 0 ? (overdueCount / dueTaskCount) * 100 : 0;
+        const overduePercent = Math.max(0, Math.min(100, Math.round(toNumber(
+            source.overduePercent,
+            toNumber(base.overduePercent, fallbackOverduePercent),
+        ))));
+        return {
+            score,
+            level: String(source.level || base.level || "").trim(),
+            levelLabel: String(source.levelLabel || base.levelLabel || getProcrastinationLevel(score)).trim(),
+            dueTaskCount,
+            overdueCount,
+            overduePercent,
+            penaltyCount: Math.max(0, Math.round(toNumber(source.penaltyCount, base.penaltyCount || 0))),
+            penaltyEnabled: source.penaltyEnabled === false || base.penaltyEnabled === false ? false : true,
+            rescheduleCount: Math.max(0, Math.round(toNumber(source.rescheduleCount, base.rescheduleCount || 0))),
+            windowDays: Math.max(1, Math.round(toNumber(source.windowDays, base.windowDays || 30))),
+        };
+    }
+
+    function buildProcrastinationRowStyle(score) {
+        const value = Math.max(0, Math.min(100, Math.round(Number(score) || 0)));
+        const bgMix = value < 50
+            ? Math.max(0, Math.min(3, Math.round(value * 0.06)))
+            : Math.max(8, Math.min(24, Math.round(8 + (value - 50) * 0.32)));
+        const borderMix = value < 50
+            ? Math.max(0, Math.min(8, Math.round(value * 0.16)))
+            : Math.max(18, Math.min(54, Math.round(18 + (value - 50) * 0.72)));
+        const textMix = value < 50
+            ? Math.max(0, Math.min(16, Math.round(value * 0.32)))
+            : Math.max(34, Math.min(92, Math.round(34 + (value - 50) * 1.16)));
+        return `--tm-home-procrastination-bg-mix:${bgMix}%;--tm-home-procrastination-border-mix:${borderMix}%;--tm-home-procrastination-text-mix:${textMix}%;`;
+    }
+
+    function formatProcrastinationNote(metrics) {
+        const item = normalizeProcrastinationMetrics(metrics);
+        const parts = [
+            `逾期 ${item.overduePercent}%（${item.overdueCount}/${item.dueTaskCount}）`,
+            item.penaltyEnabled ? `扣分 ${item.penaltyCount}` : "",
+            `推迟 ${item.rescheduleCount}`,
+        ].filter(Boolean);
+        return `${item.levelLabel} · ${parts.join("，")}`;
+    }
+
     function buildOverview(ctx) {
         const todayKey = normalizeDateKey(ctx?.todayKey) || formatDateKey(new Date());
         const tasks = flattenTasks(ctx?.tasks || []);
@@ -1894,6 +1960,37 @@
         const doneCount = tasks.filter((task) => !!task?.done).length;
         const pendingCount = Math.max(0, tasks.length - doneCount - overdueCount);
         const completionRate = tasks.length ? Math.round((doneCount / tasks.length) * 100) : 0;
+        const procrastinationDoneParentMemo = new Map();
+        let procrastinationDueTaskCount = 0;
+        let procrastinationOverdueCount = 0;
+        tasks.forEach((task) => {
+            if (!task || task.done) return;
+            if (hasDoneParentTask(task, relationIndex, procrastinationDoneParentMemo)) return;
+            const dueKey = resolveTaskDueKey(task);
+            if (!dueKey) return;
+            procrastinationDueTaskCount += 1;
+            if (dayDiff(todayKey, dueKey) < 0) procrastinationOverdueCount += 1;
+        });
+        const overdueRatio = procrastinationDueTaskCount > 0
+            ? Math.max(0, Math.min(1, procrastinationOverdueCount / procrastinationDueTaskCount))
+            : 0;
+        const fallbackProcrastination = {
+            score: Math.round(overdueRatio * 100),
+            dueTaskCount: procrastinationDueTaskCount,
+            overdueCount: procrastinationOverdueCount,
+            overduePercent: Math.round(overdueRatio * 100),
+            penaltyCount: 0,
+            penaltyEnabled: false,
+            rescheduleCount: 0,
+            windowDays: 30,
+        };
+        let rawProcrastination = (ctx?.procrastinationMetrics && typeof ctx.procrastinationMetrics === "object")
+            ? ctx.procrastinationMetrics
+            : null;
+        if (!rawProcrastination && typeof globalThis.__tmGetProcrastinationMetricsForTasks === "function") {
+            try { rawProcrastination = globalThis.__tmGetProcrastinationMetricsForTasks(tasks, { todayKey }); } catch (e) { rawProcrastination = null; }
+        }
+        const procrastination = normalizeProcrastinationMetrics(rawProcrastination, fallbackProcrastination);
         const streak = buildStreak(tasks, todayKey);
         const profile = resolveProfile(ctx);
         const scopeLabel = String(ctx?.currentDocName || ctx?.currentGroupName || "当前范围").trim() || "当前范围";
@@ -1908,6 +2005,7 @@
             distribution: buildDistribution(tasks),
             recentDone: buildRecentDone(tasks, todayKey),
             riskList: buildRiskList(tasks, todayKey, relationIndex),
+            procrastination,
             title: `主页 - ${scopeLabel}`,
             subtitle: subtitleParts.length
                 ? subtitleParts.join("，")
@@ -1922,6 +2020,7 @@
                 pendingCount,
                 completionRate,
                 streak,
+                procrastination,
             },
         };
     }
@@ -2233,14 +2332,8 @@
     }
 
     function renderSummaryCard(overview) {
+        const procrastination = normalizeProcrastinationMetrics(overview?.procrastination || overview?.kpis?.procrastination);
         const rows = [
-            {
-                label: "本周完成",
-                value: overview?.kpis?.weekDone || 0,
-                unit: "",
-                note: `当前范围共 ${overview?.kpis?.total || 0} 项`,
-                tone: "",
-            },
             {
                 label: "连续完成",
                 value: Number(overview?.kpis?.streak) || 0,
@@ -2248,13 +2341,21 @@
                 note: Number(overview?.kpis?.streak) > 0 ? "最近保持连续完成" : "最近还没有形成连续完成",
                 tone: Number(overview?.kpis?.streak) > 0 ? "is-success" : "",
             },
+            {
+                label: "拖延值",
+                value: procrastination.score,
+                unit: "",
+                note: formatProcrastinationNote(procrastination),
+                tone: "is-procrastination",
+                style: buildProcrastinationRowStyle(procrastination.score),
+            },
         ];
         return `
             <section class="tm-homepage-card tm-homepage-card--summary">
                 <div class="tm-homepage-card-head">
                     <div>
                         <div class="tm-homepage-card-title">完成摘要</div>
-                        <div class="tm-homepage-card-desc">先看今天，再看本周和连续性</div>
+                        <div class="tm-homepage-card-desc">先看今天，再看连续性和拖延值</div>
                     </div>
                 </div>
                 <div class="tm-homepage-summary-layout">
@@ -2265,7 +2366,7 @@
                     </article>
                     <div class="tm-homepage-summary-list">
                         ${rows.map((item) => `
-                            <div class="tm-homepage-summary-row ${item.tone}">
+                            <div class="tm-homepage-summary-row ${item.tone}"${item.style ? ` style="${esc(item.style)}"` : ""}>
                                 <div class="tm-homepage-summary-row-label">${esc(item.label)}</div>
                                 <div class="tm-homepage-summary-row-value">
                                     <span class="tm-homepage-summary-row-number">${esc(item.value)}</span>

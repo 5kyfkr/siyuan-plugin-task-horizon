@@ -682,8 +682,9 @@
                 const isCollapsed = state.collapsedGroups?.has(groupKey);
                 const toggle = `<span class="tm-group-toggle${isCollapsed ? ' tm-group-toggle--collapsed' : ''}" onclick="tmToggleGroupCollapse('${groupKey}', event)" style="cursor:pointer;margin-right:0;display:inline-flex;align-items:center;justify-content:center;width:16px;"><svg class="tm-group-toggle-icon" viewBox="0 0 16 16" width="16" height="16"><path d="M6 4l4 4-4 4" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg></span>`;
                 const labelColor = __tmGetDocColorHex(docId, isDark) || 'var(--tm-group-doc-label-color)';
+                const createBtnHtml = __tmBuildDocGroupQuickAddBtnHtml(docId, '新建任务');
 
-                allRows.push(`<tr class="tm-group-row" data-group-key="${groupKey}"><td colspan="${colCount}" onclick="tmToggleGroupCollapse('${groupKey}', event)" style="cursor:pointer;background:var(--tm-header-bg);font-weight:bold;color:var(--tm-text-color);"><div class="tm-group-sticky">${toggle}<span class="tm-group-label" style="color:${labelColor};">${__tmRenderDocGroupLabel(docId, docName)}</span><span class="tm-badge tm-badge--count">${docTasks.length}</span></div></td></tr>`);
+                allRows.push(`<tr class="tm-group-row" data-group-key="${groupKey}"><td colspan="${colCount}" onclick="tmToggleGroupCollapse('${groupKey}', event)" style="cursor:pointer;background:var(--tm-header-bg);font-weight:bold;color:var(--tm-text-color);"><div class="tm-group-sticky">${toggle}<span class="tm-group-label" style="color:${labelColor};">${__tmRenderDocGroupLabel(docId, docName)}</span><span class="tm-badge tm-badge--count">${docTasks.length}</span>${createBtnHtml}</div></td></tr>`);
 
                 // 渲染该文档的任务（如果未折叠）
                 if (!isCollapsed) {
@@ -6236,6 +6237,23 @@ hint(`❌ 操作失败: ${e.message}`, 'error');
                     <svg viewBox="0 0 16 16" aria-hidden="true">
                         <path d="M8 3.25v9.5M3.25 8h9.5" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
                     </svg>
+                </button>
+            </span>
+        `;
+    }
+
+    function __tmBuildDocGroupQuickAddBtnHtml(docId, title = '新建任务') {
+        const did = String(docId || '').trim();
+        if (!did || did === '__unknown__') return '';
+        return `
+            <span class="tm-group-actions" onclick="event.stopPropagation()">
+                <button class="tm-group-create-btn"
+                        type="button"
+                        title="${esc(title)}"
+                        aria-label="${esc(title)}"
+                        onpointerdown="event.stopPropagation()"
+                        onclick="event.preventDefault();event.stopPropagation();tmQuickAddOpenForDoc('${escSq(did)}');">
+                    ${__tmRenderLucideIcon('plus')}
                 </button>
             </span>
         `;

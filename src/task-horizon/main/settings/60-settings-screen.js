@@ -59,6 +59,41 @@
         if (state.settingsActiveTab === 'quadrant') activeTab = 'quadrant';
         if (state.settingsActiveTab === 'priority') activeTab = 'priority';
         if (state.settingsActiveTab === 'about') activeTab = 'about';
+        if (state.settingsActiveTab === 'rule_editor') activeTab = 'rule_editor';
+
+        const renderSettingsActions = (extraClass = '') => {
+            const className = `tm-settings-actions${extraClass ? ` ${extraClass}` : ''}`;
+            if (activeTab === 'priority') {
+                return `
+                    <div class="${className}">
+                        <button class="tm-btn tm-btn-secondary" data-tm-action="closePriorityScoreSettings">取消</button>
+                        <button class="tm-btn tm-btn-success" data-tm-action="savePriorityScoreSettings">保存算法</button>
+                    </div>
+                `;
+            }
+            if (activeTab === 'about') {
+                return `
+                    <div class="${className}">
+                        <button class="tm-btn tm-btn-secondary" data-tm-action="closeSettings">关闭</button>
+                        <button class="tm-btn tm-btn-success" onclick="tmCopyDeviceRecognitionReport()">复制诊断</button>
+                    </div>
+                `;
+            }
+            if (activeTab === 'rule_editor') {
+                return `
+                    <div class="${className}">
+                        <button class="tm-btn tm-btn-secondary" data-tm-action="cancelEditRule">取消</button>
+                        <button class="tm-btn tm-btn-success" data-tm-action="saveEditRule">保存规则</button>
+                    </div>
+                `;
+            }
+            return `
+                <div class="${className}">
+                    <button class="tm-btn tm-btn-secondary" data-tm-action="closeSettings">取消</button>
+                    <button class="tm-btn tm-btn-success" data-tm-action="saveSettings">保存设置</button>
+                </div>
+            `;
+        };
 
         // 渲染分组选择器
         const renderGroupSelector = () => {
@@ -592,11 +627,6 @@
 
         state.settingsModal.innerHTML = `
             <div class="tm-settings-box" style="overflow: hidden;">
-                <div class="tm-settings-header">
-                    <div class="tm-settings-title">⚙️ 任务管理器设置</div>
-                    <button class="tm-btn tm-btn-gray" data-tm-action="closeSettings">关闭</button>
-                </div>
-
                 <div class="tm-settings-layout">
                     <div class="tm-settings-sidebar">
                         <div class="tm-settings-tabs">
@@ -614,6 +644,7 @@
                             <button class="tm-settings-nav-btn is-active">${state.editingRule ? '✏️ 编辑规则' : '🆕 新建规则'}</button>
                             `}
                         </div>
+                        ${renderSettingsActions('tm-settings-actions--desktop')}
                     </div>
                     <div class="tm-settings-main">
                         <div class="tm-settings-content">
@@ -913,6 +944,12 @@
                             `<input class="b3-switch fn__flex-center" type="checkbox" ${SettingsStore.data.docTabsAutoHideEnabled ? 'checked' : ''} onchange="updateDocTabsAutoHideEnabled(this.checked)">`,
                             { style: 'margin-bottom:10px;' }
                         )}
+                        ${renderSingleSwitchSetting(
+                            '页签拖延值上色',
+                            '开启后文档页签会按拖延值轻微染红；关闭后只取消页签背景上色，不影响主页拖延值和页签提示。',
+                            `<input class="b3-switch fn__flex-center" type="checkbox" ${SettingsStore.data.docTabProcrastinationTintEnabled !== false ? 'checked' : ''} onchange="updateDocTabProcrastinationTintEnabled(this.checked)">`,
+                            { style: 'margin-bottom:10px;' }
+                        )}
                         ${!__tmIsRuntimeMobileClient() ? `
                         ${renderSingleSwitchSetting(
                             '启用 Dock 侧边栏',
@@ -1091,10 +1128,18 @@
                             })(),
                             { style: 'margin-bottom:10px;' }
                         )}
-                        ${renderSingleSwitchSetting(
-                            '卡片日期有值才显示',
-                            '开启后，看板和白板卡片仅在任务已有截止日期数据时显示日期按钮；空日期任务不显示。',
-                            `<input class="b3-switch fn__flex-center" type="checkbox" ${SettingsStore.data.taskCardDateOnlyWithValue ? 'checked' : ''} onchange="updateTaskCardDateOnlyWithValue(this.checked)">`,
+                        ${renderSingleFieldSetting(
+                            '卡片字段常驻显示',
+                            '控制看板和白板卡片中的空值或默认字段是否也固定展示。',
+                            (() => {
+                                const selected = new Set(__tmGetTaskCardAlwaysShowFieldList());
+                                return renderSettingsChipSetting('', '', [
+                                    __tmBuildSettingsChipGroup('常驻字段', __TM_TASK_CARD_ALWAYS_SHOW_FIELD_OPTIONS, {
+                                        selectedSet: selected,
+                                        onToggle: (item) => `updateTaskCardAlwaysShowField('${escSq(String(item?.key || '').trim())}', this.checked)`
+                                    })
+                                ]);
+                            })(),
                             { style: 'margin-bottom:10px;' }
                         )}
                         ${renderSingleFieldSetting(
@@ -1637,28 +1682,7 @@
                 </div>
                     </div>
                 </div>
-
-                ${activeTab === 'priority' ? `
-                <div class="tm-settings-footer">
-                    <button class="tm-btn tm-btn-secondary" data-tm-action="closePriorityScoreSettings">取消</button>
-                    <button class="tm-btn tm-btn-success" data-tm-action="savePriorityScoreSettings">保存算法</button>
-                </div>
-                ` : activeTab === 'about' ? `
-                <div class="tm-settings-footer">
-                    <button class="tm-btn tm-btn-secondary" data-tm-action="closeSettings">关闭</button>
-                    <button class="tm-btn tm-btn-success" onclick="tmCopyDeviceRecognitionReport()">复制诊断</button>
-                </div>
-                ` : activeTab !== 'rule_editor' ? `
-                <div class="tm-settings-footer">
-                    <button class="tm-btn tm-btn-secondary" data-tm-action="closeSettings">取消</button>
-                    <button class="tm-btn tm-btn-success" data-tm-action="saveSettings">保存设置</button>
-                </div>
-                ` : `
-                <div class="tm-settings-footer">
-                    <button class="tm-btn tm-btn-secondary" data-tm-action="cancelEditRule">取消</button>
-                    <button class="tm-btn tm-btn-success" data-tm-action="saveEditRule">保存规则</button>
-                </div>
-                `}
+                ${renderSettingsActions('tm-settings-actions--mobile')}
             </div>
         `;
         document.body.appendChild(state.settingsModal);

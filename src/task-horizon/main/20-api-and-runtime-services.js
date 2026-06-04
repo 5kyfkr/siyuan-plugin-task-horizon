@@ -9036,7 +9036,11 @@
     const __TM_POINTS_PENALTY_LEDGER_EMBED_KEY = '__tmPointsPenaltyLedger';
     const __TM_POINTS_PENALTY_LEDGER_KEEP_DAYS = 120;
     const __TM_POINTS_PENALTY_TICK_MS = 30 * 1000;
+    const __TM_PROCRASTINATION_RESCHEDULE_LEDGER_KEY = 'tm_procrastination_reschedule_ledger_v1';
+    const __TM_PROCRASTINATION_WINDOW_DAYS = 30;
+    const __TM_PROCRASTINATION_LEDGER_KEEP_DAYS = 120;
     let __tmPointsPenaltyLedgerCache = null;
+    let __tmProcrastinationRescheduleLedgerCache = null;
     let __tmPointsPenaltyLedgerSyncPromise = null;
     let __tmPointsPenaltyLedgerSavePromise = null;
     let __tmPointsPenaltyCheckTimer = null;
@@ -9420,6 +9424,398 @@
         __tmSavePointsPenaltyLedger({ syncRemote: patch.syncRemote !== false });
         return true;
     }
+
+    function __tmClampProcrastinationNumber(value, min, max) {
+        const n = Number(value);
+        if (!Number.isFinite(n)) return min;
+        return Math.max(min, Math.min(max, n));
+    }
+
+    function __tmNormalizeProcrastinationDateKey(value) {
+        try {
+            if (value instanceof Date && !Number.isNaN(value.getTime())) {
+                const pad = (v) => String(v).padStart(2, '0');
+                return `${value.getFullYear()}-${pad(value.getMonth() + 1)}-${pad(value.getDate())}`;
+            }
+            return __tmNormalizeDateOnly(String(value || '').trim());
+        } catch (e) {
+            return '';
+        }
+    }
+
+    function __tmParseProcrastinationDateTs(value, kind = 'deadline') {
+        const raw = String(value || '').trim();
+        if (!raw) return 0;
+        try {
+            if (String(kind || '').trim() === 'deadline') return Number(__tmParseDeadlinePenaltyDueTs(raw)) || 0;
+            return Number(__tmParsePointsPenaltyTs(raw)) || 0;
+        } catch (e) {
+            return 0;
+        }
+    }
+
+    function __tmNormalizeProcrastinationRescheduleLedger(input) {
+        const source = (input && typeof input === 'object' && !Array.isArray(input)) ? input : {};
+        const now = Date.now();
+        const cutoff = now - (__TM_PROCRASTINATION_LEDGER_KEEP_DAYS * 86400000);
+        const records = Array.isArray(source.records) ? source.records : [];
+        const nextRecords = records
+            .map((item) => {
+                if (!item || typeof item !== 'object') return null;
+                const updatedAt = Number(item.updatedAt);
+                if (!Number.isFinite(updatedAt) || updatedAt <= 0 || updatedAt < cutoff) return null;
+                const taskId = String(item.taskId || '').trim();
+                if (!taskId) return null;
+                const kind = String(item.kind || item.type || '').trim() === 'schedule' ? 'schedule' : 'deadline';
+                return {
+                    id: String(item.id || '').trim() || `${kind}:${taskId}:${updatedAt}`,
+                    kind,
+                    taskId,
+                    docId: String(item.docId || '').trim(),
+                    previousDue: String(item.previousDue || '').trim(),
+                    nextDue: String(item.nextDue || '').trim(),
+                    source: String(item.source || '').trim(),
+                    dayKey: String(item.dayKey || '').trim(),
+                    dedupeKey: String(item.dedupeKey || '').trim(),
+                    updatedAt,
+                };
+            })
+            .filter(Boolean)
+            .sort((a, b) => Number(b.updatedAt) - Number(a.updatedAt))
+            .slice(0, 2000);
+        return {
+            records: nextRecords,
+            updatedAt: Number.isFinite(Number(source.updatedAt)) ? Number(source.updatedAt) : now,
+        };
+    }
+
+    function __tmLoadProcrastinationRescheduleLedger() {
+        if (__tmProcrastinationRescheduleLedgerCache && typeof __tmProcrastinationRescheduleLedgerCache === 'object') {
+            return __tmProcrastinationRescheduleLedgerCache;
+        }
+        let raw = null;
+        try { raw = Storage.get(__TM_PROCRASTINATION_RESCHEDULE_LEDGER_KEY, null); } catch (e) { raw = null; }
+        __tmProcrastinationRescheduleLedgerCache = __tmNormalizeProcrastinationRescheduleLedger(raw);
+        return __tmProcrastinationRescheduleLedgerCache;
+    }
+
+    function __tmSaveProcrastinationRescheduleLedger() {
+        const ledger = __tmNormalizeProcrastinationRescheduleLedger(__tmLoadProcrastinationRescheduleLedger());
+        ledger.updatedAt = Date.now();
+        __tmProcrastinationRescheduleLedgerCache = ledger;
+        try { Storage.set(__TM_PROCRASTINATION_RESCHEDULE_LEDGER_KEY, ledger); } catch (e) {}
+        return ledger;
+    }
+
+    function __tmRecordProcrastinationRescheduleEntry(kind, detail = {}, options = {}) {
+        const item = (detail && typeof detail === 'object') ? detail : {};
+        const opts = (options && typeof options === 'object') ? options : {};
+        const type = String(kind || item.kind || item.type || '').trim() === 'schedule' ? 'schedule' : 'deadline';
+        const taskId = String(item.taskId || '').trim();
+        if (!taskId) return false;
+        const task = (item.task && typeof item.task === 'object')
+            ? item.task
+            : (globalThis.__tmRuntimeState?.getFlatTaskById?.(taskId) || state.flatTasks?.[taskId] || state.pendingInsertedTasks?.[taskId] || null);
+        if (task?.done === true) return false;
+        const previousDue = String(item.previousDue || item.previousEnd || '').trim();
+        const nextDue = String(item.nextDue || item.nextEnd || '').trim();
+        if (!previousDue || !nextDue) return false;
+        const previousDueTs = Number.isFinite(Number(item.previousDueTs))
+            ? Number(item.previousDueTs)
+            : __tmParseProcrastinationDateTs(previousDue, type);
+        const nextDueTs = Number.isFinite(Number(item.nextDueTs))
+            ? Number(item.nextDueTs)
+            : __tmParseProcrastinationDateTs(nextDue, type);
+        const now = Number.isFinite(Number(opts.nowTs)) ? Number(opts.nowTs) : Date.now();
+        if (!Number.isFinite(previousDueTs) || previousDueTs <= 0) return false;
+        if (!Number.isFinite(nextDueTs) || nextDueTs <= 0) return false;
+        if (previousDueTs > now) return false;
+        if (nextDueTs <= previousDueTs) return false;
+        if (nextDueTs < now) return false;
+        const dayKey = __tmNormalizeProcrastinationDateKey(new Date(now));
+        const dedupeKey = `${type}:${taskId}:${previousDue}:${nextDue}:${dayKey}`;
+        const ledger = __tmLoadProcrastinationRescheduleLedger();
+        if ((Array.isArray(ledger.records) ? ledger.records : []).some((record) => String(record?.dedupeKey || '').trim() === dedupeKey)) {
+            return false;
+        }
+        const updatedAt = Date.now();
+        const docId = String(item.docId || task?.root_id || task?.docId || '').trim();
+        ledger.records = [
+            {
+                id: `${type}:${taskId}:${updatedAt}`,
+                kind: type,
+                taskId,
+                docId,
+                previousDue,
+                nextDue,
+                source: String(opts.source || item.source || '').trim(),
+                dayKey,
+                dedupeKey,
+                updatedAt,
+            },
+            ...(Array.isArray(ledger.records) ? ledger.records : []),
+        ];
+        __tmSaveProcrastinationRescheduleLedger();
+        return true;
+    }
+
+    function __tmRecordTaskProcrastinationDateReschedule(taskLike, patch = {}, previousPatch = {}, options = {}) {
+        const nextPatch = (patch && typeof patch === 'object') ? patch : {};
+        if (!Object.prototype.hasOwnProperty.call(nextPatch, 'completionTime')) return false;
+        const task = (taskLike && typeof taskLike === 'object') ? taskLike : {};
+        const opts = (options && typeof options === 'object') ? options : {};
+        const taskId = String(opts.taskId || task.id || '').trim();
+        if (!taskId) return false;
+        const prev = (previousPatch && typeof previousPatch === 'object') ? previousPatch : {};
+        const previousDue = __tmNormalizeProcrastinationDateKey(prev.completionTime || prev.completion_time || '');
+        const nextDue = __tmNormalizeProcrastinationDateKey(nextPatch.completionTime || '');
+        if (!previousDue || !nextDue || previousDue === nextDue) return false;
+        return __tmRecordProcrastinationRescheduleEntry('deadline', {
+            task,
+            taskId,
+            docId: String(opts.docId || task.root_id || task.docId || '').trim(),
+            previousDue,
+            nextDue,
+            source: String(opts.source || '').trim(),
+        }, opts);
+    }
+
+    function __tmRecordScheduleProcrastinationReschedule(change = {}, options = {}) {
+        const item = (change && typeof change === 'object') ? change : {};
+        const opts = (options && typeof options === 'object') ? options : {};
+        const taskId = String(item.taskId || item.task_id || item.linkedTaskId || item.linked_task_id || '').trim();
+        if (!taskId) return false;
+        return __tmRecordProcrastinationRescheduleEntry('schedule', {
+            taskId,
+            docId: String(item.docId || '').trim(),
+            previousDue: String(item.previousEnd || item.previousDue || '').trim(),
+            nextDue: String(item.nextEnd || item.nextDue || '').trim(),
+            source: String(opts.source || item.source || '').trim(),
+        }, opts);
+    }
+
+    function __tmFlattenProcrastinationTasks(items, out = [], seen = new Set()) {
+        (Array.isArray(items) ? items : []).forEach((item) => {
+            if (!item || typeof item !== 'object') return;
+            const id = String(item.id || '').trim();
+            if (id && seen.has(id)) return;
+            if (id) seen.add(id);
+            out.push(item);
+            if (Array.isArray(item.children) && item.children.length) __tmFlattenProcrastinationTasks(item.children, out, seen);
+            if (Array.isArray(item.subtasks) && item.subtasks.length) __tmFlattenProcrastinationTasks(item.subtasks, out, seen);
+        });
+        return out;
+    }
+
+    function __tmBuildProcrastinationTaskRelationIndex(tasks) {
+        const byId = new Map();
+        const parentById = new Map();
+        const visit = (task, parentId = '') => {
+            if (!task || typeof task !== 'object') return;
+            const id = String(task.id || '').trim();
+            const explicitParentId = String(task.parentTaskId || task.parent_task_id || '').trim();
+            const resolvedParentId = explicitParentId || String(parentId || '').trim();
+            if (id) {
+                if (!byId.has(id)) byId.set(id, task);
+                if (resolvedParentId && resolvedParentId !== id && !parentById.has(id)) parentById.set(id, resolvedParentId);
+            }
+            const childParentId = id || resolvedParentId;
+            if (Array.isArray(task.children)) task.children.forEach((child) => visit(child, childParentId));
+            if (Array.isArray(task.subtasks)) task.subtasks.forEach((child) => visit(child, childParentId));
+        };
+        (Array.isArray(tasks) ? tasks : []).forEach((task) => visit(task));
+        return { byId, parentById };
+    }
+
+    function __tmProcrastinationTaskHasDoneParent(task, relationIndex, memo = new Map()) {
+        if (!task || typeof task !== 'object') return false;
+        const taskId = String(task.id || '').trim();
+        if (taskId && memo.has(taskId)) return memo.get(taskId) === true;
+        const byId = relationIndex?.byId instanceof Map ? relationIndex.byId : new Map();
+        const parentById = relationIndex?.parentById instanceof Map ? relationIndex.parentById : new Map();
+        let parentId = String(task.parentTaskId || task.parent_task_id || '').trim() || (taskId ? (parentById.get(taskId) || '') : '');
+        const visited = new Set();
+        const checked = [];
+        while (parentId) {
+            if (visited.has(parentId)) break;
+            visited.add(parentId);
+            checked.push(parentId);
+            const parent = byId.get(parentId);
+            if (!parent || typeof parent !== 'object') break;
+            if (parent.done === true || memo.get(parentId) === true) {
+                checked.forEach((id) => memo.set(id, true));
+                if (taskId) memo.set(taskId, true);
+                return true;
+            }
+            parentId = String(parent.parentTaskId || parent.parent_task_id || '').trim() || (parentById.get(parentId) || '');
+        }
+        if (taskId) memo.set(taskId, false);
+        return false;
+    }
+
+    function __tmCountRecentPointsPenaltyRecords(taskIds, nowTs) {
+        const ids = taskIds instanceof Set ? taskIds : new Set();
+        if (!ids.size) return 0;
+        const cutoff = Number(nowTs || Date.now()) - (__TM_PROCRASTINATION_WINDOW_DAYS * 86400000);
+        const ledger = __tmLoadPointsPenaltyLedger();
+        const records = ledger?.records && typeof ledger.records === 'object' ? Object.values(ledger.records) : [];
+        return records.filter((item) => {
+            if (!item || typeof item !== 'object') return false;
+            if (String(item.status || '').trim() !== 'penalized') return false;
+            if (!ids.has(String(item.taskId || '').trim())) return false;
+            const updatedAt = Number(item.updatedAt) || __tmParseProcrastinationDateTs(String(item.dayKey || '').trim(), 'deadline');
+            return Number.isFinite(updatedAt) && updatedAt >= cutoff;
+        }).length;
+    }
+
+    function __tmCountRecentProcrastinationReschedules(taskIds, nowTs) {
+        const ids = taskIds instanceof Set ? taskIds : new Set();
+        if (!ids.size) return 0;
+        const cutoff = Number(nowTs || Date.now()) - (__TM_PROCRASTINATION_WINDOW_DAYS * 86400000);
+        const ledger = __tmLoadProcrastinationRescheduleLedger();
+        return (Array.isArray(ledger.records) ? ledger.records : []).filter((item) => {
+            if (!item || typeof item !== 'object') return false;
+            if (!ids.has(String(item.taskId || '').trim())) return false;
+            const updatedAt = Number(item.updatedAt) || 0;
+            return Number.isFinite(updatedAt) && updatedAt >= cutoff;
+        }).length;
+    }
+
+    function __tmGetProcrastinationLevel(score) {
+        const value = Math.max(0, Math.min(100, Math.round(Number(score) || 0)));
+        if (value >= 75) return { key: 'critical', label: '爆红' };
+        if (value >= 50) return { key: 'high', label: '高风险' };
+        if (value >= 25) return { key: 'attention', label: '注意' };
+        return { key: 'healthy', label: '健康' };
+    }
+
+    function __tmIsProcrastinationPenaltyEnabled() {
+        try { return !!__tmGetPointsPenaltyRuntimeSettings().integrationEnabled; } catch (e) {}
+        return !!SettingsStore?.data?.enablePointsRewardIntegration && !!SettingsStore?.data?.enablePointsPenaltyIntegration;
+    }
+
+    function __tmGetProcrastinationMetricsForTasks(taskList, options = {}) {
+        const opts = (options && typeof options === 'object') ? options : {};
+        const todayKey = __tmNormalizeProcrastinationDateKey(opts.todayKey || new Date());
+        const nowTs = Number.isFinite(Number(opts.nowTs)) ? Number(opts.nowTs) : Date.now();
+        const tasks = __tmFlattenProcrastinationTasks(Array.isArray(taskList) ? taskList : []);
+        const relationIndex = __tmBuildProcrastinationTaskRelationIndex(tasks);
+        const doneParentMemo = new Map();
+        const taskIds = new Set();
+        let dueTaskCount = 0;
+        let overdueCount = 0;
+        tasks.forEach((task) => {
+            if (!task || typeof task !== 'object') return;
+            const taskId = String(task.id || '').trim();
+            if (task.done === true) return;
+            if (__tmProcrastinationTaskHasDoneParent(task, relationIndex, doneParentMemo)) return;
+            if (taskId) taskIds.add(taskId);
+            const dueKey = __tmNormalizeProcrastinationDateKey(task.completionTime || task.completion_time || '');
+            if (!dueKey || !todayKey) return;
+            dueTaskCount += 1;
+            const dueTs = __tmParseProcrastinationDateTs(dueKey, 'deadline');
+            const todayStart = __tmParseProcrastinationDateTs(todayKey, 'deadline') - 86400000 + 1;
+            if (Number.isFinite(dueTs) && Number.isFinite(todayStart) && dueTs < todayStart) overdueCount += 1;
+        });
+        const penaltyEnabled = __tmIsProcrastinationPenaltyEnabled();
+        const penaltyCount = penaltyEnabled ? __tmCountRecentPointsPenaltyRecords(taskIds, nowTs) : 0;
+        const rescheduleCount = __tmCountRecentProcrastinationReschedules(taskIds, nowTs);
+        const overdueRatio = dueTaskCount > 0 ? __tmClampProcrastinationNumber(overdueCount / dueTaskCount, 0, 1) : 0;
+        const scoreParts = [
+            { weight: 35, ratio: overdueRatio },
+            { weight: 20, ratio: __tmClampProcrastinationNumber(rescheduleCount / 5, 0, 1) },
+        ];
+        if (penaltyEnabled) {
+            scoreParts.push({ weight: 20, ratio: __tmClampProcrastinationNumber(penaltyCount / 5, 0, 1) });
+        }
+        const scoreWeight = scoreParts.reduce((sum, item) => sum + item.weight, 0);
+        const rawScore = scoreParts.reduce((sum, item) => sum + item.weight * item.ratio, 0);
+        const score = scoreWeight > 0
+            ? Math.max(0, Math.min(100, Math.round((rawScore / scoreWeight) * 100)))
+            : 0;
+        const level = __tmGetProcrastinationLevel(score);
+        return {
+            score,
+            level: level.key,
+            levelLabel: level.label,
+            dueTaskCount,
+            overdueCount,
+            overduePercent: Math.round(overdueRatio * 100),
+            penaltyCount,
+            penaltyEnabled,
+            rescheduleCount,
+            windowDays: __TM_PROCRASTINATION_WINDOW_DAYS,
+        };
+    }
+
+    function __tmCollectProcrastinationTasksForDoc(docId) {
+        const id = String(docId || '').trim();
+        if (!id || (typeof __tmIsOtherBlockTabId === 'function' && __tmIsOtherBlockTabId(id))) return [];
+        const doc = (Array.isArray(state.taskTree) ? state.taskTree : [])
+            .find((item) => String(item?.id || '').trim() === id);
+        if (doc && typeof doc === 'object') return __tmFlattenProcrastinationTasks(doc.tasks || []);
+        return Object.values(state.flatTasks || {})
+            .filter((task) => String(task?.root_id || task?.docId || '').trim() === id);
+    }
+
+    function __tmGetProcrastinationMetricsForDoc(docId) {
+        return __tmGetProcrastinationMetricsForTasks(__tmCollectProcrastinationTasksForDoc(docId), {
+            todayKey: __tmNormalizeProcrastinationDateKey(new Date()),
+        });
+    }
+
+    function __tmBuildDocProcrastinationStyle(metrics) {
+        if (SettingsStore?.data?.docTabProcrastinationTintEnabled === false) return '';
+        const score = Math.max(0, Math.min(100, Math.round(Number(metrics?.score) || 0)));
+        if (score <= 0) return '';
+        const bgMix = score < 50
+            ? Math.max(0, Math.min(3, Math.round(score * 0.06)))
+            : Math.max(8, Math.min(46, Math.round(8 + (score - 50) * 0.76)));
+        return `--tm-doc-procrastination-bg-mix:${bgMix}%;`;
+    }
+
+    function __tmFormatProcrastinationTip(metrics) {
+        const m = (metrics && typeof metrics === 'object') ? metrics : {};
+        const score = Math.max(0, Math.min(100, Math.round(Number(m.score) || 0)));
+        const penaltyText = m.penaltyEnabled === false ? '' : `，扣分 ${Number(m.penaltyCount) || 0}`;
+        const dueTaskCount = Math.max(0, Math.round(Number(m.dueTaskCount) || 0));
+        const overdueCount = Math.max(0, Math.round(Number(m.overdueCount) || 0));
+        const overduePercent = dueTaskCount > 0
+            ? Math.max(0, Math.min(100, Math.round(Number(m.overduePercent) || (overdueCount / dueTaskCount) * 100)))
+            : 0;
+        return `拖延值 ${score}/100 · ${String(m.levelLabel || __tmGetProcrastinationLevel(score).label || '')}（逾期 ${overduePercent}%（${overdueCount}/${dueTaskCount}）${penaltyText}，推迟 ${Number(m.rescheduleCount) || 0}）`;
+    }
+
+    function __tmHandleProcrastinationScheduleUpdated(event) {
+        const detail = event?.detail && typeof event.detail === 'object' ? event.detail : {};
+        const changes = Array.isArray(detail.scheduleChanges) ? detail.scheduleChanges : [];
+        if (!changes.length) return;
+        let changed = false;
+        changes.forEach((item) => {
+            try {
+                if (__tmRecordScheduleProcrastinationReschedule(item, {
+                    source: String(detail.reason || detail.source || 'schedule-updated').trim() || 'schedule-updated',
+                })) changed = true;
+            } catch (e) {}
+        });
+        if (changed && state.homepageOpen) {
+            try { __tmScheduleHomepageRefresh('procrastination-schedule-reschedule'); } catch (e) {}
+        }
+    }
+
+    try {
+        if (typeof globalThis.__tmProcrastinationScheduleUpdatedHandler === 'function') {
+            window.removeEventListener('tm:calendar-schedule-updated', globalThis.__tmProcrastinationScheduleUpdatedHandler);
+        }
+        globalThis.__tmProcrastinationScheduleUpdatedHandler = __tmHandleProcrastinationScheduleUpdated;
+        window.addEventListener('tm:calendar-schedule-updated', __tmHandleProcrastinationScheduleUpdated);
+    } catch (e) {}
+
+    globalThis.__tmGetProcrastinationMetricsForTasks = __tmGetProcrastinationMetricsForTasks;
+    globalThis.__tmGetProcrastinationMetricsForDoc = __tmGetProcrastinationMetricsForDoc;
+    globalThis.__tmBuildDocProcrastinationStyle = __tmBuildDocProcrastinationStyle;
+    globalThis.__tmFormatProcrastinationTip = __tmFormatProcrastinationTip;
+    globalThis.__tmRecordTaskProcrastinationDateReschedule = __tmRecordTaskProcrastinationDateReschedule;
 
     async function __tmResolvePointsPenaltyTaskById(taskId, cacheMap) {
         const tid = String(taskId || '').trim();
@@ -11847,6 +12243,8 @@ __tmPushStatusDebug('apply-status:start', {
         const groups = Array.isArray(SettingsStore.data.docGroups) ? SettingsStore.data.docGroups : [];
         const currentGroup = currentGroupId === 'all' ? null : groups.find((group) => String(group?.id || '').trim() === currentGroupId);
         const activeDocId = String(state.activeDocId || 'all').trim() || 'all';
+        const homepageTasks = __tmCollectHomepageTasks();
+        const todayKey = __tmNormalizeDateOnly(new Date());
         const docName = activeDocId === 'all'
             ? ''
             : String((Array.isArray(state.taskTree) ? state.taskTree : []).find((doc) => String(doc?.id || '').trim() === activeDocId)?.name || '').trim();
@@ -11862,7 +12260,7 @@ __tmPushStatusDebug('apply-status:start', {
         const width = measureHost instanceof HTMLElement ? Math.round((measureRect?.width || measureHost.clientWidth || 0)) : 0;
         const height = measureHost instanceof HTMLElement ? Math.round((measureRect?.height || measureHost.clientHeight || 0)) : 0;
         return {
-            tasks: __tmCollectHomepageTasks(),
+            tasks: homepageTasks,
             stats: { ...(state.stats || {}) },
             currentGroupId,
             currentGroupName: currentGroupId === 'all' ? '全部文档' : __tmResolveDocGroupName(currentGroup),
@@ -11876,7 +12274,8 @@ __tmPushStatusDebug('apply-status:start', {
             hostUsesMobileUI: __tmHostUsesMobileUI(),
             containerWidth: width,
             containerHeight: height,
-            todayKey: __tmNormalizeDateOnly(new Date()),
+            todayKey,
+            procrastinationMetrics: __tmGetProcrastinationMetricsForTasks(homepageTasks, { todayKey }),
             animateOnMount: state.__tmHomepageNextMountAnimate !== false,
             onOpenTask(taskId) {
                 try { window.tmOpenTaskDetail?.(taskId); } catch (e) {}
@@ -13972,7 +14371,7 @@ refreshOk = false;
         feed(SettingsStore.data.pinTasksWithinGroups ? 1 : 0);
         feed(SettingsStore.data.completedTasksTodayOnly ? 1 : 0);
         feed(SettingsStore.data.completedTasksInlineInGroups ? 1 : 0);
-        feed(SettingsStore.data.taskCardDateOnlyWithValue ? 1 : 0);
+        feed(__tmGetTaskCardAlwaysShowFieldList().join('|'));
         feed(SettingsStore.data.kanbanDragSyncSubtasks ? 1 : 0);
         feed(SettingsStore.data.kanbanPreventSubtaskSeparation ? 1 : 0);
         feed(SettingsStore.data.newTaskDocId || '');
