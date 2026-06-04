@@ -4296,6 +4296,18 @@ if (mode === 'checklist') {
             if (taskId) return __tmBuildTaskDateDraftFromTaskLike(task || blockLike || {});
             return __tmBuildTaskDateDraftFromTaskLike(blockLike || {});
         })();
+        const taskLikeForColor = task || blockLike || {};
+        const taskDateColor = String(
+            ext.taskDateColor
+            || ext.task_date_color
+            || ext.custom_task_date_color
+            || ext['custom-task-date-color']
+            || taskLikeForColor.taskDateColor
+            || taskLikeForColor.task_date_color
+            || taskLikeForColor.custom_task_date_color
+            || taskLikeForColor['custom-task-date-color']
+            || ''
+        ).trim();
 
         return {
             id: String(ext.id || ext.scheduleId || '').trim(),
@@ -4309,6 +4321,8 @@ if (mode === 'checklist') {
             taskDateStartKey: String(dateDraft.taskDateStartKey || '').trim(),
             taskDateEndExclusiveKey: String(dateDraft.taskDateEndExclusiveKey || '').trim(),
             calendarId: String(ext.calendarId || '').trim(),
+            color: String(ext.color || '').trim(),
+            taskDateColor,
             start: ext.start || null,
             end: ext.end || null,
             allDay: ext.allDay === true,

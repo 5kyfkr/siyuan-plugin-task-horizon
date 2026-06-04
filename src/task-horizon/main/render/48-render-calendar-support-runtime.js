@@ -623,6 +623,7 @@
             const docId = String(t.root_id || '').trim();
             const gid = docId ? docsToGroup.get(docId) : '';
             const calendarId = gid ? `group:${gid}` : 'default';
+            const taskDateColor = String(t?.taskDateColor || t?.task_date_color || t?.custom_task_date_color || t?.['custom-task-date-color'] || '').trim();
             const allDayBottomRaw = t?.allDayBottom ?? t?.custom_all_day_bottom ?? t?.customAllDayBottom;
             const allDayBottom = allDayBottomRaw === true
                 || allDayBottomRaw === 1
@@ -634,6 +635,8 @@
                 endExclusive: endExKey || nextDay(start),
                 calendarId,
                 docId,
+                taskDateColor,
+                color: taskDateColor,
                 sourceStart: s0 || '',
                 sourceCompletion: e0 || '',
                 milestone: isMilestone,
@@ -910,14 +913,46 @@
         return false;
     };
 
+    async function __tmSyncCalendarTaskDatePatchAfterUpdate(taskId, patch = {}, options = {}) {
+        const tid = String(taskId || '').trim();
+        const nextPatch = (patch && typeof patch === 'object') ? patch : {};
+        const opts = (options && typeof options === 'object') ? options : {};
+        if (!tid || !Object.keys(nextPatch).length || opts.refreshCalendar === false) return false;
+        const calApi = globalThis.__tmCalendar;
+        if (!calApi) return false;
+        const reason = String(opts.reason || opts.source || 'task-date-update').trim() || 'task-date-update';
+        try {
+            if (typeof calApi.syncTaskDatePatchInPlace === 'function') {
+                const result = calApi.syncTaskDatePatchInPlace(tid, nextPatch, { reason });
+                return result?.touched === true;
+            }
+            if (typeof calApi.syncTaskDateInPlace === 'function') {
+                const summary = await calApi.syncTaskDateInPlace(tid, { main: true, side: true });
+                if (summary?.needsMainRefresh || summary?.needsSideRefresh) {
+                    calApi.requestRefresh?.({
+                        reason,
+                        main: summary.needsMainRefresh === true,
+                        side: summary.needsSideRefresh === true,
+                        flushTaskPanel: false,
+                        hard: opts.hard === true,
+                    });
+                }
+                return summary?.touched === true;
+            }
+        } catch (e) {}
+        return false;
+    }
+
     window.tmUpdateTaskDates = async function(taskId, patch = {}, options = {}) {
         const requestedId = String(taskId || '').trim();
         if (!requestedId) throw new Error('缺少任务 ID');
         const nextPatch = (patch && typeof patch === 'object') ? patch : {};
         const opts = (options && typeof options === 'object') ? options : {};
-const hasStartDate = Object.prototype.hasOwnProperty.call(nextPatch, 'startDate');
+        const hasStartDate = Object.prototype.hasOwnProperty.call(nextPatch, 'startDate');
         const hasCompletionTime = Object.prototype.hasOwnProperty.call(nextPatch, 'completionTime');
-        if (!hasStartDate && !hasCompletionTime) throw new Error('缺少日期字段');
+        const hasTaskDateColor = Object.prototype.hasOwnProperty.call(nextPatch, 'taskDateColor')
+            || Object.prototype.hasOwnProperty.call(nextPatch, 'color');
+        if (!hasStartDate && !hasCompletionTime && !hasTaskDateColor) throw new Error('缺少日期字段');
         let resolvedId = requestedId;
         let task = __tmGetCalendarFlatTaskByIdSync(requestedId);
         if (!task) {
@@ -951,8 +986,12 @@ const hasStartDate = Object.prototype.hasOwnProperty.call(nextPatch, 'startDate'
 
         const prevStart = String(task?.startDate || '').trim();
         const prevEnd = String(task?.completionTime || '').trim();
+        const prevColor = String(task?.taskDateColor || task?.task_date_color || task?.custom_task_date_color || task?.['custom-task-date-color'] || '').trim();
         let nextStart = hasStartDate ? normalizeDate(nextPatch.startDate) : prevStart;
         let nextEnd = hasCompletionTime ? normalizeDate(nextPatch.completionTime) : prevEnd;
+        const nextColor = hasTaskDateColor
+            ? String((Object.prototype.hasOwnProperty.call(nextPatch, 'taskDateColor') ? nextPatch.taskDateColor : nextPatch.color) ?? '').trim()
+            : prevColor;
 
         if (nextStart && nextEnd && nextStart > nextEnd) {
             if (hasStartDate && hasCompletionTime) nextEnd = nextStart;
@@ -963,11 +1002,12 @@ const hasStartDate = Object.prototype.hasOwnProperty.call(nextPatch, 'startDate'
         const attrPatch = {};
         if (hasStartDate) attrPatch.startDate = nextStart;
         if (hasCompletionTime) attrPatch.completionTime = nextEnd;
+        if (hasTaskDateColor) attrPatch.taskDateColor = nextColor;
         const repeatRule = __tmNormalizeTaskRepeatRule(task?.repeatRule || task?.repeat_rule || '', {
             startDate: nextStart || prevStart,
             completionTime: nextEnd || prevEnd,
         });
-        if (repeatRule.enabled) {
+        if ((hasStartDate || hasCompletionTime) && repeatRule.enabled) {
             attrPatch.repeatState = __tmNormalizeTaskRepeatState({
                 ...(task?.repeatState && typeof task.repeatState === 'object' ? task.repeatState : {}),
                 lastInstanceStart: nextStart,
@@ -978,6 +1018,7 @@ const hasStartDate = Object.prototype.hasOwnProperty.call(nextPatch, 'startDate'
         const viewPatch = {};
         if (hasStartDate) viewPatch.startDate = nextStart;
         if (hasCompletionTime) viewPatch.completionTime = nextEnd;
+        if (hasTaskDateColor) viewPatch.taskDateColor = nextColor;
         let needsProjectionRefresh = false;
         try {
             needsProjectionRefresh = __tmDoesPatchNeedProjectionRefresh(persistId, viewPatch, {
@@ -1001,7 +1042,7 @@ const hasStartDate = Object.prototype.hasOwnProperty.call(nextPatch, 'startDate'
             renderOptimistic: opts.renderOptimistic !== false,
         });
         const refreshViaQueuedOptimisticPatch = opts.renderOptimistic !== false && opts.background !== true;
-        if (opts.refresh !== false && !refreshViaQueuedOptimisticPatch) {
+        if ((hasStartDate || hasCompletionTime) && opts.refresh !== false && !refreshViaQueuedOptimisticPatch) {
             try {
                 __tmRefreshTaskTimeAcrossViews(persistId, {
                     patch: viewPatch,
@@ -1037,10 +1078,27 @@ const hasStartDate = Object.prototype.hasOwnProperty.call(nextPatch, 'startDate'
         } catch (e) {
             throw e;
         }
-return {
+        try {
+            const calendarPatch = {};
+            if (hasStartDate || hasCompletionTime) {
+                calendarPatch.startDate = nextStart;
+                calendarPatch.completionTime = nextEnd;
+            }
+            if (hasTaskDateColor) calendarPatch.taskDateColor = nextColor;
+            if (Object.keys(calendarPatch).length > 0) {
+                await __tmSyncCalendarTaskDatePatchAfterUpdate(persistId, calendarPatch, {
+                    source: refreshReason,
+                    refreshCalendar: opts.refreshCalendar !== false,
+                    hard: opts.hard === true,
+                });
+            }
+        } catch (e) {}
+        return {
             id: persistId,
             startDate: nextStart,
             completionTime: nextEnd,
+            taskDateColor: nextColor,
+            color: nextColor,
         };
     };
 

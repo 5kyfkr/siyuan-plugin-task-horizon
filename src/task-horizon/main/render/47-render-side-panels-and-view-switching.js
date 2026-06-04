@@ -370,6 +370,10 @@
             ? (nextIdx > prevIdx ? 'from-right' : 'from-left')
             : '';
         state.uiAnimTs = Date.now();
+        try {
+            const mobileLike = !!(__tmIsMobileDevice() || __tmIsRuntimeMobileClient() || __tmHostUsesMobileUI());
+            if (mobileLike) __tmMarkHighPriorityInteraction('view-switch', 460);
+        } catch (e) {}
         try { __tmHideMobileMenu(); } catch (e) {}
         if (next === 'whiteboard') {
             try { __tmCalendarFloatingDragEnd(); } catch (e) {}

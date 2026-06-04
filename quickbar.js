@@ -573,6 +573,15 @@
         return key;
     }
 
+    function isQuickbarTomatoSpentAttrKey(attrKey) {
+        const key = String(attrKey || '').trim();
+        if (!key) return false;
+        return key === getConfiguredTomatoSpentAttrKey('minutes')
+            || key === getConfiguredTomatoSpentAttrKey('hours')
+            || key === 'custom-tomato-minutes'
+            || key === 'custom-tomato-time';
+    }
+
     function getQuickbarFocusSpentSourceAttrs(attrs = {}) {
         const data = attrs && typeof attrs === 'object' ? attrs : {};
         const minutesKey = getConfiguredTomatoSpentAttrKey('minutes');
@@ -585,6 +594,21 @@
             tomatoMinutes: data.tomatoMinutes || data.tomato_minutes || data[minutesKey] || data['custom-tomato-minutes'] || '',
             tomatoHours: data.tomatoHours || data.tomato_hours || data[hoursKey] || data['custom-tomato-time'] || '',
         };
+    }
+
+    function hasQuickbarFocusSpentSourceAttr(attrs = {}) {
+        const data = attrs && typeof attrs === 'object' ? attrs : {};
+        const keys = [
+            getConfiguredTomatoSpentAttrKey('minutes'),
+            getConfiguredTomatoSpentAttrKey('hours'),
+            'custom-tomato-minutes',
+            'custom-tomato-time',
+            'tomatoMinutes',
+            'tomato_minutes',
+            'tomatoHours',
+            'tomato_hours',
+        ].filter(Boolean);
+        return keys.some((key) => Object.prototype.hasOwnProperty.call(data, key));
     }
 
     function normalizeDurationPresetValue(value) {
@@ -2692,12 +2716,12 @@
                         return;
                     }
                     Promise.resolve(window.tmReminder(fallbackTaskId)).catch(() => {
-                        showMessage('未检测到提醒功能，请确认番茄插件已启用', true, 2000);
+                        showMessage('未检测到底栏番茄钟插件，请前往集市安装底栏番茄钟插件', true, 2000);
                     });
                     scheduleCurrentReminderSnapshotRefresh(true);
                     return;
                 }
-                showMessage('未检测到提醒功能，请确认番茄插件已启用', true, 2000);
+                showMessage('未检测到底栏番茄钟插件，请前往集市安装底栏番茄钟插件', true, 2000);
                 return;
             }
 
@@ -3403,9 +3427,11 @@
             const spentMode = getConfiguredTomatoSpentAttrMode();
             const tomatoMinutesAttrKey = getConfiguredTomatoSpentAttrKey('minutes');
             const tomatoHoursAttrKey = getConfiguredTomatoSpentAttrKey('hours');
-            const spentDisplay = spentMode === 'hours'
+            const spentDisplayFromAttrs = spentMode === 'hours'
                 ? formatQuickbarSpentHours(parseQuickbarNumber(spentSource[tomatoHoursAttrKey] || spentSource['custom-tomato-time'] || spentSource.tomatoHours || ''))
                 : formatQuickbarSpentMinutes(parseQuickbarNumber(spentSource[tomatoMinutesAttrKey] || spentSource['custom-tomato-minutes'] || spentSource.tomatoMinutes || ''));
+            const providedSpentDisplay = String(data['custom-focus-spent-display'] || data.spent || '').trim();
+            const spentDisplay = hasQuickbarFocusSpentSourceAttr(data) ? spentDisplayFromAttrs : providedSpentDisplay;
             const out = {
                 'custom-priority': data['custom-priority'] || 'none',
                 'custom-status': String(data['custom-status'] || '').trim() || defaultUndoneStatusId,
@@ -3536,7 +3562,9 @@
         function getRuntimeTaskCustomProps(blockId, blockEl = null) {
             const task = getRuntimeTaskByQuickbarId(blockId, blockEl);
             if (!(task && typeof task === 'object')) return null;
-            const props = normalizeCustomProps({
+            const minutesKey = getConfiguredTomatoSpentAttrKey('minutes');
+            const hoursKey = getConfiguredTomatoSpentAttrKey('hours');
+            const runtimePropsData = {
                 'custom-priority': String(task.priority || task.custom_priority || 'none').trim() || 'none',
                 'custom-status': String(task.customStatus || task.custom_status || '').trim(),
                 'custom-completion-time': String(task.completionTime || task.completion_time || '').trim(),
@@ -3544,14 +3572,17 @@
                 'custom-duration': String(task.duration || task.custom_duration || '').trim(),
                 'custom-tomato-estimate-count': String(task.tomatoEstimateCount || task.tomato_estimate_count || task.tomatoEstimate || '').trim(),
                 'custom-tomato-count': String(task.tomatoCount || task.tomato_count || '').trim(),
-                tomatoMinutes: String(task.tomatoMinutes || task.tomato_minutes || '').trim(),
-                tomatoHours: String(task.tomatoHours || task.tomato_hours || '').trim(),
                 'custom-remark': String(task.remark || task.custom_remark || '').trim(),
                 'custom-pinned': String(task.pinned || task.custom_pinned || '').trim(),
                 done: isQuickbarTaskLikeDone(task),
                 taskCompleteAt: resolveTaskCompleteAtFromTaskLike(task),
                 'bookmark': String(task.bookmark || '').trim()
-            });
+            };
+            const runtimeTomatoMinutes = String(task.tomatoMinutes || task.tomato_minutes || task[minutesKey] || task['custom-tomato-minutes'] || '').trim();
+            const runtimeTomatoHours = String(task.tomatoHours || task.tomato_hours || task[hoursKey] || task['custom-tomato-time'] || '').trim();
+            if (runtimeTomatoMinutes) runtimePropsData.tomatoMinutes = runtimeTomatoMinutes;
+            if (runtimeTomatoHours) runtimePropsData.tomatoHours = runtimeTomatoHours;
+            const props = normalizeCustomProps(runtimePropsData);
             const customValues = (task.customFieldValues && typeof task.customFieldValues === 'object' && !Array.isArray(task.customFieldValues))
                 ? task.customFieldValues
                 : {};
@@ -3662,8 +3693,7 @@
                 || key === 'custom-focus-summary'
                 || key === 'custom-tomato-estimate-count'
                 || key === 'custom-tomato-count'
-                || key === getConfiguredTomatoSpentAttrKey('minutes')
-                || key === getConfiguredTomatoSpentAttrKey('hours')
+                || isQuickbarTomatoSpentAttrKey(key)
                 || key === 'custom-task-repeat-rule'
                 || key === 'custom-task-repeat-state'
                 || key.startsWith('custom-tm-');
@@ -3897,6 +3927,14 @@
                 const attrs = await getMergedTaskCustomAttrs(id);
                 props = normalizeCustomProps(attrs);
             }
+            if (props && opts.skipAttrFallback !== true && (forceRefresh || opts.forceFresh === true) && !String(props['custom-focus-spent-display'] || '').trim()) {
+                try {
+                    const attrs = await getMergedTaskCustomAttrs(id);
+                    if (hasQuickbarFocusSpentSourceAttr(attrs)) {
+                        props = normalizeCustomProps({ ...props, ...attrs });
+                    }
+                } catch (e) {}
+            }
             if (!props) {
                 props = normalizeCustomProps();
             }
@@ -3978,6 +4016,17 @@
         function syncInlineMetaCacheFromAttrUpdate(detail = {}) {
             const attrKey = normalizeTaskHorizonAttrKeyForDisplay(detail?.attrKey);
             if (!attrKey) return false;
+            if (isQuickbarTomatoSpentAttrKey(detail?.attrKey) || isQuickbarTomatoSpentAttrKey(attrKey)) {
+                const ids = collectInlineMetaAttrUpdateIds(detail);
+                if (!ids.length) return false;
+                ids.forEach((id) => {
+                    try { inlineMetaPropsInflight.delete(id); } catch (e) {}
+                    try { inlineMetaLayoutCache.delete(id); } catch (e) {}
+                    deleteInlineMetaCache(id);
+                    refreshInlineMetaByTaskId(id, true);
+                });
+                return true;
+            }
             const config = getInlineFieldConfig(attrKey);
             if (!config && !quickbarInlineFieldAllowSet.has(attrKey)) return false;
             const cacheKey = String(config?.attrKey || attrKey).trim();
@@ -6775,9 +6824,14 @@
             // fresh data actually differs, so the strip wasn't load-
             // bearing — it was just a flicker source.)
             if (runtimeProps?.props) {
-                setInlineMetaCache(taskId, runtimeProps.props);
-                if (runtimeProps.taskId && runtimeProps.taskId !== taskId) setInlineMetaCache(runtimeProps.taskId, runtimeProps.props);
-                if (runtimeProps.attrHostId && runtimeProps.attrHostId !== taskId) setInlineMetaCache(runtimeProps.attrHostId, runtimeProps.props);
+                const cachedSpentDisplay = String(inlineMetaCache.get(taskId)?.['custom-focus-spent-display'] || '').trim();
+                const runtimeSpentDisplay = String(runtimeProps.props['custom-focus-spent-display'] || '').trim();
+                const runtimePropsForCache = (!runtimeSpentDisplay && cachedSpentDisplay)
+                    ? normalizeCustomProps({ ...runtimeProps.props, 'custom-focus-spent-display': cachedSpentDisplay })
+                    : runtimeProps.props;
+                setInlineMetaCache(taskId, runtimePropsForCache);
+                if (runtimeProps.taskId && runtimeProps.taskId !== taskId) setInlineMetaCache(runtimeProps.taskId, runtimePropsForCache);
+                if (runtimeProps.attrHostId && runtimeProps.attrHostId !== taskId) setInlineMetaCache(runtimeProps.attrHostId, runtimePropsForCache);
             }
             const revalidateCached = hasCached && (hasRemarkInlineField || isInlineMetaCacheStale(taskId));
             const useEmptyPropsForRender = !runtimeProps?.props && !hasCacheForRender;

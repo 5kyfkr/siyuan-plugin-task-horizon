@@ -998,6 +998,9 @@
             completion_time: 'completionTime',
             'custom-completion-time': 'completionTime',
             custom_completion_time: 'completionTime',
+            task_date_color: 'taskDateColor',
+            custom_task_date_color: 'taskDateColor',
+            'custom-task-date-color': 'taskDateColor',
             task_complete_at: 'taskCompleteAt',
             custom_time: 'customTime',
             custom_status: 'customStatus',
@@ -1162,6 +1165,10 @@
             else if (key === 'remark') target.custom_remark = live[key];
             else if (key === 'startDate') target.start_date = live[key];
             else if (key === 'completionTime') target.completion_time = live[key];
+            else if (key === 'taskDateColor') {
+                target.task_date_color = live[key];
+                target.custom_task_date_color = live[key];
+            }
             else if (key === 'taskCompleteAt') target.task_complete_at = live[key];
             else if (key === 'customTime') target.custom_time = live[key];
             else if (key === 'customStatus') target.custom_status = live[key];
@@ -1332,6 +1339,8 @@
             'custom_remark',
             'start_date',
             'completion_time',
+            'task_date_color',
+            'custom_task_date_color',
             'task_complete_at',
             'custom_milestone',
             'custom_time',
@@ -1370,6 +1379,8 @@
         if (__tmIsTaskSnapshotMeaningfulValue(nextStartDate)) out.startDate = String(nextStartDate).trim();
         const nextCompletionTime = __tmSnapshotPickFirstValue(source, ['completionTime', 'completion_time', 'custom-completion-time', 'custom_completion_time']);
         if (__tmIsTaskSnapshotMeaningfulValue(nextCompletionTime)) out.completionTime = String(nextCompletionTime).trim();
+        const nextTaskDateColor = __tmSnapshotPickFirstValue(source, ['taskDateColor', 'task_date_color', 'custom-task-date-color', 'custom_task_date_color']);
+        if (__tmIsTaskSnapshotMeaningfulValue(nextTaskDateColor)) out.taskDateColor = String(nextTaskDateColor).trim();
         const nextTaskCompleteAt = __tmSnapshotPickFirstValue(source, ['taskCompleteAt', 'task_complete_at', __TM_TASK_COMPLETE_AT_ATTR]);
         if (__tmIsTaskSnapshotMeaningfulValue(nextTaskCompleteAt)) out.taskCompleteAt = String(nextTaskCompleteAt).trim();
         const nextMilestone = __tmSnapshotPickBooleanTrue(source, ['milestone', 'custom_milestone', 'customMilestone']);
@@ -1417,6 +1428,12 @@
         if (!isValidValue(target.remark) && isValidValue(target.custom_remark)) target.remark = String(target.custom_remark || '').trim();
         if (!isValidValue(target.startDate) && isValidValue(target.start_date)) target.startDate = String(target.start_date || '').trim();
         if (!isValidValue(target.completionTime) && isValidValue(target.completion_time)) target.completionTime = String(target.completion_time || '').trim();
+        if (!isValidValue(target.taskDateColor) && isValidValue(target.task_date_color)) target.taskDateColor = String(target.task_date_color || '').trim();
+        if (!isValidValue(target.taskDateColor) && isValidValue(target.custom_task_date_color)) target.taskDateColor = String(target.custom_task_date_color || '').trim();
+        if (isValidValue(target.taskDateColor)) {
+            target.task_date_color = String(target.taskDateColor || '').trim();
+            target.custom_task_date_color = target.task_date_color;
+        }
         if (!isValidValue(target.taskCompleteAt) && isValidValue(target.task_complete_at)) target.taskCompleteAt = String(target.task_complete_at || '').trim();
         if (!isValidValue(target.customTime) && isValidValue(target.custom_time)) target.customTime = String(target.custom_time || '').trim();
         if (!isValidValue(target.customStatus) && isValidValue(target.custom_status)) target.customStatus = String(target.custom_status || '').trim();
@@ -9241,6 +9258,7 @@
             || normalized === 'custom-priority'
             || normalized === 'custom-start-date'
             || normalized === 'custom-completion-time'
+            || normalized === 'custom-task-date-color'
             || normalized === 'custom-time'
             || normalized === __TM_TASK_COMPLETE_AT_ATTR
             || normalized === 'custom-duration'
@@ -9802,6 +9820,7 @@
             const allowed = new Set([
                 'custom-start-date',
                 'custom-completion-time',
+                'custom-task-date-color',
                 __TM_TASK_COMPLETE_AT_ATTR,
                 'custom-duration',
                 'custom-time',
@@ -9958,6 +9977,7 @@
             { name: 'custom-remark', alias: 'remark', enabled: true },
             { name: 'custom-start-date', alias: 'start_date', enabled: true },
             { name: 'custom-completion-time', alias: 'completion_time', enabled: true },
+            { name: 'custom-task-date-color', alias: 'task_date_color', enabled: true },
             { name: __TM_TASK_COMPLETE_AT_ATTR, alias: 'task_complete_at', enabled: true },
             { name: 'custom-milestone-event', alias: 'milestone', enabled: true },
             { name: 'custom-time', alias: 'custom_time', enabled: true },
@@ -10147,6 +10167,7 @@
             'custom-remark',
             'custom-start-date',
             'custom-completion-time',
+            'custom-task-date-color',
             __TM_TASK_COMPLETE_AT_ATTR,
             'custom-milestone-event',
             'custom-time',
@@ -10214,6 +10235,14 @@
             if (shouldApplyVisibleDate(value, target.completionTime, target.completion_time)) {
                 target.completionTime = value;
                 target.completion_time = value;
+            }
+        }
+        if (Object.prototype.hasOwnProperty.call(row, 'custom-task-date-color')) {
+            const value = String(row['custom-task-date-color'] ?? '');
+            if (shouldApply(target.taskDateColor, target.task_date_color, target.custom_task_date_color)) {
+                target.taskDateColor = value;
+                target.task_date_color = value;
+                target.custom_task_date_color = value;
             }
         }
         if (Object.prototype.hasOwnProperty.call(row, __TM_TASK_COMPLETE_AT_ATTR)) {
@@ -11376,8 +11405,39 @@
         return __tmGetPerfTraceMarkPayload(tag, trace);
     }
 
+    function __tmMarkHighPriorityInteraction(reason = '', durationMs = 360) {
+        const ms0 = Number(durationMs);
+        const ms = Number.isFinite(ms0) ? Math.max(80, Math.min(1800, Math.round(ms0))) : 360;
+        const until = Date.now() + ms;
+        try {
+            state.__tmHighPriorityInteractionUntil = Math.max(Number(state.__tmHighPriorityInteractionUntil) || 0, until);
+            state.__tmHighPriorityInteractionReason = String(reason || '').trim();
+        } catch (e) {}
+        try {
+            globalThis.__tmTaskHorizonHighPriorityInteractionUntil = Math.max(Number(globalThis.__tmTaskHorizonHighPriorityInteractionUntil) || 0, until);
+        } catch (e) {}
+        return until;
+    }
+
+    function __tmGetHighPriorityInteractionWaitMs(paddingMs = 44) {
+        let until = 0;
+        try { until = Math.max(until, Number(state.__tmHighPriorityInteractionUntil) || 0); } catch (e) {}
+        try { until = Math.max(until, Number(globalThis.__tmTaskHorizonHighPriorityInteractionUntil) || 0); } catch (e) {}
+        const wait = until - Date.now();
+        if (!(wait > 0)) return 0;
+        const pad = Number.isFinite(Number(paddingMs)) ? Math.max(0, Math.min(120, Math.round(Number(paddingMs)))) : 44;
+        return Math.max(16, Math.min(1900, Math.ceil(wait) + pad));
+    }
+
     function __tmScheduleIdleTask(task, timeout = 180) {
-        const run = () => Promise.resolve().then(task).catch(() => null);
+        const run = () => {
+            const waitMs = __tmGetHighPriorityInteractionWaitMs();
+            if (waitMs > 0) {
+                try { setTimeout(run, waitMs); } catch (e) {}
+                return;
+            }
+            Promise.resolve().then(task).catch(() => null);
+        };
         try {
             if (typeof window !== 'undefined' && window && typeof window.requestIdleCallback === 'function') {
                 window.requestIdleCallback(() => { run(); }, { timeout: Math.max(0, Number(timeout) || 0) });
@@ -11462,6 +11522,19 @@
     function __tmDrainDocEnhanceWarmQueue() {
         const cfg = __tmGetPerfTuningOptions();
         if (!cfg.warmEnhance) return;
+        try {
+            const interactionWait = (typeof __tmGetHighPriorityInteractionWaitMs === 'function')
+                ? __tmGetHighPriorityInteractionWaitMs(48)
+                : 0;
+            if (interactionWait > 0) {
+                try { if (__tmDocEnhanceWarmQueue.timer) clearTimeout(__tmDocEnhanceWarmQueue.timer); } catch (e2) {}
+                __tmDocEnhanceWarmQueue.timer = setTimeout(() => {
+                    __tmDocEnhanceWarmQueue.timer = null;
+                    __tmDrainDocEnhanceWarmQueue();
+                }, interactionWait);
+                return;
+            }
+        } catch (e) {}
         while (__tmDocEnhanceWarmQueue.running < cfg.warmEnhanceConcurrency && __tmDocEnhanceWarmQueue.items.length > 0) {
             const next = __tmDocEnhanceWarmQueue.items.shift();
             if (!next) continue;
@@ -11805,6 +11878,20 @@
         if (__tmTaskIndexPrewarmState.running) return false;
         const cfg = __tmGetPerfTuningOptions();
         if (!cfg.taskIndexPrewarm) return false;
+        try {
+            const interactionWait = (typeof __tmGetHighPriorityInteractionWaitMs === 'function')
+                ? __tmGetHighPriorityInteractionWaitMs(48)
+                : 0;
+            if (interactionWait > 0) {
+                if (!__tmTaskIndexPrewarmState.timer) {
+                    __tmTaskIndexPrewarmState.timer = setTimeout(() => {
+                        __tmTaskIndexPrewarmState.timer = null;
+                        __tmRunTaskIndexPrewarm().catch(() => null);
+                    }, interactionWait);
+                }
+                return false;
+            }
+        } catch (e) {}
         __tmTaskIndexPrewarmState.running = true;
         __tmTaskIndexPrewarmState.lastStartedAt = Date.now();
         const chunkSize = Math.max(2, Math.min(30, Math.floor(Number(cfg.taskIndexPrewarmChunkSize) || 10)));
@@ -11859,7 +11946,12 @@
                 } catch (e) {
                     chunk.forEach((docId) => __tmTaskIndexPrewarmState.pendingDocIds.delete(docId));
                 }
-                try { await new Promise((resolve) => setTimeout(resolve, 80)); } catch (e) {}
+                try {
+                    const interactionWait = (typeof __tmGetHighPriorityInteractionWaitMs === 'function')
+                        ? __tmGetHighPriorityInteractionWaitMs(48)
+                        : 0;
+                    await new Promise((resolve) => setTimeout(resolve, Math.max(80, Number(interactionWait) || 0)));
+                } catch (e) {}
             }
             await flushBufferedEntries();
         } finally {

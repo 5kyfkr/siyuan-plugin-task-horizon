@@ -207,6 +207,31 @@
                 lines[0] = `- [${nextDone ? 'x' : ' '}] ${nextTitle}`;
             }
             nextMarkdown = lines.join('\n');
+            const retentionSource = { ...sourceTask };
+            if (Object.prototype.hasOwnProperty.call(attrPatch, 'startDate')) {
+                delete retentionSource.startDate;
+                delete retentionSource.start_date;
+                delete retentionSource.custom_start_date;
+                delete retentionSource['custom-start-date'];
+            }
+            if (Object.prototype.hasOwnProperty.call(attrPatch, 'completionTime')) {
+                delete retentionSource.completionTime;
+                delete retentionSource.completion_time;
+                delete retentionSource.custom_completion_time;
+                delete retentionSource['custom-completion-time'];
+            }
+            if (Object.prototype.hasOwnProperty.call(attrPatch, 'customStatus')) {
+                delete retentionSource.customStatus;
+                delete retentionSource.custom_status;
+                delete retentionSource['custom-status'];
+            }
+            const excludeKeys = [];
+            if (Object.prototype.hasOwnProperty.call(attrPatch, 'startDate')) excludeKeys.push('startDate');
+            if (Object.prototype.hasOwnProperty.call(attrPatch, 'completionTime')) excludeKeys.push('completionTime');
+            if (Object.prototype.hasOwnProperty.call(attrPatch, 'customStatus')) excludeKeys.push('customStatus');
+            const retentionPatch = typeof __tmProtectMarkdownMutationTaskFields === 'function'
+                ? __tmProtectMarkdownMutationTaskFields(tid, retentionSource, { source: 'ai-task-patch-markdown', excludeKeys })
+                : {};
             await API.updateBlock(tid, nextMarkdown);
             const cachedTask = globalThis.__tmRuntimeState?.getFlatTaskById?.(tid) || state.flatTasks?.[tid];
             if (cachedTask) {
@@ -214,6 +239,14 @@
                 cachedTask.content = nextTitle;
                 cachedTask.done = nextDone;
             }
+            try {
+                __tmScheduleTaskSnapshotAfterLocalPatch?.(tid, {
+                    ...((retentionPatch && typeof retentionPatch === 'object') ? retentionPatch : {}),
+                    markdown: nextMarkdown,
+                    content: nextTitle,
+                    done: nextDone,
+                }, { source: 'ai-task-patch-markdown' });
+            } catch (e) {}
         }
 
         if (Object.keys(attrPatch).length > 0) {

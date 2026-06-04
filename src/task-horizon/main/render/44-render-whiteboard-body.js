@@ -11,6 +11,9 @@
             const isDark = __tmIsDarkMode();
             const escSq = (s) => String(s || '').replace(/\\/g, '\\\\').replace(/'/g, "\\'");
             const whiteboardCardFields = new Set(__tmGetTaskCardFieldList('whiteboard'));
+            const isKanbanCompact = !!SettingsStore.data.kanbanCompactMode;
+            const tomatoFocusTaskId = SettingsStore.data.enableTomatoIntegration ? String(state.timerFocusTaskId || '').trim() : '';
+            const tomatoFocusModeEnabled = tomatoFocusTaskId ? __tmIsTomatoFocusModeEnabled() : false;
             const showDoneTasks = !!SettingsStore.data.whiteboardShowDone;
             const statusOptionsRaw = Array.isArray(SettingsStore.data.customStatusOptions) ? SettingsStore.data.customStatusOptions : [];
             const statusOptions = statusOptionsRaw
@@ -39,6 +42,34 @@
             const isDetachedTask = (taskId) => {
                 const v = detachedMap[String(taskId || '').trim()];
                 return !!(v && typeof v === 'object' && v.detached === true);
+            };
+            const whiteboardChildStatsByParentId = (typeof __tmKanbanBuildChildTasksByParentId === 'function')
+                ? __tmKanbanBuildChildTasksByParentId()
+                : null;
+            const whiteboardDirectChildStatsMemo = new Map();
+            const getWhiteboardDirectChildStats = (task, fallbackChildren = []) => {
+                const id = String(task?.id || '').trim();
+                if (id && whiteboardDirectChildStatsMemo.has(id)) return whiteboardDirectChildStatsMemo.get(id);
+                let allChildren = [];
+                if (id && typeof __tmKanbanGetChildTasksByParentId === 'function') {
+                    allChildren = __tmKanbanGetChildTasksByParentId(id, whiteboardChildStatsByParentId);
+                }
+                if (!allChildren.length && Array.isArray(task?.children)) allChildren = task.children;
+                if (!allChildren.length && Array.isArray(fallbackChildren)) allChildren = fallbackChildren;
+                const seen = new Set();
+                const uniqueChildren = (Array.isArray(allChildren) ? allChildren : []).filter((child) => {
+                    const cid = String(child?.id || '').trim();
+                    if (!cid || seen.has(cid)) return false;
+                    seen.add(cid);
+                    return true;
+                });
+                const stats = {
+                    total: uniqueChildren.length,
+                    completed: uniqueChildren.reduce((sum, child) => sum + (child?.done ? 1 : 0), 0),
+                };
+                stats.remaining = Math.max(0, stats.total - stats.completed);
+                if (id) whiteboardDirectChildStatsMemo.set(id, stats);
+                return stats;
             };
 
             const selectedDocIds = (state.activeDocId && state.activeDocId !== 'all')
@@ -536,27 +567,35 @@
                     });
                     const isGhost = !!task.__tmGhost;
                     const selected = String(state.whiteboardSelectedTaskId || '').trim() === tid;
-                    const dateTxt = __tmFormatTaskTime(__tmGetTaskCardDateValue(task));
-                    const opBtn = !isGhost
-                        ? `<button class="tm-kanban-more" onclick="tmOpenTaskDetail('${escSq(tid)}', event)" title="任务详情">${__tmRenderLucideIcon('dots-three')}</button>`
-                        : '';
-                    const collapsed = children.length ? __tmKanbanGetCollapsedSet().has(tid) : false;
+                    const content = String(task?.content || '').trim();
+                    const dateTxt = __tmFormatTaskCardDateValue(task);
+                    const childTasks = children.map((cid) => taskById.get(cid)).filter(Boolean);
+                    const directChildStats = getWhiteboardDirectChildStats(task, childTasks);
+                    const totalChildren = Number(directChildStats.total) || 0;
+                    const completedChildren = Number(directChildStats.completed) || 0;
+                    const childProgressPercent = totalChildren > 0 ? Math.round((completedChildren / totalChildren) * 100) : 0;
+                    const collapsed = totalChildren ? __tmKanbanGetCollapsedSet().has(tid) : false;
                     const linkStats = __tmGetTaskLinkStats(tid, { docId, includeAuto: false });
                     const hasTaskLinks = (Number(linkStats?.incoming || 0) + Number(linkStats?.outgoing || 0)) > 0;
-                    const toggleHtml = children.length
-                        ? `<button class="tm-kanban-toggle" onclick="tmWhiteboardToggleTaskCollapse('${escSq(tid)}', event)" title="${collapsed ? '展开子任务' : '折叠子任务'}"><svg viewBox="0 0 16 16" width="16" height="16"><path d="M6 4l4 4-4 4" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg></button>`
+                    const hasVisibleChildren = children.length > 0;
+                    const toggleTitle = collapsed ? '展开子任务' : '折叠子任务';
+                    const toggleIconPathHtml = '<path d="M6 4l4 4-4 4" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>';
+                    const toggleButtonIconHtml = `<svg class="tm-tree-toggle-icon" viewBox="0 0 16 16" width="12" height="12" style="transform:translate(-50%, -50%) rotate(${collapsed ? '0deg' : '90deg'});">${toggleIconPathHtml}</svg>`;
+                    const toggleChevronIconHtml = `<svg class="tm-tree-toggle-icon" viewBox="0 0 16 16" width="12" height="12" style="transform:rotate(${collapsed ? '0deg' : '90deg'});">${toggleIconPathHtml}</svg>`;
+                    const toggleHtml = totalChildren
+                        ? `<button class="tm-kanban-toggle" onclick="tmWhiteboardToggleTaskCollapse('${escSq(tid)}', event)" title="${toggleTitle}">${toggleButtonIconHtml}</button>`
                         : '';
-                    const collapseProxyDot = (collapsed && children.length)
+                    const subtaskToggleHtml = totalChildren
+                        ? `<button class="tm-kanban-subtask-toggle tm-kanban-subtasks-chevron" onclick="tmWhiteboardToggleTaskCollapse('${escSq(tid)}', event)" title="${toggleTitle}">${toggleChevronIconHtml}</button>`
+                        : '';
+                    const collapseProxyDot = (collapsed && hasVisibleChildren)
                         ? `<span class="tm-task-link-dot tm-whiteboard-collapse-proxy-dot" title="折叠子任务连线汇聚点"></span>`
                         : '';
-                    const childrenHtml = children.length
-                        ? (collapsed ? '' : `<div class="tm-whiteboard-subtasks">${children.map(cid => renderTaskNode(cid, depth + 1, hideCompletedDescendants)).join('')}</div>`)
+                    const childrenListHtml = hasVisibleChildren && !collapsed
+                        ? children.map(cid => renderTaskNode(cid, depth + 1, hideCompletedDescendants)).join('')
                         : '';
-                    const parentCls = children.length ? ' tm-whiteboard-node--parent' : '';
+                    const parentCls = totalChildren ? ' tm-whiteboard-node--parent' : '';
                     const linkCls = hasTaskLinks ? ' tm-whiteboard-node--has-links' : '';
-                    const cls = depth === 0
-                        ? `tm-whiteboard-card tm-whiteboard-node tm-whiteboard-node--root${parentCls}${linkCls}${selected ? ' tm-whiteboard-card--selected' : ''}${isGhost ? ' tm-whiteboard-card--ghost' : ''}`
-                        : `tm-whiteboard-subcard tm-whiteboard-node tm-whiteboard-node--sub${parentCls}${linkCls}${selected ? ' tm-whiteboard-card--selected' : ''}`;
                     const rootPos = depth === 0 ? (posMap[tid] || { x: 24, y: 56 }) : null;
                     const rootStyle = depth === 0
                         ? (() => {
@@ -575,6 +614,15 @@
                         isDetachedTask(tid)
                         || (!!placedMap[tid] && !!placedMap[parentId] && rootSet.has(tid))
                     );
+                    const remarkHtml = whiteboardCardFields.has('remark') ? __tmRenderTaskCardRemark(task) : '';
+                    const multiSelectCls = __tmIsTaskMultiSelected(tid) ? ' tm-task-row--multi-selected' : '';
+                    const tomatoFocusCls = tomatoFocusTaskId
+                        ? (tomatoFocusTaskId === tid ? ' tm-timer-focus' : (tomatoFocusModeEnabled ? ' tm-timer-dim' : ''))
+                        : '';
+                    const kanbanCardCls = `tm-kanban-card${depth > 0 ? ' tm-kanban-card--sub tm-kanban-subtask-row' : ''}${(depth === 0 && detachedOrDetachedLike) ? ' tm-kanban-card--childroot' : ''}${totalChildren ? ' tm-kanban-card--parent' : ''}${task?.done ? ' tm-kanban-card--done' : ''}${remarkHtml ? ' tm-kanban-card--has-remark' : ''}${multiSelectCls}${tomatoFocusCls}`;
+                    const cls = depth === 0
+                        ? `tm-whiteboard-card tm-whiteboard-node tm-whiteboard-node--root ${kanbanCardCls}${parentCls}${linkCls}${selected ? ' tm-whiteboard-card--selected' : ''}${isGhost ? ' tm-whiteboard-card--ghost' : ''}`
+                        : `tm-whiteboard-subcard tm-whiteboard-node tm-whiteboard-node--sub ${kanbanCardCls}${parentCls}${linkCls}${selected ? ' tm-whiteboard-card--selected' : ''}`;
                     const canMoveBack = selected && !!parentId && detachedOrDetachedLike;
                     const toolsHtml = selected ? `
                         <div class="tm-whiteboard-card-tools">
@@ -613,25 +661,86 @@
                         if (text) metaParts.push(`<span class="tm-kanban-chip tm-kanban-chip--muted" data-tm-task-time-field="tomatoCount">${__tmGetActualTomatoCountDisplayHtml(__tmGetTaskTomatoCount(task))}</span>`);
                     }
                     if (isGhost) metaParts.push(ghostTip);
-                    const remarkHtml = whiteboardCardFields.has('remark') ? __tmRenderTaskCardRemark(task) : '';
+                    const cardMetaHtml = metaParts.length ? `<div class="tm-kanban-card-meta">${metaParts.join('')}</div>` : '';
+                    const subtaskMetaHtml = metaParts.length ? `<div class="tm-kanban-subtask-meta">${metaParts.join('')}</div>` : '';
+                    const checkboxHtml = __tmRenderTaskCheckboxWrap(tid, task, {
+                        checked: task?.done,
+                        disabled: isGhost,
+                        extraClass: GlobalLock.isLocked() ? 'tm-operating' : '',
+                        title: isGhost ? '快照任务，当前不可直接勾选' : '',
+                        stopMouseDown: true,
+                        stopClick: true,
+                        collapsed: !!(collapsed && totalChildren),
+                    });
+                    const titleInnerHtml = `${API.renderTaskContentHtml(task?.markdown, content || '(无内容)')}${__tmRenderGlobalCollectDocTaskInlineIcon(task)}${__tmRenderRecurringTaskInlineIcon(task)}${__tmRenderRecurringInstanceBadge(task, { className: 'tm-recurring-instance-badge--inline' })}`;
+                    const titleAttrs = `onclick="tmJumpToTask('${escSq(tid)}', event)"${__tmBuildTooltipAttrs(String(content || '').trim() || '(无内容)', { side: 'bottom', ariaLabel: false })} style="${__tmBuildTaskTitleOpacityStyle(task)}"`;
+                    const subtaskCountButtonHtml = totalChildren
+                        ? `<button class="tm-badge tm-badge--count tm-kanban-subtasks-count" type="button" onclick="tmWhiteboardToggleTaskCollapse('${escSq(tid)}', event)" title="${toggleTitle}">${completedChildren}/${totalChildren}</button>`
+                        : '';
+                    const subtaskToggleControlHtml = totalChildren
+                        ? `<span class="tm-kanban-subtask-toggle-control">${subtaskCountButtonHtml}${subtaskToggleHtml}</span>`
+                        : '';
+                    const nestedSubtasksHtml = totalChildren
+                        ? `<div class="tm-kanban-subtasks tm-kanban-subtasks--nested"><div class="tm-kanban-subtasks-progress" role="presentation"><span style="width:${childProgressPercent}%"></span></div>${childrenListHtml ? `<div class="tm-kanban-subtasks-list">${childrenListHtml}</div>` : ''}</div>`
+                        : '';
+                    const subtasksSectionHtml = totalChildren
+                        ? `
+                            <section class="tm-kanban-subtasks" aria-label="子任务">
+                                <button class="tm-kanban-subtasks-head" type="button" aria-expanded="${collapsed ? 'false' : 'true'}" onclick="tmWhiteboardToggleTaskCollapse('${escSq(tid)}', event)" title="${toggleTitle}">
+                                    <span class="tm-kanban-subtasks-label">${__tmRenderBadgeIcon('clipboard-list', 14)}<span>子任务</span></span>
+                                    <span class="tm-badge tm-badge--count">${completedChildren}/${totalChildren}</span>
+                                    <span class="tm-kanban-subtasks-chevron" aria-hidden="true">${toggleChevronIconHtml}</span>
+                                </button>
+                                <div class="tm-kanban-subtasks-progress" role="presentation"><span style="width:${childProgressPercent}%"></span></div>
+                                ${childrenListHtml ? `<div class="tm-kanban-subtasks-list">${childrenListHtml}</div>` : ''}
+                            </section>
+                        `
+                        : '';
+                    const parentLineHtml = (detachedOrDetachedLike && parentText)
+                        ? `<div class="tm-kanban-parent-line" style="font-size:12px;color:var(--tm-secondary-text);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;margin-bottom:6px;" title="${esc(parentText)}"><span>父任务：</span><span style="font-weight:${SettingsStore.data.parentTaskNameBoldEnabled === false ? '400' : '800'};color:var(--card-foreground);">${esc(parentText)}</span></div>`
+                        : '';
+                    if (depth > 0) {
+                        return `
+                            <div class="${cls}" data-task-id="${esc(tid)}" data-doc-id="${esc(docId)}"${nodeMouse}${selectClick} oncontextmenu="tmShowTaskContextMenu(event, '${escSq(tid)}')">
+                                ${toolsHtml}
+                                <span class="tm-task-link-dot tm-task-link-dot--in${state.whiteboardLinkFromTaskId === tid ? ' tm-task-link-dot--active' : ''}" draggable="true" onmousedown="tmTaskLinkDotPressStart(event, '${escSq(tid)}', '${escSq(docId)}')" ondragstart="tmTaskLinkDotDragStart(event, '${escSq(tid)}', '${escSq(docId)}')" ondragend="tmTaskLinkDotDragEnd(event)" ondragover="tmTaskLinkDotDragOver(event, '${escSq(tid)}', '${escSq(docId)}')" ondrop="tmTaskLinkDotDrop(event, '${escSq(tid)}', '${escSq(docId)}')" title="连接输入点"></span>
+                                <span class="tm-task-link-dot tm-task-link-dot--out${state.whiteboardLinkFromTaskId === tid ? ' tm-task-link-dot--active' : ''}" draggable="true" onmousedown="tmTaskLinkDotPressStart(event, '${escSq(tid)}', '${escSq(docId)}')" ondragstart="tmTaskLinkDotDragStart(event, '${escSq(tid)}', '${escSq(docId)}')" ondragend="tmTaskLinkDotDragEnd(event)" ondragover="tmTaskLinkDotDragOver(event, '${escSq(tid)}', '${escSq(docId)}')" ondrop="tmTaskLinkDotDrop(event, '${escSq(tid)}', '${escSq(docId)}')" title="连接输出点"></span>
+                                ${collapseProxyDot}
+                                <div class="tm-kanban-subtask-row-main">
+                                    ${checkboxHtml}
+                                    <div class="tm-kanban-subtask-text">
+                                        <span class="tm-kanban-subtask-title tm-task-content-clickable" ${titleAttrs}>${titleInnerHtml}</span>
+                                        ${subtaskMetaHtml}
+                                    </div>
+                                    <div class="tm-kanban-subtask-actions">
+                                        ${!isGhost ? `<button class="tm-kanban-more tm-kanban-subtask-more" onclick="tmOpenTaskDetail('${escSq(tid)}', event)" title="任务详情">${__tmRenderLucideIcon('dots-three')}</button>` : ''}
+                                        ${subtaskToggleControlHtml}
+                                    </div>
+                                </div>
+                                ${nestedSubtasksHtml}
+                            </div>
+                        `;
+                    }
                     return `
                         <div class="${cls}" data-task-id="${esc(tid)}" data-doc-id="${esc(docId)}"${rootStyle}${nodeMouse}${selectClick} oncontextmenu="tmShowTaskContextMenu(event, '${escSq(tid)}')">
                             ${toolsHtml}
                             <span class="tm-task-link-dot tm-task-link-dot--in${state.whiteboardLinkFromTaskId === tid ? ' tm-task-link-dot--active' : ''}" draggable="true" onmousedown="tmTaskLinkDotPressStart(event, '${escSq(tid)}', '${escSq(docId)}')" ondragstart="tmTaskLinkDotDragStart(event, '${escSq(tid)}', '${escSq(docId)}')" ondragend="tmTaskLinkDotDragEnd(event)" ondragover="tmTaskLinkDotDragOver(event, '${escSq(tid)}', '${escSq(docId)}')" ondrop="tmTaskLinkDotDrop(event, '${escSq(tid)}', '${escSq(docId)}')" title="连接输入点"></span>
                             <span class="tm-task-link-dot tm-task-link-dot--out${state.whiteboardLinkFromTaskId === tid ? ' tm-task-link-dot--active' : ''}" draggable="true" onmousedown="tmTaskLinkDotPressStart(event, '${escSq(tid)}', '${escSq(docId)}')" ondragstart="tmTaskLinkDotDragStart(event, '${escSq(tid)}', '${escSq(docId)}')" ondragend="tmTaskLinkDotDragEnd(event)" ondragover="tmTaskLinkDotDragOver(event, '${escSq(tid)}', '${escSq(docId)}')" ondrop="tmTaskLinkDotDrop(event, '${escSq(tid)}', '${escSq(docId)}')" title="连接输出点"></span>
                             ${collapseProxyDot}
-                            <div class="tm-whiteboard-card-head">
-                                ${toggleHtml}
-                                ${__tmRenderTaskCheckboxWrap(tid, task, { checked: task?.done, disabled: isGhost, extraClass: GlobalLock.isLocked() ? 'tm-operating' : '', title: isGhost ? '快照任务，当前不可直接勾选' : '', stopMouseDown: true, stopClick: true, collapsed: !!(collapsed && children.length) })}
-                                <div class="tm-whiteboard-card-title ${task?.done ? 'tm-task-done' : ''}">
-                                    <span class="tm-task-content-clickable" onclick="tmJumpToTask('${escSq(tid)}', event)"${__tmBuildTooltipAttrs(String(task?.content || '').trim() || '(无内容)', { side: 'bottom', ariaLabel: false })} style="${__tmBuildTaskTitleOpacityStyle(task)}">${API.renderTaskContentHtml(task?.markdown, String(task?.content || '').trim() || '(无内容)')}${__tmRenderGlobalCollectDocTaskInlineIcon(task)}${__tmRenderRecurringTaskInlineIcon(task)}${__tmRenderRecurringInstanceBadge(task, { className: 'tm-recurring-instance-badge--inline' })}</span>
+                            <div class="tm-kanban-card-top tm-kanban-card-main">
+                                <div class="tm-kanban-card-head">
+                                    ${!totalChildren ? (toggleHtml || '') : ''}
+                                    ${checkboxHtml}
+                                    <div class="tm-kanban-card-text">
+                                        <span class="tm-kanban-card-title-inline tm-task-content-clickable" ${titleAttrs}>${titleInnerHtml}</span>
+                                        ${cardMetaHtml}
+                                    </div>
                                 </div>
-                                ${opBtn}
+                                ${!isGhost ? `<button class="tm-kanban-more" onclick="tmOpenTaskDetail('${escSq(tid)}', event)" title="任务详情">${__tmRenderLucideIcon('dots-three')}</button>` : ''}
                             </div>
-                            ${(detachedOrDetachedLike && parentText) ? `<div style="font-size:12px;color:var(--tm-secondary-text);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;margin-bottom:4px;" title="${esc(parentText)}"><span>父任务：</span><span style="font-weight:${SettingsStore.data.parentTaskNameBoldEnabled === false ? '400' : '800'};color:var(--tm-text-color);">${esc(parentText)}</span></div>` : ''}
+                            ${parentLineHtml}
                             ${remarkHtml}
-                            ${metaParts.length ? `<div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap;">${metaParts.join('')}</div>` : ''}
-                            ${childrenHtml}
+                            ${subtasksSectionHtml}
                         </div>
                     `;
                 };
@@ -1247,7 +1356,7 @@
                             <button class="tm-btn tm-btn-info tm-whiteboard-sidebar-toggle" onclick="tmWhiteboardToggleSidebar(event)" title="${sidebarToggleLabel}">${sidebarToggleGlyph}</button>
                             <div id="tmWhiteboardViewport" class="tm-whiteboard-viewport${viewportPanClass}" onpointerdown="tmWhiteboardViewportMouseDown(event)" onclick="tmWhiteboardBoardClick(event)" ondblclick="tmWhiteboardBoardDblClick(event)" ondragover="tmWhiteboardBoardDragOver(event)" ondrop="tmWhiteboardBoardDrop(event)">
                                 <div id="tmWhiteboardWorld" class="tm-whiteboard-world" style="transform:translate(${view.x}px, ${view.y}px) scale(${view.zoom});">
-                                    <div class="tm-whiteboard">
+                                    <div class="tm-whiteboard tm-kanban--clean${isKanbanCompact ? ' tm-kanban--compact' : ''}">
                                         ${docsHtml || `<div style="padding:18px;color:var(--tm-secondary-text);">暂无任务可用于白板视图</div>`}
                                     </div>
                                 </div>

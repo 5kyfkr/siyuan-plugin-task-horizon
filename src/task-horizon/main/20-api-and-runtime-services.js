@@ -2852,6 +2852,7 @@
         remark: 'custom-remark',
         startDate: 'custom-start-date',
         completionTime: 'custom-completion-time',
+        taskDateColor: 'custom-task-date-color',
         taskCompleteAt: __TM_TASK_COMPLETE_AT_ATTR,
         milestone: 'custom-milestone-event',
         customTime: 'custom-time',
@@ -3966,7 +3967,7 @@
             });
             return out;
         }
-        if (key === 'priority' || key === 'customStatus' || key === 'duration' || key === 'startDate' || key === 'completionTime' || key === 'customTime' || key === 'taskCompleteAt') {
+        if (key === 'priority' || key === 'customStatus' || key === 'duration' || key === 'startDate' || key === 'completionTime' || key === 'taskDateColor' || key === 'customTime' || key === 'taskCompleteAt') {
             return String(value ?? '').trim();
         }
         return value;
@@ -4015,6 +4016,15 @@
         } catch (e) {}
         __tmOpQueue.drainTimer = setTimeout(() => {
             __tmOpQueue.drainTimer = 0;
+            try {
+                const interactionWait = (typeof __tmGetHighPriorityInteractionWaitMs === 'function')
+                    ? __tmGetHighPriorityInteractionWaitMs(48)
+                    : 0;
+                if (interactionWait > 0) {
+                    __tmScheduleOpQueueDrain(interactionWait);
+                    return;
+                }
+            } catch (e) {}
             __tmDrainOpQueue();
         }, waitMs);
     }
@@ -4204,6 +4214,68 @@
         }
     }
 
+    function __tmBuildMarkdownMutationRetentionPatch(taskLike, options = {}) {
+        const task = (taskLike && typeof taskLike === 'object') ? taskLike : {};
+        const opts = (options && typeof options === 'object') ? options : {};
+        const excludeKeys = new Set(Array.isArray(opts.excludeKeys)
+            ? opts.excludeKeys.map((key) => String(key || '').trim()).filter(Boolean)
+            : []);
+        const tid = String(opts.taskId || task?.id || '').trim();
+        const meta = (opts.metaFallback === false || !tid) ? null : (MetaStore.get(tid) || null);
+        const isPresent = (value) => {
+            const text = String(value ?? '').trim();
+            return !!text && text !== 'null' && text !== 'undefined';
+        };
+        const pick = (canonicalKey, ...keys) => {
+            if (excludeKeys.has(canonicalKey)) return '';
+            for (const key of keys) {
+                const value = task?.[key];
+                if (isPresent(value)) return String(value).trim();
+            }
+            if (meta && typeof meta === 'object') {
+                for (const key of keys) {
+                    const value = meta?.[key];
+                    if (isPresent(value)) return String(value).trim();
+                }
+            }
+            return '';
+        };
+        const patch = {};
+        const startDate = pick('startDate', 'startDate', 'start_date', 'custom_start_date', 'custom-start-date');
+        const completionTime = pick('completionTime', 'completionTime', 'completion_time', 'custom_completion_time', 'custom-completion-time');
+        const taskDateColor = pick('taskDateColor', 'taskDateColor', 'task_date_color', 'custom_task_date_color', 'custom-task-date-color');
+        const customTime = pick('customTime', 'customTime', 'custom_time', 'custom-time');
+        const customStatus = pick('customStatus', 'customStatus', 'custom_status', 'custom-status');
+        if (startDate) patch.startDate = startDate;
+        if (completionTime) patch.completionTime = completionTime;
+        if (taskDateColor) patch.taskDateColor = taskDateColor;
+        if (customTime) patch.customTime = customTime;
+        if (customStatus) patch.customStatus = customStatus;
+        return patch;
+    }
+
+    function __tmProtectMarkdownMutationTaskFields(taskId, taskLike, options = {}) {
+        const tid = String(taskId || taskLike?.id || '').trim();
+        if (!tid) return {};
+        const patch = __tmBuildMarkdownMutationRetentionPatch(taskLike, {
+            ...((options && typeof options === 'object') ? options : {}),
+            taskId: tid,
+        });
+        if (!Object.keys(patch).length) return {};
+        if (Object.prototype.hasOwnProperty.call(patch, 'startDate')
+            || Object.prototype.hasOwnProperty.call(patch, 'completionTime')
+            || Object.prototype.hasOwnProperty.call(patch, 'customTime')) {
+            try { __tmMarkVisibleDateFallbackTask(tid); } catch (e) {}
+        }
+        try {
+            __tmMarkLocalTaskPatchWatermark?.(tid, patch, {
+                ...((options && typeof options === 'object') ? options : {}),
+                source: String(options?.source || options?.reason || 'markdown-mutation-retention').trim() || 'markdown-mutation-retention',
+            });
+        } catch (e) {}
+        return patch;
+    }
+
     function __tmApplyAttrPatchLocally(taskId, patch, options = {}) {
         const tid = String(taskId || '').trim();
         const nextPatch = (patch && typeof patch === 'object') ? patch : {};
@@ -4285,6 +4357,11 @@
                     case 'completionTime':
                         target.completionTime = String(value ?? '').trim();
                         target.completion_time = target.completionTime;
+                        break;
+                    case 'taskDateColor':
+                        target.taskDateColor = String(value ?? '').trim();
+                        target.task_date_color = target.taskDateColor;
+                        target.custom_task_date_color = target.taskDateColor;
                         break;
                     case 'taskCompleteAt':
                         target.taskCompleteAt = __tmNormalizeTaskCompleteAtValue(value);
@@ -4469,6 +4546,11 @@
                     case 'completionTime':
                         target.completionTime = String(value ?? '').trim();
                         target.completion_time = target.completionTime;
+                        break;
+                    case 'taskDateColor':
+                        target.taskDateColor = String(value ?? '').trim();
+                        target.task_date_color = target.taskDateColor;
+                        target.custom_task_date_color = target.taskDateColor;
                         break;
                     case 'taskCompleteAt':
                         target.taskCompleteAt = __tmNormalizeTaskCompleteAtValue(value);
@@ -5217,6 +5299,12 @@
             if (key === 'completionTime') {
                 target.completionTime = String(value ?? '').trim();
                 target.completion_time = target.completionTime;
+                return;
+            }
+            if (key === 'taskDateColor') {
+                target.taskDateColor = String(value ?? '').trim();
+                target.task_date_color = target.taskDateColor;
+                target.custom_task_date_color = target.taskDateColor;
                 return;
             }
             if (key === 'taskCompleteAt') {
@@ -8639,6 +8727,7 @@
         if (key === 'custom-priority') return '优先级';
         if (key === 'custom-start-date') return '开始日期';
         if (key === 'custom-completion-time') return '截止日期';
+        if (key === 'custom-task-date-color') return '任务日期颜色';
         if (key === __TM_TASK_COMPLETE_AT_ATTR) return '截止时间';
         if (key === 'custom-duration') return '时长';
         if (key === __tmGetTomatoEstimateAttrKey()) return '预计番茄';
@@ -8654,7 +8743,7 @@
     function __tmExtractUndoEligibleMetaPatch(patch) {
         const input = (patch && typeof patch === 'object') ? patch : {};
         const out = {};
-        ['customStatus', 'startDate', 'completionTime', 'duration', 'tomatoEstimateCount', 'tomatoCount', 'remark', 'attachments', 'repeatRule', 'repeatState'].forEach((key) => {
+        ['customStatus', 'startDate', 'completionTime', 'taskDateColor', 'duration', 'tomatoEstimateCount', 'tomatoCount', 'remark', 'attachments', 'repeatRule', 'repeatState'].forEach((key) => {
             if (Object.prototype.hasOwnProperty.call(input, key)) out[key] = input[key];
         });
         return out;
@@ -8668,6 +8757,7 @@
             if (key === 'customStatus') return '状态';
             if (key === 'startDate') return '开始日期';
             if (key === 'completionTime') return '截止日期';
+            if (key === 'taskDateColor') return '任务日期颜色';
             if (key === 'duration') return '时长';
             if (key === 'tomatoEstimateCount') return '预计番茄';
             if (key === 'tomatoCount') return '实际番茄';
@@ -8702,6 +8792,7 @@
         if (key === 'custom-priority') return { patch: { priority: trimmedValue }, attrValue: trimmedValue };
         if (key === 'custom-start-date') return { patch: { startDate: trimmedValue }, attrValue: trimmedValue };
         if (key === 'custom-completion-time') return { patch: { completionTime: trimmedValue }, attrValue: trimmedValue };
+        if (key === 'custom-task-date-color') return { patch: { taskDateColor: trimmedValue }, attrValue: trimmedValue };
         if (key === 'custom-time') return { patch: { customTime: trimmedValue }, attrValue: trimmedValue };
         if (key === __TM_TASK_COMPLETE_AT_ATTR) {
             const normalizedValue = __tmNormalizeTaskCompleteAtValue(trimmedValue);
@@ -10673,6 +10764,13 @@ if (hasStatusPatch) {
         const tid = String(taskId || '').trim();
         if (!tid) throw new Error('缺少任务 ID');
         const nextMarker = __tmNormalizeCompatTaskStatusMarker(marker, ' ');
+        const taskForRetention = globalThis.__tmRuntimeState?.getTaskById?.(tid)
+            || globalThis.__tmRuntimeState?.getFlatTaskById?.(tid)
+            || globalThis.__tmRuntimeState?.getPendingTaskById?.(tid)
+            || state.flatTasks?.[tid]
+            || state.pendingInsertedTasks?.[tid]
+            || null;
+        try { __tmProtectMarkdownMutationTaskFields?.(tid, taskForRetention, { source: 'marker-update' }); } catch (e) {}
         __tmPushStatusDebug('marker-update:start', {
             taskId: tid,
             marker: nextMarker,
@@ -10744,6 +10842,15 @@ if (hasStatusPatch) {
             return { successMap, failures };
         }
         try {
+            payload.forEach((item) => {
+                const taskForRetention = globalThis.__tmRuntimeState?.getTaskById?.(item.id)
+                    || globalThis.__tmRuntimeState?.getFlatTaskById?.(item.id)
+                    || globalThis.__tmRuntimeState?.getPendingTaskById?.(item.id)
+                    || state.flatTasks?.[item.id]
+                    || state.pendingInsertedTasks?.[item.id]
+                    || null;
+                try { __tmProtectMarkdownMutationTaskFields?.(item.id, taskForRetention, { source: 'batch-marker-update' }); } catch (e) {}
+            });
             await API.batchUpdateTaskListItemMarker(payload);
             payload.forEach((item) => {
                 successMap.set(item.id, {
@@ -10778,6 +10885,18 @@ if (hasStatusPatch) {
         const nextStatusId = String(statusId || '').trim();
         const nextMarker = __tmNormalizeCompatTaskStatusMarker(marker, ' ');
         const nextDone = __tmIsTaskMarkerDone(nextMarker);
+        const taskForRetention = globalThis.__tmRuntimeState?.getTaskById?.(tid)
+            || globalThis.__tmRuntimeState?.getFlatTaskById?.(tid)
+            || globalThis.__tmRuntimeState?.getPendingTaskById?.(tid)
+            || state.flatTasks?.[tid]
+            || state.pendingInsertedTasks?.[tid]
+            || null;
+        const retentionPatch = typeof __tmProtectMarkdownMutationTaskFields === 'function'
+            ? __tmProtectMarkdownMutationTaskFields(tid, taskForRetention, {
+                ...opts,
+                source: String(opts.source || 'status-local-state').trim() || 'status-local-state',
+            })
+            : {};
         const applyOne = (target) => {
             if (!(target && typeof target === 'object')) return;
             target.customStatus = nextStatusId;
@@ -10814,6 +10933,7 @@ if (hasStatusPatch) {
                 || state.pendingInsertedTasks?.[tid]
                 || null;
             __tmScheduleTaskSnapshotAfterLocalPatch?.(tid, {
+                ...((retentionPatch && typeof retentionPatch === 'object') ? retentionPatch : {}),
                 customStatus: nextStatusId,
                 done: nextDone,
                 taskMarker: nextMarker,
@@ -13842,6 +13962,9 @@ refreshOk = false;
         feed(options.groupByTime ? 1 : 0);
         feed(options.quadrantEnabled ? 1 : 0);
         feed(options.kanbanCardFields || '');
+        feed(options.useKanbanCustomCardGesture ? 1 : 0);
+        feed(options.tomatoFocusTaskId || '');
+        feed(options.tomatoFocusModeEnabled ? 1 : 0);
         feed(options.expandedTaskSignature || '');
         feed(__tmNormalizeDateOnly(new Date()));
         feed(SettingsStore.data.taskHeadingLevel || 'h2');
@@ -18694,6 +18817,16 @@ const renderBodyHtml = state.renderChecklistBodyHtml;
                 colScrollMap.set(colKey, Number(colBody.scrollTop || 0));
             });
         } catch (e) {}
+        try {
+            const colsSnapshot = {};
+            colScrollMap.forEach((value, key) => {
+                colsSnapshot[String(key || '')] = Number(value) || 0;
+                const statusMatch = /^status:(.+)$/.exec(String(key || ''));
+                if (statusMatch) colsSnapshot[statusMatch[1]] = Number(value) || 0;
+            });
+            state.viewScroll = state.viewScroll && typeof state.viewScroll === 'object' ? state.viewScroll : {};
+            state.viewScroll.kanban = { left: bodyLeft, cols: colsSnapshot };
+        } catch (e) {}
         const detailScrollSnapshot = __tmCaptureKanbanDetailScrollSnapshot(modal);
         const detailPanel = modal.querySelector('#tmKanbanDetailPanel');
         const detailTaskId = String(detailPanel?.__tmTaskDetailTask?.id || detailPanel?.dataset?.tmDetailTaskId || state.kanbanDetailTaskId || '').trim();
@@ -18714,7 +18847,7 @@ const renderBodyHtml = state.renderChecklistBodyHtml;
         try { __tmClearKanbanDetailFloatingHandlers(); } catch (e) {}
         try { body.replaceWith(nextBody); } catch (e) { return false; }
         try { __tmBindKanbanPan(modal); } catch (e) {}
-        try { __tmScheduleKanbanScrollableColumnInsets(modal); } catch (e) {}
+        try { __tmScheduleKanbanBottomNavAvoidance(modal); } catch (e) {}
         try { __tmRefreshKanbanDetailInPlace(modal, { scrollSnapshot: detailScrollSnapshot, source: 'kanban-rerender-in-place' }); } catch (e) {}
         try { __tmApplyReminderTaskNameMarks(modal); } catch (e) {}
         try { __tmScheduleReminderTaskNameMarksRefresh(modal); } catch (e) {}
@@ -18741,9 +18874,12 @@ const renderBodyHtml = state.renderChecklistBodyHtml;
             } catch (e) {}
             try { __tmSyncKanbanHeadingModeSegmentedUi(modal); } catch (e) {}
             try { __tmRefreshKanbanDetailInPlace(modal, { scrollSnapshot: detailScrollSnapshot, source: 'kanban-rerender-restore' }); } catch (e) {}
+            try { state.__tmKanbanForceRestoreColScrollOnce = false; } catch (e) {}
         };
         try { restore(); } catch (e) {}
         try { requestAnimationFrame(restore); } catch (e) {}
+        try { setTimeout(restore, 30); } catch (e) {}
+        try { setTimeout(restore, 90); } catch (e) {}
         return true;
     }
 

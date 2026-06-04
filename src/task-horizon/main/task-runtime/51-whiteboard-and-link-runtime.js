@@ -1342,6 +1342,19 @@ if (deferForActiveScroll) {
                 try { __tmFlushDeferredViewRefreshAfterTaskFieldWork('view-refresh'); } catch (e) {}
                 return;
             }
+            const interactionWait = (typeof __tmGetHighPriorityInteractionWaitMs === 'function')
+                ? __tmGetHighPriorityInteractionWaitMs(32)
+                : 0;
+            if (interactionWait > 0) {
+                state.viewRefreshPending = __tmMergeViewRefreshDetail(state.viewRefreshPending, next);
+                state.viewRefreshTimer = setTimeout(() => {
+                    state.viewRefreshTimer = 0;
+                    const pending = state.viewRefreshPending;
+                    state.viewRefreshPending = null;
+                    if (pending) __tmScheduleViewRefresh(pending);
+                }, interactionWait);
+                return;
+            }
             const runRefresh = () => {
                 try { __tmPerformViewRefresh(next); } catch (e) {}
             };
@@ -1859,6 +1872,7 @@ try {
             'customStatus',
             'startDate',
             'completionTime',
+            'taskDateColor',
             'taskCompleteAt',
             'customTime',
             'repeatRule',
@@ -2022,12 +2036,17 @@ return false;
         const nextPatch = (patch && typeof patch === 'object') ? patch : {};
         if (!tid || !Object.keys(nextPatch).length) return false;
         if (String(state.viewMode || '').trim() !== 'kanban') return false;
-        if (!Object.prototype.hasOwnProperty.call(nextPatch, 'pinned')) return false;
+        const patchKeys = new Set(__tmGetPatchFieldKeys(nextPatch));
+        const isPinnedPatch = patchKeys.has('pinned');
+        const isKanbanTimeDatePatch = __tmIsKanbanTimeBoardContext()
+            && ['startDate', 'completionTime', 'customTime'].some((key) => patchKeys.has(key));
+        if (!isPinnedPatch && !isKanbanTimeDatePatch) return false;
         const opts = (options && typeof options === 'object') ? options : {};
-        const needsProjectionRefresh = __tmDoesPatchNeedProjectionRefresh(tid, nextPatch, opts)
+        const needsProjectionRefresh = isKanbanTimeDatePatch
+            || __tmDoesPatchNeedProjectionRefresh(tid, nextPatch, opts)
             || __tmDoesPatchAffectProjection(tid, nextPatch);
         if (!needsProjectionRefresh) return false;
-        if (opts.withFilters !== false) {
+        if (opts.withFilters !== false || isKanbanTimeDatePatch) {
             try { applyFilters(); } catch (e) {}
         }
         try { __tmKanbanColsHtmlCache = null; } catch (e) {}

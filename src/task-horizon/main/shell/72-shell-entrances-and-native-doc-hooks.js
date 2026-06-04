@@ -1356,6 +1356,16 @@
         const nextTaskCompleteAt = __tmNormalizeTaskCompleteAtValue(taskCompleteAtValue);
         const nextMarker = nextDone ? 'X' : ' ';
         if (!tid) return false;
+        const taskForRetention = taskLike
+            || globalThis.__tmRuntimeState?.getTaskById?.(tid)
+            || globalThis.__tmRuntimeState?.getFlatTaskById?.(tid)
+            || globalThis.__tmRuntimeState?.getPendingTaskById?.(tid)
+            || state.flatTasks?.[tid]
+            || state.pendingInsertedTasks?.[tid]
+            || null;
+        const retentionPatch = typeof __tmProtectMarkdownMutationTaskFields === 'function'
+            ? __tmProtectMarkdownMutationTaskFields(tid, taskForRetention, { source: 'native-doc-checkbox-sync' })
+            : {};
         const applyMarkerState = (target) => {
             if (!(target && typeof target === 'object')) return;
             target.done = nextDone;
@@ -1404,7 +1414,11 @@
                 || state.pendingInsertedTasks?.[tid]?.content
                 || ''
             ).trim();
-            const metaPatch = { done: nextDone, content };
+            const metaPatch = {
+                ...((retentionPatch && typeof retentionPatch === 'object') ? retentionPatch : {}),
+                done: nextDone,
+                content,
+            };
             metaPatch.taskMarker = nextMarker;
             metaPatch.markdown = String((globalThis.__tmRuntimeState?.getTaskById?.(tid) || state.flatTasks?.[tid] || state.pendingInsertedTasks?.[tid])?.markdown || '').trim();
             if (nextStatus) metaPatch.customStatus = nextStatus;

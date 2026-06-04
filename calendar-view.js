@@ -1930,6 +1930,52 @@
         });
     }
 
+    function applyRenderedTaskDateEventSoftVisual(eventApi, nextEvent) {
+        const eid = String(eventApi?.id || nextEvent?.id || '').trim();
+        if (!eid) return false;
+        const ext = (nextEvent?.extendedProps && typeof nextEvent.extendedProps === 'object')
+            ? nextEvent.extendedProps
+            : (eventApi?.extendedProps || {});
+        if (String(ext.__tmSource || '').trim() !== 'taskdate') return false;
+        const color = String(nextEvent?.backgroundColor || nextEvent?.borderColor || eventApi?.backgroundColor || eventApi?.borderColor || '#6b7280').trim();
+        const done = resolveCalendarEventDoneState(ext);
+        const tid = String(ext.__tmTaskId || ext.__tmBlockId || '').trim();
+        const apply = () => {
+            const roots = [state.wrapEl, state.sideDay?.rootEl, document.body];
+            const seen = new Set();
+            let touched = false;
+            roots.forEach((root) => {
+                if (!(root instanceof Element)) return;
+                const nodes = root.querySelectorAll?.('.fc-event[data-tm-cal-event-id]');
+                if (!nodes || !nodes.length) return;
+                nodes.forEach((el) => {
+                    if (!(el instanceof Element) || seen.has(el)) return;
+                    if (String(el.getAttribute('data-tm-cal-event-id') || '').trim() !== eid) return;
+                    seen.add(el);
+                    touched = true;
+                    try { el.setAttribute('data-tm-cal-source', 'taskdate'); } catch (e) {}
+                    if (tid) {
+                        try { el.setAttribute('data-tm-cal-task-id', tid); } catch (e) {}
+                    }
+                    try { applyCalendarEventClampFromRoot(el); } catch (e) {}
+                    try { el.classList.toggle('tm-cal-event--done', done); } catch (e) {}
+                    try { applyAllDaySoftEventColorVars(el, color); } catch (e) {}
+                    try { normalizeAllDayEventContentLayout(el); } catch (e) {}
+                    try {
+                        const wrapEl = el.querySelector?.('.tm-cal-task-event');
+                        const titleEl = wrapEl?.querySelector?.('.tm-cal-task-event-title-text') || wrapEl?.querySelector?.('.tm-cal-task-event-title') || null;
+                        if (wrapEl) applyTaskDoneVisual(wrapEl, titleEl, done);
+                    } catch (e) {}
+                });
+            });
+            return touched;
+        };
+        const touchedNow = apply();
+        try { requestAnimationFrame(() => { try { apply(); } catch (e) {} }); } catch (e) {}
+        try { setTimeout(() => { try { apply(); } catch (e) {} }, 80); } catch (e) {}
+        return touchedNow;
+    }
+
     function isAllDayRange(start, end) {
         if (!(start instanceof Date) || !(end instanceof Date)) return false;
         if (Number.isNaN(start.getTime()) || Number.isNaN(end.getTime())) return false;
@@ -11671,7 +11717,7 @@
                                 const sid0 = String(ext.__tmScheduleId || '').trim();
                                 try {
                                     if (source === 'schedule' && sid0) window.tmShowTaskContextMenu(ev, tid, { scheduleId: sid0, title: String(arg?.event?.title || '').trim(), start: arg?.event?.start, end: arg?.event?.end, allDay: arg?.event?.allDay === true, allDayBottom: ext.__tmAllDayBottom === true });
-                                    else if (source === 'taskdate') window.tmShowTaskContextMenu(ev, tid, { taskDateStartKey: String(ext.__tmTaskDateStartKey || '').trim(), taskDateEndExclusiveKey: String(ext.__tmTaskDateEndExclusiveKey || '').trim(), calendarId: String(ext.calendarId || 'default').trim(), title: String(arg?.event?.title || '').trim(), start: arg?.event?.start, end: arg?.event?.end, allDay: arg?.event?.allDay === true, allDayBottom: ext.__tmAllDayBottom === true });
+                                    else if (source === 'taskdate') window.tmShowTaskContextMenu(ev, tid, { taskDateStartKey: String(ext.__tmTaskDateStartKey || '').trim(), taskDateEndExclusiveKey: String(ext.__tmTaskDateEndExclusiveKey || '').trim(), calendarId: String(ext.calendarId || 'default').trim(), title: String(arg?.event?.title || '').trim(), start: arg?.event?.start, end: arg?.event?.end, allDay: arg?.event?.allDay === true, allDayBottom: ext.__tmAllDayBottom === true, color: String(arg?.event?.backgroundColor || arg?.event?.borderColor || '').trim(), taskDateColor: String(ext.__tmTaskDateColor || '').trim() });
                                     else window.tmShowTaskContextMenu(ev, tid);
                                 } catch (e2) {}
                             }
@@ -11889,7 +11935,7 @@
                                     const sid0 = String(ext.__tmScheduleId || '').trim();
                                     try {
                                         if (source === 'schedule' && sid0) window.tmShowTaskContextMenu(ev, tid, { scheduleId: sid0, title: String(arg?.event?.title || '').trim(), start: arg?.event?.start, end: arg?.event?.end, allDay: arg?.event?.allDay === true, allDayBottom: ext.__tmAllDayBottom === true });
-                                        else if (source === 'taskdate') window.tmShowTaskContextMenu(ev, tid, { taskDateStartKey: String(ext.__tmTaskDateStartKey || '').trim(), taskDateEndExclusiveKey: String(ext.__tmTaskDateEndExclusiveKey || '').trim(), calendarId: String(ext.calendarId || 'default').trim(), title: String(arg?.event?.title || '').trim(), start: arg?.event?.start, end: arg?.event?.end, allDay: arg?.event?.allDay === true, allDayBottom: ext.__tmAllDayBottom === true });
+                                        else if (source === 'taskdate') window.tmShowTaskContextMenu(ev, tid, { taskDateStartKey: String(ext.__tmTaskDateStartKey || '').trim(), taskDateEndExclusiveKey: String(ext.__tmTaskDateEndExclusiveKey || '').trim(), calendarId: String(ext.calendarId || 'default').trim(), title: String(arg?.event?.title || '').trim(), start: arg?.event?.start, end: arg?.event?.end, allDay: arg?.event?.allDay === true, allDayBottom: ext.__tmAllDayBottom === true, color: String(arg?.event?.backgroundColor || arg?.event?.borderColor || '').trim(), taskDateColor: String(ext.__tmTaskDateColor || '').trim() });
                                         else window.tmShowTaskContextMenu(ev, tid);
                                     } catch (e) {}
                                 }
@@ -13026,10 +13072,11 @@
             if (overlapTaskIds.some((id) => hasTaskScheduleOverlapInDateRange(id, startKey, endExKey, scheduleTaskDaySet))) return null;
             const calColor = defMap.get(calendarId)?.color || '#6b7280';
             const mode = String(settings.taskDateColorMode || 'group').trim() || 'group';
+            const itemColor = String(it?.taskDateColor || it?.color || it?.task_date_color || it?.custom_task_date_color || it?.['custom-task-date-color'] || '').trim();
             const docColor = (settings.scheduleFollowDocColor && docId)
                 ? resolveCalendarDocColor(docId, '')
                 : '';
-            const bg = docColor || ((mode === 'group') ? calColor : (settings.taskDatesColor || '#6b7280'));
+            const bg = itemColor || docColor || ((mode === 'group') ? calColor : (settings.taskDatesColor || '#6b7280'));
             const event = {
                 id: `taskdate:${taskId}`,
                 title,
@@ -13055,6 +13102,7 @@
                     __tmTaskDateEndExclusiveKey: endExKey,
                     __tmTaskDateSourceStartKey: sourceStartKey,
                     __tmTaskDateSourceCompletionKey: sourceCompletionKey,
+                    __tmTaskDateColor: itemColor,
                     __tmTaskDateMilestone: isMilestone,
                     __tmTaskDateReadOnly: isReadOnlyInstance,
                     __tmRecurringCompletedAt: String(it?.recurringCompletedAt || '').trim(),
@@ -13192,6 +13240,7 @@
             '__tmTaskDateEndExclusiveKey',
             '__tmTaskDateSourceStartKey',
             '__tmTaskDateSourceCompletionKey',
+            '__tmTaskDateColor',
             '__tmTaskDateMilestone',
             '__tmTaskDateReadOnly',
             '__tmRecurringCompletedAt',
@@ -13201,6 +13250,7 @@
             try { eventApi.setExtendedProp?.(key, Object.prototype.hasOwnProperty.call(ext, key) ? ext[key] : null); } catch (e) {}
         });
         try { eventApi.setDates?.(nextEvent.start, nextEvent.end, { allDay: nextEvent.allDay === true }); } catch (e) {}
+        try { applyRenderedTaskDateEventSoftVisual(eventApi, nextEvent); } catch (e) {}
         return true;
     }
 
@@ -13247,11 +13297,20 @@
             || fallbackEvent?.title
             || ''
         ).trim();
+        const color = String(
+            taskLike?.taskDateColor
+            || taskLike?.task_date_color
+            || taskLike?.custom_task_date_color
+            || taskLike?.['custom-task-date-color']
+            || fallbackExt.__tmTaskDateColor
+            || ''
+        ).trim();
         return {
             title: normalizeCalendarTaskTitleText(title, '任务'),
             docId,
             milestone,
             calendarId: nonDefaultCalendarId || fallbackCalendarId || 'default',
+            color,
         };
     }
 
@@ -13299,6 +13358,9 @@
             milestone: meta.milestone,
             calendarId: meta.calendarId,
             docId: meta.docId,
+            color: Object.prototype.hasOwnProperty.call(p, 'taskDateColor')
+                ? String(p.taskDateColor || '').trim()
+                : (Object.prototype.hasOwnProperty.call(p, 'color') ? String(p.color || '').trim() : meta.color),
         }], settings, {
             scheduleTaskDaySet: buildTaskDatePatchScheduleTaskDaySet(cal, settings, opt.scheduleList),
             viewType: String(cal?.view?.type || '').trim(),
@@ -13555,9 +13617,38 @@
             startDate: String(patch.startDate || '').trim(),
             completionTime: String(patch.completionTime || '').trim(),
         };
+        if (Object.prototype.hasOwnProperty.call(patch, 'taskDateColor')) {
+            normalizedPatch.taskDateColor = String(patch.taskDateColor || '').trim();
+        } else if (Object.prototype.hasOwnProperty.call(patch, 'color')) {
+            normalizedPatch.taskDateColor = String(patch.color || '').trim();
+        }
         return syncTaskDateEventFromDateFollowPatch(tid, normalizedPatch, {
             reason: 'taskdate-editor-save',
             allowAdd: false,
+        });
+    }
+
+    function syncTaskDatePatchInPlace(taskId, patch, options = {}) {
+        const tid = String(taskId || '').trim();
+        if (!tid || !patch || typeof patch !== 'object') return { touched: false };
+        const normalizedPatch = {};
+        if (Object.prototype.hasOwnProperty.call(patch, 'startDate')) {
+            normalizedPatch.startDate = String(patch.startDate || '').trim();
+        }
+        if (Object.prototype.hasOwnProperty.call(patch, 'completionTime')) {
+            normalizedPatch.completionTime = String(patch.completionTime || '').trim();
+        }
+        if (Object.prototype.hasOwnProperty.call(patch, 'taskDateColor')) {
+            normalizedPatch.taskDateColor = String(patch.taskDateColor || '').trim();
+        } else if (Object.prototype.hasOwnProperty.call(patch, 'color')) {
+            normalizedPatch.taskDateColor = String(patch.color || '').trim();
+        }
+        if (!Object.keys(normalizedPatch).length) return { touched: false };
+        const opts = (options && typeof options === 'object') ? options : {};
+        return syncTaskDateEventFromDateFollowPatch(tid, normalizedPatch, {
+            ...opts,
+            reason: String(opts.reason || opts.source || 'taskdate-patch').trim() || 'taskdate-patch',
+            allowAdd: opts.allowAdd !== false,
         });
     }
 
@@ -15278,7 +15369,8 @@
         const title0 = String(init.title || '').trim();
         const calendarId0 = String(init.calendarId || '').trim() || pickDefaultCalendarId(settings);
         const calDef0 = calDefs.find((d) => d.id === calendarId0) || calDefs[0] || { id: 'default', name: '时间轴', color: 'var(--tm-primary-color)' };
-        const color0 = String(init.color || '').trim() || String(calDef0.color || 'var(--tm-primary-color)');
+        const taskDateColor0 = String(init.taskDateColor || init.task_date_color || init.custom_task_date_color || init['custom-task-date-color'] || '').trim();
+        const color0 = String(init.color || '').trim() || taskDateColor0 || String(calDef0.color || 'var(--tm-primary-color)');
         const colorInputValue0 = normalizeColorInputHex(color0, calDef0.color || '#7FA2DA');
         const calendarOptions = calDefs.map((d) => `<option value="${esc(d.id)}" ${d.id === calendarId0 ? 'selected' : ''}>${esc(d.name)}</option>`).join('');
         const colorPresetButtonsHtml = SCHEDULE_EDITOR_MORANDI_PRESET_COLORS.map((color) => `
@@ -15288,12 +15380,11 @@
                 data-tm-cal-color-preset="${esc(color)}"
                 title="莫兰迪预设 ${esc(color)}"
                 aria-label="选择预设颜色 ${esc(color)}"
-                style="--tm-cal-color-swatch:${esc(color)};"
-                ${taskDateEditor ? 'disabled' : ''}>
+                style="--tm-cal-color-swatch:${esc(color)};">
             </button>
         `).join('');
         const deviceSummary0 = taskDateEditor
-            ? '此事件来自任务日期，仅支持同步修改任务的开始日期和完成日期'
+            ? '此事件来自任务日期，可同步修改任务日期和颜色'
             : (isEdit ? getScheduleCurrentDeviceNotificationSummary(init) : '保存后会自动同步当前设备预约');
 
         const startLocal = start ? `${formatDateKey(start)}T${pad2(start.getHours())}:${pad2(start.getMinutes())}` : '';
@@ -15327,10 +15418,10 @@
                     <div class="tm-calendar-edit-label">${endLabel}</div>
                     <input class="tm-calendar-edit-input" type="${endInputType}" value="${esc(endInputValue)}" data-tm-cal-field="end">
                 </div>
-                <div class="tm-calendar-edit-row tm-calendar-edit-row--color"${taskDateEditor ? ' style="opacity:.55;"' : ''}>
+                <div class="tm-calendar-edit-row tm-calendar-edit-row--color">
                     <div class="tm-calendar-edit-label">颜色</div>
                     <div class="tm-calendar-edit-color-wrap">
-                        <input class="tm-calendar-edit-input tm-calendar-edit-color-input" type="color" value="${esc(colorInputValue0)}" data-tm-cal-field="color" aria-label="当前颜色" ${taskDateEditor ? 'disabled' : ''}>
+                        <input class="tm-calendar-edit-input tm-calendar-edit-color-input" type="color" value="${esc(colorInputValue0)}" data-tm-cal-field="color" aria-label="当前颜色">
                         <div class="tm-calendar-edit-color-presets" data-tm-cal-color-presets aria-label="莫兰迪预设颜色">
                             ${colorPresetButtonsHtml}
                         </div>
@@ -15738,10 +15829,14 @@
                         return;
                     }
                     try {
-                        const result = await window.tmUpdateTaskDates(targetId, {
+                        const nextColor = normalizeColorInputHex(getInputValue('color'), colorInputValue0);
+                        const colorChanged = !!nextColor && nextColor.toLowerCase() !== String(colorInputValue0 || '').toLowerCase();
+                        const taskDateUpdatePatch = {
                             startDate: nextStartDate,
                             completionTime: nextCompletionDate,
-                        }, {
+                        };
+                        if (colorChanged) taskDateUpdatePatch.color = nextColor;
+                        const result = await window.tmUpdateTaskDates(targetId, taskDateUpdatePatch, {
                             source: 'taskdate-editor-save',
                             refresh: false,
                             refreshCalendar: false,
@@ -15755,6 +15850,8 @@
                             startDate: String(result?.startDate ?? nextStartDate ?? '').trim(),
                             completionTime: String(result?.completionTime ?? nextCompletionDate ?? '').trim(),
                         };
+                        const resultColor = String(result?.taskDateColor ?? result?.color ?? '').trim();
+                        if (colorChanged || resultColor) localPatch.taskDateColor = resultColor || nextColor;
                         patchVisibleTaskDateEventsFromModal(resolvedTaskId || targetId, localPatch);
                         closeModal();
                         toast('✅ 已同步任务日期', 'success');
@@ -18408,6 +18505,7 @@
         const startKey = String(extra.taskDateStartKey || extra.startKey || '').trim();
         const endExKey = String(extra.taskDateEndExclusiveKey || extra.endExclusiveKey || '').trim();
         const color0 = String(extra.color || '').trim();
+        const taskDateColor0 = String(extra.taskDateColor || extra.task_date_color || extra.custom_task_date_color || extra['custom-task-date-color'] || '').trim();
         const taskStartDate0 = String(extra.taskStartDate || extra.startDate || '').trim();
         const taskCompletionTime0 = String(extra.taskCompletionTime || extra.completionTime || '').trim();
 
@@ -18426,6 +18524,7 @@
                         end: e,
                         allDay: true,
                         color: color0,
+                        taskDateColor: taskDateColor0,
                         calendarId: calendarId0,
                         taskId,
                         blockId,
@@ -18970,6 +19069,7 @@
         setSettingsStore,
         requestRefresh: scheduleCalendarRefresh,
         refreshInPlace,
+        syncTaskDatePatchInPlace,
         syncTaskDateInPlace,
         syncTaskDoneInPlace,
         refreshSideDayLayout,

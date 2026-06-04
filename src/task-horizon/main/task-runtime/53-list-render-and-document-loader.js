@@ -941,6 +941,23 @@
         if (__tmRenderScheduled) return;
         __tmRenderScheduled = true;
         requestAnimationFrame(() => {
+            const interactionWait = (typeof __tmGetHighPriorityInteractionWaitMs === 'function')
+                ? __tmGetHighPriorityInteractionWaitMs(32)
+                : 0;
+            if (interactionWait > 0) {
+                try {
+                    setTimeout(() => {
+                        __tmRenderScheduled = false;
+                        __tmScheduleRender({
+                            withFilters: __tmRenderNeedFilters,
+                            reason,
+                        });
+                    }, interactionWait);
+                } catch (e) {
+                    __tmRenderScheduled = false;
+                }
+                return;
+            }
             __tmRenderScheduled = false;
             const needFilters = __tmRenderNeedFilters;
             __tmRenderNeedFilters = false;
@@ -1840,6 +1857,9 @@ return finish(false, 'noop');
             try {
                 const task0 = globalThis.__tmRuntimeState?.getTaskById?.(tid) || state.flatTasks?.[tid] || state.pendingInsertedTasks?.[tid] || null;
                 __tmMarkLocalDoneTxSuppressionForTask(task0, [tid]);
+                if (typeof __tmProtectMarkdownMutationTaskFields === 'function') {
+                    __tmProtectMarkdownMutationTaskFields(tid, task0, { source: 'set-done-stateless' });
+                }
             } catch (e) {}
             const res = await API.call('/api/block/updateBlock', {
                 dataType: 'markdown',
@@ -2221,6 +2241,9 @@ return finish(false, 'noop');
 
         // 注意：不要在这里 render()，因为还没点击复选框
         // render() 会在从DOM读取实际状态后调用
+        const markdownRetentionPatch = typeof __tmProtectMarkdownMutationTaskFields === 'function'
+            ? __tmProtectMarkdownMutationTaskFields(id, task, { source: String(opts.source || 'set-done-markdown').trim() || 'set-done-markdown' })
+            : {};
 
         try {
             try { __tmMarkLocalDoneTxSuppressionForTask(task, [String(id || '').trim()]); } catch (e) {}
@@ -2424,6 +2447,7 @@ return finish(false, 'noop');
             state.flatTasks[id] = task;
             try {
                 __tmScheduleTaskSnapshotAfterLocalPatch?.(id, {
+                    ...((markdownRetentionPatch && typeof markdownRetentionPatch === 'object') ? markdownRetentionPatch : {}),
                     done: !!actualDone,
                     taskMarker: actualMarker,
                     markdown: task.markdown,
@@ -3867,6 +3891,9 @@ hint(`❌ 操作失败: ${e.message}`, 'error');
         if (!task) return false;
         const text = String(nextContent || '').trim();
         if (!text) return false;
+        const retentionPatch = typeof __tmProtectMarkdownMutationTaskFields === 'function'
+            ? __tmProtectMarkdownMutationTaskFields(tid, task, { source: 'content-patch-local' })
+            : {};
         const nextMarkdown = __tmBuildTaskMarkdownWithContent(task, text);
         task.content = text;
         task.markdown = nextMarkdown;
@@ -3877,7 +3904,10 @@ hint(`❌ 操作失败: ${e.message}`, 'error');
             }
         } catch (e) {}
         try {
-            __tmScheduleTaskSnapshotAfterLocalPatch?.(tid, { content: text }, {
+            __tmScheduleTaskSnapshotAfterLocalPatch?.(tid, {
+                ...((retentionPatch && typeof retentionPatch === 'object') ? retentionPatch : {}),
+                content: text,
+            }, {
                 ...((options && typeof options === 'object') ? options : {}),
                 source: String(options.source || 'content-patch-local').trim() || 'content-patch-local',
             });
@@ -3927,6 +3957,7 @@ hint(`❌ 操作失败: ${e.message}`, 'error');
         const tid = String(taskId || '').trim();
         const task = globalThis.__tmRuntimeState?.getTaskById?.(tid) || state.flatTasks?.[tid] || state.pendingInsertedTasks?.[tid] || null;
         if (!task) return false;
+        try { __tmProtectMarkdownMutationTaskFields?.(tid, task, { source: 'content-patch-rollback' }); } catch (e) {}
         const prev = (inversePatch && typeof inversePatch === 'object') ? inversePatch : {};
         if (Object.prototype.hasOwnProperty.call(prev, 'content')) task.content = String(prev.content || '').trim();
         if (Object.prototype.hasOwnProperty.call(prev, 'markdown')) task.markdown = String(prev.markdown || '').trim();
@@ -3952,6 +3983,7 @@ hint(`❌ 操作失败: ${e.message}`, 'error');
         const text = String(nextContent || '').trim();
         if (!text) throw new Error('任务内容不能为空');
 
+        try { __tmProtectMarkdownMutationTaskFields?.(tid, task, { source: 'content-patch-kernel' }); } catch (e) {}
         const nextMarkdown = __tmBuildTaskMarkdownWithContent(task, text);
 
         await API.updateBlock(tid, nextMarkdown);
@@ -4185,7 +4217,7 @@ hint(`❌ 操作失败: ${e.message}`, 'error');
             try { __tmRefreshReminderMarkForTask(taskId, 1200); } catch (e) {}
             return;
         }
-        hint('⚠ 未检测到提醒功能，请确认番茄插件已启用', 'warning');
+        hint('⚠ 未检测到底栏番茄钟插件，请前往集市安装底栏番茄钟插件', 'warning');
     };
 
     const __tmNormalizeTimerTaskName = (primary, fallback = '任务') => {
@@ -5875,6 +5907,9 @@ hint(`❌ 操作失败: ${e.message}`, 'error');
         const task = globalThis.__tmRuntimeState?.getFlatTaskById?.(tid) || state.flatTasks?.[tid] || null;
         if (!task) return false;
         const nextStatusPatch = (statusPatch && typeof statusPatch === 'object' && !Array.isArray(statusPatch)) ? statusPatch : null;
+        const retentionPatch = typeof __tmProtectMarkdownMutationTaskFields === 'function'
+            ? __tmProtectMarkdownMutationTaskFields(tid, task, { source: String(source || 'done-local').trim() || 'done-local' })
+            : {};
         if (nextStatusPatch && Object.keys(nextStatusPatch).length > 0) {
             __tmApplyAttrPatchLocally(tid, nextStatusPatch, {
                 render: false,
@@ -5894,6 +5929,7 @@ hint(`❌ 操作失败: ${e.message}`, 'error');
         try { MetaStore.set(tid, { done: !!done, content: task.content, taskMarker: nextMarker, markdown: task.markdown }); } catch (e) {}
         try {
             __tmScheduleTaskSnapshotAfterLocalPatch?.(tid, {
+                ...((retentionPatch && typeof retentionPatch === 'object') ? retentionPatch : {}),
                 done: !!done,
                 taskMarker: nextMarker,
                 markdown: task.markdown,

@@ -291,6 +291,7 @@
             const kanbanFillColumns = !!SettingsStore.data.kanbanFillColumns;
             const kanbanCardFields = new Set(__tmGetTaskCardFieldList('kanban'));
             const kanbanCollapsedColumnKeys = __tmKanbanGetCollapsedColumnSet();
+            const useKanbanCustomCardGesture = (typeof __tmIsMobileDevice === 'function' ? __tmIsMobileDevice() : __tmIsRuntimeMobileClient());
             const boardMode = __tmGetKanbanBoardMode();
             const headingMode = boardMode === 'heading';
             const timeBoardMode = boardMode === 'time';
@@ -322,6 +323,9 @@
                 const id = String(task?.id || '').trim();
                 if (id) filteredRawTaskById.set(id, task);
             });
+            const getKanbanParentTaskId = (task) => String(
+                task?.parentTaskId || task?.parentId || task?.parent_id || task?.parent_task_id || ''
+            ).trim();
             const getRawKanbanTaskById = (taskId) => {
                 const tid = String(taskId || '').trim();
                 if (!tid) return null;
@@ -330,9 +334,50 @@
                     || state.flatTasks?.[tid]
                     || null;
             };
+            const kanbanChildrenByParentId = new Map();
+            const kanbanChildrenSeenByParentId = new Map();
+            const pushKanbanChildForParent = (parentId, child) => {
+                const pid = String(parentId || '').trim();
+                const id = String(child?.id || '').trim();
+                if (!pid || !id) return;
+                let seen = kanbanChildrenSeenByParentId.get(pid);
+                if (!seen) {
+                    seen = new Set();
+                    kanbanChildrenSeenByParentId.set(pid, seen);
+                }
+                if (seen.has(id)) return;
+                seen.add(id);
+                if (!kanbanChildrenByParentId.has(pid)) kanbanChildrenByParentId.set(pid, []);
+                kanbanChildrenByParentId.get(pid).push(child);
+            };
+            const indexKanbanTaskChildren = (task) => {
+                if (!task || typeof task !== 'object') return;
+                const id = String(task?.id || '').trim();
+                const pid = getKanbanParentTaskId(task);
+                if (pid) pushKanbanChildForParent(pid, task);
+                if (!id) return;
+                (Array.isArray(task?.children) ? task.children : []).forEach((child) => {
+                    pushKanbanChildForParent(id, child);
+                });
+            };
+            Object.values((state.flatTasks && typeof state.flatTasks === 'object') ? state.flatTasks : {}).forEach(indexKanbanTaskChildren);
+            filteredRaw.forEach(indexKanbanTaskChildren);
+            const kanbanParentChildrenIndexedIds = new Set();
+            const getKanbanChildTasksByParentId = (parentId) => {
+                const pid = String(parentId || '').trim();
+                if (!pid) return [];
+                if (!kanbanParentChildrenIndexedIds.has(pid)) {
+                    kanbanParentChildrenIndexedIds.add(pid);
+                    const parent = getRawKanbanTaskById(pid);
+                    (Array.isArray(parent?.children) ? parent.children : []).forEach((child) => {
+                        pushKanbanChildForParent(pid, child);
+                    });
+                }
+                return kanbanChildrenByParentId.get(pid) || [];
+            };
             const isHiddenKanbanCompletedDescendant = (task) => {
                 const tid = String(task?.id || '').trim();
-                const parentId0 = String(task?.parentTaskId || '').trim();
+                const parentId0 = getKanbanParentTaskId(task);
                 if (!tid || !parentId0) return false;
                 const chain = [task];
                 const seen = new Set([tid]);
@@ -342,7 +387,7 @@
                     const parent = getRawKanbanTaskById(parentId);
                     if (!parent) break;
                     chain.push(parent);
-                    parentId = String(parent?.parentTaskId || '').trim();
+                    parentId = getKanbanParentTaskId(parent);
                 }
                 if (chain.length < 2) return false;
                 chain.reverse();
@@ -356,11 +401,59 @@
                 }
                 return false;
             };
-            const filtered = filteredRaw.filter((task) => {
+            const kanbanKeepSubtasksAttached = SettingsStore.data.kanbanPreventSubtaskSeparation === true;
+            const filteredBase = filteredRaw.filter((task) => {
                 if (!task || typeof task !== 'object') return false;
                 if (!state.showCompletedTasks && !!task.done) return false;
                 return !isHiddenKanbanCompletedDescendant(task);
             });
+            let filtered = filteredBase;
+            if (kanbanKeepSubtasksAttached) {
+                const filteredById = new Map();
+                filteredBase.forEach((task) => {
+                    const id = String(task?.id || '').trim();
+                    if (id) filteredById.set(id, task);
+                });
+                let hasInjectedDescendant = false;
+                const shouldInjectAttachedTask = (task) => {
+                    if (!task || typeof task !== 'object') return false;
+                    if (!state.showCompletedTasks && !!task.done) return false;
+                    if (isHiddenKanbanCompletedDescendant(task)) return false;
+                    const docId = String(task?.root_id || task?.docId || '').trim();
+                    if (!isAllTabsView && activeDocId && docId && docId !== activeDocId) return false;
+                    return true;
+                };
+                const injectDescendantTask = (task) => {
+                    const id = String(task?.id || '').trim();
+                    if (!id || filteredById.has(id)) return false;
+                    if (!shouldInjectAttachedTask(task)) return false;
+                    filteredById.set(id, task);
+                    hasInjectedDescendant = true;
+                    return true;
+                };
+                let descendantFrontier = filteredBase
+                    .map((task) => String(task?.id || '').trim())
+                    .filter(Boolean);
+                const visitedDescendantParentIds = new Set(descendantFrontier);
+                for (let depth = 0; depth < 8 && descendantFrontier.length > 0; depth++) {
+                    const nextFrontier = [];
+                    descendantFrontier.forEach((parentId) => {
+                        getKanbanChildTasksByParentId(parentId).forEach((child) => {
+                            const childId = String(child?.id || '').trim();
+                            if (!childId) return;
+                            injectDescendantTask(child);
+                            if (!visitedDescendantParentIds.has(childId)) {
+                                visitedDescendantParentIds.add(childId);
+                                nextFrontier.push(childId);
+                            }
+                        });
+                    });
+                    descendantFrontier = nextFrontier;
+                }
+                if (hasInjectedDescendant) {
+                    filtered = Array.from(filteredById.values());
+                }
+            }
             const filteredIdList = filtered.map(t => String(t?.id || '').trim()).filter(Boolean);
             const filteredIdSet = new Set(filteredIdList);
             const indexById = new Map(filteredIdList.map((id, i) => [id, i]));
@@ -369,13 +462,12 @@
                 const id = String(task?.id || '').trim();
                 if (id) filteredTaskById.set(id, task);
             });
-            const kanbanKeepSubtasksAttached = SettingsStore.data.kanbanPreventSubtaskSeparation === true;
             const getKanbanColumnTask = (task) => {
                 if (!kanbanKeepSubtasksAttached || !task) return task;
                 let current = task;
                 const seen = new Set([String(task?.id || '').trim()].filter(Boolean));
                 while (current) {
-                    const pid = String(current?.parentTaskId || '').trim();
+                    const pid = getKanbanParentTaskId(current);
                     if (!pid || seen.has(pid)) break;
                     const parent = filteredTaskById.get(pid);
                     if (!parent) break;
@@ -420,7 +512,7 @@
             const getDirectChildStats = (task) => {
                 const id = String(task?.id || '').trim();
                 if (id && directChildStatsMemo.has(id)) return directChildStatsMemo.get(id);
-                const allChildren = Array.isArray(task?.children) ? task.children : [];
+                const allChildren = id ? getKanbanChildTasksByParentId(id) : (Array.isArray(task?.children) ? task.children : []);
                 const stats = {
                     total: allChildren.length,
                     completed: allChildren.reduce((sum, child) => sum + ((child && child.done) ? 1 : 0), 0),
@@ -593,6 +685,29 @@
             const headingLevel = __tmNormalizeHeadingLevel(SettingsStore.data.taskHeadingLevel || 'h2');
             const headingLabelMap = { h1: '一级标题', h2: '二级标题', h3: '三级标题', h4: '四级标题', h5: '五级标题', h6: '六级标题' };
             const noHeadingLabel = `无${headingLabelMap[headingLevel] || '标题'}`;
+            const tomatoFocusTaskId = SettingsStore.data.enableTomatoIntegration ? String(state.timerFocusTaskId || '').trim() : '';
+            const tomatoFocusModeEnabled = tomatoFocusTaskId ? __tmIsTomatoFocusModeEnabled() : false;
+            const tomatoFocusDescendantMemo = new Map();
+            const hasTomatoFocusDescendant = (taskId) => {
+                const id = String(taskId || '').trim();
+                if (!id || !tomatoFocusTaskId) return false;
+                if (tomatoFocusDescendantMemo.has(id)) return tomatoFocusDescendantMemo.get(id);
+                const seen = new Set([id]);
+                const stack = getKanbanChildTasksByParentId(id).slice();
+                while (stack.length) {
+                    const child = stack.pop();
+                    const childId = String(child?.id || '').trim();
+                    if (!childId || seen.has(childId)) continue;
+                    if (childId === tomatoFocusTaskId) {
+                        tomatoFocusDescendantMemo.set(id, true);
+                        return true;
+                    }
+                    seen.add(childId);
+                    getKanbanChildTasksByParentId(childId).forEach((nextChild) => stack.push(nextChild));
+                }
+                tomatoFocusDescendantMemo.set(id, false);
+                return false;
+            };
             const pickDocColor = (docId) => {
                 const did = String(docId || '').trim();
                 if (!did || did === '__unknown__') return '#757575';
@@ -603,6 +718,7 @@
                 isCompact,
                 kanbanColW,
                 kanbanFillColumns,
+                useKanbanCustomCardGesture,
                 showCompletedTasks: !!state.showCompletedTasks,
                 showDoneCol,
                 boardMode,
@@ -616,10 +732,33 @@
                 groupByTime: !!state.groupByTime,
                 quadrantEnabled: !!state.quadrantEnabled,
                 kanbanCardFields: Array.from(kanbanCardFields).join('|'),
+                tomatoFocusTaskId,
+                tomatoFocusModeEnabled,
             });
-            if (__tmKanbanColsHtmlCache && __tmKanbanColsHtmlCache.key === kanbanColsCacheKey) {
+            const renderKanbanBoardNavHtml = (items) => {
+                const list = Array.isArray(items) ? items : [];
+                if (list.length <= 1) return '';
+                const buttons = list.map((item, index) => {
+                    const label = String(item?.label || '').trim() || `看板 ${index + 1}`;
+                    const title = String(item?.title || label).trim() || label;
+                    const color = String(item?.color || '').trim();
+                    const style = color ? ` style="--tm-kanban-board-nav-color:${esc(color)};"` : '';
+                    return `<button type="button" class="tm-kanban-board-nav__item" data-tm-kanban-nav-index="${index}" data-tm-kanban-col-key="${esc(String(item?.key || ''))}" role="tab" aria-selected="false" title="${esc(title)}"${style} onclick="tmKanbanBoardNavJump(event, ${index})">${esc(label)}</button>`;
+                }).join('');
                 return `
-                    <div class="tm-body tm-body--kanban${bodyAnimClass}${isCompact ? ' tm-body--kanban-compact' : ''}" ondragover="tmKanbanAutoScroll(event)">
+                    <nav class="tm-kanban-board-nav" role="tablist" aria-label="看板导航" onpointerdown="event.stopPropagation()" onclick="event.stopPropagation()">
+                        <div class="tm-kanban-board-nav__inner">
+                            <span class="tm-kanban-board-nav__indicator" aria-hidden="true"></span>
+                            ${buttons}
+                        </div>
+                    </nav>
+                `;
+            };
+            if (__tmKanbanColsHtmlCache && __tmKanbanColsHtmlCache.key === kanbanColsCacheKey) {
+                const cachedNavHtml = String(__tmKanbanColsHtmlCache.navHtml || '');
+                return `
+                    <div class="tm-body tm-body--kanban${bodyAnimClass}${isCompact ? ' tm-body--kanban-compact' : ''}${cachedNavHtml ? ' tm-body--kanban-has-board-nav' : ''}" ondragover="tmKanbanAutoScroll(event)">
+                        ${cachedNavHtml}
                         <div class="tm-kanban tm-kanban--clean${isCompact ? ' tm-kanban--compact' : ''}${kanbanFillColumns ? ' tm-kanban--fill' : ''}">
                             ${__tmKanbanColsHtmlCache.html}
                         </div>
@@ -853,7 +992,7 @@
                     : '';
                 const remarkHtml = kanbanCardFields.has('remark') ? __tmRenderTaskCardRemark(task) : '';
                 const multiSelectCls = __tmIsTaskMultiSelected(id) ? ' tm-task-row--multi-selected' : '';
-                const cardDragAttrs = __tmIsRuntimeMobileClient()
+                const cardDragAttrs = useKanbanCustomCardGesture
                     ? 'draggable="false"'
                     : `draggable="true" ondragstart="tmKanbanDragStart(event, '${id}')" ondragend="tmKanbanDragEnd(event, '${id}')"`;
                 const cardPointerDownAttr = `onpointerdown="tmKanbanCardPointerDown(event, '${id}')"`;
@@ -864,12 +1003,20 @@
                 const completedTodayBadgeHtml = inCompletedRootGroup === true
                     ? __tmRenderCompletedTodayBadge(task, { todayKey: completedTodayKey })
                     : '';
-                const cardClass = `tm-kanban-card${isSub ? ' tm-kanban-card--sub tm-kanban-subtask-row' : ''}${isChildRoot ? ' tm-kanban-card--childroot' : ''}${isParent ? ' tm-kanban-card--parent' : ''}${task?.done ? ' tm-kanban-card--done' : ''}${remarkHtml ? ' tm-kanban-card--has-remark' : ''}${multiSelectCls}`;
+                const hasFocusDescendant = tomatoFocusTaskId && id !== tomatoFocusTaskId && hasTomatoFocusDescendant(id);
+                const tomatoFocusCls = tomatoFocusTaskId
+                    ? (tomatoFocusTaskId === id
+                        ? ' tm-timer-focus'
+                        : (tomatoFocusModeEnabled
+                            ? (hasFocusDescendant ? ' tm-timer-focus-ancestor' : ' tm-timer-dim')
+                            : ''))
+                    : '';
+                const cardClass = `tm-kanban-card${isSub ? ' tm-kanban-card--sub tm-kanban-subtask-row' : ''}${isChildRoot ? ' tm-kanban-card--childroot' : ''}${isParent ? ' tm-kanban-card--parent' : ''}${task?.done ? ' tm-kanban-card--done' : ''}${remarkHtml ? ' tm-kanban-card--has-remark' : ''}${multiSelectCls}${tomatoFocusCls}`;
                 const cardAttrs = `data-id="${id}" ${cardDragAttrs} ${cardPointerDownAttr} ${cardClickAttr} ${cardContextMenuAttr} ondblclick="tmKanbanCardDblClick('${id}', event)"`;
                 const checkboxHtml = __tmRenderTaskCheckboxWrap(id, task, {
                     checked: task?.done,
                     extraClass: isGloballyLocked ? 'tm-operating' : '',
-                    collapsed: !!(isParent && totalChildren > 0 && __tmKanbanGetCollapsedSet().has(id)),
+                    collapsed: !!(isParent && totalChildren > 0 && __tmKanbanGetCollapsedSet().has(id) && !hasFocusDescendant),
                 });
                 const titleInnerHtml = `${API.renderTaskContentHtml(task.markdown, content || '(无内容)')}${__tmRenderGlobalCollectDocTaskInlineIcon(task)}${completedTodayBadgeHtml}${__tmRenderRecurringTaskInlineIcon(task)}${__tmRenderRecurringInstanceBadge(task, { className: 'tm-recurring-instance-badge--inline' })}`;
                 const titleAttrs = `onclick="tmJumpToTask('${id}', event)"${__tmBuildTooltipAttrs(String(content || '(无内容)').trim() || '(无内容)', { side: 'bottom', ariaLabel: false })} style="${__tmBuildTaskTitleOpacityStyle(task)}"`;
@@ -878,7 +1025,7 @@
                 const subtaskMetaHtml = metaParts.length ? `<div class="tm-kanban-subtask-meta">${metaParts.join('')}</div>` : '';
                 const completedChildren = Number(directChildStats.completed) || 0;
                 const childProgressPercent = totalChildren > 0 ? Math.round((completedChildren / totalChildren) * 100) : 0;
-                const isChildrenCollapsed = !!(totalChildren > 0 && __tmKanbanGetCollapsedSet().has(id));
+                const isChildrenCollapsed = !!(totalChildren > 0 && __tmKanbanGetCollapsedSet().has(id) && !hasFocusDescendant);
                 const subtaskToggleTitle = isChildrenCollapsed ? '展开子任务' : '折叠子任务';
                 const subtaskCountButtonHtml = `<button class="tm-badge tm-badge--count tm-kanban-subtasks-count" type="button" onclick="tmKanbanToggleCollapse('${id}', event)" title="${subtaskToggleTitle}">${completedChildren}/${totalChildren}</button>`;
                 const subtaskToggleControlHtml = toggleHtml
@@ -942,6 +1089,7 @@
                 `;
             };
 
+            const kanbanBoardNavItems = [];
             const colsHtml = cols.map(c => {
                 const list0 = tasksByStatus.get(c.id) || [];
                 const isDoneCol = String(c?.id || '').trim() === '__done__';
@@ -954,18 +1102,44 @@
                     const id = String(t?.id || '').trim();
                     if (id) map.set(id, t);
                 });
+                const nearestMappedAncestorIdByTaskId = new Map();
+                const getNearestMappedAncestorId = (task) => {
+                    const id = String(task?.id || '').trim();
+                    if (id && nearestMappedAncestorIdByTaskId.has(id)) {
+                        return nearestMappedAncestorIdByTaskId.get(id);
+                    }
+                    let result = '';
+                    if (!kanbanKeepSubtasksAttached) {
+                        const directParentId = getKanbanParentTaskId(task);
+                        result = directParentId && map.has(directParentId) ? directParentId : '';
+                        if (id) nearestMappedAncestorIdByTaskId.set(id, result);
+                        return result;
+                    }
+                    const seen = new Set([id].filter(Boolean));
+                    let pid = getKanbanParentTaskId(task);
+                    while (pid && !seen.has(pid)) {
+                        seen.add(pid);
+                        if (map.has(pid)) {
+                            result = pid;
+                            break;
+                        }
+                        const parent = getRawKanbanTaskById(pid);
+                        if (!parent) break;
+                        pid = getKanbanParentTaskId(parent);
+                    }
+                    if (id) nearestMappedAncestorIdByTaskId.set(id, result);
+                    return result;
+                };
                 const childrenByParent = new Map();
                 list0.forEach(t => {
                     const id = String(t?.id || '').trim();
-                    const pid = String(t?.parentTaskId || '').trim();
+                    const pid = getNearestMappedAncestorId(t);
                     if (!id || !pid) return;
-                    if (!map.has(pid)) return;
                     if (!childrenByParent.has(pid)) childrenByParent.set(pid, []);
                     childrenByParent.get(pid).push(t);
                 });
                 let roots = list0.filter(t => {
-                    const pid = String(t?.parentTaskId || '').trim();
-                    return !pid || !map.has(pid);
+                    return !getNearestMappedAncestorId(t);
                 });
                 const headingDoneTailEnabled = headingMode && !isDoneCol;
                 const doneRootSplit = headingDoneTailEnabled
@@ -1006,7 +1180,7 @@
 
                 const renderTree = (task, depthInCol, inheritedHideCompleted = false, inCompletedRootGroup = false) => {
                     const id = String(task?.id || '').trim();
-                    const pid = String(task?.parentTaskId || '').trim();
+                    const pid = getKanbanParentTaskId(task);
                     const parentInCol = !!(pid && map.has(pid));
                     const parent = pid ? state.flatTasks[pid] : null;
                     const hideCompletedDescendants = __tmResolveHideCompletedDescendantsFlag(task, inheritedHideCompleted);
@@ -1029,7 +1203,7 @@
                         }
                     }
                     const childList = (childrenByParent.get(id) || []).filter((child) => __tmShouldKeepChildTaskVisible(task, child, inheritedHideCompleted));
-                    const collapsed = childList.length ? __tmKanbanGetCollapsedSet().has(id) : false;
+                    const collapsed = childList.length ? (__tmKanbanGetCollapsedSet().has(id) && !hasTomatoFocusDescendant(id)) : false;
                     const toggleHtml = childList.length
                         ? `<button class="tm-kanban-subtask-toggle tm-kanban-subtasks-chevron" onclick="tmKanbanToggleCollapse('${id}', event)" title="${collapsed ? '展开子任务' : '折叠子任务'}"><svg class="tm-tree-toggle-icon" viewBox="0 0 16 16" width="12" height="12" style="transform:rotate(${collapsed ? '0deg' : '90deg'});"><path d="M6 4l4 4-4 4" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg></button>`
                         : '';
@@ -1463,7 +1637,7 @@
                     return items.map((task) => {
                         const id = String(task?.id || '').trim();
                         if (!id) return '';
-                        const pid = String(task?.parentTaskId || '').trim();
+                        const pid = getKanbanParentTaskId(task);
                         const parent = pid ? state.flatTasks?.[pid] : null;
                         const parentTxt = parent ? String(parent?.content || '').trim() : '';
                         return renderCard(
@@ -1635,6 +1809,14 @@
                 const titleTextHtml = canOpenDocFromTitle
                     ? `<button type="button" class="tm-kanban-col-title-text tm-kanban-col-title-text--link" title="点击跳转至文档：${esc(c.name)}" onclick="event.preventDefault();event.stopPropagation();tmOpenDocById('${escSq(docIdForTitle)}');">${titleContentHtml}</button>`
                     : `<span class="tm-kanban-col-title-text" title="${esc(c.name)}">${titleContentHtml}</span>`;
+                const navLabel = String(isDoneCol ? '已完成' : (c?.name || title || '')).trim();
+                kanbanBoardNavItems.push({
+                    key: columnKey,
+                    label: navLabel,
+                    title: navLabel,
+                    color: colTitleColor,
+                    count,
+                });
                 const headerActionsHtml = `
                     <div class="tm-kanban-col-header-actions" onclick="event.stopPropagation()">
                         ${canQuickAddToDoc
@@ -1744,10 +1926,12 @@
                     </div>
                 `;
             }).join('');
-            __tmKanbanColsHtmlCache = { key: kanbanColsCacheKey, html: colsHtml };
+            const kanbanBoardNavHtml = renderKanbanBoardNavHtml(kanbanBoardNavItems);
+            __tmKanbanColsHtmlCache = { key: kanbanColsCacheKey, html: colsHtml, navHtml: kanbanBoardNavHtml };
 
             return `
-                <div class="tm-body tm-body--kanban${bodyAnimClass}${isCompact ? ' tm-body--kanban-compact' : ''}" ondragover="tmKanbanAutoScroll(event)">
+                <div class="tm-body tm-body--kanban${bodyAnimClass}${isCompact ? ' tm-body--kanban-compact' : ''}${kanbanBoardNavHtml ? ' tm-body--kanban-has-board-nav' : ''}" ondragover="tmKanbanAutoScroll(event)">
+                    ${kanbanBoardNavHtml}
                     <div class="tm-kanban tm-kanban--clean${isCompact ? ' tm-kanban--compact' : ''}${kanbanFillColumns ? ' tm-kanban--fill' : ''}">
                         ${colsHtml}
                     </div>

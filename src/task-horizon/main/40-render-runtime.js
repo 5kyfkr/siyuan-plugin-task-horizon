@@ -33,11 +33,22 @@ return;
         const isSnapshotFirstRenderFastPath = !!state.__tmSnapshotFirstRenderLimitMode;
         const deferSnapshotLayoutWork = (fn, delayMs = 0) => {
             if (typeof fn !== 'function') return false;
-            if (!isSnapshotFirstRenderFastPath) return false;
+            const waitForInteraction = (typeof __tmGetHighPriorityInteractionWaitMs === 'function')
+                ? __tmGetHighPriorityInteractionWaitMs(24)
+                : 0;
+            if (!isSnapshotFirstRenderFastPath && !(waitForInteraction > 0)) return false;
             const run = () => {
+                const waitMs = (typeof __tmGetHighPriorityInteractionWaitMs === 'function')
+                    ? __tmGetHighPriorityInteractionWaitMs(24)
+                    : 0;
+                if (waitMs > 0) {
+                    try { setTimeout(run, waitMs); } catch (e) {}
+                    return;
+                }
                 try { requestAnimationFrame(fn); } catch (e) { try { fn(); } catch (e2) {} }
             };
-            try { setTimeout(run, Math.max(0, Number(delayMs) || 0)); } catch (e) { run(); }
+            const delay = Math.max(Number(waitForInteraction) || 0, Math.max(0, Number(delayMs) || 0));
+            try { setTimeout(run, delay); } catch (e) { run(); }
             return true;
         };
         const runFlipAnimationAfterRender = () => {
@@ -1692,6 +1703,7 @@ return;
                 ` : ''}
             </div>
         `;
+        try { __tmBindPluginHostGestureIsolation(state.modal); } catch (e) {}
         try { if (renderMode === 'kanban') __tmBindKanbanPan(state.modal); } catch (e) {}
         try { if (renderMode === 'whiteboard') __tmBindWhiteboardViewportInput(state.modal); } catch (e) {}
         const finalMountRoot = nextMountRoot || __tmGetMountRoot();
@@ -1702,7 +1714,7 @@ return;
             __tmPruneMountedManagerShells(finalMountRoot, keepMountedShell);
         } catch (e) {}
         finalMountRoot.appendChild(state.modal);
-        try { if (renderMode === 'kanban') __tmScheduleKanbanScrollableColumnInsets(state.modal); } catch (e) {}
+        try { if (renderMode === 'kanban') __tmScheduleKanbanBottomNavAvoidance(state.modal); } catch (e) {}
         rememberViewDomRenderSignature();
         try { __tmSyncInlineLoadingOverlay(state.modal); } catch (e) {}
         const bindDeferredNonCriticalShellWork = () => {
@@ -1788,7 +1800,9 @@ return;
             try { __tmApplyTodayScheduledTaskNameMarks(state.modal); } catch (e) {}
             try { __tmScheduleTodayScheduledTaskNameMarksRefresh(state.modal); } catch (e) {}
         };
-        if (!deferSnapshotLayoutWork(bindDeferredTaskNameMarks, 220)) bindDeferredTaskNameMarks();
+        if (!deferSnapshotLayoutWork(bindDeferredTaskNameMarks, 220)) {
+            bindDeferredTaskNameMarks();
+        }
         try {
             if (renderMode === 'calendar') {
                 const el = state.modal.querySelector('#tmCalendarRoot');
@@ -2174,8 +2188,34 @@ return;
                     }));
                 } else if (isKanban) {
                     const kbBody = state.modal.querySelector('.tm-body.tm-body--kanban');
-                    const apply = () => {
-                        try { if (kbBody) kbBody.scrollLeft = kanbanLeft; } catch (e) {}
+                    const isKanbanSnapHost = !!(kbBody instanceof HTMLElement && __tmIsKanbanColumnSnapMode(kbBody));
+                    const pendingSnapColumnKey = String(state.__tmKanbanPendingSnapColumnKey || '').trim();
+                    if (pendingSnapColumnKey) {
+                        try { delete state.__tmKanbanPendingSnapColumnKey; } catch (e) { state.__tmKanbanPendingSnapColumnKey = ''; }
+                    }
+                    const applyHorizontal = (options = {}) => {
+                        try {
+                            if (kbBody) {
+                                __tmSyncKanbanSnapMetrics(kbBody, { force: true });
+                                const targetColumnLeft = pendingSnapColumnKey
+                                    ? __tmGetKanbanColumnSnapLeftByKey(kbBody, pendingSnapColumnKey)
+                                    : NaN;
+                                if (Number.isFinite(targetColumnLeft)) {
+                                    kbBody.scrollLeft = targetColumnLeft;
+                                    if (options.snap !== false) {
+                                        __tmSnapKanbanToNearestColumn(kbBody, { behavior: 'auto', targetLeft: targetColumnLeft });
+                                    }
+                                    try { __tmSyncKanbanBoardNav(kbBody, { force: true }); } catch (e2) {}
+                                    return;
+                                }
+                                kbBody.scrollLeft = kanbanLeft;
+                                if (options.snap !== false) {
+                                    __tmSnapKanbanToNearestColumn(kbBody, { behavior: 'auto' });
+                                }
+                            }
+                        } catch (e) {}
+                    };
+                    const applyColumnScrolls = () => {
                         try {
                             state.modal.querySelectorAll('.tm-kanban-col').forEach((col) => {
                                 const colKey = __tmGetKanbanColScrollKey(col);
@@ -2185,15 +2225,16 @@ return;
                                 const status = String(col.getAttribute('data-status') || '').trim();
                                 const legacyKey = status || '';
                                 const top = pickNum(kanbanCols[colKey], pickNum(kanbanCols[legacyKey], 0));
+                                const currentTop = Number(colBody.scrollTop || 0);
+                                if (isKanbanSnapHost && !state.__tmKanbanForceRestoreColScrollOnce && Math.abs(currentTop) > 1 && Math.abs(currentTop - top) > 1) return;
                                 colBody.scrollTop = top;
                             });
                         } catch (e) {}
                     };
-                    apply();
-                    try { __tmRefreshKanbanDetailInPlace(state.modal, { scrollSnapshot: savedKanbanDetailScrollSnapshot, source: 'render-kanban-post-bind' }); } catch (e) {}
-                    requestAnimationFrame(() => requestAnimationFrame(apply));
-                    requestAnimationFrame(() => requestAnimationFrame(() => {
-                        try { __tmRefreshKanbanDetailInPlace(state.modal, { scrollSnapshot: savedKanbanDetailScrollSnapshot, source: 'render-kanban-post-raf' }); } catch (e) {}
+                    const refreshKanbanDetail = (source) => {
+                        try { __tmRefreshKanbanDetailInPlace(state.modal, { scrollSnapshot: savedKanbanDetailScrollSnapshot, source }); } catch (e) {}
+                    };
+                    const finishKanbanRender = () => {
                         runFlipAnimationAfterRender();
                         if (useSoftSwap) {
                             try { state.modal.style.opacity = '1'; } catch (e) {}
@@ -2202,7 +2243,27 @@ return;
                                 setTimeout(() => { try { prevModalEl.remove(); } catch (e2) {} }, 340);
                             }
                         }
-                    }));
+                    };
+                    if (isKanbanSnapHost) {
+                        applyHorizontal({ snap: Math.abs(Number(kanbanLeft) || 0) > 0.5 });
+                        applyColumnScrolls();
+                        try { state.__tmKanbanForceRestoreColScrollOnce = false; } catch (e) {}
+                        refreshKanbanDetail('render-kanban-post-bind');
+                        requestAnimationFrame(() => requestAnimationFrame(finishKanbanRender));
+                    } else {
+                        const apply = () => {
+                            applyHorizontal({ snap: true });
+                            applyColumnScrolls();
+                            try { state.__tmKanbanForceRestoreColScrollOnce = false; } catch (e) {}
+                        };
+                        apply();
+                        refreshKanbanDetail('render-kanban-post-bind');
+                        requestAnimationFrame(() => requestAnimationFrame(apply));
+                        requestAnimationFrame(() => requestAnimationFrame(() => {
+                            refreshKanbanDetail('render-kanban-post-raf');
+                            finishKanbanRender();
+                        }));
+                    }
                 } else if (isWhiteboard) {
                     const sidebar = state.modal.querySelector('.tm-whiteboard-sidebar');
                     const body = state.modal.querySelector('#tmWhiteboardBody');
@@ -2595,6 +2656,46 @@ return;
         return hover instanceof Element ? hover : null;
     }
 
+    function __tmGetKanbanRuntimeColScrollKey(colEl) {
+        if (!(colEl instanceof Element)) return '';
+        const status = String(colEl.getAttribute('data-status') || '').trim();
+        if (status) return `status:${status}`;
+        const kind = String(colEl.getAttribute('data-kind') || '').trim();
+        const time = String(colEl.getAttribute('data-time') || '').trim();
+        if (kind === 'time' || time) return `time:${time || kind}`;
+        const doc = String(colEl.getAttribute('data-doc') || '').trim();
+        const heading = String(colEl.getAttribute('data-heading') || '').trim();
+        if (kind || doc || heading) return `kind:${kind}|doc:${doc}|heading:${heading}`;
+        return '';
+    }
+
+    function __tmRememberKanbanViewScroll(modalEl) {
+        const modal = modalEl instanceof Element ? modalEl : state.modal;
+        const body = modal?.querySelector?.('.tm-body.tm-body--kanban');
+        if (!(body instanceof HTMLElement)) return false;
+        const cols = {};
+        try {
+            body.querySelectorAll('.tm-kanban-col').forEach((col) => {
+                const colKey = __tmGetKanbanRuntimeColScrollKey(col);
+                if (!colKey) return;
+                const colBody = col.querySelector('.tm-kanban-col-body');
+                if (!(colBody instanceof HTMLElement)) return;
+                cols[colKey] = Number(colBody.scrollTop || 0);
+                const status = String(col.getAttribute('data-status') || '').trim();
+                if (status) cols[status] = cols[colKey];
+            });
+        } catch (e) {}
+        try {
+            state.viewScroll = state.viewScroll && typeof state.viewScroll === 'object' ? state.viewScroll : {};
+            state.viewScroll.kanban = {
+                left: Number(body.scrollLeft || 0) || 0,
+                cols,
+            };
+            state.__tmKanbanForceRestoreColScrollOnce = true;
+        } catch (e) {}
+        return true;
+    }
+
     function __tmKanbanGetCollapsedSet() {
         if (!(state.__tmKanbanCollapsedIds instanceof Set)) state.__tmKanbanCollapsedIds = new Set();
         return state.__tmKanbanCollapsedIds;
@@ -2634,11 +2735,12 @@ return;
         } catch (e) {}
         const tid = String(id || '').trim();
         if (!tid) return;
+        try { __tmRememberKanbanViewScroll(state.modal); } catch (e) {}
         const s = __tmKanbanGetCollapsedSet();
         if (s.has(tid)) s.delete(tid);
         else s.add(tid);
         __tmKanbanPersistCollapsed();
-        render();
+        if (!__tmRerenderKanbanInPlace(state.modal)) render();
     };
 
     window.tmKanbanToggleColumnCollapse = function(key, ev) {
@@ -2651,6 +2753,7 @@ return;
         const s = __tmKanbanGetCollapsedColumnSet();
         if (s.has(colKey)) s.delete(colKey);
         else s.add(colKey);
+        state.__tmKanbanPendingSnapColumnKey = colKey;
         __tmKanbanPersistCollapsedColumns();
         render();
     };
@@ -2684,18 +2787,64 @@ return;
         __tmToggleTaskMultiSelection(tid);
     };
 
+    function __tmKanbanGetParentTaskId(task) {
+        return String(task?.parentTaskId || task?.parentId || task?.parent_id || task?.parent_task_id || '').trim();
+    }
+
+    function __tmKanbanBuildChildTasksByParentId() {
+        const childrenByParentId = new Map();
+        const seenByParentId = new Map();
+        const pushChild = (parentId, child) => {
+            const pid = String(parentId || '').trim();
+            const id = String(child?.id || '').trim();
+            if (!pid || !id) return;
+            let seen = seenByParentId.get(pid);
+            if (!seen) {
+                seen = new Set();
+                seenByParentId.set(pid, seen);
+            }
+            if (seen.has(id)) return;
+            seen.add(id);
+            if (!childrenByParentId.has(pid)) childrenByParentId.set(pid, []);
+            childrenByParentId.get(pid).push(child);
+        };
+        const indexTask = (task) => {
+            if (!task || typeof task !== 'object') return;
+            const id = String(task?.id || '').trim();
+            const pid = __tmKanbanGetParentTaskId(task);
+            if (pid) pushChild(pid, task);
+            if (!id) return;
+            (Array.isArray(task?.children) ? task.children : []).forEach((child) => {
+                pushChild(id, child);
+            });
+        };
+        Object.values((state.flatTasks && typeof state.flatTasks === 'object') ? state.flatTasks : {}).forEach(indexTask);
+        try {
+            const runtimeTasks = globalThis.__tmRuntimeState?.getFlatTasks?.();
+            Object.values((runtimeTasks && typeof runtimeTasks === 'object') ? runtimeTasks : {}).forEach(indexTask);
+        } catch (e) {}
+        return childrenByParentId;
+    }
+
+    function __tmKanbanGetChildTasksByParentId(parentId, childrenByParentId) {
+        const pid = String(parentId || '').trim();
+        if (!pid) return [];
+        const map = childrenByParentId instanceof Map ? childrenByParentId : __tmKanbanBuildChildTasksByParentId();
+        return map.get(pid) || [];
+    }
+
     function __tmKanbanCollectDescendantIds(rootId) {
         const id0 = String(rootId || '').trim();
         if (!id0) return [];
         const out = [];
         const seen = new Set();
+        const childrenByParentId = __tmKanbanBuildChildTasksByParentId();
         const walk = (id) => {
             const tid = String(id || '').trim();
             if (!tid || seen.has(tid)) return;
             seen.add(tid);
             out.push(tid);
-            const t = globalThis.__tmRuntimeState?.getFlatTaskById?.(tid) || state.flatTasks?.[tid];
-            const kids = Array.isArray(t?.children) ? t.children : [];
+            const kids = __tmKanbanGetChildTasksByParentId(tid, childrenByParentId);
             kids.forEach(k => walk(k?.id));
         };
         walk(id0);
@@ -2733,6 +2882,7 @@ return;
         if (!id0) return [];
         const out = [];
         const seen = new Set();
+        const childrenByParentId = __tmKanbanBuildChildTasksByParentId();
         const walk = (id) => {
             const tid = String(id || '').trim();
             if (!tid || seen.has(tid)) return;
@@ -2741,7 +2891,7 @@ return;
             const task = __tmKanbanGetTaskById(tid);
             const parentStatusKey = __tmKanbanResolveTaskStatusColumnKey(task);
             if (!parentStatusKey) return;
-            const kids = Array.isArray(task?.children) ? task.children : [];
+            const kids = __tmKanbanGetChildTasksByParentId(tid, childrenByParentId);
             kids.forEach((child) => {
                 const childId = String(child?.id || '').trim();
                 if (!childId) return;
@@ -3172,6 +3322,24 @@ return;
         try { window.tmKanbanDrop(ev); } catch (e) {}
     };
 
+    function __tmIsPointOverCalendarSideDock(clientX, clientY, target) {
+        const modal = state.modal;
+        if (!(modal instanceof Element)) return false;
+        const targetEl = target instanceof Element ? target : null;
+        if (targetEl?.closest?.('.tm-calendar-side-dock, .tm-calendar-side-dock-resizer, #tmCalendarSideDockPanel, #tmCalendarSideDockTimeline')) return true;
+        const x = Number(clientX);
+        const y = Number(clientY);
+        if (!Number.isFinite(x) || !Number.isFinite(y)) return false;
+        const docks = modal.querySelectorAll('.tm-calendar-side-dock, .tm-calendar-side-dock-resizer');
+        for (const dock of docks) {
+            if (!(dock instanceof HTMLElement)) continue;
+            const rect = dock.getBoundingClientRect();
+            if (!(rect.width > 0 && rect.height > 0)) continue;
+            if (x >= rect.left && x <= rect.right && y >= rect.top && y <= rect.bottom) return true;
+        }
+        return false;
+    }
+
     function __tmKanbanAutoScrollByPoint(clientX, clientY, target) {
         const modal = state.modal;
         if (!modal) return false;
@@ -3181,6 +3349,7 @@ return;
         const x = Number(clientX);
         const y = Number(clientY);
         if (!Number.isFinite(x) || !Number.isFinite(y)) return false;
+        if (__tmIsPointOverCalendarSideDock(x, y, target)) return false;
         const edge = 48;
         const speed = 18;
         const verticalBand = edge + 16;
@@ -3308,22 +3477,1064 @@ return;
         try { meta.ghost.style.transform = `translate(${left}px, ${top}px)`; } catch (e) {}
     }
 
+    function __tmSetKanbanScrollLeftRaf(bodyEl, nextLeft) {
+        if (!(bodyEl instanceof HTMLElement)) return;
+        const value = Number(nextLeft);
+        if (!Number.isFinite(value)) return;
+        const snapRaf = Number(bodyEl.__tmKanbanSnapAnimRaf) || 0;
+        if (snapRaf) {
+            try { cancelAnimationFrame(snapRaf); } catch (e) {}
+            bodyEl.__tmKanbanSnapAnimRaf = 0;
+            bodyEl.__tmKanbanSnapAnimToken = '';
+        }
+        bodyEl.__tmKanbanPendingScrollLeft = value;
+        if (Number(bodyEl.__tmKanbanScrollLeftRaf) > 0) return;
+        try {
+            bodyEl.__tmKanbanScrollLeftRaf = requestAnimationFrame(() => {
+                bodyEl.__tmKanbanScrollLeftRaf = 0;
+                const pending = Number(bodyEl.__tmKanbanPendingScrollLeft);
+                bodyEl.__tmKanbanPendingScrollLeft = NaN;
+                if (Number.isFinite(pending)) bodyEl.scrollLeft = pending;
+            });
+        } catch (e) {
+            bodyEl.__tmKanbanScrollLeftRaf = 0;
+            bodyEl.__tmKanbanPendingScrollLeft = NaN;
+            bodyEl.scrollLeft = value;
+        }
+    }
+
+    function __tmFlushKanbanScrollLeftRaf(bodyEl) {
+        if (!(bodyEl instanceof HTMLElement)) return;
+        const rafId = Number(bodyEl.__tmKanbanScrollLeftRaf) || 0;
+        if (rafId) {
+            try { cancelAnimationFrame(rafId); } catch (e) {}
+        }
+        bodyEl.__tmKanbanScrollLeftRaf = 0;
+        const pending = Number(bodyEl.__tmKanbanPendingScrollLeft);
+        bodyEl.__tmKanbanPendingScrollLeft = NaN;
+        if (Number.isFinite(pending)) bodyEl.scrollLeft = pending;
+    }
+
+    function __tmIsKanbanColumnSnapMode(bodyEl) {
+        if (!(bodyEl instanceof HTMLElement)) return false;
+        const modal = bodyEl.closest?.('.tm-modal') || null;
+        if (!(modal instanceof Element)) return false;
+        return modal.classList.contains('tm-modal--mobile')
+            || modal.classList.contains('tm-modal--dock')
+            || !!modal.closest?.('[data-tm-host-mode="dock"]');
+    }
+
+    function __tmStartKanbanBootWindow(bodyEl) {
+        if (!(bodyEl instanceof HTMLElement)) return false;
+        if (!__tmIsKanbanColumnSnapMode(bodyEl)) return false;
+        try { bodyEl.classList.add('tm-body--kanban-booting'); } catch (e) {}
+        const timer = Number(bodyEl.__tmKanbanBootTimer) || 0;
+        if (timer) {
+            try {
+                if (String(bodyEl.__tmKanbanBootTimerType || '') === 'idle' && typeof cancelIdleCallback === 'function') {
+                    cancelIdleCallback(timer);
+                } else {
+                    clearTimeout(timer);
+                }
+            } catch (e) {}
+        }
+        const finish = () => {
+            bodyEl.__tmKanbanBootTimer = 0;
+            bodyEl.__tmKanbanBootTimerType = '';
+            try {
+                requestAnimationFrame(() => {
+                    try { bodyEl.classList.remove('tm-body--kanban-booting'); } catch (e2) {}
+                });
+            } catch (e) {
+                try { bodyEl.classList.remove('tm-body--kanban-booting'); } catch (e2) {}
+            }
+        };
+        try {
+            bodyEl.__tmKanbanBootTimer = setTimeout(() => {
+                bodyEl.__tmKanbanBootTimer = 0;
+                bodyEl.__tmKanbanBootTimerType = '';
+                if (typeof requestIdleCallback === 'function') {
+                    bodyEl.__tmKanbanBootTimer = requestIdleCallback(finish, { timeout: 700 });
+                    bodyEl.__tmKanbanBootTimerType = 'idle';
+                    return;
+                }
+                finish();
+            }, 700);
+            bodyEl.__tmKanbanBootTimerType = 'timeout';
+        } catch (e) {
+            try {
+                bodyEl.__tmKanbanBootTimer = setTimeout(finish, 900);
+                bodyEl.__tmKanbanBootTimerType = 'timeout';
+            } catch (e2) { finish(); }
+        }
+        return true;
+    }
+
+    function __tmSetKanbanSnapPanActive(bodyEl, active) {
+        if (!(bodyEl instanceof HTMLElement)) return;
+        bodyEl.__tmKanbanSnapPanActive = !!active;
+        try {
+            if (__tmIsKanbanColumnSnapMode(bodyEl)) {
+                if (!active) bodyEl.classList.remove('tm-body--kanban-pan-active');
+                return;
+            }
+            bodyEl.classList.toggle('tm-body--kanban-pan-active', !!active);
+        } catch (e) {}
+    }
+
+    function __tmIsKanbanSnapPanActive(bodyEl) {
+        if (!(bodyEl instanceof HTMLElement)) return false;
+        return !!bodyEl.__tmKanbanSnapPanActive || bodyEl.classList.contains('tm-body--kanban-pan-active');
+    }
+
+    function __tmIsKanbanStartupInputActive(bodyEl, options = {}) {
+        if (!(bodyEl instanceof HTMLElement)) return false;
+        if (!__tmIsKanbanColumnSnapMode(bodyEl)) return false;
+        const includeHighPriority = options?.includeHighPriority !== false;
+        if (includeHighPriority) {
+            try {
+                if (typeof __tmGetHighPriorityInteractionWaitMs === 'function' && __tmGetHighPriorityInteractionWaitMs(0) > 0) return true;
+            } catch (e) {}
+        }
+        return !!bodyEl.__tmKanbanSnapPointerActive
+            || __tmIsKanbanSnapPanActive(bodyEl)
+            || typeof state.__tmKanbanCardGestureCleanup === 'function';
+    }
+
+    function __tmDeferKanbanStartupWorkDuringInput(bodyEl, timerKey, work, delayMs = 120, options = {}) {
+        if (!(bodyEl instanceof HTMLElement) || typeof work !== 'function') return false;
+        if (!__tmIsKanbanStartupInputActive(bodyEl, options)) return false;
+        const key = String(timerKey || '__tmKanbanStartupDeferredTimer');
+        if (Number(bodyEl[key]) > 0) return true;
+        const delay = Math.max(72, Math.min(260, Number(delayMs) || 120));
+        try {
+            bodyEl[key] = setTimeout(() => {
+                bodyEl[key] = 0;
+                if (bodyEl.isConnected === false) return;
+                if (__tmIsKanbanStartupInputActive(bodyEl, options)) {
+                    __tmDeferKanbanStartupWorkDuringInput(bodyEl, key, work, delay, options);
+                    return;
+                }
+                try { work(); } catch (e) {}
+            }, delay);
+        } catch (e) {
+            bodyEl[key] = 0;
+            return false;
+        }
+        return true;
+    }
+
+    function __tmSyncKanbanSnapMetrics(bodyEl, options = {}) {
+        if (!(bodyEl instanceof HTMLElement)) return false;
+        const force = !!options?.force;
+        const enabled = __tmIsKanbanColumnSnapMode(bodyEl);
+        try { bodyEl.classList.toggle('tm-body--kanban-snap', enabled); } catch (e) {}
+        if (!enabled) {
+            try { bodyEl.style.removeProperty('--tm-kanban-snap-col-width'); } catch (e) {}
+            try { delete bodyEl.__tmKanbanSnapMetricsKey; } catch (e) {}
+            try { delete bodyEl.__tmKanbanSnapGeometryKey; } catch (e) {}
+            try { delete bodyEl.__tmKanbanSnapGeometry; } catch (e) {}
+            try { delete bodyEl.__tmKanbanSnapClientWidth; } catch (e) {}
+            try { delete bodyEl.__tmKanbanSnapMaxScrollLeft; } catch (e) {}
+            __tmSetKanbanSnapPanActive(bodyEl, false);
+            return false;
+        }
+        if (!force && String(bodyEl.__tmKanbanSnapMetricsKey || '')) return true;
+        if (force) {
+            try { delete bodyEl.__tmKanbanSnapGeometryKey; } catch (e) {}
+            try { delete bodyEl.__tmKanbanSnapGeometry; } catch (e) {}
+        }
+        let padLeft = 10;
+        let padRight = 10;
+        try {
+            const cs = window.getComputedStyle?.(bodyEl);
+            const px = (v, fallback) => {
+                const n = Number.parseFloat(String(v || ''));
+                return Number.isFinite(n) ? n : fallback;
+            };
+            padLeft = px(cs?.paddingLeft, padLeft);
+            padRight = px(cs?.paddingRight, padRight);
+        } catch (e) {}
+        const rectWidth = (() => {
+            try { return Number(bodyEl.getBoundingClientRect?.().width) || 0; } catch (e) { return 0; }
+        })();
+        const scrollportWidth = Number(bodyEl.clientWidth || 0) || rectWidth;
+        if (!(scrollportWidth > 0)) return true;
+        const colWidth = Math.max(120, Math.round(scrollportWidth - padLeft - padRight));
+        const key = `${Math.round(scrollportWidth)}:${Math.round(padLeft)}:${Math.round(padRight)}:${colWidth}`;
+        if (String(bodyEl.__tmKanbanSnapMetricsKey || '') !== key) {
+            try { bodyEl.style.setProperty('--tm-kanban-snap-col-width', `${colWidth}px`); } catch (e) {}
+            bodyEl.__tmKanbanSnapMetricsKey = key;
+            try { delete bodyEl.__tmKanbanSnapGeometryKey; } catch (e) {}
+            try { delete bodyEl.__tmKanbanSnapGeometry; } catch (e) {}
+        }
+        bodyEl.__tmKanbanSnapClientWidth = scrollportWidth;
+        bodyEl.__tmKanbanSnapMaxScrollLeft = Math.max(0, Number(bodyEl.scrollWidth || 0) - Number(bodyEl.clientWidth || 0));
+        return true;
+    }
+
+    function __tmGetKanbanMaxPanScrollLeft(bodyEl) {
+        if (!(bodyEl instanceof HTMLElement)) return 0;
+        if (__tmIsKanbanColumnSnapMode(bodyEl)) {
+            const cached = Number(bodyEl.__tmKanbanSnapMaxScrollLeft);
+            if (Number.isFinite(cached) && cached >= 0) return cached;
+        }
+        return Math.max(0, Number(bodyEl.scrollWidth || 0) - Number(bodyEl.clientWidth || 0));
+    }
+
+    function __tmGetKanbanSnapGeometry(bodyEl) {
+        if (!(bodyEl instanceof HTMLElement)) return NaN;
+        if (!__tmSyncKanbanSnapMetrics(bodyEl)) return NaN;
+        const maxLeft = Math.max(0, Number(bodyEl.scrollWidth || 0) - Number(bodyEl.clientWidth || 0));
+        if (maxLeft <= 0) return { positions: [0], maxLeft, clientWidth: Number(bodyEl.clientWidth || 0) };
+        const clientWidth = Number(bodyEl.clientWidth || 0);
+        if (!(clientWidth > 0)) return NaN;
+        const colCount = (() => {
+            try { return bodyEl.querySelectorAll('.tm-kanban-col').length; } catch (e) { return 0; }
+        })();
+        const cacheKey = `${String(bodyEl.__tmKanbanSnapMetricsKey || '')}:${Math.round(clientWidth)}:${Math.round(maxLeft)}:${Math.round(Number(bodyEl.scrollWidth || 0))}:${colCount}`;
+        if (String(bodyEl.__tmKanbanSnapGeometryKey || '') === cacheKey && bodyEl.__tmKanbanSnapGeometry) {
+            return bodyEl.__tmKanbanSnapGeometry;
+        }
+        const positions = [];
+        const columnPositions = [];
+        try {
+            const board = bodyEl.querySelector('.tm-kanban');
+            const boardOffsetLeft = board instanceof HTMLElement ? Number(board.offsetLeft || 0) : 0;
+            bodyEl.querySelectorAll('.tm-kanban-col').forEach((col) => {
+                if (!(col instanceof HTMLElement)) return;
+                const width = Number(col.offsetWidth || 0);
+                if (!(width > 0)) return;
+                const baseLeft = col.offsetParent === board ? boardOffsetLeft : 0;
+                const center = baseLeft + Number(col.offsetLeft || 0) + width / 2;
+                const left = Math.max(0, Math.min(maxLeft, Math.round(center - clientWidth / 2)));
+                columnPositions.push(left);
+                if (!positions.some((item) => Math.abs(item - left) < 1)) {
+                    positions.push(left);
+                }
+            });
+        } catch (e) {}
+        if (!positions.length) return NaN;
+        positions.sort((a, b) => a - b);
+        const geometry = { positions, columnPositions, maxLeft, clientWidth };
+        try {
+            bodyEl.__tmKanbanSnapGeometryKey = cacheKey;
+            bodyEl.__tmKanbanSnapGeometry = geometry;
+        } catch (e) {}
+        return geometry;
+    }
+
+    function __tmGetNearestKanbanSnapIndex(positions, left) {
+        if (!Array.isArray(positions) || !positions.length) return -1;
+        const targetLeft = Number(left) || 0;
+        let bestIndex = 0;
+        let bestDistance = Infinity;
+        positions.forEach((pos, idx) => {
+            const distance = Math.abs(Number(pos || 0) - targetLeft);
+            if (distance < bestDistance) {
+                bestDistance = distance;
+                bestIndex = idx;
+            }
+        });
+        return bestIndex;
+    }
+
+    function __tmGetNearestKanbanSnapLeft(bodyEl) {
+        const geo = __tmGetKanbanSnapGeometry(bodyEl);
+        if (!geo || !Array.isArray(geo.positions)) return NaN;
+        const idx = __tmGetNearestKanbanSnapIndex(geo.positions, Number(bodyEl.scrollLeft || 0));
+        return idx >= 0 ? geo.positions[idx] : NaN;
+    }
+
+    function __tmGetKanbanBoardNavIndex(bodyEl, left = Number(bodyEl?.scrollLeft || 0)) {
+        const geo = __tmGetKanbanSnapGeometry(bodyEl);
+        const positions = Array.isArray(geo?.columnPositions) && geo.columnPositions.length
+            ? geo.columnPositions
+            : (Array.isArray(geo?.positions) ? geo.positions : []);
+        return __tmGetNearestKanbanSnapIndex(positions, left);
+    }
+
+    function __tmGetKanbanColumnSnapLeftByIndex(bodyEl, index) {
+        if (!(bodyEl instanceof HTMLElement)) return NaN;
+        const rawIndex = Number(index);
+        if (!Number.isFinite(rawIndex)) return NaN;
+        const cols = Array.from(bodyEl.querySelectorAll('.tm-kanban-col'))
+            .filter((col) => col instanceof HTMLElement);
+        if (!cols.length) return NaN;
+        const targetIndex = Math.max(0, Math.min(cols.length - 1, Math.round(rawIndex)));
+        const col = cols[targetIndex];
+        if (!(col instanceof HTMLElement)) return NaN;
+        try { __tmSyncKanbanSnapMetrics(bodyEl); } catch (e) {}
+        const maxLeft = __tmGetKanbanMaxPanScrollLeft(bodyEl);
+        const clientWidth = Number(bodyEl.clientWidth || 0);
+        if (!(clientWidth > 0)) return NaN;
+        try {
+            const bodyRect = bodyEl.getBoundingClientRect();
+            const colRect = col.getBoundingClientRect();
+            const currentLeft = Number(bodyEl.scrollLeft || 0);
+            const center = currentLeft + (Number(colRect.left || 0) - Number(bodyRect.left || 0)) + Number(colRect.width || 0) / 2;
+            return Math.max(0, Math.min(maxLeft, Math.round(center - clientWidth / 2)));
+        } catch (e) {
+            const geo = __tmGetKanbanSnapGeometry(bodyEl);
+            const positions = Array.isArray(geo?.columnPositions) && geo.columnPositions.length
+                ? geo.columnPositions
+                : (Array.isArray(geo?.positions) ? geo.positions : []);
+            const left = Number(positions[targetIndex]);
+            return Number.isFinite(left) ? left : NaN;
+        }
+    }
+
+    function __tmGetKanbanColumnSnapLeftByKey(bodyEl, key) {
+        if (!(bodyEl instanceof HTMLElement)) return NaN;
+        const targetKey = String(key || '').trim();
+        if (!targetKey) return NaN;
+        const cols = Array.from(bodyEl.querySelectorAll('.tm-kanban-col'))
+            .filter((col) => col instanceof HTMLElement);
+        const index = cols.findIndex((col) => String(col.getAttribute('data-col-key') || '').trim() === targetKey);
+        return index >= 0 ? __tmGetKanbanColumnSnapLeftByIndex(bodyEl, index) : NaN;
+    }
+
+    function __tmSetKanbanBoardNavActive(bodyEl, index, options = {}) {
+        if (!(bodyEl instanceof HTMLElement)) return false;
+        const nav = bodyEl.querySelector('.tm-kanban-board-nav');
+        if (!(nav instanceof HTMLElement)) return false;
+        const items = Array.from(nav.querySelectorAll('.tm-kanban-board-nav__item'))
+            .filter((item) => item instanceof HTMLElement);
+        if (!items.length) return false;
+        const rawIndex = Number(index);
+        if (!Number.isFinite(rawIndex)) return false;
+        const activeIndex = Math.max(0, Math.min(items.length - 1, Math.round(rawIndex)));
+        const indicatorReady = String(nav.dataset?.tmKanbanBoardNavReady || '') === '1';
+        if (Number(bodyEl.__tmKanbanBoardNavActiveIndex) === activeIndex && !options?.force && indicatorReady) return true;
+        bodyEl.__tmKanbanBoardNavActiveIndex = activeIndex;
+        try { nav.setAttribute('data-active-index', String(activeIndex)); } catch (e) {}
+        items.forEach((item, itemIndex) => {
+            const active = itemIndex === activeIndex;
+            try { item.classList.toggle('tm-kanban-board-nav__item--active', active); } catch (e) {}
+            try { item.setAttribute('aria-selected', active ? 'true' : 'false'); } catch (e) {}
+            try { item.setAttribute('data-state', active ? 'active' : 'inactive'); } catch (e) {}
+        });
+        const activeItem = items[activeIndex];
+        const inner = nav.querySelector('.tm-kanban-board-nav__inner');
+        if (activeItem instanceof HTMLElement && inner instanceof HTMLElement) {
+            const indicator = nav.querySelector('.tm-kanban-board-nav__indicator');
+            if (indicator instanceof HTMLElement) {
+                const x = Math.round(Number(activeItem.offsetLeft || 0));
+                const w = Math.max(1, Math.round(Number(activeItem.offsetWidth || 0)));
+                const ready = String(nav.dataset?.tmKanbanBoardNavReady || '') === '1';
+                if (!ready) {
+                    try { indicator.style.transition = 'none'; } catch (e) {}
+                }
+                try { inner.style.setProperty('--tm-kanban-board-nav-indicator-x', `${x}px`); } catch (e) {}
+                try { inner.style.setProperty('--tm-kanban-board-nav-indicator-w', `${w}px`); } catch (e) {}
+                try { nav.classList.add('tm-kanban-board-nav--ready'); } catch (e) {}
+                if (!ready) {
+                    try {
+                        requestAnimationFrame(() => {
+                            try { indicator.style.transition = ''; } catch (e2) {}
+                            try { nav.dataset.tmKanbanBoardNavReady = '1'; } catch (e2) {}
+                        });
+                    } catch (e) {
+                        try { indicator.style.transition = ''; } catch (e2) {}
+                        try { nav.dataset.tmKanbanBoardNavReady = '1'; } catch (e2) {}
+                    }
+                }
+            }
+            const targetLeft = Math.max(0, Math.round(
+                Number(activeItem.offsetLeft || 0) - (Number(inner.clientWidth || 0) - Number(activeItem.offsetWidth || 0)) / 2
+            ));
+            const behavior = String(options?.behavior || 'auto') === 'smooth' ? 'smooth' : 'auto';
+            try {
+                inner.scrollTo({ left: targetLeft, behavior });
+            } catch (e) {
+                try { inner.scrollLeft = targetLeft; } catch (e2) {}
+            }
+        }
+        return true;
+    }
+
+    function __tmSyncKanbanBoardNav(bodyEl, options = {}) {
+        if (!(bodyEl instanceof HTMLElement)) return false;
+        if (!__tmIsKanbanColumnSnapMode(bodyEl)) return false;
+        let idx = Number.isFinite(Number(options?.index))
+            ? Number(options.index)
+            : NaN;
+        if (!Number.isFinite(idx)) {
+            const lockUntil = Number(bodyEl.__tmKanbanBoardNavLockUntil) || 0;
+            const lockIndex = Number(bodyEl.__tmKanbanBoardNavLockIndex);
+            if (lockUntil > Date.now() && Number.isFinite(lockIndex) && lockIndex >= 0) {
+                idx = lockIndex;
+            } else {
+                if (lockUntil) {
+                    try { bodyEl.__tmKanbanBoardNavLockUntil = 0; } catch (e) {}
+                    try { delete bodyEl.__tmKanbanBoardNavLockIndex; } catch (e) {}
+                }
+                idx = __tmGetKanbanBoardNavIndex(bodyEl);
+            }
+        }
+        if (idx < 0) return false;
+        return __tmSetKanbanBoardNavActive(bodyEl, idx, options);
+    }
+
+    function __tmScheduleKanbanBoardNavSync(bodyEl) {
+        if (!(bodyEl instanceof HTMLElement)) return false;
+        if (!__tmIsKanbanColumnSnapMode(bodyEl)) return false;
+        if (Number(bodyEl.__tmKanbanBoardNavSyncRaf) > 0) return true;
+        try {
+            bodyEl.__tmKanbanBoardNavSyncRaf = requestAnimationFrame(() => {
+                bodyEl.__tmKanbanBoardNavSyncRaf = 0;
+                try { __tmSyncKanbanBoardNav(bodyEl); } catch (e) {}
+            });
+        } catch (e) {
+            bodyEl.__tmKanbanBoardNavSyncRaf = 0;
+            try { __tmSyncKanbanBoardNav(bodyEl); } catch (e2) {}
+        }
+        return true;
+    }
+
+    function __tmScheduleKanbanBoardNavInitialSync(bodyEl) {
+        if (!(bodyEl instanceof HTMLElement)) return false;
+        if (!__tmIsKanbanColumnSnapMode(bodyEl)) return false;
+        const sync = (options = {}) => {
+            if (bodyEl.isConnected === false) return;
+            if (!options?.immediate && __tmDeferKanbanStartupWorkDuringInput(bodyEl, '__tmKanbanBoardNavStartupDeferredTimer', () => sync(), 120)) {
+                return;
+            }
+            try { __tmSyncKanbanSnapMetrics(bodyEl, { force: true }); } catch (e) {}
+            try { __tmSyncKanbanBoardNav(bodyEl, { force: true }); } catch (e) {}
+        };
+        sync({ immediate: true });
+        try { requestAnimationFrame(() => requestAnimationFrame(sync)); } catch (e) {}
+        try { setTimeout(sync, 80); } catch (e) {}
+        try { setTimeout(sync, 220); } catch (e) {}
+        return true;
+    }
+
+    function __tmBindKanbanBoardNavSwipe(bodyEl) {
+        if (!(bodyEl instanceof HTMLElement)) return false;
+        const nav = bodyEl.querySelector('.tm-kanban-board-nav');
+        const inner = nav?.querySelector?.('.tm-kanban-board-nav__inner') || null;
+        if (!(nav instanceof HTMLElement) || !(inner instanceof HTMLElement)) return false;
+        if (String(inner.dataset?.tmKanbanBoardNavSwipeBound || '') === '1') return true;
+        inner.dataset.tmKanbanBoardNavSwipeBound = '1';
+        const clamp0 = (n, min, max) => Math.max(min, Math.min(max, n));
+        const canScroll = () => Math.max(0, Number(inner.scrollWidth || 0) - Number(inner.clientWidth || 0)) > 1;
+        let pointerId = null;
+        let startX = 0;
+        let startY = 0;
+        let startLeft = 0;
+        let active = false;
+        let dragging = false;
+        let captured = false;
+        let suppressClickUntil = 0;
+        const dragThreshold = 8;
+
+        const samePointer = (ev) => {
+            if (!Number.isFinite(Number(pointerId))) return true;
+            const cur = Number(ev?.pointerId);
+            if (!Number.isFinite(cur)) return true;
+            return cur === Number(pointerId);
+        };
+
+        const endDrag = (ev) => {
+            if (!active) return;
+            active = false;
+            if (dragging) suppressClickUntil = Date.now() + 260;
+            dragging = false;
+            try { nav.classList.remove('tm-kanban-board-nav--dragging'); } catch (e) {}
+            try {
+                if (captured && Number.isFinite(Number(pointerId)) && typeof inner.releasePointerCapture === 'function') {
+                    inner.releasePointerCapture(pointerId);
+                }
+            } catch (e) {}
+            captured = false;
+            pointerId = null;
+            try { ev?.stopPropagation?.(); } catch (e) {}
+        };
+
+        const onPointerDown = (ev) => {
+            if (ev && typeof ev.button === 'number' && ev.button !== 0) return;
+            if (!canScroll()) return;
+            pointerId = Number.isFinite(Number(ev?.pointerId)) ? Number(ev.pointerId) : null;
+            startX = Number(ev?.clientX) || 0;
+            startY = Number(ev?.clientY) || 0;
+            startLeft = Number(inner.scrollLeft || 0);
+            active = true;
+            dragging = false;
+            captured = false;
+            try { __tmMarkHighPriorityInteraction('kanban-board-nav-swipe-start', 360); } catch (e) {}
+            try { ev?.stopPropagation?.(); } catch (e) {}
+        };
+
+        const onPointerMove = (ev) => {
+            if (!active || !samePointer(ev)) return;
+            const x = Number(ev?.clientX) || startX;
+            const y = Number(ev?.clientY) || startY;
+            const dx = x - startX;
+            const dy = y - startY;
+            if (!dragging) {
+                if (Math.abs(dx) < dragThreshold) return;
+                if (Math.abs(dx) <= Math.abs(dy)) {
+                    endDrag(ev);
+                    return;
+                }
+                dragging = true;
+                try {
+                    if (Number.isFinite(Number(pointerId)) && typeof inner.setPointerCapture === 'function') {
+                        inner.setPointerCapture(pointerId);
+                        captured = true;
+                    }
+                } catch (e) {}
+                try { nav.classList.add('tm-kanban-board-nav--dragging'); } catch (e) {}
+            }
+            const maxLeft = Math.max(0, Number(inner.scrollWidth || 0) - Number(inner.clientWidth || 0));
+            inner.scrollLeft = clamp0(startLeft - dx, 0, maxLeft);
+            try { __tmMarkHighPriorityInteraction('kanban-board-nav-swipe-move', 140); } catch (e) {}
+            try { ev?.preventDefault?.(); } catch (e) {}
+            try { ev?.stopPropagation?.(); } catch (e) {}
+        };
+
+        const onClickCapture = (ev) => {
+            if (Date.now() > suppressClickUntil) return;
+            suppressClickUntil = 0;
+            try { ev?.preventDefault?.(); } catch (e) {}
+            try { ev?.stopPropagation?.(); } catch (e) {}
+        };
+
+        try { inner.addEventListener('pointerdown', onPointerDown, { passive: true }); } catch (e) {}
+        try { inner.addEventListener('pointermove', onPointerMove, { passive: false }); } catch (e) {}
+        try { inner.addEventListener('pointerup', endDrag, { passive: true }); } catch (e) {}
+        try { inner.addEventListener('pointercancel', endDrag, { passive: true }); } catch (e) {}
+        try { inner.addEventListener('click', onClickCapture, true); } catch (e) {}
+        return true;
+    }
+
+    window.tmKanbanBoardNavJump = function(ev, index) {
+        try { ev?.preventDefault?.(); } catch (e) {}
+        try { ev?.stopPropagation?.(); } catch (e) {}
+        const target = ev?.currentTarget instanceof Element ? ev.currentTarget : null;
+        const bodyEl = target?.closest?.('.tm-body.tm-body--kanban')
+            || state.modal?.querySelector?.('.tm-body.tm-body--kanban')
+            || null;
+        if (!(bodyEl instanceof HTMLElement)) return false;
+        try { __tmMarkHighPriorityInteraction('kanban-nav-jump', 520); } catch (e) {}
+        const colCount = (() => {
+            try { return bodyEl.querySelectorAll('.tm-kanban-col').length; } catch (e) { return 0; }
+        })();
+        if (colCount <= 0) return false;
+        const rawIndex = Number(index);
+        if (!Number.isFinite(rawIndex)) return false;
+        const targetIndex = Math.max(0, Math.min(colCount - 1, Math.round(rawIndex)));
+        const targetLeft = __tmGetKanbanColumnSnapLeftByIndex(bodyEl, targetIndex);
+        if (!Number.isFinite(targetLeft)) return false;
+        const currentIndex = __tmGetKanbanBoardNavIndex(bodyEl);
+        const velocity = targetIndex === currentIndex ? 0 : (targetIndex > currentIndex ? 1 : -1);
+        try { __tmStopKanbanMomentum(); } catch (e) {}
+        const settleTimer = Number(bodyEl.__tmKanbanSnapSettleTimer) || 0;
+        if (settleTimer) {
+            try { clearTimeout(settleTimer); } catch (e) {}
+            bodyEl.__tmKanbanSnapSettleTimer = 0;
+        }
+        __tmFlushKanbanScrollLeftRaf(bodyEl);
+        __tmSetKanbanSnapPanActive(bodyEl, false);
+        bodyEl.__tmKanbanSnapPointerActive = false;
+        bodyEl.__tmKanbanSnapGestureStartLeft = targetLeft;
+        bodyEl.__tmKanbanSnapScrollVelocity = 0;
+        __tmSetKanbanBoardNavActive(bodyEl, targetIndex, { force: true, behavior: 'smooth' });
+        return __tmAnimateKanbanScrollLeft(bodyEl, targetLeft, 170, { velocity });
+    };
+
+    function __tmGetKanbanGestureSnapLeft(bodyEl, options = {}) {
+        const geo = __tmGetKanbanSnapGeometry(bodyEl);
+        if (!geo || !Array.isArray(geo.positions) || !geo.positions.length) return NaN;
+        const positions = geo.positions;
+        const currentLeft = Number(bodyEl.scrollLeft || 0);
+        const currentIndex = __tmGetNearestKanbanSnapIndex(positions, currentLeft);
+        if (currentIndex < 0) return NaN;
+        const rawStartLeft = Number(options?.startLeft);
+        const startLeft = Number.isFinite(rawStartLeft) ? rawStartLeft : positions[currentIndex];
+        const startIndex = Math.max(0, __tmGetNearestKanbanSnapIndex(positions, startLeft));
+        const velocity = Number(options?.velocity);
+        const delta = currentLeft - startLeft;
+        const nextStep = positions[Math.min(positions.length - 1, startIndex + 1)] - positions[startIndex];
+        const prevStep = positions[startIndex] - positions[Math.max(0, startIndex - 1)];
+        const rawStep = delta >= 0 ? nextStep : prevStep;
+        const step = Math.max(1, Number(rawStep) || Number(geo.clientWidth) || 1);
+        const distanceThreshold = Math.max(38, Math.min(140, step * 0.25));
+        const velocityThreshold = 0.11;
+        let direction = 0;
+        if (Number.isFinite(velocity) && Math.abs(velocity) >= velocityThreshold) {
+            direction = velocity > 0 ? 1 : -1;
+        } else if (Math.abs(delta) >= distanceThreshold) {
+            direction = delta > 0 ? 1 : -1;
+        }
+        if (!direction) return positions[currentIndex];
+        const targetIndex = Math.max(0, Math.min(positions.length - 1, startIndex + direction));
+        return positions[targetIndex];
+    }
+
+    function __tmGetKanbanHarmonySpringProgress(seconds, velocity = 0) {
+        const t = Math.max(0, Number(seconds) || 0);
+        if (t <= 0) return 0;
+        const mass = 1;
+        const stiffness = 520;
+        const damping = 46;
+        const v0 = Math.max(-4, Math.min(14, Number(velocity) || 0));
+        const omega0 = Math.sqrt(stiffness / mass);
+        const zeta = damping / (2 * Math.sqrt(stiffness * mass));
+        let progress = 1;
+        if (zeta < 1) {
+            const omegaD = omega0 * Math.sqrt(1 - zeta * zeta);
+            const envelope = Math.exp(-zeta * omega0 * t);
+            progress = 1 - envelope * (
+                Math.cos(omegaD * t)
+                + ((zeta * omega0 - v0) / omegaD) * Math.sin(omegaD * t)
+            );
+        } else if (Math.abs(zeta - 1) < 0.001) {
+            progress = 1 - Math.exp(-omega0 * t) * (1 + (omega0 - v0) * t);
+        } else {
+            const root = Math.sqrt(zeta * zeta - 1);
+            const r1 = -omega0 * (zeta - root);
+            const r2 = -omega0 * (zeta + root);
+            const a = (-v0 - r2) / (r1 - r2);
+            const b = 1 - a;
+            progress = 1 - (a * Math.exp(r1 * t) + b * Math.exp(r2 * t));
+        }
+        return Math.max(0, Math.min(1, progress));
+    }
+
+    function __tmAnimateKanbanScrollLeft(bodyEl, targetLeft, durationMs = 200, options = {}) {
+        if (!(bodyEl instanceof HTMLElement)) return false;
+        const left = Number(targetLeft);
+        if (!Number.isFinite(left)) return false;
+        const maxLeft = Math.max(0, Number(bodyEl.scrollWidth || 0) - Number(bodyEl.clientWidth || 0));
+        const target = Math.max(0, Math.min(maxLeft, Math.round(left)));
+        const start = Number(bodyEl.scrollLeft || 0);
+        if (Math.abs(start - target) < 0.5) {
+            bodyEl.scrollLeft = target;
+            return true;
+        }
+        const prevRaf = Number(bodyEl.__tmKanbanSnapAnimRaf) || 0;
+        if (prevRaf) {
+            try { cancelAnimationFrame(prevRaf); } catch (e) {}
+        }
+        const startTs = (() => {
+            try { return performance.now(); } catch (e) { return Date.now(); }
+        })();
+        const distance = Math.abs(target - start);
+        const clientWidth = Math.max(1, Number(bodyEl.clientWidth || 0) || 1);
+        const distanceRatio = Math.max(0, Math.min(1.6, distance / clientWidth));
+        const requestedDuration = Math.max(120, Number(durationMs) || 200);
+        const maxDuration = Math.max(520, Math.min(760, requestedDuration + 260 + distanceRatio * 90));
+        try { __tmMarkHighPriorityInteraction('kanban-scroll-anim', maxDuration + 120); } catch (e) {}
+        const navTargetIndex = __tmGetKanbanBoardNavIndex(bodyEl, target);
+        if (navTargetIndex >= 0) {
+            try {
+                bodyEl.__tmKanbanBoardNavLockIndex = navTargetIndex;
+                bodyEl.__tmKanbanBoardNavLockUntil = Date.now() + maxDuration + 180;
+                __tmSetKanbanBoardNavActive(bodyEl, navTargetIndex, { behavior: 'smooth' });
+            } catch (e) {}
+        }
+        const token = `${startTs}:${target}:${Math.random()}`;
+        bodyEl.__tmKanbanSnapAnimToken = token;
+        const delta = target - start;
+        const rawVelocity = Number.isFinite(Number(options?.velocity))
+            ? Number(options.velocity)
+            : Number(bodyEl.__tmKanbanSnapScrollVelocity);
+        const initialVelocity = Math.abs(delta) > 0.5 && Number.isFinite(rawVelocity)
+            ? Math.max(-4, Math.min(14, (rawVelocity * 1000) / delta))
+            : 0;
+        let lastAnimLeft = start;
+        let lastAnimTs = startTs;
+        const step = (ts) => {
+            if (bodyEl.__tmKanbanSnapAnimToken !== token) return;
+            const now = Number(ts) || Date.now();
+            const elapsedMs = Math.max(0, now - startTs);
+            const progress = __tmGetKanbanHarmonySpringProgress(elapsedMs / 1000, initialVelocity);
+            const nextLeft = start + delta * progress;
+            const frameDt = Math.max(1, now - lastAnimTs);
+            const velocityPxPerMs = Math.abs(nextLeft - lastAnimLeft) / frameDt;
+            lastAnimLeft = nextLeft;
+            lastAnimTs = now;
+            bodyEl.scrollLeft = nextLeft;
+            const remaining = Math.abs(target - nextLeft);
+            if ((remaining > 1.1 || velocityPxPerMs > 0.009) && elapsedMs < maxDuration) {
+                bodyEl.__tmKanbanSnapAnimRaf = requestAnimationFrame(step);
+                return;
+            }
+            bodyEl.__tmKanbanSnapAnimRaf = 0;
+            bodyEl.__tmKanbanSnapAnimToken = '';
+            bodyEl.scrollLeft = target;
+            try { __tmMarkHighPriorityInteraction('kanban-scroll-anim-done', 96); } catch (e) {}
+            try {
+                bodyEl.__tmKanbanBoardNavLockUntil = 0;
+                delete bodyEl.__tmKanbanBoardNavLockIndex;
+                __tmSyncKanbanBoardNav(bodyEl, { force: true });
+            } catch (e) {}
+        };
+        try {
+            bodyEl.__tmKanbanSnapAnimRaf = requestAnimationFrame(step);
+        } catch (e) {
+            bodyEl.__tmKanbanSnapAnimRaf = 0;
+            bodyEl.__tmKanbanSnapAnimToken = '';
+            bodyEl.scrollLeft = target;
+        }
+        return true;
+    }
+
+    function __tmSnapKanbanToNearestColumn(bodyEl, options = {}) {
+        if (!(bodyEl instanceof HTMLElement)) return false;
+        const explicitLeft = Number(options?.targetLeft);
+        const left = Number.isFinite(explicitLeft)
+            ? explicitLeft
+            : (Number.isFinite(Number(options?.startLeft)) || Number.isFinite(Number(options?.velocity))
+                ? __tmGetKanbanGestureSnapLeft(bodyEl, options)
+                : __tmGetNearestKanbanSnapLeft(bodyEl));
+        if (!Number.isFinite(left)) return false;
+        const current = Number(bodyEl.scrollLeft || 0);
+        if (Math.abs(current - left) < 0.5) return true;
+        let behavior = String(options?.behavior || 'smooth');
+        try {
+            if (behavior !== 'auto' && window.matchMedia?.('(prefers-reduced-motion: reduce)')?.matches) {
+                behavior = 'auto';
+            }
+        } catch (e) {}
+        if (behavior === 'fast') {
+            return __tmAnimateKanbanScrollLeft(bodyEl, left, Number(options?.durationMs) || 200, options);
+        }
+        try {
+            bodyEl.scrollTo({ left, behavior: behavior === 'auto' ? 'auto' : 'smooth' });
+        } catch (e) {
+            try { bodyEl.scrollLeft = left; } catch (e2) {}
+        }
+        return true;
+    }
+
+    function __tmSnapKanbanByWheelStep(bodyEl, direction) {
+        if (!(bodyEl instanceof HTMLElement)) return false;
+        const dir = Number(direction) > 0 ? 1 : (Number(direction) < 0 ? -1 : 0);
+        if (!dir) return false;
+        const geo = __tmGetKanbanSnapGeometry(bodyEl);
+        if (!geo || !Array.isArray(geo.positions) || geo.positions.length <= 1) return false;
+        const currentLeft = Number(bodyEl.scrollLeft || 0);
+        const currentIndex = __tmGetNearestKanbanSnapIndex(geo.positions, currentLeft);
+        if (currentIndex < 0) return false;
+        const targetIndex = Math.max(0, Math.min(geo.positions.length - 1, currentIndex + dir));
+        if (targetIndex === currentIndex) return false;
+        bodyEl.__tmKanbanSnapGestureStartLeft = currentLeft;
+        bodyEl.__tmKanbanSnapScrollVelocity = dir;
+        return __tmSnapKanbanToNearestColumn(bodyEl, {
+            behavior: 'fast',
+            targetLeft: geo.positions[targetIndex],
+            velocity: dir,
+            durationMs: 190,
+        });
+    }
+
+    function __tmSettleKanbanSnapAfterStableScroll(bodyEl) {
+        if (!(bodyEl instanceof HTMLElement)) return false;
+        if (!__tmIsKanbanColumnSnapMode(bodyEl)) return false;
+        if (Number(bodyEl.__tmKanbanSnapAnimRaf) > 0) return true;
+        if (bodyEl.__tmKanbanSnapPointerActive || __tmIsKanbanSnapPanActive(bodyEl)) {
+            __tmScheduleKanbanSnapSettle(bodyEl, 48);
+            return true;
+        }
+        __tmFlushKanbanScrollLeftRaf(bodyEl);
+        const before = Number(bodyEl.scrollLeft || 0);
+        const finish = () => {
+            if (!__tmIsKanbanColumnSnapMode(bodyEl)) return;
+            if (bodyEl.__tmKanbanSnapPointerActive || __tmIsKanbanSnapPanActive(bodyEl)) {
+                __tmScheduleKanbanSnapSettle(bodyEl, 48);
+                return;
+            }
+            __tmFlushKanbanScrollLeftRaf(bodyEl);
+            const after = Number(bodyEl.scrollLeft || 0);
+            if (Math.abs(after - before) > 0.75) {
+                __tmScheduleKanbanSnapSettle(bodyEl, 56);
+                return;
+            }
+            __tmSnapKanbanToNearestColumn(bodyEl, {
+                behavior: 'fast',
+                startLeft: bodyEl.__tmKanbanSnapGestureStartLeft,
+                velocity: bodyEl.__tmKanbanSnapScrollVelocity,
+            });
+        };
+        try {
+            requestAnimationFrame(() => requestAnimationFrame(finish));
+        } catch (e) {
+            try { setTimeout(finish, 48); } catch (e2) { finish(); }
+        }
+        return true;
+    }
+
+    function __tmScheduleKanbanSnapSettle(bodyEl, delayMs = 80) {
+        if (!(bodyEl instanceof HTMLElement)) return false;
+        if (!__tmIsKanbanColumnSnapMode(bodyEl)) return false;
+        const delay = Math.max(0, Math.min(240, Number(delayMs) || 0));
+        const prevTimer = Number(bodyEl.__tmKanbanSnapSettleTimer) || 0;
+        if (prevTimer) {
+            try { clearTimeout(prevTimer); } catch (e) {}
+        }
+        try {
+            bodyEl.__tmKanbanSnapSettleTimer = setTimeout(() => {
+                bodyEl.__tmKanbanSnapSettleTimer = 0;
+                if (!__tmIsKanbanColumnSnapMode(bodyEl)) return;
+                if (bodyEl.__tmKanbanSnapPointerActive || __tmIsKanbanSnapPanActive(bodyEl)) {
+                    __tmScheduleKanbanSnapSettle(bodyEl, 72);
+                    return;
+                }
+                __tmSettleKanbanSnapAfterStableScroll(bodyEl);
+            }, delay);
+        } catch (e) {
+            bodyEl.__tmKanbanSnapSettleTimer = 0;
+            __tmSnapKanbanToNearestColumn(bodyEl, { behavior: 'fast' });
+        }
+        return true;
+    }
+
+    function __tmBindKanbanSnapSettle(bodyEl) {
+        if (!(bodyEl instanceof HTMLElement)) return false;
+        if (String(bodyEl.dataset?.tmKanbanSnapSettleBound || '') === '1') return true;
+        bodyEl.dataset.tmKanbanSnapSettleBound = '1';
+        const getNow = () => {
+            try { return performance.now(); } catch (e) { return Date.now(); }
+        };
+        const onInputStart = () => {
+            try { __tmMarkHighPriorityInteraction('kanban-input-start', 520); } catch (e) {}
+            const snapRaf = Number(bodyEl.__tmKanbanSnapAnimRaf) || 0;
+            if (snapRaf) {
+                try { cancelAnimationFrame(snapRaf); } catch (e) {}
+                bodyEl.__tmKanbanSnapAnimRaf = 0;
+                bodyEl.__tmKanbanSnapAnimToken = '';
+            }
+            const left = Number(bodyEl.scrollLeft || 0);
+            const now = getNow();
+            bodyEl.__tmKanbanSnapPointerActive = true;
+            bodyEl.__tmKanbanSnapGestureStartLeft = left;
+            bodyEl.__tmKanbanSnapLastScrollLeft = left;
+            bodyEl.__tmKanbanSnapLastScrollTs = now;
+            bodyEl.__tmKanbanSnapScrollVelocity = 0;
+            const timer = Number(bodyEl.__tmKanbanSnapSettleTimer) || 0;
+            if (timer) {
+                try { clearTimeout(timer); } catch (e) {}
+                bodyEl.__tmKanbanSnapSettleTimer = 0;
+            }
+        };
+        const onInputEnd = () => {
+            try { __tmMarkHighPriorityInteraction('kanban-input-end', 360); } catch (e) {}
+            bodyEl.__tmKanbanSnapPointerActive = false;
+            __tmScheduleKanbanSnapSettle(bodyEl, 28);
+        };
+        const onScroll = () => {
+            try {
+                if (__tmIsKanbanColumnSnapMode(bodyEl)) __tmMarkHighPriorityInteraction('kanban-scroll', 180);
+            } catch (e) {}
+            const left = Number(bodyEl.scrollLeft || 0);
+            const now = getNow();
+            const prevLeft = Number(bodyEl.__tmKanbanSnapLastScrollLeft);
+            const prevTs = Number(bodyEl.__tmKanbanSnapLastScrollTs);
+            if (Number.isFinite(prevLeft) && Number.isFinite(prevTs) && now > prevTs) {
+                const dt = Math.max(1, Math.min(80, now - prevTs));
+                bodyEl.__tmKanbanSnapScrollVelocity = (left - prevLeft) / dt;
+            }
+            bodyEl.__tmKanbanSnapLastScrollLeft = left;
+            bodyEl.__tmKanbanSnapLastScrollTs = now;
+            __tmScheduleKanbanBoardNavSync(bodyEl);
+            if (Number(bodyEl.__tmKanbanSnapAnimRaf) > 0) return;
+            if (bodyEl.__tmKanbanSnapPointerActive) return;
+            __tmScheduleKanbanSnapSettle(bodyEl, 72);
+        };
+        const onWheel = (ev) => {
+            if (!__tmIsKanbanColumnSnapMode(bodyEl)) {
+                __tmScheduleKanbanSnapSettle(bodyEl, 72);
+                return;
+            }
+            const dx = Number(ev?.deltaX) || 0;
+            const dy = Number(ev?.deltaY) || 0;
+            const horizontalIntent = !!ev?.shiftKey || Math.abs(dx) > Math.abs(dy);
+            if (!horizontalIntent) return;
+            let delta = Math.abs(dx) >= Math.abs(dy) ? dx : dy;
+            if (Number(ev?.deltaMode) === 1) delta *= 16;
+            else if (Number(ev?.deltaMode) === 2) delta *= Math.max(1, Number(bodyEl.clientWidth || 1));
+            if (!Number.isFinite(delta) || Math.abs(delta) < 0.5) return;
+            try { __tmMarkHighPriorityInteraction('kanban-wheel', 380); } catch (e) {}
+            try { ev.preventDefault?.(); } catch (e) {}
+            try { ev.stopPropagation?.(); } catch (e) {}
+            const now = getNow();
+            const lastTs = Number(bodyEl.__tmKanbanWheelTs) || 0;
+            if (!lastTs || now - lastTs > 260) bodyEl.__tmKanbanWheelAccum = 0;
+            bodyEl.__tmKanbanWheelTs = now;
+            bodyEl.__tmKanbanWheelAccum = (Number(bodyEl.__tmKanbanWheelAccum) || 0) + delta;
+            const resetTimer = Number(bodyEl.__tmKanbanWheelResetTimer) || 0;
+            if (resetTimer) {
+                try { clearTimeout(resetTimer); } catch (e) {}
+            }
+            try {
+                bodyEl.__tmKanbanWheelResetTimer = setTimeout(() => {
+                    bodyEl.__tmKanbanWheelResetTimer = 0;
+                    bodyEl.__tmKanbanWheelAccum = 0;
+                }, 220);
+            } catch (e) {}
+            const threshold = Math.max(18, Math.min(44, Number(bodyEl.clientWidth || 0) * 0.08 || 28));
+            const accum = Number(bodyEl.__tmKanbanWheelAccum) || 0;
+            if (Math.abs(accum) < threshold) return;
+            bodyEl.__tmKanbanWheelAccum = 0;
+            const activeResetTimer = Number(bodyEl.__tmKanbanWheelResetTimer) || 0;
+            if (activeResetTimer) {
+                try { clearTimeout(activeResetTimer); } catch (e) {}
+                bodyEl.__tmKanbanWheelResetTimer = 0;
+            }
+            __tmSnapKanbanByWheelStep(bodyEl, accum > 0 ? 1 : -1);
+        };
+        try { bodyEl.addEventListener('pointerdown', onInputStart, { capture: true, passive: true }); } catch (e) {}
+        try { bodyEl.addEventListener('pointerup', onInputEnd, { capture: true, passive: true }); } catch (e) {}
+        try { bodyEl.addEventListener('pointercancel', onInputEnd, { capture: true, passive: true }); } catch (e) {}
+        try { bodyEl.addEventListener('touchstart', onInputStart, { capture: true, passive: true }); } catch (e) {}
+        try { bodyEl.addEventListener('touchend', onInputEnd, { capture: true, passive: true }); } catch (e) {}
+        try { bodyEl.addEventListener('touchcancel', onInputEnd, { capture: true, passive: true }); } catch (e) {}
+        try { bodyEl.addEventListener('scroll', onScroll, { passive: true }); } catch (e) {}
+        try { bodyEl.addEventListener('wheel', onWheel, { passive: false }); } catch (e) {}
+        try { bodyEl.addEventListener('scrollend', () => {
+            __tmScheduleKanbanSnapSettle(bodyEl, 0);
+        }, { passive: true }); } catch (e) {}
+        return true;
+    }
+
+    function __tmShouldIsolatePluginHostGestures(modalEl) {
+        const modal = modalEl instanceof Element ? modalEl : state.modal;
+        if (!(modal instanceof Element)) return false;
+        return modal.classList.contains('tm-modal--mobile')
+            || modal.classList.contains('tm-modal--dock')
+            || !!modal.closest?.('[data-tm-host-mode="dock"]');
+    }
+
+    function __tmBindPluginHostGestureIsolation(modalEl) {
+        const modal = modalEl instanceof HTMLElement ? modalEl : (state.modal instanceof HTMLElement ? state.modal : null);
+        if (!(modal instanceof HTMLElement)) return false;
+        if (String(modal.dataset?.tmHostGestureIsolationBound || '') === '1') return true;
+        modal.dataset.tmHostGestureIsolationBound = '1';
+        const stopAtPluginBoundary = (ev) => {
+            if (!__tmShouldIsolatePluginHostGestures(modal)) return;
+            try { ev.stopPropagation?.(); } catch (e) {}
+        };
+        try { modal.addEventListener('touchstart', stopAtPluginBoundary, { passive: true }); } catch (e) {}
+        try { modal.addEventListener('touchmove', stopAtPluginBoundary, { passive: true }); } catch (e) {}
+        try { modal.addEventListener('touchend', stopAtPluginBoundary, { passive: true }); } catch (e) {}
+        try { modal.addEventListener('touchcancel', stopAtPluginBoundary, { passive: true }); } catch (e) {}
+        try { modal.addEventListener('pointerdown', stopAtPluginBoundary); } catch (e) {}
+        try { modal.addEventListener('pointermove', stopAtPluginBoundary); } catch (e) {}
+        try { modal.addEventListener('pointerup', stopAtPluginBoundary); } catch (e) {}
+        try { modal.addEventListener('pointercancel', stopAtPluginBoundary); } catch (e) {}
+        return true;
+    }
+
+    function __tmBindKanbanHostGestureIsolation(bodyEl) {
+        if (!(bodyEl instanceof HTMLElement)) return false;
+        if (String(bodyEl.dataset?.tmKanbanHostGestureIsolationBound || '') === '1') return true;
+        bodyEl.dataset.tmKanbanHostGestureIsolationBound = '1';
+        const isFromBoardNav = (ev) => {
+            try { return !!(ev?.target instanceof Element && ev.target.closest('.tm-kanban-board-nav')); } catch (e) {}
+            return false;
+        };
+        const getTouchPoint = (ev) => {
+            const touches = ev?.touches || ev?.changedTouches || null;
+            const touch = touches && touches.length ? touches[0] : null;
+            if (!touch) return null;
+            return {
+                x: Number(touch.clientX) || 0,
+                y: Number(touch.clientY) || 0,
+            };
+        };
+        const reset = () => {
+            bodyEl.__tmKanbanHostGestureStartX = NaN;
+            bodyEl.__tmKanbanHostGestureStartY = NaN;
+            bodyEl.__tmKanbanHostGestureHorizontal = false;
+        };
+        const onTouchStart = (ev) => {
+            if (!__tmIsKanbanColumnSnapMode(bodyEl)) return;
+            if (isFromBoardNav(ev)) return;
+            const pt = getTouchPoint(ev);
+            if (!pt) return;
+            bodyEl.__tmKanbanHostGestureStartX = pt.x;
+            bodyEl.__tmKanbanHostGestureStartY = pt.y;
+            bodyEl.__tmKanbanHostGestureHorizontal = false;
+            try { ev.stopPropagation?.(); } catch (e) {}
+        };
+        const onTouchMove = (ev) => {
+            if (!__tmIsKanbanColumnSnapMode(bodyEl)) return;
+            if (isFromBoardNav(ev)) return;
+            const pt = getTouchPoint(ev);
+            if (!pt) return;
+            const startX = Number(bodyEl.__tmKanbanHostGestureStartX);
+            const startY = Number(bodyEl.__tmKanbanHostGestureStartY);
+            if (!Number.isFinite(startX) || !Number.isFinite(startY)) return;
+            const dx = pt.x - startX;
+            const dy = pt.y - startY;
+            const absX = Math.abs(dx);
+            const absY = Math.abs(dy);
+            if (!bodyEl.__tmKanbanHostGestureHorizontal && absX >= 4 && absX >= absY * 0.72) {
+                bodyEl.__tmKanbanHostGestureHorizontal = true;
+            }
+            if (!bodyEl.__tmKanbanHostGestureHorizontal) return;
+            try { ev.preventDefault?.(); } catch (e) {}
+            try { ev.stopPropagation?.(); } catch (e) {}
+        };
+        const onTouchEnd = (ev) => {
+            if (isFromBoardNav(ev)) {
+                reset();
+                return;
+            }
+            if (bodyEl.__tmKanbanHostGestureHorizontal) {
+                try { ev.stopPropagation?.(); } catch (e) {}
+            }
+            reset();
+        };
+        reset();
+        try { bodyEl.addEventListener('touchstart', onTouchStart, { capture: true, passive: true }); } catch (e) {}
+        try { bodyEl.addEventListener('touchmove', onTouchMove, { capture: true, passive: false }); } catch (e) {}
+        try { bodyEl.addEventListener('touchend', onTouchEnd, { capture: true, passive: true }); } catch (e) {}
+        try { bodyEl.addEventListener('touchcancel', onTouchEnd, { capture: true, passive: true }); } catch (e) {}
+        return true;
+    }
+
     function __tmStopKanbanMomentum() {
+        const momentumBody = state.__tmKanbanMomentumBody;
         const rafId = Number(state.__tmKanbanMomentumRaf) || 0;
         if (rafId) {
             try { cancelAnimationFrame(rafId); } catch (e) {}
         }
         state.__tmKanbanMomentumRaf = 0;
+        state.__tmKanbanMomentumBody = null;
+        if (momentumBody instanceof HTMLElement) __tmSetKanbanSnapPanActive(momentumBody, false);
     }
 
-    function __tmStartKanbanMomentum(bodyEl, initialVelocity) {
-        if (!(bodyEl instanceof HTMLElement)) return;
+    function __tmStartKanbanMomentum(bodyEl, initialVelocity, options = {}) {
+        if (!(bodyEl instanceof HTMLElement)) return false;
+        try { __tmMarkHighPriorityInteraction('kanban-momentum-start', 620); } catch (e) {}
         __tmStopKanbanMomentum();
+        __tmFlushKanbanScrollLeftRaf(bodyEl);
+        const snapMode = __tmSyncKanbanSnapMetrics(bodyEl);
+        if (snapMode) {
+            __tmSetKanbanSnapPanActive(bodyEl, false);
+            bodyEl.__tmKanbanSnapGestureStartLeft = Number(options?.startLeft);
+            bodyEl.__tmKanbanSnapScrollVelocity = Number(initialVelocity) || 0;
+            __tmSnapKanbanToNearestColumn(bodyEl, {
+                behavior: 'fast',
+                startLeft: options?.startLeft,
+                velocity: initialVelocity,
+            });
+            return false;
+        }
         let velocity = Number(initialVelocity) || 0;
-        if (!Number.isFinite(velocity) || Math.abs(velocity) < 0.08) return;
+        if (!Number.isFinite(velocity) || Math.abs(velocity) < 0.08) {
+            __tmSnapKanbanToNearestColumn(bodyEl, { behavior: 'smooth' });
+            return false;
+        }
         const frictionPerFrame = 0.90;
         const stopVelocity = 0.02;
         let lastTs = 0;
+        __tmSetKanbanSnapPanActive(bodyEl, true);
+        state.__tmKanbanMomentumBody = bodyEl;
         const step = (ts) => {
             const now = Number(ts) || Date.now();
             if (!lastTs) {
@@ -3340,12 +4551,16 @@ return;
             const hitEdge = (next <= 0 && velocity < 0) || (next >= maxLeft && velocity > 0) || Math.abs(next - prev) < 0.1;
             velocity *= Math.pow(frictionPerFrame, dt / 16);
             if (hitEdge || Math.abs(velocity) < stopVelocity) {
+                try { __tmMarkHighPriorityInteraction('kanban-momentum-done', 120); } catch (e) {}
                 __tmStopKanbanMomentum();
+                __tmSnapKanbanToNearestColumn(bodyEl, { behavior: 'smooth' });
                 return;
             }
+            try { __tmMarkHighPriorityInteraction('kanban-momentum-frame', 140); } catch (e) {}
             state.__tmKanbanMomentumRaf = requestAnimationFrame(step);
         };
         state.__tmKanbanMomentumRaf = requestAnimationFrame(step);
+        return true;
     }
 
     function __tmClearKanbanCardGesture() {
@@ -3370,6 +4585,8 @@ return;
         if (resolvedDrag?.cardEl instanceof HTMLElement) cardEl = resolvedDrag.cardEl;
         const bodyEl = state.modal?.querySelector?.('.tm-body.tm-body--kanban');
         if (!(bodyEl instanceof HTMLElement)) return;
+        try { __tmMarkHighPriorityInteraction('kanban-card-touch-start', 520); } catch (e) {}
+        try { __tmSyncKanbanSnapMetrics(bodyEl); } catch (e) {}
         const colBodyEl = cardEl.closest('.tm-kanban-col')?.querySelector?.('.tm-kanban-col-body');
         if (!taskId) return;
         const calendarDragMeta = (() => {
@@ -3389,16 +4606,21 @@ return;
         const suppressClickMs = 260;
         const panThreshold = 2;
         const scrollThreshold = 4;
-        const longPressIntentThreshold = 12;
-        const axisLockRatio = 0.85;
-        const longPressMs = 340;
-        const longPressMoveTolerance = 14;
+        const longPressIntentThreshold = 4;
+        const axisLockRatio = 0.75;
+        const longPressMs = 1000;
+        const pointerType = String(ev?.pointerType || '').trim().toLowerCase();
+        const isMouseLikePointer = pointerType === 'mouse' || (!pointerType && !__tmIsRuntimeMobileClient());
+        const longPressMoveTolerance = isMouseLikePointer
+            ? 3
+            : (pointerType === 'pen' ? 4 : 8);
         const floatingMiniRevealDistance = 20;
         const floatingMiniRevealDelayMs = 120;
         const pointerId = Number.isFinite(Number(ev?.pointerId)) ? Number(ev.pointerId) : null;
         const startX = Number(ev?.clientX) || 0;
         const startY = Number(ev?.clientY) || 0;
         const baseScrollLeft = Number(bodyEl.scrollLeft || 0);
+        const maxPanScrollLeft = __tmGetKanbanMaxPanScrollLeft(bodyEl);
         let lastX = startX;
         let lastY = startY;
         let mode = 'pending';
@@ -3407,6 +4629,7 @@ return;
         let longPressTimer = null;
         let ghostMeta = null;
         let colBodyUserSelectTouched = false;
+        let bodyGestureStylesTouched = false;
         let panVelocity = 0;
         let lastPanScrollLeft = baseScrollLeft;
         let lastPanTs = 0;
@@ -3416,6 +4639,11 @@ return;
         let floatingMiniVisible = false;
         let floatingMiniRevealTimer = null;
         let preventTouchGestureScrollBound = false;
+        const prevCardDraggableAttr = cardEl.getAttribute('draggable');
+        const cardDraggableTouched = __tmIsKanbanColumnSnapMode(bodyEl) && prevCardDraggableAttr !== 'false';
+        if (cardDraggableTouched) {
+            try { cardEl.setAttribute('draggable', 'false'); } catch (e2) {}
+        }
         const preventTouchGestureScroll = (e2) => {
             if (ended || (mode !== 'drag' && mode !== 'pan')) return;
             try { e2?.preventDefault?.(); } catch (e3) {}
@@ -3439,7 +4667,7 @@ return;
             return Number.isFinite(ts) && ts > 0 ? ts : Date.now();
         };
 
-        const canPan = () => (bodyEl.scrollWidth - bodyEl.clientWidth) > 2;
+        const canPan = () => maxPanScrollLeft > 2;
         const cancelLongPress = () => {
             if (!longPressTimer) return;
             try { clearTimeout(longPressTimer); } catch (e2) {}
@@ -3478,6 +4706,7 @@ return;
         const setGestureActiveStyles = () => {
             try { bodyEl.style.cursor = 'grabbing'; } catch (e2) {}
             try { bodyEl.style.userSelect = 'none'; } catch (e2) {}
+            bodyGestureStylesTouched = true;
             if (colBodyEl instanceof HTMLElement) {
                 try {
                     colBodyEl.style.userSelect = 'none';
@@ -3531,21 +4760,44 @@ return;
             __tmApplyKanbanDragHoverFromTarget(pointTarget);
         };
 
+        const hasMovedBeyondLongPressTolerance = () => {
+            const pressDx = lastX - startX;
+            const pressDy = lastY - startY;
+            return (pressDx * pressDx + pressDy * pressDy) >= (longPressMoveTolerance * longPressMoveTolerance);
+        };
+
+        const armDragReady = () => {
+            if (mode !== 'pending' || ended) return;
+            if (hasMovedBeyondLongPressTolerance()) {
+                cancelLongPress();
+                return;
+            }
+            mode = 'drag-ready';
+            cancelLongPress();
+            state.__tmKanbanPanSuppressClickUntil = Date.now() + suppressClickMs;
+        };
+
         const startPan = () => {
             if (mode !== 'pending' || ended) return;
             mode = 'pan';
+            try { __tmMarkHighPriorityInteraction('kanban-card-pan-start', 520); } catch (e2) {}
             cancelLongPress();
             bindPreventTouchGestureScroll();
-            capturePointer();
+            __tmSetKanbanSnapPanActive(bodyEl, true);
             panVelocity = 0;
             lastPanScrollLeft = Number(bodyEl.scrollLeft || 0);
             lastPanTs = 0;
-            setGestureActiveStyles();
         };
 
-        const startDrag = () => {
-            if (mode !== 'pending' || ended) return;
+        const startDrag = (options = {}) => {
+            const fromReady = !!options?.fromReady;
+            if ((mode !== 'pending' && mode !== 'drag-ready') || ended) return;
+            if (!fromReady && hasMovedBeyondLongPressTolerance()) {
+                cancelLongPress();
+                return;
+            }
             mode = 'drag';
+            try { __tmMarkHighPriorityInteraction('kanban-card-drag-start', 520); } catch (e2) {}
             cancelLongPress();
             capturePointer();
             cancelFloatingMiniStart();
@@ -3607,6 +4859,8 @@ return;
             cancelLongPress();
             cancelFloatingMiniStart();
             dragStartedAt = 0;
+            __tmFlushKanbanScrollLeftRaf(bodyEl);
+            __tmSetKanbanSnapPanActive(bodyEl, false);
             try { document.removeEventListener('pointermove', onMove, true); } catch (e2) {}
             try { document.removeEventListener('pointerup', onUp, true); } catch (e2) {}
             try { document.removeEventListener('pointercancel', onUp, true); } catch (e2) {}
@@ -3630,8 +4884,19 @@ return;
             if (mode === 'pan' || mode === 'drag') {
                 state.__tmKanbanPanSuppressClickUntil = Date.now() + suppressClickMs;
             }
-            try { bodyEl.style.cursor = ''; } catch (e2) {}
-            try { bodyEl.style.userSelect = ''; } catch (e2) {}
+            if (mode === 'drag-ready') {
+                state.__tmKanbanPanSuppressClickUntil = Date.now() + suppressClickMs;
+            }
+            if (cardDraggableTouched) {
+                try {
+                    if (prevCardDraggableAttr == null) cardEl.removeAttribute('draggable');
+                    else cardEl.setAttribute('draggable', prevCardDraggableAttr);
+                } catch (e2) {}
+            }
+            if (bodyGestureStylesTouched) {
+                try { bodyEl.style.cursor = ''; } catch (e2) {}
+                try { bodyEl.style.userSelect = ''; } catch (e2) {}
+            }
             if (colBodyUserSelectTouched && colBodyEl instanceof HTMLElement) {
                 try { colBodyEl.style.userSelect = ''; } catch (e2) {}
             }
@@ -3645,14 +4910,15 @@ return;
             const dx = lastX - startX;
             const dy = lastY - startY;
             if (mode === 'drag') {
+                try { __tmMarkHighPriorityInteraction('kanban-card-drag-move', 180); } catch (e3) {}
                 updateDragFeedback(lastX, lastY);
                 try { e2.preventDefault(); } catch (e3) {}
                 return;
             }
             if (mode === 'pan') {
-                const maxLeft = Math.max(0, bodyEl.scrollWidth - bodyEl.clientWidth);
-                const nextLeft = clamp0(baseScrollLeft - dx, 0, maxLeft);
-                bodyEl.scrollLeft = nextLeft;
+                try { __tmMarkHighPriorityInteraction('kanban-card-pan-move', 180); } catch (e3) {}
+                const nextLeft = clamp0(baseScrollLeft - dx, 0, maxPanScrollLeft);
+                __tmSetKanbanScrollLeftRaf(bodyEl, nextLeft);
                 const nowTs = getGestureTs(e2);
                 if (lastPanTs > 0) {
                     const dt = Math.max(1, Math.min(48, nowTs - lastPanTs));
@@ -3663,17 +4929,29 @@ return;
                 try { e2.preventDefault(); } catch (e3) {}
                 return;
             }
+            if (mode === 'drag-ready') {
+                if (!hasMovedBeyondLongPressTolerance()) return;
+                startDrag({ fromReady: true });
+                if (mode === 'drag') {
+                    updateDragFeedback(lastX, lastY);
+                    try { e2.preventDefault(); } catch (e3) {}
+                }
+                return;
+            }
             const absX = Math.abs(dx);
             const absY = Math.abs(dy);
+            if (longPressTimer && (dx * dx + dy * dy) >= (longPressMoveTolerance * longPressMoveTolerance)) {
+                cancelLongPress();
+            }
             const effectivePanThreshold = longPressTimer ? Math.max(panThreshold, longPressIntentThreshold) : panThreshold;
             const effectiveScrollThreshold = longPressTimer ? Math.max(scrollThreshold, longPressIntentThreshold) : scrollThreshold;
             const horizontalIntent = absX >= effectivePanThreshold && (absY <= 0.5 || absX >= (absY * axisLockRatio));
             const verticalIntent = absY >= effectiveScrollThreshold && (absX <= 0.5 || absY >= (absX * axisLockRatio));
             if (horizontalIntent && canPan()) {
                 startPan();
-                const maxLeft = Math.max(0, bodyEl.scrollWidth - bodyEl.clientWidth);
-                const nextLeft = clamp0(baseScrollLeft - dx, 0, maxLeft);
-                bodyEl.scrollLeft = nextLeft;
+                try { __tmMarkHighPriorityInteraction('kanban-card-pan-active', 360); } catch (e3) {}
+                const nextLeft = clamp0(baseScrollLeft - dx, 0, maxPanScrollLeft);
+                __tmSetKanbanScrollLeftRaf(bodyEl, nextLeft);
                 lastPanTs = getGestureTs(e2);
                 lastPanScrollLeft = nextLeft;
                 try { e2.preventDefault(); } catch (e3) {}
@@ -3695,10 +4973,14 @@ return;
             const finalPanVelocity = panVelocity;
             if (mode === 'drag') await finishDrag();
             cleanup();
-            if (finalMode === 'pan') __tmStartKanbanMomentum(bodyEl, finalPanVelocity);
+            try { __tmMarkHighPriorityInteraction('kanban-card-touch-end', 160); } catch (e3) {}
+            if (finalMode === 'pan') __tmStartKanbanMomentum(bodyEl, finalPanVelocity, { startLeft: baseScrollLeft });
         };
 
-        longPressTimer = setTimeout(() => startDrag(), longPressMs);
+        longPressTimer = setTimeout(() => {
+            if (isMouseLikePointer) armDragReady();
+            else startDrag();
+        }, longPressMs);
         state.__tmKanbanCardGestureCleanup = cleanup;
         try { document.addEventListener('pointermove', onMove, true); } catch (e2) {}
         try { document.addEventListener('pointerup', onUp, true); } catch (e2) {}
@@ -3706,77 +4988,181 @@ return;
         try { window.addEventListener('blur', onUp, true); } catch (e2) {}
     };
 
-    function __tmSyncKanbanScrollableColumnInsets(modalEl) {
+    function __tmGetKanbanBottomNavAvoidanceState(modalEl) {
+        const modal = modalEl instanceof Element ? modalEl : state.modal;
+        if (!(modal instanceof Element)) return { active: false, pending: false };
+        const enabled = modal.classList.contains('tm-modal--mobile')
+            || modal.classList.contains('tm-modal--dock')
+            || !!modal.closest?.('[data-tm-host-mode="dock"]');
+        if (!enabled) return { active: false, pending: false };
+        try {
+            const bar = modal.querySelector('.tm-mobile-bottom-viewbar');
+            if (!(bar instanceof HTMLElement)) return { active: false, pending: false };
+            const style = window.getComputedStyle?.(bar);
+            if (style && (style.display === 'none' || style.visibility === 'hidden')) return { active: false, pending: false };
+            const rect = bar.getBoundingClientRect?.();
+            if (!rect || !(rect.width > 0 && rect.height > 0)) return { active: false, pending: true };
+            return { active: true, pending: false };
+        } catch (e) {
+            return { active: false, pending: false };
+        }
+    }
+
+    function __tmMeasureKanbanBottomNavContentHeight(colBody) {
+        if (!(colBody instanceof HTMLElement)) return 0;
+        let basePadding = 0;
+        let paddingTop = 0;
+        try {
+            const cs = window.getComputedStyle?.(colBody);
+            const rawBase = Number.parseFloat(String(cs?.getPropertyValue?.('--tm-kanban-col-body-pad-bottom-base') || ''));
+            const rawTop = Number.parseFloat(String(cs?.paddingTop || ''));
+            basePadding = Number.isFinite(rawBase) ? Math.max(0, rawBase) : 0;
+            paddingTop = Number.isFinite(rawTop) ? Math.max(0, rawTop) : 0;
+        } catch (e) {}
+        let contentBottom = 0;
+        try {
+            const bodyRect = colBody.getBoundingClientRect?.();
+            const bodyTop = Number(bodyRect?.top);
+            const scrollTop = Number(colBody.scrollTop || 0);
+            Array.from(colBody.children || []).forEach((child) => {
+                if (!(child instanceof HTMLElement)) return;
+                const childRect = child.getBoundingClientRect?.();
+                const rectBottom = Number(childRect?.bottom);
+                const bottom = Number.isFinite(bodyTop) && Number.isFinite(rectBottom)
+                    ? (rectBottom - bodyTop + scrollTop)
+                    : (Number(child.offsetTop || 0) + Number(child.offsetHeight || 0));
+                if (Number.isFinite(bottom) && bottom > contentBottom) contentBottom = bottom;
+            });
+        } catch (e) {}
+        return Math.ceil((contentBottom > 0 ? contentBottom : paddingTop) + basePadding);
+    }
+
+    function __tmMeasureKanbanBottomNavAvailableHeight(colBody, col) {
+        if (!(colBody instanceof HTMLElement)) return 0;
+        let height = Math.ceil(Number(colBody.clientHeight) || 0);
+        try {
+            if (col instanceof HTMLElement) {
+                const colRect = col.getBoundingClientRect?.();
+                const colHeight = Math.ceil(Number(col.clientHeight) || Number(colRect?.height) || 0);
+                const header = col.querySelector(':scope > .tm-kanban-col-header');
+                const headerRect = header instanceof HTMLElement ? header.getBoundingClientRect?.() : null;
+                const headerHeight = header instanceof HTMLElement
+                    ? Math.ceil(Number(header.offsetHeight) || Number(headerRect?.height) || 0)
+                    : 0;
+                const available = Math.max(0, colHeight - headerHeight);
+                if (available > height) height = available;
+            }
+        } catch (e) {}
+        return Math.ceil(height);
+    }
+
+    function __tmSetKanbanBottomNavAvoidanceClass(colBody, enabled) {
+        if (!(colBody instanceof HTMLElement)) return false;
+        const active = !!enabled;
+        const col = colBody.closest?.('.tm-kanban-col');
+        try { colBody.classList.toggle('tm-kanban-col-body--bottom-nav-inset', active); } catch (e) {}
+        if (col instanceof HTMLElement) {
+            try { col.classList.toggle('tm-kanban-col--bottom-nav-inset', active); } catch (e) {}
+        }
+        return active;
+    }
+
+    function __tmSyncKanbanBottomNavAvoidance(modalEl) {
         const modal = modalEl instanceof Element ? modalEl : state.modal;
         if (!(modal instanceof Element)) return false;
         const body = modal.querySelector('.tm-body.tm-body--kanban');
         if (!(body instanceof HTMLElement)) return false;
-        const usesConditionalInset = modal.classList.contains('tm-modal--mobile')
-            || modal.classList.contains('tm-modal--dock')
-            || !!modal.closest?.('[data-tm-host-mode="dock"]');
-        let hasScrollableColumn = false;
+        const navState = __tmGetKanbanBottomNavAvoidanceState(modal);
+        let hasAvoidanceColumn = false;
+        let needsRecheck = navState.pending;
         try {
             body.querySelectorAll('.tm-kanban-col-body').forEach((colBody) => {
                 if (!(colBody instanceof HTMLElement)) return;
+                const col = colBody.closest?.('.tm-kanban-col');
                 const prevScrollTop = Number(colBody.scrollTop || 0);
-                try { colBody.classList.remove('tm-kanban-col-body--scrollable'); } catch (e2) {}
-                const canScroll = usesConditionalInset
-                    && (Math.ceil(Number(colBody.scrollHeight) || 0) > Math.ceil(Number(colBody.clientHeight) || 0) + 1);
-                try { colBody.classList.toggle('tm-kanban-col-body--scrollable', canScroll); } catch (e2) {}
+                const hadAvoidance = colBody.classList.contains('tm-kanban-col-body--bottom-nav-inset');
+                const contentHeight = __tmMeasureKanbanBottomNavContentHeight(colBody);
+                const availableHeight = __tmMeasureKanbanBottomNavAvailableHeight(colBody, col);
+                const needsAvoidance = navState.active
+                    && availableHeight > 0
+                    && contentHeight > availableHeight + 1;
+                const keepWhilePending = navState.pending && hadAvoidance;
+                const applyAvoidance = needsAvoidance || keepWhilePending;
+                __tmSetKanbanBottomNavAvoidanceClass(colBody, applyAvoidance);
                 if (prevScrollTop > 0) {
                     try {
                         const maxTop = Math.max(0, Number(colBody.scrollHeight || 0) - Number(colBody.clientHeight || 0));
                         colBody.scrollTop = Math.min(prevScrollTop, maxTop);
                     } catch (e2) {}
                 }
-                const col = colBody.closest?.('.tm-kanban-col');
-                if (col instanceof HTMLElement) {
-                    try { col.classList.toggle('tm-kanban-col--scrollable', canScroll); } catch (e2) {}
-                }
-                if (canScroll) hasScrollableColumn = true;
+                if (applyAvoidance) hasAvoidanceColumn = true;
             });
-            body.classList.toggle('tm-body--kanban-has-scrollable-col', hasScrollableColumn);
+            try { body.classList.toggle('tm-body--kanban-bottom-nav-inset', hasAvoidanceColumn); } catch (e) {}
             const board = body.querySelector('.tm-kanban');
-            if (board instanceof HTMLElement) board.classList.toggle('tm-kanban--has-scrollable-col', hasScrollableColumn);
+            if (board instanceof HTMLElement) {
+                try { board.classList.toggle('tm-kanban--bottom-nav-inset', hasAvoidanceColumn); } catch (e) {}
+            }
+            if (needsRecheck) {
+                try {
+                    if (body.__tmKanbanBottomNavAvoidanceRecheckTimer) clearTimeout(body.__tmKanbanBottomNavAvoidanceRecheckTimer);
+                    body.__tmKanbanBottomNavAvoidanceRecheckTimer = setTimeout(() => {
+                        body.__tmKanbanBottomNavAvoidanceRecheckTimer = 0;
+                        try { __tmSyncKanbanBottomNavAvoidance(modal); } catch (e2) {}
+                    }, 80);
+                } catch (e) {}
+            }
         } catch (e) {}
-        return hasScrollableColumn;
+        return hasAvoidanceColumn;
     }
 
-    function __tmScheduleKanbanScrollableColumnInsets(modalEl) {
+    function __tmScheduleKanbanBottomNavAvoidance(modalEl) {
         const modal = modalEl instanceof Element ? modalEl : state.modal;
         if (!(modal instanceof Element)) return false;
         const body = modal.querySelector('.tm-body.tm-body--kanban');
         if (!(body instanceof HTMLElement)) return false;
-        const sync = () => {
-            try { __tmSyncKanbanScrollableColumnInsets(modal); } catch (e) {}
+        const syncMetrics = (force = false) => {
+            try { __tmSyncKanbanSnapMetrics(body, force ? { force: true } : {}); } catch (e) {}
         };
-        sync();
-        try { requestAnimationFrame(sync); } catch (e) {}
-        try { requestAnimationFrame(() => requestAnimationFrame(sync)); } catch (e) {}
-        if (typeof ResizeObserver === 'function' && !body.__tmKanbanScrollableInsetResizeObserver) {
-            const schedule = () => {
-                if (Number(body.__tmKanbanScrollableInsetRaf) > 0) return;
-                try {
-                    body.__tmKanbanScrollableInsetRaf = requestAnimationFrame(() => {
-                        body.__tmKanbanScrollableInsetRaf = 0;
-                        sync();
-                    });
-                } catch (e) {
-                    body.__tmKanbanScrollableInsetRaf = 0;
-                    sync();
-                }
-            };
+        const sync = (forceMetrics = false) => {
+            if (body.isConnected === false) return;
+            syncMetrics(forceMetrics);
+            try { __tmSyncKanbanBottomNavAvoidance(modal); } catch (e) {}
+        };
+        const scheduleRaf = (forceMetrics = false) => {
+            if (Number(body.__tmKanbanBottomNavAvoidanceRaf) > 0) return true;
             try {
-                const ro = new ResizeObserver(schedule);
+                body.__tmKanbanBottomNavAvoidanceRaf = requestAnimationFrame(() => {
+                    body.__tmKanbanBottomNavAvoidanceRaf = 0;
+                    sync(forceMetrics);
+                });
+            } catch (e) {
+                body.__tmKanbanBottomNavAvoidanceRaf = 0;
+                sync(forceMetrics);
+            }
+            return true;
+        };
+        const setupObserver = () => {
+            if (typeof ResizeObserver !== 'function' || body.__tmKanbanBottomNavAvoidanceResizeObserver) return;
+            try {
+                const ro = new ResizeObserver(() => scheduleRaf(true));
                 ro.observe(body);
+                const bar = modal.querySelector('.tm-mobile-bottom-viewbar');
+                if (bar instanceof Element) ro.observe(bar);
                 body.querySelectorAll('.tm-kanban-col').forEach((col) => {
                     if (col instanceof Element) ro.observe(col);
                 });
-                body.__tmKanbanScrollableInsetResizeObserver = ro;
+                body.__tmKanbanBottomNavAvoidanceResizeObserver = ro;
             } catch (e) {
-                body.__tmKanbanScrollableInsetResizeObserver = null;
+                body.__tmKanbanBottomNavAvoidanceResizeObserver = null;
             }
-        }
+        };
+        sync(true);
+        scheduleRaf(true);
+        try { requestAnimationFrame(() => requestAnimationFrame(() => sync(true))); } catch (e) {}
+        try { setTimeout(() => sync(true), 120); } catch (e) {}
+        try { setTimeout(() => sync(true), 360); } catch (e) {}
+        try { setTimeout(() => sync(true), 720); } catch (e) {}
+        setupObserver();
         return true;
     }
 
@@ -3785,6 +5171,12 @@ return;
         if (!modal) return;
         const bodyEl = modal.querySelector('.tm-body.tm-body--kanban');
         if (!bodyEl) return;
+        try { __tmStartKanbanBootWindow(bodyEl); } catch (e) {}
+        try { __tmSyncKanbanSnapMetrics(bodyEl); } catch (e) {}
+        try { __tmBindKanbanSnapSettle(bodyEl); } catch (e) {}
+        try { __tmScheduleKanbanBoardNavInitialSync(bodyEl); } catch (e) {}
+        try { __tmBindKanbanBoardNavSwipe(bodyEl); } catch (e) {}
+        try { __tmBindKanbanHostGestureIsolation(bodyEl); } catch (e) {}
         if (String(bodyEl.dataset?.tmKanbanPanBound || '') === '1') return;
         bodyEl.dataset.tmKanbanPanBound = '1';
         const clamp0 = (n, min, max) => Math.max(min, Math.min(max, n));
@@ -3803,7 +5195,11 @@ return;
             if (e && typeof e.button === 'number' && e.button !== 0) return;
             if (target.closest('.tm-kanban-card')) return;
             if (target.closest('input,button,select,textarea,a,[contenteditable="true"]')) return;
-            if ((bodyEl.scrollWidth - bodyEl.clientWidth) <= 2) return;
+            try { __tmSyncKanbanSnapMetrics(bodyEl); } catch (e2) {}
+            const snapPanMode = __tmIsKanbanColumnSnapMode(bodyEl);
+            const maxPanScrollLeft = __tmGetKanbanMaxPanScrollLeft(bodyEl);
+            if (maxPanScrollLeft <= 2) return;
+            try { __tmMarkHighPriorityInteraction('kanban-pan-start', 520); } catch (e2) {}
             __tmClearKanbanCardGesture();
             __tmStopKanbanMomentum();
 
@@ -3813,10 +5209,11 @@ return;
             let active = false;
             let ended = false;
             let captured = false;
+            let bodyPanStylesTouched = false;
             let panVelocity = 0;
             let lastPanScrollLeft = baseScrollLeft;
             let lastPanTs = 0;
-            const threshold = 6;
+            const threshold = 4;
             const getGestureTs = (ev) => {
                 const ts = Number(ev?.timeStamp);
                 return Number.isFinite(ts) && ts > 0 ? ts : Date.now();
@@ -3829,12 +5226,16 @@ return;
                 try { window.removeEventListener('pointerup', onWinUp, true); } catch (e2) {}
                 try { window.removeEventListener('pointercancel', onWinUp, true); } catch (e2) {}
                 try { window.removeEventListener('blur', onWinUp, true); } catch (e2) {}
+                __tmFlushKanbanScrollLeftRaf(bodyEl);
+                __tmSetKanbanSnapPanActive(bodyEl, false);
                 if (captured && Number.isFinite(Number(e?.pointerId)) && typeof bodyEl.releasePointerCapture === 'function') {
                     try { bodyEl.releasePointerCapture(e.pointerId); } catch (e2) {}
                 }
                 if (active) state.__tmKanbanPanSuppressClickUntil = Date.now() + suppressClickMs;
-                try { bodyEl.style.cursor = ''; } catch (e2) {}
-                try { bodyEl.style.userSelect = ''; } catch (e2) {}
+                if (bodyPanStylesTouched) {
+                    try { bodyEl.style.cursor = ''; } catch (e2) {}
+                    try { bodyEl.style.userSelect = ''; } catch (e2) {}
+                }
             };
 
             const onWinMove = (ev) => {
@@ -3845,18 +5246,23 @@ return;
                     if (Math.abs(dx) < threshold) return;
                     if (Math.abs(dx) <= Math.abs(dy)) return;
                     active = true;
-                    if (Number.isFinite(Number(e?.pointerId)) && typeof bodyEl.setPointerCapture === 'function') {
+                    try { __tmMarkHighPriorityInteraction('kanban-pan-active', 420); } catch (e2) {}
+                    if (!snapPanMode && Number.isFinite(Number(e?.pointerId)) && typeof bodyEl.setPointerCapture === 'function') {
                         try {
                             bodyEl.setPointerCapture(e.pointerId);
                             captured = true;
                         } catch (e2) {}
                     }
-                    try { bodyEl.style.cursor = 'grabbing'; } catch (e2) {}
-                    try { bodyEl.style.userSelect = 'none'; } catch (e2) {}
+                    if (!snapPanMode) {
+                        try { bodyEl.style.cursor = 'grabbing'; } catch (e2) {}
+                        try { bodyEl.style.userSelect = 'none'; } catch (e2) {}
+                        bodyPanStylesTouched = true;
+                    }
+                    __tmSetKanbanSnapPanActive(bodyEl, true);
                 }
-                const maxLeft = Math.max(0, bodyEl.scrollWidth - bodyEl.clientWidth);
-                const nextLeft = clamp0(baseScrollLeft - dx, 0, maxLeft);
-                bodyEl.scrollLeft = nextLeft;
+                try { __tmMarkHighPriorityInteraction('kanban-pan-move', 180); } catch (e2) {}
+                const nextLeft = clamp0(baseScrollLeft - dx, 0, maxPanScrollLeft);
+                __tmSetKanbanScrollLeftRaf(bodyEl, nextLeft);
                 const nowTs = getGestureTs(ev);
                 if (lastPanTs > 0) {
                     const dt = Math.max(1, Math.min(48, nowTs - lastPanTs));
@@ -3871,7 +5277,7 @@ return;
                 const shouldMomentum = active;
                 const finalPanVelocity = panVelocity;
                 cleanup();
-                if (shouldMomentum) __tmStartKanbanMomentum(bodyEl, finalPanVelocity);
+                if (shouldMomentum) __tmStartKanbanMomentum(bodyEl, finalPanVelocity, { startLeft: baseScrollLeft });
             };
 
             window.addEventListener('pointermove', onWinMove, true);
@@ -4054,6 +5460,7 @@ return;
             if (!changed) {
                 if (restoredFromDoneBoard) {
                     try { applyFilters(); } catch (e2) {}
+                    try { __tmKanbanColsHtmlCache = null; } catch (e2) {}
                     if (!__tmRerenderKanbanInPlace(state.modal)) {
                         try { render(); } catch (e2) {}
                     }
@@ -4064,6 +5471,7 @@ return;
                 return;
             }
             try { applyFilters(); } catch (e2) {}
+            try { __tmKanbanColsHtmlCache = null; } catch (e2) {}
             if (!__tmRerenderKanbanInPlace(state.modal)) {
                 try { render(); } catch (e2) {}
             }
@@ -4084,6 +5492,7 @@ return;
             try {
                 await __tmKanbanMoveIdsToStatus(ids, st);
                 try { applyFilters(); } catch (e2) {}
+                try { __tmKanbanColsHtmlCache = null; } catch (e2) {}
                 if (!__tmRerenderKanbanInPlace(state.modal)) {
                     try { render(); } catch (e2) {}
                 }
@@ -4409,6 +5818,15 @@ return;
         task.completionTime = isValidValue(task.completionTime) ? String(task.completionTime) : (isValidValue(task.completion_time) ? String(task.completion_time) : '');
         task.taskCompleteAt = isValidValue(task.taskCompleteAt) ? String(task.taskCompleteAt) : (isValidValue(task.task_complete_at) ? String(task.task_complete_at) : '');
         task.startDate = isValidValue(task.startDate) ? String(task.startDate) : (isValidValue(task.start_date) ? String(task.start_date) : '');
+        task.taskDateColor = isValidValue(task.taskDateColor)
+            ? String(task.taskDateColor)
+            : (isValidValue(task.task_date_color)
+                ? String(task.task_date_color)
+                : (isValidValue(task.custom_task_date_color)
+                    ? String(task.custom_task_date_color)
+                    : (isValidValue(task['custom-task-date-color']) ? String(task['custom-task-date-color']) : '')));
+        task.task_date_color = task.taskDateColor;
+        task.custom_task_date_color = task.taskDateColor;
         task.customTime = isValidValue(task.customTime) ? String(task.customTime) : (isValidValue(task.custom_time) ? String(task.custom_time) : '');
         task.customStatus = isValidValue(task.custom_status) ? String(task.custom_status) : (isValidValue(task.customStatus) ? String(task.customStatus) : '');
         task.bookmark = isValidValue(task.bookmark) ? String(task.bookmark) : '';
@@ -4476,6 +5894,11 @@ return;
             if (!isValidValue(task.duration) && isValidValue(meta.duration)) task.duration = meta.duration;
             if (!isValidValue(task.remark) && isValidValue(meta.remark)) task.remark = meta.remark;
             if (!isValidValue(task.completionTime) && allowVisibleDateFallback && isValidValue(meta.completionTime)) task.completionTime = meta.completionTime;
+            if (!isValidValue(task.taskDateColor) && isValidValue(meta.taskDateColor)) {
+                task.taskDateColor = String(meta.taskDateColor || '').trim();
+                task.task_date_color = task.taskDateColor;
+                task.custom_task_date_color = task.taskDateColor;
+            }
             if (!isValidValue(task.taskCompleteAt) && isValidValue(meta.taskCompleteAt)) task.taskCompleteAt = meta.taskCompleteAt;
             if (!isValidValue(task.startDate) && allowVisibleDateFallback && isValidValue(meta.startDate)) task.startDate = meta.startDate;
             if (!isValidValue(task.customTime) && allowVisibleDateFallback && isValidValue(meta.customTime)) task.customTime = meta.customTime;

@@ -130,12 +130,10 @@
         const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(key);
         if (!m) return key;
         const year = Number(m[1]);
-        const month = Number(m[2]);
-        const day = Number(m[3]);
         const now = new Date();
         return year === now.getFullYear()
-            ? `${month}-${day}`
-            : `${year}-${month}-${day}`;
+            ? `${m[2]}-${m[3]}`
+            : key;
     }
 
     function __tmGetTaskTimeHubCalendarFirstDay() {
@@ -2483,6 +2481,30 @@ if (!__tmIsCollectedOtherBlockTask(task) && diff.contentChanged) {
                     } catch (e) {}
                 }
                 const latestTask = state.flatTasks?.[String(task.id || '').trim()] || task;
+                if (Object.prototype.hasOwnProperty.call(diff.timePatch || {}, 'startDate')
+                    || Object.prototype.hasOwnProperty.call(diff.timePatch || {}, 'completionTime')) {
+                    try {
+                        const calApi = globalThis.__tmCalendar;
+                        const calendarPatch = {
+                            startDate: String(latestTask?.startDate ?? nextStart ?? '').trim(),
+                            completionTime: String(latestTask?.completionTime ?? nextEnd ?? '').trim(),
+                        };
+                        if (typeof calApi?.syncTaskDatePatchInPlace === 'function') {
+                            calApi.syncTaskDatePatchInPlace(task.id, calendarPatch, { reason: 'detail-time-save' });
+                        } else if (typeof calApi?.syncTaskDateInPlace === 'function') {
+                            Promise.resolve(calApi.syncTaskDateInPlace(task.id, { main: true, side: true })).then((summary) => {
+                                if (summary?.needsMainRefresh || summary?.needsSideRefresh) {
+                                    calApi.requestRefresh?.({
+                                        reason: 'detail-time-save',
+                                        main: summary.needsMainRefresh === true,
+                                        side: summary.needsSideRefresh === true,
+                                        flushTaskPanel: false,
+                                    });
+                                }
+                            }).catch(() => null);
+                        }
+                    } catch (e) {}
+                }
                 if (diff.contentChanged) {
                     try { syncTaskContentInVisibleViews(latestTask); } catch (e) {}
                     if (shouldRefreshContentProjection(latestTask?.id || task.id, latestTask)) {

@@ -439,6 +439,7 @@ return ok;
         } else if (viewMode === 'kanban') {
             if (hasCalendarDatePatch && isKanbanTimeBoard) {
                 try { applyFilters(); } catch (e) {}
+                try { __tmKanbanColsHtmlCache = null; } catch (e) {}
                 refreshed = !!__tmRerenderKanbanInPlace(state.modal) || refreshed;
                 if (!refreshed) refreshed = !!__tmRerenderCurrentViewInPlace(state.modal) || refreshed;
             } else {
