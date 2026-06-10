@@ -63,6 +63,108 @@
         mainSchedule: 'tm-schedule-main',
         sideSchedule: 'tm-schedule-side',
     };
+    const CALENDAR_TASK_META_ATTR_DEFAULT_KEYS = Object.freeze({
+        startDate: 'custom-start-date',
+        completionTime: 'custom-completion-time',
+        taskDateColor: 'custom-task-date-color',
+    });
+    let calendarTaskMetaAttrKeySettingsRaw = null;
+    let calendarTaskMetaAttrKeySettingsCache = {};
+    let calendarTaskMetaAttrAliasSettingsRaw = null;
+    let calendarTaskMetaAttrAliasSettingsCache = {};
+
+    function readCalendarTaskMetaAttrSettingsObject(storageKey, kind) {
+        let raw = '';
+        try { raw = String(localStorage.getItem(storageKey) || ''); } catch (e) {}
+        if (kind === 'keys' && raw === calendarTaskMetaAttrKeySettingsRaw) return calendarTaskMetaAttrKeySettingsCache;
+        if (kind === 'aliases' && raw === calendarTaskMetaAttrAliasSettingsRaw) return calendarTaskMetaAttrAliasSettingsCache;
+        let value = {};
+        if (raw.trim()) {
+            try {
+                const parsed = JSON.parse(raw);
+                if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) value = parsed;
+            } catch (e) {}
+        }
+        if (kind === 'keys') {
+            calendarTaskMetaAttrKeySettingsRaw = raw;
+            calendarTaskMetaAttrKeySettingsCache = value;
+            return calendarTaskMetaAttrKeySettingsCache;
+        }
+        calendarTaskMetaAttrAliasSettingsRaw = raw;
+        calendarTaskMetaAttrAliasSettingsCache = value;
+        return calendarTaskMetaAttrAliasSettingsCache;
+    }
+
+    function normalizeCalendarTaskMetaAttrKeyName(value, fallback = '') {
+        const key = String(value || '').trim();
+        if (key && /^custom-[a-zA-Z0-9_-]+$/.test(key)) return key;
+        const safeFallback = String(fallback || '').trim();
+        return safeFallback && /^custom-[a-zA-Z0-9_-]+$/.test(safeFallback) ? safeFallback : '';
+    }
+
+    function getCalendarTaskMetaAttrDefaultKey(field) {
+        return String(CALENDAR_TASK_META_ATTR_DEFAULT_KEYS[String(field || '').trim()] || '').trim();
+    }
+
+    function getCalendarTaskMetaAttrKey(field) {
+        const fieldKey = String(field || '').trim();
+        const defaultKey = getCalendarTaskMetaAttrDefaultKey(fieldKey);
+        if (!defaultKey) return '';
+        const settings = readCalendarTaskMetaAttrSettingsObject('tm_task_meta_attr_keys', 'keys');
+        return normalizeCalendarTaskMetaAttrKeyName(settings?.[fieldKey], defaultKey) || defaultKey;
+    }
+
+    function getCalendarTaskMetaAttrAliases(field) {
+        const fieldKey = String(field || '').trim();
+        if (!getCalendarTaskMetaAttrDefaultKey(fieldKey)) return [];
+        const aliases = readCalendarTaskMetaAttrSettingsObject('tm_task_meta_attr_key_aliases', 'aliases');
+        const rawList = Array.isArray(aliases?.[fieldKey]) ? aliases[fieldKey] : [];
+        const seen = new Set();
+        return rawList
+            .map(key => normalizeCalendarTaskMetaAttrKeyName(key, ''))
+            .filter((key) => {
+                if (!key || seen.has(key)) return false;
+                seen.add(key);
+                return true;
+            });
+    }
+
+    function readCalendarConfiguredTaskMetaAttrValue(attrs, field, fallback = '') {
+        const source = (attrs && typeof attrs === 'object') ? attrs : {};
+        const defaultKey = getCalendarTaskMetaAttrDefaultKey(field);
+        const currentKey = getCalendarTaskMetaAttrKey(field);
+        const aliases = getCalendarTaskMetaAttrAliases(field);
+        if (currentKey === defaultKey && aliases.length === 0) return String(fallback ?? '');
+        const keys = [];
+        const push = (key) => {
+            const normalized = normalizeCalendarTaskMetaAttrKeyName(key, '');
+            if (normalized && !keys.includes(normalized)) keys.push(normalized);
+        };
+        push(currentKey);
+        aliases.forEach(push);
+        for (const key of keys) {
+            if (Object.prototype.hasOwnProperty.call(source, key)) return String(source[key] ?? '');
+        }
+        return String(fallback ?? '');
+    }
+
+    function buildCalendarTaskMetaLegacyReadKeys(field, legacyKeys) {
+        const sourceKeys = Array.isArray(legacyKeys) ? legacyKeys.map(key => String(key || '').trim()).filter(Boolean) : [];
+        const defaultKey = getCalendarTaskMetaAttrDefaultKey(field);
+        const currentKey = getCalendarTaskMetaAttrKey(field);
+        const aliases = getCalendarTaskMetaAttrAliases(field);
+        if (currentKey === defaultKey && aliases.length === 0) return sourceKeys;
+        const out = [];
+        const push = (key) => {
+            const raw = String(key || '').trim();
+            if (raw && !out.includes(raw)) out.push(raw);
+        };
+        sourceKeys.slice(0, 2).forEach(push);
+        push(currentKey);
+        aliases.forEach(push);
+        sourceKeys.slice(2).forEach(push);
+        return out;
+    }
 
     function setStylePropertyIfChanged(node, prop, value, priority = '') {
         if (!(node instanceof HTMLElement)) return false;
@@ -5177,7 +5279,7 @@
                     <div class="tm-mini-cal-title">${esc(String(model?.title || ''))}</div>
                     <button class="tm-mini-cal-btn" type="button" data-tm-mini-action="next">›</button>
                 </div>
-                ${showTargetLabel ? `<div class="tm-mini-cal-target${targetLabel ? ' is-active' : ''}" data-tm-mini-target>${esc(targetLabel || '拖到日期上修改完成日期')}</div>` : ''}
+                ${showTargetLabel ? `<div class="tm-mini-cal-target${targetLabel ? ' is-active' : ''}" data-tm-mini-target>${esc(targetLabel || '拖到日期上修改截止日期')}</div>` : ''}
                 <div class="tm-mini-cal-grid">
                     ${(Array.isArray(model?.dows) ? model.dows : []).map((t) => `<div class="tm-mini-cal-dow">${esc(String(t || ''))}</div>`).join('')}
                     ${cellsHtml}
@@ -5208,7 +5310,7 @@
         });
         const targetEl = container.querySelector('[data-tm-mini-target]');
         if (targetEl instanceof HTMLElement) {
-            try { targetEl.textContent = targetLabel || '拖到日期上修改完成日期'; } catch (e) {}
+            try { targetEl.textContent = targetLabel || '拖到日期上修改截止日期'; } catch (e) {}
             try { targetEl.classList.toggle('is-active', !!targetLabel); } catch (e) {}
         }
     }
@@ -6067,7 +6169,7 @@
             state.floatingMini.selectedDateKey = normalizedDateKey;
             state.floatingMini.sourceDateKey = normalizedDateKey;
             state.floatingMini.hoverDateKey = '';
-            toast(`✅ 完成日期已更新为 ${normalizedDateKey}`, 'success');
+            toast(`✅ 截止日期已更新为 ${normalizedDateKey}`, 'success');
             hideFloatingMiniCalendar();
             return true;
         } catch (e) {
@@ -10045,8 +10147,8 @@
     function shouldMoveSingleScheduleStartDate(target) {
         const task = resolveScheduleDateFollowTask(target);
         if (!task) return false;
-        const startKey = pickScheduleDateFollowTaskDate(task, ['startDate', 'start_date', 'custom-start-date', 'custom_start_date']);
-        const dueKey = pickScheduleDateFollowTaskDate(task, ['completionTime', 'completion_time', 'custom-completion-time', 'custom_completion_time']);
+        const startKey = pickScheduleDateFollowTaskDate(task, buildCalendarTaskMetaLegacyReadKeys('startDate', ['startDate', 'start_date', 'custom-start-date', 'custom_start_date']));
+        const dueKey = pickScheduleDateFollowTaskDate(task, buildCalendarTaskMetaLegacyReadKeys('completionTime', ['completionTime', 'completion_time', 'custom-completion-time', 'custom_completion_time']));
         return !!startKey && !!dueKey && startKey === dueKey;
     }
 
@@ -10074,12 +10176,15 @@
         if (!targets.length) return { synced: false, skipped: 'no-linked-task' };
 
         const opt = (options && typeof options === 'object') ? options : {};
-        const list = Array.isArray(opt.list) ? opt.list : await loadScheduleAll();
+        const inputList = Array.isArray(opt.list) ? opt.list : await loadScheduleAll();
+        const list = cloneScheduleList(inputList);
         let synced = false;
         let failed = false;
         let rangeStart = '';
         let rangeEnd = '';
         const changedTaskIds = new Set();
+        let needsLocalMainRefresh = false;
+        let needsLocalSideRefresh = false;
 
         for (const target of targets) {
             if (await isScheduleDateFollowTargetRecurringTask(target)) continue;
@@ -10108,28 +10213,70 @@
                     refresh: false,
                     broadcast: false,
                     renderOptimistic: false,
-                    skipFlush: true,
+                    background: true,
+                    wait: true,
+                    refreshCalendar: false,
+                    skipFlush: false,
                 });
                 synced = true;
                 const changedTaskId = String(result?.id || target.targetId || '').trim();
                 if (changedTaskId) changedTaskIds.add(changedTaskId);
+                try {
+                    const eventPatch = {
+                        startDate: String(result?.startDate ?? patch.startDate ?? '').trim(),
+                        completionTime: String(result?.completionTime ?? patch.completionTime ?? '').trim(),
+                    };
+                    window.dispatchEvent(new CustomEvent('tm:task-date-follow-updated', {
+                        detail: {
+                            taskId: changedTaskId || String(target.targetId || '').trim(),
+                            patch: eventPatch,
+                            reason: 'calendar-schedule-dates-follow',
+                        },
+                    }));
+                } catch (e) {}
                 if (opt.refresh === false && opt.localTaskDatePatch !== false) {
                     try {
                         const localPatch = {
                             startDate: String(result?.startDate ?? patch.startDate ?? '').trim(),
                             completionTime: String(result?.completionTime ?? patch.completionTime ?? '').trim(),
                         };
-                        syncTaskDateEventFromDateFollowPatch(changedTaskId || target.targetId, localPatch, {
+                        const localResult = syncTaskDateEventFromDateFollowPatch(changedTaskId || target.targetId, localPatch, {
                             reason: 'calendar-schedule-dates-follow',
                             scheduleList: list,
                         });
+                        needsLocalMainRefresh = needsLocalMainRefresh || localResult?.needsMainRefresh === true;
+                        needsLocalSideRefresh = needsLocalSideRefresh || localResult?.needsSideRefresh === true;
                     } catch (e) {}
+                }
+                if (state.sideDay?.calendar && state.sideDay.calendar !== state.calendar) {
+                    needsLocalSideRefresh = true;
                 }
                 if (!rangeStart || earliest < rangeStart) rangeStart = earliest;
                 if (!rangeEnd || latest > rangeEnd) rangeEnd = latest;
             } catch (err) {
                 failed = true;
                 try { console.warn('[task-horizon] schedule date follow sync failed', err); } catch (e) {}
+            }
+        }
+
+        if (synced && opt.refresh === false) {
+            try { window.__tmCalendarTaskDateForceFreshUntil = Date.now() + 6000; } catch (e) {}
+            const refetchResult = __tmRefetchTaskDateSources({
+                main: needsLocalMainRefresh,
+                side: needsLocalSideRefresh,
+            });
+            needsLocalMainRefresh = needsLocalMainRefresh && !refetchResult.main;
+            needsLocalSideRefresh = needsLocalSideRefresh && !refetchResult.side;
+            if (needsLocalMainRefresh || needsLocalSideRefresh) {
+                scheduleCalendarRefresh({
+                    reason: 'calendar-schedule-dates-follow',
+                    main: needsLocalMainRefresh,
+                    side: needsLocalSideRefresh,
+                    flushTaskPanel: false,
+                    rangeStart,
+                    rangeEnd,
+                    version: Number(state.calendarMutationVersion) || 0,
+                });
             }
         }
 
@@ -11997,9 +12144,6 @@
                     }
                 } catch (e) {}
             },
-            eventsSet: () => {
-                try { scheduleSyncTimeGridAllDayCollapseUi(rootEl, cal); } catch (e) {}
-            },
             eventDragStart: () => {
                 try { setCalendarTouchGestureLock(rootEl, true); } catch (e) {}
             },
@@ -12117,6 +12261,8 @@
                 },
             ],
             eventsSet: () => {
+                try { __tmDedupeTaskDateEventsInCalendar(cal, EVENT_SOURCE_IDS.sideTaskDate); } catch (e) {}
+                try { scheduleSyncTimeGridAllDayCollapseUi(rootEl, cal); } catch (e) {}
                 try {
                     state.calendarRenderedVersionSide = Math.max(
                         Number(state.calendarRenderedVersionSide) || 0,
@@ -12507,6 +12653,10 @@
         const idSet = new Set(ids);
         if (!idSet.size) return { deleted: 0, scheduleIds: [] };
         const opts = (options && typeof options === 'object') ? options : {};
+        const taskDateRemoval = __tmRemoveTaskDateEventsByTaskIds(ids, {
+            main: opts.main !== false,
+            side: opts.side === true,
+        });
         const list = await loadScheduleAll();
         const removedItems = [];
         const nextList = [];
@@ -12524,7 +12674,9 @@
                 nextList.push(item);
             }
         }
-        if (!removedItems.length) return { deleted: 0, scheduleIds: [] };
+        if (!removedItems.length) {
+            return { deleted: 0, scheduleIds: [], taskDateEventsRemoved: Number(taskDateRemoval?.removed || 0) };
+        }
         const scheduleIds = removedItems.map((item) => String(item?.id || '').trim()).filter(Boolean);
         const rangeStart = removedItems.reduce((min, item) => {
             const value = String(item?.start || '').trim();
@@ -12545,15 +12697,15 @@
         });
         scheduleCalendarRefresh({
             reason: String(opts.reason || 'delete-task-schedules').trim() || 'delete-task-schedules',
-            main: true,
-            side: true,
-            flushTaskPanel: true,
-            hard: String(state.calendar?.view?.type || '').trim() === 'dayGridMonth',
+            main: opts.main !== false,
+            side: opts.side === true,
+            flushTaskPanel: opts.flushTaskPanel !== false,
+            hard: opts.hard === true || String(state.calendar?.view?.type || '').trim() === 'dayGridMonth',
             rangeStart,
             rangeEnd,
             version: Number(state.calendarMutationVersion) || 0,
         });
-        return { deleted: removedItems.length, scheduleIds };
+        return { deleted: removedItems.length, scheduleIds, taskDateEventsRemoved: Number(taskDateRemoval?.removed || 0) };
     }
 
     async function loadScheduleForRange(rangeStart, rangeEnd) {
@@ -12870,6 +13022,120 @@
         }
     }
 
+    function __tmCalendarTaskDateEventMatchesTaskIds(eventApi, idSet) {
+        if (!eventApi || !(idSet instanceof Set) || idSet.size === 0) return false;
+        const ext = eventApi?.extendedProps || {};
+        if (String(ext.__tmSource || '').trim() !== 'taskdate') return false;
+        const candidates = [
+            String(eventApi?.id || '').trim().replace(/^taskdate:/, ''),
+            ext.__tmTaskId,
+            ext.__tmTaskDateEventTaskId,
+            ext.__tmSourceTaskId,
+            ext.__tmBlockId,
+        ].map((value) => String(value || '').trim()).filter(Boolean);
+        return candidates.some((value) => idSet.has(value));
+    }
+
+    function __tmRemoveTaskDateEventsFromCalendar(calendar, idSet) {
+        const cal = calendar || null;
+        if (!cal || !(idSet instanceof Set) || idSet.size === 0 || typeof cal.getEvents !== 'function') {
+            return { removed: 0 };
+        }
+        let events = [];
+        try {
+            events = cal.getEvents().filter((eventApi) => __tmCalendarTaskDateEventMatchesTaskIds(eventApi, idSet));
+        } catch (e) {
+            events = [];
+        }
+        if (!events.length) return { removed: 0 };
+        const remove = () => {
+            events.forEach((eventApi) => {
+                try { eventApi.remove?.(); } catch (e) {}
+            });
+        };
+        try {
+            if (typeof cal.batchRendering === 'function') cal.batchRendering(remove);
+            else remove();
+        } catch (e) {
+            remove();
+        }
+        try { __tmSyncCalendarUiAfterDirectEventMutation(cal); } catch (e) {}
+        return { removed: events.length };
+    }
+
+    function __tmRemoveTaskDateEventsByTaskIds(taskIds, options = {}) {
+        const ids = (Array.isArray(taskIds) ? taskIds : [taskIds])
+            .map((item) => String(item || '').trim())
+            .filter(Boolean);
+        const idSet = new Set(ids);
+        if (!idSet.size) return { removed: 0, main: 0, side: 0 };
+        const opt = (options && typeof options === 'object') ? options : {};
+        try { window.__tmCalendarAllTasksCache = null; } catch (e) {}
+        let mainRemoved = 0;
+        let sideRemoved = 0;
+        if (opt.main !== false && state.calendar) {
+            mainRemoved = Number(__tmRemoveTaskDateEventsFromCalendar(state.calendar, idSet)?.removed || 0);
+            if (mainRemoved > 0) {
+                try {
+                    __tmUpdateMainCalendarStatus({
+                        taskDates: Math.max(0, Number(state.mainCalendarStatus?.taskDates || 0) - mainRemoved),
+                    });
+                } catch (e) {}
+            }
+        }
+        if (opt.side === true && state.sideDay?.calendar && state.sideDay.calendar !== state.calendar) {
+            sideRemoved = Number(__tmRemoveTaskDateEventsFromCalendar(state.sideDay.calendar, idSet)?.removed || 0);
+        }
+        return { removed: mainRemoved + sideRemoved, main: mainRemoved, side: sideRemoved };
+    }
+
+    function removeTaskDateEventsByTaskIds(taskIds, options = {}) {
+        return __tmRemoveTaskDateEventsByTaskIds(taskIds, options);
+    }
+
+    function __tmDedupeTaskDateEventsInCalendar(calendar, preferredSourceId = '') {
+        const cal = calendar || null;
+        if (!cal || typeof cal.getEvents !== 'function') return { removed: 0 };
+        const sourceId = String(preferredSourceId || '').trim();
+        const groups = new Map();
+        try {
+            cal.getEvents().forEach((eventApi) => {
+                const ext = eventApi?.extendedProps || {};
+                if (String(ext.__tmSource || '').trim() !== 'taskdate') return;
+                const taskId = String(
+                    ext.__tmTaskDateEventTaskId
+                    || ext.__tmTaskId
+                    || String(eventApi?.id || '').trim().replace(/^taskdate:/, '')
+                    || ''
+                ).trim();
+                if (!taskId) return;
+                const list = groups.get(taskId) || [];
+                list.push(eventApi);
+                groups.set(taskId, list);
+            });
+        } catch (e) {
+            return { removed: 0 };
+        }
+        let removed = 0;
+        groups.forEach((events) => {
+            if (!Array.isArray(events) || events.length <= 1) return;
+            const keep = events.find((eventApi) => sourceId && String(eventApi?.source?.id || '').trim() === sourceId)
+                || events.find((eventApi) => String(eventApi?.source?.id || '').trim())
+                || events[0];
+            events.forEach((eventApi) => {
+                if (!eventApi || eventApi === keep) return;
+                try {
+                    eventApi.remove?.();
+                    removed += 1;
+                } catch (e) {}
+            });
+        });
+        if (removed > 0) {
+            try { __tmSyncCalendarUiAfterDirectEventMutation(cal); } catch (e) {}
+        }
+        return { removed };
+    }
+
     function __tmSyncCalendarUiAfterDirectEventMutation(calendar) {
         const cal = calendar || null;
         if (!cal) return false;
@@ -12992,6 +13258,18 @@
         };
     }
 
+    function __tmRefetchTaskDateSources(options = {}) {
+        const opt = (options && typeof options === 'object') ? options : {};
+        return {
+            main: opt.main === true && !!state.calendar
+                ? __tmRefetchCalendarSource(state.calendar, EVENT_SOURCE_IDS.mainTaskDate)
+                : false,
+            side: opt.side === true && !!state.sideDay?.calendar
+                ? __tmRefetchCalendarSource(state.sideDay.calendar, EVENT_SOURCE_IDS.sideTaskDate)
+                : false,
+        };
+    }
+
     function __tmSchedulePostMutationRefresh(item, action, options = {}) {
         const opt = (options && typeof options === 'object') ? options : {};
         const patchSummary = item ? __tmPatchVisibleSingleScheduleInPlace(item, action) : {
@@ -13100,7 +13378,7 @@
             : null;
         const defs = getCalendarDefs(settings);
         const defMap = new Map(defs.map((d) => [d.id, d]));
-        return (Array.isArray(items) ? items : []).map((it) => {
+        const events = (Array.isArray(items) ? items : []).map((it) => {
             const taskId = String(it?.id || '').trim();
             const sourceTaskId = String(it?.sourceTaskId || it?.recurringSourceTaskId || '').trim();
             const actionTaskId = sourceTaskId || taskId;
@@ -13118,14 +13396,23 @@
             const calendarId = String(it?.calendarId || 'default').trim() || 'default';
             const docId = String(it?.docId || it?.rootId || it?.root_id || '').trim();
             const allDayBottom = isScheduleAllDayBottom(it);
-            if (!taskId || !startKey || !endExKey) return null;
-            if (!isCalendarEnabled(calendarId, settings)) return null;
-            if (!isCalendarDocVisibleForEvent(calendarId, docId, settings)) return null;
+            if (!taskId || !startKey || !endExKey) {
+                return null;
+            }
+            if (!isCalendarEnabled(calendarId, settings)) {
+                return null;
+            }
+            if (!isCalendarDocVisibleForEvent(calendarId, docId, settings)) {
+                return null;
+            }
             const overlapTaskIds = Array.from(new Set([taskId, sourceTaskId].filter(Boolean)));
-            if (overlapTaskIds.some((id) => hasTaskScheduleOverlapInDateRange(id, startKey, endExKey, scheduleTaskDaySet))) return null;
+            const overlapId = overlapTaskIds.find((id) => hasTaskScheduleOverlapInDateRange(id, startKey, endExKey, scheduleTaskDaySet)) || '';
+            if (overlapId) {
+                return null;
+            }
             const calColor = defMap.get(calendarId)?.color || '#6b7280';
             const mode = String(settings.taskDateColorMode || 'group').trim() || 'group';
-            const itemColor = String(it?.taskDateColor || it?.color || it?.task_date_color || it?.custom_task_date_color || it?.['custom-task-date-color'] || '').trim();
+            const itemColor = String(it?.taskDateColor || it?.color || it?.task_date_color || it?.custom_task_date_color || readCalendarConfiguredTaskMetaAttrValue(it, 'taskDateColor') || it?.['custom-task-date-color'] || '').trim();
             const docColor = (settings.scheduleFollowDocColor && docId)
                 ? resolveCalendarDocColor(docId, '')
                 : '';
@@ -13164,8 +13451,10 @@
                     calendarId,
                 },
             };
-            return shouldHideCompletedAllDayCalendarEvent(event, settings, { viewType }) ? null : event;
+            const hiddenCompleted = shouldHideCompletedAllDayCalendarEvent(event, settings, { viewType });
+            return hiddenCompleted ? null : event;
         }).filter(Boolean);
+        return events;
     }
 
     function __tmUpdateMainCalendarStatus(patch = {}) {
@@ -13208,6 +13497,11 @@
         return isMonthScheduleEventRange(start, end) ? dedupeMonthScheduleEvents(events) : events;
     }
 
+    function __tmShouldForceFreshCalendarTaskDateQuery() {
+        try { return (Number(window.__tmCalendarTaskDateForceFreshUntil || 0) || 0) > Date.now(); } catch (e) {}
+        return false;
+    }
+
     async function __tmBuildTaskDateSourceEvents(rangeStart, rangeEnd, settings, viewType) {
         const view = String(viewType || '').trim();
         const start = rangeStart instanceof Date ? rangeStart : null;
@@ -13216,9 +13510,10 @@
         const rangeSpanDays = Math.max(0, Math.round((end.getTime() - start.getTime()) / 86400000));
         const isTimeGridRange = isTimeGridViewType(view);
         const shouldApplyMonthTaskDateDedupe = rangeSpanDays >= 27 || view === 'dayGridMonth';
+        const forceFreshTaskDates = __tmShouldForceFreshCalendarTaskDateQuery();
         const [taskDates, schedules] = await Promise.all([
             (settings.showTaskDates && typeof window.tmQueryCalendarTaskDateEvents === 'function')
-                ? Promise.resolve().then(() => window.tmQueryCalendarTaskDateEvents(start, end)).catch(() => [])
+                ? Promise.resolve().then(() => window.tmQueryCalendarTaskDateEvents(start, end, { forceFresh: forceFreshTaskDates })).catch(() => [])
                 : Promise.resolve([]),
             loadScheduleForRange(start, end).catch(() => []),
         ]);
@@ -13262,7 +13557,7 @@
             } catch (e) {}
         }
         const taskDates = await Promise.resolve()
-            .then(() => window.tmQueryCalendarTaskDateEvents(range.start, range.end))
+            .then(() => window.tmQueryCalendarTaskDateEvents(range.start, range.end, { forceFresh: __tmShouldForceFreshCalendarTaskDateQuery() }))
             .catch(() => []);
         const single = (Array.isArray(taskDates) ? taskDates : []).filter((item) => String(item?.id || '').trim() === tid);
         if (!single.length) return null;
@@ -13354,6 +13649,7 @@
             taskLike?.taskDateColor
             || taskLike?.task_date_color
             || taskLike?.custom_task_date_color
+            || readCalendarConfiguredTaskMetaAttrValue(taskLike, 'taskDateColor')
             || taskLike?.['custom-task-date-color']
             || fallbackExt.__tmTaskDateColor
             || ''
@@ -13423,7 +13719,7 @@
 
     function syncTaskDateEventFromDateFollowPatch(taskId, patch, options = {}) {
         const tid = String(taskId || '').trim();
-        if (!tid) return { touched: false };
+        if (!tid) return { touched: false, needsMainRefresh: false, needsSideRefresh: false };
         const opt = (options && typeof options === 'object') ? options : {};
         const allowAdd = opt.allowAdd !== false;
         const syncLayout = opt.syncLayout !== false;
@@ -13431,35 +13727,78 @@
         const scheduleList = Array.isArray(opt.scheduleList) ? opt.scheduleList : null;
         const settings = getSettings();
         const targets = [];
-        if (state.calendar) targets.push(state.calendar);
-        if (state.sideDay?.calendar && state.sideDay.calendar !== state.calendar) targets.push(state.sideDay.calendar);
+        if (opt.main !== false && state.calendar) targets.push({ key: 'main', calendar: state.calendar, sourceId: EVENT_SOURCE_IDS.mainTaskDate });
+        if (opt.side !== false && state.sideDay?.calendar && state.sideDay.calendar !== state.calendar) targets.push({ key: 'side', calendar: state.sideDay.calendar, sourceId: EVENT_SOURCE_IDS.sideTaskDate });
         let touched = false;
-        targets.forEach((cal) => {
+        let needsMainRefresh = false;
+        let needsSideRefresh = false;
+        const findTaskDateEvents = (cal) => {
+            const idSet = new Set([tid]);
+            try {
+                return (typeof cal?.getEvents === 'function' ? cal.getEvents() : [])
+                    .filter((eventApi) => __tmCalendarTaskDateEventMatchesTaskIds(eventApi, idSet));
+            } catch (e) {
+                return [];
+            }
+        };
+        const pickManagedEvent = (events, sourceId) => {
+            const list = Array.isArray(events) ? events : [];
+            return list.find((eventApi) => String(eventApi?.source?.id || '').trim() === sourceId)
+                || list.find((eventApi) => String(eventApi?.id || '').trim() === `taskdate:${tid}`)
+                || list[0]
+                || null;
+        };
+        const removeOtherTaskDateEvents = (events, keepEvent) => {
+            let removed = false;
+            (Array.isArray(events) ? events : []).forEach((eventApi) => {
+                if (!eventApi || eventApi === keepEvent) return;
+                try {
+                    eventApi.remove?.();
+                    removed = true;
+                } catch (e) {}
+            });
+            return removed;
+        };
+        const addManagedTaskDateEvent = (cal, nextEvent, sourceId) => {
+            const source = cal?.getEventSourceById?.(sourceId) || null;
+            try {
+                return source ? cal.addEvent?.(nextEvent, source) : cal.addEvent?.(nextEvent);
+            } catch (e) {
+                return cal.addEvent?.(nextEvent);
+            }
+        };
+        targets.forEach((target) => {
+            const cal = target.calendar;
             const eventId = `taskdate:${tid}`;
-            const existing = cal?.getEventById?.(eventId) || null;
+            const existingEvents = findTaskDateEvents(cal);
+            const existing = pickManagedEvent(existingEvents, target.sourceId);
             const nextEvent = buildTaskDateEventFromDateFollowPatch(tid, patch, cal, settings, existing, { scheduleList });
             try {
                 if (existing && skipEvent && existing === skipEvent) {
+                    touched = removeOtherTaskDateEvents(existingEvents, existing) || touched;
                     touched = true;
                     return;
                 }
                 if (!existing && !nextEvent) return;
                 if (existing && !nextEvent) {
-                    existing.remove?.();
+                    removeOtherTaskDateEvents(existingEvents, null);
                     touched = true;
                     return;
                 }
                 if (!existing && nextEvent) {
                     if (!allowAdd) return;
-                    cal.addEvent?.(nextEvent);
+                    addManagedTaskDateEvent(cal, nextEvent, target.sourceId);
                     touched = true;
                     return;
                 }
                 if (existing && nextEvent) {
                     __tmApplyTaskDateEventProps(existing, nextEvent);
+                    touched = removeOtherTaskDateEvents(existingEvents, existing) || touched;
                     touched = true;
                 }
             } catch (e) {
+                if (target.key === 'main') needsMainRefresh = true;
+                if (target.key === 'side') needsSideRefresh = true;
             }
         });
         if (touched && syncLayout) {
@@ -13468,7 +13807,7 @@
                 try { __tmSyncCalendarUiAfterDirectEventMutation(state.sideDay.calendar); } catch (e) {}
             }
         }
-        return { touched };
+        return { touched, needsMainRefresh, needsSideRefresh };
     }
 
     async function __tmPatchTaskDateInCalendar(calendar, taskId, settings) {
@@ -15422,7 +15761,7 @@
         const title0 = String(init.title || '').trim();
         const calendarId0 = String(init.calendarId || '').trim() || pickDefaultCalendarId(settings);
         const calDef0 = calDefs.find((d) => d.id === calendarId0) || calDefs[0] || { id: 'default', name: '时间轴', color: 'var(--tm-primary-color)' };
-        const taskDateColor0 = String(init.taskDateColor || init.task_date_color || init.custom_task_date_color || init['custom-task-date-color'] || '').trim();
+        const taskDateColor0 = String(init.taskDateColor || init.task_date_color || init.custom_task_date_color || readCalendarConfiguredTaskMetaAttrValue(init, 'taskDateColor') || init['custom-task-date-color'] || '').trim();
         const color0 = String(init.color || '').trim() || taskDateColor0 || String(calDef0.color || 'var(--tm-primary-color)');
         const colorInputValue0 = normalizeColorInputHex(color0, calDef0.color || '#7FA2DA');
         const calendarOptions = calDefs.map((d) => `<option value="${esc(d.id)}" ${d.id === calendarId0 ? 'selected' : ''}>${esc(d.name)}</option>`).join('');
@@ -16758,10 +17097,6 @@
                     if (arg?.el) arg.el.style.display = 'none';
                 } catch (e) {}
             },
-            eventsSet: () => {
-                try { scheduleSyncTimeGridAllDayCollapseUi(host, calendar); } catch (e) {}
-                try { scheduleMainCalendarLayoutRefresh(wrap, host, calendar, { updateSize: false }); } catch (e) {}
-            },
             eventDragStart: () => {
                 try { setCalendarTouchGestureLock(host, true); } catch (e) {}
             },
@@ -16982,6 +17317,9 @@
                 },
             ],
             eventsSet: () => {
+                try { __tmDedupeTaskDateEventsInCalendar(calendar, EVENT_SOURCE_IDS.mainTaskDate); } catch (e) {}
+                try { scheduleSyncTimeGridAllDayCollapseUi(host, calendar); } catch (e) {}
+                try { scheduleMainCalendarLayoutRefresh(wrap, host, calendar, { updateSize: false }); } catch (e) {}
                 try {
                     state.calendarRenderedVersionMain = Math.max(
                         Number(state.calendarRenderedVersionMain) || 0,
@@ -18558,7 +18896,7 @@
         const startKey = String(extra.taskDateStartKey || extra.startKey || '').trim();
         const endExKey = String(extra.taskDateEndExclusiveKey || extra.endExclusiveKey || '').trim();
         const color0 = String(extra.color || '').trim();
-        const taskDateColor0 = String(extra.taskDateColor || extra.task_date_color || extra.custom_task_date_color || extra['custom-task-date-color'] || '').trim();
+        const taskDateColor0 = String(extra.taskDateColor || extra.task_date_color || extra.custom_task_date_color || readCalendarConfiguredTaskMetaAttrValue(extra, 'taskDateColor') || extra['custom-task-date-color'] || '').trim();
         const taskStartDate0 = String(extra.taskStartDate || extra.startDate || '').trim();
         const taskCompletionTime0 = String(extra.taskCompletionTime || extra.completionTime || '').trim();
 
@@ -19113,6 +19451,7 @@
         listTaskSchedulesByDay,
         listTaskSchedulesByTaskId,
         deleteTaskSchedulesByTaskIds,
+        removeTaskDateEventsByTaskIds,
         openScheduleEditor,
         openScheduleEditorById,
         openScheduleEditorByTaskId,

@@ -356,6 +356,19 @@
         const docGroupMenuOptions = showTopbarSelectorsInMenu ? __tmBuildDocGroupMenuOptions() : [];
         const ruleMenuOptions = showTopbarSelectorsInMenu ? __tmBuildRuleMenuOptions() : [];
         const groupModeMenuOptions = showTopbarSelectorsInMenu ? __tmBuildGroupModeMenuOptions() : [];
+        const showCalendarSideDockMenuToggle = (() => {
+            const modal = state.modal instanceof HTMLElement ? state.modal : null;
+            if (!(modal instanceof HTMLElement)) return false;
+            if (modal.classList.contains('tm-modal--mobile') || modal.classList.contains('tm-modal--dock')) return false;
+            try {
+                if (window.matchMedia?.('(max-width: 768px)')?.matches) return false;
+            } catch (e) {}
+            try {
+                const rect = modal.getBoundingClientRect();
+                if ((Number(rect.width) || 0) > 0 && Number(rect.width) <= 768) return false;
+            } catch (e) {}
+            return true;
+        })();
         if (showTopbarSelectorsInMenu) menu.classList.add('tm-desktop-menu--with-selects');
 
         menu.innerHTML = `
@@ -368,8 +381,9 @@
             ${String(state.viewMode || '').trim() === 'list' ? renderDesktopMenuButton(`${__tmRenderLucideIcon('chart-column')}<span>导出 Excel</span>`, `tmExportCurrentTableExcel(); tmCloseDesktopMenu()`) : ''}
             ${renderDesktopMenuToggle('多选模式', !!state.multiSelectModeEnabled, `tmToggleMultiSelectMode(this.checked); tmCloseDesktopMenu()`)}
             ${renderDesktopMenuToggle('显示已完成任务', !!state.showCompletedTasks, `tmToggleShowCompletedTasks(this.checked); tmCloseDesktopMenu()`)}
+            ${renderDesktopMenuToggle('已完成任务不分组', !!SettingsStore.data.completedTasksInlineInGroups, `tmToggleCompletedTasksInlineInGroups(this.checked); tmCloseDesktopMenu()`)}
             ${__tmIsAiFeatureEnabled() ? renderDesktopMenuToggle('AI 对话', !!SettingsStore.data.aiSideDockEnabled, `tmToggleAiSideDock(this.checked); tmCloseDesktopMenu()`) : ''}
-            ${renderDesktopMenuToggle('日历侧边栏', !!SettingsStore.data.calendarSideDockEnabled, `tmToggleCalendarSideDock(this.checked); tmCloseDesktopMenu()`)}
+            ${showCalendarSideDockMenuToggle ? renderDesktopMenuToggle('日历侧边栏', !!SettingsStore.data.calendarSideDockEnabled, `tmToggleCalendarSideDock(this.checked); tmCloseDesktopMenu()`) : ''}
             ${state.searchKeyword ? renderDesktopMenuButton(`<span>清除搜索</span>`, `tmSearch(''); tmCloseDesktopMenu()`) : ''}
             ${renderDesktopMenuToggle('白板顺序模式', !!SettingsStore.data.whiteboardSequenceMode, `tmToggleWhiteboardSequenceMode(this.checked); tmCloseDesktopMenu()`)}
             ${renderDesktopMenuButton(`${__tmRenderLucideIcon('chevrons-down-up')}<span>全部折叠</span>`, `tmCollapseAllTasks(); tmCloseDesktopMenu()`)}
@@ -469,6 +483,18 @@
         try { applyFilters(); } catch (e) {}
         if (state.modal && document.body.contains(state.modal)) {
             try { if (!__tmRerenderCurrentViewInPlace(state.modal)) render(); } catch (e) { try { render(); } catch (e2) {} }
+        }
+    };
+
+    window.tmToggleCompletedTasksInlineInGroups = async function(enabled) {
+        const next = (typeof enabled === 'boolean') ? enabled : !SettingsStore.data.completedTasksInlineInGroups;
+        SettingsStore.data.completedTasksInlineInGroups = !!next;
+        try { await SettingsStore.save(); } catch (e) {}
+        try { state.listRenderSignature = ''; } catch (e) {}
+        try { state.listDomRenderSignature = ''; } catch (e) {}
+        try { applyFilters(); } catch (e) {}
+        if (state.modal && document.body.contains(state.modal)) {
+            try { render(); } catch (e) {}
         }
     };
 

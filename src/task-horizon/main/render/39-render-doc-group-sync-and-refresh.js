@@ -562,6 +562,218 @@
         state.viewScroll = __tmCloneHostSessionValue(saved.viewScroll || {});
     }
 
+    const __TM_MANUAL_REFRESH_WRITE_PROTECT_FIELDS = new Set([
+        'startDate',
+        'completionTime',
+        'taskDateColor',
+        'color',
+        'customTime',
+        'repeatState',
+    ]);
+
+    function __tmCloneRefreshPatchMap(map) {
+        const out = new Map();
+        try {
+            if (!(map instanceof Map)) return out;
+            map.forEach((patch, taskId) => {
+                const tid = String(taskId || '').trim();
+                const sourcePatch = (patch && typeof patch === 'object' && !Array.isArray(patch)) ? patch : null;
+                if (!tid || !sourcePatch) return;
+                const nextPatch = {};
+                Object.entries(sourcePatch).forEach(([key, value]) => {
+                    const k = String(key || '').trim();
+                    if (__TM_MANUAL_REFRESH_WRITE_PROTECT_FIELDS.has(k)) nextPatch[k] = value;
+                });
+                if (Object.keys(nextPatch).length) out.set(tid, nextPatch);
+            });
+        } catch (e) {}
+        return out;
+    }
+
+    function __tmMergeRefreshPatchMap(target, source) {
+        const out = target instanceof Map ? target : new Map();
+        try {
+            if (!(source instanceof Map)) return out;
+            source.forEach((patch, taskId) => {
+                const tid = String(taskId || '').trim();
+                if (!tid || !patch || typeof patch !== 'object') return;
+                const prev = out.get(tid) || {};
+                try { out.set(tid, __tmWritePlanner.mergeTaskPatches(prev, patch)); }
+                catch (e) { out.set(tid, { ...prev, ...patch }); }
+            });
+        } catch (e) {}
+        return out;
+    }
+
+    function __tmBuildLocalRefreshWatermarkPatchMap() {
+        const out = new Map();
+        try {
+            const map = state.__tmLocalTaskPatchWatermarks instanceof Map ? state.__tmLocalTaskPatchWatermarks : null;
+            if (!map) return out;
+            map.forEach((entry, taskId) => {
+                const tid = String(taskId || '').trim();
+                if (!tid || !entry || typeof entry !== 'object') return;
+                const task = globalThis.__tmRuntimeState?.getTaskById?.(tid, { includePending: true })
+                    || state.flatTasks?.[tid]
+                    || state.pendingInsertedTasks?.[tid]
+                    || null;
+                if (!(task && typeof task === 'object')) return;
+                const patch = {};
+                (Array.isArray(entry.fields) ? entry.fields : []).forEach((field) => {
+                    const k = typeof __tmNormalizeLocalPatchFieldKey === 'function'
+                        ? __tmNormalizeLocalPatchFieldKey(field)
+                        : String(field || '').trim();
+                    if (__TM_MANUAL_REFRESH_WRITE_PROTECT_FIELDS.has(k)) {
+                        patch[k] = __tmReadRefreshProtectedField(task, k, '');
+                    }
+                });
+                if (Object.keys(patch).length) out.set(tid, patch);
+            });
+        } catch (e) {}
+        return out;
+    }
+
+    function __tmReadRefreshProtectedField(task, key, fallback) {
+        const target = (task && typeof task === 'object') ? task : {};
+        const k = String(key || '').trim();
+        if (k === 'startDate') return Object.prototype.hasOwnProperty.call(target, 'startDate') ? target.startDate : (Object.prototype.hasOwnProperty.call(target, 'start_date') ? target.start_date : fallback);
+        if (k === 'completionTime') return Object.prototype.hasOwnProperty.call(target, 'completionTime') ? target.completionTime : (Object.prototype.hasOwnProperty.call(target, 'completion_time') ? target.completion_time : fallback);
+        if (k === 'taskDateColor' || k === 'color') {
+            if (Object.prototype.hasOwnProperty.call(target, 'taskDateColor')) return target.taskDateColor;
+            if (Object.prototype.hasOwnProperty.call(target, 'task_date_color')) return target.task_date_color;
+            if (Object.prototype.hasOwnProperty.call(target, 'custom_task_date_color')) return target.custom_task_date_color;
+            return fallback;
+        }
+        if (k === 'customTime') return Object.prototype.hasOwnProperty.call(target, 'customTime') ? target.customTime : (Object.prototype.hasOwnProperty.call(target, 'custom_time') ? target.custom_time : fallback);
+        if (k === 'repeatState') return Object.prototype.hasOwnProperty.call(target, 'repeatState') ? target.repeatState : (Object.prototype.hasOwnProperty.call(target, 'repeat_state') ? target.repeat_state : fallback);
+        return Object.prototype.hasOwnProperty.call(target, k) ? target[k] : fallback;
+    }
+
+    function __tmBuildManualRefreshWriteProtectionMap(seedMap) {
+        const seed = __tmCloneRefreshPatchMap(seedMap);
+        const out = new Map();
+        try {
+            seed.forEach((patch, taskId) => {
+                const tid = String(taskId || '').trim();
+                if (!tid || !patch || typeof patch !== 'object') return;
+                const task = globalThis.__tmRuntimeState?.getTaskById?.(tid, { includePending: true })
+                    || state.flatTasks?.[tid]
+                    || state.pendingInsertedTasks?.[tid]
+                    || null;
+                const protectedPatch = {};
+                Object.entries(patch).forEach(([key, fallback]) => {
+                    const k = String(key || '').trim();
+                    if (__TM_MANUAL_REFRESH_WRITE_PROTECT_FIELDS.has(k)) {
+                        protectedPatch[k] = __tmReadRefreshProtectedField(task, k, fallback);
+                    }
+                });
+                if (Object.keys(protectedPatch).length) out.set(tid, protectedPatch);
+            });
+        } catch (e) {}
+        return out;
+    }
+
+    function __tmApplyManualRefreshWriteProtectionMap(patchMap, source = 'manual-refresh') {
+        if (!(patchMap instanceof Map) || patchMap.size <= 0) return false;
+        let touched = false;
+        const applyOne = (task) => {
+            if (!(task && typeof task === 'object')) return;
+            const tid = String(task.id || task.blockId || '').trim();
+            if (!tid || !patchMap.has(tid)) return;
+            try {
+                __tmApplyQueuedTaskFieldPatchToTask(task, patchMap.get(tid));
+                touched = true;
+            } catch (e) {}
+        };
+        try { Object.values(state.flatTasks || {}).forEach(applyOne); } catch (e) {}
+        try { Object.values(state.pendingInsertedTasks || {}).forEach(applyOne); } catch (e) {}
+        const walk = (list) => {
+            (Array.isArray(list) ? list : []).forEach((task) => {
+                applyOne(task);
+                if (Array.isArray(task?.children) && task.children.length) walk(task.children);
+            });
+        };
+        try {
+            (Array.isArray(state.taskTree) ? state.taskTree : []).forEach((doc) => walk(doc?.tasks || []));
+        } catch (e) {}
+        return touched;
+    }
+
+    function __tmBuildManualRefreshOutboxProjection(seedPatchMap) {
+        const patchMap = __tmBuildManualRefreshWriteProtectionMap(seedPatchMap);
+        let deleteSet = new Set();
+        let moveMap = new Map();
+        try {
+            if (typeof __tmBuildQueuedTaskDeleteSet === 'function') {
+                deleteSet = __tmBuildQueuedTaskDeleteSet({ statuses: ['queued', 'running'] });
+            }
+        } catch (e) {
+            deleteSet = new Set();
+        }
+        try {
+            if (typeof __tmBuildQueuedTaskMoveMap === 'function') {
+                moveMap = __tmBuildQueuedTaskMoveMap({ statuses: ['queued', 'running'] });
+            }
+        } catch (e) {
+            moveMap = new Map();
+        }
+        return { patchMap, deleteSet, moveMap };
+    }
+
+    function __tmApplyManualRefreshOutboxProjection(projection, source = 'manual-refresh') {
+        const data = (projection && typeof projection === 'object') ? projection : {};
+        const patchMap = data.patchMap instanceof Map ? data.patchMap : new Map();
+        const deleteSet = data.deleteSet instanceof Set ? data.deleteSet : new Set();
+        const moveMap = data.moveMap instanceof Map ? data.moveMap : new Map();
+        let touched = false;
+        if (deleteSet.size > 0) {
+            deleteSet.forEach((taskId) => {
+                const tid = String(taskId || '').trim();
+                if (!tid) return;
+                try {
+                    if (__tmRemoveTaskFromLocalState(tid, { recalc: false, filter: false })) touched = true;
+                    else {
+                        const existed = !!(state.flatTasks?.[tid] || state.pendingInsertedTasks?.[tid]);
+                        try { globalThis.__tmTaskStore?.removeLocal?.(tid, { source: 'manual-refresh-outbox-delete' }); } catch (e) {}
+                        try { globalThis.__tmTaskStore?.removePending?.(tid, { source: 'manual-refresh-outbox-delete' }); } catch (e) {}
+                        if (existed) touched = true;
+                    }
+                } catch (e) {}
+                try { if (__tmRemoveTaskFromFilteredLocalState(tid)) touched = true; } catch (e) {}
+            });
+        }
+        if (moveMap.size > 0) {
+            const applyMove = (task) => {
+                if (!(task && typeof task === 'object')) return;
+                const tid = String(task.id || task.blockId || '').trim();
+                if (!tid || !moveMap.has(tid)) return;
+                try {
+                    if (typeof __tmApplyQueuedTaskMovePatchToTask === 'function'
+                        && __tmApplyQueuedTaskMovePatchToTask(task, moveMap.get(tid))) {
+                        touched = true;
+                    }
+                } catch (e) {}
+            };
+            try { Object.values(state.flatTasks || {}).forEach(applyMove); } catch (e) {}
+            try { Object.values(state.pendingInsertedTasks || {}).forEach(applyMove); } catch (e) {}
+            const walk = (list) => {
+                (Array.isArray(list) ? list : []).forEach((task) => {
+                    applyMove(task);
+                    if (Array.isArray(task?.children) && task.children.length) walk(task.children);
+                });
+            };
+            try {
+                (Array.isArray(state.taskTree) ? state.taskTree : []).forEach((doc) => walk(doc?.tasks || []));
+            } catch (e) {}
+        }
+        if (__tmApplyManualRefreshWriteProtectionMap(patchMap, source)) touched = true;
+        if (touched) {
+            try { __tmInvalidateFilteredTaskDerivedStateCache(); } catch (e) {}
+            try { recalcStats(); } catch (e) {}
+        }
+        return touched;
+    }
+
     function __tmClearAutoRefreshDirtyFlags() {
         try { state.quickbarModifiedTaskIds?.clear?.(); } catch (e) {}
         state.quickbarModifiedTaskIdsLoaded = true;
@@ -635,6 +847,8 @@ state.openToken = (Number(state.openToken) || 0) + 1;
         const refreshToken = Number(state.openToken) || 0;
         const snapshot = preserveUi ? __tmCaptureRefreshUiState() : null;
         const mode = String(state.viewMode || '').trim();
+        let refreshWriteProtectionSeed = new Map();
+        let refreshOutboxProjection = null;
         let _refreshHint = null;
         if (!silent) _refreshHint = hint('🔄 正在刷新...', 'info');
 
@@ -649,9 +863,26 @@ state.openToken = (Number(state.openToken) || 0) + 1;
                     });
                 } catch (e) {}
             }
-            try { await __tmWaitForQueuedOpsIdle(900); } catch (e) {}
+            try {
+                refreshWriteProtectionSeed = __tmMergeRefreshPatchMap(
+                    __tmCloneRefreshPatchMap(__tmBuildQueuedTaskFieldPatchMap({ statuses: ['queued', 'running'] })),
+                    __tmBuildLocalRefreshWatermarkPatchMap()
+                );
+            } catch (e) {}
+            try {
+                refreshWriteProtectionSeed = __tmMergeRefreshPatchMap(
+                    refreshWriteProtectionSeed,
+                    __tmCloneRefreshPatchMap(__tmBuildQueuedTaskFieldPatchMap({ statuses: ['queued', 'running'] }))
+                );
+                refreshWriteProtectionSeed = __tmMergeRefreshPatchMap(
+                    refreshWriteProtectionSeed,
+                    __tmBuildLocalRefreshWatermarkPatchMap()
+                );
+                refreshOutboxProjection = __tmBuildManualRefreshOutboxProjection(refreshWriteProtectionSeed);
+            } catch (e) {}
             try { __tmInvalidateAllSqlCaches(); } catch (e) {}
             try { window.__tmCalendarAllTasksCache = null; } catch (e) {}
+            try { await __tmEnsureAllDocumentsLoaded(true); } catch (e) {}
             const syncedServerState = await __tmMaybeSyncServerSharedStateOnManualRefresh();
             await __tmFlushSqlTransactionsSafe(`refresh-core:${reason}`);
             await loadSelectedDocuments({
@@ -660,9 +891,12 @@ state.openToken = (Number(state.openToken) || 0) + 1;
                 forceFreshTasks: true,
                 source: `refresh-core:${reason}`,
             });
+            const writeProtectionTouched = __tmApplyManualRefreshOutboxProjection(refreshOutboxProjection, `refresh-core:${reason}`);
 
             if (preserveUi && snapshot) {
                 try { __tmRestoreRefreshUiState(snapshot); } catch (e) {}
+                try { applyFilters(); } catch (e) {}
+            } else if (writeProtectionTouched) {
                 try { applyFilters(); } catch (e) {}
             }
             try {
@@ -721,12 +955,11 @@ state.openToken = (Number(state.openToken) || 0) + 1;
             }
             try { __tmClearAutoRefreshDirtyFlags(); } catch (e) {}
             try {
-                __tmSchedulePersistTaskSnapshot({
+                globalThis.__tmTaskSnapshotService?.schedulePersist?.({
                     docIds: state.__tmLoadedDocIdsForTasks,
                     groupId: SettingsStore?.data?.currentGroupId || 'all',
                     queryLimit: __TM_TASK_INDEX_QUERY_LIMIT,
                     delayMs: 420,
-                    allowCacheFirstPaintPersist: true,
                 });
             } catch (e) {}
 

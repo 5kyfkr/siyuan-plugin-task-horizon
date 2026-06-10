@@ -103,3 +103,15 @@ Migration note:
 - View and interaction rules such as checklist title-click behavior, calendar sidebar checklist handling, compact checklist field selection, and checklist sheet-mode selection should prefer `__tmViewPolicy`.
 - High-frequency runtime reads such as `modal` liveness, `openToken`, `viewMode`, and `flatTasks/pendingInsertedTasks` lookups should prefer `__tmRuntimeState`.
 - Safe DOM/event-bus binding and unbinding should prefer `__tmRuntimeEvents` where the same listener lifecycle is repeated.
+
+Task data boundary:
+
+- Local task projections must read/write through `globalThis.__tmTaskStore`; new code should not directly write `state.flatTasks`, `state.pendingInsertedTasks`, or `state.pendingDeletedTasks`.
+- Backend task writes must go through `globalThis.__tmTaskOutbox` / `__tmRequireTaskOutbox('patchTask')` and related outbox entries; UI code should not persist task fields by bypassing the queue.
+- Task snapshots must be scheduled through `globalThis.__tmTaskSnapshotService`; ordinary UI code should not call the lower-level snapshot store directly.
+
+New feature rule:
+
+- 本地任务镜像走 `globalThis.__tmTaskStore`。
+- 后端任务写入走 `globalThis.__tmTaskOutbox`。
+- 快照加载、恢复和保存走 `globalThis.__tmTaskSnapshotService`。

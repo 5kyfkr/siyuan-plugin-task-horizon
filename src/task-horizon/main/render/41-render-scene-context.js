@@ -75,10 +75,20 @@
         const showTaskDetailSheet = renderMode !== 'checklist' && !!globalThis.__tmViewPolicy?.shouldUseTaskDetailSheetMode?.(renderMode, state.modal);
         const taskDetailSheetTaskId = String(state.detailTaskId || '').trim();
         const taskDetailSheetTask = showTaskDetailSheet && taskDetailSheetTaskId
-            ? (state.flatTasks?.[taskDetailSheetTaskId] || globalThis.__tmRuntimeState?.getFlatTaskById?.(taskDetailSheetTaskId) || null)
+            ? (
+                (typeof __tmGetTaskDetailTaskById === 'function'
+                    ? __tmGetTaskDetailTaskById(taskDetailSheetTaskId, { includePending: true, preferPending: true, includeWhiteboard: true })
+                    : null)
+                || globalThis.__tmRuntimeState?.getTaskById?.(taskDetailSheetTaskId, { includePending: true, preferPending: true })
+                || state.flatTasks?.[taskDetailSheetTaskId]
+                || state.pendingInsertedTasks?.[taskDetailSheetTaskId]
+                || null
+            )
             : null;
         const taskDetailSheetInnerHtml = taskDetailSheetTask
-            ? __tmBuildTaskDetailInnerHtml(taskDetailSheetTask, { embedded: true, closeable: true })
+            ? (typeof __tmShouldRenderTaskDetailNoteView === 'function' && __tmShouldRenderTaskDetailNoteView('sheet', taskDetailSheetTask)
+                ? __tmBuildTaskDetailNoteViewInnerHtml(taskDetailSheetTask, { embedded: true, closeable: true })
+                : __tmBuildTaskDetailInnerHtml(taskDetailSheetTask, { embedded: true, closeable: true }))
             : `<div class="tm-checklist-empty-detail">选择任务后，这里会显示可编辑的详情。</div>`;
         const showMobileBottomViewBar = isDockHost
             ? (!isRuntimeMobile || !isLandscape)

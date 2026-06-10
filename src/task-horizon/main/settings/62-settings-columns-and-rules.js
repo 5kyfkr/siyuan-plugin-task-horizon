@@ -1027,6 +1027,418 @@
         renderDialog();
     };
 
+    window.tmOpenTaskMetaAttrMigrationDialog = function() {
+        const existing = document.getElementById('tm-task-meta-attr-dialog');
+        if (existing) existing.remove();
+        const fieldDefs = typeof __tmGetTaskMetaAttrFieldDefs === 'function' ? __tmGetTaskMetaAttrFieldDefs() : [];
+        if (!fieldDefs.length) {
+            hint('⚠️ 当前版本未加载内置字段属性名配置', 'warning');
+            return;
+        }
+        const backdrop = document.createElement('div');
+        backdrop.id = 'tm-task-meta-attr-dialog';
+        backdrop.style.cssText = 'position:fixed;inset:0;background:rgba(15,23,42,0.42);z-index:200050;display:flex;align-items:center;justify-content:center;padding:18px;';
+        const dialog = document.createElement('div');
+        dialog.style.cssText = 'width:min(1080px,calc(100vw - 32px));max-height:min(760px,calc(100vh - 32px));overflow:hidden;display:flex;flex-direction:column;background:var(--b3-theme-background);color:var(--b3-theme-on-background);border:1px solid var(--b3-theme-surface-light);border-radius:8px;box-shadow:0 18px 54px rgba(0,0,0,.28);';
+        backdrop.appendChild(dialog);
+
+        const stateLocal = {
+            selected: new Set(),
+            draftKeys: {},
+            preview: null,
+            running: false,
+            status: '',
+        };
+        fieldDefs.forEach((def) => {
+            stateLocal.draftKeys[def.field] = __tmGetTaskMetaAttrKey(def.field);
+        });
+
+        const close = () => {
+            if (stateLocal.running) {
+                hint('⚠️ 迁移正在执行，请等待完成', 'warning');
+                return;
+            }
+            try { backdrop.remove(); } catch (e) {}
+        };
+        const isValueSet = (value) => {
+            const text = String(value ?? '').trim();
+            return !!text && text !== 'null' && text !== 'undefined';
+        };
+        const setStatus = (text) => {
+            stateLocal.status = String(text || '').trim();
+            const el = dialog.querySelector('[data-tm-task-meta-status]');
+            if (el) el.textContent = stateLocal.status;
+        };
+        const getRowsFromDom = () => fieldDefs.map((def) => {
+            const field = String(def.field || '').trim();
+            const input = dialog.querySelector(`[data-tm-task-meta-key="${field}"]`);
+            const checkbox = dialog.querySelector(`[data-tm-task-meta-migrate="${field}"]`);
+            const defaultKey = String(def.defaultKey || '').trim();
+            const draftValue = Object.prototype.hasOwnProperty.call(stateLocal.draftKeys, field)
+                ? stateLocal.draftKeys[field]
+                : __tmGetTaskMetaAttrKey(field);
+            return {
+                field,
+                label: String(def.label || field).trim(),
+                defaultKey,
+                currentKey: __tmGetTaskMetaAttrKey(field),
+                nextKey: String(input ? input.value : draftValue).trim() || defaultKey,
+                migrate: !!checkbox?.checked,
+            };
+        });
+        const buildFieldStats = () => {
+            const out = {};
+            fieldDefs.forEach((def) => {
+                out[def.field] = { copy: 0, exists: 0, noOldValue: 0, conflict: 0, failed: 0, migrated: 0 };
+            });
+            return out;
+        };
+        const getPreviewStats = (field) => stateLocal.preview?.stats?.[field] || null;
+        const renderStatsText = (field) => {
+            const stats = getPreviewStats(field);
+            if (!stats) return '未预览';
+            const migrated = Number(stats.migrated || 0);
+            const failed = Number(stats.failed || 0);
+            const suffix = migrated || failed ? `，已写 ${migrated}，失败 ${failed}` : '';
+            return `可迁移 ${stats.copy || 0}，跳过 ${stats.exists || 0}，无旧值 ${stats.noOldValue || 0}，冲突 ${stats.conflict || 0}${suffix}`;
+        };
+        const queryAllTaskRows = async () => {
+            const rows = [];
+            const limit = 4000;
+            let offset = 0;
+            for (let guard = 0; guard < 250; guard += 1) {
+                const sql = `
+                    SELECT id, parent_id, root_id
+                    FROM blocks
+                    WHERE type = 'i' AND subtype = 't'
+                    ORDER BY id
+                    LIMIT ${limit} OFFSET ${offset}
+                `;
+                const res = await API.call('/api/query/sql', { stmt: sql });
+                if (!(res && res.code === 0 && Array.isArray(res.data))) break;
+                rows.push(...res.data);
+                if (res.data.length < limit) break;
+                offset += limit;
+            }
+            return rows;
+        };
+        const resolveHostRows = async (tasks) => {
+            const list = Array.isArray(tasks) ? tasks : [];
+            try {
+                if (typeof __tmPopulateTaskAttrHostIds === 'function') {
+                    await __tmPopulateTaskAttrHostIds(list);
+                    return list;
+                }
+            } catch (e) {}
+            list.forEach((task) => {
+                const id = String(task?.id || '').trim();
+                task.attrHostId = id;
+                task.attr_host_id = id;
+            });
+            return list;
+        };
+        const queryAttrRowsByHosts = async (hostIds, names) => {
+            const safeHostIds = Array.from(new Set((Array.isArray(hostIds) ? hostIds : []).map((id) => String(id || '').trim()).filter((id) => /^[0-9]+-[a-zA-Z0-9]+$/.test(id))));
+            const attrNames = Array.from(new Set((Array.isArray(names) ? names : []).map((name) => String(name || '').trim()).filter(Boolean)));
+            const rowMap = new Map();
+            if (!safeHostIds.length || !attrNames.length) return rowMap;
+            const nameList = attrNames.map((name) => `'${name.replace(/'/g, "''")}'`).join(',');
+            const chunkSize = 360;
+            for (let i = 0; i < safeHostIds.length; i += chunkSize) {
+                const chunk = safeHostIds.slice(i, i + chunkSize);
+                const idList = chunk.map((id) => `'${id.replace(/'/g, "''")}'`).join(',');
+                const res = await API.call('/api/query/sql', {
+                    stmt: `
+                        SELECT block_id, name, value
+                        FROM attributes
+                        WHERE block_id IN (${idList})
+                          AND name IN (${nameList})
+                    `,
+                });
+                if (!(res && res.code === 0 && Array.isArray(res.data))) continue;
+                res.data.forEach((row) => {
+                    const blockId = String(row?.block_id || '').trim();
+                    const name = String(row?.name || '').trim();
+                    if (!blockId || !name) return;
+                    if (!rowMap.has(blockId)) rowMap.set(blockId, {});
+                    rowMap.get(blockId)[name] = String(row?.value ?? '');
+                });
+            }
+            return rowMap;
+        };
+        const getMigrationOldKeys = (row) => {
+            if (!row || !row.field || !row.nextKey) return [];
+            return Array.from(new Set([
+                ...(typeof __tmGetTaskMetaAttrReadKeys === 'function' ? __tmGetTaskMetaAttrReadKeys(row.field) : []),
+                row.defaultKey,
+                row.currentKey,
+            ]
+                .map((key) => String(key || '').trim())
+                .filter((key) => key && key !== row.nextKey)));
+        };
+        const buildMigrationPlan = async (rowsForMigration, options = {}) => {
+            const opts = (options && typeof options === 'object') ? options : {};
+            const selectedRows = (Array.isArray(rowsForMigration) ? rowsForMigration : getRowsFromDom())
+                .filter((row) => row && row.migrate && row.field && row.nextKey && getMigrationOldKeys(row).length > 0);
+            const stats = buildFieldStats();
+            const entries = [];
+            if (!selectedRows.length) return { stats, entries, taskCount: 0, hostCount: 0 };
+            const tasks = await queryAllTaskRows();
+            setStatus(`已扫描任务 ${tasks.length} 个，正在解析属性宿主块...`);
+            await resolveHostRows(tasks);
+            const hostIds = Array.from(new Set(tasks.map((task) => String(task?.attrHostId || task?.attr_host_id || task?.id || '').trim()).filter(Boolean)));
+            const attrNames = [];
+            selectedRows.forEach((row) => {
+                attrNames.push(row.nextKey);
+                (__tmGetTaskMetaAttrReadKeys(row.field) || []).forEach((key) => attrNames.push(key));
+                attrNames.push(row.defaultKey);
+            });
+            const rowMap = await queryAttrRowsByHosts(hostIds, attrNames);
+            const seenHostFields = new Set();
+            tasks.forEach((task) => {
+                const hostId = String(task?.attrHostId || task?.attr_host_id || task?.id || '').trim();
+                if (!hostId) return;
+                const attrs = rowMap.get(hostId) || {};
+                selectedRows.forEach((row) => {
+                    const field = row.field;
+                    const dedupeKey = `${hostId}|${field}`;
+                    if (seenHostFields.has(dedupeKey)) return;
+                    seenHostFields.add(dedupeKey);
+                    const nextKey = row.nextKey;
+                    const nextValue = attrs[nextKey];
+                    const oldKeys = getMigrationOldKeys(row);
+                    const oldKey = oldKeys.find((key) => isValueSet(attrs[key])) || '';
+                    const oldValue = oldKey ? attrs[oldKey] : '';
+                    if (isValueSet(nextValue)) {
+                        if (oldKey && String(nextValue ?? '') !== String(oldValue ?? '')) stats[field].conflict += 1;
+                        else stats[field].exists += 1;
+                        return;
+                    }
+                    if (!oldKey) {
+                        stats[field].noOldValue += 1;
+                        return;
+                    }
+                    stats[field].copy += 1;
+                    entries.push({ hostId, field, oldKey, newKey: nextKey, value: String(oldValue ?? '') });
+                });
+            });
+            if (opts.previewOnly !== true) stateLocal.preview = { stats, entries, taskCount: tasks.length, hostCount: hostIds.length };
+            return { stats, entries, taskCount: tasks.length, hostCount: hostIds.length };
+        };
+        const saveFieldNames = async (rowsOverride = null) => {
+            const rows = Array.isArray(rowsOverride) ? rowsOverride : getRowsFromDom();
+            const draftKeys = {};
+            rows.forEach((row) => { draftKeys[row.field] = row.nextKey || row.defaultKey; });
+            const validation = __tmValidateTaskMetaAttrSettings(draftKeys);
+            if (!validation.ok) {
+                hint(`⚠️ ${validation.errors[0] || '属性名不合法'}`, 'warning');
+                setStatus(validation.errors.join('；'));
+                return false;
+            }
+            const previousKeys = {};
+            fieldDefs.forEach((def) => { previousKeys[def.field] = __tmGetTaskMetaAttrKey(def.field); });
+            const nextAliases = __tmNormalizeTaskMetaAttrAliasSettings(SettingsStore.data.taskMetaAttrKeyAliases);
+            fieldDefs.forEach((def) => {
+                const field = def.field;
+                const prev = previousKeys[field];
+                const next = validation.keys[field] || def.defaultKey;
+                const aliases = new Set(nextAliases[field] || []);
+                if (prev && prev !== next) aliases.add(prev);
+                aliases.add(def.defaultKey);
+                aliases.delete(next);
+                nextAliases[field] = Array.from(aliases).filter(Boolean);
+            });
+            fieldDefs.forEach((def) => {
+                const field = def.field;
+                const next = validation.keys[field] || def.defaultKey;
+                Object.keys(nextAliases).forEach((aliasField) => {
+                    if (aliasField === field) return;
+                    nextAliases[aliasField] = (nextAliases[aliasField] || []).filter((key) => key !== next);
+                });
+            });
+            SettingsStore.data.taskMetaAttrKeys = __tmNormalizeTaskMetaAttrKeySettings(validation.keys);
+            SettingsStore.data.taskMetaAttrKeyAliases = __tmNormalizeTaskMetaAttrAliasSettings(nextAliases);
+            try { SettingsStore.syncToLocal(); } catch (e) {}
+            await SettingsStore.save();
+            try { await SettingsStore.saveNow(); } catch (e) {}
+            fieldDefs.forEach((def) => {
+                stateLocal.draftKeys[def.field] = validation.keys[def.field] || def.defaultKey;
+            });
+            stateLocal.preview = null;
+            setStatus('字段名设置已保存。迁移不会自动执行，可先预览再迁移。');
+            hint('✅ 内置字段属性名已保存', 'success');
+            return true;
+        };
+        const refreshAfterMigration = async () => {
+            try { __tmInvalidateAllSqlCaches?.(); } catch (e) {}
+            try { __tmClearCustomFieldAttrValueCache?.(); } catch (e) {}
+            try { globalThis.__taskHorizonQuickbarRefresh?.(); } catch (e) {}
+            try { globalThis.__taskHorizonQuickbarRefreshInline?.(); } catch (e) {}
+            try {
+                if (typeof loadSelectedDocuments === 'function') {
+                    await loadSelectedDocuments({ showInlineLoading: false, source: 'task-meta-attr-migration' });
+                    return;
+                }
+            } catch (e) {}
+            try { render(); } catch (e) {}
+        };
+        const previewMigration = async () => {
+            if (stateLocal.running) return;
+            const rowsBeforeSave = getRowsFromDom();
+            stateLocal.running = true;
+            renderDialog();
+            try {
+                if (!(await saveFieldNames(rowsBeforeSave))) return;
+                setStatus('正在预览迁移...');
+                const plan = await buildMigrationPlan(rowsBeforeSave, { previewOnly: false });
+                setStatus(`预览完成：任务 ${plan.taskCount} 个，宿主块 ${plan.hostCount} 个，可迁移 ${plan.entries.length} 项。`);
+            } catch (e) {
+                setStatus(`预览失败：${String(e?.message || e || '未知错误')}`);
+                hint(`❌ 预览失败: ${e?.message || '未知错误'}`, 'error');
+            } finally {
+                stateLocal.running = false;
+                renderDialog();
+            }
+        };
+        const migrateSelected = async () => {
+            if (stateLocal.running) return;
+            const selectedRows = getRowsFromDom().filter((row) => row.migrate);
+            if (!selectedRows.length) {
+                hint('⚠️ 请至少勾选一个字段', 'warning');
+                return;
+            }
+            if (!confirm('迁移会把旧属性值复制到新属性名，旧属性会保留且新属性已有值时不会覆盖。继续吗？')) return;
+            const rowsBeforeSave = getRowsFromDom();
+            stateLocal.running = true;
+            renderDialog();
+            try {
+                if (!(await saveFieldNames(rowsBeforeSave))) return;
+                setStatus('正在准备迁移...');
+                const plan = await buildMigrationPlan(rowsBeforeSave, { previewOnly: false });
+                const entries = Array.isArray(plan.entries) ? plan.entries : [];
+                const stats = plan.stats || buildFieldStats();
+                if (!entries.length) {
+                    stateLocal.preview = { ...plan, stats };
+                    setStatus('没有需要迁移的项目。');
+                    return;
+                }
+                const chunkSize = 40;
+                for (let i = 0; i < entries.length; i += chunkSize) {
+                    const chunk = entries.slice(i, i + chunkSize);
+                    setStatus(`正在迁移 ${Math.min(i + chunk.length, entries.length)} / ${entries.length}...`);
+                    for (const entry of chunk) {
+                        try {
+                            const latest = await API.call('/api/attr/getBlockAttrs', { id: entry.hostId });
+                            const attrs = latest && latest.code === 0 && latest.data && typeof latest.data === 'object' ? latest.data : {};
+                            if (isValueSet(attrs[entry.newKey])) {
+                                stats[entry.field].exists += 1;
+                                continue;
+                            }
+                            await API.setAttrs(entry.hostId, { [entry.newKey]: entry.value });
+                            stats[entry.field].migrated += 1;
+                        } catch (e) {
+                            stats[entry.field].failed += 1;
+                        }
+                    }
+                }
+                stateLocal.preview = { ...plan, stats };
+                setStatus(`迁移完成：写入 ${Object.values(stats).reduce((sum, item) => sum + Number(item.migrated || 0), 0)} 项，失败 ${Object.values(stats).reduce((sum, item) => sum + Number(item.failed || 0), 0)} 项。`);
+                await refreshAfterMigration();
+                hint('✅ 迁移完成', 'success');
+            } catch (e) {
+                setStatus(`迁移失败：${String(e?.message || e || '未知错误')}`);
+                hint(`❌ 迁移失败: ${e?.message || '未知错误'}`, 'error');
+            } finally {
+                stateLocal.running = false;
+                renderDialog();
+            }
+        };
+        function renderDialog() {
+            const rowsHtml = fieldDefs.map((def) => {
+                const field = String(def.field || '').trim();
+                const currentKey = __tmGetTaskMetaAttrKey(field);
+                const draftKey = Object.prototype.hasOwnProperty.call(stateLocal.draftKeys, field)
+                    ? String(stateLocal.draftKeys[field] || '').trim()
+                    : currentKey;
+                const statsText = renderStatsText(field);
+                const checked = stateLocal.selected.has(field) ? 'checked' : '';
+                return `
+                    <tr>
+                        <td style="padding:8px 10px;border-top:1px solid var(--tm-border-color);"><input type="checkbox" data-tm-task-meta-migrate="${esc(field)}" ${checked}></td>
+                        <td style="padding:8px 10px;border-top:1px solid var(--tm-border-color);font-weight:600;">${esc(def.label || field)}</td>
+                        <td style="padding:8px 10px;border-top:1px solid var(--tm-border-color);font-family:monospace;font-size:12px;color:var(--tm-secondary-text);">${esc(def.defaultKey)}</td>
+                        <td style="padding:8px 10px;border-top:1px solid var(--tm-border-color);font-family:monospace;font-size:12px;">${esc(currentKey)}</td>
+                        <td style="padding:8px 10px;border-top:1px solid var(--tm-border-color);"><input class="b3-text-field" data-tm-task-meta-key="${esc(field)}" value="${esc(draftKey || currentKey)}" style="width:220px;font-family:monospace;font-size:12px;"></td>
+                        <td style="padding:8px 10px;border-top:1px solid var(--tm-border-color);font-size:12px;color:var(--tm-secondary-text);white-space:nowrap;">${esc(statsText)}</td>
+                    </tr>
+                `;
+            }).join('');
+            dialog.innerHTML = `
+                <div style="display:flex;align-items:center;justify-content:space-between;gap:12px;padding:14px 16px;border-bottom:1px solid var(--tm-border-color);">
+                    <div>
+                        <div style="font-weight:700;font-size:15px;">内置字段属性名与迁移</div>
+                        <div style="font-size:12px;color:var(--tm-secondary-text);margin-top:3px;">保存字段名不会自动迁移。迁移只复制旧值到新属性名，旧属性保留。</div>
+                    </div>
+                    <button class="tm-btn tm-btn-secondary" data-tm-task-meta-close>关闭</button>
+                </div>
+                <div style="padding:12px 16px;overflow:auto;">
+                    <div style="font-size:12px;line-height:1.6;color:var(--tm-secondary-text);background:var(--tm-card-bg);border:1px solid var(--tm-border-color);border-radius:8px;padding:10px 12px;margin-bottom:12px;">
+                        风险：多设备旧版本仍会写旧属性，可能出现新旧 key 并存；迁移不会清理旧字段；新 key 已有值时跳过不覆盖；属性名不能与自定义列、附件、循环、番茄钟、提醒等保留 key 冲突。
+                    </div>
+                    <table style="width:100%;border-collapse:collapse;font-size:13px;">
+                        <thead>
+                            <tr style="text-align:left;color:var(--tm-secondary-text);">
+                                <th style="padding:6px 10px;width:62px;">迁移</th>
+                                <th style="padding:6px 10px;">字段</th>
+                                <th style="padding:6px 10px;">默认属性名</th>
+                                <th style="padding:6px 10px;">当前属性名</th>
+                                <th style="padding:6px 10px;">新属性名</th>
+                                <th style="padding:6px 10px;">预览统计</th>
+                            </tr>
+                        </thead>
+                        <tbody>${rowsHtml}</tbody>
+                    </table>
+                </div>
+                <div style="display:flex;align-items:center;justify-content:space-between;gap:12px;padding:12px 16px;border-top:1px solid var(--tm-border-color);">
+                    <div data-tm-task-meta-status style="font-size:12px;color:var(--tm-secondary-text);min-height:18px;">${esc(stateLocal.status || '未执行迁移。')}</div>
+                    <div style="display:flex;gap:8px;align-items:center;">
+                        <button class="tm-btn tm-btn-secondary" data-tm-task-meta-save ${stateLocal.running ? 'disabled' : ''}>保存字段名</button>
+                        <button class="tm-btn tm-btn-secondary" data-tm-task-meta-preview ${stateLocal.running ? 'disabled' : ''}>预览迁移</button>
+                        <button class="tm-btn tm-btn-primary" data-tm-task-meta-migrate-run ${stateLocal.running ? 'disabled' : ''}>迁移选中字段</button>
+                    </div>
+                </div>
+            `;
+            dialog.querySelectorAll('[data-tm-task-meta-migrate]').forEach((input) => {
+                input.addEventListener('change', () => {
+                    const field = String(input.getAttribute('data-tm-task-meta-migrate') || '').trim();
+                    if (!field) return;
+                    if (input.checked) stateLocal.selected.add(field);
+                    else stateLocal.selected.delete(field);
+                });
+            });
+            dialog.querySelectorAll('[data-tm-task-meta-key]').forEach((input) => {
+                input.addEventListener('input', () => {
+                    stateLocal.preview = null;
+                    const field = String(input.getAttribute('data-tm-task-meta-key') || '').trim();
+                    if (!field) return;
+                    stateLocal.draftKeys[field] = String(input.value || '').trim();
+                    stateLocal.selected.add(field);
+                });
+            });
+            dialog.querySelector('[data-tm-task-meta-close]')?.addEventListener('click', close);
+            dialog.querySelector('[data-tm-task-meta-save]')?.addEventListener('click', () => {
+                saveFieldNames().then((ok) => { if (ok) renderDialog(); }).catch((e) => hint(`❌ 保存失败: ${e?.message || '未知错误'}`, 'error'));
+            });
+            dialog.querySelector('[data-tm-task-meta-preview]')?.addEventListener('click', () => { previewMigration().catch(() => null); });
+            dialog.querySelector('[data-tm-task-meta-migrate-run]')?.addEventListener('click', () => { migrateSelected().catch(() => null); });
+        }
+        backdrop.addEventListener('click', (event) => {
+            if (event.target === backdrop) close();
+        });
+        document.body.appendChild(backdrop);
+        renderDialog();
+    };
+
     window.tmShowColumnHeaderContextMenu = function(event, columnKey = '') {
         try {
             event?.preventDefault?.();
@@ -1207,6 +1619,41 @@
             docs: [],
             calendarSearchOptimization: { enabled: false, days: 90 }
         });
+    };
+
+    window.renameCurrentGroup = async function() {
+        const currentId = String(SettingsStore.data.currentGroupId || 'all').trim() || 'all';
+        if (currentId === 'all') return;
+
+        const groups = Array.isArray(SettingsStore.data.docGroups) ? SettingsStore.data.docGroups : [];
+        const group = groups.find((item) => String(item?.id || '').trim() === currentId);
+        if (!group) {
+            hint('⚠ 未找到当前分组', 'warning');
+            return;
+        }
+        if (String(group.notebookId || '').trim()) {
+            hint('⚠ 笔记本分组名称跟随笔记本显示名，暂不支持重命名', 'warning');
+            return;
+        }
+
+        const storedOldName = String(group.name || '').trim();
+        const oldName = storedOldName || __tmResolveDocGroupName(group);
+        const nextNameInput = await showPrompt('重命名自定义分组', '请输入新的分组名称', oldName);
+        if (nextNameInput === null || nextNameInput === undefined) return;
+        const nextName = String(nextNameInput || '').trim();
+        if (!nextName) {
+            hint('⚠ 分组名称不能为空', 'warning');
+            return;
+        }
+        if (nextName === storedOldName) return;
+
+        group.name = nextName;
+        await SettingsStore.updateDocGroups(groups);
+        try { window.tmCloseTopbarSelects?.(); } catch (e) {}
+        try { window.tmRefreshDocGroupTopbarSelects?.(currentId); } catch (e) {}
+        try { render(); } catch (e) {}
+        showSettings();
+        hint('✅ 已重命名分组', 'success');
     };
 
     // 新增：删除当前分组

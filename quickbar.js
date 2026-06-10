@@ -132,6 +132,22 @@
     const quickbarInlineFieldAllowSet = new Set(quickbarInlineFieldDefs.map(item => item.attrKey));
     const quickbarVisibleItemDefaults = ['custom-status', 'custom-priority', 'custom-start-date', 'custom-completion-time', 'custom-focus-summary', 'custom-remark', 'action-ai-title', 'action-reminder', 'action-more'];
     const quickbarVisibleItemAllowSet = new Set([...quickbarVisibleItemDefaults, 'taskCompleteAt', 'custom-tomato-estimate-count', 'custom-tomato-count']);
+    const taskMetaAttrFieldDefs = [
+        { field: 'priority', stableKey: 'custom-priority', defaultKey: 'custom-priority' },
+        { field: 'customStatus', stableKey: 'custom-status', defaultKey: 'custom-status' },
+        { field: 'startDate', stableKey: 'custom-start-date', defaultKey: 'custom-start-date' },
+        { field: 'completionTime', stableKey: 'custom-completion-time', defaultKey: 'custom-completion-time' },
+        { field: 'taskCompleteAt', stableKey: 'taskCompleteAt', defaultKey: 'custom-task-complete-at' },
+        { field: 'duration', stableKey: 'custom-duration', defaultKey: 'custom-duration' },
+        { field: 'remark', stableKey: 'custom-remark', defaultKey: 'custom-remark' },
+        { field: 'taskDateColor', stableKey: 'custom-task-date-color', defaultKey: 'custom-task-date-color' },
+        { field: 'customTime', stableKey: 'custom-time', defaultKey: 'custom-time' },
+        { field: 'milestone', stableKey: 'custom-milestone-event', defaultKey: 'custom-milestone-event' },
+        { field: 'pinned', stableKey: 'custom-pinned', defaultKey: 'custom-pinned' },
+        { field: 'allDayBottom', stableKey: 'custom-all-day-bottom', defaultKey: 'custom-all-day-bottom' },
+    ];
+    const taskMetaAttrFieldByStableKey = new Map(taskMetaAttrFieldDefs.map(item => [item.stableKey, item.field]));
+    const taskMetaAttrFieldByDefaultKey = new Map(taskMetaAttrFieldDefs.map(item => [item.defaultKey, item.field]));
     let inlineMetaCache = new Map();
     let inlineMetaCacheTs = new Map();
     let inlineMetaLayoutCache = new Map();
@@ -158,6 +174,8 @@
     let inlineMetaObservedTaskBlocks = new Map();
     let inlineMetaVisibleTaskBlocks = new Map();
     let inlineMetaNeedSyncBlocks = true;
+    let quickbarTaskMetaAttrKeySettingsCache = null;
+    let quickbarTaskMetaAttrAliasSettingsCache = null;
     let inlineMetaMutationTimer = null;
     let inlineMetaMutationHasStructural = false;
     let inlineMetaMutationLastFireTs = 0;
@@ -558,10 +576,139 @@
         }
     }
 
+    function readQuickbarJsonStorage(storageKey, fallback) {
+        try {
+            const raw = localStorage.getItem(storageKey);
+            if (raw == null || raw === '') return fallback;
+            return JSON.parse(raw);
+        } catch (e) {
+            return fallback;
+        }
+    }
+
+    function invalidateQuickbarTaskMetaAttrSettingsCache() {
+        quickbarTaskMetaAttrKeySettingsCache = null;
+        quickbarTaskMetaAttrAliasSettingsCache = null;
+    }
+
+    function getQuickbarTaskMetaAttrKeySettings() {
+        if (quickbarTaskMetaAttrKeySettingsCache && typeof quickbarTaskMetaAttrKeySettingsCache === 'object') {
+            return quickbarTaskMetaAttrKeySettingsCache;
+        }
+        const parsed = readQuickbarJsonStorage('tm_task_meta_attr_keys', {}) || {};
+        quickbarTaskMetaAttrKeySettingsCache = parsed && typeof parsed === 'object' && !Array.isArray(parsed) ? parsed : {};
+        return quickbarTaskMetaAttrKeySettingsCache;
+    }
+
+    function getQuickbarTaskMetaAttrAliasSettings() {
+        if (quickbarTaskMetaAttrAliasSettingsCache && typeof quickbarTaskMetaAttrAliasSettingsCache === 'object') {
+            return quickbarTaskMetaAttrAliasSettingsCache;
+        }
+        const parsed = readQuickbarJsonStorage('tm_task_meta_attr_key_aliases', {}) || {};
+        quickbarTaskMetaAttrAliasSettingsCache = parsed && typeof parsed === 'object' && !Array.isArray(parsed) ? parsed : {};
+        return quickbarTaskMetaAttrAliasSettingsCache;
+    }
+
+    function normalizeTaskMetaAttrKeyName(value, fallback = '') {
+        const key = String(value || '').trim();
+        if (key && /^custom-[a-zA-Z0-9_-]+$/.test(key)) return key;
+        const safeFallback = String(fallback || '').trim();
+        return safeFallback && /^custom-[a-zA-Z0-9_-]+$/.test(safeFallback) ? safeFallback : '';
+    }
+
+    function getQuickbarTaskMetaAttrFieldDef(field) {
+        const key = String(field || '').trim();
+        return taskMetaAttrFieldDefs.find(item => item.field === key) || null;
+    }
+
+    function getQuickbarTaskMetaAttrKey(field) {
+        const def = getQuickbarTaskMetaAttrFieldDef(field);
+        if (!def) return '';
+        const settings = getQuickbarTaskMetaAttrKeySettings();
+        return normalizeTaskMetaAttrKeyName(settings?.[def.field], def.defaultKey) || def.defaultKey;
+    }
+
+    function getQuickbarTaskMetaAttrAliases(field) {
+        const def = getQuickbarTaskMetaAttrFieldDef(field);
+        if (!def) return [];
+        const aliases = getQuickbarTaskMetaAttrAliasSettings();
+        const rawList = Array.isArray(aliases?.[def.field]) ? aliases[def.field] : [];
+        const seen = new Set();
+        return rawList
+            .map(key => normalizeTaskMetaAttrKeyName(key, ''))
+            .filter((key) => {
+                if (!key || seen.has(key)) return false;
+                seen.add(key);
+                return true;
+            });
+    }
+
+    function getQuickbarTaskMetaAttrReadKeys(field) {
+        const def = getQuickbarTaskMetaAttrFieldDef(field);
+        if (!def) return [];
+        const keys = [
+            getQuickbarTaskMetaAttrKey(def.field),
+            ...getQuickbarTaskMetaAttrAliases(def.field),
+            def.defaultKey,
+            def.stableKey,
+        ];
+        const seen = new Set();
+        return keys
+            .map((key) => {
+                const raw = String(key || '').trim();
+                if (raw === 'taskCompleteAt') return raw;
+                return normalizeTaskMetaAttrKeyName(raw, '');
+            })
+            .filter((key) => {
+                if (!key || seen.has(key)) return false;
+                seen.add(key);
+                return true;
+            });
+    }
+
+    function resolveQuickbarTaskMetaFieldByAttrKey(attrKey) {
+        const key = String(attrKey || '').trim();
+        if (!key) return '';
+        for (const def of taskMetaAttrFieldDefs) {
+            if (getQuickbarTaskMetaAttrKey(def.field) === key) return def.field;
+        }
+        for (const def of taskMetaAttrFieldDefs) {
+            if (getQuickbarTaskMetaAttrReadKeys(def.field).includes(key)) return def.field;
+        }
+        return taskMetaAttrFieldByStableKey.get(key) || taskMetaAttrFieldByDefaultKey.get(key) || '';
+    }
+
+    function getQuickbarTaskMetaStableKey(field) {
+        return String(getQuickbarTaskMetaAttrFieldDef(field)?.stableKey || '').trim();
+    }
+
+    function readQuickbarTaskMetaAttrValue(attrs, field, fallback = '') {
+        const data = attrs && typeof attrs === 'object' ? attrs : {};
+        for (const key of getQuickbarTaskMetaAttrReadKeys(field)) {
+            if (Object.prototype.hasOwnProperty.call(data, key)) return String(data[key] ?? '');
+        }
+        const stableKey = getQuickbarTaskMetaStableKey(field);
+        if (stableKey && Object.prototype.hasOwnProperty.call(data, stableKey)) return String(data[stableKey] ?? '');
+        return String(fallback ?? '');
+    }
+
+    function mirrorQuickbarTaskMetaStableProps(props) {
+        const target = props && typeof props === 'object' ? props : {};
+        taskMetaAttrFieldDefs.forEach((def) => {
+            const stableKey = String(def.stableKey || '').trim();
+            if (!stableKey || !Object.prototype.hasOwnProperty.call(target, stableKey)) return;
+            const storageKey = getQuickbarTaskMetaAttrKey(def.field);
+            if (storageKey && storageKey !== stableKey) target[storageKey] = target[stableKey];
+        });
+        return target;
+    }
+
     function normalizeTaskHorizonAttrKeyForSave(attrKey) {
         const key = String(attrKey || '').trim();
         if (key === 'custom-tomato-estimate-count') return getConfiguredTomatoCountAttrKey('estimate');
         if (key === 'custom-tomato-count') return getConfiguredTomatoCountAttrKey('actual');
+        const field = resolveQuickbarTaskMetaFieldByAttrKey(key);
+        if (field) return getQuickbarTaskMetaAttrKey(field) || key;
         return key;
     }
 
@@ -570,6 +717,9 @@
         if (!key) return '';
         if (key === getConfiguredTomatoCountAttrKey('estimate')) return 'custom-tomato-estimate-count';
         if (key === getConfiguredTomatoCountAttrKey('actual')) return 'custom-tomato-count';
+        const field = resolveQuickbarTaskMetaFieldByAttrKey(key);
+        const stableKey = field ? getQuickbarTaskMetaStableKey(field) : '';
+        if (stableKey) return stableKey;
         return key;
     }
 
@@ -819,12 +969,13 @@
     function isQuickbarPropsDone(props) {
         const data = props && typeof props === 'object' ? props : {};
         if (data.done === true || data.done === 'true' || data.done === '1' || data.done === 1) return true;
-        return isQuickbarDoneStatusValue(data['custom-status'] || data.customStatus || data.custom_status);
+        return isQuickbarDoneStatusValue(readQuickbarTaskMetaAttrValue(data, 'customStatus', '') || data.customStatus || data.custom_status);
     }
 
     function shouldShowQuickbarTaskCompleteAt(props) {
         const data = props && typeof props === 'object' ? props : {};
-        return isQuickbarPropsDone(data) && !!String(data.taskCompleteAt || '').trim();
+        const completeAt = String(data.taskCompleteAt || data.task_complete_at || readQuickbarTaskMetaAttrValue(data, 'taskCompleteAt', '') || '').trim();
+        return isQuickbarPropsDone(data) && !!completeAt;
     }
 
     async function getManagedTaskStatusSnapshot(taskIdOrBlockId) {
@@ -994,17 +1145,37 @@
 
     const QUICKBAR_INLINE_RENDER_BATCH_LIMIT = 6;
 
+    function getListSubtype(el) {
+        return String(el?.getAttribute?.('data-subtype') || el?.dataset?.subtype || '').trim().toLowerCase();
+    }
+
+    function isExplicitNonTaskListItem(el) {
+        if (!(el instanceof Element)) return false;
+        const isListItem = el.matches?.('.li,[data-type="NodeListItem"]');
+        if (!isListItem) return false;
+        const selfSubtype = getListSubtype(el);
+        if (selfSubtype === 'u' || selfSubtype === 'o') return true;
+        const parentList = el.parentElement instanceof Element
+            && el.parentElement.matches?.('.list,[data-type="NodeList"]')
+            ? el.parentElement
+            : null;
+        const parentSubtype = getListSubtype(parentList);
+        return parentSubtype === 'u' || parentSubtype === 'o';
+    }
+
     function hasTaskMarkerEl(el) {
         if (!el) return false;
+        if (isExplicitNonTaskListItem(el)) return false;
         const marker = el.getAttribute?.('data-marker') || '';
         if (marker.includes('[ ]') || marker.includes('[x]') || marker.includes('[X]')) return true;
-        const subtype = String(el.getAttribute?.('data-subtype') || '').trim().toLowerCase();
+        const subtype = getListSubtype(el);
         if (subtype === 't') return true;
         return false;
     }
 
     function isTaskBlockElement(blockEl) {
         if (!blockEl) return false;
+        if (isExplicitNonTaskListItem(blockEl)) return false;
         // 只检查当前块本身和直接子元素，避免父级普通列表项因为包含子任务而被误判成任务块。
         const directChildren = Array.from(blockEl.children || []);
         const hasDirectTaskControl = directChildren.some((child) => {
@@ -2880,6 +3051,12 @@
                 try { refreshInlineMetaMode(true); } catch (e) {}
                 return;
             }
+            if (e.key === 'tm_task_meta_attr_keys' || e.key === 'tm_task_meta_attr_key_aliases') {
+                invalidateQuickbarTaskMetaAttrSettingsCache();
+                try { renderFloatBar(); } catch (e) {}
+                try { refreshInlineMetaMode(true); } catch (e) {}
+                return;
+            }
             if (isInlineMetaScopeStorageKey(e.key)) {
                 clearInlineMetaScopeDocCache();
                 try { refreshInlineMetaMode(true); } catch (e) {}
@@ -2930,6 +3107,7 @@
             const id = String(blockId || '').trim();
             const requestedKey = String(attrKey || '').trim();
             const key = normalizeTaskHorizonAttrKeyForSave(requestedKey);
+            const displayKey = normalizeTaskHorizonAttrKeyForDisplay(requestedKey) || requestedKey;
             if (!id || !key) return { success: false, viaSharedApi: false };
             const isTomatoCountKey = requestedKey === 'custom-tomato-estimate-count'
                 || requestedKey === 'custom-tomato-count'
@@ -2941,11 +3119,12 @@
             pushTaskHorizonDebug('refresh', 'quickbar-save:start', {
                 taskId: id,
                 attrKey: key,
+                displayAttrKey: displayKey,
                 value: normalizedValue == null ? '' : String(normalizedValue),
                 label: String(options?.label || '').trim(),
             });
             const sharedApi = getTaskHorizonSharedApi();
-            if (key === 'custom-status') {
+            if (displayKey === 'custom-status') {
                 const applier = sharedApi?.applyTaskStatus;
                 if (typeof applier === 'function') {
                     try {
@@ -2972,6 +3151,7 @@
                             taskId: result.taskId,
                             requestedTaskId: result.requestedTaskId,
                             attrKey: key,
+                            displayAttrKey: displayKey,
                             value: nextStatus,
                             label: String(options?.label || '状态').trim(),
                             viaSharedApi: true,
@@ -2982,12 +3162,12 @@
                     } catch (e) {}
                 }
             }
-            if (key === 'custom-start-date' || key === 'custom-completion-time') {
+            if (displayKey === 'custom-start-date' || displayKey === 'custom-completion-time') {
                 const updater = globalThis.tmUpdateTaskDates;
                 if (typeof updater === 'function') {
                     try {
                         suppressTaskHorizonMobileTopbarOpen();
-                        const apiResult = await updater(id, key === 'custom-start-date'
+                        const apiResult = await updater(id, displayKey === 'custom-start-date'
                             ? { startDate: value == null ? '' : String(value) }
                             : { completionTime: value == null ? '' : String(value) }, {
                             refresh: false,
@@ -3006,6 +3186,7 @@
                             taskId: result.taskId,
                             requestedTaskId: result.requestedTaskId,
                             attrKey: key,
+                            displayAttrKey: displayKey,
                             value: nextValue,
                             label: String(options?.label || '').trim(),
                             viaSharedApi: true,
@@ -3021,7 +3202,8 @@
                 try {
                     const nextValue = normalizedValue == null ? '' : String(normalizedValue);
                     suppressTaskHorizonMobileTopbarOpen();
-                    const apiResult = await genericApplier(id, key, nextValue, {
+                    const apiAttrKey = displayKey || requestedKey || key;
+                    const apiResult = await genericApplier(id, apiAttrKey, nextValue, {
                         source: 'quickbar-attr',
                         label: String(options?.label || ''),
                         refresh: false,
@@ -3043,6 +3225,7 @@
                         taskId: result.taskId,
                         requestedTaskId: result.requestedTaskId,
                         attrKey: key,
+                        displayAttrKey: apiAttrKey,
                         value: nextValue,
                         label: String(options?.label || '').trim(),
                         viaSharedApi: true,
@@ -3070,6 +3253,7 @@
                 taskId: finalResult.taskId,
                 requestedTaskId: finalResult.requestedTaskId,
                 attrKey: key,
+                displayAttrKey: displayKey,
                 value: normalizedValue == null ? '' : String(normalizedValue),
                 label: String(options?.label || '').trim(),
                 viaSharedApi: false,
@@ -3253,7 +3437,9 @@
 
         async function saveRawTaskAttrWithUndo(blockId, attrKey, value, options = {}) {
             const id = String(blockId || '').trim();
-            const key = String(attrKey || '').trim();
+            const requestedKey = String(attrKey || '').trim();
+            const key = normalizeTaskHorizonAttrKeyForSave(requestedKey) || requestedKey;
+            const displayKey = normalizeTaskHorizonAttrKeyForDisplay(requestedKey) || requestedKey || key;
             if (!id || !key) return { success: false, viaSharedApi: false };
             const rawValue = value == null ? '' : String(value);
             const sharedApi = getTaskHorizonSharedApi();
@@ -3261,7 +3447,7 @@
             if (typeof genericApplier === 'function') {
                 try {
                     suppressTaskHorizonMobileTopbarOpen();
-                    const apiResult = await genericApplier(id, key, rawValue, {
+                    const apiResult = await genericApplier(id, displayKey, rawValue, {
                         source: 'quickbar-raw-attr',
                         label: String(options?.label || ''),
                         refresh: false,
@@ -3433,21 +3619,22 @@
             const providedSpentDisplay = String(data['custom-focus-spent-display'] || data.spent || '').trim();
             const spentDisplay = hasQuickbarFocusSpentSourceAttr(data) ? spentDisplayFromAttrs : providedSpentDisplay;
             const out = {
-                'custom-priority': data['custom-priority'] || 'none',
-                'custom-status': String(data['custom-status'] || '').trim() || defaultUndoneStatusId,
-                'custom-completion-time': data['custom-completion-time'] || '',
-                'custom-start-date': data['custom-start-date'] || '',
-                'custom-duration': data['custom-duration'] || '',
+                'custom-priority': readQuickbarTaskMetaAttrValue(data, 'priority', 'none') || 'none',
+                'custom-status': String(readQuickbarTaskMetaAttrValue(data, 'customStatus', '')).trim() || defaultUndoneStatusId,
+                'custom-completion-time': readQuickbarTaskMetaAttrValue(data, 'completionTime', ''),
+                'custom-start-date': readQuickbarTaskMetaAttrValue(data, 'startDate', ''),
+                'custom-duration': readQuickbarTaskMetaAttrValue(data, 'duration', ''),
                 'custom-tomato-estimate-count': normalizeTomatoCountValue(data['custom-tomato-estimate-count'] || data[tomatoEstimateAttrKey] || data.tomatoEstimateCount || data.tomato_estimate_count || ''),
                 'custom-tomato-count': normalizeTomatoCountValue(data['custom-tomato-count'] || data[tomatoCountAttrKey] || data.tomatoCount || data.tomato_count || ''),
                 'custom-focus-spent-display': spentDisplay,
-                'custom-remark': data['custom-remark'] || '',
-                'custom-pinned': data['custom-pinned'] || '',
+                'custom-remark': readQuickbarTaskMetaAttrValue(data, 'remark', ''),
+                'custom-pinned': readQuickbarTaskMetaAttrValue(data, 'pinned', ''),
                 'bookmark': data['bookmark'] || '',
                 done,
-                taskCompleteAt: String(data.taskCompleteAt || data.task_complete_at || data['custom-task-complete-at'] || '').trim()
+                taskCompleteAt: String(data.taskCompleteAt || data.task_complete_at || readQuickbarTaskMetaAttrValue(data, 'taskCompleteAt', '') || '').trim()
             };
             out['custom-focus-summary'] = formatFocusSummaryDisplay(out);
+            mirrorQuickbarTaskMetaStableProps(out);
             getQuickbarCustomFieldDefs().forEach((field) => {
                 const config = buildQuickbarCustomFieldConfig(field);
                 if (!config?.attrKey) return;
@@ -3508,10 +3695,7 @@
 
         function isQuickbarTaskLikeDone(task) {
             if (!(task && typeof task === 'object')) return false;
-            return isQuickbarPropsDone({
-                done: task.done,
-                'custom-status': task.customStatus || task.custom_status || ''
-            });
+            return isQuickbarPropsDone(task);
         }
 
         function getQuickbarDomSubtaskStats(blockEl) {
@@ -3547,6 +3731,7 @@
             return String(
                 task.taskCompleteAt
                 || task.task_complete_at
+                || readQuickbarTaskMetaAttrValue(task, 'taskCompleteAt', '')
                 || task['custom-task-complete-at']
                 || task.completedAt
                 || task.updated
@@ -3565,15 +3750,15 @@
             const minutesKey = getConfiguredTomatoSpentAttrKey('minutes');
             const hoursKey = getConfiguredTomatoSpentAttrKey('hours');
             const runtimePropsData = {
-                'custom-priority': String(task.priority || task.custom_priority || 'none').trim() || 'none',
-                'custom-status': String(task.customStatus || task.custom_status || '').trim(),
-                'custom-completion-time': String(task.completionTime || task.completion_time || '').trim(),
-                'custom-start-date': String(task.startDate || task.start_date || '').trim(),
-                'custom-duration': String(task.duration || task.custom_duration || '').trim(),
+                'custom-priority': String(task.priority || task.custom_priority || readQuickbarTaskMetaAttrValue(task, 'priority', '') || 'none').trim() || 'none',
+                'custom-status': String(task.customStatus || task.custom_status || readQuickbarTaskMetaAttrValue(task, 'customStatus', '') || '').trim(),
+                'custom-completion-time': String(task.completionTime || task.completion_time || readQuickbarTaskMetaAttrValue(task, 'completionTime', '') || '').trim(),
+                'custom-start-date': String(task.startDate || task.start_date || readQuickbarTaskMetaAttrValue(task, 'startDate', '') || '').trim(),
+                'custom-duration': String(task.duration || task.custom_duration || readQuickbarTaskMetaAttrValue(task, 'duration', '') || '').trim(),
                 'custom-tomato-estimate-count': String(task.tomatoEstimateCount || task.tomato_estimate_count || task.tomatoEstimate || '').trim(),
                 'custom-tomato-count': String(task.tomatoCount || task.tomato_count || '').trim(),
-                'custom-remark': String(task.remark || task.custom_remark || '').trim(),
-                'custom-pinned': String(task.pinned || task.custom_pinned || '').trim(),
+                'custom-remark': String(task.remark || task.custom_remark || readQuickbarTaskMetaAttrValue(task, 'remark', '') || '').trim(),
+                'custom-pinned': String(task.pinned || task.custom_pinned || readQuickbarTaskMetaAttrValue(task, 'pinned', '') || '').trim(),
                 done: isQuickbarTaskLikeDone(task),
                 taskCompleteAt: resolveTaskCompleteAtFromTaskLike(task),
                 'bookmark': String(task.bookmark || '').trim()
@@ -3675,9 +3860,14 @@
                 taskAttrs = hostAttrs;
             }
             const attrs = { ...taskAttrs, ...hostAttrs };
-            ['custom-start-date', 'custom-completion-time', 'custom-time'].forEach((key) => {
-                const taskValue = String(taskAttrs?.[key] ?? '').trim();
-                if (taskValue) attrs[key] = taskAttrs[key];
+            ['startDate', 'completionTime', 'customTime'].forEach((field) => {
+                const entry = readQuickbarTaskMetaAttrValue(taskAttrs, field, '');
+                if (String(entry || '').trim()) {
+                    const stableKey = getQuickbarTaskMetaStableKey(field);
+                    if (stableKey) attrs[stableKey] = entry;
+                    const storageKey = getQuickbarTaskMetaAttrKey(field);
+                    if (storageKey) attrs[storageKey] = entry;
+                }
             });
             return attrs;
         }
@@ -5397,7 +5587,9 @@
         }
 
         function ensureInlineMetaLayer(blockEl) {
+            if (blockEl?.closest?.('.tm-task-detail-note-mount')) return null;
             const root = blockEl?.closest?.('.protyle');
+            if (root?.closest?.('.tm-task-detail-note-mount')) return null;
             const container = root?.querySelector?.('.protyle-content') || root?.querySelector?.('.protyle-wysiwyg') || root;
             if (!container) return null;
             let layer = container.querySelector?.(':scope > .sy-custom-props-inline-layer[data-inline-layer="true"]') || null;
@@ -6024,7 +6216,12 @@
         function hasTaskBlockInRoot(root) {
             if (!(root instanceof Element)) return false;
             const taskSelector = '.li[data-node-id] input[type="checkbox"],.li[data-node-id] .protyle-action__task,.li[data-node-id] .protyle-action--task,.li[data-node-id] .protyle-task--checkbox,.li[data-node-id] .protyle-task,.li[data-node-id] .b3-checkbox,.li[data-node-id][data-marker*="[ ]"],.li[data-node-id][data-marker*="[x]"],.li[data-node-id][data-marker*="[X]"],.li[data-node-id] [data-marker*="[ ]"],.li[data-node-id] [data-marker*="[x]"],.li[data-node-id] [data-marker*="[X]"]';
-            if (root.querySelector(taskSelector)) return true;
+            const candidates = root.querySelectorAll(taskSelector);
+            const candidateLimit = Math.min(candidates.length, 180);
+            for (let i = 0; i < candidateLimit; i += 1) {
+                const li = candidates[i]?.closest?.('.li[data-node-id], [data-type="NodeListItem"][data-node-id]');
+                if (li && isTaskBlockElement(li)) return true;
+            }
             const items = root.querySelectorAll('.li[data-node-id], [data-type="NodeListItem"][data-node-id]');
             const limit = Math.min(items.length, 180);
             for (let i = 0; i < limit; i += 1) {
@@ -6061,6 +6258,7 @@
             if (!(el instanceof Element)) return;
             const protyleEl = el.matches?.('.protyle') ? el : el.closest?.('.protyle');
             if (!(protyleEl instanceof Element)) return;
+            if (protyleEl.closest?.('.tm-task-detail-note-mount')) return;
             inlineMetaProtyleHints.add(protyleEl);
             pruneInlineMetaProtyleHints();
         }
@@ -6080,6 +6278,7 @@
                     .filter((el) => {
                         if (!(el instanceof Element)) return false;
                         if (seen.has(el)) return false;
+                        if (el.closest?.('.tm-task-detail-note-mount')) return false;
                         const rect = el.getBoundingClientRect?.();
                         if (!rect) return false;
                         if (rect.width <= 0 || rect.height <= 0) return false;
@@ -6095,6 +6294,7 @@
                 if (result.length) return result;
                 const fallback = document.querySelector('.protyle--focus');
                 if (fallback instanceof Element) {
+                    if (fallback.closest?.('.tm-task-detail-note-mount')) return [];
                     const rect = fallback.getBoundingClientRect?.();
                     if (rect && rect.width > 0 && rect.height > 0) return [fallback];
                 }
@@ -6212,6 +6412,7 @@
             const roots = inlineMetaObservedRoots.length ? inlineMetaObservedRoots : getInlineMetaObserveRoots();
             const nextBlocks = new Map();
             roots.forEach((root) => {
+                if (root?.closest?.('.tm-task-detail-note-mount')) return;
                 const blocks = root?.querySelectorAll?.('.li[data-node-id], [data-type="NodeListItem"][data-node-id]') || [];
                 for (let i = 0; i < blocks.length; i += 1) {
                     const blockEl = blocks[i];

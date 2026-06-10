@@ -1389,6 +1389,9 @@
 
     window.tmWhiteboardSelectTask = function(taskId, ev) {
         if (state.viewMode !== 'whiteboard') return;
+        try {
+            if (typeof __tmIsTaskDetailNoteViewEventTarget === 'function' && __tmIsTaskDetailNoteViewEventTarget(ev?.target)) return;
+        } catch (e) {}
         const tool = String(SettingsStore.data.whiteboardTool || 'pan').trim();
         if (tool !== 'pan' && tool !== 'select') return;
         const id = String(taskId || '').trim();
@@ -2586,20 +2589,33 @@
         })();
         if (!newContent) return;
         try {
-            const createdTaskId = await __tmCreateTaskInDoc({
+            const createTaskInDoc = globalThis.__tmRequireTaskOutbox?.('createTaskInDoc');
+            if (typeof createTaskInDoc !== 'function') throw new Error('任务写入队列未就绪: createTaskInDoc');
+            const createdTaskId = await createTaskInDoc({
                 docId: did,
                 content: newContent,
                 atTop: true,
-            });
+                wait: false,
+                skipOptimisticMainRefresh: true,
+                skipOptimisticFilterWork: true,
+            }, { wait: false });
             if (!createdTaskId) throw new Error('任务创建失败');
             __tmSetWhiteboardTaskPlaced(createdTaskId, true, { persist: false });
             __tmSetWhiteboardNodePos(createdTaskId, did, localX, localY, { manual: true, persist: false });
             try { SettingsStore.syncToLocal(); } catch (e) {}
-            try { await SettingsStore.save(); } catch (e) {}
+            try { SettingsStore.save(); } catch (e) {}
             state.whiteboardSelectedTaskId = createdTaskId;
             __tmApplyWhiteboardCardSelectionDom(createdTaskId);
-            applyFilters();
-            render();
+            try {
+                __tmScheduleViewRefresh({
+                    mode: 'current',
+                    withFilters: false,
+                    reason: 'whiteboard-create-task',
+                    taskIds: [createdTaskId],
+                });
+            } catch (e) {
+                try { __tmScheduleRender({ withFilters: false, reason: 'whiteboard-create-task' }); } catch (e2) {}
+            }
         } catch (e) {
             try { hint(`❌ 新建失败，已撤销: ${e?.message || String(e)}`, 'error'); } catch (e2) {}
         }
@@ -3035,8 +3051,23 @@
             if (cardDoc !== docId && !sourceIsInbox && !sourceIsGlobalCollect) continue;
             if (cardDoc !== docId) {
                 try {
-                    movedAcrossDoc = await __tmMoveTaskToDoc(taskId, docId, { silentHint: true }) || movedAcrossDoc;
+                    const moveTask = globalThis.__tmRequireTaskOutbox?.('moveTask');
+                    if (typeof moveTask !== 'function') throw new Error('任务写入队列未就绪: moveTask');
+                    moveTask(taskId, {
+                        targetDocId: docId,
+                        mode: 'docTop',
+                        deferOptimisticRender: true,
+                        skipOptimisticFilterWork: true,
+                    }, {
+                        wait: false,
+                        skipOptimisticFilterWork: true,
+                        onError: (e) => {
+                            try { hint(`❌ 移动任务失败: ${e?.message || String(e)}`, 'error'); } catch (err) {}
+                        },
+                    });
+                    movedAcrossDoc = true;
                 } catch (e) {
+                    try { hint(`❌ 移动任务失败: ${e?.message || String(e)}`, 'error'); } catch (err) {}
                     continue;
                 }
             }
@@ -3093,7 +3124,7 @@
         state.whiteboardLastBoardPointer = null;
         try { await SettingsStore.save(); } catch (e) {}
         if (movedAcrossDoc) {
-            try { await loadSelectedDocuments(); } catch (e) { render(); }
+            try { __tmScheduleViewRefresh({ mode: 'current', withFilters: false, reason: 'whiteboard-pool-drop-move' }); } catch (e) { render(); }
         } else {
             render();
         }

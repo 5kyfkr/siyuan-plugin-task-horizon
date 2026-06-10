@@ -637,12 +637,15 @@
             const out = new Map();
             if (ids.length === 0) return out;
             const lvRaw = String(headingLevel || 'h2').trim().toLowerCase();
+            const cacheKey = `heading_order:${ids.length}:${__tmHashIds(ids)}:${lvRaw}`;
+            const cached = __tmGetAuxCache(cacheKey, 15000);
+            if (cached) return new Map(cached);
             const lvNum0 = Number((lvRaw.match(/^h([1-6])$/) || [])[1]);
             const lvNum = Number.isFinite(lvNum0) ? lvNum0 : 2;
             const parseId = (line) => {
                 const s = String(line || '');
-                const m = s.match(/\{\:\s*[^}]*\bid="([^"]+)"/);
-                return m ? String(m[1] || '').trim() : '';
+                const m = s.match(/\{\:\s*[^}]*\bid=(?:"([^"]+)"|'([^']+)')/);
+                return m ? String(m[1] || m[2] || '').trim() : '';
             };
             for (const docId of ids) {
                 let km = '';
@@ -2203,6 +2206,12 @@
             if (ids.length === 0) return new Map();
             const depth = Number.isFinite(Number(maxDepth)) ? Math.max(1, Math.min(20, Math.floor(Number(maxDepth)))) : 8;
             const escapeId = (s) => String(s).replace(/'/g, "''");
+            const priorityAttrNames = (typeof __tmGetTaskMetaAttrReadKeys === 'function' ? __tmGetTaskMetaAttrReadKeys('priority') : ['custom-priority'])
+                .map((name) => String(name || '').trim())
+                .filter(Boolean);
+            const priorityNameList = Array.from(new Set(priorityAttrNames.length ? priorityAttrNames : ['custom-priority']))
+                .map((name) => `'${escapeId(name)}'`)
+                .join(',');
             const seeds = ids.map(id => `('${escapeId(id)}','${escapeId(id)}',0)`).join(',');
             const totalLimit = Math.max(1, Math.min(5000, ids.length));
             const sql = `
@@ -2224,7 +2233,7 @@
                         ROW_NUMBER() OVER (PARTITION BY up.start_id ORDER BY up.depth ASC) AS rn
                     FROM up
                     JOIN attributes a ON a.block_id = up.id
-                    WHERE a.name = 'custom-priority'
+                    WHERE a.name IN (${priorityNameList})
                       AND a.value IS NOT NULL
                       AND a.value != ''
                 )
@@ -2246,9 +2255,14 @@
         },
 
         async setAttr(id, key, val) {
+            const rawKey = String(key || '').trim();
+            const taskMetaAttrKey = typeof __tmGetTaskMetaAttrKey === 'function'
+                ? __tmGetTaskMetaAttrKey(rawKey)
+                : '';
+            const attrKey = taskMetaAttrKey || `custom-${rawKey}`;
             const res = await this.call('/api/attr/setBlockAttrs', {
                 id: id,
-                attrs: { [`custom-${key}`]: String(val) }
+                attrs: { [attrKey]: String(val) }
             });
             if (res.code !== 0) throw new Error(res.msg || '保存属性失败');
             return true;
@@ -2839,26 +2853,42 @@
         }
     };
 
+    const __tmBackendAdapter = {
+        call(url, body) {
+            return API.call(url, body);
+        },
+        setAttrs(id, attrs) {
+            return API.setAttrs(id, attrs);
+        },
+        updateBlock(id, md, dataType = 'markdown') {
+            return API.updateBlock(id, md, dataType);
+        },
+        insertBlock(parentId, md, placement) {
+            return API.insertBlock(parentId, md, placement);
+        },
+        appendBlock(parentId, md) {
+            return API.appendBlock(parentId, md);
+        },
+        moveBlock(id, placement = {}) {
+            return API.moveBlock(id, placement);
+        },
+        deleteBlock(id) {
+            return API.deleteBlock(id);
+        },
+        flushTransaction() {
+            return API.call('/api/sqlite/flushTransaction', {});
+        },
+    };
+
+    try { globalThis.__tmTaskHorizonBackendAdapter = __tmBackendAdapter; } catch (e) {}
+
     const __TM_TASK_REPEAT_RULE_ATTR = 'custom-task-repeat-rule';
     const __TM_TASK_REPEAT_STATE_ATTR = 'custom-task-repeat-state';
     const __TM_TASK_REPEAT_HISTORY_ATTR = 'custom-task-repeat-history';
-    const __TM_TASK_COMPLETE_AT_ATTR = 'custom-task-complete-at';
     const __TM_CHINA_TZ_OFFSET_MINUTES = 8 * 60;
     const __TM_CHINA_TZ_SUFFIX = '+08:00';
 
     const __tmMetaAttrMap = {
-        priority: 'custom-priority',
-        duration: 'custom-duration',
-        remark: 'custom-remark',
-        startDate: 'custom-start-date',
-        completionTime: 'custom-completion-time',
-        taskDateColor: 'custom-task-date-color',
-        taskCompleteAt: __TM_TASK_COMPLETE_AT_ATTR,
-        milestone: 'custom-milestone-event',
-        customTime: 'custom-time',
-        customStatus: 'custom-status',
-        pinned: 'custom-pinned',
-        allDayBottom: 'custom-all-day-bottom',
         repeatRule: __TM_TASK_REPEAT_RULE_ATTR,
         repeatState: __TM_TASK_REPEAT_STATE_ATTR,
         repeatHistory: __TM_TASK_REPEAT_HISTORY_ATTR,
@@ -3455,6 +3485,13 @@
                 attrs[__tmGetTomatoSpentHoursAttrKey()] = String(val ?? '').trim();
                 return;
             }
+            const taskMetaAttrKey = typeof __tmGetTaskMetaAttrKey === 'function'
+                ? __tmGetTaskMetaAttrKey(key)
+                : '';
+            if (taskMetaAttrKey) {
+                attrs[taskMetaAttrKey] = String(val ?? '');
+                return;
+            }
             const attrKey = __tmMetaAttrMap[key];
             if (attrKey) {
                 if (key === 'repeatRule') {
@@ -3505,6 +3542,16 @@
             mirrorAttrs[attrKey] = String(value ?? '');
         });
         return mirrorAttrs;
+    }
+
+    function __tmShouldSyncTaskReadMirrorAttr(attrKey) {
+        const field = typeof __tmResolveTaskMetaFieldByAttrKey === 'function'
+            ? __tmResolveTaskMetaFieldByAttrKey(attrKey)
+            : '';
+        return field === 'startDate'
+            || field === 'completionTime'
+            || field === 'taskDateColor'
+            || field === 'customTime';
     }
 
     async function __tmPersistMetaAndAttrsKernel(id, patch, options = {}) {
@@ -3563,7 +3610,8 @@
                             previousAttachmentMeta = __tmExtractTaskAttachmentMetaFromAttrRow(row);
                         }
                     }
-                } catch (e) {}
+                } catch (e) {
+                }
             }
             try {
                 opts.__resolvedPreviousAttachmentPaths = previousAttachmentPaths.slice();
@@ -3590,9 +3638,24 @@
             previousAttachmentMeta,
             previousAttachmentSlotCount,
         });
-        if (Object.keys(attrs).length === 0) return true;
-        const hasStatusAttr = Object.prototype.hasOwnProperty.call(attrs, 'custom-status') || Object.prototype.hasOwnProperty.call(patch, 'customStatus');
-        const taskReadMirrorAttrs = __tmBuildTaskReadMirrorAttrs(attrs);
+        const attrKeys = Object.keys(attrs);
+        if (attrKeys.length === 0) {
+            return true;
+        }
+        const statusAttrKey = typeof __tmGetTaskMetaAttrKey === 'function' ? __tmGetTaskMetaAttrKey('customStatus') : 'custom-status';
+        const hasStatusAttr = Object.prototype.hasOwnProperty.call(attrs, statusAttrKey) || Object.prototype.hasOwnProperty.call(patch, 'customStatus');
+        const allTaskReadMirrorAttrs = __tmBuildTaskReadMirrorAttrs(attrs);
+        const hasSyncTaskReadMirrorAttr = Object.keys(allTaskReadMirrorAttrs).some((key) => __tmShouldSyncTaskReadMirrorAttr(key));
+        const shouldMirrorAllTaskReadAttrs = opts.mirrorTaskAttrs !== false && opts.background !== true && opts.queued !== true;
+        const taskReadMirrorAttrs = {};
+        if (opts.mirrorTaskAttrs !== false && (shouldMirrorAllTaskReadAttrs || hasSyncTaskReadMirrorAttr)) {
+            Object.entries(allTaskReadMirrorAttrs).forEach(([key, value]) => {
+                if (shouldMirrorAllTaskReadAttrs || __tmShouldSyncTaskReadMirrorAttr(key)) {
+                    taskReadMirrorAttrs[key] = value;
+                }
+            });
+        }
+        const shouldSyncTaskReadMirrorAttrs = Object.keys(taskReadMirrorAttrs).some((key) => __tmShouldSyncTaskReadMirrorAttr(key));
         const hasTaskReadMirrorAttrs = Object.keys(taskReadMirrorAttrs).length > 0;
         if (hasStatusAttr) {
             __tmPushStatusDebug('attrs-kernel:start', {
@@ -3608,6 +3671,7 @@
         for (let i = 0; i < 3; i++) {
             try {
                 const attempt = i + 1;
+                let deferredMirrorSetAttrs = null;
                 if (hasStatusAttr) {
                     __tmPushStatusDebug('attrs-kernel:attempt', {
                         taskId: String(id || '').trim(),
@@ -3616,15 +3680,49 @@
                         attrs: { ...attrs },
                     }, [id, attrTargetId], { force: true });
                 }
-                await API.setAttrs(attrTargetId, attrs);
+                await __tmBackendAdapter.setAttrs(attrTargetId, attrs);
                 if (hasTaskReadMirrorAttrs && taskId && attrTargetId !== taskId) {
-                    try { await API.setAttrs(taskId, taskReadMirrorAttrs); } catch (e) {}
+                    const mirrorTargetId = taskId;
+                    const mirrorAttrs = { ...taskReadMirrorAttrs };
+                    const runMirrorSetAttrs = async () => {
+                        try {
+                            if (opts.syncMirrorTaskAttrs === true) {
+                            }
+                            await __tmBackendAdapter.setAttrs(mirrorTargetId, mirrorAttrs);
+                            if (opts.syncMirrorTaskAttrs === true) {
+                            }
+                        } catch (e) {
+                        }
+                    };
+                    if (opts.syncMirrorTaskAttrs === true || shouldSyncTaskReadMirrorAttrs) {
+                        await runMirrorSetAttrs();
+                    } else {
+                        deferredMirrorSetAttrs = () => {
+                            try {
+                                setTimeout(() => {
+                                    runMirrorSetAttrs().catch(() => null);
+                                }, 0);
+                            } catch (e) {
+                                runMirrorSetAttrs().catch(() => null);
+                            }
+                        };
+                    }
                 }
                 if (opts.skipFlush !== true) {
-                    try { await API.call('/api/sqlite/flushTransaction', {}); } catch (e) {}
-                    if (opts.saveMetaNow !== false) {
-                        try { await MetaStore.saveNow(); } catch (e) {}
+                    try {
+                        await __tmBackendAdapter.flushTransaction();
+                    } catch (e) {
                     }
+                    if (opts.saveMetaNow !== false && opts.background !== true && opts.queued !== true) {
+                        try {
+                            await MetaStore.saveNow();
+                        } catch (e) {
+                        }
+                    }
+                }
+                if (typeof deferredMirrorSetAttrs === 'function') {
+                    deferredMirrorSetAttrs();
+                    deferredMirrorSetAttrs = null;
                 }
                 if (hasStatusAttr) {
                     __tmPushStatusDebug('attrs-kernel:success', {
@@ -3660,6 +3758,12 @@
         const task = globalThis.__tmRuntimeState?.getTaskById?.(tid) || state.flatTasks?.[tid] || state.pendingInsertedTasks?.[tid] || null;
         const docId = String(options.docId || task?.root_id || task?.docId || '').trim();
         const inversePatch = __tmCaptureTaskPatchInverse(tid, nextPatch);
+        let optimisticProjectionRefresh = opts.withFilters === true || opts.forceProjectionRefresh === true;
+        try {
+            optimisticProjectionRefresh = optimisticProjectionRefresh
+                || (typeof __tmDoesPatchNeedOptimisticProjectionRefresh === 'function'
+                    && __tmDoesPatchNeedOptimisticProjectionRefresh(tid, nextPatch, opts));
+        } catch (e) {}
         return __tmEnqueueQueuedOp({
             type: 'attrPatch',
             docId,
@@ -3671,9 +3775,14 @@
                 docId,
                 source: String(opts.source || '').trim(),
                 attrTargetId: String(opts.attrTargetId || '').trim(),
-                skipFlush: opts.skipFlush !== false,
+                skipFlush: opts.skipFlush === true,
+                background: opts.background === true,
+                skipInteractionGate: opts.skipInteractionGate === true,
+                mirrorTaskAttrs: opts.mirrorTaskAttrs !== false,
                 renderOptimistic: opts.renderOptimistic !== false,
-                withFilters: opts.withFilters !== false,
+                withFilters: optimisticProjectionRefresh,
+                skipSnapshotPersist: opts.skipSnapshotPersist === true,
+                skipTaskIndexPersist: opts.skipTaskIndexPersist === true,
                 previousAttachmentPaths: Array.isArray(opts.previousAttachmentPaths) ? __tmNormalizeTaskAttachmentPaths(opts.previousAttachmentPaths) : null,
                 previousAttachmentMeta: opts.previousAttachmentMeta,
                 previousAttachmentSlotCount: opts.previousAttachmentSlotCount,
@@ -3685,20 +3794,29 @@
     function __tmPersistMetaAndAttrs(id, patch, options = {}) {
         if (!id || !patch || typeof patch !== 'object') return;
         const opts = (options && typeof options === 'object') ? options : {};
-        __tmQueueAttrPatch(id, patch, { ...opts, wait: false, skipFlush: true }).catch(() => null);
+        __tmQueueAttrPatch(id, patch, { ...opts, wait: false, skipFlush: opts.skipFlush === true }).catch(() => null);
     }
 
     async function __tmPersistMetaAndAttrsAsync(id, patch, options = {}) {
         const opts = (options && typeof options === 'object') ? options : {};
+        if (opts.inlineQueuedPersist === true) {
+            return await __tmPersistMetaAndAttrsKernel(id, patch, opts);
+        }
         if (opts.queued === true || opts.background === true) {
             return await __tmQueueAttrPatch(id, patch, {
-                wait: opts.background !== true,
-                skipFlush: opts.skipFlush !== false,
+                wait: opts.wait === true ? true : (opts.wait === false ? false : opts.background !== true),
+                skipFlush: opts.skipFlush === true,
+                background: opts.background === true,
+                skipInteractionGate: opts.skipInteractionGate === true,
                 docId: opts.docId,
                 source: opts.source,
                 attrTargetId: opts.attrTargetId,
+                mirrorTaskAttrs: opts.mirrorTaskAttrs !== false,
                 renderOptimistic: opts.renderOptimistic !== false && opts.background !== true,
                 withFilters: opts.withFilters !== false,
+                skipSnapshotPersist: opts.skipSnapshotPersist === true,
+                skipTaskIndexPersist: opts.skipTaskIndexPersist === true,
+                inlineQueuedPersist: opts.inlineQueuedPersist === true,
                 previousAttachmentPaths: opts.previousAttachmentPaths,
                 previousAttachmentMeta: opts.previousAttachmentMeta,
                 previousAttachmentSlotCount: opts.previousAttachmentSlotCount,
@@ -3824,6 +3942,8 @@
         lastExternalTaskTxTime: 0,
         // 刚插入但 SQL 索引可能尚未返回的任务，短暂保活避免刷新后闪现消失
         pendingInsertedTasks: {},
+        // 刚删除但后端/outbox 可能尚未完全落盘的任务，短暂隐藏避免刷新后复现
+        pendingDeletedTasks: {},
         semanticDateAutoApplying: false,
         viewRefreshTimer: 0,
         viewRefreshPending: null,
@@ -3920,6 +4040,20 @@
     };
 
     const __TM_OP_QUEUE_STORAGE_KEY = 'tm_op_queue_v1';
+    const __TM_OP_OUTBOX_SCHEMA_VERSION = 2;
+    const __TM_OP_OUTBOX_PERSISTABLE_TYPES = new Set([
+        'attrPatch',
+        'contentPatch',
+        'createTaskInDoc',
+        'createSubtask',
+        'createSibling',
+        'setDone',
+        'taskPatch',
+        'moveTask',
+        'deleteTask',
+    ]);
+    const __TM_PENDING_INSERTED_TASK_KEEPALIVE_MS = 120000;
+    const __TM_OUTBOX_TEMP_REF_WAIT_RETRY_MS = 250;
     const __tmOpQueue = {
         hydrated: false,
         seq: 0,
@@ -3973,17 +4107,584 @@
         return value;
     }
 
+    function __tmSerializeOpQueueDataValue(value, depth = 0) {
+        if (depth > 6) return null;
+        if (value == null) return value;
+        if (value instanceof Set) return Array.from(value);
+        if (value instanceof Map) return Object.fromEntries(Array.from(value.entries()));
+        if (Array.isArray(value)) return value.map((item) => __tmSerializeOpQueueDataValue(item, depth + 1));
+        if (typeof value === 'object') {
+            const out = {};
+            Object.entries(value).forEach(([key, item]) => {
+                if (typeof item === 'function') return;
+                if (typeof item === 'undefined') return;
+                out[key] = __tmSerializeOpQueueDataValue(item, depth + 1);
+            });
+            return out;
+        }
+        return value;
+    }
+
+    function __tmNormalizeOutboxStatusForPersist(status) {
+        const raw = String(status || '').trim();
+        if (raw === 'done' || raw === 'failed') return '';
+        if (raw === 'running') return 'queued';
+        return raw || 'queued';
+    }
+
+    function __tmIsOutboxTempTaskId(value) {
+        return String(value || '').trim().startsWith('tm_tmp_');
+    }
+
+    function __tmIsOutboxCreateOpType(type) {
+        const raw = String(type || '').trim();
+        return raw === 'createTaskInDoc' || raw === 'createSubtask' || raw === 'createSibling';
+    }
+
+    function __tmIsQueuedCreateOpSettling(op) {
+        if (!op || !__tmIsOutboxCreateOpType(op.type)) return false;
+        const status = String(op.status || '').trim() || 'queued';
+        if (status !== 'queued' && status !== 'running') return false;
+        return !!__tmGetQueuedCreateOpInsertedBlockId(op) && !__tmGetQueuedCreateOpRecordedRealId(op);
+    }
+
+    function __tmIsQueuedOpNonBlockingForUi(op, options = {}) {
+        if (!op) return false;
+        const opts = (options && typeof options === 'object') ? options : {};
+        const status = String(op.status || '').trim();
+        if (status !== 'queued' && status !== 'running') return false;
+        if (opts.includeSettlingCreateOps !== true && __tmIsQueuedCreateOpSettling(op)) return true;
+        const skipGate = op?.data?.skipInteractionGate === true || op?.skipInteractionGate === true;
+        if (skipGate && opts.includeInteractionGateBypassOps !== true) return true;
+        return false;
+    }
+
+    function __tmIsOutboxTaskPendingDeleted(taskId) {
+        const tid = String(taskId || '').trim();
+        if (!tid) return false;
+        try {
+            if (globalThis.__tmRuntimeState?.isPendingDeletedTaskId?.(tid)) return true;
+        } catch (e) {}
+        try {
+            const store = (state.pendingDeletedTasks && typeof state.pendingDeletedTasks === 'object')
+                ? state.pendingDeletedTasks
+                : {};
+            const item = store[tid];
+            if (!item) return false;
+            const expiresAt = Number(item?.expiresAt) || 0;
+            if (expiresAt > 0 && expiresAt < Date.now()) {
+                try { delete store[tid]; } catch (e) {}
+                return false;
+            }
+            return true;
+        } catch (e) {
+            return false;
+        }
+    }
+
+    function __tmCollectOutboxTempTaskIds(value, out = new Set(), depth = 0) {
+        if (depth > 7 || value == null) return out;
+        if (typeof value === 'string') {
+            const matches = value.match(/tm_tmp_[A-Za-z0-9_-]+/g);
+            (matches || []).forEach((id) => {
+                const tid = String(id || '').trim();
+                if (tid) out.add(tid);
+            });
+            return out;
+        }
+        if (Array.isArray(value)) {
+            value.forEach((item) => __tmCollectOutboxTempTaskIds(item, out, depth + 1));
+            return out;
+        }
+        if (value && typeof value === 'object') {
+            Object.values(value).forEach((item) => __tmCollectOutboxTempTaskIds(item, out, depth + 1));
+        }
+        return out;
+    }
+
+    function __tmCollectOutboxBlockingTempTaskIds(op) {
+        const type = String(op?.type || '').trim();
+        const temps = new Set();
+        __tmCollectOutboxTempTaskIds(op?.docId, temps);
+        __tmCollectOutboxTempTaskIds(op?.laneKey, temps);
+        __tmCollectOutboxTempTaskIds(op?.coalesceKey, temps);
+        __tmCollectOutboxTempTaskIds(op?.data, temps);
+        __tmCollectOutboxTempTaskIds(op?.inversePatch, temps);
+        const ownCreateTempId = (type === 'createTaskInDoc' || type === 'createSubtask' || type === 'createSibling')
+            ? String(op?.data?.tempId || '').trim()
+            : '';
+        if (ownCreateTempId) temps.delete(ownCreateTempId);
+        return Array.from(temps);
+    }
+
+    function __tmResolveOutboxTempTaskId(tempId) {
+        const tid = String(tempId || '').trim();
+        if (!tid) return '';
+        try {
+            if (typeof __tmResolveOptimisticTaskId === 'function') {
+                const resolved = String(__tmResolveOptimisticTaskId(tid) || '').trim();
+                if (resolved && resolved !== tid && !__tmIsOutboxTempTaskId(resolved)) return resolved;
+            }
+        } catch (e) {}
+        try {
+            const createOp = __tmGetOutboxCreateOpForTempTaskId(tid, null);
+            const recordedRealId = __tmGetQueuedCreateOpRecordedRealId(createOp);
+            if (recordedRealId) return recordedRealId;
+        } catch (e) {}
+        return '';
+    }
+
+    function __tmGetQueuedCreateOpRecordedRealId(op) {
+        const type = String(op?.type || '').trim();
+        if (type !== 'createTaskInDoc' && type !== 'createSubtask' && type !== 'createSibling') return '';
+        const data = (op?.data && typeof op.data === 'object') ? op.data : {};
+        const candidates = [
+            data.realId,
+            data.committedRealId,
+            data.insertedTaskId,
+            data.taskId,
+        ];
+        for (const value of candidates) {
+            const id = String(value || '').trim();
+            if (id && !__tmIsOutboxTempTaskId(id)) return id;
+        }
+        return '';
+    }
+
+    function __tmGetQueuedCreateOpInsertedBlockId(op) {
+        const type = String(op?.type || '').trim();
+        if (type !== 'createTaskInDoc' && type !== 'createSubtask' && type !== 'createSibling') return '';
+        const data = (op?.data && typeof op.data === 'object') ? op.data : {};
+        const insertedId = String(data.insertedId || data.insertedBlockId || '').trim();
+        return insertedId && !__tmIsOutboxTempTaskId(insertedId) ? insertedId : '';
+    }
+
+    function __tmGetQueuedCreateOpTempId(op) {
+        const type = String(op?.type || '').trim();
+        if (type !== 'createTaskInDoc' && type !== 'createSubtask' && type !== 'createSibling') return '';
+        const data = (op?.data && typeof op.data === 'object') ? op.data : {};
+        const originalTempId = String(data.originalTempId || '').trim();
+        if (originalTempId && __tmIsOutboxTempTaskId(originalTempId)) return originalTempId;
+        const tempId = String(data.tempId || '').trim();
+        return tempId || originalTempId;
+    }
+
+    function __tmCreateOutboxWaitError(message, delayMs = 520) {
+        const error = new Error(String(message || 'outbox-wait'));
+        error.__tmOutboxWait = true;
+        error.__tmOutboxDelayMs = Math.max(120, Number(delayMs) || 520);
+        return error;
+    }
+
+    function __tmRecordQueuedCreateOpBlockInserted(op, insertedId, meta = {}) {
+        const type = String(op?.type || '').trim();
+        if (type !== 'createTaskInDoc' && type !== 'createSubtask' && type !== 'createSibling') return '';
+        const bid = String(insertedId || meta?.insertedId || '').trim();
+        if (!bid || __tmIsOutboxTempTaskId(bid)) return '';
+        if (!op.data || typeof op.data !== 'object') op.data = {};
+        const tempId = __tmGetQueuedCreateOpTempId(op);
+        if (tempId && __tmIsOutboxTempTaskId(tempId)) op.data.originalTempId = tempId;
+        op.data.insertedId = bid;
+        op.data.insertedBlockId = bid;
+        if (!Number(op.data.insertedAt)) op.data.insertedAt = Date.now();
+        try {
+        } catch (e) {}
+        try { __tmPersistOpQueueNow(); } catch (e) {}
+        return bid;
+    }
+
+    function __tmResolveQueuedCreateOpEarlyTaskId(op, fallback = '', options = {}) {
+        const opts = (options && typeof options === 'object') ? options : {};
+        const recordedRealId = __tmGetQueuedCreateOpRecordedRealId(op);
+        const fallbackId = opts.allowFallbackAsRealId === true ? fallback : '';
+        const candidates = [recordedRealId, fallbackId]
+            .map((id) => String(id || '').trim())
+            .filter(Boolean);
+        return candidates.find((id) => id && !__tmIsOutboxTempTaskId(id)) || '';
+    }
+
+    function __tmCommitQueuedCreateOpEarly(op, fallback = '', options = {}) {
+        const type = String(op?.type || '').trim();
+        if (type !== 'createTaskInDoc' && type !== 'createSubtask' && type !== 'createSibling') return null;
+        const tempId = __tmGetQueuedCreateOpTempId(op);
+        const insertedId = __tmGetQueuedCreateOpInsertedBlockId(op);
+        const taskId = __tmResolveQueuedCreateOpEarlyTaskId(op, fallback, options);
+        if (!taskId && !insertedId) return null;
+        try {
+        } catch (e) {}
+        return {
+            realId: taskId,
+            insertedId,
+            early: true,
+            pendingResolve: !!insertedId && !__tmGetQueuedCreateOpRecordedRealId(op),
+        };
+    }
+
+    function __tmScheduleQueuedCreateOpMissingRealIdReconcile(op, options = {}) {
+        const type = String(op?.type || '').trim();
+        if (type !== 'createTaskInDoc' && type !== 'createSubtask' && type !== 'createSibling') return false;
+        const data = (op?.data && typeof op.data === 'object') ? op.data : {};
+        const opts = (options && typeof options === 'object') ? options : {};
+        const insertedId = String(opts.insertedId || data.insertedId || data.insertedBlockId || '').trim();
+        const tempId = __tmGetQueuedCreateOpTempId(op);
+        const docId = String(opts.docId || data.docId || op?.docId || '').trim();
+        if (!insertedId && !docId && !tempId) return false;
+        try {
+        } catch (e) {}
+        try {
+            if (docId && typeof __tmScheduleTaskIndexPrewarmForDocIds === 'function') {
+                __tmScheduleTaskIndexPrewarmForDocIds([docId], { delayMs: 240 });
+            }
+        } catch (e) {}
+        const runRefresh = async () => {
+            let refreshed = false;
+            if (docId && typeof __tmRefreshAffectedDocsIncrementally === 'function') {
+                try {
+                    refreshed = await __tmRefreshAffectedDocsIncrementally({
+                        docIds: [docId],
+                        blockIds: [insertedId, tempId].filter(Boolean),
+                        reason: 'queue-create-real-id-missing',
+                        deferIfDetailBusy: true,
+                    }) === true;
+                } catch (e) {
+                    refreshed = false;
+                }
+            }
+            if (!refreshed && typeof __tmScheduleViewRefresh === 'function') {
+                try {
+                    __tmScheduleViewRefresh({
+                        mode: 'current',
+                        withFilters: false,
+                        reason: 'queue-create-real-id-missing',
+                        taskIds: [tempId, insertedId].filter(Boolean),
+                    });
+                } catch (e) {}
+            }
+            try {
+                if (typeof __tmScheduleTaskSnapshotAfterLocalStructurePatch === 'function') {
+                    __tmScheduleTaskSnapshotAfterLocalStructurePatch({
+                        docIds: state.__tmLoadedDocIdsForTasks,
+                        groupId: SettingsStore?.data?.currentGroupId || 'all',
+                        activeDocId: state?.activeDocId || 'all',
+                        queryLimit: typeof __TM_TASK_INDEX_QUERY_LIMIT !== 'undefined' ? __TM_TASK_INDEX_QUERY_LIMIT : undefined,
+                        source: 'queue-create-real-id-missing',
+                        delayMs: 420,
+                        idleDelayMs: 160,
+                        protectMs: 30000,
+                    });
+                }
+            } catch (e) {}
+        };
+        try { __tmScheduleIdleTask(() => { runRefresh().catch(() => null); }, 260); }
+        catch (e) { setTimeout(() => { runRefresh().catch(() => null); }, 260); }
+        return true;
+    }
+
+    function __tmScheduleQueuedCreateOpRealIdResolve(op, options = {}) {
+        const type = String(op?.type || '').trim();
+        if (type !== 'createTaskInDoc' && type !== 'createSubtask' && type !== 'createSibling') return false;
+        const data = (op?.data && typeof op.data === 'object') ? op.data : {};
+        const insertedId = __tmGetQueuedCreateOpInsertedBlockId(op);
+        const tempId = __tmGetQueuedCreateOpTempId(op);
+        const clientId = String(data.clientId || '').trim();
+        if (!insertedId || !tempId || data.realIdResolveScheduled === true) return false;
+        data.realIdResolveScheduled = true;
+        data.realIdResolveStartedAt = Date.now();
+        const run = async () => {
+            let realId = '';
+            for (let attempt = 1; attempt <= 8; attempt += 1) {
+                try {
+                    realId = String(await __tmResolveInsertedTaskBlockId(insertedId, {
+maxAttempts: 1,
+                        retryDelays: [],
+                        fallbackToSeed: true,
+                    }) || '').trim();
+                    if (realId && await __tmIsTaskListItemBlockId(realId)) break;
+                    realId = '';
+                } catch (e) {
+                    realId = '';
+                }
+                await new Promise((resolve) => setTimeout(resolve, Math.min(1800, 180 + attempt * 220)));
+            }
+            if (!realId) {
+                try { __tmScheduleQueuedCreateOpMissingRealIdReconcile(op, { insertedId }); } catch (e) {}
+                return;
+            }
+            const previousId = String((insertedId && insertedId !== realId) ? insertedId : tempId).trim();
+            try {
+                if (previousId && previousId !== realId && typeof __tmCommitOptimisticTaskId === 'function') {
+                    __tmCommitOptimisticTaskId(previousId, realId);
+                }
+            } catch (e) {}
+            try {
+                if (tempId && tempId !== realId && tempId !== previousId && typeof __tmCommitOptimisticTaskId === 'function') {
+                    __tmCommitOptimisticTaskId(tempId, realId);
+                }
+            } catch (e) {}
+            try {
+                globalThis.__tmTaskIdentity?.commit?.({ clientId, tempId, blockId: realId });
+            } catch (e) {}
+            try { __tmQueueCreateOpPostInsertAttrs(op, realId); } catch (e) {}
+        };
+        try { __tmScheduleIdleTask(() => { run().catch(() => null); }, 120); }
+        catch (e) { setTimeout(() => { run().catch(() => null); }, 120); }
+        try { __tmPersistOpQueueNow(); } catch (e) {}
+        return true;
+    }
+
+    async function __tmIsTaskListItemBlockId(id) {
+        const tid = String(id || '').trim();
+        if (!tid) return false;
+        try {
+            const rows = await API.getBlocksByIds([tid]);
+            const row = Array.isArray(rows) ? rows[0] : null;
+            return String(row?.id || '').trim() === tid
+                && String(row?.type || '').trim() === 'i'
+                && String(row?.subtype || '').trim() === 't';
+        } catch (e) {}
+        return false;
+    }
+
+    async function __tmRecoverQueuedCreateOpRealId(op) {
+        const recordedRealId = __tmGetQueuedCreateOpRecordedRealId(op);
+        if (recordedRealId) return recordedRealId;
+        const insertedId = __tmGetQueuedCreateOpInsertedBlockId(op);
+        if (!insertedId) return '';
+        let taskId = '';
+        try {
+            if (typeof __tmResolveInsertedTaskBlockId === 'function') {
+                taskId = String(await __tmResolveInsertedTaskBlockId(insertedId, {
+maxAttempts: 1,
+                    retryDelays: [],
+                    fallbackToSeed: false,
+                }) || '').trim();
+            }
+        } catch (e) {
+            taskId = '';
+        }
+        if (!taskId) {
+            if (op?.data && typeof op.data === 'object') {
+                op.data.realIdProbeCount = Math.max(0, Number(op.data.realIdProbeCount) || 0) + 1;
+            }
+            throw __tmCreateOutboxWaitError('已插入的任务块仍在索引同步中，稍后重试', 620);
+        }
+        return __tmRecordQueuedCreateOpInserted(op, taskId, { insertedId, recovered: true });
+    }
+
+    function __tmBuildCreateTaskInDocAttrPatchFromPayload(payload) {
+        const data = (payload && typeof payload === 'object') ? payload : {};
+        const patch = {};
+        const pin = Object.prototype.hasOwnProperty.call(data, 'pinned')
+            ? !!data.pinned
+            : !!SettingsStore?.data?.pinNewTasksByDefault;
+        if (pin) patch.pinned = true;
+        const pr0 = String(data.priority ?? '').trim();
+        const prMap = {
+            '高': 'high',
+            '中': 'medium',
+            '低': 'low',
+            '无': '',
+            none: '',
+        };
+        const pr = Object.prototype.hasOwnProperty.call(prMap, pr0) ? prMap[pr0] : pr0;
+        if (pr === 'high' || pr === 'medium' || pr === 'low') patch.priority = pr;
+        const sd = String(data.startDate || '').trim();
+        if (sd) patch.startDate = sd;
+        const ct = String(data.completionTime || '').trim();
+        if (ct) patch.completionTime = ct;
+        const st0 = String(data.customStatus || '').trim();
+        if (st0) {
+            try {
+                const statusOptions = __tmGetStatusOptions(SettingsStore.data.customStatusOptions || []);
+                const ok = statusOptions.some((item) => String(item?.id || '').trim() === st0);
+                if (ok) patch.customStatus = st0;
+            } catch (e) {}
+        }
+        return patch;
+    }
+
+    function __tmQueueCreateOpPostInsertAttrs(op, realId) {
+        const taskId = String(realId || '').trim();
+        if (!taskId || __tmIsOutboxTempTaskId(taskId)) return false;
+        if (op?.data?.postInsertAttrsQueued === true) return false;
+        const type = String(op?.type || '').trim();
+        const data = (op?.data && typeof op.data === 'object') ? op.data : {};
+        let patch = {};
+        if (type === 'createTaskInDoc') {
+            patch = __tmBuildCreateTaskInDocAttrPatchFromPayload(data);
+        } else if (type === 'createSubtask' && data.inheritedPatch && typeof data.inheritedPatch === 'object') {
+            patch = { ...data.inheritedPatch };
+        }
+        if (!patch || !Object.keys(patch).length) return false;
+        try {
+            const hasExistingAttrPatch = (Array.isArray(__tmOpQueue?.items) ? __tmOpQueue.items : []).some((item) => {
+                if (!item || item === op) return false;
+                if (String(item.status || 'queued').trim() !== 'queued' && String(item.status || 'queued').trim() !== 'running') return false;
+                if (String(item.type || '').trim() !== 'attrPatch') return false;
+                const attrTaskId = String(item?.data?.taskId || '').trim();
+                if (attrTaskId !== taskId) return false;
+                const source = String(item?.data?.source || '').trim();
+                return source === 'create-task-attrs'
+                    || source === 'create-subtask-attrs'
+                    || source.startsWith('queue-create');
+            });
+            if (hasExistingAttrPatch) {
+                if (op.data && typeof op.data === 'object') {
+                    op.data.postInsertAttrsQueued = true;
+                    try { __tmPersistOpQueueNow(); } catch (e) {}
+                }
+                return false;
+            }
+        } catch (e) {}
+        try {
+            __tmQueueAttrPatch(taskId, patch, {
+                docId: String(data.docId || op?.docId || '').trim(),
+                source: `queue-${type || 'create'}-post-insert-attrs`,
+                background: true,
+                skipInteractionGate: true,
+                skipFlush: true,
+                mirrorTaskAttrs: false,
+            });
+            if (op.data && typeof op.data === 'object') {
+                op.data.postInsertAttrsQueued = true;
+                try { __tmPersistOpQueueNow(); } catch (e) {}
+            }
+            return true;
+        } catch (e) {}
+        return false;
+    }
+
+    function __tmRecordQueuedCreateOpInserted(op, realId, meta = {}) {
+        const type = String(op?.type || '').trim();
+        if (type !== 'createTaskInDoc' && type !== 'createSubtask' && type !== 'createSibling') return '';
+        const rid = String(realId || meta?.taskId || '').trim();
+        if (!rid || __tmIsOutboxTempTaskId(rid)) return '';
+        if (!op.data || typeof op.data !== 'object') op.data = {};
+        const tempId = __tmGetQueuedCreateOpTempId(op);
+        if (tempId && __tmIsOutboxTempTaskId(tempId)) op.data.originalTempId = tempId;
+        op.data.realId = rid;
+        op.data.insertedTaskId = rid;
+        if (meta?.insertedId) op.data.insertedId = String(meta.insertedId || '').trim();
+        if (!Number(op.data.insertedAt)) op.data.insertedAt = Date.now();
+        try {
+            if (tempId && tempId !== rid && typeof __tmCommitOptimisticTaskId === 'function') {
+                __tmCommitOptimisticTaskId(tempId, rid);
+            }
+        } catch (e) {}
+        try {
+        } catch (e) {}
+        try { __tmPersistOpQueueNow(); } catch (e) {}
+        return rid;
+    }
+
+    function __tmGetOutboxCreateOpForTempTaskId(tempId, ownerOp = null) {
+        const tid = String(tempId || '').trim();
+        if (!tid) return null;
+        const createTypes = new Set(['createTaskInDoc', 'createSubtask', 'createSibling']);
+        try {
+            const items = Array.isArray(__tmOpQueue?.items) ? __tmOpQueue.items : [];
+            return items.find((item) => {
+                if (!item || item === ownerOp) return false;
+                if (!createTypes.has(String(item.type || '').trim())) return false;
+                if (String(item?.data?.tempId || '').trim() !== tid) return false;
+                const status = String(item.status || 'queued').trim() || 'queued';
+                return status === 'queued' || status === 'running';
+            }) || null;
+        } catch (e) {}
+        return null;
+    }
+
+    function __tmGetOutboxTempTaskRefState(tempId, ownerOp = null) {
+        const tid = String(tempId || '').trim();
+        if (!tid) return { state: 'abandoned', reason: 'empty-temp-id' };
+        const createOp = __tmGetOutboxCreateOpForTempTaskId(tid, ownerOp);
+        if (createOp) {
+            return {
+                state: 'waiting',
+                reason: 'pending-create-op',
+                createOpId: String(createOp.id || '').trim(),
+                createOpStatus: String(createOp.status || 'queued').trim() || 'queued',
+            };
+        }
+        try {
+            const pending = state.pendingInsertedTasks?.[tid] || null;
+            if (pending && typeof pending === 'object') {
+                const expiresAt = Number(pending.expiresAt) || 0;
+                const createdAt = Date.parse(String(pending.created || pending.createdAt || ''));
+                const hasFreshCreatedAt = Number.isFinite(createdAt)
+                    && (Date.now() - createdAt) < __TM_PENDING_INSERTED_TASK_KEEPALIVE_MS;
+                if ((expiresAt && expiresAt >= Date.now()) || hasFreshCreatedAt) {
+                    return {
+                        state: 'waiting',
+                        reason: 'pending-local-task',
+                    };
+                }
+            }
+        } catch (e) {}
+        return { state: 'abandoned', reason: 'missing-create-op' };
+    }
+
+    function __tmOutboxTempTaskExistsForOptimisticApply(taskId) {
+        const tid = String(taskId || '').trim();
+        if (!tid || !__tmIsOutboxTempTaskId(tid)) return true;
+        try {
+            if (globalThis.__tmRuntimeState?.getTaskById?.(tid, { includePending: true, preferPending: true })) return true;
+        } catch (e) {}
+        try {
+            return !!(state.flatTasks?.[tid] || state.pendingInsertedTasks?.[tid]);
+        } catch (e) {}
+        return false;
+    }
+
+    function __tmResolveOutboxTempTaskRefsBeforeRun(op) {
+        const refs = __tmCollectOutboxBlockingTempTaskIds(op);
+        if (!refs.length) return { ready: true, unresolved: [], waiting: [], abandoned: [], remapped: [] };
+        const unresolved = [];
+        const waiting = [];
+        const abandoned = [];
+        const remapped = [];
+        refs.forEach((tempId) => {
+            const realId = __tmResolveOutboxTempTaskId(tempId);
+            if (realId) {
+                try {
+                    if (__tmRemapQueuedOpTaskReferences(tempId, realId)) {
+                        remapped.push({ tempId, realId });
+                    }
+                } catch (e) {}
+                return;
+            }
+            unresolved.push(tempId);
+            const refState = __tmGetOutboxTempTaskRefState(tempId, op);
+            const refInfo = {
+                tempId,
+                reason: String(refState?.reason || '').trim(),
+                createOpId: String(refState?.createOpId || '').trim(),
+                createOpStatus: String(refState?.createOpStatus || '').trim(),
+            };
+            if (String(refState?.state || '').trim() === 'waiting') waiting.push(refInfo);
+            else abandoned.push(refInfo);
+        });
+        return {
+            ready: unresolved.length === 0,
+            unresolved,
+            waiting,
+            abandoned,
+            remapped,
+        };
+    }
+
     function __tmSerializeOpQueueItem(op) {
         if (!op || typeof op !== 'object') return null;
-        const status = String(op.status || '').trim();
-        if (status && status !== 'queued') return null;
+        const status = __tmNormalizeOutboxStatusForPersist(op.status);
+        if (!status) return null;
         const type = String(op.type || '').trim();
-        const persistableTypes = new Set(['attrPatch', 'contentPatch', 'createTaskInDoc', 'createSubtask', 'createSibling', 'setDone', 'taskPatch']);
-        if (!persistableTypes.has(type)) return null;
+        if (!__TM_OP_OUTBOX_PERSISTABLE_TYPES.has(type)) return null;
         return {
+            version: __TM_OP_OUTBOX_SCHEMA_VERSION,
             id: String(op.id || '').trim(),
             type,
-            data: (op.data && typeof op.data === 'object') ? { ...op.data } : {},
+            data: __tmSerializeOpQueueDataValue(op.data && typeof op.data === 'object' ? op.data : {}),
+            inversePatch: __tmSerializeOpQueueDataValue(op.inversePatch && typeof op.inversePatch === 'object' ? op.inversePatch : {}),
             docId: String(op.docId || '').trim(),
             laneKey: String(op.laneKey || '').trim(),
             coalesceKey: String(op.coalesceKey || '').trim(),
@@ -3991,7 +4692,23 @@
             nextRunAt: Math.max(0, Number(op.nextRunAt) || 0),
             createdAt: Math.max(0, Number(op.createdAt) || Date.now()),
             optimisticApplied: !!op.optimisticApplied,
+            status,
         };
+    }
+
+    function __tmPersistOpQueueNow() {
+        try {
+            if (__tmOpQueue.persistTimer) clearTimeout(__tmOpQueue.persistTimer);
+            __tmOpQueue.persistTimer = 0;
+        } catch (e) {}
+        try {
+            const serialized = __tmOpQueue.items
+                .map((op) => __tmSerializeOpQueueItem(op))
+                .filter(Boolean);
+            Storage.set(__TM_OP_QUEUE_STORAGE_KEY, serialized);
+            return true;
+        } catch (e) {}
+        return false;
     }
 
     function __tmScheduleOpQueuePersist() {
@@ -4000,13 +4717,24 @@
         } catch (e) {}
         __tmOpQueue.persistTimer = setTimeout(() => {
             __tmOpQueue.persistTimer = 0;
-            try {
-                const serialized = __tmOpQueue.items
-                    .map((op) => __tmSerializeOpQueueItem(op))
-                    .filter(Boolean);
-                Storage.set(__TM_OP_QUEUE_STORAGE_KEY, serialized);
-            } catch (e) {}
+            __tmPersistOpQueueNow();
         }, 180);
+    }
+
+    function __tmHasReadyQueuedOpBypassingInteractionGate() {
+        const now = Date.now();
+        try {
+            return Array.isArray(__tmOpQueue.items) && __tmOpQueue.items.some((op) => {
+                if (!op || String(op.status || '').trim() !== 'queued') return false;
+                if (op?.data?.skipInteractionGate !== true && op?.skipInteractionGate !== true) return false;
+                const runAt = Math.max(0, Number(op.nextRunAt) || 0);
+                if (runAt > now) return false;
+                const laneKey = String(op.laneKey || '').trim() || 'default';
+                if (__tmOpQueue.activeLanes.has(laneKey)) return false;
+                return true;
+            });
+        } catch (e) {}
+        return false;
     }
 
     function __tmScheduleOpQueueDrain(delay = 0) {
@@ -4020,7 +4748,7 @@
                 const interactionWait = (typeof __tmGetHighPriorityInteractionWaitMs === 'function')
                     ? __tmGetHighPriorityInteractionWaitMs(48)
                     : 0;
-                if (interactionWait > 0) {
+                if (interactionWait > 0 && !__tmHasReadyQueuedOpBypassingInteractionGate()) {
                     __tmScheduleOpQueueDrain(interactionWait);
                     return;
                 }
@@ -4043,10 +4771,13 @@
             const type = String(raw?.type || '').trim();
             const id = String(raw?.id || '').trim();
             if (!type || !id) return;
+            if (!__TM_OP_OUTBOX_PERSISTABLE_TYPES.has(type)) return;
+            const rawStatus = __tmNormalizeOutboxStatusForPersist(raw?.status);
             __tmOpQueue.items.push({
                 id,
                 type,
                 data: (raw.data && typeof raw.data === 'object') ? { ...raw.data } : {},
+                inversePatch: (raw.inversePatch && typeof raw.inversePatch === 'object') ? { ...raw.inversePatch } : {},
                 docId: String(raw.docId || '').trim(),
                 laneKey: String(raw.laneKey || '').trim() || String(raw.docId || '').trim() || 'default',
                 coalesceKey: String(raw.coalesceKey || '').trim(),
@@ -4054,7 +4785,7 @@
                 nextRunAt: Math.max(0, Number(raw.nextRunAt) || 0),
                 createdAt: Math.max(0, Number(raw.createdAt) || Date.now()),
                 optimisticApplied: false,
-                status: 'queued',
+                status: rawStatus || 'queued',
                 promise: null,
                 resolve: null,
                 reject: null,
@@ -4064,7 +4795,31 @@
                 __tmOpQueue.seq = Math.max(__tmOpQueue.seq, Number(seqMatch[1]) || 0);
             }
         });
+        __tmReplayQueuedOpOptimisticState('hydrate');
         if (__tmOpQueue.items.length) __tmScheduleOpQueueDrain(80);
+    }
+
+    function __tmReplayQueuedOpOptimisticState(reason = 'replay') {
+        try { __tmHydrateOpQueue(); } catch (e) {}
+        let replayed = 0;
+        try {
+            __tmOpQueue.items.forEach((op) => {
+                if (!op || op.optimisticApplied === true) return;
+                const status = String(op.status || 'queued').trim() || 'queued';
+                if (status !== 'queued' && status !== 'running') return;
+                try {
+                    const applied = __tmApplyQueuedOpOptimistic(op);
+                    if (applied !== false) {
+                        op.optimisticApplied = true;
+                        replayed += 1;
+                    }
+                } catch (e) {
+                    try {
+                    } catch (e2) {}
+                }
+            });
+        } catch (e) {}
+        return replayed;
     }
 
     function __tmCaptureTaskPatchInverse(taskId, patch) {
@@ -4206,7 +4961,7 @@
                 delayMs: Math.max(300, Number(opts.snapshotDelayMs || 650) || 650),
                 idleDelayMs: Math.max(0, Number(opts.snapshotIdleDelayMs || 180) || 180),
                 source,
-                refreshViewStateBeforeSave: true,
+                refreshViewStateBeforeSave: opts.refreshViewStateBeforeSave === true,
             });
             return true;
         } catch (e) {
@@ -4241,11 +4996,12 @@
             return '';
         };
         const patch = {};
-        const startDate = pick('startDate', 'startDate', 'start_date', 'custom_start_date', 'custom-start-date');
-        const completionTime = pick('completionTime', 'completionTime', 'completion_time', 'custom_completion_time', 'custom-completion-time');
-        const taskDateColor = pick('taskDateColor', 'taskDateColor', 'task_date_color', 'custom_task_date_color', 'custom-task-date-color');
-        const customTime = pick('customTime', 'customTime', 'custom_time', 'custom-time');
-        const customStatus = pick('customStatus', 'customStatus', 'custom_status', 'custom-status');
+        const readKeys = (field) => (typeof __tmGetTaskMetaAttrReadKeys === 'function' ? __tmGetTaskMetaAttrReadKeys(field) : []);
+        const startDate = pick('startDate', 'startDate', 'start_date', 'custom_start_date', ...readKeys('startDate'));
+        const completionTime = pick('completionTime', 'completionTime', 'completion_time', 'custom_completion_time', ...readKeys('completionTime'));
+        const taskDateColor = pick('taskDateColor', 'taskDateColor', 'task_date_color', 'custom_task_date_color', ...readKeys('taskDateColor'));
+        const customTime = pick('customTime', 'customTime', 'custom_time', ...readKeys('customTime'));
+        const customStatus = pick('customStatus', 'customStatus', 'custom_status', ...readKeys('customStatus'));
         if (startDate) patch.startDate = startDate;
         if (completionTime) patch.completionTime = completionTime;
         if (taskDateColor) patch.taskDateColor = taskDateColor;
@@ -4280,6 +5036,7 @@
         const tid = String(taskId || '').trim();
         const nextPatch = (patch && typeof patch === 'object') ? patch : {};
         if (!tid || !Object.keys(nextPatch).length) return false;
+        if (__tmIsOutboxTaskPendingDeleted(tid)) return false;
         const hasStatusPatch = Object.prototype.hasOwnProperty.call(nextPatch, 'customStatus');
         if (Object.prototype.hasOwnProperty.call(nextPatch, 'startDate')
             || Object.prototype.hasOwnProperty.call(nextPatch, 'completionTime')
@@ -4468,15 +5225,17 @@
                 currentDone: !!(task?.done ?? pending?.done),
             }, [tid], { force: true });
         }
-        try {
-            const docId = String(task?.root_id || task?.docId || pending?.root_id || pending?.docId || '').trim();
-            if (docId) {
-                __tmSchedulePersistTaskIndex({
-                    docIds: [docId],
-                    delayMs: 700,
-                });
-            }
-        } catch (e) {}
+        if (options.skipTaskIndexPersist !== true) {
+            try {
+                const docId = String(options.docId || task?.root_id || task?.docId || pending?.root_id || pending?.docId || '').trim();
+                if (docId) {
+                    __tmSchedulePersistTaskIndex({
+                        docIds: [docId],
+                        delayMs: 700,
+                    });
+                }
+            } catch (e) {}
+        }
         if (options.render !== false) {
             try { __tmScheduleRender({ withFilters: options.withFilters !== false }); } catch (e) {}
         }
@@ -4487,6 +5246,7 @@
         const tid = String(taskId || '').trim();
         const prevPatch = (inversePatch && typeof inversePatch === 'object') ? inversePatch : {};
         if (!tid || !Object.keys(prevPatch).length) return false;
+        if (__tmIsOutboxTaskPendingDeleted(tid)) return false;
         const task = globalThis.__tmRuntimeState?.getFlatTaskById?.(tid) || state.flatTasks?.[tid] || null;
         const pending = globalThis.__tmRuntimeState?.getPendingTaskById?.(tid) || state.pendingInsertedTasks?.[tid] || null;
         Object.entries(prevPatch).forEach(([key, rawValue]) => {
@@ -4664,13 +5424,40 @@
 
     async function __tmExecuteQueuedOp(op) {
         const type = String(op?.type || '').trim();
+        const primaryTaskId = String(op?.data?.taskId || op?.data?.sourceTaskId || '').trim();
+        if (primaryTaskId && __tmIsOutboxTaskPendingDeleted(primaryTaskId) && type !== 'deleteTask') {
+            return {
+                skipped: true,
+                reason: 'pending-delete',
+                taskId: primaryTaskId,
+            };
+        }
         if (type === 'attrPatch') {
             const taskId = String(op?.data?.taskId || '').trim();
             const patch = (op?.data?.patch && typeof op.data.patch === 'object') ? op.data.patch : {};
+            const task = taskId
+                ? (globalThis.__tmRuntimeState?.getTaskById?.(taskId, { includePending: true, preferPending: true })
+                    || state.flatTasks?.[taskId]
+                    || state.pendingInsertedTasks?.[taskId]
+                    || null)
+                : null;
+            const docId = String(op?.data?.docId || op?.docId || task?.root_id || task?.docId || '').trim();
+            if (docId) {
+                try {
+                    op.docId = docId;
+                    if (op.data && typeof op.data === 'object') op.data.docId = docId;
+                } catch (e) {}
+            }
             return await __tmPersistMetaAndAttrsKernel(taskId, patch, {
                 touchMetaStore: false,
                 skipFlush: !!op?.data?.skipFlush,
                 source: String(op?.data?.source || 'attrPatch-queue').trim() || 'attrPatch-queue',
+                queued: true,
+                background: op?.data?.background === true,
+                docId,
+                skipSnapshotPersist: op?.data?.skipSnapshotPersist === true,
+                skipTaskIndexPersist: op?.data?.skipTaskIndexPersist === true,
+                mirrorTaskAttrs: op?.data?.mirrorTaskAttrs !== false,
                 attrTargetId: String(op?.data?.attrTargetId || '').trim(),
                 previousAttachmentPaths: Array.isArray(op?.data?.previousAttachmentPaths) ? op.data.previousAttachmentPaths : undefined,
                 previousAttachmentMeta: op?.data?.previousAttachmentMeta,
@@ -4692,8 +5479,15 @@
                 label: String(op?.data?.label || '任务字段').trim() || '任务字段',
                 broadcast: op?.data?.broadcast !== false,
                 queued: true,
-                skipFlush: op?.data?.skipFlush !== false,
-                previousAttachmentPaths: Array.isArray(op?.data?.previousAttachmentPaths) ? op.data.previousAttachmentPaths : undefined,
+                background: op?.data?.background === true,
+                skipFlush: op?.data?.skipFlush === true,
+                attrTargetId: String(op?.data?.attrTargetId || '').trim(),
+                mirrorTaskAttrs: op?.data?.mirrorTaskAttrs !== false,
+                syncMirrorTaskAttrs: op?.data?.syncMirrorTaskAttrs === true,
+                inlineQueuedPersist: op?.data?.inlineQueuedPersist === true
+                    && op?.data?.background !== true
+                    && op?.data?.wait === true,
+previousAttachmentPaths: Array.isArray(op?.data?.previousAttachmentPaths) ? op.data.previousAttachmentPaths : undefined,
                 previousAttachmentMeta: op?.data?.previousAttachmentMeta,
                 previousAttachmentSlotCount: op?.data?.previousAttachmentSlotCount,
             }));
@@ -4701,37 +5495,218 @@
         if (type === 'contentPatch') {
             return await __tmUpdateTaskContentBlockKernel(op?.data?.taskId, op?.data?.nextContent, {
                 touchState: false,
+                fromQueue: true,
             });
         }
         if (type === 'createTaskInDoc') {
             const payload = (op?.data && typeof op.data === 'object') ? op.data : {};
+            if (__tmGetQueuedCreateOpInsertedBlockId(op) && !__tmGetQueuedCreateOpRecordedRealId(op)) {
+                const earlyCreate = __tmCommitQueuedCreateOpEarly(op);
+                if (earlyCreate) {
+                    if (earlyCreate.pendingResolve) __tmScheduleQueuedCreateOpRealIdResolve(op);
+                    return earlyCreate;
+                }
+            }
+            const recoveredRealId = await __tmRecoverQueuedCreateOpRealId(op);
+            if (recoveredRealId) {
+                __tmQueueCreateOpPostInsertAttrs(op, recoveredRealId);
+                return { realId: recoveredRealId, recovered: true };
+            }
             // Optimistic queue create has already inserted a temp task locally.
             // Re-inserting the committed task here would briefly duplicate it until a refresh.
             const realId = await __tmCreateTaskInDocKernel({
                 ...payload,
                 localInsert: false,
                 scheduleSnapshotRefresh: false,
+                backgroundCreateAttrs: true,
+                deferCreateAttrs: true,
+                deferResolveInsertedTaskId: true,
+onBlockInserted: (info) => {
+                    __tmRecordQueuedCreateOpBlockInserted(op, info?.insertedId || info, info || {});
+                },
+                onInserted: async (info) => {
+                    const taskId = String(info?.taskId || info || '').trim();
+                    if (!taskId || !(await __tmIsTaskListItemBlockId(taskId))) return '';
+                    return __tmRecordQueuedCreateOpInserted(op, taskId, {
+                        insertedId: info?.insertedId,
+                    });
+                },
             });
-            return { realId };
+            const recordedAfterCreate = __tmGetQueuedCreateOpRecordedRealId(op);
+            if (recordedAfterCreate) {
+                __tmQueueCreateOpPostInsertAttrs(op, recordedAfterCreate);
+                return { realId: recordedAfterCreate };
+            }
+            const earlyCreate = __tmCommitQueuedCreateOpEarly(op, realId);
+            if (earlyCreate) {
+                if (earlyCreate.pendingResolve) __tmScheduleQueuedCreateOpRealIdResolve(op);
+                else __tmQueueCreateOpPostInsertAttrs(op, earlyCreate.realId);
+                return earlyCreate;
+            }
+            if (realId && await __tmIsTaskListItemBlockId(realId)) {
+                const committedRealId = __tmRecordQueuedCreateOpInserted(op, realId, {
+                    insertedId: op?.data?.insertedId,
+                }) || realId;
+                __tmQueueCreateOpPostInsertAttrs(op, committedRealId);
+                return { realId: committedRealId };
+            }
+            const settledRealId = await __tmRecoverQueuedCreateOpRealId(op);
+            if (settledRealId) {
+                __tmQueueCreateOpPostInsertAttrs(op, settledRealId);
+                return { realId: settledRealId };
+            }
+            throw __tmCreateOutboxWaitError('新建任务已写入，等待真实任务块同步', 620);
         }
         if (type === 'createSubtask') {
             const payload = (op?.data && typeof op.data === 'object') ? op.data : {};
+            if (__tmGetQueuedCreateOpInsertedBlockId(op) && !__tmGetQueuedCreateOpRecordedRealId(op)) {
+                const earlyCreate = __tmCommitQueuedCreateOpEarly(op);
+                if (earlyCreate) {
+                    if (earlyCreate.pendingResolve) __tmScheduleQueuedCreateOpRealIdResolve(op);
+                    return earlyCreate;
+                }
+            }
+            const recoveredRealId = await __tmRecoverQueuedCreateOpRealId(op);
+            if (recoveredRealId) {
+                __tmQueueCreateOpPostInsertAttrs(op, recoveredRealId);
+                return { realId: recoveredRealId, recovered: true };
+            }
+            let parentTaskId = String(payload.parentTaskId || '').trim();
+            if (parentTaskId && __tmIsOutboxTaskPendingDeleted(parentTaskId)) {
+                return {
+                    skipped: true,
+                    reason: 'parent-pending-delete',
+                    taskId: parentTaskId,
+                };
+            }
+            try {
+                if (typeof __tmResolveOptimisticTaskId === 'function') {
+                    const resolvedParentTaskId = String(__tmResolveOptimisticTaskId(parentTaskId) || '').trim();
+                    if (resolvedParentTaskId) {
+                        parentTaskId = resolvedParentTaskId;
+                        payload.parentTaskId = resolvedParentTaskId;
+                        if (op?.data && typeof op.data === 'object') op.data.parentTaskId = resolvedParentTaskId;
+                    }
+                }
+            } catch (e) {}
             const createOptions = Object.prototype.hasOwnProperty.call(payload, 'inheritedPatch')
-                ? { inheritedPatch: payload.inheritedPatch, scheduleSnapshotRefresh: false }
-                : { scheduleSnapshotRefresh: false };
-            const realId = await __tmCreateSubtaskForTaskKernel(payload.parentTaskId, payload.content, createOptions);
-            return { realId };
+                ? { inheritedPatch: payload.inheritedPatch, scheduleSnapshotRefresh: false, backgroundAttrs: true, deferInheritedAttrs: true }
+                : { scheduleSnapshotRefresh: false, backgroundAttrs: true, deferInheritedAttrs: true };
+createOptions.deferResolveInsertedTaskId = true;
+            createOptions.onBlockInserted = (info) => {
+                __tmRecordQueuedCreateOpBlockInserted(op, info?.insertedId || info, info || {});
+            };
+            createOptions.onInserted = async (info) => {
+                const taskId = String(info?.taskId || info || '').trim();
+                if (!taskId || !(await __tmIsTaskListItemBlockId(taskId))) return '';
+                return __tmRecordQueuedCreateOpInserted(op, taskId, {
+                    insertedId: info?.insertedId,
+                });
+            };
+            const realId = await __tmCreateSubtaskForTaskKernel(parentTaskId, payload.content, createOptions);
+            const recordedAfterCreate = __tmGetQueuedCreateOpRecordedRealId(op);
+            if (recordedAfterCreate) {
+                __tmQueueCreateOpPostInsertAttrs(op, recordedAfterCreate);
+                return { realId: recordedAfterCreate };
+            }
+            const earlyCreate = __tmCommitQueuedCreateOpEarly(op, realId);
+            if (earlyCreate) {
+                if (earlyCreate.pendingResolve) __tmScheduleQueuedCreateOpRealIdResolve(op);
+                else __tmQueueCreateOpPostInsertAttrs(op, earlyCreate.realId);
+                return earlyCreate;
+            }
+            if (realId && await __tmIsTaskListItemBlockId(realId)) {
+                const committedRealId = __tmRecordQueuedCreateOpInserted(op, realId, {
+                    insertedId: op?.data?.insertedId,
+                }) || realId;
+                __tmQueueCreateOpPostInsertAttrs(op, committedRealId);
+                return { realId: committedRealId };
+            }
+            const settledRealId = await __tmRecoverQueuedCreateOpRealId(op);
+            if (settledRealId) {
+                __tmQueueCreateOpPostInsertAttrs(op, settledRealId);
+                return { realId: settledRealId };
+            }
+            throw __tmCreateOutboxWaitError('新建子任务已写入，等待真实任务块同步', 620);
         }
         if (type === 'createSibling') {
             const payload = (op?.data && typeof op.data === 'object') ? op.data : {};
-            const realId = await __tmCreateSiblingTaskForTaskKernel(payload.sourceTaskId, payload.content, {
+            if (__tmGetQueuedCreateOpInsertedBlockId(op) && !__tmGetQueuedCreateOpRecordedRealId(op)) {
+                const earlyCreate = __tmCommitQueuedCreateOpEarly(op);
+                if (earlyCreate) {
+                    if (earlyCreate.pendingResolve) __tmScheduleQueuedCreateOpRealIdResolve(op);
+                    return earlyCreate;
+                }
+            }
+            const recoveredRealId = await __tmRecoverQueuedCreateOpRealId(op);
+            if (recoveredRealId) {
+                __tmQueueCreateOpPostInsertAttrs(op, recoveredRealId);
+                return { realId: recoveredRealId, recovered: true };
+            }
+            let sourceTaskId = String(payload.sourceTaskId || '').trim();
+            if (sourceTaskId && __tmIsOutboxTaskPendingDeleted(sourceTaskId)) {
+                return {
+                    skipped: true,
+                    reason: 'source-pending-delete',
+                    taskId: sourceTaskId,
+                };
+            }
+            try {
+                if (typeof __tmResolveOptimisticTaskId === 'function') {
+                    const resolvedSourceTaskId = String(__tmResolveOptimisticTaskId(sourceTaskId) || '').trim();
+                    if (resolvedSourceTaskId) {
+                        sourceTaskId = resolvedSourceTaskId;
+                        payload.sourceTaskId = resolvedSourceTaskId;
+                        if (op?.data && typeof op.data === 'object') op.data.sourceTaskId = resolvedSourceTaskId;
+                    }
+                }
+            } catch (e) {}
+            const realId = await __tmCreateSiblingTaskForTaskKernel(sourceTaskId, payload.content, {
                 scheduleSnapshotRefresh: false,
+                deferResolveInsertedTaskId: true,
+onBlockInserted: (info) => {
+                    __tmRecordQueuedCreateOpBlockInserted(op, info?.insertedId || info, info || {});
+                },
+                onInserted: async (info) => {
+                    const taskId = String(info?.taskId || info || '').trim();
+                    if (!taskId || !(await __tmIsTaskListItemBlockId(taskId))) return '';
+                    return __tmRecordQueuedCreateOpInserted(op, taskId, {
+                        insertedId: info?.insertedId,
+                    });
+                },
             });
-            return { realId };
+            const recordedAfterCreate = __tmGetQueuedCreateOpRecordedRealId(op);
+            if (recordedAfterCreate) return { realId: recordedAfterCreate };
+            const earlyCreate = __tmCommitQueuedCreateOpEarly(op, realId);
+            if (earlyCreate) {
+                if (earlyCreate.pendingResolve) __tmScheduleQueuedCreateOpRealIdResolve(op);
+                return earlyCreate;
+            }
+            if (realId && await __tmIsTaskListItemBlockId(realId)) {
+                const committedRealId = __tmRecordQueuedCreateOpInserted(op, realId, {
+                    insertedId: op?.data?.insertedId,
+                }) || realId;
+                return { realId: committedRealId };
+            }
+            const settledRealId = await __tmRecoverQueuedCreateOpRealId(op);
+            if (settledRealId) return { realId: settledRealId };
+            throw __tmCreateOutboxWaitError('新建同级任务已写入，等待真实任务块同步', 620);
         }
         if (type === 'deleteTask') {
+            const payload = (op?.data && typeof op.data === 'object') ? op.data : {};
+            try {
+                let taskId = String(payload.taskId || '').trim();
+                if (typeof __tmResolveOptimisticTaskId === 'function') {
+                    const resolvedTaskId = String(__tmResolveOptimisticTaskId(taskId) || '').trim();
+                    if (resolvedTaskId) {
+                        payload.taskId = resolvedTaskId;
+                        if (op?.data && typeof op.data === 'object') op.data.taskId = resolvedTaskId;
+                    }
+                }
+            } catch (e) {}
             return await __tmDeleteTaskKernel(op?.data?.taskId, {
                 scheduleCleanupTaskIds: op?.data?.scheduleCleanupTaskIds,
+                backgroundScheduleCleanup: op?.data?.backgroundScheduleCleanup === true,
             });
         }
         if (type === 'setDone') {
@@ -4741,11 +5716,32 @@
                 suppressHint: op?.data?.suppressHint === true,
                 source: op?.data?.source,
                 scheduleId: op?.data?.scheduleId,
+                previousDone: op?.data?.previousDone === true,
+                previousStatusId: String(op?.data?.previousStatusId || '').trim(),
+                rewardPriorityScore: Number(op?.data?.rewardPriorityScore) || 0,
+                recordUndo: op?.data?.recordUndo !== false,
             });
         }
         if (type === 'moveTask') {
             const payload = (op?.data && typeof op.data === 'object') ? op.data : {};
-            const mode = String(payload.mode || '').trim();
+            const rawMode = String(payload.mode || 'docTop').trim();
+            const mode = String(globalThis.__tmTaskStore?.normalizeMoveMode?.(rawMode) || (rawMode === 'doc' ? 'docTop' : rawMode)).trim() || 'docTop';
+            payload.mode = mode;
+            try {
+                if (typeof __tmResolveOptimisticTaskId === 'function') {
+                    ['taskId', 'targetTaskId', 'targetParentTaskId', 'targetLastDirectChildId'].forEach((key) => {
+                        const rawId = String(payload?.[key] || '').trim();
+                        if (!rawId) return;
+                        const resolvedId = String(__tmResolveOptimisticTaskId(rawId) || '').trim();
+                        if (resolvedId) payload[key] = resolvedId;
+                    });
+                    if (op?.data && typeof op.data === 'object') {
+                        ['taskId', 'targetTaskId', 'targetParentTaskId', 'targetLastDirectChildId'].forEach((key) => {
+                            if (Object.prototype.hasOwnProperty.call(payload, key)) op.data[key] = payload[key];
+                        });
+                    }
+                }
+            } catch (e) {}
             try {
                 const suppressMeta = __tmCollectMoveSuppressionIds(payload);
                 __tmMarkLocalMoveTxSuppressionIds(suppressMeta.blockIds, suppressMeta.docIds, 2400);
@@ -4753,6 +5749,7 @@
             } catch (e) {}
             if (mode === 'heading') return await __tmMoveTaskToHeading(payload.taskId, payload.targetDocId, payload.headingId, { silentHint: true });
             if (mode === 'docTop') return await __tmMoveTaskToDocTop(payload.taskId, payload.targetDocId, { silentHint: true, clearHeading: true });
+            if (mode === 'docBottom') return await __tmMoveTaskToDoc(payload.taskId, payload.targetDocId, { silentHint: true });
             if (mode === 'before') return await __tmMoveTaskBeforeTask(payload.taskId, payload.targetTaskId, { silentHint: true, targetDocId: payload.targetDocId });
             if (mode === 'after') return await __tmMoveTaskAfterTask(payload.taskId, payload.targetTaskId, { silentHint: true, targetDocId: payload.targetDocId });
             if (mode === 'child-top') return await __tmMoveTaskAsChildTop(payload.taskId, payload.targetTaskId, { silentHint: true, targetDocId: payload.targetDocId });
@@ -4767,12 +5764,15 @@
         if (type === 'attrPatch') {
             const taskId = String(op?.data?.taskId || '').trim();
             const patch = (op?.data?.patch && typeof op.data.patch === 'object') ? op.data.patch : {};
+            if (!__tmOutboxTempTaskExistsForOptimisticApply(taskId)) return false;
             const refreshAsTaskFields = taskId
                 && op?.data?.renderOptimistic !== false
                 && __tmShouldRefreshQueuedAttrPatchAsTaskFields(patch);
             __tmApplyAttrPatchLocally(taskId || op?.data?.taskId, patch, {
                 render: refreshAsTaskFields ? false : op?.data?.renderOptimistic !== false,
-                withFilters: op?.data?.withFilters !== false,
+                withFilters: op?.data?.withFilters === true,
+                skipSnapshotPersist: op?.data?.skipSnapshotPersist === true,
+                skipTaskIndexPersist: op?.data?.skipTaskIndexPersist === true,
                 source: String(op?.data?.source || op?.data?.reason || 'attr-patch-optimistic').trim() || 'attr-patch-optimistic',
             });
             if (refreshAsTaskFields) {
@@ -4782,7 +5782,7 @@
                     optimisticProjectionRefresh = typeof __tmDoesPatchNeedOptimisticProjectionRefresh === 'function'
                         ? __tmDoesPatchNeedOptimisticProjectionRefresh(taskId, patch, {
                             source: String(op?.data?.source || '').trim(),
-                            withFilters: op?.data?.withFilters !== false,
+                            withFilters: op?.data?.withFilters === true,
                         })
                         : false;
                 } catch (e) {
@@ -4806,18 +5806,23 @@
                     } catch (e2) {}
                 }
             }
-            return;
+            __tmPublishQueuedOpMutation(op, 'optimistic', { taskId, patch });
+            return true;
         }
         if (type === 'taskPatch') {
             const taskId = String(op?.data?.taskId || '').trim();
             const patch = (op?.data?.patch && typeof op.data.patch === 'object') ? op.data.patch : {};
-            if (!taskId || !Object.keys(patch).length) return;
-            if (op?.data?.optimistic === false) return;
+            if (!__tmOutboxTempTaskExistsForOptimisticApply(taskId)) return false;
+            if (!taskId || !Object.keys(patch).length) return true;
+            if (op?.data?.optimistic === false) return true;
             __tmTaskStateKernel.patchTaskLocal(taskId, patch, {
                 source: String(op?.data?.source || '').trim(),
             });
             try { __tmMarkLocalTaskPatchWatermark(taskId, patch, op?.data || {}); } catch (e) {}
-            if (op?.data?.skipViewRefresh === true) return;
+            if (op?.data?.skipViewRefresh === true) {
+                __tmPublishQueuedOpMutation(op, 'optimistic', { taskId, patch });
+                return true;
+            }
             const optimisticProjectionRefresh = op?.data?.optimisticProjectionRefresh === true;
             __tmRefreshTaskFieldsAcrossViews(taskId, patch, {
                 withFilters: optimisticProjectionRefresh,
@@ -4826,46 +5831,329 @@
                 fallback: optimisticProjectionRefresh,
                 skipDetailPatch: op?.data?.skipDetailPatch === true || op?.data?.optimisticSkipDetailPatch === true,
             });
-            return;
+            __tmPublishQueuedOpMutation(op, 'optimistic', { taskId, patch });
+            return true;
         }
         if (type === 'contentPatch') {
-            __tmApplyContentPatchLocally(op?.data?.taskId, op?.data?.nextContent, {
+            const taskId = String(op?.data?.taskId || '').trim();
+            if (!__tmOutboxTempTaskExistsForOptimisticApply(taskId)) return false;
+            const applied = __tmApplyContentPatchLocally(taskId, op?.data?.nextContent, {
                 render: op?.data?.renderOptimistic !== false,
-                withFilters: op?.data?.withFilters !== false,
+                withFilters: op?.data?.withFilters === true,
+                forceProjectionRefresh: op?.data?.forceProjectionRefresh === true,
             });
-            return;
+            if (applied !== false) __tmPublishQueuedOpMutation(op, 'optimistic', {
+                taskId,
+                patch: { content: String(op?.data?.nextContent || '').trim() },
+            });
+            return applied;
         }
         if (type === 'createTaskInDoc') {
-            __tmApplyOptimisticDocTask(op?.data);
-            return;
+            const task = __tmApplyOptimisticDocTask(op?.data);
+            if (task) __tmPublishQueuedOpMutation(op, 'optimistic', { task, applyLocal: false });
+            return !!task;
         }
         if (type === 'createSubtask') {
-            __tmApplyOptimisticSubtask(op?.data?.parentTaskId, op?.data?.tempId, op?.data?.content, op?.data?.inheritedPatch);
-            return;
+            const applied = __tmApplyOptimisticSubtask(op?.data?.parentTaskId, op?.data?.tempId, op?.data?.content, op?.data?.inheritedPatch, {
+                clientId: op?.data?.clientId,
+                skipMainRefresh: op?.data?.skipOptimisticMainRefresh === true,
+                skipFilterWork: op?.data?.skipOptimisticFilterWork === true,
+            });
+            if (applied !== false) __tmPublishQueuedOpMutation(op, 'optimistic', {
+                task: (applied && typeof applied === 'object') ? applied : null,
+                applyLocal: false,
+            });
+            return applied;
         }
         if (type === 'createSibling') {
-            __tmApplyOptimisticSiblingTask(op?.data?.sourceTaskId, op?.data?.tempId, op?.data?.content);
-            return;
+            const applied = __tmApplyOptimisticSiblingTask(op?.data?.sourceTaskId, op?.data?.tempId, op?.data?.content, {
+                clientId: op?.data?.clientId,
+            });
+            if (applied !== false) __tmPublishQueuedOpMutation(op, 'optimistic', {
+                task: (applied && typeof applied === 'object') ? applied : null,
+                applyLocal: false,
+            });
+            return applied;
         }
         if (type === 'deleteTask') {
-            __tmApplyDeleteOptimisticLocal(op?.data?.snapshot);
-            return;
+            const taskId = String(op?.data?.taskId || '').trim();
+            if (!__tmOutboxTempTaskExistsForOptimisticApply(taskId)) return false;
+            __tmPublishQueuedOpMutation(op, 'optimistic', { taskId });
+            return true;
         }
         if (type === 'setDone') {
-            __tmApplyDoneOptimisticLocal(op?.data?.taskId, !!op?.data?.done, op?.data?.statusPatch, op?.data?.source);
-            return;
+            const taskId = String(op?.data?.taskId || '').trim();
+            if (!__tmOutboxTempTaskExistsForOptimisticApply(taskId)) return false;
+            const statusPatch = (op?.data?.statusPatch && typeof op.data.statusPatch === 'object' && !Array.isArray(op.data.statusPatch))
+                ? op.data.statusPatch
+                : {};
+            const dataPatch = (op?.data?.patch && typeof op.data.patch === 'object' && !Array.isArray(op.data.patch))
+                ? op.data.patch
+                : {};
+            const patch = Object.keys(dataPatch).length
+                ? { ...dataPatch, done: !!op?.data?.done }
+                : {
+                    done: !!op?.data?.done,
+                    ...statusPatch,
+                };
+            __tmTaskStateKernel.patchTaskLocal(taskId, patch, {
+                source: String(op?.data?.source || 'set-done-optimistic').trim() || 'set-done-optimistic',
+            });
+            if (taskId && op?.data?.skipOptimisticRefresh !== true) {
+                let optimisticProjectionRefresh = false;
+                try {
+                    optimisticProjectionRefresh = typeof __tmDoesPatchNeedOptimisticProjectionRefresh === 'function'
+                        ? __tmDoesPatchNeedOptimisticProjectionRefresh(taskId, patch, {
+                            source: String(op?.data?.source || '').trim(),
+                            withFilters: op?.data?.withFilters === true,
+                        })
+                        : false;
+                } catch (e) {
+                    optimisticProjectionRefresh = false;
+                }
+                try {
+                    __tmRefreshTaskFieldsAcrossViews(taskId, patch, {
+                        withFilters: optimisticProjectionRefresh,
+                        reason: String(op?.data?.source || 'set-done-optimistic').trim() || 'set-done-optimistic',
+                        forceProjectionRefresh: optimisticProjectionRefresh,
+                        fallback: optimisticProjectionRefresh,
+                    });
+                } catch (e) {}
+            }
+            __tmPublishQueuedOpMutation(op, 'optimistic', { taskId, patch });
+            return true;
         }
         if (type === 'moveTask') {
-            __tmApplyMoveOptimisticLocal(op?.data);
-            return;
+            const taskId = String(op?.data?.taskId || '').trim();
+            if (!__tmOutboxTempTaskExistsForOptimisticApply(taskId)) return false;
+            __tmPublishQueuedOpMutation(op, 'optimistic', { taskId });
+            return true;
         }
+        return true;
+    }
+
+    function __tmAddQueuedMutationAffectedId(target, value) {
+        if (!(target instanceof Set)) return;
+        const id = String(value || '').trim();
+        if (id) target.add(id);
+    }
+
+    function __tmWalkQueuedMutationTaskIds(taskLike, taskIds, subtreeIds) {
+        const task = (taskLike && typeof taskLike === 'object') ? taskLike : null;
+        if (!task) return;
+        const id = String(task.id || task.blockId || '').trim();
+        if (id) {
+            __tmAddQueuedMutationAffectedId(taskIds, id);
+            __tmAddQueuedMutationAffectedId(subtreeIds, id);
+        }
+        (Array.isArray(task.children) ? task.children : []).forEach((child) => {
+            __tmWalkQueuedMutationTaskIds(child, taskIds, subtreeIds);
+        });
+    }
+
+    function __tmBuildQueuedOpAffectedScope(op, detail = {}) {
+        const type = String(op?.type || '').trim();
+        const data = (op?.data && typeof op.data === 'object') ? op.data : {};
+        const extra = (detail && typeof detail === 'object') ? detail : {};
+        const snapshot = (extra.snapshot && typeof extra.snapshot === 'object')
+            ? extra.snapshot
+            : ((data.snapshot && typeof data.snapshot === 'object') ? data.snapshot : null);
+        const taskIds = new Set();
+        const subtreeIds = new Set();
+        const parentTaskIds = new Set();
+        const docIds = new Set();
+        const aliases = new Set();
+        const tempId = String(extra.tempId || data.tempId || data.originalTempId || '').trim();
+        const realId = String(extra.realId || extra.blockId || data.realId || data.insertedTaskId || '').trim();
+        const taskId = String(extra.taskId || data.taskId || data.sourceTaskId || realId || tempId || '').trim();
+        const previousParentTaskId = String(extra.previousParentTaskId || data.previousParentTaskId || snapshot?.parentTaskId || '').trim();
+        const nextParentTaskId = String(
+            extra.nextParentTaskId
+            || data.nextParentTaskId
+            || data.parentTaskId
+            || data.targetParentTaskId
+            || ((String(data.mode || '').trim() === 'child' || String(data.mode || '').trim() === 'child-top') ? data.targetTaskId : '')
+            || ''
+        ).trim();
+
+        [
+            taskId,
+            tempId,
+            realId,
+            data.taskId,
+            data.sourceTaskId,
+            data.insertedTaskId,
+            data.parentTaskId,
+            data.targetTaskId,
+            data.targetParentTaskId,
+            data.targetLastDirectChildId,
+            snapshot?.taskId,
+            snapshot?.task?.id,
+        ].forEach((id) => __tmAddQueuedMutationAffectedId(taskIds, id));
+        (Array.isArray(data.taskIds) ? data.taskIds : []).forEach((id) => __tmAddQueuedMutationAffectedId(taskIds, id));
+        (Array.isArray(data.scheduleCleanupTaskIds) ? data.scheduleCleanupTaskIds : []).forEach((id) => {
+            __tmAddQueuedMutationAffectedId(taskIds, id);
+            __tmAddQueuedMutationAffectedId(subtreeIds, id);
+        });
+        __tmWalkQueuedMutationTaskIds(snapshot?.task, taskIds, subtreeIds);
+        __tmWalkQueuedMutationTaskIds(extra.task, taskIds, subtreeIds);
+
+        [
+            previousParentTaskId,
+            nextParentTaskId,
+            data.parentTaskId,
+            data.targetParentTaskId,
+            (String(data.mode || '').trim() === 'child' || String(data.mode || '').trim() === 'child-top') ? data.targetTaskId : '',
+            snapshot?.parentTaskId,
+            snapshot?.task?.parentTaskId,
+            snapshot?.task?.parent_task_id,
+        ].forEach((id) => __tmAddQueuedMutationAffectedId(parentTaskIds, id));
+
+        [
+            extra.docId,
+            data.docId,
+            data.targetDocId,
+            op?.docId,
+            snapshot?.docId,
+            snapshot?.task?.docId,
+            snapshot?.task?.root_id,
+        ].forEach((id) => __tmAddQueuedMutationAffectedId(docIds, id));
+
+        [
+            tempId,
+            realId,
+            data.originalTempId,
+            data.insertedTaskId,
+        ].forEach((id) => __tmAddQueuedMutationAffectedId(aliases, id));
+
+        return {
+            taskIds: Array.from(taskIds),
+            subtreeIds: Array.from(subtreeIds),
+            parentTaskIds: Array.from(parentTaskIds),
+            docIds: Array.from(docIds),
+            aliases: Array.from(aliases),
+            previousParentTaskId,
+            nextParentTaskId,
+            primaryTaskId: taskId,
+            type,
+        };
+    }
+
+    function __tmBuildQueuedOpMutation(op, phase = 'optimistic', detail = {}) {
+        const type = String(op?.type || '').trim();
+        const data = (op?.data && typeof op.data === 'object') ? op.data : {};
+        const extra = (detail && typeof detail === 'object') ? detail : {};
+        const patch = (() => {
+            if (extra.patch && typeof extra.patch === 'object' && !Array.isArray(extra.patch)) return extra.patch;
+            if (data.patch && typeof data.patch === 'object' && !Array.isArray(data.patch)) return data.patch;
+            if (data.statusPatch && typeof data.statusPatch === 'object' && !Array.isArray(data.statusPatch)) {
+                return {
+                    ...data.statusPatch,
+                    ...(Object.prototype.hasOwnProperty.call(data, 'done') ? { done: !!data.done } : {}),
+                };
+            }
+            if (type === 'contentPatch') return { content: String(data.nextContent || '').trim() };
+            if (type === 'setDone') {
+                return {
+                    ...(data.statusPatch && typeof data.statusPatch === 'object' ? data.statusPatch : {}),
+                    done: !!data.done,
+                };
+            }
+            return {};
+        })();
+        const tempId = String(extra.tempId || data.tempId || data.originalTempId || '').trim();
+        const realId = String(extra.realId || extra.blockId || data.realId || data.insertedTaskId || '').trim();
+        const taskId = String(
+            extra.taskId
+            || data.taskId
+            || data.sourceTaskId
+            || realId
+            || tempId
+            || ''
+        ).trim();
+        const affected = __tmBuildQueuedOpAffectedScope(op, {
+            ...extra,
+            taskId,
+            tempId,
+            realId,
+        });
+        const taskIds = affected.taskIds.length
+            ? affected.taskIds
+            : [
+                taskId,
+                tempId,
+                realId,
+                String(data.parentTaskId || '').trim(),
+                String(data.targetTaskId || '').trim(),
+                String(data.targetParentTaskId || '').trim(),
+                ...((Array.isArray(data.scheduleCleanupTaskIds) ? data.scheduleCleanupTaskIds : [])),
+            ].map((id) => String(id || '').trim()).filter(Boolean);
+        return {
+            type,
+            phase: String(phase || '').trim() || 'optimistic',
+            taskId,
+            taskIds,
+            tempId,
+            realId,
+            clientId: String(extra.clientId || data.clientId || '').trim(),
+            parentTaskId: String(extra.parentTaskId || data.parentTaskId || data.targetParentTaskId || '').trim(),
+            targetTaskId: String(extra.targetTaskId || data.targetTaskId || '').trim(),
+            docId: String(extra.docId || data.docId || data.targetDocId || op?.docId || '').trim(),
+            opId: String(op?.id || '').trim(),
+            source: String(extra.source || data.source || data.reason || `queue-${type}-${phase}`).trim() || `queue-${type}-${phase}`,
+            patch,
+            affected,
+            data,
+            snapshot: extra.snapshot || data.snapshot,
+            task: extra.task || null,
+};
+    }
+
+    function __tmPublishQueuedOpMutation(op, phase = 'optimistic', detail = {}) {
+        try {
+            const mutation = __tmBuildQueuedOpMutation(op, phase, detail);
+            const type = String(mutation?.type || '').trim();
+            const structural = type === 'createTaskInDoc'
+                || type === 'createSubtask'
+                || type === 'createSibling'
+                || type === 'commitTaskId'
+                || type === 'moveTask'
+                || type === 'deleteTask';
+            const hasApplyLocalOverride = Object.prototype.hasOwnProperty.call(detail, 'applyLocal');
+            const applyLocal = hasApplyLocalOverride
+                ? detail.applyLocal === true
+                : ((structural && phase === 'optimistic')
+                    || (structural && phase === 'rollback')
+                    || type === 'commitTaskId');
+            return globalThis.__tmTaskStore?.applyMutation?.(mutation, {
+                applyLocal,
+            }) || globalThis.__tmTaskMutationBus?.publish?.(mutation);
+        } catch (e) {}
+        return null;
     }
 
     function __tmRollbackQueuedOp(op) {
         const type = String(op?.type || '').trim();
         if (type === 'attrPatch') {
-            __tmRollbackAttrPatchLocally(op?.data?.taskId, op?.inversePatch, { render: true, withFilters: true });
+            const taskId = String(op?.data?.taskId || '').trim();
+            const inversePatch = (op?.inversePatch && typeof op.inversePatch === 'object') ? op.inversePatch : {};
+            let rollbackProjectionRefresh = false;
+            try {
+                rollbackProjectionRefresh = taskId
+                    && typeof __tmDoesPatchNeedProjectionRefresh === 'function'
+                    && __tmDoesPatchNeedProjectionRefresh(taskId, inversePatch, {
+                        ...((op?.data && typeof op.data === 'object') ? op.data : {}),
+                        forceProjectionRefresh: op?.data?.affectsProjection === true,
+                    });
+            } catch (e) {
+                rollbackProjectionRefresh = false;
+            }
+            __tmRollbackAttrPatchLocally(taskId || op?.data?.taskId, inversePatch, {
+                render: true,
+                withFilters: rollbackProjectionRefresh,
+            });
             try { __tmClearLocalTaskPatchWatermark(op?.data?.taskId, op?.data?.patch || op?.inversePatch); } catch (e) {}
+            __tmPublishQueuedOpMutation(op, 'rollback', { taskId, patch: inversePatch });
             return;
         }
         if (type === 'taskPatch') {
@@ -4877,73 +6165,165 @@
                 source: String(op?.data?.source || '').trim(),
             });
             try { __tmClearLocalTaskPatchWatermark(taskId, op?.data?.patch || inversePatch); } catch (e) {}
-            if (op?.data?.skipViewRefresh === true) return;
+            if (op?.data?.skipViewRefresh === true) {
+                __tmPublishQueuedOpMutation(op, 'rollback', { taskId, patch: inversePatch });
+                return;
+            }
+            let rollbackProjectionRefresh = op?.data?.affectsProjection === true;
+            try {
+                rollbackProjectionRefresh = typeof __tmDoesPatchNeedProjectionRefresh === 'function'
+                    ? __tmDoesPatchNeedProjectionRefresh(taskId, inversePatch, {
+                        ...((op?.data && typeof op.data === 'object') ? op.data : {}),
+                        forceProjectionRefresh: op?.data?.affectsProjection === true,
+                    })
+                    : rollbackProjectionRefresh;
+            } catch (e) {}
             __tmRefreshTaskFieldsAcrossViews(taskId, inversePatch, {
-                withFilters: true,
+                withFilters: rollbackProjectionRefresh,
                 reason: String(op?.data?.reason || op?.data?.source || 'task-patch-rollback').trim() || 'task-patch-rollback',
-                forceProjectionRefresh: op?.data?.affectsProjection === true,
-                fallback: true,
+                forceProjectionRefresh: rollbackProjectionRefresh,
+                fallback: rollbackProjectionRefresh,
                 skipDetailPatch: op?.data?.skipDetailPatch === true,
             });
+            __tmPublishQueuedOpMutation(op, 'rollback', { taskId, patch: inversePatch });
             return;
         }
         if (type === 'contentPatch') {
-            __tmRollbackContentPatchLocally(op?.data?.taskId, op?.inversePatch, { render: true, withFilters: true });
+            __tmRollbackContentPatchLocally(op?.data?.taskId, op?.inversePatch, { render: true, withFilters: false });
+            __tmPublishQueuedOpMutation(op, 'rollback', {
+                taskId: String(op?.data?.taskId || '').trim(),
+                patch: op?.inversePatch,
+            });
             return;
         }
         if (type === 'createTaskInDoc' || type === 'createSubtask' || type === 'createSibling') {
-            __tmRemoveTaskFromLocalState(op?.data?.tempId);
-            try { __tmScheduleRender({ withFilters: true }); } catch (e) {}
+            __tmPublishQueuedOpMutation(op, 'rollback', {
+                taskId: String(op?.data?.tempId || '').trim(),
+            });
             return;
         }
         if (type === 'deleteTask') {
-            __tmRollbackDeleteOptimisticLocal(op?.data?.snapshot);
+            __tmPublishQueuedOpMutation(op, 'rollback', {
+                taskId: String(op?.data?.taskId || '').trim(),
+                snapshot: op?.data?.snapshot,
+            });
             return;
         }
         if (type === 'setDone') {
             __tmRollbackDoneOptimisticLocal(op?.data?.taskId, op?.inversePatch, op?.data?.source);
+            __tmPublishQueuedOpMutation(op, 'rollback', {
+                taskId: String(op?.data?.taskId || '').trim(),
+                patch: op?.inversePatch,
+            });
             return;
         }
         if (type === 'moveTask') {
-            __tmRollbackMoveOptimisticLocal(op?.data?.snapshot);
+            __tmPublishQueuedOpMutation(op, 'rollback', {
+                taskId: String(op?.data?.taskId || op?.data?.snapshot?.taskId || '').trim(),
+                snapshot: op?.data?.snapshot,
+            });
             return;
         }
     }
 
     function __tmCommitQueuedOp(op, result) {
         const type = String(op?.type || '').trim();
+        if (result && typeof result === 'object' && result.skipped === true) {
+            if (type === 'createTaskInDoc' || type === 'createSubtask' || type === 'createSibling') {
+                try { __tmRemoveTaskFromLocalState(op?.data?.tempId, { recalc: false, filter: false }); } catch (e) {}
+                try { __tmRemoveTaskFromFilteredLocalState(op?.data?.tempId); } catch (e) {}
+            }
+            return;
+        }
         if (type === 'taskPatch') {
             const taskId = String(op?.data?.taskId || '').trim();
             const patch = (op?.data?.patch && typeof op.data.patch === 'object') ? op.data.patch : {};
             if (!taskId || !Object.keys(patch).length) return;
-            if (op?.data?.skipViewRefresh === true || op?.data?.skipSettledRefresh === true) return;
+            if (op?.data?.skipViewRefresh === true || op?.data?.skipSettledRefresh === true) {
+                __tmPublishQueuedOpMutation(op, 'commit', { taskId, patch });
+                return;
+            }
+            let settledProjectionRefresh = op?.data?.affectsProjection === true;
+            try {
+                settledProjectionRefresh = typeof __tmDoesPatchNeedProjectionRefresh === 'function'
+                    ? __tmDoesPatchNeedProjectionRefresh(taskId, patch, {
+                        ...((op?.data && typeof op.data === 'object') ? op.data : {}),
+                        forceProjectionRefresh: op?.data?.affectsProjection === true,
+                    })
+                    : settledProjectionRefresh;
+            } catch (e) {}
             __tmRefreshTaskFieldsAcrossViews(taskId, patch, {
-                withFilters: true,
+                withFilters: settledProjectionRefresh,
                 reason: String(op?.data?.reason || op?.data?.source || 'task-patch-settled').trim() || 'task-patch-settled',
-                forceProjectionRefresh: op?.data?.affectsProjection === true,
-                fallback: true,
+                forceProjectionRefresh: settledProjectionRefresh,
+                fallback: settledProjectionRefresh,
                 skipDetailPatch: op?.data?.skipDetailPatch === true,
             });
+            __tmPublishQueuedOpMutation(op, 'commit', { taskId, patch });
+            return;
+        }
+        if (type === 'contentPatch') {
+            const taskId = String(op?.data?.taskId || '').trim();
+            if (!taskId) return;
+            const patch = {
+                content: String(op?.data?.nextContent || '').trim(),
+            };
+            const refreshProjection = !!(state.groupByTaskName || String(state.searchKeyword || '').trim());
+            try {
+                __tmRefreshTaskFieldsAcrossViews(taskId, patch, {
+                    withFilters: refreshProjection,
+                    reason: String(op?.data?.reason || op?.data?.source || 'content-patch-settled').trim() || 'content-patch-settled',
+                    forceProjectionRefresh: refreshProjection,
+                    fallback: refreshProjection,
+                });
+            } catch (e) {}
+            __tmPublishQueuedOpMutation(op, 'commit', { taskId, patch });
             return;
         }
         if (type === 'createTaskInDoc' || type === 'createSubtask' || type === 'createSibling') {
             const tempId = String(op?.data?.tempId || '').trim();
             const realId = String(result?.realId || '').trim();
             const effectiveTaskId = realId || tempId;
+            const isPendingDeletedAfterCreate = () => {
+                const ids = [tempId, realId, effectiveTaskId]
+                    .map((id) => String(id || '').trim())
+                    .filter(Boolean);
+                return ids.some((id) => {
+                    try {
+                        if (globalThis.__tmRuntimeState?.isPendingDeletedTaskId?.(id)) return true;
+                    } catch (e) {}
+                    try {
+                        const store = (state.pendingDeletedTasks && typeof state.pendingDeletedTasks === 'object')
+                            ? state.pendingDeletedTasks
+                            : {};
+                        const item = store[id];
+                        if (!item) return false;
+                        const expiresAt = Number(item?.expiresAt) || 0;
+                        if (expiresAt > 0 && expiresAt < Date.now()) {
+                            try { delete store[id]; } catch (e2) {}
+                            return false;
+                        }
+                        return true;
+                    } catch (e) {}
+                    return false;
+                });
+            };
             if (tempId && realId) {
-                __tmCommitOptimisticTaskId(tempId, realId);
-                try { __tmScheduleRender({ withFilters: true }); } catch (e) {}
-            }
-            if (effectiveTaskId) {
-                try {
-                    __tmScheduleCreatedTaskSnapshotRefresh(effectiveTaskId, {
-                        ...((op?.data && typeof op.data === 'object') ? op.data : {}),
-                        taskId: effectiveTaskId,
-                        realId,
-                        tempId,
-                        source: `queue-${type}`,
-                    });
-                } catch (e) {}
+                __tmCommitOptimisticTaskId(tempId, realId, {
+                    clientId: String(op?.data?.clientId || '').trim(),
+                    parentTaskId: String(op?.data?.parentTaskId || '').trim(),
+                    source: `queue-${type}-commit-id`,
+});
+                try { __tmRemapQueuedOpTaskReferences(tempId, realId); } catch (e) {}
+                try { __tmReplayQueuedOpOptimisticState?.(`queue-${type}-commit-remap`); } catch (e) {}
+                try { __tmScheduleOpQueueDrain(0); } catch (e) {}
+                if (isPendingDeletedAfterCreate()) {
+                    try { __tmRemoveTaskFromLocalState(tempId, { recalc: false, filter: false }); } catch (e) {}
+                    try { __tmRemoveTaskFromLocalState(realId, { recalc: false, filter: false }); } catch (e) {}
+                    try { __tmRemoveTaskFromFilteredLocalState(tempId); } catch (e) {}
+                    try { __tmRemoveTaskFromFilteredLocalState(realId); } catch (e) {}
+                    return;
+                }
             }
             return;
         }
@@ -4954,12 +6334,130 @@
                     String(op?.data?.snapshot?.docId || '').trim(),
                 ], 45000, 'move-task-commit');
             } catch (e) {}
-            try {
-                __tmScheduleTaskRowDropReconcileRefresh(op?.data);
-            } catch (e) {
-                try { __tmRefreshMainViewInPlace({ withFilters: true, reason: 'move-task-commit-fallback' }); } catch (e2) {}
-            }
+            __tmPublishQueuedOpMutation(op, 'commit', {
+                taskId: String(op?.data?.taskId || '').trim(),
+                applyLocal: false,
+            });
+            return;
         }
+        if (type === 'deleteTask') {
+            __tmPublishQueuedOpMutation(op, 'commit', { applyLocal: false });
+            return;
+        }
+        if (type === 'attrPatch' || type === 'setDone') {
+            __tmPublishQueuedOpMutation(op, 'commit');
+        }
+    }
+
+    function __tmRemapQueuedOpTaskReferences(oldId, newId) {
+        const from = String(oldId || '').trim();
+        const to = String(newId || '').trim();
+        if (!from || !to || from === to) return false;
+        const items = Array.isArray(__tmOpQueue?.items) ? __tmOpQueue.items : [];
+        const remapString = (value) => String(value || '').trim() === from ? to : value;
+        const remapDeep = (value, depth = 0) => {
+            if (depth > 7) return { value, changed: false };
+            if (typeof value === 'string') {
+                const next = value === from ? to : (value.includes(from) ? value.split(from).join(to) : value);
+                return { value: next, changed: next !== value };
+            }
+            if (Array.isArray(value)) {
+                let changed = false;
+                const next = value.map((item) => {
+                    const result = remapDeep(item, depth + 1);
+                    changed = changed || result.changed;
+                    return result.value;
+                });
+                return { value: next, changed };
+            }
+            if (value && typeof value === 'object') {
+                let changed = false;
+                const next = { ...value };
+                Object.keys(next).forEach((key) => {
+                    const result = remapDeep(next[key], depth + 1);
+                    if (result.changed) {
+                        next[key] = result.value;
+                        changed = true;
+                    }
+                });
+                return { value: next, changed };
+            }
+            return { value, changed: false };
+        };
+        const remapData = (data, itemType = '') => {
+            if (!(data && typeof data === 'object')) return false;
+            let changed = false;
+            const createTypes = new Set(['createTaskInDoc', 'createSubtask', 'createSibling']);
+            const shouldPreserveCreateTempId = createTypes.has(String(itemType || '').trim());
+            const originalCreateTempId = shouldPreserveCreateTempId ? String(data.tempId || '').trim() : '';
+            [
+                'taskId',
+                'parentTaskId',
+                'sourceTaskId',
+                'targetTaskId',
+                'requestedTaskId',
+                'broadcastTaskId',
+            ].forEach((key) => {
+                if (!Object.prototype.hasOwnProperty.call(data, key)) return;
+                const nextValue = remapString(data[key]);
+                if (nextValue !== data[key]) {
+                    data[key] = nextValue;
+                    changed = true;
+                }
+            });
+            if (data.snapshot && typeof data.snapshot === 'object') {
+                ['taskId', 'parentTaskId'].forEach((key) => {
+                    if (!Object.prototype.hasOwnProperty.call(data.snapshot, key)) return;
+                    const nextValue = remapString(data.snapshot[key]);
+                    if (nextValue !== data.snapshot[key]) {
+                        data.snapshot[key] = nextValue;
+                        changed = true;
+                    }
+                });
+            }
+            const deepResult = remapDeep(data);
+            if (deepResult.changed && deepResult.value && typeof deepResult.value === 'object') {
+                Object.keys(data).forEach((key) => { delete data[key]; });
+                Object.assign(data, deepResult.value);
+                if (shouldPreserveCreateTempId && originalCreateTempId) {
+                    data.tempId = originalCreateTempId;
+                }
+                changed = true;
+            }
+            return changed;
+        };
+        let changedAny = false;
+        items.forEach((item) => {
+            if (!item || String(item.status || '').trim() === 'done') return;
+            if (String(item.laneKey || '').trim() === `task:${from}`) {
+                item.laneKey = `task:${to}`;
+                changedAny = true;
+            } else if (String(item.laneKey || '').includes(from)) {
+                item.laneKey = String(item.laneKey || '').split(from).join(to);
+                changedAny = true;
+            }
+            if (String(item.coalesceKey || '').includes(from)) {
+                item.coalesceKey = String(item.coalesceKey || '').split(from).join(to);
+                changedAny = true;
+            }
+            const itemType = String(item.type || '').trim();
+            if (remapData(item.data, itemType)) changedAny = true;
+            if (item.inversePatch && typeof item.inversePatch === 'object') {
+                const inverseResult = remapDeep(item.inversePatch);
+                if (inverseResult.changed && inverseResult.value && typeof inverseResult.value === 'object') {
+                    item.inversePatch = inverseResult.value;
+                    changedAny = true;
+                }
+            }
+            if (String(item.docId || '').trim() === from) {
+                item.docId = to;
+                changedAny = true;
+            }
+        });
+        if (changedAny) {
+            try { __tmPersistOpQueueNow(); } catch (e) {}
+        }
+        return changedAny;
     }
 
     function __tmFindQueuedMergeTarget(nextOp) {
@@ -5061,6 +6559,41 @@
                     const hasRunningSetDone = __tmOpQueue.items.some((item) => item && item !== op && item.status === 'running' && String(item.type || '').trim() === 'setDone');
                     if (hasRunningSetDone) return false;
                 }
+                const tempReady = __tmResolveOutboxTempTaskRefsBeforeRun(op);
+                if (!tempReady.ready
+                    && (!Array.isArray(tempReady.abandoned) || tempReady.abandoned.length === 0)
+                    && Array.isArray(tempReady.waiting)
+                    && tempReady.waiting.length > 0) {
+                    const delayMs = __TM_OUTBOX_TEMP_REF_WAIT_RETRY_MS;
+                    op.nextRunAt = Math.max(Date.now() + delayMs, Math.max(0, Number(op.nextRunAt) || 0));
+                    if (!nextDelay || delayMs < nextDelay) nextDelay = delayMs;
+                    const waitCount = Math.max(0, Number(op.__tmTempRefWaitTraceCount) || 0);
+                    if (waitCount < 3 || waitCount % 20 === 0) {
+                        try {
+                        } catch (e) {}
+                    }
+                    op.__tmTempRefWaitTraceCount = waitCount + 1;
+                    return false;
+                }
+                if (!tempReady.ready) {
+                    try {
+                    } catch (e) {}
+                    op.status = 'failed';
+                    try { __tmRollbackQueuedOp(op); } catch (e) {}
+                    try {
+                        const error = new Error(`临时任务写入未完成或已失败，无法继续执行 ${opType || 'queued op'}`);
+                        op.reject?.(error);
+                    } catch (e) {}
+                    try {
+                    } catch (e) {}
+                    __tmOpQueue.items = __tmOpQueue.items.filter((item) => item && item !== op);
+                    __tmPersistOpQueueNow();
+                    return false;
+                }
+                if (Array.isArray(tempReady.remapped) && tempReady.remapped.length) {
+                    try {
+                    } catch (e) {}
+                }
                 const laneKey = String(op.laneKey || '').trim() || 'default';
                 if (__tmOpQueue.activeLanes.has(laneKey)) return false;
                 const runAt = Math.max(0, Number(op.nextRunAt) || 0);
@@ -5074,12 +6607,16 @@
             if (!nextOp) break;
             nextOp.status = 'running';
             const laneKey = String(nextOp.laneKey || '').trim() || 'default';
+            try {
+            } catch (e) {}
             __tmOpQueue.activeCount += 1;
             __tmOpQueue.activeLanes.add(laneKey);
-            __tmScheduleOpQueuePersist();
+            __tmPersistOpQueueNow();
             Promise.resolve()
                 .then(() => __tmExecuteQueuedOp(nextOp))
                 .then((result) => {
+                    try {
+                    } catch (e) {}
                     try { __tmCommitQueuedOp(nextOp, result); } catch (e) {}
                     nextOp.status = 'done';
                     try { nextOp.resolve?.(result); } catch (e) {}
@@ -5089,23 +6626,48 @@
                     } catch (e) {}
                 })
                 .catch((error) => {
+                    try {
+                    } catch (e) {}
+                    if (error?.__tmOutboxWait === true) {
+                        const delayMs = Math.max(120, Number(error.__tmOutboxDelayMs) || 520);
+                        nextOp.status = 'queued';
+                        nextOp.nextRunAt = Date.now() + delayMs;
+                        try {
+                        } catch (e) {}
+                        __tmPersistOpQueueNow();
+                        return;
+                    }
                     const retry = Math.max(0, Number(nextOp.retry) || 0);
                     if (retry < 2) {
                         nextOp.retry = retry + 1;
                         nextOp.status = 'queued';
                         nextOp.nextRunAt = Date.now() + (180 * Math.pow(2, retry));
-                        __tmScheduleOpQueuePersist();
+                        try {
+                        } catch (e) {}
+                        __tmPersistOpQueueNow();
                         return;
                     }
                     nextOp.status = 'failed';
                     try { __tmRollbackQueuedOp(nextOp); } catch (e) {}
+                    try {
+                        const data = (nextOp?.data && typeof nextOp.data === 'object') ? nextOp.data : {};
+                        if (data.showErrorHint !== false && data.suppressHint !== true) {
+                            const label = String(data.label || __tmDescribeOutboxOpType(nextOp?.type) || '任务写入').trim() || '任务写入';
+                            __tmReportTaskOutboxFailure(error, { action: label });
+                        }
+                    } catch (e) {}
                     try { nextOp.reject?.(error); } catch (e) {}
                 })
                 .finally(() => {
+                    const finalStatus = String(nextOp.status || '').trim();
                     __tmOpQueue.activeCount = Math.max(0, __tmOpQueue.activeCount - 1);
                     __tmOpQueue.activeLanes.delete(laneKey);
                     __tmOpQueue.items = __tmOpQueue.items.filter((item) => item && item.status !== 'done' && item.status !== 'failed');
-                    __tmScheduleOpQueuePersist();
+                    __tmPersistOpQueueNow();
+                    try {
+                        if (finalStatus === 'done') {
+                        }
+                    } catch (e) {}
                     __tmScheduleOpQueueDrain(0);
                 });
         }
@@ -5133,28 +6695,54 @@
             resolve: null,
             reject: null,
         };
-        const wait = !!options.wait;
+        const primaryTaskId = String(op.data?.taskId || op.data?.sourceTaskId || '').trim();
+        if (primaryTaskId && __tmIsOutboxTaskPendingDeleted(primaryTaskId) && op.type !== 'deleteTask') {
+            return options.wait
+                ? Promise.reject(new Error('任务已删除，写入已取消'))
+                : Promise.resolve({
+                    skipped: true,
+                    reason: 'pending-delete',
+                    taskId: primaryTaskId,
+                });
+        }
+        const opPatch = (op.data?.patch && typeof op.data.patch === 'object' && !Array.isArray(op.data.patch))
+            ? op.data.patch
+            : ((op.data?.statusPatch && typeof op.data.statusPatch === 'object' && !Array.isArray(op.data.statusPatch)) ? op.data.statusPatch : {});
+const wait = !!options.wait;
         const promise = new Promise((resolve, reject) => {
             op.resolve = resolve;
             op.reject = reject;
         });
         op.promise = promise;
+        try { options.onPending?.(promise, op); } catch (e) {}
+        if (!wait) promise.catch(() => null);
         const mergeTarget = __tmFindQueuedMergeTarget(op);
         if (mergeTarget && __tmMergeQueuedOp(mergeTarget, op)) {
+            try {
+            } catch (e) {}
             if (!mergeTarget.optimisticApplied) {
-                __tmApplyQueuedOpOptimistic(mergeTarget);
-                mergeTarget.optimisticApplied = true;
+                const applied = __tmApplyQueuedOpOptimistic(mergeTarget);
+                if (applied !== false) mergeTarget.optimisticApplied = true;
             } else {
-                __tmApplyQueuedOpOptimistic({ ...mergeTarget, data: op.data });
+                const applied = __tmApplyQueuedOpOptimistic({ ...mergeTarget, data: op.data });
             }
-            __tmScheduleOpQueuePersist();
+            __tmPersistOpQueueNow();
             __tmScheduleOpQueueDrain(0);
+            try {
+                Promise.resolve(mergeTarget.promise || Promise.resolve(mergeTarget.id))
+                    .then((result) => {
+                        try { op.resolve?.(result); } catch (e) {}
+                    })
+                    .catch((error) => {
+                        try { op.reject?.(error); } catch (e) {}
+                    });
+            } catch (e) {}
             return wait ? (mergeTarget.promise || Promise.resolve(mergeTarget.id)) : Promise.resolve(mergeTarget.id);
         }
         __tmOpQueue.items.push(op);
-        __tmApplyQueuedOpOptimistic(op);
-        op.optimisticApplied = true;
-        __tmScheduleOpQueuePersist();
+        const applied = __tmApplyQueuedOpOptimistic(op);
+        op.optimisticApplied = applied !== false;
+        __tmPersistOpQueueNow();
         __tmScheduleOpQueueDrain(0);
         return wait ? promise : Promise.resolve(op.id);
     }
@@ -5168,12 +6756,16 @@
         return false;
     }
 
-    function __tmHasPendingQueuedOps() {
+    function __tmHasPendingQueuedOps(options = {}) {
         try { __tmHydrateOpQueue(); } catch (e) {}
+        const opts = (options && typeof options === 'object') ? options : {};
+        const includeSettlingCreateOps = opts.includeSettlingCreateOps === true;
         try {
             return Array.isArray(__tmOpQueue?.items) && __tmOpQueue.items.some((op) => {
                 const status = String(op?.status || '').trim();
-                return status === 'queued' || status === 'running';
+                if (status !== 'queued' && status !== 'running') return false;
+                if (__tmIsQueuedOpNonBlockingForUi(op, opts)) return false;
+                return true;
             });
         } catch (e) {}
         return false;
@@ -5192,6 +6784,393 @@
         return !__tmHasPendingQueuedOps();
     }
 
+    function __tmGetOutboxStatus() {
+        try { __tmHydrateOpQueue(); } catch (e) {}
+        const items = Array.isArray(__tmOpQueue?.items) ? __tmOpQueue.items : [];
+        const byStatus = {};
+        const byType = {};
+        items.forEach((op) => {
+            const status = String(op?.status || 'queued').trim() || 'queued';
+            const type = String(op?.type || 'unknown').trim() || 'unknown';
+            byStatus[status] = (Number(byStatus[status]) || 0) + 1;
+            byType[type] = (Number(byType[type]) || 0) + 1;
+        });
+        return {
+            version: __TM_OP_OUTBOX_SCHEMA_VERSION,
+            size: items.length,
+            activeCount: Number(__tmOpQueue.activeCount || 0),
+            byStatus,
+            byType,
+            hydrated: __tmOpQueue.hydrated === true,
+        };
+    }
+
+    function __tmGetOutboxPendingRefs(options = {}) {
+        try { __tmHydrateOpQueue(); } catch (e) {}
+        const opts = (options && typeof options === 'object') ? options : {};
+        const statusSet = new Set(
+            (Array.isArray(opts.statuses) ? opts.statuses : ['queued', 'running'])
+                .map((status) => String(status || '').trim())
+                .filter(Boolean)
+        );
+        const limit = Math.max(1, Math.min(200, Math.floor(Number(opts.limit) || 80)));
+        const refs = [];
+        const addId = (set, id) => {
+            const tid = String(id || '').trim();
+            if (!tid) return;
+            set.add(tid);
+            try {
+                const aliases = globalThis.__tmRuntimeState?.getTaskIdAliases?.(tid);
+                (Array.isArray(aliases) ? aliases : []).forEach((aliasId) => {
+                    const nextId = String(aliasId || '').trim();
+                    if (nextId) set.add(nextId);
+                });
+            } catch (e) {}
+        };
+        const collectIds = (op) => {
+            const ids = new Set();
+            const data = (op?.data && typeof op.data === 'object') ? op.data : {};
+            [
+                data.taskId,
+                data.sourceTaskId,
+                data.parentTaskId,
+                data.targetTaskId,
+                data.targetParentTaskId,
+                data.tempId,
+                data.realId,
+                data.insertedTaskId,
+            ].forEach((id) => addId(ids, id));
+            (Array.isArray(data.taskIds) ? data.taskIds : []).forEach((id) => addId(ids, id));
+            (Array.isArray(data.scheduleCleanupTaskIds) ? data.scheduleCleanupTaskIds : []).forEach((id) => addId(ids, id));
+            const snapshotTask = data.snapshot?.task && typeof data.snapshot.task === 'object' ? data.snapshot.task : null;
+            const walk = (task) => {
+                if (!(task && typeof task === 'object')) return;
+                addId(ids, task.id || task.blockId);
+                (Array.isArray(task.children) ? task.children : []).forEach(walk);
+            };
+            walk(snapshotTask);
+            return Array.from(ids);
+        };
+        try {
+            (Array.isArray(__tmOpQueue?.items) ? __tmOpQueue.items : []).forEach((op) => {
+                if (!op || !statusSet.has(String(op.status || '').trim())) return;
+                if (refs.length >= limit) return;
+                refs.push({
+                    opId: String(op.id || '').trim(),
+                    type: String(op.type || '').trim(),
+                    status: String(op.status || '').trim() || 'queued',
+                    laneKey: String(op.laneKey || '').trim(),
+                    taskIds: collectIds(op).slice(0, 40),
+                    createdAt: Number(op.createdAt) || 0,
+                    retry: Number(op.retry) || 0,
+                });
+            });
+        } catch (e) {}
+        return refs;
+    }
+
+    function __tmEnqueueOutboxOp(definition, options = {}) {
+        return __tmEnqueueQueuedOp(definition, options);
+    }
+
+    function __tmOutboxResolveTaskId(taskId, options = {}) {
+        const tid = String(taskId || '').trim();
+        if (!tid) return '';
+        try {
+            const resolved = globalThis.__tmTaskIdentity?.resolve?.(tid, options);
+            if (resolved) return String(resolved || '').trim();
+        } catch (e) {}
+        try {
+            const resolved = globalThis.__tmTaskStore?.resolveId?.(tid, options);
+            if (resolved) return String(resolved || '').trim();
+        } catch (e) {}
+        try {
+            if (typeof __tmResolveOptimisticTaskId === 'function') {
+                return String(__tmResolveOptimisticTaskId(tid) || tid).trim() || tid;
+            }
+        } catch (e) {}
+        return tid;
+    }
+
+    function __tmOutboxGetTask(taskId, options = {}) {
+        const tid = String(taskId || '').trim();
+        if (!tid) return null;
+        try {
+            const task = globalThis.__tmTaskStore?.get?.(tid, {
+                includePending: options.includePending !== false,
+                preferPending: options.preferPending !== false,
+            });
+            if (task) return task;
+        } catch (e) {}
+        try {
+            return globalThis.__tmRuntimeState?.getTaskById?.(tid, {
+                includePending: options.includePending !== false,
+                preferPending: options.preferPending !== false,
+            }) || null;
+        } catch (e) {}
+        return null;
+    }
+
+    function __tmOutboxPatchAttrs(taskId, patch = {}, options = {}) {
+        const tid = String(taskId || '').trim();
+        const nextPatch = (patch && typeof patch === 'object') ? patch : {};
+        if (!tid || !Object.keys(nextPatch).length) return Promise.resolve(false);
+        return __tmQueueAttrPatch(tid, nextPatch, {
+            ...(options && typeof options === 'object' ? options : {}),
+            wait: options.wait === true,
+            background: options.background !== false,
+            skipInteractionGate: options.skipInteractionGate !== false,
+        });
+    }
+
+    function __tmOutboxPatchTask(taskId, patch = {}, options = {}) {
+        const tid = String(taskId || '').trim();
+        const nextPatch = (patch && typeof patch === 'object') ? patch : {};
+        const opts = (options && typeof options === 'object') ? options : {};
+        if (!tid || !Object.keys(nextPatch).length) return Promise.resolve(false);
+        try {
+            if (typeof __tmCommitUiFriendlyTaskPatch === 'function') {
+                return __tmCommitUiFriendlyTaskPatch(tid, nextPatch, {
+                    ...opts,
+                    forceQueued: true,
+                    background: opts.background !== false,
+                    wait: opts.wait === true,
+                    defer: false,
+                    skipInteractionGate: opts.skipInteractionGate !== false,
+                });
+            }
+        } catch (e) {}
+        return __tmOutboxPatchAttrs(tid, nextPatch, opts);
+    }
+
+    function __tmOutboxPatchContent(taskId, nextContent, options = {}) {
+        const tid = String(taskId || '').trim();
+        const content = String(nextContent || '').trim();
+        const opts = (options && typeof options === 'object') ? options : {};
+        if (!tid) return Promise.resolve(false);
+        if (typeof __tmQueueTaskContentPatch !== 'function') {
+            return Promise.reject(new Error('任务内容写入队列未就绪'));
+        }
+        return __tmQueueTaskContentPatch(tid, content, {
+            ...opts,
+            wait: opts.wait === true,
+            background: opts.background !== false,
+            skipInteractionGate: opts.skipInteractionGate !== false,
+            renderOptimistic: opts.renderOptimistic !== false,
+            withFilters: opts.withFilters === true,
+            forceProjectionRefresh: opts.forceProjectionRefresh === true,
+        });
+    }
+
+    function __tmOutboxSetStatus(taskId, statusIdOrPatch, options = {}) {
+        const tid = String(taskId || '').trim();
+        if (!tid) return Promise.resolve(false);
+        const patch = (statusIdOrPatch && typeof statusIdOrPatch === 'object' && !Array.isArray(statusIdOrPatch))
+            ? { ...statusIdOrPatch }
+            : { customStatus: String(statusIdOrPatch || '').trim() };
+        return __tmOutboxPatchTask(tid, patch, {
+            ...(options && typeof options === 'object' ? options : {}),
+            source: options.source || 'outbox-status',
+            reason: options.reason || 'outbox-status',
+        });
+    }
+
+    function __tmOutboxCreateTaskInDoc(options = {}, queueOptions = {}) {
+        if (typeof __tmQueueCreateTaskInDoc !== 'function') {
+            return Promise.reject(new Error('任务创建队列未就绪'));
+        }
+        return __tmQueueCreateTaskInDoc(options, queueOptions);
+    }
+
+    function __tmOutboxCreateSubtask(parentTaskId, content, options = {}) {
+        if (typeof __tmQueueCreateSubtask !== 'function') {
+            return Promise.reject(new Error('任务创建队列未就绪'));
+        }
+        return __tmQueueCreateSubtask(parentTaskId, content, options);
+    }
+
+    function __tmOutboxCreateSibling(taskId, content, options = {}) {
+        if (typeof __tmQueueCreateSiblingTask !== 'function') {
+            return Promise.reject(new Error('任务创建队列未就绪'));
+        }
+        return __tmQueueCreateSiblingTask(taskId, content, options);
+    }
+
+    function __tmOutboxMoveTask(taskId, payload = {}, options = {}) {
+        if (typeof __tmQueueMoveTask !== 'function') {
+            return Promise.reject(new Error('任务移动队列未就绪'));
+        }
+        return __tmQueueMoveTask(taskId, payload, options);
+    }
+
+    function __tmOutboxDeleteTask(taskId, options = {}) {
+        const tid = String(taskId || '').trim();
+        if (!tid) return Promise.reject(new Error('未找到任务'));
+        if (typeof __tmEnqueueQueuedOp !== 'function') {
+            return Promise.reject(new Error('任务删除队列未就绪'));
+        }
+        const opts = (options && typeof options === 'object') ? options : {};
+        const task = __tmOutboxGetTask(tid, { includePending: true, preferPending: true });
+        const snapshot = opts.snapshot || (typeof __tmCaptureTaskLocalSnapshot === 'function'
+            ? __tmCaptureTaskLocalSnapshot(tid)
+            : null);
+        const scheduleCleanupTaskIds = Array.isArray(opts.scheduleCleanupTaskIds)
+            ? opts.scheduleCleanupTaskIds
+            : (typeof __tmCollectTaskTreeIdsForScheduleCleanup === 'function'
+                ? __tmCollectTaskTreeIdsForScheduleCleanup(snapshot?.task || task, tid)
+                : [tid]);
+        let pendingPromise = null;
+        const shouldWait = opts.wait === true;
+        const queuePromise = __tmEnqueueQueuedOp({
+            type: 'deleteTask',
+            docId: String(task?.root_id || task?.docId || opts.docId || '').trim(),
+            laneKey: String(task?.root_id || task?.docId || opts.docId || '').trim()
+                ? `doc:${String(task?.root_id || task?.docId || opts.docId || '').trim()}`
+                : `task:${tid}`,
+            data: {
+                taskId: tid,
+                scheduleCleanupTaskIds,
+                backgroundScheduleCleanup: opts.backgroundScheduleCleanup !== false,
+                snapshot,
+            },
+        }, {
+            wait: shouldWait,
+            onPending: (promise, op) => {
+                pendingPromise = promise;
+                try { opts.onPending?.(promise, op); } catch (e) {}
+            },
+        });
+        if (!shouldWait) {
+            const settlePromise = pendingPromise || queuePromise;
+            settlePromise.then((result) => {
+                try { opts.onSuccess?.(result); } catch (e) {}
+            }).catch((e) => {
+                try { opts.onError?.(e); } catch (e2) {}
+            }).finally(() => {
+                try { opts.onFinally?.(); } catch (e) {}
+            });
+        }
+        return shouldWait ? queuePromise : Promise.resolve(tid);
+    }
+
+    function __tmOutboxStatus(taskIdOrOptions = undefined, statusId = undefined, options = {}) {
+        if (arguments.length === 0 || (taskIdOrOptions && typeof taskIdOrOptions === 'object' && !Array.isArray(taskIdOrOptions))) {
+            return __tmGetOutboxStatus(taskIdOrOptions || {});
+        }
+        return __tmOutboxSetStatus(taskIdOrOptions, statusId, options);
+    }
+
+    function __tmRequireTaskOutbox(methodName = '') {
+        const method = String(methodName || '').trim();
+        const outbox = globalThis.__tmTaskOutbox || globalThis.__tmTaskHorizonOutbox || null;
+        if (!outbox || typeof outbox !== 'object') {
+            throw new Error('任务写入队列未就绪');
+        }
+        if (method && typeof outbox[method] !== 'function') {
+            throw new Error(`任务写入队列未就绪: ${method}`);
+        }
+        return method ? outbox[method].bind(outbox) : outbox;
+    }
+
+    function __tmReportTaskOutboxFailure(error, options = {}) {
+        const opts = (options && typeof options === 'object') ? options : {};
+        const action = String(opts.action || opts.label || '更新').trim() || '更新';
+        const message = String(error?.message || error || '未知错误').trim() || '未知错误';
+        try { hint(`❌ ${action}失败: ${message}`, 'error'); } catch (e) {}
+        return false;
+    }
+
+    function __tmDescribeOutboxOpType(type) {
+        const key = String(type || '').trim();
+        if (key === 'createTaskInDoc' || key === 'createSubtask' || key === 'createSibling') return '创建任务';
+        if (key === 'moveTask') return '移动任务';
+        if (key === 'deleteTask') return '删除任务';
+        if (key === 'contentPatch') return '任务内容';
+        if (key === 'setDone') return '完成状态';
+        if (key === 'taskPatch' || key === 'attrPatch') return '任务字段';
+        return '任务写入';
+    }
+
+    try {
+        globalThis.__tmTaskHorizonOutbox = globalThis.__tmTaskHorizonOutbox || {};
+        Object.assign(globalThis.__tmTaskHorizonOutbox, {
+            status: __tmOutboxStatus,
+            queueStatus: __tmGetOutboxStatus,
+            pendingRefs: __tmGetOutboxPendingRefs,
+            hasPending: __tmHasPendingQueuedOps,
+            hasPendingForTask: __tmHasPendingQueuedOpForTask,
+            waitIdle: __tmWaitForQueuedOpsIdle,
+            enqueue: __tmEnqueueOutboxOp,
+            patchTask: __tmOutboxPatchTask,
+            patchContent: __tmOutboxPatchContent,
+            setStatus: __tmOutboxSetStatus,
+            createTaskInDoc: __tmOutboxCreateTaskInDoc,
+            createSubtask: __tmOutboxCreateSubtask,
+            createSibling: __tmOutboxCreateSibling,
+            moveTask: __tmOutboxMoveTask,
+            deleteTask: __tmOutboxDeleteTask,
+            resolveTaskId: __tmOutboxResolveTaskId,
+            getTask: __tmOutboxGetTask,
+        });
+        globalThis.__tmTaskOutbox = globalThis.__tmTaskHorizonOutbox;
+        globalThis.__tmRequireTaskOutbox = __tmRequireTaskOutbox;
+        globalThis.__tmReportTaskOutboxFailure = __tmReportTaskOutboxFailure;
+    } catch (e) {}
+
+    function __tmGetOutboxTaskIdAliases(taskId) {
+        const tid = String(taskId || '').trim();
+        if (!tid) return [];
+        const out = new Set([tid]);
+        try {
+            if (typeof __tmResolveOptimisticTaskId === 'function') {
+                const resolvedId = String(__tmResolveOptimisticTaskId(tid) || '').trim();
+                if (resolvedId) out.add(resolvedId);
+            }
+        } catch (e) {}
+        try {
+            Object.entries(state.__tmOptimisticTaskIdRemaps || {}).forEach(([tempId, meta]) => {
+                const realId = String((meta && typeof meta === 'object') ? meta.realId : meta || '').trim();
+                if (realId && realId === tid) out.add(String(tempId || '').trim());
+            });
+        } catch (e) {}
+        return Array.from(out).filter(Boolean);
+    }
+
+    function __tmOpReferencesTaskId(op, taskId) {
+        const tid = String(taskId || '').trim();
+        if (!op || !tid) return false;
+        const aliases = new Set(__tmGetOutboxTaskIdAliases(tid));
+        const scan = (value, depth = 0) => {
+            if (depth > 7) return false;
+            if (typeof value === 'string') return aliases.has(value.trim());
+            if (Array.isArray(value)) return value.some((item) => scan(item, depth + 1));
+            if (value && typeof value === 'object') {
+                return Object.values(value).some((item) => scan(item, depth + 1));
+            }
+            return false;
+        };
+        return scan(op.docId) || scan(op.laneKey) || scan(op.coalesceKey) || scan(op.data) || scan(op.inversePatch);
+    }
+
+    function __tmHasPendingQueuedOpForTask(taskId, options = {}) {
+        const tid = String(taskId || '').trim();
+        if (!tid) return false;
+        try { __tmHydrateOpQueue(); } catch (e) {}
+        const opts = (options && typeof options === 'object') ? options : {};
+        const statusSet = new Set(
+            (Array.isArray(opts.statuses) ? opts.statuses : ['queued', 'running'])
+                .map((status) => String(status || '').trim())
+                .filter(Boolean)
+        );
+        try {
+            return (Array.isArray(__tmOpQueue?.items) ? __tmOpQueue.items : []).some((op) => {
+                if (!op || !statusSet.has(String(op.status || '').trim())) return false;
+                return __tmOpReferencesTaskId(op, tid);
+            });
+        } catch (e) {}
+        return false;
+    }
+
     function __tmBuildQueuedTaskFieldPatchMap(options = {}) {
         try { __tmHydrateOpQueue(); } catch (e) {}
         const opts = (options && typeof options === 'object') ? options : {};
@@ -5201,6 +7180,7 @@
                 .filter(Boolean)
         );
         const out = new Map();
+        const getAliases = (taskId) => __tmGetOutboxTaskIdAliases(taskId);
         const mergePatch = (taskId, patch) => {
             const tid = String(taskId || '').trim();
             const sourcePatch = (patch && typeof patch === 'object' && !Array.isArray(patch)) ? patch : null;
@@ -5212,7 +7192,9 @@
                 normalizedPatch[key] = __tmNormalizeQueueTaskValue(key, rawValue);
             });
             if (!Object.keys(normalizedPatch).length) return;
-            out.set(tid, __tmWritePlanner.mergeTaskPatches(out.get(tid) || {}, normalizedPatch));
+            getAliases(tid).forEach((alias) => {
+                out.set(alias, __tmWritePlanner.mergeTaskPatches(out.get(alias) || {}, normalizedPatch));
+            });
         };
         const items = Array.isArray(__tmOpQueue?.items) ? __tmOpQueue.items : [];
         items.forEach((op) => {
@@ -5227,6 +7209,13 @@
                 mergePatch(op?.data?.taskId, op?.data?.statusPatch);
                 return;
             }
+            if (type === 'contentPatch') {
+                mergePatch(op?.data?.taskId, {
+                    content: String(op?.data?.nextContent || '').trim(),
+                    markdown: String(op?.data?.nextMarkdown || '').trim(),
+                });
+                return;
+            }
             if (type === 'setDone') {
                 const patch = {};
                 if (Object.prototype.hasOwnProperty.call(op?.data || {}, 'done')) {
@@ -5237,6 +7226,86 @@
                 }
                 mergePatch(op?.data?.taskId, patch);
             }
+        });
+        return out;
+    }
+
+    function __tmBuildQueuedTaskDeleteSet(options = {}) {
+        try { __tmHydrateOpQueue(); } catch (e) {}
+        const opts = (options && typeof options === 'object') ? options : {};
+        const statusSet = new Set(
+            (Array.isArray(opts.statuses) ? opts.statuses : ['queued', 'running'])
+                .map((status) => String(status || '').trim())
+                .filter(Boolean)
+        );
+        const out = new Set();
+        try {
+            const pendingDeleted = (state.pendingDeletedTasks && typeof state.pendingDeletedTasks === 'object')
+                ? state.pendingDeletedTasks
+                : {};
+            const now = Date.now();
+            Object.keys(pendingDeleted).forEach((key) => {
+                const tid = String(key || '').trim();
+                if (!tid) return;
+                const item = pendingDeleted[key];
+                const expiresAt = Number(item?.expiresAt) || 0;
+                if (expiresAt > 0 && expiresAt < now) {
+                    try { delete pendingDeleted[key]; } catch (e) {}
+                    return;
+                }
+                __tmGetOutboxTaskIdAliases(tid).forEach((aliasId) => out.add(aliasId));
+            });
+        } catch (e) {}
+        const addSnapshotIds = (snapshot) => {
+            const task = snapshot?.task && typeof snapshot.task === 'object' ? snapshot.task : null;
+            const walk = (item) => {
+                const tid = String(item?.id || item?.blockId || '').trim();
+                if (tid) __tmGetOutboxTaskIdAliases(tid).forEach((aliasId) => out.add(aliasId));
+                (Array.isArray(item?.children) ? item.children : []).forEach(walk);
+            };
+            if (task) walk(task);
+        };
+        (Array.isArray(__tmOpQueue?.items) ? __tmOpQueue.items : []).forEach((op) => {
+            if (!op || !statusSet.has(String(op?.status || '').trim())) return;
+            if (String(op?.type || '').trim() !== 'deleteTask') return;
+            const taskId = String(op?.data?.taskId || '').trim();
+            if (taskId) {
+                __tmGetOutboxTaskIdAliases(taskId).forEach((aliasId) => out.add(aliasId));
+            }
+            addSnapshotIds(op?.data?.snapshot);
+            (Array.isArray(op?.data?.scheduleCleanupTaskIds) ? op.data.scheduleCleanupTaskIds : []).forEach((id) => {
+                const tid = String(id || '').trim();
+                if (tid) __tmGetOutboxTaskIdAliases(tid).forEach((aliasId) => out.add(aliasId));
+            });
+        });
+        return out;
+    }
+
+    function __tmBuildQueuedTaskMoveMap(options = {}) {
+        try { __tmHydrateOpQueue(); } catch (e) {}
+        const opts = (options && typeof options === 'object') ? options : {};
+        const statusSet = new Set(
+            (Array.isArray(opts.statuses) ? opts.statuses : ['queued', 'running'])
+                .map((status) => String(status || '').trim())
+                .filter(Boolean)
+        );
+        const out = new Map();
+        (Array.isArray(__tmOpQueue?.items) ? __tmOpQueue.items : []).forEach((op) => {
+            if (!op || !statusSet.has(String(op?.status || '').trim())) return;
+            if (String(op?.type || '').trim() !== 'moveTask') return;
+            const data = (op?.data && typeof op.data === 'object') ? op.data : {};
+            const taskId = String(data.taskId || '').trim();
+            if (!taskId) return;
+            const movePatch = {
+                mode: String(data.mode || '').trim(),
+                targetDocId: String(data.targetDocId || '').trim(),
+                headingId: String(data.headingId || '').trim(),
+                targetTaskId: String(data.targetTaskId || '').trim(),
+                targetHeadingId: String(data.targetHeadingId || data.headingId || '').trim(),
+                targetHeading: String(data.targetHeading || '').trim(),
+                targetHeadingRank: Number(data.targetHeadingRank),
+            };
+            __tmGetOutboxTaskIdAliases(taskId).forEach((aliasId) => out.set(aliasId, movePatch));
         });
         return out;
     }
@@ -5279,6 +7348,15 @@
             }
             if (key === 'done') {
                 target.done = !!value;
+                return;
+            }
+            if (key === 'content') {
+                target.content = String(value ?? '').trim();
+                target.raw_content = target.content;
+                return;
+            }
+            if (key === 'markdown') {
+                target.markdown = String(value ?? '').trim();
                 return;
             }
             if (key === 'customStatus') {
@@ -5981,8 +8059,7 @@
             .trim();
         if (!text) return null;
         const today = __tmSemanticStartOfDay(baseDate);
-        const todayMs = today.getTime();
-        const ymd = /(\d{4})[./-](\d{1,2})[./-](\d{1,2})/.exec(text);
+        const ymd = /(\d{4})(?:[./-]|年\s*)(\d{1,2})(?:[./-]|月\s*)(\d{1,2})(?:日|号)?/.exec(text);
         const mdCn = /(\d{1,2})\s*月\s*(\d{1,2})\s*(日|号)?/.exec(text);
         // 仅保留斜杠月日简写，避免把版本号/编号如 5-2、5.2 误识别成 5月2日
         const md = /(^|[^\d])(\d{1,2})\/(\d{1,2})(?!\d)/.exec(text);
@@ -6001,13 +8078,11 @@
             stableKey = `ymd:${matchedText}`;
         } else if (mdCn) {
             dt = __tmSemanticClampYmd(today.getFullYear(), mdCn[1], mdCn[2]);
-            if (dt && dt.getTime() < todayMs) dt.setFullYear(dt.getFullYear() + 1);
             reason = '识别到月日表达';
             matchedText = __tmSemanticNormalizeMatchText(mdCn[0]);
             stableKey = `mdcn:${matchedText}`;
         } else if (md) {
             dt = __tmSemanticClampYmd(today.getFullYear(), md[2], md[3]);
-            if (dt && dt.getTime() < todayMs) dt.setFullYear(dt.getFullYear() + 1);
             reason = '识别到数字日期';
             matchedText = __tmSemanticNormalizeMatchText(md[0]);
             stableKey = `md:${matchedText}`;
@@ -6063,7 +8138,6 @@
             .trim();
         if (!text) return [];
         const today = __tmSemanticStartOfDay(baseDate);
-        const todayMs = today.getTime();
         const out = [];
         const push = (match, type, build, startOffset = 0, displayText = '') => {
             if (!match) return;
@@ -6080,7 +8154,7 @@
                 matchedText: __tmSemanticNormalizeMatchText(matched),
             });
         };
-        for (const m of text.matchAll(/(\d{4})[./-](\d{1,2})[./-](\d{1,2})/g)) {
+        for (const m of text.matchAll(/(\d{4})(?:[./-]|年\s*)(\d{1,2})(?:[./-]|月\s*)(\d{1,2})(?:日|号)?/g)) {
             push(m, 'ymd', (match) => ({
                 date: __tmSemanticClampYmd(match[1], match[2], match[3]),
                 reason: '识别到明确日期',
@@ -6091,7 +8165,6 @@
         for (const m of text.matchAll(/(\d{1,2})\s*月\s*(\d{1,2})\s*(日|号)?/g)) {
             push(m, 'mdcn', (match) => {
                 const dt = __tmSemanticClampYmd(today.getFullYear(), match[1], match[2]);
-                if (dt && dt.getTime() < todayMs) dt.setFullYear(dt.getFullYear() + 1);
                 return {
                     date: dt,
                     reason: '识别到月日表达',
@@ -6103,7 +8176,6 @@
         for (const m of text.matchAll(/(^|[^\d])(\d{1,2})\/(\d{1,2})(?!\d)/g)) {
             push(m, 'md', (match) => {
                 const dt = __tmSemanticClampYmd(today.getFullYear(), match[2], match[3]);
-                if (dt && dt.getTime() < todayMs) dt.setFullYear(dt.getFullYear() + 1);
                 return {
                     date: dt,
                     reason: '识别到数字日期',
@@ -6519,7 +8591,20 @@
                 const patch = {};
                 if (startDateValue) patch.startDate = startDateValue;
                 if (completionValue) patch.completionTime = completionValue;
-                await __tmPersistMetaAndAttrsAsync(taskId, patch);
+                const patchTask = globalThis.__tmRequireTaskOutbox?.('patchTask');
+                if (typeof patchTask !== 'function') throw new Error('任务写入队列未就绪: patchTask');
+                await patchTask(taskId, patch, {
+                    source: 'semantic-date-suggestion',
+                    reason: 'semantic-date-suggestion',
+                    label: '语义日期',
+                    background: true,
+                    wait: false,
+                    skipInteractionGate: true,
+                    skipSettledRefresh: true,
+                    withFilters: true,
+                    forceProjectionRefresh: true,
+                    showErrorHint: false,
+                });
                 if (task && typeof task === 'object') {
                     if (startDateValue) task.startDate = startDateValue;
                     if (completionValue) task.completionTime = completionValue;
@@ -6567,14 +8652,21 @@
             if (!docId) return;
             try { __tmInvalidateTasksQueryCacheByDocId(docId); } catch (e) {}
         });
-        try { applyFilters(); } catch (e) {}
         try {
-            if (state.modal && document.body.contains(state.modal)) render();
-        } catch (e) {}
+            __tmScheduleViewRefresh({
+                mode: 'current',
+                withFilters: true,
+                reason: 'semantic-date-apply',
+                taskIds: appliedItems.map((item) => String(item?.taskId || '').trim()).filter(Boolean),
+            });
+        } catch (e) {
+            try { __tmScheduleRender({ withFilters: true, reason: 'semantic-date-apply' }); } catch (e2) {}
+        }
         if (calendarChanged) {
             try {
+                let refreshPromise = null;
                 if (typeof globalThis.__tmCalendar?.requestRefresh === 'function') {
-                    await globalThis.__tmCalendar.requestRefresh({
+                    refreshPromise = globalThis.__tmCalendar.requestRefresh({
                         reason: 'semantic-date-apply',
                         main: true,
                         side: true,
@@ -6582,8 +8674,9 @@
                         hard: false,
                     });
                 } else {
-                    await globalThis.__tmCalendar?.refreshInPlace?.({ silent: false, hard: false });
+                    refreshPromise = globalThis.__tmCalendar?.refreshInPlace?.({ silent: false, hard: false });
                 }
+                Promise.resolve(refreshPromise).catch(() => null);
             } catch (e) {}
         }
         return { startApplied, completionApplied, calendarApplied, failures, appliedItems };
@@ -8723,16 +10816,10 @@
         if (named) return named;
         if (__tmIsTaskAttachmentAttrKey(key)) return '附件';
         if (typeof __tmIsTaskAttachmentMetaAttrKey === 'function' && __tmIsTaskAttachmentMetaAttrKey(key)) return '附件';
-        if (key === 'custom-status') return '状态';
-        if (key === 'custom-priority') return '优先级';
-        if (key === 'custom-start-date') return '开始日期';
-        if (key === 'custom-completion-time') return '截止日期';
-        if (key === 'custom-task-date-color') return '任务日期颜色';
-        if (key === __TM_TASK_COMPLETE_AT_ATTR) return '截止时间';
-        if (key === 'custom-duration') return '时长';
+        const taskMetaLabel = typeof __tmGetTaskMetaAttrLabel === 'function' ? __tmGetTaskMetaAttrLabel(key) : '';
+        if (taskMetaLabel) return taskMetaLabel;
         if (key === __tmGetTomatoEstimateAttrKey()) return '预计番茄';
         if (key === __tmGetTomatoCountAttrKey()) return '实际番茄';
-        if (key === 'custom-remark') return '备注';
         if (key === __TM_TASK_REPEAT_RULE_ATTR) return '循环规则';
         if (key === __TM_TASK_REPEAT_STATE_ATTR) return '循环状态';
         const field = __tmGetCustomFieldDefByAttrStorageKey(key);
@@ -8788,17 +10875,29 @@
                 attrValue: __tmNormalizeTaskAttachmentPath(rawValue),
             };
         }
-        if (key === 'custom-status') return { patch: { customStatus: trimmedValue }, attrValue: trimmedValue };
-        if (key === 'custom-priority') return { patch: { priority: trimmedValue }, attrValue: trimmedValue };
-        if (key === 'custom-start-date') return { patch: { startDate: trimmedValue }, attrValue: trimmedValue };
-        if (key === 'custom-completion-time') return { patch: { completionTime: trimmedValue }, attrValue: trimmedValue };
-        if (key === 'custom-task-date-color') return { patch: { taskDateColor: trimmedValue }, attrValue: trimmedValue };
-        if (key === 'custom-time') return { patch: { customTime: trimmedValue }, attrValue: trimmedValue };
-        if (key === __TM_TASK_COMPLETE_AT_ATTR) {
-            const normalizedValue = __tmNormalizeTaskCompleteAtValue(trimmedValue);
-            return { patch: { taskCompleteAt: normalizedValue }, attrValue: normalizedValue };
+        const taskMetaField = typeof __tmResolveTaskMetaFieldByAttrKey === 'function'
+            ? __tmResolveTaskMetaFieldByAttrKey(key)
+            : '';
+        if (taskMetaField) {
+            if (taskMetaField === 'taskCompleteAt') {
+                const normalizedValue = __tmNormalizeTaskCompleteAtValue(trimmedValue);
+                return { patch: { taskCompleteAt: normalizedValue }, attrValue: normalizedValue };
+            }
+            if (taskMetaField === 'remark') return { patch: { remark: rawValue }, attrValue: rawValue };
+            if (taskMetaField === 'milestone') {
+                const milestone = !!(trimmedValue === '1' || trimmedValue.toLowerCase() === 'true');
+                return { patch: { milestone }, attrValue: milestone ? '1' : '' };
+            }
+            if (taskMetaField === 'pinned') {
+                const pin = trimmedValue === '1' || trimmedValue.toLowerCase() === 'true';
+                return { patch: { pinned: pin ? '1' : '' }, attrValue: pin ? '1' : '' };
+            }
+            if (taskMetaField === 'allDayBottom') {
+                const bottom = trimmedValue === '1' || trimmedValue.toLowerCase() === 'true';
+                return { patch: { allDayBottom: bottom ? '1' : '' }, attrValue: bottom ? '1' : '' };
+            }
+            return { patch: { [taskMetaField]: trimmedValue }, attrValue: trimmedValue };
         }
-        if (key === 'custom-duration') return { patch: { duration: trimmedValue }, attrValue: trimmedValue };
         if (key === __tmGetTomatoEstimateAttrKey()) {
             const normalizedValue = __tmNormalizeTomatoCountValue(trimmedValue);
             return { patch: { tomatoEstimateCount: normalizedValue }, attrValue: normalizedValue };
@@ -8809,22 +10908,9 @@
         }
         if (key === __tmGetTomatoSpentMinutesAttrKey()) return { patch: { tomatoMinutes: trimmedValue }, attrValue: trimmedValue };
         if (key === __tmGetTomatoSpentHoursAttrKey()) return { patch: { tomatoHours: trimmedValue }, attrValue: trimmedValue };
-        if (key === 'custom-remark') return { patch: { remark: rawValue }, attrValue: rawValue };
-        if (key === 'custom-milestone-event') {
-            const milestone = !!(trimmedValue === '1' || trimmedValue.toLowerCase() === 'true');
-            return { patch: { milestone }, attrValue: milestone ? '1' : '' };
-        }
         if (key === __TM_TASK_REPEAT_RULE_ATTR) return { patch: { repeatRule: __tmNormalizeTaskRepeatRule(rawValue) }, attrValue: rawValue };
         if (key === __TM_TASK_REPEAT_STATE_ATTR) return { patch: { repeatState: __tmNormalizeTaskRepeatState(rawValue) }, attrValue: rawValue };
         if (key === __TM_TASK_REPEAT_HISTORY_ATTR) return { patch: { repeatHistory: __tmNormalizeTaskRepeatHistory(rawValue) }, attrValue: rawValue };
-        if (key === 'custom-pinned') {
-            const pin = trimmedValue === '1' || trimmedValue.toLowerCase() === 'true';
-            return { patch: { pinned: pin ? '1' : '' }, attrValue: pin ? '1' : '' };
-        }
-        if (key === 'custom-all-day-bottom') {
-            const bottom = trimmedValue === '1' || trimmedValue.toLowerCase() === 'true';
-            return { patch: { allDayBottom: bottom ? '1' : '' }, attrValue: bottom ? '1' : '' };
-        }
         const field = __tmGetCustomFieldDefByAttrStorageKey(key);
         const fieldId = String(field?.id || '').trim();
         if (!field || !fieldId) return null;
@@ -10278,11 +12364,18 @@
                                 if (typeof window.tmUpdateTaskDates === 'function') {
                                     await window.tmUpdateTaskDates(item.taskId, { completionTime: savedDeadline }, {
                                         source: 'points-penalty-edit-deadline',
+                                        background: true,
+                                        skipInteractionGate: true,
                                     });
                                 } else {
-                                    await __tmPersistMetaAndAttrsAsync(item.taskId, { completionTime: savedDeadline }, {
-                                        queued: true,
+                                    const patchTask = globalThis.__tmRequireTaskOutbox?.('patchTask');
+                                    if (typeof patchTask !== 'function') throw new Error('任务写入队列未就绪: patchTask');
+                                    await patchTask(item.taskId, { completionTime: savedDeadline }, {
+                                        background: true,
+                                        wait: false,
+                                        skipInteractionGate: true,
                                         source: 'points-penalty-edit-deadline',
+                                        label: '截止日期',
                                     });
                                 }
                                 item.deadlineText = savedDeadline;
@@ -10329,15 +12422,22 @@
         }
         try {
             if (typeof window.tmUpdateTaskDates === 'function') {
-                await window.tmUpdateTaskDates(item.taskId, { completionTime: normalized }, {
-                    source: 'points-penalty-edit-deadline',
-                });
-            } else {
-                await __tmPersistMetaAndAttrsAsync(item.taskId, { completionTime: normalized }, {
-                    queued: true,
-                    source: 'points-penalty-edit-deadline',
-                });
-            }
+            await window.tmUpdateTaskDates(item.taskId, { completionTime: normalized }, {
+                source: 'points-penalty-edit-deadline',
+                background: true,
+                skipInteractionGate: true,
+            });
+        } else {
+            const patchTask = globalThis.__tmRequireTaskOutbox?.('patchTask');
+            if (typeof patchTask !== 'function') throw new Error('任务写入队列未就绪: patchTask');
+            await patchTask(item.taskId, { completionTime: normalized }, {
+                background: true,
+                wait: false,
+                skipInteractionGate: true,
+                source: 'points-penalty-edit-deadline',
+                label: '截止日期',
+            });
+        }
         } catch (e) {
             hint(`❌ 截止日期更新失败：${String(e?.message || e || '')}`, 'error');
             return false;
@@ -10836,8 +12936,20 @@
     async function __tmResolveTaskMutationContext(taskId) {
         const requestedId = String(taskId || '').trim();
         if (!requestedId) return null;
-        let resolvedId = requestedId;
-        let task = globalThis.__tmRuntimeState?.getFlatTaskById?.(requestedId) || state.flatTasks?.[requestedId] || null;
+        const optimisticResolvedId = typeof __tmResolveOptimisticTaskId === 'function'
+            ? String(__tmResolveOptimisticTaskId(requestedId) || requestedId).trim()
+            : requestedId;
+        let resolvedId = optimisticResolvedId || requestedId;
+        let task = globalThis.__tmRuntimeState?.getTaskById?.(resolvedId, { includePending: true, preferPending: true })
+            || state.flatTasks?.[resolvedId]
+            || state.pendingInsertedTasks?.[resolvedId]
+            || null;
+        if (!task && resolvedId !== requestedId) {
+            task = globalThis.__tmRuntimeState?.getTaskById?.(requestedId, { includePending: true, preferPending: true })
+                || state.flatTasks?.[requestedId]
+                || state.pendingInsertedTasks?.[requestedId]
+                || null;
+        }
         if (!task) {
             try {
                 const nextResolved = await __tmResolveTaskIdFromAnyBlockId(requestedId);
@@ -10845,7 +12957,10 @@
             } catch (e) {}
         }
         if (!task && resolvedId && resolvedId !== requestedId) {
-            task = globalThis.__tmRuntimeState?.getFlatTaskById?.(resolvedId) || state.flatTasks?.[resolvedId] || null;
+            task = globalThis.__tmRuntimeState?.getTaskById?.(resolvedId, { includePending: true, preferPending: true })
+                || state.flatTasks?.[resolvedId]
+                || state.pendingInsertedTasks?.[resolvedId]
+                || null;
         }
         if (!task) {
             try { task = await __tmEnsureTaskInStateById(resolvedId || requestedId); } catch (e) { task = null; }
@@ -10907,7 +13022,12 @@ if (opts.refresh === false) return;
                 return;
             }
             try {
-                __tmRefreshMainViewInPlace({ withFilters: opts.withFilters !== false });
+                __tmScheduleViewRefresh({
+                    mode: 'current',
+                    withFilters: opts.withFilters !== false,
+                    reason: String(opts.reason || 'task-mutation').trim() || 'task-mutation',
+                    taskIds: Array.isArray(opts.taskIds) ? opts.taskIds.slice() : [],
+                });
                 refreshed = true;
             } catch (e) {}
             if (!refreshed) {
@@ -10923,6 +13043,7 @@ if (opts.refresh === false) return;
         const nextPatch = (patch && typeof patch === 'object') ? patch : {};
         if (!Object.keys(nextPatch).length) return { ok: true, changed: false, taskId: String(taskId || '').trim() };
         const hasStatusPatch = Object.prototype.hasOwnProperty.call(nextPatch, 'customStatus');
+        const explicitAttrTargetId = String(opts.attrTargetId || '').trim();
         if (hasStatusPatch) {
             __tmPushStatusDebug('meta-patch:start', {
                 taskId: String(taskId || '').trim(),
@@ -10938,13 +13059,22 @@ if (opts.refresh === false) return;
                 
             }
         } catch (e) {}
-        const context = await __tmResolveTaskMutationContext(taskId);
-        if (!context?.persistId) throw new Error('未找到任务');
+        let context = null;
+        try {
+            context = await __tmResolveTaskMutationContext(taskId);
+        } catch (e) {
+            throw e;
+        }
+        if (!context?.persistId) {
+            throw new Error('未找到任务');
+        }
         const inversePatch = __tmCaptureTaskPatchInverse(context.persistId, nextPatch);
+        const effectiveAttrTargetId = explicitAttrTargetId || context.attrHostId;
         const localAttrSuppressionIds = Array.from(new Set([
             context.requestedId,
             context.persistId,
             context.attrHostId,
+            effectiveAttrTargetId,
             __tmGetTaskAttrHostId(context.task),
             String(opts.broadcastTaskId || '').trim(),
         ].filter(Boolean)));
@@ -10981,7 +13111,7 @@ if (hasStatusPatch) {
             };
         }
         const suppressionIds = Array.from(new Set(__tmGetTaskSuppressionIds(context.persistId, context.task)
-            .concat([context.attrHostId])
+            .concat([context.attrHostId, effectiveAttrTargetId])
             .map((item) => String(item || '').trim())
             .filter(Boolean)));
         return await __tmMutationEngine.withSuppressedTasks(suppressionIds, async () => {
@@ -10994,19 +13124,28 @@ if (hasStatusPatch) {
                 }, suppressionIds, { force: true });
             }
             const persistOptions = {
-                queued: opts.queued === true,
-                background: opts.background === true,
+                queued: opts.queued === true || opts.wait === false,
+                background: opts.background === true || opts.wait === false,
+                wait: opts.wait,
                 skipFlush: opts.skipFlush,
                 docId: context.docId,
                 renderOptimistic: opts.renderOptimistic,
                 withFilters: opts.withFilters,
                 source: String(opts.source || '').trim(),
-                attrTargetId: context.attrHostId,
+                attrTargetId: effectiveAttrTargetId,
+                skipSnapshotPersist: opts.skipSnapshotPersist === true,
+                skipTaskIndexPersist: opts.skipTaskIndexPersist === true,
+                skipInteractionGate: opts.skipInteractionGate === true,
+                inlineQueuedPersist: opts.inlineQueuedPersist === true,
+                mirrorTaskAttrs: opts.mirrorTaskAttrs !== false,
+                syncMirrorTaskAttrs: opts.syncMirrorTaskAttrs === true,
                 previousAttachmentPaths: opts.previousAttachmentPaths,
                 previousAttachmentMeta: opts.previousAttachmentMeta,
                 previousAttachmentSlotCount: opts.previousAttachmentSlotCount,
             };
-            await __tmPersistMetaAndAttrsAsync(context.persistId, nextPatch, persistOptions);
+            await __tmPersistMetaAndAttrsAsync(context.persistId, nextPatch, {
+                ...persistOptions,
+});
             const settledInversePatch = Object.prototype.hasOwnProperty.call(nextPatch, 'attachments')
                 ? {
                     ...inversePatch,
@@ -11017,7 +13156,11 @@ if (hasStatusPatch) {
                 : inversePatch;
             let statusReadback = null;
             if (hasStatusPatch) {
-                try { statusReadback = await __tmReadDocCheckboxBlockAttrs(context.persistId); } catch (e) { statusReadback = null; }
+                if (persistOptions.wait === false || persistOptions.background === true || persistOptions.queued === true) {
+                    statusReadback = { queued: true };
+                } else {
+                    try { statusReadback = await __tmReadDocCheckboxBlockAttrs(context.persistId); } catch (e) { statusReadback = null; }
+                }
                 __tmPushStatusDebug('meta-patch:after-persist', {
                     requestedTaskId: context.requestedId,
                     persistId: context.persistId,
@@ -11028,6 +13171,8 @@ if (hasStatusPatch) {
             __tmApplyAttrPatchLocally(context.persistId, nextPatch, {
                 render: false,
                 withFilters: opts.withFilters !== false,
+                skipSnapshotPersist: opts.skipSnapshotPersist === true,
+                skipTaskIndexPersist: opts.skipTaskIndexPersist === true,
                 source: String(opts.source || 'attr-patch').trim() || 'attr-patch',
             });
             try {
@@ -11186,7 +13331,7 @@ if (hasStatusPatch) {
                 if (errorForFallback) throw errorForFallback;
                 throw new Error('无法解析任务 Markdown');
             }
-            const updateResult = await API.updateBlock(tid, nextMarkdown);
+            const updateResult = await __tmBackendAdapter.updateBlock(tid, nextMarkdown);
             const nextId = String(updateResult?.id || tid).trim() || tid;
             __tmPushStatusDebug('marker-update:fallback-success', {
                 taskId: tid,
@@ -11470,6 +13615,13 @@ __tmPushStatusDebug('apply-status:start', {
                 recordUndo: opts.recordUndo !== false,
                 broadcastTaskId: opts.broadcastTaskId || context.requestedId || context.persistId,
                 skipNoopCheck: true,
+                queued: opts.queued === true || opts.wait === false || (opts.forceImmediate !== true && opts.background !== false),
+                background: opts.background === true || opts.wait === false || (opts.forceImmediate !== true && opts.background !== false),
+                wait: opts.wait === true ? true : false,
+                skipFlush: opts.skipFlush,
+                mirrorTaskAttrs: opts.mirrorTaskAttrs !== false,
+                syncMirrorTaskAttrs: opts.syncMirrorTaskAttrs === true,
+                inlineQueuedPersist: opts.inlineQueuedPersist === true,
             });
         }
 
@@ -11515,16 +13667,24 @@ __tmPushStatusDebug('apply-status:start', {
                 __tmMarkNativeDocCheckboxStatusSyncIgnored([markerAnchorId, attrTargetId], nextStatusId, nextMarker, 1600);
                 await __tmPersistMetaAndAttrsAsync(context.persistId, persistPatch, {
                     attrTargetId,
-                    queued: opts.queued === true,
-                    background: opts.background === true,
+                    queued: opts.queued === true || opts.wait === false || (opts.forceImmediate !== true && opts.background !== false),
+                    background: opts.background === true || opts.wait === false || (opts.forceImmediate !== true && opts.background !== false),
+                    wait: opts.wait === true ? true : false,
                     skipFlush: opts.skipFlush,
+                    source: String(opts.source || 'task-status').trim() || 'task-status',
+                    mirrorTaskAttrs: opts.mirrorTaskAttrs !== false,
+                    syncMirrorTaskAttrs: opts.syncMirrorTaskAttrs === true,
                     saveMetaNow: false,
                     docId: context.docId,
                     renderOptimistic: false,
                     withFilters: opts.withFilters,
+                    inlineQueuedPersist: opts.inlineQueuedPersist === true,
                 });
-                let readback = null;
-                try { readback = await __tmReadDocCheckboxBlockAttrs(context.persistId); } catch (e) { readback = null; }
+                const isBackgroundPersist = opts.wait !== true && opts.forceImmediate !== true && opts.background !== false;
+                let readback = isBackgroundPersist ? { queued: true } : null;
+                if (!isBackgroundPersist) {
+                    try { readback = await __tmReadDocCheckboxBlockAttrs(context.persistId); } catch (e) { readback = null; }
+                }
                 __tmPushStatusDebug('apply-status:after-persist', {
                     requestedTaskId: context.requestedId,
                     persistId: context.persistId,
@@ -11660,10 +13820,14 @@ __tmPushStatusDebug('apply-status:start', {
         const statusOption = __tmFindStatusOptionById(requestedStatusId, statusOptions);
         if (!statusOption) throw new Error('状态不存在，请先在设置中配置');
         const nextStatusId = String(statusOption.id || requestedStatusId).trim();
+        const backgroundBatch = opts.forceImmediate !== true && opts.wait !== true && opts.background !== false;
         return await __tmMutationEngine.requestTaskPatchBatch(ids, { customStatus: nextStatusId }, {
             source: String(opts.source || 'task-status-batch').trim() || 'task-status-batch',
             label: __tmGetUndoLabel(opts.label, '状态'),
             reason: String(opts.source || 'task-status-batch').trim() || 'task-status-batch',
+            background: backgroundBatch ? true : opts.background,
+            wait: backgroundBatch ? false : opts.wait,
+            skipInteractionGate: backgroundBatch ? true : opts.skipInteractionGate,
         });
     }
 
@@ -12974,6 +15138,23 @@ async function __tmRefreshAfterWake(reason) {
     function __tmGetTxRefreshRetryMeta(source = 'ws-main', options = {}) {
         const opts = (options && typeof options === 'object') ? options : {};
         const sourceLabel = String(source || '').trim() || 'ws-main';
+        if (sourceLabel.includes('ws-main')) {
+            try {
+                const createWaitMs = typeof __tmGetLocalCreateTxSuppressionWaitMs === 'function'
+                    ? __tmGetLocalCreateTxSuppressionWaitMs(160)
+                    : 0;
+                if (createWaitMs > 0) {
+                    return {
+                        allowRun: false,
+                        parkUntilVisible: false,
+                        parkUntilScrollIdle: false,
+                        reason: 'local-create-tx',
+                        waitMs: createWaitMs,
+                        source: sourceLabel,
+                    };
+                }
+            } catch (e) {}
+        }
         const gateMeta = __tmGetBackgroundRefreshGateMeta(sourceLabel, {
             ignoreContextQuiet: opts.ignoreContextQuiet === true,
         });
@@ -13035,6 +15216,14 @@ async function __tmRefreshAfterWake(reason) {
         const force = options?.force === true;
         const bypassThrottle = options?.bypassThrottle === true || options?.ignoreThrottle === true;
         const sourceLabel = String(source || '').trim() || 'unknown';
+        if (sourceLabel.includes('ws-main')) {
+            try {
+                const createWaitMs = typeof __tmGetLocalCreateTxSuppressionWaitMs === 'function'
+                    ? __tmGetLocalCreateTxSuppressionWaitMs(120)
+                    : 0;
+                if (createWaitMs > 0) return false;
+            } catch (e) {}
+        }
         if (!__tmIsPluginVisibleNow()) {
             return false;
         }
@@ -13078,6 +15267,13 @@ async function __tmRefreshAfterWake(reason) {
             docIds: Array.isArray(options?.affectedDocIds) ? options.affectedDocIds.slice() : Array.from(__tmTxTaskRefreshDocIds),
             blockIds: Array.isArray(options?.affectedBlockIds) ? options.affectedBlockIds.slice() : Array.from(__tmTxTaskRefreshBlockIds),
         };
+        const hasActiveDetailNoteView = (() => {
+            try {
+                if (String(state?.taskDetailNoteView?.mode || '').trim() === 'note'
+                    && document.querySelector?.('[data-tm-detail-note-mount]')) return true;
+            } catch (e) {}
+            return false;
+        })();
         __tmTabEnterAutoRefreshLastTs = now;
         __tmTabEnterAutoRefreshInFlight = true;
         const startedAt = __tmPerfNow();
@@ -13089,6 +15285,11 @@ async function __tmRefreshAfterWake(reason) {
             if (!lateGateMeta.allowRun) {
                 return false;
             }
+            if (hasActiveDetailNoteView && hadExternalDirty) {
+                __tmClearExternalTaskTxDirty();
+                __tmClearPendingTxRefreshTargets(pendingTargets);
+                return true;
+            }
             if (!hadQuickbarDirty && hadExternalDirty) {
                 try {
                     const incrementalOk = await __tmRefreshAffectedDocsIncrementally({
@@ -13097,6 +15298,8 @@ async function __tmRefreshAfterWake(reason) {
                         withFilters: true,
                         reason: `auto:${sourceLabel}:incremental`,
                         deferIfDetailBusy: options?.deferIfDetailBusy !== false,
+                        allowCalendar: hasActiveDetailNoteView,
+                        invalidateCalendarCache: hasActiveDetailNoteView,
                     });
                     if (incrementalOk) {
                         __tmClearExternalTaskTxDirty();
@@ -13556,8 +15759,17 @@ refreshOk = false;
                 const val = !!pinned;
                 task.pinned = val;
                 try { MetaStore.set(id, { pinned: val }); } catch (e) {}
-                try { applyFilters(); } catch (e) {}
-                if (state.modal && document.body.contains(state.modal)) render();
+                try { __tmInvalidateFilteredTaskDerivedStateCache(); } catch (e) {}
+                try {
+                    __tmScheduleViewRefresh({
+                        mode: 'current',
+                        withFilters: true,
+                        reason: 'pinned-changed',
+                        taskIds: [id],
+                    });
+                } catch (e) {
+                    try { __tmScheduleRender({ withFilters: true, reason: 'pinned-changed-fallback' }); } catch (e2) {}
+                }
             } catch (e) {}
         };
         __tmPinnedListenerAdded = true;
@@ -14298,20 +16510,36 @@ refreshOk = false;
 
     function __tmBuildDocHeadingBuckets(tasks, noHeadingLabel) {
         const list = Array.isArray(tasks) ? tasks : [];
-        const buckets = [];
-        const seen = new Set();
-        // 修复排序逻辑：严格按照任务在文档中的顺序来生成 buckets
-        // 首先按照文档内顺序对任务进行排序
+        const bucketMap = new Map();
         const sortedList = list.slice().sort(__tmCompareTasksByDocFlow);
-        // 然后提取每个任务对应的 bucket，按出现顺序依次添加
-        // 这样可以确保 buckets 的顺序与任务在文档中的顺序一致
-        sortedList.forEach((task) => {
+        sortedList.forEach((task, docOrder) => {
             const b = __tmGetDocHeadingBucket(task, noHeadingLabel);
-            if (!b || seen.has(b.key)) return;
-            seen.add(b.key);
-            buckets.push(b);
+            const key = String(b?.key || '').trim();
+            if (!b || !key) return;
+            const rank = Number(task?.h2Rank);
+            const entry = bucketMap.get(key);
+            if (!entry) {
+                bucketMap.set(key, {
+                    bucket: b,
+                    rank: Number.isFinite(rank) ? rank : Number.NaN,
+                    docOrder,
+                });
+                return;
+            }
+            if (Number.isFinite(rank) && (!Number.isFinite(Number(entry.rank)) || rank < Number(entry.rank))) {
+                entry.rank = rank;
+            }
+            entry.docOrder = Math.min(Number(entry.docOrder) || 0, docOrder);
         });
-        return buckets;
+        return Array.from(bucketMap.values()).sort((a, b) => {
+            const ar = Number(a?.rank);
+            const br = Number(b?.rank);
+            if (Number.isFinite(ar) && Number.isFinite(br) && ar !== br) return ar - br;
+            const ai = Number(a?.docOrder);
+            const bi = Number(b?.docOrder);
+            if (Number.isFinite(ai) && Number.isFinite(bi) && ai !== bi) return ai - bi;
+            return String(a?.bucket?.key || '').localeCompare(String(b?.bucket?.key || ''));
+        }).map((entry) => entry.bucket);
     }
 
     let __tmKanbanColsHtmlCache = null;
@@ -15226,6 +17454,7 @@ refreshOk = false;
     const __TM_TIMELINE_CARD_FIELD_OPTIONS = Object.freeze([
         { key: 'title', label: '任务名称' },
         { key: 'status', label: '状态标签' },
+        { key: 'taskCompleteAt', label: '完成时间' },
     ]);
 
     const __TM_TIMELINE_CARD_FIELD_DEFAULTS = Object.freeze(['title', 'status']);
@@ -16613,7 +18842,7 @@ refreshOk = false;
         const id = String(docId || '').trim();
         if (!id || __tmIsOtherBlockTabId(id)) return '';
         const normalizedAlias = __tmNormalizeDocAliasValue(alias);
-        await API.setAttrs(id, { alias: normalizedAlias });
+        await __tmBackendAdapter.setAttrs(id, { alias: normalizedAlias });
         __tmSyncDocAliasInState(id, normalizedAlias);
         __tmRefreshTaskDocDisplayNames({ docId: id });
         return normalizedAlias;
@@ -16741,7 +18970,7 @@ refreshOk = false;
         if (!id) return __tmNormalizeDocExpectedMeta({});
         const normalizedValue = value ? __tmNormalizeDateOnly(value) : '';
         const attrKey = field === 'startDate' ? __TM_DOC_EXPECTED_START_ATTR : __TM_DOC_EXPECTED_DEADLINE_ATTR;
-        await API.setAttrs(id, { [attrKey]: normalizedValue });
+        await __tmBackendAdapter.setAttrs(id, { [attrKey]: normalizedValue });
         return await __tmLoadDocExpectedMeta(id, true);
     }
 
@@ -18562,44 +20791,94 @@ return true;
                     headerEl: ganttHeader,
                     bodyEl: ganttBody,
                     rowModel,
-                    getTaskById: (id) => state.flatTasks[String(id)] || state.pendingInsertedTasks?.[String(id)] || null,
+                    getTaskById: (id) => {
+                        const tid = String(id || '').trim();
+                        return globalThis.__tmRuntimeState?.getTaskById?.(tid, { includePending: true, preferPending: true })
+                            || state.flatTasks?.[tid]
+                            || state.pendingInsertedTasks?.[tid]
+                            || null;
+                    },
                     viewState: state.ganttView,
                     onUpdateTaskDates: async (taskId, patch) => {
                         const id = String(taskId || '').trim();
                         if (!id) return;
-                        const task = state.flatTasks[id];
+                        const task = globalThis.__tmRuntimeState?.getTaskById?.(id, { includePending: true, preferPending: true })
+                            || state.flatTasks?.[id]
+                            || state.pendingInsertedTasks?.[id]
+                            || null;
                         if (!task) return;
-                        const startDate = String(patch?.startDate || '').trim();
-                        const completionTime = String(patch?.completionTime || '').trim();
-                        const nextStart = startDate ? __tmNormalizeDateOnly(startDate) : '';
-                        const nextEnd = completionTime ? __tmNormalizeDateOnly(completionTime) : '';
-                        task.startDate = nextStart;
-                        task.completionTime = nextEnd;
+                        const hasStartDate = Object.prototype.hasOwnProperty.call(patch || {}, 'startDate');
+                        const hasCompletionTime = Object.prototype.hasOwnProperty.call(patch || {}, 'completionTime');
+                        if (!hasStartDate && !hasCompletionTime) return;
+                        const datePatch = {};
+                        if (hasStartDate) {
+                            const startDate = String(patch?.startDate || '').trim();
+                            const nextStart = startDate ? __tmNormalizeDateOnly(startDate) : '';
+                            datePatch.startDate = nextStart;
+                            task.startDate = nextStart;
+                            task.start_date = nextStart;
+                        }
+                        if (hasCompletionTime) {
+                            const completionTime = String(patch?.completionTime || '').trim();
+                            const nextEnd = completionTime ? __tmNormalizeDateOnly(completionTime) : '';
+                            datePatch.completionTime = nextEnd;
+                            task.completionTime = nextEnd;
+                            task.completion_time = nextEnd;
+                        }
                         try {
-                            await __tmPersistMetaAndAttrsAsync(id, { startDate: nextStart, completionTime: nextEnd }, { background: true, skipFlush: true });
+                            const patchTask = globalThis.__tmRequireTaskOutbox?.('patchTask');
+                            if (typeof patchTask !== 'function') throw new Error('任务写入队列未就绪: patchTask');
+                            void patchTask(id, datePatch, {
+                                source: 'timeline-gantt-drag',
+                                label: '甘特日期',
+                                reason: 'timeline-gantt-drag',
+                                background: true,
+                                wait: false,
+                                withFilters: false,
+                                skipSettledRefresh: true,
+                                skipInteractionGate: true,
+                            }).catch((error) => {
+                                try { __tmReportTaskOutboxFailure(error, { action: '甘特日期' }); } catch (e2) {}
+                            });
                         } catch (e) {
                             hint(`❌ 更新失败: ${e.message}`, 'error');
                         }
                         if (__tmCanUpdateTimelineDatesInPlace(task) && __tmUpdateTimelineTaskInDOM(id)) {
                             return;
                         }
-                        __tmRefreshMainViewInPlace({ withFilters: true });
+                        __tmScheduleViewRefresh({ mode: 'current', withFilters: false, reason: 'timeline-gantt-drag-fallback', taskIds: [id] });
                     },
                     onUpdateTaskMeta: async (taskId, patch) => {
                         const id = String(taskId || '').trim();
                         if (!id || !patch || typeof patch !== 'object') return;
-                        const task = state.flatTasks[id];
+                        const task = globalThis.__tmRuntimeState?.getTaskById?.(id, { includePending: true, preferPending: true })
+                            || state.flatTasks?.[id]
+                            || state.pendingInsertedTasks?.[id]
+                            || null;
                         if (!task) return;
                         const hasMilestone = Object.prototype.hasOwnProperty.call(patch, 'milestone');
                         if (!hasMilestone) return;
                         const val = !!patch.milestone;
                         task.milestone = val;
                         try {
-                            await __tmPersistMetaAndAttrsAsync(id, { milestone: val ? '1' : '' }, { background: true, skipFlush: true });
+                            const patchTask = globalThis.__tmRequireTaskOutbox?.('patchTask');
+                            if (typeof patchTask !== 'function') throw new Error('任务写入队列未就绪: patchTask');
+                            void patchTask(id, { milestone: val ? '1' : '' }, {
+                                source: 'timeline-gantt-meta',
+                                label: '甘特字段',
+                                reason: 'timeline-gantt-meta',
+                                background: true,
+                                wait: false,
+                                withFilters: false,
+                                skipSettledRefresh: true,
+                                skipInteractionGate: true,
+                            }).catch((error) => {
+                                try { __tmReportTaskOutboxFailure(error, { action: '甘特字段' }); } catch (e2) {}
+                            });
                         } catch (e) {
                             hint(`❌ 更新失败: ${e.message}`, 'error');
                         }
-                        __tmRefreshMainViewInPlace({ withFilters: true });
+                        __tmScheduleViewRefresh({ mode: 'current', withFilters: false, reason: 'timeline-gantt-meta-fallback', taskIds: [id] });
                     },
                 });
             } catch (e) {}
@@ -18678,6 +20957,35 @@ return true;
         const shell = document.createElement('div');
         try { shell.innerHTML = String(html || '').trim(); } catch (e) { return null; }
         return shell.firstElementChild instanceof HTMLElement ? shell.firstElementChild : null;
+    }
+
+    function __tmPreserveActiveDetailNotePanelDuringBodySwap(currentBody, nextBody) {
+        const fromBody = currentBody instanceof Element ? currentBody : null;
+        const toBody = nextBody instanceof Element ? nextBody : null;
+        if (!fromBody || !toBody) return false;
+        const panelIds = [
+            'tmChecklistDetailPanel',
+            'tmChecklistSheetPanel',
+            'tmKanbanDetailPanel',
+            'tmTaskDetailSheetPanel',
+        ];
+        let preserved = false;
+        panelIds.forEach((panelId) => {
+            if (preserved) return;
+            const oldPanel = fromBody.querySelector?.(`#${CSS.escape(panelId)}`);
+            if (!(oldPanel instanceof HTMLElement)) return;
+            const isNotePanel = oldPanel.getAttribute('data-tm-detail-view') === 'note'
+                || oldPanel.__tmTaskDetailNoteActive === true
+                || !!oldPanel.querySelector?.('[data-tm-detail-note-mount]');
+            if (!isNotePanel) return;
+            const nextPanel = toBody.querySelector?.(`#${CSS.escape(panelId)}`);
+            if (!(nextPanel instanceof HTMLElement)) return;
+            try {
+                nextPanel.replaceWith(oldPanel);
+                preserved = true;
+            } catch (e) {}
+        });
+        return preserved;
     }
 
     function __tmCleanupChecklistScrollFxForEl(paneEl) {
@@ -19146,6 +21454,7 @@ const renderBodyHtml = state.renderChecklistBodyHtml;
             return true;
         }
         __tmClearChecklistProjectionGroupRefresh();
+        __tmPreserveActiveDetailNotePanelDuringBodySwap(body, nextBody);
         __tmCleanupChecklistScrollFxForEl(pane);
         try { body.replaceWith(nextBody); } catch (e) { return false; }
         try { __tmBindChecklistScrollVisibility(modal); } catch (e) {}
@@ -19243,7 +21552,10 @@ const renderBodyHtml = state.renderChecklistBodyHtml;
         }
         const nextBody = __tmBuildElementFromHtml(renderBodyHtml());
         if (!(nextBody instanceof HTMLElement)) return false;
-        try { __tmClearKanbanDetailFloatingHandlers(); } catch (e) {}
+        const preservedNotePanel = __tmPreserveActiveDetailNotePanelDuringBodySwap(body, nextBody);
+        if (!preservedNotePanel) {
+            try { __tmClearKanbanDetailFloatingHandlers(); } catch (e) {}
+        }
         try { body.replaceWith(nextBody); } catch (e) { return false; }
         try { __tmBindKanbanPan(modal); } catch (e) {}
         try { __tmScheduleKanbanBottomNavAvoidance(modal); } catch (e) {}
@@ -19296,6 +21608,7 @@ const renderBodyHtml = state.renderChecklistBodyHtml;
         const sidebarTop = Number(sidebar?.scrollTop || 0);
         const nextBody = __tmBuildElementFromHtml(renderBodyHtml());
         if (!(nextBody instanceof HTMLElement)) return false;
+        __tmPreserveActiveDetailNotePanelDuringBodySwap(body, nextBody);
         try { body.replaceWith(nextBody); } catch (e) { return false; }
         try { __tmBindWhiteboardViewportInput(modal); } catch (e) {}
         try { if (typeof __tmUpdateWhiteboardNavigator === 'function') __tmUpdateWhiteboardNavigator(); } catch (e) {}

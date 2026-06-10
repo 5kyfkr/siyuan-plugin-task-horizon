@@ -1,3 +1,21 @@
+    async function __tmMoveBlockViaBackendAdapter(blockId, placement = {}) {
+        const id = String(blockId || '').trim();
+        if (!id) throw new Error('移动失败：缺少块 ID');
+        const adapter = globalThis.__tmTaskHorizonBackendAdapter;
+        if (adapter && typeof adapter.moveBlock === 'function') {
+            return await adapter.moveBlock(id, placement || {});
+        }
+        return await API.moveBlock(id, placement || {});
+    }
+
+    async function __tmFlushBackendAdapterTransaction() {
+        const adapter = globalThis.__tmTaskHorizonBackendAdapter;
+        if (adapter && typeof adapter.flushTransaction === 'function') {
+            return await adapter.flushTransaction();
+        }
+        return await API.call('/api/sqlite/flushTransaction', {});
+    }
+
     function __tmOpenColorPickerDialog(titleText, initialColor, onApply, options = {}) {
         __tmRemoveElementsById('tm-color-picker-backdrop');
         const swatches = Array.isArray(options?.swatches) && options.swatches.length > 0 ? options.swatches : [
@@ -2680,12 +2698,11 @@ return Number(state.contextInteractionQuietUntil || 0);
                     }
                     try {
                         if (!verifyContextChanged && !verifiedUnchanged && Array.isArray(state.__tmLoadedDocIdsForTasks) && state.__tmLoadedDocIdsForTasks.length > 0) {
-                            __tmSchedulePersistTaskSnapshot({
+                            globalThis.__tmTaskSnapshotService?.schedulePersist?.({
                                 docIds: state.__tmLoadedDocIdsForTasks,
                                 groupId,
                                 queryLimit: __TM_TASK_INDEX_QUERY_LIMIT,
                                 delayMs: 350,
-                                allowCacheFirstPaintPersist: true,
                             });
                         } else if (verifiedUnchanged) {
                             try {
@@ -2717,7 +2734,8 @@ return Number(state.contextInteractionQuietUntil || 0);
     async function __tmRefreshVisibleViewAfterTaskSnapshotSync(reason = 'task-snapshot-sync') {
         const source = String(reason || 'task-snapshot-sync').trim() || 'task-snapshot-sync';
         try {
-            if (typeof __tmRefreshTaskSnapshotStoreCacheIfChanged !== 'function') {
+            const snapshotService = globalThis.__tmTaskSnapshotService || null;
+            if (!snapshotService || typeof snapshotService.refreshCache !== 'function') {
                 return false;
             }
             if (typeof __tmIsPluginVisibleNow === 'function' && !__tmIsPluginVisibleNow()) {
@@ -2735,7 +2753,7 @@ return Number(state.contextInteractionQuietUntil || 0);
                 return false;
             }
             state.__tmTaskSnapshotSyncLastCheckAt = now;
-            const meta = await __tmRefreshTaskSnapshotStoreCacheIfChanged({ source });
+            const meta = await snapshotService.refreshCache({ source });
             if (!meta?.changed) {
                 return false;
             }
@@ -4097,17 +4115,17 @@ if (mode === 'checklist') {
             const parentId = String(targetParentId || '').trim();
             if (!blockId || !parentId) throw new Error('移动失败：缺少目标容器');
             if (appendToBottom) {
-                if (anchors.previousID) await API.moveBlock(blockId, { previousID: anchors.previousID, parentID: parentId });
-                else await API.moveBlock(blockId, { parentID: parentId });
+                if (anchors.previousID) await __tmMoveBlockViaBackendAdapter(blockId, { previousID: anchors.previousID, parentID: parentId });
+                else await __tmMoveBlockViaBackendAdapter(blockId, { parentID: parentId });
                 anchors.previousID = blockId;
                 return;
             }
             if (anchors.nextID) {
-                await API.moveBlock(blockId, { nextID: anchors.nextID, parentID: parentId });
+                await __tmMoveBlockViaBackendAdapter(blockId, { nextID: anchors.nextID, parentID: parentId });
                 return;
             }
-            if (anchors.previousID) await API.moveBlock(blockId, { previousID: anchors.previousID, parentID: parentId });
-            else await API.moveBlock(blockId, { parentID: parentId });
+            if (anchors.previousID) await __tmMoveBlockViaBackendAdapter(blockId, { previousID: anchors.previousID, parentID: parentId });
+            else await __tmMoveBlockViaBackendAdapter(blockId, { parentID: parentId });
             anchors.previousID = blockId;
         };
 
@@ -4149,7 +4167,13 @@ if (mode === 'checklist') {
         }
         try { __tmLoadSelectedDocumentsPreserveChecklistScroll().catch(() => {}); } catch (e) {}
         try {
-            if (__tmIsPluginVisibleNow()) __tmRefreshMainViewInPlace({ withFilters: true });
+            if (__tmIsPluginVisibleNow()) {
+                __tmScheduleViewRefresh({
+                    mode: 'current',
+                    withFilters: true,
+                    reason: 'move-block-to-daily-note',
+                });
+            }
         } catch (e) {}
         try { globalThis.__tmCalendar?.refreshInPlace?.({ hard: false }); } catch (e) {}
 
@@ -4297,14 +4321,22 @@ if (mode === 'checklist') {
             return __tmBuildTaskDateDraftFromTaskLike(blockLike || {});
         })();
         const taskLikeForColor = task || blockLike || {};
+        const extTaskDateColorAttr = typeof __tmReadTaskMetaAttrValue === 'function'
+            ? __tmReadTaskMetaAttrValue(ext, 'taskDateColor')
+            : '';
+        const taskLikeDateColorAttr = typeof __tmReadTaskMetaAttrValue === 'function'
+            ? __tmReadTaskMetaAttrValue(taskLikeForColor, 'taskDateColor')
+            : '';
         const taskDateColor = String(
             ext.taskDateColor
             || ext.task_date_color
             || ext.custom_task_date_color
+            || extTaskDateColorAttr
             || ext['custom-task-date-color']
             || taskLikeForColor.taskDateColor
             || taskLikeForColor.task_date_color
             || taskLikeForColor.custom_task_date_color
+            || taskLikeDateColorAttr
             || taskLikeForColor['custom-task-date-color']
             || ''
         ).trim();
@@ -4730,13 +4762,23 @@ if (mode === 'checklist') {
     }
 
     function __tmGetMultiSelectTargetIds() {
-        return __tmGetMultiSelectedTaskIds().filter((id) => !!(globalThis.__tmRuntimeState?.getFlatTaskById?.(id) || state.flatTasks?.[id]));
+        return __tmGetMultiSelectedTaskIds().filter((id) => !!(
+            globalThis.__tmRuntimeState?.getTaskById?.(id, { includePending: true, preferPending: true })
+            || state.pendingInsertedTasks?.[id]
+            || state.flatTasks?.[id]
+        ));
     }
 
     function __tmBuildBatchResultHint(result, actionLabel) {
         const ok = Number(result?.successCount) || 0;
         const fail = Number(result?.failureCount) || 0;
         const label = String(actionLabel || '批量更新').trim() || '批量更新';
+        const backgroundQueued = result?.backgroundQueued === true;
+        if (backgroundQueued) {
+            if (ok > 0 && fail <= 0) return `✅ ${label}已应用（后台写入中，${ok} 项）`;
+            if (ok > 0 && fail > 0) return `⚠ ${label}已部分应用：成功 ${ok} 项，失败 ${fail} 项`;
+            return `❌ ${label}入队失败`;
+        }
         if (ok > 0 && fail <= 0) return `✅ ${label}成功（${ok} 项）`;
         if (ok > 0 && fail > 0) return `⚠ ${label}完成：成功 ${ok} 项，失败 ${fail} 项`;
         return `❌ ${label}失败`;
@@ -4757,6 +4799,9 @@ if (mode === 'checklist') {
             source: String(options?.source || 'batch-attr').trim() || 'batch-attr',
             label: String(options?.actionLabel || '批量更新').trim() || '批量更新',
             reason: String(options?.source || 'batch-attr').trim() || 'batch-attr',
+            background: true,
+            wait: false,
+            skipInteractionGate: true,
         });
         const failureCount = Number(result?.failureCount) || 0;
         const actionLabel = String(options.actionLabel || '批量更新').trim() || '批量更新';
@@ -4809,7 +4854,10 @@ if (mode === 'checklist') {
             let defaultValue = '';
             let hasCommonValue = true;
             targetIds.forEach((id, index) => {
-                const task = globalThis.__tmRuntimeState?.getFlatTaskById?.(id) || state.flatTasks?.[id] || null;
+                const task = globalThis.__tmRuntimeState?.getTaskById?.(id, { includePending: true, preferPending: true })
+                    || state.pendingInsertedTasks?.[id]
+                    || state.flatTasks?.[id]
+                    || null;
                 const value = __tmNormalizeDurationPresetValue(task?.duration || task?.custom_duration || '');
                 if (index === 0) defaultValue = value;
                 else if (value !== defaultValue) hasCommonValue = false;
@@ -4865,6 +4913,9 @@ if (mode === 'checklist') {
                 source: 'multi-status',
                 label: '状态',
                 reason: 'multi-status',
+                background: true,
+                wait: false,
+                skipInteractionGate: true,
             });
             hint(__tmBuildBatchResultHint(result, '批量设置状态'), (result.successCount > 0 && result.failureCount <= 0) ? 'success' : (result.successCount > 0 ? 'warning' : 'error'));
         } finally {
@@ -4916,10 +4967,138 @@ if (mode === 'checklist') {
             label: targetDone ? '批量完成' : '批量取消完成',
             reason: 'multi-done',
             suppressHint: true,
+            background: true,
+            wait: false,
+            skipInteractionGate: true,
         });
         try { __tmRefreshMultiSelectUiInPlace(state.modal, { renderFallback: false }); } catch (e) {}
         const actionLabel = targetDone ? '批量完成' : '批量取消完成';
         hint(__tmBuildBatchResultHint(result, actionLabel), (result.successCount > 0 && result.failureCount <= 0) ? 'success' : (result.successCount > 0 ? 'warning' : 'error'));
+        return result;
+    }
+
+    function __tmGetTopLevelMultiSelectTaskIds(ids) {
+        const selectedIds = Array.from(new Set((Array.isArray(ids) ? ids : [])
+            .map((id) => String(id || '').trim())
+            .filter(Boolean)));
+        if (!selectedIds.length) return [];
+        const selectedSet = new Set(selectedIds);
+        const parentById = new Map();
+        const walk = (tasks, parentId = '') => {
+            (Array.isArray(tasks) ? tasks : []).forEach((task) => {
+                const tid = String(task?.id || '').trim();
+                if (!tid) return;
+                parentById.set(tid, String(parentId || '').trim());
+                walk(task?.children, tid);
+            });
+        };
+        (Array.isArray(state.taskTree) ? state.taskTree : []).forEach((doc) => walk(doc?.tasks, ''));
+        const hasSelectedAncestor = (id) => {
+            const seen = new Set();
+            let parentId = String(parentById.get(id) || '').trim();
+            while (parentId && !seen.has(parentId)) {
+                if (selectedSet.has(parentId)) return true;
+                seen.add(parentId);
+                parentId = String(parentById.get(parentId) || '').trim();
+            }
+            return false;
+        };
+        return selectedIds.filter((id) => !hasSelectedAncestor(id));
+    }
+
+    async function __tmBatchDeleteSelectedTasks() {
+        const selectedIds = __tmGetMultiSelectTargetIds();
+        if (!selectedIds.length) {
+            hint('⚠ 请先选择至少一条任务', 'warning');
+            return { successCount: 0, failureCount: 0, failures: [] };
+        }
+        let ok = false;
+        try {
+            ok = await showConfirm('批量删除任务', `确定要删除选中的 ${selectedIds.length} 条任务吗？此操作不可恢复。`);
+        } catch (e) {
+            try {
+                ok = !!confirm(`确定要删除选中的 ${selectedIds.length} 条任务吗？此操作不可恢复。`);
+            } catch (e2) {
+                ok = false;
+            }
+        }
+        if (!ok) return { successCount: 0, failureCount: 0, failures: [] };
+
+        const deleteIds = __tmGetTopLevelMultiSelectTaskIds(selectedIds);
+        const failures = [];
+        const skippedIds = [];
+        const jobs = [];
+        deleteIds.forEach((id) => {
+            const task = globalThis.__tmRuntimeState?.getTaskById?.(id, { includePending: true, preferPending: true })
+                || state.pendingInsertedTasks?.[id]
+                || state.flatTasks?.[id]
+                || null;
+            if (!task) {
+                failures.push({ id, error: new Error('未找到任务') });
+                return;
+            }
+            if (typeof __tmIsCollectedOtherBlockTask === 'function' && __tmIsCollectedOtherBlockTask(task)) {
+                skippedIds.push(id);
+                return;
+            }
+            if (!__tmEnsureEditableTaskLike(task, '批量删除')) {
+                skippedIds.push(id);
+                return;
+            }
+            const snapshot = __tmCaptureTaskLocalSnapshot(id);
+            const scheduleCleanupTaskIds = __tmCollectTaskTreeIdsForScheduleCleanup(snapshot?.task || task, id);
+            const docId = String(task?.root_id || task?.docId || '').trim();
+            jobs.push({
+                id,
+                docId,
+                scheduleCleanupTaskIds,
+                snapshot,
+            });
+        });
+
+        if (!jobs.length) {
+            const result = { successCount: 0, failureCount: failures.length + skippedIds.length, failures };
+            hint(result.failureCount > 0 ? __tmBuildBatchResultHint(result, '批量删除') : '⚠ 未找到可批量删除的任务', result.failureCount > 0 ? 'error' : 'warning');
+            return result;
+        }
+
+        try {
+            const selectedSet = new Set(selectedIds);
+            __tmSetMultiSelectedTaskIds(__tmGetMultiSelectedTaskIds().filter((id) => !selectedSet.has(String(id || '').trim())), { render: false });
+            __tmRefreshMultiSelectUiInPlace(state.modal, { renderFallback: false });
+        } catch (e) {}
+
+        const pendingDeletes = jobs.map((job) => {
+            try {
+                const deleteTask = globalThis.__tmRequireTaskOutbox?.('deleteTask');
+                if (typeof deleteTask !== 'function') throw new Error('任务写入队列未就绪: deleteTask');
+                return Promise.resolve(deleteTask(job.id, {
+                    docId: job.docId,
+                    scheduleCleanupTaskIds: job.scheduleCleanupTaskIds,
+                    snapshot: job.snapshot,
+                    wait: false,
+                }))
+                    .then(() => ({ id: job.id, ok: true }))
+                    .catch((error) => ({ id: job.id, ok: false, error: error instanceof Error ? error : new Error(String(error || '删除失败')) }));
+            } catch (error) {
+                return Promise.resolve({ id: job.id, ok: false, error: error instanceof Error ? error : new Error(String(error || '删除失败')) });
+            }
+        });
+        const result = {
+            successCount: jobs.length,
+            failureCount: failures.length + skippedIds.length,
+            failures,
+        };
+        Promise.all(pendingDeletes).then((settled) => {
+            const failed = (Array.isArray(settled) ? settled : []).filter((item) => !item?.ok);
+            if (failed.length > 0) {
+                try { hint(`⚠ 批量删除有 ${failed.length} 项写入失败`, 'warning'); } catch (e) {}
+            }
+        }).catch((e) => {
+            try { hint(`⚠ 批量删除写入失败: ${e.message}`, 'warning'); } catch (err) {}
+        });
+        try { __tmScheduleRender({ withFilters: true, reason: 'multi-select-batch-delete' }); } catch (e) {}
+        hint(__tmBuildBatchResultHint(result, '批量删除'), (result.successCount > 0 && result.failureCount <= 0) ? 'success' : (result.successCount > 0 ? 'warning' : 'error'));
         return result;
     }
 
@@ -5041,6 +5220,10 @@ if (mode === 'checklist') {
         await __tmBatchSetCustomField();
     };
 
+    window.tmMultiSelectBatchDelete = async function() {
+        await __tmBatchDeleteSelectedTasks();
+    };
+
     function __tmCloseMultiSelectMoreMenu() {
         try {
             if (state.multiSelectMenuCloseHandler) {
@@ -5058,6 +5241,7 @@ if (mode === 'checklist') {
         btn.type = 'button';
         btn.className = 'tm-multi-bulkbar__menu-item';
         if (options.disabled) btn.disabled = true;
+        if (options.danger) btn.style.color = 'var(--b3-theme-error)';
         btn.innerHTML = `<span class="tm-multi-bulkbar__menu-icon">${__tmPhosphorBoldSvg(iconName, { size: 14, className: 'tm-multi-bulkbar__menu-icon-svg' })}</span><span>${esc(String(label || '').trim())}</span>`;
         btn.onclick = async (ev) => {
             try { ev.preventDefault(); } catch (e) {}
@@ -5099,6 +5283,12 @@ if (mode === 'checklist') {
             menu.appendChild(separator);
         }
         menu.appendChild(__tmBuildMultiSelectMenuItem('自定义列', 'chart-column', () => window.tmMultiSelectBatchSetCustomField?.()));
+        {
+            const separator = document.createElement('div');
+            separator.className = 'tm-multi-bulkbar__menu-separator';
+            menu.appendChild(separator);
+        }
+        menu.appendChild(__tmBuildMultiSelectMenuItem('删除任务', 'trash', () => window.tmMultiSelectBatchDelete?.(), { danger: true }));
 
         document.body.appendChild(menu);
         const rect = anchor.getBoundingClientRect();
@@ -5270,8 +5460,10 @@ if (mode === 'checklist') {
             const nextId = await __tmResolveTaskIdFromAnyBlockId(rawId);
             if (nextId) resolvedId = String(nextId).trim();
         } catch (e) {}
-        let task = globalThis.__tmRuntimeState?.getFlatTaskById?.(resolvedId)
-            || globalThis.__tmRuntimeState?.getFlatTaskById?.(rawId)
+        let task = globalThis.__tmRuntimeState?.getTaskById?.(resolvedId, { includePending: true, preferPending: true })
+            || globalThis.__tmRuntimeState?.getTaskById?.(rawId, { includePending: true, preferPending: true })
+            || state.pendingInsertedTasks?.[resolvedId]
+            || state.pendingInsertedTasks?.[rawId]
             || state.flatTasks?.[resolvedId]
             || state.flatTasks?.[rawId]
             || null;
@@ -5387,8 +5579,21 @@ if (mode === 'checklist') {
     }
 
     function __tmBuildTaskDetailMoreActions(taskId) {
-        const tid = String(taskId || '').trim();
-        const task = tid ? (globalThis.__tmRuntimeState?.getFlatTaskById?.(tid) || state.flatTasks?.[tid] || null) : null;
+        const rawTid = String(taskId || '').trim();
+        const tid = rawTid && typeof __tmResolveOptimisticTaskId === 'function'
+            ? (String(__tmResolveOptimisticTaskId(rawTid) || rawTid).trim() || rawTid)
+            : rawTid;
+        const task = tid
+            ? (
+                globalThis.__tmRuntimeState?.getTaskById?.(tid, { includePending: true, preferPending: true })
+                || (rawTid !== tid ? globalThis.__tmRuntimeState?.getTaskById?.(rawTid, { includePending: true, preferPending: true }) : null)
+                || state.pendingInsertedTasks?.[tid]
+                || (rawTid !== tid ? state.pendingInsertedTasks?.[rawTid] : null)
+                || state.flatTasks?.[tid]
+                || (rawTid !== tid ? state.flatTasks?.[rawTid] : null)
+                || null
+            )
+            : null;
         if (!tid || !task) return [];
         const actions = [];
         const tomatoEnabled = !!SettingsStore.data.enableTomatoIntegration;
@@ -5543,7 +5748,10 @@ if (mode === 'checklist') {
 
     function __tmOpenTaskDetailMoreMenu(anchorEl, taskId) {
         const anchor = anchorEl instanceof Element ? anchorEl : null;
-        const tid = String(taskId || '').trim();
+        const rawTid = String(taskId || '').trim();
+        const tid = rawTid && typeof __tmResolveOptimisticTaskId === 'function'
+            ? (String(__tmResolveOptimisticTaskId(rawTid) || rawTid).trim() || rawTid)
+            : rawTid;
         if (!(anchor instanceof Element) || !tid) return;
         if (__tmTaskDetailMoreMenuEl && __tmTaskDetailMoreMenuAnchorEl === anchor) {
             __tmCloseTaskDetailMoreMenu();
@@ -8524,13 +8732,14 @@ if (mode === 'checklist') {
 
     async function __tmTryRestoreCurrentDocTabViewSnapshot(docId, groupId) {
         try {
-            if (typeof __tmLoadTaskSnapshotForScope !== 'function' || typeof __tmRestoreTaskSnapshotViewState !== 'function') return null;
+            const snapshotService = globalThis.__tmTaskSnapshotService || null;
+            if (!snapshotService || typeof snapshotService.load !== 'function' || typeof snapshotService.restoreViewState !== 'function') return null;
             const did = String(docId || 'all').trim() || 'all';
             const gid = String(groupId || SettingsStore?.data?.currentGroupId || 'all').trim() || 'all';
             const docIds = Array.isArray(state.__tmLoadedDocIdsForTasks) ? state.__tmLoadedDocIdsForTasks.slice() : [];
             if (!docIds.length) return null;
             const viewMode = String(state.viewMode || '').trim();
-            const snapshot = await __tmLoadTaskSnapshotForScope({
+            const snapshot = await snapshotService.load({
                 docIds,
                 groupId: gid,
                 cachedOnly: false,
@@ -8539,7 +8748,7 @@ if (mode === 'checklist') {
             if ((String(SettingsStore?.data?.currentGroupId || 'all').trim() || 'all') !== gid) return null;
             if ((String(state.activeDocId || 'all').trim() || 'all') !== did) return null;
             if (String(state.viewMode || '').trim() !== viewMode) return null;
-            return __tmRestoreTaskSnapshotViewState(snapshot, {
+            return snapshotService.restoreViewState(snapshot, {
                 groupId: gid,
                 viewMode,
                 activeDocId: did,
@@ -9464,6 +9673,93 @@ if (mode === 'checklist') {
         await SettingsStore.save();
     }
 
+    function __tmGetTaskHeadingLevelLabel(level) {
+        const lv = /^h[1-6]$/.test(String(level || '').trim().toLowerCase())
+            ? String(level || '').trim().toLowerCase()
+            : String(SettingsStore.data.taskHeadingLevel || 'h2').trim().toLowerCase();
+        const labels = { h1: '一级标题', h2: '二级标题', h3: '三级标题', h4: '四级标题', h5: '五级标题', h6: '六级标题' };
+        return labels[lv] || '二级标题';
+    }
+
+    function __tmSummarizeDocDefaultTaskHeading(docId) {
+        const cfg = typeof __tmGetDocDefaultTaskHeadingConfig === 'function'
+            ? __tmGetDocDefaultTaskHeadingConfig(docId)
+            : null;
+        if (!cfg?.headingId) return '未设置';
+        const text = String(cfg.headingText || '').trim();
+        return text || '已设置';
+    }
+
+    async function __tmSaveDocDefaultTaskHeadingConfig(docId, heading) {
+        const did = String(docId || '').trim();
+        if (!did) return false;
+        const map = typeof __tmNormalizeDocDefaultTaskHeadingMap === 'function'
+            ? __tmNormalizeDocDefaultTaskHeadingMap(SettingsStore.data.docDefaultTaskHeadingByDocId)
+            : ((SettingsStore.data.docDefaultTaskHeadingByDocId && typeof SettingsStore.data.docDefaultTaskHeadingByDocId === 'object')
+                ? SettingsStore.data.docDefaultTaskHeadingByDocId
+                : {});
+        const hid = String(heading?.id || heading?.headingId || '').trim();
+        if (hid) {
+            map[did] = {
+                headingId: hid,
+                headingText: __tmNormalizeHeadingText(heading?.content || heading?.headingText || ''),
+                headingLevel: /^h[1-6]$/.test(String(heading?.headingLevel || '').trim().toLowerCase())
+                    ? String(heading.headingLevel).trim().toLowerCase()
+                    : String(SettingsStore.data.taskHeadingLevel || 'h2').trim().toLowerCase(),
+                updatedAt: Date.now(),
+            };
+        } else {
+            delete map[did];
+        }
+        SettingsStore.data.docDefaultTaskHeadingByDocId = map;
+        SettingsStore.data.docGroupSettingsUpdatedAt = Date.now();
+        await SettingsStore.save();
+        return true;
+    }
+
+    async function __tmOpenDocDefaultTaskHeadingPicker(docId) {
+        const did = String(docId || '').trim();
+        if (!did) return;
+        try { await __tmWarmKanbanDocHeadings([did], { force: true }); } catch (e) {}
+        const current = typeof __tmGetDocDefaultTaskHeadingConfig === 'function'
+            ? __tmGetDocDefaultTaskHeadingConfig(did)
+            : null;
+        const headings = (Array.isArray(state.kanbanDocHeadingsByDocId?.[did]) ? state.kanbanDocHeadingsByDocId[did] : [])
+            .map((heading) => ({
+                id: String(heading?.id || '').trim(),
+                content: __tmNormalizeHeadingText(heading?.content || ''),
+                rank: Number(heading?.rank),
+            }))
+            .filter((heading) => heading.id);
+        if (!headings.length) {
+            if (current?.headingId) {
+                const clear = await showSelectPrompt(`默认新建到${__tmGetTaskHeadingLevelLabel(SettingsStore.data.taskHeadingLevel)}`, [
+                    { value: '', label: '清除默认新建标题' },
+                ], '');
+                if (clear !== null) {
+                    await __tmSaveDocDefaultTaskHeadingConfig(did, null);
+                    hint('✅ 已清除默认新建标题', 'success');
+                }
+                return;
+            }
+            hint(`⚠ 当前文档没有可选的${__tmGetTaskHeadingLevelLabel(SettingsStore.data.taskHeadingLevel)}`, 'warning');
+            return;
+        }
+        const options = [
+            { value: '', label: '不设置，使用默认新建位置' },
+            ...headings.map((heading) => ({
+                value: heading.id,
+                label: heading.content || '未命名标题',
+            })),
+        ];
+        const next = await showSelectPrompt(`默认新建到${__tmGetTaskHeadingLevelLabel(SettingsStore.data.taskHeadingLevel)}`, options, current?.headingId || '');
+        if (next === null) return;
+        const nextHeadingId = String(next || '').trim();
+        const heading = headings.find((item) => item.id === nextHeadingId) || null;
+        await __tmSaveDocDefaultTaskHeadingConfig(did, heading);
+        hint(heading ? `✅ 默认新建到“${heading.content || '未命名标题'}”` : '✅ 已清除默认新建标题', 'success');
+    }
+
     function __tmShowDocTabMenuAt(docId, x, y) {
         const id = String(docId || '').trim();
         if (!id || id === 'all') return;
@@ -9678,6 +9974,9 @@ if (mode === 'checklist') {
             }));
             menu.appendChild(item(__tmRenderContextMenuLabel('plus', '新建任务'), () => {
                 try { window.tmQuickAddOpenForDoc?.(id); } catch (e) {}
+            }));
+            menu.appendChild(item(__tmRenderContextMenuLabel('settings', `新建任务默认标题：${__tmSummarizeDocDefaultTaskHeading(id)}`), async () => {
+                await __tmOpenDocDefaultTaskHeadingPicker(id);
             }));
             menu.appendChild(item(__tmRenderContextMenuLabel('square-pen', '设置别名'), async () => {
                 const next = await showPrompt('设置文档别名', '留空清除，直接保存到思源原生 alias 属性', alias || '');
@@ -10542,12 +10841,13 @@ if (mode === 'checklist') {
         }
 
         try {
+            const snapshotService = globalThis.__tmTaskSnapshotService || null;
             let snapshot = null;
             try {
                 const snapshotStart = Date.now();
                 const snapshotRaceTimeoutMs = runtimeMobileFastPath ? 260 : 220;
                 snapshot = await Promise.race([
-                    __tmLoadLatestTaskSnapshotForGroup(nextGroupId, { cachedOnly: false, checkRemote: false }),
+                    snapshotService?.loadLatestForGroup?.(nextGroupId, { cachedOnly: false, checkRemote: false }),
                     new Promise((resolve) => setTimeout(() => resolve(null), snapshotRaceTimeoutMs)),
                 ]);
                 logSwitchGroup('snapshot-race-done', {
@@ -10565,7 +10865,7 @@ if (mode === 'checklist') {
                 logSwitchGroup('cancelled-after-snapshot', { token: switchToken, currentToken: Number(state.openToken) || 0 });
                 return;
             }
-            try { if (!snapshot) __tmWarmTaskSnapshotStore(); } catch (e) {}
+            try { if (!snapshot) snapshotService?.warm?.(); } catch (e) {}
             let snapshotRendered = false;
             let snapshotViewCacheHit = false;
             if (isSwitchCurrent()) {
@@ -10584,7 +10884,7 @@ if (mode === 'checklist') {
                         });
                     }
                 } catch (e) {}
-                const snapshotMeta = __tmRestoreTaskSnapshotIntoState(snapshot, {
+                const snapshotMeta = snapshotService?.restore?.(snapshot, {
                     groupId: nextGroupId,
                     taskCountMap: snapshotTaskCountMap
                 });
@@ -10607,7 +10907,7 @@ if (mode === 'checklist') {
                     let viewSnapshotMeta = null;
                     const viewRestoreStart = Date.now();
                     try {
-                        viewSnapshotMeta = __tmRestoreTaskSnapshotViewState(snapshot, {
+                        viewSnapshotMeta = snapshotService?.restoreViewState?.(snapshot, {
                             groupId: nextGroupId,
                             viewMode: state.viewMode,
                             activeDocId: state.activeDocId,
@@ -10758,7 +11058,7 @@ if (mode === 'checklist') {
                 });
                 try {
                     if (Array.isArray(state.__tmLoadedDocIdsForTasks) && state.__tmLoadedDocIdsForTasks.length > 0) {
-                        const snapshotSaveScheduled = __tmSchedulePersistTaskSnapshot?.({
+                        const snapshotSaveScheduled = globalThis.__tmTaskSnapshotService?.schedulePersist?.({
                             docIds: state.__tmLoadedDocIdsForTasks,
                             groupId: nextGroupId,
                             activeDocId: state.activeDocId,
@@ -10899,11 +11199,11 @@ if (mode === 'checklist') {
         if (fromDocId && fromDocId === did) return false;
         const topListId = await API.getFirstDirectChildListIdOfDoc(did);
         if (topListId) {
-            await API.moveBlock(id, { parentID: topListId });
+            await __tmMoveBlockViaBackendAdapter(id, { parentID: topListId });
         } else {
-            await API.moveBlock(id, { parentID: did });
+            await __tmMoveBlockViaBackendAdapter(id, { parentID: did });
         }
-        try { await API.call('/api/sqlite/flushTransaction', {}); } catch (e) {}
+        try { await __tmFlushBackendAdapterTransaction(); } catch (e) {}
         try {
             [fromDocId, did].filter(Boolean).forEach((docId) => __tmInvalidateTasksQueryCacheByDocId(docId));
         } catch (e) {}
@@ -10959,23 +11259,23 @@ if (mode === 'checklist') {
 
             if (firstChildId) {
                 // 如果文档有内容，移动到第一个子块之前（成为新的第一个）
-                await API.moveBlock(id, { previousID: '', nextID: firstChildId, parentID: did });
+                await __tmMoveBlockViaBackendAdapter(id, { previousID: '', nextID: firstChildId, parentID: did });
             } else {
                 // 如果文档为空，直接设置为文档的第一个子块
-                await API.moveBlock(id, { parentID: did });
+                await __tmMoveBlockViaBackendAdapter(id, { parentID: did });
             }
         } catch (e) {
             console.error('移动任务到文档顶部失败:', e);
             // 尝试备用方案：直接设置父
             try {
-                await API.moveBlock(id, { parentID: did });
+                await __tmMoveBlockViaBackendAdapter(id, { parentID: did });
             } catch (e2) {
                 console.error('备用方案也失败:', e2);
                 return false;
             }
         }
 
-        try { await API.call('/api/sqlite/flushTransaction', {}); } catch (e) {}
+        try { await __tmFlushBackendAdapterTransaction(); } catch (e) {}
         try {
             [fromDocId, did].filter(Boolean).forEach((docId) => __tmInvalidateTasksQueryCacheByDocId(docId));
         } catch (e) {}
@@ -11042,13 +11342,13 @@ if (mode === 'checklist') {
         // 使用 previousID 方式将任务移动到标题块的后面
         try {
             // 直接使用 previousID 将任务移动到标题后面
-            await API.moveBlock(id, { previousID: hid, parentID: did });
+            await __tmMoveBlockViaBackendAdapter(id, { previousID: hid, parentID: did });
         } catch (e) {
             console.error('移动任务到标题后面失败:', e);
             return false;
         }
 
-        try { await API.call('/api/sqlite/flushTransaction', {}); } catch (e) {}
+        try { await __tmFlushBackendAdapterTransaction(); } catch (e) {}
         try {
             [fromDocId, did].filter(Boolean).forEach((docId) => __tmInvalidateTasksQueryCacheByDocId(docId));
         } catch (e) {}
@@ -11091,11 +11391,15 @@ if (mode === 'checklist') {
                 };
                 updateChildTasks(t, hid, __tmNormalizeHeadingText(h?.content), Number(h?.rank));
                 if (state.pendingInsertedTasks?.[id]) {
-                    state.pendingInsertedTasks[id].root_id = did;
-                    state.pendingInsertedTasks[id].docId = did;
-                    state.pendingInsertedTasks[id].h2 = __tmNormalizeHeadingText(h?.content);
-                    state.pendingInsertedTasks[id].h2Id = hid;
-                    state.pendingInsertedTasks[id].h2Rank = Number(h?.rank);
+                    globalThis.__tmTaskStore?.patchPending?.(id, {
+                        root_id: did,
+                        docId: did,
+                        h2: __tmNormalizeHeadingText(h?.content),
+                        h2Id: hid,
+                        h2Rank: Number(h?.rank),
+                    }, {
+                        source: 'move-task-to-heading',
+                    });
                 }
             }
         } catch (e) {}
@@ -11233,10 +11537,10 @@ if (mode === 'checklist') {
         if (!sourceTask || !targetTask) return false;
         const meta = await __tmResolveTaskMovePlacementMeta(targetId);
         if (meta.prevSiblingTaskId && meta.prevSiblingTaskId === id) return true;
-        if (meta.prevSiblingTaskId) await API.moveBlock(id, { previousID: meta.prevSiblingTaskId });
-        else if (meta.targetListId) await API.moveBlock(id, { parentID: meta.targetListId });
+        if (meta.prevSiblingTaskId) await __tmMoveBlockViaBackendAdapter(id, { previousID: meta.prevSiblingTaskId });
+        else if (meta.targetListId) await __tmMoveBlockViaBackendAdapter(id, { parentID: meta.targetListId });
         else throw new Error('未找到目标任务所在列表');
-        try { await API.call('/api/sqlite/flushTransaction', {}); } catch (e) {}
+        try { await __tmFlushBackendAdapterTransaction(); } catch (e) {}
         try {
             const docIds = [String(sourceTask.docId || sourceTask.root_id || '').trim(), String(opts.targetDocId || targetTask.docId || targetTask.root_id || '').trim()].filter(Boolean);
             docIds.forEach((docId) => __tmInvalidateTasksQueryCacheByDocId(docId));
@@ -11252,8 +11556,8 @@ if (mode === 'checklist') {
         const sourceTask = globalThis.__tmRuntimeState?.getFlatTaskById?.(id) || state.flatTasks?.[id] || null;
         const targetTask = globalThis.__tmRuntimeState?.getFlatTaskById?.(targetId) || state.flatTasks?.[targetId] || null;
         if (!sourceTask || !targetTask) return false;
-        await API.moveBlock(id, { previousID: targetId });
-        try { await API.call('/api/sqlite/flushTransaction', {}); } catch (e) {}
+        await __tmMoveBlockViaBackendAdapter(id, { previousID: targetId });
+        try { await __tmFlushBackendAdapterTransaction(); } catch (e) {}
         try {
             const docIds = [String(sourceTask.docId || sourceTask.root_id || '').trim(), String(opts.targetDocId || targetTask.docId || targetTask.root_id || '').trim()].filter(Boolean);
             docIds.forEach((docId) => __tmInvalidateTasksQueryCacheByDocId(docId));
@@ -11271,10 +11575,10 @@ if (mode === 'checklist') {
         if (!sourceTask || !targetTask) return false;
         const meta = await __tmResolveTaskMovePlacementMeta(targetId);
         if (meta.lastDirectChildId && meta.lastDirectChildId === id && String(sourceTask.parentTaskId || '').trim() === targetId) return true;
-        if (meta.lastDirectChildId) await API.moveBlock(id, { previousID: meta.lastDirectChildId });
-        else if (meta.targetContentAnchorId) await API.moveBlock(id, { previousID: meta.targetContentAnchorId, parentID: targetId });
-        else await API.moveBlock(id, { parentID: targetId });
-        try { await API.call('/api/sqlite/flushTransaction', {}); } catch (e) {}
+        if (meta.lastDirectChildId) await __tmMoveBlockViaBackendAdapter(id, { previousID: meta.lastDirectChildId });
+        else if (meta.targetContentAnchorId) await __tmMoveBlockViaBackendAdapter(id, { previousID: meta.targetContentAnchorId, parentID: targetId });
+        else await __tmMoveBlockViaBackendAdapter(id, { parentID: targetId });
+        try { await __tmFlushBackendAdapterTransaction(); } catch (e) {}
         try {
             const docIds = [String(sourceTask.docId || sourceTask.root_id || '').trim(), String(opts.targetDocId || targetTask.docId || targetTask.root_id || '').trim()].filter(Boolean);
             docIds.forEach((docId) => __tmInvalidateTasksQueryCacheByDocId(docId));
@@ -11294,15 +11598,15 @@ if (mode === 'checklist') {
         const meta = await __tmResolveTaskMovePlacementMeta(targetId);
         if (meta.firstDirectChildId && meta.firstDirectChildId === id && String(sourceTask.parentTaskId || '').trim() === targetId) return true;
         if (meta.firstDirectChildId) {
-            await API.moveBlock(id, { nextID: meta.firstDirectChildId, parentID: meta.targetChildListId || targetId });
+            await __tmMoveBlockViaBackendAdapter(id, { nextID: meta.firstDirectChildId, parentID: meta.targetChildListId || targetId });
         } else if (meta.targetChildListId) {
-            await API.moveBlock(id, { parentID: meta.targetChildListId });
+            await __tmMoveBlockViaBackendAdapter(id, { parentID: meta.targetChildListId });
         } else if (meta.targetContentAnchorId) {
-            await API.moveBlock(id, { previousID: meta.targetContentAnchorId, parentID: targetId });
+            await __tmMoveBlockViaBackendAdapter(id, { previousID: meta.targetContentAnchorId, parentID: targetId });
         } else {
-            await API.moveBlock(id, { parentID: targetId });
+            await __tmMoveBlockViaBackendAdapter(id, { parentID: targetId });
         }
-        try { await API.call('/api/sqlite/flushTransaction', {}); } catch (e) {}
+        try { await __tmFlushBackendAdapterTransaction(); } catch (e) {}
         try {
             const docIds = [String(sourceTask.docId || sourceTask.root_id || '').trim(), String(opts.targetDocId || targetTask.docId || targetTask.root_id || '').trim()].filter(Boolean);
             docIds.forEach((docId) => __tmInvalidateTasksQueryCacheByDocId(docId));
@@ -11374,9 +11678,9 @@ if (mode === 'checklist') {
     function __tmGetTimeGroupDropTask(taskId) {
         const tid = String(taskId || '').trim();
         if (!tid) return null;
-        return globalThis.__tmRuntimeState?.getFlatTaskById?.(tid)
-            || state.flatTasks?.[tid]
+        return globalThis.__tmRuntimeState?.getTaskById?.(tid, { includePending: true, preferPending: true })
             || state.pendingInsertedTasks?.[tid]
+            || state.flatTasks?.[tid]
             || null;
     }
 
@@ -11450,19 +11754,191 @@ if (mode === 'checklist') {
                 withFilters: true,
                 defer: false,
                 optimisticProjectionRefresh: true,
+                wait: false,
+                background: true,
+                skipSettledRefresh: true,
+                forceProjectionRefresh: true,
             };
-            if (typeof __tmShouldUseChecklistLegacyFieldCommit === 'function' && __tmShouldUseChecklistLegacyFieldCommit()) {
-                await __tmRequestChecklistLegacyTaskPatch(sourceTaskId, patch, opts);
-                hint(`✅ 截止日期已更新为 ${check.dateKey}`, 'success');
-            } else {
-                await __tmCommitUiFriendlyTaskPatch(sourceTaskId, patch, {
-                    ...opts,
-                    successHint: `✅ 截止日期已更新为 ${check.dateKey}`,
-                });
-            }
+            const patchTask = globalThis.__tmRequireTaskOutbox?.('patchTask');
+            if (typeof patchTask !== 'function') throw new Error('任务写入队列未就绪: patchTask');
+            void patchTask(sourceTaskId, patch, opts).catch((error) => {
+                try { globalThis.__tmReportTaskOutboxFailure?.(error, { action: '截止日期更新' }); } catch (e2) {}
+            });
+            hint(`✅ 截止日期已更新为 ${check.dateKey}`, 'success');
         } catch (e) {
             const message = String(e?.message || e || '').trim() || '未知错误';
             hint(`❌ 截止日期更新失败: ${message}`, 'error');
+        } finally {
+            __tmClearTaskRowDropIndicators();
+        }
+    };
+
+    function __tmResolveDocHeadingGroupDropElementFromTarget(target) {
+        const el = target instanceof Element ? target : null;
+        if (!(el instanceof Element)) return null;
+        const candidate = el.closest('.tm-checklist-group[data-tm-doc-heading-drop-kind], #tmTaskTable tbody tr.tm-group-row[data-tm-doc-heading-drop-kind]');
+        return candidate instanceof HTMLElement ? candidate : null;
+    }
+
+    function __tmResolveDocHeadingGroupDropElement(ev) {
+        const current = ev?.currentTarget instanceof Element ? ev.currentTarget : null;
+        return __tmResolveDocHeadingGroupDropElementFromTarget(current)
+            || __tmResolveDocHeadingGroupDropElementFromTarget(ev?.target);
+    }
+
+    function __tmReadDocHeadingGroupDropTarget(groupEl) {
+        const el = groupEl instanceof HTMLElement ? groupEl : null;
+        if (!(el instanceof HTMLElement)) return { kind: '', docId: '', headingId: '' };
+        const kindRaw = String(el.getAttribute('data-tm-doc-heading-drop-kind') || '').trim();
+        const kind = kindRaw === 'h2' ? 'heading' : kindRaw;
+        return {
+            kind,
+            docId: String(el.getAttribute('data-tm-doc-heading-drop-doc') || '').trim(),
+            headingId: String(el.getAttribute('data-tm-doc-heading-drop-heading') || '').trim(),
+            heading: String(el.getAttribute('data-tm-doc-heading-drop-label') || '').trim(),
+            headingRank: Number(el.getAttribute('data-tm-doc-heading-drop-rank') || Number.NaN),
+        };
+    }
+
+    function __tmGetDocHeadingGroupDropTask(taskId) {
+        const tid = String(taskId || '').trim();
+        if (!tid) return null;
+        return globalThis.__tmRuntimeState?.getTaskById?.(tid, { includePending: true, preferPending: true })
+            || globalThis.__tmRuntimeState?.getFlatTaskById?.(tid)
+            || state.pendingInsertedTasks?.[tid]
+            || state.flatTasks?.[tid]
+            || null;
+    }
+
+    function __tmBuildDocHeadingGroupDropPayload(target) {
+        const kind = String(target?.kind || '').trim();
+        const targetDocId = String(target?.docId || '').trim();
+        const targetHeadingId = String(target?.headingId || '').trim();
+        if (!targetDocId || targetDocId === '__unknown__') return null;
+        if (kind === 'heading' && targetHeadingId) {
+            return {
+                targetDocId,
+                headingId: targetHeadingId,
+                targetHeadingId,
+                targetHeading: String(target?.heading || '').trim(),
+                targetHeadingRank: Number(target?.headingRank),
+                mode: 'heading',
+                deferOptimisticRender: true,
+                skipOptimisticFilterWork: true,
+            };
+        }
+        if (kind === 'doc' || kind === 'heading') {
+            return {
+                targetDocId,
+                mode: 'docTop',
+                deferOptimisticRender: true,
+                skipOptimisticFilterWork: true,
+            };
+        }
+        return null;
+    }
+
+    function __tmCheckDocHeadingGroupDrop(taskId, groupEl) {
+        const task = __tmGetDocHeadingGroupDropTask(taskId);
+        const target = __tmReadDocHeadingGroupDropTarget(groupEl);
+        const payload = __tmBuildDocHeadingGroupDropPayload(target);
+        if (!state.groupByDocName || !task || !payload) return { ok: false, reason: 'invalid', task, target, payload };
+        if (!__tmTaskSupportsRowDrop(task)) return { ok: false, reason: 'readonly', task, target, payload };
+        const sourceDocId = String(task?.root_id || task?.docId || '').trim();
+        const targetDocId = String(payload.targetDocId || '').trim();
+        const sameDoc = !!sourceDocId && sourceDocId === targetDocId;
+        const mode = String(payload.mode || '').trim();
+        if (mode === 'heading') {
+            const targetHeadingId = String(payload.headingId || '').trim();
+            if (sameDoc && targetHeadingId && String(task?.h2Id || '').trim() === targetHeadingId) {
+                return { ok: false, reason: 'noop', task, target, payload };
+            }
+        } else if (mode === 'docTop') {
+            const hasHeading = typeof __tmTaskHasResolvedHeading === 'function'
+                ? __tmTaskHasResolvedHeading(task)
+                : !!(String(task?.h2Id || '').trim() || __tmNormalizeHeadingText(task?.h2 || task?.h2Name));
+            if (sameDoc && !hasHeading) return { ok: false, reason: 'noop', task, target, payload };
+        }
+        return { ok: true, reason: '', task, target, payload };
+    }
+
+    function __tmApplyDocHeadingGroupDropIndicator(groupEl, allowed) {
+        const el = groupEl instanceof HTMLElement ? groupEl : null;
+        if (!(el instanceof HTMLElement)) return;
+        __tmClearTaskRowDropIndicators();
+        el.classList.add(allowed ? 'tm-time-group-drop--active' : 'tm-time-group-drop--forbidden');
+    }
+
+    window.tmDocHeadingGroupDragOver = function(ev) {
+        try {
+            ev?.preventDefault?.();
+            ev?.stopPropagation?.();
+        } catch (e) {}
+        try { if (ev?.dataTransfer) ev.dataTransfer.dropEffect = 'move'; } catch (e) {}
+        const groupEl = __tmResolveDocHeadingGroupDropElement(ev);
+        const sourceTaskId = __tmGetDraggedTaskId(ev);
+        if (!groupEl || !sourceTaskId) {
+            __tmClearTaskRowDropIndicators();
+            return false;
+        }
+        const check = __tmCheckDocHeadingGroupDrop(sourceTaskId, groupEl);
+        if (check.reason === 'noop') {
+            __tmClearTaskRowDropIndicators();
+            return false;
+        }
+        __tmApplyDocHeadingGroupDropIndicator(groupEl, !!check.ok);
+        return false;
+    };
+
+    window.tmDocHeadingGroupDragLeave = function(ev) {
+        const groupEl = __tmResolveDocHeadingGroupDropElement(ev);
+        if (!(groupEl instanceof HTMLElement)) return;
+        try {
+            const related = ev?.relatedTarget instanceof Node ? ev.relatedTarget : null;
+            if (related && groupEl.contains(related)) return;
+        } catch (e) {}
+        try { groupEl.classList.remove('tm-time-group-drop--active', 'tm-time-group-drop--forbidden'); } catch (e) {}
+    };
+
+    window.tmDocHeadingGroupDrop = async function(ev) {
+        try {
+            ev?.preventDefault?.();
+            ev?.stopPropagation?.();
+        } catch (e) {}
+        const groupEl = __tmResolveDocHeadingGroupDropElement(ev);
+        const sourceTaskId = __tmGetDraggedTaskId(ev);
+        const check = __tmCheckDocHeadingGroupDrop(sourceTaskId, groupEl);
+        try {
+            if (!check.ok) {
+                if (check.reason !== 'noop' && groupEl) __tmApplyDocHeadingGroupDropIndicator(groupEl, false);
+                return;
+            }
+            if (!__tmEnsureEditableTaskLike(check.task, '拖拽移动')) return;
+            const moveTask = globalThis.__tmRequireTaskOutbox?.('moveTask');
+            if (typeof moveTask !== 'function') throw new Error('任务写入队列未就绪: moveTask');
+            if (String(check.payload?.mode || '').trim() === 'heading') {
+                try { await __tmWarmKanbanDocHeadings([String(check.payload.targetDocId || '').trim()]); } catch (e) {}
+            }
+            const useLightweightProjection = typeof __tmCanUseLightweightMoveProjection === 'function'
+                && __tmCanUseLightweightMoveProjection(check.task, check.payload);
+            moveTask(sourceTaskId, check.payload, {
+                wait: false,
+                onError: (err) => {
+                    hint(`❌ 移动失败: ${err?.message || err || '未知错误'}`, 'error');
+                },
+            });
+            try {
+                __tmScheduleViewRefresh({
+                    mode: 'current',
+                    withFilters: !useLightweightProjection,
+                    reason: 'doc-heading-group-drop-optimistic',
+                    taskIds: [sourceTaskId],
+                });
+            } catch (e) {}
+            hint(String(check.payload?.mode || '') === 'heading' ? '✅ 任务已移动到目标标题下' : '✅ 任务已移动到目标文档顶部', 'success');
+        } catch (e) {
+            const message = String(e?.message || e || '').trim() || '未知错误';
+            hint(`❌ 移动失败: ${message}`, 'error');
         } finally {
             __tmClearTaskRowDropIndicators();
         }
@@ -11517,8 +11993,16 @@ if (mode === 'checklist') {
         const sourceId = String(sourceTaskId || '').trim();
         const targetId = String(targetTaskId || '').trim();
         const moveKind = String(kind || '').trim();
-        const sourceTask = globalThis.__tmRuntimeState?.getFlatTaskById?.(sourceId) || state.flatTasks?.[sourceId] || null;
-        const targetTask = globalThis.__tmRuntimeState?.getFlatTaskById?.(targetId) || state.flatTasks?.[targetId] || null;
+        const sourceTask = globalThis.__tmRuntimeState?.getTaskById?.(sourceId, { includePending: true, preferPending: true })
+            || globalThis.__tmRuntimeState?.getFlatTaskById?.(sourceId)
+            || state.flatTasks?.[sourceId]
+            || state.pendingInsertedTasks?.[sourceId]
+            || null;
+        const targetTask = globalThis.__tmRuntimeState?.getTaskById?.(targetId, { includePending: true, preferPending: true })
+            || globalThis.__tmRuntimeState?.getFlatTaskById?.(targetId)
+            || state.flatTasks?.[targetId]
+            || state.pendingInsertedTasks?.[targetId]
+            || null;
         if (!sourceTask || !targetTask || !sourceId || !targetId || !moveKind) throw new Error('拖拽目标无效');
         const meta = await __tmResolveTaskMovePlacementMeta(targetId);
         return {
@@ -11624,8 +12108,16 @@ if (mode === 'checklist') {
         const targetId = String(targetTaskId || '').trim();
         if (!sourceId || !targetId || sourceId === targetId) return { ok: false, reason: 'same' };
         if (!__tmCanCreateChildTaskByDrag()) return { ok: false, reason: 'group' };
-        const sourceTask = globalThis.__tmRuntimeState?.getFlatTaskById?.(sourceId) || state.flatTasks?.[sourceId] || null;
-        const targetTask = globalThis.__tmRuntimeState?.getFlatTaskById?.(targetId) || state.flatTasks?.[targetId] || null;
+        const sourceTask = globalThis.__tmRuntimeState?.getTaskById?.(sourceId, { includePending: true, preferPending: true })
+            || globalThis.__tmRuntimeState?.getFlatTaskById?.(sourceId)
+            || state.flatTasks?.[sourceId]
+            || state.pendingInsertedTasks?.[sourceId]
+            || null;
+        const targetTask = globalThis.__tmRuntimeState?.getTaskById?.(targetId, { includePending: true, preferPending: true })
+            || globalThis.__tmRuntimeState?.getFlatTaskById?.(targetId)
+            || state.flatTasks?.[targetId]
+            || state.pendingInsertedTasks?.[targetId]
+            || null;
         if (!__tmTaskSupportsRowDrop(sourceTask) || !__tmTaskSupportsRowDrop(targetTask)) return { ok: false, reason: 'readonly' };
         if (__tmIsTaskInSubtree(sourceTask, targetId)) return { ok: false, reason: 'cycle' };
         return { ok: true };
@@ -11645,112 +12137,54 @@ if (mode === 'checklist') {
             if (row instanceof HTMLElement) __tmApplyTaskRowDropIndicator(row, 'forbidden');
             return null;
         }
-        const sourceTask = globalThis.__tmRuntimeState?.getFlatTaskById?.(String(sourceTaskId || '').trim()) || state.flatTasks?.[String(sourceTaskId || '').trim()] || null;
+        const sourceId = String(sourceTaskId || '').trim();
+        const sourceTask = globalThis.__tmRuntimeState?.getTaskById?.(sourceId, { includePending: true, preferPending: true })
+            || globalThis.__tmRuntimeState?.getFlatTaskById?.(sourceId)
+            || state.flatTasks?.[sourceId]
+            || state.pendingInsertedTasks?.[sourceId]
+            || null;
         if (!__tmEnsureEditableTaskLike(sourceTask, '拖拽移动')) return null;
         const payload = await __tmBuildTaskRowMovePayload(sourceTaskId, targetId, kind);
-        await __tmQueueMoveTask(sourceTaskId, payload);
+        payload.deferOptimisticRender = true;
+        payload.skipOptimisticFilterWork = true;
+        const moveTask = globalThis.__tmRequireTaskOutbox?.('moveTask');
+        if (typeof moveTask !== 'function') throw new Error('任务写入队列未就绪: moveTask');
+        moveTask(sourceTaskId, payload, {
+            wait: false,
+            onError: (err) => {
+                hint(`❌ 移动失败: ${err?.message || err || '未知错误'}`, 'error');
+            },
+        });
         if (kind === 'child') {
             try { state.collapsedTaskIds?.delete?.(targetId); } catch (e) {}
         }
         return { kind, payload };
     }
 
-    let __tmTaskRowDropReconcileSeq = 0;
-    const __tmTaskRowDropReconcileTimers = new Set();
-
-    function __tmClearTaskRowDropReconcileTimers() {
-        try {
-            __tmTaskRowDropReconcileTimers.forEach((timerId) => {
-                try { clearTimeout(timerId); } catch (e) {}
-            });
-            __tmTaskRowDropReconcileTimers.clear();
-        } catch (e) {}
-    }
-
     function __tmScheduleTaskRowDropReconcileRefresh(payload = null) {
         const data = (payload && typeof payload === 'object') ? payload : null;
-        __tmTaskRowDropReconcileSeq += 1;
-        const seq = __tmTaskRowDropReconcileSeq;
-        __tmClearTaskRowDropReconcileTimers();
-        const invalidateAffectedDocCaches = () => {
-            try {
-                const docIds = [
-                    String(data?.targetDocId || '').trim(),
-                    String(data?.snapshot?.docId || '').trim(),
-                ].filter(Boolean);
-                docIds.forEach((docId) => {
-                    try { __tmInvalidateTasksQueryCacheByDocId(docId); } catch (e) {}
-                });
-            } catch (e) {}
-        };
-        const runProtectedRefresh = async () => {
-            try {
-                const targetDocId = String(data?.targetDocId || '').trim();
-                const sourceDocId = String(data?.snapshot?.docId || '').trim();
-                const expectId = String(data?.taskId || '').trim();
-                const moveMode = String(data?.mode || '').trim();
-                const forceHeadingContext = moveMode === 'heading' || moveMode === 'docTop';
-                const manualRelationships = __tmBuildMoveManualRelationships(data);
-                const injectedTasks = __tmBuildMoveInjectedTasks(data);
-                invalidateAffectedDocCaches();
-                if (targetDocId) {
-                    await reloadDocTasksProtected(targetDocId, expectId || null, manualRelationships, injectedTasks, {
-                        applyFilters: false,
-                        render: false,
-                        saveMeta: false,
-                        forceDocFlowOrder: true,
-                        forceHeadingContext,
-                    });
-                    if (sourceDocId && sourceDocId !== targetDocId) {
-                        await reloadDocTasksProtected(sourceDocId, null, null, null, {
-                            applyFilters: false,
-                            render: false,
-                            saveMeta: false,
-                            forceDocFlowOrder: true,
-                            forceHeadingContext,
-                        });
-                    }
-                    try { recalcStats(); } catch (e) {}
-                    try { applyFilters(); } catch (e) {}
-                    try { render(); } catch (e) {}
-                    return;
-                }
-                await __tmLoadSelectedDocumentsPreserveChecklistScroll({
-                    source: 'task-row-drop-reconcile',
-                    forceSyncFlowRank: true,
-                });
-            } catch (e) {
-                try { __tmRefreshMainViewInPlace({ withFilters: true, reason: 'task-row-drop-reconcile-fallback' }); } catch (e2) {}
-            }
-        };
-        const runFullRefresh = async (reason = '') => {
-            try {
-                invalidateAffectedDocCaches();
-                await __tmLoadSelectedDocumentsPreserveChecklistScroll({
-                    source: String(reason || 'task-row-drop-reconcile-full').trim() || 'task-row-drop-reconcile-full',
-                    showInlineLoading: false,
-                    // The protected reload can briefly cache pre-index SQL rows. Force the
-                    // follow-up full load to fetch fresh rows instead of replaying them.
-                    forceFreshTasks: true,
-                    forceSyncFlowRank: true,
-                });
-            } catch (e) {
-                try { __tmRefreshMainViewInPlace({ withFilters: true, reason: 'task-row-drop-full-refresh-fallback' }); } catch (e2) {}
-            }
-        };
-        const schedule = (delayMs, fn) => {
-            try {
-                const timerId = setTimeout(() => {
-                    try { __tmTaskRowDropReconcileTimers.delete(timerId); } catch (e) {}
-                    if (seq !== __tmTaskRowDropReconcileSeq) return;
-                    void fn();
-                }, delayMs);
-                __tmTaskRowDropReconcileTimers.add(timerId);
-            } catch (e) {}
-        };
-        schedule(280, runProtectedRefresh);
-        schedule(960, runProtectedRefresh);
-        schedule(2200, () => runFullRefresh('task-row-drop-reconcile-full'));
+        try {
+            [
+                String(data?.targetDocId || '').trim(),
+                String(data?.snapshot?.docId || '').trim(),
+            ].filter(Boolean).forEach((docId) => {
+                try { __tmInvalidateTasksQueryCacheByDocId(docId); } catch (e) {}
+            });
+        } catch (e) {}
+        try {
+            const ids = [
+                String(data?.taskId || '').trim(),
+                String(data?.targetTaskId || '').trim(),
+                String(data?.targetParentTaskId || '').trim(),
+                String(data?.snapshot?.parentTaskId || '').trim(),
+            ].filter(Boolean);
+            __tmScheduleViewRefresh({
+                mode: 'current',
+                withFilters: data?.forceFullReconcile === true,
+                reason: 'task-row-drop-reconcile-legacy',
+                taskIds: Array.from(new Set(ids)),
+            });
+        } catch (e) {}
     }
 
     window.tmTaskRowDragOver = function(ev, targetTaskId) {
@@ -11838,15 +12272,31 @@ if (mode === 'checklist') {
         if (!targetDocId || targetDocId === 'all') return;
         const taskId = __tmGetDraggedTaskId(ev);
         if (!taskId) return;
-        const task = globalThis.__tmRuntimeState?.getFlatTaskById?.(taskId) || state.flatTasks?.[taskId];
+        const task = globalThis.__tmRuntimeState?.getTaskById?.(taskId, { includePending: true, preferPending: true })
+            || globalThis.__tmRuntimeState?.getFlatTaskById?.(taskId)
+            || state.flatTasks?.[taskId]
+            || state.pendingInsertedTasks?.[taskId];
         if (!task) return;
         const fromDocId = String(task.docId || task.root_id || '').trim();
         if (fromDocId && fromDocId === targetDocId) return;
         try {
-            hint('🔄 正在移动任务...', 'info');
-            await __tmQueueMoveTask(taskId, { targetDocId, mode: 'doc' });
+            const movePayload = {
+                targetDocId,
+                mode: 'docTop',
+                deferOptimisticRender: true,
+                skipOptimisticFilterWork: true,
+            };
+            const moveTask = globalThis.__tmRequireTaskOutbox?.('moveTask');
+            if (typeof moveTask !== 'function') throw new Error('任务写入队列未就绪: moveTask');
+            moveTask(taskId, {
+                ...movePayload,
+            }, {
+                wait: false,
+                onError: (err) => {
+                    hint(`❌ 移动失败: ${err?.message || err || '未知错误'}`, 'error');
+                },
+            });
             hint('✅ 任务已移动', 'success');
-            __tmRefreshMainViewInPlace({ withFilters: true });
         } catch (e) {
             hint(`❌ 移动失败: ${e.message}`, 'error');
         }
@@ -11946,7 +12396,8 @@ if (mode === 'checklist') {
         const durationMin = Number(safeMeta.durationMin);
         const title = String(
             safeMeta.title
-            || globalThis.__tmRuntimeState?.getFlatTaskById?.(id)?.content
+            || globalThis.__tmRuntimeState?.getTaskById?.(id, { includePending: true, preferPending: true })?.content
+            || state.pendingInsertedTasks?.[id]?.content
             || state.flatTasks?.[id]?.content
             || id
         ).trim() || id;
@@ -11992,7 +12443,8 @@ if (mode === 'checklist') {
         const resolvedTaskId = String(taskId || '').trim();
         const title = String(
             payload?.title
-            || globalThis.__tmRuntimeState?.getFlatTaskById?.(resolvedTaskId)?.content
+            || globalThis.__tmRuntimeState?.getTaskById?.(resolvedTaskId, { includePending: true, preferPending: true })?.content
+            || state.pendingInsertedTasks?.[resolvedTaskId]?.content
             || state.flatTasks?.[resolvedTaskId]?.content
             || taskId
             || '任务'
@@ -12195,6 +12647,18 @@ if (mode === 'checklist') {
                 } else {
                     clearDocHover();
                 }
+                const docHeadingGroupEl = __tmResolveDocHeadingGroupDropElementFromTarget(pointTarget);
+                if (docHeadingGroupEl instanceof HTMLElement) {
+                    try {
+                        window.tmDocHeadingGroupDragOver?.({
+                            preventDefault() {},
+                            stopPropagation() {},
+                            dataTransfer: syntheticTransfer,
+                            target: pointTarget || docHeadingGroupEl,
+                            currentTarget: docHeadingGroupEl,
+                        });
+                    } catch (e) {}
+                } else {
                 const timeGroupEl = __tmResolveTimeGroupDropElementFromTarget(pointTarget);
                 if (timeGroupEl instanceof HTMLElement) {
                     try {
@@ -12222,6 +12686,7 @@ if (mode === 'checklist') {
                     } else {
                         clearTaskRowHover();
                     }
+                }
                 }
                 if (sourceType === 'kanban') {
                     try { window.__tmKanbanAutoScrollByPoint?.(lastX, lastY, pointTarget); } catch (e) {}
@@ -12283,6 +12748,19 @@ if (mode === 'checklist') {
                             target: docTabEl,
                             currentTarget: docTabEl,
                         }, String(docTabEl.getAttribute('data-tm-doc-id') || '').trim());
+                        return true;
+                    } catch (e) {}
+                }
+                const docHeadingGroupEl = __tmResolveDocHeadingGroupDropElementFromTarget(pointTarget);
+                if (docHeadingGroupEl instanceof HTMLElement) {
+                    try {
+                        await window.tmDocHeadingGroupDrop?.({
+                            preventDefault() {},
+                            stopPropagation() {},
+                            dataTransfer: syntheticTransfer,
+                            target: pointTarget || docHeadingGroupEl,
+                            currentTarget: docHeadingGroupEl,
+                        });
                         return true;
                     } catch (e) {}
                 }
@@ -12416,11 +12894,11 @@ if (mode === 'checklist') {
         if (globalThis.__tmRuntimeState?.isViewMode?.('checklist') ?? (String(state.viewMode || '').trim() === 'checklist')) {
             const task = globalThis.__tmRuntimeState?.getFlatTaskById?.(id) || state.flatTasks?.[id];
             const docId = String(task?.root_id || task?.docId || '').trim();
-            if (docId) {
-                try { await __tmWarmKanbanDocHeadings([docId], { force: true }); } catch (e) {}
-            }
             state.detailTaskId = id;
             if (!__tmRefreshChecklistSelectionInPlace(state.modal, 'row-click')) render();
+            if (docId) {
+                try { Promise.resolve(__tmWarmKanbanDocHeadings([docId], { force: true })).catch(() => null); } catch (e) {}
+            }
             return;
         }
         const task = globalThis.__tmRuntimeState?.getFlatTaskById?.(id) || state.flatTasks?.[id];
@@ -12440,30 +12918,16 @@ if (mode === 'checklist') {
             __tmToggleTaskMultiSelection(id);
             return;
         }
-        const prevSelectedId = String(state.detailTaskId || '').trim();
-        if (prevSelectedId && prevSelectedId !== id) {
-            try {
-                const detailPanel = state.modal?.querySelector?.('#tmChecklistSheetPanel, #tmChecklistDetailPanel');
-                if (detailPanel instanceof HTMLElement) {
-                    await detailPanel.__tmTaskDetailFlushSave?.({
-                        showHint: false,
-                        closeAfterSave: false,
-                        preserveFocus: false,
-                        skipRerender: true,
-                    });
-                }
-            } catch (e) {}
-        }
         const task = globalThis.__tmRuntimeState?.getFlatTaskById?.(id) || state.flatTasks?.[id];
         const docId = String(task?.root_id || task?.docId || '').trim();
-        if (docId) {
-            try { await __tmWarmKanbanDocHeadings([docId], { force: true }); } catch (e) {}
-        }
         state.detailTaskId = id;
         state.checklistDetailDismissed = false;
         if (__tmChecklistUseSheetMode(state.modal)) state.checklistDetailSheetOpen = true;
         const refreshed = __tmRefreshChecklistSelectionInPlace(state.modal, 'checklist-select');
         if (!refreshed) render();
+        if (docId) {
+            try { Promise.resolve(__tmWarmKanbanDocHeadings([docId], { force: true })).catch(() => null); } catch (e) {}
+        }
     };
 
     function __tmIsTouchLikeChecklistPointer(ev) {
@@ -12731,6 +13195,23 @@ if (mode === 'checklist') {
                 }, { mode: 'mobile' });
             } catch (e) {}
             const pointTargetForRows = resolvePointTarget(x, y);
+            const docHeadingGroupEl = __tmResolveDocHeadingGroupDropElementFromTarget(pointTargetForRows);
+            if (docHeadingGroupEl instanceof HTMLElement) {
+                try {
+                    window.tmDocHeadingGroupDragOver?.({
+                        preventDefault() {},
+                        stopPropagation() {},
+                        dataTransfer: {
+                            getData(type) {
+                                if (String(type || '').trim() === 'application/x-tm-task-id' || String(type || '').trim() === 'text/plain') return id;
+                                return '';
+                            },
+                        },
+                        target: pointTargetForRows || docHeadingGroupEl,
+                        currentTarget: docHeadingGroupEl,
+                    });
+                } catch (e) {}
+            } else {
             const timeGroupEl = __tmResolveTimeGroupDropElementFromTarget(pointTargetForRows);
             if (timeGroupEl instanceof HTMLElement) {
                 try {
@@ -12769,6 +13250,7 @@ if (mode === 'checklist') {
                     clearTaskRowHover();
                 }
             }
+            }
         };
         const finalizeDrag = async () => {
             cancelLongPress();
@@ -12784,6 +13266,21 @@ if (mode === 'checklist') {
                         mode: 'mobile',
                     });
                     if (!handled) {
+                        const docHeadingGroupEl = __tmResolveDocHeadingGroupDropElementFromTarget(pointTarget);
+                        if (docHeadingGroupEl instanceof HTMLElement) {
+                            await window.tmDocHeadingGroupDrop?.({
+                                preventDefault() {},
+                                stopPropagation() {},
+                                dataTransfer: {
+                                    getData(type) {
+                                        if (String(type || '').trim() === 'application/x-tm-task-id' || String(type || '').trim() === 'text/plain') return id;
+                                        return '';
+                                    },
+                                },
+                                target: pointTarget || docHeadingGroupEl,
+                                currentTarget: docHeadingGroupEl,
+                            });
+                        } else {
                         const timeGroupEl = __tmResolveTimeGroupDropElementFromTarget(pointTarget);
                         if (timeGroupEl instanceof HTMLElement) {
                             await window.tmTimeGroupDrop?.({
@@ -12815,6 +13312,7 @@ if (mode === 'checklist') {
                                     currentTarget: taskRowEl,
                                 }, String(taskRowEl.getAttribute('data-id') || '').trim());
                             }
+                        }
                         }
                     }
                 }
@@ -12957,6 +13455,9 @@ if (mode === 'checklist') {
 
     window.tmWhiteboardStreamTaskTitleClick = function(taskId, ev) {
         if (__tmConsumeDockPointerSuppressedClick(ev)) return;
+        try {
+            if (typeof __tmIsTaskDetailNoteViewEventTarget === 'function' && __tmIsTaskDetailNoteViewEventTarget(ev?.target)) return false;
+        } catch (e) {}
         const id = String(taskId || '').trim();
         if (!id) return;
         try { ev?.stopPropagation?.(); } catch (e) {}
@@ -12997,6 +13498,9 @@ if (mode === 'checklist') {
         const id = String(taskId || '').trim();
         if (!id) return;
         const target = ev?.target;
+        try {
+            if (typeof __tmIsTaskDetailNoteViewEventTarget === 'function' && __tmIsTaskDetailNoteViewEventTarget(target)) return false;
+        } catch (e) {}
         if (target?.closest?.('button,input,select,textarea,a,.tm-task-checkbox,.tm-task-checkbox-wrap,.tm-kanban-toggle')) return;
         try { ev?.stopPropagation?.(); } catch (e) {}
         try { ev?.preventDefault?.(); } catch (e) {}
@@ -13021,16 +13525,24 @@ if (mode === 'checklist') {
         try {
             const detailPanel = state.modal?.querySelector?.('#tmChecklistSheetPanel, #tmChecklistDetailPanel');
             if (detailPanel instanceof HTMLElement) {
-                await detailPanel.__tmTaskDetailFlushSave?.({
+                try { __tmMarkTaskDetailRootClosing(detailPanel, { holdMs: 260 }); } catch (e2) {}
+                const flushPromise = detailPanel.__tmTaskDetailFlushSave?.({
                     showHint: false,
                     closeAfterSave: false,
                     preserveFocus: false,
                     skipRerender: true,
                 });
+                Promise.resolve(flushPromise).catch((e2) => {
+                    try { hint(`❌ 详情保存失败: ${e2?.message || String(e2)}`, 'error'); } catch (e3) {}
+                });
             }
         } catch (e) {}
         state.checklistDetailDismissed = true;
         state.checklistDetailSheetOpen = false;
+        try {
+            const detailPanel = state.modal?.querySelector?.('#tmChecklistSheetPanel, #tmChecklistDetailPanel');
+            if (detailPanel instanceof HTMLElement) __tmMarkTaskDetailRootClosed(detailPanel);
+        } catch (e) {}
         __tmRefreshChecklistSelectionInPlace(state.modal, 'checklist-close-sheet');
     };
 
@@ -13040,16 +13552,24 @@ if (mode === 'checklist') {
         try {
             const detailPanel = state.modal?.querySelector?.('#tmTaskDetailSheetPanel');
             if (detailPanel instanceof HTMLElement) {
-                await detailPanel.__tmTaskDetailFlushSave?.({
+                try { __tmMarkTaskDetailRootClosing(detailPanel, { holdMs: 260 }); } catch (e2) {}
+                const flushPromise = detailPanel.__tmTaskDetailFlushSave?.({
                     showHint: false,
                     closeAfterSave: false,
                     preserveFocus: false,
                     skipRerender: true,
                 });
+                Promise.resolve(flushPromise).catch((e2) => {
+                    try { hint(`❌ 详情保存失败: ${e2?.message || String(e2)}`, 'error'); } catch (e3) {}
+                });
             }
         } catch (e) {}
         state.checklistDetailDismissed = true;
         state.checklistDetailSheetOpen = false;
+        try {
+            const detailPanel = state.modal?.querySelector?.('#tmTaskDetailSheetPanel');
+            if (detailPanel instanceof HTMLElement) __tmMarkTaskDetailRootClosed(detailPanel);
+        } catch (e) {}
         __tmRefreshTaskDetailSheetInPlace(state.modal, 'task-detail-sheet-close');
     };
 
@@ -13078,6 +13598,7 @@ if (mode === 'checklist') {
         if (!(sheet instanceof HTMLElement)) return;
         const target = ev?.target;
         if (!(target instanceof Element)) return;
+        if (typeof __tmIsTaskDetailNoteViewEventTarget === 'function' && __tmIsTaskDetailNoteViewEventTarget(target)) return;
         if (target.closest('input, textarea, select, button, a, label')) return;
         const fromHandle = !!target.closest('.tm-checklist-sheet-handle');
         const inBody = !!target.closest('.tm-checklist-sheet-body');
@@ -13517,6 +14038,8 @@ if (mode === 'checklist') {
     const __tmPhosphorBoldPaths = {
         'alarm-clock': 'M128,36A100,100,0,1,0,228,136,100.11,100.11,0,0,0,128,36Zm0,176a76,76,0,1,1,76-76A76.08,76.08,0,0,1,128,212ZM32.49,72.49a12,12,0,1,1-17-17l32-32a12,12,0,1,1,17,17Zm208,0a12,12,0,0,1-17,0l-32-32a12,12,0,1,1,17-17l32,32A12,12,0,0,1,240.49,72.49ZM176,124a12,12,0,0,1,0,24H128a12,12,0,0,1-12-12V88a12,12,0,0,1,24,0v36Z',
         'arrow-clockwise': 'M244,56v48a12,12,0,0,1-12,12H184a12,12,0,1,1,0-24H201.1l-19-17.38c-.13-.12-.26-.24-.38-.37A76,76,0,1,0,127,204h1a75.53,75.53,0,0,0,52.15-20.72,12,12,0,0,1,16.49,17.45A99.45,99.45,0,0,1,128,228h-1.37A100,100,0,1,1,198.51,57.06L220,76.72V56a12,12,0,0,1,24,0Z',
+        'arrow-left': 'M228,128a12,12,0,0,1-12,12H69l51.52,51.51a12,12,0,0,1-17,17l-72-72a12,12,0,0,1,0-17l72-72a12,12,0,0,1,17,17L69,116H216A12,12,0,0,1,228,128Z',
+        'book-open-text': 'M232,44H160a43.86,43.86,0,0,0-32,13.85A43.86,43.86,0,0,0,96,44H24A12,12,0,0,0,12,56V200a12,12,0,0,0,12,12H96a20,20,0,0,1,20,20,12,12,0,0,0,24,0,20,20,0,0,1,20-20h72a12,12,0,0,0,12-12V56A12,12,0,0,0,232,44ZM96,188H36V68H96a20,20,0,0,1,20,20V192.81A43.79,43.79,0,0,0,96,188Zm124,0H160a43.71,43.71,0,0,0-20,4.83V88a20,20,0,0,1,20-20h60ZM164,96h32a12,12,0,0,1,0,24H164a12,12,0,0,1,0-24Zm44,52a12,12,0,0,1-12,12H164a12,12,0,0,1,0-24h32A12,12,0,0,1,208,148Z',
         repeat: 'M20,128A76.08,76.08,0,0,1,96,52h99l-3.52-3.51a12,12,0,1,1,17-17l24,24a12,12,0,0,1,0,17l-24,24a12,12,0,0,1-17-17L195,76H96a52.06,52.06,0,0,0-52,52,12,12,0,0,1-24,0Zm204-12a12,12,0,0,0-12,12,52.06,52.06,0,0,1-52,52H61l3.52-3.51a12,12,0,1,0-17-17l-24,24a12,12,0,0,0,0,17l24,24a12,12,0,1,0,17-17L61,204h99a76.08,76.08,0,0,0,76-76A12,12,0,0,0,224,116Z',
         'arrows-clockwise': 'M224,48V96a8,8,0,0,1-8,8H168a8,8,0,0,1,0-16h28.69L182.06,73.37a79.56,79.56,0,0,0-56.13-23.43h-.45A79.52,79.52,0,0,0,69.59,72.71,8,8,0,0,1,58.41,61.27a96,96,0,0,1,135,.79L208,76.69V48a8,8,0,0,1,16,0ZM186.41,183.29a80,80,0,0,1-112.47-.66L59.31,168H88a8,8,0,0,0,0-16H40a8,8,0,0,0-8,8v48a8,8,0,0,0,16,0V179.31l14.63,14.63A95.43,95.43,0,0,0,130,222.06h.53a95.36,95.36,0,0,0,67.07-27.33,8,8,0,0,0-11.18-11.44Z',
         'arrows-in-line-horizontal': 'M140,40V216a12,12,0,0,1-24,0V40a12,12,0,0,1,24,0ZM64.49,87.51a12,12,0,0,0-17,17L59,116H16a12,12,0,0,0,0,24H59L47.51,151.51a12,12,0,0,0,17,17l32-32a12,12,0,0,0,0-17ZM240,116H197l11.52-11.51a12,12,0,0,0-17-17l-32,32a12,12,0,0,0,0,17l32,32a12,12,0,0,0,17-17L197,140h43a12,12,0,0,0,0-24Z',
@@ -13570,6 +14093,8 @@ if (mode === 'checklist') {
     __tmPhosphorBoldPaths['text-h-five'] = 'M252,180a40,40,0,0,1-40,40,39.53,39.53,0,0,1-28.57-11.6,12,12,0,1,1,17.14-16.8A15.54,15.54,0,0,0,212,196a16,16,0,0,0,0-32,15.54,15.54,0,0,0-11.43,4.4A12,12,0,0,1,180.16,158l8-48A12,12,0,0,1,200,100h40a12,12,0,0,1,0,24H210.17l-2.71,16.23A45.39,45.39,0,0,1,212,140,40,40,0,0,1,252,180ZM144,44a12,12,0,0,0-12,12v48H52V56a12,12,0,0,0-24,0V176a12,12,0,0,0,24,0V128h80v48a12,12,0,0,0,24,0V56A12,12,0,0,0,144,44Z';
     __tmPhosphorBoldPaths['text-h-six'] = 'M217.06,140.33l13.24-22.18a12,12,0,1,0-20.6-12.3l-32.25,54c-.09.15-.17.31-.25.47a40,40,0,1,0,39.86-20ZM212,196a16,16,0,1,1,16-16A16,16,0,0,1,212,196ZM156,56V176a12,12,0,0,1-24,0V128H52v48a12,12,0,0,1-24,0V56a12,12,0,0,1,24,0v48h80V56a12,12,0,0,1,24,0Z';
     __tmPhosphorBoldPaths['tray-arrow-down'] = 'M208,28H48A20,20,0,0,0,28,48V208a20,20,0,0,0,20,20H208a20,20,0,0,0,20-20V48A20,20,0,0,0,208,28Zm-4,24v92H179.31a19.86,19.86,0,0,0-14.14,5.86L147,168H109L90.83,149.86A19.86,19.86,0,0,0,76.69,144H52V52ZM52,204V168H75l18.14,18.14A19.86,19.86,0,0,0,107.31,192h41.38a19.86,19.86,0,0,0,14.14-5.86L181,168h23v36Zm35.51-87.51a12,12,0,0,1,17-17L116,111V76a12,12,0,0,1,24,0v35l11.51-11.52a12,12,0,0,1,17,17l-32,32a12,12,0,0,1-17,0Z';
+    __tmPhosphorBoldPaths['trash'] = 'M216,48H180V36A28,28,0,0,0,152,8H104A28,28,0,0,0,76,36V48H40a12,12,0,0,0,0,24h4V208a20,20,0,0,0,20,20H192a20,20,0,0,0,20-20V72h4a12,12,0,0,0,0-24ZM100,36a4,4,0,0,1,4-4h48a4,4,0,0,1,4,4V48H100Zm88,168H68V72H188ZM116,104v64a12,12,0,0,1-24,0V104a12,12,0,0,1,24,0Zm48,0v64a12,12,0,0,1-24,0V104a12,12,0,0,1,24,0Z';
+    __tmPhosphorBoldPaths['trash-2'] = __tmPhosphorBoldPaths['trash'];
 
     function __tmLucideIconSvg(iconName, options = {}) {
         const normalizedName = __tmNormalizeLucideIconName(iconName);

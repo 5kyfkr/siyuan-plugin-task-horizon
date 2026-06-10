@@ -63,7 +63,10 @@
                     const taskId = String(task?.id || '').trim();
                     if (!taskId) return;
                     filteredTaskById.set(taskId, task);
-                    const flatTask = state.flatTasks?.[taskId];
+                    const flatTask = globalThis.__tmRuntimeState?.getTaskById?.(taskId, { includePending: true, preferPending: true })
+                        || state.flatTasks?.[taskId]
+                        || state.pendingInsertedTasks?.[taskId]
+                        || null;
                     visibleDateAliases.forEach(([camel, snake]) => {
                         const taskValue = readVisibleDateAlias(task, camel, snake);
                         const flatValue = readVisibleDateAlias(flatTask, camel, snake);
@@ -116,7 +119,15 @@
             const selectedId = String(state.detailTaskId || '').trim();
             const fallbackId = __tmResolveFirstVisibleTaskIdFromRowModel(rowModel);
             const dismissed = !!state.checklistDetailDismissed;
-            const activeId = state.flatTasks?.[selectedId]
+            const selectedTask = selectedId
+                ? (
+                    globalThis.__tmRuntimeState?.getTaskById?.(selectedId, { includePending: true, preferPending: true })
+                    || state.flatTasks?.[selectedId]
+                    || state.pendingInsertedTasks?.[selectedId]
+                    || null
+                )
+                : null;
+            const activeId = selectedTask
                 ? selectedId
                 : ((sheetMode || dismissed) ? '' : fallbackId);
             if (activeId !== selectedId) state.detailTaskId = activeId;
@@ -300,8 +311,13 @@
                 const timeGroupDropAttrs = groupKind === 'time'
                     ? ` ondragenter="tmTimeGroupDragOver(event, '${escSq(groupKey)}')" ondragover="tmTimeGroupDragOver(event, '${escSq(groupKey)}')" ondragleave="tmTimeGroupDragLeave(event)" ondrop="tmTimeGroupDrop(event, '${escSq(groupKey)}')"`
                     : '';
+                const docDropId = String(row.docId || row.id || '').trim();
+                const headingDropId = String(row.headingId || '').trim();
+                const docHeadingGroupDropAttrs = state.groupByDocName && (groupKind === 'doc' || groupKind === 'h2') && docDropId
+                    ? ` data-tm-doc-heading-drop-kind="${groupKind === 'h2' ? 'heading' : 'doc'}" data-tm-doc-heading-drop-doc="${esc(docDropId)}"${groupKind === 'h2' ? ` data-tm-doc-heading-drop-heading="${esc(headingDropId)}" data-tm-doc-heading-drop-label="${esc(__tmNormalizeHeadingText(row.label || ''))}" data-tm-doc-heading-drop-rank="${Number.isFinite(Number(row.h2Rank ?? row.headingRank)) ? Number(row.h2Rank ?? row.headingRank) : ''}"` : ''} ondragenter="tmDocHeadingGroupDragOver(event)" ondragover="tmDocHeadingGroupDragOver(event)" ondragleave="tmDocHeadingGroupDragLeave(event)" ondrop="tmDocHeadingGroupDrop(event)"`
+                    : '';
                 return `
-                    <div class="tm-checklist-group ${row.kind === 'doc' ? 'tm-checklist-group--doc' : ''} ${row.kind === 'pinned' ? 'tm-checklist-group--pinned' : ''} ${row.kind === 'task' ? 'tm-checklist-group--task' : ''} ${row.kind === 'h2' ? 'tm-checklist-group--h2' : ''} ${row.kind === 'time' ? 'tm-checklist-group--time' : ''} ${row.kind === 'quadrant' ? 'tm-checklist-group--quadrant' : ''} ${isCollapsed ? 'tm-checklist-group--collapsed' : ''}" data-group-kind="${esc(groupKind)}" data-group-key="${esc(groupKey)}" onclick="tmToggleGroupCollapse('${escSq(groupKey)}', event)"${timeGroupDropAttrs}>
+                    <div class="tm-checklist-group ${row.kind === 'doc' ? 'tm-checklist-group--doc' : ''} ${row.kind === 'pinned' ? 'tm-checklist-group--pinned' : ''} ${row.kind === 'task' ? 'tm-checklist-group--task' : ''} ${row.kind === 'h2' ? 'tm-checklist-group--h2' : ''} ${row.kind === 'time' ? 'tm-checklist-group--time' : ''} ${row.kind === 'quadrant' ? 'tm-checklist-group--quadrant' : ''} ${isCollapsed ? 'tm-checklist-group--collapsed' : ''}" data-group-kind="${esc(groupKind)}" data-group-key="${esc(groupKey)}" onclick="tmToggleGroupCollapse('${escSq(groupKey)}', event)"${timeGroupDropAttrs}${docHeadingGroupDropAttrs}>
                         ${toggle}
                         ${pinnedIconHtml}
                         <span class="tm-checklist-group-label" style="color:${labelColor};">${labelHtml}</span>
@@ -314,7 +330,10 @@
 
             const renderTask = (row) => {
                 const taskId = String(row?.id || '').trim();
-                const task = filteredTaskById.get(taskId) || state.flatTasks?.[taskId];
+                const task = filteredTaskById.get(taskId)
+                    || globalThis.__tmRuntimeState?.getTaskById?.(taskId, { includePending: true, preferPending: true })
+                    || state.flatTasks?.[taskId]
+                    || state.pendingInsertedTasks?.[taskId];
                 if (!task) return '';
                 const isMultiSelected = __tmIsTaskMultiSelected(task.id);
                 if ((state.groupByTaskName || (!state.groupByDocName && !state.groupByTime && !state.quadrantEnabled)) && task.root_id) {
@@ -549,9 +568,18 @@
             const checklistLoadMoreHtml = checklistRemain > 0
                 ? `<div class="tm-checklist-load-more" style="padding:10px 0;text-align:center;"><button type="button" class="tm-btn tm-btn-secondary" onclick="tmListLoadMoreRows(event)">继续加载</button></div>`
                 : '';
-            const detailTask = activeId ? (state.flatTasks?.[activeId] || null) : null;
+            const detailTask = activeId
+                ? (
+                    globalThis.__tmRuntimeState?.getTaskById?.(activeId, { includePending: true, preferPending: true })
+                    || state.flatTasks?.[activeId]
+                    || state.pendingInsertedTasks?.[activeId]
+                    || null
+                )
+                : null;
             const detailHtml = detailTask
-                ? __tmBuildTaskDetailInnerHtml(detailTask, { embedded: true, closeable: true })
+                ? (typeof __tmShouldRenderTaskDetailNoteView === 'function' && __tmShouldRenderTaskDetailNoteView('sheet', detailTask)
+                    ? __tmBuildTaskDetailNoteViewInnerHtml(detailTask, { embedded: true, closeable: true })
+                    : __tmBuildTaskDetailInnerHtml(detailTask, { embedded: true, closeable: true }))
                 : `<div class="tm-checklist-empty-detail">选择左侧任务后，这里会显示可编辑的详情。</div>`;
             return `
                 <div class="tm-body${bodyAnimClass} tm-body--checklist">

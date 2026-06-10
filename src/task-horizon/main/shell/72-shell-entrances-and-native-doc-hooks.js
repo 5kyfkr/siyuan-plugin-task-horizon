@@ -1139,14 +1139,16 @@
         if (!ids.length) return false;
         const listItems = __tmFindNativeDocTaskListItemsByIds(ids);
         if (!listItems.length) return false;
+        const statusAttrKey = typeof __tmGetTaskMetaAttrKey === 'function' ? __tmGetTaskMetaAttrKey('customStatus') : 'custom-status';
         let changed = false;
         listItems.forEach((listItem) => {
-            const beforeStatus = String(listItem.getAttribute('custom-status') || '').trim();
+            const beforeStatus = String(listItem.getAttribute(statusAttrKey) || listItem.getAttribute('custom-status') || '').trim();
             try {
-                if (nextStatus) listItem.setAttribute('custom-status', nextStatus);
-                else listItem.removeAttribute('custom-status');
+                if (nextStatus) listItem.setAttribute(statusAttrKey, nextStatus);
+                else listItem.removeAttribute(statusAttrKey);
+                if (statusAttrKey !== 'custom-status') listItem.removeAttribute('custom-status');
             } catch (e) {}
-            const afterStatus = String(listItem.getAttribute('custom-status') || '').trim();
+            const afterStatus = String(listItem.getAttribute(statusAttrKey) || '').trim();
             if (beforeStatus !== afterStatus) changed = true;
         });
         return changed;
@@ -1285,8 +1287,12 @@
             if (!(res && res.code === 0 && res.data && typeof res.data === 'object')) return { status: '', taskCompleteAt: '' };
             const attrs = res.data;
             const result = {
-                status: String(attrs['custom-status'] || '').trim(),
-                taskCompleteAt: __tmNormalizeTaskCompleteAtValue(attrs[__TM_TASK_COMPLETE_AT_ATTR] || ''),
+                status: typeof __tmReadTaskMetaAttrValue === 'function'
+                    ? String(__tmReadTaskMetaAttrValue(attrs, 'customStatus') || '').trim()
+                    : String(attrs['custom-status'] || '').trim(),
+                taskCompleteAt: __tmNormalizeTaskCompleteAtValue(typeof __tmReadTaskMetaAttrValue === 'function'
+                    ? __tmReadTaskMetaAttrValue(attrs, 'taskCompleteAt')
+                    : (attrs['custom-task-complete-at'] || '')),
             };
             if (__tmShouldLogStatusDebug([rawId, attrTargetId], false)) {
                 __tmPushStatusDebug('checkbox-attrs-read', {
@@ -1324,17 +1330,19 @@
         const completeAtMatchedBefore = !expectedCompleteAt || beforeCompleteAt === expectedCompleteAt;
         if (domDone !== done || (statusMatchedBefore && completeAtMatchedBefore)) return false;
         if (expectedStatus) __tmMirrorNativeDocTaskStatusAttr([rawId, tid], expectedStatus);
-        await __tmPersistMetaAndAttrsKernel(tid, attrPatch, {
-            touchMetaStore: false,
-            skipFlush: false,
+        const patchTask = globalThis.__tmRequireTaskOutbox?.('patchTask');
+        if (typeof patchTask !== 'function') throw new Error('任务写入队列未就绪: patchTask');
+        await patchTask(tid, attrPatch, {
+            background: true,
+            wait: false,
+            skipFlush: true,
+            skipInteractionGate: true,
+            source: 'native-doc-checkbox-reconcile',
+            reason: 'native-doc-checkbox-reconcile',
+            label: '文档任务状态',
             saveMetaNow: false,
         });
-        if (!__tmIsNativeDocCheckboxReconcileVersionCurrent(rawId, syncVersion)) return false;
-        const afterAttrs = await __tmReadDocCheckboxBlockAttrs(tid);
-        const afterStatus = String(afterAttrs?.status || '').trim();
-        const afterCompleteAt = String(afterAttrs?.taskCompleteAt || '').trim();
-        return (!expectedStatus || afterStatus === expectedStatus)
-            && (!expectedCompleteAt || afterCompleteAt === expectedCompleteAt);
+        return true;
     }
 
     function __tmScheduleNativeDocCheckboxStatusReconcile(blockId, taskId, attrPatch, expectedDone, syncVersion) {
@@ -1639,22 +1647,23 @@
         if (shouldPersistStatus || !!(completeAtPatch && Object.keys(completeAtPatch).length > 0)) {
             const mirroredStatus = String(attrPatch.customStatus || '').trim();
             if (mirroredStatus) __tmMirrorNativeDocTaskStatusAttr([rawId, tid], mirroredStatus);
-            await __tmPersistMetaAndAttrsKernel(tid, attrPatch, {
-                touchMetaStore: false,
-                skipFlush: false,
+            const patchTask = globalThis.__tmRequireTaskOutbox?.('patchTask');
+            if (typeof patchTask !== 'function') throw new Error('任务写入队列未就绪: patchTask');
+            void patchTask(tid, attrPatch, {
+                background: true,
+                wait: false,
+                skipFlush: true,
+                skipInteractionGate: true,
+                source: 'native-doc-checkbox-sync',
+                reason: 'native-doc-checkbox-sync',
+                label: '文档任务状态',
                 saveMetaNow: false,
+            }).catch((error) => {
+                try { globalThis.__tmReportTaskOutboxFailure?.(error, { action: '同步文档任务状态' }); } catch (e) {}
             });
-            let persistedAttrs = await __tmReadDocCheckboxBlockAttrs(tid);
-            persistedStatus = String(persistedAttrs?.status || '').trim();
-            persistedTaskCompleteAt = String(persistedAttrs?.taskCompleteAt || '').trim();
-            const expectedTaskCompleteAt = String(completeAtPatch?.taskCompleteAt || '').trim();
-            const shouldReconcileStatus = !!targetStatus && shouldPersistStatus && persistedStatus !== targetStatus;
-            const shouldReconcileTaskCompleteAt = !!expectedTaskCompleteAt && persistedTaskCompleteAt !== expectedTaskCompleteAt;
-            if ((shouldReconcileStatus || shouldReconcileTaskCompleteAt) && __tmIsNativeDocCheckboxReconcileVersionCurrent(rawId, syncVersion)) {
-                await __tmReconcileNativeDocCheckboxStatus(rawId, tid, attrPatch, !!domDone, syncVersion);
-                persistedAttrs = await __tmReadDocCheckboxBlockAttrs(tid);
-                persistedStatus = String(persistedAttrs?.status || '').trim();
-                persistedTaskCompleteAt = String(persistedAttrs?.taskCompleteAt || '').trim();
+            if (targetStatus) persistedStatus = targetStatus;
+            if (completeAtPatch && Object.keys(completeAtPatch).length > 0) {
+                persistedTaskCompleteAt = String(completeAtPatch.taskCompleteAt || persistedTaskCompleteAt || '').trim();
             }
         }
         const finalTaskCompleteAt = String(
@@ -1810,6 +1819,10 @@
 
         __tmNativeDocCheckboxSyncClickHandler = (event) => {
             if (!event || event.isTrusted !== true) return;
+            try {
+                if (typeof __tmIsTaskDetailNoteViewLocalEventTarget === 'function'
+                    && __tmIsTaskDetailNoteViewLocalEventTarget(event.target)) return;
+            } catch (e) {}
             const blockId = __tmResolveNativeDocTaskToggleBlockId(event.target);
             if (!blockId) return;
             __tmScheduleNativeDocCheckboxStatusSync(blockId);
@@ -1822,6 +1835,10 @@
                 const touched = new Set();
                 const inserted = new Set();
                 const collect = (target, options = {}) => {
+                    try {
+                        if (typeof __tmIsTaskDetailNoteViewLocalEventTarget === 'function'
+                            && __tmIsTaskDetailNoteViewLocalEventTarget(target)) return;
+                    } catch (e) {}
                     const blockId = __tmResolveNativeDocTaskBlockId(target);
                     if (blockId) {
                         touched.add(blockId);
@@ -1835,6 +1852,10 @@
                         const targetEl = target instanceof Element ? target : null;
                         const attrName = String(mutation?.attributeName || '').trim();
                         if (!targetEl) return;
+                        try {
+                            if (typeof __tmIsTaskDetailNoteViewLocalEventTarget === 'function'
+                                && __tmIsTaskDetailNoteViewLocalEventTarget(targetEl)) return;
+                        } catch (e) {}
                         if (attrName === 'class') {
                             const oldDone = /\bprotyle-task--done\b/.test(String(mutation?.oldValue || ''));
                             const newDone = !!targetEl.classList?.contains?.('protyle-task--done');
@@ -1855,8 +1876,16 @@
                     }
                     if (type === 'childList') {
                         try {
+                            if (typeof __tmIsTaskDetailNoteViewLocalEventTarget === 'function'
+                                && __tmIsTaskDetailNoteViewLocalEventTarget(target)) return;
+                        } catch (e) {}
+                        try {
                             (Array.from(mutation?.addedNodes || [])).forEach((node) => {
                                 const el = node instanceof Element ? node : null;
+                                try {
+                                    if (typeof __tmIsTaskDetailNoteViewLocalEventTarget === 'function'
+                                        && __tmIsTaskDetailNoteViewLocalEventTarget(el)) return;
+                                } catch (e) {}
                                 const useEl = el?.matches?.('use')
                                     ? el
                                     : (el?.querySelector?.('.protyle-action--task use') || null);

@@ -53,6 +53,14 @@
         }
     };
 
+    const getProtyleCtor = () => {
+        try {
+            return getBridge()?.Protyle || globalThis.__taskHorizonProtyle || window.Protyle || window.siyuan?.Protyle || null;
+        } catch (e) {
+            return null;
+        }
+    };
+
     const getOpenMobileFileByIdFn = () => {
         try {
             return getBridge()?.openMobileFileById || globalThis.__taskHorizonOpenMobileFileById || window.openMobileFileById || window.siyuan?.openMobileFileById || null;
@@ -231,6 +239,7 @@
         getEventBus,
         getEventBuses,
         getOpenTabFn,
+        getProtyleCtor,
         getOpenMobileFileByIdFn,
         getAllModels,
         getPlatformUtils,

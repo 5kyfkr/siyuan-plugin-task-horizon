@@ -13,6 +13,75 @@
         settleUntil: 0,
         settleTimer: 0,
     };
+    let homepageTaskMetaAttrKeySettingsRaw = null;
+    let homepageTaskMetaAttrKeySettingsCache = {};
+    let homepageTaskMetaAttrAliasSettingsRaw = null;
+    let homepageTaskMetaAttrAliasSettingsCache = {};
+
+    function readHomepageTaskMetaAttrSettingsObject(storageKey, kind) {
+        let raw = "";
+        try { raw = String(localStorage.getItem(storageKey) || ""); } catch (e) {}
+        if (kind === "keys" && raw === homepageTaskMetaAttrKeySettingsRaw) return homepageTaskMetaAttrKeySettingsCache;
+        if (kind === "aliases" && raw === homepageTaskMetaAttrAliasSettingsRaw) return homepageTaskMetaAttrAliasSettingsCache;
+        let value = {};
+        if (raw.trim()) {
+            try {
+                const parsed = JSON.parse(raw);
+                if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) value = parsed;
+            } catch (e) {}
+        }
+        if (kind === "keys") {
+            homepageTaskMetaAttrKeySettingsRaw = raw;
+            homepageTaskMetaAttrKeySettingsCache = value;
+            return homepageTaskMetaAttrKeySettingsCache;
+        }
+        homepageTaskMetaAttrAliasSettingsRaw = raw;
+        homepageTaskMetaAttrAliasSettingsCache = value;
+        return homepageTaskMetaAttrAliasSettingsCache;
+    }
+
+    function normalizeHomepageTaskMetaAttrKeyName(value, fallback = "") {
+        const key = String(value || "").trim();
+        if (key && /^custom-[a-zA-Z0-9_-]+$/.test(key)) return key;
+        const safeFallback = String(fallback || "").trim();
+        return safeFallback && /^custom-[a-zA-Z0-9_-]+$/.test(safeFallback) ? safeFallback : "";
+    }
+
+    const HOMEPAGE_TASK_META_ATTR_DEFAULT_KEYS = Object.freeze({
+        completionTime: "custom-completion-time",
+        taskCompleteAt: "custom-task-complete-at",
+    });
+
+    function readHomepageConfiguredTaskMetaAttr(task, field) {
+        const source = (task && typeof task === "object") ? task : {};
+        const metaField = String(field || "").trim();
+        const defaultKey = HOMEPAGE_TASK_META_ATTR_DEFAULT_KEYS[metaField] || "";
+        if (!defaultKey) return "";
+        const settings = readHomepageTaskMetaAttrSettingsObject("tm_task_meta_attr_keys", "keys");
+        const currentKey = normalizeHomepageTaskMetaAttrKeyName(settings?.[metaField], defaultKey) || defaultKey;
+        const aliases = readHomepageTaskMetaAttrSettingsObject("tm_task_meta_attr_key_aliases", "aliases");
+        const rawAliasList = Array.isArray(aliases?.[metaField]) ? aliases[metaField] : [];
+        if (currentKey === defaultKey && rawAliasList.length === 0) return "";
+        const keys = [];
+        const push = (key) => {
+            const normalized = normalizeHomepageTaskMetaAttrKeyName(key, "");
+            if (normalized && !keys.includes(normalized)) keys.push(normalized);
+        };
+        push(currentKey);
+        rawAliasList.forEach(push);
+        for (const key of keys) {
+            if (Object.prototype.hasOwnProperty.call(source, key)) return String(source[key] ?? "");
+        }
+        return "";
+    }
+
+    function readHomepageConfiguredTaskCompleteAt(task) {
+        return readHomepageConfiguredTaskMetaAttr(task, "taskCompleteAt");
+    }
+
+    function readHomepageConfiguredCompletionTime(task) {
+        return readHomepageConfiguredTaskMetaAttr(task, "completionTime");
+    }
 
     const HOMEPAGE_STYLE_SOURCE = "homepage.css";
     const HOMEPAGE_STYLE_TEXT = String.raw`.tm-homepage-entry-btn.is-active {
@@ -1639,7 +1708,8 @@
 
     function resolveTaskDoneValue(task) {
         return String(
-            task?.["custom-task-complete-at"]
+            readHomepageConfiguredTaskCompleteAt(task)
+            || task?.["custom-task-complete-at"]
             || task?.taskCompleteAt
             || task?.task_complete_at
             || task?.completedAt
@@ -1666,7 +1736,8 @@
 
     function resolveTaskDoneMetricValue(task) {
         return String(
-            task?.["custom-task-complete-at"]
+            readHomepageConfiguredTaskCompleteAt(task)
+            || task?.["custom-task-complete-at"]
             || task?.taskCompleteAt
             || task?.task_complete_at
             || task?.updated
@@ -1681,7 +1752,13 @@
     }
 
     function resolveTaskDueKey(task) {
-        return normalizeDateKey(task?.completionTime || "");
+        return normalizeDateKey(
+            task?.completionTime
+            || task?.completion_time
+            || readHomepageConfiguredCompletionTime(task)
+            || task?.["custom-completion-time"]
+            || ""
+        );
     }
 
     function resolveTaskStatus(task) {

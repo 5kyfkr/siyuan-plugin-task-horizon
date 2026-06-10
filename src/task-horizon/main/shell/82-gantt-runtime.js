@@ -1,3 +1,7 @@
+    (function () {
+        const DAY_MS = 86400000;
+        const cleanupMap = new WeakMap();
+
         function clamp(n, min, max) {
             return Math.max(min, Math.min(max, n));
         }
@@ -166,6 +170,23 @@
             return cells.join('');
         }
 
+        function resolveTimelineTaskCompleteAtText(task) {
+            if (!(task && typeof task === 'object')) return '';
+            const done = typeof __tmIsTaskDoneEffective === 'function'
+                ? __tmIsTaskDoneEffective(task)
+                : task.done === true;
+            if (!done) return '';
+            const raw = typeof __tmResolveTaskCompletedAtRaw === 'function'
+                ? __tmResolveTaskCompletedAtRaw(task, { completedOnly: false })
+                : String(task?.taskCompleteAt || task?.task_complete_at || task?.completedAt || '').trim();
+            if (!raw) return '';
+            return String(
+                typeof __tmFormatTaskCompletedAtTime === 'function'
+                    ? __tmFormatTaskCompletedAtTime(raw)
+                    : raw
+            ).trim();
+        }
+
         function getTimelineTaskVisualMeta(task, isDark) {
             const docId = String(task?.docId || task?.root_id || '').trim();
             const baseColor = __tmGetDocColorHex(docId, isDark);
@@ -183,20 +204,23 @@
             const rawStatusLabel = String(statusOption?.name || '').trim();
             const showTitle = timelineCardFieldSet.has('title');
             const showStatus = timelineCardFieldSet.has('status');
+            const showTaskCompleteAt = timelineCardFieldSet.has('taskCompleteAt');
             const statusLabel = showStatus ? rawStatusLabel : '';
             const statusChipStyle = statusLabel ? __tmBuildStatusChipStyle(statusOption?.color || '#9ca3af') : '';
+            const taskCompleteAtText = showTaskCompleteAt ? resolveTimelineTaskCompleteAtText(task) : '';
             const taskTitle = String(task?.content || '').trim() || '(无内容)';
             return {
                 barColor,
                 statusLabel,
                 statusChipStyle,
+                taskCompleteAtText,
                 taskTitle,
                 docId,
                 done,
                 isMilestone,
                 iconName: isMilestone ? 'flag' : (done ? 'circle-check-big' : 'blocks'),
                 showTitle,
-                showLead: showTitle || !!statusLabel,
+                showLead: showTitle || !!statusLabel || !!taskCompleteAtText,
             };
         }
 
@@ -204,9 +228,11 @@
             const visual = (visualMeta && typeof visualMeta === 'object') ? visualMeta : {};
             const titleLen = Array.from(String(visual.taskTitle || '').trim() || '(无内容)').length;
             const statusLen = Array.from(String(visual.statusLabel || '').trim()).length;
+            const completeAtLen = Array.from(String(visual.taskCompleteAtText || '').trim()).length;
             const titleWidth = Math.min(260, Math.max(64, titleLen * 14));
             const statusWidth = statusLen ? Math.min(104, Math.max(54, statusLen * 12 + 26)) : 0;
-            return 36 + titleWidth + (statusWidth ? (statusWidth + 10) : 0);
+            const completeAtWidth = completeAtLen ? Math.min(150, Math.max(78, completeAtLen * 8 + 24)) : 0;
+            return 36 + titleWidth + (statusWidth ? (statusWidth + 10) : 0) + (completeAtWidth ? (completeAtWidth + 10) : 0);
         }
 
         function resolveTimelineBarLayout(width, dayWidth, visualMeta = null) {
@@ -234,6 +260,9 @@
             const statusHtml = visual.statusLabel
                 ? `<span class="tm-gantt-bar__status"><span class="tm-status-tag" style="${visual.statusChipStyle}">${esc(visual.statusLabel)}</span></span>`
                 : '';
+            const completeAtHtml = visual.taskCompleteAtText
+                ? `<span class="tm-gantt-bar__complete-time" title="完成时间"><span class="tm-gantt-bar__complete-time-value">${esc(visual.taskCompleteAtText)}</span></span>`
+                : '';
             const menuBtnHtml = `<button class="tm-gantt-bar__menu-btn" type="button" aria-label="时间轴菜单" title="时间轴菜单"><span class="tm-gantt-bar__menu-btn-text">···</span></button>`;
             if (visual.isMilestone) {
                 return `
@@ -241,7 +270,7 @@
                         ${leadHtml}
                         <div class="tm-gantt-bar__drag-label" hidden></div>
                     </div>
-                    <span class="tm-gantt-bar__label-layer tm-gantt-bar__label-layer--milestone">${titleHtml}${statusHtml}${menuBtnHtml}</span>
+                    <span class="tm-gantt-bar__label-layer tm-gantt-bar__label-layer--milestone">${titleHtml}${statusHtml}${completeAtHtml}${menuBtnHtml}</span>
                     <div class="tm-gantt-bar__date-hint tm-gantt-bar__date-hint--start" data-role="start-date-hint" hidden></div>
                     <div class="tm-gantt-bar__date-hint tm-gantt-bar__date-hint--end" data-role="end-date-hint" hidden></div>
                     <div class="tm-gantt-bar-handle tm-gantt-bar-handle--start" data-handle="start"></div>
@@ -253,7 +282,7 @@
                     <span class="tm-gantt-bar__edge tm-gantt-bar__edge--end"></span>
                     <div class="tm-gantt-bar__drag-label" hidden></div>
                 </div>
-                <span class="tm-gantt-bar__label-layer">${leadHtml}${titleHtml}${statusHtml}${menuBtnHtml}</span>
+                <span class="tm-gantt-bar__label-layer">${leadHtml}${titleHtml}${statusHtml}${completeAtHtml}${menuBtnHtml}</span>
                 <div class="tm-gantt-bar__date-hint tm-gantt-bar__date-hint--start" data-role="start-date-hint" hidden></div>
                 <div class="tm-gantt-bar__date-hint tm-gantt-bar__date-hint--end" data-role="end-date-hint" hidden></div>
                 <div class="tm-gantt-bar-handle tm-gantt-bar-handle--start" data-handle="start"></div>
@@ -263,10 +292,11 @@
 
         function buildTimelineTaskBarTitle(layout, visualMeta = null) {
             const visual = visualMeta || getTimelineTaskVisualMeta(null, !!layout?.isDark);
+            const completeAtLine = visual.taskCompleteAtText ? `\n完成时间：${visual.taskCompleteAtText}` : '';
             if (visual.isMilestone) {
-                return `${visual.taskTitle}\n里程碑：${formatDateOnlyFromTs(layout?.endTs || layout?.startTs)}`;
+                return `${visual.taskTitle}\n里程碑：${formatDateOnlyFromTs(layout?.endTs || layout?.startTs)}${completeAtLine}`;
             }
-            return `${visual.taskTitle}\n${formatDateOnlyFromTs(layout?.startTs)} ~ ${formatDateOnlyFromTs(layout?.endTs)}`;
+            return `${visual.taskTitle}\n${formatDateOnlyFromTs(layout?.startTs)} ~ ${formatDateOnlyFromTs(layout?.endTs)}${completeAtLine}`;
         }
 
         function buildTimelineTaskBarHtml(task, layout) {

@@ -1,3 +1,498 @@
+    const TM_SETTINGS_SEARCH_MAX_RESULTS = 12;
+    const TM_SETTINGS_SEARCH_TAB_LABELS = Object.freeze({
+        docs: '文档分组',
+        main: '常规设置',
+        appearance: '外观',
+        calendar: '日历',
+        ai: 'AI',
+        rules: '规则管理',
+        quadrant: '四象限',
+        priority: '优先级算法',
+        about: '关于'
+    });
+    const TM_SETTINGS_SEARCH_MAIN_GROUPS = Object.freeze([
+        { section: 'display', titles: ['基础显示', '字体大小', '移动端字体', '行高模式', '行高(px)', '父任务名称加粗', '自动换行', '内容行数', '备注行数', '任务标题级别', '完成反馈', '文档名称显示'] },
+        { section: 'new-task', titles: ['新建任务', '新建任务位置', '默认新建文档', '今天日记默认笔记本', '启用“移动内容至今天日记”', '日记追加到底部', '标题分组追加到内容末尾', '新建任务默认置顶', '子任务继承父任务字段'] },
+        { section: 'status', titles: ['状态选项', '勾选完成时状态', '未完成状态默认状态'] },
+        { section: 'layout', titles: ['视图布局', '默认视图', '移动端默认', '自动隐藏页签栏', '页签拖延值上色', '启用 Dock 侧边栏', 'Dock 默认视图', 'Dock 紧凑标题点击跳转', '移动端清单紧凑视图标题点击跳转', 'Dock 及移动端紧凑右侧字段', '桌面端紧凑右侧字段', '紧凑右侧字体', '时间轴卡片字段', '标题点击弹出详情页面', '看板紧凑模式', '清单紧凑模式', '清单紧凑层级线', '看板宽度', '表格和看板宽度填满窗口', '看板卡片字段', '白板卡片字段', '卡片字段常驻显示', '卡片流最小宽度', '移动端卡片流双栏', '显示已完成任务看板', '看板拖动父任务时同步更改子任务状态', '看板内子任务不与父任务分离', '时长显示格式', '实际番茄数属性名', '预计番茄数属性名'] },
+        { section: 'search', titles: ['搜索分组', '搜索与分组', '递归文档数上限', '兼容旧版 Win7 思源', '父任务回溯层数', '显示已完成任务', '已完成分组仅显示今天完成', '已完成任务不单独分组', '文档分组下按二级标题子分组', '分组模式增加“按任务名分组”', '分组内置顶任务', '自动识别语义日期（全量分批）', '父任务按子任务时间参与时间相关排序', '全部折叠展开包含分组', '手动刷新时同步伺服共享设置', '手动刷新时同步当前分组/规则等会话状态'] },
+        { section: 'topbar', titles: ['顶栏入口', '文档顶栏按钮(桌面)', '文档顶栏按钮(移动)', '对调文档顶栏长短按', '打开时定位当前文档', '思源窗口顶栏图标(桌面)', '思源窗口顶栏图标(移动)'] },
+        { section: 'quickbar', titles: ['悬浮条', '任务悬浮条', '启用任务悬浮条', '文档任务行末尾常驻显示', '悬浮条显示图标', '常驻显示字段', '子任务数量显示未完成数', '移动端启用常驻显示'] },
+        { section: 'tomato', titles: ['番茄钟/联动', '番茄钟与插件联动', '启用底栏番茄钟相关功能', '耗时读取模式', '分钟属性名', '小时属性名', '启用凡人修仙传:打卡插件联动', '不联动的文档分组', '启用任务逾期扣分', '截止日过期扣分', '日程过期扣分', '检查时间', '弹窗确认扣分'] }
+    ]);
+    const TM_SETTINGS_SEARCH_PAGE_ITEMS = Object.freeze([
+        { tab: 'docs', title: '文档分组与管理', desc: '按笔记本分组、自定义分组、当前分组内文档、排除文档' },
+        { tab: 'docs', title: '数据导入', desc: '导入滴答 CSV，自动创建文档、二级标题和任务块' },
+        { tab: 'docs', title: '当前分组内文档', desc: '查看、添加、清空或移除当前分组文档' },
+        { tab: 'docs', title: '排除文档', desc: '恢复或管理被排除的文档' },
+        { tab: 'appearance', title: '列设置', desc: '显示、排序、宽度和自定义列' },
+        { tab: 'appearance', section: 'columns', key: 'appearance-task-meta-attr-migration', title: '高级：内置字段属性名与迁移', desc: '自定义开始日期、截止日期、重要性、状态、完成时间等内置字段属性名，并可选择迁移旧任务字段' },
+        { tab: 'appearance', title: '页签栏', desc: '归档入口位置' },
+        { tab: 'appearance', title: '配色', desc: '调整主题、看板、时间轴和顶栏颜色' },
+        { tab: 'calendar', title: '日历', desc: '日历视图与日程相关设置' },
+        { tab: 'ai', title: 'AI 接入', desc: '供应商、API Key、Base URL、模型、温度、超时和上下文模式' },
+        { tab: 'ai', title: '供应商', desc: 'MiniMax、DeepSeek、OpenAI 兼容和 Anthropic 兼容' },
+        { tab: 'ai', title: 'API Key', desc: 'AI 服务密钥' },
+        { tab: 'ai', title: 'Base URL', desc: 'AI 服务地址' },
+        { tab: 'ai', title: '模型', desc: 'AI 模型名称' },
+        { tab: 'ai', title: '默认上下文模式', desc: '附近块或全文上下文' },
+        { tab: 'rules', title: '规则管理', desc: '筛选规则、排序规则和优先级算法入口' },
+        { tab: 'rules', title: '筛选规则管理', desc: '新建、编辑、应用和删除筛选规则' },
+        { tab: 'rules', title: '时间轴强制按截止日期排序', desc: '时间轴规则排序行为' },
+        { tab: 'quadrant', title: '四象限', desc: '按重要性和截止日期自动分配象限' },
+        { tab: 'quadrant', title: '四象限分组规则', desc: '配置四象限规则' },
+        { tab: 'priority', title: '优先级算法', desc: '配置任务优先级评分权重和规则' },
+        { tab: 'about', title: '关于', desc: '版本、设备识别和诊断信息' },
+        { tab: 'about', title: '复制诊断', desc: '复制设备识别诊断报告' }
+    ]);
+
+    function __tmNormalizeSettingsSearchTab(tab) {
+        const v = String(tab || '').trim();
+        return Object.prototype.hasOwnProperty.call(TM_SETTINGS_SEARCH_TAB_LABELS, v) ? v : 'docs';
+    }
+
+    function __tmPlainSettingsSearchText(value) {
+        return String(value || '')
+            .replace(/<[^>]*>/g, ' ')
+            .replace(/\s+/g, ' ')
+            .trim();
+    }
+
+    function __tmNormalizeSettingsSearchText(value) {
+        try {
+            return __tmPlainSettingsSearchText(value).normalize('NFKC').toLowerCase();
+        } catch (e) {
+            return __tmPlainSettingsSearchText(value).toLowerCase();
+        }
+    }
+
+    function __tmGetSettingsSearchSectionLabel(sectionId) {
+        const sid = String(sectionId || '').trim();
+        if (!sid) return '';
+        try {
+            const section = (Array.isArray(TM_MAIN_SETTINGS_SECTIONS) ? TM_MAIN_SETTINGS_SECTIONS : [])
+                .find((item) => String(item?.id || '').trim() === sid);
+            return String(section?.label || '').trim();
+        } catch (e) {
+            return '';
+        }
+    }
+
+    function __tmBuildSettingsSearchKey(tab, title, section = '') {
+        const raw = `${__tmNormalizeSettingsSearchTab(tab)}|${String(section || '').trim()}|${__tmPlainSettingsSearchText(title)}`;
+        try {
+            return encodeURIComponent(raw);
+        } catch (e) {
+            return raw.replace(/["'<>\\\s]+/g, '_');
+        }
+    }
+
+    function __tmSettingsSearchAttrs(tab, title, desc = '', opt = {}) {
+        const normalizedTab = __tmNormalizeSettingsSearchTab(tab);
+        const titleText = __tmPlainSettingsSearchText(title);
+        if (!titleText) return '';
+        const descText = __tmPlainSettingsSearchText(desc);
+        const section = String(opt?.section || '').trim();
+        const key = String(opt?.key || __tmBuildSettingsSearchKey(normalizedTab, titleText, section)).trim();
+        return [
+            `data-tm-settings-search-key="${esc(key)}"`,
+            `data-tm-settings-search-tab="${esc(normalizedTab)}"`,
+            section ? `data-tm-settings-search-section="${esc(section)}"` : '',
+            `data-tm-settings-search-title="${esc(titleText)}"`,
+            descText ? `data-tm-settings-search-desc="${esc(descText)}"` : ''
+        ].filter(Boolean).join(' ');
+    }
+
+    function __tmCreateSettingsSearchEntry(raw = {}) {
+        const tab = __tmNormalizeSettingsSearchTab(raw.tab);
+        const title = __tmPlainSettingsSearchText(raw.title);
+        if (!title) return null;
+        const section = String(raw.section || '').trim();
+        const desc = __tmPlainSettingsSearchText(raw.desc);
+        const key = String(raw.key || __tmBuildSettingsSearchKey(tab, title, section)).trim();
+        const tabLabel = TM_SETTINGS_SEARCH_TAB_LABELS[tab] || tab;
+        const sectionLabel = tab === 'main' ? __tmGetSettingsSearchSectionLabel(section) : '';
+        const haystack = __tmNormalizeSettingsSearchText([title, desc, tabLabel, sectionLabel].filter(Boolean).join(' '));
+        return { tab, title, desc, section, key, tabLabel, sectionLabel, haystack, rendered: !!raw.rendered };
+    }
+
+    function __tmGetSettingsSearchStaticEntries() {
+        const entries = [];
+        TM_SETTINGS_SEARCH_PAGE_ITEMS.forEach((item) => {
+            const entry = __tmCreateSettingsSearchEntry(item);
+            if (entry) entries.push(entry);
+        });
+        TM_SETTINGS_SEARCH_MAIN_GROUPS.forEach((group) => {
+            const section = String(group?.section || '').trim();
+            const sectionLabel = __tmGetSettingsSearchSectionLabel(section);
+            (Array.isArray(group?.titles) ? group.titles : []).forEach((title) => {
+                const entry = __tmCreateSettingsSearchEntry({
+                    tab: 'main',
+                    section,
+                    title,
+                    desc: sectionLabel
+                });
+                if (entry) entries.push(entry);
+            });
+        });
+        return entries;
+    }
+
+    function __tmCollectRenderedSettingsSearchEntries(root) {
+        if (!(root instanceof HTMLElement)) return [];
+        const entries = [];
+        root.querySelectorAll('[data-tm-settings-search-title]').forEach((node) => {
+            if (!(node instanceof HTMLElement)) return;
+            const tab = __tmNormalizeSettingsSearchTab(node.dataset.tmSettingsSearchTab || state.settingsActiveTab || 'docs');
+            const section = String(
+                node.dataset.tmSettingsSearchSection
+                || node.closest('.tm-settings-panel[data-tm-settings-section]')?.dataset?.tmSettingsSection
+                || ''
+            ).trim();
+            const entry = __tmCreateSettingsSearchEntry({
+                tab,
+                section,
+                title: node.dataset.tmSettingsSearchTitle || '',
+                desc: node.dataset.tmSettingsSearchDesc || '',
+                key: node.dataset.tmSettingsSearchKey || '',
+                rendered: true
+            });
+            if (entry) entries.push(entry);
+        });
+        return entries;
+    }
+
+    function __tmGetSettingsSearchEntries() {
+        const map = new Map();
+        __tmGetSettingsSearchStaticEntries().forEach((entry) => {
+            map.set(`${entry.tab}:${entry.key}`, entry);
+        });
+        __tmCollectRenderedSettingsSearchEntries(state.settingsModal).forEach((entry) => {
+            map.set(`${entry.tab}:${entry.key}`, entry);
+        });
+        return Array.from(map.values());
+    }
+
+    function __tmScoreSettingsSearchEntry(entry, queryNorm, terms, activeTab) {
+        if (!entry || !queryNorm) return 0;
+        const titleNorm = __tmNormalizeSettingsSearchText(entry.title);
+        const descNorm = __tmNormalizeSettingsSearchText(entry.desc);
+        const metaNorm = __tmNormalizeSettingsSearchText(`${entry.tabLabel || ''} ${entry.sectionLabel || ''}`);
+        if (!terms.every((term) => entry.haystack.includes(term))) return 0;
+        let score = 1;
+        if (titleNorm === queryNorm) score += 120;
+        else if (titleNorm.startsWith(queryNorm)) score += 90;
+        else if (titleNorm.includes(queryNorm)) score += 70;
+        if (descNorm.includes(queryNorm)) score += 28;
+        if (metaNorm.includes(queryNorm)) score += 18;
+        terms.forEach((term) => {
+            if (titleNorm.includes(term)) score += 18;
+            else if (descNorm.includes(term)) score += 8;
+            else if (metaNorm.includes(term)) score += 4;
+        });
+        if (entry.tab === activeTab) score += 6;
+        if (entry.rendered) score += 3;
+        return score;
+    }
+
+    function __tmGetSettingsSearchResults(query, activeTab = state.settingsActiveTab || 'docs') {
+        const queryNorm = __tmNormalizeSettingsSearchText(query);
+        if (!queryNorm) return [];
+        const terms = queryNorm.split(/\s+/).map((term) => term.trim()).filter(Boolean);
+        if (!terms.length) return [];
+        const currentTab = __tmNormalizeSettingsSearchTab(activeTab);
+        return __tmGetSettingsSearchEntries()
+            .map((entry) => ({ entry, score: __tmScoreSettingsSearchEntry(entry, queryNorm, terms, currentTab) }))
+            .filter((item) => item.score > 0)
+            .sort((a, b) => {
+                if (b.score !== a.score) return b.score - a.score;
+                if (a.entry.tab === currentTab && b.entry.tab !== currentTab) return -1;
+                if (b.entry.tab === currentTab && a.entry.tab !== currentTab) return 1;
+                return String(a.entry.title || '').localeCompare(String(b.entry.title || ''), 'zh-Hans-CN');
+            })
+            .slice(0, TM_SETTINGS_SEARCH_MAX_RESULTS)
+            .map((item) => item.entry);
+    }
+
+    function __tmRenderSettingsSearchResultsHtml(query, activeTab) {
+        const q = String(query || '').trim();
+        const isOpen = !!q && state.settingsSearchResultsOpen !== false;
+        if (!isOpen) return '';
+        const results = __tmGetSettingsSearchResults(q, activeTab);
+        if (!results.length) {
+            return '<div class="tm-settings-search-empty">未找到设置项</div>';
+        }
+        const activeIndex = Math.max(0, Math.min(results.length - 1, Number(state.settingsSearchActiveIndex) || 0));
+        state.settingsSearchActiveIndex = activeIndex;
+        return results.map((entry, index) => {
+            const args = esc(JSON.stringify([entry.tab, entry.section || '', entry.key || '']));
+            const meta = [entry.tabLabel, entry.sectionLabel].filter(Boolean).join(' / ');
+            return `
+                <button class="tm-settings-search-result${index === activeIndex ? ' is-active' : ''}" type="button" data-tm-call="tmOpenSettingsSearchResult" data-tm-args='${args}' aria-selected="${index === activeIndex ? 'true' : 'false'}">
+                    <span class="tm-settings-search-result__title">${esc(entry.title)}</span>
+                    ${meta ? `<span class="tm-settings-search-result__meta">${esc(meta)}</span>` : ''}
+                    ${entry.desc ? `<span class="tm-settings-search-result__desc">${esc(entry.desc)}</span>` : ''}
+                </button>
+            `;
+        }).join('');
+    }
+
+    function __tmRenderSettingsSearchBox(activeTab) {
+        const query = String(state.settingsSearchQuery || '');
+        const hasQuery = !!query.trim();
+        if (hasQuery && state.settingsSearchResultsOpen !== false && !Number.isFinite(Number(state.settingsSearchActiveIndex))) {
+            state.settingsSearchActiveIndex = 0;
+        }
+        return `
+            <div class="tm-settings-search${hasQuery ? ' has-query' : ''}" data-tm-settings-search-root>
+                <div class="tm-settings-search-input-wrap">
+                    <span class="tm-settings-search-icon" aria-hidden="true">🔎</span>
+                    <input class="tm-settings-search-input" type="search" value="${esc(query)}" placeholder="搜索设置项" autocomplete="off" spellcheck="false" aria-label="搜索设置项" data-tm-settings-search-input data-tm-call="tmUpdateSettingsSearch" aria-expanded="${hasQuery && state.settingsSearchResultsOpen !== false ? 'true' : 'false'}">
+                    <button class="tm-settings-search-clear" type="button" data-tm-action="tmClearSettingsSearch" title="清空搜索" aria-label="清空搜索"${hasQuery ? '' : ' hidden'}>×</button>
+                </div>
+                <div class="tm-settings-search-results" data-tm-settings-search-results${hasQuery && state.settingsSearchResultsOpen !== false ? '' : ' hidden'}>
+                    ${__tmRenderSettingsSearchResultsHtml(query, activeTab)}
+                </div>
+            </div>
+        `;
+    }
+
+    function __tmShouldRenderSettingsSearch(activeTab) {
+        if (String(activeTab || '').trim() === 'rule_editor') return false;
+        try {
+            const info = globalThis.__tmRuntimeHost?.getInfo?.();
+            const runtimeMobile = info?.runtimeMobileClient ?? (typeof __tmIsRuntimeMobileClient === 'function' && __tmIsRuntimeMobileClient());
+            const mobileUi = info?.hostUsesMobileUI ?? (typeof __tmHostUsesMobileUI === 'function' && __tmHostUsesMobileUI());
+            const mobileDevice = info?.isMobileDevice ?? (typeof __tmIsMobileDevice === 'function' && __tmIsMobileDevice());
+            const dockHost = info?.isDockHost ?? (typeof __tmIsDockHost === 'function' && __tmIsDockHost());
+            if (runtimeMobile || mobileUi || mobileDevice || dockHost) return false;
+        } catch (e) {
+            try {
+                if (typeof __tmIsRuntimeMobileClient === 'function' && __tmIsRuntimeMobileClient()) return false;
+                if (typeof __tmHostUsesMobileUI === 'function' && __tmHostUsesMobileUI()) return false;
+                if (typeof __tmIsMobileDevice === 'function' && __tmIsMobileDevice()) return false;
+                if (typeof __tmIsDockHost === 'function' && __tmIsDockHost()) return false;
+            } catch (e2) {}
+        }
+        return true;
+    }
+
+    function __tmRefreshSettingsSearchResults(root = state.settingsModal) {
+        if (!(root instanceof HTMLElement)) return;
+        const query = String(state.settingsSearchQuery || '');
+        const hasQuery = !!query.trim();
+        const resultsEl = root.querySelector('[data-tm-settings-search-results]');
+        const searchRoot = root.querySelector('[data-tm-settings-search-root]');
+        const clearBtn = root.querySelector('.tm-settings-search-clear');
+        const input = root.querySelector('[data-tm-settings-search-input]');
+        if (searchRoot instanceof HTMLElement) searchRoot.classList.toggle('has-query', hasQuery);
+        if (clearBtn instanceof HTMLElement) clearBtn.hidden = !hasQuery;
+        if (input instanceof HTMLInputElement && input.value !== query) input.value = query;
+        if (input instanceof HTMLElement) input.setAttribute('aria-expanded', hasQuery && state.settingsSearchResultsOpen !== false ? 'true' : 'false');
+        if (resultsEl instanceof HTMLElement) {
+            resultsEl.hidden = !hasQuery || state.settingsSearchResultsOpen === false;
+            resultsEl.innerHTML = __tmRenderSettingsSearchResultsHtml(query, state.settingsActiveTab || 'docs');
+            try { resultsEl.querySelector('.tm-settings-search-result.is-active')?.scrollIntoView?.({ block: 'nearest' }); } catch (e) {}
+        }
+    }
+
+    function __tmFindSettingsSearchTarget(root, target = {}) {
+        if (!(root instanceof HTMLElement)) return null;
+        const key = String(target?.key || '').trim();
+        if (key) {
+            const found = Array.from(root.querySelectorAll('[data-tm-settings-search-key]')).find((node) => {
+                return node instanceof HTMLElement && String(node.dataset.tmSettingsSearchKey || '') === key;
+            });
+            if (found instanceof HTMLElement) return found;
+        }
+        const section = String(target?.section || '').trim();
+        if (section) {
+            const found = root.querySelector(`.tm-settings-panel[data-tm-settings-section="${section}"]`);
+            if (found instanceof HTMLElement) return found;
+        }
+        return root.querySelector('.tm-settings-content > *');
+    }
+
+    function __tmHighlightSettingsSearchTarget(target) {
+        if (!(target instanceof HTMLElement)) return;
+        try {
+            state.settingsSearchHighlightTimer && clearTimeout(state.settingsSearchHighlightTimer);
+        } catch (e) {}
+        try {
+            state.settingsModal?.querySelectorAll?.('.tm-settings-search-hit').forEach((item) => item.classList.remove('tm-settings-search-hit'));
+        } catch (e) {}
+        try {
+            target.classList.add('tm-settings-search-hit');
+            if (!target.hasAttribute('tabindex')) target.setAttribute('tabindex', '-1');
+            target.focus?.({ preventScroll: true });
+        } catch (e) {}
+        state.settingsSearchHighlightTimer = setTimeout(() => {
+            try { target.classList.remove('tm-settings-search-hit'); } catch (e) {}
+        }, 1800);
+    }
+
+    function __tmFocusSettingsSearchTarget(root, target = {}) {
+        if (!(root instanceof HTMLElement)) return false;
+        const tab = __tmNormalizeSettingsSearchTab(target?.tab || state.settingsActiveTab || 'docs');
+        const section = String(target?.section || '').trim();
+        const content = root.querySelector('.tm-settings-content');
+        if (!(content instanceof HTMLElement)) return false;
+        if (tab === 'main' && section) {
+            try { __tmSetActiveSettingsSection(root, section, true); } catch (e) {}
+        }
+        const targetEl = __tmFindSettingsSearchTarget(root, target);
+        if (!(targetEl instanceof HTMLElement)) return false;
+        const subtabs = root.querySelector('.tm-settings-subtabs');
+        const stickyOffset = (subtabs instanceof HTMLElement ? subtabs.offsetHeight : 0) + 12;
+        const maxScrollTop = Math.max(0, content.scrollHeight - content.clientHeight);
+        const nextTop = Math.max(0, Math.min(maxScrollTop, __tmGetSettingsSectionAnchorTop(content, targetEl) - stickyOffset));
+        try { content.scrollTo({ top: nextTop, behavior: 'smooth' }); } catch (e) { content.scrollTop = nextTop; }
+        __tmHighlightSettingsSearchTarget(targetEl);
+        return true;
+    }
+
+    function __tmRunPendingSettingsSearchFocus(root = state.settingsModal) {
+        const pending = state.settingsSearchPendingTarget;
+        if (!pending || !(root instanceof HTMLElement)) return;
+        if (Date.now() > (Number(pending.until) || 0)) {
+            state.settingsSearchPendingTarget = null;
+            return;
+        }
+        const activeTab = __tmNormalizeSettingsSearchTab(state.settingsActiveTab || 'docs');
+        if (__tmNormalizeSettingsSearchTab(pending.tab) !== activeTab) return;
+        requestAnimationFrame(() => {
+            const ok = __tmFocusSettingsSearchTarget(root, pending);
+            if (ok) state.settingsSearchPendingTarget = null;
+        });
+    }
+
+    function __tmBindSettingsSearchEvents(root) {
+        if (!(root instanceof HTMLElement) || root.__tmSettingsSearchBound) return;
+        root.__tmSettingsSearchBound = true;
+        const input = root.querySelector('[data-tm-settings-search-input]');
+        const openSearchResultFromElement = (target) => {
+            if (!(target instanceof HTMLElement)) return false;
+            let args = [];
+            const raw = target.dataset.tmArgs;
+            if (raw) {
+                try {
+                    const parsed = JSON.parse(raw);
+                    args = Array.isArray(parsed) ? parsed : [parsed];
+                } catch (e) {}
+            }
+            window.tmOpenSettingsSearchResult?.(args[0], args[1], args[2]);
+            return true;
+        };
+        const handleSearchResultPress = (event) => {
+            const target = event.target instanceof Element ? event.target.closest('.tm-settings-search-result') : null;
+            if (!(target instanceof HTMLElement) || !root.contains(target)) return;
+            if (event.button !== undefined && event.button !== 0) return;
+            const now = Date.now();
+            if (event.type === 'mousedown' && Number(root.__tmSettingsSearchPointerHandledUntil || 0) > now) {
+                event.preventDefault();
+                event.stopPropagation();
+                return;
+            }
+            if (event.type === 'pointerdown') root.__tmSettingsSearchPointerHandledUntil = now + 350;
+            event.preventDefault();
+            event.stopPropagation();
+            openSearchResultFromElement(target);
+        };
+        const handleSearchResultClick = (event) => {
+            const target = event.target instanceof Element ? event.target.closest('.tm-settings-search-result') : null;
+            if (!(target instanceof HTMLElement) || !root.contains(target)) return;
+            event.preventDefault();
+            event.stopPropagation();
+            if (Number(root.__tmSettingsSearchPointerHandledUntil || 0) > Date.now()) return;
+            openSearchResultFromElement(target);
+        };
+        if (input instanceof HTMLElement) {
+            input.addEventListener('focus', () => {
+                if (!String(state.settingsSearchQuery || '').trim()) return;
+                state.settingsSearchResultsOpen = true;
+                __tmRefreshSettingsSearchResults(root);
+            });
+            input.addEventListener('keydown', (event) => {
+                const query = String(state.settingsSearchQuery || input.value || '').trim();
+                if (!query) return;
+                const results = __tmGetSettingsSearchResults(query, state.settingsActiveTab || 'docs');
+                if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
+                    if (!results.length) return;
+                    event.preventDefault();
+                    state.settingsSearchResultsOpen = true;
+                    const current = Number.isFinite(Number(state.settingsSearchActiveIndex)) ? Number(state.settingsSearchActiveIndex) : 0;
+                    const delta = event.key === 'ArrowDown' ? 1 : -1;
+                    state.settingsSearchActiveIndex = (current + delta + results.length) % results.length;
+                    __tmRefreshSettingsSearchResults(root);
+                    return;
+                }
+                if (event.key === 'Enter') {
+                    if (!results.length) return;
+                    event.preventDefault();
+                    const index = Math.max(0, Math.min(results.length - 1, Number(state.settingsSearchActiveIndex) || 0));
+                    const entry = results[index];
+                    window.tmOpenSettingsSearchResult?.(entry.tab, entry.section || '', entry.key || '');
+                    return;
+                }
+                if (event.key === 'Escape') {
+                    event.preventDefault();
+                    state.settingsSearchResultsOpen = false;
+                    __tmRefreshSettingsSearchResults(root);
+                }
+            });
+        }
+        root.addEventListener('pointerdown', handleSearchResultPress);
+        root.addEventListener('mousedown', handleSearchResultPress);
+        root.addEventListener('click', handleSearchResultClick, true);
+        root.addEventListener('click', (event) => {
+            if (event.target instanceof Element && event.target.closest('[data-tm-settings-search-root]')) return;
+            if (!String(state.settingsSearchQuery || '').trim() || state.settingsSearchResultsOpen === false) return;
+            state.settingsSearchResultsOpen = false;
+            __tmRefreshSettingsSearchResults(root);
+        });
+    }
+
+    window.tmUpdateSettingsSearch = function(value) {
+        state.settingsSearchQuery = String(value || '');
+        state.settingsSearchResultsOpen = !!String(value || '').trim();
+        state.settingsSearchActiveIndex = 0;
+        __tmRefreshSettingsSearchResults();
+    };
+
+    window.tmClearSettingsSearch = function() {
+        state.settingsSearchQuery = '';
+        state.settingsSearchResultsOpen = false;
+        state.settingsSearchActiveIndex = -1;
+        __tmRefreshSettingsSearchResults();
+        try { state.settingsModal?.querySelector?.('[data-tm-settings-search-input]')?.focus?.(); } catch (e) {}
+    };
+
+    window.tmOpenSettingsSearchResult = function(tab, section, key) {
+        const targetTab = __tmNormalizeSettingsSearchTab(tab);
+        const pending = {
+            tab: targetTab,
+            section: String(section || '').trim(),
+            key: String(key || '').trim(),
+            until: Date.now() + 2000
+        };
+        state.settingsSearchResultsOpen = false;
+        state.settingsSearchActiveIndex = -1;
+        state.settingsSearchPendingTarget = pending;
+        const currentTab = __tmNormalizeSettingsSearchTab(state.settingsActiveTab || 'docs');
+        if (targetTab !== currentTab) {
+            if (targetTab === 'priority') {
+                try { state.priorityScoreDraft = state.priorityScoreDraft || __tmEnsurePriorityDraft(); } catch (e) {}
+            }
+            state.settingsActiveTab = targetTab;
+            state.settingsContentScrollTop = 0;
+            state.settingsSubtabsScrollLeft = 0;
+            showSettings();
+            return;
+        }
+        __tmRefreshSettingsSearchResults();
+        if (__tmFocusSettingsSearchTarget(state.settingsModal, pending)) state.settingsSearchPendingTarget = null;
+    };
+
     function showSettings() {
         try { __tmHideMobileMenu(); } catch (e) {}
         const shouldAnimateOpen = !state.settingsModal;
@@ -15,6 +510,7 @@
         let savedSettingsTabsScrollLeft = Number(state.settingsTabsScrollLeft) || 0;
         let savedSettingsContentScrollTop = Number(state.settingsContentScrollTop) || 0;
         let savedSettingsSubtabsScrollLeft = Number(state.settingsSubtabsScrollLeft) || 0;
+        let shouldRestoreSettingsSearchFocus = false;
         if (state.settingsModal) {
             try {
                 state.__settingsUnstack?.();
@@ -25,6 +521,7 @@
                 const prevTabs = state.settingsModal.querySelector('.tm-settings-tabs');
                 const prevContent = state.settingsModal.querySelector('.tm-settings-content');
                 const prevSubtabs = state.settingsModal.querySelector('.tm-settings-subtabs');
+                shouldRestoreSettingsSearchFocus = state.settingsModal.querySelector('[data-tm-settings-search-input]') === document.activeElement;
                 if (prevSidebar) savedSettingsSidebarScrollLeft = Number(prevSidebar.scrollLeft) || 0;
                 if (prevTabs) savedSettingsTabsScrollLeft = Number(prevTabs.scrollLeft) || 0;
                 if (prevContent) savedSettingsContentScrollTop = Number(prevContent.scrollTop) || 0;
@@ -60,6 +557,7 @@
         if (state.settingsActiveTab === 'priority') activeTab = 'priority';
         if (state.settingsActiveTab === 'about') activeTab = 'about';
         if (state.settingsActiveTab === 'rule_editor') activeTab = 'rule_editor';
+        const settingsSearchEnabled = __tmShouldRenderSettingsSearch(activeTab);
 
         const renderSettingsActions = (extraClass = '') => {
             const className = `tm-settings-actions${extraClass ? ` ${extraClass}` : ''}`;
@@ -97,6 +595,7 @@
 
         // 渲染分组选择器
         const renderGroupSelector = () => {
+            const canRenameCurrentGroup = currentGroupId !== 'all' && currentGroup && !String(currentGroup.notebookId || '').trim();
             return `
                 <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:12px;">
                     <button class="tm-btn tm-btn-primary" data-tm-action="createNotebookGroup" style="padding: 6px 12px; font-size: 12px;">+ 按笔记本分组</button>
@@ -108,7 +607,8 @@
                         <option value="all" ${currentGroupId === 'all' ? 'selected' : ''}>全部文档</option>
                         ${groups.map(g => `<option value="${g.id}" ${currentGroupId === g.id ? 'selected' : ''}>${esc(__tmResolveDocGroupName(g))}</option>`).join('')}
                     </select>
-                    ${currentGroupId !== 'all' ? `<button class="tm-btn tm-btn-danger" data-tm-action="deleteCurrentGroup" style="padding: 6px 10px; font-size: 12px;">删除分组</button>
+                    ${currentGroupId !== 'all' ? `${canRenameCurrentGroup ? `<button class="tm-btn tm-btn-secondary" data-tm-action="renameCurrentGroup" style="padding: 6px 10px; font-size: 12px;">重命名</button>` : ''}
+                        <button class="tm-btn tm-btn-danger" data-tm-action="deleteCurrentGroup" style="padding: 6px 10px; font-size: 12px;">删除分组</button>
                         <button class="tm-btn tm-btn-success" data-tm-action="exportCurrentGroup" style="padding: 6px 10px; font-size: 12px;">导出任务</button>` : ''}
                 </div>
             `;
@@ -310,6 +810,7 @@
         if (activeTab === 'main' || activeTab === 'docs') {
             try { __tmEnsureAllDocumentsLoaded(false); } catch (e) {}
         }
+        let settingsSearchCurrentSection = '';
         const renderMainSettingsSubtabs = () => {
             if (activeTab !== 'main') return '';
             return `
@@ -332,11 +833,15 @@
         const renderSingleSwitchSetting = (title, desc, inputHtml, opt = {}) => {
             const extraClass = String(opt?.className || '').trim();
             const extraStyle = String(opt?.style || '').trim();
+            const searchAttrs = __tmSettingsSearchAttrs(activeTab, title, desc, {
+                ...opt,
+                section: opt?.section != null ? opt.section : settingsSearchCurrentSection
+            });
             const descHtml = String(desc || '').trim()
                 ? `<div class="tm-setting-switch-desc">${desc}</div>`
                 : '';
             return `
-                <div class="tm-setting-switch-row${extraClass ? ` ${extraClass}` : ''}"${extraStyle ? ` style="${extraStyle}"` : ''}>
+                <div class="tm-setting-switch-row${extraClass ? ` ${extraClass}` : ''}"${extraStyle ? ` style="${extraStyle}"` : ''}${searchAttrs ? ` ${searchAttrs}` : ''}>
                     <div class="tm-setting-switch-copy">
                         <div class="tm-setting-switch-title">${title}</div>
                         ${descHtml}
@@ -354,11 +859,15 @@
             const controlText = String(controlHtml || '');
             const isChipControl = /tm-settings-chip-(?:setting|stack|group)/.test(controlText);
             const isStacked = ['block', 'stack', 'full'].includes(controlMode) || isChipControl;
+            const searchAttrs = __tmSettingsSearchAttrs(activeTab, title, desc, {
+                ...opt,
+                section: opt?.section != null ? opt.section : settingsSearchCurrentSection
+            });
             const descHtml = String(desc || '').trim()
                 ? `<div class="tm-setting-field-desc">${desc}</div>`
                 : '';
             return `
-                <div class="tm-setting-field-row${isStacked ? ' tm-setting-field-row--stack' : ''}${extraClass ? ` ${extraClass}` : ''}"${extraStyle ? ` style="${extraStyle}"` : ''}>
+                <div class="tm-setting-field-row${isStacked ? ' tm-setting-field-row--stack' : ''}${extraClass ? ` ${extraClass}` : ''}"${extraStyle ? ` style="${extraStyle}"` : ''}${searchAttrs ? ` ${searchAttrs}` : ''}>
                     <div class="tm-setting-field-copy">
                         <div class="tm-setting-field-title">${title}</div>
                         ${descHtml}
@@ -531,7 +1040,7 @@
                         ? String(SettingsStore.data.aiAnthropicApiKey || '')
                         : String(SettingsStore.data.aiMiniMaxApiKey || ''))));
             return `
-                <div class="tm-settings-panel">
+                <div class="tm-settings-panel" ${__tmSettingsSearchAttrs('ai', 'AI 接入', '供应商、API Key、Base URL、模型、温度、超时和上下文模式')}>
                     <div class="tm-settings-section-title">🤖 AI 接入</div>
                     <div class="tm-settings-section-desc">可在 MiniMax、DeepSeek、OpenAI 兼容和 Anthropic 兼容之间切换，用于任务命名优化、自然语言字段编辑和 SMART 分析。</div>
                     ${renderSingleSwitchSetting(
@@ -629,6 +1138,7 @@
             <div class="tm-settings-box" style="overflow: hidden;">
                 <div class="tm-settings-layout">
                     <div class="tm-settings-sidebar">
+                        ${settingsSearchEnabled ? __tmRenderSettingsSearchBox(activeTab) : ''}
                         <div class="tm-settings-tabs">
                             ${activeTab !== 'rule_editor' ? `
                             <button class="tm-settings-nav-btn ${activeTab === 'docs' ? 'is-active' : ''}" data-tm-action="tmSwitchSettingsTab" data-tab="docs">📂 文档分组</button>
@@ -649,18 +1159,35 @@
                     <div class="tm-settings-main">
                         <div class="tm-settings-content">
                     ${activeTab === 'appearance' ? `
-                        <div class="tm-settings-panel tm-width-settings">
+                        <div class="tm-settings-panel tm-width-settings" ${__tmSettingsSearchAttrs('appearance', '列设置', '显示、排序、宽度和自定义列')}>
                             <div style="font-weight: 600; margin-bottom: 12px;">📏 列设置 (显示/排序/宽度)</div>
                             ${renderColumnWidthSettings()}
+                            ${renderSingleFieldSetting(
+                                '高级：内置字段属性名与迁移',
+                                '自定义开始日期、截止日期、重要性、状态、完成时间等内置字段的属性名，并按字段选择是否迁移旧值。',
+                                `<button class="tm-btn tm-btn-secondary" onclick="tmOpenTaskMetaAttrMigrationDialog()">打开高级设置</button>`,
+                                { style: 'margin-top:12px;', section: 'columns', key: 'appearance-task-meta-attr-migration' }
+                            )}
                         </div>
-                        <div class="tm-settings-panel" style="margin-bottom:0;">
+                        <div class="tm-settings-panel" ${__tmSettingsSearchAttrs('appearance', '页签栏', '归档入口位置')}>
+                            <div style="font-weight: 600; margin-bottom: 12px;">📑 页签栏</div>
+                            ${renderSingleFieldSetting(
+                                '归档入口位置',
+                                '控制页签栏里归档按钮显示在“全部”页签前，或保留在文档页签后。',
+                                `<select class="b3-select" onchange="updateDocTabsArchiveButtonPosition(this.value)" style="width:180px;">
+                                    <option value="before-all" ${String(SettingsStore.data.docTabsArchiveButtonPosition || '') === 'before-all' ? 'selected' : ''}>全部页签前左侧</option>
+                                    <option value="after-docs" ${String(SettingsStore.data.docTabsArchiveButtonPosition || '') === 'before-all' ? '' : 'selected'}>文档页签后</option>
+                                </select>`
+                            )}
+                        </div>
+                        <div class="tm-settings-panel" style="margin-bottom:0;" ${__tmSettingsSearchAttrs('appearance', '配色', '调整主题、看板、时间轴和顶栏颜色')}>
                             <div style="font-weight: 600; margin-bottom: 12px;">🎨 配色</div>
                             ${renderAppearanceColorSettings()}
                         </div>
                     ` : ''}
 
                     ${activeTab === 'calendar' ? `
-                        <div class="tm-settings-panel" style="margin-bottom:0;">
+                        <div class="tm-settings-panel" style="margin-bottom:0;" ${__tmSettingsSearchAttrs('calendar', '日历', '日历视图与日程相关设置')}>
                             <div style="font-weight: 600; margin-bottom: 12px;">🗓️ 日历</div>
                             <div id="tm-calendar-settings-root"></div>
                         </div>
@@ -669,7 +1196,7 @@
                     ${activeTab === 'ai' ? renderAiSettingsPanel() : ''}
 
                     ${activeTab === 'rules' ? `
-                        <div class="tm-settings-panel">
+                        <div class="tm-settings-panel" ${__tmSettingsSearchAttrs('rules', '筛选规则管理', '新建、编辑、应用和删除筛选规则')}>
                             <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px;">
                                 <div style="font-weight: 600;">📋 筛选规则管理</div>
                                 <div style="display:flex;gap:8px;align-items:center;">
@@ -691,7 +1218,7 @@
                     ` : ''}
 
                     ${activeTab === 'priority' ? `
-                        <div class="tm-settings-panel">
+                        <div class="tm-settings-panel" ${__tmSettingsSearchAttrs('priority', '优先级算法', '配置任务优先级评分权重和规则')}>
                             <div id="tm-priority-settings">
                                 ${__tmRenderPriorityScoreSettings(true)}
                             </div>
@@ -703,7 +1230,7 @@
                     ` : ''}
 
                     ${activeTab === 'quadrant' ? `
-                        <div class="tm-settings-panel">
+                        <div class="tm-settings-panel" ${__tmSettingsSearchAttrs('quadrant', '四象限分组规则', '按重要性和截止日期自动分配象限')}>
                             <div style="font-weight: 600; margin-bottom: 12px;">📊 四象限分组规则</div>
                             <div style="font-size: 12px; color: var(--tm-secondary-text); margin-bottom: 12px;">
                                 根据任务的「重要性」和「截止日期」自动将任务分配到四个象限。
@@ -720,6 +1247,7 @@
 
                     ${activeTab === 'main' ? `
                     ${renderMainSettingsSubtabs()}
+                    ${(settingsSearchCurrentSection = 'display', '')}
                     <div class="tm-settings-panel" data-tm-settings-section="display">
                         <div class="tm-settings-section-title">🖥️ 基础显示</div>
                         <div class="tm-settings-section-desc">调整常规字号、行高和文本展示方式。</div>
@@ -807,6 +1335,7 @@
                         )}
                     </div>
 
+                    ${(settingsSearchCurrentSection = 'new-task', '')}
                     <div class="tm-settings-panel" data-tm-settings-section="new-task">
                         <div class="tm-settings-section-title">📍 新建任务位置</div>
                         <div class="tm-settings-section-desc">设置快速新建任务时默认写入的文档位置。</div>
@@ -888,6 +1417,7 @@
                     </div>
                     </div>
 
+                    ${(settingsSearchCurrentSection = 'status', '')}
                     <div class="tm-settings-panel" style="margin-bottom: 16px;" data-tm-settings-section="status">
                         <div class="tm-settings-section-title">🏷️ 状态选项</div>
                         <div class="tm-settings-section-desc">${SettingsStore.data.legacyWin7CompatMode ? '维护任务状态列表；兼容旧版 Win7 思源时，任务方括号内仅使用空格和 X，未完成状态统一写为空格，已完成状态写为 X。' : '维护任务状态列表；marker 会写入任务 <code>- [ ]</code> 的方括号中，空格表示未完成，其他字符会被思源视为已勾选。'}</div>
@@ -913,6 +1443,7 @@
                         <button class="tm-btn tm-btn-primary" data-tm-action="addStatusOption" style="margin-top: 8px; font-size: 12px;">+ 添加状态</button>
                     </div>
 
+                    ${(settingsSearchCurrentSection = 'layout', '')}
                     <div class="tm-settings-panel" data-tm-settings-section="layout">
                         <div class="tm-settings-section-title">🪟 视图与布局</div>
                         <div class="tm-settings-section-desc">控制默认视图、紧凑模式和各类展示布局。</div>
@@ -1032,7 +1563,7 @@
                         )}
                         ${renderSingleFieldSetting(
                             '时间轴卡片字段',
-                            '控制时间轴卡片显示任务名称和状态标签。两个都关闭时，前导图标会自动隐藏。',
+                            '控制时间轴卡片显示任务名称、状态标签和完成时间。完成时间仅在已完成且有记录时显示；所有字段关闭时，前导图标会自动隐藏。',
                             (() => {
                                 const selected = new Set(__tmNormalizeTimelineCardFields(SettingsStore.data.timelineCardFields));
                                 return renderSettingsChipSetting('', '', [
@@ -1206,6 +1737,7 @@
                         </div>
                     </div>
 
+                    ${(settingsSearchCurrentSection = 'search', '')}
                     <div class="tm-settings-panel" data-tm-settings-section="search">
                         <div class="tm-settings-section-title">🔎 搜索与分组</div>
                         <div class="tm-settings-section-desc">任务检索由本地索引、快照和增量刷新自动优化；这里仅控制文档范围与分组行为。</div>
@@ -1299,6 +1831,7 @@
                         )}
                     </div>
 
+                    ${(settingsSearchCurrentSection = 'topbar', '')}
                     <div class="tm-settings-panel" data-tm-settings-section="topbar">
                         <div class="tm-settings-section-title">🔘 顶栏入口</div>
                         <div class="tm-settings-section-desc">分别控制文档顶栏按钮与思源窗口顶栏图标在桌面端、移动端的显示。</div>
@@ -1334,6 +1867,7 @@
                         )}
                     </div>
 
+                    ${(settingsSearchCurrentSection = 'quickbar', '')}
                     <div class="tm-settings-panel" data-tm-settings-section="quickbar">
                         <div class="tm-settings-section-title">🧷 任务悬浮条</div>
                         <div class="tm-settings-section-desc">控制任务块点击后的悬浮条与任务行末尾常驻字段显示。</div>
@@ -1416,6 +1950,7 @@
                         </div>
                     </div>
 
+                    ${(settingsSearchCurrentSection = 'tomato', '')}
                     <div class="tm-settings-panel" data-tm-settings-section="tomato">
                         <div class="tm-settings-section-title">🍅 番茄钟与插件联动</div>
                         <div class="tm-settings-section-desc">管理底栏番茄钟、任务耗时属性，以及其他插件的任务完成联动。</div>
@@ -1522,7 +2057,7 @@
                     ` : ''}
 
                     ${activeTab === 'docs' ? `
-                    <div class="tm-settings-panel" style="margin-bottom: 16px;">
+                    <div class="tm-settings-panel" style="margin-bottom: 16px;" ${__tmSettingsSearchAttrs('docs', '数据导入', '导入滴答 CSV，自动创建文档、二级标题和任务块')}>
                         <div class="tm-settings-section-title">📥 数据导入</div>
                         <div class="tm-settings-section-desc">支持导入滴答清单导出的 CSV，并自动创建文档、二级标题和任务块。滴答清单 CSV 获取路径：网页版头像 → 设置 → 账户与安全 → 备份与还原 → 生成备份。</div>
                         <div style="display:flex;flex-wrap:wrap;gap:8px;align-items:center;">
@@ -1533,7 +2068,7 @@
                         </div>
                     </div>
 
-                    <div style="margin-bottom: 16px; padding: 12px; background: var(--tm-section-bg); border-radius: 8px;">
+                    <div style="margin-bottom: 16px; padding: 12px; background: var(--tm-section-bg); border-radius: 8px;" ${__tmSettingsSearchAttrs('docs', '文档分组与管理', '按笔记本分组、自定义分组、手动添加文档和包含子文档')}>
                         <div style="font-weight: 600; margin-bottom: 8px;">📂 文档分组与管理</div>
                         <div style="font-size: 12px; color: var(--tm-secondary-text); line-height: 1.7; margin-bottom: 10px;">
                             <div><b>按笔记本分组：</b>自动搜索笔记本内有任务的文档，分组名称跟随笔记本名称。</div>
@@ -1541,7 +2076,7 @@
                         </div>
                         ${renderGroupSelector()}
                         ${currentGroupId !== 'all' ? `
-                        <div style="margin-bottom: 12px; padding: 10px; border: 1px solid var(--tm-border-color); border-radius: 8px; background: var(--tm-card-bg);">
+                        <div style="margin-bottom: 12px; padding: 10px; border: 1px solid var(--tm-border-color); border-radius: 8px; background: var(--tm-card-bg);" ${__tmSettingsSearchAttrs('docs', '日记分组优化搜索', '按日记日期裁剪分组搜索范围')}>
                             <div style="font-weight: 600; margin-bottom: 6px;">📅 日记分组优化搜索</div>
                             <div style="font-size: 12px; color: var(--tm-secondary-text); line-height: 1.7; margin-bottom: 10px;">
                                 当当前分组主要由每天的日记文档组成时，开启后会优先按文档日期裁剪，只搜索最近 7、30、60、90 或 120 天内的日记文档任务；如果是非日记分组，也会将搜索范围限制在设定的时间内。
@@ -1581,7 +2116,7 @@
                         </div>
                     </div>
 
-                    <div style="margin-bottom: 0;">
+                    <div style="margin-bottom: 0;" ${__tmSettingsSearchAttrs('docs', '当前分组内文档', '查看、添加、清空或移除当前分组文档')}>
                         <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
                             <span style="font-weight: 600;">📚 当前分组内文档（${currentDocs.length} 个）</span>
                             ${currentGroupId !== 'all' ? `<button class="tm-btn tm-btn-danger" data-tm-action="clearCurrentGroupDocs" style="padding: 4px 8px; font-size: 12px;">清空分组内文档</button>` : ''}
@@ -1648,7 +2183,7 @@
                             </div>
                         ` : '<div style="color: var(--tm-secondary-text); font-size: 13px; padding: 10px; background: var(--tm-rule-group-bg); border-radius: 8px;">暂无文档，请添加</div>'}
                     </div>
-                    <div style="margin-top: 16px;">
+                    <div style="margin-top: 16px;" ${__tmSettingsSearchAttrs('docs', '排除文档', '恢复或管理被排除的文档')}>
                         <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
                             <span style="font-weight: 600;">🚫 排除文档（${currentGroupExcludedDocIds.length} 个）</span>
                         </div>
@@ -1749,11 +2284,29 @@
             }
         } catch (e) {}
         __tmBindRulesManagerEvents(state.settingsModal);
+        if (settingsSearchEnabled) {
+            __tmBindSettingsSearchEvents(state.settingsModal);
+            __tmRefreshSettingsSearchResults(state.settingsModal);
+            if (shouldRestoreSettingsSearchFocus) {
+                requestAnimationFrame(() => {
+                    try { state.settingsModal?.querySelector?.('[data-tm-settings-search-input]')?.focus?.(); } catch (e) {}
+                });
+            }
+            __tmRunPendingSettingsSearchFocus(state.settingsModal);
+        } else {
+            state.settingsSearchResultsOpen = false;
+            state.settingsSearchActiveIndex = -1;
+            state.settingsSearchPendingTarget = null;
+        }
         try {
             if (activeTab === 'calendar') {
                 const el = state.settingsModal.querySelector('#tm-calendar-settings-root');
                 if (el && globalThis.__tmCalendar && typeof globalThis.__tmCalendar.renderSettings === 'function') {
                     globalThis.__tmCalendar.renderSettings(el, SettingsStore);
+                    if (settingsSearchEnabled) {
+                        __tmRefreshSettingsSearchResults(state.settingsModal);
+                        __tmRunPendingSettingsSearchFocus(state.settingsModal);
+                    }
                 }
             }
         } catch (e) {}

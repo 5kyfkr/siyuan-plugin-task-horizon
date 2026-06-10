@@ -19,8 +19,8 @@
             const resolved = await __tmResolveTaskIdFromAnyBlockId(rawId);
             if (resolved) tid = resolved;
         } catch (e) {}
-        let task = (!forceFresh && (globalThis.__tmRuntimeState?.getFlatTaskById?.(tid) || state.flatTasks?.[tid]))
-            ? { ...(globalThis.__tmRuntimeState?.getFlatTaskById?.(tid) || state.flatTasks?.[tid]) }
+        let task = (!forceFresh && (globalThis.__tmRuntimeState?.getFlatTaskById?.(tid) || state.flatTasks?.[tid] || state.pendingInsertedTasks?.[tid]))
+            ? { ...(globalThis.__tmRuntimeState?.getFlatTaskById?.(tid) || state.flatTasks?.[tid] || state.pendingInsertedTasks?.[tid]) }
             : null;
         if (!task && !forceFresh) {
             try {
@@ -39,6 +39,16 @@
                     return tid && (id === tid || rootId === tid || parentId === tid);
                 });
                 if (found) task = { ...found };
+            } catch (e) {}
+        }
+        if (!task) {
+            try {
+                const pending = state.pendingInsertedTasks?.[tid]
+                    || state.pendingInsertedTasks?.[rawId]
+                    || globalThis.__tmRuntimeState?.getTaskById?.(tid, { includePending: true, preferPending: true })
+                    || globalThis.__tmRuntimeState?.getTaskById?.(rawId, { includePending: true, preferPending: true })
+                    || null;
+                if (pending) task = { ...pending };
             } catch (e) {}
         }
         if (!task) {
@@ -123,6 +133,13 @@
         }
     }
 
+    function __tmAiRequireOutbox(methodName) {
+        const outbox = globalThis.__tmTaskOutbox || globalThis.__tmTaskHorizonOutbox || null;
+        const method = outbox && typeof outbox[methodName] === 'function' ? outbox[methodName] : null;
+        if (!method) throw new Error(`任务写入队列未就绪: ${methodName}`);
+        return { outbox, method };
+    }
+
     async function __tmAiGetDocumentSnapshot(docId, options = {}) {
         const did = await __tmAiResolveDocumentId(docId);
         if (!did) return null;
@@ -195,6 +212,9 @@
         if (!nextMarkdown) nextMarkdown = `- [${sourceTask.done ? 'x' : ' '}] ${String(sourceTask.content || '').trim()}`;
         const hasTitle = Object.prototype.hasOwnProperty.call(nextPatch, 'title');
         const hasDone = Object.prototype.hasOwnProperty.call(nextPatch, 'done');
+        const needsAttrs = Object.keys(attrPatch).length > 0;
+        const contentWriter = hasTitle ? __tmAiRequireOutbox('patchContent') : null;
+        const taskWriter = (hasDone || needsAttrs) ? __tmAiRequireOutbox('patchTask') : null;
         if (hasTitle || hasDone) {
             const nextTitle = hasTitle ? String(nextPatch.title || '').trim() : String(sourceTask.content || '').trim();
             const nextDone = hasDone ? !!nextPatch.done : !!sourceTask.done;
@@ -208,22 +228,34 @@
             }
             nextMarkdown = lines.join('\n');
             const retentionSource = { ...sourceTask };
+            const deleteMetaReadKeys = (field) => {
+                try {
+                    if (typeof __tmGetTaskMetaAttrReadKeys !== 'function') return;
+                    __tmGetTaskMetaAttrReadKeys(field).forEach((key) => {
+                        const attrKey = String(key || '').trim();
+                        if (attrKey) delete retentionSource[attrKey];
+                    });
+                } catch (e) {}
+            };
             if (Object.prototype.hasOwnProperty.call(attrPatch, 'startDate')) {
                 delete retentionSource.startDate;
                 delete retentionSource.start_date;
                 delete retentionSource.custom_start_date;
                 delete retentionSource['custom-start-date'];
+                deleteMetaReadKeys('startDate');
             }
             if (Object.prototype.hasOwnProperty.call(attrPatch, 'completionTime')) {
                 delete retentionSource.completionTime;
                 delete retentionSource.completion_time;
                 delete retentionSource.custom_completion_time;
                 delete retentionSource['custom-completion-time'];
+                deleteMetaReadKeys('completionTime');
             }
             if (Object.prototype.hasOwnProperty.call(attrPatch, 'customStatus')) {
                 delete retentionSource.customStatus;
                 delete retentionSource.custom_status;
                 delete retentionSource['custom-status'];
+                deleteMetaReadKeys('customStatus');
             }
             const excludeKeys = [];
             if (Object.prototype.hasOwnProperty.call(attrPatch, 'startDate')) excludeKeys.push('startDate');
@@ -232,15 +264,31 @@
             const retentionPatch = typeof __tmProtectMarkdownMutationTaskFields === 'function'
                 ? __tmProtectMarkdownMutationTaskFields(tid, retentionSource, { source: 'ai-task-patch-markdown', excludeKeys })
                 : {};
-            await API.updateBlock(tid, nextMarkdown);
-            const cachedTask = globalThis.__tmRuntimeState?.getFlatTaskById?.(tid) || state.flatTasks?.[tid];
-            if (cachedTask) {
-                cachedTask.markdown = nextMarkdown;
-                cachedTask.content = nextTitle;
-                cachedTask.done = nextDone;
+            if (hasTitle) {
+                await contentWriter.method.call(contentWriter.outbox, tid, nextTitle, {
+                    source: 'ai-task-patch-title',
+                    reason: 'ai-task-patch-title',
+                    background: true,
+                    skipInteractionGate: true,
+                    renderOptimistic: true,
+                    withFilters: true,
+                });
+            }
+            if (hasDone) {
+                await taskWriter.method.call(taskWriter.outbox, tid, { done: nextDone }, {
+                    source: 'ai-task-patch-done',
+                    reason: 'ai-task-patch-done',
+                    label: 'AI 修改完成状态',
+                    background: true,
+                    wait: false,
+                    skipInteractionGate: true,
+                    skipSettledRefresh: true,
+                    withFilters: true,
+                    showErrorHint: false,
+                });
             }
             try {
-                __tmScheduleTaskSnapshotAfterLocalPatch?.(tid, {
+                globalThis.__tmTaskSnapshotService?.scheduleAfterLocalPatch?.(tid, {
                     ...((retentionPatch && typeof retentionPatch === 'object') ? retentionPatch : {}),
                     markdown: nextMarkdown,
                     content: nextTitle,
@@ -249,23 +297,43 @@
             } catch (e) {}
         }
 
-        if (Object.keys(attrPatch).length > 0) {
-            await __tmPersistMetaAndAttrsAsync(tid, attrPatch);
-            const cachedTask = globalThis.__tmRuntimeState?.getFlatTaskById?.(tid) || state.flatTasks?.[tid];
-            if (cachedTask) Object.assign(cachedTask, attrPatch);
+        if (needsAttrs) {
+            await taskWriter.method.call(taskWriter.outbox, tid, attrPatch, {
+                source: 'ai-task-patch-attrs',
+                reason: 'ai-task-patch-attrs',
+                label: 'AI 修改任务字段',
+                background: true,
+                wait: false,
+                skipInteractionGate: true,
+                skipSettledRefresh: true,
+                withFilters: true,
+                showErrorHint: false,
+            });
         }
 
         try { __tmInvalidateTasksQueryCacheByDocId(String(sourceTask.docId || sourceTask.root_id || '').trim()); } catch (e) {}
-        try { if (typeof window.tmRefresh === 'function') await window.tmRefresh(); else render(); } catch (e) { try { render(); } catch (e2) {} }
-        let verifiedTask = null;
-        for (let i = 0; i < 4; i++) {
-            try { verifiedTask = await __tmAiGetTaskSnapshot(tid, { forceFresh: true }); } catch (e) { verifiedTask = null; }
-            if (!Object.keys(nextPatch).length || __tmAiVerifyPatchApplied(verifiedTask, nextPatch)) {
-                return verifiedTask || await __tmAiGetTaskSnapshot(tid);
-            }
-            await new Promise((resolve) => setTimeout(resolve, 120 + i * 160));
+        try {
+            __tmScheduleViewRefresh({
+                mode: 'current',
+                withFilters: true,
+                reason: 'ai-task-patch',
+                taskIds: [tid],
+            });
+        } catch (e) {
+            try { __tmScheduleRender({ withFilters: true, reason: 'ai-task-patch' }); } catch (e2) {}
         }
-        return verifiedTask || await __tmAiGetTaskSnapshot(tid);
+        const localTask = globalThis.__tmRuntimeState?.getTaskById?.(tid, { includePending: true, preferPending: true })
+            || state.pendingInsertedTasks?.[tid]
+            || state.flatTasks?.[tid]
+            || sourceTask;
+        const resultTask = {
+            ...sourceTask,
+            ...(localTask && typeof localTask === 'object' ? localTask : {}),
+            ...attrPatch,
+        };
+        if (hasTitle) resultTask.content = String(nextPatch.title || '').trim();
+        if (hasDone) resultTask.done = !!nextPatch.done;
+        return __tmAiClone(resultTask);
     }
 
     async function __tmAiCreateTaskSuggestion(docId, content) {
@@ -273,10 +341,27 @@
         const text = String(content || '').trim();
         if (!did) throw new Error('缺少文档');
         if (!text) throw new Error('任务建议为空');
-        const taskId = await __tmCreateTaskInDoc({ docId: did, content: text, atTop: true, pinned: false, localInsert: false });
-        const pendingTask = state.pendingInsertedTasks?.[String(taskId || '').trim()];
-        if (pendingTask) __tmUpsertLocalTask(pendingTask);
-        try { await __tmRefreshMainViewInPlace({ withFilters: true }); } catch (e) { try { if (typeof window.tmRefresh === 'function') await window.tmRefresh(); } catch (e2) {} }
+        const createTask = __tmAiRequireOutbox('createTaskInDoc');
+        const taskId = await createTask.method.call(createTask.outbox, {
+            docId: did,
+            content: text,
+            atTop: true,
+            pinned: false,
+            localInsert: false,
+            wait: false,
+            skipOptimisticMainRefresh: true,
+            skipOptimisticFilterWork: true,
+        }, { wait: false });
+        try {
+            __tmScheduleViewRefresh({
+                mode: 'current',
+                withFilters: false,
+                reason: 'ai-create-task-suggestion',
+                taskIds: [taskId].filter(Boolean),
+            });
+        } catch (e) {
+            try { __tmScheduleRender({ withFilters: false, reason: 'ai-create-task-suggestion' }); } catch (e2) {}
+        }
         return await __tmAiGetTaskSnapshot(taskId);
     }
 
@@ -296,60 +381,51 @@
 
         let createdTaskId = '';
         if (parentTaskIdRaw) {
-            const parentTask = await __tmAiGetTaskSnapshot(parentTaskIdRaw, { forceFresh: true });
+            const parentTask = await __tmAiGetTaskSnapshot(parentTaskIdRaw);
             if (!parentTask) throw new Error('未找到父任务');
             const pid = String(parentTask.id || parentTaskIdRaw).trim() || parentTaskIdRaw;
-            createdTaskId = await __tmCreateSubtaskForTask(pid, initialContent);
-            try { __tmApplyOptimisticSubtask(pid, createdTaskId, initialContent); } catch (e) {}
+            const createSubtask = __tmAiRequireOutbox('createSubtask');
+            createdTaskId = await createSubtask.method.call(createSubtask.outbox, pid, initialContent, {
+                silent: true,
+                wait: false,
+                skipInteractionGate: true,
+                skipOptimisticMainRefresh: true,
+                skipOptimisticFilterWork: true,
+                refreshCurrentView: false,
+                skipSnapshotViewStateFilterRefresh: true,
+            });
         } else {
             const did = await __tmAiResolveDocumentId(docIdRaw);
             if (!did) throw new Error('缺少文档');
-            createdTaskId = await __tmCreateTaskInDoc({
+            const createTask = __tmAiRequireOutbox('createTaskInDoc');
+            createdTaskId = await createTask.method.call(createTask.outbox, {
                 docId: did,
                 content: initialContent,
                 atTop: true,
                 pinned: false,
                 localInsert: false,
-            });
-            const pendingTask = state.pendingInsertedTasks?.[String(createdTaskId || '').trim()];
-            if (pendingTask) __tmUpsertLocalTask(pendingTask);
+                wait: false,
+                skipOptimisticMainRefresh: true,
+                skipOptimisticFilterWork: true,
+            }, { wait: false });
         }
 
         let nextTask = null;
         if (Object.keys(patch).length > 0) {
-            let lastErr = null;
-            for (let i = 0; i < 5; i += 1) {
-                try {
-                    nextTask = await __tmAiApplyTaskPatch(createdTaskId, patch);
-                    lastErr = null;
-                    break;
-                } catch (e) {
-                    lastErr = e;
-                    await new Promise((resolve) => setTimeout(resolve, 180 + i * 220));
-                }
-            }
-            if (lastErr) throw lastErr;
+            nextTask = await __tmAiApplyTaskPatch(createdTaskId, patch);
         }
         if (!nextTask) {
-            for (let i = 0; i < 4; i += 1) {
-                try {
-                    nextTask = await __tmAiGetTaskSnapshot(createdTaskId, i > 0 ? { forceFresh: true } : {});
-                } catch (e) {
-                    nextTask = null;
-                }
-                if (nextTask) break;
-                await new Promise((resolve) => setTimeout(resolve, 120 + i * 180));
-            }
+            try { nextTask = await __tmAiGetTaskSnapshot(createdTaskId); } catch (e) { nextTask = null; }
         }
         try {
-            await __tmRefreshMainViewInPlace({ withFilters: true });
+            __tmScheduleViewRefresh({
+                mode: 'current',
+                withFilters: false,
+                reason: 'ai-create-task',
+                taskIds: [createdTaskId].filter(Boolean),
+            });
         } catch (e) {
-            try {
-                if (typeof window.tmRefresh === 'function') await window.tmRefresh();
-                else render();
-            } catch (e2) {
-                try { render(); } catch (e3) {}
-            }
+            try { __tmScheduleRender({ withFilters: false, reason: 'ai-create-task' }); } catch (e2) {}
         }
         return nextTask || await __tmAiGetTaskSnapshot(createdTaskId);
     }
@@ -708,23 +784,46 @@
         const normalizeDate = (value) => {
             try { return value ? __tmNormalizeDateOnly(value) : ''; } catch (e) { return String(value || '').trim(); }
         };
+        const readMeta = (field) => {
+            try {
+                return typeof __tmReadTaskMetaAttrValue === 'function'
+                    ? String(__tmReadTaskMetaAttrValue(task, field) || '').trim()
+                    : '';
+            } catch (e) {
+                return '';
+            }
+        };
         const done = __tmIsQuickbarTaskDone(task);
         const props = {
-            'custom-priority': String(task.priority || task.custom_priority || 'none').trim() || 'none',
-            'custom-status': String(task.customStatus || task.custom_status || '').trim(),
-            'custom-completion-time': normalizeDate(task.completionTime || task.completion_time || ''),
-            'custom-start-date': normalizeDate(task.startDate || task.start_date || ''),
-            'custom-duration': String(task.duration || task.custom_duration || '').trim(),
+            'custom-priority': String(task.priority || task.custom_priority || readMeta('priority') || 'none').trim() || 'none',
+            'custom-status': String(task.customStatus || task.custom_status || readMeta('customStatus') || '').trim(),
+            'custom-completion-time': normalizeDate(task.completionTime || task.completion_time || readMeta('completionTime') || ''),
+            'custom-start-date': normalizeDate(task.startDate || task.start_date || readMeta('startDate') || ''),
+            'custom-duration': String(task.duration || task.custom_duration || readMeta('duration') || '').trim(),
             'custom-tomato-estimate-count': __tmGetTaskTomatoEstimateCount(task),
             'custom-tomato-count': __tmGetTaskTomatoCount(task),
             'custom-focus-summary': __tmGetTaskTomatoSummaryText(task),
             'custom-focus-spent-display': __tmGetTaskSpentDisplay(task),
-            'custom-remark': String(task.remark || task.custom_remark || '').trim(),
-            'custom-pinned': String(task.pinned || task.custom_pinned || '').trim(),
+            'custom-remark': String(task.remark || task.custom_remark || readMeta('remark') || '').trim(),
+            'custom-pinned': String(task.pinned || task.custom_pinned || readMeta('pinned') || '').trim(),
             'bookmark': String(task.bookmark || '').trim(),
             done,
             taskCompleteAt: done ? __tmResolveTaskCompletedAtRaw(task, { completedOnly: false }) : '',
         };
+        try {
+            const mirrorStorageKey = (field, stableKey, value) => {
+                const storageKey = typeof __tmGetTaskMetaAttrKey === 'function' ? __tmGetTaskMetaAttrKey(field) : '';
+                if (storageKey && storageKey !== stableKey) props[storageKey] = value;
+            };
+            mirrorStorageKey('priority', 'custom-priority', props['custom-priority']);
+            mirrorStorageKey('customStatus', 'custom-status', props['custom-status']);
+            mirrorStorageKey('completionTime', 'custom-completion-time', props['custom-completion-time']);
+            mirrorStorageKey('startDate', 'custom-start-date', props['custom-start-date']);
+            mirrorStorageKey('duration', 'custom-duration', props['custom-duration']);
+            mirrorStorageKey('remark', 'custom-remark', props['custom-remark']);
+            mirrorStorageKey('pinned', 'custom-pinned', props['custom-pinned']);
+            mirrorStorageKey('taskCompleteAt', 'custom-task-complete-at', props.taskCompleteAt);
+        } catch (e) {}
         try {
             __tmGetCustomFieldDefs().forEach((field) => {
                 const fieldId = String(field?.id || '').trim();
@@ -1022,8 +1121,4 @@
             } catch (e) {}
         } catch (e) {}
     };
-
-    (function () {
-        const DAY_MS = 86400000;
-        const cleanupMap = new WeakMap();
 

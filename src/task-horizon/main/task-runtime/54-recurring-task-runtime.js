@@ -208,17 +208,18 @@
             task.repeat_state = task.repeatState;
             task.repeatHistory = __tmNormalizeTaskRepeatHistory(nextPatch.repeatHistory);
             task.repeat_history = task.repeatHistory;
-            if (state.flatTasks?.[task.id]) state.flatTasks[task.id] = task;
-            if (state.pendingInsertedTasks?.[task.id]) {
-                state.pendingInsertedTasks[task.id].startDate = task.startDate;
-                state.pendingInsertedTasks[task.id].start_date = task.startDate;
-                state.pendingInsertedTasks[task.id].completionTime = task.completionTime;
-                state.pendingInsertedTasks[task.id].completion_time = task.completionTime;
-                state.pendingInsertedTasks[task.id].repeatState = task.repeatState;
-                state.pendingInsertedTasks[task.id].repeat_state = task.repeatState;
-                state.pendingInsertedTasks[task.id].repeatHistory = task.repeatHistory;
-                state.pendingInsertedTasks[task.id].repeat_history = task.repeatHistory;
-            }
+            const localRepeatPatch = {
+                startDate: task.startDate,
+                completionTime: task.completionTime,
+                repeatState: task.repeatState,
+                repeatHistory: task.repeatHistory,
+            };
+            let patchedLocalRepeat = false;
+            try {
+                patchedLocalRepeat = !!globalThis.__tmTaskStore?.patchLocal?.(task.id, localRepeatPatch, {
+                    source: 'task-repeat-advance',
+                });
+            } catch (e) {}
             try {
                 MetaStore.set(task.id, {
                     startDate: task.startDate,
@@ -247,11 +248,13 @@
                 if (task && typeof task === 'object') task.done = value;
             } catch (e) {}
             syncIds.forEach((targetId) => {
+                let patchedDone = false;
                 try {
-                    if (state.flatTasks?.[targetId]) state.flatTasks[targetId].done = value;
-                } catch (e) {}
-                try {
-                    if (state.pendingInsertedTasks?.[targetId]) state.pendingInsertedTasks[targetId].done = value;
+                    patchedDone = !!globalThis.__tmTaskStore?.patchLocal?.(targetId, {
+                        done: value,
+                    }, {
+                        source: 'task-repeat-advance',
+                    });
                 } catch (e) {}
                 try {
                     if (!state.doneOverrides || typeof state.doneOverrides !== 'object') state.doneOverrides = {};

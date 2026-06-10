@@ -163,8 +163,8 @@ if (shouldMarkDirty) {
                     try { __tmRefreshReminderMarkForTask(taskId, 240); } catch (ex) {}
                 } else if (
                     attrKey === 'custom-reminder'
-                    || attrKey === 'custom-start-date'
-                    || attrKey === 'custom-completion-time'
+                    || (typeof __tmResolveTaskMetaFieldByAttrKey === 'function'
+                        && ['startDate', 'completionTime'].includes(__tmResolveTaskMetaFieldByAttrKey(attrKey)))
                     || attrKey === __TM_TASK_REPEAT_RULE_ATTR
                     || attrKey === __TM_TASK_REPEAT_STATE_ATTR
                     || !attrKey
@@ -202,7 +202,7 @@ if (shouldMarkDirty) {
                 }
             } catch (e) {}
             try {
-                __tmScheduleWarmTaskSnapshotStore(180);
+                globalThis.__tmTaskSnapshotService?.warm?.(180);
                 __tmScheduleWarmTaskIndexStore(0);
                 __tmScheduleWarmDocScopeCache(0);
             } catch (e) {}
@@ -522,6 +522,20 @@ if (shouldMarkDirty) {
         __tmPerfTraceMark(perfTrace, 'open:shell-first-paint', {
             reusedExistingModal: reusedExistingModal ? 1 : 0,
         });
+        const hasPendingLocalTaskWritesForOpen = () => {
+            try {
+                const deleted = state.pendingDeletedTasks;
+                if (deleted instanceof Set && deleted.size > 0) return true;
+                if (deleted && typeof deleted === 'object' && Object.keys(deleted).some((id) => !!String(id || '').trim())) return true;
+            } catch (e) {}
+            try {
+                if (typeof __tmHasPendingQueuedOps === 'function' && __tmHasPendingQueuedOps()) return true;
+            } catch (e) {}
+            try {
+                return !!globalThis.__tmTaskHorizonOutbox?.hasPending?.();
+            } catch (e) {}
+            return false;
+        };
 
         let hasDataReadyForSoftReuse0 = false;
         try {
@@ -532,19 +546,13 @@ if (shouldMarkDirty) {
             hasDataReadyForSoftReuse0 = false;
         }
         const quickbarDirty0 = __tmHasQuickbarModificationsSync();
-        const hasPendingInsertedTasks0 = (() => {
-            try {
-                return Object.keys(state.pendingInsertedTasks || {}).some((id) => !!String(id || '').trim());
-            } catch (e) {
-                return false;
-            }
-        })();
+        const hasPendingLocalTaskWrites0 = hasPendingLocalTaskWritesForOpen();
         const forceShellRenderOnOpen = !!state.__tmForceShellRenderOnOpen;
         state.__tmForceShellRenderOnOpen = false;
         const shouldShowInlineLoading = !state.wasHidden
             && !(options && options.skipLoadingHint)
             && !(options && options.skipEnsureTabOpened)
-            && !(reusedExistingModal && hasDataReadyForSoftReuse0 && !quickbarDirty0 && !hasPendingInsertedTasks0 && !forceShellRenderOnOpen);
+            && !(reusedExistingModal && hasDataReadyForSoftReuse0 && !quickbarDirty0 && !hasPendingLocalTaskWrites0 && !forceShellRenderOnOpen);
         state.wasHidden = false;
 
         await __tmEnsureSettingsLoaded();
@@ -639,19 +647,13 @@ if (shouldMarkDirty) {
                 pendingTaskId: String(state.__tmPendingCustomFieldFreshTaskId || '').trim(),
             });
         }
-        const hasPendingInsertedTasks = (() => {
-            try {
-                return Object.keys(state.pendingInsertedTasks || {}).some((id) => !!String(id || '').trim());
-            } catch (e) {
-                return false;
-            }
-        })();
+        const hasPendingLocalTaskWrites = hasPendingLocalTaskWritesForOpen();
         const canSkipRenderOnReuse = reusedExistingModal
             && hasDataReadyForSoftReuse
             && !quickbarDirty
-            && !hasPendingInsertedTasks
+            && !hasPendingLocalTaskWrites
             && !forceShellRenderOnOpen;
-        try { __tmScheduleWarmTaskSnapshotStore(240); } catch (e) {}
+        try { globalThis.__tmTaskSnapshotService?.warm?.(240); } catch (e) {}
         try { __tmScheduleWarmTaskIndexStore(240); } catch (e) {}
         if (canSkipRenderOnReuse) {
             try { __tmScheduleReminderTaskNameMarksRefresh(state.modal, true); } catch (e) {}
@@ -712,11 +714,6 @@ if (shouldMarkDirty) {
         try {
             state.activeDocId = String(state.activeDocId || 'all').trim() || 'all';
             await __tmApplyCurrentContextViewProfile();
-        } catch (e) {}
-        try {
-            if (!canSkipRenderOnReuse) {
-                await __tmWaitForQueuedOpsIdle(900);
-            }
         } catch (e) {}
         const runtimeMobileFastPath = globalThis.__tmRuntimeHost?.getInfo?.()?.runtimeMobileClient ?? __tmIsRuntimeMobileClient();
         __tmPerfTraceMark(perfTrace, 'open:load-dispatched', {

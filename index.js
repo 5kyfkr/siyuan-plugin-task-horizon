@@ -1,4 +1,4 @@
-const { Plugin, openTab, openMobileFileById, platformUtils } = require("siyuan");
+const { Plugin, Protyle, openTab, openMobileFileById, platformUtils } = require("siyuan");
 
 const PLUGIN_ID = "siyuan-plugin-task-horizon";
 const TASK_SCRIPT_PATH = `/data/plugins/${PLUGIN_ID}/task.js`;
@@ -323,6 +323,7 @@ const createTaskHorizonHostBridge = (pluginInstance) => ({
     app: pluginInstance?.app || null,
     eventBus: pluginInstance?.eventBus || null,
     platformUtils: platformUtils || null,
+    Protyle: typeof Protyle === "function" ? Protyle : null,
     openTab: typeof openTab === "function" ? openTab : null,
     openMobileFileById: typeof openMobileFileById === "function" ? openMobileFileById : null,
     openTaskTab: (...args) => {
@@ -691,6 +692,7 @@ module.exports = class TaskHorizonPlugin extends Plugin {
         globalThis.__taskHorizonPluginIsNativeMobile = runtimeNativeMobile;
         globalThis.__taskHorizonRuntimeClientKind = getRuntimeClientKind();
         globalThis.__taskHorizonOpenTab = typeof openTab === "function" ? openTab : null;
+        globalThis.__taskHorizonProtyle = typeof Protyle === "function" ? Protyle : null;
         globalThis.__taskHorizonOpenMobileFileById = typeof openMobileFileById === "function" ? openMobileFileById : null;
         globalThis.__taskHorizonPlatformUtils = platformUtils || null;
         globalThis.__taskHorizonOpenAssetWithSystem = openTaskHorizonAssetWithSystem;
@@ -1540,6 +1542,7 @@ module.exports = class TaskHorizonPlugin extends Plugin {
         try { delete globalThis.__taskHorizonPluginIsNativeMobile; } catch (e) {}
         try { delete globalThis.__taskHorizonRuntimeClientKind; } catch (e) {}
         try { delete globalThis.__taskHorizonOpenTab; } catch (e) {}
+        try { delete globalThis.__taskHorizonProtyle; } catch (e) {}
         try { delete globalThis.__taskHorizonOpenMobileFileById; } catch (e) {}
         try { delete globalThis.__taskHorizonPlatformUtils; } catch (e) {}
         try { delete globalThis.__taskHorizonOpenAssetWithSystem; } catch (e) {}

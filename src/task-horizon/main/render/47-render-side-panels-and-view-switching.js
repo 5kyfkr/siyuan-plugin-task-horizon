@@ -82,7 +82,13 @@
         const ok = globalThis.__tmCalendar.mountSideDayTimeline(timelineRoot, {
             settingsStore: SettingsStore,
             date: __tmCalendarDockGetDateKey(),
-            resolveTask: (taskId) => globalThis.__tmRuntimeState?.getFlatTaskById?.(taskId) || state.flatTasks?.[String(taskId || '').trim()] || null,
+            resolveTask: (taskId) => {
+                const tid = String(taskId || '').trim();
+                return globalThis.__tmRuntimeState?.getTaskById?.(tid, { includePending: true, preferPending: true })
+                    || state.flatTasks?.[tid]
+                    || state.pendingInsertedTasks?.[tid]
+                    || null;
+            },
             dragHost: dragHost || state.modal,
             enableExternalDrag: false,
         });

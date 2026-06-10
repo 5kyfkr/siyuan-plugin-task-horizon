@@ -129,10 +129,332 @@
         { id: 'classic', label: '经典色系', colors: ['#F15B5D', '#F7AC39', '#FFD35A', '#DDE23C', '#55C99A', '#499CE7', '#BF58EC', '#E668A6'] },
         { id: 'memphis', label: '孟菲斯色系', colors: ['#FF2A21', '#FF7A52', '#FFCD57', '#12CFB3', '#38B5C8', '#7D59F0', '#BE72F0', '#EB59C0'] },
     ];
+    const __TM_TASK_META_ATTR_FIELDS = Object.freeze([
+        { field: 'priority', label: '重要性', defaultKey: 'custom-priority', sqlAlias: 'custom_priority' },
+        { field: 'customStatus', label: '状态', defaultKey: 'custom-status', sqlAlias: 'custom_status' },
+        { field: 'startDate', label: '开始日期', defaultKey: 'custom-start-date', sqlAlias: 'start_date', visibleDate: true, mirror: true },
+        { field: 'completionTime', label: '截止日期', defaultKey: 'custom-completion-time', sqlAlias: 'completion_time', visibleDate: true, mirror: true },
+        { field: 'taskCompleteAt', label: '完成时间', defaultKey: 'custom-task-complete-at', sqlAlias: 'task_complete_at' },
+        { field: 'duration', label: '时长', defaultKey: 'custom-duration', sqlAlias: 'duration' },
+        { field: 'remark', label: '备注', defaultKey: 'custom-remark', sqlAlias: 'remark' },
+        { field: 'taskDateColor', label: '任务日期颜色', defaultKey: 'custom-task-date-color', sqlAlias: 'task_date_color', mirror: true },
+        { field: 'customTime', label: '自定义时间', defaultKey: 'custom-time', sqlAlias: 'custom_time', visibleDate: true, mirror: true },
+        { field: 'milestone', label: '里程碑', defaultKey: 'custom-milestone-event', sqlAlias: 'milestone' },
+        { field: 'pinned', label: '置顶', defaultKey: 'custom-pinned', sqlAlias: 'pinned' },
+        { field: 'allDayBottom', label: '全天置底', defaultKey: 'custom-all-day-bottom', sqlAlias: 'custom_all_day_bottom' },
+    ]);
+    const __TM_TASK_META_ATTR_FIELD_MAP = new Map(__TM_TASK_META_ATTR_FIELDS.map((def) => [def.field, def]));
+    const __TM_TASK_META_ATTR_DEFAULT_KEY_MAP = new Map(__TM_TASK_META_ATTR_FIELDS.map((def) => [def.defaultKey, def.field]));
+    const __TM_TASK_META_ATTR_SAFE_KEY_RE = /^custom-[a-zA-Z0-9_-]+$/;
     const __tmCustomFieldAttrBackfillInFlight = new Set();
     const __tmTaskAttachmentBlockMetaCache = new Map();
     const __tmFixedDateColumnWidthCache = new Map();
     let __tmFixedDateMeasureCanvas = null;
+
+    function __tmGetTaskMetaAttrFieldDefs() {
+        return __TM_TASK_META_ATTR_FIELDS.slice();
+    }
+
+    function __tmGetTaskMetaAttrFieldDef(field) {
+        return __TM_TASK_META_ATTR_FIELD_MAP.get(String(field || '').trim()) || null;
+    }
+
+    function __tmNormalizeTaskMetaAttrKeyName(value, fallback = '') {
+        const raw = String(value || '').trim();
+        const safeFallback = String(fallback || '').trim();
+        if (raw && __TM_TASK_META_ATTR_SAFE_KEY_RE.test(raw)) return raw;
+        if (safeFallback && __TM_TASK_META_ATTR_SAFE_KEY_RE.test(safeFallback)) return safeFallback;
+        return '';
+    }
+
+    function __tmGetDefaultTaskMetaAttrKey(field) {
+        const def = __tmGetTaskMetaAttrFieldDef(field);
+        return String(def?.defaultKey || '').trim();
+    }
+
+    function __tmGetTaskMetaAttrSettingsData() {
+        try {
+            return (typeof SettingsStore !== 'undefined' && SettingsStore?.data && typeof SettingsStore.data === 'object')
+                ? SettingsStore.data
+                : {};
+        } catch (e) {
+            return {};
+        }
+    }
+
+    function __tmNormalizeTaskMetaAttrKeySettings(input, options = {}) {
+        const source = (input && typeof input === 'object' && !Array.isArray(input)) ? input : {};
+        const opts = (options && typeof options === 'object') ? options : {};
+        const out = {};
+        __TM_TASK_META_ATTR_FIELDS.forEach((def) => {
+            const field = String(def.field || '').trim();
+            const nextKey = __tmNormalizeTaskMetaAttrKeyName(source[field], def.defaultKey);
+            if (!nextKey) return;
+            if (opts.includeDefaults === true || nextKey !== def.defaultKey) out[field] = nextKey;
+        });
+        return out;
+    }
+
+    function __tmNormalizeTaskMetaAttrAliasSettings(input) {
+        const source = (input && typeof input === 'object' && !Array.isArray(input)) ? input : {};
+        const out = {};
+        __TM_TASK_META_ATTR_FIELDS.forEach((def) => {
+            const field = String(def.field || '').trim();
+            const rawList = Array.isArray(source[field]) ? source[field] : [];
+            const seen = new Set();
+            const list = rawList
+                .map((key) => __tmNormalizeTaskMetaAttrKeyName(key, ''))
+                .filter((key) => {
+                    if (!key || seen.has(key)) return false;
+                    seen.add(key);
+                    return true;
+                });
+            if (list.length) out[field] = list;
+        });
+        return out;
+    }
+
+    function __tmGetTaskMetaAttrKey(field) {
+        const def = __tmGetTaskMetaAttrFieldDef(field);
+        if (!def) return '';
+        const settings = __tmGetTaskMetaAttrSettingsData().taskMetaAttrKeys;
+        const raw = settings && typeof settings === 'object' && !Array.isArray(settings)
+            ? settings[def.field]
+            : '';
+        return __tmNormalizeTaskMetaAttrKeyName(raw, def.defaultKey) || def.defaultKey;
+    }
+
+    function __tmGetTaskMetaAttrAliases(field) {
+        const def = __tmGetTaskMetaAttrFieldDef(field);
+        if (!def) return [];
+        const aliases = __tmGetTaskMetaAttrSettingsData().taskMetaAttrKeyAliases;
+        const rawList = aliases && typeof aliases === 'object' && !Array.isArray(aliases)
+            ? aliases[def.field]
+            : [];
+        return __tmNormalizeTaskMetaAttrAliasSettings({ [def.field]: rawList })[def.field] || [];
+    }
+
+    function __tmGetTaskMetaAttrReadKeys(field) {
+        const def = __tmGetTaskMetaAttrFieldDef(field);
+        if (!def) return [];
+        const keys = [
+            __tmGetTaskMetaAttrKey(def.field),
+            ...__tmGetTaskMetaAttrAliases(def.field),
+            def.defaultKey,
+        ];
+        const seen = new Set();
+        return keys
+            .map((key) => __tmNormalizeTaskMetaAttrKeyName(key, ''))
+            .filter((key) => {
+                if (!key || seen.has(key)) return false;
+                seen.add(key);
+                return true;
+            });
+    }
+
+    function __tmGetAllTaskMetaAttrReadKeys() {
+        const out = [];
+        const seen = new Set();
+        __TM_TASK_META_ATTR_FIELDS.forEach((def) => {
+            __tmGetTaskMetaAttrReadKeys(def.field).forEach((key) => {
+                if (!key || seen.has(key)) return;
+                seen.add(key);
+                out.push(key);
+            });
+        });
+        return out;
+    }
+
+    function __tmResolveTaskMetaFieldByAttrKey(attrKey) {
+        const key = String(attrKey || '').trim();
+        if (!key) return '';
+        for (const def of __TM_TASK_META_ATTR_FIELDS) {
+            if (__tmGetTaskMetaAttrKey(def.field) === key) return def.field;
+        }
+        for (const def of __TM_TASK_META_ATTR_FIELDS) {
+            if (__tmGetTaskMetaAttrReadKeys(def.field).includes(key)) return def.field;
+        }
+        return __TM_TASK_META_ATTR_DEFAULT_KEY_MAP.get(key) || '';
+    }
+
+    function __tmIsTaskMetaAttrKey(attrKey) {
+        return !!__tmResolveTaskMetaFieldByAttrKey(attrKey);
+    }
+
+    function __tmGetTaskMetaAttrLabel(fieldOrAttrKey, fallback = '') {
+        const raw = String(fieldOrAttrKey || '').trim();
+        const field = __tmGetTaskMetaAttrFieldDef(raw) ? raw : __tmResolveTaskMetaFieldByAttrKey(raw);
+        const def = __tmGetTaskMetaAttrFieldDef(field);
+        return String(def?.label || fallback || '').trim();
+    }
+
+    function __tmReadTaskMetaAttrEntry(attrs, field) {
+        const source = (attrs && typeof attrs === 'object' && !Array.isArray(attrs)) ? attrs : null;
+        const def = __tmGetTaskMetaAttrFieldDef(field);
+        if (!source || !def) return { found: false, key: '', value: '' };
+        const keys = __tmGetTaskMetaAttrReadKeys(def.field);
+        for (const key of keys) {
+            if (Object.prototype.hasOwnProperty.call(source, key)) {
+                return { found: true, key, value: source[key] };
+            }
+        }
+        return { found: false, key: '', value: '' };
+    }
+
+    function __tmReadTaskMetaAttrValue(attrs, field, fallback = '') {
+        const entry = __tmReadTaskMetaAttrEntry(attrs, field);
+        return entry.found ? String(entry.value ?? '') : String(fallback ?? '');
+    }
+
+    function __tmApplyTaskMetaAttrValueToTask(task, field, value, options = {}) {
+        const target = (task && typeof task === 'object') ? task : null;
+        const def = __tmGetTaskMetaAttrFieldDef(field);
+        const opts = (options && typeof options === 'object') ? options : {};
+        if (!target || !def) return false;
+        const text = String(value ?? '');
+        const isValidValue = (val) => val !== undefined && val !== null && val !== '' && val !== 'null';
+        const shouldApply = (...candidates) => {
+            if (opts.preferExisting !== true) return true;
+            return !candidates.some((item) => isValidValue(item));
+        };
+        const shouldApplyVisibleDate = (...candidates) => {
+            if (opts.preferExistingVisibleDates === true && candidates.some((item) => isValidValue(item))) return false;
+            if (opts.preserveExistingVisibleDatesOnBlank === true && !isValidValue(text)) {
+                return !candidates.some((item) => isValidValue(item));
+            }
+            return shouldApply(...candidates);
+        };
+        switch (def.field) {
+            case 'priority':
+                if (!shouldApply(target.custom_priority, target.priority)) return false;
+                target.custom_priority = text;
+                target.priority = text;
+                return true;
+            case 'duration':
+                if (!shouldApply(target.duration, target.custom_duration)) return false;
+                target.duration = text;
+                target.custom_duration = text;
+                return true;
+            case 'remark':
+                if (!shouldApply(target.remark, target.custom_remark)) return false;
+                target.remark = text;
+                target.custom_remark = text;
+                return true;
+            case 'startDate':
+                if (!shouldApplyVisibleDate(target.startDate, target.start_date)) return false;
+                target.startDate = text;
+                target.start_date = text;
+                return true;
+            case 'completionTime':
+                if (!shouldApplyVisibleDate(target.completionTime, target.completion_time)) return false;
+                target.completionTime = text;
+                target.completion_time = text;
+                return true;
+            case 'taskDateColor':
+                if (!shouldApply(target.taskDateColor, target.task_date_color, target.custom_task_date_color)) return false;
+                target.taskDateColor = text;
+                target.task_date_color = text;
+                target.custom_task_date_color = text;
+                return true;
+            case 'taskCompleteAt':
+                if (!shouldApply(target.taskCompleteAt, target.task_complete_at)) return false;
+                target.taskCompleteAt = text;
+                target.task_complete_at = text;
+                return true;
+            case 'milestone':
+                if (!shouldApply(target.milestone, target.custom_milestone)) return false;
+                target.milestone = text;
+                target.custom_milestone = text;
+                return true;
+            case 'customTime':
+                if (!shouldApplyVisibleDate(target.customTime, target.custom_time)) return false;
+                target.customTime = text;
+                target.custom_time = text;
+                return true;
+            case 'customStatus':
+                if (!shouldApply(target.customStatus, target.custom_status)) return false;
+                target.customStatus = text;
+                target.custom_status = text;
+                return true;
+            case 'pinned':
+                if (!shouldApply(target.pinned, target.custom_pinned)) return false;
+                target.pinned = text;
+                target.custom_pinned = text;
+                return true;
+            case 'allDayBottom':
+                if (!shouldApply(target.allDayBottom, target.custom_all_day_bottom)) return false;
+                target.allDayBottom = text;
+                target.custom_all_day_bottom = text;
+                return true;
+            default:
+                return false;
+        }
+    }
+
+    function __tmGetTaskMetaAttrReservedReason(attrKey, field = '') {
+        const key = String(attrKey || '').trim();
+        const ownerField = String(field || '').trim();
+        if (!key) return '属性名为空';
+        const defaultOwner = __TM_TASK_META_ATTR_DEFAULT_KEY_MAP.get(key);
+        if (defaultOwner && defaultOwner !== ownerField) return `内置字段“${__tmGetTaskMetaAttrLabel(defaultOwner, defaultOwner)}”`;
+        for (const def of __TM_TASK_META_ATTR_FIELDS) {
+            if (def.field === ownerField) continue;
+            if (__tmGetTaskMetaAttrKey(def.field) === key) return `内置字段“${__tmGetTaskMetaAttrLabel(def.field, def.field)}”`;
+        }
+        if (key.startsWith(__TM_CUSTOM_FIELD_ATTR_PREFIX)) return '自定义列';
+        if (key.startsWith(__TM_TASK_ATTACHMENT_ATTR_PREFIX) || key === __TM_TASK_ATTACHMENT_META_ATTR) return '附件';
+        if (key === 'custom-task-repeat-rule' || key === 'custom-task-repeat-state' || key === 'custom-task-repeat-history') return '循环任务';
+        if (key === 'bookmark' || key === 'custom-reminder' || key === 'custom-tomato-reminder') return '书签或提醒';
+        const tomatoKeys = new Set([
+            'custom-tomato-minutes',
+            'custom-tomato-time',
+            'custom-tomato-count',
+            'custom-tomato-estimate-count',
+            String(__tmGetTaskMetaAttrSettingsData().tomatoSpentAttrKeyMinutes || '').trim(),
+            String(__tmGetTaskMetaAttrSettingsData().tomatoSpentAttrKeyHours || '').trim(),
+            String(__tmGetTaskMetaAttrSettingsData().tomatoCountAttrKey || '').trim(),
+            String(__tmGetTaskMetaAttrSettingsData().tomatoEstimateAttrKey || '').trim(),
+        ].filter(Boolean));
+        if (tomatoKeys.has(key)) return '番茄钟';
+        try {
+            if (typeof __tmGetCustomFieldDefs === 'function') {
+                const defs = __tmGetCustomFieldDefs();
+                for (const def of defs) {
+                    const storageKey = __tmBuildCustomFieldAttrStorageKey(def?.attrKey || def?.id || def?.name || 'field', def?.id || 'field');
+                    if (storageKey === key) return '自定义列';
+                }
+            }
+        } catch (e) {}
+        return '';
+    }
+
+    function __tmValidateTaskMetaAttrSettings(input) {
+        const source = (input && typeof input === 'object' && !Array.isArray(input)) ? input : {};
+        const errors = [];
+        const keys = {};
+        const seen = new Map();
+        __TM_TASK_META_ATTR_FIELDS.forEach((def) => {
+            const raw = Object.prototype.hasOwnProperty.call(source, def.field) ? source[def.field] : __tmGetTaskMetaAttrKey(def.field);
+            const key = String(raw || '').trim() || def.defaultKey;
+            if (!__TM_TASK_META_ATTR_SAFE_KEY_RE.test(key)) {
+                errors.push(`${def.label}：属性名必须以 custom- 开头，且只能包含英文、数字、下划线或连字符`);
+                return;
+            }
+            const reservedReason = __tmGetTaskMetaAttrReservedReason(key, def.field);
+            if (reservedReason) errors.push(`${def.label}：${key} 已被${reservedReason}占用`);
+            const existed = seen.get(key);
+            if (existed && existed !== def.field) {
+                errors.push(`${def.label}：${key} 与“${__tmGetTaskMetaAttrLabel(existed, existed)}”重复`);
+            }
+            seen.set(key, def.field);
+            keys[def.field] = key;
+        });
+        return {
+            ok: errors.length === 0,
+            errors,
+            keys,
+        };
+    }
 
     function __tmIsFixedDateColumn(key) {
         return __TM_FIXED_DATE_COLUMN_KEYS.includes(String(key || '').trim());
@@ -349,6 +671,37 @@
             out.push(item);
         });
         return out.slice(0, max);
+    }
+
+    function __tmNormalizeDocDefaultTaskHeadingMap(input) {
+        const source = (input && typeof input === 'object' && !Array.isArray(input)) ? input : {};
+        const out = {};
+        Object.entries(source).forEach(([docId, rawValue]) => {
+            const did = String(docId || '').trim();
+            if (!did) return;
+            const raw = (rawValue && typeof rawValue === 'object')
+                ? rawValue
+                : { headingId: rawValue };
+            const headingId = String(raw?.headingId || raw?.id || '').trim();
+            if (!headingId) return;
+            const item = { headingId };
+            const headingText = String(raw?.headingText || raw?.content || raw?.name || '').trim();
+            const headingLevel = String(raw?.headingLevel || raw?.level || '').trim().toLowerCase();
+            const updatedAt = __tmParseUpdatedAtNumber(raw?.updatedAt);
+            if (headingText) item.headingText = headingText;
+            if (/^h[1-6]$/.test(headingLevel)) item.headingLevel = headingLevel;
+            if (updatedAt > 0) item.updatedAt = updatedAt;
+            out[did] = item;
+        });
+        return out;
+    }
+
+    function __tmGetDocDefaultTaskHeadingConfig(docId, settings = null) {
+        const did = String(docId || '').trim();
+        if (!did) return null;
+        const data = (settings && typeof settings === 'object') ? settings : SettingsStore?.data;
+        const map = __tmNormalizeDocDefaultTaskHeadingMap(data?.docDefaultTaskHeadingByDocId);
+        return map[did] || null;
     }
 
     function __tmGetTaskAttachmentAttrIndex(key) {
@@ -974,7 +1327,7 @@
         return `${gid}|${__tmNormalizeTaskSnapshotDocIds(docIds).join(',')}`;
     }
 
-    const __TM_LOCAL_TASK_PATCH_WATERMARK_TTL_MS = 8 * 1000;
+    const __TM_LOCAL_TASK_PATCH_WATERMARK_TTL_MS = 20 * 1000;
     const __TM_LOCAL_TASK_PATCH_WATERMARK_MAX = 256;
 
     function __tmNormalizeLocalPatchFieldKey(key) {
@@ -985,6 +1338,8 @@
             : '';
         if (customFieldId) return `customField:${customFieldId}`;
         if (raw === 'customFieldValues') return raw;
+        const metaField = __tmResolveTaskMetaFieldByAttrKey(raw);
+        if (metaField) return metaField;
         const map = {
             custom_priority: 'priority',
             'custom-priority': 'priority',
@@ -1065,10 +1420,17 @@
         __tmPruneLocalTaskPatchWatermarks(now);
         const prev = map.get(tid);
         const fields = new Set(Array.isArray(prev?.fields) ? prev.fields : []);
+        const values = { ...((prev?.values && typeof prev.values === 'object' && !Array.isArray(prev.values)) ? prev.values : {}) };
         keys.forEach((key) => fields.add(key));
+        Object.entries(patch || {}).forEach(([rawKey, rawValue]) => {
+            const key = __tmNormalizeLocalPatchFieldKey(rawKey);
+            if (!key) return;
+            values[key] = __tmNormalizeQueueTaskValue(key, rawValue);
+        });
         map.set(tid, {
             t: now,
             fields: Array.from(fields),
+            values,
             source: String(opts.source || opts.reason || '').trim(),
         });
         return true;
@@ -1087,7 +1449,9 @@
         if (!entry || !Array.isArray(entry.fields)) return false;
         const remove = new Set(keys);
         const fields = entry.fields.filter((key) => !remove.has(key));
-        if (fields.length) map.set(tid, { ...entry, fields, t: Date.now() });
+        const values = { ...((entry.values && typeof entry.values === 'object' && !Array.isArray(entry.values)) ? entry.values : {}) };
+        remove.forEach((key) => { try { delete values[key]; } catch (e) {} });
+        if (fields.length) map.set(tid, { ...entry, fields, values, t: Date.now() });
         else map.delete(tid);
         return true;
     }
@@ -1103,6 +1467,35 @@
 
     function __tmTaskHasLocalPatchWatermark(taskId) {
         return !!__tmGetLocalTaskPatchWatermark(taskId);
+    }
+
+    function __tmTaskHasLocalPatchWatermarkForFields(taskId, fieldKeys = []) {
+        const entry = __tmGetLocalTaskPatchWatermark(taskId);
+        if (!entry || !Array.isArray(entry.fields)) return false;
+        const fields = new Set(entry.fields.map((key) => __tmNormalizeLocalPatchFieldKey(key)).filter(Boolean));
+        return (Array.isArray(fieldKeys) ? fieldKeys : [fieldKeys])
+            .map((key) => __tmNormalizeLocalPatchFieldKey(key))
+            .filter(Boolean)
+            .some((key) => fields.has(key));
+    }
+
+    function __tmGetLocalTaskPatchWatermarkValue(taskId, fieldKey) {
+        const key = __tmNormalizeLocalPatchFieldKey(fieldKey);
+        if (!key) return { has: false, value: undefined };
+        const entry = __tmGetLocalTaskPatchWatermark(taskId);
+        if (!entry || !Array.isArray(entry.fields) || !entry.fields.includes(key)) {
+            return { has: false, value: undefined };
+        }
+        const values = (entry.values && typeof entry.values === 'object' && !Array.isArray(entry.values)) ? entry.values : null;
+        if (values && Object.prototype.hasOwnProperty.call(values, key)) {
+            return { has: true, value: values[key] };
+        }
+        const tid = String(taskId || '').trim();
+        const live = state?.flatTasks?.[tid] || state?.pendingInsertedTasks?.[tid] || null;
+        if (live && typeof live === 'object' && Object.prototype.hasOwnProperty.call(live, key)) {
+            return { has: true, value: live[key] };
+        }
+        return { has: true, value: undefined };
     }
 
     function __tmMergeLocalTaskPatchIntoTask(task) {
@@ -1375,13 +1768,13 @@
         if (__tmIsTaskSnapshotMeaningfulValue(nextDuration)) out.duration = String(nextDuration).trim();
         const nextRemark = __tmSnapshotPickFirstValue(source, ['remark', 'custom_remark']);
         if (__tmIsTaskSnapshotMeaningfulValue(nextRemark)) out.remark = String(nextRemark).trim();
-        const nextStartDate = __tmSnapshotPickFirstValue(source, ['startDate', 'start_date', 'custom-start-date', 'custom_start_date']);
+        const nextStartDate = __tmSnapshotPickFirstValue(source, ['startDate', 'start_date', 'custom_start_date', ...__tmGetTaskMetaAttrReadKeys('startDate')]);
         if (__tmIsTaskSnapshotMeaningfulValue(nextStartDate)) out.startDate = String(nextStartDate).trim();
-        const nextCompletionTime = __tmSnapshotPickFirstValue(source, ['completionTime', 'completion_time', 'custom-completion-time', 'custom_completion_time']);
+        const nextCompletionTime = __tmSnapshotPickFirstValue(source, ['completionTime', 'completion_time', 'custom_completion_time', ...__tmGetTaskMetaAttrReadKeys('completionTime')]);
         if (__tmIsTaskSnapshotMeaningfulValue(nextCompletionTime)) out.completionTime = String(nextCompletionTime).trim();
-        const nextTaskDateColor = __tmSnapshotPickFirstValue(source, ['taskDateColor', 'task_date_color', 'custom-task-date-color', 'custom_task_date_color']);
+        const nextTaskDateColor = __tmSnapshotPickFirstValue(source, ['taskDateColor', 'task_date_color', 'custom_task_date_color', ...__tmGetTaskMetaAttrReadKeys('taskDateColor')]);
         if (__tmIsTaskSnapshotMeaningfulValue(nextTaskDateColor)) out.taskDateColor = String(nextTaskDateColor).trim();
-        const nextTaskCompleteAt = __tmSnapshotPickFirstValue(source, ['taskCompleteAt', 'task_complete_at', __TM_TASK_COMPLETE_AT_ATTR]);
+        const nextTaskCompleteAt = __tmSnapshotPickFirstValue(source, ['taskCompleteAt', 'task_complete_at', ...__tmGetTaskMetaAttrReadKeys('taskCompleteAt')]);
         if (__tmIsTaskSnapshotMeaningfulValue(nextTaskCompleteAt)) out.taskCompleteAt = String(nextTaskCompleteAt).trim();
         const nextMilestone = __tmSnapshotPickBooleanTrue(source, ['milestone', 'custom_milestone', 'customMilestone']);
         if (nextMilestone) out.milestone = true;
@@ -1498,6 +1891,26 @@
         return flat;
     }
 
+    function __tmReplaceFlatTasksThroughTaskStore(flatTasks, options = {}) {
+        const nextFlat = (flatTasks && typeof flatTasks === 'object') ? flatTasks : {};
+        const opts = (options && typeof options === 'object') ? options : {};
+        try {
+            if (globalThis.__tmTaskStore?.replaceFlat) {
+                return globalThis.__tmTaskStore.replaceFlat(nextFlat, {
+                    mergeOtherBlocks: opts.mergeOtherBlocks !== false,
+                    normalizeKeys: opts.normalizeKeys === true,
+                });
+            }
+        } catch (e) {}
+        try {
+            return opts.mergeOtherBlocks !== false && typeof __tmMergeOtherBlocksIntoFlatTasks === 'function'
+                ? __tmMergeOtherBlocksIntoFlatTasks(nextFlat)
+                : nextFlat;
+        } catch (e) {
+            return nextFlat;
+        }
+    }
+
     function __tmHashTaskSnapshotText(text = '') {
         const source = String(text || '');
         let h = 2166136261;
@@ -1506,6 +1919,64 @@
             h = Math.imul(h, 16777619) >>> 0;
         }
         return h.toString(36);
+    }
+
+    function __tmBuildTaskSnapshotViewStructureSignature(options = {}) {
+        const opts = (options && typeof options === 'object') ? options : {};
+        const activeDocId = String(opts.activeDocId || state?.activeDocId || 'all').trim() || 'all';
+        let hash = 2166136261;
+        let docCount = 0;
+        let taskCount = 0;
+        const feed = (value) => {
+            const source = String(value ?? '');
+            for (let i = 0; i < source.length; i += 1) {
+                hash ^= source.charCodeAt(i);
+                hash = Math.imul(hash, 16777619) >>> 0;
+            }
+            hash ^= 124;
+            hash = Math.imul(hash, 16777619) >>> 0;
+        };
+        const walk = (task, docId, parentId = '', index = 0) => {
+            if (!task || typeof task !== 'object') return;
+            const taskId = String(task.id || task.blockId || '').trim();
+            if (!taskId) return;
+            taskCount += 1;
+            feed(taskId);
+            feed(docId);
+            feed(task.root_id || task.docId || docId);
+            feed(parentId || task.parentTaskId || task.parent_task_id || '');
+            feed(task.h2Id || task.h2_id || '');
+            feed(Number.isFinite(Number(task.h2Rank)) ? Number(task.h2Rank) : '');
+            feed(index);
+            const children = Array.isArray(task.children) ? task.children : [];
+            children.forEach((child, childIndex) => walk(child, docId, taskId, childIndex));
+        };
+        const scanDoc = (doc, index = 0) => {
+            if (!doc || typeof doc !== 'object') return;
+            const docId = String(doc.id || '').trim();
+            if (!docId) return;
+            docCount += 1;
+            feed(docId);
+            feed(index);
+            (Array.isArray(doc.tasks) ? doc.tasks : []).forEach((task, taskIndex) => walk(task, docId, '', taskIndex));
+        };
+        try {
+            if (activeDocId === __TM_OTHER_BLOCK_TAB_ID) {
+                feed('__other__');
+                (Array.isArray(state?.otherBlocks) ? state.otherBlocks : []).forEach((task, index) => walk(task, '__other__', '', index));
+            } else {
+                const docs = Array.isArray(state?.taskTree) ? state.taskTree : [];
+                docs.forEach((doc, index) => {
+                    const docId = String(doc?.id || '').trim();
+                    if (activeDocId !== 'all' && docId !== activeDocId) return;
+                    scanDoc(doc, index);
+                });
+                if (activeDocId === 'all') {
+                    (Array.isArray(state?.otherBlocks) ? state.otherBlocks : []).forEach((task, index) => walk(task, '__other__', '', index));
+                }
+            }
+        } catch (e) {}
+        return `v1:${activeDocId}:${docCount}:${taskCount}:${(hash >>> 0).toString(36)}`;
     }
 
     function __tmBuildTaskSnapshotDocDataKey(doc) {
@@ -1837,11 +2308,7 @@
             taskTree,
             String(opts.groupId || SettingsStore?.data?.currentGroupId || 'all').trim() || 'all'
         );
-        try {
-            state.flatTasks = __tmMergeOtherBlocksIntoFlatTasks(flatTasks);
-        } catch (e) {
-            state.flatTasks = flatTasks;
-        }
+        __tmReplaceFlatTasksThroughTaskStore(flatTasks);
         state.__tmLoadedDocIdsForTasks = docIds.slice();
         state.__tmDocSessionTaskRestoredAt = Date.now();
         return {
@@ -1920,11 +2387,7 @@
             taskTree,
             String(opts.groupId || SettingsStore?.data?.currentGroupId || 'all').trim() || 'all'
         );
-        try {
-            state.flatTasks = __tmMergeOtherBlocksIntoFlatTasks(flatTasks);
-        } catch (e) {
-            state.flatTasks = flatTasks;
-        }
+        __tmReplaceFlatTasksThroughTaskStore(flatTasks);
         state.__tmLoadedDocIdsForTasks = docIds.slice();
         return {
             docCount: taskTree.length,
@@ -2006,11 +2469,14 @@
             showCompleted: __tmGetShowCompletedTasksFromSettings(data) ? 1 : 0,
             completedTodayOnly: data.completedTasksTodayOnly ? 1 : 0,
             completedInlineInGroups: data.completedTasksInlineInGroups ? 1 : 0,
+            taskStructure: __tmBuildTaskSnapshotViewStructureSignature(opts),
             docTabSortMode: String(data.docTabSortMode || '').trim(),
             taskHeadingLevel: String(data.taskHeadingLevel || 'h2').trim() || 'h2',
             docH2SubgroupEnabled: data.docH2SubgroupEnabled ? 1 : 0,
             whiteboardSequenceMode: data.whiteboardSequenceMode ? 1 : 0,
             customFieldDefsVersion: __tmParseVersionNumber(data.customFieldDefsVersion),
+            taskMetaAttrKeys: __tmStableSettingsJsonValue(__tmNormalizeTaskMetaAttrKeySettings(data.taskMetaAttrKeys)),
+            taskMetaAttrKeyAliases: __tmStableSettingsJsonValue(__tmNormalizeTaskMetaAttrAliasSettings(data.taskMetaAttrKeyAliases)),
         };
         try {
             return JSON.stringify(__tmStableSettingsJsonValue(payload));
@@ -2126,11 +2592,22 @@
             return null;
         }
         const flat = state?.flatTasks && typeof state.flatTasks === 'object' ? state.flatTasks : {};
+        const pendingInserted = state?.pendingInsertedTasks && typeof state.pendingInsertedTasks === 'object'
+            ? state.pendingInsertedTasks
+            : {};
         const filtered = [];
         const missingIds = [];
         for (const id of ids) {
             if (!id) continue;
-            const task = flat[id];
+            try {
+                if (globalThis.__tmRuntimeState?.isPendingDeletedTaskId?.(id)) {
+                    continue;
+                }
+            } catch (e) {}
+            const task = globalThis.__tmRuntimeState?.getTaskById?.(id, { includePending: true, preferPending: true })
+                || flat[id]
+                || pendingInserted[id]
+                || null;
             if (!task) {
                 missingIds.push(id);
                 continue;
@@ -2599,6 +3076,14 @@
         __tmTaskSnapshotStoreLoadPromise = Promise.resolve()
             .then(async () => {
                 const raw = await __tmReadJsonFile(TASK_SNAPSHOT_FILE_PATH);
+                if (__tmTaskSnapshotStoreCache
+                    && Date.now() < (Number(__tmTaskSnapshotStoreLocalMutationUntil || 0) || 0)) {
+                    const localUpdatedAt = Number(__tmTaskSnapshotStoreCache?.updatedAt || 0) || 0;
+                    const rawUpdatedAt = __tmGetTaskSnapshotStoreUpdatedAt(raw);
+                    if (localUpdatedAt > rawUpdatedAt) {
+                        return __tmTaskSnapshotStoreCache;
+                    }
+                }
                 const store = __tmBuildTaskSnapshotStore(raw);
                 __tmTaskSnapshotStoreCache = store;
                 __tmTaskSnapshotStoreLoadedAt = Date.now();
@@ -2628,6 +3113,72 @@
                 __tmTaskSnapshotStoreLoadPromise = null;
             });
         return await __tmTaskSnapshotStoreLoadPromise;
+    }
+
+    function __tmUpsertCurrentTaskSnapshotStoreCache(options = {}) {
+        const opts = (options && typeof options === 'object') ? options : {};
+        const docIds = __tmNormalizeTaskSnapshotDocIds(opts.docIds || state.__tmLoadedDocIdsForTasks || []);
+        let taskCount = 0;
+        try { taskCount = Object.keys(__tmBuildFlatTasksFromTaskSnapshotTree(state.taskTree)).length; } catch (e) {}
+        if (!__tmCanPersistTaskSnapshotProjection(docIds, taskCount, opts)) return false;
+        try { __tmMergeLocalTaskPatchIntoTaskStateForSnapshot(); } catch (e) {}
+        let payload = __tmBuildTaskSnapshotPayload({
+            docIds,
+            groupId: opts.groupId || SettingsStore?.data?.currentGroupId || 'all',
+            activeDocId: opts.activeDocId || state?.activeDocId || 'all',
+            queryLimit: opts.queryLimit || __TM_TASK_INDEX_QUERY_LIMIT,
+        });
+        if (!payload || !String(payload.scopeKey || '').trim()) return false;
+        const previousStore = __tmTaskSnapshotStoreCache || __tmCreateEmptyTaskSnapshotStore();
+        payload = __tmAttachTaskSnapshotViewState(payload, {
+            groupId: payload.groupId,
+            activeDocId: payload.activeDocId,
+            previousSnapshot: previousStore?.snapshots?.[payload.scopeKey],
+        }) || payload;
+        const payloadFlatTasks = __tmBuildFlatTasksFromTaskSnapshotTree(Array.isArray(payload.taskTree) ? payload.taskTree : []);
+        const payloadCoverage = __tmGetTaskCountCoverageStatus(payload.docIds || docIds, Object.keys(payloadFlatTasks).length, opts);
+        if (!payloadCoverage.ok) return false;
+        const payloadBytes = __tmEstimateJsonByteSize(__tmBuildTaskSnapshotRecordForStore(payload, {
+            docs: {},
+            otherBlockSets: {},
+        }) || payload);
+        if (payloadBytes > __TM_TASK_SNAPSHOT_MAX_SINGLE_BYTES) return false;
+        const now = Date.now();
+        payload.updatedAt = now;
+        const nextRawStore = {
+            ...(previousStore && typeof previousStore === 'object' ? previousStore : {}),
+            updatedAt: now,
+            snapshots: {
+                ...((previousStore?.snapshots && typeof previousStore.snapshots === 'object') ? previousStore.snapshots : {}),
+                [payload.scopeKey]: payload,
+            },
+        };
+        const nextStore = __tmBuildTaskSnapshotStore(nextRawStore);
+        __tmTaskSnapshotStoreCache = nextStore;
+        __tmTaskSnapshotStoreLoadedAt = now;
+        __tmTaskSnapshotStoreLocalMutationUntil = Math.max(
+            Number(__tmTaskSnapshotStoreLocalMutationUntil || 0) || 0,
+            now + Math.max(4000, Number(opts.protectMs || 30000) || 30000)
+        );
+        return true;
+    }
+
+    function __tmScheduleTaskSnapshotAfterLocalStructurePatch(options = {}) {
+        const opts = (options && typeof options === 'object') ? options : {};
+        const updated = __tmUpsertCurrentTaskSnapshotStoreCache(opts);
+        try {
+            __tmSchedulePersistTaskSnapshot({
+                ...opts,
+                docIds: opts.docIds || state.__tmLoadedDocIdsForTasks,
+                groupId: opts.groupId || SettingsStore?.data?.currentGroupId || 'all',
+                activeDocId: opts.activeDocId || state?.activeDocId || 'all',
+                queryLimit: opts.queryLimit || __TM_TASK_INDEX_QUERY_LIMIT,
+                delayMs: Math.max(220, Number(opts.delayMs || 420) || 420),
+                idleDelayMs: Math.max(80, Number(opts.idleDelayMs || 160) || 160),
+                refreshViewStateBeforeSave: opts.refreshViewStateBeforeSave === true,
+            });
+        } catch (e) {}
+        return updated;
     }
 
     async function __tmPeekTaskSnapshotStoreVersionMeta(options = {}) {
@@ -2811,11 +3362,7 @@
         }
         state.taskTree = taskTree;
         state.otherBlocks = __tmCloneTaskSnapshotValue(Array.isArray(snap.otherBlocks) ? snap.otherBlocks : [], 0) || [];
-        try {
-            state.flatTasks = __tmMergeOtherBlocksIntoFlatTasks(flatTasks);
-        } catch (e) {
-            state.flatTasks = flatTasks;
-        }
+        __tmReplaceFlatTasksThroughTaskStore(flatTasks);
         state.__tmLoadedDocIdsForTasks = Array.isArray(snap.docIds) ? snap.docIds.slice() : [];
         state.__tmTaskSnapshotRestoredAt = Date.now();
         return {
@@ -3595,11 +4142,7 @@
             taskTree,
             String(opts.groupId || SettingsStore?.data?.currentGroupId || 'all').trim() || 'all'
         );
-        try {
-            state.flatTasks = __tmMergeOtherBlocksIntoFlatTasks(flatTasks);
-        } catch (e) {
-            state.flatTasks = flatTasks;
-        }
+        __tmReplaceFlatTasksThroughTaskStore(flatTasks);
         state.__tmLoadedDocIdsForTasks = docIds.slice();
         state.__tmTaskIndexRestoredAt = Date.now();
         return {
@@ -5697,6 +6240,7 @@
             semanticDateAutoPromptEnabled: true,
             defaultDocId: '',
             defaultDocIdByGroup: {},
+            docDefaultTaskHeadingByDocId: {},
             allDocsExcludedDocIds: [],
             // 默认状态选项
             customStatusOptions: [
@@ -5711,6 +6255,8 @@
             checkboxUndoneStatusId: 'todo',
             customFieldDefs: [],
             customFieldDefsVersion: 0,
+            taskMetaAttrKeys: {},
+            taskMetaAttrKeyAliases: {},
             // 文档分组配置
             // 结构: [{ id: 'uuid', name: '分组名', docs: [{ id: 'docId', recursive: boolean }] }]
             docGroups: [],
@@ -5724,6 +6270,8 @@
             docTabSortMode: 'created_desc',
             // 文档显示名称：name | alias
             docDisplayNameMode: 'name',
+            // 归档页签入口位置：before-all | after-docs
+            docTabsArchiveButtonPosition: 'after-docs',
             // 当前选中的分组ID (UI显示用)
             currentGroupId: 'all',
             // 任务标题级别 (h1-h6)
@@ -6163,6 +6711,7 @@
                                 if (typeof cloudData.taskRemarkWrapMaxLines === 'number') this.data.taskRemarkWrapMaxLines = cloudData.taskRemarkWrapMaxLines;
                                 if (typeof cloudData.parentTaskNameBoldEnabled === 'boolean') this.data.parentTaskNameBoldEnabled = cloudData.parentTaskNameBoldEnabled;
                                 if (typeof cloudData.docTabsAutoHideEnabled === 'boolean') this.data.docTabsAutoHideEnabled = cloudData.docTabsAutoHideEnabled;
+                                if (typeof cloudData.docTabsArchiveButtonPosition === 'string') this.data.docTabsArchiveButtonPosition = String(cloudData.docTabsArchiveButtonPosition || '').trim() === 'before-all' ? 'before-all' : 'after-docs';
                                 if (typeof cloudData.docTabProcrastinationTintEnabled === 'boolean') this.data.docTabProcrastinationTintEnabled = cloudData.docTabProcrastinationTintEnabled;
                                 if (typeof cloudData.enableQuickbar === 'boolean') this.data.enableQuickbar = cloudData.enableQuickbar;
                                 if (typeof cloudData.taskDoneDelightEnabled === 'boolean') this.data.taskDoneDelightEnabled = cloudData.taskDoneDelightEnabled;
@@ -6267,6 +6816,7 @@
                                 if (typeof cloudData.checklistDetailWidth === 'number') this.data.checklistDetailWidth = cloudData.checklistDetailWidth;
                                 if (shouldApplyCloudDocGroupState && typeof cloudData.defaultDocId === 'string') this.data.defaultDocId = cloudData.defaultDocId;
                                 if (shouldApplyCloudDocGroupState && cloudData.defaultDocIdByGroup && typeof cloudData.defaultDocIdByGroup === 'object') this.data.defaultDocIdByGroup = cloudData.defaultDocIdByGroup;
+                                if (shouldApplyCloudDocGroupState && cloudData.docDefaultTaskHeadingByDocId && typeof cloudData.docDefaultTaskHeadingByDocId === 'object') this.data.docDefaultTaskHeadingByDocId = cloudData.docDefaultTaskHeadingByDocId;
                                 if (shouldApplyCloudDocGroupState && Array.isArray(cloudData.allDocsExcludedDocIds)) this.data.allDocsExcludedDocIds = cloudData.allDocsExcludedDocIds;
                                 if (cloudData.priorityScoreConfig && typeof cloudData.priorityScoreConfig === 'object') this.data.priorityScoreConfig = cloudData.priorityScoreConfig;
                                 if (cloudData.quadrantConfig && typeof cloudData.quadrantConfig === 'object') this.data.quadrantConfig = cloudData.quadrantConfig;
@@ -6326,6 +6876,8 @@
                                 if (Array.isArray(cloudData.customDurationOptions)) this.data.customDurationOptions = cloudData.customDurationOptions;
                                 if (typeof cloudData.checkboxDoneStatusId === 'string') this.data.checkboxDoneStatusId = cloudData.checkboxDoneStatusId;
                                 if (typeof cloudData.checkboxUndoneStatusId === 'string') this.data.checkboxUndoneStatusId = cloudData.checkboxUndoneStatusId;
+                                if (cloudData.taskMetaAttrKeys && typeof cloudData.taskMetaAttrKeys === 'object') this.data.taskMetaAttrKeys = __tmNormalizeTaskMetaAttrKeySettings(cloudData.taskMetaAttrKeys);
+                                if (cloudData.taskMetaAttrKeyAliases && typeof cloudData.taskMetaAttrKeyAliases === 'object') this.data.taskMetaAttrKeyAliases = __tmNormalizeTaskMetaAttrAliasSettings(cloudData.taskMetaAttrKeyAliases);
                                 this.data.customFieldDefs = resolvedCustomFieldSchema.defs;
                                 this.data.customFieldDefsVersion = resolvedCustomFieldSchema.version;
                                 if (cloudData.columnWidths && typeof cloudData.columnWidths === 'object') {
@@ -6374,6 +6926,7 @@
                                 if (cloudData.docDefaultColorScheme && typeof cloudData.docDefaultColorScheme === 'object') this.data.docDefaultColorScheme = cloudData.docDefaultColorScheme;
                                 if (typeof cloudData.docTabSortMode === 'string') this.data.docTabSortMode = cloudData.docTabSortMode;
                                 if (typeof cloudData.docDisplayNameMode === 'string') this.data.docDisplayNameMode = cloudData.docDisplayNameMode;
+                                if (typeof cloudData.docTabsArchiveButtonPosition === 'string') this.data.docTabsArchiveButtonPosition = String(cloudData.docTabsArchiveButtonPosition || '').trim() === 'before-all' ? 'before-all' : 'after-docs';
                                 if (typeof cloudData.aiEnabled === 'boolean') this.data.aiEnabled = cloudData.aiEnabled;
                                 if (typeof cloudData.aiProvider === 'string') this.data.aiProvider = cloudData.aiProvider;
                                 if (typeof cloudData.aiMiniMaxApiKey === 'string') this.data.aiMiniMaxApiKey = cloudData.aiMiniMaxApiKey;
@@ -6610,6 +7163,7 @@
             this.data.quickAddRecentDocs = __tmNormalizeQuickAddRecentDocs(Storage.get(__TM_QUICK_ADD_RECENT_DOCS_KEY, this.data.quickAddRecentDocs));
             this.data.docTabSortMode = String(Storage.get('tm_doc_tab_sort_mode', this.data.docTabSortMode) || this.data.docTabSortMode || 'created_desc').trim() || 'created_desc';
             this.data.docDisplayNameMode = String(Storage.get('tm_doc_display_name_mode', this.data.docDisplayNameMode) || this.data.docDisplayNameMode || 'name').trim() || 'name';
+            this.data.docTabsArchiveButtonPosition = String(Storage.get('tm_doc_tabs_archive_button_position', this.data.docTabsArchiveButtonPosition) || 'after-docs').trim() === 'before-all' ? 'before-all' : 'after-docs';
             this.data.taskAutoWrapEnabled = Storage.get('tm_task_auto_wrap_enabled', this.data.taskAutoWrapEnabled);
             this.data.taskContentWrapMaxLines = Number(Storage.get('tm_task_content_wrap_max_lines', this.data.taskContentWrapMaxLines));
             this.data.taskRemarkWrapMaxLines = Number(Storage.get('tm_task_remark_wrap_max_lines', this.data.taskRemarkWrapMaxLines));
@@ -6700,6 +7254,7 @@
             this.data.calendarShowTaskReminders = Storage.get('tm_calendar_show_task_reminders', this.data.calendarShowTaskReminders);
             this.data.defaultDocId = Storage.get('tm_default_doc_id', '');
             this.data.defaultDocIdByGroup = Storage.get('tm_default_doc_id_by_group', {}) || {};
+            this.data.docDefaultTaskHeadingByDocId = __tmNormalizeDocDefaultTaskHeadingMap(Storage.get('tm_doc_default_task_heading_by_doc_id', this.data.docDefaultTaskHeadingByDocId));
             this.data.allDocsExcludedDocIds = Storage.get('tm_all_docs_excluded_doc_ids', this.data.allDocsExcludedDocIds) || [];
             this.data.priorityScoreConfig = Storage.get('tm_priority_score_config', this.data.priorityScoreConfig) || this.data.priorityScoreConfig;
             this.data.quadrantConfig = Storage.get('tm_quadrant_config', this.data.quadrantConfig);
@@ -6713,6 +7268,8 @@
             this.data.checkboxUndoneStatusId = String(Storage.get('tm_checkbox_undone_status_id', this.data.checkboxUndoneStatusId) || this.data.checkboxUndoneStatusId || '');
             this.data.customFieldDefs = Storage.get('tm_custom_field_defs', this.data.customFieldDefs) || this.data.customFieldDefs;
             this.data.customFieldDefsVersion = __tmParseVersionNumber(Storage.get('tm_custom_field_defs_version', this.data.customFieldDefsVersion));
+            this.data.taskMetaAttrKeys = __tmNormalizeTaskMetaAttrKeySettings(Storage.get('tm_task_meta_attr_keys', this.data.taskMetaAttrKeys));
+            this.data.taskMetaAttrKeyAliases = __tmNormalizeTaskMetaAttrAliasSettings(Storage.get('tm_task_meta_attr_key_aliases', this.data.taskMetaAttrKeyAliases));
             this.data.taskHeadingLevel = Storage.get('tm_task_heading_level', this.data.taskHeadingLevel);
             this.data.columnOrder = Storage.get('tm_column_order', this.data.columnOrder);
             this.data.hiddenColumns = Storage.get('tm_hidden_columns', this.data.hiddenColumns);
@@ -6892,6 +7449,8 @@
             this.data.docDisplayNameMode = __tmNormalizeDocDisplayNameMode(this.data.docDisplayNameMode);
             this.data.timelineSidebarCollapsed = !!this.data.timelineSidebarCollapsed;
             this.data.timelineCardFields = __tmNormalizeTimelineCardFields(this.data.timelineCardFields);
+            this.data.taskMetaAttrKeys = __tmNormalizeTaskMetaAttrKeySettings(this.data.taskMetaAttrKeys);
+            this.data.taskMetaAttrKeyAliases = __tmNormalizeTaskMetaAttrAliasSettings(this.data.taskMetaAttrKeyAliases);
             {
                 const normalizedFieldMap = __tmNormalizeSettingsFieldUpdatedAtMap(this.data.settingsFieldUpdatedAt, this.data);
                 this.data.settingsFieldUpdatedAt = __tmLooksLegacySeededSettingsFieldMap(normalizedFieldMap, this.data) ? {} : normalizedFieldMap;
@@ -7032,6 +7591,7 @@
             Storage.set('tm_heading_group_create_at_section_end', !!this.data.headingGroupCreateAtSectionEnd);
             Storage.set('tm_doc_tab_sort_mode', String(this.data.docTabSortMode || 'created_desc').trim() || 'created_desc');
             Storage.set('tm_doc_display_name_mode', __tmNormalizeDocDisplayNameMode(this.data.docDisplayNameMode));
+            Storage.set('tm_doc_tabs_archive_button_position', String(this.data.docTabsArchiveButtonPosition || '').trim() === 'before-all' ? 'before-all' : 'after-docs');
             Storage.set('tm_priority_icon_style', String(this.data.priorityIconStyle || 'jira').trim() === 'flag' ? 'flag' : 'jira');
             Storage.set('tm_task_auto_wrap_enabled', !!this.data.taskAutoWrapEnabled);
             Storage.set('tm_task_content_wrap_max_lines', Number(this.data.taskContentWrapMaxLines) || 3);
@@ -7123,6 +7683,7 @@
             Storage.set('tm_calendar_show_task_reminders', !!this.data.calendarShowTaskReminders);
             Storage.set('tm_default_doc_id', this.data.defaultDocId);
             Storage.set('tm_default_doc_id_by_group', this.data.defaultDocIdByGroup || {});
+            Storage.set('tm_doc_default_task_heading_by_doc_id', __tmNormalizeDocDefaultTaskHeadingMap(this.data.docDefaultTaskHeadingByDocId));
             Storage.set('tm_all_docs_excluded_doc_ids', __tmNormalizeDocGroupExcludedDocIds(this.data.allDocsExcludedDocIds));
             Storage.set('tm_priority_score_config', this.data.priorityScoreConfig || {});
             Storage.set('tm_quadrant_config', this.data.quadrantConfig);
@@ -7140,6 +7701,10 @@
             Storage.set('tm_checkbox_undone_status_id', String(this.data.checkboxUndoneStatusId || '').trim());
             Storage.set('tm_custom_field_defs', Array.isArray(this.data.customFieldDefs) ? this.data.customFieldDefs : []);
             Storage.set('tm_custom_field_defs_version', __tmParseVersionNumber(this.data.customFieldDefsVersion));
+            this.data.taskMetaAttrKeys = __tmNormalizeTaskMetaAttrKeySettings(this.data.taskMetaAttrKeys);
+            this.data.taskMetaAttrKeyAliases = __tmNormalizeTaskMetaAttrAliasSettings(this.data.taskMetaAttrKeyAliases);
+            Storage.set('tm_task_meta_attr_keys', this.data.taskMetaAttrKeys);
+            Storage.set('tm_task_meta_attr_key_aliases', this.data.taskMetaAttrKeyAliases);
             Storage.set('tm_task_heading_level', String(this.data.taskHeadingLevel || 'h2').trim() || 'h2');
             Storage.set('tm_column_widths', this.data.columnWidths);
             Storage.set('tm_column_order', this.data.columnOrder);
@@ -7313,6 +7878,7 @@
             this.data.taskParentLookupDepth = __tmNormalizeTaskParentLookupDepth(this.data.taskParentLookupDepth);
             this.data.subtaskInheritedFields = __tmNormalizeSubtaskInheritedFields(this.data.subtaskInheritedFields);
             this.data.quickAddRecentDocs = __tmNormalizeQuickAddRecentDocs(this.data.quickAddRecentDocs);
+            this.data.docDefaultTaskHeadingByDocId = __tmNormalizeDocDefaultTaskHeadingMap(this.data.docDefaultTaskHeadingByDocId);
             const kw = Number(this.data.kanbanColumnWidth);
             this.data.kanbanColumnWidth = Number.isFinite(kw) ? Math.max(220, Math.min(520, Math.round(kw))) : 320;
             const wbStreamMinW = Number(this.data.whiteboardAllTabsCardMinWidth);
@@ -7329,6 +7895,7 @@
             this.data.taskAutoWrapEnabled = this.data.taskAutoWrapEnabled !== false;
             this.data.parentTaskNameBoldEnabled = this.data.parentTaskNameBoldEnabled !== false;
             this.data.docTabsAutoHideEnabled = !!this.data.docTabsAutoHideEnabled;
+            this.data.docTabsArchiveButtonPosition = String(this.data.docTabsArchiveButtonPosition || '').trim() === 'before-all' ? 'before-all' : 'after-docs';
             this.data.docTabProcrastinationTintEnabled = this.data.docTabProcrastinationTintEnabled !== false;
             this.data.aiSideDockEnabled = this.data.aiSideDockEnabled !== false;
             {
@@ -9048,6 +9615,7 @@
     let __tmTaskSnapshotStoreCache = null;
     let __tmTaskSnapshotStoreLoadPromise = null;
     let __tmTaskSnapshotStoreLoadedAt = 0;
+    let __tmTaskSnapshotStoreLocalMutationUntil = 0;
     let __tmTaskSnapshotFileMetaSignatureCache = '';
     let __tmTaskSnapshotFileMetaCheckPromise = null;
     const __tmTaskSnapshotPersistSignatureCache = new Map();
@@ -9063,6 +9631,9 @@
     let __tmLocalMoveTxSuppressUntil = 0;
     const __tmLocalMoveTxSuppressBlockIds = new Set();
     const __tmLocalMoveTxSuppressDocIds = new Set();
+    let __tmLocalCreateTxSuppressUntil = 0;
+    const __tmLocalCreateTxSuppressBlockIds = new Set();
+    const __tmLocalCreateTxSuppressDocIds = new Set();
     const __tmRecentVisibleDateFallbackTasks = new Map();
 
     function __tmClearAttrHostResolutionCache() {
@@ -9170,10 +9741,45 @@
     }
 
     function __tmIsVisibleDateAttrKey(key) {
-        const normalized = String(key || '').trim();
-        return normalized === 'custom-start-date'
-            || normalized === 'custom-completion-time'
-            || normalized === 'custom-time';
+        const field = __tmResolveTaskMetaFieldByAttrKey(key);
+        return field === 'startDate'
+            || field === 'completionTime'
+            || field === 'customTime';
+    }
+
+    function __tmIsVisibleDatePatchKey(key) {
+        const normalized = typeof __tmNormalizeLocalPatchFieldKey === 'function'
+            ? __tmNormalizeLocalPatchFieldKey(key)
+            : String(key || '').trim();
+        return normalized === 'startDate'
+            || normalized === 'completionTime'
+            || normalized === 'customTime'
+            || __tmIsVisibleDateAttrKey(key);
+    }
+
+    function __tmPatchHasVisibleDateField(patch) {
+        const source = (patch && typeof patch === 'object' && !Array.isArray(patch)) ? patch : null;
+        if (!source) return false;
+        return Object.keys(source).some((key) => __tmIsVisibleDatePatchKey(key));
+    }
+
+    function __tmGetQueuedVisibleDatePatchTaskIds(op) {
+        if (!op || !['queued', 'running'].includes(String(op.status || '').trim())) return [];
+        const type = String(op.type || '').trim();
+        if (type !== 'attrPatch' && type !== 'taskPatch' && type !== 'setDone') return [];
+        const tid = String(op?.data?.taskId || '').trim();
+        if (!tid) return [];
+        if (!__tmPatchHasVisibleDateField(op?.data?.patch) && !__tmPatchHasVisibleDateField(op?.data?.statusPatch)) return [];
+        const ids = new Set([tid]);
+        try {
+            if (typeof __tmGetOutboxTaskIdAliases === 'function') {
+                __tmGetOutboxTaskIdAliases(tid).forEach((alias) => {
+                    const aid = String(alias || '').trim();
+                    if (aid) ids.add(aid);
+                });
+            }
+        } catch (e) {}
+        return Array.from(ids);
     }
 
     function __tmIsQuickbarRefreshDebugEnabled() {
@@ -9219,17 +9825,9 @@
         if (state.pendingInsertedTasks?.[tid]) return true;
         const recentTs = Number(__tmRecentVisibleDateFallbackTasks.get(tid) || 0);
         if (recentTs && (Date.now() - recentTs) <= 20000) return true;
+        if (__tmTaskHasLocalPatchWatermarkForFields(tid, ['startDate', 'completionTime', 'customTime'])) return true;
         const items = Array.isArray(__tmOpQueue?.items) ? __tmOpQueue.items : [];
-        return items.some((op) => {
-            if (!op || String(op.status || '').trim() !== 'queued') return false;
-            if (String(op.type || '').trim() !== 'attrPatch') return false;
-            if (String(op?.data?.taskId || '').trim() !== tid) return false;
-            const patch = (op?.data?.patch && typeof op.data.patch === 'object') ? op.data.patch : null;
-            if (!patch) return false;
-            return Object.prototype.hasOwnProperty.call(patch, 'startDate')
-                || Object.prototype.hasOwnProperty.call(patch, 'completionTime')
-                || Object.prototype.hasOwnProperty.call(patch, 'customTime');
-        });
+        return items.some((op) => __tmGetQueuedVisibleDatePatchTaskIds(op).includes(tid));
     }
 
     function __tmBuildVisibleDateFallbackTaskIdSet() {
@@ -9250,19 +9848,23 @@
             });
         } catch (e) {}
         try {
+            const map = state.__tmLocalTaskPatchWatermarks instanceof Map ? state.__tmLocalTaskPatchWatermarks : null;
+            if (map) {
+                map.forEach((entry, taskId) => {
+                    const tid = String(taskId || '').trim();
+                    if (!tid || !entry || !Array.isArray(entry.fields)) return;
+                    const fields = new Set(entry.fields.map((key) => __tmNormalizeLocalPatchFieldKey(key)).filter(Boolean));
+                    if (fields.has('startDate') || fields.has('completionTime') || fields.has('customTime')) out.add(tid);
+                });
+            }
+        } catch (e) {}
+        try {
             const items = Array.isArray(__tmOpQueue?.items) ? __tmOpQueue.items : [];
             items.forEach((op) => {
-                if (!op || String(op.status || '').trim() !== 'queued') return;
-                if (String(op.type || '').trim() !== 'attrPatch') return;
-                const tid = String(op?.data?.taskId || '').trim();
-                if (!tid) return;
-                const patch = (op?.data?.patch && typeof op.data.patch === 'object') ? op.data.patch : null;
-                if (!patch) return;
-                if (Object.prototype.hasOwnProperty.call(patch, 'startDate')
-                    || Object.prototype.hasOwnProperty.call(patch, 'completionTime')
-                    || Object.prototype.hasOwnProperty.call(patch, 'customTime')) {
+                __tmGetQueuedVisibleDatePatchTaskIds(op).forEach((tid) => {
+                    if (!tid) return;
                     out.add(tid);
-                }
+                });
             });
         } catch (e) {}
         return out;
@@ -9271,19 +9873,8 @@
     function __tmShouldSyncAttrKeyFromTx(key) {
         const normalized = String(key || '').trim();
         if (!normalized) return false;
-        if (normalized === 'custom-status'
-            || normalized === 'custom-priority'
-            || normalized === 'custom-start-date'
-            || normalized === 'custom-completion-time'
-            || normalized === 'custom-task-date-color'
-            || normalized === 'custom-time'
-            || normalized === __TM_TASK_COMPLETE_AT_ATTR
-            || normalized === 'custom-duration'
-            || normalized === 'custom-remark'
-            || normalized === 'custom-milestone-event'
-            || normalized === 'custom-pinned'
-            || normalized === 'custom-all-day-bottom'
-            || normalized === __TM_TASK_REPEAT_RULE_ATTR
+        if (__tmResolveTaskMetaFieldByAttrKey(normalized)) return true;
+        if (normalized === __TM_TASK_REPEAT_RULE_ATTR
             || normalized === __TM_TASK_REPEAT_STATE_ATTR
             || normalized === __TM_TASK_REPEAT_HISTORY_ATTR
             || normalized === __TM_TASK_ATTACHMENT_META_ATTR
@@ -9303,12 +9894,13 @@
         const normalized = String(key || '').trim();
         if (!normalized) return false;
         if (__tmShouldSyncAttrKeyFromTx(normalized)) return true;
-        return normalized === 'custom-time'
-            || normalized === __TM_TASK_COMPLETE_AT_ATTR
+        const field = __tmResolveTaskMetaFieldByAttrKey(normalized);
+        return field === 'customTime'
+            || field === 'taskCompleteAt'
+            || field === 'milestone'
             || normalized === __TM_TASK_REPEAT_RULE_ATTR
             || normalized === __TM_TASK_REPEAT_STATE_ATTR
-            || normalized === __TM_TASK_REPEAT_HISTORY_ATTR
-            || normalized === 'custom-milestone-event';
+            || normalized === __TM_TASK_REPEAT_HISTORY_ATTR;
     }
 
     function __tmExtractAttrUpdatesFromTx(payload) {
@@ -9506,7 +10098,7 @@
             const attrKey = String(update?.key || '').trim();
             const attrValue = String(update?.value ?? '');
             if (!taskId || !attrKey) return;
-            if (attrKey === 'custom-status' && __tmShouldLogStatusDebug([taskId], false)) {
+            if (__tmResolveTaskMetaFieldByAttrKey(attrKey) === 'customStatus' && __tmShouldLogStatusDebug([taskId], false)) {
                 __tmPushStatusDebug('tx-attr-update', {
                     taskId,
                     attrKey,
@@ -9719,6 +10311,118 @@
         __tmLocalMoveTxSuppressDocIds.clear();
     }
 
+    function __tmMarkLocalCreateTxSuppressionIds(ids = [], docIds = [], ttlMs = 2200) {
+        (Array.isArray(ids) ? ids : []).forEach((id) => {
+            const bid = String(id || '').trim();
+            if (bid && __tmIsLikelyBlockId(bid)) __tmLocalCreateTxSuppressBlockIds.add(bid);
+        });
+        (Array.isArray(docIds) ? docIds : []).forEach((docId) => {
+            const did = String(docId || '').trim();
+            if (did && __tmIsLikelyBlockId(did)) __tmLocalCreateTxSuppressDocIds.add(did);
+        });
+        __tmLocalCreateTxSuppressUntil = Date.now() + Math.max(400, Number(ttlMs) || 2200);
+    }
+
+    function __tmClearLocalCreateTxSuppression() {
+        __tmLocalCreateTxSuppressUntil = 0;
+        __tmLocalCreateTxSuppressBlockIds.clear();
+        __tmLocalCreateTxSuppressDocIds.clear();
+    }
+
+    function __tmGetLocalCreateTxSuppressionWaitMs(paddingMs = 120) {
+        const until = Number(__tmLocalCreateTxSuppressUntil || 0);
+        if (!until) return 0;
+        const wait = until - Date.now();
+        if (!(wait > 0)) {
+            __tmClearLocalCreateTxSuppression();
+            return 0;
+        }
+        const pad = Math.max(0, Math.min(300, Math.round(Number(paddingMs) || 0)));
+        return Math.max(120, Math.min(3200, Math.ceil(wait) + pad));
+    }
+
+    function __tmTxLooksLikeBlockCreate(payload) {
+        let found = false;
+        const createActions = new Set([
+            'insert',
+            'insertblock',
+            'append',
+            'appendblock',
+            'prepend',
+            'prependblock',
+            'create',
+            'createblock',
+        ]);
+        const walk = (node, depth) => {
+            if (found || depth > 7 || !node) return;
+            if (Array.isArray(node)) {
+                node.forEach((item) => walk(item, depth + 1));
+                return;
+            }
+            if (typeof node !== 'object') return;
+            const data = (node.data && typeof node.data === 'object' && !Array.isArray(node.data)) ? node.data : null;
+            const action = String(
+                node.action
+                || node.cmd
+                || node.operation
+                || node.op
+                || data?.action
+                || data?.cmd
+                || data?.operation
+                || ''
+            ).trim().toLowerCase();
+            if (action) {
+                if (createActions.has(action) || (action.includes('insert') && !action.includes('delete'))) {
+                    found = true;
+                    return;
+                }
+            }
+            [
+                node.data,
+                node.detail,
+                node.tx,
+                node.payload,
+                node.rows,
+                node.ops,
+                node.operations,
+                node.doOperations,
+                node.undoOperations,
+                node.children,
+                node.items,
+                node.srcs,
+                node.dsts,
+            ].forEach((next) => walk(next, depth + 1));
+        };
+        try { walk(payload, 0); } catch (e) {}
+        return found;
+    }
+
+    function __tmShouldSuppressLocalCreateTx(payload) {
+        try {
+            const until = Number(__tmLocalCreateTxSuppressUntil || 0);
+            if (!until || Date.now() > until) {
+                __tmClearLocalCreateTxSuppression();
+                return false;
+            }
+            const updates = __tmExtractAttrUpdatesFromTx(payload);
+            if (updates.length) return false;
+            const blockIds = Array.from(__tmExtractBlockIdsFromTx(payload) || [])
+                .map((id) => String(id || '').trim())
+                .filter(Boolean);
+            const docIds = Array.from(__tmExtractDocIdsFromTx(payload) || [])
+                .map((id) => String(id || '').trim())
+                .filter(Boolean);
+            const hasMatchingBlockId = blockIds.some((id) => __tmLocalCreateTxSuppressBlockIds.has(id));
+            const hasMatchingDocIds = docIds.length > 0 && docIds.every((id) => __tmLocalCreateTxSuppressDocIds.has(id));
+            const looksLikeCreate = __tmTxLooksLikeBlockCreate(payload);
+            const createDocMatch = docIds.length === 0 || docIds.some((id) => __tmLocalCreateTxSuppressDocIds.has(id));
+            const ok = hasMatchingBlockId || hasMatchingDocIds || (looksLikeCreate && createDocMatch);
+            return ok;
+        } catch (e) {
+            return false;
+        }
+    }
+
     function __tmShouldSuppressLocalMoveTx(payload) {
         try {
             const until = Number(__tmLocalMoveTxSuppressUntil || 0);
@@ -9769,11 +10473,8 @@
                 }
                 return false;
             }
-            const allowed = new Set([
-                'custom-status',
-                __TM_TASK_COMPLETE_AT_ATTR,
-            ]);
-            if (updates.length && !updates.every((update) => allowed.has(String(update?.key || '').trim()))) {
+            const allowedFields = new Set(['customStatus', 'taskCompleteAt']);
+            if (updates.length && !updates.every((update) => allowedFields.has(__tmResolveTaskMetaFieldByAttrKey(update?.key)))) {
                 return false;
             }
             const candidateIds = Array.from(new Set([
@@ -9834,19 +10535,9 @@
             if (!updates.length) {
                 return false;
             }
-            const allowed = new Set([
-                'custom-start-date',
-                'custom-completion-time',
-                'custom-task-date-color',
-                __TM_TASK_COMPLETE_AT_ATTR,
-                'custom-duration',
-                'custom-time',
-                'custom-status',
-                'custom-pinned',
-                'custom-all-day-bottom',
-            ]);
             const keys = updates.map((update) => String(update?.key || '').trim());
-            const ok = updates.every((update) => allowed.has(String(update?.key || '').trim()));
+            const allowedFields = new Set(['startDate', 'completionTime', 'taskDateColor', 'taskCompleteAt', 'duration', 'customTime', 'customStatus', 'pinned', 'allDayBottom']);
+            const ok = updates.every((update) => allowedFields.has(__tmResolveTaskMetaFieldByAttrKey(update?.key)));
             return ok;
         } catch (e) {
             return false;
@@ -9893,18 +10584,25 @@
             ? new Set(docIds.map((id) => String(id || '').trim()).filter(Boolean))
             : null;
         const out = new Map();
+        const canReplace = (prev, nextDoc) => {
+            if (!prev) return true;
+            const nextName = String(nextDoc?.name || nextDoc?.doc_name || nextDoc?.docName || nextDoc?.rawDocName || nextDoc?.content || '').trim();
+            const nextPath = String(nextDoc?.path || nextDoc?.doc_path || nextDoc?.docPath || '').trim();
+            return !!(nextName || nextPath);
+        };
         const pushDoc = (doc) => {
             const id = String(doc?.id || '').trim();
             if (!id) return;
             if (targetIdSet && !targetIdSet.has(id)) return;
-            if (out.has(id)) return;
+            const prev = out.get(id);
+            if (prev && !canReplace(prev, doc)) return;
             out.set(id, {
-                doc_name: String(doc?.name || doc?.doc_name || doc?.content || '').trim(),
-                doc_path: String(doc?.path || doc?.doc_path || '').trim(),
+                doc_name: String(doc?.name || doc?.doc_name || doc?.docName || doc?.rawDocName || doc?.content || '').trim(),
+                doc_path: String(doc?.path || doc?.doc_path || doc?.docPath || '').trim(),
             });
         };
-        (Array.isArray(state.allDocuments) ? state.allDocuments : []).forEach(pushDoc);
         (Array.isArray(state.taskTree) ? state.taskTree : []).forEach(pushDoc);
+        (Array.isArray(state.allDocuments) ? state.allDocuments : []).forEach(pushDoc);
         return out;
     }
 
@@ -9966,8 +10664,24 @@
             if (!docId) continue;
             const info = infoMap.get(docId);
             if (!info) continue;
-            if (!String(task?.doc_name || '').trim()) task.doc_name = info.doc_name || '';
-            if (!String(task?.doc_path || '').trim()) task.doc_path = info.doc_path || '';
+            const nextDocName = String(info.doc_name || '').trim();
+            const nextDocPath = String(info.doc_path || '').trim();
+            if (nextDocName) {
+                task.doc_name = nextDocName;
+                task.raw_doc_name = nextDocName;
+                task.rawDocName = nextDocName;
+                try {
+                    task.docName = typeof __tmGetDocDisplayName === 'function'
+                        ? (__tmGetDocDisplayName({ id: docId, name: nextDocName, path: nextDocPath }, nextDocName) || nextDocName)
+                        : nextDocName;
+                } catch (e) {
+                    task.docName = nextDocName;
+                }
+            }
+            if (nextDocPath) {
+                task.doc_path = nextDocPath;
+                task.docPath = nextDocPath;
+            }
         }
         return list;
     }
@@ -9989,18 +10703,12 @@
         const tomatoEstimateKey = __tmSafeAttrName(SettingsStore.data.tomatoEstimateAttrKey, 'custom-tomato-estimate-count');
         const repeatInlineEnabled = __tmShouldReadRepeatAttrsInline();
         return [
-            { name: 'custom-priority', alias: 'custom_priority', enabled: true },
-            { name: 'custom-duration', alias: 'duration', enabled: true },
-            { name: 'custom-remark', alias: 'remark', enabled: true },
-            { name: 'custom-start-date', alias: 'start_date', enabled: true },
-            { name: 'custom-completion-time', alias: 'completion_time', enabled: true },
-            { name: 'custom-task-date-color', alias: 'task_date_color', enabled: true },
-            { name: __TM_TASK_COMPLETE_AT_ATTR, alias: 'task_complete_at', enabled: true },
-            { name: 'custom-milestone-event', alias: 'milestone', enabled: true },
-            { name: 'custom-time', alias: 'custom_time', enabled: true },
-            { name: 'custom-status', alias: 'custom_status', enabled: true },
-            { name: 'custom-pinned', alias: 'pinned', enabled: true },
-            { name: 'custom-all-day-bottom', alias: 'custom_all_day_bottom', enabled: true },
+            ...__TM_TASK_META_ATTR_FIELDS.map((def) => ({
+                names: __tmGetTaskMetaAttrReadKeys(def.field),
+                alias: def.sqlAlias,
+                enabled: true,
+                taskMetaField: def.field,
+            })),
             { name: __TM_TASK_REPEAT_RULE_ATTR, alias: 'repeat_rule', enabled: repeatInlineEnabled },
             { name: __TM_TASK_REPEAT_STATE_ATTR, alias: 'repeat_state', enabled: repeatInlineEnabled },
             { name: __TM_TASK_REPEAT_HISTORY_ATTR, alias: 'repeat_history', enabled: repeatInlineEnabled },
@@ -10014,9 +10722,21 @@
 
     function __tmBuildTaskInlineAttrNamesSql(indent = '                        ') {
         const pad = (typeof indent === 'string' && indent.length > 0) ? indent : '                        ';
-        return __tmGetTaskInlineAttrSpecs()
+        const names = [];
+        const seen = new Set();
+        __tmGetTaskInlineAttrSpecs()
             .filter((spec) => spec && spec.enabled)
-            .map((spec) => `'${String(spec.name || '').replace(/'/g, "''")}'`)
+            .forEach((spec) => {
+                const specNames = Array.isArray(spec.names) ? spec.names : [spec.name];
+                specNames.forEach((name0) => {
+                    const name = String(name0 || '').trim();
+                    if (!name || seen.has(name)) return;
+                    seen.add(name);
+                    names.push(name);
+                });
+            });
+        return names
+            .map((name) => `'${String(name || '').replace(/'/g, "''")}'`)
             .join(`,\n${pad}`);
     }
 
@@ -10026,7 +10746,14 @@
             .map((spec) => {
                 if (!spec?.alias) return '';
                 if (spec.enabled) {
-                    return `MAX(CASE WHEN a.name = '${String(spec.name || '').replace(/'/g, "''")}' THEN a.value ELSE NULL END) AS ${spec.alias}`;
+                    const names = (Array.isArray(spec.names) ? spec.names : [spec.name])
+                        .map((name) => String(name || '').trim())
+                        .filter(Boolean);
+                    if (names.length > 1) {
+                        const parts = names.map((name) => `MAX(CASE WHEN a.name = '${String(name || '').replace(/'/g, "''")}' THEN a.value ELSE NULL END)`);
+                        return `COALESCE(${parts.join(', ')}) AS ${spec.alias}`;
+                    }
+                    return `MAX(CASE WHEN a.name = '${String(names[0] || '').replace(/'/g, "''")}' THEN a.value ELSE NULL END) AS ${spec.alias}`;
                 }
                 return `NULL AS ${spec.alias}`;
             })
@@ -10037,7 +10764,8 @@
     function __tmGetTaskMetaAttrStorageKeys() {
         return Array.from(new Set(__tmGetTaskInlineAttrSpecs()
             .filter((spec) => spec && spec.enabled)
-            .map((spec) => String(spec.name || '').trim())
+            .flatMap((spec) => Array.isArray(spec.names) ? spec.names : [spec.name])
+            .map((name) => String(name || '').trim())
             .filter(Boolean)));
     }
 
@@ -10179,18 +10907,7 @@
         if (!row) return false;
         const isValidValue = (val) => val !== undefined && val !== null && val !== '' && val !== 'null';
         const keys = [
-            'custom-priority',
-            'custom-duration',
-            'custom-remark',
-            'custom-start-date',
-            'custom-completion-time',
-            'custom-task-date-color',
-            __TM_TASK_COMPLETE_AT_ATTR,
-            'custom-milestone-event',
-            'custom-time',
-            'custom-status',
-            'custom-pinned',
-            'custom-all-day-bottom',
+            ...__tmGetAllTaskMetaAttrReadKeys(),
             __TM_TASK_REPEAT_RULE_ATTR,
             __TM_TASK_REPEAT_STATE_ATTR,
             __TM_TASK_REPEAT_HISTORY_ATTR,
@@ -10219,91 +10936,11 @@
             }
             return shouldApply(...candidates);
         };
-        if (Object.prototype.hasOwnProperty.call(row, 'custom-priority')) {
-            const value = String(row['custom-priority'] ?? '');
-            if (shouldApply(target.custom_priority, target.priority)) {
-                target.custom_priority = value;
-                target.priority = value;
-            }
-        }
-        if (Object.prototype.hasOwnProperty.call(row, 'custom-duration')) {
-            const value = String(row['custom-duration'] ?? '');
-            if (shouldApply(target.duration, target.custom_duration)) {
-                target.duration = value;
-                target.custom_duration = value;
-            }
-        }
-        if (Object.prototype.hasOwnProperty.call(row, 'custom-remark')) {
-            const value = String(row['custom-remark'] ?? '');
-            if (shouldApply(target.remark, target.custom_remark)) {
-                target.remark = value;
-                target.custom_remark = value;
-            }
-        }
-        if (Object.prototype.hasOwnProperty.call(row, 'custom-start-date')) {
-            const value = String(row['custom-start-date'] ?? '');
-            if (shouldApplyVisibleDate(value, target.startDate, target.start_date)) {
-                target.startDate = value;
-                target.start_date = value;
-            }
-        }
-        if (Object.prototype.hasOwnProperty.call(row, 'custom-completion-time')) {
-            const value = String(row['custom-completion-time'] ?? '');
-            if (shouldApplyVisibleDate(value, target.completionTime, target.completion_time)) {
-                target.completionTime = value;
-                target.completion_time = value;
-            }
-        }
-        if (Object.prototype.hasOwnProperty.call(row, 'custom-task-date-color')) {
-            const value = String(row['custom-task-date-color'] ?? '');
-            if (shouldApply(target.taskDateColor, target.task_date_color, target.custom_task_date_color)) {
-                target.taskDateColor = value;
-                target.task_date_color = value;
-                target.custom_task_date_color = value;
-            }
-        }
-        if (Object.prototype.hasOwnProperty.call(row, __TM_TASK_COMPLETE_AT_ATTR)) {
-            const value = String(row[__TM_TASK_COMPLETE_AT_ATTR] ?? '');
-            if (shouldApply(target.taskCompleteAt, target.task_complete_at)) {
-                target.taskCompleteAt = value;
-                target.task_complete_at = value;
-            }
-        }
-        if (Object.prototype.hasOwnProperty.call(row, 'custom-milestone-event')) {
-            const value = String(row['custom-milestone-event'] ?? '');
-            if (shouldApply(target.milestone, target.custom_milestone)) {
-                target.milestone = value;
-                target.custom_milestone = value;
-            }
-        }
-        if (Object.prototype.hasOwnProperty.call(row, 'custom-time')) {
-            const value = String(row['custom-time'] ?? '');
-            if (shouldApplyVisibleDate(value, target.customTime, target.custom_time)) {
-                target.customTime = value;
-                target.custom_time = value;
-            }
-        }
-        if (Object.prototype.hasOwnProperty.call(row, 'custom-status')) {
-            const value = String(row['custom-status'] ?? '');
-            if (shouldApply(target.customStatus, target.custom_status)) {
-                target.customStatus = value;
-                target.custom_status = value;
-            }
-        }
-        if (Object.prototype.hasOwnProperty.call(row, 'custom-pinned')) {
-            const value = String(row['custom-pinned'] ?? '');
-            if (shouldApply(target.pinned, target.custom_pinned)) {
-                target.pinned = value;
-                target.custom_pinned = value;
-            }
-        }
-        if (Object.prototype.hasOwnProperty.call(row, 'custom-all-day-bottom')) {
-            const value = String(row['custom-all-day-bottom'] ?? '');
-            if (shouldApply(target.allDayBottom, target.custom_all_day_bottom)) {
-                target.allDayBottom = value;
-                target.custom_all_day_bottom = value;
-            }
-        }
+        __TM_TASK_META_ATTR_FIELDS.forEach((def) => {
+            const entry = __tmReadTaskMetaAttrEntry(row, def.field);
+            if (!entry.found) return;
+            __tmApplyTaskMetaAttrValueToTask(target, def.field, entry.value, opts);
+        });
         if (Object.prototype.hasOwnProperty.call(row, __TM_TASK_REPEAT_RULE_ATTR)) {
             const value = String(row[__TM_TASK_REPEAT_RULE_ATTR] ?? '');
             if (shouldApply(target.repeatRule, target.repeat_rule, target[__TM_TASK_REPEAT_RULE_ATTR])) {
@@ -10438,7 +11075,7 @@
                     taskId,
                     hostId,
                     beforeStatus,
-                    rowStatus: String(hostRow?.['custom-status'] || '').trim(),
+                    rowStatus: __tmReadTaskMetaAttrValue(hostRow, 'customStatus').trim(),
                     afterStatus: String(task?.customStatus || task?.custom_status || '').trim(),
                 }, [taskId, hostId], { force: false });
             }
@@ -10743,13 +11380,22 @@
         for (const row of rows) {
             const blockId = String(row?.block_id || '').trim();
             if (!blockId) continue;
-            await API.setAttrs(blockId, {
+            const adapter = globalThis.__tmTaskHorizonBackendAdapter;
+            if (adapter && typeof adapter.setAttrs === 'function') await adapter.setAttrs(blockId, {
+                [nextKey]: String(row?.value ?? ''),
+                [prevKey]: '',
+            });
+            else await API.setAttrs(blockId, {
                 [nextKey]: String(row?.value ?? ''),
                 [prevKey]: '',
             });
             migrated += 1;
         }
-        try { await API.call('/api/sqlite/flushTransaction', {}); } catch (e) {}
+        try {
+            const adapter = globalThis.__tmTaskHorizonBackendAdapter;
+            if (adapter && typeof adapter.flushTransaction === 'function') await adapter.flushTransaction();
+            else await API.call('/api/sqlite/flushTransaction', {});
+        } catch (e) {}
         return migrated;
     }
 
@@ -12230,7 +12876,8 @@
         });
     }
 
-    async function __tmResolveIncrementalRefreshDocIds(docIds = [], blockIds = []) {
+    async function __tmResolveIncrementalRefreshDocIds(docIds = [], blockIds = [], options = {}) {
+        const opts = (options && typeof options === 'object') ? options : {};
         const resolved = new Set(
             (Array.isArray(docIds) ? docIds : [])
                 .map((id) => String(id || '').trim())
@@ -12248,6 +12895,7 @@
                 });
             } catch (e) {}
         }
+        if (opts.allowUnloadedDocIds === true) return Array.from(resolved);
         const loadedDocIds = new Set(
             ((Array.isArray(state.__tmLoadedDocIdsForTasks) && state.__tmLoadedDocIdsForTasks.length > 0)
                 ? state.__tmLoadedDocIdsForTasks
@@ -12428,8 +13076,7 @@
         });
         Object.assign(target, nextTask);
         target.children = preservedChildren;
-        if (!state.flatTasks || typeof state.flatTasks !== 'object') state.flatTasks = {};
-        state.flatTasks[tid] = target;
+        try { globalThis.__tmTaskStore?.upsertLocal?.(target, { status: 'replace-loaded-task' }); } catch (e) {}
         try { __tmRestoreTaskFlatMap(target); } catch (e) {}
         return String(slot.doc?.id || target.root_id || target.docId || '').trim();
     }
@@ -12662,16 +13309,21 @@
                     groupId: SettingsStore?.data?.currentGroupId || 'all',
                     queryLimit: __TM_TASK_INDEX_QUERY_LIMIT,
                     delayMs: 420,
-                    allowCacheFirstPaintPersist: true,
                 });
             }
         } catch (e) {}
-        if (!canPatchDomOnly) {
-            __tmRefreshMainViewInPlace({
-                withFilters: false,
-                reason: String(opts.reason || 'task-block-incremental-refresh').trim() || 'task-block-incremental-refresh',
-                deferIfDetailBusy: opts.deferIfDetailBusy !== false,
-            });
+        if (!canPatchDomOnly && opts.skipViewRefresh !== true) {
+            try {
+                __tmScheduleViewRefresh({
+                    mode: 'current',
+                    withFilters: false,
+                    reason: String(opts.reason || 'task-block-incremental-refresh').trim() || 'task-block-incremental-refresh',
+                    deferIfDetailBusy: opts.deferIfDetailBusy !== false,
+                    taskIds: taskIds.slice(),
+                });
+            } catch (e) {
+                try { render(); } catch (e2) {}
+            }
         }
         return true;
     }
@@ -12710,18 +13362,23 @@
         };
         const viewMode = String(state.viewMode || '').trim();
         if (!state.modal || !document.body.contains(state.modal)) return false;
-        if (viewMode === 'calendar') return false;
+        if (viewMode === 'calendar' && opts.allowCalendar !== true) return false;
         try { await __tmFlushSqlTransactionsSafe('doc-incremental-refresh'); } catch (e) {}
         try {
             const taskBlockOk = await __tmRefreshAffectedTaskBlocksIncrementally(opts);
             if (taskBlockOk) return true;
         } catch (e) {}
-        const docIds = await __tmResolveIncrementalRefreshDocIds(targets.docIds, targets.blockIds);
+        const docIds = await __tmResolveIncrementalRefreshDocIds(targets.docIds, targets.blockIds, {
+            allowUnloadedDocIds: opts.allowUnloadedDocIds === true,
+        });
         if (!docIds.length) return false;
         if (docIds.length > 12) return false;
         docIds.forEach((docId) => {
             try { __tmInvalidateTasksQueryCacheByDocId(docId); } catch (e) {}
         });
+        if (viewMode === 'calendar' || opts.invalidateCalendarCache === true) {
+            try { window.__tmCalendarAllTasksCache = null; } catch (e) {}
+        }
 
         const queryLimit = __tmGetIncrementalTaskQueryLimit(docIds);
         const rule0 = state.currentRule ? state.filterRules.find((rule) => rule.id === state.currentRule) : null;
@@ -12902,16 +13559,12 @@
         __tmInvalidateFilteredTaskDerivedStateCache();
 
         docIds.forEach((docId) => {
-            Object.keys(state.flatTasks || {}).forEach((taskId) => {
-                const task = state.flatTasks?.[taskId];
-                const rootId = String(task?.root_id || task?.docId || '').trim();
-                if (rootId === docId) delete state.flatTasks[taskId];
-            });
+            try { globalThis.__tmTaskStore?.removeFlatByDoc?.(docId); } catch (e) {}
             (nextFlatTasksByDoc.get(docId) || []).forEach((task) => {
-                state.flatTasks[task.id] = task;
+                try { globalThis.__tmTaskStore?.upsertLocal?.(task, { status: 'partial-index-reload' }); } catch (e) {}
             });
         });
-        state.flatTasks = __tmMergeOtherBlocksIntoFlatTasks(state.flatTasks);
+        __tmReplaceFlatTasksThroughTaskStore(globalThis.__tmTaskStore?.getFlatMap?.() || state.flatTasks || {});
         state.stats.queryTime = Number(res?.queryTime) || 0;
         recalcStats();
         try {
@@ -12930,7 +13583,6 @@
                     groupId: SettingsStore?.data?.currentGroupId || 'all',
                     queryLimit,
                     delayMs: 420,
-                    allowCacheFirstPaintPersist: true,
                 });
             }
         } catch (e) {}
@@ -12946,17 +13598,28 @@
                 });
             } catch (e) {}
         }
-        __tmRefreshMainViewInPlace({
-            withFilters: false,
-            reason: String(opts.reason || 'incremental-doc-refresh').trim() || 'incremental-doc-refresh',
-            deferIfDetailBusy: opts.deferIfDetailBusy !== false,
-        });
+        if (opts.skipViewRefresh !== true) {
+            try {
+                __tmScheduleViewRefresh({
+                    mode: 'current',
+                    withFilters: false,
+                    reason: String(opts.reason || 'incremental-doc-refresh').trim() || 'incremental-doc-refresh',
+                    deferIfDetailBusy: opts.deferIfDetailBusy !== false,
+                    taskIds: Array.isArray(targets.blockIds) ? targets.blockIds.slice() : [],
+                });
+            } catch (e) {
+                try { render(); } catch (e2) {}
+            }
+        }
         return true;
     }
 
     async function __tmFlushSqlTransactionsSafe(reason = '') {
         try {
-            const res = await API.call('/api/sqlite/flushTransaction', {});
+            const adapter = globalThis.__tmTaskHorizonBackendAdapter;
+            const res = adapter && typeof adapter.flushTransaction === 'function'
+                ? await adapter.flushTransaction()
+                : await API.call('/api/sqlite/flushTransaction', {});
             if (res && res.code !== 0) {
                 try { console.warn('[task-horizon] flushTransaction failed', reason || 'unknown', res?.msg || res); } catch (e) {}
                 return false;
@@ -13019,21 +13682,41 @@
         return out;
     }
 
+    function __tmCanPersistTaskSnapshotProjection(docIds = [], taskCount = 0, options = {}) {
+        const opts = (options && typeof options === 'object') ? options : {};
+        if (opts.forceFullLoadBudget === true) return false;
+        const ids = __tmNormalizeTaskSnapshotDocIds(docIds || []);
+        if (!ids.length) return false;
+        if (!Array.isArray(state.taskTree) || state.taskTree.length === 0) return false;
+        if (state.__tmCacheFirstPaintNeedsVerify && opts.allowCacheFirstPaintPersist !== true) return false;
+        if (opts.allowPendingOutboxPersist !== true) {
+            try {
+                if (globalThis.__tmTaskOutbox?.hasPending?.({
+                    includeSettlingCreateOps: true,
+                    includeInteractionGateBypassOps: true,
+                })) {
+                    return false;
+                }
+            } catch (e) {}
+        }
+        try {
+            const coverage = __tmGetTaskCountCoverageStatus(ids, taskCount, opts);
+            if (!coverage.ok) return false;
+        } catch (e) {}
+        return true;
+    }
+
     function __tmSchedulePersistTaskSnapshot(options = {}) {
         const opts = (options && typeof options === 'object') ? options : {};
         const groupId = String(opts.groupId || SettingsStore?.data?.currentGroupId || 'all').trim() || 'all';
         const activeDocId = String(opts.activeDocId || state?.activeDocId || 'all').trim() || 'all';
-        if (opts.forceFullLoadBudget === true) return false;
         const docIds = __tmNormalizeTaskSnapshotDocIds(opts.docIds || state.__tmLoadedDocIdsForTasks || []);
-        if (!docIds.length) return false;
-        if (!Array.isArray(state.taskTree) || state.taskTree.length === 0) return false;
+        let taskCount = 0;
         try {
             const flatTasks = __tmBuildFlatTasksFromTaskSnapshotTree(state.taskTree);
-            const taskCount = Object.keys(flatTasks).length;
-            const coverage = __tmGetTaskCountCoverageStatus(docIds, taskCount, opts);
-            if (!coverage.ok) return false;
+            taskCount = Object.keys(flatTasks).length;
         } catch (e) {}
-        if (state.__tmCacheFirstPaintNeedsVerify && opts.allowCacheFirstPaintPersist !== true) return false;
+        if (!__tmCanPersistTaskSnapshotProjection(docIds, taskCount, opts)) return false;
         try {
             if (__tmTaskSnapshotSaveTimer) clearTimeout(__tmTaskSnapshotSaveTimer);
         } catch (e) {}
@@ -13064,8 +13747,10 @@
                         || hasUnexpectedTreeDoc) {
                         return;
                     }
-                    if (opts.refreshViewStateBeforeSave !== false) {
+                    if (opts.mergeLocalPatchesBeforeSave !== false) {
                         try { __tmMergeLocalTaskPatchIntoTaskStateForSnapshot(); } catch (e) {}
+                    }
+                    if (opts.refreshViewStateBeforeSave === true) {
                         try {
                             if (typeof applyFilters === 'function') {
                                 applyFilters();
@@ -13086,8 +13771,7 @@
                         previousSnapshot: store?.snapshots?.[payload?.scopeKey],
                     }) || payload;
                     const payloadFlatTasks = __tmBuildFlatTasksFromTaskSnapshotTree(Array.isArray(payload?.taskTree) ? payload.taskTree : []);
-                    const payloadCoverage = __tmGetTaskCountCoverageStatus(payload?.docIds || docIds, Object.keys(payloadFlatTasks).length, opts);
-                    if (!payloadCoverage.ok) return;
+                    if (!__tmCanPersistTaskSnapshotProjection(payload?.docIds || docIds, Object.keys(payloadFlatTasks).length, opts)) return;
                     const persistSignature = __tmBuildTaskSnapshotPersistSignature(payload);
                     const prevPersistSignature = String(__tmTaskSnapshotPersistSignatureCache.get(payload?.scopeKey) || '').trim();
                     if (persistSignature && prevPersistSignature && persistSignature === prevPersistSignature) return;
@@ -13109,7 +13793,10 @@
                     store.updatedAt = snapshotUpdatedAt;
                     const nextStore = __tmBuildTaskSnapshotStore(store);
                     __tmTaskSnapshotStoreCache = nextStore;
-                    await __tmWriteJsonFile(TASK_SNAPSHOT_FILE_PATH, nextStore);
+                    const saved = await __tmWriteJsonFile(TASK_SNAPSHOT_FILE_PATH, nextStore);
+                    if (saved && (Number(__tmTaskSnapshotStoreCache?.updatedAt || 0) || 0) <= snapshotUpdatedAt) {
+                        __tmTaskSnapshotStoreLocalMutationUntil = 0;
+                    }
                     if (persistSignature) {
                         try { __tmTaskSnapshotPersistSignatureCache.set(payload.scopeKey, persistSignature); } catch (e) {}
                     }
@@ -13476,22 +14163,26 @@
                                     deferIfDetailBusy: opts.deferIfDetailBusy !== false,
                                 });
                             } catch (e) {
-                                try { if (typeof applyFilters === 'function') applyFilters(); } catch (e2) {}
                                 try {
-                                    __tmRefreshMainViewInPlace({
+                                    __tmScheduleViewRefresh({
+                                        mode: 'current',
                                         withFilters: false,
                                         reason: source,
                                         deferIfDetailBusy: opts.deferIfDetailBusy !== false,
+                                        taskIds: [tid].filter(Boolean),
                                     });
-                                } catch (e2) {}
+                                } catch (e2) {
+                                    try { if (typeof applyFilters === 'function') applyFilters(); } catch (e3) {}
+                                }
                             }
                         } else if (opts.refreshCurrentView !== false) {
-                            try { if (typeof applyFilters === 'function') applyFilters(); } catch (e) {}
                             try {
-                                __tmRefreshMainViewInPlace({
+                                __tmScheduleViewRefresh({
+                                    mode: 'current',
                                     withFilters: false,
                                     reason: source,
                                     deferIfDetailBusy: opts.deferIfDetailBusy !== false,
+                                    taskIds: [tid].filter(Boolean),
                                 });
                             } catch (e) {}
                         }
@@ -13509,9 +14200,8 @@
                 : null;
             const canPersistLoadedViewSnapshot = loadedDocEntryForPersist
                 && (!tid || __tmTaskSnapshotDocEntryHasTask(loadedDocEntryForPersist, tid));
-            if (loadedDocIds.includes(docId) && canPersistLoadedViewSnapshot) {
+            if (loadedDocIds.includes(docId) && canPersistLoadedViewSnapshot && opts.skipSnapshotViewStateFilterRefresh !== true) {
                 try { __tmMergeLocalTaskPatchIntoTaskStateForSnapshot(); } catch (e) {}
-                try { if (typeof applyFilters === 'function') applyFilters(); } catch (e) {}
                 try {
                     __tmSchedulePersistTaskSnapshot({
                         docIds: loadedDocIds,
@@ -13519,7 +14209,7 @@
                         queryLimit: __TM_TASK_INDEX_QUERY_LIMIT,
                         delayMs: 240,
                         idleDelayMs: 160,
-                        allowCacheFirstPaintPersist: true,
+                        refreshViewStateBeforeSave: false,
                     });
                 } catch (e) {}
             }
@@ -13774,6 +14464,7 @@
                 const suppressLocalTimeTx = __tmShouldSuppressLocalTimeTx(msg);
                 const suppressLocalDoneTx = !suppressLocalTimeTx && __tmShouldSuppressLocalDoneTx(msg);
                 const suppressLocalMoveTx = !suppressLocalTimeTx && !suppressLocalDoneTx && __tmShouldSuppressLocalMoveTx(msg);
+                const suppressLocalCreateTx = !suppressLocalTimeTx && !suppressLocalDoneTx && !suppressLocalMoveTx && __tmShouldSuppressLocalCreateTx(msg);
                 let txAttrApplyResult = {
                     totalUpdates: 0,
                     applied: false,
@@ -13786,7 +14477,7 @@
                 let isAttrOnlyTx = false;
                 let skipNoopAttrOnlyTx = false;
                 let txAttrUpdates = [];
-                if (!suppressLocalTimeTx && !suppressLocalDoneTx && !suppressLocalMoveTx) {
+                if (!suppressLocalTimeTx && !suppressLocalDoneTx && !suppressLocalMoveTx && !suppressLocalCreateTx) {
                     let txAttrApplyFailed = false;
                     try {
                         isAttrOnlyTx = __tmHasOnlyAttrOperationsInTx(msg);
@@ -13822,8 +14513,8 @@
                 }
                 if (docIds && docIds.size > 0) docIds.forEach((d) => __tmInvalidateTasksQueryCacheByDocId(d));
                 else __tmInvalidateAllSqlCaches();
-                if (suppressLocalTimeTx || suppressLocalDoneTx || suppressLocalMoveTx) {
-                    if (suppressLocalDoneTx || suppressLocalMoveTx) {
+                if (suppressLocalTimeTx || suppressLocalDoneTx || suppressLocalMoveTx || suppressLocalCreateTx) {
+                    if (suppressLocalDoneTx || suppressLocalMoveTx || suppressLocalCreateTx) {
                         try {
                             __tmRememberPendingTxRefreshTargets(Array.from(docIds || []), Array.from(blockIds || []));
                             if (typeof __tmIsPluginVisibleNow !== 'function' || !__tmIsPluginVisibleNow()) __tmMarkExternalTaskTxDirty();

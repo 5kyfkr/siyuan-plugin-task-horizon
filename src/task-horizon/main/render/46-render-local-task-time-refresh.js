@@ -25,7 +25,10 @@
     function __tmUpdateTimelineTaskInDOM(taskId) {
         const id = String(taskId || '').trim();
         if (!id) return false;
-        const task = state.flatTasks?.[id];
+        const task = globalThis.__tmRuntimeState?.getTaskById?.(id, { includePending: true, preferPending: true })
+            || state.flatTasks?.[id]
+            || state.pendingInsertedTasks?.[id]
+            || null;
         if (!task) return false;
         const modal = state.modal;
         if (!modal) return false;
@@ -140,7 +143,14 @@
     function __tmUpdateListTaskTimeInDOM(taskId, rowEl = null, taskLike = null) {
         const id = String(taskId || '').trim();
         if (!id) return false;
-        const task = (taskLike && typeof taskLike === 'object') ? taskLike : (state.flatTasks?.[id] || null);
+        const task = (taskLike && typeof taskLike === 'object')
+            ? taskLike
+            : (
+                globalThis.__tmRuntimeState?.getTaskById?.(id, { includePending: true, preferPending: true })
+                || state.flatTasks?.[id]
+                || state.pendingInsertedTasks?.[id]
+                || null
+            );
         const row = rowEl instanceof HTMLElement
             ? rowEl
             : ((state.modal instanceof Element)
@@ -183,7 +193,14 @@ return ok;
     function __tmUpdateChecklistTaskTimeInDOM(taskId, itemEl = null, taskLike = null) {
         const id = String(taskId || '').trim();
         if (!id) return false;
-        const task = (taskLike && typeof taskLike === 'object') ? taskLike : (state.flatTasks?.[id] || null);
+        const task = (taskLike && typeof taskLike === 'object')
+            ? taskLike
+            : (
+                globalThis.__tmRuntimeState?.getTaskById?.(id, { includePending: true, preferPending: true })
+                || state.flatTasks?.[id]
+                || state.pendingInsertedTasks?.[id]
+                || null
+            );
         const item = itemEl instanceof HTMLElement
             ? itemEl
             : ((state.modal instanceof Element)
@@ -293,11 +310,32 @@ return ok;
         node.classList.toggle('tm-kanban-chip--date-overdue', hasDateValue && __tmIsTaskCardDateOverdue(task));
     }
 
-    function __tmUpdateKanbanTaskTimeInDOM(taskId) {
+    function __tmUpdateKanbanTaskTimeInDOM(taskId, options = {}) {
         const id = String(taskId || '').trim();
         if (!id) return false;
-        const task = state.flatTasks?.[id];
+        const task = globalThis.__tmRuntimeState?.getTaskById?.(id, { includePending: true, preferPending: true })
+            || state.flatTasks?.[id]
+            || state.pendingInsertedTasks?.[id]
+            || null;
         if (!task || !(state.modal instanceof Element)) return false;
+        const opts = (options && typeof options === 'object') ? options : {};
+        const patch = (opts.patch && typeof opts.patch === 'object') ? opts.patch : {};
+        const taskForRender = Object.keys(patch).length ? { ...task } : task;
+        if (taskForRender !== task) {
+            if (Object.prototype.hasOwnProperty.call(patch, 'startDate')) {
+                taskForRender.startDate = String(patch.startDate ?? '').trim();
+                taskForRender.start_date = taskForRender.startDate;
+            }
+            if (Object.prototype.hasOwnProperty.call(patch, 'completionTime')) {
+                taskForRender.completionTime = String(patch.completionTime ?? '').trim();
+                taskForRender.completion_time = taskForRender.completionTime;
+            }
+            if (Object.prototype.hasOwnProperty.call(patch, 'taskDateColor') || Object.prototype.hasOwnProperty.call(patch, 'color')) {
+                taskForRender.taskDateColor = String((Object.prototype.hasOwnProperty.call(patch, 'taskDateColor') ? patch.taskDateColor : patch.color) ?? '').trim();
+                taskForRender.task_date_color = taskForRender.taskDateColor;
+                taskForRender.custom_task_date_color = taskForRender.taskDateColor;
+            }
+        }
         const card = state.modal.querySelector(`.tm-kanban-card[data-id="${CSS.escape(id)}"]`);
         if (!(card instanceof HTMLElement)) return false;
         let touched = false;
@@ -318,26 +356,29 @@ return ok;
         };
         const dateNode = card.querySelector('[data-tm-task-time-field="date"]');
         const dateEnabled = cardFields.has('date');
-        const dateShouldExist = dateEnabled && __tmShouldRenderTaskCardDate(task);
+        const dateShouldExist = dateEnabled && __tmShouldRenderTaskCardDate(taskForRender);
         if (dateNode instanceof HTMLElement) {
-            if (!dateShouldExist) return false;
-            dateNode.textContent = __tmFormatTaskCardDateValue(task) || '日期';
-            __tmApplyTaskCardDateChipState(dateNode, task);
+            if (!dateShouldExist) {
+                dateNode.remove();
+            } else {
+                dateNode.textContent = __tmFormatTaskCardDateValue(taskForRender) || '日期';
+                __tmApplyTaskCardDateChipState(dateNode, taskForRender);
+            }
             touched = true;
         } else if (dateShouldExist) {
             return false;
         }
-        const focusText = __tmGetTaskTomatoSummaryText(task);
-        if (!syncExistingMetaNode('tomatoSummary', __tmGetTaskTomatoSummaryHtml(task), {
+        const focusText = __tmGetTaskTomatoSummaryText(taskForRender);
+        if (!syncExistingMetaNode('tomatoSummary', __tmGetTaskTomatoSummaryHtml(taskForRender), {
             html: true,
             shouldExist: cardFields.has('tomatoSummary') && !!focusText,
         })) return false;
-        const estimateText = __tmGetTomatoCountDisplay(__tmGetTaskTomatoEstimateCount(task));
+        const estimateText = __tmGetTomatoCountDisplay(__tmGetTaskTomatoEstimateCount(taskForRender));
         if (!syncExistingMetaNode('tomatoEstimateCount', estimateText, {
             shouldExist: cardFields.has('tomatoEstimateCount') && !!estimateText,
         })) return false;
-        const countText = __tmGetTomatoCountDisplay(__tmGetTaskTomatoCount(task));
-        if (!syncExistingMetaNode('tomatoCount', __tmGetActualTomatoCountDisplayHtml(__tmGetTaskTomatoCount(task)), {
+        const countText = __tmGetTomatoCountDisplay(__tmGetTaskTomatoCount(taskForRender));
+        if (!syncExistingMetaNode('tomatoCount', __tmGetActualTomatoCountDisplayHtml(__tmGetTaskTomatoCount(taskForRender)), {
             html: true,
             shouldExist: cardFields.has('tomatoCount') && !!countText,
         })) return false;
@@ -347,7 +388,10 @@ return ok;
     function __tmUpdateWhiteboardTaskTimeInDOM(taskId) {
         const id = String(taskId || '').trim();
         if (!id || !(state.modal instanceof Element)) return false;
-        const task = state.flatTasks?.[id] || null;
+        const task = globalThis.__tmRuntimeState?.getTaskById?.(id, { includePending: true, preferPending: true })
+            || state.flatTasks?.[id]
+            || state.pendingInsertedTasks?.[id]
+            || null;
         if (!task) return false;
         const dateNodes = state.modal.querySelectorAll(
             `.tm-whiteboard-node[data-task-id="${CSS.escape(id)}"] [data-tm-task-time-field="date"], ` +
@@ -387,7 +431,10 @@ return ok;
         if (!tid) return { changed: false, task: null };
         const nextPatch = (patch && typeof patch === 'object') ? patch : {};
         const opts = (options && typeof options === 'object') ? options : {};
-        const task0 = state.flatTasks?.[tid] || null;
+        const task0 = globalThis.__tmRuntimeState?.getTaskById?.(tid, { includePending: true, preferPending: true })
+            || state.flatTasks?.[tid]
+            || state.pendingInsertedTasks?.[tid]
+            || null;
         try {
             const suppressIds = [
                 tid,
@@ -418,8 +465,11 @@ return ok;
                 queued: opts.queued === true,
                 background: opts.background === true,
                 skipFlush: opts.skipFlush,
+                attrTargetId: String(opts.attrTargetId || '').trim(),
+                mirrorTaskAttrs: opts.mirrorTaskAttrs !== false,
+                syncMirrorTaskAttrs: opts.syncMirrorTaskAttrs === true,
                 renderOptimistic: opts.renderOptimistic !== false,
-            });
+});
             changed = true;
         }
         if (Object.keys(metaPatch).length > 0) {
@@ -435,20 +485,29 @@ return ok;
                 queued: opts.queued === true,
                 background: opts.background === true,
                 skipFlush: opts.skipFlush,
+                attrTargetId: String(opts.attrTargetId || '').trim(),
+                mirrorTaskAttrs: opts.mirrorTaskAttrs !== false,
+                syncMirrorTaskAttrs: opts.syncMirrorTaskAttrs === true,
                 renderOptimistic: opts.renderOptimistic !== false,
-            });
+});
             changed = true;
         }
         return {
             changed,
-            task: state.flatTasks?.[tid] || null,
+            task: globalThis.__tmRuntimeState?.getTaskById?.(tid, { includePending: true, preferPending: true })
+                || state.flatTasks?.[tid]
+                || state.pendingInsertedTasks?.[tid]
+                || null,
         };
     }
 
     function __tmRefreshTaskTimeAcrossViews(taskId, options = {}) {
         const tid = String(taskId || '').trim();
         if (!tid) return false;
-        const task = state.flatTasks?.[tid] || null;
+        const task = globalThis.__tmRuntimeState?.getTaskById?.(tid, { includePending: true, preferPending: true })
+            || state.flatTasks?.[tid]
+            || state.pendingInsertedTasks?.[tid]
+            || null;
         if (!task) return false;
         const opts = (options && typeof options === 'object') ? options : {};
         const viewMode = String(state.viewMode || '').trim();
@@ -476,11 +535,10 @@ return ok;
             if (__tmCanUpdateTaskTimeInListLike(task)) refreshed = !!__tmUpdateChecklistTaskTimeInDOM(tid) || refreshed;
             else shouldFallback = true;
         } else if (viewMode === 'kanban') {
-            if (hasCalendarDatePatch && isKanbanTimeBoard) {
-                try { applyFilters(); } catch (e) {}
-                try { __tmKanbanColsHtmlCache = null; } catch (e) {}
-                refreshed = !!__tmRerenderKanbanInPlace(state.modal) || refreshed;
-                if (!refreshed) refreshed = !!__tmRerenderCurrentViewInPlace(state.modal) || refreshed;
+            if (hasCalendarDatePatch) {
+                refreshed = !!__tmUpdateKanbanTaskTimeInDOM(tid, { patch }) || refreshed;
+                try { __tmMarkHighPriorityInteraction('kanban-date-local-update', 140); } catch (e) {}
+                refreshed = true;
             } else {
                 refreshed = !!__tmUpdateKanbanTaskTimeInDOM(tid) || refreshed;
                 if (!refreshed) refreshed = !!__tmRerenderCurrentViewInPlace(state.modal) || refreshed;
@@ -546,4 +604,40 @@ if ((syncResult.needsMainRefresh && isCalendarView) || syncResult.needsSideRefre
         '低': 'low',
         '无': '',
     });
+
+    function __tmBindTaskDateFollowUpdatedRefresh() {
+        try {
+            if (window.__tmTaskDateFollowUpdatedRefreshBound) return;
+            window.__tmTaskDateFollowUpdatedRefreshBound = true;
+            const onTaskDateFollowUpdated = (event) => {
+                const detail = (event?.detail && typeof event.detail === 'object') ? event.detail : {};
+                const taskId = String(detail.taskId || '').trim();
+                const patch0 = (detail.patch && typeof detail.patch === 'object') ? detail.patch : {};
+                if (!taskId) return;
+                const patch = {};
+                if (Object.prototype.hasOwnProperty.call(patch0, 'startDate')) patch.startDate = String(patch0.startDate || '').trim();
+                if (Object.prototype.hasOwnProperty.call(patch0, 'completionTime')) patch.completionTime = String(patch0.completionTime || '').trim();
+                if (!Object.keys(patch).length) return;
+                const reason = String(detail.reason || 'calendar-schedule-dates-follow').trim() || 'calendar-schedule-dates-follow';
+                const refreshed = __tmRefreshTaskTimeAcrossViews(taskId, {
+                    patch,
+                    withFilters: false,
+                    reason,
+                });
+                if (!refreshed) {
+                    try {
+                        __tmScheduleViewRefresh({
+                            mode: 'current',
+                            withFilters: true,
+                            reason,
+                            taskIds: [taskId],
+                        });
+                    } catch (e) {}
+                }
+            };
+            globalThis.__tmRuntimeEvents?.on?.(window, 'tm:task-date-follow-updated', onTaskDateFollowUpdated);
+        } catch (e) {}
+    }
+
+    __tmBindTaskDateFollowUpdatedRefresh();
 

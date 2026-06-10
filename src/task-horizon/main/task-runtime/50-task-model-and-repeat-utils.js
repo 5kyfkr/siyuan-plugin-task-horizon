@@ -56,8 +56,12 @@
         const opts = (options && typeof options === 'object') ? options : {};
         if (!(task && typeof task === 'object')) return '';
         if (opts.completedOnly !== false && !task.done) return '';
+        const taskCompleteAtAttrValue = typeof __tmReadTaskMetaAttrValue === 'function'
+            ? __tmReadTaskMetaAttrValue(task, 'taskCompleteAt')
+            : '';
         return String(
-            task?.['custom-task-complete-at']
+            taskCompleteAtAttrValue
+            || task?.['custom-task-complete-at']
             || task?.['task-complete-at']
             || task?.taskCompleteAt
             || task?.task_complete_at
@@ -769,7 +773,11 @@
             completion_time: completedAt || __tmNormalizeDateOnly(history.sourceDue || ''),
             taskCompleteAt: completedAt,
             task_complete_at: completedAt,
-            [__TM_TASK_COMPLETE_AT_ATTR]: completedAt,
+            ['custom-task-complete-at']: completedAt,
+            ...(() => {
+                const key = typeof __tmGetTaskMetaAttrKey === 'function' ? __tmGetTaskMetaAttrKey('taskCompleteAt') : '';
+                return key && key !== 'custom-task-complete-at' ? { [key]: completedAt } : {};
+            })(),
             parentTaskId: '',
             parent_id: '',
             children: [],
@@ -853,19 +861,42 @@
             return completedSet.has(String(task?.recurringCompletedAt || '').trim());
         };
         let removed = 0;
+        const storeRemovedIds = new Set();
         try {
             Object.keys(state.flatTasks || {}).forEach((taskId) => {
                 const task = state.flatTasks?.[taskId];
                 if (!shouldRemove(task)) return;
-                delete state.flatTasks[taskId];
-                removed += 1;
+                if (globalThis.__tmTaskStore?.removeLocal?.(taskId, { source: 'purge-recurring-instance' })) {
+                    storeRemovedIds.add(taskId);
+                    removed += 1;
+                }
+            });
+            Object.keys(state.pendingInsertedTasks || {}).forEach((taskId) => {
+                if (storeRemovedIds.has(taskId)) return;
+                const task = state.pendingInsertedTasks?.[taskId];
+                if (!shouldRemove(task)) return;
+                if (globalThis.__tmTaskStore?.removeLocal?.(taskId, { source: 'purge-recurring-instance' })) {
+                    storeRemovedIds.add(taskId);
+                    removed += 1;
+                }
+            });
+        } catch (e) {}
+        try {
+            Object.keys(state.flatTasks || {}).forEach((taskId) => {
+                if (storeRemovedIds.has(taskId)) return;
+                const task = state.flatTasks?.[taskId];
+                if (!shouldRemove(task)) return;
+                if (globalThis.__tmTaskStore?.removeLocal?.(taskId, { source: 'purge-recurring-instance-fallback' })) {
+                    removed += 1;
+                }
             });
         } catch (e) {}
         try {
             Object.keys(state.pendingInsertedTasks || {}).forEach((taskId) => {
+                if (storeRemovedIds.has(taskId)) return;
                 const task = state.pendingInsertedTasks?.[taskId];
                 if (!shouldRemove(task)) return;
-                delete state.pendingInsertedTasks[taskId];
+                globalThis.__tmTaskStore?.removePending?.(taskId, { source: 'purge-recurring-instance-fallback' });
             });
         } catch (e) {}
         const filterTree = (list) => (Array.isArray(list) ? list : []).reduce((acc, item) => {

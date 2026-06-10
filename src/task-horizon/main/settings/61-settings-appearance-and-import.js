@@ -1215,6 +1215,14 @@
         throw lastErr || new Error('创建导入文档失败');
     }
 
+    async function __tmFlushTickTickImportTransaction() {
+        const adapter = globalThis.__tmTaskHorizonBackendAdapter;
+        if (adapter && typeof adapter.flushTransaction === 'function') {
+            return await adapter.flushTransaction();
+        }
+        return await API.call('/api/sqlite/flushTransaction', {});
+    }
+
     async function __tmWaitForTickTickImportDocReady(docId, options = {}) {
         const did = String(docId || '').trim();
         const opts = (options && typeof options === 'object') ? options : {};
@@ -1236,7 +1244,7 @@
                 lastErr = e;
             }
             if (i < retryDelays.length) {
-                try { await API.call('/api/sqlite/flushTransaction', {}); } catch (e2) {}
+                try { await __tmFlushTickTickImportTransaction(); } catch (e2) {}
                 await new Promise((resolve) => setTimeout(resolve, retryDelays[i]));
             }
         }
@@ -1278,7 +1286,7 @@
                 lastErr = e;
             }
             if (i < retryDelays.length) {
-                try { await API.call('/api/sqlite/flushTransaction', {}); } catch (e2) {}
+                try { await __tmFlushTickTickImportTransaction(); } catch (e2) {}
                 await new Promise((resolve) => setTimeout(resolve, retryDelays[i]));
             }
         }
@@ -1306,7 +1314,7 @@
                 lastErr = e;
             }
             if (i < retryDelays.length) {
-                try { await API.call('/api/sqlite/flushTransaction', {}); } catch (e2) {}
+                try { await __tmFlushTickTickImportTransaction(); } catch (e2) {}
                 await new Promise((resolve) => setTimeout(resolve, retryDelays[i]));
             }
         }
@@ -1604,7 +1612,7 @@
             concurrency: importOptions.docConcurrency,
             shouldCancel,
         });
-        try { await API.call('/api/sqlite/flushTransaction', {}); } catch (e) {}
+        try { await __tmFlushTickTickImportTransaction(); } catch (e) {}
         try { await MetaStore.saveNow(); } catch (e) {}
         try {
             state.allDocuments = await API.getAllDocuments();
@@ -1618,7 +1626,13 @@
                 showInlineLoading: false,
             });
         } catch (e) {
-            try { __tmRefreshMainViewInPlace({ withFilters: true }); } catch (e2) {}
+            try {
+                __tmScheduleViewRefresh({
+                    mode: 'current',
+                    withFilters: true,
+                    reason: 'ticktick-import-fallback',
+                });
+            } catch (e2) {}
         }
         emitProgress({
             completedDocs: Number(summary.docs) || 0,

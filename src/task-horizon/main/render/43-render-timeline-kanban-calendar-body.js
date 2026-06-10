@@ -126,7 +126,11 @@
             };
 
             const renderTaskRow = (row) => {
-                const task = state.flatTasks[row.id];
+                const rowId = String(row?.id || '').trim();
+                const task = globalThis.__tmRuntimeState?.getTaskById?.(rowId, { includePending: true, preferPending: true })
+                    || state.flatTasks?.[rowId]
+                    || state.pendingInsertedTasks?.[rowId]
+                    || null;
                 if (!task) return '';
                 const isMultiSelected = __tmIsTaskMultiSelected(task.id);
                 const depth = Math.max(0, Number(row.depth) || 0);
@@ -222,7 +226,10 @@
                     // 按任务名分组/不分组时，每个任务使用自己文档的颜色
                     let taskDocColor = '';
                     if (state.groupByTaskName || (!state.groupByDocName && !state.groupByTime && !state.quadrantEnabled)) {
-                        const task = state.flatTasks[r.id];
+                        const task = globalThis.__tmRuntimeState?.getTaskById?.(r.id, { includePending: true, preferPending: true })
+                            || state.flatTasks?.[r.id]
+                            || state.pendingInsertedTasks?.[r.id]
+                            || null;
                         if (task?.root_id) {
                             taskDocColor = __tmGetDocColorHex(task.root_id, isDark) || '';
                         }
@@ -330,8 +337,9 @@
                 const tid = String(taskId || '').trim();
                 if (!tid) return null;
                 return filteredRawTaskById.get(tid)
-                    || globalThis.__tmRuntimeState?.getFlatTaskById?.(tid)
+                    || globalThis.__tmRuntimeState?.getTaskById?.(tid, { includePending: true, preferPending: true })
                     || state.flatTasks?.[tid]
+                    || state.pendingInsertedTasks?.[tid]
                     || null;
             };
             const kanbanChildrenByParentId = new Map();
@@ -527,12 +535,21 @@
             const needDocFlowForKanban = allowDocFlowForKanban && (!!state.groupByDocName || isUngroupForKanban || !!state.groupByTaskName || !!state.groupByTime || !!state.quadrantEnabled);
             const escSq = (s) => String(s || '').replace(/\\/g, '\\\\').replace(/'/g, "\\'");
             const kanbanDetailTaskId = String(state.kanbanDetailTaskId || '').trim();
-            const kanbanDetailTask = kanbanDetailTaskId ? (state.flatTasks?.[kanbanDetailTaskId] || null) : null;
+            const kanbanDetailTask = kanbanDetailTaskId
+                ? (
+                    globalThis.__tmRuntimeState?.getTaskById?.(kanbanDetailTaskId, { includePending: true, preferPending: true })
+                    || state.flatTasks?.[kanbanDetailTaskId]
+                    || state.pendingInsertedTasks?.[kanbanDetailTaskId]
+                    || null
+                )
+                : null;
             const kanbanDetailHtml = kanbanDetailTask
                 ? `
                     <aside class="tm-kanban-detail-float" id="tmKanbanDetailFloat">
                         <div class="tm-kanban-detail-float__body" id="tmKanbanDetailPanel">
-                            ${__tmBuildTaskDetailInnerHtml(kanbanDetailTask, { embedded: true, floating: true })}
+                            ${typeof __tmShouldRenderTaskDetailNoteView === 'function' && __tmShouldRenderTaskDetailNoteView('kanban', kanbanDetailTask)
+                                ? __tmBuildTaskDetailNoteViewInnerHtml(kanbanDetailTask, { embedded: true, floating: true })
+                                : __tmBuildTaskDetailInnerHtml(kanbanDetailTask, { embedded: true, floating: true })}
                         </div>
                     </aside>
                 `
@@ -816,6 +833,8 @@
                 headings.forEach((h, idx) => {
                     const hid = String(h?.id || '').trim();
                     if (hid) headingOrderMap.set(`id:${hid}`, idx);
+                    const rank = Number(h?.rank);
+                    if (Number.isFinite(rank)) headingOrderMap.set(`rank:${Math.trunc(rank)}`, idx);
                 });
 
                 // 构建 grouped：按标题分组任务
@@ -1186,7 +1205,14 @@
                     const id = String(task?.id || '').trim();
                     const pid = getKanbanParentTaskId(task);
                     const parentInCol = !!(pid && map.has(pid));
-                    const parent = pid ? state.flatTasks[pid] : null;
+                    const parent = pid
+                        ? (
+                            getRawKanbanTaskById(pid)
+                            || state.flatTasks?.[pid]
+                            || state.pendingInsertedTasks?.[pid]
+                            || null
+                        )
+                        : null;
                     const hideCompletedDescendants = __tmResolveHideCompletedDescendantsFlag(task, inheritedHideCompleted);
 
                     // 在标题看板模式下，如果子任务的 h2Id 与父任务的 h2Id 不同，说明子任务已经被拖到不同的标题下独立显示了
@@ -1252,6 +1278,20 @@
                     `;
                 };
 
+                const pinnedGroupLabelHtml = `<span style="display:inline-flex;align-items:center;gap:4px;min-width:0;color:var(--tm-warning-color);"><span class="tm-checklist-group-pin-icon" style="transform:translateY(-1px);">${__tmRenderBadgeIcon('pin', 14)}</span><span>置顶</span></span>`;
+                const renderPinnedGroupTitle = (groupKey, count) => {
+                    const isCollapsed = state.collapsedGroups?.has(groupKey);
+                    return `
+                        <div class="tm-kanban-group-title" data-group-key="${esc(groupKey)}" onclick="tmToggleGroupCollapse('${escSq(groupKey)}', event)" style="background:${pinnedGroupBg};">
+                            <span style="display:inline-flex;align-items:center;min-width:0;">
+                                <span class="tm-group-toggle${isCollapsed ? ' tm-group-toggle--collapsed' : ''}" style="cursor:pointer;display:inline-flex;align-items:center;justify-content:center;width:16px;color:var(--tm-text-color);"><svg class="tm-group-toggle-icon" viewBox="0 0 16 16" width="16" height="16"><path d="M6 4l4 4-4 4" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg></span>
+                                <span>${pinnedGroupLabelHtml}</span>
+                            </span>
+                            <span class="tm-badge tm-badge--count">${Number(count) || 0}</span>
+                        </div>
+                    `;
+                };
+
                 const renderCompletedRootGroup = () => {
                     if (!headingDoneTailEnabled || completedRoots.length === 0) return '';
                     const doneGroupKey = __tmBuildCompletedRootGroupKey(`kanban:${String(c.id || '').trim() || 'col'}`);
@@ -1292,16 +1332,7 @@
                             });
                         };
                         const pinnedBody = pinnedIsCollapsed ? '' : `<div class="tm-kanban-group-items">${allPinned.map(renderPinnedTree).join('')}</div>`;
-                        // 自定义渲染置顶分组标题
-                        const pinnedTitle = `
-                            <div class="tm-kanban-group-title" data-group-key="${esc(pinnedGroupKey)}" onclick="tmToggleGroupCollapse('${escSq(pinnedGroupKey)}', event)" style="background:${pinnedGroupBg};">
-                                <span style="display:inline-flex;align-items:center;min-width:0;">
-                                    <span class="tm-group-toggle${pinnedIsCollapsed ? ' tm-group-toggle--collapsed' : ''}" style="cursor:pointer;display:inline-flex;align-items:center;justify-content:center;width:16px;color:var(--tm-text-color);"><svg class="tm-group-toggle-icon" viewBox="0 0 16 16" width="16" height="16"><path d="M6 4l4 4-4 4" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg></span>
-                                    <span style="color:var(--tm-text-color);">📌 置顶</span>
-                                </span>
-                                <span class="tm-badge tm-badge--count">${allPinned.length}</span>
-                            </div>
-                        `;
+                        const pinnedTitle = renderPinnedGroupTitle(pinnedGroupKey, allPinned.length);
                         resultHtml += `<div class="tm-kanban-group">${pinnedTitle}${pinnedBody}</div>`;
                     }
                     // 对非置顶任务按文档分组
@@ -1352,9 +1383,8 @@
                                 // 构建看板内容
                                 let bodyContent = '';
                                 if (pinnedItems.length > 0) {
-                                    // 添加置顶分组
                                     const pinnedBody = `<div class="tm-kanban-group-items">${pinnedItems.map(t => renderTree(t, 0)).join('')}</div>`;
-                                    bodyContent += `<div class="tm-kanban-group"><div class="tm-kanban-group-title" style="color:var(--tm-primary-color);">📌 置顶</div>${pinnedBody}</div>`;
+                                    bodyContent += `<div class="tm-kanban-group"><div class="tm-kanban-group-title" style="display:flex;align-items:center;gap:4px;color:var(--tm-warning-color);">${pinnedGroupLabelHtml}</div>${pinnedBody}</div>`;
                                 }
                                 if (normalItems.length > 0) {
                                     const normalBody = `<div class="tm-kanban-group-items">${normalItems.map(t => renderTree(t, 0)).join('')}</div>`;
@@ -1450,16 +1480,7 @@
                             });
                         };
                         const pinnedBody = pinnedIsCollapsed ? '' : `<div class="tm-kanban-group-items">${allPinned.map(renderPinnedTree).join('')}</div>`;
-                        // 自定义渲染置顶分组标题
-                        const pinnedTitle = `
-                            <div class="tm-kanban-group-title" data-group-key="${esc(pinnedGroupKey)}" onclick="tmToggleGroupCollapse('${escSq(pinnedGroupKey)}', event)" style="background:${pinnedGroupBg};">
-                                <span style="display:inline-flex;align-items:center;min-width:0;">
-                                    <span class="tm-group-toggle${pinnedIsCollapsed ? ' tm-group-toggle--collapsed' : ''}" style="cursor:pointer;display:inline-flex;align-items:center;justify-content:center;width:16px;color:var(--tm-text-color);"><svg class="tm-group-toggle-icon" viewBox="0 0 16 16" width="16" height="16"><path d="M6 4l4 4-4 4" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg></span>
-                                    <span style="color:var(--tm-text-color);">📌 置顶</span>
-                                </span>
-                                <span class="tm-badge tm-badge--count">${allPinned.length}</span>
-                            </div>
-                        `;
+                        const pinnedTitle = renderPinnedGroupTitle(pinnedGroupKey, allPinned.length);
                         resultHtml += `<div class="tm-kanban-group">${pinnedTitle}${pinnedBody}</div>`;
                     }
                     // 对非置顶任务按时间分组
@@ -1515,16 +1536,7 @@
                             });
                         };
                         const pinnedBody = pinnedIsCollapsed ? '' : `<div class="tm-kanban-group-items">${allPinned.map(renderPinnedTree).join('')}</div>`;
-                        // 自定义渲染置顶分组标题
-                        const pinnedTitle = `
-                            <div class="tm-kanban-group-title" data-group-key="${esc(pinnedGroupKey)}" onclick="tmToggleGroupCollapse('${escSq(pinnedGroupKey)}', event)" style="background:${pinnedGroupBg};">
-                                <span style="display:inline-flex;align-items:center;min-width:0;">
-                                    <span class="tm-group-toggle${pinnedIsCollapsed ? ' tm-group-toggle--collapsed' : ''}" style="cursor:pointer;display:inline-flex;align-items:center;justify-content:center;width:16px;color:var(--tm-text-color);"><svg class="tm-group-toggle-icon" viewBox="0 0 16 16" width="16" height="16"><path d="M6 4l4 4-4 4" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg></span>
-                                    <span style="color:var(--tm-text-color);">📌 置顶</span>
-                                </span>
-                                <span class="tm-badge tm-badge--count">${allPinned.length}</span>
-                            </div>
-                        `;
+                        const pinnedTitle = renderPinnedGroupTitle(pinnedGroupKey, allPinned.length);
                         resultHtml += `<div class="tm-kanban-group">${pinnedTitle}${pinnedBody}</div>`;
                     }
                     // 对非置顶任务按四象限分组
@@ -1588,16 +1600,7 @@
                             });
                         };
                         const pinnedBody = pinnedIsCollapsed ? '' : `<div class="tm-kanban-group-items">${allPinned.map(renderPinnedTree).join('')}</div>`;
-                        // 自定义渲染置顶分组标题
-                        const pinnedTitle = `
-                            <div class="tm-kanban-group-title" data-group-key="${esc(pinnedGroupKey)}" onclick="tmToggleGroupCollapse('${escSq(pinnedGroupKey)}', event)" style="background:${pinnedGroupBg};">
-                                <span style="display:inline-flex;align-items:center;min-width:0;">
-                                    <span class="tm-group-toggle${pinnedIsCollapsed ? ' tm-group-toggle--collapsed' : ''}" style="cursor:pointer;display:inline-flex;align-items:center;justify-content:center;width:16px;color:var(--tm-text-color);"><svg class="tm-group-toggle-icon" viewBox="0 0 16 16" width="16" height="16"><path d="M6 4l4 4-4 4" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg></span>
-                                    <span style="color:var(--tm-text-color);">📌 置顶</span>
-                                </span>
-                                <span class="tm-badge tm-badge--count">${allPinned.length}</span>
-                            </div>
-                        `;
+                        const pinnedTitle = renderPinnedGroupTitle(pinnedGroupKey, allPinned.length);
                         resultHtml += `<div class="tm-kanban-group">${pinnedTitle}${pinnedBody}</div>`;
                     }
                     // 对非置顶任务按任务名分组
@@ -1642,7 +1645,14 @@
                         const id = String(task?.id || '').trim();
                         if (!id) return '';
                         const pid = getKanbanParentTaskId(task);
-                        const parent = pid ? state.flatTasks?.[pid] : null;
+                        const parent = pid
+                            ? (
+                                getRawKanbanTaskById(pid)
+                                || state.flatTasks?.[pid]
+                                || state.pendingInsertedTasks?.[pid]
+                                || null
+                            )
+                            : null;
                         const parentTxt = parent ? String(parent?.content || '').trim() : '';
                         return renderCard(
                             task,
@@ -1679,16 +1689,7 @@
                             });
                         };
                         const pinnedBody = pinnedIsCollapsed ? '' : `<div class="tm-kanban-group-items">${allPinned.map(renderPinnedTree).join('')}</div>`;
-                        // 自定义渲染置顶分组标题
-                        const pinnedTitle = `
-                            <div class="tm-kanban-group-title" data-group-key="${esc(pinnedGroupKey)}" onclick="tmToggleGroupCollapse('${escSq(pinnedGroupKey)}', event)" style="background:${pinnedGroupBg};">
-                                <span style="display:inline-flex;align-items:center;min-width:0;">
-                                    <span class="tm-group-toggle${pinnedIsCollapsed ? ' tm-group-toggle--collapsed' : ''}" style="cursor:pointer;display:inline-flex;align-items:center;justify-content:center;width:16px;color:var(--tm-text-color);"><svg class="tm-group-toggle-icon" viewBox="0 0 16 16" width="16" height="16"><path d="M6 4l4 4-4 4" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg></span>
-                                    <span style="color:var(--tm-text-color);">📌 置顶</span>
-                                </span>
-                                <span class="tm-badge tm-badge--count">${allPinned.length}</span>
-                            </div>
-                        `;
+                        const pinnedTitle = renderPinnedGroupTitle(pinnedGroupKey, allPinned.length);
                         result += `<div class="tm-kanban-group">${pinnedTitle}${pinnedBody}</div>`;
                     }
                     // 渲染普通任务

@@ -1390,6 +1390,28 @@
         showSettings();
     };
 
+    function __tmRefreshSettingsProjectionView(reason = 'settings-projection') {
+        const refreshReason = String(reason || 'settings-projection').trim() || 'settings-projection';
+        try {
+            __tmScheduleViewRefresh({
+                mode: 'current',
+                withFilters: true,
+                reason: refreshReason,
+            });
+            return;
+        } catch (e) {}
+        try {
+            __tmScheduleRender({ withFilters: true, reason: refreshReason });
+            return;
+        } catch (e) {}
+        try { applyFilters(); } catch (e) {}
+        try {
+            if (!__tmRerenderCurrentViewInPlace(state.modal)) render();
+        } catch (e) {
+            try { render(); } catch (e2) {}
+        }
+    }
+
     window.toggleGroupByTime = async function(checked) {
         state.groupByTime = !!checked;
         if (state.groupByTime) {
@@ -1419,8 +1441,7 @@
         __tmPersistGlobalViewProfileFromCurrentState();
         try { SettingsStore.syncToLocal(); } catch (e) {}
         await SettingsStore.save();
-        applyFilters();
-        render();
+        __tmRefreshSettingsProjectionView('settings-group-by-time');
     };
 
     window.toggleGroupByDocName = async function(checked) {
@@ -1452,8 +1473,7 @@
         __tmPersistGlobalViewProfileFromCurrentState();
         try { SettingsStore.syncToLocal(); } catch (e) {}
         await SettingsStore.save();
-        applyFilters();
-        render();
+        __tmRefreshSettingsProjectionView('settings-group-by-doc');
     };
 
     window.toggleGroupByTaskName = async function(checked) {
@@ -1475,8 +1495,7 @@
         __tmPersistGlobalViewProfileFromCurrentState();
         try { SettingsStore.syncToLocal(); } catch (e) {}
         await SettingsStore.save();
-        applyFilters();
-        render();
+        __tmRefreshSettingsProjectionView('settings-group-by-task');
     };
 
     window.toggleQuadrantGroup = async function(checked) {
@@ -1504,8 +1523,7 @@
         __tmPersistGlobalViewProfileFromCurrentState();
         try { SettingsStore.syncToLocal(); } catch (e) {}
         await SettingsStore.save();
-        applyFilters();
-        render();
+        __tmRefreshSettingsProjectionView('settings-group-quadrant');
     };
 
     window.tmSwitchGroupMode = async function(mode) {
@@ -1527,8 +1545,7 @@
         __tmPersistGlobalViewProfileFromCurrentState();
         try { SettingsStore.syncToLocal(); } catch (e) {}
         await SettingsStore.save();
-        applyFilters();
-        render();
+        __tmRefreshSettingsProjectionView('settings-group-none');
     };
 
     window.tmToggleKanbanHeadingGroupMode = async function(ev) {
@@ -1551,8 +1568,7 @@
             try { await __tmCleanupPlaceholderTasks(state.__tmLoadedDocIdsForTasks || []); } catch (e) {}
             try { await __tmWarmKanbanDocHeadings(state.__tmLoadedDocIdsForTasks || []); } catch (e) {}
         }
-        applyFilters();
-        if (!__tmRerenderCurrentViewInPlace(state.modal)) render();
+        __tmRefreshSettingsProjectionView('settings-kanban-board-mode');
         const labelMap = { status: '状态看板', heading: '标题看板', time: '时间看板' };
         try { hint(`✅ 已切换到${labelMap[next] || '状态看板'}`, 'success'); } catch (e) {}
     };
@@ -1699,6 +1715,7 @@
         const rawKey = String(groupKey || '').trim();
         const k0 = __tmNormalizeCompletedRootGroupKey(rawKey);
         if (!k0) return;
+        try { __tmMarkHighPriorityInteraction('group-collapse-toggle', 680); } catch (e) {}
         const isCompletedGroup = __tmIsCompletedRootGroupKey(k0);
         const action = isCompletedGroup
             ? (__tmIsCompletedRootGroupCollapsed(k0) ? 'expand' : 'collapse')
@@ -1946,6 +1963,14 @@
         state.__settingsUnstack = null;
         state.statusOptionDraft = null;
         state.statusOptionDraftShouldFocus = false;
+        state.settingsSearchQuery = '';
+        state.settingsSearchResultsOpen = false;
+        state.settingsSearchActiveIndex = -1;
+        state.settingsSearchPendingTarget = null;
+        try {
+            if (state.settingsSearchHighlightTimer) clearTimeout(state.settingsSearchHighlightTimer);
+        } catch (e) {}
+        state.settingsSearchHighlightTimer = null;
         if (state.settingsModal) {
             state.settingsModal.remove();
             state.settingsModal = null;
