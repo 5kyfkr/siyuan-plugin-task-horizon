@@ -88,6 +88,7 @@ try {
         '.history',
         '.idea',
         '.vscode',
+        'scripts',
         '.DS_Store',
         'node_modules',
         'docs',

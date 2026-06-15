@@ -878,12 +878,215 @@
         };
     }
 
+    function __tmParseQuickbarTaskCreatedTs(task, taskId) {
+        const raw = String(task?.created || task?.created_at || task?.createdAt || '').trim();
+        if (raw) {
+            try {
+                const ts = __tmParseCreatedTs(raw);
+                if (ts) return ts;
+            } catch (e) {}
+        }
+        const bid = String(taskId || task?.id || '').trim();
+        if (!bid) return 0;
+        const match = bid.match(/^(\d{14})/);
+        if (!match) return 0;
+        try {
+            return __tmParseCreatedTs(match[1]);
+        } catch (e) {
+            return 0;
+        }
+    }
+
+    async function __tmResolveQuickbarSubtaskInheritanceTask(taskId, options = {}) {
+        const tid = String(taskId || '').trim();
+        if (!tid) return null;
+        const opts = (options && typeof options === 'object') ? options : {};
+        const fallbackAttrHostId = String(opts.attrHostId || '').trim();
+        const forceFresh = opts.forceFresh === true;
+        let task = forceFresh ? null : (
+            globalThis.__tmRuntimeState?.getTaskById?.(tid, { includePending: true, preferPending: true })
+            || state.flatTasks?.[tid]
+            || state.pendingInsertedTasks?.[tid]
+            || null
+        );
+        if (!task && forceFresh) {
+            try { task = await API.getTaskById(tid); } catch (e) { task = null; }
+        }
+        if (!task && !forceFresh) {
+            try { task = await __tmEnsureTaskInStateById(tid); } catch (e) { task = null; }
+        }
+        if (!task) {
+            try { task = await __tmBuildTaskLikeFromBlockId(tid); } catch (e) { task = null; }
+        }
+        if (!task || typeof task !== 'object') return null;
+        if (fallbackAttrHostId) {
+            try {
+                task.attrHostId = fallbackAttrHostId;
+                task.attr_host_id = fallbackAttrHostId;
+            } catch (e) {}
+        }
+        try {
+            task = __tmCacheTaskInState(task, {
+                docNameFallback: task.doc_name || task.docName || '未命名文档'
+            }) || task;
+        } catch (e) {}
+        return task && typeof task === 'object' ? task : null;
+    }
+
+    async function __tmQuickbarMaybeInheritSubtaskFields(detail = {}) {
+        const next = (detail && typeof detail === 'object' && !Array.isArray(detail)) ? detail : {};
+        const taskId = String(next.taskId || next.requestedTaskId || '').trim();
+        const parentTaskId = String(next.parentTaskId || '').trim();
+        const attrHostId = String(next.attrHostId || '').trim();
+        if (!taskId || !parentTaskId || taskId === parentTaskId) {
+            return {
+                ok: false,
+                changed: false,
+                reason: 'invalid-binding',
+                taskId,
+                parentTaskId,
+                attrHostId,
+            };
+        }
+        try { await __tmEnsureSettingsLoaded(false); } catch (e) {}
+        const selectedFields = __tmNormalizeSubtaskInheritedFields(SettingsStore?.data?.subtaskInheritedFields, []);
+        if (!selectedFields.length) {
+            return {
+                ok: true,
+                changed: false,
+                reason: 'no-fields',
+                taskId,
+                parentTaskId,
+                attrHostId,
+            };
+        }
+        const customFieldIds = selectedFields
+            .map((fieldKey) => __tmParseCustomFieldColumnKey(fieldKey))
+            .filter(Boolean);
+        const maxAgeMs = Math.max(120000, Number(next.maxAgeMs) || 10 * 60 * 1000);
+        const idCreatedTs = __tmParseQuickbarTaskCreatedTs(null, taskId);
+        if (idCreatedTs && (Date.now() - idCreatedTs) > maxAgeMs) {
+            return {
+                ok: true,
+                changed: false,
+                reason: 'stale-child',
+                taskId,
+                parentTaskId,
+                attrHostId,
+            };
+        }
+        let childTask = await __tmResolveQuickbarSubtaskInheritanceTask(taskId, { attrHostId: attrHostId || taskId, forceFresh: true });
+        if (!childTask) {
+            return {
+                ok: false,
+                changed: false,
+                retry: true,
+                reason: 'child-missing',
+                taskId,
+                parentTaskId,
+                attrHostId,
+            };
+        }
+        let parentTask = await __tmResolveQuickbarSubtaskInheritanceTask(parentTaskId, { forceFresh: true });
+        if (!parentTask) {
+            return {
+                ok: false,
+                changed: false,
+                retry: true,
+                reason: 'parent-missing',
+                taskId,
+                parentTaskId,
+                attrHostId,
+            };
+        }
+        const createdTs = __tmParseQuickbarTaskCreatedTs(childTask, taskId);
+        if (createdTs && (Date.now() - createdTs) > maxAgeMs) {
+            return {
+                ok: true,
+                changed: false,
+                reason: 'stale-child',
+                taskId,
+                parentTaskId,
+                attrHostId,
+            };
+        }
+        if (customFieldIds.length) {
+            if (typeof __tmAttachCustomFieldAttrsToTasks !== 'function') {
+                return {
+                    ok: false,
+                    changed: false,
+                    retry: true,
+                    reason: 'custom-field-unavailable',
+                    taskId,
+                    parentTaskId,
+                    attrHostId,
+                };
+            }
+            try {
+                await __tmAttachCustomFieldAttrsToTasks([childTask, parentTask], { fieldIds: customFieldIds });
+            } catch (e) {
+                return {
+                    ok: false,
+                    changed: false,
+                    retry: true,
+                    reason: 'custom-field-attach-failed',
+                    taskId,
+                    parentTaskId,
+                    attrHostId,
+                };
+            }
+        }
+        try {
+            childTask = __tmCacheTaskInState(childTask, {
+                docNameFallback: childTask.doc_name || childTask.docName || '未命名文档'
+            }) || childTask;
+            parentTask = __tmCacheTaskInState(parentTask, {
+                docNameFallback: parentTask.doc_name || parentTask.docName || '未命名文档'
+            }) || parentTask;
+        } catch (e) {}
+        const patch = __tmBuildMissingExternalSubtaskInheritedPatch(childTask, parentTask);
+        if (!patch || !Object.keys(patch).length) {
+            return {
+                ok: true,
+                changed: false,
+                reason: 'no-patch',
+                taskId,
+                parentTaskId,
+                attrHostId,
+            };
+        }
+        const queueAttrHostId = String(attrHostId || childTask.attrHostId || childTask.attr_host_id || taskId).trim();
+        const docId = String(next.docId || childTask.root_id || childTask.docId || parentTask.root_id || parentTask.docId || '').trim();
+        const queued = __tmQueueExternalSubtaskInheritedPatches([{ 
+            task: childTask,
+            parentTask,
+            patch,
+            docId,
+            attrHostId: queueAttrHostId,
+        }], {
+            source: String(next.source || 'quickbar-subtask-inherit-attrs').trim() || 'quickbar-subtask-inherit-attrs',
+            attrTargetId: queueAttrHostId,
+        });
+        return {
+            ok: true,
+            changed: queued > 0,
+            queued: queued > 0,
+            reason: queued > 0 ? 'queued' : 'already-queued',
+            taskId,
+            parentTaskId,
+            attrHostId: queueAttrHostId,
+        };
+    }
+
     __tmNs.quickbarBridge = {
         debugPush(channel, tag, payload = {}) {
             return __tmPushDebugChannel(channel, tag, payload);
         },
         async getTaskCustomPropsByAnyId(taskIdOrBlockId, options = {}) {
             return await __tmGetQuickbarTaskCustomPropsByAnyId(taskIdOrBlockId, options);
+        },
+        async maybeInheritSubtaskFields(detail = {}) {
+            return await __tmQuickbarMaybeInheritSubtaskFields(detail);
         },
         formatTaskTime(value) {
             try { return __tmFormatTaskTime(value); } catch (e) { return String(value || '').trim(); }

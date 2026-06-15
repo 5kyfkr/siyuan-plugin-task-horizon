@@ -52,9 +52,7 @@
 
     function __tmGetTaskDetailDisplayTitle(task) {
         const stripTaskSyntax = (input) => String(input || '')
-            .replace(/^[\s>*-]*\[(?:[xX ]?)\]\s*/, '')
-            .replace(/^[\s>*-]*\[\]\s*/, '')
-            .replace(/^[\s>*-]*\d+\.\s+\[(?:[xX ]?)\]\s*/, '')
+            .replace(/^[\s>*]*(?:(?:[-*+]|\d+[.)])\s*)?\[[^\]]?\]\s*/, '')
             .trim();
         const candidates = [];
         try {
@@ -476,8 +474,7 @@
             text = String(text.split(/\r?\n/)[0] || text).trim();
         }
         text = text
-            .replace(/^[\s>*-]*\[(?:[xX ]?)\]\s*/, '')
-            .replace(/^[\s>*-]*\[\]\s*/, '')
+            .replace(/^[\s>*]*(?:(?:[-*+]|\d+[.)])\s*)?\[[^\]]?\]\s*/, '')
             .replace(/\{\:\s*[^}]*\}/g, '')
             .replace(/<span[^>]*>[\s\S]*?<\/span>/gi, '')
             .replace(/<[^>]+>/g, '')
@@ -1558,8 +1555,7 @@
         const remarkValue = __tmNormalizeRemarkMarkdown(task?.remark || '');
         const cleanDetailTitle = (value, fallback = '') => {
             const stripTaskSyntax = (input) => String(input || '')
-                .replace(/^[\s>*-]*\[(?:[xX ]?)\]\s*/, '')
-                .replace(/^[\s>*-]*\[\]\s*/, '')
+                .replace(/^[\s>*]*(?:(?:[-*+]|\d+[.)])\s*)?\[[^\]]?\]\s*/, '')
                 .replace(/\r?\n+/g, ' ')
                 .replace(/\s{2,}/g, ' ')
                 .trim();
@@ -1658,10 +1654,11 @@
         }
         if (showHeadingLocation) {
             const headingLevel = String(task?.headingLevel || SettingsStore?.data?.taskHeadingLevel || 'h2').trim() || 'h2';
-            const headingIconHtml = __tmRenderHeadingLevelInlineIcon(headingLevel, { size: 14 });
+            const headingRawText = String(task?.h2 || task?.h2Name || '').trim();
+            const headingLabelHtml = (text) => __tmRenderHeadingLevelIconLabel(text, headingLevel, { size: 14 });
             locationItems.push(isOtherBlock
-                ? `<span class="tm-checklist-meta-chip" title="来源位置">${headingIconHtml} ${esc(String(headingName || task?.otherBlockTypeLabel || '无'))}</span>`
-                : `<button type="button" class="tm-checklist-meta-chip tm-task-detail-location-chip" data-tm-detail="location-heading"${detailTip('点击切换标题', { ariaLabel: false })}>${headingIconHtml} ${esc(String(headingName || '无'))}</button>`);
+                ? `<span class="tm-checklist-meta-chip" title="来源位置">${headingLabelHtml(headingRawText || headingName || task?.otherBlockTypeLabel || '无')}</span>`
+                : `<button type="button" class="tm-checklist-meta-chip tm-task-detail-location-chip" data-tm-detail="location-heading"${detailTip('点击切换标题', { ariaLabel: false })}>${headingLabelHtml(headingRawText || headingName || '无')}</button>`);
         }
         locationItems.push(`<button type="button" class="tm-checklist-meta-chip tm-task-detail-location-chip" data-tm-detail="jump"${detailTip('跳转到任务', { ariaLabel: false })}>${__tmRenderLucideIcon('map-pin')} 跳转</button>`);
         const locationHtml = `
@@ -1777,8 +1774,8 @@
         }
         if (showHeadingLocation) {
             const headingLevel = String(task?.headingLevel || SettingsStore?.data?.taskHeadingLevel || 'h2').trim() || 'h2';
-            const headingIconHtml = __tmRenderHeadingLevelInlineIcon(headingLevel, { size: 14 });
-            locationItems.push(`<span class="tm-checklist-meta-chip" title="来源位置">${headingIconHtml} ${esc(String(headingName || '无'))}</span>`);
+            const headingRawText = String(task?.h2 || task?.h2Name || '').trim();
+            locationItems.push(`<span class="tm-checklist-meta-chip" title="来源位置">${__tmRenderHeadingLevelIconLabel(headingRawText || headingName || '无', headingLevel, { size: 14 })}</span>`);
         }
         const locationHtml = `
                 <div class="tm-task-detail-location">
@@ -2200,6 +2197,34 @@
             side: 'bottom',
             ...((tipOpts && typeof tipOpts === 'object') ? tipOpts : {}),
         });
+        const syncSubtaskVisibilityToggle = () => {
+            const task = getBoundTask();
+            const children = Array.isArray(task?.children) ? task.children : [];
+            const count = root.querySelector('.tm-task-detail-section--subtasks .tm-task-detail-section-count');
+            const tools = count instanceof HTMLElement ? count.closest('.tm-task-detail-section-tools') : null;
+            let btn = root.querySelector('[data-tm-detail-toggle-completed-subtasks]');
+            if (!children.length || !(count instanceof HTMLElement) || !(tools instanceof HTMLElement)) {
+                try { btn?.remove?.(); } catch (e) {}
+                return false;
+            }
+            const showCompletedSubtasks = typeof __tmShouldShowCompletedSubtasksForTask === 'function'
+                ? __tmShouldShowCompletedSubtasksForTask(getBoundTaskId() || taskId)
+                : true;
+            const action = showCompletedSubtasks ? '隐藏已完成任务' : '显示已完成任务';
+            if (!(btn instanceof HTMLButtonElement)) {
+                btn = document.createElement('button');
+                btn.type = 'button';
+                btn.className = 'bc-btn bc-btn--sm tm-task-detail-subtask-visibility-btn';
+                btn.setAttribute('data-tm-detail-toggle-completed-subtasks', '');
+                tools.insertBefore(btn, count);
+            }
+            btn.classList.remove('is-active');
+            btn.setAttribute('aria-pressed', showCompletedSubtasks ? 'false' : 'true');
+            btn.innerHTML = __tmRenderLucideIcon(showCompletedSubtasks ? 'check-circle-2' : 'circle');
+            try { __tmApplyTooltipAttrsToElement(btn, action, { side: 'bottom' }); } catch (e) {}
+            try { btn.setAttribute('aria-label', action); } catch (e) {}
+            return true;
+        };
         const getAttachmentSection = () => root.querySelector('[data-tm-detail-attachment-section]');
         const syncAttachmentSection = (taskLike = null) => {
             const task = (taskLike && typeof taskLike === 'object') ? taskLike : getBoundTask();
@@ -3016,7 +3041,8 @@
                     return;
                 }
                 const jumped = await tmJumpToTask(boundTaskId || taskId, ev);
-                if (jumped !== false) await close();
+                const keepChecklistSideDetailOpen = embedded && String(root.id || '').trim() === 'tmChecklistDetailPanel';
+                if (jumped !== false && !keepChecklistSideDetailOpen) await close();
             } catch (e) {}
         });
         on(root.querySelector('[data-tm-detail="location-doc"]'), 'click', (ev) => {
@@ -3660,10 +3686,28 @@
             try { root.__tmTaskDetailDestroyNoteView = destroyTaskDetailNoteView; } catch (e) {}
             try { root.__tmTaskDetailFlushNoteView = (flushReason = 'manual') => flushTaskDetailNoteTxRefresh(taskForNote, bid, flushReason); } catch (e) {}
             try { __tmSetTaskDetailNoteViewState(taskDetailNoteScope, taskForNote, bid); } catch (e) {}
-            on(root.querySelector('[data-tm-detail="detail-view"]'), 'click', async (event) => {
+            let noteReturnPending = false;
+            const returnToDetailView = async (event, reason = 'note-return') => {
                 try { event.preventDefault(); } catch (e) {}
                 try { event.stopPropagation(); } catch (e) {}
-                await rebuildDetailFromNoteView(taskForNote, 'note-return');
+                try { event.stopImmediatePropagation(); } catch (e) {}
+                if (noteReturnPending) return;
+                noteReturnPending = true;
+                try {
+                    await rebuildDetailFromNoteView(taskForNote, reason);
+                } finally {
+                    if (root.isConnected && __tmIsTaskDetailNoteViewActive(root, noteTaskId)) {
+                        noteReturnPending = false;
+                    }
+                }
+            };
+            const detailViewBtn = root.querySelector('[data-tm-detail="detail-view"]');
+            on(detailViewBtn, 'pointerdown', (event) => {
+                if (event?.button != null && event.button !== 0) return;
+                returnToDetailView(event, 'note-return').catch(() => null);
+            }, { capture: true });
+            on(detailViewBtn, 'click', (event) => {
+                returnToDetailView(event, 'note-return').catch(() => null);
             });
             on(root.querySelector('[data-tm-detail="close"]'), 'click', close);
             const mount = root.querySelector('[data-tm-detail-note-mount]');
@@ -3685,6 +3729,7 @@
             on(document, 'pointerdown', (event) => {
                 const target = event?.target;
                 if (!(target instanceof Element) || mount.contains(target)) return;
+                if (target.closest?.('[data-tm-detail="detail-view"]')) return;
                 flushTaskDetailNoteTxRefresh(taskForNote, bid, 'detail-note-view-outside-pointer').catch(() => null);
             }, { capture: true });
             const protyleOptions = {
@@ -3785,16 +3830,12 @@
                 try { hint('⏳ 任务正在写入，完成后可打开笔记内视图', 'info'); } catch (e) {}
                 return;
             }
-            const saved = await flushAutoSaveNow({
-                showHint: false,
-                closeAfterSave: false,
-                preserveFocus: true,
-                skipRerender: true,
-            });
-            if (saved === false || !isSessionActive()) {
-                try { hint('❌ 保存失败，已留在详情页', 'error'); } catch (e) {}
-                return;
+            if (autoSaveTimer) {
+                try { clearTimeout(autoSaveTimer); } catch (e) {}
+                autoSaveTimer = null;
             }
+            resetQueuedSaveRequest();
+            if (!isSessionActive()) return;
             const currentTaskForNoteView = getBoundTask();
             const recurringSourceTaskId = __tmGetTaskDetailRecurringSourceTaskId(currentTaskForNoteView, requestedId);
             if (recurringSourceTaskId) {
@@ -5726,28 +5767,6 @@
                         bindSubtaskContentEditor(el, subtaskId);
                     });
                 } catch (e) {}
-                try {
-                    nextRow.querySelectorAll('[data-tm-detail-open-child]').forEach((btn) => {
-                        if (!(btn instanceof HTMLButtonElement)) return;
-                        on(btn, 'click', async (ev) => {
-                            try { ev.preventDefault(); } catch (e) {}
-                            try { ev.stopPropagation(); } catch (e) {}
-                            const attrId = String(btn.getAttribute('data-tm-detail-open-child') || '').trim();
-                            const nextId = __tmResolveTaskDetailEffectiveId(attrId) || attrId;
-                            if (!nextId) return;
-                            await refreshBoundDetail(nextId);
-                        });
-                    });
-                    nextRow.querySelectorAll('[data-tm-detail-subtask-menu]').forEach((row) => {
-                        if (!(row instanceof HTMLElement)) return;
-                        on(row, 'contextmenu', (ev) => {
-                            const attrId = String(row.getAttribute('data-tm-detail-subtask-menu') || '').trim();
-                            const subtaskId = __tmResolveTaskDetailEffectiveId(attrId) || attrId;
-                            if (!subtaskId) return;
-                            try { tmShowTaskContextMenu(ev, subtaskId); } catch (e) {}
-                        });
-                    });
-                } catch (e) {}
                 try { __tmBindFloatingTooltips(nextRow); } catch (e) {}
                 restoreSubtaskEmptyState();
                 return nextRow;
@@ -5801,10 +5820,19 @@
                         skipOptimisticFilterWork: true,
                         skipSettledRefresh: true,
                         refreshCurrentView: false,
+                        scheduleSnapshotRefresh: false,
                         skipSnapshotViewStateFilterRefresh: true,
+                        refreshPolicy: {
+                            current: false,
+                            detail: false,
+                            checklistGroup: false,
+                            snapshot: false,
+                            withFilters: false,
+                        },
                         onQueued: (tempId) => {
                             const tid = String(tempId || '').trim();
                             if (tid) tempIds.push(tid);
+                            try { __tmScheduleChecklistOptimisticSubtaskRefresh?.(parentForCreate, tid); } catch (e) {}
                             insertQueuedSubtaskRow(tempId, line, index);
                             restoreEmbeddedDetailScroll(detailScrollSnapshot, { onlyIfNear: true });
                         },
@@ -6290,24 +6318,40 @@
                     },
                 });
             });
-            root.querySelectorAll('[data-tm-detail-open-child]').forEach((btn) => {
-                if (!(btn instanceof HTMLButtonElement)) return;
-                on(btn, 'click', async (ev) => {
-                    try { ev.preventDefault(); } catch (e) {}
-                    try { ev.stopPropagation(); } catch (e) {}
-                    const attrId = String(btn.getAttribute('data-tm-detail-open-child') || '').trim();
-                    const nextId = __tmResolveTaskDetailEffectiveId(attrId) || attrId;
-                    if (!nextId) return;
-                    await refreshBoundDetail(nextId);
-                });
+            on(root, 'click', async (ev) => {
+                const target = ev.target instanceof Element
+                    ? ev.target.closest('[data-tm-detail-toggle-completed-subtasks]')
+                    : null;
+                if (!(target instanceof HTMLElement) || !root.contains(target)) return;
+                try { ev.preventDefault(); } catch (e) {}
+                try { ev.stopPropagation(); } catch (e) {}
+                const tid = getBoundTaskId() || taskId;
+                const showCompletedSubtasks = typeof __tmShouldShowCompletedSubtasksForTask === 'function'
+                    ? __tmShouldShowCompletedSubtasksForTask(tid)
+                    : true;
+                await window.tmToggleTaskDetailCompletedSubtasks?.(tid, !showCompletedSubtasks);
             });
-            root.querySelectorAll('[data-tm-detail-subtask-menu]').forEach((row) => {
-                if (!(row instanceof HTMLElement)) return;
-                on(row, 'contextmenu', (ev) => {
-                    const subtaskId = String(row.getAttribute('data-tm-detail-subtask-menu') || '').trim();
-                    if (!subtaskId) return;
-                    try { tmShowTaskContextMenu(ev, subtaskId); } catch (e) {}
-                });
+            on(root, 'click', async (ev) => {
+                const target = ev.target instanceof Element
+                    ? ev.target.closest('[data-tm-detail-open-child]')
+                    : null;
+                if (!(target instanceof HTMLElement) || !root.contains(target)) return;
+                try { ev.preventDefault(); } catch (e) {}
+                try { ev.stopPropagation(); } catch (e) {}
+                const attrId = String(target.getAttribute('data-tm-detail-open-child') || '').trim();
+                const nextId = __tmResolveTaskDetailEffectiveId(attrId) || attrId;
+                if (!nextId) return;
+                await refreshBoundDetail(nextId);
+            });
+            on(root, 'contextmenu', (ev) => {
+                const row = ev.target instanceof Element
+                    ? ev.target.closest('[data-tm-detail-subtask-menu]')
+                    : null;
+                if (!(row instanceof HTMLElement) || !root.contains(row)) return;
+                const attrId = String(row.getAttribute('data-tm-detail-subtask-menu') || '').trim();
+                const subtaskId = __tmResolveTaskDetailEffectiveId(attrId) || attrId;
+                if (!subtaskId) return;
+                try { tmShowTaskContextMenu(ev, subtaskId); } catch (e) {}
             });
             root.querySelectorAll('[data-tm-detail-repeat-history-delete]').forEach((btn) => {
                 if (!(btn instanceof HTMLButtonElement)) return;
@@ -6567,6 +6611,14 @@
                     skipRerender: true,
                 }).catch(() => null);
             });
+            const blurTitleWhenPointerLeavesEditor = (ev) => {
+                if (document.activeElement !== titleTextarea) return;
+                const target = ev?.target instanceof Element ? ev.target : null;
+                if (target && (target === titleTextarea || titleTextarea.contains(target))) return;
+                try { titleTextarea.blur(); } catch (e) {}
+            };
+            on(document, 'pointerdown', blurTitleWhenPointerLeavesEditor, { capture: true });
+            on(document, 'touchstart', blurTitleWhenPointerLeavesEditor, { capture: true, passive: true });
             try {
                 requestAnimationFrame(() => syncAutoHeight(titleTextarea, 36));
             } catch (e) {}
@@ -6585,6 +6637,7 @@
                 return null;
             };
             let remarkEnterGuardUntil = 0;
+            let remarkExitInFlight = false;
             const armRemarkInteractionGuard = (duration = null) => {
                 const fallback = __tmIsMobileDevice() ? 900 : 360;
                 const ttl = Math.max(0, Number(duration) || fallback);
@@ -6715,6 +6768,9 @@
                 } catch (e) {}
             };
             const exitRemarkEditMode = (save = true) => {
+                if (remarkExitInFlight) return;
+                if (!remarkShell.classList.contains('is-editing')) return;
+                remarkExitInFlight = true;
                 const run = async () => {
                     syncRemarkHeight();
                     syncRemarkPreview(true);
@@ -6730,12 +6786,15 @@
                     remarkShell.classList.remove('is-editing');
                     try { remarkShell.dataset.mode = 'preview'; } catch (e) {}
                 };
-                run().catch(() => null);
+                run().catch(() => null).finally(() => {
+                    remarkExitInFlight = false;
+                });
             };
 
             syncRemarkPreview();
             syncRemarkHeight();
             setRemarkToolbarOpen(false);
+            try { __tmBindRemarkTextareaUndoHistory(remarkTextarea); } catch (e) {}
             try { remarkShell.dataset.mode = 'preview'; } catch (e) {}
             bindRemarkInteractionGuard(remarkShell);
             bindRemarkInteractionGuard(remarkToolbar);
@@ -6870,6 +6929,17 @@
                     });
                 } catch (e) {}
             });
+            const exitRemarkWhenPointerLeavesEditor = (ev) => {
+                if (!remarkShell.classList.contains('is-editing')) return;
+                const target = resolveRemarkTargetElement(ev?.target);
+                if (target instanceof Element && isRemarkEditorScopedTarget(target)) return;
+                try {
+                    if (document.activeElement === remarkTextarea) remarkTextarea.blur();
+                } catch (e) {}
+                exitRemarkEditMode(true);
+            };
+            on(document, 'pointerdown', exitRemarkWhenPointerLeavesEditor, { capture: true });
+            on(document, 'touchstart', exitRemarkWhenPointerLeavesEditor, { capture: true, passive: true });
             if (window.visualViewport?.addEventListener) {
                 on(window.visualViewport, 'resize', () => {
                     scheduleEnsureRemarkVisibleOnMobile();
@@ -6922,6 +6992,7 @@
         bindCoreMetaControls();
         bindCustomFieldEditors();
         bindSubtaskEditors();
+        syncSubtaskVisibilityToggle();
         try { __tmBindFloatingTooltips(root); } catch (e) {}
         on(window, 'tm:calendar-schedule-updated', () => {
             void refreshTimeHubScheduleSummary();
@@ -7086,7 +7157,9 @@ const multiSelectedSet = __tmGetMultiSelectedTaskIdSet();
             item.classList.toggle('tm-task-row--multi-selected', !!id && multiSelectedSet.has(id));
         });
         const panel = panelState.panel;
-        if (!(panel instanceof HTMLElement)) return false;
+        if (!(panel instanceof HTMLElement)) {
+            return false;
+        }
         const prevTaskId = String(panel.dataset?.tmDetailTaskId || panel.__tmTaskDetailTaskId || panel.__tmTaskDetailTask?.id || '').trim();
         const detailScrollSnapshot = prevTaskId && __tmAreTaskDetailIdsEquivalent(prevTaskId, selectedId)
             ? {
@@ -7106,7 +7179,7 @@ const multiSelectedSet = __tmGetMultiSelectedTaskIdSet();
             const backdrop = modal.querySelector('#tmChecklistSheetBackdrop');
             const sheet = modal.querySelector('#tmChecklistSheet');
             if (backdrop instanceof HTMLElement) backdrop.classList.toggle('tm-checklist-sheet-backdrop--open', !!(sheetMode && state.checklistDetailSheetOpen && task));
-            if (sheet instanceof HTMLElement) sheet.classList.toggle('tm-checklist-sheet--open', !!(sheetMode && state.checklistDetailSheetOpen && task));
+            if (sheet instanceof HTMLElement) __tmSyncDetailSheetVisualState(sheet, !!(sheetMode && state.checklistDetailSheetOpen && task));
             try { modal.__tmChecklistSelectionSignature = nextSignature; } catch (e) {}
             return true;
         }
@@ -7144,7 +7217,7 @@ const multiSelectedSet = __tmGetMultiSelectedTaskIdSet();
             const backdrop = modal.querySelector('#tmChecklistSheetBackdrop');
             const sheet = modal.querySelector('#tmChecklistSheet');
             if (backdrop instanceof HTMLElement) backdrop.classList.toggle('tm-checklist-sheet-backdrop--open', !!(sheetMode && state.checklistDetailSheetOpen && task));
-            if (sheet instanceof HTMLElement) sheet.classList.toggle('tm-checklist-sheet--open', !!(sheetMode && state.checklistDetailSheetOpen && task));
+            if (sheet instanceof HTMLElement) __tmSyncDetailSheetVisualState(sheet, !!(sheetMode && state.checklistDetailSheetOpen && task));
             try { panel.__tmTaskDetailTask = task || null; } catch (e) {}
             try { __tmRememberTaskDetailLocationSignature(panel, task); } catch (e) {}
 return true;
@@ -7204,6 +7277,7 @@ return true;
                     state.detailTaskId = '';
                     state.checklistDetailDismissed = true;
                     state.checklistDetailSheetOpen = false;
+                    state.checklistDetailSheetFullscreen = false;
                     if (!__tmRefreshChecklistSelectionInPlace(state.modal, 'detail-close')) render();
                 }
             });
@@ -7212,7 +7286,7 @@ return true;
         const backdrop = modal.querySelector('#tmChecklistSheetBackdrop');
         const sheet = modal.querySelector('#tmChecklistSheet');
         if (backdrop instanceof HTMLElement) backdrop.classList.toggle('tm-checklist-sheet-backdrop--open', !!(sheetMode && state.checklistDetailSheetOpen && task));
-        if (sheet instanceof HTMLElement) sheet.classList.toggle('tm-checklist-sheet--open', !!(sheetMode && state.checklistDetailSheetOpen && task));
+        if (sheet instanceof HTMLElement) __tmSyncDetailSheetVisualState(sheet, !!(sheetMode && state.checklistDetailSheetOpen && task));
         if (detailScrollSnapshot) {
             try { __tmRestoreChecklistDetailScrollSnapshot(detailScrollSnapshot, modal); } catch (e) {}
         }
@@ -7244,6 +7318,7 @@ return true;
         const backdrop = document.createElement('div');
         backdrop.id = 'tmTaskDetailSheetBackdrop';
         backdrop.className = 'tm-checklist-sheet-backdrop';
+        backdrop.setAttribute('onpointerdown', 'tmTaskDetailSheetClose(event)');
         backdrop.setAttribute('onclick', 'tmTaskDetailSheetClose(event)');
 
         const sheet = document.createElement('div');
@@ -7271,6 +7346,7 @@ return true;
         sheet.appendChild(panel);
         stage.appendChild(backdrop);
         stage.appendChild(sheet);
+        try { globalThis.__tmBindChecklistSheetTouchFallback?.(modal); } catch (e) {}
 
         __tmBindTaskDetailEditor(panel, tid, {
             embedded: true,
@@ -7292,7 +7368,7 @@ return true;
         const backdrop = modal.querySelector('#tmTaskDetailSheetBackdrop');
         const sheet = modal.querySelector('#tmTaskDetailSheet');
         if (backdrop instanceof HTMLElement) backdrop.classList.toggle('tm-checklist-sheet-backdrop--open', open);
-        if (sheet instanceof HTMLElement) sheet.classList.toggle('tm-checklist-sheet--open', open);
+        if (sheet instanceof HTMLElement) __tmSyncDetailSheetVisualState(sheet, open);
         return open;
     }
 
@@ -7303,8 +7379,9 @@ return true;
         state.kanbanDetailAnchorTaskId = '';
         try { __tmClearKanbanDetailFloatingHandlers(); } catch (e) {}
         try {
-            const floatPanel = modal?.querySelector?.('#tmKanbanDetailFloat');
-            if (floatPanel instanceof HTMLElement) floatPanel.remove();
+            modal?.querySelectorAll?.('#tmKanbanDetailFloat')?.forEach?.((floatPanel) => {
+                if (floatPanel instanceof HTMLElement) floatPanel.remove();
+            });
         } catch (e) {}
     }
 
@@ -7314,7 +7391,9 @@ return true;
         const opts = (options && typeof options === 'object') ? options : {};
         const forceRebuild = opts.forceRebuild === true;
         const panel = __tmResolveTaskDetailSheetPanel(modal);
-        if (!(panel instanceof HTMLElement)) return false;
+        if (!(panel instanceof HTMLElement)) {
+            return false;
+        }
         const selectedId = String(state.detailTaskId || '').trim();
         const prevTaskId = String(panel.dataset?.tmDetailTaskId || panel.__tmTaskDetailTaskId || panel.__tmTaskDetailTask?.id || '').trim();
         const task = selectedId
@@ -7457,9 +7536,12 @@ return true;
                 refreshed = __tmRefreshTaskDetailSheetInPlace(modal, `${source}:mounted`);
             }
         }
-        if (!refreshed) render();
+        if (!refreshed) {
+            render();
+        }
         return true;
     }
+
 
     function __tmPatchTaskDetailPanelInPlace(panelEl, taskId, patch = {}) {
         const panel = panelEl instanceof Element ? panelEl : null;
@@ -8027,13 +8109,17 @@ refreshed = !!__tmRefreshChecklistSelectionInPlace(state.modal, 'visible-task-de
         return refreshed;
     }
 
+
     let __tmKanbanDetailOutsideClickHandler = null;
     let __tmKanbanDetailOutsidePointerDownHandler = null;
     let __tmKanbanDetailPointerStartedInside = false;
+    let __tmKanbanDetailSyntheticClickSuppressCleanup = null;
     let __tmKanbanDetailRepositionHandler = null;
     let __tmKanbanDetailRepositionModal = null;
 
     function __tmClearKanbanDetailFloatingHandlers() {
+        try { if (typeof __tmKanbanDetailSyntheticClickSuppressCleanup === 'function') __tmKanbanDetailSyntheticClickSuppressCleanup(); } catch (e) {}
+        __tmKanbanDetailSyntheticClickSuppressCleanup = null;
         try {
             if (__tmKanbanDetailOutsideClickHandler) {
                 globalThis.__tmRuntimeEvents?.off?.(document, 'click', __tmKanbanDetailOutsideClickHandler, false);
@@ -8059,9 +8145,125 @@ refreshed = !!__tmRefreshChecklistSelectionInPlace(state.modal, 'visible-task-de
         __tmKanbanDetailRepositionModal = null;
     }
 
+    function __tmNormalizeKanbanDetailFloatHost(modalEl) {
+        const modal = modalEl instanceof Element ? modalEl : state.modal;
+        if (!(modal instanceof HTMLElement)) return null;
+        let floats = [];
+        try {
+            floats = Array.from(modal.querySelectorAll('#tmKanbanDetailFloat'))
+                .filter((el) => el instanceof HTMLElement);
+        } catch (e) {
+            floats = [];
+        }
+        if (!floats.length) return null;
+        const hasPanel = (el) => !!(el instanceof HTMLElement && el.querySelector('#tmKanbanDetailPanel') instanceof HTMLElement);
+        const preferred = floats.find((el) => el.parentElement === modal && hasPanel(el))
+            || floats.find(hasPanel)
+            || floats.find((el) => el.parentElement === modal)
+            || floats[0];
+        if (!(preferred instanceof HTMLElement)) return null;
+        if (preferred.parentElement !== modal) {
+            try { modal.appendChild(preferred); } catch (e) {}
+        }
+        floats.forEach((el) => {
+            if (el === preferred) return;
+            try { el.remove(); } catch (e) {}
+        });
+        return preferred;
+    }
+
+    function __tmBindKanbanDetailSyntheticClickSuppress(modalEl) {
+        const modal = modalEl instanceof Element ? modalEl : state.modal;
+        if (!(modal instanceof Element)) return null;
+        let active = false;
+        let movedOutside = false;
+        let pointerId = NaN;
+        let suppressClickUntil = 0;
+        const suppressMs = 950;
+        const getFloatPanel = () => {
+            try { return modal.querySelector('#tmKanbanDetailFloat'); } catch (e) { return null; }
+        };
+        const isSamePointer = (ev) => {
+            if (!Number.isFinite(pointerId)) return true;
+            const cur = Number(ev?.pointerId);
+            return !Number.isFinite(cur) || cur === pointerId;
+        };
+        const pointInsideFloat = (ev, floatPanel) => {
+            const x = Number(ev?.clientX);
+            const y = Number(ev?.clientY);
+            if (!Number.isFinite(x) || !Number.isFinite(y)) return false;
+            try {
+                const pointEl = document.elementFromPoint(x, y);
+                return !!(pointEl instanceof Element && floatPanel instanceof Element && floatPanel.contains(pointEl));
+            } catch (e) {
+                return false;
+            }
+        };
+        const onPointerDown = (ev) => {
+            if (ev && typeof ev.button === 'number' && ev.button !== 0) return;
+            const floatPanel = getFloatPanel();
+            const target = __tmResolveTaskDetailEventElement(ev?.target);
+            if (!(floatPanel instanceof Element) || !(target instanceof Element) || !floatPanel.contains(target)) return;
+            active = true;
+            movedOutside = false;
+            pointerId = Number.isFinite(Number(ev?.pointerId)) ? Number(ev.pointerId) : NaN;
+            suppressClickUntil = 0;
+        };
+        const onPointerMove = (ev) => {
+            if (!active || !isSamePointer(ev)) return;
+            const floatPanel = getFloatPanel();
+            const target = __tmResolveTaskDetailEventElement(ev?.target);
+            const inside = !!(target instanceof Element && floatPanel instanceof Element && floatPanel.contains(target))
+                || pointInsideFloat(ev, floatPanel);
+            if (!inside) {
+                movedOutside = true;
+                suppressClickUntil = Date.now() + suppressMs;
+            }
+        };
+        const finishPointer = (ev, forceSuppress = false) => {
+            if (!active || !isSamePointer(ev)) return;
+            const floatPanel = getFloatPanel();
+            const target = __tmResolveTaskDetailEventElement(ev?.target);
+            const finalOutside = !!(ev && floatPanel instanceof Element && target instanceof Element
+                && !floatPanel.contains(target)
+                && !pointInsideFloat(ev, floatPanel));
+            if (forceSuppress || movedOutside || finalOutside) {
+                suppressClickUntil = Math.max(suppressClickUntil, Date.now() + suppressMs);
+            }
+            active = false;
+            pointerId = NaN;
+        };
+        const onClick = (ev) => {
+            if (Date.now() > suppressClickUntil) return;
+            suppressClickUntil = 0;
+            __tmKanbanDetailPointerStartedInside = false;
+            try { ev.preventDefault?.(); } catch (e) {}
+            try { ev.stopPropagation?.(); } catch (e) {}
+            try { ev.stopImmediatePropagation?.(); } catch (e) {}
+        };
+        const onPointerUp = (ev) => finishPointer(ev, false);
+        const onPointerCancel = (ev) => finishPointer(ev, true);
+        try { document.addEventListener('pointerdown', onPointerDown, true); } catch (e) {}
+        try { document.addEventListener('pointermove', onPointerMove, true); } catch (e) {}
+        try { document.addEventListener('pointerup', onPointerUp, true); } catch (e) {}
+        try { document.addEventListener('pointercancel', onPointerCancel, true); } catch (e) {}
+        try { document.addEventListener('click', onClick, true); } catch (e) {}
+        try { window.addEventListener('pointerup', onPointerUp, true); } catch (e) {}
+        try { window.addEventListener('pointercancel', onPointerCancel, true); } catch (e) {}
+        return () => {
+            try { document.removeEventListener('pointerdown', onPointerDown, true); } catch (e) {}
+            try { document.removeEventListener('pointermove', onPointerMove, true); } catch (e) {}
+            try { document.removeEventListener('pointerup', onPointerUp, true); } catch (e) {}
+            try { document.removeEventListener('pointercancel', onPointerCancel, true); } catch (e) {}
+            try { document.removeEventListener('click', onClick, true); } catch (e) {}
+            try { window.removeEventListener('pointerup', onPointerUp, true); } catch (e) {}
+            try { window.removeEventListener('pointercancel', onPointerCancel, true); } catch (e) {}
+        };
+    }
     function __tmCloseKanbanDetailFloating() {
         if (!String(state.kanbanDetailTaskId || '').trim()) return;
         const modal = state.modal instanceof Element ? state.modal : null;
+        const floatPanel = modal ? __tmNormalizeKanbanDetailFloatHost(modal) : null;
         try { __tmClearTaskDetailNoteViewState('kanban', state.kanbanDetailTaskId, 'kanban-detail-close'); } catch (e) {}
         try {
             const panel = modal?.querySelector?.('#tmKanbanDetailPanel');
@@ -8071,7 +8273,6 @@ refreshed = !!__tmRefreshChecklistSelectionInPlace(state.modal, 'visible-task-de
         state.kanbanDetailTaskId = '';
         state.kanbanDetailAnchorTaskId = '';
         try { __tmClearKanbanDetailFloatingHandlers(); } catch (e) {}
-        const floatPanel = modal?.querySelector?.('#tmKanbanDetailFloat');
         if (floatPanel instanceof HTMLElement) {
             try { __tmAnimatePopupOutAndRemove(floatPanel, { duration: 110 }); } catch (e) {
                 try { floatPanel.remove(); } catch (e2) {}
@@ -8086,6 +8287,7 @@ refreshed = !!__tmRefreshChecklistSelectionInPlace(state.modal, 'visible-task-de
             const modal = modalEl instanceof Element ? modalEl : state.modal;
             if (!(modal instanceof Element)) return null;
             if (String(state.viewMode || '').trim() !== 'kanban') return null;
+            __tmNormalizeKanbanDetailFloatHost(modal);
             const panel = modal.querySelector('#tmKanbanDetailPanel');
             if (!(panel instanceof HTMLElement)) return null;
             const selectedId = String(panel.dataset.tmDetailTaskId || state.kanbanDetailTaskId || '').trim();
@@ -8123,7 +8325,7 @@ refreshed = !!__tmRefreshChecklistSelectionInPlace(state.modal, 'visible-task-de
     function __tmPositionKanbanDetailFloat(modalEl) {
         const modal = modalEl instanceof Element ? modalEl : state.modal;
         if (!(modal instanceof Element)) return false;
-        const panel = modal.querySelector('#tmKanbanDetailFloat');
+        const panel = __tmNormalizeKanbanDetailFloatHost(modal) || modal.querySelector('#tmKanbanDetailFloat');
         const selectedId = String(state.kanbanDetailTaskId || '').trim();
         const anchorId = String(state.kanbanDetailAnchorTaskId || selectedId).trim();
         const card = anchorId ? modal.querySelector(`.tm-kanban-card[data-id="${CSS.escape(anchorId)}"]`) : null;
@@ -8173,7 +8375,7 @@ refreshed = !!__tmRefreshChecklistSelectionInPlace(state.modal, 'visible-task-de
     function __tmScheduleKanbanDetailFloatSettledPosition(modalEl, options = {}) {
         const modal = modalEl instanceof Element ? modalEl : state.modal;
         if (!(modal instanceof Element)) return;
-        const floatPanel = modal.querySelector('#tmKanbanDetailFloat');
+        const floatPanel = __tmNormalizeKanbanDetailFloatHost(modal) || modal.querySelector('#tmKanbanDetailFloat');
         if (!(floatPanel instanceof HTMLElement)) return;
         const opts = (options && typeof options === 'object') ? options : {};
         const hideDuringSettle = opts.hideDuringSettle === true;
@@ -8219,6 +8421,7 @@ refreshed = !!__tmRefreshChecklistSelectionInPlace(state.modal, 'visible-task-de
         const modal = modalEl instanceof Element ? modalEl : state.modal;
         if (!(modal instanceof Element)) return false;
         if (String(state.viewMode || '').trim() !== 'kanban') return false;
+        __tmNormalizeKanbanDetailFloatHost(modal);
         const panel = modal.querySelector('#tmKanbanDetailPanel');
         const rawSelectedId = String(state.kanbanDetailTaskId || '').trim();
         const selectedId = __tmResolveTaskDetailEffectiveId(rawSelectedId) || rawSelectedId;
@@ -8289,6 +8492,7 @@ refreshed = !!__tmRefreshChecklistSelectionInPlace(state.modal, 'visible-task-de
         });
         try { __tmRestoreTaskDetailSubtaskDraftSnapshot(panel, detailDraftSnapshot); } catch (e) {}
         __tmClearKanbanDetailFloatingHandlers();
+        __tmKanbanDetailSyntheticClickSuppressCleanup = __tmBindKanbanDetailSyntheticClickSuppress(modal);
         __tmKanbanDetailOutsidePointerDownHandler = (ev) => {
             const floatPanel = modal.querySelector('#tmKanbanDetailFloat');
             const target = ev?.target;
@@ -8338,6 +8542,7 @@ refreshed = !!__tmRefreshChecklistSelectionInPlace(state.modal, 'visible-task-de
         if (String(state.viewMode || '').trim() !== 'kanban') return false;
         const body = modal.querySelector('.tm-body.tm-body--kanban');
         if (!(body instanceof HTMLElement)) return false;
+        __tmNormalizeKanbanDetailFloatHost(modal);
         const task = globalThis.__tmRuntimeState?.getTaskById?.(tid, { includePending: true, preferPending: true })
             || state.flatTasks?.[tid]
             || state.pendingInsertedTasks?.[tid]
@@ -8379,7 +8584,7 @@ refreshed = !!__tmRefreshChecklistSelectionInPlace(state.modal, 'visible-task-de
         const isNewFloatPanel = !floatPanel.isConnected;
         if (isNewFloatPanel) {
             try { floatPanel.classList.add('tm-kanban-detail-float--preopen'); } catch (e) {}
-            body.appendChild(floatPanel);
+            modal.appendChild(floatPanel);
         }
 
         if (!isNewFloatPanel && __tmKeepTaskDetailNoteViewDuringRefresh(panel, task, tid)) {

@@ -953,7 +953,7 @@
         __tmDispatchDockSettingsChanged('dock-checklist-compact-title-jump');
         showSettings();
         if (state.modal && document.body.contains(state.modal)) {
-            try { __tmScheduleViewRefresh({ mode: 'current', withFilters: false, reason: 'dock-checklist-compact-title-jump' }); } catch (e) {}
+            __tmScheduleSettingsViewRefresh('dock-checklist-compact-title-jump');
         }
     };
 
@@ -962,7 +962,7 @@
         await SettingsStore.save();
         showSettings();
         if (state.modal && document.body.contains(state.modal)) {
-            try { __tmScheduleViewRefresh({ mode: 'current', withFilters: false, reason: 'mobile-checklist-compact-title-jump' }); } catch (e) {}
+            __tmScheduleSettingsViewRefresh('mobile-checklist-compact-title-jump');
         }
     };
 
@@ -991,7 +991,7 @@
         }
         showSettings();
         if (state.modal && document.body.contains(state.modal)) {
-            try { __tmScheduleViewRefresh({ mode: 'current', withFilters: false, reason: 'checklist-compact-meta-fields' }); } catch (e) {}
+            __tmScheduleSettingsViewRefresh('checklist-compact-meta-fields');
         }
     };
 
@@ -1003,7 +1003,7 @@
         }
         showSettings();
         if (state.modal && document.body.contains(state.modal)) {
-            try { __tmScheduleViewRefresh({ mode: 'current', withFilters: false, reason: 'checklist-compact-right-font-size' }); } catch (e) {}
+            __tmScheduleSettingsViewRefresh('checklist-compact-right-font-size');
         }
     };
 
@@ -1017,7 +1017,7 @@
         await SettingsStore.save();
         showSettings();
         if (state.modal && document.body.contains(state.modal)) {
-            try { __tmScheduleViewRefresh({ mode: 'current', withFilters: false, reason: 'timeline-card-field-visibility' }); } catch (e) {}
+            __tmScheduleSettingsViewRefresh('timeline-card-field-visibility');
         }
     };
 
@@ -1027,7 +1027,7 @@
         __tmDispatchDockSettingsChanged('checklist-compact-title-open-detail-page');
         showSettings();
         if (state.modal && document.body.contains(state.modal)) {
-            try { __tmScheduleViewRefresh({ mode: 'current', withFilters: false, reason: 'checklist-compact-title-open-detail-page' }); } catch (e) {}
+            __tmScheduleSettingsViewRefresh('checklist-compact-title-open-detail-page');
         }
     };
 
@@ -1099,7 +1099,7 @@
         await SettingsStore.save();
         showSettings();
         if (state.modal && document.body.contains(state.modal)) {
-            try { __tmScheduleViewRefresh({ mode: 'current', withFilters: false, reason: 'whiteboard-all-tabs-card-min-width' }); } catch (e) {}
+            __tmScheduleSettingsViewRefresh('whiteboard-all-tabs-card-min-width');
         }
     };
 
@@ -1108,7 +1108,7 @@
         await SettingsStore.save();
         showSettings();
         if (state.modal && document.body.contains(state.modal)) {
-            try { __tmScheduleViewRefresh({ mode: 'current', withFilters: false, reason: 'whiteboard-stream-mobile-two-columns' }); } catch (e) {}
+            __tmScheduleSettingsViewRefresh('whiteboard-stream-mobile-two-columns');
         }
     };
 
@@ -1397,6 +1397,9 @@
                 mode: 'current',
                 withFilters: true,
                 reason: refreshReason,
+                bypassScrollDefer: true,
+                bypassInteractionDefer: false,
+                forceRebuild: true,
             });
             return;
         } catch (e) {}
@@ -1410,6 +1413,22 @@
         } catch (e) {
             try { render(); } catch (e2) {}
         }
+    }
+
+    function __tmScheduleSettingsViewRefresh(reason = 'settings-change', options = {}) {
+        const opts = (options && typeof options === 'object') ? options : {};
+        try {
+            __tmScheduleViewRefresh({
+                mode: String(opts.mode || 'current').trim() || 'current',
+                withFilters: opts.withFilters === true,
+                reason: String(reason || 'settings-change').trim() || 'settings-change',
+                bypassScrollDefer: opts.bypassScrollDefer !== false,
+                bypassInteractionDefer: opts.bypassInteractionDefer === true,
+                forceRebuild: opts.forceRebuild !== false,
+            });
+            return true;
+        } catch (e) {}
+        return false;
     }
 
     window.toggleGroupByTime = async function(checked) {

@@ -91,6 +91,7 @@
             },
             dragHost: dragHost || state.modal,
             enableExternalDrag: false,
+            allowInactiveFullLoad: true,
         });
         if (!ok) {
             timelineRoot.innerHTML = `<div style="padding:12px;color:var(--tm-secondary-text);">日历初始化失败。</div>`;

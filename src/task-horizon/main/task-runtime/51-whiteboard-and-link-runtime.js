@@ -1406,6 +1406,35 @@
 
     function __tmPerformViewRefresh(detail = {}) {
         const next = __tmNormalizeViewRefreshDetail(detail);
+        const __tmJankViewRefreshStarted = (typeof __tmIsJankDebugEnabled === 'function' && __tmIsJankDebugEnabled() && typeof __tmJankNow === 'function')
+            ? __tmJankNow()
+            : 0;
+        const __tmJankViewRefreshFinish = (outcome = '', payload = {}) => {
+            if (!__tmJankViewRefreshStarted) return;
+            try {
+                const entry = {
+                    phase: 'perform',
+                    outcome: String(outcome || '').trim() || 'unknown',
+                    durationMs: __tmRoundPerfMs(__tmJankNow() - __tmJankViewRefreshStarted),
+                    detail: __tmSummarizeJankViewRefreshDetail(next),
+                    ...((payload && typeof payload === 'object') ? payload : {}),
+                };
+                state.__tmJankLastViewRefresh = { ...entry, at: Date.now() };
+                __tmPushJankDebug('view-refresh-performed', entry);
+            } catch (e) {}
+        };
+        if (__tmJankViewRefreshStarted) {
+            try {
+                state.__tmJankLastViewRefresh = {
+                    phase: 'perform-start',
+                    detail: __tmSummarizeJankViewRefreshDetail(next),
+                    at: Date.now(),
+                };
+                __tmPushJankDebug('view-refresh-perform-start', {
+                    detail: __tmSummarizeJankViewRefreshDetail(next),
+                });
+            } catch (e) {}
+        }
         try {
             const currentDetailId = String(state.detailTaskId || state.kanbanDetailTaskId || '').trim();
             if (currentDetailId) {
@@ -1424,6 +1453,7 @@
             if (barrier) {
                 const detailRefreshed = __tmRefreshVisibleDetailsFromViewRefresh(next, `${String(next.reason || 'view-refresh-detail-busy').trim() || 'view-refresh-detail-busy'}:busy-detail`);
                 __tmScheduleBusyDetailViewRefresh(next);
+                __tmJankViewRefreshFinish('busy-detail-deferred', { detailRefreshed });
                 return true;
             }
         }
@@ -1436,25 +1466,34 @@
                 }
             } catch (e) {}
             try { __tmSchedulePendingViewRefreshRetry('view-refresh-hidden', 520); } catch (e) {}
+            __tmJankViewRefreshFinish('hidden-deferred', { detailRefreshed });
             return false;
         }
         if (next.mode !== 'detail' && (!state.modal || !document.body.contains(state.modal))) {
             state.viewRefreshPending = __tmMergeViewRefreshDetail(state.viewRefreshPending, next);
             try { __tmSchedulePendingViewRefreshRetry('view-refresh-modal-missing', 520); } catch (e) {}
+            __tmJankViewRefreshFinish('modal-missing');
             return false;
         }
         try { state.__tmViewRefreshHiddenRetryCount = 0; } catch (e) {}
         if (next.mode === 'full') {
+            let applyMs = 0;
+            let renderMs = 0;
             if (next.withFilters !== false) {
+                const applyStarted = __tmJankViewRefreshStarted ? __tmJankNow() : 0;
                 try {
                     applyFilters();
                 } catch (e) {
                 }
+                if (applyStarted) applyMs = __tmRoundPerfMs(__tmJankNow() - applyStarted);
             }
+            const renderStarted = __tmJankViewRefreshStarted ? __tmJankNow() : 0;
             try {
                 render();
             } catch (e) {
             }
+            if (renderStarted) renderMs = __tmRoundPerfMs(__tmJankNow() - renderStarted);
+            __tmJankViewRefreshFinish('full', { applyMs, renderMs });
             return true;
         }
         if (next.mode === 'detail') {
@@ -1480,22 +1519,44 @@
                 } catch (e) {
                 }
             }
+            __tmJankViewRefreshFinish('detail', { refreshed });
             return true;
         }
+        let mainRefreshMs = 0;
+        let fallbackRender = false;
+        const mainRefreshStarted = __tmJankViewRefreshStarted ? __tmJankNow() : 0;
         try {
             __tmRefreshMainViewInPlace({ withFilters: next.withFilters !== false });
         } catch (e) {
+            fallbackRender = true;
             try {
                 render();
             } catch (e2) {
             }
         }
+        if (mainRefreshStarted) mainRefreshMs = __tmRoundPerfMs(__tmJankNow() - mainRefreshStarted);
+        __tmJankViewRefreshFinish(fallbackRender ? 'current-render-fallback' : 'current', { mainRefreshMs, fallbackRender });
         return true;
     }
+
 
     function __tmScheduleViewRefresh(detail = {}) {
         const scheduleStartedAt = Date.now();
         const incoming = __tmNormalizeViewRefreshDetail(detail);
+        const jankEnabled = typeof __tmIsJankDebugEnabled === 'function' && __tmIsJankDebugEnabled();
+        if (jankEnabled) {
+            try {
+                const entry = {
+                    phase: 'schedule',
+                    detail: __tmSummarizeJankViewRefreshDetail(incoming),
+                    timerActive: !!state.viewRefreshTimer,
+                    pendingBefore: __tmSummarizeJankViewRefreshDetail(state.viewRefreshPending),
+                    stack: true,
+                };
+                state.__tmJankLastViewRefresh = { ...entry, at: scheduleStartedAt };
+                __tmPushJankDebug('view-refresh-scheduled', entry);
+            } catch (e) {}
+        }
         if (incoming.mode === 'detail') {
             try {
                 __tmPerformViewRefresh(incoming);
@@ -1505,6 +1566,14 @@
         }
         state.viewRefreshPending = __tmMergeViewRefreshDetail(state.viewRefreshPending, incoming);
 if (state.viewRefreshTimer) {
+            if (jankEnabled) {
+                try {
+                    __tmPushJankDebug('view-refresh-coalesced', {
+                        detail: __tmSummarizeJankViewRefreshDetail(incoming),
+                        pendingAfter: __tmSummarizeJankViewRefreshDetail(state.viewRefreshPending),
+                    });
+                } catch (e) {}
+            }
             return true;
         }
         state.viewRefreshSeq = (Number(state.viewRefreshSeq) || 0) + 1;
@@ -1515,13 +1584,38 @@ if (state.viewRefreshTimer) {
             if (!next) {
                 return;
             }
-            const deferForTaskFieldWork = __tmShouldDeferTaskFieldRefreshWork();
-            const deferForActiveScroll = __tmShouldDeferMainViewRefreshForActiveScroll(next);
+            if (jankEnabled) {
+                try {
+                    __tmPushJankDebug('view-refresh-timer-fired', {
+                        detail: __tmSummarizeJankViewRefreshDetail(next),
+                        delayMs: Date.now() - scheduleStartedAt,
+                    });
+                } catch (e) {}
+            }
+            const bypassTaskFieldDefer = next.bypassTaskFieldDefer === true || next.bypassDefer === true;
+            const bypassScrollDefer = next.bypassScrollDefer === true || next.bypassDefer === true;
+            const bypassInteractionDefer = next.bypassInteractionDefer === true || next.bypassDefer === true;
+            const deferForTaskFieldWork = !bypassTaskFieldDefer && __tmShouldDeferTaskFieldRefreshWork();
+            const deferForActiveScroll = !bypassScrollDefer && __tmShouldDeferMainViewRefreshForActiveScroll(next);
             if (deferForTaskFieldWork || deferForActiveScroll) {
                 state.viewRefreshPending = __tmMergeViewRefreshDetail(state.viewRefreshPending, next);
 if (deferForActiveScroll) {
+                    if (jankEnabled) {
+                        try {
+                            __tmPushJankDebug('view-refresh-deferred-scroll', {
+                                detail: __tmSummarizeJankViewRefreshDetail(next),
+                            });
+                        } catch (e) {}
+                    }
                     try { __tmScheduleDeferredRefreshAfterScroll('view-refresh'); } catch (e) {}
                     return;
+                }
+                if (jankEnabled) {
+                    try {
+                        __tmPushJankDebug('view-refresh-deferred-task-field', {
+                            detail: __tmSummarizeJankViewRefreshDetail(next),
+                        });
+                    } catch (e) {}
                 }
                 try { __tmFlushDeferredViewRefreshAfterTaskFieldWork('view-refresh'); } catch (e) {}
                 return;
@@ -1529,8 +1623,16 @@ if (deferForActiveScroll) {
             const interactionWait = (typeof __tmGetHighPriorityInteractionWaitMs === 'function')
                 ? __tmGetHighPriorityInteractionWaitMs(32)
                 : 0;
-            if (interactionWait > 0) {
+            if (!bypassInteractionDefer && interactionWait > 0) {
                 state.viewRefreshPending = __tmMergeViewRefreshDetail(state.viewRefreshPending, next);
+                if (jankEnabled) {
+                    try {
+                        __tmPushJankDebug('view-refresh-deferred-interaction', {
+                            detail: __tmSummarizeJankViewRefreshDetail(next),
+                            interactionWait,
+                        });
+                    } catch (e) {}
+                }
                 state.viewRefreshTimer = setTimeout(() => {
                     state.viewRefreshTimer = 0;
                     const pending = state.viewRefreshPending;
@@ -1540,6 +1642,13 @@ if (deferForActiveScroll) {
                 return;
             }
             const runRefresh = () => {
+                if (jankEnabled) {
+                    try {
+                        __tmPushJankDebug('view-refresh-raf-run', {
+                            detail: __tmSummarizeJankViewRefreshDetail(next),
+                        });
+                    } catch (e) {}
+                }
                 try {
                     __tmPerformViewRefresh(next);
                 } catch (e) {
@@ -5208,6 +5317,7 @@ previousAttachmentPaths: attachmentPreviousSnapshot.paths,
         }, {
             wait: opts.wait !== false,
             delayMs: __tmResolveUiFriendlyTaskPatchDelay(tid, plan.normalizedPatch, opts),
+            onPending: typeof opts.onPending === 'function' ? opts.onPending : undefined,
         });
     }
 
@@ -6087,6 +6197,7 @@ previousAttachmentPaths: attachmentPreviousSnapshot.paths,
             input.rows = 4;
             input.value = String(task.remark || '');
             td.appendChild(input);
+            try { __tmBindRemarkTextareaUndoHistory(input); } catch (e) {}
             const focusState = __tmPrimeCellTextEditorFocus(input, cleanupFns, { selection: 'end' });
             const save = () => commitAndClose(input.value, false);
             input.onblur = () => {
@@ -8189,39 +8300,27 @@ previousAttachmentPaths: attachmentPreviousSnapshot.paths,
         return String(firstTask?.id || '').trim();
     }
 
-    function __tmNormalizeTaskDetailCompletedSubtasksVisibilityMap(raw) {
-        const source = (raw && typeof raw === 'object' && !Array.isArray(raw)) ? raw : {};
-        const out = {};
-        Object.keys(source).forEach((key) => {
-            const tid = String(key || '').trim();
-            if (!tid) return;
-            out[tid] = source[key] !== false;
-        });
-        return out;
-    }
-
-    function __tmGetTaskDetailCompletedSubtasksVisibilityMap() {
-        return __tmNormalizeTaskDetailCompletedSubtasksVisibilityMap(SettingsStore?.data?.taskDetailCompletedSubtasksVisibilityByTask);
+    function __tmGetTaskDetailShowCompletedSubtasks() {
+        const settings = SettingsStore?.data || {};
+        const legacyFallback = typeof __tmNormalizeTaskDetailShowCompletedSubtasksSetting === 'function'
+            ? __tmNormalizeTaskDetailShowCompletedSubtasksSetting(settings.taskDetailCompletedSubtasksVisibilityByTask, true)
+            : true;
+        return typeof __tmNormalizeTaskDetailShowCompletedSubtasksSetting === 'function'
+            ? __tmNormalizeTaskDetailShowCompletedSubtasksSetting(settings.taskDetailShowCompletedSubtasks, legacyFallback)
+            : settings.taskDetailShowCompletedSubtasks !== false;
     }
 
     function __tmShouldShowCompletedSubtasksForTask(taskId) {
-        const tid = String(taskId || '').trim();
-        if (!tid) return true;
-        const map = __tmGetTaskDetailCompletedSubtasksVisibilityMap();
-        return map[tid] !== false;
+        return __tmGetTaskDetailShowCompletedSubtasks();
     }
 
     function __tmSetCompletedSubtasksVisibilityForTask(taskId, enabled) {
-        const tid = String(taskId || '').trim();
-        if (!tid) return true;
-        const map = { ...__tmGetTaskDetailCompletedSubtasksVisibilityMap() };
-        if (enabled === false) {
-            map[tid] = false;
-        } else {
-            delete map[tid];
+        const nextVisible = enabled !== false;
+        if (SettingsStore?.data) {
+            SettingsStore.data.taskDetailShowCompletedSubtasks = nextVisible;
+            SettingsStore.data.taskDetailCompletedSubtasksVisibilityByTask = {};
         }
-        if (SettingsStore?.data) SettingsStore.data.taskDetailCompletedSubtasksVisibilityByTask = map;
-        return enabled !== false;
+        return nextVisible;
     }
 
     function __tmResolveHideCompletedDescendantsFlag(taskOrId, inheritedHideCompleted = false) {
@@ -8934,4 +9033,3 @@ previousAttachmentPaths: attachmentPreviousSnapshot.paths,
             </section>
         `;
     }
-

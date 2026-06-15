@@ -5,7 +5,7 @@
         if (adapter && typeof adapter.moveBlock === 'function') {
             return await adapter.moveBlock(id, placement || {});
         }
-        return await API.moveBlock(id, placement || {});
+        throw new Error('任务写入适配器未就绪: moveBlock');
     }
 
     async function __tmFlushBackendAdapterTransaction() {
@@ -2832,6 +2832,14 @@ return Number(state.contextInteractionQuietUntil || 0);
                     }
                     hydrateMeta = await __tmHydrateVisibleListCustomFields(state.deferredListCustomFieldIds, hydrateOptions);
                 } catch (e) {
+                    try {
+                        __tmPushDiagnosticLog('list-auto-load-hydration-failed', e, {
+                            mode,
+                            reason: sourceReason,
+                            limit: Number(state.listRenderLimit) || 0,
+                            customFieldIds: Array.isArray(state.deferredListCustomFieldIds) ? state.deferredListCustomFieldIds.slice(0, 24) : [],
+                        });
+                    } catch (e2) {}
                     hydrateMeta = null;
                 }
                 if (token !== (Number(state.listAutoLoadMoreHydrateToken) || 0)) return;
@@ -2874,7 +2882,7 @@ return Number(state.contextInteractionQuietUntil || 0);
         try {
             const growBy = __tmGetListAutoLoadMoreBatchSize(meta);
             state.listRenderLimit = Math.min(meta.total, meta.currentLimit + growBy);
-if (mode === 'checklist') {
+            if (mode === 'checklist') {
                 __tmRenderChecklistPreserveScroll();
             } else if (!__tmRerenderListInPlace(state.modal)) {
                 render();
@@ -2887,6 +2895,17 @@ if (mode === 'checklist') {
                 });
             } catch (e) {}
             return true;
+        } catch (e) {
+            try {
+                __tmPushDiagnosticLog('list-auto-load-more-failed', e, {
+                    mode,
+                    source: String(opts.source || '').trim(),
+                    total: Number(meta?.total || 0) || 0,
+                    currentLimit: Number(meta?.currentLimit || 0) || 0,
+                    remaining: Number(meta?.remaining || 0) || 0,
+                });
+            } catch (e2) {}
+            throw e;
         } finally {
             state.listAutoLoadMoreInFlight = false;
         }
@@ -2913,7 +2932,16 @@ if (mode === 'checklist') {
             __tmAutoLoadMoreVisibleRows({
                 mode,
                 source: 'scroll-near-bottom',
-            }).catch(() => null);
+            }).catch((e) => {
+                try {
+                    __tmPushDiagnosticLog('list-auto-load-more-scroll-failed', e, {
+                        mode,
+                        scrollTop: Number(pane.scrollTop || 0),
+                        scrollHeight: Number(pane.scrollHeight || 0),
+                        clientHeight: Number(pane.clientHeight || 0),
+                    });
+                } catch (e2) {}
+            });
         };
         pane.addEventListener('scroll', onScroll, { passive: true });
         pane.__tmAutoLoadMoreScrollBound = true;
@@ -8395,6 +8423,7 @@ if (mode === 'checklist') {
         try { window.dispatchEvent(new CustomEvent('tm:filtered-tasks-updated')); } catch (e) {}
     }
 
+
     function __tmIsTaskAndDescDone(taskId, memo, visiting) {
         const id = String(taskId || '').trim();
         if (!id) return true;
@@ -11189,226 +11218,6 @@ if (mode === 'checklist') {
         } catch (e) {}
     }
 
-    async function __tmMoveTaskToDoc(taskId, targetDocId, opts = {}) {
-        const id = String(taskId || '').trim();
-        const did = String(targetDocId || '').trim();
-        if (!id || !did) return false;
-        const o = (opts && typeof opts === 'object') ? opts : {};
-        const t = state.flatTasks?.[id];
-        const fromDocId = String(t?.docId || t?.root_id || '').trim();
-        if (fromDocId && fromDocId === did) return false;
-        const topListId = await API.getFirstDirectChildListIdOfDoc(did);
-        if (topListId) {
-            await __tmMoveBlockViaBackendAdapter(id, { parentID: topListId });
-        } else {
-            await __tmMoveBlockViaBackendAdapter(id, { parentID: did });
-        }
-        try { await __tmFlushBackendAdapterTransaction(); } catch (e) {}
-        try {
-            [fromDocId, did].filter(Boolean).forEach((docId) => __tmInvalidateTasksQueryCacheByDocId(docId));
-        } catch (e) {}
-        try {
-            if (t) {
-                t.root_id = did;
-                t.docId = did;
-                const name = state.allDocuments.find(d => d.id === did)?.name || '';
-                if (name) {
-                    t.doc_name = name;
-                    t.docName = name;
-                }
-
-                // 递归更新所有子任务的文档属性
-                const updateChildTasks = (parentTask) => {
-                    const children = Array.isArray(parentTask?.children) ? parentTask.children : [];
-                    children.forEach(child => {
-                        if (child && child.id) {
-                            const childTask = globalThis.__tmRuntimeState?.getFlatTaskById?.(child.id) || state.flatTasks?.[child.id];
-                            if (childTask) {
-                                childTask.root_id = did;
-                                childTask.docId = did;
-                                childTask.doc_name = name || childTask.doc_name;
-                                childTask.docName = name || childTask.docName;
-                                // 继续递归更新子任务的子任务
-                                updateChildTasks(child);
-                            }
-                        }
-                    });
-                };
-                updateChildTasks(t);
-            }
-        } catch (e) {}
-        if (!o.silentHint) {
-            try { hint('✅ 任务已移动', 'success'); } catch (e) {}
-        }
-        return true;
-    }
-
-    async function __tmMoveTaskToDocTop(taskId, targetDocId, opts = {}) {
-        const id = String(taskId || '').trim();
-        const did = String(targetDocId || '').trim();
-        if (!id || !did) return false;
-        const o = (opts && typeof opts === 'object') ? opts : {};
-        const t = globalThis.__tmRuntimeState?.getFlatTaskById?.(id) || state.flatTasks?.[id];
-        const fromDocId = String(t?.docId || t?.root_id || '').trim();
-
-        // 像新建任务到顶部一样，将任务移动到文档最顶部
-        try {
-            // 获取文档的第一个子块ID
-            let firstChildId = '';
-            try { firstChildId = String(await API.getFirstDirectChildIdOfDoc(did) || '').trim(); } catch (e) { firstChildId = ''; }
-
-            if (firstChildId) {
-                // 如果文档有内容，移动到第一个子块之前（成为新的第一个）
-                await __tmMoveBlockViaBackendAdapter(id, { previousID: '', nextID: firstChildId, parentID: did });
-            } else {
-                // 如果文档为空，直接设置为文档的第一个子块
-                await __tmMoveBlockViaBackendAdapter(id, { parentID: did });
-            }
-        } catch (e) {
-            console.error('移动任务到文档顶部失败:', e);
-            // 尝试备用方案：直接设置父
-            try {
-                await __tmMoveBlockViaBackendAdapter(id, { parentID: did });
-            } catch (e2) {
-                console.error('备用方案也失败:', e2);
-                return false;
-            }
-        }
-
-        try { await __tmFlushBackendAdapterTransaction(); } catch (e) {}
-        try {
-            [fromDocId, did].filter(Boolean).forEach((docId) => __tmInvalidateTasksQueryCacheByDocId(docId));
-        } catch (e) {}
-        try {
-            if (t) {
-                t.root_id = did;
-                t.docId = did;
-                const name = state.allDocuments.find(d => d.id === did)?.name || '';
-                if (name) {
-                    t.doc_name = name;
-                    t.docName = name;
-                }
-                if (o.clearHeading === true || (fromDocId && fromDocId !== did)) {
-                    t.h2 = '';
-                    t.h2Id = '';
-                    t.h2Path = '';
-                    t.h2Sort = Number.NaN;
-                    t.h2Created = '';
-                    t.h2Rank = Number.NaN;
-
-                    // 递归更新所有子任务的属性（清除 h2 信息，同时更新文档ID）
-                    const updateChildTasks = (parentTask) => {
-                        const children = Array.isArray(parentTask?.children) ? parentTask.children : [];
-                        children.forEach(child => {
-                            if (child && child.id) {
-                                const childTask = globalThis.__tmRuntimeState?.getFlatTaskById?.(child.id) || state.flatTasks?.[child.id];
-                                if (childTask) {
-                                    childTask.h2Id = '';
-                                    childTask.h2 = '';
-                                    childTask.h2Rank = Number.NaN;
-                                    // 同步更新子任务的文档ID
-                                    childTask.root_id = did;
-                                    childTask.docId = did;
-                                    const name = state.allDocuments.find(d => d.id === did)?.name || '';
-                                    if (name) {
-                                        childTask.doc_name = name;
-                                        childTask.docName = name;
-                                    }
-                                    // 递归更新子任务的子任务
-                                    updateChildTasks(childTask);
-                                }
-                            }
-                        });
-                    };
-                    updateChildTasks(t);
-                }
-            }
-        } catch (e) {}
-        if (!o.silentHint) {
-            try { hint('✅ 任务已移动', 'success'); } catch (e) {}
-        }
-        return true;
-    }
-
-    async function __tmMoveTaskToHeading(taskId, targetDocId, headingId, opts = {}) {
-        const id = String(taskId || '').trim();
-        const did = String(targetDocId || '').trim();
-        const hid = String(headingId || '').trim();
-        if (!id || !did || !hid) return false;
-        const o = (opts && typeof opts === 'object') ? opts : {};
-        const t = globalThis.__tmRuntimeState?.getFlatTaskById?.(id) || state.flatTasks?.[id];
-        const fromDocId = String(t?.docId || t?.root_id || '').trim();
-
-        // 使用 previousID 方式将任务移动到标题块的后面
-        try {
-            // 直接使用 previousID 将任务移动到标题后面
-            await __tmMoveBlockViaBackendAdapter(id, { previousID: hid, parentID: did });
-        } catch (e) {
-            console.error('移动任务到标题后面失败:', e);
-            return false;
-        }
-
-        try { await __tmFlushBackendAdapterTransaction(); } catch (e) {}
-        try {
-            [fromDocId, did].filter(Boolean).forEach((docId) => __tmInvalidateTasksQueryCacheByDocId(docId));
-        } catch (e) {}
-        try {
-            if (t) {
-                t.root_id = did;
-                t.docId = did;
-                const name = state.allDocuments.find(d => d.id === did)?.name || '';
-                if (name) {
-                    t.doc_name = name;
-                    t.docName = name;
-                }
-                const headings = state.kanbanDocHeadingsByDocId?.[did];
-                const h = Array.isArray(headings) ? headings.find((x) => String(x?.id || '').trim() === hid) : null;
-                t.h2 = __tmNormalizeHeadingText(h?.content);
-                t.h2Id = hid;
-                t.h2Rank = Number(h?.rank);
-                t.h2Path = '';
-                t.h2Sort = Number.NaN;
-                t.h2Created = '';
-                if (fromDocId && fromDocId !== did) {
-                    t.parentTaskId = '';
-                }
-
-                // 递归更新所有子任务的属性
-                const updateChildTasks = (parentTask, h2Id, h2Content, h2RankVal) => {
-                    const children = Array.isArray(parentTask?.children) ? parentTask.children : [];
-                    children.forEach(child => {
-                        if (child && child.id) {
-                            const childTask = globalThis.__tmRuntimeState?.getFlatTaskById?.(child.id) || state.flatTasks?.[child.id];
-                            if (childTask) {
-                                childTask.h2Id = h2Id;
-                                childTask.h2 = h2Content;
-                                childTask.h2Rank = h2RankVal;
-                                // 递归更新子任务的子任务
-                                updateChildTasks(childTask, h2Id, h2Content, h2RankVal);
-                            }
-                        }
-                    });
-                };
-                updateChildTasks(t, hid, __tmNormalizeHeadingText(h?.content), Number(h?.rank));
-                if (state.pendingInsertedTasks?.[id]) {
-                    globalThis.__tmTaskStore?.patchPending?.(id, {
-                        root_id: did,
-                        docId: did,
-                        h2: __tmNormalizeHeadingText(h?.content),
-                        h2Id: hid,
-                        h2Rank: Number(h?.rank),
-                    }, {
-                        source: 'move-task-to-heading',
-                    });
-                }
-            }
-        } catch (e) {}
-        if (!o.silentHint) {
-            try { hint('✅ 任务已移动到标题后面', 'success'); } catch (e) {}
-        }
-        return true;
-    }
-
     function __tmTaskSupportsRowDrop(task) {
         return !!task && !__tmIsCollectedOtherBlockTask(task);
     }
@@ -13519,6 +13328,32 @@ if (mode === 'checklist') {
         return window.tmJumpToTask(id, ev);
     };
 
+    function __tmSyncDetailSheetVisualState(sheet, open) {
+        if (!(sheet instanceof HTMLElement)) return false;
+        const isOpen = !!open;
+        const fullscreen = !!(isOpen && state.checklistDetailSheetFullscreen === true);
+        if (!isOpen) {
+            sheet.classList.remove('tm-checklist-sheet--dragging');
+            sheet.style.transform = '';
+            sheet.style.height = '';
+            sheet.style.maxHeight = '';
+        } else if (!sheet.classList.contains('tm-checklist-sheet--dragging')) {
+            sheet.style.transform = '';
+        }
+        sheet.classList.toggle('tm-checklist-sheet--open', isOpen);
+        sheet.classList.toggle('tm-checklist-sheet--fullscreen', fullscreen);
+        try {
+            const backdropSelector = String(sheet.id || '') === 'tmTaskDetailSheet'
+                ? '#tmTaskDetailSheetBackdrop'
+                : '#tmChecklistSheetBackdrop';
+            const backdrop = state.modal?.querySelector?.(backdropSelector);
+            if (backdrop instanceof HTMLElement) {
+                backdrop.classList.toggle('tm-checklist-sheet-backdrop--open', isOpen);
+            }
+        } catch (e) {}
+        return isOpen;
+    }
+
     window.tmChecklistCloseSheet = async function(ev) {
         try { ev?.stopPropagation?.(); } catch (e) {}
         try { ev?.preventDefault?.(); } catch (e) {}
@@ -13539,10 +13374,16 @@ if (mode === 'checklist') {
         } catch (e) {}
         state.checklistDetailDismissed = true;
         state.checklistDetailSheetOpen = false;
+        state.checklistDetailSheetFullscreen = false;
+        try {
+            const sheet = state.modal?.querySelector?.('#tmChecklistSheet');
+            if (sheet instanceof HTMLElement) __tmSyncDetailSheetVisualState(sheet, false);
+        } catch (e) {}
         try {
             const detailPanel = state.modal?.querySelector?.('#tmChecklistSheetPanel, #tmChecklistDetailPanel');
             if (detailPanel instanceof HTMLElement) __tmMarkTaskDetailRootClosed(detailPanel);
         } catch (e) {}
+        try { globalThis.__tmScheduleDeferredChecklistOptimisticSubtaskRefreshFlush?.('checklist-close-sheet'); } catch (e) {}
         __tmRefreshChecklistSelectionInPlace(state.modal, 'checklist-close-sheet');
     };
 
@@ -13566,14 +13407,21 @@ if (mode === 'checklist') {
         } catch (e) {}
         state.checklistDetailDismissed = true;
         state.checklistDetailSheetOpen = false;
+        state.checklistDetailSheetFullscreen = false;
+        try {
+            const sheet = state.modal?.querySelector?.('#tmTaskDetailSheet');
+            if (sheet instanceof HTMLElement) __tmSyncDetailSheetVisualState(sheet, false);
+        } catch (e) {}
         try {
             const detailPanel = state.modal?.querySelector?.('#tmTaskDetailSheetPanel');
             if (detailPanel instanceof HTMLElement) __tmMarkTaskDetailRootClosed(detailPanel);
         } catch (e) {}
+        try { globalThis.__tmScheduleDeferredChecklistOptimisticSubtaskRefreshFlush?.('task-detail-sheet-close'); } catch (e) {}
         __tmRefreshTaskDetailSheetInPlace(state.modal, 'task-detail-sheet-close');
     };
 
     let __tmChecklistSheetLastTouchStartAt = 0;
+    let __tmChecklistSheetSuppressClickUntil = 0;
 
     function __tmGetClientYFromPointerOrTouchEvent(ev) {
         const directY = Number(ev?.clientY);
@@ -13583,10 +13431,103 @@ if (mode === 'checklist') {
         return Number.isFinite(touchY) ? touchY : 0;
     }
 
+    function __tmGetClientXFromPointerOrTouchEvent(ev) {
+        const directX = Number(ev?.clientX);
+        if (Number.isFinite(directX)) return directX;
+        const touch = ev?.touches?.[0] || ev?.changedTouches?.[0] || null;
+        const touchX = Number(touch?.clientX);
+        return Number.isFinite(touchX) ? touchX : 0;
+    }
+
+    function __tmMeasureChecklistSheetDragTrack(sheet) {
+        if (!(sheet instanceof HTMLElement)) return null;
+        const hadOpen = sheet.classList.contains('tm-checklist-sheet--open');
+        const hadFullscreen = sheet.classList.contains('tm-checklist-sheet--fullscreen');
+        const hadDragging = sheet.classList.contains('tm-checklist-sheet--dragging');
+        const prevTransform = sheet.style.transform;
+        try {
+            sheet.style.transform = '';
+            sheet.classList.add('tm-checklist-sheet--open', 'tm-checklist-sheet--dragging');
+            sheet.classList.remove('tm-checklist-sheet--fullscreen');
+            const collapsedRect = sheet.getBoundingClientRect();
+            sheet.classList.add('tm-checklist-sheet--fullscreen');
+            const fullRect = sheet.getBoundingClientRect();
+            const viewportHeight = Math.max(
+                Number(window.innerHeight || 0) || 0,
+                Number(document.documentElement?.clientHeight || 0) || 0,
+                Number(fullRect.bottom || 0) || 0
+            );
+            const collapsedOffset = Math.max(0, Number(collapsedRect.top || 0) - Number(fullRect.top || 0));
+            const fullHeight = Math.max(1, viewportHeight - Number(fullRect.top || 0));
+            return {
+                collapsedOffset,
+                closeOffset: Math.max(collapsedOffset + 96, fullHeight + 24),
+                fullHeight,
+            };
+        } catch (e) {
+            return null;
+        } finally {
+            if (!hadOpen) sheet.classList.remove('tm-checklist-sheet--open');
+            if (hadFullscreen) sheet.classList.add('tm-checklist-sheet--fullscreen');
+            else sheet.classList.remove('tm-checklist-sheet--fullscreen');
+            if (hadDragging) sheet.classList.add('tm-checklist-sheet--dragging');
+            else sheet.classList.remove('tm-checklist-sheet--dragging');
+            sheet.style.transform = prevTransform;
+        }
+    }
+
+    function __tmGetChecklistSheetVisualOffset(rawOffset, metrics) {
+        const offset = Number(rawOffset);
+        const maxOffset = Math.max(0, Number(metrics?.closeOffset || 0));
+        if (!Number.isFinite(offset)) return 0;
+        if (offset < 0) return 0;
+        if (maxOffset > 0 && offset > maxOffset) return maxOffset + ((offset - maxOffset) * 0.28);
+        return offset;
+    }
+
+    function __tmFindChecklistSheetGestureScroller(target, body) {
+        try {
+            const bodyEl = body instanceof HTMLElement ? body : null;
+            const start = target instanceof Element ? target : null;
+            if (!bodyEl || !start) return bodyEl;
+            let node = start;
+            while (node instanceof HTMLElement && node !== bodyEl) {
+                if (__tmChecklistSheetCanScrollY(node)) return node;
+                node = node.parentElement;
+            }
+            return bodyEl;
+        } catch (e) {
+            return body instanceof HTMLElement ? body : null;
+        }
+    }
+
+    function __tmChecklistSheetCanScrollY(el) {
+        try {
+            if (!(el instanceof HTMLElement)) return false;
+            if (Number(el.scrollHeight || 0) - Number(el.clientHeight || 0) <= 2) return false;
+            const style = window.getComputedStyle?.(el);
+            const overflowY = String(style?.overflowY || '').toLowerCase();
+            return /(auto|scroll|overlay)/.test(overflowY);
+        } catch (e) {
+            return false;
+        }
+    }
+
+    function __tmChecklistSheetScrollerTop(scroller) {
+        if (!(scroller instanceof HTMLElement)) return 0;
+        if (!__tmChecklistSheetCanScrollY(scroller)) return 0;
+        const top = Number(scroller.scrollTop || 0);
+        return Number.isFinite(top) ? Math.max(0, top) : 0;
+    }
+
     function __tmStartChecklistSheetDrag(ev, source = 'pointer', options = {}) {
         const opts = (options && typeof options === 'object') ? options : {};
-        if (!opts.skipSheetModeCheck && !__tmChecklistUseSheetMode(state.modal)) return;
-        if (!state.checklistDetailSheetOpen) return;
+        if (!opts.skipSheetModeCheck && !__tmChecklistUseSheetMode(state.modal)) {
+            return;
+        }
+        if (!state.checklistDetailSheetOpen) {
+            return;
+        }
         const sheetSelector = String(opts.sheetSelector || '#tmChecklistSheet').trim() || '#tmChecklistSheet';
         const bodySelector = String(opts.bodySelector || '#tmChecklistSheetPanel').trim() || '#tmChecklistSheetPanel';
         const sheet = state.modal?.querySelector?.(sheetSelector);
@@ -13595,29 +13536,303 @@ if (mode === 'checklist') {
         const refreshSheet = typeof opts.refresh === 'function'
             ? opts.refresh
             : () => __tmRefreshChecklistSelectionInPlace(state.modal, 'checklist-sheet-drag-end');
-        if (!(sheet instanceof HTMLElement)) return;
+        if (!(sheet instanceof HTMLElement)) {
+            return;
+        }
         const target = ev?.target;
-        if (!(target instanceof Element)) return;
-        if (typeof __tmIsTaskDetailNoteViewEventTarget === 'function' && __tmIsTaskDetailNoteViewEventTarget(target)) return;
-        if (target.closest('input, textarea, select, button, a, label')) return;
+        if (!(target instanceof Element)) {
+            return;
+        }
+        if (typeof __tmIsTaskDetailNoteViewEventTarget === 'function' && __tmIsTaskDetailNoteViewEventTarget(target)) {
+            return;
+        }
         const fromHandle = !!target.closest('.tm-checklist-sheet-handle');
         const inBody = !!target.closest('.tm-checklist-sheet-body');
-        const bodyScrollTop = Number(body?.scrollTop || 0);
+        const tapCloseZone = opts.closeOnHandleTap === true && (fromHandle || !inBody);
+        const useTrackedSnap = opts.trackFullscreenDrag === true;
+        const allowBodySheetGesture = opts.allowBodySheetGesture === true;
+        const interactiveTarget = target.closest('input, textarea, select, button, a, label');
+        const touchTextInputTarget = source === 'touch' && !!target.closest('textarea, input:not([type="checkbox"]):not([type="radio"]):not([type="button"]):not([type="submit"]):not([type="reset"]):not([type="range"]), [data-tm-detail="content"], [data-tm-detail="remark"], [data-tm-detail-custom-text-field], [data-tm-detail-subtask-content], [data-tm-detail-subtask-draft-input], [data-tm-detail-remark-shell], [data-tm-detail-remark-preview], [data-tm-detail-remark-activator], [contenteditable="true"]');
+        const touchGestureTarget = source === 'touch' && useTrackedSnap && allowBodySheetGesture && inBody;
+        if (interactiveTarget && !(touchTextInputTarget || touchGestureTarget)) {
+            return;
+        }
+        const textScrollEl = touchTextInputTarget
+            ? target.closest('textarea, [contenteditable="true"]')
+            : null;
+        const gestureScroller = __tmFindChecklistSheetGestureScroller(target, body);
+        const bodyScrollTop = __tmChecklistSheetScrollerTop(gestureScroller || body);
+        const textScrollTop = __tmChecklistSheetScrollerTop(textScrollEl);
         const pointerY = __tmGetClientYFromPointerOrTouchEvent(ev);
-        if (__tmIsMobileDevice() && !fromHandle) return;
+        if (useTrackedSnap && target.closest('[contenteditable="true"], [role="button"], .tm-task-detail-inline-popover, .tm-inline-editor, .b3-menu, .b3-dialog') && !(touchTextInputTarget || touchGestureTarget)) {
+            return;
+        }
+        if (__tmIsMobileDevice() && !fromHandle && !tapCloseZone && !(useTrackedSnap && allowBodySheetGesture && inBody)) {
+            return;
+        }
+        if (!touchGestureTarget && !fromHandle && inBody && (bodyScrollTop > 2 || textScrollTop > 2)) {
+            return;
+        }
+
+        if (useTrackedSnap) {
+            const startX = __tmGetClientXFromPointerOrTouchEvent(ev);
+            const startY = pointerY;
+            const startedFullscreen = sheet.classList.contains('tm-checklist-sheet--fullscreen') || state.checklistDetailSheetFullscreen === true;
+            const waitForIntent = allowBodySheetGesture && inBody && !fromHandle && (startedFullscreen || touchTextInputTarget || touchGestureTarget);
+            const prevSheetHeight = sheet.style.height;
+            const prevSheetMaxHeight = sheet.style.maxHeight;
+            let metrics = null;
+            let startOffset = 0;
+            let rawOffset = 0;
+            let visualOffset = 0;
+            let lastX = startX;
+            let lastY = startY;
+            let lastTs = Date.now();
+            let velocity = 0;
+            let dragging = false;
+            let captured = false;
+            let ended = false;
+            let trackStylesApplied = false;
+            let lastMoveLogAt = 0;
+            if (source === 'touch' && waitForIntent) {
+                metrics = __tmMeasureChecklistSheetDragTrack(sheet);
+            }
+
+            const samePointer = (e2) => {
+                const pointerId = Number(ev?.pointerId);
+                if (!Number.isFinite(pointerId)) return true;
+                const nextPointerId = Number(e2?.pointerId);
+                if (!Number.isFinite(nextPointerId)) return true;
+                return pointerId === nextPointerId;
+            };
+            const removeListeners = () => {
+                if (source === 'touch') {
+                    try { window.removeEventListener('touchmove', onMove, true); } catch (e) {}
+                    try { window.removeEventListener('touchend', onUp, true); } catch (e) {}
+                    try { window.removeEventListener('touchcancel', onUp, true); } catch (e) {}
+                } else {
+                    try { window.removeEventListener('pointermove', onMove, true); } catch (e) {}
+                    try { window.removeEventListener('pointerup', onUp, true); } catch (e) {}
+                    try { window.removeEventListener('pointercancel', onUp, true); } catch (e) {}
+                    if (captured) {
+                        try { sheet.releasePointerCapture?.(ev?.pointerId); } catch (e) {}
+                    }
+                }
+            };
+            const beginDrag = (startEvent) => {
+                if (dragging) return true;
+                if (!metrics) metrics = __tmMeasureChecklistSheetDragTrack(sheet);
+                if (!metrics || !Number.isFinite(metrics.collapsedOffset)) {
+                    return false;
+                }
+                dragging = true;
+                startOffset = startedFullscreen ? 0 : Math.max(0, Number(metrics.collapsedOffset || 0));
+                rawOffset = startOffset;
+                visualOffset = startOffset;
+                sheet.classList.add('tm-checklist-sheet--open', 'tm-checklist-sheet--fullscreen', 'tm-checklist-sheet--dragging');
+                const fullHeight = Math.ceil(Number(metrics.fullHeight || 0));
+                if (fullHeight > 0) {
+                    sheet.style.height = `${fullHeight}px`;
+                    sheet.style.maxHeight = 'none';
+                    trackStylesApplied = true;
+                }
+                sheet.style.transform = `translateY(${visualOffset}px)`;
+                if (source !== 'touch') {
+                    try {
+                        sheet.setPointerCapture?.(ev.pointerId);
+                        captured = true;
+                    } catch (e) {}
+                }
+                if (!(opts.passiveTouchStart === true && String(startEvent?.type || '') === 'touchstart')) {
+                    try { startEvent?.preventDefault?.(); } catch (e) {}
+                }
+                return true;
+            };
+            const clearTrackStyles = () => {
+                if (!trackStylesApplied) return;
+                sheet.style.height = prevSheetHeight;
+                sheet.style.maxHeight = prevSheetMaxHeight;
+                trackStylesApplied = false;
+            };
+            const setOffset = (nextOffset) => {
+                rawOffset = Number.isFinite(Number(nextOffset)) ? Number(nextOffset) : startOffset;
+                visualOffset = __tmGetChecklistSheetVisualOffset(rawOffset, metrics);
+                sheet.style.transform = `translateY(${visualOffset}px)`;
+            };
+            const settleTo = (targetState, endEvent) => {
+                const target = String(targetState || '').trim();
+                const targetOffset = target === 'fullscreen'
+                    ? 0
+                    : target === 'closed'
+                        ? Math.max(Number(metrics?.closeOffset || 0), Number(metrics?.collapsedOffset || 0) + 120)
+                        : Math.max(0, Number(metrics?.collapsedOffset || 0));
+                const swapSheetStateWithoutTransition = (callback) => {
+                    const prevTransition = sheet.style.transition;
+                    sheet.style.transition = 'none';
+                    try {
+                        callback();
+                    } finally {
+                        try {
+                            requestAnimationFrame(() => {
+                                try { sheet.style.transition = prevTransition; } catch (e) {}
+                            });
+                        } catch (e) {
+                            try { sheet.style.transition = prevTransition; } catch (e2) {}
+                        }
+                    }
+                };
+                state.checklistDetailSheetFullscreen = target === 'fullscreen';
+                swapSheetStateWithoutTransition(() => {
+                    sheet.classList.add('tm-checklist-sheet--open');
+                    sheet.classList.remove('tm-checklist-sheet--dragging');
+                    if (target === 'closed') {
+                        sheet.style.transform = `translateY(${targetOffset}px)`;
+                        clearTrackStyles();
+                        closeSheet(endEvent);
+                        __tmSyncDetailSheetVisualState(sheet, false);
+                        return;
+                    }
+                    if (target === 'fullscreen') {
+                        sheet.classList.add('tm-checklist-sheet--fullscreen');
+                    } else {
+                        sheet.classList.remove('tm-checklist-sheet--fullscreen');
+                    }
+                    sheet.style.transform = '';
+                    clearTrackStyles();
+                    __tmSyncDetailSheetVisualState(sheet, true);
+                });
+            };
+            const cancelGesture = () => {
+                if (ended) return;
+                ended = true;
+                removeListeners();
+            };
+            const onMove = (e2) => {
+                if (ended || !samePointer(e2)) return;
+                const x = __tmGetClientXFromPointerOrTouchEvent(e2);
+                const y = __tmGetClientYFromPointerOrTouchEvent(e2);
+                const dx = x - startX;
+                const dy = y - startY;
+                if (!dragging) {
+                    const absX = Math.abs(dx);
+                    const absY = Math.abs(dy);
+                    const intentDistance = __tmIsMobileDevice() ? 5 : 6;
+                    if (absX < intentDistance && absY < intentDistance) return;
+                    if (absX > absY * 1.2) {
+                        cancelGesture();
+                        return;
+                    }
+                    if (waitForIntent && startedFullscreen && dy > 0) {
+                        const currentScrollTop = Math.max(
+                            __tmChecklistSheetScrollerTop(gestureScroller || body),
+                            __tmChecklistSheetScrollerTop(textScrollEl)
+                        );
+                        if (currentScrollTop > 2) {
+                            cancelGesture();
+                            return;
+                        }
+                    }
+                    if (waitForIntent && startedFullscreen && dy < 0) {
+                        cancelGesture();
+                        return;
+                    }
+                    if (!beginDrag(e2)) {
+                        cancelGesture();
+                        return;
+                    }
+                }
+                const now = Date.now();
+                const dt = Math.max(1, now - lastTs);
+                velocity = (y - lastY) / dt;
+                lastX = x;
+                lastY = y;
+                lastTs = now;
+                setOffset(startOffset + dy);
+                try { e2.preventDefault?.(); } catch (e) {}
+            };
+            const onUp = (e2) => {
+                if (ended || !samePointer(e2)) return;
+                ended = true;
+                removeListeners();
+                const endX = __tmGetClientXFromPointerOrTouchEvent(e2) || lastX || startX;
+                const endY = __tmGetClientYFromPointerOrTouchEvent(e2) || lastY || startY;
+                const movedPx = Math.max(Math.abs(endX - startX), Math.abs(endY - startY), Math.abs(lastY - startY));
+                if (!dragging) {
+                    return;
+                }
+                if (source === 'touch') {
+                    __tmChecklistSheetSuppressClickUntil = Date.now() + 260;
+                    try { document.__tmChecklistSheetSuppressClickUntil = __tmChecklistSheetSuppressClickUntil; } catch (e) {}
+                }
+                if (tapCloseZone && movedPx <= 8) {
+                    closeSheet(e2);
+                    return;
+                }
+                const upTravel = Math.max(0, startOffset - rawOffset);
+                const downTravel = Math.max(0, rawOffset - startOffset);
+                const projectedOffset = rawOffset + (velocity * 150);
+                const mobileQuickDownDistance = __tmIsMobileDevice() ? 5 : 0;
+                if (startedFullscreen && downTravel > 20) {
+                    settleTo('closed', e2);
+                    return;
+                }
+                const expandByDistance = !startedFullscreen && upTravel >= Math.max(64, Number(metrics?.collapsedOffset || 0) * 0.28);
+                const expandByVelocity = !startedFullscreen && velocity < -0.45 && upTravel > 14;
+                if (expandByDistance || expandByVelocity || (!startedFullscreen && projectedOffset < Number(metrics?.collapsedOffset || 0) * 0.58)) {
+                    settleTo('fullscreen', e2);
+                    return;
+                }
+                const collapseDistance = mobileQuickDownDistance || Math.max(72, Number(metrics?.collapsedOffset || 0) * 0.24);
+                const collapseByDistance = startedFullscreen && downTravel >= collapseDistance;
+                const collapseByVelocity = startedFullscreen && velocity > 0.45 && downTravel > 16;
+                if (collapseByDistance || collapseByVelocity || (startedFullscreen && projectedOffset > Number(metrics?.collapsedOffset || 0) * 0.35)) {
+                    settleTo('collapsed', e2);
+                    return;
+                }
+                const closeDistance = mobileQuickDownDistance || 104;
+                const closeByDistance = !startedFullscreen && downTravel >= closeDistance;
+                const closeByVelocity = !startedFullscreen && velocity > 0.58 && downTravel > 22;
+                if (closeByDistance || closeByVelocity) {
+                    settleTo('closed', e2);
+                    return;
+                }
+                settleTo(startedFullscreen ? 'fullscreen' : 'collapsed', e2);
+            };
+
+            if (!waitForIntent && !beginDrag(ev)) return;
+            if (source === 'touch') {
+                try { window.addEventListener('touchmove', onMove, { capture: true, passive: false }); } catch (e) {}
+                try { window.addEventListener('touchend', onUp, true); } catch (e) {}
+                try { window.addEventListener('touchcancel', onUp, true); } catch (e) {}
+            } else {
+                try { window.addEventListener('pointermove', onMove, true); } catch (e) {}
+                try { window.addEventListener('pointerup', onUp, true); } catch (e) {}
+                try { window.addEventListener('pointercancel', onUp, true); } catch (e) {}
+            }
+            return;
+        }
+
+        if (__tmIsMobileDevice() && !fromHandle && !tapCloseZone) return;
         if (!fromHandle && inBody && bodyScrollTop > 0) return;
         try { ev.preventDefault?.(); } catch (e) {}
         const startY = pointerY;
+        const startedFullscreen = sheet.classList.contains('tm-checklist-sheet--fullscreen') || state.checklistDetailSheetFullscreen === true;
         let lastY = startY;
         let lastTs = Date.now();
         let velocity = 0;
+        let minDy = 0;
+        let maxDy = 0;
         sheet.classList.add('tm-checklist-sheet--dragging');
         const onMove = (e2) => {
             const y = __tmGetClientYFromPointerOrTouchEvent(e2);
             let dy = y - startY;
             if (!Number.isFinite(dy)) dy = 0;
-            if (dy < 0) dy = dy * 0.18;
-            sheet.style.transform = `translateY(${Math.max(-24, dy)}px)`;
+            minDy = Math.min(minDy, dy);
+            maxDy = Math.max(maxDy, dy);
+            const visualDy = startedFullscreen
+                ? Math.max(0, dy)
+                : (dy < 0 ? Math.max(-54, dy * 0.42) : dy);
+            sheet.style.transform = `translateY(${visualDy}px)`;
             const now = Date.now();
             const dt = Math.max(1, now - lastTs);
             velocity = (y - lastY) / dt;
@@ -13637,15 +13852,41 @@ if (mode === 'checklist') {
                 try { sheet.releasePointerCapture?.(ev?.pointerId); } catch (e) {}
             }
             const endY = __tmGetClientYFromPointerOrTouchEvent(e2) || lastY || startY;
+            const movedPx = Math.max(Math.abs(endY - startY), Math.abs(lastY - startY));
             const dy = Math.max(0, endY - startY);
+            const upDy = Math.max(0, startY - endY);
+            const mobileQuickDownDistance = __tmIsMobileDevice() ? 5 : 0;
             sheet.classList.remove('tm-checklist-sheet--dragging');
             sheet.style.transform = '';
-            const closeByDistance = dy >= 88;
+            const expandByDistance = !startedFullscreen && upDy >= 72;
+            const expandByVelocity = !startedFullscreen && velocity < -0.55 && minDy < -18;
+            if (expandByDistance || expandByVelocity) {
+                state.checklistDetailSheetFullscreen = true;
+                __tmSyncDetailSheetVisualState(sheet, true);
+                return;
+            }
+            if (startedFullscreen && dy > 20) {
+                closeSheet(e2);
+                return;
+            }
+            const collapseByDistance = startedFullscreen && dy >= (mobileQuickDownDistance || 88);
+            const collapseByVelocity = startedFullscreen && velocity > 0.55 && maxDy > 18;
+            if (collapseByDistance || collapseByVelocity) {
+                state.checklistDetailSheetFullscreen = false;
+                __tmSyncDetailSheetVisualState(sheet, true);
+                return;
+            }
+            const closeByDistance = dy >= (mobileQuickDownDistance || 88);
             const closeByVelocity = velocity > 0.55 && dy > 18;
             if (closeByDistance || closeByVelocity) {
                 closeSheet(e2);
                 return;
             }
+            if (tapCloseZone && movedPx <= 8) {
+                closeSheet(e2);
+                return;
+            }
+            if (movedPx <= 6) return;
             refreshSheet(e2);
         };
         if (source === 'touch') {
@@ -13662,19 +13903,89 @@ if (mode === 'checklist') {
 
     window.tmChecklistSheetDragStart = function(ev) {
         if ((Date.now() - __tmChecklistSheetLastTouchStartAt) < 700) return;
-        __tmStartChecklistSheetDrag(ev, 'pointer');
+        const pointerType = String(ev?.pointerType || '').trim().toLowerCase();
+        if (pointerType === 'touch') return;
+        __tmStartChecklistSheetDrag(ev, 'pointer', {
+            trackFullscreenDrag: true,
+            allowBodySheetGesture: true,
+        });
+    };
+
+    window.tmChecklistSheetTouchStart = function(ev) {
+        __tmChecklistSheetLastTouchStartAt = Date.now();
+        __tmStartChecklistSheetDrag(ev, 'touch', {
+            trackFullscreenDrag: true,
+            allowBodySheetGesture: true,
+            passiveTouchStart: true,
+        });
     };
 
     window.tmTaskDetailSheetDragStart = function(ev) {
         if ((Date.now() - __tmChecklistSheetLastTouchStartAt) < 700) return;
+        const pointerType = String(ev?.pointerType || '').trim().toLowerCase();
+        if (pointerType === 'touch') return;
         __tmStartChecklistSheetDrag(ev, 'pointer', {
             skipSheetModeCheck: true,
             sheetSelector: '#tmTaskDetailSheet',
             bodySelector: '#tmTaskDetailSheetPanel',
             close: window.tmTaskDetailSheetClose,
             refresh: () => __tmRefreshTaskDetailSheetInPlace(state.modal, 'task-detail-sheet-drag-end'),
+            closeOnHandleTap: true,
+            trackFullscreenDrag: true,
+            allowBodySheetGesture: true,
         });
     };
+
+    window.tmTaskDetailSheetTouchStart = function(ev) {
+        __tmChecklistSheetLastTouchStartAt = Date.now();
+        __tmStartChecklistSheetDrag(ev, 'touch', {
+            skipSheetModeCheck: true,
+            sheetSelector: '#tmTaskDetailSheet',
+            bodySelector: '#tmTaskDetailSheetPanel',
+            close: window.tmTaskDetailSheetClose,
+            refresh: () => __tmRefreshTaskDetailSheetInPlace(state.modal, 'task-detail-sheet-drag-end'),
+            closeOnHandleTap: true,
+            trackFullscreenDrag: true,
+            allowBodySheetGesture: true,
+            passiveTouchStart: true,
+        });
+    };
+
+    if (document.__tmChecklistSheetSuppressClickBound !== true) {
+        document.__tmChecklistSheetSuppressClickBound = true;
+        document.addEventListener('click', (ev) => {
+            const suppressUntil = Math.max(
+                Number(__tmChecklistSheetSuppressClickUntil || 0) || 0,
+                Number(document.__tmChecklistSheetSuppressClickUntil || 0) || 0
+            );
+            if (Date.now() > suppressUntil) return;
+            const target = ev?.target instanceof Element ? ev.target : null;
+            if (!target?.closest?.('#tmChecklistSheet, #tmTaskDetailSheet')) return;
+            try { ev.preventDefault(); } catch (e) {}
+            try { ev.stopPropagation(); } catch (e) {}
+            try { ev.stopImmediatePropagation?.(); } catch (e) {}
+        }, true);
+    }
+
+    function __tmBindChecklistSheetTouchFallback(modalEl) {
+        const modal = modalEl instanceof Element ? modalEl : state.modal;
+        if (!(modal instanceof Element)) return;
+        const bindOne = (selector, handler) => {
+            const sheet = modal.querySelector(selector);
+            if (!(sheet instanceof HTMLElement) || sheet.__tmSheetTouchFallbackBound === true) return;
+            const onTouchStart = (event) => {
+                try { handler(event); } catch (e) {}
+            };
+            try {
+                sheet.addEventListener('touchstart', onTouchStart, { capture: true, passive: true });
+                sheet.__tmSheetTouchFallbackBound = true;
+            } catch (e) {}
+        };
+        bindOne('#tmChecklistSheet', window.tmChecklistSheetTouchStart);
+        bindOne('#tmTaskDetailSheet', window.tmTaskDetailSheetTouchStart);
+    }
+
+    window.__tmBindChecklistSheetTouchFallback = __tmBindChecklistSheetTouchFallback;
 
     window.tmStartChecklistDetailResize = function(ev) {
         try { ev?.preventDefault?.(); } catch (e) {}
@@ -14212,7 +14523,11 @@ if (mode === 'checklist') {
         const cls = ['tm-icon-label', String(options?.className || '').trim()].filter(Boolean).join(' ');
         const style = String(options?.style || '').trim();
         const styleAttr = style ? ` style="${__tmEscAttr(style)}"` : '';
-        return `<span class="${cls}"${styleAttr}>${__tmRenderHeadingLevelInlineIcon(level, { size: options?.size || 14 })}<span>${esc(String(text || ''))}</span></span>`;
+        const rawText = String(text || '');
+        const contentHtml = (rawText.trim() && typeof API !== 'undefined' && API && typeof API.renderTaskContentHtml === 'function')
+            ? API.renderTaskContentHtml(rawText, rawText)
+            : esc(rawText);
+        return `<span class="${cls}"${styleAttr}>${__tmRenderHeadingLevelInlineIcon(level, { size: options?.size || 14 })}<span>${contentHtml}</span></span>`;
     }
 
     function __tmRenderIconLabel(iconName, text, options = {}) {

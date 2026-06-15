@@ -30,6 +30,7 @@
     "main/task-runtime/53b-task-create-and-quick-add-runtime.js",
     "main/task-runtime/53c-document-loader-runtime.js",
     "main/task-runtime/54-recurring-task-runtime.js",
+    "main/task-runtime/55-task-move-writer.js",
     "main/settings/60-settings-screen.js",
     "main/settings/61-settings-appearance-and-import.js",
     "main/settings/62-settings-columns-and-rules.js",

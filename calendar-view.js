@@ -360,6 +360,7 @@
             autoCenterKey: '',
             autoCenterPendingKey: '',
             autoCenterToken: 0,
+            allowInactiveFullLoad: false,
         },
         floatingMini: {
             open: false,
@@ -6747,10 +6748,13 @@
             const id0 = String(base.id || '').trim();
             const taskId0 = String(base.taskId || base.task_id || base.linkedTaskId || base.linked_task_id || '').trim();
             const blockId0 = getScheduleLinkedBlockId(base);
+            const rawTitle0 = String(base.title || '').trim();
+            const title0 = normalizeCalendarScheduleTitleText(rawTitle0, '');
             const id = id0 || uuid();
             if (id !== id0) changed = true;
             if (taskId0 && taskId0 !== String(base.taskId || '').trim()) changed = true;
             if (blockId0 && blockId0 !== String(base.blockId || '').trim()) changed = true;
+            if (rawTitle0 !== title0) changed = true;
             const reminderMode0 = String(base.reminderMode || '').trim() === 'custom' ? 'custom' : 'inherit';
             const allowed = new Set([0, 5, 10, 15, 30, 60]);
             const reminderEnabled0 = reminderMode0 === 'custom' ? (base.reminderEnabled === true) : null;
@@ -6799,6 +6803,7 @@
             return {
                 ...base,
                 id,
+                title: title0,
                 taskId: taskId0,
                 blockId: blockId0,
                 reminderMode: reminderMode0,
@@ -7359,7 +7364,13 @@
     async function saveScheduleAll(items, options) {
         const opts = (options && typeof options === 'object') ? options : {};
         const previousList = Array.isArray(state.scheduleCache.list) ? cloneScheduleList(state.scheduleCache.list) : [];
-        const list = await mergeSharedSchedulesForNonPruneSave(Array.isArray(items) ? items : [], opts);
+        const list = (await mergeSharedSchedulesForNonPruneSave(Array.isArray(items) ? items : [], opts))
+            .map((item) => {
+                const base = (item && typeof item === 'object') ? item : {};
+                const rawTitle = String(base.title || '').trim();
+                const title = normalizeCalendarScheduleTitleText(rawTitle, '');
+                return rawTitle === title ? base : { ...base, title };
+            });
         const scheduleChanges = buildScheduleProcrastinationChanges(previousList, list, opts);
         let version = Number(opts.version);
         if (!Number.isFinite(version) || version <= 0) {
@@ -8896,7 +8907,7 @@
                             const fired = loadScheduleReminderFiredSet(dateKey);
                             const key = buildScheduleReminderKey(id, atMs);
                             if (!fired.has(key)) {
-                                desired.set(key, { kind: 'schedule', atMs, scheduleId: id, title: String(it.title || '日程').trim() || '日程', allDay: true, dateKey });
+                                desired.set(key, { kind: 'schedule', atMs, scheduleId: id, title: normalizeCalendarScheduleTitleText(it.title, '日程'), allDay: true, dateKey });
                             }
                         }
                         dayMs += 86400000;
@@ -8927,7 +8938,7 @@
                 const fired = loadScheduleReminderFiredSet(dateKey);
                 const key = buildScheduleReminderKey(id, atMs);
                 if (fired.has(key)) continue;
-                desired.set(key, { kind: 'schedule', atMs, startMs: occurrenceStartMs, scheduleId: id, title: String(it.title || '日程').trim() || '日程', allDay: false, dateKey, offsetMin });
+                desired.set(key, { kind: 'schedule', atMs, startMs: occurrenceStartMs, scheduleId: id, title: normalizeCalendarScheduleTitleText(it.title, '日程'), allDay: false, dateKey, offsetMin });
             }
         }
 
@@ -9328,7 +9339,7 @@
         const end = new Date(endMs);
         const settings = getSettings();
         const calendarId = String(base.calendarId || '').trim() || pickDefaultCalendarId(settings);
-        const title = String(base.title || '').trim() || '任务';
+        const title = normalizeCalendarScheduleTitleText(base.title, '任务');
         const calendarDefs = getCalendarDefs(settings);
         const calendarColor = String((calendarDefs.find((d) => String(d?.id || '').trim() === calendarId)?.color) || '').trim();
         const preferCalendarColor = base.preferCalendarColor === true;
@@ -10398,13 +10409,34 @@
         const markdown = String(t?.markdown || '').trim();
         if (markdown) {
             const firstLine = markdown.split(/\r?\n/, 1)[0].trim();
-            const parsed = firstLine.replace(/^\s*(?:[\*\-]|\d+\.)\s*\[[^\]]\]\s*/, '').trim();
+            const parsed = stripCalendarTaskListStatusPrefix(firstLine);
             if (parsed) return parsed.replace(/\s+/g, ' ');
         }
         let title = String(t?.content || t?.title || t?.raw_content || '').trim();
         if (!title) title = fb;
         if (!title) return '';
-        return title.split(/\r?\n/, 1)[0].replace(/\s+/g, ' ').trim();
+        return stripCalendarTaskListStatusPrefix(title).split(/\r?\n/, 1)[0].replace(/\s+/g, ' ').trim();
+    }
+
+    function stripCalendarTaskListStatusPrefix(value) {
+        let text = String(value || '').replace(/\r\n?/g, '\n').trim();
+        let guard = 0;
+        while (guard < 4) {
+            const next = text.replace(/^\s*(?:[-*+]|\d+[.)])\s*\[[^\]]?\]\s*/, '').trim();
+            if (next === text) break;
+            text = next;
+            guard += 1;
+        }
+        return text;
+    }
+
+    function normalizeCalendarScheduleTitleText(value, fallback = '日程') {
+        const fb = String(fallback || '').trim();
+        const text = stripCalendarTaskListStatusPrefix(value)
+            .split(/\r?\n/, 1)[0]
+            .replace(/\s+/g, ' ')
+            .trim();
+        return text || fb;
     }
 
     function normalizeCalendarTaskTitleText(value, fallback = '任务') {
@@ -10415,9 +10447,8 @@
                 text = String(API.normalizeTaskContent(text) || text).trim();
             }
         } catch (e) {}
-        text = text
+        text = stripCalendarTaskListStatusPrefix(text)
             .split(/\r?\n/, 1)[0]
-            .replace(/^\s*(?:[\*\-]|\d+\.)\s*\[[^\]]*\]\s*/, '')
             .replace(/^\s*[-*]\s*/, '')
             .replace(/\s+/g, ' ')
             .trim();
@@ -11361,6 +11392,45 @@
         state.sideDay.calendar = null;
         state.sideDay.rootEl = null;
         state.sideDay.resolveTask = null;
+        state.sideDay.allowInactiveFullLoad = false;
+    }
+
+    function scheduleSideDayTaskDateSourceRefresh(options = {}) {
+        const cal = state.sideDay?.calendar || null;
+        const rootEl = state.sideDay?.rootEl || null;
+        if (!cal || cal === state.calendar || !(rootEl instanceof HTMLElement)) return false;
+        const opt = (options && typeof options === 'object') ? options : {};
+        const rawDelays = Array.isArray(opt.delays) ? opt.delays : [300, 1200, 2200];
+        const delays = rawDelays
+            .map((item) => Math.max(0, Math.round(Number(item) || 0)))
+            .filter((item, idx, arr) => arr.indexOf(item) === idx);
+        if (!delays.length) delays.push(0);
+        const run = () => {
+            if (state.sideDay.calendar !== cal || state.sideDay.rootEl !== rootEl || !rootEl.isConnected) return;
+            state.sideDay.allowInactiveFullLoad = true;
+            if (opt.forceFreshTaskDates !== false) {
+                try { window.__tmCalendarAllTasksCache = null; } catch (e) {}
+                try {
+                    const until = Date.now() + Math.max(1200, Math.round(Number(opt.forceFreshWindowMs) || 2600));
+                    window.__tmCalendarTaskDateForceFreshUntil = Math.max(Number(window.__tmCalendarTaskDateForceFreshUntil || 0) || 0, until);
+                } catch (e) {}
+            }
+            let refetched = false;
+            try { refetched = __tmRefetchCalendarSource(cal, EVENT_SOURCE_IDS.sideTaskDate) || refetched; } catch (e) {}
+            if (!refetched) {
+                try { cal.refetchEvents?.(); } catch (e) {}
+            }
+            try { refreshSideDayLayout(); } catch (e) {}
+        };
+        delays.forEach((delay) => {
+            try {
+                setTimeout(() => {
+                    try { requestAnimationFrame(run); }
+                    catch (e) { run(); }
+                }, delay);
+            } catch (e) {}
+        });
+        return true;
     }
 
     function bindSideDayNativeDrop(rootEl, resolveTask) {
@@ -11833,6 +11903,7 @@
             state.settingsStore = state.sideDay.settingsStore;
         }
         state.sideDay.resolveTask = (typeof inOpts.resolveTask === 'function') ? inOpts.resolveTask : null;
+        state.sideDay.allowInactiveFullLoad = inOpts.allowInactiveFullLoad === true || inOpts.allowInactiveView === true;
         const enableExternalDrag = inOpts.enableExternalDrag !== false;
         const dragHost = (inOpts.dragHost instanceof HTMLElement) ? inOpts.dragHost : null;
         if (enableExternalDrag) {
@@ -12252,7 +12323,10 @@
                         try {
                             const curSettings = getSettings();
                             const sideViewType = 'timeGridDay';
-                            const events = await __tmBuildTaskDateSourceEvents(info.start, info.end, curSettings, sideViewType);
+                            const events = await __tmBuildTaskDateSourceEvents(info.start, info.end, curSettings, sideViewType, {
+                                allowInactiveFullLoad: state.sideDay.allowInactiveFullLoad === true,
+                                source: 'side-day-task-date-events',
+                            });
                             success(events);
                         } catch (e) {
                             failure(e);
@@ -12320,7 +12394,7 @@
                         const occurrenceStartMs = normalizeScheduleSkippedOccurrenceKey(ext.__tmOccurrenceStartMs);
                         openScheduleModal({
                             id: String(ext.__tmScheduleId || activeEvent?.id || ''),
-                            title: String(activeEvent?.title || ''),
+                            title: normalizeCalendarScheduleTitleText(activeEvent?.title, ''),
                             start: activeEvent?.start || (baseStart ? new Date(baseStart) : null),
                             end: activeEvent?.end || (baseEnd ? new Date(baseEnd) : null),
                             baseStart: baseStart ? new Date(baseStart) : null,
@@ -12717,11 +12791,11 @@
         const md = String(row?.markdown || '').trim();
         if (md) {
             const firstLine = md.split(/\r?\n/, 1)[0].trim();
-            const title = firstLine.replace(/^\s*(?:[\*\-]|\d+\.)\s*\[[^\]]\]\s*/, '').replace(/\s+/g, ' ').trim();
+            const title = stripCalendarTaskListStatusPrefix(firstLine).replace(/\s+/g, ' ').trim();
             if (title) return title;
         }
         const raw = String(row?.content || row?.raw_content || row?.title || '').trim();
-        return raw ? raw.split(/\r?\n/, 1)[0].replace(/\s+/g, ' ').trim() : '';
+        return raw ? stripCalendarTaskListStatusPrefix(raw).split(/\r?\n/, 1)[0].replace(/\s+/g, ' ').trim() : '';
     }
 
     function __tmBuildTaskTitleIndexFromCalendarCache() {
@@ -12823,7 +12897,7 @@
             const linkedTitle = (linkedTaskTitleMap instanceof Map)
                 ? String((taskId ? linkedTaskTitleMap.get(taskId) : '') || (blockId ? linkedTaskTitleMap.get(blockId) : '') || '').trim()
                 : '';
-            const titleBase = linkedTitle || (String(it?.title || '').trim() || '日程');
+            const titleBase = normalizeCalendarScheduleTitleText(linkedTitle || it?.title, '日程');
             const calendarId = String(it?.calendarId || 'default');
             if (!isCalendarEnabled(calendarId, settings)) continue;
             const calColor = defMap.get(calendarId)?.color || 'var(--tm-primary-color)';
@@ -13260,11 +13334,15 @@
 
     function __tmRefetchTaskDateSources(options = {}) {
         const opt = (options && typeof options === 'object') ? options : {};
+        const refetchSide = opt.side === true && !!state.sideDay?.calendar;
+        if (refetchSide && opt.allowInactiveFullLoad !== false) {
+            state.sideDay.allowInactiveFullLoad = true;
+        }
         return {
             main: opt.main === true && !!state.calendar
                 ? __tmRefetchCalendarSource(state.calendar, EVENT_SOURCE_IDS.mainTaskDate)
                 : false,
-            side: opt.side === true && !!state.sideDay?.calendar
+            side: refetchSide
                 ? __tmRefetchCalendarSource(state.sideDay.calendar, EVENT_SOURCE_IDS.sideTaskDate)
                 : false,
         };
@@ -13502,7 +13580,8 @@
         return false;
     }
 
-    async function __tmBuildTaskDateSourceEvents(rangeStart, rangeEnd, settings, viewType) {
+    async function __tmBuildTaskDateSourceEvents(rangeStart, rangeEnd, settings, viewType, options = {}) {
+        const opts = (options && typeof options === 'object') ? options : {};
         const view = String(viewType || '').trim();
         const start = rangeStart instanceof Date ? rangeStart : null;
         const end = rangeEnd instanceof Date ? rangeEnd : null;
@@ -13511,9 +13590,16 @@
         const isTimeGridRange = isTimeGridViewType(view);
         const shouldApplyMonthTaskDateDedupe = rangeSpanDays >= 27 || view === 'dayGridMonth';
         const forceFreshTaskDates = __tmShouldForceFreshCalendarTaskDateQuery();
+        const allowInactiveFullLoad = opts.allowInactiveFullLoad === true || opts.allowInactiveView === true;
         const [taskDates, schedules] = await Promise.all([
             (settings.showTaskDates && typeof window.tmQueryCalendarTaskDateEvents === 'function')
-                ? Promise.resolve().then(() => window.tmQueryCalendarTaskDateEvents(start, end, { forceFresh: forceFreshTaskDates })).catch(() => [])
+                ? Promise.resolve().then(() => window.tmQueryCalendarTaskDateEvents(start, end, {
+                    forceFresh: forceFreshTaskDates,
+                    fastFirst: allowInactiveFullLoad ? false : opts.fastFirst,
+                    allowInactiveFullLoad: opts.allowInactiveFullLoad === true,
+                    allowInactiveView: opts.allowInactiveView === true,
+                    source: String(opts.source || 'calendar-task-date-events').trim() || 'calendar-task-date-events',
+                })).catch(() => [])
                 : Promise.resolve([]),
             loadScheduleForRange(start, end).catch(() => []),
         ]);
@@ -13556,8 +13642,16 @@
                 scheduleTaskDaySet = buildScheduleTaskDayKeySet(schedules, range.start, range.end);
             } catch (e) {}
         }
+        const isSideDayCalendar = cal === state.sideDay?.calendar;
+        const allowSideFullLoad = isSideDayCalendar && state.sideDay?.allowInactiveFullLoad === true;
         const taskDates = await Promise.resolve()
-            .then(() => window.tmQueryCalendarTaskDateEvents(range.start, range.end, { forceFresh: __tmShouldForceFreshCalendarTaskDateQuery() }))
+            .then(() => window.tmQueryCalendarTaskDateEvents(range.start, range.end, {
+                forceFresh: __tmShouldForceFreshCalendarTaskDateQuery(),
+                fastFirst: allowSideFullLoad ? false : undefined,
+                allowInactiveFullLoad: allowSideFullLoad,
+                allowInactiveView: allowSideFullLoad,
+                source: isSideDayCalendar ? 'calendar-side-task-date-visible-event' : 'calendar-task-date-visible-event',
+            }))
             .catch(() => []);
         const single = (Array.isArray(taskDates) ? taskDates : []).filter((item) => String(item?.id || '').trim() === tid);
         if (!single.length) return null;
@@ -13730,6 +13824,7 @@
         if (opt.main !== false && state.calendar) targets.push({ key: 'main', calendar: state.calendar, sourceId: EVENT_SOURCE_IDS.mainTaskDate });
         if (opt.side !== false && state.sideDay?.calendar && state.sideDay.calendar !== state.calendar) targets.push({ key: 'side', calendar: state.sideDay.calendar, sourceId: EVENT_SOURCE_IDS.sideTaskDate });
         let touched = false;
+        let touchedSide = false;
         let needsMainRefresh = false;
         let needsSideRefresh = false;
         const findTaskDateEvents = (cal) => {
@@ -13767,6 +13862,10 @@
                 return cal.addEvent?.(nextEvent);
             }
         };
+        const markTargetTouched = (target) => {
+            touched = true;
+            if (target?.key === 'side') touchedSide = true;
+        };
         targets.forEach((target) => {
             const cal = target.calendar;
             const eventId = `taskdate:${tid}`;
@@ -13776,25 +13875,25 @@
             try {
                 if (existing && skipEvent && existing === skipEvent) {
                     touched = removeOtherTaskDateEvents(existingEvents, existing) || touched;
-                    touched = true;
+                    markTargetTouched(target);
                     return;
                 }
                 if (!existing && !nextEvent) return;
                 if (existing && !nextEvent) {
                     removeOtherTaskDateEvents(existingEvents, null);
-                    touched = true;
+                    markTargetTouched(target);
                     return;
                 }
                 if (!existing && nextEvent) {
                     if (!allowAdd) return;
                     addManagedTaskDateEvent(cal, nextEvent, target.sourceId);
-                    touched = true;
+                    markTargetTouched(target);
                     return;
                 }
                 if (existing && nextEvent) {
                     __tmApplyTaskDateEventProps(existing, nextEvent);
                     touched = removeOtherTaskDateEvents(existingEvents, existing) || touched;
-                    touched = true;
+                    markTargetTouched(target);
                 }
             } catch (e) {
                 if (target.key === 'main') needsMainRefresh = true;
@@ -13806,6 +13905,11 @@
             if (state.sideDay?.calendar && state.sideDay.calendar !== state.calendar) {
                 try { __tmSyncCalendarUiAfterDirectEventMutation(state.sideDay.calendar); } catch (e) {}
             }
+        }
+        if ((touchedSide || needsSideRefresh) && opt.sideSourceRefresh !== false) {
+            try {
+                scheduleSideDayTaskDateSourceRefresh();
+            } catch (e) {}
         }
         return { touched, needsMainRefresh, needsSideRefresh };
     }
@@ -15758,7 +15862,7 @@
         const repeatMonthlyMode0 = getScheduleRepeatMonthlyMode(init, repeatType0);
         const start = init.start instanceof Date ? init.start : null;
         const end = init.end instanceof Date ? init.end : null;
-        const title0 = String(init.title || '').trim();
+        const title0 = normalizeCalendarScheduleTitleText(init.title, '');
         const calendarId0 = String(init.calendarId || '').trim() || pickDefaultCalendarId(settings);
         const calDef0 = calDefs.find((d) => d.id === calendarId0) || calDefs[0] || { id: 'default', name: '时间轴', color: 'var(--tm-primary-color)' };
         const taskDateColor0 = String(init.taskDateColor || init.task_date_color || init.custom_task_date_color || readCalendarConfiguredTaskMetaAttrValue(init, 'taskDateColor') || init['custom-task-date-color'] || '').trim();
@@ -16067,7 +16171,7 @@
                     toast('请先保存日程后再查看', 'warning');
                     return;
                 }
-                const title = getInputValue('title');
+                const title = normalizeCalendarScheduleTitleText(getInputValue('title'), '');
                 const calendarId = getInputValue('calendarId') || calendarId0 || 'default';
                 const s0 = getInputValue('start');
                 const e0 = getInputValue('end');
@@ -16106,7 +16210,7 @@
                 try {
                     showScheduleDeviceScheduleDialog(currentViewItem, {
                         resolveLatestItem: async () => {
-                            const titleNow = getInputValue('title');
+                            const titleNow = normalizeCalendarScheduleTitleText(getInputValue('title'), '');
                             const calendarIdNow = getInputValue('calendarId') || calendarId0 || 'default';
                             const startRaw = getInputValue('start');
                             const endRaw = getInputValue('end');
@@ -16252,7 +16356,7 @@
                     }
                     return;
                 }
-                const title = getInputValue('title');
+                const title = normalizeCalendarScheduleTitleText(getInputValue('title'), '');
                 const calendarId = getInputValue('calendarId') || calendarId0 || 'default';
                 const s0 = getInputValue('start');
                 const e0 = getInputValue('end');
@@ -17404,7 +17508,7 @@
                         const occurrenceStartMs = normalizeScheduleSkippedOccurrenceKey(ext.__tmOccurrenceStartMs);
                         openScheduleModal({
                             id: String(ext.__tmScheduleId || activeEvent?.id || ''),
-                            title: String(activeEvent?.title || ''),
+                            title: normalizeCalendarScheduleTitleText(activeEvent?.title, ''),
                             start: activeEvent?.start || (baseStart ? new Date(baseStart) : null),
                             end: activeEvent?.end || (baseEnd ? new Date(baseEnd) : null),
                             baseStart: baseStart ? new Date(baseStart) : null,
@@ -17920,7 +18024,7 @@
                         const baseEnd = String(ext.__tmScheduleBaseEnd || '').trim();
                         openScheduleModal({
                             id: String(ext.__tmScheduleId || api?.id || ''),
-                            title: String(api?.title || ''),
+                            title: normalizeCalendarScheduleTitleText(api?.title, ''),
                             start: baseStart ? new Date(baseStart) : api?.start,
                             end: baseEnd ? new Date(baseEnd) : api?.end,
                             allDay: api?.allDay === true,
@@ -18858,7 +18962,7 @@
             const allDay = (item.allDay === true) || isAllDayRange(displayStart, displayEnd);
             openScheduleModal({
                 id,
-                title: String(item.title || '').trim(),
+                title: normalizeCalendarScheduleTitleText(item.title, ''),
                 start: displayStart,
                 end: displayEnd,
                 baseStart: start,
@@ -18890,7 +18994,7 @@
         const settings = getSettings();
         const taskId = String(extra.taskId || '').trim();
         const blockId = getScheduleLinkedBlockId(extra);
-        const title0 = String(extra.title || '').trim();
+        const title0 = normalizeCalendarScheduleTitleText(extra.title, '');
         const calendarId0 = String(extra.calendarId || '').trim() || pickDefaultCalendarId(settings);
         const reminderMode0 = String(extra.reminderMode || '').trim() || 'inherit';
         const startKey = String(extra.taskDateStartKey || extra.startKey || '').trim();

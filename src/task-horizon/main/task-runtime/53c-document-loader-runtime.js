@@ -402,6 +402,170 @@
         }
     }
 
+    function isVerifyRawTaskSignatureSourceTask(task) {
+        if (!task || typeof task !== 'object') return false;
+        try { if (__tmIsCollectedOtherBlockTask(task)) return false; } catch (e) {}
+        try { if (__tmIsRecurringInstanceTask(task)) return false; } catch (e) {}
+        return true;
+    }
+
+    function buildVerifyRawTaskSignatureFromTasks(tasks) {
+        try {
+            const list = Array.isArray(tasks) ? tasks : [];
+            const rows = [];
+            list.forEach((task) => {
+                if (!isVerifyRawTaskSignatureSourceTask(task)) return;
+                const id = String(task.id || task.blockId || '').trim();
+                if (!id) return;
+                rows.push([
+                    id,
+                    String(task.blockId || '').trim(),
+                    String(task.markdown || task.content || task.text || '').trim(),
+                    String(task.updated || task.updatedAt || '').trim(),
+                    String(task.root_id || task.docId || '').trim(),
+                ].join('\u0001'));
+            });
+            rows.sort();
+            return JSON.stringify(rows);
+        } catch (e) {
+            return '';
+        }
+    }
+
+    function buildVerifyRawTaskRowsFromSignature(signature) {
+        try {
+            const rows = JSON.parse(String(signature || '[]'));
+            return Array.isArray(rows) ? rows : [];
+        } catch (e) {
+            return [];
+        }
+    }
+
+    function summarizeVerifyRawTaskSignatureDiff(beforeSignature, afterSignature) {
+        try {
+            const beforeRows = buildVerifyRawTaskRowsFromSignature(beforeSignature);
+            const afterRows = buildVerifyRawTaskRowsFromSignature(afterSignature);
+            const maxLen = Math.max(beforeRows.length, afterRows.length);
+            let firstDiffIndex = -1;
+            for (let i = 0; i < maxLen; i += 1) {
+                if (String(beforeRows[i] || '') !== String(afterRows[i] || '')) {
+                    firstDiffIndex = i;
+                    break;
+                }
+            }
+            const getId = (row) => String(row || '').split('\u0001')[0] || '';
+            return {
+                beforeCount: beforeRows.length,
+                afterCount: afterRows.length,
+                firstDiffIndex,
+                beforeId: firstDiffIndex >= 0 ? getId(beforeRows[firstDiffIndex]) : '',
+                afterId: firstDiffIndex >= 0 ? getId(afterRows[firstDiffIndex]) : '',
+            };
+        } catch (e) {
+            return {};
+        }
+    }
+
+    function buildVerifyRawTaskSignature(taskMap) {
+        try {
+            const map = (taskMap && typeof taskMap === 'object') ? taskMap : {};
+            return buildVerifyRawTaskSignatureFromTasks(Object.keys(map).map((id) => map[id]));
+        } catch (e) {
+            return '';
+        }
+    }
+
+    function buildVerifyTaskSignature(taskMap) {
+        try {
+            const map = (taskMap && typeof taskMap === 'object') ? taskMap : {};
+            const rows = [];
+            Object.keys(map).sort().forEach((id0) => {
+                const id = String(id0 || '').trim();
+                const task = id ? map[id] : null;
+                if (!task || typeof task !== 'object') return;
+                const childIds = (Array.isArray(task.children) ? task.children : [])
+                    .map((item) => String(item?.id || item?.blockId || '').trim())
+                    .filter(Boolean)
+                    .join(',');
+                rows.push([
+                    id,
+                    String(task.blockId || '').trim(),
+                    String(task.content || task.markdown || task.text || '').trim(),
+                    (typeof __tmIsTaskDoneEffective === 'function' ? __tmIsTaskDoneEffective(task) : task.done === true) ? 1 : 0,
+                    task.pinned ? 1 : 0,
+                    String(task.startDate || task.start_date || '').trim(),
+                    String(task.completionTime || task.completion_time || task.taskCompleteAt || '').trim(),
+                    String(task.customTime || task.custom_time || '').trim(),
+                    String(task.taskCompleteAt || task.task_complete_at || '').trim(),
+                    String(task.created || '').trim(),
+                    String(task.updated || task.updatedAt || '').trim(),
+                    String(task.root_id || task.docId || '').trim(),
+                    String(task.docName || '').trim(),
+                    String(task.parentTaskId || '').trim(),
+                    String(task.h2 || '').trim(),
+                    String(task.h2Id || '').trim(),
+                    String(task.remark || '').trim(),
+                    String(task.duration || '').trim(),
+                    String(task.priority || '').trim(),
+                    String(task.customStatus || task.status || '').trim(),
+                    String(task.customFields ? JSON.stringify(task.customFields) : '').trim(),
+                    Number.isFinite(Number(task.level)) ? Number(task.level) : '',
+                    Number.isFinite(Number(task.docSeq)) ? Number(task.docSeq) : '',
+                    childIds,
+                ].join('\u0001'));
+            });
+            return JSON.stringify(rows);
+        } catch (e) {
+            return '';
+        }
+    }
+
+    function buildVerifyDocSignature() {
+        try {
+            const docRows = (Array.isArray(state.taskTree) ? state.taskTree : []).map((doc) => {
+                const docId = String(doc?.id || '').trim();
+                const taskIds = [];
+                const collect = (items) => {
+                    (Array.isArray(items) ? items : []).forEach((task) => {
+                        const id = String(task?.id || task?.blockId || '').trim();
+                        if (id) taskIds.push(id);
+                        if (Array.isArray(task?.children) && task.children.length > 0) collect(task.children);
+                    });
+                };
+                collect(doc?.tasks);
+                return [
+                    docId,
+                    String(doc?.name || '').trim(),
+                    String(doc?.alias || '').trim(),
+                    String(doc?.icon || '').trim(),
+                    String(doc?.created || '').trim(),
+                    String(doc?.updated || doc?.docUpdated || '').trim(),
+                    taskIds.join(','),
+                ].join('\u0001');
+            }).sort();
+            const loadedDocRows = (Array.isArray(state.allDocuments) ? state.allDocuments : []).map((doc) => [
+                String(doc?.id || '').trim(),
+                String(doc?.name || '').trim(),
+                String(doc?.alias || '').trim(),
+                String(doc?.icon || '').trim(),
+                String(doc?.created || '').trim(),
+                String(doc?.updated || doc?.docUpdated || '').trim(),
+            ].join('\u0001')).sort();
+            return JSON.stringify({
+                selected: (Array.isArray(state.selectedDocIds) ? state.selectedDocIds : []).map((id) => String(id || '').trim()).filter(Boolean).sort(),
+                loaded: (Array.isArray(state.__tmLoadedDocIdsForTasks) ? state.__tmLoadedDocIdsForTasks : []).map((id) => String(id || '').trim()).filter(Boolean).sort(),
+                taskTree: docRows,
+                docs: loadedDocRows,
+                otherBlocks: (Array.isArray(state.otherBlocks) ? state.otherBlocks : [])
+                    .map((block) => String(block?.id || block?.blockId || '').trim())
+                    .filter(Boolean)
+                    .sort(),
+            });
+        } catch (e) {
+            return '';
+        }
+    }
+
     // 加载所有选中文档的任务（带递归支持）
     async function loadSelectedDocuments(options = {}) {
         try { __tmHydrateOpQueue(); } catch (e) {}
@@ -410,163 +574,6 @@
         const isTokenCurrent = () => runtimeState?.isCurrentOpenToken?.(token) ?? (token === (Number(state.openToken) || 0));
         const getActiveModal = () => runtimeState?.getModal?.() || state.modal;
         const getCurrentViewMode = (fallback = '') => runtimeState?.getViewMode?.(fallback) || String(state.viewMode || '').trim() || String(fallback || '').trim();
-        const isVerifyRawTaskSignatureSourceTask = (task) => {
-            if (!task || typeof task !== 'object') return false;
-            try { if (__tmIsCollectedOtherBlockTask(task)) return false; } catch (e) {}
-            try { if (__tmIsRecurringInstanceTask(task)) return false; } catch (e) {}
-            return true;
-        };
-        const buildVerifyRawTaskSignatureFromTasks = (tasks) => {
-            try {
-                const list = Array.isArray(tasks) ? tasks : [];
-                const rows = [];
-                list.forEach((task) => {
-                    if (!isVerifyRawTaskSignatureSourceTask(task)) return;
-                    const id = String(task.id || task.blockId || '').trim();
-                    if (!id) return;
-                    rows.push([
-                        id,
-                        String(task.blockId || '').trim(),
-                        String(task.markdown || task.content || task.text || '').trim(),
-                        String(task.updated || task.updatedAt || '').trim(),
-                        String(task.root_id || task.docId || '').trim(),
-                    ].join('\u0001'));
-                });
-                rows.sort();
-                return JSON.stringify(rows);
-            } catch (e) {
-                return '';
-            }
-        };
-        const buildVerifyRawTaskRowsFromSignature = (signature) => {
-            try {
-                const rows = JSON.parse(String(signature || '[]'));
-                return Array.isArray(rows) ? rows : [];
-            } catch (e) {
-                return [];
-            }
-        };
-        const summarizeVerifyRawTaskSignatureDiff = (beforeSignature, afterSignature) => {
-            try {
-                const beforeRows = buildVerifyRawTaskRowsFromSignature(beforeSignature);
-                const afterRows = buildVerifyRawTaskRowsFromSignature(afterSignature);
-                const maxLen = Math.max(beforeRows.length, afterRows.length);
-                let firstDiffIndex = -1;
-                for (let i = 0; i < maxLen; i += 1) {
-                    if (String(beforeRows[i] || '') !== String(afterRows[i] || '')) {
-                        firstDiffIndex = i;
-                        break;
-                    }
-                }
-                const getId = (row) => String(row || '').split('\u0001')[0] || '';
-                return {
-                    beforeCount: beforeRows.length,
-                    afterCount: afterRows.length,
-                    firstDiffIndex,
-                    beforeId: firstDiffIndex >= 0 ? getId(beforeRows[firstDiffIndex]) : '',
-                    afterId: firstDiffIndex >= 0 ? getId(afterRows[firstDiffIndex]) : '',
-                };
-            } catch (e) {
-                return {};
-            }
-        };
-        const buildVerifyRawTaskSignature = (taskMap) => {
-            try {
-                const map = (taskMap && typeof taskMap === 'object') ? taskMap : {};
-                return buildVerifyRawTaskSignatureFromTasks(Object.keys(map).map((id) => map[id]));
-            } catch (e) {
-                return '';
-            }
-        };
-        const buildVerifyTaskSignature = (taskMap) => {
-            try {
-                const map = (taskMap && typeof taskMap === 'object') ? taskMap : {};
-                const rows = [];
-                Object.keys(map).sort().forEach((id0) => {
-                    const id = String(id0 || '').trim();
-                    const task = id ? map[id] : null;
-                    if (!task || typeof task !== 'object') return;
-                    const childIds = (Array.isArray(task.children) ? task.children : [])
-                        .map((item) => String(item?.id || item?.blockId || '').trim())
-                        .filter(Boolean)
-                        .join(',');
-                    rows.push([
-                        id,
-                        String(task.blockId || '').trim(),
-                        String(task.content || task.markdown || task.text || '').trim(),
-                        (typeof __tmIsTaskDoneEffective === 'function' ? __tmIsTaskDoneEffective(task) : task.done === true) ? 1 : 0,
-                        task.pinned ? 1 : 0,
-                        String(task.startDate || task.start_date || '').trim(),
-                        String(task.completionTime || task.completion_time || task.taskCompleteAt || '').trim(),
-                        String(task.customTime || task.custom_time || '').trim(),
-                        String(task.taskCompleteAt || task.task_complete_at || '').trim(),
-                        String(task.created || '').trim(),
-                        String(task.updated || task.updatedAt || '').trim(),
-                        String(task.root_id || task.docId || '').trim(),
-                        String(task.docName || '').trim(),
-                        String(task.parentTaskId || '').trim(),
-                        String(task.h2 || '').trim(),
-                        String(task.h2Id || '').trim(),
-                        String(task.remark || '').trim(),
-                        String(task.duration || '').trim(),
-                        String(task.priority || '').trim(),
-                        String(task.customStatus || task.status || '').trim(),
-                        String(task.customFields ? JSON.stringify(task.customFields) : '').trim(),
-                        Number.isFinite(Number(task.level)) ? Number(task.level) : '',
-                        Number.isFinite(Number(task.docSeq)) ? Number(task.docSeq) : '',
-                        childIds,
-                    ].join('\u0001'));
-                });
-                return JSON.stringify(rows);
-            } catch (e) {
-                return '';
-            }
-        };
-        const buildVerifyDocSignature = () => {
-            try {
-                const docRows = (Array.isArray(state.taskTree) ? state.taskTree : []).map((doc) => {
-                    const docId = String(doc?.id || '').trim();
-                    const taskIds = [];
-                    const collect = (items) => {
-                        (Array.isArray(items) ? items : []).forEach((task) => {
-                            const id = String(task?.id || task?.blockId || '').trim();
-                            if (id) taskIds.push(id);
-                            if (Array.isArray(task?.children) && task.children.length > 0) collect(task.children);
-                        });
-                    };
-                    collect(doc?.tasks);
-                    return [
-                        docId,
-                        String(doc?.name || '').trim(),
-                        String(doc?.alias || '').trim(),
-                        String(doc?.icon || '').trim(),
-                        String(doc?.created || '').trim(),
-                        String(doc?.updated || doc?.docUpdated || '').trim(),
-                        taskIds.join(','),
-                    ].join('\u0001');
-                }).sort();
-                const loadedDocRows = (Array.isArray(state.allDocuments) ? state.allDocuments : []).map((doc) => [
-                    String(doc?.id || '').trim(),
-                    String(doc?.name || '').trim(),
-                    String(doc?.alias || '').trim(),
-                    String(doc?.icon || '').trim(),
-                    String(doc?.created || '').trim(),
-                    String(doc?.updated || doc?.docUpdated || '').trim(),
-                ].join('\u0001')).sort();
-                return JSON.stringify({
-                    selected: (Array.isArray(state.selectedDocIds) ? state.selectedDocIds : []).map((id) => String(id || '').trim()).filter(Boolean).sort(),
-                    loaded: (Array.isArray(state.__tmLoadedDocIdsForTasks) ? state.__tmLoadedDocIdsForTasks : []).map((id) => String(id || '').trim()).filter(Boolean).sort(),
-                    taskTree: docRows,
-                    docs: loadedDocRows,
-                    otherBlocks: (Array.isArray(state.otherBlocks) ? state.otherBlocks : [])
-                        .map((block) => String(block?.id || block?.blockId || '').trim())
-                        .filter(Boolean)
-                        .sort(),
-                });
-            } catch (e) {
-                return '';
-            }
-        };
         const skipRender = !!(options && options.skipRender);
         const showInlineLoading = !skipRender && !(options && options.showInlineLoading === false);
         const preferFastFirstPaint = !!(options && options.preferFastFirstPaint);

@@ -330,9 +330,11 @@
                 const id = String(task?.id || '').trim();
                 if (id) filteredRawTaskById.set(id, task);
             });
-            const getKanbanParentTaskId = (task) => String(
-                task?.parentTaskId || task?.parentId || task?.parent_id || task?.parent_task_id || ''
-            ).trim();
+            const getKanbanParentTaskId = (task) => {
+                const id = String(task?.id || '').trim();
+                const pid = String(task?.parentTaskId || task?.parentId || task?.parent_id || task?.parent_task_id || '').trim();
+                return pid && pid !== id ? pid : '';
+            };
             const getRawKanbanTaskById = (taskId) => {
                 const tid = String(taskId || '').trim();
                 if (!tid) return null;

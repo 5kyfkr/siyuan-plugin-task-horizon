@@ -687,7 +687,7 @@
             const text = String(markdown || '');
             const newlineIndex = text.indexOf('\n');
             const firstLine = (newlineIndex >= 0 ? text.slice(0, newlineIndex) : text).trim();
-            return firstLine.replace(/^\s*(?:[\*\-]|\d+\.)\s*\[[^\]]\]\s*/, '').trim();
+            return __tmStripTaskListItemMarkerPrefix(firstLine);
         },
 
         shouldUseRichTaskContentParse(content) {
@@ -777,12 +777,12 @@
             if (cached && typeof cached === 'object') return cached;
             const newlineIndex = text.indexOf('\n');
             const firstLine = (newlineIndex >= 0 ? text.slice(0, newlineIndex) : text).trim();
-            const markerMatch = /^\s*(?:[\*\-]|\d+\.)\s*\[([^\]])\]/.exec(firstLine);
-            const marker = __tmNormalizeTaskStatusMarker(markerMatch?.[1], ' ');
+            const markerMatch = __tmGetTaskListItemMarkerPrefixMatch(firstLine);
+            const marker = __tmNormalizeTaskStatusMarker(markerMatch?.[3], ' ');
 
             const done = __tmIsTaskMarkerDone(marker);
 
-            const content = this.normalizeTaskContent(firstLine.replace(/^\s*(?:[\*\-]|\d+\.)\s*\[[^\]]\]\s*/, '').trim());
+            const content = this.normalizeTaskContent(__tmStripTaskListItemMarkerPrefix(firstLine));
 
             return __tmRememberTaskStatusParse(text, { done, marker, firstLine, content });
         },
@@ -2853,28 +2853,245 @@
         }
     };
 
+    const __TM_WRITER_GUARD_STORAGE_KEY = 'tm_writer_guard';
+    const __TM_WRITER_CONTEXT_FLAG = Symbol.for('task-horizon.writer-context');
+    let __tmWriterContextDepth = 0;
+    let __tmBackendAdapterCallDepth = 0;
+    const __tmWriterContextStack = [];
+    const __tmWriterGuardSeenStacks = new Set();
+
+    function __tmIsTaskWriterGuardEnabled() {
+        try {
+            if (globalThis.__tmWriterGuardEnabled === true) return true;
+        } catch (e) {}
+        try {
+            return String(localStorage.getItem(__TM_WRITER_GUARD_STORAGE_KEY) || '').trim() === '1';
+        } catch (e) {}
+        return false;
+    }
+
+    function __tmIsInTaskWriterContext() {
+        try {
+            if (globalThis.__tmInWriterContext === __TM_WRITER_CONTEXT_FLAG) return true;
+        } catch (e) {}
+        return __tmWriterContextDepth > 0;
+    }
+
+    function __tmGetTaskWriterContextLabel() {
+        try {
+            const label = String(__tmWriterContextStack[__tmWriterContextStack.length - 1] || globalThis.__tmWriterContextLabel || '').trim();
+            return label || '';
+        } catch (e) {}
+        return '';
+    }
+
+    function __tmRunInTaskWriterContext(label, fn) {
+        if (typeof fn !== 'function') return fn;
+        const nextLabel = String(label || 'task-writer').trim() || 'task-writer';
+        const previousFlag = globalThis.__tmInWriterContext;
+        const previousLabel = globalThis.__tmWriterContextLabel;
+        let cleaned = false;
+        const cleanup = () => {
+            if (cleaned) return;
+            cleaned = true;
+            __tmWriterContextDepth = Math.max(0, __tmWriterContextDepth - 1);
+            try { __tmWriterContextStack.pop(); } catch (e) {}
+            try { globalThis.__tmInWriterContext = previousFlag; } catch (e) {}
+            try { globalThis.__tmWriterContextLabel = previousLabel; } catch (e) {}
+        };
+        __tmWriterContextDepth += 1;
+        __tmWriterContextStack.push(nextLabel);
+        try { globalThis.__tmInWriterContext = __TM_WRITER_CONTEXT_FLAG; } catch (e) {}
+        try { globalThis.__tmWriterContextLabel = nextLabel; } catch (e) {}
+        try {
+            const result = fn();
+            if (result && typeof result.then === 'function') {
+                return result.finally(cleanup);
+            }
+            cleanup();
+            return result;
+        } catch (error) {
+            cleanup();
+            throw error;
+        }
+    }
+
+    function __tmGetTaskWriterStackLabel(stack = '') {
+        const text = String(stack || '');
+        if (!text) return '';
+        if (text.indexOf('__tmExecuteQueuedOp') >= 0) return 'outbox-executor';
+        const writerFrames = [
+            '__tmPersistMetaAndAttrsKernel',
+            '__tmUpdateTaskContentBlockKernel',
+            '__tmDeleteTaskKernel',
+            '__tmCreateTaskInDocKernel',
+            '__tmCreateSubtaskKernel',
+            '__tmCreateSiblingTaskKernel',
+            '__tmMoveTaskToDoc',
+            '__tmMoveTaskToDocTop',
+            '__tmMoveTaskToHeading',
+            '__tmMoveBlockViaBackendAdapter',
+            '__tmWriteExecutor',
+        ];
+        for (const frame of writerFrames) {
+            if (text.indexOf(frame) >= 0) return frame;
+        }
+        return '';
+    }
+
+    function __tmRecordBackendWriteGuardViolation(name, args, stackOverride = '') {
+        let stack = String(stackOverride || '').trim();
+        if (!stack) {
+            try { stack = String(new Error().stack || '').trim(); } catch (e) { stack = ''; }
+        }
+        const entry = {
+            name: String(name || '').trim(),
+            ts: Date.now(),
+            time: new Date().toISOString(),
+            writerContext: __tmGetTaskWriterContextLabel(),
+            stack,
+            argsPreview: Array.from(args || []).slice(0, 3).map((item) => {
+                if (item == null) return item;
+                if (typeof item === 'string' || typeof item === 'number' || typeof item === 'boolean') return item;
+                if (Array.isArray(item)) return `[array:${item.length}]`;
+                if (typeof item === 'object') return `{${Object.keys(item).slice(0, 8).join(',')}}`;
+                return typeof item;
+            }),
+        };
+        try {
+            if (!Array.isArray(globalThis.__tmWriterGuardViolations)) globalThis.__tmWriterGuardViolations = [];
+            globalThis.__tmWriterGuardViolations.push(entry);
+            if (globalThis.__tmWriterGuardViolations.length > 200) {
+                globalThis.__tmWriterGuardViolations.splice(0, globalThis.__tmWriterGuardViolations.length - 200);
+            }
+        } catch (e) {}
+        try {
+            const key = `${entry.name}:${stack.split('\n').slice(2, 7).join('\n')}`;
+            if (!__tmWriterGuardSeenStacks.has(key)) {
+                __tmWriterGuardSeenStacks.add(key);
+                const targetName = entry.name.indexOf('API.') === 0 ? entry.name : `__tmBackendAdapter.${entry.name}`;
+                console.warn(`[task-horizon] writer guard: ${targetName} called outside writer context`, entry);
+            }
+        } catch (e) {}
+        try {
+            if (typeof __tmPushDiagnosticLog === 'function') {
+                __tmPushDiagnosticLog('writer-guard-violation', {
+                    name: entry.name,
+                    stack: entry.stack,
+                    argsPreview: entry.argsPreview,
+                }, {
+                    writerContext: entry.writerContext,
+                });
+            }
+        } catch (e) {}
+        return entry;
+    }
+
+    function __tmGuardBackendWrite(name, fn) {
+        return function(...args) {
+            if (__tmIsTaskWriterGuardEnabled() && !__tmIsInTaskWriterContext()) {
+                let stack = '';
+                try { stack = String(new Error().stack || '').trim(); } catch (e) { stack = ''; }
+                if (!__tmGetTaskWriterStackLabel(stack)) {
+                    __tmRecordBackendWriteGuardViolation(name, args, stack);
+                }
+            }
+            __tmBackendAdapterCallDepth += 1;
+            try {
+                return fn.apply(this, args);
+            } finally {
+                __tmBackendAdapterCallDepth = Math.max(0, __tmBackendAdapterCallDepth - 1);
+            }
+        };
+    }
+
+    function __tmGuardRawApiWrite(name, fn) {
+        return function(...args) {
+            if (__tmIsTaskWriterGuardEnabled()
+                && __tmBackendAdapterCallDepth <= 0
+                && !__tmIsInTaskWriterContext()) {
+                let stack = '';
+                try { stack = String(new Error().stack || '').trim(); } catch (e) { stack = ''; }
+                if (!__tmGetTaskWriterStackLabel(stack)) {
+                    __tmRecordBackendWriteGuardViolation(`API.${name}`, args, stack);
+                }
+            }
+            return fn.apply(this, args);
+        };
+    }
+
+    try {
+        API.setAttrs = __tmGuardRawApiWrite('setAttrs', API.setAttrs.bind(API));
+        API.updateBlock = __tmGuardRawApiWrite('updateBlock', API.updateBlock.bind(API));
+        API.insertBlock = __tmGuardRawApiWrite('insertBlock', API.insertBlock.bind(API));
+        API.appendBlock = __tmGuardRawApiWrite('appendBlock', API.appendBlock.bind(API));
+        API.moveBlock = __tmGuardRawApiWrite('moveBlock', API.moveBlock.bind(API));
+        API.deleteBlock = __tmGuardRawApiWrite('deleteBlock', API.deleteBlock.bind(API));
+    } catch (e) {}
+
+    try {
+        globalThis.__tmRunInTaskWriterContext = __tmRunInTaskWriterContext;
+        globalThis.__tmIsInTaskWriterContext = __tmIsInTaskWriterContext;
+        globalThis.__tmWriterGuard = {
+            enable() {
+                try { globalThis.__tmWriterGuardEnabled = true; } catch (e) {}
+                try { localStorage.setItem(__TM_WRITER_GUARD_STORAGE_KEY, '1'); } catch (e) {}
+                return true;
+            },
+            disable() {
+                try { globalThis.__tmWriterGuardEnabled = false; } catch (e) {}
+                try { localStorage.removeItem(__TM_WRITER_GUARD_STORAGE_KEY); } catch (e) {}
+                return true;
+            },
+            isEnabled: __tmIsTaskWriterGuardEnabled,
+            isInContext: __tmIsInTaskWriterContext,
+            run: __tmRunInTaskWriterContext,
+            clear() {
+                try { globalThis.__tmWriterGuardViolations = []; } catch (e) {}
+                try { __tmWriterGuardSeenStacks.clear(); } catch (e) {}
+                return true;
+            },
+            violations() {
+                try { return Array.isArray(globalThis.__tmWriterGuardViolations) ? globalThis.__tmWriterGuardViolations.slice() : []; } catch (e) {}
+                return [];
+            },
+        };
+        if (!Array.isArray(globalThis.__tmWriterGuardViolations)) globalThis.__tmWriterGuardViolations = [];
+    } catch (e) {}
+
+    try {
+        globalThis.__tmTaskHorizonDiagnostics = {
+            dumpTrace(limit = 40) {
+                try { return globalThis.__tmTaskTrace?.dump?.(limit) || []; } catch (e) { return []; }
+            },
+            dumpViolations() {
+                try { return globalThis.__tmWriterGuard?.violations?.() || []; } catch (e) { return []; }
+            },
+        };
+    } catch (e) {}
+
     const __tmBackendAdapter = {
         call(url, body) {
             return API.call(url, body);
         },
-        setAttrs(id, attrs) {
+        setAttrs: __tmGuardBackendWrite('setAttrs', function(id, attrs) {
             return API.setAttrs(id, attrs);
-        },
-        updateBlock(id, md, dataType = 'markdown') {
+        }),
+        updateBlock: __tmGuardBackendWrite('updateBlock', function(id, md, dataType = 'markdown') {
             return API.updateBlock(id, md, dataType);
-        },
-        insertBlock(parentId, md, placement) {
+        }),
+        insertBlock: __tmGuardBackendWrite('insertBlock', function(parentId, md, placement) {
             return API.insertBlock(parentId, md, placement);
-        },
-        appendBlock(parentId, md) {
+        }),
+        appendBlock: __tmGuardBackendWrite('appendBlock', function(parentId, md) {
             return API.appendBlock(parentId, md);
-        },
-        moveBlock(id, placement = {}) {
+        }),
+        moveBlock: __tmGuardBackendWrite('moveBlock', function(id, placement = {}) {
             return API.moveBlock(id, placement);
-        },
-        deleteBlock(id) {
+        }),
+        deleteBlock: __tmGuardBackendWrite('deleteBlock', function(id) {
             return API.deleteBlock(id);
-        },
+        }),
         flushTransaction() {
             return API.call('/api/sqlite/flushTransaction', {});
         },
@@ -2939,6 +3156,35 @@
     function __tmBuildTaskCompleteAtPatch(value = '') {
         const normalized = __tmNormalizeTaskCompleteAtValue(String(value ?? '').trim() || __tmNowInChinaTimezoneIso());
         return normalized ? { taskCompleteAt: normalized } : {};
+    }
+
+    function __tmGetTaskListItemMarkerPrefixMatch(value) {
+        return /^(\s*)((?:[-*+]|\d+[.)]))\s*\[([^\]]?)\]\s*/.exec(String(value || ''));
+    }
+
+    function __tmStripTaskListItemMarkerPrefix(value) {
+        let text = String(value || '');
+        let guard = 0;
+        while (guard < 4) {
+            const match = __tmGetTaskListItemMarkerPrefixMatch(text);
+            if (!match) break;
+            text = text.slice(match[0].length);
+            guard += 1;
+        }
+        return text.trim();
+    }
+
+    function __tmNormalizeTaskListItemMarkdownMarker(markdown, marker) {
+        const md = String(markdown || '');
+        const nextMarker = __tmNormalizeTaskStatusMarker(marker, ' ');
+        if (!md) return '';
+        const lines = md.split(/\r?\n/);
+        const firstLine = String(lines[0] || '');
+        const match = __tmGetTaskListItemMarkerPrefixMatch(firstLine);
+        if (!match) return '';
+        const rest = firstLine.slice(match[0].length).replace(/^\s+/, '');
+        lines[0] = `${match[1]}${match[2]} [${nextMarker}]${rest ? ` ${rest}` : ''}`;
+        return lines.join('\n');
     }
 
     function __tmFormatStatusMarkerText(marker) {
@@ -3788,7 +4034,10 @@
                 previousAttachmentSlotCount: opts.previousAttachmentSlotCount,
             },
             inversePatch,
-        }, { wait: !!opts.wait });
+        }, {
+            wait: !!opts.wait,
+            onPending: typeof opts.onPending === 'function' ? opts.onPending : undefined,
+        });
     }
 
     function __tmPersistMetaAndAttrs(id, patch, options = {}) {
@@ -3855,6 +4104,7 @@
         deferredListCustomFieldIds: [],
         detailTaskId: '',
         checklistDetailSheetOpen: false,
+        checklistDetailSheetFullscreen: false,
         checklistDetailDismissed: false,
         kanbanDetailTaskId: '',
         kanbanDetailAnchorTaskId: '',
@@ -3940,6 +4190,7 @@
         // 外部事务更新的脏标记（文档页编辑/新建任务后用于切回页签静默刷新）
         externalTaskTxDirty: false,
         lastExternalTaskTxTime: 0,
+        inheritedSubtaskPatchQueuedIds: {},
         // 刚插入但 SQL 索引可能尚未返回的任务，短暂保活避免刷新后闪现消失
         pendingInsertedTasks: {},
         // 刚删除但后端/outbox 可能尚未完全落盘的任务，短暂隐藏避免刷新后复现
@@ -4338,7 +4589,8 @@
         } catch (e) {}
         const runRefresh = async () => {
             let refreshed = false;
-            if (docId && typeof __tmRefreshAffectedDocsIncrementally === 'function') {
+            const allowCurrentViewRefresh = data.refreshCurrentView !== false;
+            if (allowCurrentViewRefresh && docId && typeof __tmRefreshAffectedDocsIncrementally === 'function') {
                 try {
                     refreshed = await __tmRefreshAffectedDocsIncrementally({
                         docIds: [docId],
@@ -4350,7 +4602,7 @@
                     refreshed = false;
                 }
             }
-            if (!refreshed && typeof __tmScheduleViewRefresh === 'function') {
+            if (allowCurrentViewRefresh && !refreshed && typeof __tmScheduleViewRefresh === 'function') {
                 try {
                     __tmScheduleViewRefresh({
                         mode: 'current',
@@ -4380,6 +4632,29 @@
         return true;
     }
 
+    async function __tmWaitForQueuedCreateBackgroundProbeQuiet(reason = '') {
+        try {
+            const interactionWait = (typeof __tmGetHighPriorityInteractionWaitMs === 'function')
+                ? __tmGetHighPriorityInteractionWaitMs(80)
+                : 0;
+            if (interactionWait > 0) {
+                await new Promise((resolve) => setTimeout(resolve, Math.min(1900, interactionWait)));
+                return true;
+            }
+        } catch (e) {}
+        try {
+            if (typeof __tmShouldDeferMainViewRefreshForActiveScroll === 'function'
+                && __tmShouldDeferMainViewRefreshForActiveScroll({ mode: 'current', reason: String(reason || 'queue-create-real-id-resolve').trim() || 'queue-create-real-id-resolve' })) {
+                const waitMs = (typeof __tmGetDeferredMainViewRefreshDelay === 'function')
+                    ? __tmGetDeferredMainViewRefreshDelay({ mode: 'current', reason: String(reason || 'queue-create-real-id-resolve').trim() || 'queue-create-real-id-resolve' })
+                    : 520;
+                await new Promise((resolve) => setTimeout(resolve, Math.max(180, Math.min(1900, Number(waitMs) || 520))));
+                return true;
+            }
+        } catch (e) {}
+        return false;
+    }
+
     function __tmScheduleQueuedCreateOpRealIdResolve(op, options = {}) {
         const type = String(op?.type || '').trim();
         if (type !== 'createTaskInDoc' && type !== 'createSubtask' && type !== 'createSibling') return false;
@@ -4393,9 +4668,10 @@
         const run = async () => {
             let realId = '';
             for (let attempt = 1; attempt <= 8; attempt += 1) {
+                await __tmWaitForQueuedCreateBackgroundProbeQuiet('queue-create-real-id-resolve');
                 try {
                     realId = String(await __tmResolveInsertedTaskBlockId(insertedId, {
-maxAttempts: 1,
+                        maxAttempts: 1,
                         retryDelays: [],
                         fallbackToSeed: true,
                     }) || '').trim();
@@ -4411,14 +4687,32 @@ maxAttempts: 1,
                 return;
             }
             const previousId = String((insertedId && insertedId !== realId) ? insertedId : tempId).trim();
+            const commitOptions = {
+                clientId,
+                parentTaskId: String(data.parentTaskId || '').trim(),
+                data: {
+                    refreshPolicy: (data.refreshPolicy && typeof data.refreshPolicy === 'object')
+                        ? data.refreshPolicy
+                        : {
+                            current: data.refreshCurrentView !== false,
+                            detail: data.refreshCurrentView !== false,
+                            checklistGroup: !!String(data.parentTaskId || '').trim(),
+                            snapshot: data.scheduleSnapshotRefresh !== false && data.skipSnapshotViewStateFilterRefresh !== true,
+                        },
+                },
+                refreshCurrentView: data.refreshCurrentView !== false,
+                scheduleSnapshotRefresh: data.scheduleSnapshotRefresh !== false,
+                skipSnapshotViewStateFilterRefresh: data.skipSnapshotViewStateFilterRefresh === true,
+                source: `queue-${type}-real-id-resolve`,
+            };
             try {
                 if (previousId && previousId !== realId && typeof __tmCommitOptimisticTaskId === 'function') {
-                    __tmCommitOptimisticTaskId(previousId, realId);
+                    __tmCommitOptimisticTaskId(previousId, realId, commitOptions);
                 }
             } catch (e) {}
             try {
                 if (tempId && tempId !== realId && tempId !== previousId && typeof __tmCommitOptimisticTaskId === 'function') {
-                    __tmCommitOptimisticTaskId(tempId, realId);
+                    __tmCommitOptimisticTaskId(tempId, realId, commitOptions);
                 }
             } catch (e) {}
             try {
@@ -4454,7 +4748,7 @@ maxAttempts: 1,
         try {
             if (typeof __tmResolveInsertedTaskBlockId === 'function') {
                 taskId = String(await __tmResolveInsertedTaskBlockId(insertedId, {
-maxAttempts: 1,
+                    maxAttempts: 1,
                     retryDelays: [],
                     fallbackToSeed: false,
                 }) || '').trim();
@@ -4755,6 +5049,82 @@ maxAttempts: 1,
             } catch (e) {}
             __tmDrainOpQueue();
         }, waitMs);
+    }
+
+    const __tmOutboxSettleListeners = new Map();
+    let __tmOutboxSettleListenerSeq = 0;
+
+    function __tmGetOutboxTaskIdForSettle(op) {
+        return String(op?.data?.taskId || op?.data?.sourceTaskId || op?.data?.tempId || op?.data?.id || '').trim();
+    }
+
+    function __tmDoesOutboxSettleFilterMatch(filter, op, detail) {
+        if (!filter) return true;
+        if (typeof filter === 'string') {
+            const key = String(filter || '').trim();
+            return !!key && (String(op?.id || '').trim() === key || __tmGetOutboxTaskIdForSettle(op) === key);
+        }
+        if (!(filter && typeof filter === 'object')) return false;
+        const opId = String(filter.opId || filter.id || '').trim();
+        if (opId && String(op?.id || '').trim() !== opId) return false;
+        const type = String(filter.type || '').trim();
+        if (type && String(op?.type || '').trim() !== type) return false;
+        const taskId = String(filter.taskId || '').trim();
+        if (taskId && __tmGetOutboxTaskIdForSettle(op) !== taskId) return false;
+        const status = String(filter.status || '').trim();
+        if (status && String(detail?.status || '').trim() !== status) return false;
+        return true;
+    }
+
+    function __tmNotifyOutboxSettle(op, status, extra = {}) {
+        const detail = {
+            opId: String(op?.id || '').trim(),
+            type: String(op?.type || '').trim(),
+            taskId: __tmGetOutboxTaskIdForSettle(op),
+            docId: String(op?.docId || op?.data?.docId || '').trim(),
+            status: String(status || '').trim(),
+            result: extra.result,
+            error: extra.error || null,
+            op,
+            ts: Date.now(),
+        };
+        try {
+            globalThis.__tmTaskTrace?.push?.('outbox-settle', {
+                opId: detail.opId,
+                type: detail.type,
+                taskId: detail.taskId,
+                docId: detail.docId,
+                status: detail.status,
+                error: detail.error?.message || String(detail.error || ''),
+            });
+        } catch (e) {}
+        try {
+            Array.from(__tmOutboxSettleListeners.values()).forEach((listener) => {
+                if (!listener || typeof listener.handler !== 'function') return;
+                if (!__tmDoesOutboxSettleFilterMatch(listener.filter, op, detail)) return;
+                try { listener.handler(detail); } catch (e) {}
+                if (listener.once === true) {
+                    __tmOutboxSettleListeners.delete(listener.id);
+                }
+            });
+        } catch (e) {}
+        return detail;
+    }
+
+    function __tmOnOutboxSettle(filter, handler, options = {}) {
+        const fn = typeof handler === 'function'
+            ? handler
+            : (typeof filter === 'function' ? filter : null);
+        if (typeof fn !== 'function') return () => false;
+        const actualFilter = typeof filter === 'function' ? null : filter;
+        const id = `settle_${Date.now()}_${++__tmOutboxSettleListenerSeq}`;
+        __tmOutboxSettleListeners.set(id, {
+            id,
+            filter: actualFilter,
+            handler: fn,
+            once: !!options?.once,
+        });
+        return () => __tmOutboxSettleListeners.delete(id);
     }
 
     function __tmHydrateOpQueue() {
@@ -5590,9 +5960,12 @@ onBlockInserted: (info) => {
                 }
             } catch (e) {}
             const createOptions = Object.prototype.hasOwnProperty.call(payload, 'inheritedPatch')
-                ? { inheritedPatch: payload.inheritedPatch, scheduleSnapshotRefresh: false, backgroundAttrs: true, deferInheritedAttrs: true }
-                : { scheduleSnapshotRefresh: false, backgroundAttrs: true, deferInheritedAttrs: true };
-createOptions.deferResolveInsertedTaskId = true;
+                ? { inheritedPatch: payload.inheritedPatch, backgroundAttrs: true, deferInheritedAttrs: true }
+                : { backgroundAttrs: true, deferInheritedAttrs: true };
+            createOptions.scheduleSnapshotRefresh = payload.scheduleSnapshotRefresh !== false;
+            createOptions.refreshCurrentView = payload.refreshCurrentView !== false;
+            createOptions.skipSnapshotViewStateFilterRefresh = payload.skipSnapshotViewStateFilterRefresh === true;
+            createOptions.deferResolveInsertedTaskId = true;
             createOptions.onBlockInserted = (info) => {
                 __tmRecordQueuedCreateOpBlockInserted(op, info?.insertedId || info, info || {});
             };
@@ -6103,6 +6476,9 @@ onBlockInserted: (info) => {
             source: String(extra.source || data.source || data.reason || `queue-${type}-${phase}`).trim() || `queue-${type}-${phase}`,
             patch,
             affected,
+            refreshPolicy: (extra.refreshPolicy && typeof extra.refreshPolicy === 'object')
+                ? extra.refreshPolicy
+                : ((data.refreshPolicy && typeof data.refreshPolicy === 'object') ? data.refreshPolicy : undefined),
             data,
             snapshot: extra.snapshot || data.snapshot,
             task: extra.task || null,
@@ -6312,8 +6688,21 @@ onBlockInserted: (info) => {
                 __tmCommitOptimisticTaskId(tempId, realId, {
                     clientId: String(op?.data?.clientId || '').trim(),
                     parentTaskId: String(op?.data?.parentTaskId || '').trim(),
+                    data: {
+                        refreshPolicy: (op?.data?.refreshPolicy && typeof op.data.refreshPolicy === 'object')
+                            ? op.data.refreshPolicy
+                            : {
+                                current: op?.data?.refreshCurrentView !== false,
+                                detail: op?.data?.refreshCurrentView !== false,
+                                checklistGroup: !!String(op?.data?.parentTaskId || '').trim(),
+                                snapshot: op?.data?.scheduleSnapshotRefresh !== false && op?.data?.skipSnapshotViewStateFilterRefresh !== true,
+                            },
+                    },
+                    refreshCurrentView: op?.data?.refreshCurrentView !== false,
+                    scheduleSnapshotRefresh: op?.data?.scheduleSnapshotRefresh !== false,
+                    skipSnapshotViewStateFilterRefresh: op?.data?.skipSnapshotViewStateFilterRefresh === true,
                     source: `queue-${type}-commit-id`,
-});
+                });
                 try { __tmRemapQueuedOpTaskReferences(tempId, realId); } catch (e) {}
                 try { __tmReplayQueuedOpOptimisticState?.(`queue-${type}-commit-remap`); } catch (e) {}
                 try { __tmScheduleOpQueueDrain(0); } catch (e) {}
@@ -6613,12 +7002,21 @@ onBlockInserted: (info) => {
             __tmOpQueue.activeLanes.add(laneKey);
             __tmPersistOpQueueNow();
             Promise.resolve()
-                .then(() => __tmExecuteQueuedOp(nextOp))
+                .then(() => __tmRunInTaskWriterContext(`outbox:${String(nextOp?.type || '').trim() || 'op'}`, () => __tmExecuteQueuedOp(nextOp)))
                 .then((result) => {
                     try {
                     } catch (e) {}
                     try { __tmCommitQueuedOp(nextOp, result); } catch (e) {}
                     nextOp.status = 'done';
+                    try {
+                        globalThis.__tmTaskTrace?.push?.('outbox-commit', {
+                            opId: String(nextOp?.id || '').trim(),
+                            type: String(nextOp?.type || '').trim(),
+                            taskId: String(nextOp?.data?.taskId || nextOp?.data?.sourceTaskId || '').trim(),
+                            docId: String(nextOp?.docId || nextOp?.data?.docId || '').trim(),
+                        });
+                    } catch (e) {}
+                    try { __tmNotifyOutboxSettle(nextOp, 'done', { result }); } catch (e) {}
                     try { nextOp.resolve?.(result); } catch (e) {}
                     try {
                         const docId = String(nextOp.docId || nextOp?.data?.docId || '').trim();
@@ -6648,6 +7046,26 @@ onBlockInserted: (info) => {
                         return;
                     }
                     nextOp.status = 'failed';
+                    try {
+                        __tmPushDiagnosticLog('task-outbox-op-failed', error, {
+                            opId: String(nextOp?.id || '').trim(),
+                            type: String(nextOp?.type || '').trim(),
+                            docId: String(nextOp?.docId || nextOp?.data?.docId || '').trim(),
+                            taskId: String(nextOp?.taskId || nextOp?.data?.taskId || nextOp?.data?.id || '').trim(),
+                            retry: Number(nextOp?.retry || 0) || 0,
+                            label: String(nextOp?.data?.label || '').trim(),
+                            source: String(nextOp?.data?.source || '').trim(),
+                        });
+                    } catch (e) {}
+                    try {
+                        globalThis.__tmTaskTrace?.push?.('outbox-failed', {
+                            opId: String(nextOp?.id || '').trim(),
+                            type: String(nextOp?.type || '').trim(),
+                            taskId: String(nextOp?.data?.taskId || nextOp?.data?.sourceTaskId || '').trim(),
+                            docId: String(nextOp?.docId || nextOp?.data?.docId || '').trim(),
+                            error: String(error?.message || error || ''),
+                        });
+                    } catch (e) {}
                     try { __tmRollbackQueuedOp(nextOp); } catch (e) {}
                     try {
                         const data = (nextOp?.data && typeof nextOp.data === 'object') ? nextOp.data : {};
@@ -6656,6 +7074,7 @@ onBlockInserted: (info) => {
                             __tmReportTaskOutboxFailure(error, { action: label });
                         }
                     } catch (e) {}
+                    try { __tmNotifyOutboxSettle(nextOp, 'failed', { error }); } catch (e) {}
                     try { nextOp.reject?.(error); } catch (e) {}
                 })
                 .finally(() => {
@@ -6731,9 +7150,11 @@ const wait = !!options.wait;
             try {
                 Promise.resolve(mergeTarget.promise || Promise.resolve(mergeTarget.id))
                     .then((result) => {
+                        try { __tmNotifyOutboxSettle(op, 'done', { result }); } catch (e) {}
                         try { op.resolve?.(result); } catch (e) {}
                     })
                     .catch((error) => {
+                        try { __tmNotifyOutboxSettle(op, 'failed', { error }); } catch (e) {}
                         try { op.reject?.(error); } catch (e) {}
                     });
             } catch (e) {}
@@ -7076,6 +7497,13 @@ const wait = !!options.wait;
         const opts = (options && typeof options === 'object') ? options : {};
         const action = String(opts.action || opts.label || '更新').trim() || '更新';
         const message = String(error?.message || error || '未知错误').trim() || '未知错误';
+        try {
+            __tmPushDiagnosticLog('task-outbox-report-failure', error, {
+                action,
+                source: String(opts.source || '').trim(),
+                taskId: String(opts.taskId || '').trim(),
+            });
+        } catch (e) {}
         try { hint(`❌ ${action}失败: ${message}`, 'error'); } catch (e) {}
         return false;
     }
@@ -7111,6 +7539,7 @@ const wait = !!options.wait;
             deleteTask: __tmOutboxDeleteTask,
             resolveTaskId: __tmOutboxResolveTaskId,
             getTask: __tmOutboxGetTask,
+            onSettle: __tmOnOutboxSettle,
         });
         globalThis.__tmTaskOutbox = globalThis.__tmTaskHorizonOutbox;
         globalThis.__tmRequireTaskOutbox = __tmRequireTaskOutbox;
@@ -10528,6 +10957,7 @@ const wait = !!options.wait;
             activeDocId: String(state.activeDocId || 'all').trim() || 'all',
             detailTaskId: String(state.detailTaskId || ''),
             checklistDetailSheetOpen: !!state.checklistDetailSheetOpen,
+            checklistDetailSheetFullscreen: !!(state.checklistDetailSheetOpen && state.checklistDetailSheetFullscreen),
             checklistDetailDismissed: !!state.checklistDetailDismissed,
             kanbanDetailTaskId: String(state.kanbanDetailTaskId || ''),
             kanbanDetailAnchorTaskId: String(state.kanbanDetailAnchorTaskId || ''),
@@ -10559,6 +10989,7 @@ const wait = !!options.wait;
         state.activeDocId = String(snap.activeDocId || 'all').trim() || 'all';
         state.detailTaskId = String(snap.detailTaskId || '');
         state.checklistDetailSheetOpen = !!snap.checklistDetailSheetOpen;
+        state.checklistDetailSheetFullscreen = !!(state.checklistDetailSheetOpen && snap.checklistDetailSheetFullscreen);
         state.checklistDetailDismissed = !!snap.checklistDetailDismissed;
         state.kanbanDetailTaskId = String(snap.kanbanDetailTaskId || '');
         state.kanbanDetailAnchorTaskId = String(snap.kanbanDetailAnchorTaskId || '');
@@ -10723,6 +11154,7 @@ const wait = !!options.wait;
             state.detailTaskId = '';
             state.checklistDetailDismissed = true;
             state.checklistDetailSheetOpen = false;
+            state.checklistDetailSheetFullscreen = false;
         } else if (!__tmIsMultiSelectSupportedView()) {
             try { hint('ℹ 当前仅清单、表格、时间轴、看板和卡片流支持多选模式', 'info'); } catch (e) {}
         }
@@ -10965,8 +11397,8 @@ const wait = !!options.wait;
 
     function __tmStripTaskRewardListMarker(input) {
         let text = String(input || '').trim();
-        text = text.replace(/^\s*(?:[-*+]|\d+[.)])\s*(?=\[[ xX]\])/, '').trim();
-        text = text.replace(/^\[[ xX]\]\s*/, '').trim();
+        text = text.replace(/^\s*(?:[-*+]|\d+[.)])\s*(?=\[[^\]]?\])/, '').trim();
+        text = text.replace(/^\[[^\]]?\]\s*/, '').trim();
         return text;
     }
 
@@ -13277,14 +13709,11 @@ if (hasStatusPatch) {
         const md = String(markdown || '');
         const nextMarker = __tmNormalizeTaskStatusMarker(marker, ' ');
         if (!md) return '';
+        const normalized = __tmNormalizeTaskListItemMarkdownMarker(md, nextMarker);
+        if (normalized) return normalized;
         const lines = md.split(/\r?\n/);
         const firstLine = String(lines[0] || '');
-        const statusRegex = /^(\s*(?:[\*\-]|\d+\.)\s*\[)([^\]])(\])/;
-        const fallbackRegex = /(\[)([^\]])(\])/;
-        if (statusRegex.test(firstLine)) {
-            lines[0] = firstLine.replace(statusRegex, `$1${nextMarker}$3`);
-            return lines.join('\n');
-        }
+        const fallbackRegex = /(\[)([^\]]?)(\])/;
         if (fallbackRegex.test(firstLine)) {
             lines[0] = firstLine.replace(fallbackRegex, `$1${nextMarker}$3`);
             return lines.join('\n');
@@ -14254,6 +14683,7 @@ __tmPushStatusDebug('apply-status:start', {
     let __tmTomatoAssociationHandler = null;
     let __tmTomatoAssociationChangedHandler = null;
     let __tmTomatoFocusModeChangedHandler = null;
+    let __tmTomatoFocusEndedHandler = null;
     let __tmPinnedListenerAdded = false;
     let __tmQuickAddGlobalClickHandler = null;
     let __tmCalendarScheduleUpdatedHandler = null;
@@ -15663,9 +16093,24 @@ refreshOk = false;
                 if (state.modal && document.body.contains(state.modal)) render();
             } catch (e) {}
         };
+        __tmTomatoFocusEndedHandler = (event) => {
+            try {
+                const focusTaskId = String(state.timerFocusTaskId || '').trim();
+                if (!focusTaskId) return;
+                const ids = [
+                    event?.detail?.taskBlockId,
+                    event?.detail?.databaseBlockId,
+                ].map((value) => String(value || '').trim()).filter(Boolean);
+                if (ids.length > 0 && !ids.includes(focusTaskId)) return;
+                state.timerFocusTaskId = '';
+                __tmClearTomatoFocusRowClasses();
+                if (state.modal && document.body.contains(state.modal)) render();
+            } catch (e) {}
+        };
         try { globalThis.__tmRuntimeEvents?.on?.(window, 'tomato:association-cleared', __tmTomatoAssociationHandler); } catch (e) {}
         try { globalThis.__tmRuntimeEvents?.on?.(window, 'tomato:association-changed', __tmTomatoAssociationChangedHandler); } catch (e) {}
         try { globalThis.__tmRuntimeEvents?.on?.(window, 'tomato:focus-mode-changed', __tmTomatoFocusModeChangedHandler); } catch (e) {}
+        try { globalThis.__tmRuntimeEvents?.on?.(window, 'tomato:focus-ended', __tmTomatoFocusEndedHandler); } catch (e) {}
         globalThis.__taskHorizonOnTomatoAssociationChanged = (detail) => {
             try { __tmTomatoAssociationChangedHandler({ detail }); } catch (e) {}
         };
@@ -15674,6 +16119,9 @@ refreshOk = false;
                 state.timerFocusTaskId = '';
                 if (state.modal && document.body.contains(state.modal)) render();
             } catch (e) {}
+        };
+        globalThis.__taskHorizonOnTomatoFocusEnded = (detail) => {
+            try { __tmTomatoFocusEndedHandler({ detail }); } catch (e) {}
         };
         __tmTomatoAssociationListenerAdded = true;
     }
@@ -16028,12 +16476,246 @@ refreshOk = false;
         };
     }
 
+    const __TM_REMARK_TEXTAREA_HISTORY_LIMIT = 100;
+    const __TM_REMARK_TEXTAREA_HISTORY_TYPING_WINDOW = 900;
+    const __tmRemarkTextareaHistoryMap = new WeakMap();
+
+    function __tmReadRemarkTextareaHistorySnapshot(textarea) {
+        const { start, end, value } = __tmGetTextareaSelectionRange(textarea);
+        const length = value.length;
+        const safeStart = Math.max(0, Math.min(length, start));
+        const safeEnd = Math.max(0, Math.min(length, end));
+        return {
+            value,
+            selectionStart: Math.min(safeStart, safeEnd),
+            selectionEnd: Math.max(safeStart, safeEnd),
+        };
+    }
+
+    function __tmAreRemarkTextareaHistorySnapshotsEqual(a, b, compareSelection = false) {
+        if (!a || !b) return false;
+        if (String(a.value || '') !== String(b.value || '')) return false;
+        if (!compareSelection) return true;
+        return Number(a.selectionStart || 0) === Number(b.selectionStart || 0)
+            && Number(a.selectionEnd || 0) === Number(b.selectionEnd || 0);
+    }
+
+    function __tmGetRemarkTextareaHistory(textarea) {
+        if (!(textarea instanceof HTMLTextAreaElement)) return null;
+        let history = __tmRemarkTextareaHistoryMap.get(textarea);
+        if (!history) {
+            history = {
+                undoStack: [],
+                redoStack: [],
+                lastSnapshot: __tmReadRemarkTextareaHistorySnapshot(textarea),
+                lastInputType: '',
+                lastInputAt: 0,
+                typingGroupActive: false,
+                pendingNativeInput: false,
+                ignoreInputCount: 0,
+                composing: false,
+                compositionSnapshot: null,
+                bound: false,
+            };
+            __tmRemarkTextareaHistoryMap.set(textarea, history);
+        }
+        return history;
+    }
+
+    function __tmTrimRemarkTextareaHistoryStack(stack) {
+        if (!Array.isArray(stack)) return;
+        while (stack.length > __TM_REMARK_TEXTAREA_HISTORY_LIMIT) stack.shift();
+    }
+
+    function __tmIsRemarkTextareaHistoryTypingInput(inputType) {
+        const type = String(inputType || '').trim();
+        return type === 'insertText'
+            || type === 'deleteContentBackward'
+            || type === 'deleteContentForward';
+    }
+
+    function __tmPushRemarkTextareaUndoSnapshot(textarea, snapshot = null, options = {}) {
+        const history = __tmGetRemarkTextareaHistory(textarea);
+        if (!history) return false;
+        const opts = (options && typeof options === 'object') ? options : {};
+        const snap = snapshot || __tmReadRemarkTextareaHistorySnapshot(textarea);
+        if (__tmAreRemarkTextareaHistorySnapshotsEqual(snap, history.undoStack[history.undoStack.length - 1], true)) {
+            return false;
+        }
+        if (__tmAreRemarkTextareaHistorySnapshotsEqual(snap, __tmReadRemarkTextareaHistorySnapshot(textarea), true)
+            && __tmAreRemarkTextareaHistorySnapshotsEqual(snap, history.lastSnapshot, true)
+            && opts.force !== true) {
+            return false;
+        }
+        history.undoStack.push({ ...snap });
+        __tmTrimRemarkTextareaHistoryStack(history.undoStack);
+        if (opts.keepRedo !== true) history.redoStack = [];
+        return true;
+    }
+
+    function __tmPrepareRemarkTextareaHistoryEdit(textarea, inputType = '', options = {}) {
+        const history = __tmGetRemarkTextareaHistory(textarea);
+        if (!history) return false;
+        const opts = (options && typeof options === 'object') ? options : {};
+        const now = Date.now();
+        const type = String(inputType || '').trim();
+        const editSnapshot = opts.snapshot || __tmReadRemarkTextareaHistorySnapshot(textarea);
+        const isTyping = __tmIsRemarkTextareaHistoryTypingInput(type);
+        const shouldMerge = isTyping
+            && history.typingGroupActive
+            && history.lastInputType === type
+            && now - Number(history.lastInputAt || 0) <= __TM_REMARK_TEXTAREA_HISTORY_TYPING_WINDOW;
+        if (!shouldMerge || opts.force === true) {
+            __tmPushRemarkTextareaUndoSnapshot(textarea, editSnapshot, { force: true });
+        }
+        history.typingGroupActive = isTyping;
+        history.lastInputType = type;
+        history.lastInputAt = now;
+        history.pendingNativeInput = opts.nativeInput === true;
+        return true;
+    }
+
+    function __tmApplyRemarkTextareaHistorySnapshot(textarea, snapshot) {
+        if (!(textarea instanceof HTMLTextAreaElement) || !snapshot) return false;
+        const history = __tmGetRemarkTextareaHistory(textarea);
+        if (!history) return false;
+        history.typingGroupActive = false;
+        history.pendingNativeInput = false;
+        history.ignoreInputCount += 1;
+        textarea.value = String(snapshot.value || '');
+        try { textarea.focus({ preventScroll: true }); } catch (e) { try { textarea.focus(); } catch (e2) {} }
+        try { textarea.setSelectionRange(Number(snapshot.selectionStart || 0), Number(snapshot.selectionEnd || 0)); } catch (e) {}
+        try { textarea.dispatchEvent(new Event('input', { bubbles: true })); } catch (e) {}
+        history.lastSnapshot = __tmReadRemarkTextareaHistorySnapshot(textarea);
+        return true;
+    }
+
+    function __tmRestoreRemarkTextareaHistory(textarea, direction = 'undo') {
+        const history = __tmGetRemarkTextareaHistory(textarea);
+        if (!history) return false;
+        const undo = String(direction || '').trim() !== 'redo';
+        const sourceStack = undo ? history.undoStack : history.redoStack;
+        const targetStack = undo ? history.redoStack : history.undoStack;
+        const current = __tmReadRemarkTextareaHistorySnapshot(textarea);
+        let target = sourceStack.pop();
+        while (target && __tmAreRemarkTextareaHistorySnapshotsEqual(target, current, true)) {
+            target = sourceStack.pop();
+        }
+        if (!target) return false;
+        targetStack.push({ ...current });
+        __tmTrimRemarkTextareaHistoryStack(targetStack);
+        return __tmApplyRemarkTextareaHistorySnapshot(textarea, target);
+    }
+
+    function __tmHandleRemarkTextareaHistoryBeforeInput(textarea, event) {
+        const history = __tmGetRemarkTextareaHistory(textarea);
+        if (!history || history.ignoreInputCount > 0 || history.composing || event?.isComposing) return false;
+        const type = String(event?.inputType || '').trim();
+        if (type === 'historyUndo' || type === 'historyRedo') return false;
+        return __tmPrepareRemarkTextareaHistoryEdit(textarea, type, { nativeInput: true });
+    }
+
+    function __tmHandleRemarkTextareaHistoryInput(textarea, event) {
+        const history = __tmGetRemarkTextareaHistory(textarea);
+        if (!history) return false;
+        if (history.ignoreInputCount > 0) {
+            history.ignoreInputCount -= 1;
+            history.lastSnapshot = __tmReadRemarkTextareaHistorySnapshot(textarea);
+            return true;
+        }
+        if (history.composing || event?.isComposing) {
+            history.lastSnapshot = __tmReadRemarkTextareaHistorySnapshot(textarea);
+            return false;
+        }
+        if (!history.pendingNativeInput && !__tmAreRemarkTextareaHistorySnapshotsEqual(history.lastSnapshot, __tmReadRemarkTextareaHistorySnapshot(textarea))) {
+            __tmPrepareRemarkTextareaHistoryEdit(textarea, String(event?.inputType || '').trim(), {
+                nativeInput: true,
+                snapshot: history.lastSnapshot,
+            });
+        }
+        history.pendingNativeInput = false;
+        history.lastSnapshot = __tmReadRemarkTextareaHistorySnapshot(textarea);
+        return true;
+    }
+
+    function __tmBindRemarkTextareaUndoHistory(textarea) {
+        const history = __tmGetRemarkTextareaHistory(textarea);
+        if (!history || history.bound) return false;
+        history.bound = true;
+        textarea.addEventListener('beforeinput', (event) => {
+            __tmHandleRemarkTextareaHistoryBeforeInput(textarea, event);
+        }, true);
+        textarea.addEventListener('input', (event) => {
+            __tmHandleRemarkTextareaHistoryInput(textarea, event);
+        }, true);
+        textarea.addEventListener('compositionstart', () => {
+            const nextHistory = __tmGetRemarkTextareaHistory(textarea);
+            if (!nextHistory) return;
+            nextHistory.composing = true;
+            nextHistory.compositionSnapshot = __tmReadRemarkTextareaHistorySnapshot(textarea);
+        }, true);
+        textarea.addEventListener('compositionend', () => {
+            const nextHistory = __tmGetRemarkTextareaHistory(textarea);
+            if (!nextHistory) return;
+            nextHistory.composing = false;
+            const current = __tmReadRemarkTextareaHistorySnapshot(textarea);
+            if (nextHistory.compositionSnapshot
+                && !__tmAreRemarkTextareaHistorySnapshotsEqual(nextHistory.compositionSnapshot, current)) {
+                __tmPushRemarkTextareaUndoSnapshot(textarea, nextHistory.compositionSnapshot, { force: true });
+            }
+            nextHistory.compositionSnapshot = null;
+            nextHistory.lastSnapshot = current;
+            nextHistory.typingGroupActive = false;
+        }, true);
+        return true;
+    }
+
+    function __tmResetRemarkTextareaUndoHistory(textarea) {
+        const history = __tmGetRemarkTextareaHistory(textarea);
+        if (!history) return false;
+        history.undoStack = [];
+        history.redoStack = [];
+        history.lastSnapshot = __tmReadRemarkTextareaHistorySnapshot(textarea);
+        history.lastInputType = '';
+        history.lastInputAt = 0;
+        history.typingGroupActive = false;
+        history.pendingNativeInput = false;
+        history.ignoreInputCount = 0;
+        history.composing = false;
+        history.compositionSnapshot = null;
+        return true;
+    }
+
+    function __tmHandleRemarkTextareaUndoRedoKeydown(textarea, event) {
+        if (!(textarea instanceof HTMLTextAreaElement) || !event || event.defaultPrevented || event.isComposing) return false;
+        if (!(event.ctrlKey || event.metaKey) || event.altKey) return false;
+        const key = String(event.key || '').toLowerCase();
+        const isUndo = key === 'z' && !event.shiftKey;
+        const isRedo = (key === 'z' && event.shiftKey) || (key === 'y' && !event.shiftKey);
+        if (!isUndo && !isRedo) return false;
+        if (!__tmRestoreRemarkTextareaHistory(textarea, isRedo ? 'redo' : 'undo')) return false;
+        try { event.preventDefault(); } catch (e) {}
+        try { event.stopPropagation(); } catch (e) {}
+        try { event.stopImmediatePropagation(); } catch (e) {}
+        return true;
+    }
+
     function __tmSetTextareaValueAndSelection(textarea, nextValue, start, end = start) {
         if (!(textarea instanceof HTMLTextAreaElement)) return;
-        textarea.value = String(nextValue || '');
+        const nextText = String(nextValue || '');
+        if (nextText !== String(textarea.value || '')) {
+            __tmPrepareRemarkTextareaHistoryEdit(textarea, 'format', { force: true });
+            const history = __tmGetRemarkTextareaHistory(textarea);
+            if (history) history.ignoreInputCount += 1;
+        }
+        textarea.value = nextText;
         try { textarea.focus({ preventScroll: true }); } catch (e) { try { textarea.focus(); } catch (e2) {} }
         try { textarea.setSelectionRange(start, end); } catch (e) {}
         try { textarea.dispatchEvent(new Event('input', { bubbles: true })); } catch (e) {}
+        {
+            const history = __tmGetRemarkTextareaHistory(textarea);
+            if (history) history.lastSnapshot = __tmReadRemarkTextareaHistorySnapshot(textarea);
+        }
     }
 
     function __tmWrapRemarkSelection(textarea, prefix, suffix = prefix) {
@@ -16212,6 +16894,7 @@ refreshOk = false;
 
     function __tmHandleRemarkTextareaKeydown(textarea, event) {
         if (!(textarea instanceof HTMLTextAreaElement) || !event || event.defaultPrevented) return false;
+        if (__tmHandleRemarkTextareaUndoRedoKeydown(textarea, event)) return true;
         if (event.key === 'Tab' && !event.altKey && !event.ctrlKey && !event.metaKey && !event.isComposing) {
             event.preventDefault();
             return __tmAdjustRemarkIndent(textarea, !!event.shiftKey);
@@ -16288,6 +16971,10 @@ refreshOk = false;
             insertLinkTemplate: __tmInsertRemarkLinkTemplate,
             adjustIndent: __tmAdjustRemarkIndent,
             handleTextareaKeydown: __tmHandleRemarkTextareaKeydown,
+            bindUndoHistory: __tmBindRemarkTextareaUndoHistory,
+            resetUndoHistory: __tmResetRemarkTextareaUndoHistory,
+            undo: (textarea) => __tmRestoreRemarkTextareaHistory(textarea, 'undo'),
+            redo: (textarea) => __tmRestoreRemarkTextareaHistory(textarea, 'redo'),
         };
     } catch (e) {}
 
@@ -16566,11 +17253,9 @@ refreshOk = false;
         const kanbanCollapsedIds = state.__tmKanbanCollapsedIds instanceof Set ? Array.from(state.__tmKanbanCollapsedIds).sort() : [];
         const kanbanCollapsedColumnKeys = state.__tmKanbanCollapsedColumnKeys instanceof Set ? Array.from(state.__tmKanbanCollapsedColumnKeys).sort() : [];
         const quadrantRules = Array.isArray(SettingsStore.data?.quadrantConfig?.rules) ? SettingsStore.data.quadrantConfig.rules : [];
-        const completedSubtasksVisibility = (SettingsStore.data?.taskDetailCompletedSubtasksVisibilityByTask
-            && typeof SettingsStore.data.taskDetailCompletedSubtasksVisibilityByTask === 'object'
-            && !Array.isArray(SettingsStore.data.taskDetailCompletedSubtasksVisibilityByTask))
-            ? SettingsStore.data.taskDetailCompletedSubtasksVisibilityByTask
-            : {};
+        const taskDetailShowCompletedSubtasks = typeof __tmNormalizeTaskDetailShowCompletedSubtasksSetting === 'function'
+            ? __tmNormalizeTaskDetailShowCompletedSubtasksSetting(SettingsStore.data?.taskDetailShowCompletedSubtasks, true)
+            : SettingsStore.data?.taskDetailShowCompletedSubtasks !== false;
 
         feed(options.isAllTabsView ? 1 : 0);
         feed(options.isCompact ? 1 : 0);
@@ -16643,12 +17328,7 @@ refreshOk = false;
         feed(kanbanCollapsedColumnKeys.length);
         kanbanCollapsedColumnKeys.forEach(feed);
 
-        const completedSubtaskVisibilityKeys = Object.keys(completedSubtasksVisibility).sort();
-        feed(completedSubtaskVisibilityKeys.length);
-        completedSubtaskVisibilityKeys.forEach((key) => {
-            feed(key);
-            feed(completedSubtasksVisibility[key] === false ? 0 : 1);
-        });
+        feed(taskDetailShowCompletedSubtasks ? 1 : 0);
 
         feed(filtered.length);
         filtered.forEach((task) => {
@@ -17256,6 +17936,7 @@ refreshOk = false;
             ['plugin.json frontends', snapshot.plugin.frontends],
             ['plugin.json backends', snapshot.plugin.backends],
         ];
+        const diagnosticLogsEnabled = SettingsStore?.data?.diagnosticLogsEnabled === true;
         return `
             <div class="tm-settings-panel" style="margin-bottom:14px;">
                 <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:12px;flex-wrap:wrap;">
@@ -17268,6 +17949,26 @@ refreshOk = false;
                     <div style="display:flex;gap:8px;flex-wrap:wrap;">
                         <button class="tm-btn tm-btn-primary" data-tm-action="tmOpenSettingsExportDialog">导出设置包</button>
                         <button class="tm-btn tm-btn-secondary" data-tm-action="tmOpenSettingsImportDialog">导入设置包</button>
+                    </div>
+                </div>
+            </div>
+            <div class="tm-settings-panel" style="margin-bottom:14px;">
+                <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:12px;flex-wrap:wrap;">
+                    <div style="min-width:220px;flex:1;">
+                        <div style="font-weight:700;font-size:15px;">性能与关键路径诊断日志</div>
+                        <div style="font-size:12px;color:var(--tm-secondary-text);margin-top:6px;line-height:1.7;">
+                            默认关闭。开启后记录 PERF Trace 与关键路径失败日志；桌面端可在控制台 dump，移动端会自动保存到 <code>/data/storage/petal/siyuan-plugin-task-horizon/diagnostic-logs.json</code>。
+                        </div>
+                        <div style="font-size:12px;color:var(--tm-secondary-text);margin-top:6px;line-height:1.7;">
+                            关闭后不再记录也不再自动写诊断日志文件。控制台：<code>tmTaskHorizonPerfDump()</code> / <code>tmTaskHorizonDiagnosticDump()</code>
+                        </div>
+                    </div>
+                    <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;">
+                        <button class="tm-btn tm-btn-secondary" onclick="tmClearDiagnosticLogs()">清空日志</button>
+                        <label style="display:flex;align-items:center;gap:8px;font-size:12px;color:var(--tm-text-color);">
+                            <span>${diagnosticLogsEnabled ? '已开启' : '已关闭'}</span>
+                            <input class="b3-switch fn__flex-center" type="checkbox" ${diagnosticLogsEnabled ? 'checked' : ''} onchange="tmUpdateDiagnosticLogsEnabled(this.checked)">
+                        </label>
                     </div>
                 </div>
             </div>
@@ -20471,7 +21172,17 @@ refreshOk = false;
             } catch (e) {}
         }
         let nextRowsHtml = '';
-        try { nextRowsHtml = renderTaskList(); } catch (e) { return false; } finally {
+        try { nextRowsHtml = renderTaskList(); } catch (e) {
+            try {
+                __tmPushDiagnosticLog('list-rerender-renderTaskList-failed', e, {
+                    renderSignature,
+                    isCalendarTaskTable,
+                    viewMode: String(state.viewMode || '').trim(),
+                    groupMode: String(SettingsStore?.data?.groupMode || '').trim(),
+                });
+            } catch (e2) {}
+            return false;
+        } finally {
             if (isCalendarTaskTable) {
                 SettingsStore.data.columnOrder = originalOrder;
                 SettingsStore.data.columnWidths = originalWidths;
@@ -20488,7 +21199,16 @@ refreshOk = false;
                 });
             }
         } catch (e) {}
-        try { tbody.innerHTML = nextRowsHtml; } catch (e) { return false; }
+        try { tbody.innerHTML = nextRowsHtml; } catch (e) {
+            try {
+                __tmPushDiagnosticLog('list-rerender-dom-swap-failed', e, {
+                    renderSignature,
+                    rowHtmlLength: String(nextRowsHtml || '').length,
+                    isCalendarTaskTable,
+                });
+            } catch (e2) {}
+            return false;
+        }
         try { if (body) body.scrollTop = top; } catch (e) {}
         try { if (body) body.scrollLeft = left; } catch (e) {}
         try { body?.__tmTableScrollUpdateThumb?.(); } catch (e) {}
@@ -21442,8 +22162,28 @@ const renderBodyHtml = state.renderChecklistBodyHtml;
                 });
             } catch (e) {}
         }
-        const nextBody = __tmBuildElementFromHtml(renderBodyHtml());
-        if (!(nextBody instanceof HTMLElement)) return false;
+        let nextBody = null;
+        try {
+            nextBody = __tmBuildElementFromHtml(renderBodyHtml());
+        } catch (e) {
+            try {
+                __tmPushDiagnosticLog('checklist-rerender-build-body-failed', e, {
+                    renderSignature,
+                    detailTaskId,
+                });
+            } catch (e2) {}
+            return false;
+        }
+        if (!(nextBody instanceof HTMLElement)) {
+            try {
+                __tmPushDiagnosticLog('checklist-rerender-build-body-invalid', {
+                    renderSignature,
+                    detailTaskId,
+                    resultType: typeof nextBody,
+                });
+            } catch (e) {}
+            return false;
+        }
         const checklistProjectionTaskIds = __tmGetChecklistProjectionGroupRefreshTaskIds();
         if (checklistProjectionTaskIds.length > 0
             && __tmTryRefreshChecklistProjectionGroups(modal, body, nextBody, checklistProjectionTaskIds, {
@@ -21456,8 +22196,19 @@ const renderBodyHtml = state.renderChecklistBodyHtml;
         __tmClearChecklistProjectionGroupRefresh();
         __tmPreserveActiveDetailNotePanelDuringBodySwap(body, nextBody);
         __tmCleanupChecklistScrollFxForEl(pane);
-        try { body.replaceWith(nextBody); } catch (e) { return false; }
+        try { body.replaceWith(nextBody); } catch (e) {
+            try {
+                __tmPushDiagnosticLog('checklist-rerender-dom-swap-failed', e, {
+                    renderSignature,
+                    detailTaskId,
+                    sheetMode,
+                });
+            } catch (e2) {}
+            return false;
+        }
         try { __tmBindChecklistScrollVisibility(modal); } catch (e) {}
+        try { globalThis.__tmBindChecklistSheetTouchFallback?.(modal); } catch (e) {}
+        try { globalThis.__tmBindAutoLoadMoreOnScroll?.(modal, 'checklist'); } catch (e) {}
         try { __tmRefreshChecklistSelectionInPlace(modal, 'checklist-rerender'); } catch (e) {}
         try { __tmApplyReminderTaskNameMarks(modal); } catch (e) {}
         try { __tmScheduleReminderTaskNameMarksRefresh(modal); } catch (e) {}
@@ -21550,13 +22301,41 @@ const renderBodyHtml = state.renderChecklistBodyHtml;
                 });
             } catch (e) {}
         }
-        const nextBody = __tmBuildElementFromHtml(renderBodyHtml());
-        if (!(nextBody instanceof HTMLElement)) return false;
+        let nextBody = null;
+        try {
+            nextBody = __tmBuildElementFromHtml(renderBodyHtml());
+        } catch (e) {
+            try {
+                __tmPushDiagnosticLog('kanban-rerender-build-body-failed', e, {
+                    detailTaskId,
+                    bodyLeft,
+                });
+            } catch (e2) {}
+            return false;
+        }
+        if (!(nextBody instanceof HTMLElement)) {
+            try {
+                __tmPushDiagnosticLog('kanban-rerender-build-body-invalid', {
+                    detailTaskId,
+                    bodyLeft,
+                    resultType: typeof nextBody,
+                });
+            } catch (e) {}
+            return false;
+        }
         const preservedNotePanel = __tmPreserveActiveDetailNotePanelDuringBodySwap(body, nextBody);
         if (!preservedNotePanel) {
             try { __tmClearKanbanDetailFloatingHandlers(); } catch (e) {}
         }
-        try { body.replaceWith(nextBody); } catch (e) { return false; }
+        try { body.replaceWith(nextBody); } catch (e) {
+            try {
+                __tmPushDiagnosticLog('kanban-rerender-dom-swap-failed', e, {
+                    detailTaskId,
+                    bodyLeft,
+                });
+            } catch (e2) {}
+            return false;
+        }
         try { __tmBindKanbanPan(modal); } catch (e) {}
         try { __tmScheduleKanbanBottomNavAvoidance(modal); } catch (e) {}
         try { __tmRefreshKanbanDetailInPlace(modal, { scrollSnapshot: detailScrollSnapshot, source: 'kanban-rerender-in-place' }); } catch (e) {}
@@ -21678,4 +22457,3 @@ const renderBodyHtml = state.renderChecklistBodyHtml;
         if (state.viewMode === 'timeline') return __tmRerenderTimelineInPlace(modal);
         return __tmRerenderListInPlace(modal);
     }
-

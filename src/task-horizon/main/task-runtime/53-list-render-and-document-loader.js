@@ -926,6 +926,18 @@
     function __tmScheduleRender(options = {}) {
         const withFilters = !(options && options.withFilters === false);
         const reason = String(options?.reason || '').trim() || 'scheduled-render';
+        const jankEnabled = typeof __tmIsJankDebugEnabled === 'function' && __tmIsJankDebugEnabled();
+        if (jankEnabled) {
+            try {
+                __tmPushJankDebug('render-scheduled', {
+                    reason,
+                    withFilters,
+                    alreadyScheduled: __tmRenderScheduled === true,
+                    needFiltersBefore: __tmRenderNeedFilters === true,
+                    stack: true,
+                });
+            } catch (e) {}
+        }
         if (options?.deferIfDetailBusy !== false) {
             const barrier = __tmGetBusyTaskDetailBarrier();
             if (barrier) {
@@ -941,6 +953,20 @@
                         })),
                     });
                 } catch (e) {}
+                if (jankEnabled) {
+                    try {
+                        __tmPushJankDebug('render-deferred-busy-detail', {
+                            reason,
+                            withFilters,
+                            barrier: barrier.entries.map((entry) => ({
+                                scope: entry.scope,
+                                taskId: entry.taskId,
+                                reasons: entry.reasons.slice(),
+                                holdMsLeft: entry.holdMsLeft,
+                            })),
+                        });
+                    } catch (e) {}
+                }
                 __tmScheduleBusyDetailViewRefresh({
                     mode: 'full',
                     withFilters,
@@ -950,16 +976,50 @@
             }
         }
         __tmRenderNeedFilters = __tmRenderNeedFilters || withFilters;
-        if (__tmRenderScheduled) return;
+        try {
+            state.__tmJankRenderNeedFilters = __tmRenderNeedFilters === true;
+        } catch (e) {}
+        if (__tmRenderScheduled) {
+            if (jankEnabled) {
+                try {
+                    __tmPushJankDebug('render-coalesced', {
+                        reason,
+                        withFilters,
+                        needFilters: __tmRenderNeedFilters === true,
+                    });
+                } catch (e) {}
+            }
+            return;
+        }
         __tmRenderScheduled = true;
+        try {
+            state.__tmJankRenderScheduled = true;
+            state.__tmJankLastRender = {
+                phase: 'scheduled',
+                reason,
+                withFilters,
+                at: Date.now(),
+            };
+        } catch (e) {}
         requestAnimationFrame(() => {
             const interactionWait = (typeof __tmGetHighPriorityInteractionWaitMs === 'function')
                 ? __tmGetHighPriorityInteractionWaitMs(32)
                 : 0;
             if (interactionWait > 0) {
+                if (jankEnabled) {
+                    try {
+                        __tmPushJankDebug('render-deferred-interaction', {
+                            reason,
+                            withFilters,
+                            needFilters: __tmRenderNeedFilters === true,
+                            interactionWait,
+                        });
+                    } catch (e) {}
+                }
                 try {
                     setTimeout(() => {
                         __tmRenderScheduled = false;
+                        try { state.__tmJankRenderScheduled = false; } catch (e) {}
                         __tmScheduleRender({
                             withFilters: __tmRenderNeedFilters,
                             reason,
@@ -967,15 +1027,53 @@
                     }, interactionWait);
                 } catch (e) {
                     __tmRenderScheduled = false;
+                    try { state.__tmJankRenderScheduled = false; } catch (e2) {}
                 }
                 return;
             }
             __tmRenderScheduled = false;
+            try { state.__tmJankRenderScheduled = false; } catch (e) {}
             const needFilters = __tmRenderNeedFilters;
             __tmRenderNeedFilters = false;
-            if (needFilters) applyFilters();
-            if (typeof __tmIsPluginVisibleNow === 'function' && !__tmIsPluginVisibleNow()) return;
+            try { state.__tmJankRenderNeedFilters = false; } catch (e) {}
+            const started = jankEnabled && typeof __tmJankNow === 'function' ? __tmJankNow() : 0;
+            let applyMs = 0;
+            let renderMs = 0;
+            if (needFilters) {
+                const applyStarted = started ? __tmJankNow() : 0;
+                applyFilters();
+                if (applyStarted) applyMs = __tmRoundPerfMs(__tmJankNow() - applyStarted);
+            }
+            if (typeof __tmIsPluginVisibleNow === 'function' && !__tmIsPluginVisibleNow()) {
+                if (jankEnabled) {
+                    try {
+                        __tmPushJankDebug('render-flush-skip-hidden', {
+                            reason,
+                            needFilters,
+                            applyMs,
+                            totalMs: started ? __tmRoundPerfMs(__tmJankNow() - started) : 0,
+                        });
+                    } catch (e) {}
+                }
+                return;
+            }
+            const renderStarted = started ? __tmJankNow() : 0;
             render();
+            if (renderStarted) renderMs = __tmRoundPerfMs(__tmJankNow() - renderStarted);
+            if (jankEnabled) {
+                try {
+                    const entry = {
+                        phase: 'flush',
+                        reason,
+                        needFilters,
+                        applyMs,
+                        renderMs,
+                        totalMs: started ? __tmRoundPerfMs(__tmJankNow() - started) : 0,
+                    };
+                    state.__tmJankLastRender = { ...entry, at: Date.now() };
+                    __tmPushJankDebug('render-flush', entry);
+                } catch (e) {}
+            }
         });
     }
 
@@ -1913,14 +2011,21 @@ return finish(false, 'noop');
         let kramdown = '';
         try { kramdown = await API.getBlockKramdown(tid); } catch (e) { kramdown = ''; }
         if (!kramdown) return false;
-        const statusRegex = /^(\s*(?:[\*\-]|\d+\.)\s*\[)([^\]])(\])/;
-        const fallbackRegex = /(\[)([^\]])(\])/;
         let nextMd = '';
         let wasDone = false;
-        if (statusRegex.test(kramdown)) {
-            const match = kramdown.match(statusRegex);
-            wasDone = String(match?.[2] || '') !== ' ';
-            nextMd = kramdown.replace(statusRegex, `$1${targetDone ? 'x' : ' '}$3`);
+        const fallbackRegex = /(\[)([^\]]?)(\])/;
+        const prefixMatch = typeof __tmGetTaskListItemMarkerPrefixMatch === 'function'
+            ? __tmGetTaskListItemMarkerPrefixMatch(kramdown)
+            : null;
+        if (prefixMatch) {
+            wasDone = String(prefixMatch?.[3] || ' ') !== ' ';
+            nextMd = typeof __tmNormalizeTaskListItemMarkdownMarker === 'function'
+                ? __tmNormalizeTaskListItemMarkdownMarker(kramdown, targetDone ? 'x' : ' ')
+                : '';
+            if (!nextMd) {
+                const statusRegex = /^(\s*(?:[\*\-]|\d+\.)\s*\[)([^\]]?)(\])/;
+                nextMd = kramdown.replace(statusRegex, `$1${targetDone ? 'x' : ' '}$3`);
+            }
         } else if (fallbackRegex.test(kramdown)) {
             const match = kramdown.match(fallbackRegex);
             wasDone = String(match?.[2] || '') !== ' ';
@@ -1962,7 +2067,11 @@ return finish(false, 'noop');
     function updateDoneInMarkdown(markdown, done) {
         if (!markdown) return '- [ ] ';
         // 匹配列表项开头
-        return markdown.replace(/^(\s*[\*\-]\s*)\[[ xX]\]/, `$1[${done ? 'x' : ' '}]`);
+        if (typeof __tmNormalizeTaskListItemMarkdownMarker === 'function') {
+            const next = __tmNormalizeTaskListItemMarkdownMarker(markdown, done ? 'x' : ' ');
+            if (next) return next;
+        }
+        return markdown.replace(/^(\s*[\*\-]\s*)\[[^\]]?\]/, `$1[${done ? 'x' : ' '}]`);
     }
 
     // ========== 原有完成状态处理 ==========
@@ -2451,11 +2560,11 @@ return finish(false, 'noop');
                 if (kramdown) {
                     // 2. 正则匹配：匹配行首的任务标记，容忍前面的空白
                     // 匹配：(任意空白)(*或-或数字.)(任意空白)[(空格或xX)](右括号)
-                    const statusRegex = /^(\s*(?:[\*\-]|\d+\.)\s*\[)([ xX])(\])/;
+                    const statusRegex = /^(\s*(?:[\*\-]|\d+\.)\s*\[)([^\]]?)(\])/;
                     const match = kramdown.match(statusRegex);
 
                     if (match) {
-                        const currentStatusChar = match[2];
+                        const currentStatusChar = match[2] || ' ';
                         const isCurrentlyDone = currentStatusChar !== ' ';
 
                         if (isCurrentlyDone === targetDone) {
@@ -2470,7 +2579,7 @@ return finish(false, 'noop');
                         }
                     } else {
                         // Fallback: 尝试查找内容中的第一个复选框标记（即使不在行首）
-                        const fallbackRegex = /(\[)([ xX])(\])/;
+                        const fallbackRegex = /(\[)([^\]]?)(\])/;
                         const fallbackMatch = kramdown.match(fallbackRegex);
                         if (fallbackMatch) {
                              const newStatusChar = targetDone ? 'x' : ' ';
@@ -3628,14 +3737,30 @@ hint(`❌ 操作失败: ${e.message}`, 'error');
 
     window.tmToggleTaskDetailCompletedSubtasks = function(taskId, nextValue) {
         const tid = String(taskId || '').trim();
-        if (!tid) return false;
+        if (!tid && typeof __tmCollectVisibleTaskDetailTargetIds !== 'function') return false;
         const enabled = typeof nextValue === 'boolean'
             ? nextValue
             : !__tmShouldShowCompletedSubtasksForTask(tid);
         __tmSetCompletedSubtasksVisibilityForTask(tid, enabled);
         try { SettingsStore.syncToLocal(); } catch (e) {}
         try { SettingsStore.save(); } catch (e) {}
-        try { __tmRefreshVisibleTaskDetailForTask(tid); } catch (e) {}
+        try {
+            const targets = typeof __tmCollectVisibleTaskDetailTargetIds === 'function'
+                ? __tmCollectVisibleTaskDetailTargetIds()
+                : [tid].filter(Boolean);
+            targets.forEach((targetId) => {
+                const targetTid = String(targetId || '').trim();
+                if (!targetTid) return;
+                try {
+                    __tmRefreshVisibleTaskDetailForTask(targetTid, {
+                        forceRebuild: true,
+                        source: 'completed-subtasks-global-toggle',
+                    });
+                } catch (e) {}
+            });
+        } catch (e) {
+            try { if (tid) __tmRefreshVisibleTaskDetailForTask(tid, { forceRebuild: true, source: 'completed-subtasks-global-toggle' }); } catch (e2) {}
+        }
         try {
             const liveModal = globalThis.__tmRuntimeState?.getModal?.() || state.modal;
             if (globalThis.__tmRuntimeState?.hasLiveModal?.(liveModal) ?? (state.modal && document.body.contains(state.modal))) {
@@ -3661,7 +3786,7 @@ hint(`❌ 操作失败: ${e.message}`, 'error');
     // Removed tmInsertChildTask
 
     function __tmStripLeadingTaskListMarkerFromContent(input) {
-        return String(input || '').replace(/^\s*(?:(?:[-*+]|\d+[.)])\s*\[[^\]]\]\s*)+/, '').trim();
+        return String(input || '').replace(/^\s*(?:(?:[-*+]|\d+[.)])\s*\[[^\]]?\]\s*)+/, '').trim();
     }
 
     function __tmNormalizeTaskContentEditInput(input) {
@@ -3957,7 +4082,10 @@ hint(`❌ 操作失败: ${e.message}`, 'error');
                 skipInteractionGate: options.skipInteractionGate === true,
             },
             inversePatch,
-        }, { wait: !!options.wait });
+        }, {
+            wait: !!options.wait,
+            onPending: typeof options.onPending === 'function' ? options.onPending : undefined,
+        });
     }
 
     function __tmUpdateTaskContentBlock(taskOrId, nextContent, options = {}) {
@@ -3970,9 +4098,29 @@ hint(`❌ 操作失败: ${e.message}`, 'error');
                 withFilters: opts.withFilters === true,
                 forceProjectionRefresh: opts.forceProjectionRefresh === true,
                 skipInteractionGate: opts.skipInteractionGate === true || opts.background === true,
+                onPending: typeof opts.onPending === 'function' ? opts.onPending : undefined,
             });
         }
         return __tmUpdateTaskContentBlockKernel(taskOrId, nextContent, opts);
+    }
+
+    function __tmHintQueuedTaskOperation(savePromise, getOpId, messages = {}) {
+        const msg = (messages && typeof messages === 'object') ? messages : {};
+        const successText = String(msg.success || '✅ 任务已同步');
+        const failedPrefix = String(msg.failedPrefix || '更新失败');
+        Promise.resolve(savePromise).catch((e) => {
+            try { hint(`❌ ${failedPrefix}: ${e.message || '未知错误'}`, 'error'); } catch (err) {}
+        });
+        Promise.resolve(savePromise).then((result) => {
+            const opId = String((typeof getOpId === 'function' ? getOpId() : '') || result || '').trim();
+            if (!opId || !globalThis.__tmTaskHorizonOutbox?.onSettle) return;
+            globalThis.__tmTaskHorizonOutbox.onSettle({ opId }, (detail) => {
+                try {
+                    if (detail?.status === 'done') hint(successText, 'success');
+                    else if (detail?.status === 'failed') hint(`❌ ${failedPrefix}: ${detail?.error?.message || '未知错误'}`, 'error');
+                } catch (err) {}
+            }, { once: true });
+        }).catch(() => null);
     }
 
     // 编辑任务
@@ -3998,14 +4146,16 @@ hint(`❌ 操作失败: ${e.message}`, 'error');
         try {
             const patchContent = globalThis.__tmRequireTaskOutbox?.('patchContent');
             if (typeof patchContent !== 'function') throw new Error('任务写入队列未就绪: patchContent');
+            let queuedOpId = '';
             const savePromise = patchContent(tid, nextContent, {
                 background: true,
                 skipInteractionGate: true,
                 defer: false,
+                onPending: (promise, op) => {
+                    queuedOpId = String(op?.id || '').trim();
+                },
             });
-            Promise.resolve(savePromise).catch((e) => {
-                try { hint(`❌ 更新失败: ${e.message}`, 'error'); } catch (err) {}
-            });
+            __tmHintQueuedTaskOperation(savePromise, () => queuedOpId);
             try {
                 const patch = { content: nextContent };
                 const needsProjectionRefresh = typeof __tmDoesPatchNeedProjectionRefresh === 'function'
@@ -4017,7 +4167,7 @@ hint(`❌ 操作失败: ${e.message}`, 'error');
                     fallback: needsProjectionRefresh,
                 });
             } catch (e2) {}
-            hint('✅ 任务已更新', 'success');
+            hint('已暂存，正在同步', 'info');
         } catch (e) {
             hint(`❌ 更新失败: ${e.message}`, 'error');
         }

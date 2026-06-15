@@ -1,4 +1,24 @@
-﻿    function render() {
+    function render() {
+        const __tmJankRenderStarted = (typeof __tmIsJankDebugEnabled === 'function' && __tmIsJankDebugEnabled() && typeof __tmJankNow === 'function')
+            ? __tmJankNow()
+            : 0;
+        const __tmJankRenderFinish = (outcome = '', payload = {}) => {
+            if (!__tmJankRenderStarted) return;
+            try {
+                const modal = state.modal instanceof Element ? state.modal : null;
+                const entry = {
+                    phase: 'direct-render',
+                    outcome: String(outcome || '').trim() || 'complete',
+                    mode: String(state.attachmentLibraryOpen ? 'attachments' : (state.homepageOpen ? 'home' : (state.viewMode || 'list'))).trim() || 'list',
+                    durationMs: __tmRoundPerfMs(__tmJankNow() - __tmJankRenderStarted),
+                    checklistItems: modal?.querySelectorAll?.('.tm-checklist-item')?.length || 0,
+                    detailSubtasks: modal?.querySelectorAll?.('.tm-task-detail-subtask:not(.tm-task-detail-subtask--draft)')?.length || 0,
+                    ...((payload && typeof payload === 'object') ? payload : {}),
+                };
+                state.__tmJankLastRender = { ...entry, at: Date.now() };
+                __tmPushJankDebug('render-direct', entry);
+            } catch (e) {}
+        };
         try {
             const guardUntil = Number(state.__tmChecklistRenderGuardUntil || 0);
             const guardReason = String(state.__tmChecklistRenderGuardReason || '').trim();
@@ -6,6 +26,7 @@
                 && state.modal instanceof Element && document.body.contains(state.modal)) {
                 state.__tmChecklistRenderGuardUntil = 0;
                 state.__tmChecklistRenderGuardReason = '';
+__tmJankRenderFinish('guard-skip', { guardReason });
 return;
             }
             if (guardUntil && Date.now() >= guardUntil) {
@@ -540,7 +561,14 @@ return;
             isDesktopNarrow,
             mountEl: __tmMountEl,
         });
-        const showCalendarSidebarToggle = !!(renderMode === 'calendar' && !isMobile && !isDockHost && !hostUsesMobileUI && !isDesktopNarrow && !isCalendarSidebarNarrowHost);
+        const showCalendarSidebarMobileTopbarToggle = !!(renderMode === 'calendar' && (isMobile || isRuntimeMobile || hostUsesMobileUI));
+        const showCalendarSidebarCompactToggle = !!(renderMode === 'calendar'
+            && !showCalendarSidebarMobileTopbarToggle
+            && (isDockHost || isDesktopNarrow || isCalendarSidebarNarrowHost));
+        const showCalendarSidebarDesktopToolbarToggle = !!(renderMode === 'calendar'
+            && !showCalendarSidebarMobileTopbarToggle
+            && !showCalendarSidebarCompactToggle);
+        const calendarSidebarCompactButtonHtml = `<button class="tm-btn tm-btn-info tm-calendar-sidebar-toggle-compact tm-calendar-sidebar-toggle-compact--visible bc-btn bc-btn--sm" onclick="tmCalendarToggleSidebar()" style="padding: 0; width: 30px; min-width: 30px; height: 30px; align-items: center; justify-content: center;"${__tmBuildTooltipAttrs('日历侧边栏', { side: 'bottom' })}>${__tmRenderLucideIcon('calendar-days')}</button>`;
         const parentTaskNameBoldClass = SettingsStore.data.parentTaskNameBoldEnabled === false ? ' tm-box--parent-task-name-normal' : '';
         state.modal.innerHTML = `
             <div class="tm-box${showCalendarSideDock || showAiSideDock ? ' tm-box--with-cal-dock' : ''}${parentTaskNameBoldClass}">
@@ -570,6 +598,7 @@ return;
                                 className: `tm-topbar-doc-quick-select${showAdaptiveTabDocGroupQuickSelect ? ' tm-topbar-doc-quick-select--tab-adaptive' : ''}`,
                                 tooltip: '切换文档分组'
                             }) : ''}
+                            ${showCalendarSidebarMobileTopbarToggle ? calendarSidebarCompactButtonHtml : ''}
                             ${isMobile && renderMode === 'timeline' ? timelineSidebarToggleButtonHtml : ''}
                             ${showDesktopNarrowTimelineTopbar ? timelineInlineToolbarGroupHtml : ''}
                         </div>
@@ -604,7 +633,7 @@ return;
                             </div>
                             ` : ''}
                             ${!isMobile && renderMode === 'timeline' && !showDesktopNarrowTimelineTopbar && !showTopbarTimelineToolbar ? timelineSidebarToggleButtonHtml : ''}
-                            ${showCalendarSidebarToggle ? `<button class="tm-btn tm-btn-info tm-calendar-sidebar-toggle-compact bc-btn bc-btn--sm" onclick="tmCalendarToggleSidebar()" style="padding: 0; width: 30px; min-width: 30px; height: 30px; align-items: center; justify-content: center;"${__tmBuildTooltipAttrs('日历侧边栏', { side: 'bottom' })}>${__tmRenderLucideIcon('calendar-days')}</button>` : ''}
+                            ${showCalendarSidebarCompactToggle ? calendarSidebarCompactButtonHtml : ''}
 
                         <!-- 移动端菜单按钮 -->
                             <div class="tm-mobile-menu-btn" style="display:${isMobile ? 'flex' : 'none'};">
@@ -635,7 +664,7 @@ return;
                         ${showTopbarTimelineToolbar ? `
                             ${timelineCompactToolbarGroupHtml}
                         ` : ''}
-                        ${showCalendarSidebarToggle ? `<button class="tm-btn tm-btn-info bc-btn bc-btn--sm" onclick="tmCalendarToggleSidebar()" style="padding: 0; width: 30px; min-width: 30px; height: 30px; display: inline-flex; align-items: center; justify-content: center;"${__tmBuildTooltipAttrs('日历侧边栏', { side: 'bottom' })}>${__tmRenderLucideIcon('calendar-days')}</button>` : ''}
+                        ${showCalendarSidebarDesktopToolbarToggle ? `<button class="tm-btn tm-btn-info bc-btn bc-btn--sm" onclick="tmCalendarToggleSidebar()" style="padding: 0; width: 30px; min-width: 30px; height: 30px; display: inline-flex; align-items: center; justify-content: center;"${__tmBuildTooltipAttrs('日历侧边栏', { side: 'bottom' })}>${__tmRenderLucideIcon('calendar-days')}</button>` : ''}
                         ${!showMobileBottomViewBar ? `
                         <div class="tm-view-segmented bc-tabs-list" role="tablist" aria-label="视图">
                             ${__tmRenderViewSwitcherButtons()}
@@ -1770,7 +1799,9 @@ return;
                 ` : ''}
             </div>
         `;
+        try { if (renderMode === 'kanban' && typeof __tmNormalizeKanbanDetailFloatHost === 'function') __tmNormalizeKanbanDetailFloatHost(state.modal); } catch (e) {}
         try { __tmBindPluginHostGestureIsolation(state.modal); } catch (e) {}
+        try { __tmBindChecklistSheetTouchFallback(state.modal); } catch (e) {}
         try { if (renderMode === 'kanban') __tmBindKanbanPan(state.modal); } catch (e) {}
         try { if (renderMode === 'whiteboard') __tmBindWhiteboardViewportInput(state.modal); } catch (e) {}
         const finalMountRoot = nextMountRoot || __tmGetMountRoot();
@@ -1855,6 +1886,7 @@ return;
                             state.detailTaskId = '';
                             state.checklistDetailDismissed = true;
                             state.checklistDetailSheetOpen = false;
+                            state.checklistDetailSheetFullscreen = false;
                             if (!__tmRefreshChecklistSelectionInPlace(state.modal, 'detail-close')) render();
                         }
                     });
@@ -1874,15 +1906,43 @@ return;
             if (renderMode === 'calendar') {
                 const el = state.modal.querySelector('#tmCalendarRoot');
                 if (el) {
+                    const restoreCalendarScrollAfterMount = () => {
+                        const apply = () => {
+                            try {
+                                if (!el || !el.querySelectorAll) return;
+                                const preferred = el.querySelector('.fc-timegrid-body .fc-scroller');
+                                const list = Array.from(el.querySelectorAll('.fc-scroller'));
+                                const scroller = (preferred && preferred.scrollHeight > preferred.clientHeight + 1)
+                                    ? preferred
+                                    : (list.find((item) => item && item.scrollHeight > item.clientHeight + 1) || preferred || list[0] || null);
+                                if (!scroller) return;
+                                scroller.scrollTop = savedCalendarScrollTop;
+                                scroller.scrollLeft = savedCalendarScrollLeft;
+                            } catch (e2) {}
+                        };
+                        apply();
+                        try { requestAnimationFrame(() => requestAnimationFrame(apply)); } catch (e2) {}
+                        try { setTimeout(apply, 0); } catch (e2) {}
+                    };
+                    const mountCalendar = (deferredMount = false) => {
+                        const startedAt = Date.now();
+                        if (!SettingsStore.data.calendarEnabled) {
+                            el.innerHTML = `<div style="padding:12px;color:var(--tm-secondary-text);">日历视图已关闭，可在设置 → 日历中开启。</div>`;
+                        } else if (globalThis.__tmCalendar && typeof globalThis.__tmCalendar.mount === 'function') {
+                            const ok = globalThis.__tmCalendar.mount(el, { settingsStore: SettingsStore });
+                            if (!ok) {
+                                el.innerHTML = `<div style="padding:12px;color:var(--tm-secondary-text);">日历初始化失败，请确认 FullCalendar 已加载。</div>`;
+                            } else {
+                                restoreCalendarScrollAfterMount();
+                            }
+                        } else {
+                            el.innerHTML = `<div style="padding:12px;color:var(--tm-secondary-text);">日历模块未加载。</div>`;
+                        }
+                    };
                     if (!SettingsStore.data.calendarEnabled) {
                         el.innerHTML = `<div style="padding:12px;color:var(--tm-secondary-text);">日历视图已关闭，可在设置 → 日历中开启。</div>`;
-                    } else if (globalThis.__tmCalendar && typeof globalThis.__tmCalendar.mount === 'function') {
-                        const ok = globalThis.__tmCalendar.mount(el, { settingsStore: SettingsStore });
-                        if (!ok) {
-                            el.innerHTML = `<div style="padding:12px;color:var(--tm-secondary-text);">日历初始化失败，请确认 FullCalendar 已加载。</div>`;
-                        }
                     } else {
-                        el.innerHTML = `<div style="padding:12px;color:var(--tm-secondary-text);">日历模块未加载。</div>`;
+                        mountCalendar(false);
                     }
                 }
             }
@@ -2454,7 +2514,12 @@ return;
         if (isViewSwitchAnim) {
             try { state.uiAnimKind = ''; } catch (e) {}
         }
+        __tmJankRenderFinish('complete', {
+            softSwap: useSoftSwap === true,
+            snapshotFirstRenderFastPath: isSnapshotFirstRenderFastPath === true,
+        });
     }
+
 
     // 新增的规则应用函数
     window.applyFilterRule = async function(ruleId) {
@@ -2897,7 +2962,9 @@ return;
     };
 
     function __tmKanbanGetParentTaskId(task) {
-        return String(task?.parentTaskId || task?.parentId || task?.parent_id || task?.parent_task_id || '').trim();
+        const id = String(task?.id || '').trim();
+        const pid = String(task?.parentTaskId || task?.parentId || task?.parent_id || task?.parent_task_id || '').trim();
+        return pid && pid !== id ? pid : '';
     }
 
     function __tmKanbanBuildChildTasksByParentId() {
@@ -3291,7 +3358,7 @@ return;
                 try {
                     const adapter = globalThis.__tmTaskHorizonBackendAdapter;
                     if (adapter && typeof adapter.deleteBlock === 'function') await adapter.deleteBlock(bid);
-                    else await API.deleteBlock(bid);
+                    else throw new Error('任务写入适配器未就绪: deleteBlock');
                 } catch (e) {}
             }
         }
@@ -3313,10 +3380,13 @@ return;
         try { ev.dataTransfer.setData('text/plain', taskId); } catch (e) {}
         try {
             const meta = (typeof window.tmCalendarGetTaskDragMeta === 'function') ? window.tmCalendarGetTaskDragMeta(taskId) : null;
+            const fallbackTitle = String(globalThis.__tmRuntimeState?.getFlatTaskById?.(taskId)?.content || state.flatTasks?.[taskId]?.content || '').trim();
             const payload = {
                 taskId,
                 id: taskId,
-                title: String(meta?.title || globalThis.__tmRuntimeState?.getFlatTaskById?.(taskId)?.content || state.flatTasks?.[taskId]?.content || '').trim(),
+                title: String(meta?.title || '').trim() || (typeof API?.extractTaskContentLine === 'function'
+                    ? String(API.extractTaskContentLine(fallbackTitle) || fallbackTitle).trim()
+                    : fallbackTitle),
                 durationMin: Number(meta?.durationMin) || 60,
                 calendarId: String(meta?.calendarId || '').trim(),
                 startDate: String(meta?.startDate || '').trim(),
@@ -6044,7 +6114,7 @@ return;
         let text = String(input || '').replace(/\r\n?/g, '\n').trim();
         if (!text) return '';
         const api = (typeof API !== 'undefined' && API) ? API : null;
-        const hasTaskMarker = (value) => /^\s*(?:[-*+]|\d+[.)])\s*\[[^\]]\]/.test(String(value || ''));
+        const hasTaskMarker = (value) => /^\s*(?:[-*+]|\d+[.)])\s*\[[^\]]?\]/.test(String(value || ''));
         if (hasTaskMarker(text)) {
             try {
                 if (api && typeof api.parseTaskStatus === 'function') {
@@ -6060,7 +6130,7 @@ return;
                 }
             } catch (e) {}
             if (hasTaskMarker(text)) {
-                text = String(text || '').split('\n')[0].replace(/^\s*(?:(?:[-*+]|\d+[.)])\s*\[[^\]]\]\s*)+/, '').trim();
+                text = String(text || '').split('\n')[0].replace(/^\s*(?:(?:[-*+]|\d+[.)])\s*\[[^\]]?\]\s*)+/, '').trim();
             }
         }
         return String(text || '').trim();

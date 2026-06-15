@@ -79,10 +79,31 @@
     <a href="https://ld246.com/member/ming883" style="font-size:12px;color:var(--b3-theme-on-surface);text-decoration:none;padding:4px 10px;background:var(--b3-theme-surface);border:1px solid var(--b3-border-color);border-radius:18px;">ming883</a>
     <a href="https://ld246.com/member/jidenanian" style="font-size:12px;color:var(--b3-theme-on-surface);text-decoration:none;padding:4px 10px;background:var(--b3-theme-surface);border:1px solid var(--b3-border-color);border-radius:18px;">jidenanian</a>
     <a href="https://ld246.com/member/Auroenix" style="font-size:12px;color:var(--b3-theme-on-surface);text-decoration:none;padding:4px 10px;background:var(--b3-theme-surface);border:1px solid var(--b3-border-color);border-radius:18px;">Auroenix</a>
+    <a href="https://ld246.com/member/Vicjoo" style="font-size:12px;color:var(--b3-theme-on-surface);text-decoration:none;padding:4px 10px;background:var(--b3-theme-surface);border:1px solid var(--b3-border-color);border-radius:18px;">Vicjoo</a>
   </div>
 </div>
 
 # 更新记录
+
+## 2.6.1更新内容 6/15
+- **新增：任务详情抽屉支持上拉至全屏高度，并支持全局上滑和下滑手势**
+- **新增：备注编辑增加撤销功能，支持 Ctrl+Z 撤销修改**
+- **新增：卡片流视图增加已完成任务分组**
+- **新增：任务详情子任务区域增加隐藏已完成任务功能，点击图标可切换显示已完成任务**
+- 优化：大幅优化移动端加载性能，减少卡顿
+- 优化：二级标题分组行块引用渲染
+- 优化：任务详情笔记视图加载逻辑
+- 优化：子任务继承字段功能在笔记里编辑同步生效
+- 优化：减少 SQL 查询失败引起的 `Tree not found` 报错
+- 优化：快照保存逻辑，减小快照体积
+- 修复：外观设置页在移动端超出屏幕右边缘
+- 修复：标题看板中新建任务会显示带父任务
+- 修复：看板的任务详情窗口顶部被截断
+- 修复：标题看板中新建其他文档分组内文档的任务时，会出现其他文档的看板和页签
+- 修复：清单视图在右侧任务详情跳转后任务详情页面被关闭
+- 修复：移动端日历视图侧边栏按钮消失
+- 修复：笔记视图的返回按钮第一次点击失效
+- 修复：日程修改后有概率会出现 `- [ ]` MD 格式的问题
 
 ## 2.6.0更新内容 6/10
 - **新增：文档默认任务新建位置设置，支持为每个文档指定默认放入的标题分组**
@@ -110,6 +131,9 @@
 - 修复：文档内无序列表、有序列表误触发 quickbar 的问题
 - 修复：自动语义识别中 `2026年4月6日` 可能被识别为 `2027年4月6日` 的问题
 - 修复：跨分组移动后文档位置 chip 未更新的问题
+
+<details>
+<summary>历史版本更新（点击展开）</summary>
 
 ## 2.5.9更新内容 6/5
 - **新增：拖延值统计，根据逾期任务占比、最近 30 天扣分次数、最近 30 天逾期后推迟次数计算拖延风险**
@@ -161,9 +185,6 @@
 - **新增：任务详情页附件区和附件库支持复制附件功能，右击附件后可选择复制**
 - 优化：任务名称支持MD格式渲染，支持加粗、斜体、删除线、高亮、下划线、行内代码格式
 - 优化：移动端和Dock边栏任务详情界面统一使用抽屉弹出样式
-
-<details>
-<summary>历史版本更新（点击展开）</summary>
 
 ## 2.5.5更新内容 5/31
 - **新增：常规设置->视图布局->看板内子任务不与父任务分离，默认开启**

@@ -96,26 +96,6 @@
         const seedId = String(insertedId || '').trim();
         if (!seedId) return '';
         const opts = (options && typeof options === 'object') ? options : {};
-        const trace = opts.perfTrace || null;
-        const now = () => {
-            try {
-                if (typeof __tmPerfNow === 'function') return __tmPerfNow();
-            } catch (e) {}
-            try { return performance.now(); } catch (e) {}
-            return Date.now();
-        };
-        const roundMs = (ms) => {
-            try {
-                if (typeof __tmRoundPerfMs === 'function') return __tmRoundPerfMs(ms);
-            } catch (e) {}
-            return Math.round((Number(ms) || 0) * 10) / 10;
-        };
-        const mark = (tag, payload = {}) => {
-            if (!trace) return;
-            try {
-            } catch (e) {}
-        };
-        mark('start');
         const defaultRetryDelays = [60, 160, 320, 640, 1000];
         const retryDelays = Array.isArray(opts.retryDelays)
             ? opts.retryDelays.map((value) => Math.max(0, Number(value) || 0))
@@ -123,78 +103,40 @@
         const defaultMaxAttempts = retryDelays.length + 1;
         const maxAttempts = Math.max(1, Math.floor(Number(opts.maxAttempts ?? opts.attempts ?? defaultMaxAttempts) || defaultMaxAttempts));
         const fallbackToSeed = opts.fallbackToSeed !== false;
-        const isTaskBlock = async (id, context = '') => {
-            const checkStarted = now();
+        const isTaskBlock = async (id) => {
             try {
                 const rows = await API.getBlocksByIds([id]);
                 const row = Array.isArray(rows) ? rows[0] : null;
                 const ok = String(row?.id || '').trim() === id
                     && String(row?.type || '').trim() === 'i'
                     && String(row?.subtype || '').trim() === 't';
-                mark('check-task', {
-                    context,
-                    id,
-                    ok,
-                    type: String(row?.type || '').trim(),
-                    subtype: String(row?.subtype || '').trim(),
-                    ms: roundMs(now() - checkStarted),
-                });
                 return ok;
             } catch (e) {
-                mark('check-task-error', {
-                    context,
-                    id,
-                    error: String(e?.message || e || ''),
-                    ms: roundMs(now() - checkStarted),
-                });
                 return false;
             }
         };
-        if (await isTaskBlock(seedId, 'seed')) {
-            mark('done', { result: 'seed', taskId: seedId });
+        if (await isTaskBlock(seedId)) {
             return seedId;
         }
         for (let i = 0; i < maxAttempts; i++) {
-            mark('attempt-start', { attempt: i + 1 });
             try {
-                const descendantStarted = now();
                 const resolvedId = String(await API.getFirstTaskDescendantId(seedId, 6) || '').trim();
-                mark('descendant-query', {
-                    attempt: i + 1,
-                    resolvedId,
-                    ms: roundMs(now() - descendantStarted),
-                });
-                if (resolvedId && await isTaskBlock(resolvedId, 'descendant')) {
-                    mark('done', { result: 'descendant', taskId: resolvedId, attempt: i + 1 });
+                if (resolvedId && await isTaskBlock(resolvedId)) {
                     return resolvedId;
                 }
-                const directStarted = now();
                 const directTaskId = String(await API.getFirstTaskIdUnderBlock(seedId) || '').trim();
-                mark('direct-query', {
-                    attempt: i + 1,
-                    directTaskId,
-                    ms: roundMs(now() - directStarted),
-                });
-                if (directTaskId && await isTaskBlock(directTaskId, 'direct')) {
-                    mark('done', { result: 'direct', taskId: directTaskId, attempt: i + 1 });
+                if (directTaskId && await isTaskBlock(directTaskId)) {
                     return directTaskId;
                 }
             } catch (e) {
-                mark('attempt-error', {
-                    attempt: i + 1,
-                    error: String(e?.message || e || ''),
-                });
             }
             if (i < maxAttempts - 1 && i < retryDelays.length && retryDelays[i] > 0) {
-                mark('wait', { attempt: i + 1, delayMs: retryDelays[i] });
                 await new Promise((resolve) => setTimeout(resolve, retryDelays[i]));
             }
         }
         if (!fallbackToSeed) {
-            mark('not-found', { attempts: maxAttempts });
             return '';
         }
-        mark('fallback', { taskId: seedId });
         return seedId;
     }
 
@@ -1176,9 +1118,75 @@
         return true;
     }
 
-    function __tmScheduleChecklistOptimisticSubtaskRefresh(parentTaskId, subtaskId) {
+    function __tmIsChecklistDetailPanelOpenForRefreshDefer() {
+        try {
+            if (state.checklistDetailSheetOpen === true) return true;
+            const tid = String(state.detailTaskId || '').trim();
+            if (!tid) return false;
+            const modal = state.modal;
+            return !!(modal instanceof Element && modal.querySelector?.('#tmChecklistDetailPanel, #tmChecklistSheetPanel, #tmTaskDetailSheetPanel'));
+        } catch (e) {
+            return false;
+        }
+    }
+
+    function __tmFlushDeferredChecklistOptimisticSubtaskRefresh(reason = '') {
+        const pending = state.__tmChecklistOptimisticSubtaskRefreshPending;
+        if (!(pending && typeof pending === 'object')) return false;
+        const parentIds = Array.isArray(pending.parentIds) ? pending.parentIds : [];
+        const subtaskIds = Array.isArray(pending.subtaskIds) ? pending.subtaskIds : [];
+        state.__tmChecklistOptimisticSubtaskRefreshPending = null;
+        const ids = Array.from(new Set([...parentIds, ...subtaskIds].map((id) => String(id || '').trim()).filter(Boolean)));
+        if (!ids.length) return false;
+        return __tmScheduleChecklistOptimisticSubtaskRefresh(parentIds[0] || ids[0], subtaskIds[0] || '', { force: true });
+    }
+
+    function __tmScheduleDeferredChecklistOptimisticSubtaskRefreshFlush(reason = '') {
+        if (!(state.__tmChecklistOptimisticSubtaskRefreshPending && typeof state.__tmChecklistOptimisticSubtaskRefreshPending === 'object')) return false;
+        if (state.__tmChecklistOptimisticSubtaskFlushTimer) return true;
+        const run = () => {
+            state.__tmChecklistOptimisticSubtaskFlushTimer = 0;
+            if (!(state.__tmChecklistOptimisticSubtaskRefreshPending && typeof state.__tmChecklistOptimisticSubtaskRefreshPending === 'object')) return;
+            if (__tmIsChecklistDetailPanelOpenForRefreshDefer()) {
+                __tmScheduleDeferredChecklistOptimisticSubtaskRefreshFlush(reason || 'detail-still-open');
+                return;
+            }
+            try {
+                const interactionWait = (typeof __tmGetHighPriorityInteractionWaitMs === 'function')
+                    ? __tmGetHighPriorityInteractionWaitMs(80)
+                    : 0;
+                if (interactionWait > 0) {
+                    state.__tmChecklistOptimisticSubtaskFlushTimer = setTimeout(run, Math.max(180, Math.min(1200, interactionWait)));
+                    return;
+                }
+            } catch (e) {}
+            try {
+                if (typeof __tmShouldDeferMainViewRefreshForActiveScroll === 'function'
+                    && __tmShouldDeferMainViewRefreshForActiveScroll({ mode: 'current', reason: String(reason || 'checklist-subtask-deferred-flush').trim() || 'checklist-subtask-deferred-flush' })) {
+                    state.__tmChecklistOptimisticSubtaskFlushTimer = setTimeout(run, 520);
+                    return;
+                }
+            } catch (e) {}
+            __tmFlushDeferredChecklistOptimisticSubtaskRefresh(reason || 'deferred-flush');
+        };
+        state.__tmChecklistOptimisticSubtaskFlushTimer = setTimeout(() => {
+            try {
+                if (typeof __tmScheduleIdleTask === 'function') {
+                    __tmScheduleIdleTask(run, 180);
+                } else {
+                    run();
+                }
+            } catch (e) {
+                run();
+            }
+        }, 420);
+        return true;
+    }
+
+    function __tmScheduleChecklistOptimisticSubtaskRefresh(parentTaskId, subtaskId, options = {}) {
         if (String(state.viewMode || '').trim() !== 'checklist') return false;
         if (!(state.modal instanceof Element) || !document.body.contains(state.modal)) return false;
+        const opts = (options && typeof options === 'object') ? options : {};
         const ids = [];
         [parentTaskId, subtaskId].forEach((rawId) => {
             const id = String(rawId || '').trim();
@@ -1200,6 +1208,26 @@
         });
         const refreshIds = Array.from(new Set(ids.filter(Boolean)));
         if (!refreshIds.length) return false;
+        if (opts.force !== true && __tmIsChecklistDetailPanelOpenForRefreshDefer()) {
+            try {
+                const pending = (state.__tmChecklistOptimisticSubtaskRefreshPending && typeof state.__tmChecklistOptimisticSubtaskRefreshPending === 'object')
+                    ? state.__tmChecklistOptimisticSubtaskRefreshPending
+                    : { parentIds: [], subtaskIds: [], taskIds: [] };
+                const add = (key, values) => {
+                    const current = Array.isArray(pending[key]) ? pending[key] : [];
+                    pending[key] = Array.from(new Set(current.concat(values).map((id) => String(id || '').trim()).filter(Boolean)));
+                };
+                add('parentIds', [parentTaskId]);
+                add('subtaskIds', [subtaskId]);
+                add('taskIds', refreshIds);
+                pending.updatedAt = Date.now();
+                state.__tmChecklistOptimisticSubtaskRefreshPending = pending;
+                state.__tmChecklistProjectionGroupRefreshTaskIds = Array.from(new Set(((state.__tmChecklistProjectionGroupRefreshTaskIds || []).concat(refreshIds)).map((id) => String(id || '').trim()).filter(Boolean)));
+                state.__tmChecklistProjectionGroupRefreshUntil = Date.now() + 30000;
+                state.listDomRenderSignature = '';
+            } catch (e) {}
+            return true;
+        }
         try {
             const current = Array.isArray(state.__tmChecklistProjectionGroupRefreshTaskIds)
                 ? state.__tmChecklistProjectionGroupRefreshTaskIds
@@ -1227,6 +1255,9 @@
         }
         return true;
     }
+
+    globalThis.__tmFlushDeferredChecklistOptimisticSubtaskRefresh = __tmFlushDeferredChecklistOptimisticSubtaskRefresh;
+    globalThis.__tmScheduleDeferredChecklistOptimisticSubtaskRefreshFlush = __tmScheduleDeferredChecklistOptimisticSubtaskRefreshFlush;
 
     function __tmGetMoveTargetHeadingMeta(payload = {}) {
         const targetTask = state.flatTasks?.[String(payload.targetTaskId || '').trim()] || null;
@@ -1283,6 +1314,9 @@
             docName,
             root_id: docId,
             docId,
+            parent_id: '',
+            parentTaskId: '',
+            parent_task_id: '',
             h2: __tmNormalizeHeadingText(payload.targetHeading || payload.h2 || ''),
             h2Id: String(payload.targetHeadingId || payload.h2Id || '').trim(),
             h2Rank: Number.isFinite(Number(payload.targetHeadingRank ?? payload.h2Rank)) ? Number(payload.targetHeadingRank ?? payload.h2Rank) : Number.NaN,
@@ -1450,7 +1484,20 @@
                 parentTaskId: String(opts.parentTaskId || task?.parentTaskId || task?.parent_task_id || '').trim(),
                 docId: String(task?.docId || task?.root_id || '').trim(),
                 source: String(opts.source || 'commit-optimistic-task-id').trim() || 'commit-optimistic-task-id',
-}, {
+                data: {
+                    ...((opts.data && typeof opts.data === 'object') ? opts.data : {}),
+                    refreshPolicy: {
+                        current: opts.refreshCurrentView !== false,
+                        detail: opts.refreshCurrentView !== false,
+                        checklistGroup: !!String(opts.parentTaskId || task?.parentTaskId || task?.parent_task_id || '').trim(),
+                        snapshot: opts.scheduleSnapshotRefresh !== false && opts.skipSnapshotViewStateFilterRefresh !== true,
+                        ...((opts.data?.refreshPolicy && typeof opts.data.refreshPolicy === 'object') ? opts.data.refreshPolicy : {}),
+                    },
+                    refreshCurrentView: opts.refreshCurrentView !== false,
+                    scheduleSnapshotRefresh: opts.scheduleSnapshotRefresh !== false,
+                    skipSnapshotViewStateFilterRefresh: opts.skipSnapshotViewStateFilterRefresh === true,
+                },
+            }, {
                 applyLocal: false,
             });
         } catch (e) {}
@@ -1875,6 +1922,7 @@
             state.detailTaskId = '';
             state.checklistDetailDismissed = true;
             state.checklistDetailSheetOpen = false;
+            state.checklistDetailSheetFullscreen = false;
         }
         try {
             __tmScheduleIdleTask(() => {
@@ -2345,7 +2393,7 @@
         return rolledBack;
     }
 
-    async function __tmCreateTaskInDocKernel({ docId, content, priority, startDate, completionTime, pinned, customStatus, atTop, appendToBottom, insertBeforeId, insertAfterId, targetHeadingId = '', targetHeading = '', targetHeadingRank, h2Id = '', h2 = '', h2Rank, localInsert = true, scheduleSnapshotRefresh = true, backgroundCreateAttrs = false, deferCreateAttrs = false, deferResolveInsertedTaskId = false, onInserted = null, onBlockInserted = null, perfTrace = null } = {}) {
+    async function __tmCreateTaskInDocKernel({ docId, content, priority, startDate, completionTime, pinned, customStatus, atTop, appendToBottom, insertBeforeId, insertAfterId, targetHeadingId = '', targetHeading = '', targetHeadingRank, h2Id = '', h2 = '', h2Rank, localInsert = true, scheduleSnapshotRefresh = true, backgroundCreateAttrs = false, deferCreateAttrs = false, deferResolveInsertedTaskId = false, onInserted = null, onBlockInserted = null } = {}) {
         const parentDocId = String(docId || '').trim();
         const text = String(content || '').trim();
         if (!parentDocId) throw new Error('未设置文档');
@@ -2375,9 +2423,8 @@
         } catch (e) {}
         // 某些端会返回外层列表块 ID；outbox 场景会把真实任务 ID 解析交给后台短探测，避免卡住 UI。
         let taskId = insertedId;
-        if (deferResolveInsertedTaskId === true) {
-        } else {
-            taskId = await __tmResolveInsertedTaskBlockId(insertedId, { perfTrace });
+        if (deferResolveInsertedTaskId !== true) {
+            taskId = await __tmResolveInsertedTaskBlockId(insertedId);
         }
         try { __tmMarkLocalCreateTxSuppressionIds([parentDocId, insertedId, taskId, nextID, previousID].filter(Boolean), [parentDocId], 2600); } catch (e) {}
         try {
@@ -2417,7 +2464,7 @@
             h2Created: '',
         };
         if (Object.keys(patch).length > 0 && deferCreateAttrs !== true) {
-            taskId = await __tmPersistNewTaskAttrsWithRetry(taskId, patch, async () => await __tmResolveInsertedTaskBlockId(insertedId, { perfTrace }), {
+            taskId = await __tmPersistNewTaskAttrsWithRetry(taskId, patch, async () => await __tmResolveInsertedTaskBlockId(insertedId), {
                 background: true,
                 docId: parentDocId,
                 source: 'create-task-attrs',
@@ -2448,6 +2495,9 @@
             docName,
             root_id: parentDocId,
             docId: parentDocId,
+            parent_id: '',
+            parentTaskId: '',
+            parent_task_id: '',
             ...headingPatch,
             created: new Date().toISOString(),
             updated: new Date().toISOString(),
@@ -2708,9 +2758,8 @@
             }
         } catch (e) {}
         let taskId = insertedId;
-        if (opts.deferResolveInsertedTaskId === true) {
-        } else {
-            taskId = await __tmResolveInsertedTaskBlockId(insertedId, { perfTrace: opts.perfTrace });
+        if (opts.deferResolveInsertedTaskId !== true) {
+            taskId = await __tmResolveInsertedTaskBlockId(insertedId);
         }
         try { __tmMarkLocalCreateTxSuppressionIds([pid, insertedId, taskId].filter(Boolean), [parentDocId].filter(Boolean), 2600); } catch (e) {}
         try {
@@ -2754,6 +2803,8 @@
                     parentTaskId: pid,
                     taskId,
                     source: 'create-subtask-direct',
+                    refreshCurrentView: opts.refreshCurrentView !== false,
+                    skipSnapshotViewStateFilterRefresh: opts.skipSnapshotViewStateFilterRefresh === true,
                 });
             } catch (e) {}
         }
@@ -2824,9 +2875,8 @@
             }
         } catch (e) {}
         let nextTaskId = insertedId;
-        if (opts.deferResolveInsertedTaskId === true) {
-        } else {
-            nextTaskId = await __tmResolveInsertedTaskBlockId(insertedId, { perfTrace: opts.perfTrace });
+        if (opts.deferResolveInsertedTaskId !== true) {
+            nextTaskId = await __tmResolveInsertedTaskBlockId(insertedId);
         }
         try { __tmMarkLocalCreateTxSuppressionIds([sourceTaskId, listId, insertedId, nextTaskId].filter(Boolean), [currentDocId].filter(Boolean), 2600); } catch (e) {}
         try {
@@ -2910,6 +2960,10 @@
                 skipOptimisticFilterWork: hooks.skipOptimisticFilterWork !== false,
                 skipSettledRefresh: hooks.skipSettledRefresh === true,
                 refreshCurrentView: hooks.refreshCurrentView !== false,
+                scheduleSnapshotRefresh: hooks.scheduleSnapshotRefresh === false ? false : true,
+                refreshPolicy: (hooks.refreshPolicy && typeof hooks.refreshPolicy === 'object')
+                    ? hooks.refreshPolicy
+                    : undefined,
                 skipSnapshotViewStateFilterRefresh: hooks.skipSnapshotViewStateFilterRefresh === true
                     || hooks.skipOptimisticFilterWork !== false,
             },
@@ -2956,8 +3010,12 @@
         const opts = (options && typeof options === 'object') ? options : {};
         const clientId = String(opts.clientId || '').trim();
         const parentTask = parentInfo.task;
-        if (!rawPid || !pid || !tid || !text || !parentTask) return false;
-        if (typeof __tmIsOutboxTaskPendingDeleted === 'function' && (__tmIsOutboxTaskPendingDeleted(rawPid) || __tmIsOutboxTaskPendingDeleted(pid))) return false;
+        if (!rawPid || !pid || !tid || !text || !parentTask) {
+            return false;
+        }
+        if (typeof __tmIsOutboxTaskPendingDeleted === 'function' && (__tmIsOutboxTaskPendingDeleted(rawPid) || __tmIsOutboxTaskPendingDeleted(pid))) {
+            return false;
+        }
         try {
             globalThis.__tmTaskIdentity?.remember?.({
                 clientId,
@@ -3023,11 +3081,11 @@
             });
         } catch (e) {}
         if (!insertedPending) return null;
+        let projected = false;
         if (opts.skipFilterWork !== true) {
             try { recalcStats(); } catch (e) {}
             try { applyFilters(); } catch (e) {}
         } else {
-            let projected = false;
             try { projected = __tmEnsureOptimisticSubtaskInFilteredTasks(parentTask, nextTask) === true; } catch (e) {}
             if (!projected && opts.skipFilterFallback !== true) {
                 try {
@@ -3335,10 +3393,23 @@
                     skipOptimisticFilterWork: true,
                     skipSettledRefresh: true,
                     refreshCurrentView: false,
+                    scheduleSnapshotRefresh: false,
                     skipSnapshotViewStateFilterRefresh: true,
+                    refreshPolicy: {
+                        current: false,
+                        detail: false,
+                        checklistGroup: true,
+                        snapshot: false,
+                        withFilters: false,
+                    },
                     onQueued: (tempId) => {
                         const tid = String(tempId || '').trim();
                         if (tid) tempIds.push(tid);
+                        try {
+                            if (typeof __tmScheduleChecklistOptimisticSubtaskRefresh === 'function') {
+                                __tmScheduleChecklistOptimisticSubtaskRefresh(pid, tid);
+                            }
+                        } catch (e) {}
                     },
                     onError: (err) => {
                         hint(`❌ 新建子任务失败: ${err?.message || err || '未知错误'}`, 'error');
@@ -3354,16 +3425,6 @@
                     taskIds: refreshIds,
                 });
             } catch (e) {}
-            try {
-                __tmScheduleViewRefresh({
-                    mode: 'current',
-                    withFilters: false,
-                    reason: 'create-subtask-optimistic',
-                    taskIds: refreshIds,
-                });
-            } catch (e) {
-                try { __tmScheduleRender({ withFilters: false }); } catch (e2) {}
-            }
             hint(taskLines.length > 1 ? `✅ 已新增 ${taskLines.length} 个子任务` : '✅ 已新增', 'success');
         } catch (e) {
             hint(`❌ 新建子任务失败: ${e.message}`, 'error');

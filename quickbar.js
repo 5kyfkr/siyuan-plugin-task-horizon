@@ -216,6 +216,10 @@
     let inlineMetaActiveTargetsCacheTs = 0;
     let inlineMetaActiveTargetsCacheValue = false;
     let inlineMetaPendingForceRefresh = false;
+    const QUICKBAR_SUBTASK_INHERIT_NOTICE_TTL_MS = 5000;
+    const QUICKBAR_SUBTASK_INHERIT_MIN_AGE_MS = 3000;
+    const QUICKBAR_SUBTASK_INHERIT_RETRY_DELAY_MS = 4200;
+    let quickbarSubtaskInheritNoticeTs = new Map();
 
     // ==================== 辅助函数 ====================
     function invalidateQuickbarInlineSettingsCache() {
@@ -1322,6 +1326,167 @@
         function resolveTaskAttrNodeIdForDetail(blockEl) {
             const binding = resolveTaskBindingFromBlockEl(blockEl);
             return String(binding?.attrHostId || binding?.taskId || '').trim();
+        }
+
+        function readQuickbarBlockNodeId(el) {
+            return String(el?.dataset?.nodeId || el?.getAttribute?.('data-node-id') || '').trim();
+        }
+
+        function getQuickbarBlockElementById(blockId) {
+            const id = String(blockId || '').trim();
+            if (!/^[0-9]+-[a-zA-Z0-9]+$/.test(id)) return null;
+            return document.querySelector(`.li[data-node-id='${id}'],[data-type='NodeListItem'][data-node-id='${id}'],[data-node-id='${id}']`);
+        }
+
+        function parseQuickbarBlockIdCreatedTs(blockId) {
+            const match = String(blockId || '').trim().match(/^(\d{14})/);
+            if (!match) return 0;
+            const raw = match[1];
+            const ts = new Date(
+                Number(raw.slice(0, 4)),
+                Number(raw.slice(4, 6)) - 1,
+                Number(raw.slice(6, 8)),
+                Number(raw.slice(8, 10)),
+                Number(raw.slice(10, 12)),
+                Number(raw.slice(12, 14)),
+                0
+            ).getTime();
+            return Number.isFinite(ts) ? ts : 0;
+        }
+
+        function resolveQuickbarTaskLiForInheritance(blockEl, binding = null) {
+            const taskId = String(binding?.taskId || '').trim();
+            if (taskId) {
+                const byTaskId = getQuickbarBlockElementById(taskId);
+                const taskLi = byTaskId?.matches?.('.li,[data-type=NodeListItem]')
+                    ? byTaskId
+                    : byTaskId?.closest?.('.li,[data-type=NodeListItem]');
+                if (taskLi && readQuickbarBlockNodeId(taskLi) && isTaskBlockElement(taskLi)) return taskLi;
+            }
+            const root = blockEl instanceof Element ? blockEl : null;
+            if (!root) return null;
+            const directTaskItems = (listEl) => {
+                if (!(listEl instanceof Element) || !listEl.matches?.('.list,[data-type=NodeList]')) return [];
+                return Array.from(listEl.children || []).filter((child) => {
+                    if (!(child instanceof Element)) return false;
+                    if (!child.matches?.('.li,[data-type=NodeListItem]')) return false;
+                    return readQuickbarBlockNodeId(child) && isTaskBlockElement(child);
+                });
+            };
+            if (root.matches?.('.list,[data-type=NodeList]')) {
+                const items = directTaskItems(root);
+                if (items.length === 1) return items[0];
+            }
+            const li = root.matches?.('.li,[data-type=NodeListItem]')
+                ? root
+                : root.closest?.('.li,[data-type=NodeListItem]');
+            if (li && readQuickbarBlockNodeId(li) && isTaskBlockElement(li)) return li;
+            const list = root.matches?.('.list,[data-type=NodeList]')
+                ? root
+                : root.closest?.('.list,[data-type=NodeList]');
+            const items = directTaskItems(list);
+            return items.length === 1 ? items[0] : null;
+        }
+
+        function resolveQuickbarParentTaskIdForInheritance(blockEl, binding = null) {
+            const childLi = resolveQuickbarTaskLiForInheritance(blockEl, binding);
+            if (!(childLi instanceof Element)) return '';
+            const parentList = childLi.parentElement instanceof Element
+                && childLi.parentElement.matches?.('.list,[data-type=NodeList]')
+                ? childLi.parentElement
+                : null;
+            if (!(parentList instanceof Element)) return '';
+            const parentLi = parentList.parentElement instanceof Element
+                && parentList.parentElement.matches?.('.li,[data-type=NodeListItem]')
+                ? parentList.parentElement
+                : parentList.closest?.('.li,[data-type=NodeListItem]');
+            if (!(parentLi instanceof Element) || parentLi === childLi) return '';
+            if (!readQuickbarBlockNodeId(parentLi) || !isTaskBlockElement(parentLi)) return '';
+            let parentBinding = null;
+            try { parentBinding = resolveTaskBindingFromBlockEl(parentLi); } catch (e) { parentBinding = null; }
+            return String(parentBinding?.taskId || readQuickbarBlockNodeId(parentLi) || '').trim();
+        }
+
+        function pruneQuickbarSubtaskInheritNoticeCache(now = Date.now()) {
+            if (!(quickbarSubtaskInheritNoticeTs instanceof Map)) {
+                quickbarSubtaskInheritNoticeTs = new Map();
+                return;
+            }
+            if (quickbarSubtaskInheritNoticeTs.size <= 400) return;
+            quickbarSubtaskInheritNoticeTs.forEach((ts, key) => {
+                if ((now - (Number(ts) || 0)) > 60000) quickbarSubtaskInheritNoticeTs.delete(key);
+            });
+            if (quickbarSubtaskInheritNoticeTs.size > 800) quickbarSubtaskInheritNoticeTs.clear();
+        }
+
+        function maybeRequestQuickbarSubtaskFieldInheritance(blockEl, bindingInput = null, reason = '') {
+            let sharedApi = null;
+            try {
+                const api = globalThis?.['siyuan-plugin-task-horizon'];
+                sharedApi = api && typeof api === 'object' ? api : null;
+            } catch (e) {
+                sharedApi = null;
+            }
+            const bridge = sharedApi?.quickbarBridge || null;
+            const inherit = bridge?.maybeInheritSubtaskFields;
+            if (typeof inherit !== 'function') {
+                return false;
+            }
+            let binding = bindingInput;
+            if (!binding) {
+                try { binding = resolveTaskBindingFromBlockEl(blockEl); } catch (e) { binding = null; }
+            }
+            const taskId = String(binding?.taskId || blockEl?.dataset?.nodeId || '').trim();
+            if (!taskId) {
+                return false;
+            }
+            const attrHostId = String(binding?.attrHostId || taskId).trim() || taskId;
+            const parentTaskId = resolveQuickbarParentTaskIdForInheritance(blockEl, binding);
+            if (!parentTaskId || parentTaskId === taskId) {
+                return false;
+            }
+            const now = Date.now();
+            const createdTs = parseQuickbarBlockIdCreatedTs(taskId);
+            if (createdTs && (now - createdTs) > 10 * 60 * 1000) {
+                return false;
+            }
+            if (createdTs && (now - createdTs) < QUICKBAR_SUBTASK_INHERIT_MIN_AGE_MS) {
+                const delayMs = Math.max(0, QUICKBAR_SUBTASK_INHERIT_MIN_AGE_MS - (now - createdTs));
+                const delayKey = `delay:${taskId}:${attrHostId}:${parentTaskId}`;
+                const prevDelayTs = Number(quickbarSubtaskInheritNoticeTs.get(delayKey) || 0);
+                if (!prevDelayTs || (now - prevDelayTs) >= QUICKBAR_SUBTASK_INHERIT_MIN_AGE_MS) {
+                    quickbarSubtaskInheritNoticeTs.set(delayKey, now);
+                    setTimeout(() => {
+                        try { quickbarSubtaskInheritNoticeTs.delete(delayKey); } catch (e) {}
+                        try { maybeRequestQuickbarSubtaskFieldInheritance(blockEl, binding, `${String(reason || 'quickbar').trim() || 'quickbar'}:delayed`); } catch (e) {}
+                    }, delayMs);
+                }
+                return false;
+            }
+            pruneQuickbarSubtaskInheritNoticeCache(now);
+            const key = `${taskId}:${attrHostId}:${parentTaskId}`;
+            const prevTs = Number(quickbarSubtaskInheritNoticeTs.get(key) || 0);
+            if (prevTs && (now - prevTs) < QUICKBAR_SUBTASK_INHERIT_NOTICE_TTL_MS) return false;
+            quickbarSubtaskInheritNoticeTs.set(key, now);
+            try {
+                const result = inherit.call(bridge, {
+                    taskId,
+                    attrHostId,
+                    parentTaskId,
+                    source: 'quickbar-subtask-inherit-attrs',
+                    reason: String(reason || 'quickbar').trim() || 'quickbar',
+                    seenAt: now,
+                });
+                Promise.resolve(result).then((res) => {
+                    if (res && res.retry === true) quickbarSubtaskInheritNoticeTs.delete(key);
+                }).catch((err) => {
+                    quickbarSubtaskInheritNoticeTs.delete(key);
+                });
+                return true;
+            } catch (e) {
+                quickbarSubtaskInheritNoticeTs.delete(key);
+                return false;
+            }
         }
 
     function getSelectedBlockElementForMenu() {
@@ -2703,6 +2868,7 @@
             } catch (e) {
                 currentTaskName = '';
             }
+            try { maybeRequestQuickbarSubtaskFieldInheritance(blockEl, binding, 'current-task-context'); } catch (e) {}
         }
 
         function resolveCurrentTaskId() {
@@ -3877,6 +4043,7 @@
             return !key
                 || key === 'bookmark'
                 || key === 'custom-reminder'
+                || key === 'custom-tomato-reminder'
                 || key === 'custom-start-date'
                 || key === 'custom-completion-time'
                 || key === 'custom-duration'
@@ -5270,6 +5437,10 @@
             if (textarea instanceof HTMLTextAreaElement) {
                 textarea.value = currentValue || '';
                 textarea.placeholder = config.placeholder || '输入内容...';
+                if (isRemark && remarkTools && typeof remarkTools.bindUndoHistory === 'function') {
+                    try { remarkTools.bindUndoHistory(textarea); } catch (e) {}
+                    try { remarkTools.resetUndoHistory?.(textarea); } catch (e) {}
+                }
             }
             const blockIdAtOpen = String(currentBlockId || '').trim();
 
@@ -6989,8 +7160,11 @@
 
         async function renderInlineMetaForBlock(blockEl, forceRefresh = false, visibilityBuffer = 0) {
             if (!isInlineMetaEnabled()) return;
-            const taskId = String(resolveTaskAttrNodeIdForDetail(blockEl) || blockEl?.dataset?.nodeId || '').trim();
+            let binding = null;
+            try { binding = resolveTaskBindingFromBlockEl(blockEl); } catch (e) { binding = null; }
+            const taskId = String(binding?.attrHostId || binding?.taskId || resolveTaskAttrNodeIdForDetail(blockEl) || blockEl?.dataset?.nodeId || '').trim();
             if (!taskId) return;
+            try { maybeRequestQuickbarSubtaskFieldInheritance(blockEl, binding, 'inline-meta-render'); } catch (e) {}
             const cfg = getQuickbarInlineSettings();
             const hasCompleteAtInlineField = quickbarInlineFieldsIncludeCompleteAt(cfg);
             if (isInlineMetaHiddenDoneTaskBlock(blockEl) && !hasCompleteAtInlineField) {
@@ -7404,6 +7578,104 @@
         let selectionChangeHandler = null;  // 新增：文字选择变化监听器
         let mouseUpHandler = null;
         let mouseUpSelectionTimer = null;
+        let subtaskInheritanceObserver = null;
+        let subtaskInheritanceScanTimers = [];
+        let subtaskInheritanceEbHandlers = [];
+
+        function scanQuickbarSubtaskInheritanceRoot(root, limit = 48) {
+            const scope = root instanceof Element ? root : document;
+            const blocks = [];
+            try {
+                if (scope.matches?.('.li[data-node-id],[data-type=NodeListItem][data-node-id]')) blocks.push(scope);
+                scope.querySelectorAll?.('.li[data-node-id],[data-type=NodeListItem][data-node-id]').forEach((el) => blocks.push(el));
+            } catch (e) {}
+            const seen = new Set();
+            for (let i = 0; i < blocks.length && seen.size < limit; i += 1) {
+                const blockEl = blocks[i];
+                const id = String(blockEl?.dataset?.nodeId || '').trim();
+                if (!id || seen.has(id) || !isTaskBlockElement(blockEl)) continue;
+                seen.add(id);
+                try {
+                    maybeRequestQuickbarSubtaskFieldInheritance(blockEl, null, 'dom-task-observer');
+                } catch (e) {}
+            }
+        }
+
+        function scheduleQuickbarSubtaskInheritanceScan(root, delayMs = 160) {
+            const timer = setTimeout(() => {
+                subtaskInheritanceScanTimers = subtaskInheritanceScanTimers.filter((item) => item !== timer);
+                scanQuickbarSubtaskInheritanceRoot(root);
+            }, Math.max(0, Number(delayMs) || 0));
+            subtaskInheritanceScanTimers.push(timer);
+        }
+
+        function startQuickbarSubtaskInheritanceObserver() {
+            if (typeof MutationObserver !== 'function') return;
+            if (!subtaskInheritanceObserver) {
+                subtaskInheritanceObserver = new MutationObserver((mutations) => {
+                    let scanRoot = null;
+                    for (const m of mutations) {
+                        if (m.type !== 'childList') continue;
+                        const nodes = Array.from(m.addedNodes || []);
+                        const matched = nodes.find((node) => {
+                            if (!(node instanceof Element)) return false;
+                            return node.matches?.('.li[data-node-id],[data-type=NodeListItem][data-node-id]')
+                                || !!node.querySelector?.('.li[data-node-id],[data-type=NodeListItem][data-node-id]');
+                        });
+                        if (matched) {
+                            scanRoot = matched;
+                            break;
+                        }
+                    }
+                    if (!scanRoot) return;
+                    scheduleQuickbarSubtaskInheritanceScan(scanRoot, QUICKBAR_SUBTASK_INHERIT_MIN_AGE_MS);
+                    scheduleQuickbarSubtaskInheritanceScan(scanRoot, QUICKBAR_SUBTASK_INHERIT_RETRY_DELAY_MS);
+                });
+            } else {
+                try { subtaskInheritanceObserver.disconnect(); } catch (e) {}
+            }
+            try {
+                document.querySelectorAll('.protyle-wysiwyg').forEach((root) => {
+                    subtaskInheritanceObserver.observe(root, { childList: true, subtree: true });
+                });
+            } catch (e) {}
+        }
+
+        function bindQuickbarSubtaskInheritanceEvents() {
+            if (subtaskInheritanceEbHandlers.length) return;
+            try {
+                const eb = globalThis.__taskHorizonPluginInstance?.eventBus || window.siyuan?.eventBus;
+                if (!eb || typeof eb.on !== 'function') return;
+                const rebind = (e) => {
+                    const protyle = e?.protyle || e?.detail?.protyle;
+                    const root = protyle?.wysiwyg?.element || null;
+                    startQuickbarSubtaskInheritanceObserver();
+                    if (root) scheduleQuickbarSubtaskInheritanceScan(root, QUICKBAR_SUBTASK_INHERIT_MIN_AGE_MS);
+                };
+                ['loaded-protyle-static', 'loaded-protyle-dynamic', 'switch-protyle', 'switch-protyle-mode'].forEach((event) => {
+                    try {
+                        eb.on(event, rebind);
+                        subtaskInheritanceEbHandlers.push({ eb, event, handler: rebind });
+                    } catch (e) {}
+                });
+            } catch (e) {}
+        }
+
+        function unbindQuickbarSubtaskInheritanceEvents() {
+            subtaskInheritanceEbHandlers.forEach(({ eb, event, handler }) => {
+                try { eb.off(event, handler); } catch (e) {}
+            });
+            subtaskInheritanceEbHandlers = [];
+        }
+
+        function stopQuickbarSubtaskInheritanceObserver() {
+            try { subtaskInheritanceObserver?.disconnect?.(); } catch (e) {}
+            subtaskInheritanceObserver = null;
+            subtaskInheritanceScanTimers.forEach((timer) => {
+                try { clearTimeout(timer); } catch (e) {}
+            });
+            subtaskInheritanceScanTimers = [];
+        }
 
         function startQuickbar() {
             if (quickbarStarted) return;
@@ -7472,6 +7744,8 @@
             document.addEventListener('scroll', updatePosition, true);
             window.addEventListener('resize', updatePosition, true);
             bindQuickbarAutoHideEvents();
+            startQuickbarSubtaskInheritanceObserver();
+            bindQuickbarSubtaskInheritanceEvents();
 
             closePopupsHandler = (e) => {
                 if (Date.now() < inlineMetaInteractUntil) return;
@@ -7589,6 +7863,8 @@
             quickbarDisposed = true;
             try { stopQuickbar(); } catch (e) {}
             try { stopInlineMeta(); } catch (e) {}
+            try { unbindQuickbarSubtaskInheritanceEvents(); } catch (e) {}
+            try { stopQuickbarSubtaskInheritanceObserver(); } catch (e) {}
             try { stopTaskIconPatch(); } catch (e) {}
             try { if (__tmQBStatusRenderStorageHandler) window.removeEventListener('storage', __tmQBStatusRenderStorageHandler); } catch (e) {}
             __tmQBStatusRenderStorageHandler = null;
@@ -7605,6 +7881,8 @@
 
         if (isQuickbarEnabled()) startQuickbar();
         else stopQuickbar();
+        startQuickbarSubtaskInheritanceObserver();
+        bindQuickbarSubtaskInheritanceEvents();
         refreshInlineMetaMode(true);
     }
 

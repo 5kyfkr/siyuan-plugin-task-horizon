@@ -215,24 +215,28 @@
                         childMap.get(pid).push(tid);
                     });
                     childMap.forEach((ids) => ids.sort((a, b) => (orderById.get(a) ?? 999999) - (orderById.get(b) ?? 999999)));
-                    const rootIds = docTasks
+                    const rootTasks = docTasks.filter((task) => {
+                        const tid = String(task?.id || '').trim();
+                        if (!tid) return false;
+                        const parentId = String(task?.parentTaskId || '').trim();
+                        return !parentId || !taskById.has(parentId);
+                    });
+                    const rootSplit = __tmSplitTasksByDoneState(rootTasks);
+                    const rootIds = rootSplit.active
                         .map((task) => String(task?.id || '').trim())
-                        .filter((tid) => {
-                            if (!tid) return false;
-                            const parentId = String(taskById.get(tid)?.parentTaskId || '').trim();
-                            return !parentId || !taskById.has(parentId);
-                        });
+                        .filter(Boolean);
+                    const getTaskDocOrder = (task) => orderById.get(String(task?.id || '').trim()) ?? 999999;
+                    const completedRootTasks = rootSplit.done
+                        .slice()
+                        .sort((a, b) => __tmCompareCompletedTasksRecentFirst(a, b, (x, y) => getTaskDocOrder(x) - getTaskDocOrder(y)));
+                    const completedRootIds = completedRootTasks
+                        .map((task) => String(task?.id || '').trim())
+                        .filter(Boolean);
                     const useDocH2Subgroup = enableDocH2Subgroup && __tmDocHasAnyHeading(docId, docTasks);
                     const headingBuckets = useDocH2Subgroup ? __tmBuildDocHeadingBuckets(docTasks, noHeadingLabel) : [];
                     const rootIdsByHeading = new Map();
                     const headingCountMap = new Map();
                     if (useDocH2Subgroup) {
-                        docTasks.forEach((task) => {
-                            const bucket = __tmGetDocHeadingBucket(task, noHeadingLabel);
-                            const key = String(bucket?.key || '').trim();
-                            if (!key) return;
-                            headingCountMap.set(key, (headingCountMap.get(key) || 0) + 1);
-                        });
                         rootIds.forEach((tid) => {
                             const task = taskById.get(tid);
                             const bucket = __tmGetDocHeadingBucket(task, noHeadingLabel);
@@ -240,8 +244,17 @@
                             if (!rootIdsByHeading.has(key)) rootIdsByHeading.set(key, []);
                             rootIdsByHeading.get(key).push(tid);
                         });
+                        const countActiveTreeTask = (tid) => {
+                            const task = taskById.get(String(tid || '').trim());
+                            if (!task) return;
+                            const bucket = __tmGetDocHeadingBucket(task, noHeadingLabel);
+                            const key = String(bucket?.key || '').trim();
+                            if (key) headingCountMap.set(key, (headingCountMap.get(key) || 0) + 1);
+                            (childMap.get(String(task?.id || '').trim()) || []).forEach(countActiveTreeTask);
+                        };
+                        rootIds.forEach(countActiveTreeTask);
                     }
-                    const renderTaskTree = (taskId, inheritedHideCompleted = false, depth = 0) => {
+                    const renderTaskTree = (taskId, inheritedHideCompleted = false, depth = 0, inCompletedRootGroup = false) => {
                         const task = taskById.get(String(taskId || '').trim());
                         if (!task) return '';
                         const tid = String(task?.id || '').trim();
@@ -257,21 +270,39 @@
                             ? `<button class="tm-kanban-toggle" onclick="tmWhiteboardToggleTaskCollapse('${escSq(tid)}', event)" title="${collapsed ? '展开子任务' : '折叠子任务'}"><svg class="tm-tree-toggle-icon" viewBox="0 0 16 16" width="10" height="10" style="transform:translate(-50%, -50%) rotate(${collapsed ? '0deg' : '90deg'});"><path d="M4.75 3.25l6.5 4.75-6.5 4.75" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></svg></button>`
                             : '';
                         const childrenHtml = childIds.length && !collapsed
-                            ? `<div class="tm-whiteboard-stream-children"><div class="tm-whiteboard-stream-subtasks">${childIds.map((id) => renderTaskTree(id, hideCompletedDescendants, depth + 1)).join('')}</div></div>`
+                            ? `<div class="tm-whiteboard-stream-children"><div class="tm-whiteboard-stream-subtasks">${childIds.map((id) => renderTaskTree(id, hideCompletedDescendants, depth + 1, inCompletedRootGroup)).join('')}</div></div>`
                             : '';
                         const multiSelectCls = __tmIsTaskMultiSelected(tid) ? ' tm-task-row--multi-selected' : '';
                         const parentTaskTitleCls = depth === 0 ? ' tm-parent-task-title' : '';
+                        const completedTodayBadgeHtml = inCompletedRootGroup
+                            ? __tmRenderCompletedTodayBadge(task, { todayKey })
+                            : '';
                         return `
                             <div class="tm-whiteboard-stream-task-node" data-task-id="${esc(tid)}" data-id="${esc(tid)}">
                                 <div class="tm-whiteboard-stream-task">
                                     <div class="tm-whiteboard-stream-task-head${multiSelectCls}" data-task-id="${esc(tid)}" data-id="${esc(tid)}" draggable="true" ondragstart="tmDragTaskStart(event, '${escSq(tid)}')" ondragend="tmDragTaskEnd(event)" oncontextmenu="tmShowTaskContextMenu(event, '${escSq(tid)}')" onclick="tmWhiteboardStreamTaskHeadClick('${escSq(tid)}', event)">
                                         ${__tmRenderTaskCheckboxWrap(tid, task, { checked: task?.done, stopMouseDown: true, stopClick: true, title: '完成状态' })}
-                                        <span class="tm-whiteboard-stream-task-title${parentTaskTitleCls}${task?.done ? ' tm-task-done' : ''}" onpointerdown="tmWhiteboardStreamTaskTitlePointerDown(event)" onmousedown="tmWhiteboardStreamTaskTitleMouseDown(event)" onclick="tmWhiteboardStreamTaskTitleClick('${escSq(tid)}', event)"${__tmBuildTooltipAttrs(String(content || '').trim() || '(无内容)', { side: 'bottom', ariaLabel: false })} style="${__tmBuildTaskTitleOpacityStyle(task)}">${API.renderTaskContentHtml(task?.markdown, content)}${__tmRenderGlobalCollectDocTaskInlineIcon(task)}${__tmRenderRecurringTaskInlineIcon(task)}${__tmRenderRecurringInstanceBadge(task, { className: 'tm-recurring-instance-badge--inline' })}</span>
+                                        <span class="tm-whiteboard-stream-task-title${parentTaskTitleCls}${task?.done ? ' tm-task-done' : ''}" onpointerdown="tmWhiteboardStreamTaskTitlePointerDown(event)" onmousedown="tmWhiteboardStreamTaskTitleMouseDown(event)" onclick="tmWhiteboardStreamTaskTitleClick('${escSq(tid)}', event)"${__tmBuildTooltipAttrs(String(content || '').trim() || '(无内容)', { side: 'bottom', ariaLabel: false })} style="${__tmBuildTaskTitleOpacityStyle(task)}">${API.renderTaskContentHtml(task?.markdown, content)}${__tmRenderGlobalCollectDocTaskInlineIcon(task)}${completedTodayBadgeHtml}${__tmRenderRecurringTaskInlineIcon(task)}${__tmRenderRecurringInstanceBadge(task, { className: 'tm-recurring-instance-badge--inline' })}</span>
                                         ${toggleHtml}
                                     </div>
                                 </div>
                                 ${childrenHtml}
                             </div>
+                        `;
+                    };
+                    const renderCompletedRootGroup = () => {
+                        if (!completedRootIds.length) return '';
+                        const doneGroupKey = __tmBuildCompletedRootGroupKey(`whiteboard-stream:${docId}`);
+                        const doneCollapsed = __tmIsCompletedRootGroupCollapsed(doneGroupKey);
+                        return `
+                            <div class="tm-whiteboard-stream-heading tm-whiteboard-stream-heading--done" onclick="tmToggleGroupCollapse('${escSq(doneGroupKey)}', event)">
+                                <div class="tm-whiteboard-stream-heading-main">
+                                    <span class="tm-group-toggle${doneCollapsed ? ' tm-group-toggle--collapsed' : ''}" style="cursor:pointer;display:inline-flex;align-items:center;justify-content:center;width:16px;">${__tmRenderToggleIcon(16, doneCollapsed ? 0 : 90, 'tm-group-toggle-icon')}</span>
+                                    <span class="tm-whiteboard-stream-heading-label" style="color:var(--tm-secondary-text);">已完成任务</span>
+                                </div>
+                                <span class="tm-badge tm-badge--count">${completedRootIds.length}</span>
+                            </div>
+                            ${doneCollapsed ? '' : completedRootIds.map((id) => renderTaskTree(id, false, 0, true)).join('')}
                         `;
                     };
                     const headingSectionsHtml = useDocH2Subgroup
@@ -294,6 +325,7 @@
                             `;
                         }).join('')
                         : rootIds.map((id) => renderTaskTree(id)).join('');
+                    const streamSectionsHtml = `${headingSectionsHtml}${renderCompletedRootGroup()}`;
                     const docAccent = __tmGetDocColorHex(docId, isDark) || 'var(--tm-primary-color)';
                     const docHeadBg = (() => {
                         const rgba = __tmParseCssColorToRgba(String(docAccent || '').trim());
@@ -322,7 +354,7 @@
                                 </div>
                             </header>
                             <div class="tm-whiteboard-stream-doc-list">
-                                ${headingSectionsHtml || `<div class="tm-whiteboard-stream-empty">当前文档没有任务</div>`}
+                                ${streamSectionsHtml || `<div class="tm-whiteboard-stream-empty">当前文档没有任务</div>`}
                             </div>
                         </section>
                     `;

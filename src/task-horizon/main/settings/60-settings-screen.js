@@ -536,8 +536,20 @@
         state.settingsContentScrollTop = savedSettingsContentScrollTop;
         state.settingsSubtabsScrollLeft = savedSettingsSubtabsScrollLeft;
 
+        const settingsUsesMobileLayout = (() => {
+            try {
+                const info = globalThis.__tmRuntimeHost?.getInfo?.();
+                if (info?.runtimeMobileClient || info?.hostUsesMobileUI || info?.isMobileDevice) return true;
+            } catch (e) {}
+            try {
+                if (typeof __tmIsMobileDevice === 'function' && __tmIsMobileDevice()) return true;
+                if (typeof __tmHostUsesMobileUI === 'function' && __tmHostUsesMobileUI()) return true;
+                if (typeof __tmIsRuntimeMobileClient === 'function' && __tmIsRuntimeMobileClient()) return true;
+            } catch (e) {}
+            return false;
+        })();
         state.settingsModal = document.createElement('div');
-        state.settingsModal.className = 'tm-settings-modal';
+        state.settingsModal.className = `tm-settings-modal${settingsUsesMobileLayout ? ' tm-settings-modal--mobile' : ''}`;
 
         const groups = SettingsStore.data.docGroups || [];
         const currentGroupId = SettingsStore.data.currentGroupId || 'all';

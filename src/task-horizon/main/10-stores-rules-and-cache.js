@@ -54,6 +54,7 @@
     const TASK_SNAPSHOT_FILE_PATH = `${PLUGIN_STORAGE_DIR}/task-snapshot.json`;
     const TASK_INDEX_FILE_PATH = `${PLUGIN_STORAGE_DIR}/task-index.json`;
     const DOC_SCOPE_CACHE_FILE_PATH = `${PLUGIN_STORAGE_DIR}/doc-scope-cache.json`;
+    const DIAGNOSTIC_LOG_FILE_PATH = `${PLUGIN_STORAGE_DIR}/diagnostic-logs.json`;
     const __TM_TASK_SNAPSHOT_VERSION = 3;
     const __TM_TASK_SNAPSHOT_MAX_AGE_MS = 3 * 24 * 60 * 60 * 1000;
     const __TM_TASK_SNAPSHOT_MAX_ENTRIES = 20;
@@ -2807,6 +2808,31 @@
             || snap.keepAlive === true;
     }
 
+    function __tmGetPreservedTaskSnapshotBucket(snapshot) {
+        const snap = (snapshot && typeof snapshot === 'object') ? snapshot : null;
+        if (!snap) return '';
+        const groupId = String(
+            snap.groupId
+            || String(snap.scopeKey || '').split('|')[0]
+            || ''
+        ).trim();
+        if (groupId && groupId !== 'all') return `group:${groupId}`;
+        const scopeKey = String(snap.scopeKey || '').trim();
+        return scopeKey ? `scope:${scopeKey}` : '';
+    }
+
+    function __tmSelectPreservedTaskSnapshotCandidates(candidates = []) {
+        const out = [];
+        const seenBuckets = new Set();
+        (Array.isArray(candidates) ? candidates : []).forEach((snap) => {
+            const bucket = __tmGetPreservedTaskSnapshotBucket(snap);
+            if (bucket && seenBuckets.has(bucket)) return;
+            if (bucket) seenBuckets.add(bucket);
+            out.push(snap);
+        });
+        return out;
+    }
+
     function __tmCreateEmptyTaskSnapshotStore(updatedAt = Date.now()) {
         return {
             version: __TM_TASK_SNAPSHOT_VERSION,
@@ -2972,7 +2998,7 @@
         out.otherBlockSets = {};
         const candidates = Object.values(snapshots)
             .sort((a, b) => Math.max(Number(b?.updatedAt || 0), Number(b?.createdAt || 0)) - Math.max(Number(a?.updatedAt || 0), Number(a?.createdAt || 0)));
-        const preservedCandidates = candidates.filter((snap) => __tmIsPreservedTaskSnapshot(snap));
+        const preservedCandidates = __tmSelectPreservedTaskSnapshotCandidates(candidates.filter((snap) => __tmIsPreservedTaskSnapshot(snap)));
         const normalCandidates = candidates.filter((snap) => !__tmIsPreservedTaskSnapshot(snap));
         const addSnapshot = (snap, countTowardsLimit = true) => {
             const key = String(snap?.scopeKey || '').trim();
@@ -2986,7 +3012,7 @@
             if (countTowardsLimit && out.order.length >= __TM_TASK_SNAPSHOT_MAX_ENTRIES) return false;
             out.order.push(key);
             out.snapshots[key] = record;
-            if (countTowardsLimit && __tmEstimateJsonByteSize(out) > __TM_TASK_SNAPSHOT_MAX_BYTES) {
+            if (__tmEstimateJsonByteSize(out) > __TM_TASK_SNAPSHOT_MAX_BYTES) {
                 out.order.pop();
                 delete out.snapshots[key];
                 __tmPruneTaskSnapshotStorePools(out);
@@ -5940,6 +5966,26 @@
         { key: 'remark', label: '备注' },
     ];
 
+    const __TM_TASK_DETAIL_SHOW_COMPLETED_SUBTASKS_DEFAULT = true;
+    const __TM_TASK_DETAIL_SHOW_COMPLETED_SUBTASKS_STORAGE_KEY = 'tm_task_detail_show_completed_subtasks';
+    const __TM_TASK_DETAIL_SHOW_COMPLETED_SUBTASKS_LEGACY_KEY = 'tm_task_detail_show_completed_subtasks_by_task';
+
+    function __tmNormalizeTaskDetailShowCompletedSubtasksSetting(value, fallback = __TM_TASK_DETAIL_SHOW_COMPLETED_SUBTASKS_DEFAULT) {
+        if (typeof value === 'boolean') return value;
+        if (typeof value === 'number') return value !== 0;
+        if (typeof value === 'string') {
+            const raw = value.trim().toLowerCase();
+            if (raw === 'false' || raw === '0' || raw === 'off' || raw === 'hide' || raw === 'hidden') return false;
+            if (raw === 'true' || raw === '1' || raw === 'on' || raw === 'show' || raw === 'visible') return true;
+        }
+        if (value && typeof value === 'object' && !Array.isArray(value)) {
+            const keys = Object.keys(value);
+            if (!keys.length) return fallback !== false;
+            return !keys.some((key) => value[key] === false);
+        }
+        return fallback !== false;
+    }
+
     function __tmNormalizeSubtaskInheritedFields(input, fallback = __TM_SUBTASK_INHERIT_DEFAULT_FIELDS) {
         const allow = new Set(__TM_SUBTASK_INHERIT_FIELD_OPTIONS.map((item) => item.key));
         const source = Array.isArray(input) ? input : fallback;
@@ -6068,6 +6114,7 @@
             queryLimit: __TM_TASK_INDEX_QUERY_LIMIT,
             recursiveDocLimit: 2000,
             legacyWin7CompatMode: false,
+            diagnosticLogsEnabled: false,
             taskParentLookupDepth: TM_TASK_PARENT_LOOKUP_DEPTH_DEFAULT,
             groupByDocName: true,
             groupByTime: false,
@@ -6149,6 +6196,7 @@
             aiSideDockEnabled: true,
             pinNewTasksByDefault: false,
             enableMoveBlockToDailyNote: false,
+            taskDetailShowCompletedSubtasks: __TM_TASK_DETAIL_SHOW_COMPLETED_SUBTASKS_DEFAULT,
             taskDetailCompletedSubtasksVisibilityByTask: {},
             subtaskInheritedFields: __TM_SUBTASK_INHERIT_DEFAULT_FIELDS.slice(),
             newTaskDocId: '',
@@ -6634,6 +6682,7 @@
                                     this.refreshCollapsedStateSyncState();
                                     this.refreshSettingsFieldSyncState();
                                     this.loaded = true;
+                                    try { __tmTouchDiagnosticLogFileWhenEnabled('settings-load-local-newer'); } catch (e) {}
                                     if (migratedLegacyTopbarDefaults) {
                                         try { await this.save(); } catch (e) {}
                                     }
@@ -6650,6 +6699,7 @@
                                 if (typeof cloudData.queryLimit === 'number') this.data.queryLimit = __TM_TASK_INDEX_QUERY_LIMIT;
                                 if (typeof cloudData.recursiveDocLimit === 'number') this.data.recursiveDocLimit = cloudData.recursiveDocLimit;
                                 if (typeof cloudData.legacyWin7CompatMode === 'boolean') this.data.legacyWin7CompatMode = cloudData.legacyWin7CompatMode;
+                                if (typeof cloudData.diagnosticLogsEnabled === 'boolean') this.data.diagnosticLogsEnabled = cloudData.diagnosticLogsEnabled;
                                 if (typeof cloudData.taskParentLookupDepth === 'number') this.data.taskParentLookupDepth = __tmNormalizeTaskParentLookupDepth(cloudData.taskParentLookupDepth);
                                 if (typeof cloudData.groupByDocName === 'boolean') this.data.groupByDocName = cloudData.groupByDocName;
                                 if (typeof cloudData.groupByTime === 'boolean') this.data.groupByTime = cloudData.groupByTime;
@@ -6723,8 +6773,17 @@
                                 if (typeof cloudData.quickbarSubtaskCountUnfinishedOnly === 'boolean') this.data.quickbarSubtaskCountUnfinishedOnly = cloudData.quickbarSubtaskCountUnfinishedOnly;
                                 if (typeof cloudData.aiSideDockEnabled === 'boolean') this.data.aiSideDockEnabled = cloudData.aiSideDockEnabled;
                                 if (typeof cloudData.pinNewTasksByDefault === 'boolean') this.data.pinNewTasksByDefault = cloudData.pinNewTasksByDefault;
+                                if (typeof cloudData.taskDetailShowCompletedSubtasks === 'boolean') {
+                                    this.data.taskDetailShowCompletedSubtasks = cloudData.taskDetailShowCompletedSubtasks;
+                                }
                                 if (cloudData.taskDetailCompletedSubtasksVisibilityByTask && typeof cloudData.taskDetailCompletedSubtasksVisibilityByTask === 'object') {
                                     this.data.taskDetailCompletedSubtasksVisibilityByTask = cloudData.taskDetailCompletedSubtasksVisibilityByTask;
+                                    if (typeof cloudData.taskDetailShowCompletedSubtasks !== 'boolean') {
+                                        this.data.taskDetailShowCompletedSubtasks = __tmNormalizeTaskDetailShowCompletedSubtasksSetting(
+                                            cloudData.taskDetailCompletedSubtasksVisibilityByTask,
+                                            this.data.taskDetailShowCompletedSubtasks
+                                        );
+                                    }
                                 }
                                 if (Array.isArray(cloudData.subtaskInheritedFields)) this.data.subtaskInheritedFields = __tmNormalizeSubtaskInheritedFields(cloudData.subtaskInheritedFields);
                                 if (typeof cloudData.newTaskDocId === 'string') this.data.newTaskDocId = cloudData.newTaskDocId;
@@ -7008,6 +7067,7 @@
                                 this.refreshCollapsedStateSyncState();
                                 this.refreshSettingsFieldSyncState();
                                 this.loaded = true;
+                                try { __tmTouchDiagnosticLogFileWhenEnabled('settings-load-cloud'); } catch (e) {}
                                 if (migratedLegacyTopbarDefaults || restoredLocalSettingFields.length > 0) {
                                     try { await this.save(); } catch (e) {}
                                 }
@@ -7027,6 +7087,7 @@
             this.refreshCollapsedStateSyncState();
             this.refreshSettingsFieldSyncState();
             this.loaded = true;
+            try { __tmTouchDiagnosticLogFileWhenEnabled('settings-load-fallback'); } catch (e) {}
             if (migratedLegacyTopbarDefaults) {
                 try { await this.save(); } catch (e) {}
             }
@@ -7045,6 +7106,7 @@
             this.data.queryLimit = __TM_TASK_INDEX_QUERY_LIMIT;
             this.data.recursiveDocLimit = Storage.get('tm_recursive_doc_limit', this.data.recursiveDocLimit);
             this.data.legacyWin7CompatMode = !!Storage.get('tm_legacy_win7_compat_mode', this.data.legacyWin7CompatMode);
+            this.data.diagnosticLogsEnabled = !!Storage.get('tm_diagnostic_logs_enabled', this.data.diagnosticLogsEnabled);
             this.data.taskParentLookupDepth = __tmNormalizeTaskParentLookupDepth(Storage.get('tm_task_parent_lookup_depth', this.data.taskParentLookupDepth));
             this.data.groupByDocName = Storage.get('tm_group_by_docname', true);
             this.data.groupByTime = Storage.get('tm_group_by_time', false);
@@ -7156,7 +7218,18 @@
             this.data.quickbarInlineShowOnMobile = !!Storage.get('tm_quickbar_inline_show_on_mobile', this.data.quickbarInlineShowOnMobile);
             this.data.quickbarSubtaskCountUnfinishedOnly = !!Storage.get('tm_quickbar_subtask_count_unfinished_only', this.data.quickbarSubtaskCountUnfinishedOnly);
             this.data.pinNewTasksByDefault = Storage.get('tm_pin_new_tasks_by_default', false);
-            this.data.taskDetailCompletedSubtasksVisibilityByTask = Storage.get('tm_task_detail_show_completed_subtasks_by_task', this.data.taskDetailCompletedSubtasksVisibilityByTask) || this.data.taskDetailCompletedSubtasksVisibilityByTask;
+            const legacyCompletedSubtasksVisibility = Storage.get(__TM_TASK_DETAIL_SHOW_COMPLETED_SUBTASKS_LEGACY_KEY, this.data.taskDetailCompletedSubtasksVisibilityByTask);
+            this.data.taskDetailCompletedSubtasksVisibilityByTask = (legacyCompletedSubtasksVisibility && typeof legacyCompletedSubtasksVisibility === 'object' && !Array.isArray(legacyCompletedSubtasksVisibility))
+                ? legacyCompletedSubtasksVisibility
+                : {};
+            const showCompletedSubtasksFallback = __tmNormalizeTaskDetailShowCompletedSubtasksSetting(
+                this.data.taskDetailCompletedSubtasksVisibilityByTask,
+                this.data.taskDetailShowCompletedSubtasks
+            );
+            this.data.taskDetailShowCompletedSubtasks = __tmNormalizeTaskDetailShowCompletedSubtasksSetting(
+                Storage.get(__TM_TASK_DETAIL_SHOW_COMPLETED_SUBTASKS_STORAGE_KEY, showCompletedSubtasksFallback),
+                showCompletedSubtasksFallback
+            );
             this.data.subtaskInheritedFields = __tmNormalizeSubtaskInheritedFields(Storage.get('tm_subtask_inherited_fields', this.data.subtaskInheritedFields));
             this.data.newTaskDocId = Storage.get('tm_new_task_doc_id', '');
             this.data.newTaskDailyNoteNotebookId = String(Storage.get('tm_new_task_daily_note_notebook_id', this.data.newTaskDailyNoteNotebookId) || '').trim();
@@ -7469,6 +7542,7 @@
             this.data.queryLimit = __TM_TASK_INDEX_QUERY_LIMIT;
             Storage.set('tm_recursive_doc_limit', this.data.recursiveDocLimit);
             Storage.set('tm_legacy_win7_compat_mode', !!this.data.legacyWin7CompatMode);
+            Storage.set('tm_diagnostic_logs_enabled', !!this.data.diagnosticLogsEnabled);
             this.data.taskParentLookupDepth = __tmNormalizeTaskParentLookupDepth(this.data.taskParentLookupDepth);
             Storage.set('tm_task_parent_lookup_depth', this.data.taskParentLookupDepth);
             Storage.set('tm_group_by_docname', this.data.groupByDocName);
@@ -7582,7 +7656,8 @@
             Storage.set('tm_quickbar_inline_show_on_mobile', !!this.data.quickbarInlineShowOnMobile);
             Storage.set('tm_quickbar_subtask_count_unfinished_only', !!this.data.quickbarSubtaskCountUnfinishedOnly);
             Storage.set('tm_pin_new_tasks_by_default', !!this.data.pinNewTasksByDefault);
-            Storage.set('tm_task_detail_show_completed_subtasks_by_task', this.data.taskDetailCompletedSubtasksVisibilityByTask || {});
+            Storage.set(__TM_TASK_DETAIL_SHOW_COMPLETED_SUBTASKS_STORAGE_KEY, __tmNormalizeTaskDetailShowCompletedSubtasksSetting(this.data.taskDetailShowCompletedSubtasks));
+            Storage.set(__TM_TASK_DETAIL_SHOW_COMPLETED_SUBTASKS_LEGACY_KEY, {});
             Storage.set('tm_subtask_inherited_fields', __tmNormalizeSubtaskInheritedFields(this.data.subtaskInheritedFields, []));
             Storage.set('tm_new_task_doc_id', String(this.data.newTaskDocId || '').trim());
             Storage.set('tm_new_task_daily_note_notebook_id', String(this.data.newTaskDailyNoteNotebookId || '').trim());
@@ -7876,6 +7951,7 @@
             this.data.docColorSeed = (Number.isFinite(seed) && seed > 0) ? Math.floor(seed) : 1;
             this.data.docDefaultColorScheme.seed = this.data.docColorSeed;
             this.data.taskParentLookupDepth = __tmNormalizeTaskParentLookupDepth(this.data.taskParentLookupDepth);
+            this.data.diagnosticLogsEnabled = !!this.data.diagnosticLogsEnabled;
             this.data.subtaskInheritedFields = __tmNormalizeSubtaskInheritedFields(this.data.subtaskInheritedFields);
             this.data.quickAddRecentDocs = __tmNormalizeQuickAddRecentDocs(this.data.quickAddRecentDocs);
             this.data.docDefaultTaskHeadingByDocId = __tmNormalizeDocDefaultTaskHeadingMap(this.data.docDefaultTaskHeadingByDocId);
@@ -8000,9 +8076,11 @@
             this.data.pointsPenaltyConfirmModalEnabled = this.data.pointsPenaltyConfirmModalEnabled !== false;
             this.data.newTaskDailyNoteAppendToBottom = !!this.data.newTaskDailyNoteAppendToBottom;
             this.data.headingGroupCreateAtSectionEnd = !!this.data.headingGroupCreateAtSectionEnd;
-            this.data.taskDetailCompletedSubtasksVisibilityByTask = (this.data.taskDetailCompletedSubtasksVisibilityByTask && typeof this.data.taskDetailCompletedSubtasksVisibilityByTask === 'object' && !Array.isArray(this.data.taskDetailCompletedSubtasksVisibilityByTask))
-                ? this.data.taskDetailCompletedSubtasksVisibilityByTask
-                : {};
+            this.data.taskDetailShowCompletedSubtasks = __tmNormalizeTaskDetailShowCompletedSubtasksSetting(
+                this.data.taskDetailShowCompletedSubtasks,
+                __tmNormalizeTaskDetailShowCompletedSubtasksSetting(this.data.taskDetailCompletedSubtasksVisibilityByTask, __TM_TASK_DETAIL_SHOW_COMPLETED_SUBTASKS_DEFAULT)
+            );
+            this.data.taskDetailCompletedSubtasksVisibilityByTask = {};
             this.data.docTopbarButtonDesktop = this.data.docTopbarButtonDesktop !== false;
             this.data.docTopbarButtonMobile = this.data.docTopbarButtonMobile !== false;
             this.data.docTopbarButtonSwapPressActions = !!this.data.docTopbarButtonSwapPressActions;
@@ -11381,11 +11459,8 @@
             const blockId = String(row?.block_id || '').trim();
             if (!blockId) continue;
             const adapter = globalThis.__tmTaskHorizonBackendAdapter;
-            if (adapter && typeof adapter.setAttrs === 'function') await adapter.setAttrs(blockId, {
-                [nextKey]: String(row?.value ?? ''),
-                [prevKey]: '',
-            });
-            else await API.setAttrs(blockId, {
+            if (!adapter || typeof adapter.setAttrs !== 'function') throw new Error('任务写入适配器未就绪: setAttrs');
+            await adapter.setAttrs(blockId, {
                 [nextKey]: String(row?.value ?? ''),
                 [prevKey]: '',
             });
@@ -11624,6 +11699,23 @@
     };
     const __TM_TASK_HORIZON_DEBUG_RELAY_STORAGE_KEY = '__tmTaskHorizonDebugRelay';
     const __TM_TASK_HORIZON_ATTR_RELAY_STORAGE_KEY = '__tmTaskHorizonAttrRelay';
+    const __tmPerfTraceStore = {
+        log: [],
+        limit: 80,
+        seq: 0,
+    };
+    const __tmDiagnosticLogStore = {
+        log: [],
+        limit: 200,
+        seq: 0,
+    };
+    const __tmDiagnosticLogFileState = {
+        timer: 0,
+        saving: false,
+        pending: false,
+        lastSavedAt: 0,
+        lastSaveOk: false,
+    };
 
     function __tmGetDebugChannelPersistKey(channel) {
         const key = String(channel || '').trim();
@@ -11807,13 +11899,212 @@
         return __tmPushDebugChannel('detail', tag, payload);
     }
 
+    function __tmIsJankDebugEnabled() {
+        return false;
+    }
+
+    function __tmPushJankDebug(tag, payload = {}) {
+        return null;
+    }
+
+    function __tmIsDiagnosticLogsEnabled() {
+        try {
+            return SettingsStore?.data?.diagnosticLogsEnabled === true;
+        } catch (e) {
+            return false;
+        }
+    }
+
+    function __tmIsMobileDiagnosticLogFileTarget() {
+        try {
+            if (typeof __tmIsMobileDevice === 'function' && __tmIsMobileDevice()) return true;
+        } catch (e) {}
+        try {
+            const kind = String(globalThis.__taskHorizonRuntimeClientKind || '').trim();
+            if (kind && kind !== 'desktop-browser') return true;
+        } catch (e) {}
+        try {
+            if (globalThis.__taskHorizonPluginIsMobile === true) return true;
+        } catch (e) {}
+        try {
+            if (globalThis.__taskHorizonPluginIsNativeMobile === true) return true;
+        } catch (e) {}
+        try {
+            if (window?.siyuan?.mobile) return true;
+        } catch (e) {}
+        try {
+            if (globalThis?.JSAndroid || globalThis?.JSHarmony || globalThis?.webkit?.messageHandlers) return true;
+        } catch (e) {}
+        try {
+            const ua = String(navigator?.userAgent || '');
+            if (/Android|iPhone|iPad|iPod|HarmonyOS|Mobile/i.test(ua)) return true;
+        } catch (e) {}
+        try {
+            const maxTouchPoints = Number(navigator?.maxTouchPoints) || 0;
+            const coarse = !!window?.matchMedia?.('(pointer: coarse)')?.matches;
+            const width = Number(window?.innerWidth || document.documentElement?.clientWidth || 0) || 0;
+            if ((coarse || maxTouchPoints > 0) && (!width || width <= 1200)) return true;
+        } catch (e) {}
+        return false;
+    }
+
+    function __tmShouldAutoSaveDiagnosticLogFile() {
+        return __tmIsDiagnosticLogsEnabled() && __tmIsMobileDiagnosticLogFileTarget();
+    }
+
+    function __tmBuildDiagnosticLogFilePayload(reason = '') {
+        const now = Date.now();
+        let runtimeClientKind = '';
+        try {
+            runtimeClientKind = typeof __tmGetRuntimeClientKind === 'function'
+                ? String(__tmGetRuntimeClientKind() || '')
+                : '';
+        } catch (e) {}
+        return {
+            version: 1,
+            reason: String(reason || '').trim(),
+            updatedAt: now,
+            updatedTime: new Date(now).toISOString(),
+            path: DIAGNOSTIC_LOG_FILE_PATH,
+            client: {
+                isMobile: __tmIsMobileDiagnosticLogFileTarget(),
+                runtimeClientKind,
+                userAgent: (() => {
+                    try { return String(navigator?.userAgent || ''); } catch (e) { return ''; }
+                })(),
+            },
+            perfTraces: __tmDumpPerfTraces(20),
+            currentPerfTrace: __tmClonePerfTrace(globalThis.__tmTaskHorizonPerfTraceCurrent || null),
+            diagnosticLogs: __tmDumpDiagnosticLogs(Number(__tmDiagnosticLogStore.limit) || 200),
+        };
+    }
+
+    async function __tmSaveDiagnosticLogFile(reason = '') {
+        if (!__tmShouldAutoSaveDiagnosticLogFile()) return false;
+        if (__tmDiagnosticLogFileState.saving) {
+            __tmDiagnosticLogFileState.pending = true;
+            return false;
+        }
+        __tmDiagnosticLogFileState.saving = true;
+        __tmDiagnosticLogFileState.pending = false;
+        try {
+            const ok = await __tmWriteJsonFile(DIAGNOSTIC_LOG_FILE_PATH, __tmBuildDiagnosticLogFilePayload(reason));
+            const now = Date.now();
+            __tmDiagnosticLogFileState.lastSavedAt = now;
+            __tmDiagnosticLogFileState.lastSaveOk = ok === true;
+            try {
+                globalThis.__tmTaskHorizonDiagnosticLogFile = {
+                    path: DIAGNOSTIC_LOG_FILE_PATH,
+                    lastSavedAt: now,
+                    lastSaveOk: ok === true,
+                };
+            } catch (e) {}
+            return ok === true;
+        } catch (e) {
+            __tmDiagnosticLogFileState.lastSaveOk = false;
+            return false;
+        } finally {
+            __tmDiagnosticLogFileState.saving = false;
+            if (__tmDiagnosticLogFileState.pending && __tmShouldAutoSaveDiagnosticLogFile()) {
+                __tmScheduleDiagnosticLogFileSave('pending');
+            }
+        }
+    }
+
+    function __tmScheduleDiagnosticLogFileSave(reason = '') {
+        if (!__tmShouldAutoSaveDiagnosticLogFile()) return false;
+        __tmDiagnosticLogFileState.pending = true;
+        if (__tmDiagnosticLogFileState.timer) return true;
+        __tmDiagnosticLogFileState.timer = setTimeout(() => {
+            __tmDiagnosticLogFileState.timer = 0;
+            const run = () => {
+                __tmSaveDiagnosticLogFile(reason).catch(() => null);
+            };
+            try { __tmScheduleIdleTask(run, 1600); } catch (e) { setTimeout(run, 0); }
+        }, 1200);
+        return true;
+    }
+
+    function __tmCancelDiagnosticLogFileSave() {
+        try {
+            if (__tmDiagnosticLogFileState.timer) clearTimeout(__tmDiagnosticLogFileState.timer);
+        } catch (e) {}
+        __tmDiagnosticLogFileState.timer = 0;
+        __tmDiagnosticLogFileState.pending = false;
+        return { ok: true, path: DIAGNOSTIC_LOG_FILE_PATH };
+    }
+
+    function __tmTouchDiagnosticLogFileWhenEnabled(reason = '') {
+        if (!__tmIsDiagnosticLogsEnabled()) return false;
+        const label = String(reason || '').trim() || 'enabled';
+        const run = () => {
+            __tmSaveDiagnosticLogFile(label).catch(() => null);
+        };
+        try { setTimeout(run, 0); } catch (e) { try { run(); } catch (err) {} }
+        return true;
+    }
+
+    function __tmBuildDiagnosticLogEntry(scope, payload = {}, context = {}) {
+        const now = Date.now();
+        const ctx = (context && typeof context === 'object') ? context : {};
+        return {
+            id: ++__tmDiagnosticLogStore.seq,
+            scope: String(scope || '').trim() || 'diagnostic',
+            ts: now,
+            time: new Date(now).toISOString(),
+            viewMode: String(state?.viewMode || '').trim(),
+            activeDocId: String(state?.activeDocId || '').trim(),
+            currentGroupId: String(SettingsStore?.data?.currentGroupId || '').trim(),
+            isMobile: typeof __tmIsMobileDevice === 'function' ? !!__tmIsMobileDevice() : false,
+            context: __tmCloneDebugValue(ctx),
+            payload: __tmCloneDebugValue(payload),
+        };
+    }
+
+    function __tmPushDiagnosticLog(scope, payload = {}, context = {}) {
+        if (!__tmIsDiagnosticLogsEnabled()) return null;
+        const entry = __tmBuildDiagnosticLogEntry(scope, payload, context);
+        __tmDiagnosticLogStore.log.push(entry);
+        if (__tmDiagnosticLogStore.log.length > __tmDiagnosticLogStore.limit) {
+            __tmDiagnosticLogStore.log.splice(0, __tmDiagnosticLogStore.log.length - __tmDiagnosticLogStore.limit);
+        }
+        try {
+            globalThis.__tmTaskHorizonDiagnosticLog = __tmDiagnosticLogStore.log;
+            globalThis.__tmTaskHorizonDiagnosticLast = entry;
+        } catch (e) {}
+        try { __tmScheduleDiagnosticLogFileSave('diagnostic-log'); } catch (e) {}
+        return entry;
+    }
+
+    function __tmDumpDiagnosticLogs(limit = 20) {
+        const count = Math.max(1, Math.min(Number(__tmDiagnosticLogStore.limit) || 200, Number(limit) || 20));
+        return __tmDiagnosticLogStore.log.slice(-count).map((entry) => __tmCloneDebugValue(entry)).filter(Boolean);
+    }
+
+    function __tmClearDiagnosticLogs() {
+        __tmDiagnosticLogStore.log.length = 0;
+        try {
+            globalThis.__tmTaskHorizonDiagnosticLog = __tmDiagnosticLogStore.log;
+            globalThis.__tmTaskHorizonDiagnosticLast = null;
+        } catch (e) {}
+        try { __tmScheduleDiagnosticLogFileSave('clear-diagnostic-logs'); } catch (e) {}
+        return { ok: true, size: 0 };
+    }
+
     try {
         try { delete globalThis.tmTaskHorizonDetailDebugDump; } catch (e) {}
         try { delete globalThis.tmTaskHorizonDetailDebugClear; } catch (e) {}
         try { delete globalThis.tmTaskHorizonDetailDebugEnable; } catch (e) {}
         try { delete globalThis.__tmTaskHorizonDetailDebugLog; } catch (e) {}
         try { delete globalThis.__tmTaskHorizonDetailDebugLast; } catch (e) {}
+        try { delete globalThis.__tmTaskHorizonJankLog; } catch (e) {}
+        try { delete globalThis.__tmTaskHorizonJankLast; } catch (e) {}
+        try { delete globalThis.tmTaskHorizonJankDebugEnable; } catch (e) {}
+        try { delete globalThis.tmTaskHorizonJankDebugDump; } catch (e) {}
+        try { delete globalThis.tmTaskHorizonJankDebugJson; } catch (e) {}
+        try { delete globalThis.tmTaskHorizonJankDebugClear; } catch (e) {}
         try { delete window.tmTaskHorizonDetailDebug; } catch (e) {}
+        try { delete window.tmTaskHorizonJank; } catch (e) {}
     } catch (e) {}
 
     try {
@@ -11831,6 +12122,15 @@
         try { delete globalThis.__tmTaskHorizonPerfCreate; } catch (e) {}
         try { delete globalThis.__tmTaskHorizonPerfMark; } catch (e) {}
         try { delete globalThis.__tmTaskHorizonPerfFinish; } catch (e) {}
+        try { delete globalThis.__tmTaskHorizonDiagnosticLog; } catch (e) {}
+        try { delete globalThis.__tmTaskHorizonDiagnosticLast; } catch (e) {}
+        try { delete globalThis.__tmTaskHorizonDiagnosticPush; } catch (e) {}
+        try { delete globalThis.__tmTaskHorizonDiagnosticLogFile; } catch (e) {}
+        try { delete globalThis.tmTaskHorizonDiagnosticDump; } catch (e) {}
+        try { delete globalThis.tmTaskHorizonDiagnosticClear; } catch (e) {}
+        try { delete globalThis.tmTaskHorizonDiagnosticLatest; } catch (e) {}
+        try { delete globalThis.tmTaskHorizonDiagnosticSaveFile; } catch (e) {}
+        try { delete globalThis.tmTaskHorizonDiagnosticFileStatus; } catch (e) {}
     } catch (e) {}
 
     try {
@@ -11876,6 +12176,32 @@
         globalThis.tmTaskHorizonPerfLatest = function() {
             return __tmClonePerfTrace(globalThis.__tmTaskHorizonPerfTraceLast || null);
         };
+        globalThis.__tmTaskHorizonDiagnosticLog = __tmDiagnosticLogStore.log;
+        globalThis.__tmTaskHorizonDiagnosticLast = null;
+        globalThis.__tmTaskHorizonDiagnosticPush = function(scope, payload = {}, context = {}) {
+            return __tmPushDiagnosticLog(scope, payload, context);
+        };
+        globalThis.tmTaskHorizonDiagnosticDump = function(limit = 20) {
+            return __tmDumpDiagnosticLogs(limit);
+        };
+        globalThis.tmTaskHorizonDiagnosticClear = function() {
+            return __tmClearDiagnosticLogs();
+        };
+        globalThis.tmTaskHorizonDiagnosticLatest = function() {
+            return __tmCloneDebugValue(globalThis.__tmTaskHorizonDiagnosticLast || null);
+        };
+        globalThis.tmTaskHorizonDiagnosticSaveFile = function(reason = 'manual') {
+            return __tmSaveDiagnosticLogFile(reason);
+        };
+        globalThis.tmTaskHorizonDiagnosticFileStatus = function() {
+            return __tmCloneDebugValue({
+                path: DIAGNOSTIC_LOG_FILE_PATH,
+                autoSaveEnabled: __tmShouldAutoSaveDiagnosticLogFile(),
+                lastSavedAt: __tmDiagnosticLogFileState.lastSavedAt,
+                lastSaveOk: __tmDiagnosticLogFileState.lastSaveOk,
+                pending: __tmDiagnosticLogFileState.pending || !!__tmDiagnosticLogFileState.timer,
+            });
+        };
         globalThis.tmTaskHorizonStats = function() {
             return __tmGetStatsSnapshot();
         };
@@ -11894,6 +12220,24 @@
         window.tmTaskHorizonPerf.stats = function() {
             return __tmGetStatsSnapshot();
         };
+        if (!window.tmTaskHorizonDiagnostic || typeof window.tmTaskHorizonDiagnostic !== 'object') {
+            window.tmTaskHorizonDiagnostic = {};
+        }
+        window.tmTaskHorizonDiagnostic.dump = function(limit = 20) {
+            return __tmDumpDiagnosticLogs(limit);
+        };
+        window.tmTaskHorizonDiagnostic.clear = function() {
+            return __tmClearDiagnosticLogs();
+        };
+        window.tmTaskHorizonDiagnostic.latest = function() {
+            return __tmCloneDebugValue(globalThis.__tmTaskHorizonDiagnosticLast || null);
+        };
+        window.tmTaskHorizonDiagnostic.saveFile = function(reason = 'manual') {
+            return __tmSaveDiagnosticLogFile(reason);
+        };
+        window.tmTaskHorizonDiagnostic.fileStatus = function() {
+            return globalThis.tmTaskHorizonDiagnosticFileStatus();
+        };
         window.tmTaskHorizonDetailDebug = {
             enable(enabled = true) {
                 return __tmSetDebugChannelEnabled('detail', enabled);
@@ -11911,12 +12255,6 @@
         const num = Number(value);
         return Number.isFinite(num) ? Math.round(num * 10) / 10 : 0;
     }
-
-    const __tmPerfTraceStore = {
-        log: [],
-        limit: 80,
-        seq: 0,
-    };
 
     function __tmPerfNow() {
         try {
@@ -11964,10 +12302,12 @@
             globalThis.__tmTaskHorizonPerfTraceLast = entry;
             globalThis.__tmTaskHorizonPerfTraceCurrent = null;
         } catch (e) {}
+        try { __tmScheduleDiagnosticLogFileSave('perf-trace'); } catch (e) {}
         return entry;
     }
 
     function __tmCreatePerfTrace(name = '', meta = {}) {
+        if (!__tmIsDiagnosticLogsEnabled()) return null;
         const now = Date.now();
         const trace = {
             id: ++__tmPerfTraceStore.seq,
@@ -11989,6 +12329,7 @@
     }
 
     function __tmPerfTraceMark(trace, tag = '', payload = {}) {
+        if (!__tmIsDiagnosticLogsEnabled()) return trace;
         const target = (trace && typeof trace === 'object') ? trace : null;
         if (!target || target.finished === true) return trace;
         const now = Date.now();
@@ -12011,6 +12352,7 @@
     }
 
     function __tmPerfTraceFinish(trace, detail = {}) {
+        if (!__tmIsDiagnosticLogsEnabled()) return trace;
         const target = (trace && typeof trace === 'object') ? trace : null;
         if (!target) return trace;
         if (target.finished === true) return __tmClonePerfTrace(target);
@@ -12035,6 +12377,7 @@
             globalThis.__tmTaskHorizonPerfTraceLast = null;
             globalThis.__tmTaskHorizonPerfTraceCurrent = null;
         } catch (e) {}
+        try { __tmScheduleDiagnosticLogFileSave('clear-perf-traces'); } catch (e) {}
         return { ok: true, size: 0 };
     }
 
@@ -12069,12 +12412,14 @@
     }
 
     function __tmMarkHighPriorityInteraction(reason = '', durationMs = 360) {
+        const now = Date.now();
         const ms0 = Number(durationMs);
         const ms = Number.isFinite(ms0) ? Math.max(80, Math.min(1800, Math.round(ms0))) : 360;
-        const until = Date.now() + ms;
+        const until = now + ms;
+        const label = String(reason || '').trim();
         try {
             state.__tmHighPriorityInteractionUntil = Math.max(Number(state.__tmHighPriorityInteractionUntil) || 0, until);
-            state.__tmHighPriorityInteractionReason = String(reason || '').trim();
+            state.__tmHighPriorityInteractionReason = label;
         } catch (e) {}
         try {
             globalThis.__tmTaskHorizonHighPriorityInteractionUntil = Math.max(Number(globalThis.__tmTaskHorizonHighPriorityInteractionUntil) || 0, until);
@@ -12742,6 +13087,79 @@
         return out;
     }
 
+    function __tmExtractInsertedBlockIdsFromTx(payload) {
+        const out = new Set();
+        const insertActions = new Set(['insert', 'insertblock', 'append', 'appendblock', 'prepend', 'prependblock']);
+        const add = (value) => {
+            const id = String(value || '').trim();
+            if (id && __tmIsLikelyBlockId(id)) out.add(id);
+        };
+        const addFromText = (value) => {
+            const text = String(value || '');
+            if (!text) return;
+            const re = /(?:data-node-id|id)\s*=\s*["']([0-9]+-[a-zA-Z0-9]+)["']/g;
+            let match = re.exec(text);
+            while (match) {
+                add(match[1]);
+                match = re.exec(text);
+            }
+        };
+        const walk = (v, depth) => {
+            if (depth > 6 || !v) return;
+            if (Array.isArray(v)) {
+                v.forEach((x) => walk(x, depth + 1));
+                return;
+            }
+            if (typeof v !== 'object') return;
+            const data = (v.data && typeof v.data === 'object' && !Array.isArray(v.data)) ? v.data : null;
+            const action = String(v.action || v.cmd || v.operation || v.op || data?.action || data?.cmd || data?.operation || '').trim().toLowerCase();
+            if (insertActions.has(action) || (action.includes('insert') && !action.includes('delete'))) {
+                add(v.id);
+                add(v.blockID);
+                add(v.blockId);
+                add(v.insertedId);
+                add(v.insertedID);
+                if (data) {
+                    add(data.id);
+                    add(data.blockID);
+                    add(data.blockId);
+                    add(data.insertedId);
+                    add(data.insertedID);
+                    addFromText(data.data);
+                    addFromText(data.markdown);
+                    addFromText(data.html);
+                    addFromText(data.dom);
+                    addFromText(data.blockDOM);
+                    addFromText(data.content);
+                } else {
+                    addFromText(v.data);
+                }
+                addFromText(v.markdown);
+                addFromText(v.html);
+                addFromText(v.dom);
+                addFromText(v.blockDOM);
+                addFromText(v.content);
+            }
+            [
+                v.data,
+                v.detail,
+                v.tx,
+                v.payload,
+                v.rows,
+                v.ops,
+                v.operations,
+                v.doOperations,
+                v.undoOperations,
+                v.children,
+                v.items,
+                v.srcs,
+                v.dsts
+            ].forEach((x) => walk(x, depth + 1));
+        };
+        walk(payload, 0);
+        return out;
+    }
+
     function __tmShouldIgnoreWsMainTaskRefreshMessage(msg) {
         const cmd = String(msg?.detail?.cmd || msg?.cmd || '').trim().toLowerCase();
         if (cmd && cmd !== 'transactions' && cmd !== 'savedoc') return true;
@@ -12814,8 +13232,10 @@
         const opts = (options && typeof options === 'object') ? options : {};
         let docIds = new Set();
         let blockIds = new Set();
+        let insertedBlockIds = new Set();
         try { docIds = __tmExtractDocIdsFromTx(payload); } catch (e) { docIds = new Set(); }
         try { blockIds = __tmExtractBlockIdsFromTx(payload); } catch (e) { blockIds = new Set(); }
+        try { insertedBlockIds = __tmExtractInsertedBlockIdsFromTx(payload); } catch (e) { insertedBlockIds = new Set(); }
         (Array.isArray(opts.docIds) ? opts.docIds : []).forEach((docId) => {
             const did = String(docId || '').trim();
             if (did && __tmIsLikelyBlockId(did)) docIds.add(did);
@@ -12824,7 +13244,15 @@
             const bid = String(blockId || '').trim();
             if (bid && __tmIsLikelyBlockId(bid)) blockIds.add(bid);
         });
-        return { docIds, blockIds };
+        (Array.isArray(opts.insertedBlockIds) ? opts.insertedBlockIds : []).forEach((blockId) => {
+            const bid = String(blockId || '').trim();
+            if (bid && __tmIsLikelyBlockId(bid)) insertedBlockIds.add(bid);
+        });
+        insertedBlockIds.forEach((blockId) => {
+            const bid = String(blockId || '').trim();
+            if (bid && __tmIsLikelyBlockId(bid)) blockIds.add(bid);
+        });
+        return { docIds, blockIds, insertedBlockIds };
     }
 
     function __tmTxTargetsAffectLoadedScope(targets = {}) {
@@ -13354,6 +13782,104 @@
         return hasLargeLoadedDoc ? __TM_TASK_INDEX_QUERY_LIMIT : hotLimit;
     }
 
+    function __tmHasExternalSubtaskInheritedValue(value) {
+        if (Array.isArray(value)) return value.length > 0;
+        if (value && typeof value === 'object') return Object.keys(value).length > 0;
+        const text = String(value ?? '').trim();
+        return !!text && text !== 'null' && text !== 'undefined';
+    }
+
+    function __tmExternalSubtaskHasInheritedFieldValue(task, key, fieldId = '') {
+        const source = (task && typeof task === 'object') ? task : {};
+        if (key === 'priority') return __tmHasExternalSubtaskInheritedValue(source.priority || source.custom_priority);
+        if (key === 'customStatus') return __tmHasExternalSubtaskInheritedValue(source.customStatus || source.custom_status);
+        if (key === 'startDate') return __tmHasExternalSubtaskInheritedValue(source.startDate || source.start_date);
+        if (key === 'completionTime') return __tmHasExternalSubtaskInheritedValue(source.completionTime || source.completion_time);
+        if (key === 'duration') return __tmHasExternalSubtaskInheritedValue(source.duration || source.custom_duration);
+        if (key === 'remark') return __tmHasExternalSubtaskInheritedValue(source.remark || source.custom_remark);
+        if (key === 'customFieldValues') {
+            const fid = String(fieldId || '').trim();
+            if (!fid) return false;
+            const values = (source.customFieldValues && typeof source.customFieldValues === 'object' && !Array.isArray(source.customFieldValues))
+                ? source.customFieldValues
+                : {};
+            const rawValues = (source.__customFieldRawValues && typeof source.__customFieldRawValues === 'object' && !Array.isArray(source.__customFieldRawValues))
+                ? source.__customFieldRawValues
+                : {};
+            return __tmHasExternalSubtaskInheritedValue(values[fid]) || __tmHasExternalSubtaskInheritedValue(rawValues[fid]);
+        }
+        return false;
+    }
+
+    function __tmBuildMissingExternalSubtaskInheritedPatch(childTask, parentTask) {
+        const fullPatch = __tmBuildSubtaskInheritedPatch(parentTask);
+        const patch = {};
+        ['priority', 'customStatus', 'startDate', 'completionTime', 'duration', 'remark'].forEach((key) => {
+            if (!Object.prototype.hasOwnProperty.call(fullPatch, key)) return;
+            if (__tmExternalSubtaskHasInheritedFieldValue(childTask, key)) return;
+            patch[key] = fullPatch[key];
+        });
+        if (fullPatch.customFieldValues && typeof fullPatch.customFieldValues === 'object' && !Array.isArray(fullPatch.customFieldValues)) {
+            const values = {};
+            Object.entries(fullPatch.customFieldValues).forEach(([fieldId, fieldValue]) => {
+                const fid = String(fieldId || '').trim();
+                if (!fid || __tmExternalSubtaskHasInheritedFieldValue(childTask, 'customFieldValues', fid)) return;
+                values[fid] = fieldValue;
+            });
+            if (Object.keys(values).length) patch.customFieldValues = values;
+        }
+        return __tmNormalizeSubtaskInheritedPatch(patch);
+    }
+
+    function __tmPruneInheritedSubtaskPatchQueuedIds(now = Date.now()) {
+        try {
+            const source = (state.inheritedSubtaskPatchQueuedIds && typeof state.inheritedSubtaskPatchQueuedIds === 'object')
+                ? state.inheritedSubtaskPatchQueuedIds
+                : {};
+            Object.keys(source).forEach((taskId) => {
+                if ((now - (Number(source[taskId]) || 0)) > 120000) delete source[taskId];
+            });
+            state.inheritedSubtaskPatchQueuedIds = source;
+        } catch (e) {
+            try { state.inheritedSubtaskPatchQueuedIds = {}; } catch (e2) {}
+        }
+    }
+
+    function __tmQueueExternalSubtaskInheritedPatches(targets = [], options = {}) {
+        const list = Array.isArray(targets) ? targets.filter((item) => item && typeof item === 'object') : [];
+        if (!list.length || typeof __tmQueueAttrPatch !== 'function') return 0;
+        const opts = (options && typeof options === 'object') ? options : {};
+        const now = Date.now();
+        __tmPruneInheritedSubtaskPatchQueuedIds(now);
+        let count = 0;
+        list.forEach((item) => {
+            const taskId = String(item?.task?.id || item?.taskId || '').trim();
+            const patch = (item?.patch && typeof item.patch === 'object' && !Array.isArray(item.patch)) ? item.patch : {};
+            if (!taskId || !Object.keys(patch).length || state.inheritedSubtaskPatchQueuedIds?.[taskId]) return;
+            try {
+                state.inheritedSubtaskPatchQueuedIds[taskId] = now;
+                __tmQueueAttrPatch(taskId, patch, {
+                    docId: String(item.docId || item?.task?.root_id || item?.task?.docId || opts.docId || '').trim(),
+                    source: String(opts.source || 'quickbar-subtask-inherit-attrs').trim() || 'quickbar-subtask-inherit-attrs',
+                    attrTargetId: String(item.attrHostId || item.attr_host_id || item?.task?.attrHostId || item?.task?.attr_host_id || opts.attrTargetId || '').trim(),
+                    background: true,
+                    skipInteractionGate: true,
+                    mirrorTaskAttrs: false,
+                    renderOptimistic: true,
+                    optimisticProjectionRefresh: true,
+                    withFilters: false,
+                    skipSnapshotPersist: false,
+                    skipTaskIndexPersist: false,
+                    wait: false,
+                }).catch(() => null);
+                count += 1;
+            } catch (e) {
+                try { delete state.inheritedSubtaskPatchQueuedIds[taskId]; } catch (e2) {}
+            }
+        });
+        return count;
+    }
+
     async function __tmRefreshAffectedDocsIncrementally(options = {}) {
         const opts = (options && typeof options === 'object') ? options : {};
         const targets = {
@@ -13400,6 +13926,7 @@
             colOrder: colOrder0,
             rule: rule0,
         });
+        const bulkCustomFieldIds0 = customFieldLoadPlan0.bulkFieldIds;
         const res = await API.getTasksByDocuments(docIds, queryLimit, {
             doneOnly: false,
             forceFresh: true,
@@ -13407,7 +13934,7 @@
             // 否则后面的前端兜底只补一层，容易把父任务先挂错再来回跳。
             skipParentTaskJoin: false,
             skipDocJoin: true,
-            customFieldIds: customFieldLoadPlan0.bulkFieldIds,
+            customFieldIds: bulkCustomFieldIds0,
         });
         const rows = Array.isArray(res?.tasks) ? res.tasks.slice() : [];
         const enhanceTargets0 = __tmCollectTaskEnhanceTargets(rows);
@@ -13622,6 +14149,7 @@
                 : await API.call('/api/sqlite/flushTransaction', {});
             if (res && res.code !== 0) {
                 try { console.warn('[task-horizon] flushTransaction failed', reason || 'unknown', res?.msg || res); } catch (e) {}
+                try { __tmPushDiagnosticLog('flush-transaction-failed', res, { reason: String(reason || '').trim() }); } catch (e) {}
                 return false;
             }
             // Give the attributes query a brief moment to observe the flushed rows.
@@ -13629,6 +14157,7 @@
             return true;
         } catch (e) {
             try { console.warn('[task-horizon] flushTransaction error', reason || 'unknown', e); } catch (err) {}
+            try { __tmPushDiagnosticLog('flush-transaction-error', e, { reason: String(reason || '').trim() }); } catch (err) {}
             return false;
         }
     }
@@ -13783,8 +14312,25 @@
                     if (payloadBytes > __TM_TASK_SNAPSHOT_MAX_SINGLE_BYTES) {
                         try {
                             __tmTaskSnapshotStoreCache = store;
-                            await __tmWriteJsonFile(TASK_SNAPSHOT_FILE_PATH, store);
-                        } catch (e) {}
+                            const prunedSaved = await __tmWriteJsonFile(TASK_SNAPSHOT_FILE_PATH, store);
+                            if (!prunedSaved) {
+                                __tmPushDiagnosticLog('task-snapshot-prune-write-returned-false', {
+                                    payloadBytes,
+                                    limitBytes: __TM_TASK_SNAPSHOT_MAX_SINGLE_BYTES,
+                                }, {
+                                    groupId: scheduledGroupId,
+                                    activeDocId: scheduledActiveDocId,
+                                    docKey: scheduledDocKey,
+                                });
+                            }
+                        } catch (e) {
+                            __tmPushDiagnosticLog('task-snapshot-prune-write-failed', e, {
+                                groupId: scheduledGroupId,
+                                activeDocId: scheduledActiveDocId,
+                                docKey: scheduledDocKey,
+                                payloadBytes,
+                            });
+                        }
                         return;
                     }
                     const snapshotUpdatedAt = Date.now();
@@ -13794,6 +14340,16 @@
                     const nextStore = __tmBuildTaskSnapshotStore(store);
                     __tmTaskSnapshotStoreCache = nextStore;
                     const saved = await __tmWriteJsonFile(TASK_SNAPSHOT_FILE_PATH, nextStore);
+                    if (!saved) {
+                        __tmPushDiagnosticLog('task-snapshot-write-returned-false', {
+                            scopeKey: String(payload?.scopeKey || '').trim(),
+                            payloadBytes,
+                        }, {
+                            groupId: scheduledGroupId,
+                            activeDocId: scheduledActiveDocId,
+                            docKey: scheduledDocKey,
+                        });
+                    }
                     if (saved && (Number(__tmTaskSnapshotStoreCache?.updatedAt || 0) || 0) <= snapshotUpdatedAt) {
                         __tmTaskSnapshotStoreLocalMutationUntil = 0;
                     }
@@ -13801,7 +14357,13 @@
                         try { __tmTaskSnapshotPersistSignatureCache.set(payload.scopeKey, persistSignature); } catch (e) {}
                     }
                     })
-                    .catch(() => {})
+                    .catch((e) => {
+                    __tmPushDiagnosticLog('task-snapshot-persist-failed', e, {
+                        groupId: scheduledGroupId,
+                        activeDocId: scheduledActiveDocId,
+                        docKey: scheduledDocKey,
+                    });
+                    })
                     .finally(() => {
                     __tmTaskSnapshotSaveInFlight = false;
                     });
@@ -14098,9 +14660,21 @@
             store.updatedAt = now;
             const nextStore = __tmBuildTaskSnapshotStore(store);
             __tmTaskSnapshotStoreCache = nextStore;
-            await __tmWriteJsonFile(TASK_SNAPSHOT_FILE_PATH, nextStore);
+            const saved = await __tmWriteJsonFile(TASK_SNAPSHOT_FILE_PATH, nextStore);
+            if (!saved) {
+                __tmPushDiagnosticLog('task-snapshot-update-created-doc-write-returned-false', {
+                    docId,
+                    source: String(opts.source || '').trim(),
+                });
+            }
             return true;
         } catch (e) {
+            try {
+                __tmPushDiagnosticLog('task-snapshot-update-created-doc-failed', e, {
+                    docId,
+                    source: String(opts.source || '').trim(),
+                });
+            } catch (e2) {}
             return false;
         }
     }
@@ -14234,6 +14808,7 @@
             __tmWsTaskTxBatch = {
                 docIds: new Set(),
                 blockIds: new Set(),
+                insertedBlockIds: new Set(),
                 delayMs: 80,
                 source: 'ws-main-batch',
                 forceImmediate: false,
@@ -14241,6 +14816,7 @@
         }
         targets.docIds.forEach((docId) => __tmWsTaskTxBatch.docIds.add(docId));
         targets.blockIds.forEach((blockId) => __tmWsTaskTxBatch.blockIds.add(blockId));
+        targets.insertedBlockIds.forEach((blockId) => __tmWsTaskTxBatch.insertedBlockIds.add(blockId));
         const nextDelayMs = (opts.forceImmediate === true || opts.force === true)
             ? 0
             : Math.max(0, Number(opts.delayMs ?? 80) || 80);
@@ -14258,6 +14834,7 @@
             __tmScheduleTaskIncrementalRefreshFromTx(null, {
                 docIds: Array.from(batch.docIds || []),
                 blockIds: Array.from(batch.blockIds || []),
+                insertedBlockIds: Array.from(batch.insertedBlockIds || []),
                 delayMs: Number(batch.delayMs ?? 0),
                 source: String(batch.source || 'ws-main-batch').trim() || 'ws-main-batch',
                 forceImmediate: batch.forceImmediate === true,
@@ -14268,7 +14845,10 @@
 
     function __tmScheduleTaskIncrementalRefreshFromTx(payload, options = {}) {
         const opts = (options && typeof options === 'object') ? options : {};
-        const { docIds, blockIds } = __tmCollectTxRefreshTargets(payload, opts);
+        const targets = __tmCollectTxRefreshTargets(payload, opts);
+        const docIds = targets.docIds;
+        const blockIds = targets.blockIds;
+        const insertedBlockIds = targets.insertedBlockIds;
         if ((!docIds || docIds.size === 0) && (!blockIds || blockIds.size === 0)) return;
         __tmRememberPendingTxRefreshTargets(Array.from(docIds || []), Array.from(blockIds || []));
         __tmMarkExternalTaskTxDirty();
@@ -14460,6 +15040,7 @@
                 const txTargets = __tmCollectTxRefreshTargets(msg);
                 const docIds = txTargets.docIds;
                 const blockIds = txTargets.blockIds;
+                const insertedBlockIds = txTargets.insertedBlockIds;
                 const hasTxTargets = (docIds && docIds.size > 0) || (blockIds && blockIds.size > 0);
                 const suppressLocalTimeTx = __tmShouldSuppressLocalTimeTx(msg);
                 const suppressLocalDoneTx = !suppressLocalTimeTx && __tmShouldSuppressLocalDoneTx(msg);
@@ -14572,4 +15153,3 @@
             });
         } catch (e) {}
     }
-

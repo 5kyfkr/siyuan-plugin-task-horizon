@@ -163,6 +163,7 @@ if (shouldMarkDirty) {
                     try { __tmRefreshReminderMarkForTask(taskId, 240); } catch (ex) {}
                 } else if (
                     attrKey === 'custom-reminder'
+                    || attrKey === 'custom-tomato-reminder'
                     || (typeof __tmResolveTaskMetaFieldByAttrKey === 'function'
                         && ['startDate', 'completionTime'].includes(__tmResolveTaskMetaFieldByAttrKey(attrKey)))
                     || attrKey === __TM_TASK_REPEAT_RULE_ATTR
@@ -202,9 +203,10 @@ if (shouldMarkDirty) {
                 }
             } catch (e) {}
             try {
-                globalThis.__tmTaskSnapshotService?.warm?.(180);
-                __tmScheduleWarmTaskIndexStore(0);
-                __tmScheduleWarmDocScopeCache(0);
+                const initWarmDelayMs = __tmIsRuntimeMobileClient() ? 2200 : 180;
+                globalThis.__tmTaskSnapshotService?.warm?.(initWarmDelayMs);
+                __tmScheduleWarmTaskIndexStore(__tmIsRuntimeMobileClient() ? 2400 : 0);
+                __tmScheduleWarmDocScopeCache(__tmIsRuntimeMobileClient() ? 2600 : 0);
             } catch (e) {}
             try { __tmScheduleIdleTask(() => WhiteboardStore.load(), 200); } catch (e) {}
 
@@ -496,6 +498,22 @@ if (shouldMarkDirty) {
         __tmPerfTraceMark(perfTrace, 'open:mount-ready', {
             ensureDesktopTab: shouldEnsureDesktopTab ? 1 : 0,
         });
+        await __tmEnsureSettingsLoaded();
+        try {
+            const allow = new Set(['list', 'checklist', 'timeline', 'kanban', 'calendar', 'whiteboard']);
+            const isMobileDevice = __tmIsMobileDevice();
+            const preserve = !!(options && options.preserveViewMode);
+            const current = globalThis.__tmRuntimeState?.getViewMode?.('') || String(state.viewMode || '').trim();
+            if (preserve && state.viewModeInitialized === true && allow.has(current)) {
+                state.viewMode = __tmGetSafeViewMode(current);
+            } else {
+                state.viewMode = __tmGetConfiguredDefaultViewMode(isMobileDevice);
+            }
+            state.viewModeInitialized = true;
+        } catch (e) {
+            state.viewMode = 'list';
+            state.viewModeInitialized = true;
+        }
 
         // 仅在必要时重渲染，避免页签切换返回时闪烁和滚动位置丢失
         try {
@@ -555,28 +573,12 @@ if (shouldMarkDirty) {
             && !(reusedExistingModal && hasDataReadyForSoftReuse0 && !quickbarDirty0 && !hasPendingLocalTaskWrites0 && !forceShellRenderOnOpen);
         state.wasHidden = false;
 
-        await __tmEnsureSettingsLoaded();
         try { __tmRefreshNotebookCache().catch(() => null); } catch (e) {}
         try {
             if (globalThis.__tmCalendar && typeof globalThis.__tmCalendar.setSettingsStore === 'function') {
                 globalThis.__tmCalendar.setSettingsStore(SettingsStore);
             }
         } catch (e) {}
-        try {
-            const allow = new Set(['list', 'checklist', 'timeline', 'kanban', 'calendar', 'whiteboard']);
-            const isMobileDevice = __tmIsMobileDevice();
-            const preserve = !!(options && options.preserveViewMode);
-            const current = globalThis.__tmRuntimeState?.getViewMode?.('') || String(state.viewMode || '').trim();
-            if (preserve && state.viewModeInitialized === true && allow.has(current)) {
-                state.viewMode = __tmGetSafeViewMode(current);
-            } else {
-                state.viewMode = __tmGetConfiguredDefaultViewMode(isMobileDevice);
-            }
-            state.viewModeInitialized = true;
-        } catch (e) {
-            state.viewMode = 'list';
-            state.viewModeInitialized = true;
-        }
         try {
             const ids = Array.isArray(SettingsStore.data.kanbanCollapsedTaskIds) ? SettingsStore.data.kanbanCollapsedTaskIds : [];
             state.__tmKanbanCollapsedIds = new Set(ids.map(x => String(x || '').trim()).filter(Boolean));
@@ -653,8 +655,10 @@ if (shouldMarkDirty) {
             && !quickbarDirty
             && !hasPendingLocalTaskWrites
             && !forceShellRenderOnOpen;
-        try { globalThis.__tmTaskSnapshotService?.warm?.(240); } catch (e) {}
-        try { __tmScheduleWarmTaskIndexStore(240); } catch (e) {}
+        const runtimeMobileFastPath = globalThis.__tmRuntimeHost?.getInfo?.()?.runtimeMobileClient ?? __tmIsRuntimeMobileClient();
+        const warmDelayMs = runtimeMobileFastPath ? 1500 : 240;
+        try { globalThis.__tmTaskSnapshotService?.warm?.(warmDelayMs); } catch (e) {}
+        try { __tmScheduleWarmTaskIndexStore(warmDelayMs); } catch (e) {}
         if (canSkipRenderOnReuse) {
             try { __tmScheduleReminderTaskNameMarksRefresh(state.modal, true); } catch (e) {}
             try {
@@ -715,7 +719,6 @@ if (shouldMarkDirty) {
             state.activeDocId = String(state.activeDocId || 'all').trim() || 'all';
             await __tmApplyCurrentContextViewProfile();
         } catch (e) {}
-        const runtimeMobileFastPath = globalThis.__tmRuntimeHost?.getInfo?.()?.runtimeMobileClient ?? __tmIsRuntimeMobileClient();
         __tmPerfTraceMark(perfTrace, 'open:load-dispatched', {
             viewMode: globalThis.__tmRuntimeState?.getViewMode?.('list') || String(state.viewMode || '').trim() || 'list',
             preferFastFirstPaint: (runtimeMobileFastPath && !shouldForceFreshOpenLoad) ? 1 : 0,
@@ -972,6 +975,7 @@ if (shouldMarkDirty) {
             __tmTxTaskRefreshDocIds.clear();
             __tmTxTaskRefreshBlockIds.clear();
             __tmRecentVisibleDateFallbackTasks.clear();
+            state.inheritedSubtaskPatchQueuedIds = {};
             __tmClearExternalTaskTxDirty();
         } catch (e) {}
         try { __tmClearTimelineTodayIndicatorTimer(); } catch (e) {}
@@ -989,6 +993,10 @@ if (shouldMarkDirty) {
                 globalThis.__tmRuntimeEvents?.off?.(window, 'tomato:focus-mode-changed', __tmTomatoFocusModeChangedHandler);
                 __tmTomatoFocusModeChangedHandler = null;
             }
+            if (__tmTomatoFocusEndedHandler) {
+                globalThis.__tmRuntimeEvents?.off?.(window, 'tomato:focus-ended', __tmTomatoFocusEndedHandler);
+                __tmTomatoFocusEndedHandler = null;
+            }
         } catch (e) {}
         try {
             const timer = globalThis.__tomatoTimer;
@@ -1005,6 +1013,7 @@ if (shouldMarkDirty) {
         try {
             if (globalThis.__taskHorizonOnTomatoAssociationChanged) delete globalThis.__taskHorizonOnTomatoAssociationChanged;
             if (globalThis.__taskHorizonOnTomatoAssociationCleared) delete globalThis.__taskHorizonOnTomatoAssociationCleared;
+            if (globalThis.__taskHorizonOnTomatoFocusEnded) delete globalThis.__taskHorizonOnTomatoFocusEnded;
             __tmTomatoAssociationListenerAdded = false;
         } catch (e) {}
         try {

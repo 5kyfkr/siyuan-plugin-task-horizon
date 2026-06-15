@@ -206,7 +206,7 @@
             : '';
         const taskDetailSheetHtml = showTaskDetailSheet
             ? `<div id="tmTaskDetailSheetBackdrop" class="tm-checklist-sheet-backdrop ${state.checklistDetailSheetOpen && taskDetailSheetTask ? 'tm-checklist-sheet-backdrop--open' : ''}" onclick="tmTaskDetailSheetClose(event)"></div>
-                <div id="tmTaskDetailSheet" class="tm-checklist-sheet ${state.checklistDetailSheetOpen && taskDetailSheetTask ? 'tm-checklist-sheet--open' : ''}" onpointerdown="tmTaskDetailSheetDragStart(event)">
+                <div id="tmTaskDetailSheet" class="tm-checklist-sheet ${state.checklistDetailSheetOpen && taskDetailSheetTask ? 'tm-checklist-sheet--open' : ''}${state.checklistDetailSheetOpen && taskDetailSheetTask && state.checklistDetailSheetFullscreen ? ' tm-checklist-sheet--fullscreen' : ''}" onpointerdown="tmTaskDetailSheetDragStart(event)">
                     <div class="tm-checklist-sheet-handle"></div>
                     <div class="tm-checklist-sheet-body" id="tmTaskDetailSheetPanel">${taskDetailSheetInnerHtml}</div>
                 </div>`

@@ -932,6 +932,36 @@
         log: [],
     };
 
+    const __tmTaskTraceState = {
+        seq: 0,
+        log: [],
+        limit: 240,
+    };
+
+    const pushTaskTrace = (scope, payload = {}) => {
+        const entry = {
+            id: ++__tmTaskTraceState.seq,
+            scope: String(scope || '').trim() || 'task-trace',
+            ts: Date.now(),
+            time: new Date().toISOString(),
+            payload: cloneTaskMutationValue(payload),
+        };
+        __tmTaskTraceState.log.push(entry);
+        if (__tmTaskTraceState.log.length > __tmTaskTraceState.limit) {
+            __tmTaskTraceState.log.splice(0, __tmTaskTraceState.log.length - __tmTaskTraceState.limit);
+        }
+        try {
+            globalThis.__tmTaskTraceLog = __tmTaskTraceState.log;
+            globalThis.__tmTaskTraceLast = entry;
+        } catch (e) {}
+        return entry;
+    };
+
+    const dumpTaskTrace = (limit = 40) => {
+        const count = Math.max(1, Math.min(__tmTaskTraceState.limit, Number(limit) || 40));
+        return __tmTaskTraceState.log.slice(-count).map((entry) => cloneTaskMutationValue(entry)).filter(Boolean);
+    };
+
     // Mutation bus and projections: normalize local mutations and schedule derived UI/cache work.
     const cloneTaskMutationValue = (value, depth = 0) => {
         if (depth > 5 || value == null) return value;
@@ -1163,6 +1193,15 @@
     const notifyTaskMutation = (mutation = {}) => {
         const normalized = normalizeTaskMutation(mutation);
         try {
+            pushTaskTrace('mutation', {
+                type: String(normalized.type || '').trim(),
+                phase: String(normalized.phase || '').trim(),
+                taskId: String(normalized.taskId || '').trim(),
+                tempId: String(normalized.tempId || '').trim(),
+                realId: String(normalized.realId || '').trim(),
+                source: String(normalized.source || '').trim(),
+                opId: String(normalized.opId || normalized.data?.opId || '').trim(),
+            });
             __tmTaskMutationState.log.push({
                 ...cloneTaskMutationValue({
                     ...normalized,
@@ -1278,6 +1317,19 @@
         } catch (e) {}
     };
 
+    try {
+        globalThis.__tmTaskTrace = {
+            push: pushTaskTrace,
+            dump: dumpTaskTrace,
+            clear() {
+                __tmTaskTraceState.log.length = 0;
+                globalThis.__tmTaskTraceLog = __tmTaskTraceState.log;
+                globalThis.__tmTaskTraceLast = null;
+                return true;
+            },
+        };
+    } catch (e) {}
+
     const collectProjectionMutationTaskIds = (mutation = {}, affectedTaskIds = []) => {
         const m = (mutation && typeof mutation === 'object') ? mutation : {};
         const data = (m.data && typeof m.data === 'object') ? m.data : {};
@@ -1351,6 +1403,101 @@
         return true;
     };
 
+    const normalizeMutationRefreshPolicyBoolean = (value, fallback = false) => {
+        if (value === true) return true;
+        if (value === false) return false;
+        return !!fallback;
+    };
+
+    const getMutationRefreshPolicyValue = (policy, key, fallback) => {
+        if (policy && typeof policy === 'object' && Object.prototype.hasOwnProperty.call(policy, key)) {
+            return policy[key];
+        }
+        return fallback;
+    };
+
+    const normalizeMutationRefreshPolicy = (mutation = {}, context = {}) => {
+        const m = (mutation && typeof mutation === 'object') ? mutation : {};
+        const data = (m.data && typeof m.data === 'object') ? m.data : {};
+        const type = normalizeId(context.type || m.type);
+        const phase = normalizeId(context.phase || m.phase);
+        const parentTaskId = normalizeId(context.parentTaskId || m.parentTaskId);
+        const structural = context.structural === true;
+        const legacyCurrent = data.refreshCurrentView !== false;
+        const legacySnapshot = data.scheduleSnapshotRefresh !== false
+            && data.skipSnapshotViewStateFilterRefresh !== true;
+        const rawPolicy = (data.refreshPolicy && typeof data.refreshPolicy === 'object')
+            ? data.refreshPolicy
+            : ((m.refreshPolicy && typeof m.refreshPolicy === 'object') ? m.refreshPolicy : {});
+        const base = {
+            current: false,
+            detail: false,
+            checklistGroup: false,
+            snapshot: legacySnapshot,
+            withFilters: false,
+            forceDetailRebuild: false,
+            projection: false,
+        };
+        if (type === 'createSubtask') {
+            base.current = legacyCurrent;
+            base.detail = true;
+            base.checklistGroup = true;
+        } else if (type === 'commitTaskId') {
+            base.current = legacyCurrent;
+            base.detail = legacyCurrent;
+            base.checklistGroup = !!parentTaskId;
+        } else if (type === 'moveTask' || type === 'deleteTask') {
+            base.current = phase !== 'commit';
+            base.detail = true;
+            base.withFilters = phase === 'rollback';
+            base.forceDetailRebuild = true;
+        } else if (type === 'createTaskInDoc' || type === 'createSibling') {
+            base.current = true;
+        } else if (structural) {
+            base.projection = true;
+        }
+        return {
+            current: normalizeMutationRefreshPolicyBoolean(getMutationRefreshPolicyValue(rawPolicy, 'current', base.current), base.current),
+            detail: normalizeMutationRefreshPolicyBoolean(getMutationRefreshPolicyValue(rawPolicy, 'detail', base.detail), base.detail),
+            checklistGroup: normalizeMutationRefreshPolicyBoolean(getMutationRefreshPolicyValue(rawPolicy, 'checklistGroup', base.checklistGroup), base.checklistGroup),
+            snapshot: normalizeMutationRefreshPolicyBoolean(getMutationRefreshPolicyValue(rawPolicy, 'snapshot', base.snapshot), base.snapshot),
+            withFilters: normalizeMutationRefreshPolicyBoolean(getMutationRefreshPolicyValue(rawPolicy, 'withFilters', base.withFilters), base.withFilters),
+            forceDetailRebuild: normalizeMutationRefreshPolicyBoolean(getMutationRefreshPolicyValue(rawPolicy, 'forceDetailRebuild', base.forceDetailRebuild), base.forceDetailRebuild),
+            projection: normalizeMutationRefreshPolicyBoolean(getMutationRefreshPolicyValue(rawPolicy, 'projection', base.projection), base.projection),
+            reason: normalizeId(rawPolicy.reason) || normalizeId(m.source) || `mutation-${type || 'unknown'}`,
+        };
+    };
+
+    const scheduleMutationSnapshotRefresh = (mutation = {}, context = {}, policy = {}) => {
+        const m = (mutation && typeof mutation === 'object') ? mutation : {};
+        const patch = (context.patch && typeof context.patch === 'object') ? context.patch : {};
+        const taskId = normalizeId(context.taskId || m.realId || m.taskId || m.tempId);
+        try {
+            if (context.structural === true && policy.snapshot === true && typeof __tmScheduleTaskSnapshotAfterLocalStructurePatch === 'function') {
+                __tmScheduleTaskSnapshotAfterLocalStructurePatch({
+                    docIds: state.__tmLoadedDocIdsForTasks,
+                    groupId: SettingsStore?.data?.currentGroupId || 'all',
+                    activeDocId: state?.activeDocId || 'all',
+                    queryLimit: typeof __TM_TASK_INDEX_QUERY_LIMIT !== 'undefined' ? __TM_TASK_INDEX_QUERY_LIMIT : undefined,
+                    source: policy.reason || m.source || `mutation-${normalizeId(m.type) || 'unknown'}`,
+                    delayMs: 180,
+                    idleDelayMs: 80,
+                    protectMs: 30000,
+                });
+                return true;
+            }
+            if (context.structural !== true && taskId && Object.keys(patch).length && policy.snapshot !== false && typeof __tmScheduleTaskSnapshotAfterLocalPatch === 'function') {
+                __tmScheduleTaskSnapshotAfterLocalPatch(taskId, patch, {
+                    source: policy.reason || m.source || `mutation-${normalizeId(m.type) || 'unknown'}`,
+                    snapshotDelayMs: 360,
+                    snapshotIdleDelayMs: 80,
+                });
+                return true;
+            }
+        } catch (e) {}
+        return false;
+    };
+
     const __tmProjectionManager = {
         handle(mutation) {
             const m = normalizeTaskMutation(mutation);
@@ -1372,41 +1519,30 @@
                 || type === 'deleteTask'
                 || type === 'moveTask'
                 || type === 'commitTaskId';
+            const refreshPolicy = normalizeMutationRefreshPolicy(m, {
+                type,
+                phase: m.phase,
+                parentTaskId,
+                structural,
+            });
 
-            try {
-                if (structural && typeof __tmScheduleTaskSnapshotAfterLocalStructurePatch === 'function') {
-                    __tmScheduleTaskSnapshotAfterLocalStructurePatch({
-                        docIds: state.__tmLoadedDocIdsForTasks,
-                        groupId: SettingsStore?.data?.currentGroupId || 'all',
-                        activeDocId: state?.activeDocId || 'all',
-                        queryLimit: typeof __TM_TASK_INDEX_QUERY_LIMIT !== 'undefined' ? __TM_TASK_INDEX_QUERY_LIMIT : undefined,
-                        source: m.source || `mutation-${type}`,
-                        delayMs: 180,
-                        idleDelayMs: 80,
-                        protectMs: 30000,
-                    });
-                } else if (taskId && Object.keys(patch).length && typeof __tmScheduleTaskSnapshotAfterLocalPatch === 'function') {
-                    __tmScheduleTaskSnapshotAfterLocalPatch(taskId, patch, {
-                        source: m.source || `mutation-${type}`,
-                        snapshotDelayMs: 360,
-                        snapshotIdleDelayMs: 80,
-                    });
-                }
-            } catch (e) {}
+            scheduleMutationSnapshotRefresh(m, { structural, taskId, patch }, refreshPolicy);
 
             try {
                 if (type === 'createSubtask') {
-                    const detailScheduled = scheduleVisibleDetailProjectionRefresh(m, affectedTaskIds, {
-                        reason: m.source || 'mutation-create-subtask-detail',
-                    });
-                    const checklistScheduled = typeof __tmScheduleChecklistOptimisticSubtaskRefresh === 'function'
-                        ? __tmScheduleChecklistOptimisticSubtaskRefresh(parentTaskId, taskId) === true
-                        : false;
-                    if (typeof __tmScheduleViewRefresh === 'function') {
+                    if (refreshPolicy.detail === true) {
+                        scheduleVisibleDetailProjectionRefresh(m, affectedTaskIds, {
+                            reason: refreshPolicy.reason || 'mutation-create-subtask-detail',
+                        });
+                    }
+                    if (refreshPolicy.checklistGroup === true && typeof __tmScheduleChecklistOptimisticSubtaskRefresh === 'function') {
+                        __tmScheduleChecklistOptimisticSubtaskRefresh(parentTaskId, taskId);
+                    }
+                    if (refreshPolicy.current === true && typeof __tmScheduleViewRefresh === 'function') {
                         __tmScheduleViewRefresh({
                             mode: 'current',
-                            withFilters: false,
-                            reason: m.source || 'mutation-create-subtask',
+                            withFilters: refreshPolicy.withFilters === true,
+                            reason: refreshPolicy.reason || 'mutation-create-subtask',
                             taskIds: affectedTaskIds.length
                                 ? affectedTaskIds
                                 : Array.from(new Set([parentTaskId, taskId].filter(Boolean))),
@@ -1416,79 +1552,71 @@
                 }
                 if (type === 'commitTaskId') {
                     const ids = Array.from(new Set([m.tempId, m.realId, m.taskId, ...affectedTaskIds].map((id) => normalizeId(id)).filter(Boolean)));
-                    const detailScheduled = parentTaskId
-                        ? false
-                        : scheduleVisibleDetailProjectionRefresh(m, affectedTaskIds, {
-                            reason: m.source || 'mutation-commit-task-id-detail',
-                        });
                     let checklistScheduled = false;
-                    if (parentTaskId && typeof __tmScheduleChecklistOptimisticSubtaskRefresh === 'function') {
+                    if (refreshPolicy.checklistGroup === true && parentTaskId && typeof __tmScheduleChecklistOptimisticSubtaskRefresh === 'function') {
                         checklistScheduled = __tmScheduleChecklistOptimisticSubtaskRefresh(parentTaskId, taskId) === true;
                     }
-                    if (parentTaskId && typeof __tmScheduleViewRefresh === 'function') {
+                    if (refreshPolicy.detail === true && parentTaskId && typeof __tmScheduleViewRefresh === 'function') {
                         __tmScheduleViewRefresh({
                             mode: 'detail',
                             withFilters: false,
-                            reason: m.source || 'mutation-commit-task-id',
+                            reason: refreshPolicy.reason || 'mutation-commit-task-id',
                             taskIds: Array.from(new Set([parentTaskId, ...ids].filter(Boolean))),
                         });
-                        if (!checklistScheduled) {
-                            __tmScheduleViewRefresh({
-                                mode: 'current',
-                                withFilters: false,
-                                reason: m.source || 'mutation-commit-task-id-current-fallback',
-                                taskIds: ids,
-                            });
-                        }
-                        return;
+                    } else if (refreshPolicy.detail === true && !parentTaskId) {
+                        scheduleVisibleDetailProjectionRefresh(m, affectedTaskIds, {
+                            reason: refreshPolicy.reason || 'mutation-commit-task-id-detail',
+                        });
                     }
-                    if (taskId && typeof __tmScheduleViewRefresh === 'function') {
+                    if (refreshPolicy.current === true && parentTaskId && !checklistScheduled && typeof __tmScheduleViewRefresh === 'function') {
                         __tmScheduleViewRefresh({
                             mode: 'current',
-                            withFilters: false,
-                            reason: m.source || 'mutation-commit-task-id',
+                            withFilters: refreshPolicy.withFilters === true,
+                            reason: refreshPolicy.reason || 'mutation-commit-task-id-current-fallback',
+                            taskIds: ids,
+                        });
+                        return;
+                    }
+                    if (refreshPolicy.current === true && !parentTaskId && taskId && typeof __tmScheduleViewRefresh === 'function') {
+                        __tmScheduleViewRefresh({
+                            mode: 'current',
+                            withFilters: refreshPolicy.withFilters === true,
+                            reason: refreshPolicy.reason || 'mutation-commit-task-id',
                             taskIds: ids,
                         });
                     }
                     return;
                 }
                 if (type === 'moveTask' || type === 'deleteTask') {
-                    const detailScheduled = scheduleVisibleDetailProjectionRefresh(m, affectedTaskIds, {
-                        reason: m.source || `mutation-${type}-detail`,
-                        forceRebuild: true,
-                    });
-                    if (m.phase !== 'commit' && typeof __tmScheduleViewRefresh === 'function') {
+                    if (refreshPolicy.detail === true) {
+                        scheduleVisibleDetailProjectionRefresh(m, affectedTaskIds, {
+                            reason: refreshPolicy.reason || `mutation-${type}-detail`,
+                            forceRebuild: refreshPolicy.forceDetailRebuild === true,
+                        });
+                    }
+                    if (refreshPolicy.current === true && typeof __tmScheduleViewRefresh === 'function') {
                         __tmScheduleViewRefresh({
                             mode: 'current',
-                            withFilters: m.phase === 'rollback',
-                            reason: m.source || `mutation-${type}`,
+                            withFilters: refreshPolicy.withFilters === true,
+                            reason: refreshPolicy.reason || `mutation-${type}`,
                             taskIds: affectedTaskIds.length ? affectedTaskIds : m.taskIds,
                         });
                     }
                     return;
                 }
-                if ((type === 'createTaskInDoc' || type === 'createSibling') && taskId && typeof __tmScheduleViewRefresh === 'function') {
+                if ((type === 'createTaskInDoc' || type === 'createSibling') && refreshPolicy.current === true && taskId && typeof __tmScheduleViewRefresh === 'function') {
                     __tmScheduleViewRefresh({
                         mode: 'current',
-                        withFilters: false,
-                        reason: m.source || `mutation-${type}`,
+                        withFilters: refreshPolicy.withFilters === true,
+                        reason: refreshPolicy.reason || `mutation-${type}`,
                         taskIds: affectedTaskIds.length ? affectedTaskIds : [taskId],
                     });
                     return;
                 }
-                if (type === 'deleteTask' && typeof __tmScheduleViewRefresh === 'function') {
-                    __tmScheduleViewRefresh({
-                        mode: 'current',
-                        withFilters: false,
-                        reason: m.source || 'mutation-delete',
-                        taskIds: affectedTaskIds.length ? affectedTaskIds : m.taskIds,
-                    });
-                    return;
-                }
-                if (structural && taskId && Object.keys(patch).length && typeof __tmScheduleTaskProjectionRefresh === 'function') {
+                if (refreshPolicy.projection === true && structural && taskId && Object.keys(patch).length && typeof __tmScheduleTaskProjectionRefresh === 'function') {
                     __tmScheduleTaskProjectionRefresh(taskId, patch, {
-                        withFilters: false,
-                        reason: m.source || `mutation-${type}`,
+                        withFilters: refreshPolicy.withFilters === true,
+                        reason: refreshPolicy.reason || `mutation-${type}`,
                         forceProjectionRefresh: false,
                     });
                 }

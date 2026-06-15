@@ -32,6 +32,26 @@
         hint(ok ? '✅ 诊断信息已复制' : '❌ 复制失败，请手动展开 JSON 复制', ok ? 'success' : 'error');
         return ok;
     };
+    window.tmUpdateDiagnosticLogsEnabled = async function(enabled) {
+        const next = enabled === true;
+        SettingsStore.data.diagnosticLogsEnabled = next;
+        await SettingsStore.save();
+        if (next) {
+            try { await __tmSaveDiagnosticLogFile('enabled'); } catch (e) {}
+            try { __tmScheduleDiagnosticLogFileSave('enabled'); } catch (e) {}
+        } else {
+            try { __tmCancelDiagnosticLogFileSave(); } catch (e) {}
+            try { __tmClearPerfTraces(); } catch (e) {}
+            try { __tmClearDiagnosticLogs(); } catch (e) {}
+        }
+        hint(next ? '✅ 已开启性能与关键路径诊断日志' : '✅ 已关闭性能与关键路径诊断日志', 'success');
+        showSettings();
+    };
+    window.tmClearDiagnosticLogs = function() {
+        try { __tmClearPerfTraces(); } catch (e) {}
+        try { __tmClearDiagnosticLogs(); } catch (e) {}
+        hint('✅ 诊断日志已清空', 'success');
+    };
     window.tmSwitchSettingsTab = function(tab) {
         const prev = state.settingsActiveTab || 'docs';
         if (tab === 'main') {

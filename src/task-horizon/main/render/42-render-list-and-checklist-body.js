@@ -131,7 +131,10 @@
                 ? selectedId
                 : ((sheetMode || dismissed) ? '' : fallbackId);
             if (activeId !== selectedId) state.detailTaskId = activeId;
-            if (!sheetMode) state.checklistDetailSheetOpen = false;
+            if (!sheetMode) {
+                state.checklistDetailSheetOpen = false;
+                state.checklistDetailSheetFullscreen = false;
+            }
             let currentGroupBg = '';
             let currentGroupAccent = '';
             const compactTreeGuidesCache = new Map();
@@ -592,7 +595,7 @@
                         </div>
                         ${sheetMode
                             ? `<div id="tmChecklistSheetBackdrop" class="tm-checklist-sheet-backdrop ${state.checklistDetailSheetOpen && detailTask ? 'tm-checklist-sheet-backdrop--open' : ''}" onclick="tmChecklistCloseSheet(event)"></div>
-                        <div id="tmChecklistSheet" class="tm-checklist-sheet ${state.checklistDetailSheetOpen && detailTask ? 'tm-checklist-sheet--open' : ''}" onpointerdown="tmChecklistSheetDragStart(event)">
+                        <div id="tmChecklistSheet" class="tm-checklist-sheet ${state.checklistDetailSheetOpen && detailTask ? 'tm-checklist-sheet--open' : ''}${state.checklistDetailSheetOpen && detailTask && state.checklistDetailSheetFullscreen ? ' tm-checklist-sheet--fullscreen' : ''}" onpointerdown="tmChecklistSheetDragStart(event)">
                             <div class="tm-checklist-sheet-handle"></div>
                             <div class="tm-checklist-sheet-body" id="tmChecklistSheetPanel">${detailHtml}</div>
                         </div>`

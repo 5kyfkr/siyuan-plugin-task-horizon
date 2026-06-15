@@ -1334,7 +1334,9 @@
                                 stats[entry.field].exists += 1;
                                 continue;
                             }
-                            await API.setAttrs(entry.hostId, { [entry.newKey]: entry.value });
+                            const adapter = globalThis.__tmTaskHorizonBackendAdapter;
+                            if (!adapter || typeof adapter.setAttrs !== 'function') throw new Error('任务写入适配器未就绪: setAttrs');
+                            await adapter.setAttrs(entry.hostId, { [entry.newKey]: entry.value });
                             stats[entry.field].migrated += 1;
                         } catch (e) {
                             stats[entry.field].failed += 1;

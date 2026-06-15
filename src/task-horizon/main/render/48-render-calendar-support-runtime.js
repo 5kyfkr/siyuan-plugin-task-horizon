@@ -1,4 +1,4 @@
-﻿    function __tmGetCalendarDocsToGroupMapSync() {
+    function __tmGetCalendarDocsToGroupMapSync() {
         const cachedMap = window.__tmCalendarDocsToGroupCache?.map;
         if (cachedMap instanceof Map) return new Map(cachedMap);
         const docsToGroup = new Map();
@@ -311,6 +311,64 @@
 
     let __tmCalendarTaskCacheWarmPromise = null;
 
+    function __tmIsCalendarMainViewActiveForTaskCache() {
+        try {
+            if (String(state.viewMode || '').trim() !== 'calendar') return false;
+            const root = state.modal?.querySelector?.('#tmCalendarRoot');
+            return root instanceof HTMLElement && root.isConnected;
+        } catch (e) {
+            return false;
+        }
+    }
+
+    function __tmShouldAllowCalendarTaskCacheFullLoad(options = {}) {
+        const opts = (options && typeof options === 'object') ? options : {};
+        if (opts.allowInactiveFullLoad === true || opts.allowInactiveView === true) return true;
+        return __tmIsCalendarMainViewActiveForTaskCache();
+    }
+
+    function __tmPushCalendarTaskCacheDiag(phase, detail = {}) {
+    }
+
+    function __tmRequestCalendarTaskCacheWarmRefresh(options = {}, tasks = []) {
+        const opts = (options && typeof options === 'object') ? options : {};
+        const reason = String(opts.source || opts.reason || 'taskdate-cache-warm').trim() || 'taskdate-cache-warm';
+        const taskCount = Array.isArray(tasks) ? tasks.length : 0;
+        if (!__tmIsCalendarMainViewActiveForTaskCache()) {
+            __tmPushCalendarTaskCacheDiag('taskdate-warm-refresh-skip', {
+                reason,
+                taskCount,
+                skipReason: 'inactive-calendar-view',
+            });
+            return false;
+        }
+        const calApi = globalThis.__tmCalendar;
+        let refreshApi = 'none';
+        let requested = false;
+        try {
+            if (calApi && typeof calApi.requestRefresh === 'function') {
+                refreshApi = 'requestRefresh';
+                requested = calApi.requestRefresh({
+                    reason,
+                    main: true,
+                    side: true,
+                    flushTaskPanel: false,
+                    hard: opts.hard === true,
+                }) !== false;
+            }
+        } catch (e) {
+            requested = false;
+        }
+        __tmPushCalendarTaskCacheDiag('taskdate-warm-refresh', {
+            reason,
+            taskCount,
+            refreshApi,
+            requested,
+            flushTaskPanel: false,
+        });
+        return requested;
+    }
+
     async function __tmLoadAllTasksForCalendarCache(options = {}) {
         const opts = (options && typeof options === 'object') ? options : {};
         const limit = __TM_TASK_INDEX_QUERY_LIMIT;
@@ -323,7 +381,8 @@
         const key = `${limit}|${docKey}`;
         const maxAgeMs = Number.isFinite(Number(opts.maxAgeMs)) ? Math.max(0, Math.floor(Number(opts.maxAgeMs))) : 8000;
         const prev = window.__tmCalendarAllTasksCache;
-        if (!opts.force && prev && prev.key === key && Array.isArray(prev.tasks) && (Date.now() - (Number(prev.ts) || 0) < maxAgeMs)) {
+        const forceFresh = opts.force === true || opts.forceFresh === true;
+        if (!forceFresh && prev && prev.key === key && Array.isArray(prev.tasks) && (Date.now() - (Number(prev.ts) || 0) < maxAgeMs)) {
             return prev.tasks;
         }
         if (!allDocIds.length) {
@@ -331,7 +390,7 @@
             return [];
         }
         try { await MetaStore.load?.(); } catch (e) {}
-        const res = await API.getTasksByDocuments(allDocIds, limit, { doneOnly: false });
+        const res = await API.getTasksByDocuments(allDocIds, limit, { doneOnly: false, forceFresh });
         const tasks = Array.isArray(res?.tasks) ? res.tasks : [];
         const out = [];
         for (const task of tasks) {
@@ -361,13 +420,22 @@
     }
 
     window.tmEnsureCalendarTaskCache = async function(options) {
-        if (__tmCalendarTaskCacheWarmPromise) return __tmCalendarTaskCacheWarmPromise;
         const opts = (options && typeof options === 'object') ? options : {};
+        if (!__tmShouldAllowCalendarTaskCacheFullLoad(opts)) {
+            const cachedTasks = Array.isArray(window.__tmCalendarAllTasksCache?.tasks) ? window.__tmCalendarAllTasksCache.tasks : [];
+            __tmPushCalendarTaskCacheDiag('taskcache-skip-inactive-view', {
+                source: opts.source,
+                refresh: opts.refresh === true,
+                cachedCount: cachedTasks.length,
+            });
+            return cachedTasks;
+        }
+        if (__tmCalendarTaskCacheWarmPromise) return __tmCalendarTaskCacheWarmPromise;
         const run = Promise.resolve().then(async () => {
             try { await window.tmCalendarWarmDocsToGroupCache?.(); } catch (e) {}
             const tasks = await __tmLoadAllTasksForCalendarCache(opts);
             if (opts.refresh !== false) {
-                try { globalThis.__tmCalendar?.refreshInPlace?.({ hard: false }); } catch (e) {}
+                try { __tmRequestCalendarTaskCacheWarmRefresh(opts, tasks); } catch (e) {}
             }
             return tasks;
         });
@@ -384,6 +452,14 @@
         const maxAgeMs = Number.isFinite(Number(opts.maxAgeMs)) ? Math.max(0, Math.floor(Number(opts.maxAgeMs))) : 8000;
         if (__tmCalendarTaskCacheWarmPromise) return false;
         if (__tmCalendarTaskCacheIsFresh(maxAgeMs)) return false;
+        if (!__tmShouldAllowCalendarTaskCacheFullLoad(opts)) {
+            __tmPushCalendarTaskCacheDiag('taskcache-warm-skip-inactive-view', {
+                source: opts.source,
+                refresh: opts.refresh === true,
+                maxAgeMs,
+            });
+            return false;
+        }
         try {
             Promise.resolve().then(() => window.tmEnsureCalendarTaskCache?.(opts)).catch(() => null);
             return true;
@@ -599,6 +675,7 @@
 
     window.tmQueryCalendarTaskDateEvents = async function(rangeStart, rangeEnd, options = {}) {
         const opts = (options && typeof options === 'object') ? options : {};
+        const queryStartedAt = Date.now();
         const startKey = __tmNormalizeDateOnly(rangeStart);
         const endKey = __tmNormalizeDateOnly(rangeEnd);
         const forceFreshUntil = Number(globalThis.__tmCalendarTaskDateForceFreshUntil || 0) || 0;
@@ -611,60 +688,260 @@
         };
         const rangeStartTs = toTs(startKey) || 0;
         const rangeEndTs = toTs(endKey) || 0;
-
-        const getAllDocIdsForCalendar = async () => {
-            const groups = Array.isArray(SettingsStore.data.docGroups) ? SettingsStore.data.docGroups : [];
-            const legacyIds = Array.isArray(SettingsStore.data.selectedDocIds) ? SettingsStore.data.selectedDocIds : [];
-            const quickAddDocId = String(SettingsStore.data.newTaskDocId || '').trim();
-            const targetDocs = [];
-            legacyIds.forEach((id) => {
-                const did = String(id || '').trim();
-                if (did) targetDocs.push({ id: did, kind: 'doc', recursive: false });
-            });
-            groups.forEach((g) => {
-                targetDocs.push(...__tmGetGroupSourceEntries(g));
-            });
-            const finalIds = new Set();
-            if (quickAddDocId && quickAddDocId !== '__dailyNote__') finalIds.add(quickAddDocId);
-            await Promise.all(targetDocs.map((doc) => __tmExpandSourceEntryDocIds(doc, (sid) => {
-                const s = String(sid || '').trim();
-                if (s) finalIds.add(s);
-            })));
-            return Array.from(finalIds);
+        const nextDay = (k) => {
+            const ts = toTs(k);
+            if (!ts) return '';
+            const d = new Date(ts + 86400000);
+            const pad = (n) => String(n).padStart(2, '0');
+            return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
         };
-
-        const getAllTasksForCalendar = async () => {
-            const limit = __TM_TASK_INDEX_QUERY_LIMIT;
-            const allDocIds = await getAllDocIdsForCalendar();
-            const docKey = allDocIds.slice().sort().join(',');
-            const key = `${limit}|${docKey}`;
-            const prev = window.__tmCalendarAllTasksCache;
-            if (!forceFresh && prev && prev.key === key && Array.isArray(prev.tasks) && (Date.now() - (Number(prev.ts) || 0) < 8000)) {
-                return prev.tasks;
-            }
-            try { await MetaStore.load?.(); } catch (e) {}
-            const res = await API.getTasksByDocuments(allDocIds, limit, { doneOnly: false, forceFresh });
-                const tasks = Array.isArray(res?.tasks) ? res.tasks : [];
-                const out = [];
-                for (const task of tasks) {
-                    if (!task || typeof task !== 'object') continue;
-                    const prevTask = __tmGetCalendarFlatTaskByIdSync(task.id);
-                    let parsedDone = !!task.done;
+        const pushTaskDateQueryDiag = (phase, detail = {}) => {
+        };
+        const scheduleTaskDateCacheWarm = (reason = 'taskdate-fast-first') => {
+            const runtimeMobile = (() => {
+                try {
+                    return !!(globalThis.__tmRuntimeHost?.getInfo?.()?.runtimeMobileClient
+                        ?? (typeof __tmIsRuntimeMobileClient === 'function' && __tmIsRuntimeMobileClient()));
+                } catch (e) {
+                    return false;
+                }
+            })();
+            const jobStartedAt = Date.now();
+            const maxPostponeMs = runtimeMobile ? 18000 : 8000;
+            const getWarmWaitMeta = () => {
+                const reasons = [];
+                let waitMs = 0;
+                const now = Date.now();
+                try {
+                    if (typeof __tmGetHighPriorityInteractionWaitMs === 'function') {
+                        const highPriorityWait = __tmGetHighPriorityInteractionWaitMs(runtimeMobile ? 160 : 80);
+                        if (highPriorityWait > 0) {
+                            waitMs = Math.max(waitMs, highPriorityWait);
+                            reasons.push('high-priority-interaction');
+                        }
+                    }
+                } catch (e) {}
+                try {
+                    if (typeof __tmShouldDeferMainViewRefreshForActiveScroll === 'function'
+                        && __tmShouldDeferMainViewRefreshForActiveScroll({ mode: 'current', reason })) {
+                        const scrollWait = typeof __tmGetDeferredMainViewRefreshDelay === 'function'
+                            ? __tmGetDeferredMainViewRefreshDelay({ mode: 'current', reason })
+                            : (runtimeMobile ? 2200 : 900);
+                        waitMs = Math.max(waitMs, scrollWait);
+                        reasons.push('main-scroll-active');
+                    }
+                } catch (e) {}
+                try {
+                    const modal = state.modal instanceof Element ? state.modal : document;
+                    const activeScroll = modal?.querySelector?.('.tm-scroll-active');
+                    if (activeScroll) {
+                        waitMs = Math.max(waitMs, runtimeMobile ? 2200 : 900);
+                        reasons.push('scroll-active');
+                    }
+                } catch (e) {}
+                try {
+                    const body = state.modal?.querySelector?.('.tm-body.tm-body--kanban');
+                    if (body instanceof HTMLElement) {
+                        const lastScrollTs = Number(body.__tmKanbanSnapLastScrollTs || body.__tmLastUserScrollTs || 0) || 0;
+                        const panActive = body.classList.contains('tm-body--kanban-pan-active')
+                            || body.__tmKanbanSnapPanActive
+                            || body.__tmKanbanSnapPointerActive
+                            || Number(body.__tmKanbanSnapAnimRaf || 0) > 0
+                            || Number(body.__tmKanbanSnapSettleTimer || 0) > 0;
+                        if (panActive || (lastScrollTs > 0 && now - lastScrollTs < 1600)) {
+                            waitMs = Math.max(waitMs, runtimeMobile ? 2200 : 900);
+                            reasons.push('kanban-scroll-active');
+                        }
+                    }
+                } catch (e) {}
+                try {
+                    const bodies = Array.from(state.modal?.querySelectorAll?.('.tm-kanban-col-body') || []);
+                    if (bodies.some((item) => {
+                        const lastScrollTs = Number(item?.__tmLastUserScrollTs || 0) || 0;
+                        return item?.classList?.contains?.('tm-scroll-active') || (lastScrollTs > 0 && now - lastScrollTs < 1600);
+                    })) {
+                        waitMs = Math.max(waitMs, runtimeMobile ? 2200 : 900);
+                        reasons.push('kanban-col-scroll-active');
+                    }
+                } catch (e) {}
+                return {
+                    waitMs: Math.max(0, Math.min(runtimeMobile ? 5200 : 2600, Math.round(waitMs || 0))),
+                    reason: Array.from(new Set(reasons)).join(','),
+                };
+            };
+            const run = () => {
+                const waitMeta = getWarmWaitMeta();
+                const elapsedMs = Date.now() - jobStartedAt;
+                if (waitMeta.waitMs > 0 && elapsedMs < maxPostponeMs) {
+                    try { setTimeout(run, waitMeta.waitMs); } catch (e) {}
+                    return;
+                }
+                try {
+                    window.tmWarmCalendarTaskCacheIfStale?.({
+                        refresh: true,
+                        source: reason,
+                        maxAgeMs: 8000,
+                    });
+                } catch (e) {}
+            };
+            try {
+                const delayMs = runtimeMobile ? 1800 : 700;
+                setTimeout(() => {
                     try {
-                        const parsed = API.parseTaskStatus(task.markdown);
-                        parsedDone = !!parsed.done;
-                        task.done = parsedDone;
-                        task.content = parsed.content;
-                    } catch (e) {}
-                try { MetaStore.applyToTask?.(task); } catch (e) {}
-                try { __tmMergeVisibleDateFieldsFromPrevTask(task, prevTask); } catch (e) {}
-                task.done = parsedDone; // 以文档中的真实复选框状态为准
-                try { normalizeTaskFields(task, task.docName || '未命名文档'); } catch (e) {}
-                __tmAppendCalendarTaskAndRepeatHistory(out, task);
+                        if (typeof __tmScheduleIdleTask === 'function') {
+                            __tmScheduleIdleTask(run, runtimeMobile ? 1800 : 900);
+                            return;
+                        }
+                    } catch (e2) {}
+                    run();
+                }, delayMs);
+            } catch (e) {
+                window.tmWarmCalendarTaskCacheIfStale?.({
+                    refresh: true,
+                    source: reason,
+                    maxAgeMs: 8000,
+                });
             }
-            window.__tmCalendarAllTasksCache = { key, ts: Date.now(), tasks: out };
+        };
+        const buildTaskDateEventsFromTasks = (tasks, docsToGroup = new Map()) => {
+            const filtered = Array.isArray(tasks) ? tasks : [];
+            const groupMap = docsToGroup instanceof Map ? docsToGroup : new Map();
+            const out = [];
+            for (const t of filtered) {
+                if (!t) continue;
+                const id = String(t.id || '').trim();
+                if (!id) continue;
+                let done = !!t.done;
+                try {
+                    if (state.doneOverrides && Object.prototype.hasOwnProperty.call(state.doneOverrides, id)) {
+                        done = !!state.doneOverrides[id];
+                    } else {
+                        const liveTask = __tmGetCalendarFlatTaskByIdSync(id);
+                        if (liveTask) done = !!liveTask.done;
+                    }
+                } catch (e) {}
+                const s0 = __tmNormalizeDateOnly(t?.startDate);
+                const e0 = __tmNormalizeDateOnly(t?.completionTime);
+                if (!s0 && !e0) continue;
+                const milestoneRaw = t?.milestone;
+                const isMilestone = typeof milestoneRaw === 'boolean'
+                    ? milestoneRaw
+                    : ['1', 'true'].includes(String(milestoneRaw || '').trim().toLowerCase());
+                const hasBothDates = !!s0 && !!e0;
+                const start = (isMilestone && hasBothDates) ? e0 : (s0 || e0);
+                let end = e0 || s0 || start;
+                if (start && end && start > end) end = start;
+                const startTs = toTs(start);
+                const endExKey = nextDay(end);
+                const endExTs = toTs(endExKey);
+                if (rangeStartTs && endExTs && endExTs <= rangeStartTs) continue;
+                if (rangeEndTs && startTs && startTs >= rangeEndTs) continue;
+
+                const title = __tmResolveCalendarTaskDisplayTitle(t, '(无标题)');
+                const docId = String(t.root_id || '').trim();
+                const gid = docId ? groupMap.get(docId) : '';
+                const calendarId = gid ? `group:${gid}` : 'default';
+                const taskDateColorAttrValue = typeof __tmReadTaskMetaAttrValue === 'function'
+                    ? __tmReadTaskMetaAttrValue(t, 'taskDateColor')
+                    : '';
+                const taskDateColor = String(t?.taskDateColor || t?.task_date_color || t?.custom_task_date_color || taskDateColorAttrValue || t?.['custom-task-date-color'] || '').trim();
+                const allDayBottomRaw = t?.allDayBottom ?? t?.custom_all_day_bottom ?? t?.customAllDayBottom;
+                const allDayBottom = allDayBottomRaw === true
+                    || allDayBottomRaw === 1
+                    || ['1', 'true'].includes(String(allDayBottomRaw || '').trim().toLowerCase());
+                out.push({
+                    id,
+                    title,
+                    start,
+                    endExclusive: endExKey || nextDay(start),
+                    calendarId,
+                    docId,
+                    taskDateColor,
+                    color: taskDateColor,
+                    sourceStart: s0 || '',
+                    sourceCompletion: e0 || '',
+                    milestone: isMilestone,
+                    sourceTaskId: String(t?.sourceTaskId || '').trim(),
+                    recurringSourceTaskId: String(t?.recurringSourceTaskId || '').trim(),
+                    recurringCompletedAt: String(t?.recurringCompletedAt || '').trim(),
+                    isRecurringInstance: t?.isRecurringInstance === true,
+                    isRecurringInstanceReadOnly: t?.isRecurringInstanceReadOnly === true,
+                    allDayBottom,
+                    done,
+                });
+            }
             return out;
         };
+        if (!__tmShouldAllowCalendarTaskCacheFullLoad(opts)) {
+            try {
+                const cache = window.__tmCalendarAllTasksCache;
+                const cachedTasks = Array.isArray(cache?.tasks) ? cache.tasks : [];
+                const cacheAgeMs = Date.now() - (Number(cache?.ts) || 0);
+                if (cachedTasks.length > 0) {
+                    const events = buildTaskDateEventsFromTasks(cachedTasks, __tmGetCalendarDocsToGroupMapSync());
+                    pushTaskDateQueryDiag('taskdate-inactive-cache', {
+                        taskCount: cachedTasks.length,
+                        eventCount: events.length,
+                        cacheAgeMs,
+                        forcedButInactive: forceFresh,
+                        activeViewMode: String(state.viewMode || '').trim(),
+                    });
+                    return events;
+                }
+                const candidateMeta = __tmGetCalendarTaskCandidatesSync();
+                const candidateTasks = Array.isArray(candidateMeta?.tasks) ? candidateMeta.tasks : [];
+                if (candidateTasks.length > 0) {
+                    const events = buildTaskDateEventsFromTasks(candidateTasks, candidateMeta?.docsToGroup);
+                    pushTaskDateQueryDiag('taskdate-inactive-memory', {
+                        taskCount: candidateTasks.length,
+                        eventCount: events.length,
+                        forcedButInactive: forceFresh,
+                        activeViewMode: String(state.viewMode || '').trim(),
+                    });
+                    return events;
+                }
+            } catch (e) {}
+            pushTaskDateQueryDiag('taskdate-skip-inactive-view', {
+                forcedButInactive: forceFresh,
+                activeViewMode: String(state.viewMode || '').trim(),
+            });
+            return [];
+        }
+        if (!forceFresh && opts.fastFirst !== false) {
+            try {
+                const cache = window.__tmCalendarAllTasksCache;
+                const cachedTasks = Array.isArray(cache?.tasks) ? cache.tasks : [];
+                const cacheAgeMs = Date.now() - (Number(cache?.ts) || 0);
+                const fastMaxStaleMs = Number.isFinite(Number(opts.fastMaxStaleMs))
+                    ? Math.max(8000, Math.round(Number(opts.fastMaxStaleMs)))
+                    : 300000;
+                if (cachedTasks.length > 0 && cacheAgeMs >= 0 && cacheAgeMs <= fastMaxStaleMs) {
+                    const docsToGroup = __tmGetCalendarDocsToGroupMapSync();
+                    const events = buildTaskDateEventsFromTasks(cachedTasks, docsToGroup);
+                    if (cacheAgeMs > 8000) scheduleTaskDateCacheWarm('taskdate-stale-cache-first');
+                    pushTaskDateQueryDiag(cacheAgeMs > 8000 ? 'taskdate-stale-cache' : 'taskdate-cache', {
+                        taskCount: cachedTasks.length,
+                        eventCount: events.length,
+                        cacheAgeMs,
+                        fastFirst: true,
+                    });
+                    return events;
+                }
+                const candidateMeta = __tmGetCalendarTaskCandidatesSync();
+                const candidateTasks = Array.isArray(candidateMeta?.tasks) ? candidateMeta.tasks : [];
+                if (candidateTasks.length > 0) {
+                    const events = buildTaskDateEventsFromTasks(candidateTasks, candidateMeta?.docsToGroup);
+                    scheduleTaskDateCacheWarm('taskdate-memory-first');
+                    pushTaskDateQueryDiag('taskdate-memory', {
+                        taskCount: candidateTasks.length,
+                        eventCount: events.length,
+                        cacheAgeMs: Number.isFinite(cacheAgeMs) ? cacheAgeMs : 0,
+                        fastFirst: true,
+                    });
+                    return events;
+                }
+            } catch (e) {}
+        }
 
         const getDocsToGroupMap = async () => {
             const groups = Array.isArray(SettingsStore.data.docGroups) ? SettingsStore.data.docGroups : [];
@@ -704,80 +981,14 @@
         let docsToGroup = new Map();
         try { docsToGroup = await getDocsToGroupMap(); } catch (e) {}
 
-        const nextDay = (k) => {
-            const ts = toTs(k);
-            if (!ts) return '';
-            const d = new Date(ts + 86400000);
-            const pad = (n) => String(n).padStart(2, '0');
-            return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
-        };
-
         let filtered = [];
-        try { filtered = await getAllTasksForCalendar(); } catch (e) { filtered = []; }
-        const out = [];
-        for (const t of filtered) {
-            if (!t) continue;
-            const id = String(t.id || '').trim();
-            if (!id) continue;
-            let done = !!t.done;
-            try {
-                if (state.doneOverrides && Object.prototype.hasOwnProperty.call(state.doneOverrides, id)) {
-                    done = !!state.doneOverrides[id];
-                } else {
-                    const liveTask = __tmGetCalendarFlatTaskByIdSync(id);
-                    if (liveTask) done = !!liveTask.done;
-                }
-            } catch (e) {}
-            const s0 = __tmNormalizeDateOnly(t?.startDate);
-            const e0 = __tmNormalizeDateOnly(t?.completionTime);
-            if (!s0 && !e0) continue;
-            const milestoneRaw = t?.milestone;
-            const isMilestone = typeof milestoneRaw === 'boolean'
-                ? milestoneRaw
-                : ['1', 'true'].includes(String(milestoneRaw || '').trim().toLowerCase());
-            const hasBothDates = !!s0 && !!e0;
-            const start = (isMilestone && hasBothDates) ? e0 : (s0 || e0);
-            let end = e0 || s0 || start;
-            if (start && end && start > end) end = start;
-            const startTs = toTs(start);
-            const endExKey = nextDay(end);
-            const endExTs = toTs(endExKey);
-            if (rangeStartTs && endExTs && endExTs <= rangeStartTs) continue;
-            if (rangeEndTs && startTs && startTs >= rangeEndTs) continue;
-
-            const title = __tmResolveCalendarTaskDisplayTitle(t, '(无标题)');
-            const docId = String(t.root_id || '').trim();
-            const gid = docId ? docsToGroup.get(docId) : '';
-            const calendarId = gid ? `group:${gid}` : 'default';
-            const taskDateColorAttrValue = typeof __tmReadTaskMetaAttrValue === 'function'
-                ? __tmReadTaskMetaAttrValue(t, 'taskDateColor')
-                : '';
-            const taskDateColor = String(t?.taskDateColor || t?.task_date_color || t?.custom_task_date_color || taskDateColorAttrValue || t?.['custom-task-date-color'] || '').trim();
-            const allDayBottomRaw = t?.allDayBottom ?? t?.custom_all_day_bottom ?? t?.customAllDayBottom;
-            const allDayBottom = allDayBottomRaw === true
-                || allDayBottomRaw === 1
-                || ['1', 'true'].includes(String(allDayBottomRaw || '').trim().toLowerCase());
-            out.push({
-                id,
-                title,
-                start,
-                endExclusive: endExKey || nextDay(start),
-                calendarId,
-                docId,
-                taskDateColor,
-                color: taskDateColor,
-                sourceStart: s0 || '',
-                sourceCompletion: e0 || '',
-                milestone: isMilestone,
-                sourceTaskId: String(t?.sourceTaskId || '').trim(),
-                recurringSourceTaskId: String(t?.recurringSourceTaskId || '').trim(),
-                recurringCompletedAt: String(t?.recurringCompletedAt || '').trim(),
-                isRecurringInstance: t?.isRecurringInstance === true,
-                isRecurringInstanceReadOnly: t?.isRecurringInstanceReadOnly === true,
-                allDayBottom,
-                done,
-            });
-        }
+        try { filtered = await __tmLoadAllTasksForCalendarCache({ ...opts, forceFresh, maxAgeMs: 8000 }); } catch (e) { filtered = []; }
+        const out = buildTaskDateEventsFromTasks(filtered, docsToGroup);
+        pushTaskDateQueryDiag('taskdate-full', {
+            taskCount: filtered.length,
+            eventCount: out.length,
+            fastFirst: false,
+        });
         return out;
     };
 
@@ -1052,6 +1263,7 @@
         const reason = String(opts.reason || opts.source || 'task-date-update').trim() || 'task-date-update';
         try {
             try { window.__tmCalendarAllTasksCache = null; } catch (e) {}
+            try { __tmInvalidateCalendarTaskDateEventsCache(); } catch (e) {}
             if (typeof calApi.syncTaskDatePatchInPlace === 'function') {
                 const result = calApi.syncTaskDatePatchInPlace(tid, nextPatch, { reason });
                 if (result?.needsMainRefresh || result?.needsSideRefresh) {
@@ -1391,4 +1603,3 @@
         await finishAfterPersist();
         return resultPatch;
     };
-
