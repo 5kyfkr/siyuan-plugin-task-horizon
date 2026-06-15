@@ -17300,6 +17300,8 @@ refreshOk = false;
         feed(options.groupByTime ? 1 : 0);
         feed(options.quadrantEnabled ? 1 : 0);
         feed(options.kanbanCardFields || '');
+        feed(options.currentRuleId || '');
+        feed(options.currentRuleSort || '');
         feed(options.useKanbanCustomCardGesture ? 1 : 0);
         feed(options.tomatoFocusTaskId || '');
         feed(options.tomatoFocusModeEnabled ? 1 : 0);

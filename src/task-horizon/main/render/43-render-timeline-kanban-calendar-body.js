@@ -533,6 +533,24 @@
             };
             const ruleForKanban = __tmGetCurrentRule();
             const allowDocFlowForKanban = __tmRuleUsesDocFlowSort(ruleForKanban);
+            const hasExplicitRuleSortForKanban = __tmRuleHasExplicitSort(ruleForKanban);
+            const useRuleSortForKanbanItems = hasExplicitRuleSortForKanban && !allowDocFlowForKanban;
+            const ruleSortRuntimeForKanban = {
+                fieldInfoCache: new Map(),
+                valueMemo: new WeakMap(),
+                timeSortMemo: new Map(),
+            };
+            const sortKanbanItemsByCurrentRule = (items, fallbackCompare = null) => {
+                const list = Array.isArray(items) ? items : [];
+                if (list.length <= 1) return list;
+                if (useRuleSortForKanbanItems) {
+                    const sorted = RuleManager.applyRuleSort(list, ruleForKanban, ruleSortRuntimeForKanban);
+                    list.splice(0, list.length, ...sorted);
+                    return list;
+                }
+                if (typeof fallbackCompare === 'function') list.sort(fallbackCompare);
+                return list;
+            };
             const isUngroupForKanban = !state.groupByDocName && !state.groupByTaskName && !state.groupByTime && !state.quadrantEnabled;
             const needDocFlowForKanban = allowDocFlowForKanban && (!!state.groupByDocName || isUngroupForKanban || !!state.groupByTaskName || !!state.groupByTime || !!state.quadrantEnabled);
             const escSq = (s) => String(s || '').replace(/\\/g, '\\\\').replace(/'/g, "\\'");
@@ -751,6 +769,10 @@
                 groupByTime: !!state.groupByTime,
                 quadrantEnabled: !!state.quadrantEnabled,
                 kanbanCardFields: Array.from(kanbanCardFields).join('|'),
+                currentRuleId: String(ruleForKanban?.id || state.currentRule || '').trim(),
+                currentRuleSort: Array.isArray(ruleForKanban?.sort)
+                    ? ruleForKanban.sort.map((item) => `${String(item?.field || '').trim()}:${String(item?.order || 'asc').trim() || 'asc'}`).join('|')
+                    : '',
                 tomatoFocusTaskId,
                 tomatoFocusModeEnabled,
             });
@@ -1201,7 +1223,7 @@
                 const completedRecentCompare = (a, b) => __tmCompareCompletedTasksRecentFirst(a, b, rootCompare);
                 roots.sort(isCompletedStatusCol ? completedRecentCompare : rootCompare);
                 completedRoots.sort(completedRecentCompare);
-                childrenByParent.forEach(arr => arr.sort(childCompare));
+                childrenByParent.forEach(arr => sortKanbanItemsByCurrentRule(arr, childCompare));
 
                 const renderTree = (task, depthInCol, inheritedHideCompleted = false, inCompletedRootGroup = false) => {
                     const id = String(task?.id || '').trim();
