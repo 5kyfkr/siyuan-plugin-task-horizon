@@ -4050,10 +4050,12 @@ return false;
         const taskLike = (task && typeof task === 'object') ? task : null;
         if (!(root instanceof Element) || !taskLike) return false;
         const visible = __tmIsTaskPinned(taskLike);
+        const taskId = String(taskLike.id || taskLike.blockId || '').trim();
         let touched = false;
         const targets = root.querySelectorAll('.tm-task-content-clickable, .tm-checklist-title-button > span, .tm-whiteboard-stream-task-title');
         targets.forEach((target) => {
             if (!(target instanceof HTMLElement)) return;
+            if (taskId && !__tmDoesTaskDomTargetBelongToTask(target, taskId, root)) return;
             let icon = target.querySelector(':scope > [data-tm-inline-field="pinned"]');
             if (!visible) {
                 if (icon instanceof HTMLElement) {
@@ -4426,10 +4428,12 @@ return false;
         if (!(root instanceof Element) || !taskLike) return false;
         const html = __tmBuildTaskInlineContentHtml(taskLike);
         const titleText = String(taskLike.content || '').trim() || '(无内容)';
+        const taskId = String(taskLike.id || taskLike.blockId || '').trim();
         let touched = false;
         const targets = root.querySelectorAll('.tm-task-content-clickable, .tm-checklist-title-button > span, .tm-whiteboard-stream-task-title');
         targets.forEach((el) => {
             if (!(el instanceof HTMLElement)) return;
+            if (taskId && !__tmDoesTaskDomTargetBelongToTask(el, taskId, root)) return;
             el.innerHTML = html;
             try {
                 if (typeof __tmApplyTooltipAttrsToElement === 'function') {

@@ -7328,6 +7328,7 @@ select.tm-btn-secondary {
     gap: 5px;
     min-width: 0;
     flex: 1 1 auto;
+    font-weight: 400;
 }
 
 .tm-kanban--clean .tm-kanban-subtasks-label svg {

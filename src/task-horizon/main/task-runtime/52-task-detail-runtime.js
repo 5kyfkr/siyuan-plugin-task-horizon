@@ -5483,6 +5483,7 @@
             const plainText = String(taskLike?.content || '').trim() || '(无内容)';
             const updateTitleNode = (el) => {
                 if (!(el instanceof HTMLElement)) return;
+                if (!__tmDoesTaskDomTargetBelongToTask(el, tid, modal)) return;
                 try { el.innerHTML = html; } catch (e) {}
                 try { el.removeAttribute('title'); } catch (e) {}
                 const tooltipTarget = el.matches('.tm-checklist-title-button > span')

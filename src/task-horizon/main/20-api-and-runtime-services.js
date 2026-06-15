@@ -9539,6 +9539,29 @@ const wait = !!options.wait;
         }
     }
 
+    const __TM_TASK_DOM_HOST_SELECTOR = '.tm-kanban-card[data-id], .tm-checklist-item[data-id], #tmTimelineLeftTable tbody tr[data-id], #tmTaskTable tbody tr[data-id], .tm-whiteboard-stream-task-head[data-task-id], .tm-whiteboard-stream-task-node[data-task-id], .tm-whiteboard-node[data-task-id], .tm-whiteboard-pool-item[data-task-id], .tm-cal-task[data-task-id], .tm-cal-task[data-id], .tm-calendar-task-list tr[data-id]';
+
+    function __tmGetTaskDomHostId(host) {
+        const el = host instanceof Element ? host : null;
+        if (!el) return '';
+        return String(el.getAttribute('data-task-id') || el.getAttribute('data-id') || '').trim();
+    }
+
+    function __tmDoesTaskDomTargetBelongToTask(target, taskId, container = null) {
+        const tid = String(taskId || '').trim();
+        const el = target instanceof Element ? target : null;
+        if (!tid || !el) return true;
+        const host = el.closest(__TM_TASK_DOM_HOST_SELECTOR);
+        const hostId = __tmGetTaskDomHostId(host);
+        if (hostId) return hostId === tid;
+        const root = container instanceof Element ? container : null;
+        const rootHost = root?.matches?.(__TM_TASK_DOM_HOST_SELECTOR)
+            ? root
+            : root?.closest?.(__TM_TASK_DOM_HOST_SELECTOR);
+        const rootHostId = __tmGetTaskDomHostId(rootHost);
+        return rootHostId ? rootHostId === tid : true;
+    }
+
     function __tmBuildTaskTitleOpacityStyle(taskLike, config = null) {
         const visual = __tmResolveTaskTitleVisual(taskLike, config);
         if (!visual) return '';
@@ -9554,9 +9577,11 @@ const wait = !!options.wait;
         const task = (taskLike && typeof taskLike === 'object') ? taskLike : null;
         if (!root || !task) return false;
         const selector = String(options?.selector || '.tm-task-content-clickable, .tm-checklist-title-button > span, .tm-whiteboard-stream-task-title, .tm-kanban-card-title-inline, .tm-cal-task-event-title-text').trim();
+        const taskId = String(options?.taskId || task?.id || task?.blockId || '').trim();
         let touched = false;
         try {
             root.querySelectorAll(selector).forEach((el) => {
+                if (taskId && !__tmDoesTaskDomTargetBelongToTask(el, taskId, root)) return;
                 touched = __tmApplyTaskTitleOpacityToElement(el, task) || touched;
             });
         } catch (e) {}
@@ -9569,6 +9594,7 @@ const wait = !!options.wait;
         globalThis.__tmBuildTaskTitleOpacityStyle = __tmBuildTaskTitleOpacityStyle;
         globalThis.__tmApplyTaskTitleOpacityToElement = __tmApplyTaskTitleOpacityToElement;
         globalThis.__tmApplyTaskTitleOpacityInContainer = __tmApplyTaskTitleOpacityInContainer;
+        globalThis.__tmDoesTaskDomTargetBelongToTask = __tmDoesTaskDomTargetBelongToTask;
     } catch (e) {}
 
     const __tmReminderMarkCache = new Map();
