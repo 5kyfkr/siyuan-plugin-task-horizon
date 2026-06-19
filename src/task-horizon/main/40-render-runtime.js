@@ -292,6 +292,9 @@ return;
                 return shouldShowByTaskState;
             })
             .filter(doc => !globalNewTaskDocId || doc.id !== globalNewTaskDocId);
+        const docTabGroupedView = __tmBuildDocTabGroupedView(visibleDocs, { currentGroupId, activeDocId });
+        const customTabGroups = Array.isArray(docTabGroupedView?.groups) ? docTabGroupedView.groups : [];
+        const docTabsToRender = Array.isArray(docTabGroupedView?.normalDocs) ? docTabGroupedView.normalDocs : visibleDocs;
         const archivedDocCount = docsForTabs.filter((doc) => __tmGetDocTaskStateForTabs(doc, docTaskStateCache).isArchived).length;
         const showOtherBlocksTab = !docTabsArchiveMode && currentGroupId !== 'all' && Array.isArray(state.otherBlocks) && state.otherBlocks.length > 0;
 
@@ -340,9 +343,7 @@ return;
         const isDesktopNarrow = !!(!isMobile && (() => { try { return !!window.matchMedia?.('(max-width: 768px)')?.matches; } catch (e) { return false; } })());
         const kind = String(state.uiAnimKind || '').trim();
         const hasFreshUiAnim = (Date.now() - (Number(state.uiAnimTs) || 0) < 390);
-        const bodyAnimClass = ((isMobile || hostUsesMobileUI) && !isAnimatedDockHost && hasFreshUiAnim)
-            ? (kind === 'from-right' ? ' tm-body-anim--from-right' : kind === 'from-left' ? ' tm-body-anim--from-left' : ' tm-body-anim')
-            : '';
+        const bodyAnimClass = '';
         const stageAnimClass = ((!isMobile && !hostUsesMobileUI) && hasFreshUiAnim)
             ? (kind === 'from-right' ? ' tm-stage-anim--from-right' : kind === 'from-left' ? ' tm-stage-anim--from-left' : ' tm-stage-anim')
             : '';
@@ -519,6 +520,7 @@ return;
             taskDetailSheetHtml,
             showMobileBottomViewBar,
             mobileBottomViewbarActive,
+            mobileBottomViewbarSwitching,
             useCompactTopbar,
             topbarPadding,
             topbarHeightStyle,
@@ -570,6 +572,11 @@ return;
             && !showCalendarSidebarCompactToggle);
         const calendarSidebarCompactButtonHtml = `<button class="tm-btn tm-btn-info tm-calendar-sidebar-toggle-compact tm-calendar-sidebar-toggle-compact--visible bc-btn bc-btn--sm" onclick="tmCalendarToggleSidebar()" style="padding: 0; width: 30px; min-width: 30px; height: 30px; align-items: center; justify-content: center;"${__tmBuildTooltipAttrs('日历侧边栏', { side: 'bottom' })}>${__tmRenderLucideIcon('calendar-days')}</button>`;
         const parentTaskNameBoldClass = SettingsStore.data.parentTaskNameBoldEnabled === false ? ' tm-box--parent-task-name-normal' : '';
+        try {
+            if (state.modal instanceof HTMLElement) {
+                state.modal.classList.toggle('tm-modal--mobile-view-switching', mobileBottomViewbarSwitching);
+            }
+        } catch (e) {}
         state.modal.innerHTML = `
             <div class="tm-box${showCalendarSideDock || showAiSideDock ? ' tm-box--with-cal-dock' : ''}${parentTaskNameBoldClass}">
                 <div class="tm-filter-rule-bar" style="padding: ${topbarPadding};${topbarHeightStyle}">
@@ -806,7 +813,7 @@ return;
                      ondragleave="tmDocTabDragLeave(event)"
                      ondragover="tmDocTabDragOver(event)"
                      ondrop="tmDocTabDrop(event, '')">
-                    <div class="tm-doc-tabs-scroll" style="display:flex; gap:8px; flex:1; padding: ${isMobile ? '4px 0 4px 0' : '4px 0 4px 0'};" ondragover="tmDocTabDragOver(event)" ondrop="tmDocTabDrop(event, '')">
+                    <div class="tm-doc-tabs-scroll" style="display:flex; gap:8px; flex:1; padding: ${isMobile ? '4px 0 4px 0' : '4px 0 4px 0'};" oncontextmenu="tmShowDocTabsBlankContextMenu(event)" ondragover="tmDocTabDragOver(event)" ondrop="tmDocTabDrop(event, '')">
                         ${docTabsArchiveButtonPosition === 'before-all' ? docTabsArchiveButtonHtml : ''}
                         <div class="tm-doc-tab tm-doc-tab--all ${state.activeDocId === 'all' ? 'active' : ''}" onclick="tmHandleAllDocTabClick(event)" oncontextmenu="tmShowAllDocTabContextMenu(event)"${__tmBuildTooltipAttrs(`${__tmGetViewProfileSourceLabel(__tmGetEffectiveViewProfileForContext('all', currentGroupId).source)}: ${__tmDescribeViewProfile(__tmGetEffectiveViewProfileForContext('all', currentGroupId).profile)} ｜ ${docTabsArchiveMode ? '当前只看归档页签' : '右键或长按查看当前分组全部页签'}`, { side: 'bottom', ariaLabel: false })}>${docTabsArchiveMode ? '全部归档' : '全部'}</div>
                         ${(() => {
@@ -847,7 +854,36 @@ return;
                             const tip = `${profileSource}: ${__tmDescribeViewProfile(profile)}`;
                             return `<div class="tm-doc-tab ${isActive ? 'active' : ''}" data-tm-doc-id="${esc(__TM_OTHER_BLOCK_TAB_ID)}" style="--tm-doc-color:${esc(c)}" onclick="tmSwitchDoc('${__TM_OTHER_BLOCK_TAB_ID}')" oncontextmenu="tmShowDocTabContextMenu(event, '${__TM_OTHER_BLOCK_TAB_ID}')"${__tmBuildTooltipAttrs(tip, { side: 'bottom', ariaLabel: false })}>🧩 ${esc(__TM_OTHER_BLOCK_TAB_NAME)}</div>`;
                         })() : ''}
-                        ${visibleDocs.map(doc => {
+                        ${customTabGroups.map((entry) => {
+                            const group = entry?.group || {};
+                            const groupId = String(entry?.id || group.id || '').trim();
+                            if (!groupId) return '';
+                            const members = Array.isArray(entry?.members) ? entry.members : [];
+                            const isActive = !!entry?.active;
+                            const isAggregateActive = !!entry?.aggregateActive;
+                            const activeMember = entry?.activeMember || null;
+                            const primaryDoc = activeMember || members[0] || null;
+                            const primaryDocId = String(primaryDoc?.id || '').trim();
+                            const groupNameText = String(entry?.name || group.name || '').trim() || '未命名页签组';
+                            const activeName = activeMember ? __tmGetDocDisplayName(activeMember, activeMember.name || '未命名文档') : '';
+                            const label = groupNameText;
+                            const c = typeof __tmGetDocTabCustomGroupColor === 'function'
+                                ? __tmGetDocTabCustomGroupColor(group, members)
+                                : (primaryDocId ? __tmGetDocColorHex(primaryDocId, __tmIsDarkMode()) : 'var(--tm-primary-color)');
+                            const tip = members.length
+                                ? `${groupNameText} ｜ 点击查看组内全部任务 ｜ ${members.length} 个页签${isAggregateActive ? ' ｜ 当前：组内全部' : (activeName ? ` ｜ 当前：${activeName}` : '')}`
+                                : `${groupNameText} ｜ 当前没有可显示页签`;
+                            const iconHtml = primaryDoc ? __tmRenderDocIcon(primaryDoc, { size: 14 }) : '';
+                            return `<div class="tm-doc-tab tm-doc-tab--custom-group ${isActive ? 'active' : ''}"
+                                data-tm-doc-tab-group-id="${esc(groupId)}"
+                                style="--tm-doc-color:${esc(c)};--tm-doc-tab-group-color:${esc(c)}"
+                                onclick="tmHandleDocTabCustomGroupClick(event, '${escSq(groupId)}')"
+                                oncontextmenu="tmShowDocTabCustomGroupAllContextMenu(event, '${escSq(groupId)}')"
+                                ${__tmBuildTooltipAttrs(tip, { side: 'bottom', ariaLabel: false })}>
+                                <div class="tm-doc-tab-text">${iconHtml}<span class="tm-doc-tab-label">${esc(label)}</span><button type="button" class="tm-doc-tab-group-caret" onclick="tmShowDocTabCustomGroupMenu(event, '${escSq(groupId)}')" aria-label="展开页签组" aria-expanded="false">${__tmRenderLucideIcon('caret-right', '', { size: 12 })}</button></div>
+                            </div>`;
+                        }).join('')}
+                        ${docTabsToRender.map(doc => {
                             const isActive = state.activeDocId === doc.id;
                             const c = __tmGetDocColorHex(doc.id, __tmIsDarkMode());
                             const pid = `tm-doc-prog-${doc.id}`;
@@ -1148,11 +1184,95 @@ return;
                         gap: 4px;
                         min-width: 0;
                     }
-                    .tm-doc-tab-text > span:last-child {
+                    .tm-doc-tab-text > span:last-child,
+                    .tm-doc-tab-text > .tm-doc-tab-label {
                         min-width: 0;
                         overflow: hidden;
                         text-overflow: ellipsis;
                      }
+                    .tm-doc-tab--custom-group {
+                        max-width: 260px;
+                        padding-right: 3px;
+                        background: color-mix(in srgb, var(--tm-doc-tab-group-color, var(--tm-doc-color, var(--tm-primary-color))) 18%, var(--tm-bg-color));
+                        border-color: color-mix(in srgb, var(--tm-doc-tab-group-color, var(--tm-doc-color, var(--tm-primary-color))) 44%, var(--tm-border-color));
+                        box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--tm-doc-tab-group-color, var(--tm-doc-color, var(--tm-primary-color))) 10%, transparent);
+                    }
+                    .tm-doc-tab-group-caret {
+                        display: inline-flex;
+                        align-items: center;
+                        justify-content: center;
+                        width: 18px;
+                        min-width: 18px;
+                        height: 18px;
+                        padding: 0;
+                        border: 0;
+                        border-radius: 4px;
+                        background: transparent;
+                        color: var(--tm-secondary-text);
+                        line-height: 0;
+                        flex: 0 0 auto;
+                        cursor: pointer;
+                        position: relative;
+                        z-index: 4;
+                    }
+                    .tm-doc-tab-group-caret:hover {
+                        background: var(--tm-hover-bg);
+                        color: var(--tm-text-color);
+                    }
+                    .tm-doc-tab--custom-group-menu-item {
+                        width: 100%;
+                        max-width: none;
+                        box-sizing: border-box;
+                        justify-content: space-between;
+                        flex: 1 1 auto;
+                    }
+                    .tm-doc-tab--custom-group-menu-item .tm-doc-tab-label {
+                        min-width: 0;
+                        overflow: hidden;
+                        text-overflow: ellipsis;
+                    }
+                    .tm-doc-tab-tree-guide {
+                        display: inline-flex;
+                        align-items: stretch;
+                        align-self: stretch;
+                        height: 24px;
+                        flex: 0 0 auto;
+                        margin: 2px 1px 2px 0;
+                        color: color-mix(in srgb, var(--tm-secondary-text) 42%, transparent);
+                    }
+                    .tm-doc-tab-tree-guide-seg {
+                        position: relative;
+                        display: inline-flex;
+                        width: 14px;
+                        min-width: 14px;
+                        height: 100%;
+                    }
+                    .tm-doc-tab-tree-guide-seg.is-line::before,
+                    .tm-doc-tab-tree-guide-seg.is-branch::before,
+                    .tm-doc-tab-tree-guide-seg.is-last::before {
+                        content: '';
+                        position: absolute;
+                        left: 7px;
+                        top: 0;
+                        bottom: 0;
+                        border-left: 1px solid currentColor;
+                    }
+                    .tm-doc-tab-tree-menu-row .tm-doc-tab-tree-guide {
+                        height: 28px;
+                        margin-top: 0;
+                        margin-bottom: 0;
+                    }
+                    .tm-doc-tab-tree-menu-row .tm-doc-tab-tree-guide-seg.is-line::before,
+                    .tm-doc-tab-tree-menu-row .tm-doc-tab-tree-guide-seg.is-branch::before,
+                    .tm-doc-tab-tree-menu-row .tm-doc-tab-tree-guide-seg.is-last::before,
+                    .tm-doc-tab-tree-menu-row .tm-doc-tab-tree-guide-seg.is-blank::before {
+                        content: '';
+                        position: absolute;
+                        left: 7px;
+                        top: -2px;
+                        bottom: -2px;
+                        border-left: 1px solid currentColor;
+                    }
                     .tm-doc-tab::after {
                         content: '';
                         position: absolute;
@@ -1165,6 +1285,10 @@ return;
                         opacity: 0.95;
                         z-index: 2;
                     }
+                    .tm-doc-tab--custom-group::after {
+                        content: none;
+                        display: none;
+                    }
                     .tm-doc-tab:hover {
                         background: color-mix(in srgb, var(--tm-danger-color) var(--tm-doc-procrastination-bg-mix), var(--tm-hover-bg));
                         border-color: var(--tm-text-color);
@@ -1174,6 +1298,18 @@ return;
                         color: var(--tm-text-color);
                         border-color: var(--tm-primary-color);
                         box-shadow: inset 0 0 0 1px var(--tm-primary-color), 0 0 0 1px color-mix(in srgb, var(--tm-primary-color) 18%, transparent);
+                    }
+                    .tm-doc-tab--custom-group:hover {
+                        background: color-mix(in srgb, var(--tm-doc-tab-group-color, var(--tm-doc-color, var(--tm-primary-color))) 24%, var(--tm-hover-bg));
+                        border-color: color-mix(in srgb, var(--tm-doc-tab-group-color, var(--tm-doc-color, var(--tm-primary-color))) 62%, var(--tm-text-color));
+                    }
+                    .tm-doc-tab--custom-group.active,
+                    .tm-doc-tab--custom-group.active:hover {
+                        background: color-mix(in srgb, var(--tm-doc-tab-group-color, var(--tm-doc-color, var(--tm-primary-color))) 42%, var(--tm-bg-color));
+                        border-color: color-mix(in srgb, var(--tm-doc-tab-group-color, var(--tm-doc-color, var(--tm-primary-color))) 86%, var(--tm-primary-color));
+                        box-shadow:
+                            inset 0 0 0 1px color-mix(in srgb, var(--tm-doc-tab-group-color, var(--tm-doc-color, var(--tm-primary-color))) 60%, transparent),
+                            0 0 0 2px color-mix(in srgb, var(--tm-doc-tab-group-color, var(--tm-doc-color, var(--tm-primary-color))) 26%, transparent);
                     }
                     .tm-doc-tab.active .tm-doc-tab-bg {
                         opacity: 0.38;
@@ -1489,6 +1625,26 @@ return;
                         border-color: color-mix(in srgb, var(--tm-topbar-control-border) 72%, transparent) !important;
                         box-shadow: 0 4px 12px color-mix(in srgb, var(--tm-primary-color) 16%, transparent);
                     }
+                    .tm-modal.tm-modal--mobile-view-switching .tm-mobile-bottom-viewbar__inner,
+                    .tm-modal.tm-modal--mobile-view-switching .tm-mobile-bottom-viewbar.tm-mobile-bottom-viewbar--active .tm-mobile-bottom-viewbar__inner,
+                    .tm-modal.tm-modal--mobile-view-switching .tm-mobile-bottom-viewbar:active .tm-mobile-bottom-viewbar__inner,
+                    .tm-modal.tm-modal--mobile-view-switching .tm-mobile-bottom-viewbar:focus-within .tm-mobile-bottom-viewbar__inner,
+                    .tm-modal.tm-modal--mobile-view-switching .tm-mobile-bottom-viewbar:hover .tm-mobile-bottom-viewbar__inner,
+                    .tm-modal.tm-modal--mobile-view-switching .tm-mobile-bottom-viewbar__inner:hover {
+                        background: color-mix(in srgb, var(--tm-header-bg) 98%, rgba(255,255,255,0.08));
+                        box-shadow: 0 4px 12px rgba(15, 23, 42, 0.12);
+                        backdrop-filter: none;
+                        -webkit-backdrop-filter: none;
+                        transition-duration: 0.08s;
+                    }
+                    .tm-modal.tm-modal--mobile-view-switching .tm-mobile-bottom-view-switcher .tm-view-seg-item,
+                    .tm-modal.tm-modal--mobile-view-switching .tm-mobile-bottom-view-switcher .bc-tabs-trigger {
+                        transition: background-color 0.08s ease, color 0.08s ease, border-color 0.08s ease, box-shadow 0.08s ease;
+                    }
+                    .tm-modal.tm-modal--mobile-view-switching .tm-mobile-bottom-view-switcher .tm-view-seg-item--active,
+                    .tm-modal.tm-modal--mobile-view-switching .tm-mobile-bottom-view-switcher .bc-tabs-trigger.tm-view-seg-item--active {
+                        box-shadow: 0 2px 8px color-mix(in srgb, var(--tm-primary-color) 14%, transparent);
+                    }
                     .tm-main-body-with-cal-dock {
                         flex: 1 1 auto;
                         min-height: 0;
@@ -1781,10 +1937,10 @@ return;
                     ${taskDetailSheetHtml}
                 </div>
                 ${showMobileBottomViewBar ? `
-                    <div class="tm-mobile-bottom-viewbar ${mobileBottomViewbarActive ? 'tm-mobile-bottom-viewbar--active' : ''}" onpointerdown="tmTouchMobileBottomViewbar(event)" onclick="tmTouchMobileBottomViewbar(event)">
+                    <div class="tm-mobile-bottom-viewbar ${mobileBottomViewbarActive ? 'tm-mobile-bottom-viewbar--active' : ''}${mobileBottomViewbarSwitching ? ' tm-mobile-bottom-viewbar--switching' : ''}" onpointerdown="tmTouchMobileBottomViewbar(event)" onclick="tmTouchMobileBottomViewbar(event)">
                         <div class="tm-mobile-bottom-viewbar__inner">
                             <div class="tm-view-segmented bc-tabs-list tm-mobile-bottom-view-switcher" role="tablist" aria-label="视图">
-                                ${__tmRenderViewSwitcherButtons({ compact: true })}
+                                ${__tmRenderViewSwitcherButtons({ compact: true, mobileBottom: true })}
                             </div>
                         </div>
                     </div>
@@ -2963,8 +3119,26 @@ return;
 
     function __tmKanbanGetParentTaskId(task) {
         const id = String(task?.id || '').trim();
-        const pid = String(task?.parentTaskId || task?.parentId || task?.parent_id || task?.parent_task_id || '').trim();
-        return pid && pid !== id ? pid : '';
+        const pid = String(task?.parentTaskId || task?.parent_task_id || '').trim();
+        if (!pid || pid === id) return '';
+        const resolveAlias = (value) => {
+            const raw = String(value || '').trim();
+            if (!raw) return '';
+            try {
+                const fromIdentity = String(globalThis.__tmTaskIdentity?.resolve?.(raw) || '').trim();
+                if (fromIdentity) return fromIdentity;
+            } catch (e) {}
+            try {
+                const fromOptimistic = typeof __tmResolveOptimisticTaskId === 'function'
+                    ? String(__tmResolveOptimisticTaskId(raw) || '').trim()
+                    : '';
+                if (fromOptimistic) return fromOptimistic;
+            } catch (e) {}
+            return raw;
+        };
+        const resolvedId = resolveAlias(id);
+        const resolvedPid = resolveAlias(pid);
+        return resolvedPid && resolvedId && resolvedPid === resolvedId ? '' : pid;
     }
 
     function __tmKanbanBuildChildTasksByParentId() {

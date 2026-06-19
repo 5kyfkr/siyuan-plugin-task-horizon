@@ -23,6 +23,41 @@
         return task;
     }
 
+    function __tmBuildRecurringTaskRollbackPatch(task, removedEntry, nextHistory = []) {
+        const removed = (removedEntry && typeof removedEntry === 'object') ? removedEntry : null;
+        if (!removed) return null;
+        const nextHead = Array.isArray(nextHistory) && nextHistory.length > 0 ? nextHistory[0] : null;
+        const rollbackStart = __tmNormalizeDateOnly(
+            nextHead?.nextStart
+            || nextHead?.sourceStart
+            || removed.sourceStart
+            || removed.nextStart
+            || task?.startDate
+            || ''
+        );
+        const rollbackDue = __tmNormalizeDateOnly(
+            nextHead?.nextDue
+            || nextHead?.sourceDue
+            || removed.sourceDue
+            || removed.nextDue
+            || task?.completionTime
+            || ''
+        );
+        if (!rollbackStart && !rollbackDue) return null;
+        const carryCompletedAt = String(nextHead?.completedAt || '').trim();
+        return {
+            startDate: rollbackStart,
+            completionTime: rollbackDue,
+            repeatState: __tmNormalizeTaskRepeatState({
+                ...(task?.repeatState && typeof task.repeatState === 'object' ? task.repeatState : {}),
+                lastCompletedAt: carryCompletedAt,
+                lastAdvancedAt: carryCompletedAt,
+                lastInstanceStart: rollbackStart,
+                lastInstanceDue: rollbackDue,
+            }),
+        };
+    }
+
     async function __tmApplyTaskRepeatRule(taskId, ruleInput, options = {}) {
         const task = await __tmResolveTaskForRepeat(taskId);
         if (!task?.id) throw new Error('未找到任务');
@@ -65,11 +100,20 @@
         if (!task?.id) throw new Error('未找到任务');
         const key = String(completedAt || '').trim();
         const currentHistory = __tmNormalizeTaskRepeatHistory(task?.repeatHistory || task?.repeat_history || '');
-        const nextHistory = currentHistory.filter((item) => String(item?.completedAt || '').trim() !== key);
+        const removedIndex = currentHistory.findIndex((item) => String(item?.completedAt || '').trim() === key);
+        const removedEntry = removedIndex >= 0 ? currentHistory[removedIndex] : null;
+        const nextHistory = removedIndex >= 0
+            ? currentHistory.filter((_, index) => index !== removedIndex)
+            : currentHistory.filter((item) => String(item?.completedAt || '').trim() !== key);
         if (nextHistory.length === currentHistory.length) return false;
-        await __tmApplyTaskMetaPatchWithUndo(task.id, {
+        const nextPatch = {
             repeatHistory: nextHistory,
-        }, {
+        };
+        if (removedIndex === 0) {
+            const rollbackPatch = __tmBuildRecurringTaskRollbackPatch(task, removedEntry, nextHistory);
+            if (rollbackPatch) Object.assign(nextPatch, rollbackPatch);
+        }
+        await __tmApplyTaskMetaPatchWithUndo(task.id, nextPatch, {
             source: String(options?.source || 'task-repeat-history-delete').trim() || 'task-repeat-history-delete',
             label: '删除循环记录',
             refresh: false,
@@ -125,9 +169,17 @@
         if (JSON.stringify(currentHistory) === JSON.stringify(nextHistory)) {
             return { changed: false, completedAt, taskId: task.id, repeatHistory: nextHistory };
         }
-        const result = await __tmApplyTaskMetaPatchWithUndo(task.id, {
+        const nextPatch = {
             repeatHistory: nextHistory,
-        }, {
+        };
+        if (!nextDone) {
+            const removedIndex = currentHistory.findIndex((item) => String(item?.completedAt || '').trim() === completedAt);
+            if (removedIndex === 0) {
+                const rollbackPatch = __tmBuildRecurringTaskRollbackPatch(task, currentHistory[removedIndex], nextHistory);
+                if (rollbackPatch) Object.assign(nextPatch, rollbackPatch);
+            }
+        }
+        const result = await __tmApplyTaskMetaPatchWithUndo(task.id, nextPatch, {
             source: String(opts.source || 'task-repeat-detached-history').trim() || 'task-repeat-detached-history',
             label: nextDone ? '循环例外完成记录' : '删除循环例外完成记录',
             refresh: opts.refresh !== false,

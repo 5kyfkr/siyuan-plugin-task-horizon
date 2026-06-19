@@ -125,6 +125,16 @@
                     calendarSearchOptimization: __tmNormalizeCalendarSearchOptimization(normalized.calendarSearchOptimization)
                 };
             }).filter(Boolean),
+            docTabCustomGroups: __tmNormalizeDocTabCustomGroups(data.docTabCustomGroups).map((group) => ({
+                id: String(group?.id || '').trim(),
+                docGroupId: __tmGetDocTabCustomGroupScopeId(group),
+                name: String(group?.name || '').trim(),
+                color: __tmNormalizeHexColor(group?.color || group?.tabColor || group?.bgColor, ''),
+                entries: (Array.isArray(group?.entries) ? group.entries : []).map((entry) => ({
+                    id: String(entry?.id || '').trim(),
+                    includeChildren: !!entry?.includeChildren
+                })).filter((entry) => entry.id)
+            })).filter((group) => group.id),
             otherBlockRefs: __tmNormalizeOtherBlockRefs(data.otherBlockRefs).map((item) => ({
                 id: String(item?.id || '').trim()
             })).filter((item) => item.id),
@@ -173,6 +183,7 @@
         if (data.defaultDocIdByGroup && Object.keys(data.defaultDocIdByGroup).length > 0) return false;
         if (Array.isArray(data.allDocsExcludedDocIds) && data.allDocsExcludedDocIds.length > 0) return false;
         if (Array.isArray(data.otherBlockRefs) && data.otherBlockRefs.length > 0) return false;
+        if (Array.isArray(data.docTabCustomGroups) && data.docTabCustomGroups.some((group) => Array.isArray(group?.entries) && group.entries.length > 0)) return false;
         if (data.docPinnedByGroup && Object.keys(data.docPinnedByGroup).some((key) => Array.isArray(data.docPinnedByGroup[key]) && data.docPinnedByGroup[key].length > 0)) {
             return false;
         }
@@ -251,6 +262,7 @@
         targetData.docGroups = snapshot.docGroups
             .map((group) => __tmNormalizeDocGroupConfig(group, globalScheme))
             .filter(Boolean);
+        targetData.docTabCustomGroups = __tmNormalizeDocTabCustomGroups(snapshot.docTabCustomGroups);
         targetData.otherBlockRefs = __tmNormalizeOtherBlockRefs(snapshot.otherBlockRefs);
         targetData.docPinnedByGroup = __tmSafeCloneJson(snapshot.docPinnedByGroup, {});
         const remoteDocGroupUpdatedAt = __tmGetDocGroupSettingsUpdatedAt(source, {
@@ -836,6 +848,32 @@
         return true;
     }
 
+    async function __tmMaybeReloadWhiteboardSharedStateOnManualRefresh(alreadySyncedServerState, currentMode = '', refreshReason = '') {
+        if (alreadySyncedServerState === true) return false;
+        const mode = String(currentMode || state.viewMode || '').trim();
+        if (mode !== 'whiteboard') return false;
+        const reason = String(refreshReason || '').trim();
+        if (reason && !reason.startsWith('manual')) return false;
+        const sessionSnapshot = __tmCaptureManualRefreshSessionState();
+        const hadPendingLocalWhiteboardSave = !!(SettingsStore?.saveDirty || SettingsStore?.saving || WhiteboardStore?.saveDirty || WhiteboardStore?.saving);
+        try { await SettingsStore.saveNow?.(); } catch (e) {}
+        try { await WhiteboardStore.saveNow?.(); } catch (e) {}
+        const settingsWhiteboardClean = (() => {
+            try { return __tmGetWhiteboardSettingsFingerprint(SettingsStore?.data) === String(SettingsStore?.lastWhiteboardFingerprint || ''); } catch (e) { return false; }
+        })();
+        const whiteboardStoreClean = (() => {
+            try { return __tmGetWhiteboardStoreFingerprint(WhiteboardStore?.data) === String(WhiteboardStore?.lastFingerprint || ''); } catch (e) { return false; }
+        })();
+        const preferRemoteSameVersion = !hadPendingLocalWhiteboardSave && settingsWhiteboardClean && whiteboardStoreClean;
+        __tmCancelSimpleStorePendingSave(WhiteboardStore);
+        try { SettingsStore.loaded = false; } catch (e) {}
+        try { WhiteboardStore.loaded = false; } catch (e) {}
+        await SettingsStore.load({ preferRemoteWhiteboardSameVersion: preferRemoteSameVersion });
+        __tmRestoreManualRefreshSessionState(sessionSnapshot);
+        await WhiteboardStore.load({ preferRemoteSameVersion });
+        return true;
+    }
+
     async function __tmRefreshCore(options = {}) {
         const opt = (options && typeof options === 'object') ? options : {};
         const silent = opt.silent === true;
@@ -884,6 +922,7 @@ state.openToken = (Number(state.openToken) || 0) + 1;
             try { window.__tmCalendarAllTasksCache = null; } catch (e) {}
             try { await __tmEnsureAllDocumentsLoaded(true); } catch (e) {}
             const syncedServerState = await __tmMaybeSyncServerSharedStateOnManualRefresh();
+            const reloadedWhiteboardState = await __tmMaybeReloadWhiteboardSharedStateOnManualRefresh(syncedServerState, mode, reason);
             await __tmFlushSqlTransactionsSafe(`refresh-core:${reason}`);
             await loadSelectedDocuments({
                 skipRender: true,
@@ -965,7 +1004,7 @@ state.openToken = (Number(state.openToken) || 0) + 1;
 
             if (!silent) {
                 __tmRemoveHint(_refreshHint);
-                const syncedLabel = syncedServerState ? '，已同步伺服共享配置' : '';
+                const syncedLabel = syncedServerState ? '，已同步伺服共享配置' : (reloadedWhiteboardState ? '，已同步白板' : '');
                 hint(removedCount > 0 ? `✅ 刷新完成${syncedLabel}，已清理冻结任务 ${removedCount} 项` : `✅ 刷新完成${syncedLabel}`, 'success');
             }
 return true;

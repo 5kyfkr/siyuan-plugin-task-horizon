@@ -13,7 +13,7 @@
     const TM_SETTINGS_SEARCH_MAIN_GROUPS = Object.freeze([
         { section: 'display', titles: ['基础显示', '字体大小', '移动端字体', '行高模式', '行高(px)', '父任务名称加粗', '自动换行', '内容行数', '备注行数', '任务标题级别', '完成反馈', '文档名称显示'] },
         { section: 'new-task', titles: ['新建任务', '新建任务位置', '默认新建文档', '今天日记默认笔记本', '启用“移动内容至今天日记”', '日记追加到底部', '标题分组追加到内容末尾', '新建任务默认置顶', '子任务继承父任务字段'] },
-        { section: 'status', titles: ['状态选项', '勾选完成时状态', '未完成状态默认状态'] },
+        { section: 'status', titles: ['状态选项', '勾选完成时状态', '未完成状态默认状态', '子任务全部完成后自动完成父任务'] },
         { section: 'layout', titles: ['视图布局', '默认视图', '移动端默认', '自动隐藏页签栏', '页签拖延值上色', '启用 Dock 侧边栏', 'Dock 默认视图', 'Dock 紧凑标题点击跳转', '移动端清单紧凑视图标题点击跳转', 'Dock 及移动端紧凑右侧字段', '桌面端紧凑右侧字段', '紧凑右侧字体', '时间轴卡片字段', '标题点击弹出详情页面', '看板紧凑模式', '清单紧凑模式', '清单紧凑层级线', '看板宽度', '表格和看板宽度填满窗口', '看板卡片字段', '白板卡片字段', '卡片字段常驻显示', '卡片流最小宽度', '移动端卡片流双栏', '显示已完成任务看板', '看板拖动父任务时同步更改子任务状态', '看板内子任务不与父任务分离', '时长显示格式', '实际番茄数属性名', '预计番茄数属性名'] },
         { section: 'search', titles: ['搜索分组', '搜索与分组', '递归文档数上限', '兼容旧版 Win7 思源', '父任务回溯层数', '显示已完成任务', '已完成分组仅显示今天完成', '已完成任务不单独分组', '文档分组下按二级标题子分组', '分组模式增加“按任务名分组”', '分组内置顶任务', '自动识别语义日期（全量分批）', '父任务按子任务时间参与时间相关排序', '全部折叠展开包含分组', '手动刷新时同步伺服共享设置', '手动刷新时同步当前分组/规则等会话状态'] },
         { section: 'topbar', titles: ['顶栏入口', '文档顶栏按钮(桌面)', '文档顶栏按钮(移动)', '对调文档顶栏长短按', '打开时定位当前文档', '思源窗口顶栏图标(桌面)', '思源窗口顶栏图标(移动)'] },
@@ -754,6 +754,103 @@
             return doc ? __tmGetDocDisplayName(doc, doc.name || '未知文档') : '未知文档';
         };
 
+        const docTabCustomGroups = __tmGetDocTabCustomGroups();
+        const resolveDocTabGroupDoc = (docId) => {
+            const id = String(docId || '').trim();
+            if (!id) return null;
+            return (Array.isArray(state.allDocuments) ? state.allDocuments : []).find((doc) => String(doc?.id || '').trim() === id)
+                || (Array.isArray(state.taskTree) ? state.taskTree : []).find((doc) => String(doc?.id || '').trim() === id)
+                || { id, name: resolveDocName(id) };
+        };
+        const renderDocTabCustomGroupSettings = () => {
+            const groupsForTabs = __tmNormalizeDocTabCustomGroups(docTabCustomGroups);
+            return `
+                <div style="margin-bottom: 16px; padding: 12px; background: var(--tm-section-bg); border-radius: 8px;" ${__tmSettingsSearchAttrs('docs', '页签自定义分组', '右击页签加入分组，手动选择是否包含子文档，只影响页签栏显示')}>
+                    <div style="display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:8px;">
+                        <div style="font-weight:600;">📑 页签自定义分组</div>
+                        <button class="tm-btn tm-btn-info" data-tm-action="tmCreateDocTabCustomGroupFromSettings" style="padding: 6px 12px; font-size: 12px;">+ 新建页签组</button>
+                    </div>
+                    <div style="font-size:12px;color:var(--tm-secondary-text);line-height:1.7;margin-bottom:10px;">
+                        自定义页签组只折叠页签栏，不改变任务搜索范围和文档分组。父子文档不会自动成组；只有直接成员开启“包含子文档”后，子文档页签才会被收进该页签组。
+                    </div>
+                    ${groupsForTabs.length ? `
+                        <div style="display:flex;flex-direction:column;gap:10px;">
+                            ${groupsForTabs.map((group) => {
+                                const gid = String(group?.id || '').trim();
+                                const groupName = String(group?.name || '').trim() || '未命名页签组';
+                                const entries = Array.isArray(group?.entries) ? group.entries : [];
+                                return `
+                                    <div style="border:1px solid var(--tm-border-color);border-radius:8px;background:var(--tm-card-bg);padding:10px;">
+                                        <div style="display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:8px;">
+                                            <div style="min-width:0;">
+                                                <div style="font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${esc(groupName)}</div>
+                                                <div style="font-size:11px;color:var(--tm-secondary-text);margin-top:2px;">${entries.length} 个直接成员</div>
+                                            </div>
+                                            <div style="display:flex;align-items:center;gap:6px;flex-shrink:0;">
+                                                <button class="tm-btn tm-btn-secondary" onclick="tmRenameDocTabCustomGroup('${escSq(gid)}')" style="padding:3px 8px;font-size:11px;">重命名</button>
+                                                <button class="tm-btn tm-btn-danger" onclick="tmDeleteDocTabCustomGroup('${escSq(gid)}')" style="padding:3px 8px;font-size:11px;">删除</button>
+                                            </div>
+                                        </div>
+                                        <div style="display:flex;gap:8px;margin-bottom:8px;">
+                                            <input data-tm-doc-tab-group-entry-input type="text" placeholder="输入文档 ID"
+                                                style="flex:1;min-width:0;padding:6px 8px;border:1px solid var(--tm-input-border);background:var(--tm-input-bg);color:var(--tm-text-color);border-radius:4px;font-size:12px;">
+                                            <button class="tm-btn tm-btn-primary" onclick="tmAddDocTabCustomGroupEntryFromInput('${escSq(gid)}', this)" style="padding:4px 10px;font-size:12px;">添加</button>
+                                        </div>
+                                        ${entries.length ? `
+                                            <div style="display:flex;flex-direction:column;gap:6px;">
+                                                ${entries.map((entry) => {
+                                                    const docId = String(entry?.id || '').trim();
+                                                    if (!docId) return '';
+                                                    const doc = resolveDocTabGroupDoc(docId);
+                                                    const docName = resolveDocName(docId);
+                                                    const includeChildren = !!entry.includeChildren;
+                                                    const childDocs = __tmGetDocTabChildDocs(docId, [doc]).filter((child) => String(child?.id || '').trim() !== docId);
+                                                    const childPreview = childDocs.slice(0, 6);
+                                                    return `
+                                                        <div style="border:1px solid var(--tm-border-color);border-radius:6px;padding:8px;background:var(--tm-bg-color);">
+                                                            <div style="display:flex;align-items:center;justify-content:space-between;gap:8px;">
+                                                                <div style="display:flex;align-items:center;gap:8px;min-width:0;">
+                                                                    ${__tmRenderDocIcon(doc, { size: 14 })}
+                                                                    <div style="min-width:0;">
+                                                                        <div style="font-size:13px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="${esc(docName)}">${esc(docName)}</div>
+                                                                        <div style="font-size:11px;color:var(--tm-task-done-color);font-family:monospace;">${esc(docId.slice(0, 8))}...</div>
+                                                                    </div>
+                                                                </div>
+                                                                <div style="display:flex;align-items:center;gap:8px;flex-shrink:0;">
+                                                                    <label style="display:flex;align-items:center;gap:5px;font-size:12px;cursor:pointer;user-select:none;">
+                                                                        <input class="b3-switch fn__flex-center" type="checkbox" ${includeChildren ? 'checked' : ''} onchange="tmToggleDocTabCustomGroupEntryChildren('${escSq(gid)}', '${escSq(docId)}', this.checked)">
+                                                                        包含子文档
+                                                                    </label>
+                                                                    <button class="tm-btn tm-btn-danger" onclick="tmRemoveDocFromDocTabCustomGroup('${escSq(gid)}', '${escSq(docId)}')" style="padding:2px 7px;font-size:11px;">移除</button>
+                                                                </div>
+                                                            </div>
+                                                            <div style="margin-top:7px;font-size:12px;color:var(--tm-secondary-text);line-height:1.7;">
+                                                                ${childDocs.length ? `
+                                                                    <div style="margin-bottom:2px;">检测到 ${childDocs.length} 个子文档${includeChildren ? '，符合页签显示条件时会收入页签组' : ''}</div>
+                                                                    <div style="display:flex;flex-direction:column;gap:2px;">
+                                                                        ${childPreview.map((child) => {
+                                                                            const depth = Math.max(1, Number(child?.depth) || 1);
+                                                                            const childName = __tmGetDocDisplayName(child, child.name || '未命名文档');
+                                                                            return `<div style="padding-left:${Math.min(28, depth * 10)}px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">↳ ${esc(childName)}</div>`;
+                                                                        }).join('')}
+                                                                        ${childDocs.length > childPreview.length ? `<div style="padding-left:10px;">还有 ${childDocs.length - childPreview.length} 个...</div>` : ''}
+                                                                    </div>
+                                                                ` : '当前未检测到子文档。开启后，后续符合父子路径的子文档也会收入页签组。'}
+                                                            </div>
+                                                        </div>
+                                                    `;
+                                                }).join('')}
+                                            </div>
+                                        ` : '<div style="color: var(--tm-secondary-text); font-size: 12px; padding: 8px; background: var(--tm-rule-group-bg); border-radius: 6px;">暂无成员。可以右击文档页签加入，或在上方输入文档 ID。</div>'}
+                                    </div>
+                                `;
+                            }).join('')}
+                        </div>
+                    ` : '<div style="color: var(--tm-secondary-text); font-size: 13px; padding: 10px; background: var(--tm-rule-group-bg); border-radius: 8px;">暂无页签组。右击任意文档页签可快速新建并加入。</div>'}
+                </div>
+            `;
+        };
+
         const defaultDocIdByGroup = (SettingsStore.data.defaultDocIdByGroup && typeof SettingsStore.data.defaultDocIdByGroup === 'object')
             ? SettingsStore.data.defaultDocIdByGroup
             : {};
@@ -1432,7 +1529,11 @@
                     ${(settingsSearchCurrentSection = 'status', '')}
                     <div class="tm-settings-panel" style="margin-bottom: 16px;" data-tm-settings-section="status">
                         <div class="tm-settings-section-title">🏷️ 状态选项</div>
-                        <div class="tm-settings-section-desc">${SettingsStore.data.legacyWin7CompatMode ? '维护任务状态列表；兼容旧版 Win7 思源时，任务方括号内仅使用空格和 X，未完成状态统一写为空格，已完成状态写为 X。' : '维护任务状态列表；marker 会写入任务 <code>- [ ]</code> 的方括号中，空格表示未完成，其他字符会被思源视为已勾选。'}</div>
+                        <div class="tm-settings-section-desc">${SettingsStore.data.legacyWin7CompatMode ? '维护任务状态列表；兼容旧版 Win7 思源时，任务方括号内仅使用空格和 X，未完成状态统一写为空格，已完成状态写为 X。' : '维护任务状态列表；语法标记会写入任务 <code>- [ ]</code> 的方括号中，空格表示未完成，其他字符会被思源视为已勾选。'}</div>
+                        <div id="tm-status-options-list">
+                            ${renderStatusOptionsList()}
+                        </div>
+                        <button class="tm-btn tm-btn-primary" data-tm-action="addStatusOption" style="margin-top: 8px; margin-bottom: 10px; font-size: 12px;">+ 添加状态</button>
                         ${renderSingleFieldSetting(
                             '勾选完成时状态',
                             '任务复选框被勾选为完成时，自动切换到这里设置的状态；可选择“不自动切换”。',
@@ -1449,10 +1550,12 @@
                             </select>`,
                             { style: 'margin-bottom:10px;' }
                         )}
-                        <div id="tm-status-options-list">
-                            ${renderStatusOptionsList()}
-                        </div>
-                        <button class="tm-btn tm-btn-primary" data-tm-action="addStatusOption" style="margin-top: 8px; font-size: 12px;">+ 添加状态</button>
+                        ${renderSingleSwitchSetting(
+                            '子任务全部完成后自动完成父任务',
+                            '开启后，一个任务的所有直接子任务都完成时，会自动将该任务标记为完成；取消子任务完成状态不会自动取消父任务。',
+                            `<input class="b3-switch fn__flex-center" type="checkbox" ${SettingsStore.data.autoCompleteParentOnSubtasksDone ? 'checked' : ''} onchange="updateAutoCompleteParentOnSubtasksDone(this.checked)">`,
+                            { style: 'margin-bottom:10px;' }
+                        )}
                     </div>
 
                     ${(settingsSearchCurrentSection = 'layout', '')}
@@ -2125,6 +2228,16 @@
                         </div>
                         <div style="font-size: 12px; color: var(--tm-secondary-text); margin-top: 8px;">
                             提示：在思源笔记中打开文档，文档菜单中复制ID即可得到文档ID
+                        </div>
+                    </div>
+
+                    <div style="margin-bottom: 16px; padding: 12px; background: var(--tm-section-bg); border-radius: 8px;" ${__tmSettingsSearchAttrs('docs', '页签自定义分组', '独立弹窗管理页签组，勾选当前文档分组页签并选择是否包含子文档')}>
+                        <div style="display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap;">
+                            <div>
+                                <div style="font-weight:600;">📑 页签自定义分组</div>
+                                <div style="font-size:12px;color:var(--tm-secondary-text);line-height:1.6;margin-top:4px;">右击页签可快速加入；完整勾选、包含子文档和重命名请在独立弹窗中管理。</div>
+                            </div>
+                            <button class="tm-btn tm-btn-info" onclick="tmOpenDocTabCustomGroupSettings()" style="padding: 6px 12px; font-size: 12px;">管理页签分组</button>
                         </div>
                     </div>
 

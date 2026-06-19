@@ -303,7 +303,7 @@
         if (existing) {
             try { if (state.desktopMenuCloseTimer) { clearTimeout(state.desktopMenuCloseTimer); state.desktopMenuCloseTimer = null; } } catch (e2) {}
             if (state.desktopMenuCloseHandler) {
-                try { document.removeEventListener('click', state.desktopMenuCloseHandler); } catch (e2) {}
+                try { __tmClearOutsideCloseHandler(state.desktopMenuCloseHandler); } catch (e2) {}
                 state.desktopMenuCloseHandler = null;
             }
             __desktopMenuUnstack?.();
@@ -408,17 +408,14 @@
             if (!menu.contains(ev.target) && ev.target !== e.target) {
                 __desktopMenuUnstack?.();
                 __desktopMenuUnstack = null;
-                menu.remove();
-                try { document.removeEventListener('click', closeHandler); } catch (e2) {}
+                try { __tmAnimatePopupOutAndRemove(menu); } catch (e2) { try { menu.remove(); } catch (e3) {} }
+                try { __tmClearOutsideCloseHandler(closeHandler); } catch (e2) {}
                 if (state.desktopMenuCloseHandler === closeHandler) state.desktopMenuCloseHandler = null;
             }
         };
         state.desktopMenuCloseHandler = closeHandler;
         try { if (state.desktopMenuCloseTimer) { clearTimeout(state.desktopMenuCloseTimer); state.desktopMenuCloseTimer = null; } } catch (e2) {}
-        state.desktopMenuCloseTimer = setTimeout(() => {
-            try { document.addEventListener('click', closeHandler); } catch (e2) {}
-            try { state.desktopMenuCloseTimer = null; } catch (e2) {}
-        }, 0);
+        try { __tmScheduleBindOutsideCloseHandler(closeHandler, { ignoreSelector: '#tmDesktopMenu, .tm-desktop-menu-btn', capture: true }); } catch (e2) {}
 
         const trigger = e?.currentTarget instanceof Element
             ? e.currentTarget
@@ -457,7 +454,7 @@
             }
         } catch (e) {}
         if (state.desktopMenuCloseHandler) {
-            try { document.removeEventListener('click', state.desktopMenuCloseHandler); } catch (e) {}
+            try { __tmClearOutsideCloseHandler(state.desktopMenuCloseHandler); } catch (e) {}
             state.desktopMenuCloseHandler = null;
         }
         try { __tmAnimatePopupOutAndRemove(document.getElementById('tmDesktopMenu')); } catch (e) {}
@@ -548,8 +545,7 @@
         }
         try { if (state.mobileMenuCloseTimer) { clearTimeout(state.mobileMenuCloseTimer); state.mobileMenuCloseTimer = null; } } catch (e) {}
         if (state.mobileMenuCloseHandler) {
-            try { document.removeEventListener('click', state.mobileMenuCloseHandler); } catch (e) {}
-            try { document.removeEventListener('touchstart', state.mobileMenuCloseHandler); } catch (e) {}
+            try { __tmClearOutsideCloseHandler(state.mobileMenuCloseHandler); } catch (e) {}
             state.mobileMenuCloseHandler = null;
         }
     }
@@ -617,23 +613,19 @@
             } catch (e2) {}
 
             if (state.mobileMenuCloseHandler) {
-                try { document.removeEventListener('click', state.mobileMenuCloseHandler); } catch (e2) {}
-                try { document.removeEventListener('touchstart', state.mobileMenuCloseHandler); } catch (e2) {}
+                try { __tmClearOutsideCloseHandler(state.mobileMenuCloseHandler); } catch (e2) {}
                 state.mobileMenuCloseHandler = null;
             }
             const closeHandler = (ev) => {
-                if (menu.contains(ev.target)) return;
-                if (ev.target.closest('.tm-mobile-menu-btn')) return;
+                const target = ev?.target instanceof Element ? ev.target : null;
+                if (target && menu.contains(target)) return;
+                if (target?.closest?.('.tm-mobile-menu-btn')) return;
                 __tmHideMobileMenu();
             };
             state.mobileMenuCloseHandler = closeHandler;
 
             try { if (state.mobileMenuCloseTimer) { clearTimeout(state.mobileMenuCloseTimer); state.mobileMenuCloseTimer = null; } } catch (e2) {}
-            state.mobileMenuCloseTimer = setTimeout(() => {
-                try { document.addEventListener('click', closeHandler); } catch (e2) {}
-                try { document.addEventListener('touchstart', closeHandler, { passive: true }); } catch (e2) {}
-                try { state.mobileMenuCloseTimer = null; } catch (e2) {}
-            }, 0);
+            try { __tmScheduleBindOutsideCloseHandler(closeHandler, { ignoreSelector: '#tmMobileMenu, .tm-mobile-menu-btn', capture: true }); } catch (e2) {}
         } else {
             __tmHideMobileMenu();
         }
@@ -684,6 +676,101 @@
                 }, 0);
             }
         } catch (e) {}
+    };
+
+    function __tmMarkMobileBottomViewbarSwitching(bar, durationMs = 520) {
+        const duration = Math.max(180, Math.min(1000, Math.round(Number(durationMs) || 520)));
+        const until = Date.now() + duration;
+        try { state.mobileBottomViewbarSwitchingUntil = until; } catch (e) {}
+        try { bar?.classList?.add?.('tm-mobile-bottom-viewbar--switching'); } catch (e) {}
+        try { state.modal?.classList?.add?.('tm-modal--mobile-view-switching'); } catch (e) {}
+        try {
+            if (state.mobileBottomViewbarSwitchingTimer) clearTimeout(state.mobileBottomViewbarSwitchingTimer);
+            state.mobileBottomViewbarSwitchingTimer = setTimeout(() => {
+                try { state.mobileBottomViewbarSwitchingTimer = 0; } catch (e2) {}
+                if (Date.now() < (Number(state.mobileBottomViewbarSwitchingUntil) || 0)) return;
+                try { state.mobileBottomViewbarSwitchingUntil = 0; } catch (e2) {}
+                try { bar?.classList?.remove?.('tm-mobile-bottom-viewbar--switching'); } catch (e2) {}
+                try { state.modal?.classList?.remove?.('tm-modal--mobile-view-switching'); } catch (e2) {}
+                try { state.modal?.querySelector?.('.tm-mobile-bottom-viewbar')?.classList?.remove?.('tm-mobile-bottom-viewbar--switching'); } catch (e2) {}
+            }, duration + 40);
+        } catch (e) {}
+    }
+
+    function __tmOptimisticSelectMobileBottomView(target, mode) {
+        const next = String(mode || '').trim();
+        if (!next) return;
+        const button = target instanceof Element
+            ? (target.matches?.('[data-tm-view-mode]') ? target : target.closest?.('[data-tm-view-mode]'))
+            : null;
+        const switcher = button?.closest?.('.tm-mobile-bottom-view-switcher');
+        if (!(switcher instanceof Element)) return;
+        try {
+            switcher.querySelectorAll('[data-tm-view-mode]').forEach((item) => {
+                const active = String(item.getAttribute('data-tm-view-mode') || '').trim() === next;
+                try { item.classList.toggle('tm-view-seg-item--active', active); } catch (e2) {}
+                try { item.setAttribute('data-state', active ? 'active' : 'inactive'); } catch (e2) {}
+                try { item.setAttribute('aria-selected', active ? 'true' : 'false'); } catch (e2) {}
+            });
+        } catch (e) {}
+    }
+
+    function __tmScheduleMobileBottomViewSwitch(mode) {
+        const next = String(mode || '').trim();
+        if (!next) return false;
+        const token = (Number(state.mobileBottomViewSwitchToken) || 0) + 1;
+        state.mobileBottomViewSwitchToken = token;
+        try {
+            if (state.mobileBottomViewSwitchTimer) clearTimeout(state.mobileBottomViewSwitchTimer);
+            state.mobileBottomViewSwitchTimer = 0;
+        } catch (e) {}
+        const run = () => {
+            if (token !== (Number(state.mobileBottomViewSwitchToken) || 0)) return;
+            try { state.mobileBottomViewSwitchTimer = 0; } catch (e) {}
+            try { window.tmSwitchViewMode(next); } catch (e) {}
+        };
+        try {
+            if (typeof requestAnimationFrame === 'function') {
+                requestAnimationFrame(() => {
+                    if (token !== (Number(state.mobileBottomViewSwitchToken) || 0)) return;
+                    requestAnimationFrame(() => {
+                        if (token !== (Number(state.mobileBottomViewSwitchToken) || 0)) return;
+                        try { state.mobileBottomViewSwitchTimer = setTimeout(run, 0); } catch (e2) { run(); }
+                    });
+                });
+                return true;
+            }
+        } catch (e) {}
+        try { state.mobileBottomViewSwitchTimer = setTimeout(run, 32); } catch (e) { run(); }
+        return true;
+    }
+
+    function __tmCancelMobileBottomViewSwitch() {
+        state.mobileBottomViewSwitchToken = (Number(state.mobileBottomViewSwitchToken) || 0) + 1;
+        try {
+            if (state.mobileBottomViewSwitchTimer) clearTimeout(state.mobileBottomViewSwitchTimer);
+            state.mobileBottomViewSwitchTimer = 0;
+        } catch (e) {}
+    }
+
+    window.tmSwitchViewModeFromMobileBottomNav = function(mode, event) {
+        try { event?.preventDefault?.(); } catch (e) {}
+        try { event?.stopPropagation?.(); } catch (e) {}
+        const next = String(mode || '').trim();
+        if (!next) return false;
+        const currentTarget = event?.currentTarget instanceof Element ? event.currentTarget : null;
+        const target = event?.target instanceof Element ? event.target : currentTarget;
+        const bar = target?.closest?.('.tm-mobile-bottom-viewbar');
+        try { window.tmTouchMobileBottomViewbar(event); } catch (e) {}
+        try { __tmOptimisticSelectMobileBottomView(target, next); } catch (e) {}
+        const current = globalThis.__tmRuntimeState?.getViewMode?.('') || String(state.viewMode || '').trim();
+        if (!state.homepageOpen && !state.attachmentLibraryOpen && current === next) {
+            try { __tmCancelMobileBottomViewSwitch(); } catch (e) {}
+            return false;
+        }
+        try { __tmMarkMobileBottomViewbarSwitching(bar); } catch (e) {}
+        __tmScheduleMobileBottomViewSwitch(next);
+        return false;
     };
 
     window.tmTouchTimelineMobileToolbarButton = function(event) {
@@ -857,8 +944,11 @@
         __tmCloseTopbarSelects();
     }
 
-    if (!window.__tmTopbarSelectOutsideBound) {
-        window.__tmTopbarSelectOutsideBound = true;
+    if (window.__tmTopbarSelectOutsideBound !== 'pointer-v2') {
+        window.__tmTopbarSelectOutsideBound = 'pointer-v2';
+        document.addEventListener('pointerdown', __tmOnTopbarSelectOutsideClick, true);
+        document.addEventListener('mousedown', __tmOnTopbarSelectOutsideClick, true);
+        document.addEventListener('touchstart', __tmOnTopbarSelectOutsideClick, { capture: true, passive: true });
         document.addEventListener('click', __tmOnTopbarSelectOutsideClick, true);
     }
 
@@ -875,7 +965,7 @@
                 state.desktopMenuCloseTimer = null;
             }
             if (state.desktopMenuCloseHandler) {
-                document.removeEventListener('click', state.desktopMenuCloseHandler);
+                try { __tmClearOutsideCloseHandler(state.desktopMenuCloseHandler); } catch (e2) {}
                 state.desktopMenuCloseHandler = null;
             }
             __tmAnimatePopupOutAndRemove(document.getElementById('tmDesktopMenu'));

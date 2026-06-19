@@ -73,10 +73,20 @@
                 return stats;
             };
 
-            const selectedDocIds = (state.activeDocId && state.activeDocId !== 'all')
-                ? [String(state.activeDocId)]
-                : docsInOrder;
-            const isAllTabsView = !(state.activeDocId && state.activeDocId !== 'all');
+            const activeDocId = String(state.activeDocId || '').trim();
+            const activeDocTabCustomGroupDocIds = (typeof __tmGetActiveDocTabCustomGroupDocIdSet === 'function')
+                ? __tmGetActiveDocTabCustomGroupDocIdSet(activeDocId, {
+                    currentGroupId,
+                    docs: state.taskTree || []
+                })
+                : null;
+            const isDocTabCustomGroupActive = activeDocTabCustomGroupDocIds instanceof Set && activeDocTabCustomGroupDocIds.size > 0;
+            const selectedDocIds = isDocTabCustomGroupActive
+                ? docsInOrder.filter((id) => activeDocTabCustomGroupDocIds.has(String(id || '').trim()))
+                : ((state.activeDocId && state.activeDocId !== 'all')
+                    ? [String(state.activeDocId)]
+                    : docsInOrder);
+            const isAllTabsView = !(state.activeDocId && state.activeDocId !== 'all') || isDocTabCustomGroupActive;
             const docIdSet = new Set(selectedDocIds);
             const byDoc = new Map();
             const pushDocTask = (taskLike) => {
@@ -164,20 +174,24 @@
             // 不在这里按完成状态强制清空选中，避免点击已完成卡片后选中态立即丢失。
             // 仅当任务真实不存在时（见上方分支）才清理选中态。
 
-            const allView = !(state.activeDocId && state.activeDocId !== 'all');
+            const allView = isAllTabsView;
             if (allView && __tmGetWhiteboardAllTabsLayoutMode() === 'stream') {
+                const streamDocIds = (typeof __tmGetVisibleDocTabsForCurrentGroup === 'function'
+                    ? __tmGetVisibleDocTabsForCurrentGroup().map((doc) => String(doc?.id || '').trim()).filter(Boolean)
+                    : selectedDocIds.slice());
+                const streamDocIdSet = new Set(streamDocIds);
                 const streamByDoc = new Map();
                 filtered.forEach((task) => {
                     if (!task || typeof task !== 'object') return;
                     const docId = String(task?.root_id || task?.docId || '').trim();
                     const id = String(task?.id || '').trim();
-                    if (!docId || !id || !docIdSet.has(docId)) return;
+                    if (!docId || !id || !streamDocIdSet.has(docId)) return;
                     if (!streamByDoc.has(docId)) streamByDoc.set(docId, []);
                     const list = streamByDoc.get(docId);
                     if (list.some((item) => String(item?.id || '').trim() === id)) return;
                     list.push(task);
                 });
-                const visibleDocIds0 = selectedDocIds.filter((docId) => (streamByDoc.get(String(docId || '').trim()) || []).length > 0);
+                const visibleDocIds0 = streamDocIds.filter((docId) => (streamByDoc.get(String(docId || '').trim()) || []).length > 0);
                 const orderedVisibleDocIds = __tmGetWhiteboardAllTabsOrderedDocIds(currentGroupId, visibleDocIds0);
                 state.whiteboardAllTabsVisibleDocIds = orderedVisibleDocIds.slice();
                 state.whiteboardAllTabsBaseDocIds = docsInOrder0.slice();
@@ -281,7 +295,7 @@
                             <div class="tm-whiteboard-stream-task-node" data-task-id="${esc(tid)}" data-id="${esc(tid)}">
                                 <div class="tm-whiteboard-stream-task">
                                     <div class="tm-whiteboard-stream-task-head${multiSelectCls}" data-task-id="${esc(tid)}" data-id="${esc(tid)}" draggable="true" ondragstart="tmDragTaskStart(event, '${escSq(tid)}')" ondragend="tmDragTaskEnd(event)" oncontextmenu="tmShowTaskContextMenu(event, '${escSq(tid)}')" onclick="tmWhiteboardStreamTaskHeadClick('${escSq(tid)}', event)">
-                                        ${__tmRenderTaskCheckboxWrap(tid, task, { checked: task?.done, stopMouseDown: true, stopClick: true, title: '完成状态' })}
+                                        ${__tmRenderTaskCheckboxWrap(tid, task, { checked: task?.done, stopMouseDown: true, stopPointerDown: true, stopClick: true, title: '完成状态', onchange: `tmWhiteboardSetDone('${escSq(tid)}', this.checked, event)` })}
                                         <span class="tm-whiteboard-stream-task-title${parentTaskTitleCls}${task?.done ? ' tm-task-done' : ''}" onpointerdown="tmWhiteboardStreamTaskTitlePointerDown(event)" onmousedown="tmWhiteboardStreamTaskTitleMouseDown(event)" onclick="tmWhiteboardStreamTaskTitleClick('${escSq(tid)}', event)"${__tmBuildTooltipAttrs(String(content || '').trim() || '(无内容)', { side: 'bottom', ariaLabel: false })} style="${__tmBuildTaskTitleOpacityStyle(task)}">${API.renderTaskContentHtml(task?.markdown, content)}${__tmRenderGlobalCollectDocTaskInlineIcon(task)}${completedTodayBadgeHtml}${__tmRenderRecurringTaskInlineIcon(task)}${__tmRenderRecurringInstanceBadge(task, { className: 'tm-recurring-instance-badge--inline' })}</span>
                                         ${toggleHtml}
                                     </div>
@@ -639,7 +653,8 @@
                             return ` data-x="${px}" data-y="${py}" style="left:${px}px;top:${py}px;"`;
                         })()
                         : '';
-                    const nodeMouse = ` onmousedown="tmWhiteboardCardMouseDown(event, '${escSq(tid)}', '${escSq(docId)}')"`;
+                    const nodeMouse = ` onpointerdown="tmWhiteboardCardPointerDown(event, '${escSq(tid)}', '${escSq(docId)}')" onmousedown="tmWhiteboardCardMouseDown(event, '${escSq(tid)}', '${escSq(docId)}')"`;
+                    const nodeContextMenu = ` oncontextmenu="return tmWhiteboardCardContextMenu(event, '${escSq(tid)}')"`;
                     const selectClick = ` onclick="tmWhiteboardSelectTask('${escSq(tid)}', event)"`;
                     const deleteTitle = isGhost ? '移除快照卡片并彻底移除记录（不进入侧边栏）' : '移除卡片并回到侧栏';
                     const parentId = __tmResolveWhiteboardTaskParentId(tid);
@@ -706,6 +721,7 @@
                         title: isGhost ? '快照任务，当前不可直接勾选' : '',
                         stopMouseDown: true,
                         stopClick: true,
+                        onchange: `tmWhiteboardSetDone('${escSq(tid)}', this.checked, event)`,
                         collapsed: !!(collapsed && totalChildren),
                     });
                     const titleInnerHtml = `${API.renderTaskContentHtml(task?.markdown, content || '(无内容)')}${__tmRenderGlobalCollectDocTaskInlineIcon(task)}${__tmRenderRecurringTaskInlineIcon(task)}${__tmRenderRecurringInstanceBadge(task, { className: 'tm-recurring-instance-badge--inline' })}`;
@@ -738,7 +754,7 @@
                         : '';
                     if (depth > 0) {
                         return `
-                            <div class="${cls}" data-task-id="${esc(tid)}" data-doc-id="${esc(docId)}"${nodeMouse}${selectClick} oncontextmenu="tmShowTaskContextMenu(event, '${escSq(tid)}')">
+                            <div class="${cls}" data-task-id="${esc(tid)}" data-doc-id="${esc(docId)}"${nodeMouse}${selectClick}${nodeContextMenu}>
                                 ${toolsHtml}
                                 <span class="tm-task-link-dot tm-task-link-dot--in${state.whiteboardLinkFromTaskId === tid ? ' tm-task-link-dot--active' : ''}" draggable="true" onmousedown="tmTaskLinkDotPressStart(event, '${escSq(tid)}', '${escSq(docId)}')" ondragstart="tmTaskLinkDotDragStart(event, '${escSq(tid)}', '${escSq(docId)}')" ondragend="tmTaskLinkDotDragEnd(event)" ondragover="tmTaskLinkDotDragOver(event, '${escSq(tid)}', '${escSq(docId)}')" ondrop="tmTaskLinkDotDrop(event, '${escSq(tid)}', '${escSq(docId)}')" title="连接输入点"></span>
                                 <span class="tm-task-link-dot tm-task-link-dot--out${state.whiteboardLinkFromTaskId === tid ? ' tm-task-link-dot--active' : ''}" draggable="true" onmousedown="tmTaskLinkDotPressStart(event, '${escSq(tid)}', '${escSq(docId)}')" ondragstart="tmTaskLinkDotDragStart(event, '${escSq(tid)}', '${escSq(docId)}')" ondragend="tmTaskLinkDotDragEnd(event)" ondragover="tmTaskLinkDotDragOver(event, '${escSq(tid)}', '${escSq(docId)}')" ondrop="tmTaskLinkDotDrop(event, '${escSq(tid)}', '${escSq(docId)}')" title="连接输出点"></span>
@@ -759,7 +775,7 @@
                         `;
                     }
                     return `
-                        <div class="${cls}" data-task-id="${esc(tid)}" data-doc-id="${esc(docId)}"${rootStyle}${nodeMouse}${selectClick} oncontextmenu="tmShowTaskContextMenu(event, '${escSq(tid)}')">
+                        <div class="${cls}" data-task-id="${esc(tid)}" data-doc-id="${esc(docId)}"${rootStyle}${nodeMouse}${selectClick}${nodeContextMenu}>
                             ${toolsHtml}
                             <span class="tm-task-link-dot tm-task-link-dot--in${state.whiteboardLinkFromTaskId === tid ? ' tm-task-link-dot--active' : ''}" draggable="true" onmousedown="tmTaskLinkDotPressStart(event, '${escSq(tid)}', '${escSq(docId)}')" ondragstart="tmTaskLinkDotDragStart(event, '${escSq(tid)}', '${escSq(docId)}')" ondragend="tmTaskLinkDotDragEnd(event)" ondragover="tmTaskLinkDotDragOver(event, '${escSq(tid)}', '${escSq(docId)}')" ondrop="tmTaskLinkDotDrop(event, '${escSq(tid)}', '${escSq(docId)}')" title="连接输入点"></span>
                             <span class="tm-task-link-dot tm-task-link-dot--out${state.whiteboardLinkFromTaskId === tid ? ' tm-task-link-dot--active' : ''}" draggable="true" onmousedown="tmTaskLinkDotPressStart(event, '${escSq(tid)}', '${escSq(docId)}')" ondragstart="tmTaskLinkDotDragStart(event, '${escSq(tid)}', '${escSq(docId)}')" ondragend="tmTaskLinkDotDragEnd(event)" ondragover="tmTaskLinkDotDragOver(event, '${escSq(tid)}', '${escSq(docId)}')" ondrop="tmTaskLinkDotDrop(event, '${escSq(tid)}', '${escSq(docId)}')" title="连接输出点"></span>
@@ -1086,7 +1102,7 @@
                         <div class="tm-whiteboard-pool-node" style="padding-left:${indent}px;">
                             <div class="tm-whiteboard-pool-item${doneCls}${parentCls}${topCls}${lockedCls}${selectedCls}" data-task-id="${esc(tid)}" draggable="${draggableAttr}"${mouseDownAttr}${dragStartAttr}${dragEndAttr} title="${itemTitle}">
                                 ${toggleHtml}
-                                ${__tmRenderTaskCheckboxWrap(tid, task, { checked: task?.done, stopMouseDown: true, title: '完成状态', collapsed: !!collapsed })}
+                                ${__tmRenderTaskCheckboxWrap(tid, task, { checked: task?.done, stopMouseDown: true, stopPointerDown: true, stopClick: true, title: '完成状态', onchange: `tmWhiteboardSetDone('${escSq(tid)}', this.checked, event)`, collapsed: !!collapsed })}
                                 ${docBadgeHtml}
                                 <span class="tm-whiteboard-pool-item-title${parentTaskTitleCls}"><span class="tm-task-content-clickable" onclick="tmJumpToTask('${escSq(tid)}', event)"${__tmBuildTooltipAttrs(String(task?.content || '').trim() || '(无内容)', { side: 'bottom', ariaLabel: false })} style="${__tmBuildTaskTitleOpacityStyle(task)}">${API.renderTaskContentHtml(task?.markdown, String(task?.content || '').trim() || '(无内容)')}${__tmRenderGlobalCollectDocTaskInlineIcon(task)}${__tmRenderRecurringTaskInlineIcon(task)}${__tmRenderRecurringInstanceBadge(task, { className: 'tm-recurring-instance-badge--inline' })}</span></span>
                             </div>
@@ -1190,7 +1206,7 @@
                                         <div class="tm-whiteboard-pool-node" style="padding-left:${indent}px;">
                                             <div class="tm-whiteboard-pool-item${doneCls}${parentCls}${topCls}${lockedCls}${selectedCls}" data-task-id="${esc(tid)}" draggable="${draggableAttr}"${mouseDownAttr}${dragStartAttr}${dragEndAttr} title="${itemTitle}">
                                                 ${toggleHtml}
-                                                ${__tmRenderTaskCheckboxWrap(tid, task, { checked: task?.done, stopMouseDown: true, title: '完成状态', collapsed: !!collapsed })}
+                                                ${__tmRenderTaskCheckboxWrap(tid, task, { checked: task?.done, stopMouseDown: true, stopPointerDown: true, stopClick: true, title: '完成状态', onchange: `tmWhiteboardSetDone('${escSq(tid)}', this.checked, event)`, collapsed: !!collapsed })}
                                                 <span class="tm-whiteboard-pool-item-title${parentTaskTitleCls}"><span class="tm-task-content-clickable" onclick="tmJumpToTask('${escSq(tid)}', event)"${__tmBuildTooltipAttrs(String(task?.content || '').trim() || '(无内容)', { side: 'bottom', ariaLabel: false })} style="${__tmBuildTaskTitleOpacityStyle(task)}">${API.renderTaskContentHtml(task?.markdown, String(task?.content || '').trim() || '(无内容)')}${__tmRenderGlobalCollectDocTaskInlineIcon(task)}${__tmRenderRecurringTaskInlineIcon(task)}${__tmRenderRecurringInstanceBadge(task, { className: 'tm-recurring-instance-badge--inline' })}</span></span>
                                             </div>
                                             ${kidsHtml}
@@ -1360,6 +1376,7 @@
                 whiteboardLayoutStateDirty = true;
             }
             if (whiteboardLayoutStateDirty) {
+                try { WhiteboardStore?.syncFromSettings?.(SettingsStore.data, 'render-layout-normalize'); } catch (e) {}
                 try { SettingsStore.save().catch(() => null); } catch (e) {}
             }
 

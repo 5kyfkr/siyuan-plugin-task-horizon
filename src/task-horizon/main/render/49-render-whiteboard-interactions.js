@@ -33,6 +33,79 @@
         }, 180);
     }
 
+    window.tmWhiteboardSetDone = function(taskId, checked, ev) {
+        try { ev?.stopPropagation?.(); } catch (e) {}
+        const tid = String(taskId || '').trim();
+        const targetDone = !!checked;
+        const checkbox = ev?.target instanceof HTMLInputElement ? ev.target : null;
+        if (!tid) return false;
+        const previousTask = (typeof __tmTaskStateKernel !== 'undefined' && __tmTaskStateKernel?.getTask)
+            ? __tmTaskStateKernel.getTask(tid)
+            : (globalThis.__tmRuntimeState?.getTaskById?.(tid, { includePending: true, preferPending: true }) || state.flatTasks?.[tid] || state.pendingInsertedTasks?.[tid] || null);
+        if (previousTask && typeof __tmIsRecurringInstanceTask === 'function' && __tmIsRecurringInstanceTask(previousTask)) {
+            if (targetDone !== false || typeof window.tmSetDone !== 'function') {
+                try { if (checkbox) checkbox.checked = true; } catch (e) {}
+                try { hint('⚠️ 循环完成实例只能撤销完成，请在这里取消勾选', 'warning'); } catch (e) {}
+                return false;
+            }
+            Promise.resolve(window.tmSetDone(tid, false, ev, {
+                source: 'whiteboard-recurring-instance-uncomplete',
+            })).then((result) => {
+                if (result === false) {
+                    try { if (checkbox) checkbox.checked = true; } catch (e) {}
+                }
+            }).catch((error) => {
+                try { if (checkbox) checkbox.checked = true; } catch (e) {}
+                try { hint(`❌ 撤销失败: ${error?.message || String(error)}`, 'error'); } catch (e) {}
+            });
+            return true;
+        }
+        const previousDone = !!previousTask?.done;
+        const previousStatus = String(previousTask?.customStatus || previousTask?.custom_status || '').trim();
+        const statusPatch = (typeof __tmBuildCheckboxStatusPatch === 'function')
+            ? __tmBuildCheckboxStatusPatch(previousTask, targetDone)
+            : null;
+        const donePatch = {
+            done: targetDone,
+            ...((statusPatch && typeof statusPatch === 'object') ? statusPatch : {}),
+        };
+        let request = null;
+        try {
+            if (typeof __tmMutationEngine === 'undefined' || typeof __tmMutationEngine.requestTaskPatch !== 'function') throw new Error('任务写入引擎未就绪');
+            request = __tmMutationEngine.requestTaskPatch(tid, donePatch, {
+                source: 'whiteboard-card-done',
+                label: '完成状态',
+                optimistic: true,
+                skipViewRefresh: true,
+                skipSettledRefresh: true,
+                optimisticProjectionRefresh: false,
+                forceProjectionRefresh: false,
+                skipDetailPatch: true,
+                fallback: false,
+                refreshAncestorViews: false,
+            });
+            try {
+                if (typeof __tmViewControllers !== 'undefined') {
+                    __tmViewControllers?.whiteboard?.patchTask?.(tid, donePatch);
+                }
+            } catch (e) {}
+        } catch (error) {
+            try { if (checkbox) checkbox.checked = previousDone; } catch (e) {}
+            try { hint(`❌ 操作失败: ${error?.message || String(error)}`, 'error'); } catch (e) {}
+            return false;
+        }
+        Promise.resolve(request).catch((error) => {
+            try { if (checkbox) checkbox.checked = previousDone; } catch (e) {}
+            try {
+                if (typeof __tmViewControllers !== 'undefined') {
+                    __tmViewControllers?.whiteboard?.patchTask?.(tid, { done: previousDone, customStatus: previousStatus });
+                }
+            } catch (e) {}
+            try { hint(`❌ 操作失败: ${error?.message || String(error)}`, 'error'); } catch (e) {}
+        });
+        return true;
+    };
+
     function __tmMeasureWhiteboardNavigatorWorldRect(el, viewportRect, view) {
         if (!(el instanceof HTMLElement)) return null;
         const zoom = Math.max(0.01, Number(view?.zoom) || 1);
@@ -273,6 +346,7 @@
         if (target?.closest?.('.tm-whiteboard-navigator__hide,.tm-whiteboard-navigator-reveal')) return;
         const frame = state.modal?.querySelector?.('.tm-whiteboard-navigator__viewport');
         const navigator = state.modal?.querySelector?.('#tmWhiteboardNavigator');
+        const viewport = state.modal?.querySelector?.('#tmWhiteboardViewport');
         const surface = state.modal?.querySelector?.('.tm-whiteboard-navigator__surface');
         const model = state.whiteboardNavigatorModel;
         const current = model?.currentRect;
@@ -307,6 +381,7 @@
             model,
         };
         try { navigator?.classList?.add?.('tm-whiteboard-navigator--dragging'); } catch (e) {}
+        try { viewport?.classList?.add?.('tm-whiteboard-viewport--moving'); } catch (e) {}
         const captureEl = ev?.currentTarget instanceof HTMLElement ? ev.currentTarget : frame;
         if (hasPointerId && typeof captureEl.setPointerCapture === 'function') {
             try { captureEl.setPointerCapture(pointerId); } catch (e) {}
@@ -355,6 +430,7 @@
                 try { captureEl.releasePointerCapture(pointerId); } catch (e) {}
             }
             try { navigator?.classList?.remove?.('tm-whiteboard-navigator--dragging'); } catch (e) {}
+            try { viewport?.classList?.remove?.('tm-whiteboard-viewport--moving'); } catch (e) {}
             state.whiteboardNavigatorDrag = null;
             __tmScheduleWhiteboardNavigatorUpdate();
             __tmScheduleWhiteboardViewSave();
@@ -518,6 +594,138 @@
             }
         } catch (e) {}
     }
+
+    function __tmFindWhiteboardTaskNode(taskId, docId) {
+        const tid = String(taskId || '').trim();
+        const did = String(docId || '').trim();
+        if (!tid || !did) return null;
+        try {
+            const body = state.modal?.querySelector?.('#tmWhiteboardBody');
+            if (!(body instanceof Element)) return null;
+            const selector = `.tm-whiteboard-node[data-task-id="${CSS.escape(tid)}"][data-doc-id="${CSS.escape(did)}"]`;
+            const node = body.querySelector(selector);
+            return node instanceof HTMLElement ? node : null;
+        } catch (e) {
+            return null;
+        }
+    }
+
+    function __tmCenterWhiteboardNodeInViewport(node, opts = {}) {
+        if (!(node instanceof HTMLElement)) return false;
+        const viewport = state.modal?.querySelector?.('#tmWhiteboardViewport');
+        if (!(viewport instanceof HTMLElement)) return false;
+        const nodeRect = node.getBoundingClientRect();
+        const viewportRect = viewport.getBoundingClientRect();
+        if (!Number.isFinite(nodeRect.left) || !Number.isFinite(nodeRect.top) || nodeRect.width <= 0 || nodeRect.height <= 0) return false;
+        const view = __tmGetWhiteboardView();
+        const currentZoom = Math.max(0.35, Math.min(2.5, Number(view?.zoom) || 1));
+        const options = (opts && typeof opts === 'object') ? opts : {};
+        const requestedMinZoom = Number(options.minZoom);
+        const minZoom = Number.isFinite(requestedMinZoom) ? Math.max(0.35, Math.min(2.5, requestedMinZoom)) : currentZoom;
+        const zoom = Math.max(currentZoom, minZoom);
+        const worldX = (nodeRect.left - viewportRect.left - Number(view.x || 0)) / currentZoom;
+        const worldY = (nodeRect.top - viewportRect.top - Number(view.y || 0)) / currentZoom;
+        const worldCx = worldX + (nodeRect.width / currentZoom / 2);
+        const worldCy = worldY + (nodeRect.height / currentZoom / 2);
+        if (!Number.isFinite(worldCx) || !Number.isFinite(worldCy)) return false;
+        const x = (Number(viewport.clientWidth || viewportRect.width || 0) / 2) - (worldCx * zoom);
+        const y = (Number(viewport.clientHeight || viewportRect.height || 0) / 2) - (worldCy * zoom);
+        if (!Number.isFinite(x) || !Number.isFinite(y)) return false;
+        __tmSetWhiteboardView({ x, y, zoom }, { persist: false });
+        __tmApplyWhiteboardTransform();
+        __tmScheduleWhiteboardViewSave();
+        return true;
+    }
+
+    window.tmJumpToWhiteboardTask = async function(taskId, ev) {
+        try { ev?.preventDefault?.(); } catch (e) {}
+        try { ev?.stopPropagation?.(); } catch (e) {}
+        const id = String(taskId || '').trim();
+        if (!id) return false;
+        if (typeof __tmIsOptimisticTempTaskId === 'function' && __tmIsOptimisticTempTaskId(id)) {
+            try { hint('⏳ 任务正在写入，完成后可跳转到白板', 'info'); } catch (e) {}
+            return false;
+        }
+        const location = __tmResolveWhiteboardTaskLocation(id);
+        if (!location) {
+            try { hint('⚠ 该任务不在白板上', 'warning'); } catch (e) {}
+            return false;
+        }
+        const docId = String(location.docId || '').trim();
+        const targetTaskId = String(location.targetTaskId || location.taskId || id).trim();
+        if (!docId || !targetTaskId) return false;
+        try {
+            if (String(state.viewMode || '').trim() !== 'whiteboard') {
+                window.tmSwitchViewMode?.('whiteboard');
+            }
+            if (String(state.activeDocId || 'all').trim() !== docId) {
+                await window.tmSwitchDoc?.(docId);
+            }
+        } catch (e) {}
+
+        return await new Promise((resolve) => {
+            const startedAt = Date.now();
+            let tries = 0;
+            const maxWaitMs = 4500;
+            const isWhiteboardReady = () => {
+                if (String(state.viewMode || '').trim() !== 'whiteboard') return false;
+                if (String(state.activeDocId || 'all').trim() !== docId) return false;
+                const modal = state.modal instanceof Element ? state.modal : null;
+                const viewport = modal?.querySelector?.('#tmWhiteboardViewport');
+                const body = modal?.querySelector?.('#tmWhiteboardBody');
+                if (!(viewport instanceof HTMLElement) || !(body instanceof HTMLElement)) return false;
+                try {
+                    const docBody = body.querySelector(`.tm-whiteboard-doc-body[data-doc-id="${CSS.escape(docId)}"]`);
+                    return docBody instanceof HTMLElement;
+                } catch (e) {
+                    return false;
+                }
+            };
+            const scheduleLocate = (delayMs = 0) => {
+                if (delayMs > 0) {
+                    setTimeout(locate, delayMs);
+                    return;
+                }
+                try {
+                    requestAnimationFrame(locate);
+                } catch (e) {
+                    setTimeout(locate, 50);
+                }
+            };
+            const locate = () => {
+                tries += 1;
+                const ready = isWhiteboardReady();
+                const node = ready ? (__tmFindWhiteboardTaskNode(targetTaskId, docId) || __tmFindWhiteboardTaskNode(id, docId)) : null;
+                if (node) {
+                    try { __tmClearWhiteboardMultiSelection(); } catch (e) {}
+                    state.whiteboardSelectedTaskId = String(node.getAttribute('data-task-id') || targetTaskId || id).trim();
+                    state.whiteboardSelectedNoteId = '';
+                    state.whiteboardSelectedLinkId = '';
+                    state.whiteboardSelectedLinkDocId = '';
+                    try { __tmApplyWhiteboardCardSelectionDom(state.whiteboardSelectedTaskId); } catch (e) {}
+                    const centered = __tmCenterWhiteboardNodeInViewport(node, { minZoom: 1 });
+                    try { __tmScheduleWhiteboardEdgeRedraw(); } catch (e) {}
+                    try { __tmScheduleWhiteboardNavigatorUpdate(); } catch (e) {}
+                    if (centered) {
+                        try { hint('✅ 已跳转到白板卡片', 'success'); } catch (e) {}
+                        resolve(true);
+                        return;
+                    }
+                }
+                if ((Date.now() - startedAt) >= maxWaitMs || tries >= 90) {
+                    try { hint('⚠ 未找到白板卡片位置', 'warning'); } catch (e) {}
+                    resolve(false);
+                    return;
+                }
+                scheduleLocate(tries < 12 ? 0 : 60);
+            };
+            try {
+                requestAnimationFrame(() => requestAnimationFrame(() => scheduleLocate(0)));
+            } catch (e) {
+                setTimeout(locate, 60);
+            }
+        });
+    };
 
     function __tmResolveWhiteboardPointerInfo(ev, docIdHint = '') {
         const hint = String(docIdHint || '').trim();
@@ -888,7 +1096,7 @@
         const viewport = state.modal?.querySelector?.('#tmWhiteboardViewport');
         if (!(viewport instanceof HTMLElement)) return;
         const target = ev?.target;
-        if (target && target.closest && target.closest('.tm-whiteboard-sidebar,.tm-whiteboard-bottom-toolbar,.tm-whiteboard-navigator,.tm-whiteboard-navigator-reveal,.tm-btn,input,button,select,textarea,label,a,.tm-whiteboard-doc-resize,.tm-task-link-dot,.tm-task-content-clickable,.tm-task-checkbox,.tm-kanban-chip,.tm-status-tag,.tm-priority-jira,.tm-kanban-priority-chip,.tm-whiteboard-card-tools,.tm-whiteboard-note-tools,.tm-whiteboard-link-tools,.tm-whiteboard-edge,.tm-whiteboard-sticky-editor')) return;
+        if (target && target.closest && target.closest('.tm-whiteboard-sidebar,.tm-whiteboard-bottom-toolbar,.tm-whiteboard-navigator,.tm-whiteboard-navigator-reveal,.tm-btn,input,button,select,textarea,label,a,.tm-whiteboard-doc-resize,.tm-task-link-dot,.tm-task-content-clickable,.tm-task-checkbox,.tm-kanban-chip,.tm-status-tag,.tm-priority-jira,.tm-kanban-priority-chip,.tm-whiteboard-card-tools,.tm-whiteboard-note-tools,.tm-whiteboard-link-tools,.tm-whiteboard-edge,.tm-whiteboard-node,.tm-whiteboard-note,.tm-whiteboard-note-editor,.tm-whiteboard-sticky-editor,.tm-whiteboard-doc-head,.tm-whiteboard-pool-item')) return;
         const touches = ev?.touches;
         const n = Number(touches?.length) || 0;
         if (n <= 0) return;
@@ -897,7 +1105,7 @@
         } else {
             state.whiteboardTouchSession = __tmBuildWhiteboardTouchPanSession(viewport, touches[0]);
         }
-        try { viewport.classList.add('tm-whiteboard-viewport--panning'); } catch (e) {}
+        try { viewport.classList.add('tm-whiteboard-viewport--panning', 'tm-whiteboard-viewport--moving'); } catch (e) {}
     };
 
     window.tmWhiteboardViewportTouchMove = function(ev) {
@@ -952,7 +1160,7 @@
         const n = Number(touches?.length) || 0;
         if (n <= 0) {
             state.whiteboardTouchSession = null;
-            try { viewport?.classList?.remove?.('tm-whiteboard-viewport--panning'); } catch (e) {}
+            try { viewport?.classList?.remove?.('tm-whiteboard-viewport--panning', 'tm-whiteboard-viewport--moving'); } catch (e) {}
             __tmScheduleWhiteboardViewSave();
             return;
         }
@@ -1148,7 +1356,7 @@
             startY: v0.y,
             pointerId: hasPointerId ? pointerId : null,
         };
-        try { viewport.classList.add('tm-whiteboard-viewport--panning'); } catch (e) {}
+        try { viewport.classList.add('tm-whiteboard-viewport--panning', 'tm-whiteboard-viewport--moving'); } catch (e) {}
         if (hasPointerId && typeof viewport.setPointerCapture === 'function') {
             try { viewport.setPointerCapture(pointerId); } catch (e) {}
         }
@@ -1180,7 +1388,7 @@
             if (Number.isFinite(pointerId) && typeof viewport.releasePointerCapture === 'function') {
                 try { viewport.releasePointerCapture(pointerId); } catch (e) {}
             }
-            try { viewport.classList.remove('tm-whiteboard-viewport--panning'); } catch (e) {}
+            try { viewport.classList.remove('tm-whiteboard-viewport--panning', 'tm-whiteboard-viewport--moving'); } catch (e) {}
             state.whiteboardPanSession = null;
             __tmScheduleWhiteboardViewSave();
         };
@@ -1196,6 +1404,7 @@
 
     window.tmWhiteboardCardMouseDown = function(ev, taskId, docId) {
         if (state.viewMode !== 'whiteboard') return;
+        if (!ev?.__tmFromLongPress && Date.now() < (Number(state.whiteboardSuppressSyntheticMouseUntil) || 0)) return;
         const tool = String(SettingsStore.data.whiteboardTool || 'pan').trim();
         if (tool !== 'pan' && tool !== 'select') return;
         if (Number(ev?.button) !== 0) return;
@@ -1272,6 +1481,7 @@
         const sy = Number(ev?.clientY) || 0;
         state.whiteboardNodeDrag = { id, did, x0, y0, sx, sy, card, isSubNode, detached: false, group: useGroupDrag ? groupDragItems : null };
         const onMove = (e2) => {
+            try { e2?.preventDefault?.(); } catch (e) {}
             const d = state.whiteboardNodeDrag;
             if (!d) return;
             if (Array.isArray(d.group) && d.group.length > 1) {
@@ -1344,6 +1554,9 @@
         const onUp = (eUp) => {
             try { document.removeEventListener('mousemove', onMove, true); } catch (e) {}
             try { document.removeEventListener('mouseup', onUp, true); } catch (e) {}
+            try { document.removeEventListener('pointermove', onMove, true); } catch (e) {}
+            try { document.removeEventListener('pointerup', onUp, true); } catch (e) {}
+            try { document.removeEventListener('pointercancel', onUp, true); } catch (e) {}
             const d = state.whiteboardNodeDrag;
             state.whiteboardNodeDrag = null;
             if (d && Array.isArray(d.group) && d.group.length > 1) {
@@ -1361,6 +1574,7 @@
                     notes[idx] = { ...(notes[idx] || {}), docId: g.did, x: Math.round(nx - offX), y: Math.round(ny - offY), updatedAt: now };
                 });
                 SettingsStore.data.whiteboardNotes = notes;
+                try { WhiteboardStore?.syncFromSettings?.(SettingsStore.data, 'whiteboard-notes'); } catch (e) {}
                 try { SettingsStore.syncToLocal(); } catch (e) {}
             }
             if (d && !d.isSubNode && !(Array.isArray(d.group) && d.group.length > 1)) {
@@ -1384,7 +1598,149 @@
         };
         try { document.addEventListener('mousemove', onMove, true); } catch (e) {}
         try { document.addEventListener('mouseup', onUp, true); } catch (e) {}
+        try { document.addEventListener('pointermove', onMove, true); } catch (e) {}
+        try { document.addEventListener('pointerup', onUp, true); } catch (e) {}
+        try { document.addEventListener('pointercancel', onUp, true); } catch (e) {}
         try { ev?.stopPropagation?.(); } catch (e) {}
+    };
+
+    function __tmStopWhiteboardViewportMoveForCardGesture() {
+        const viewport = state.modal?.querySelector?.('#tmWhiteboardViewport');
+        try {
+            const old = state.whiteboardPanSession;
+            if (old && typeof old.cleanup === 'function') old.cleanup();
+        } catch (e) {}
+        state.whiteboardPanSession = null;
+        state.whiteboardTouchSession = null;
+        try { viewport?.classList?.remove?.('tm-whiteboard-viewport--panning', 'tm-whiteboard-viewport--moving'); } catch (e) {}
+    }
+
+    function __tmSuppressNextWhiteboardCardClick(card, durationMs = 700) {
+        const until = Date.now() + Math.max(120, Number(durationMs) || 700);
+        state.whiteboardSuppressClickUntil = Math.max(Number(state.whiteboardSuppressClickUntil) || 0, until);
+        state.whiteboardSuppressCardClickUntil = Math.max(Number(state.whiteboardSuppressCardClickUntil) || 0, until);
+        if (state.whiteboardSuppressCardClickHandler) return;
+        const cleanup = () => {
+            try { document.removeEventListener('click', handler, true); } catch (e) {}
+            try { if (timer) clearTimeout(timer); } catch (e) {}
+            state.whiteboardSuppressCardClickHandler = null;
+        };
+        const handler = (clickEv) => {
+            if (Date.now() > (Number(state.whiteboardSuppressCardClickUntil) || 0)) {
+                cleanup();
+                return;
+            }
+            const target = clickEv?.target instanceof Element ? clickEv.target : null;
+            const hitCard = target?.closest?.('.tm-whiteboard-node[data-task-id]');
+            if (card instanceof Element && hitCard !== card && !card.contains(target)) return;
+            try { clickEv?.preventDefault?.(); } catch (e) {}
+            try { clickEv?.stopPropagation?.(); } catch (e) {}
+            try { clickEv?.stopImmediatePropagation?.(); } catch (e) {}
+            cleanup();
+        };
+        let timer = null;
+        state.whiteboardSuppressCardClickHandler = handler;
+        try { document.addEventListener('click', handler, true); } catch (e) {}
+        try { timer = setTimeout(cleanup, Math.max(160, Number(durationMs) || 700)); } catch (e) {}
+    }
+
+    window.tmWhiteboardCardContextMenu = function(ev, taskId) {
+        const pointerType = String(ev?.pointerType || '').toLowerCase();
+        const touchLike = pointerType === 'touch'
+            || ev?.sourceCapabilities?.firesTouchEvents === true
+            || Date.now() < (Number(state.whiteboardSuppressCardContextMenuUntil) || 0)
+            || !!state.whiteboardNodeDrag;
+        let mobile = false;
+        try {
+            mobile = (typeof __tmIsRuntimeMobileClient === 'function' && __tmIsRuntimeMobileClient())
+                || (typeof __tmIsMobileDevice === 'function' && __tmIsMobileDevice());
+        } catch (e) {
+            mobile = false;
+        }
+        if (touchLike || mobile) {
+            try { ev?.preventDefault?.(); } catch (e) {}
+            try { ev?.stopPropagation?.(); } catch (e) {}
+            return false;
+        }
+        try { window.tmShowTaskContextMenu?.(ev, taskId); } catch (e) {}
+        return false;
+    };
+
+    window.tmWhiteboardCardPointerDown = function(ev, taskId, docId) {
+        if (state.viewMode !== 'whiteboard') return;
+        if (String(ev?.pointerType || '') !== 'touch') return;
+        state.whiteboardSuppressSyntheticMouseUntil = Date.now() + 900;
+        const tool = String(SettingsStore.data.whiteboardTool || 'pan').trim();
+        if (tool !== 'pan' && tool !== 'select') return;
+        const target = ev?.target;
+        state.whiteboardSuppressCardContextMenuUntil = Date.now() + 1800;
+        try { ev?.stopPropagation?.(); } catch (e) {}
+        __tmStopWhiteboardViewportMoveForCardGesture();
+        const id = String(taskId || '').trim();
+        const did = String(docId || '').trim();
+        if (!id || !did) return;
+        const pointerId = Number(ev?.pointerId);
+        const sx = Number(ev?.clientX) || 0;
+        const sy = Number(ev?.clientY) || 0;
+        const card = ev?.currentTarget instanceof HTMLElement ? ev.currentTarget : (target?.closest?.('.tm-whiteboard-node') || null);
+        if (!(card instanceof HTMLElement)) return;
+        const session = {
+            pointerId: Number.isFinite(pointerId) ? pointerId : null,
+            sx,
+            sy,
+            active: false,
+            timer: 0,
+        };
+        const cleanup = () => {
+            try { clearTimeout(session.timer); } catch (e) {}
+            try { document.removeEventListener('pointermove', onMove, true); } catch (e) {}
+            try { document.removeEventListener('pointerup', onUp, true); } catch (e) {}
+            try { document.removeEventListener('pointercancel', onUp, true); } catch (e) {}
+            try { card.releasePointerCapture?.(session.pointerId); } catch (e) {}
+        };
+        const samePointer = (e2) => {
+            if (session.pointerId == null) return true;
+            const cur = Number(e2?.pointerId);
+            return !Number.isFinite(cur) || cur === session.pointerId;
+        };
+        const onMove = (e2) => {
+            if (!samePointer(e2)) return;
+            if (session.active) return;
+            const dx = (Number(e2?.clientX) || 0) - session.sx;
+            const dy = (Number(e2?.clientY) || 0) - session.sy;
+            if (Math.hypot(dx, dy) > 10) cleanup();
+        };
+        const onUp = (e2) => {
+            if (!samePointer(e2)) return;
+            cleanup();
+        };
+        session.timer = setTimeout(() => {
+            session.active = true;
+            state.whiteboardSuppressCardContextMenuUntil = Date.now() + 1800;
+            __tmStopWhiteboardViewportMoveForCardGesture();
+            try { card.setPointerCapture?.(session.pointerId); } catch (e) {}
+            __tmSuppressNextWhiteboardCardClick(card, 900);
+            const startEvent = {
+                ...ev,
+                __tmFromLongPress: true,
+                button: 0,
+                clientX: session.sx,
+                clientY: session.sy,
+                currentTarget: card,
+                target: card,
+                stopPropagation: () => {
+                    try { ev?.stopPropagation?.(); } catch (e) {}
+                },
+                preventDefault: () => {
+                    try { ev?.preventDefault?.(); } catch (e) {}
+                },
+            };
+            cleanup();
+            try { window.tmWhiteboardCardMouseDown(startEvent, id, did); } catch (e) {}
+        }, 500);
+        try { document.addEventListener('pointermove', onMove, true); } catch (e) {}
+        try { document.addEventListener('pointerup', onUp, true); } catch (e) {}
+        try { document.addEventListener('pointercancel', onUp, true); } catch (e) {}
     };
 
     window.tmWhiteboardSelectTask = function(taskId, ev) {
@@ -1546,6 +1902,7 @@
         next.updatedAt = String(Date.now());
         notes[idx] = next;
         SettingsStore.data.whiteboardNotes = notes;
+        try { WhiteboardStore?.syncFromSettings?.(SettingsStore.data, 'whiteboard-notes'); } catch (e) {}
         try { SettingsStore.syncToLocal(); } catch (e) {}
         try { await SettingsStore.save(); } catch (e) {}
         return true;
@@ -1606,6 +1963,7 @@
         const notes = Array.isArray(SettingsStore.data.whiteboardNotes) ? SettingsStore.data.whiteboardNotes : [];
         SettingsStore.data.whiteboardNotes = notes.filter((n) => String(n?.id || '').trim() !== id);
         if (String(state.whiteboardSelectedNoteId || '').trim() === id) state.whiteboardSelectedNoteId = '';
+        try { WhiteboardStore?.syncFromSettings?.(SettingsStore.data, 'whiteboard-notes'); } catch (e) {}
         try { SettingsStore.syncToLocal(); } catch (e) {}
         try { await SettingsStore.save(); } catch (e) {}
         render();
@@ -1653,6 +2011,7 @@
             const noteSet = new Set(noteIds);
             const notes = Array.isArray(SettingsStore.data.whiteboardNotes) ? SettingsStore.data.whiteboardNotes : [];
             SettingsStore.data.whiteboardNotes = notes.filter((n) => !noteSet.has(String(n?.id || '').trim()));
+            try { WhiteboardStore?.syncFromSettings?.(SettingsStore.data, 'whiteboard-notes'); } catch (e) {}
         }
         state.whiteboardSelectedTaskId = '';
         state.whiteboardSelectedNoteId = '';
@@ -1993,6 +2352,7 @@
                     notes[idx] = { ...(notes[idx] || {}), docId: g.did, x: Math.round(nx - offX), y: Math.round(ny - offY), updatedAt: now };
                 });
                 SettingsStore.data.whiteboardNotes = notes;
+                try { WhiteboardStore?.syncFromSettings?.(SettingsStore.data, 'whiteboard-notes'); } catch (e) {}
                 try { SettingsStore.syncToLocal(); } catch (e) {}
                 try { await SettingsStore.save(); } catch (e) {}
                 render();
@@ -2008,6 +2368,7 @@
                 const offY = allView ? (Number(d.noteEl.parentElement?.dataset?.frameOffsetY) || 0) : 0;
                 notes[idx] = { ...(notes[idx] || {}), docId: d.did, x: Math.round(nx - offX), y: Math.round(ny - offY), updatedAt: String(Date.now()) };
                 SettingsStore.data.whiteboardNotes = notes;
+                try { WhiteboardStore?.syncFromSettings?.(SettingsStore.data, 'whiteboard-notes'); } catch (e) {}
                 try { SettingsStore.syncToLocal(); } catch (e) {}
                 try { await SettingsStore.save(); } catch (e) {}
             }
@@ -2174,6 +2535,7 @@
                 updatedAt: now,
             };
             SettingsStore.data.whiteboardNotes = notes0;
+            try { WhiteboardStore?.syncFromSettings?.(SettingsStore.data, 'whiteboard-notes'); } catch (e) {}
             try { SettingsStore.syncToLocal(); } catch (e) {}
             try { await SettingsStore.save(); } catch (e) {}
             render();
@@ -2193,6 +2555,7 @@
             updatedAt: now,
         });
         SettingsStore.data.whiteboardNotes = notes0;
+        try { WhiteboardStore?.syncFromSettings?.(SettingsStore.data, 'whiteboard-notes'); } catch (e) {}
         try { SettingsStore.syncToLocal(); } catch (e) {}
         try { await SettingsStore.save(); } catch (e) {}
         render();
@@ -2241,6 +2604,7 @@
                 updatedAt: String(Date.now()),
             };
             SettingsStore.data.whiteboardNotes = notes0;
+            try { WhiteboardStore?.syncFromSettings?.(SettingsStore.data, 'whiteboard-notes'); } catch (e) {}
             try { SettingsStore.syncToLocal(); } catch (e) {}
             try { await SettingsStore.save(); } catch (e) {}
             render();
@@ -2260,6 +2624,7 @@
             createdAt: String(Date.now()),
         });
         SettingsStore.data.whiteboardNotes = notes;
+        try { WhiteboardStore?.syncFromSettings?.(SettingsStore.data, 'whiteboard-notes'); } catch (e) {}
         try { SettingsStore.syncToLocal(); } catch (e) {}
         try { await SettingsStore.save(); } catch (e) {}
         render();
@@ -3102,6 +3467,7 @@
                 createdAt: String(Date.now()),
             });
             SettingsStore.data.whiteboardNotes = notes;
+            try { WhiteboardStore?.syncFromSettings?.(SettingsStore.data, 'whiteboard-notes'); } catch (e) {}
         }
         if (placed.length > 1) {
             state.whiteboardSelectedTaskId = '';

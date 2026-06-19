@@ -20,6 +20,14 @@
             if (__tmQuickbarRelayStorageHandler) {
                 try { globalThis.__tmRuntimeEvents?.off?.(window, 'storage', __tmQuickbarRelayStorageHandler); } catch (e) {}
             }
+            if (__tmReminderFollowTaskRepeatUpdateHandler) {
+                try {
+                    __TM_REMINDER_UPDATE_EVENT_NAMES.forEach((eventName) => {
+                        globalThis.__tmRuntimeEvents?.off?.(window, eventName, __tmReminderFollowTaskRepeatUpdateHandler);
+                    });
+                } catch (e) {}
+                __tmReminderFollowTaskRepeatUpdateHandler = null;
+            }
             if (__tmQuickbarRelayPollTimer) {
                 try { clearInterval(__tmQuickbarRelayPollTimer); } catch (e) {}
                 __tmQuickbarRelayPollTimer = null;
@@ -170,11 +178,22 @@ if (shouldMarkDirty) {
                     || attrKey === __TM_TASK_REPEAT_STATE_ATTR
                     || !attrKey
                 ) {
+                    if (attrKey === 'custom-tomato-reminder') {
+                        try { void __tmMaybeAdvanceRecurringTaskFromReminderAttr(taskId, attrValue, e.detail); } catch (ex) {}
+                    }
                     try { __tmClearReminderSnapshotCache(taskId); } catch (ex) {}
                     try { __tmRefreshReminderMarkForTask(taskId, 240); } catch (ex) {}
                 }
             };
             globalThis.__tmRuntimeEvents?.on?.(window, 'tm-task-attr-updated', __tmQuickbarTaskUpdateHandler);
+            __tmReminderFollowTaskRepeatUpdateHandler = (e) => {
+                try { void __tmMaybeAdvanceRecurringTaskFromReminderUpdateEvent(e); } catch (ex) {}
+            };
+            try {
+                __TM_REMINDER_UPDATE_EVENT_NAMES.forEach((eventName) => {
+                    globalThis.__tmRuntimeEvents?.on?.(window, eventName, __tmReminderFollowTaskRepeatUpdateHandler);
+                });
+            } catch (e) {}
             __tmQuickbarRelayStorageHandler = (e) => {
                 const storageKey = String(e?.key || '').trim();
                 if (!storageKey || !String(e?.newValue || '').trim()) return;
@@ -829,6 +848,14 @@ if (shouldMarkDirty) {
                 globalThis.__tmRuntimeEvents?.off?.(window, 'storage', __tmQuickbarRelayStorageHandler);
                 __tmQuickbarRelayStorageHandler = null;
             }
+            if (__tmReminderFollowTaskRepeatUpdateHandler) {
+                try {
+                    __TM_REMINDER_UPDATE_EVENT_NAMES.forEach((eventName) => {
+                        globalThis.__tmRuntimeEvents?.off?.(window, eventName, __tmReminderFollowTaskRepeatUpdateHandler);
+                    });
+                } catch (e2) {}
+                __tmReminderFollowTaskRepeatUpdateHandler = null;
+            }
             if (__tmQuickbarRelayPollTimer) {
                 clearInterval(__tmQuickbarRelayPollTimer);
                 __tmQuickbarRelayPollTimer = null;
@@ -859,6 +886,9 @@ if (shouldMarkDirty) {
             __tmNativeDocCheckboxReconcileVersions.clear();
             __tmNativeDocCheckboxInsertedBlockMap.clear();
             __tmNativeDocCheckboxSyncQueue.length = 0;
+            __tmNativeDocCheckboxSyncQueuedIds.clear();
+            __tmNativeDocCheckboxSyncRunningIds.clear();
+            __tmNativeDocCheckboxSyncDirtyIds.clear();
             __tmNativeDocCheckboxSyncQueueRunning = false;
             __tmNativeDocCheckboxBatchSeq = 0;
         } catch (e) {}
@@ -1042,6 +1072,9 @@ if (shouldMarkDirty) {
             try { delete window.__tmFloatingTooltipWindowBound; } catch (e2) { window.__tmFloatingTooltipWindowBound = false; }
         } catch (e) {}
         try {
+            globalThis.__tmRuntimeEvents?.off?.(document, 'pointerdown', __tmOnTopbarSelectOutsideClick, true);
+            globalThis.__tmRuntimeEvents?.off?.(document, 'mousedown', __tmOnTopbarSelectOutsideClick, true);
+            globalThis.__tmRuntimeEvents?.off?.(document, 'touchstart', __tmOnTopbarSelectOutsideClick, true);
             globalThis.__tmRuntimeEvents?.off?.(document, 'click', __tmOnTopbarSelectOutsideClick, true);
             try { delete window.__tmTopbarSelectOutsideBound; } catch (e2) { window.__tmTopbarSelectOutsideBound = false; }
         } catch (e) {}
@@ -1178,7 +1211,7 @@ if (shouldMarkDirty) {
                 state.desktopMenuCloseTimer = null;
             }
             if (state.desktopMenuCloseHandler) {
-                document.removeEventListener('click', state.desktopMenuCloseHandler);
+                __tmClearOutsideCloseHandler(state.desktopMenuCloseHandler);
                 state.desktopMenuCloseHandler = null;
             }
         } catch (e) {}

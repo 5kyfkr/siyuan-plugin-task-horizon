@@ -94,6 +94,7 @@
             ? (!isRuntimeMobile || !isLandscape)
             : !!(isMobile && !isLandscape);
         const mobileBottomViewbarActive = showMobileBottomViewBar && (Date.now() < (Number(state.mobileBottomViewbarActiveUntil) || 0));
+        const mobileBottomViewbarSwitching = showMobileBottomViewBar && (Date.now() < (Number(state.mobileBottomViewbarSwitchingUntil) || 0));
         const useCompactTopbar = !isMobile || isDockHost;
         const topbarPadding = useCompactTopbar ? '5px 10px' : '10px 10px';
         const topbarHeightStyle = useCompactTopbar ? 'min-height:42px;max-height:42px;height:42px;' : '';
@@ -226,6 +227,7 @@
             taskDetailSheetHtml,
             showMobileBottomViewBar,
             mobileBottomViewbarActive,
+            mobileBottomViewbarSwitching,
             useCompactTopbar,
             topbarPadding,
             topbarHeightStyle,

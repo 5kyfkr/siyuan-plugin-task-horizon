@@ -1155,6 +1155,526 @@
         };
     }
 
+    function __tmNormalizeDocTabCustomGroups(input) {
+        const source = Array.isArray(input) ? input : [];
+        const groups = [];
+        const seenGroups = new Set();
+        source.forEach((group) => {
+            if (!group || typeof group !== 'object') return;
+            const id = String(group.id || '').trim();
+            if (!id || seenGroups.has(id)) return;
+            seenGroups.add(id);
+
+            const rawEntries = Array.isArray(group.entries)
+                ? group.entries
+                : (Array.isArray(group.docs) ? group.docs : []);
+            const entries = [];
+            const seenEntries = new Set();
+            rawEntries.forEach((entry) => {
+                const docId = String((entry && typeof entry === 'object' ? entry.id : entry) || '').trim();
+                if (!docId || seenEntries.has(docId)) return;
+                seenEntries.add(docId);
+                entries.push({
+                    id: docId,
+                    includeChildren: !!(entry && typeof entry === 'object' ? (entry.includeChildren || entry.recursive) : false)
+                });
+            });
+
+            const color = __tmNormalizeHexColor(group.color || group.tabColor || group.bgColor, '');
+            const normalizedGroup = {
+                ...group,
+                id,
+                docGroupId: __tmNormalizeDocTabCustomGroupScopeId(group.docGroupId ?? group.scopeGroupId ?? group.documentGroupId ?? 'all'),
+                name: String(group.name || '').trim() || '未命名页签组',
+                entries
+            };
+            delete normalizedGroup.tabColor;
+            delete normalizedGroup.bgColor;
+            if (color) normalizedGroup.color = color;
+            else delete normalizedGroup.color;
+            groups.push(normalizedGroup);
+        });
+        return groups;
+    }
+
+    function __tmGetDocTabCustomGroupColor(group, members = []) {
+        const source = (group && typeof group === 'object') ? group : {};
+        const explicit = __tmNormalizeHexColor(source.color || source.tabColor || source.bgColor, '');
+        if (explicit) return explicit;
+        const memberList = Array.isArray(members) ? members : [];
+        const memberDocId = String((memberList.find((doc) => String(doc?.id || '').trim()) || {})?.id || '').trim();
+        const entryList = Array.isArray(source.entries) ? source.entries : [];
+        const entryDocId = String((entryList.find((entry) => String(entry?.id || '').trim()) || {})?.id || '').trim();
+        const docId = memberDocId || entryDocId;
+        if (docId && typeof __tmGetDocColorHex === 'function') {
+            return __tmGetDocColorHex(docId, __tmIsDarkMode());
+        }
+        return 'var(--tm-primary-color)';
+    }
+
+    function __tmNormalizeDocTabCustomGroupScopeId(value) {
+        return String(value || 'all').trim() || 'all';
+    }
+
+    function __tmGetCurrentDocTabCustomGroupScopeId() {
+        return __tmNormalizeDocTabCustomGroupScopeId(SettingsStore?.data?.currentGroupId || 'all');
+    }
+
+    function __tmGetDocTabCustomGroupScopeId(group) {
+        if (!group || typeof group !== 'object') return 'all';
+        return __tmNormalizeDocTabCustomGroupScopeId(group.docGroupId ?? group.scopeGroupId ?? group.documentGroupId ?? 'all');
+    }
+
+    function __tmIsDocTabCustomGroupInScope(group, groupId = __tmGetCurrentDocTabCustomGroupScopeId()) {
+        return __tmGetDocTabCustomGroupScopeId(group) === __tmNormalizeDocTabCustomGroupScopeId(groupId);
+    }
+
+    function __tmGetDocTabCustomGroups() {
+        const normalized = __tmNormalizeDocTabCustomGroups(SettingsStore?.data?.docTabCustomGroups);
+        try { SettingsStore.data.docTabCustomGroups = normalized; } catch (e) {}
+        return normalized;
+    }
+
+    function __tmGetDocTabCustomGroupsForDocGroup(groupId = __tmGetCurrentDocTabCustomGroupScopeId()) {
+        const gid = __tmNormalizeDocTabCustomGroupScopeId(groupId);
+        return __tmGetDocTabCustomGroups().filter((group) => __tmIsDocTabCustomGroupInScope(group, gid));
+    }
+
+    const __TM_DOC_TAB_CUSTOM_GROUP_ACTIVE_PREFIX = '__tm_doc_tab_group__:';
+
+    function __tmBuildDocTabCustomGroupActiveId(groupId) {
+        const gid = String(groupId || '').trim();
+        if (!gid) return '';
+        try {
+            return `${__TM_DOC_TAB_CUSTOM_GROUP_ACTIVE_PREFIX}${encodeURIComponent(gid)}`;
+        } catch (e) {
+            return `${__TM_DOC_TAB_CUSTOM_GROUP_ACTIVE_PREFIX}${gid}`;
+        }
+    }
+
+    function __tmParseDocTabCustomGroupActiveId(activeDocId) {
+        const raw = String(activeDocId || '').trim();
+        if (!raw.startsWith(__TM_DOC_TAB_CUSTOM_GROUP_ACTIVE_PREFIX)) return '';
+        const body = raw.slice(__TM_DOC_TAB_CUSTOM_GROUP_ACTIVE_PREFIX.length);
+        if (!body) return '';
+        try {
+            return decodeURIComponent(body).trim();
+        } catch (e) {
+            return body.trim();
+        }
+    }
+
+    function __tmIsDocTabCustomGroupActiveId(activeDocId) {
+        return !!__tmParseDocTabCustomGroupActiveId(activeDocId);
+    }
+
+    function __tmFindDocTabCustomGroupById(groupId, options = {}) {
+        const gid = String(groupId || '').trim();
+        if (!gid) return null;
+        const opts = (options && typeof options === 'object') ? options : {};
+        const groups = opts.allScopes === true
+            ? __tmGetDocTabCustomGroups()
+            : __tmGetDocTabCustomGroupsForDocGroup(opts.currentGroupId || __tmGetCurrentDocTabCustomGroupScopeId());
+        return groups.find((group) => String(group?.id || '').trim() === gid) || null;
+    }
+
+    function __tmNormalizeDocTabGroupPath(path) {
+        return String(path || '')
+            .replace(/\\/g, '/')
+            .replace(/^\/+/, '')
+            .replace(/\/+$/, '')
+            .replace(/\/+/g, '/')
+            .trim();
+    }
+
+    function __tmPickDocTabGroupSortValue(...values) {
+        for (const value of values) {
+            const raw = String(value ?? '').trim();
+            if (raw) return raw;
+        }
+        return '';
+    }
+
+    function __tmBuildDocTabGroupDocMetaMap(extraDocs = []) {
+        const map = new Map();
+        const push = (doc) => {
+            if (!doc || typeof doc !== 'object') return;
+            const id = String(doc.id || '').trim();
+            if (!id) return;
+            const prev = map.get(id) || {};
+            const next = {
+                ...prev,
+                ...doc,
+                id,
+                name: String(doc.name || prev.name || '').trim(),
+                alias: __tmNormalizeDocAliasValue(doc.alias ?? prev.alias),
+                icon: __tmNormalizeDocIconValue(doc.icon ?? prev.icon),
+                path: __tmNormalizeDocTabGroupPath(doc.path || doc.hpath || prev.path || prev.hpath || ''),
+                notebook: String(doc.notebook || doc.box || prev.notebook || prev.box || '').trim(),
+                created: String(doc.created || prev.created || '').trim(),
+                updated: String(doc.updated || prev.updated || '').trim(),
+                sort: __tmPickDocTabGroupSortValue(doc.sort, doc.blockSort, doc.block_sort, prev.sort, prev.blockSort, prev.block_sort)
+            };
+            map.set(id, next);
+        };
+        (Array.isArray(state?.allDocuments) ? state.allDocuments : []).forEach(push);
+        (Array.isArray(state?.taskTree) ? state.taskTree : []).forEach(push);
+        (Array.isArray(extraDocs) ? extraDocs : []).forEach(push);
+        return map;
+    }
+
+    function __tmIsDocTabGroupDescendant(parent, child) {
+        if (!parent || !child || parent.id === child.id) return false;
+        const parentPath = __tmNormalizeDocTabGroupPath(parent.path || parent.hpath || '');
+        const childPath = __tmNormalizeDocTabGroupPath(child.path || child.hpath || '');
+        if (!parentPath || !childPath || parentPath === childPath) return false;
+        const parentNotebook = String(parent.notebook || parent.box || '').trim();
+        const childNotebook = String(child.notebook || child.box || '').trim();
+        if (parentNotebook && childNotebook && parentNotebook !== childNotebook) return false;
+        return childPath.startsWith(`${parentPath}/`);
+    }
+
+    function __tmGetDocTabChildDocs(docId, extraDocs = []) {
+        const id = String(docId || '').trim();
+        if (!id) return [];
+        const metaMap = __tmBuildDocTabGroupDocMetaMap(extraDocs);
+        const parent = metaMap.get(id);
+        if (!parent) return [];
+        const parentPath = __tmNormalizeDocTabGroupPath(parent.path || parent.hpath || '');
+        const parentDepth = parentPath ? parentPath.split('/').filter(Boolean).length : 0;
+        const children = [];
+        metaMap.forEach((doc) => {
+            if (!__tmIsDocTabGroupDescendant(parent, doc)) return;
+            const childPath = __tmNormalizeDocTabGroupPath(doc.path || doc.hpath || '');
+            const depth = Math.max(1, childPath.split('/').filter(Boolean).length - parentDepth);
+            children.push({ ...doc, depth });
+        });
+        children.sort((a, b) => {
+            const ap = __tmNormalizeDocTabGroupPath(a.path || a.hpath || '');
+            const bp = __tmNormalizeDocTabGroupPath(b.path || b.hpath || '');
+            const pathDiff = ap.localeCompare(bp, 'zh-Hans-CN');
+            if (pathDiff) return pathDiff;
+            const an = __tmGetDocDisplayName(a, a.name || '未命名文档');
+            const bn = __tmGetDocDisplayName(b, b.name || '未命名文档');
+            return an.localeCompare(bn, 'zh-Hans-CN');
+        });
+        return children;
+    }
+
+    function __tmExpandDocTabCustomGroup(group, extraDocs = []) {
+        const normalized = __tmNormalizeDocTabCustomGroups([group])[0];
+        if (!normalized) return new Map();
+        const metaMap = __tmBuildDocTabGroupDocMetaMap(extraDocs);
+        const members = new Map();
+        normalized.entries.forEach((entry) => {
+            const docId = String(entry?.id || '').trim();
+            if (!docId) return;
+            if (!members.has(docId)) {
+                members.set(docId, {
+                    direct: true,
+                    entryId: docId,
+                    includeChildren: !!entry.includeChildren
+                });
+            } else {
+                const prev = members.get(docId);
+                members.set(docId, { ...prev, direct: true, includeChildren: !!(prev.includeChildren || entry.includeChildren) });
+            }
+            if (!entry.includeChildren) return;
+            const parent = metaMap.get(docId);
+            if (!parent) return;
+            metaMap.forEach((doc) => {
+                if (!__tmIsDocTabGroupDescendant(parent, doc)) return;
+                const childId = String(doc?.id || '').trim();
+                if (!childId || members.has(childId)) return;
+                members.set(childId, {
+                    direct: false,
+                    entryId: docId,
+                    includeChildren: false
+                });
+            });
+        });
+        return members;
+    }
+
+    function __tmCompareDocTabGroupMenuSortValue(a, b) {
+        const av = String(a ?? '').trim();
+        const bv = String(b ?? '').trim();
+        if (!av && !bv) return 0;
+        if (!av) return 1;
+        if (!bv) return -1;
+        const an = Number(av);
+        const bn = Number(bv);
+        if (Number.isFinite(an) && Number.isFinite(bn) && an !== bn) return an - bn;
+        return av.localeCompare(bv, 'zh-Hans-CN', { numeric: true });
+    }
+
+    function __tmBuildDocTabGroupMenuPathParts(doc) {
+        const path = __tmNormalizeDocTabGroupPath(doc?.path || doc?.hpath || '');
+        return path ? path.split('/').filter(Boolean) : [];
+    }
+
+    function __tmRenderDocTabGroupTreeGuide(parts) {
+        const list = (Array.isArray(parts) ? parts : [])
+            .map((part) => String(part || '').trim())
+            .filter((part) => ['line', 'blank', 'branch', 'last'].includes(part));
+        if (!list.length) return '';
+        return `<span class="tm-doc-tab-tree-guide" aria-hidden="true">${list.map((part) => `<span class="tm-doc-tab-tree-guide-seg is-${part}"></span>`).join('')}</span>`;
+    }
+
+    function __tmSortDocTabCustomGroupMembersForMenu(members, extraDocs = []) {
+        const source = (Array.isArray(members) ? members : [])
+            .map((doc, index) => {
+                const id = String(doc?.id || '').trim();
+                return id ? { doc, id, index } : null;
+            })
+            .filter(Boolean);
+        if (source.length <= 1) {
+            return source.map((item) => ({
+                ...item.doc,
+                __tmDocTabGroupMenuDepth: 0
+            }));
+        }
+        const metaMap = __tmBuildDocTabGroupDocMetaMap([...(Array.isArray(extraDocs) ? extraDocs : []), ...source.map((item) => item.doc)]);
+        const memberIds = new Set(source.map((item) => item.id));
+        const byId = new Map(source.map((item) => [item.id, item]));
+        const decorated = source.map((item) => {
+            const meta = metaMap.get(item.id) || {};
+            const doc = { ...item.doc, ...meta, id: item.id };
+            const parts = __tmBuildDocTabGroupMenuPathParts(doc);
+            return {
+                ...item,
+                doc,
+                notebook: String(doc.notebook || doc.box || '').trim(),
+                path: __tmNormalizeDocTabGroupPath(doc.path || doc.hpath || ''),
+                parts,
+                name: __tmGetDocDisplayName(doc, doc.name || '未命名文档'),
+                sort: __tmPickDocTabGroupSortValue(doc.sort, doc.blockSort, doc.block_sort)
+            };
+        });
+        const byPath = new Map();
+        decorated.forEach((item) => {
+            if (!item.path) return;
+            const key = `${item.notebook}\u0001${item.path}`;
+            if (!byPath.has(key)) byPath.set(key, item);
+        });
+        const getParentPath = (parts) => parts.length > 1 ? parts.slice(0, -1).join('/') : '';
+        const siblingRank = new Map();
+        decorated.forEach((item) => {
+            const parentKey = `${item.notebook}\u0001${getParentPath(item.parts)}`;
+            if (!siblingRank.has(parentKey)) siblingRank.set(parentKey, []);
+            siblingRank.get(parentKey).push(item);
+        });
+        siblingRank.forEach((siblings) => {
+            siblings.sort((a, b) => {
+                const sortDiff = __tmCompareDocTabGroupMenuSortValue(a.sort, b.sort);
+                if (sortDiff) return sortDiff;
+                const nameDiff = String(a.parts[a.parts.length - 1] || a.name || '').localeCompare(String(b.parts[b.parts.length - 1] || b.name || ''), 'zh-Hans-CN', { numeric: true });
+                if (nameDiff) return nameDiff;
+                return a.index - b.index;
+            });
+            siblings.forEach((item, index) => {
+                item.siblingIndex = index;
+            });
+        });
+        decorated.forEach((item) => {
+            const sortKeys = [];
+            for (let i = 1; i <= item.parts.length; i += 1) {
+                const path = item.parts.slice(0, i).join('/');
+                const node = byPath.get(`${item.notebook}\u0001${path}`);
+                if (node) sortKeys.push(String(node.siblingIndex ?? 0).padStart(8, '0'));
+                else sortKeys.push(`z:${String(item.parts[i - 1] || '').toLocaleLowerCase()}`);
+            }
+            item.sortKeys = sortKeys;
+        });
+        decorated.sort((a, b) => {
+            if (a.path && b.path) {
+                const notebookDiff = String(a.notebook || '').localeCompare(String(b.notebook || ''), 'zh-Hans-CN', { numeric: true });
+                if (notebookDiff) return notebookDiff;
+                const max = Math.max(a.sortKeys.length, b.sortKeys.length);
+                for (let i = 0; i < max; i += 1) {
+                    if (i >= a.sortKeys.length) return -1;
+                    if (i >= b.sortKeys.length) return 1;
+                    const keyDiff = String(a.sortKeys[i] || '').localeCompare(String(b.sortKeys[i] || ''), 'zh-Hans-CN', { numeric: true });
+                    if (keyDiff) return keyDiff;
+                }
+                return a.index - b.index;
+            } else if (a.path || b.path) {
+                return a.path ? -1 : 1;
+            }
+            return a.index - b.index;
+        });
+        const depthById = new Map();
+        const getDepth = (item) => {
+            if (depthById.has(item.id)) return depthById.get(item.id);
+            let depth = 0;
+            if (item.path && item.parts.length > 1) {
+                for (let i = item.parts.length - 1; i >= 1; i -= 1) {
+                    const parent = byPath.get(`${item.notebook}\u0001${item.parts.slice(0, i).join('/')}`);
+                    if (!parent || !memberIds.has(parent.id)) continue;
+                    depth = getDepth(parent) + 1;
+                    break;
+                }
+            }
+            depthById.set(item.id, depth);
+            return depth;
+        };
+        const parentById = new Map();
+        const childrenByParentId = new Map();
+        const decoratedById = new Map(decorated.map((item) => [item.id, item]));
+        decorated.forEach((item) => {
+            let parentId = '';
+            if (item.path && item.parts.length > 1) {
+                for (let i = item.parts.length - 1; i >= 1; i -= 1) {
+                    const parent = byPath.get(`${item.notebook}\u0001${item.parts.slice(0, i).join('/')}`);
+                    if (!parent || !memberIds.has(parent.id)) continue;
+                    parentId = parent.id;
+                    break;
+                }
+            }
+            parentById.set(item.id, parentId);
+            if (!childrenByParentId.has(parentId)) childrenByParentId.set(parentId, []);
+            childrenByParentId.get(parentId).push(item.id);
+        });
+        const getLineParts = (item) => {
+            const depth = getDepth(item);
+            if (depth <= 0) return [];
+            const ancestors = [];
+            let parentId = parentById.get(item.id) || '';
+            while (parentId) {
+                ancestors.unshift(parentId);
+                parentId = parentById.get(parentId) || '';
+            }
+            const parts = [];
+            ancestors.forEach((ancestorId) => {
+                const ancestor = decoratedById.get(ancestorId);
+                if (!ancestor || getDepth(ancestor) <= 0) return;
+                const ancestorParentId = parentById.get(ancestorId) || '';
+                const siblings = childrenByParentId.get(ancestorParentId) || [];
+                const isLastAncestor = siblings[siblings.length - 1] === ancestorId;
+                parts.push(isLastAncestor ? 'blank' : 'line');
+            });
+            const ownParentId = parentById.get(item.id) || '';
+            const ownSiblings = childrenByParentId.get(ownParentId) || [];
+            parts.push(ownSiblings[ownSiblings.length - 1] === item.id ? 'last' : 'branch');
+            return parts;
+        };
+        return decorated.map((item) => {
+            const current = byId.get(item.id)?.doc || item.doc;
+            const lineParts = getLineParts(item);
+            return {
+                ...current,
+                ...item.doc,
+                id: item.id,
+                __tmDocTabGroupMenuDepth: getDepth(item),
+                __tmDocTabGroupMenuLineParts: lineParts
+            };
+        });
+    }
+
+    function __tmGetDocTabCustomGroupDocIdSet(groupId, options = {}) {
+        const gid = String(groupId || '').trim();
+        const opts = (options && typeof options === 'object') ? options : {};
+        const currentGroupId = String(opts.currentGroupId || SettingsStore?.data?.currentGroupId || 'all').trim() || 'all';
+        const group = __tmFindDocTabCustomGroupById(gid, { currentGroupId });
+        if (!group) return new Set();
+        const docs = (Array.isArray(opts.docs) ? opts.docs : __tmSortDocEntriesForTabs(state?.taskTree || [], currentGroupId))
+            .map((doc) => ({
+                ...(doc && typeof doc === 'object' ? doc : {}),
+                id: String((doc && typeof doc === 'object' ? doc.id : doc) || '').trim()
+            }))
+            .filter((doc) => !!doc.id);
+        const expanded = __tmExpandDocTabCustomGroup(group, docs);
+        const out = new Set();
+        const globalNewTaskDocId = String(SettingsStore?.data?.newTaskDocId || '').trim();
+        docs.forEach((doc) => {
+            const docId = String(doc?.id || '').trim();
+            if (!docId || !expanded.has(docId)) return;
+            if (globalNewTaskDocId && docId === globalNewTaskDocId && opts.includeSpecialNewTaskDoc !== true) return;
+            if (opts.includePinned !== true && __tmIsDocPinnedInGroup(docId, currentGroupId)) return;
+            out.add(docId);
+        });
+        return out;
+    }
+
+    function __tmGetActiveDocTabCustomGroupDocIdSet(activeDocId = state?.activeDocId, options = {}) {
+        const gid = __tmParseDocTabCustomGroupActiveId(activeDocId);
+        if (!gid) return null;
+        return __tmGetDocTabCustomGroupDocIdSet(gid, options);
+    }
+
+    function __tmGetDocTabCustomGroupMembershipForDoc(docId, extraDocs = [], groupId = __tmGetCurrentDocTabCustomGroupScopeId()) {
+        const id = String(docId || '').trim();
+        if (!id) return [];
+        return __tmGetDocTabCustomGroupsForDocGroup(groupId).map((group) => {
+            const members = __tmExpandDocTabCustomGroup(group, extraDocs);
+            const relation = members.get(id);
+            if (!relation) return null;
+            return { group, relation };
+        }).filter(Boolean);
+    }
+
+    function __tmBuildDocTabGroupedView(visibleDocs, options = {}) {
+        const docs = (Array.isArray(visibleDocs) ? visibleDocs : [])
+            .map((doc) => ({
+                ...(doc && typeof doc === 'object' ? doc : {}),
+                id: String((doc && typeof doc === 'object' ? doc.id : doc) || '').trim()
+            }))
+            .filter((doc) => !!doc.id);
+        const docById = new Map(docs.map((doc) => [doc.id, doc]));
+        const currentGroupId = String(options?.currentGroupId || SettingsStore?.data?.currentGroupId || 'all').trim() || 'all';
+        const activeDocId = String(options?.activeDocId || state?.activeDocId || '').trim();
+        const activeGroupId = __tmParseDocTabCustomGroupActiveId(activeDocId);
+        const membershipsByDocId = new Map();
+        const groups = [];
+
+        __tmGetDocTabCustomGroupsForDocGroup(currentGroupId).forEach((group) => {
+            const expanded = __tmExpandDocTabCustomGroup(group, docs);
+            const members = [];
+            docs.forEach((doc) => {
+                const relation = expanded.get(doc.id);
+                if (!relation) return;
+                if (__tmIsDocPinnedInGroup(doc.id, currentGroupId)) return;
+                members.push({
+                    ...doc,
+                    __tmDocTabGroupRelation: relation
+                });
+            });
+            if (!members.length && group.showInTabBar !== true) return;
+            members.forEach((doc) => {
+                const id = String(doc?.id || '').trim();
+                if (!id) return;
+                if (!membershipsByDocId.has(id)) membershipsByDocId.set(id, []);
+                membershipsByDocId.get(id).push({ group, relation: doc.__tmDocTabGroupRelation });
+            });
+            const activeMember = members.find((doc) => doc.id === activeDocId) || null;
+            const isGroupActive = activeGroupId && activeGroupId === String(group.id || '').trim();
+            groups.push({
+                group,
+                id: group.id,
+                name: String(group.name || '').trim() || '未命名页签组',
+                members,
+                active: !!(isGroupActive || activeMember),
+                aggregateActive: !!isGroupActive,
+                activeMember
+            });
+        });
+
+        const membershipByDocId = new Map();
+        membershipsByDocId.forEach((memberships, docId) => {
+            const first = Array.isArray(memberships) ? memberships[0] : null;
+            if (first) membershipByDocId.set(docId, first);
+        });
+        const normalDocs = docs.filter((doc) => !membershipsByDocId.has(doc.id));
+        return {
+            groups,
+            normalDocs,
+            assignedDocIds: new Set(membershipsByDocId.keys()),
+            membershipByDocId,
+            membershipsByDocId,
+            docById
+        };
+    }
+
     function __tmGetGroupCalendarSearchOptimization(group) {
         return __tmNormalizeCalendarSearchOptimization(group?.calendarSearchOptimization);
     }
@@ -1467,7 +1987,9 @@
     }
 
     function __tmResolveContextViewDefaults(activeDocId, currentGroupId, storeInput = null) {
-        const docId = String(activeDocId || 'all').trim() || 'all';
+        const rawDocId = String(activeDocId || 'all').trim() || 'all';
+        const docTabGroupId = __tmParseDocTabCustomGroupActiveId(rawDocId);
+        const docId = docTabGroupId ? 'all' : rawDocId;
         const groupId = String(currentGroupId || 'all').trim() || 'all';
         const store = storeInput || __tmGetViewProfilesStore();
         const isMobile = __tmIsViewProfileMobileContext();
@@ -1481,9 +2003,19 @@
                     : null
             };
         };
-        if (docId !== 'all') {
+        if (docTabGroupId) {
+            const docTabGroupAllTabsDefaults = read(store.docTabGroupAllTabs?.[docTabGroupId]);
+            if (docTabGroupAllTabsDefaults) return docTabGroupAllTabsDefaults;
+            const docTabGroupDefaults = read(store.docTabGroups?.[docTabGroupId]);
+            if (docTabGroupDefaults) return docTabGroupDefaults;
+            const allTabsDefaults = read(store.allTabs?.[groupId]);
+            if (allTabsDefaults) return allTabsDefaults;
+        } else if (docId !== 'all') {
             const docDefaults = read(store.docs?.[docId]);
             if (docDefaults) return docDefaults;
+            const docTabGroupMatch = __tmGetDocTabCustomGroupViewProfileMatchForDoc(docId, groupId, store);
+            const docTabGroupDefaults = read(docTabGroupMatch?.profile);
+            if (docTabGroupDefaults) return docTabGroupDefaults;
         } else {
             const allTabsDefaults = read(store.allTabs?.[groupId]);
             if (allTabsDefaults) return allTabsDefaults;
@@ -1513,15 +2045,29 @@
     function __tmNormalizeViewProfiles(raw, fallbackGlobal = {}) {
         const source = (raw && typeof raw === 'object' && !Array.isArray(raw)) ? raw : {};
         const allTabs0 = (source.allTabs && typeof source.allTabs === 'object' && !Array.isArray(source.allTabs)) ? source.allTabs : {};
+        const docTabGroups0 = (source.docTabGroups && typeof source.docTabGroups === 'object' && !Array.isArray(source.docTabGroups)) ? source.docTabGroups : {};
+        const docTabGroupAllTabs0 = (source.docTabGroupAllTabs && typeof source.docTabGroupAllTabs === 'object' && !Array.isArray(source.docTabGroupAllTabs)) ? source.docTabGroupAllTabs : {};
         const groups0 = (source.groups && typeof source.groups === 'object' && !Array.isArray(source.groups)) ? source.groups : {};
         const docs0 = (source.docs && typeof source.docs === 'object' && !Array.isArray(source.docs)) ? source.docs : {};
         const allTabs = {};
+        const docTabGroups = {};
+        const docTabGroupAllTabs = {};
         const groups = {};
         const docs = {};
         Object.keys(allTabs0).forEach((key) => {
             const gid = String(key || '').trim();
             if (!gid) return;
             allTabs[gid] = __tmNormalizeViewProfile(allTabs0[key], fallbackGlobal);
+        });
+        Object.keys(docTabGroups0).forEach((key) => {
+            const gid = String(key || '').trim();
+            if (!gid) return;
+            docTabGroups[gid] = __tmNormalizeViewProfile(docTabGroups0[key], fallbackGlobal);
+        });
+        Object.keys(docTabGroupAllTabs0).forEach((key) => {
+            const gid = String(key || '').trim();
+            if (!gid) return;
+            docTabGroupAllTabs[gid] = __tmNormalizeViewProfile(docTabGroupAllTabs0[key], fallbackGlobal);
         });
         Object.keys(groups0).forEach((key) => {
             const gid = String(key || '').trim();
@@ -1536,6 +2082,8 @@
         return {
             global: __tmNormalizeViewProfile(source.global, fallbackGlobal),
             allTabs,
+            docTabGroups,
+            docTabGroupAllTabs,
             groups,
             docs
         };
@@ -1597,9 +2145,76 @@
         return store.allTabs[gid] ? __tmNormalizeViewProfile(store.allTabs[gid], store.global) : null;
     }
 
+    function __tmGetStoredDocTabCustomGroupViewProfile(groupId) {
+        const gid = String(groupId || '').trim();
+        if (!gid) return null;
+        const store = __tmGetViewProfilesStore();
+        return store.docTabGroups?.[gid] ? __tmNormalizeViewProfile(store.docTabGroups[gid], store.global) : null;
+    }
+
+    function __tmGetStoredDocTabCustomGroupAllTabsViewProfile(groupId) {
+        const gid = String(groupId || '').trim();
+        if (!gid) return null;
+        const store = __tmGetViewProfilesStore();
+        return store.docTabGroupAllTabs?.[gid] ? __tmNormalizeViewProfile(store.docTabGroupAllTabs[gid], store.global) : null;
+    }
+
+    function __tmFindDocTabCustomGroupForProfileDoc(docId, groupId = SettingsStore?.data?.currentGroupId) {
+        const did = String(docId || '').trim();
+        if (!did || did === 'all' || __tmIsDocTabCustomGroupActiveId(did)) return null;
+        const currentGroupId = String(groupId || 'all').trim() || 'all';
+        if (__tmIsDocPinnedInGroup(did, currentGroupId)) return null;
+        const globalNewTaskDocId = String(SettingsStore?.data?.newTaskDocId || '').trim();
+        if (globalNewTaskDocId && did === globalNewTaskDocId) return null;
+        const docs = __tmSortDocEntriesForTabs(state?.taskTree || [], currentGroupId)
+            .map((doc) => ({
+                ...(doc && typeof doc === 'object' ? doc : {}),
+                id: String((doc && typeof doc === 'object' ? doc.id : doc) || '').trim()
+            }))
+            .filter((doc) => !!doc.id);
+        if (!docs.some((doc) => doc.id === did)) return null;
+        const groups = __tmGetDocTabCustomGroupsForDocGroup(currentGroupId);
+        for (const group of groups) {
+            const gid = String(group?.id || '').trim();
+            if (!gid) continue;
+            const expanded = __tmExpandDocTabCustomGroup(group, docs);
+            const relation = expanded.get(did);
+            if (relation) return { group, groupId: gid, relation, currentGroupId };
+        }
+        return null;
+    }
+
+    function __tmGetDocTabCustomGroupViewProfileMatchForDoc(docId, groupId, storeInput = null) {
+        const match = __tmFindDocTabCustomGroupForProfileDoc(docId, groupId);
+        if (!match?.groupId) return null;
+        const store = storeInput || __tmGetViewProfilesStore();
+        const rawProfile = store.docTabGroups?.[match.groupId];
+        return {
+            ...match,
+            profile: rawProfile ? __tmNormalizeViewProfile(rawProfile, store.global) : null
+        };
+    }
+
+    function __tmDoesDocTabCustomGroupAffectActiveContext(groupId, storeInput = null) {
+        const gid = String(groupId || '').trim();
+        if (!gid) return false;
+        const store = storeInput || __tmGetViewProfilesStore();
+        const activeDocId = String(state?.activeDocId || 'all').trim() || 'all';
+        const activeDocTabGroupId = __tmParseDocTabCustomGroupActiveId(activeDocId);
+        if (activeDocTabGroupId) return activeDocTabGroupId === gid && !store.docTabGroupAllTabs?.[gid];
+        const match = __tmFindDocTabCustomGroupForProfileDoc(activeDocId, SettingsStore?.data?.currentGroupId);
+        return String(match?.groupId || '').trim() === gid;
+    }
+
+    function __tmDoesDocTabCustomGroupAllTabsAffectActiveContext(groupId) {
+        const gid = String(groupId || '').trim();
+        if (!gid) return false;
+        return __tmParseDocTabCustomGroupActiveId(state?.activeDocId) === gid;
+    }
+
     function __tmGetStoredDocViewProfile(docId) {
         const did = String(docId || '').trim();
-        if (!did) return null;
+        if (!did || __tmIsDocTabCustomGroupActiveId(did)) return null;
         const store = __tmGetViewProfilesStore();
         return store.docs[did] ? __tmNormalizeViewProfile(store.docs[did], store.global) : null;
     }
@@ -1679,10 +2294,40 @@
     }
 
     function __tmGetEffectiveViewProfileForContext(docId = state.activeDocId, groupId = SettingsStore?.data?.currentGroupId) {
-        const activeDocId = String(docId || 'all').trim() || 'all';
+        const rawActiveDocId = String(docId || 'all').trim() || 'all';
+        const docTabGroupId = __tmParseDocTabCustomGroupActiveId(rawActiveDocId);
+        const activeDocId = docTabGroupId ? 'all' : rawActiveDocId;
         const currentGroupId = String(groupId || 'all').trim() || 'all';
         const store = __tmGetViewProfilesStore();
-        const viewDefaults = __tmResolveContextViewDefaults(activeDocId, currentGroupId, store);
+        const viewDefaults = __tmResolveContextViewDefaults(rawActiveDocId, currentGroupId, store);
+        if (docTabGroupId) {
+            const docTabGroupAllTabsProfile = store.docTabGroupAllTabs?.[docTabGroupId];
+            if (docTabGroupAllTabsProfile) {
+                const profile = __tmNormalizeViewProfile(docTabGroupAllTabsProfile, store.global);
+                profile.defaultViewMode = viewDefaults.defaultViewMode;
+                profile.defaultKanbanBoardMode = viewDefaults.defaultKanbanBoardMode;
+                return {
+                    source: 'docTabGroupAllTabs',
+                    docTabGroupId,
+                    docId: '',
+                    groupId: currentGroupId,
+                    profile
+                };
+            }
+            const docTabGroupProfile = store.docTabGroups?.[docTabGroupId];
+            if (docTabGroupProfile) {
+                const profile = __tmNormalizeViewProfile(docTabGroupProfile, store.global);
+                profile.defaultViewMode = viewDefaults.defaultViewMode;
+                profile.defaultKanbanBoardMode = viewDefaults.defaultKanbanBoardMode;
+                return {
+                    source: 'docTabGroup',
+                    docTabGroupId,
+                    docId: '',
+                    groupId: currentGroupId,
+                    profile
+                };
+            }
+        }
         if (activeDocId !== 'all') {
             const docProfile = store.docs[activeDocId];
             if (docProfile) {
@@ -1691,6 +2336,19 @@
                 profile.defaultKanbanBoardMode = viewDefaults.defaultKanbanBoardMode;
                 return {
                     source: 'doc',
+                    docId: activeDocId,
+                    groupId: currentGroupId,
+                    profile
+                };
+            }
+            const docTabGroupMatch = __tmGetDocTabCustomGroupViewProfileMatchForDoc(activeDocId, currentGroupId, store);
+            if (docTabGroupMatch?.profile) {
+                const profile = __tmNormalizeViewProfile(docTabGroupMatch.profile, store.global);
+                profile.defaultViewMode = viewDefaults.defaultViewMode;
+                profile.defaultKanbanBoardMode = viewDefaults.defaultKanbanBoardMode;
+                return {
+                    source: 'docTabGroup',
+                    docTabGroupId: docTabGroupMatch.groupId,
                     docId: activeDocId,
                     groupId: currentGroupId,
                     profile
@@ -1820,6 +2478,8 @@
     function __tmGetViewProfileSourceLabel(source) {
         if (source === 'doc') return '页签自定义';
         if (source === 'allTabs') return '全部页签专用';
+        if (source === 'docTabGroupAllTabs') return '页签组全部页签专用';
+        if (source === 'docTabGroup') return '页签组默认';
         if (source === 'group') return '分组默认';
         return '全局默认';
     }
@@ -3504,6 +4164,13 @@ return Number(state.contextInteractionQuietUntil || 0);
                                 </select>
                             </div>
                         </div>
+                        <div class="tm-repeat-field" data-tm-repeat-calendar-wrap style="display:${(currentRule.type === 'monthly' || currentRule.type === 'yearly') ? 'flex' : 'none'};flex-direction:column;gap:8px;">
+                            <div class="tm-repeat-label">历法</div>
+                            <div class="tm-repeat-segments">
+                                <button type="button" class="tm-repeat-segment ${currentRule.calendarMode !== 'lunar' ? 'is-active' : ''}" data-tm-repeat-calendar="solar">公历</button>
+                                <button type="button" class="tm-repeat-segment ${currentRule.calendarMode === 'lunar' ? 'is-active' : ''}" data-tm-repeat-calendar="lunar">${esc(__tmGetTaskRepeatLunarCaption(currentRule.type, anchorDate))}</button>
+                            </div>
+                        </div>
                         <div class="tm-repeat-field" data-tm-repeat-monthly-wrap style="display:${currentRule.type === 'monthly' ? 'flex' : 'none'};flex-direction:column;gap:8px;">
                             <div class="tm-repeat-label">每月规则</div>
                             <div class="tm-repeat-segments">
@@ -3531,11 +4198,14 @@ return Number(state.contextInteractionQuietUntil || 0);
             const everyEl = modal.querySelector('[data-tm-repeat-field="every"]');
             const typeEl = modal.querySelector('[data-tm-repeat-field="type"]');
             const untilEl = modal.querySelector('[data-tm-repeat-field="until"]');
+            const calendarWrap = modal.querySelector('[data-tm-repeat-calendar-wrap]');
             const monthlyWrap = modal.querySelector('[data-tm-repeat-monthly-wrap]');
             const summaryEl = modal.querySelector('[data-tm-repeat-summary]');
             const confirmBtn = modal.querySelector('[data-tm-repeat-action="confirm"]');
             const cancelBtn = modal.querySelector('[data-tm-repeat-action="cancel"]');
+            const calendarButtons = Array.from(modal.querySelectorAll('[data-tm-repeat-calendar]')).filter((el) => el instanceof HTMLButtonElement);
             const monthlyButtons = Array.from(modal.querySelectorAll('[data-tm-repeat-monthly]')).filter((el) => el instanceof HTMLButtonElement);
+            let calendarMode = currentRule.calendarMode || 'solar';
             let monthlyMode = currentRule.monthlyMode || 'date';
             let settled = false;
 
@@ -3565,12 +4235,19 @@ return Number(state.contextInteractionQuietUntil || 0);
                     type,
                     every,
                     monthlyMode,
+                    calendarMode,
                     until,
                     anchorDate,
                 }, {
                     anchorDate,
                     startDate: task?.startDate,
                     completionTime: task?.completionTime,
+                });
+            };
+            const syncCalendarButtons = () => {
+                calendarButtons.forEach((btn) => {
+                    const value = String(btn.getAttribute('data-tm-repeat-calendar') || '').trim();
+                    btn.classList.toggle('is-active', value === calendarMode);
                 });
             };
             const syncMonthlyButtons = () => {
@@ -3586,7 +4263,9 @@ return Number(state.contextInteractionQuietUntil || 0);
                 if (everyEl instanceof HTMLInputElement) everyEl.disabled = disabled;
                 if (typeEl instanceof HTMLSelectElement) typeEl.disabled = disabled;
                 if (untilEl instanceof HTMLInputElement) untilEl.disabled = disabled;
-                if (monthlyWrap instanceof HTMLElement) monthlyWrap.style.display = (!disabled && type === 'monthly') ? 'flex' : 'none';
+                if (calendarWrap instanceof HTMLElement) calendarWrap.style.display = (!disabled && (type === 'monthly' || type === 'yearly')) ? 'flex' : 'none';
+                if (monthlyWrap instanceof HTMLElement) monthlyWrap.style.display = (!disabled && type === 'monthly' && calendarMode !== 'lunar') ? 'flex' : 'none';
+                syncCalendarButtons();
                 syncMonthlyButtons();
                 const draft = readDraft();
                 if (summaryEl instanceof HTMLElement) {
@@ -3596,6 +4275,12 @@ return Number(state.contextInteractionQuietUntil || 0);
                 }
             };
 
+            calendarButtons.forEach((btn) => {
+                btn.onclick = () => {
+                    calendarMode = String(btn.getAttribute('data-tm-repeat-calendar') || '').trim() === 'lunar' ? 'lunar' : 'solar';
+                    syncUi();
+                };
+            });
             monthlyButtons.forEach((btn) => {
                 btn.onclick = () => {
                     monthlyMode = String(btn.getAttribute('data-tm-repeat-monthly') || '').trim() === 'weekday' ? 'weekday' : 'date';
@@ -7993,7 +8678,16 @@ return Number(state.contextInteractionQuietUntil || 0);
             state.activeDocId = 'all';
         }
         const activeDocIdBeforeFilter = String(state.activeDocId || 'all').trim() || 'all';
-        if (activeDocIdBeforeFilter !== 'all' && !__tmIsOtherBlockTabId(activeDocIdBeforeFilter)) {
+        const activeDocTabCustomGroupIdBeforeFilter = __tmParseDocTabCustomGroupActiveId(activeDocIdBeforeFilter);
+        if (activeDocTabCustomGroupIdBeforeFilter) {
+            const activeGroupDocIds = __tmGetDocTabCustomGroupDocIdSet(activeDocTabCustomGroupIdBeforeFilter, {
+                currentGroupId: SettingsStore?.data?.currentGroupId || 'all',
+                docs: state.taskTree || []
+            });
+            if (!activeGroupDocIds.size) {
+                state.activeDocId = 'all';
+            }
+        } else if (activeDocIdBeforeFilter !== 'all' && !__tmIsOtherBlockTabId(activeDocIdBeforeFilter)) {
             const activeDoc = (Array.isArray(state.taskTree) ? state.taskTree : [])
                 .find((doc) => String(doc?.id || '').trim() === activeDocIdBeforeFilter);
             const globalNewTaskDocId = String(SettingsStore.data.newTaskDocId || '').trim();
@@ -8004,6 +8698,11 @@ return Number(state.contextInteractionQuietUntil || 0);
         }
         const isOtherBlocksActive = __tmIsOtherBlockTabId(state.activeDocId) && hasOtherBlocks;
         const activeDocId = String(state.activeDocId || 'all').trim() || 'all';
+        const activeDocTabCustomGroupDocIds = __tmGetActiveDocTabCustomGroupDocIdSet(activeDocId, {
+            currentGroupId: SettingsStore?.data?.currentGroupId || 'all',
+            docs: state.taskTree || []
+        });
+        const isDocTabCustomGroupActive = activeDocTabCustomGroupDocIds instanceof Set && activeDocTabCustomGroupDocIds.size > 0;
 
         const collect = (list, target) => {
             (list || []).forEach((t) => {
@@ -8020,7 +8719,8 @@ return Number(state.contextInteractionQuietUntil || 0);
             collect(doc.tasks, docTasks);
             allTasksForTabs.push(...docTasks);
             if (isOtherBlocksActive) return;
-            if (activeDocId !== 'all' && doc.id !== activeDocId) return;
+            if (isDocTabCustomGroupActive && !activeDocTabCustomGroupDocIds.has(String(doc?.id || '').trim())) return;
+            if (!isDocTabCustomGroupActive && activeDocId !== 'all' && doc.id !== activeDocId) return;
             tasks.push(...docTasks);
         });
         if (hasOtherBlocks) {
@@ -8375,9 +9075,15 @@ return Number(state.contextInteractionQuietUntil || 0);
                 ? visibleAllTasks.slice()
                 : (!hasExplicitSortRule
                     ? stablePinnedFirst(visibleAllTasks)
-                    : RuleManager.applyRuleSort(visibleAllTasks, rule, ruleRuntime));
+                : RuleManager.applyRuleSort(visibleAllTasks, rule, ruleRuntime));
             filterMetrics.allScopeMs = __tmRoundPerfMs(Date.now() - allScopeStartTime);
             ordered.push(...sortedVisibleTasks);
+        } else if (isDocTabCustomGroupActive) {
+            state.taskTree.forEach((doc) => {
+                const docId = String(doc?.id || '').trim();
+                if (!docId || !activeDocTabCustomGroupDocIds.has(docId)) return;
+                traverse(doc.tasks || [], false);
+            });
         } else {
             state.taskTree.forEach((doc) => {
                 if (activeDocId !== 'all' && doc.id !== activeDocId) return;
@@ -8861,6 +9567,87 @@ return Number(state.contextInteractionQuietUntil || 0);
         }
     };
 
+    window.tmSwitchDocTabCustomGroup = async function(groupId) {
+        if (Number(state.suppressDocTabClickUntil || 0) > Date.now()) return;
+        const gid = String(groupId || '').trim();
+        if (!gid) return;
+        const group = __tmFindDocTabCustomGroupById(gid);
+        if (!group) {
+            try { hint('⚠ 页签组不存在', 'warning'); } catch (e) {}
+            return;
+        }
+        const docIds = __tmGetDocTabCustomGroupDocIdSet(gid, {
+            currentGroupId: SettingsStore?.data?.currentGroupId || 'all',
+            docs: state.taskTree || []
+        });
+        if (!docIds.size) {
+            try { hint('⚠ 该页签组当前没有可汇聚的页签', 'warning'); } catch (e) {}
+            return;
+        }
+        const shouldCollapseDocTabsAfterSwitch = (() => {
+            try {
+                const hostInfo = globalThis.__tmRuntimeHost?.getInfo?.() || null;
+                return !!(__tmIsMobileDevice()
+                    || (hostInfo?.isDockHost ?? __tmIsDockHost())
+                    || (hostInfo?.hostUsesMobileUI ?? __tmHostUsesMobileUI()));
+            } catch (e) {
+                return false;
+            }
+        })();
+        if (shouldCollapseDocTabsAfterSwitch && state.docTabsCollapsed === false) {
+            state.docTabsCollapsed = true;
+            try { Storage.set('tm_doc_tabs_collapsed', true); } catch (e) {}
+            try {
+                const tabs = state.modal?.querySelector?.('.tm-doc-tabs');
+                if (tabs instanceof HTMLElement) {
+                    tabs.classList.add('tm-doc-tabs--collapsed');
+                    tabs.classList.remove('tm-doc-tabs--expanded');
+                }
+            } catch (e) {}
+        }
+        const activeId = __tmBuildDocTabCustomGroupActiveId(gid);
+        state.activeDocId = activeId || 'all';
+        try { __tmResetArchiveCompletedRootGroupCollapse(); } catch (e) {}
+        try {
+            state.listRenderStep = 1200;
+            state.listRenderLimit = Math.max(Number(state.listRenderLimit) || 0, 1200);
+        } catch (e) {}
+        __tmMarkContextInteractionQuiet('switch-doc-tab-group', 900);
+        try { recalcStats(); } catch (e) {}
+        const applied = await __tmApplyCurrentContextViewProfile();
+        if (applied?.customFieldReloadNeeded) await loadSelectedDocuments();
+        else {
+            const viewSnapshotMeta = await __tmTryRestoreCurrentDocTabViewSnapshot(
+                state.activeDocId,
+                SettingsStore?.data?.currentGroupId || 'all'
+            );
+            __tmScheduleRender({ withFilters: !viewSnapshotMeta });
+        }
+        if (state.viewMode === 'whiteboard') {
+            try {
+                requestAnimationFrame(() => {
+                    try { window.tmWhiteboardResetView?.(); } catch (e) {}
+                });
+            } catch (e) {}
+        }
+    };
+
+    window.tmHandleDocTabCustomGroupClick = async function(event, groupId) {
+        const gid = String(groupId || '').trim();
+        if (!gid) return;
+        const tabEl = event?.currentTarget instanceof Element
+            ? event.currentTarget
+            : (event?.target instanceof Element ? event.target.closest('[data-tm-doc-tab-group-id]') : null);
+        const isActiveTab = !!(tabEl instanceof HTMLElement && tabEl.classList.contains('active'));
+        if (isActiveTab || __tmParseDocTabCustomGroupActiveId(state.activeDocId) === gid) {
+            try { event?.preventDefault?.(); } catch (e) {}
+            try { event?.stopPropagation?.(); } catch (e) {}
+            __tmShowDocTabCustomGroupMenuAt(gid, event?.clientX, event?.clientY, event);
+            return;
+        }
+        await window.tmSwitchDocTabCustomGroup?.(gid);
+    };
+
     window.tmSaveCurrentViewProfileToGroup = async function(groupId) {
         const gid = String(groupId || SettingsStore.data.currentGroupId || 'all').trim() || 'all';
         const store = __tmGetViewProfilesStore();
@@ -8874,7 +9661,7 @@ return Number(state.contextInteractionQuietUntil || 0);
 
     window.tmSaveCurrentViewProfileToDoc = async function(docId) {
         const did = String(docId || state.activeDocId || '').trim();
-        if (!did || did === 'all') {
+        if (!did || did === 'all' || __tmIsDocTabCustomGroupActiveId(did)) {
             try { hint('ℹ 请先进入具体文档页签后再保存页签配置', 'info'); } catch (e) {}
             return;
         }
@@ -8894,7 +9681,7 @@ return Number(state.contextInteractionQuietUntil || 0);
         let affectsCurrent = false;
         if (kind === 'doc') {
             const did = String(id || state.activeDocId || '').trim();
-            if (!did || did === 'all') return;
+            if (!did || did === 'all' || __tmIsDocTabCustomGroupActiveId(did)) return;
             if (store.docs[did]) {
                 delete store.docs[did];
                 changed = true;
@@ -8906,7 +9693,26 @@ return Number(state.contextInteractionQuietUntil || 0);
                 delete store.allTabs[gid];
                 changed = true;
             }
-            affectsCurrent = gid === String(SettingsStore.data.currentGroupId || 'all').trim() && String(state.activeDocId || 'all').trim() === 'all';
+            const currentActiveDocId = String(state.activeDocId || 'all').trim() || 'all';
+            const activeDocTabGroupId = __tmParseDocTabCustomGroupActiveId(currentActiveDocId);
+            affectsCurrent = gid === String(SettingsStore.data.currentGroupId || 'all').trim()
+                && (currentActiveDocId === 'all' || (!!activeDocTabGroupId && !store.docTabGroupAllTabs?.[activeDocTabGroupId] && !store.docTabGroups?.[activeDocTabGroupId]));
+        } else if (kind === 'docTabGroupAllTabs') {
+            const gid = String(id || __tmParseDocTabCustomGroupActiveId(state.activeDocId) || '').trim();
+            if (!gid) return;
+            if (store.docTabGroupAllTabs?.[gid]) {
+                delete store.docTabGroupAllTabs[gid];
+                changed = true;
+            }
+            affectsCurrent = __tmDoesDocTabCustomGroupAllTabsAffectActiveContext(gid);
+        } else if (kind === 'docTabGroup') {
+            const gid = String(id || __tmParseDocTabCustomGroupActiveId(state.activeDocId) || '').trim();
+            if (!gid) return;
+            if (store.docTabGroups?.[gid]) {
+                delete store.docTabGroups[gid];
+                changed = true;
+            }
+            affectsCurrent = __tmDoesDocTabCustomGroupAffectActiveContext(gid, store);
         } else if (kind === 'group') {
             const gid = String(id || SettingsStore.data.currentGroupId || 'all').trim() || 'all';
             if (store.groups[gid]) {
@@ -8932,7 +9738,11 @@ return Number(state.contextInteractionQuietUntil || 0);
             hint(
                 kind === 'doc'
                     ? '✅ 已清除页签自定义'
-                    : (kind === 'allTabs' ? '✅ 已清除全部页签专用配置' : '✅ 已清除分组默认配置'),
+                    : (kind === 'allTabs'
+                        ? '✅ 已清除全部页签专用配置'
+                        : (kind === 'docTabGroupAllTabs'
+                            ? '✅ 已清除页签组全部页签专用配置'
+                            : (kind === 'docTabGroup' ? '✅ 已清除页签组默认配置' : '✅ 已清除分组默认配置'))),
                 'success'
             );
         } catch (e) {}
@@ -8949,13 +9759,28 @@ return Number(state.contextInteractionQuietUntil || 0);
         let affectsCurrent = false;
         if (kind === 'doc') {
             const did = String(id || state.activeDocId || '').trim();
-            if (!did || did === 'all') return;
+            if (!did || did === 'all' || __tmIsDocTabCustomGroupActiveId(did)) return;
             store.docs[did] = nextProfile;
             affectsCurrent = did === String(state.activeDocId || '').trim();
         } else if (kind === 'allTabs') {
             const gid = String(id || SettingsStore.data.currentGroupId || 'all').trim() || 'all';
             store.allTabs[gid] = nextProfile;
-            affectsCurrent = gid === String(SettingsStore.data.currentGroupId || 'all').trim() && String(state.activeDocId || 'all').trim() === 'all';
+            const currentActiveDocId = String(state.activeDocId || 'all').trim() || 'all';
+            const activeDocTabGroupId = __tmParseDocTabCustomGroupActiveId(currentActiveDocId);
+            affectsCurrent = gid === String(SettingsStore.data.currentGroupId || 'all').trim()
+                && (currentActiveDocId === 'all' || (!!activeDocTabGroupId && !store.docTabGroupAllTabs?.[activeDocTabGroupId] && !store.docTabGroups?.[activeDocTabGroupId]));
+        } else if (kind === 'docTabGroupAllTabs') {
+            const gid = String(id || __tmParseDocTabCustomGroupActiveId(state.activeDocId) || '').trim();
+            if (!gid) return;
+            if (!store.docTabGroupAllTabs || typeof store.docTabGroupAllTabs !== 'object') store.docTabGroupAllTabs = {};
+            store.docTabGroupAllTabs[gid] = nextProfile;
+            affectsCurrent = __tmDoesDocTabCustomGroupAllTabsAffectActiveContext(gid);
+        } else if (kind === 'docTabGroup') {
+            const gid = String(id || __tmParseDocTabCustomGroupActiveId(state.activeDocId) || '').trim();
+            if (!gid) return;
+            if (!store.docTabGroups || typeof store.docTabGroups !== 'object') store.docTabGroups = {};
+            store.docTabGroups[gid] = nextProfile;
+            affectsCurrent = __tmDoesDocTabCustomGroupAffectActiveContext(gid, store);
         } else if (kind === 'group') {
             const gid = String(id || SettingsStore.data.currentGroupId || 'all').trim() || 'all';
             store.groups[gid] = nextProfile;
@@ -8977,7 +9802,11 @@ return Number(state.contextInteractionQuietUntil || 0);
             hint(
                 kind === 'doc'
                     ? '✅ 页签配置已保存'
-                    : (kind === 'allTabs' ? '✅ 全部页签专用配置已保存' : '✅ 分组默认配置已保存'),
+                    : (kind === 'allTabs'
+                        ? '✅ 全部页签专用配置已保存'
+                        : (kind === 'docTabGroupAllTabs'
+                            ? '✅ 页签组全部页签专用配置已保存'
+                            : (kind === 'docTabGroup' ? '✅ 页签组默认配置已保存' : '✅ 分组默认配置已保存'))),
                 'success'
             );
         } catch (e) {}
@@ -8985,30 +9814,63 @@ return Number(state.contextInteractionQuietUntil || 0);
 
     window.tmOpenViewProfileConfigModal = function(scope, id) {
         const scope0 = String(scope || '').trim();
-        const kind = scope0 === 'doc' ? 'doc' : (scope0 === 'allTabs' ? 'allTabs' : 'group');
+        const kind = scope0 === 'doc'
+            ? 'doc'
+            : (scope0 === 'allTabs'
+                ? 'allTabs'
+                : (scope0 === 'docTabGroupAllTabs'
+                    ? 'docTabGroupAllTabs'
+                    : (scope0 === 'docTabGroup' ? 'docTabGroup' : 'group')));
         const currentGroupId = String(SettingsStore.data.currentGroupId || 'all').trim() || 'all';
-        const targetId = String(id || (kind === 'doc' ? state.activeDocId : currentGroupId) || '').trim() || currentGroupId;
-        if (kind === 'doc' && (!targetId || targetId === 'all')) {
+        const isDocTabGroupScope = kind === 'docTabGroup' || kind === 'docTabGroupAllTabs';
+        const rawTargetId = String(id || (kind === 'doc'
+            ? state.activeDocId
+            : (isDocTabGroupScope ? __tmParseDocTabCustomGroupActiveId(state.activeDocId) : currentGroupId)) || '').trim();
+        const targetId = rawTargetId || (isDocTabGroupScope ? '' : currentGroupId);
+        if (kind === 'doc' && (!targetId || targetId === 'all' || __tmIsDocTabCustomGroupActiveId(targetId))) {
             try { hint('ℹ 请先选择具体文档页签', 'info'); } catch (e) {}
+            return;
+        }
+        if (isDocTabGroupScope && !targetId) {
+            try { hint('ℹ 请先选择页签组', 'info'); } catch (e) {}
             return;
         }
 
         const groupName = currentGroupId === 'all'
             ? '全部文档'
             : (__tmResolveDocGroupName((SettingsStore.data.docGroups || []).find((g) => String(g?.id || '').trim() === currentGroupId)) || '当前分组');
+        const docTabCustomGroup = isDocTabGroupScope
+            ? __tmFindDocTabCustomGroupById(targetId, { currentGroupId, allScopes: true })
+            : null;
+        const docTabCustomGroupName = String(docTabCustomGroup?.name || '').trim() || '未命名页签组';
         const docName = kind === 'doc'
             ? (__tmIsOtherBlockTabId(targetId)
                 ? __TM_OTHER_BLOCK_TAB_NAME
                 : __tmGetDocDisplayName(targetId, targetId))
             : '';
+        const docTabGroupProfileMatchForDoc = kind === 'doc'
+            ? __tmGetDocTabCustomGroupViewProfileMatchForDoc(targetId, currentGroupId)
+            : null;
         const storedProfile = kind === 'doc'
             ? __tmGetStoredDocViewProfile(targetId)
-            : (kind === 'allTabs' ? __tmGetStoredAllTabsViewProfile(targetId) : __tmGetStoredGroupViewProfile(targetId));
-        const inheritedProfile = kind === 'doc'
-            ? (__tmGetStoredGroupViewProfile(currentGroupId) || __tmGetViewProfilesStore().global)
             : (kind === 'allTabs'
-                ? (__tmGetStoredGroupViewProfile(currentGroupId) || __tmGetViewProfilesStore().global)
-                : __tmGetViewProfilesStore().global);
+                ? __tmGetStoredAllTabsViewProfile(targetId)
+                : (kind === 'docTabGroupAllTabs'
+                    ? __tmGetStoredDocTabCustomGroupAllTabsViewProfile(targetId)
+                    : (kind === 'docTabGroup' ? __tmGetStoredDocTabCustomGroupViewProfile(targetId) : __tmGetStoredGroupViewProfile(targetId))));
+        let inheritedProfile = __tmGetViewProfilesStore().global;
+        if (kind === 'doc') {
+            inheritedProfile = docTabGroupProfileMatchForDoc?.profile || __tmGetStoredGroupViewProfile(currentGroupId) || __tmGetViewProfilesStore().global;
+        } else if (kind === 'allTabs') {
+            inheritedProfile = __tmGetStoredGroupViewProfile(currentGroupId) || __tmGetViewProfilesStore().global;
+        } else if (kind === 'docTabGroupAllTabs') {
+            inheritedProfile = __tmGetStoredDocTabCustomGroupViewProfile(targetId)
+                || __tmGetStoredAllTabsViewProfile(currentGroupId)
+                || __tmGetStoredGroupViewProfile(currentGroupId)
+                || __tmGetViewProfilesStore().global;
+        } else if (kind === 'docTabGroup') {
+            inheritedProfile = __tmGetStoredGroupViewProfile(currentGroupId) || __tmGetViewProfilesStore().global;
+        }
         const initialProfile = storedProfile || inheritedProfile || __tmGetCurrentUiViewProfile();
         const mode = __tmNormalizeGroupModeValue(initialProfile?.groupMode, 'none');
         const ruleId = String(initialProfile?.ruleId || '').trim();
@@ -9020,15 +9882,39 @@ return Number(state.contextInteractionQuietUntil || 0);
         const hasTaskModeOption = !!(SettingsStore.data.groupByTaskName || state.groupByTaskName || mode === 'task');
         const titleText = kind === 'doc'
             ? `页签规则、分组和默认视图设置`
-            : (kind === 'allTabs' ? `全部页签规则、分组和默认视图设置` : `当前文档分组默认规则、分组和默认视图设置`);
+            : (kind === 'allTabs'
+                ? `全部页签规则、分组和默认视图设置`
+                : (kind === 'docTabGroupAllTabs'
+                    ? `页签组全部页签规则、分组和默认视图设置`
+                    : (kind === 'docTabGroup' ? `当前页签分组默认规则、分组和默认视图设置` : `当前文档分组默认规则、分组和默认视图设置`)));
         const scopeText = kind === 'doc'
             ? `作用到页签：${docName}`
-            : (kind === 'allTabs' ? `仅作用到“全部”页签：${groupName}` : `作用到分组内单文档：${groupName}`);
+            : (kind === 'allTabs'
+                ? `仅作用到“全部”页签：${groupName}`
+                : (kind === 'docTabGroupAllTabs'
+                    ? `仅作用到页签组“${docTabCustomGroupName}”的全部页签`
+                    : (kind === 'docTabGroup' ? `作用到页签组“${docTabCustomGroupName}”的默认配置` : `作用到分组内单文档：${groupName}`)));
         const inheritSource = storedProfile
-            ? (kind === 'doc' ? '页签自定义' : (kind === 'allTabs' ? '全部页签专用' : '分组默认'))
+            ? (kind === 'doc'
+                ? '页签自定义'
+                : (kind === 'allTabs'
+                    ? '全部页签专用'
+                    : (kind === 'docTabGroupAllTabs'
+                        ? '页签组全部页签专用'
+                        : (kind === 'docTabGroup' ? '页签组默认' : '分组默认'))))
             : (kind === 'doc'
-                ? (__tmGetStoredGroupViewProfile(currentGroupId) ? '分组默认' : '全局默认')
-                : ((kind === 'allTabs' && __tmGetStoredGroupViewProfile(currentGroupId)) ? '分组默认' : '全局默认'));
+                ? (docTabGroupProfileMatchForDoc?.profile ? '页签组默认' : (__tmGetStoredGroupViewProfile(currentGroupId) ? '分组默认' : '全局默认'))
+                : (kind === 'allTabs'
+                    ? (__tmGetStoredGroupViewProfile(currentGroupId) ? '分组默认' : '全局默认')
+                    : (kind === 'docTabGroupAllTabs'
+                        ? (__tmGetStoredDocTabCustomGroupViewProfile(targetId)
+                            ? '页签组默认'
+                            : (__tmGetStoredAllTabsViewProfile(currentGroupId)
+                                ? '全部页签专用'
+                                : (__tmGetStoredGroupViewProfile(currentGroupId) ? '分组默认' : '全局默认')))
+                        : (kind === 'docTabGroup'
+                            ? (__tmGetStoredGroupViewProfile(currentGroupId) ? '分组默认' : '全局默认')
+                            : '全局默认'))));
         const inheritText = `当前规则：${inheritSource} / ${__tmDescribeViewProfile(initialProfile)}`;
         const ruleOptionsHtml = [
             '<option value="">全部</option>',
@@ -9105,11 +9991,21 @@ return Number(state.contextInteractionQuietUntil || 0);
                         </span>
                         <input class="b3-switch fn__flex-center" type="checkbox" data-tm-vp-field="mobile-view-disabled" ${mobileViewDisabled ? 'checked' : ''}>
                     </label>
-                    ${kind === 'allTabs'
-                        ? `<div style="font-size:12px; color:var(--tm-secondary-text); line-height:1.6;">这套配置只在当前分组切到“全部”页签时生效，不会影响该分组里的单个文档页签。</div>`
+                    ${kind === 'allTabs' || kind === 'docTabGroupAllTabs' || kind === 'docTabGroup'
+                        ? `<div style="font-size:12px; color:var(--tm-secondary-text); line-height:1.6;">${esc(kind === 'docTabGroup'
+                            ? '这套配置作为该页签组内页签的默认配置；文档页签自定义优先于它。'
+                            : (kind === 'docTabGroupAllTabs'
+                                ? '这套配置只在切到该页签组的“全部页签”时生效，不会影响组内单个文档页签。'
+                                : '这套配置只在当前分组切到“全部”页签时生效，不会影响该分组里的单个文档页签。'))}</div>`
                         : ''}
                     <div style="display:flex; gap:10px; justify-content:flex-end; flex-wrap:wrap; padding-top:4px;">
-                        ${storedProfile ? `<button class="tm-btn tm-btn-gray" data-tm-vp-clear>${kind === 'doc' ? '清除页签自定义' : (kind === 'allTabs' ? '清除全部页签专用配置' : '清除分组默认')}</button>` : ''}
+                        ${storedProfile ? `<button class="tm-btn tm-btn-gray" data-tm-vp-clear>${kind === 'doc'
+                            ? '清除页签自定义'
+                            : (kind === 'allTabs'
+                                ? '清除全部页签专用配置'
+                                : (kind === 'docTabGroupAllTabs'
+                                    ? '清除页签组全部页签专用配置'
+                                    : (kind === 'docTabGroup' ? '清除页签组默认配置' : '清除分组默认')))}</button>` : ''}
                         <button class="tm-btn tm-btn-secondary" data-tm-vp-cancel>取消</button>
                         <button class="tm-btn tm-btn-primary" data-tm-vp-save>保存</button>
                     </div>
@@ -9167,28 +10063,66 @@ return Number(state.contextInteractionQuietUntil || 0);
         }
     };
 
+    function __tmClearDocTabMenuOutsideCloseHandler(key) {
+        const handler = state?.[key];
+        if (!handler) return;
+        __tmClearOutsideCloseHandler(handler);
+        try { state[key] = null; } catch (e) {}
+        if (state.docTabMenuCloseHandler === handler) state.docTabMenuCloseHandler = null;
+    }
+
+    function __tmHideDocTabContextMenu() {
+        const menu = document.getElementById('tm-doc-tab-menu');
+        if (menu) menu.remove();
+        __tmClearDocTabMenuOutsideCloseHandler('docTabContextMenuCloseHandler');
+    }
+
+    function __tmHideDocTabSwitcherMenu() {
+        const menu = document.getElementById('tm-doc-tab-switcher-menu');
+        if (menu) menu.remove();
+        __tmSetDocTabCustomGroupCaretOpen(null);
+        __tmClearDocTabMenuOutsideCloseHandler('docTabSwitcherMenuCloseHandler');
+    }
+
     function __tmHideDocTabMenu() {
-        ['tm-doc-tab-menu', 'tm-doc-tab-switcher-menu'].forEach((id) => {
-            const menu = document.getElementById(id);
-            if (menu) menu.remove();
-        });
-        if (state.docTabMenuCloseHandler) {
-            __tmClearOutsideCloseHandler(state.docTabMenuCloseHandler);
-            state.docTabMenuCloseHandler = null;
-        }
+        __tmHideDocTabContextMenu();
+        __tmHideDocTabSwitcherMenu();
+        __tmClearDocTabMenuOutsideCloseHandler('docTabMenuCloseHandler');
+    }
+
+    function __tmSetDocTabCustomGroupCaretOpen(groupId = null) {
+        try {
+            const openId = String(groupId || '').trim();
+            const buttons = Array.from(document.querySelectorAll('.tm-doc-tab-group-caret'));
+            buttons.forEach((btn) => {
+                if (!(btn instanceof HTMLElement)) return;
+                const host = btn.closest('[data-tm-doc-tab-group-id]');
+                const gid = String(host?.getAttribute?.('data-tm-doc-tab-group-id') || '').trim();
+                const open = !!openId && gid === openId;
+                btn.classList.toggle('is-open', open);
+                btn.setAttribute('aria-expanded', open ? 'true' : 'false');
+                btn.innerHTML = __tmRenderLucideIcon(open ? 'caret-down' : 'caret-right', '', { size: 12 });
+            });
+        } catch (e) {}
     }
 
     function __tmUnbindOutsideCloseHandler(handler) {
         if (typeof handler !== 'function') return;
-        try { document.removeEventListener('click', handler); } catch (e) {}
-        try { document.removeEventListener('contextmenu', handler); } catch (e) {}
-        try { document.removeEventListener('pointerdown', handler); } catch (e) {}
-        try { document.removeEventListener('touchstart', handler); } catch (e) {}
+        const remove = (type) => {
+            try { document.removeEventListener(type, handler, true); } catch (e) {}
+            try { document.removeEventListener(type, handler); } catch (e) {}
+        };
+        remove('click');
+        remove('contextmenu');
+        remove('pointerdown');
+        remove('mousedown');
+        remove('touchstart');
     }
 
     function __tmScheduleBindOutsideCloseHandler(handler, options = {}) {
         if (typeof handler !== 'function') return;
         const ignoreSelector = String(options.ignoreSelector || '').trim();
+        const capture = options.capture === true;
         const wrapped = (ev) => {
             const target = ev?.target instanceof Element ? ev.target : null;
             if (ignoreSelector && target?.closest?.(ignoreSelector)) return;
@@ -9202,10 +10136,11 @@ return Number(state.contextInteractionQuietUntil || 0);
             }
         } catch (e) {}
         const timer = setTimeout(() => {
-            try { document.addEventListener('click', wrapped); } catch (e) {}
-            try { document.addEventListener('contextmenu', wrapped); } catch (e) {}
-            try { document.addEventListener('pointerdown', wrapped); } catch (e) {}
-            try { document.addEventListener('touchstart', wrapped, { passive: true }); } catch (e) {}
+            try { document.addEventListener('pointerdown', wrapped, capture); } catch (e) {}
+            try { document.addEventListener('mousedown', wrapped, capture); } catch (e) {}
+            try { document.addEventListener('touchstart', wrapped, { capture, passive: true }); } catch (e) {}
+            try { document.addEventListener('click', wrapped, capture); } catch (e) {}
+            try { document.addEventListener('contextmenu', wrapped, capture); } catch (e) {}
             try { handler.__tmOutsideCloseTimer = null; } catch (e) {}
         }, 0);
         try { handler.__tmOutsideCloseTimer = timer; } catch (e) {}
@@ -9789,10 +10724,13 @@ return Number(state.contextInteractionQuietUntil || 0);
         hint(heading ? `✅ 默认新建到“${heading.content || '未命名标题'}”` : '✅ 已清除默认新建标题', 'success');
     }
 
-    function __tmShowDocTabMenuAt(docId, x, y) {
+    function __tmShowDocTabMenuAt(docId, x, y, options = {}) {
         const id = String(docId || '').trim();
         if (!id || id === 'all') return;
-        __tmHideDocTabMenu();
+        const opts = (options && typeof options === 'object') ? options : {};
+        const keepSwitcher = opts.keepSwitcher === true;
+        if (keepSwitcher) __tmHideDocTabContextMenu();
+        else __tmHideDocTabMenu();
 
         const menu = document.createElement('div');
         menu.id = 'tm-doc-tab-menu';
@@ -9805,7 +10743,7 @@ return Number(state.contextInteractionQuietUntil || 0);
             border-radius: 4px;
             box-shadow: 0 4px 12px rgba(0,0,0,0.2);
             padding: 4px 0;
-            z-index: 200000;
+            z-index: ${keepSwitcher ? '200001' : '200000'};
             min-width: 160px;
             max-width: calc(100vw - 16px);
             box-sizing: border-box;
@@ -9990,9 +10928,12 @@ return Number(state.contextInteractionQuietUntil || 0);
         const excludedInGroup = __tmIsDocExcludedInGroup(id, pinGroupId);
         const excludeRestoreTargetLabel = pinGroupId === 'all' ? '全部文档设置' : '文档分组设置';
         const docCustomProfile = __tmGetStoredDocViewProfile(id);
+        const docTabGroupProfileMatch = __tmGetDocTabCustomGroupViewProfileMatchForDoc(id, pinGroupId);
+        const docTabGroupProfile = docTabGroupProfileMatch?.profile || null;
         const groupCustomProfile = __tmGetStoredGroupViewProfile(pinGroupId);
         const defaultProfile = __tmGetViewProfilesStore().global;
-        const currentProfileSource = docCustomProfile ? 'doc' : (groupCustomProfile ? 'group' : 'default');
+        const currentProfile = docCustomProfile || docTabGroupProfile || groupCustomProfile || defaultProfile;
+        const currentProfileSource = docCustomProfile ? 'doc' : (docTabGroupProfile ? 'docTabGroup' : (groupCustomProfile ? 'group' : 'default'));
         const expectedMeta = __tmGetCachedDocExpectedMeta(id) || __tmNormalizeDocExpectedMeta({});
         const startDateLabel = expectedMeta.startDate ? `（${expectedMeta.startDate}）` : '';
         const deadlineLabel = expectedMeta.deadline ? `（${expectedMeta.deadline}）` : '';
@@ -10066,6 +11007,59 @@ return Number(state.contextInteractionQuietUntil || 0);
                 if (!result?.changed) return;
                 hint(`✅ 已排除当前文档。恢复显示请到${excludeRestoreTargetLabel}中移出排除列表`, 'success');
             }));
+
+            const tabGroupHr = document.createElement('hr');
+            tabGroupHr.style.cssText = 'margin: 4px 0; border: none; border-top: 1px solid var(--b3-theme-surface-light);';
+            menu.appendChild(tabGroupHr);
+            const docTabGroups = __tmGetDocTabCustomGroupsForDocGroup(pinGroupId);
+            const docTabMembership = __tmGetDocTabCustomGroupMembershipForDoc(id, [], pinGroupId);
+            const membershipByGroup = new Map(docTabMembership.map((entry) => [String(entry?.group?.id || '').trim(), entry]));
+            menu.appendChild(item(__tmRenderContextMenuLabel('plus', '新建页签组并加入'), async () => {
+                await window.tmCreateDocTabCustomGroupWithDoc?.(id);
+            }));
+            if (docTabGroups.length > 0) {
+                menu.appendChild(submenuItem(__tmRenderContextMenuLabel('tag', '添加到页签组'), () => {
+                    return docTabGroups.map((group) => {
+                        const gid = String(group?.id || '').trim();
+                        const groupName = String(group?.name || '').trim() || '未命名页签组';
+                        const membership = membershipByGroup.get(gid);
+                        if (membership?.relation?.direct) {
+                            return item(__tmRenderContextMenuLabel('check-circle-2', `已在“${groupName}”`), () => {
+                                hint('ℹ 该文档已是页签组直接成员', 'info');
+                            });
+                        }
+                        if (membership?.relation && membership.relation.direct === false) {
+                            const sourceDocId = String(membership.relation.entryId || '').trim();
+                            const sourceName = sourceDocId ? __tmGetDocDisplayName(sourceDocId, __tmGetDocRawName(sourceDocId, sourceDocId)) : '上级文档';
+                            return item(__tmRenderContextMenuLabel('circle-dot', `由“${sourceName}”带入“${groupName}”`), () => {
+                                window.tmOpenDocTabCustomGroupSettings?.();
+                            });
+                        }
+                        return item(__tmRenderContextMenuLabel('tag', groupName), async () => {
+                            await window.tmAddDocToDocTabCustomGroup?.(gid, id, false);
+                        });
+                    });
+                }));
+            }
+            const directMembership = docTabMembership.filter((entry) => entry?.relation?.direct);
+            if (directMembership.length > 0) {
+                menu.appendChild(submenuItem(__tmRenderContextMenuLabel('trash-2', '从页签组移除'), () => {
+                    return directMembership.map((entry) => {
+                        const group = entry.group || {};
+                        const gid = String(group.id || '').trim();
+                        const groupName = String(group.name || '').trim() || '未命名页签组';
+                        return item(__tmRenderContextMenuLabel('trash-2', groupName), async () => {
+                            await window.tmRemoveDocFromDocTabCustomGroup?.(gid, id);
+                        });
+                    });
+                }));
+            }
+            const inheritedMembership = docTabMembership.filter((entry) => entry?.relation && entry.relation.direct === false);
+            if (inheritedMembership.length > 0) {
+                menu.appendChild(item(__tmRenderContextMenuLabel('circle-dot', '继承的页签组请到设置中调整'), () => {
+                    window.tmOpenDocTabCustomGroupSettings?.();
+                }));
+            }
         }
 
         if (isOtherBlocksTab) {
@@ -10133,7 +11127,7 @@ return Number(state.contextInteractionQuietUntil || 0);
 
         const profileInfo = document.createElement('div');
         profileInfo.style.cssText = 'padding: 6px 10px 2px; font-size: 12px; opacity: 0.75; line-height: 1.5;';
-        profileInfo.innerHTML = `当前规则：<div style="margin-top:2px;">${esc(__tmGetViewProfileSourceLabel(currentProfileSource))} / ${esc(__tmDescribeViewProfileRuleAndGroup(docCustomProfile || groupCustomProfile || defaultProfile))}</div>`;
+        profileInfo.innerHTML = `当前规则：<div style="margin-top:2px;">${esc(__tmGetViewProfileSourceLabel(currentProfileSource))} / ${esc(__tmDescribeViewProfileRuleAndGroup(currentProfile))}</div>`;
         menu.appendChild(profileInfo);
 
         document.body.appendChild(menu);
@@ -10145,17 +11139,19 @@ return Number(state.contextInteractionQuietUntil || 0);
             try {
                 if (menu.contains(ev.target)) return;
             } catch (e) {}
-            __tmHideDocTabMenu();
+            __tmHideDocTabContextMenu();
         };
-        state.docTabMenuCloseHandler = closeHandler;
-        __tmScheduleBindOutsideCloseHandler(closeHandler);
+        state.docTabContextMenuCloseHandler = closeHandler;
+        __tmScheduleBindOutsideCloseHandler(closeHandler, { capture: true });
     }
 
     window.tmShowDocTabContextMenu = function(event, docId) {
         try { event?.preventDefault?.(); } catch (e) {}
         try { event?.stopPropagation?.(); } catch (e) {}
         try { if (state.__tmPluginIconLongPressing) return; } catch (e) {}
-        __tmShowDocTabMenuAt(docId, event?.clientX, event?.clientY);
+        const target = event?.target instanceof Element ? event.target : null;
+        const keepSwitcher = !!target?.closest?.('#tm-doc-tab-switcher-menu');
+        __tmShowDocTabMenuAt(docId, event?.clientX, event?.clientY, { keepSwitcher });
     };
 
     function __tmGetAllDocTabMenuContext() {
@@ -10171,6 +11167,28 @@ return Number(state.contextInteractionQuietUntil || 0);
         return {
             groupId,
             groupName,
+            currentProfile,
+            currentProfileSource,
+        };
+    }
+
+    function __tmGetDocTabCustomGroupAllMenuContext(groupId) {
+        const gid = String(groupId || '').trim();
+        const currentGroupId = String(SettingsStore.data.currentGroupId || 'all').trim() || 'all';
+        const group = gid ? __tmFindDocTabCustomGroupById(gid, { currentGroupId, allScopes: true }) : null;
+        const groupName = String(group?.name || '').trim() || '未命名页签组';
+        const docTabGroupAllTabsProfile = __tmGetStoredDocTabCustomGroupAllTabsViewProfile(gid);
+        const docTabGroupProfile = __tmGetStoredDocTabCustomGroupViewProfile(gid);
+        const allTabsProfile = __tmGetStoredAllTabsViewProfile(currentGroupId);
+        const groupProfile = __tmGetStoredGroupViewProfile(currentGroupId);
+        const defaultProfile = __tmGetViewProfilesStore().global;
+        const currentProfile = docTabGroupAllTabsProfile || docTabGroupProfile || allTabsProfile || groupProfile || defaultProfile;
+        const currentProfileSource = docTabGroupAllTabsProfile ? 'docTabGroupAllTabs' : (docTabGroupProfile ? 'docTabGroup' : (allTabsProfile ? 'allTabs' : (groupProfile ? 'group' : 'default')));
+        return {
+            groupId: gid,
+            group,
+            groupName,
+            currentGroupId,
             currentProfile,
             currentProfileSource,
         };
@@ -10205,6 +11223,463 @@ return Number(state.contextInteractionQuietUntil || 0);
         };
         return btn;
     }
+
+    function __tmGetDocTabCustomGroupTriggerElement(source, groupId) {
+        const target = source?.currentTarget instanceof Element
+            ? source.currentTarget
+            : (source?.target instanceof Element ? source.target : null);
+        if (target instanceof Element) {
+            const direct = target.closest('[data-tm-doc-tab-group-id]');
+            if (direct instanceof HTMLElement) return direct;
+        }
+        const gid = String(groupId || '').trim();
+        if (gid) {
+            try {
+                const found = state.modal?.querySelector?.(`.tm-doc-tab[data-tm-doc-tab-group-id="${CSS.escape(gid)}"]`);
+                if (found instanceof HTMLElement) return found;
+            } catch (e) {}
+        }
+        return null;
+    }
+
+    function __tmShowDocTabCustomGroupAllContextMenuAt(groupId, x, y, options = {}) {
+        const ctx = __tmGetDocTabCustomGroupAllMenuContext(groupId);
+        const gid = String(ctx.groupId || '').trim();
+        if (!gid || !ctx.group) {
+            hint('⚠ 当前文档分组下未找到该页签组', 'warning');
+            return;
+        }
+        const opts = (options && typeof options === 'object') ? options : {};
+        const keepSwitcher = opts.keepSwitcher === true;
+        if (keepSwitcher) __tmHideDocTabContextMenu();
+        else __tmHideDocTabMenu();
+
+        const menu = document.createElement('div');
+        menu.id = 'tm-doc-tab-menu';
+        menu.className = 'tm-popup-menu bc-dropdown-menu';
+        menu.style.cssText = `
+            position: fixed;
+            top: ${Math.max(8, Number(y) || 0)}px;
+            left: ${Math.max(8, Number(x) || 0)}px;
+            background: var(--b3-theme-background);
+            border: 1px solid var(--b3-theme-surface-light);
+            border-radius: 4px;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.2);
+            padding: 4px 0;
+            z-index: ${keepSwitcher ? '200001' : '200000'};
+            min-width: 188px;
+            max-width: calc(100vw - 16px);
+            box-sizing: border-box;
+            user-select: none;
+        `;
+
+        const title = document.createElement('div');
+        title.textContent = `${ctx.groupName} / 全部页签`;
+        title.style.cssText = 'padding: 6px 10px; font-size: 12px; opacity: 0.75; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;';
+        menu.appendChild(title);
+
+        const info = document.createElement('div');
+        info.style.cssText = 'padding: 0 10px 6px; font-size: 12px; color:var(--tm-secondary-text); line-height:1.5; white-space:normal; overflow-wrap:anywhere;';
+        info.innerHTML = `当前规则：<div style="margin-top:2px;">${esc(__tmGetViewProfileSourceLabel(ctx.currentProfileSource))} / ${esc(__tmDescribeViewProfileRuleAndGroup(ctx.currentProfile))}</div>`;
+        menu.appendChild(info);
+
+        const hr = document.createElement('hr');
+        hr.style.cssText = 'margin: 4px 0; border: none; border-top: 1px solid var(--b3-theme-surface-light);';
+        menu.appendChild(hr);
+
+        const item = (labelHtml, onClick) => {
+            const el = document.createElement('div');
+            const labelText = String(labelHtml || '');
+            if (/<[a-z][\s\S]*>/i.test(labelText)) el.innerHTML = labelText;
+            else el.textContent = labelText;
+            el.style.cssText = `
+                padding: 7px 10px;
+                cursor: pointer;
+                font-size: 13px;
+                color: var(--b3-theme-on-background);
+                white-space: nowrap;
+                display:flex;
+                align-items:center;
+                gap:8px;
+            `;
+            el.onmouseenter = () => { el.style.backgroundColor = 'var(--b3-theme-surface-light)'; };
+            el.onmouseleave = () => { el.style.backgroundColor = 'transparent'; };
+            el.onclick = async (ev) => {
+                try { ev?.preventDefault?.(); } catch (e) {}
+                try { ev?.stopPropagation?.(); } catch (e) {}
+                __tmHideDocTabMenu();
+                try { await onClick?.(); } catch (e) {}
+            };
+            return el;
+        };
+
+        menu.appendChild(item(__tmRenderContextMenuLabel('circle-dot', '进入全部页签'), async () => {
+            await window.tmSwitchDocTabCustomGroup?.(gid);
+        }));
+        menu.appendChild(item(__tmRenderContextMenuLabel('settings', '全部页签规则/分组/视图设置'), () => {
+            window.tmOpenViewProfileConfigModal?.('docTabGroupAllTabs', gid);
+        }));
+        menu.appendChild(item(__tmRenderContextMenuLabel('settings', '当前页签分组默认设置'), () => {
+            window.tmOpenViewProfileConfigModal?.('docTabGroup', gid);
+        }));
+
+        const manageHr = document.createElement('hr');
+        manageHr.style.cssText = 'margin: 4px 0; border: none; border-top: 1px solid var(--b3-theme-surface-light);';
+        menu.appendChild(manageHr);
+        menu.appendChild(item(__tmRenderContextMenuLabel('settings', '管理页签组'), () => {
+            window.tmOpenDocTabCustomGroupSettings?.(gid);
+        }));
+
+        document.body.appendChild(menu);
+        try { __tmClampFloatingMenuToViewport(menu, Number(x) || 8, Number(y) || 8); } catch (e) {}
+        try { __tmAnimatePopupIn(menu, { origin: 'top-left' }); } catch (e) {}
+
+        const closeHandler = (ev) => {
+            try {
+                if (menu.contains(ev.target)) return;
+            } catch (e) {}
+            try {
+                const target = ev?.target instanceof Element ? ev.target : null;
+                if (keepSwitcher && target?.closest?.('#tm-doc-tab-switcher-menu')) return;
+            } catch (e) {}
+            __tmHideDocTabContextMenu();
+        };
+        state.docTabContextMenuCloseHandler = closeHandler;
+        __tmScheduleBindOutsideCloseHandler(closeHandler, { capture: true });
+    }
+
+    window.tmShowDocTabCustomGroupAllContextMenu = function(event, groupId) {
+        try { event?.preventDefault?.(); } catch (e) {}
+        try { event?.stopPropagation?.(); } catch (e) {}
+        const target = event?.target instanceof Element ? event.target : null;
+        const keepSwitcher = !!target?.closest?.('#tm-doc-tab-switcher-menu');
+        __tmShowDocTabCustomGroupAllContextMenuAt(groupId, event?.clientX, event?.clientY, { keepSwitcher });
+        return false;
+    };
+
+    function __tmShowDocTabCustomGroupMenuAt(groupId, x, y, source = null) {
+        const gid = String(groupId || '').trim();
+        if (!gid) return;
+        __tmHideDocTabMenu();
+
+        const currentGroupId = String(SettingsStore.data.currentGroupId || 'all').trim() || 'all';
+        const visibleDocs = __tmGetVisibleDocTabsForCurrentGroup();
+        const view = __tmBuildDocTabGroupedView(visibleDocs, {
+            currentGroupId,
+            activeDocId: state.activeDocId
+        });
+        const entry = (Array.isArray(view?.groups) ? view.groups : [])
+            .find((item) => String(item?.id || '').trim() === gid);
+        const group = entry?.group || __tmFindDocTabCustomGroupById(gid, { currentGroupId });
+        if (!group) return;
+        const members = Array.isArray(entry?.members) ? entry.members : [];
+        if (!members.length) {
+            hint('⚠ 该页签组当前没有可显示的页签', 'warning');
+            return;
+        }
+
+        const trigger = __tmGetDocTabCustomGroupTriggerElement(source, gid);
+        const rect = trigger instanceof HTMLElement ? trigger.getBoundingClientRect() : null;
+        const pointerX = Number(x);
+        const pointerY = Number(y);
+        const hasPointer = Number.isFinite(pointerX) && Number.isFinite(pointerY) && (pointerX > 0 || pointerY > 0);
+        const anchorX = hasPointer ? Math.round(pointerX) : (rect ? Math.round(rect.left) : 8);
+        const anchorY = hasPointer ? Math.round(pointerY) : (rect ? Math.round(rect.bottom + 8) : 8);
+
+        const menu = document.createElement('div');
+        menu.id = 'tm-doc-tab-switcher-menu';
+        menu.className = 'tm-popup-menu bc-dropdown-menu';
+        menu.style.cssText = `
+            position: fixed;
+            top: ${Math.max(8, anchorY)}px;
+            left: ${Math.max(8, anchorX)}px;
+            display: flex;
+            flex-direction: column;
+            gap: 6px;
+            width: auto;
+            min-width: 0;
+            max-width: calc(100vw - 16px);
+            max-height: calc(100vh - 16px);
+            padding: 8px;
+            background: var(--tm-ui-popover, var(--b3-theme-background));
+            border: var(--tm-topbar-control-border-width, 1px) solid var(--tm-ui-border, var(--b3-theme-surface-light));
+            border-radius: calc(var(--tm-topbar-control-radius, 10px) + 2px);
+            box-shadow: 0 10px 26px rgba(15,23,42,0.16);
+            box-sizing: border-box;
+            z-index: 200000;
+            user-select: none;
+        `;
+
+        const groupName = String(group.name || '').trim() || '未命名页签组';
+        const header = document.createElement('div');
+        header.style.cssText = 'padding:2px 2px 0; font-size:12px; color:var(--tm-secondary-text); line-height:1.5;';
+        header.textContent = `${groupName} / 自定义页签组`;
+        menu.appendChild(header);
+
+        const list = document.createElement('div');
+        list.style.cssText = 'display:flex; flex-direction:column; gap:4px; min-width:0; max-height:min(360px, calc(100vh - 88px)); overflow:auto; padding:2px 0 0;';
+        const aggregateActive = __tmParseDocTabCustomGroupActiveId(state.activeDocId) === gid;
+        const allRow = document.createElement('div');
+        allRow.className = 'tm-doc-tab-tree-menu-row tm-doc-tab-tree-menu-row--all';
+        allRow.style.cssText = 'display:flex;align-items:stretch;gap:0;min-width:0;width:auto;';
+        try { allRow.dataset.tmAllDocMainRow = '1'; } catch (e) {}
+        const allBtn = document.createElement('button');
+        allBtn.type = 'button';
+        allBtn.className = `tm-doc-tab tm-doc-tab--custom-group-menu-item ${aggregateActive ? 'active' : ''}`;
+        const groupColor = typeof __tmGetDocTabCustomGroupColor === 'function'
+            ? __tmGetDocTabCustomGroupColor(group, members)
+            : __tmGetDocColorHex(members[0]?.id || gid, __tmIsDarkMode());
+        allBtn.style.cssText = `
+            display:flex;
+            align-items:center;
+            justify-content:space-between;
+            gap:10px;
+            width:auto;
+            min-width:0;
+            max-width:none;
+            height:28px;
+            min-height:28px;
+            padding:2px 8px;
+            text-align:left;
+            --tm-doc-color:${groupColor};
+        `;
+        const allLabel = document.createElement('span');
+        allLabel.className = 'tm-doc-tab-text';
+        allLabel.style.cssText = 'display:inline-flex; align-items:center; gap:4px; min-width:0; flex:1; overflow:hidden;';
+        allLabel.innerHTML = `<span class="tm-doc-tab-label">全部页签</span>`;
+        allBtn.appendChild(allLabel);
+        if (aggregateActive) {
+            const badge = document.createElement('span');
+            badge.className = 'tm-doc-tab-menu-badge';
+            badge.style.cssText = 'flex:0 0 auto; font-size:11px; color:var(--tm-secondary-text); position:relative; z-index:3;';
+            badge.textContent = '当前';
+            allBtn.appendChild(badge);
+        }
+        allBtn.onclick = async (ev) => {
+            try { ev?.preventDefault?.(); } catch (e) {}
+            try { ev?.stopPropagation?.(); } catch (e) {}
+            __tmHideDocTabMenu();
+            try { await window.tmSwitchDocTabCustomGroup?.(gid); } catch (e) {}
+        };
+        allBtn.oncontextmenu = (ev) => {
+            try { window.tmShowDocTabCustomGroupAllContextMenu?.(ev, gid); } catch (e) {}
+        };
+        allRow.appendChild(allBtn);
+        list.appendChild(allRow);
+        const menuMembers = __tmSortDocTabCustomGroupMembersForMenu(members, visibleDocs);
+        menuMembers.forEach((doc) => {
+            const docId = String(doc?.id || '').trim();
+            if (!docId) return;
+            const active = String(state.activeDocId || '').trim() === docId;
+            const menuDepth = Math.max(0, Math.min(8, Math.round(Number(doc.__tmDocTabGroupMenuDepth) || 0)));
+            const treeGuideHtml = __tmRenderDocTabGroupTreeGuide(doc.__tmDocTabGroupMenuLineParts);
+            const row = document.createElement('div');
+            row.className = 'tm-doc-tab-tree-menu-row';
+            row.style.cssText = 'display:flex;align-items:stretch;gap:0;min-width:0;width:auto;';
+            try { row.dataset.tmAllDocMainRow = '1'; } catch (e) {}
+            if (treeGuideHtml) row.innerHTML = treeGuideHtml;
+            const btn = document.createElement('button');
+            btn.type = 'button';
+            btn.className = `tm-doc-tab tm-doc-tab--custom-group-menu-item ${active ? 'active' : ''}`;
+            try { btn.dataset.tmDocTabGroupDepth = String(menuDepth); } catch (e) {}
+            const docColor = __tmGetDocColorHex(docId, __tmIsDarkMode());
+            const safeProgressId = `${String(gid || 'group').replace(/[^a-zA-Z0-9_-]/g, '_')}-${docId.replace(/[^a-zA-Z0-9_-]/g, '_')}`;
+            const progressId = `tm-doc-prog-menu-${safeProgressId}`;
+            const expectedId = `tm-doc-expected-menu-${safeProgressId}`;
+            const expectedMeta = __tmGetCachedDocExpectedMeta(docId);
+            const expectedPercent = __tmComputeDocExpectedProgressPercent(expectedMeta);
+            const cachedPercent = __tmDocProgressCache?.get(docId) || 0;
+            const procrastinationMetrics = typeof globalThis.__tmGetProcrastinationMetricsForDoc === 'function'
+                ? globalThis.__tmGetProcrastinationMetricsForDoc(docId)
+                : null;
+            const procrastinationStyle = typeof globalThis.__tmBuildDocProcrastinationStyle === 'function'
+                ? globalThis.__tmBuildDocProcrastinationStyle(procrastinationMetrics)
+                : '';
+            btn.style.cssText = `
+                display:flex;
+                align-items:center;
+                justify-content:space-between;
+                gap:10px;
+                width:auto;
+                min-width:0;
+                max-width:none;
+                height:28px;
+                min-height:28px;
+                padding:2px 8px;
+                text-align:left;
+                --tm-doc-color:${docColor};
+                ${procrastinationStyle}
+            `;
+            const expectedBar = document.createElement('div');
+            expectedBar.className = `tm-doc-tab-expected${expectedPercent == null ? '' : ' is-visible'}`;
+            expectedBar.id = expectedId;
+            expectedBar.style.width = `${expectedPercent || 0}%`;
+            btn.appendChild(expectedBar);
+            const progressBg = document.createElement('div');
+            progressBg.className = 'tm-doc-tab-bg';
+            progressBg.id = progressId;
+            progressBg.style.width = `${cachedPercent}%`;
+            btn.appendChild(progressBg);
+            const label = document.createElement('span');
+            label.className = 'tm-doc-tab-text';
+            label.style.cssText = 'display:inline-flex; align-items:center; gap:4px; min-width:0; flex:1; overflow:hidden;';
+            label.innerHTML = `${__tmRenderDocIcon(doc, { size: 14 })}<span class="tm-doc-tab-label">${esc(__tmGetDocDisplayName(doc, doc.name || '未命名文档'))}</span>`;
+            btn.appendChild(label);
+            if (active) {
+                const badge = document.createElement('span');
+                badge.className = 'tm-doc-tab-menu-badge';
+                badge.style.cssText = 'flex:0 0 auto; font-size:11px; color:var(--tm-secondary-text); position:relative; z-index:3;';
+                badge.textContent = '当前';
+                btn.appendChild(badge);
+            }
+            btn.onclick = async (ev) => {
+                try { ev?.preventDefault?.(); } catch (e) {}
+                try { ev?.stopPropagation?.(); } catch (e) {}
+                __tmHideDocTabMenu();
+                try { await window.tmSwitchDoc?.(docId); } catch (e) {}
+            };
+            btn.oncontextmenu = (ev) => {
+                try { ev?.preventDefault?.(); } catch (e) {}
+                try { ev?.stopPropagation?.(); } catch (e) {}
+                try { window.tmShowDocTabContextMenu?.(ev, docId); } catch (e) {}
+            };
+            row.appendChild(btn);
+            list.appendChild(row);
+            setTimeout(() => __tmUpdateDocTabProgress(docId, progressId, expectedId), 0);
+        });
+        menu.appendChild(list);
+
+        const divider = document.createElement('hr');
+        divider.style.cssText = 'margin: 2px 0; border: none; border-top: 1px solid var(--b3-theme-surface-light);';
+        menu.appendChild(divider);
+        menu.appendChild(__tmBuildAllDocTabMenuActionButton(__tmRenderContextMenuLabel('settings', '管理页签组'), () => {
+            window.tmOpenDocTabCustomGroupSettings?.(gid);
+        }, { compact: true, stretch: false }));
+
+        document.body.appendChild(menu);
+        __tmSetDocTabCustomGroupCaretOpen(gid);
+        try {
+            const viewportWidth = Math.max(0, window.innerWidth || document.documentElement?.clientWidth || 0);
+            const maxWidth = Math.max(180, viewportWidth - 16);
+            const rows = Array.from(menu.querySelectorAll('[data-tm-all-doc-main-row="1"]'));
+            let naturalWidth = Math.max(Math.ceil(menu.scrollWidth || 0), Math.ceil(header.scrollWidth || 0) + 8);
+            rows.forEach((row) => {
+                try {
+                    row.style.width = 'auto';
+                    naturalWidth = Math.max(naturalWidth, Math.ceil(row.scrollWidth || 0));
+                } catch (e) {}
+            });
+            const nextWidth = Math.min(maxWidth, Math.max(180, naturalWidth + 2));
+            menu.style.width = `${nextWidth}px`;
+            rows.forEach((row) => {
+                try { row.style.width = '100%'; } catch (e) {}
+            });
+        } catch (e) {}
+        try { __tmClampFloatingMenuToViewport(menu, anchorX, anchorY); } catch (e) {}
+        try { __tmAnimatePopupIn(menu, { origin: 'top-left' }); } catch (e) {}
+
+        const closeHandler = (ev) => {
+            try {
+                if (menu.contains(ev.target)) return;
+            } catch (e) {}
+            try {
+                const target = ev?.target instanceof Element ? ev.target : null;
+                if (target?.closest?.('#tm-doc-tab-menu')) return;
+                if (target?.closest?.('.tm-doc-tab-group-caret')) return;
+            } catch (e) {}
+            try {
+                if (trigger instanceof Element && trigger.contains(ev.target)) return;
+            } catch (e) {}
+            __tmHideDocTabMenu();
+        };
+        state.docTabSwitcherMenuCloseHandler = closeHandler;
+        __tmScheduleBindOutsideCloseHandler(closeHandler, { capture: true });
+    }
+
+    window.tmShowDocTabCustomGroupMenu = function(event, groupId) {
+        try { event?.preventDefault?.(); } catch (e) {}
+        try { event?.stopPropagation?.(); } catch (e) {}
+        __tmShowDocTabCustomGroupMenuAt(groupId, event?.clientX, event?.clientY, event);
+    };
+
+    window.tmShowDocTabsBlankContextMenu = function(event) {
+        const target = event?.target instanceof Element ? event.target : null;
+        if (target?.closest?.('.tm-doc-tab, .tm-doc-tabs-actions, .tm-doc-tabs-toggle')) return true;
+        try { event?.preventDefault?.(); } catch (e) {}
+        try { event?.stopPropagation?.(); } catch (e) {}
+        __tmHideDocTabMenu();
+
+        const { groupName } = __tmGetAllDocTabMenuContext();
+        const pointerX = Number(event?.clientX);
+        const pointerY = Number(event?.clientY);
+        const anchorX = Number.isFinite(pointerX) && pointerX > 0 ? Math.round(pointerX) : 8;
+        const anchorY = Number.isFinite(pointerY) && pointerY > 0 ? Math.round(pointerY) : 8;
+        const menu = document.createElement('div');
+        menu.id = 'tm-doc-tab-switcher-menu';
+        menu.className = 'tm-popup-menu bc-dropdown-menu';
+        menu.style.cssText = `
+            position: fixed;
+            top: ${Math.max(8, anchorY)}px;
+            left: ${Math.max(8, anchorX)}px;
+            display: flex;
+            flex-direction: column;
+            gap: 6px;
+            width: auto;
+            min-width: 0;
+            max-width: calc(100vw - 16px);
+            max-height: calc(100vh - 16px);
+            padding: 8px;
+            background: var(--tm-ui-popover, var(--b3-theme-background));
+            border: var(--tm-topbar-control-border-width, 1px) solid var(--tm-ui-border, var(--b3-theme-surface-light));
+            border-radius: calc(var(--tm-topbar-control-radius, 10px) + 2px);
+            box-shadow: 0 10px 26px rgba(15,23,42,0.16);
+            box-sizing: border-box;
+            z-index: 200000;
+            user-select: none;
+        `;
+
+        const header = document.createElement('div');
+        header.style.cssText = 'padding:2px 2px 0; font-size:12px; color:var(--tm-secondary-text); line-height:1.5;';
+        header.textContent = `${groupName} / 页签栏`;
+        menu.appendChild(header);
+        menu.appendChild(__tmBuildAllDocTabMenuActionButton(__tmRenderContextMenuLabel('plus', '新建页签分组'), () => {
+            window.tmCreateDocTabCustomGroupFromSettings?.();
+        }, { compact: true, stretch: false }));
+        menu.appendChild(__tmBuildAllDocTabMenuActionButton(__tmRenderContextMenuLabel('settings', '管理页签分组'), () => {
+            window.tmOpenDocTabCustomGroupSettings?.();
+        }, { compact: true, stretch: false }));
+
+        document.body.appendChild(menu);
+        try {
+            const viewportWidth = Math.max(0, window.innerWidth || document.documentElement?.clientWidth || 0);
+            const maxWidth = Math.max(156, viewportWidth - 16);
+            const rows = Array.from(menu.querySelectorAll('[data-tm-all-doc-main-row="1"]'));
+            let naturalWidth = Math.max(Math.ceil(menu.scrollWidth || 0), Math.ceil(header.scrollWidth || 0) + 8);
+            rows.forEach((row) => {
+                try {
+                    row.style.width = 'auto';
+                    naturalWidth = Math.max(naturalWidth, Math.ceil(row.scrollWidth || 0));
+                } catch (e) {}
+            });
+            const nextWidth = Math.min(maxWidth, Math.max(156, naturalWidth + 2));
+            menu.style.width = `${nextWidth}px`;
+            rows.forEach((row) => {
+                try { row.style.width = '100%'; } catch (e) {}
+            });
+        } catch (e) {}
+        try { __tmClampFloatingMenuToViewport(menu, anchorX, anchorY); } catch (e) {}
+        try { __tmAnimatePopupIn(menu, { origin: 'top-left' }); } catch (e) {}
+
+        const closeHandler = (ev) => {
+            try {
+                if (menu.contains(ev.target)) return;
+            } catch (e) {}
+            __tmHideDocTabMenu();
+        };
+        state.docTabSwitcherMenuCloseHandler = closeHandler;
+        __tmScheduleBindOutsideCloseHandler(closeHandler, { capture: true });
+        return false;
+    };
 
     window.tmShowAllDocTabMenu = function(event) {
         try { event?.preventDefault?.(); } catch (e) {}
@@ -10478,6 +11953,13 @@ return Number(state.contextInteractionQuietUntil || 0);
                 __tmHideDocTabMenu();
                 try { await window.tmSwitchDoc?.(id); } catch (e) {}
             };
+            if (item?.kind === 'doc') {
+                btn.oncontextmenu = (ev) => {
+                    try { ev?.preventDefault?.(); } catch (e) {}
+                    try { ev?.stopPropagation?.(); } catch (e) {}
+                    try { window.tmShowDocTabContextMenu?.(ev, id); } catch (e) {}
+                };
+            }
             list.appendChild(btn);
         });
 
@@ -10514,12 +11996,16 @@ return Number(state.contextInteractionQuietUntil || 0);
                 if (menu.contains(ev.target)) return;
             } catch (e) {}
             try {
+                const target = ev?.target instanceof Element ? ev.target : null;
+                if (target?.closest?.('#tm-doc-tab-menu')) return;
+            } catch (e) {}
+            try {
                 if (trigger instanceof Element && trigger.contains(ev.target)) return;
             } catch (e) {}
             __tmHideDocTabMenu();
         };
-        state.docTabMenuCloseHandler = closeHandler;
-        __tmScheduleBindOutsideCloseHandler(closeHandler);
+        state.docTabSwitcherMenuCloseHandler = closeHandler;
+        __tmScheduleBindOutsideCloseHandler(closeHandler, { capture: true });
     };
 
     window.tmShowAllDocTabContextMenu = function(event) {
@@ -14377,12 +15863,18 @@ return Number(state.contextInteractionQuietUntil || 0);
         'save': 'M222.14,69.17,186.83,33.86A19.86,19.86,0,0,0,172.69,28H48A20,20,0,0,0,28,48V208a20,20,0,0,0,20,20H208a20,20,0,0,0,20-20V83.31A19.86,19.86,0,0,0,222.14,69.17ZM164,204H92V160h72Zm40,0H188V156a20,20,0,0,0-20-20H88a20,20,0,0,0-20,20v48H52V52H171l33,33ZM164,84a12,12,0,0,1-12,12H96a12,12,0,0,1,0-24h56A12,12,0,0,1,164,84Z',
         'search': 'M232.49,215.51,185,168a92.12,92.12,0,1,0-17,17l47.53,47.54a12,12,0,0,0,17-17ZM44,112a68,68,0,1,1,68,68A68.07,68.07,0,0,1,44,112Z',
         'settings': 'M128,76a52,52,0,1,0,52,52A52.06,52.06,0,0,0,128,76Zm0,80a28,28,0,1,1,28-28A28,28,0,0,1,128,156Zm92-27.21v-1.58l14-17.51a12,12,0,0,0,2.23-10.59A111.75,111.75,0,0,0,225,71.89,12,12,0,0,0,215.89,66L193.61,63.5l-1.11-1.11L190,40.1A12,12,0,0,0,184.11,31a111.67,111.67,0,0,0-27.23-11.27A12,12,0,0,0,146.3,22L128.79,36h-1.58L109.7,22a12,12,0,0,0-10.59-2.23A111.75,111.75,0,0,0,71.89,31.05,12,12,0,0,0,66,40.11L63.5,62.39,62.39,63.5,40.1,66A12,12,0,0,0,31,71.89,111.67,111.67,0,0,0,19.77,99.12,12,12,0,0,0,22,109.7l14,17.51v1.58L22,146.3a12,12,0,0,0-2.23,10.59,111.75,111.75,0,0,0,11.29,27.22A12,12,0,0,0,40.11,190l22.28,2.48,1.11,1.11L66,215.9A12,12,0,0,0,71.89,225a111.67,111.67,0,0,0,27.23,11.27A12,12,0,0,0,109.7,234l17.51-14h1.58l17.51,14a12,12,0,0,0,10.59,2.23A111.75,111.75,0,0,0,184.11,225a12,12,0,0,0,5.91-9.06l2.48-22.28,1.11-1.11L215.9,190a12,12,0,0,0,9.06-5.91,111.67,111.67,0,0,0,11.27-27.23A12,12,0,0,0,234,146.3Zm-24.12-4.89a70.1,70.1,0,0,1,0,8.2,12,12,0,0,0,2.61,8.22l12.84,16.05A86.47,86.47,0,0,1,207,166.86l-20.43,2.27a12,12,0,0,0-7.65,4,69,69,0,0,1-5.8,5.8,12,12,0,0,0-4,7.65L166.86,207a86.47,86.47,0,0,1-10.49,4.35l-16.05-12.85a12,12,0,0,0-7.5-2.62c-.24,0-.48,0-.72,0a70.1,70.1,0,0,1-8.2,0,12.06,12.06,0,0,0-8.22,2.6L99.63,211.33A86.47,86.47,0,0,1,89.14,207l-2.27-20.43a12,12,0,0,0-4-7.65,69,69,0,0,1-5.8-5.8,12,12,0,0,0-7.65-4L49,166.86a86.47,86.47,0,0,1-4.35-10.49l12.84-16.05a12,12,0,0,0,2.61-8.22,70.1,70.1,0,0,1,0-8.2,12,12,0,0,0-2.61-8.22L44.67,99.63A86.47,86.47,0,0,1,49,89.14l20.43-2.27a12,12,0,0,0,7.65-4,69,69,0,0,1,5.8-5.8,12,12,0,0,0,4-7.65L89.14,49a86.47,86.47,0,0,1,10.49-4.35l16.05,12.85a12.06,12.06,0,0,0,8.22,2.6,70.1,70.1,0,0,1,8.2,0,12,12,0,0,0,8.22-2.6l16.05-12.85A86.47,86.47,0,0,1,166.86,49l2.27,20.43a12,12,0,0,0,4,7.65,69,69,0,0,1,5.8,5.8,12,12,0,0,0,7.65,4L207,89.14a86.47,86.47,0,0,1,4.35,10.49l-12.84,16.05A12,12,0,0,0,195.88,123.9Z',
+        'target': 'M229.26,90.4a108,108,0,0,1-177.63,114A108,108,0,0,1,195.41,43.63l20.1-20.11a12,12,0,0,1,17,17l-96,96a12,12,0,1,1-17-17l24-24a36,36,0,1,0,19.76,39.65,12,12,0,0,1,23.53,4.74,60,60,0,1,1-25.73-62L178.3,60.74a84,84,0,1,0,28.46,38,12,12,0,1,1,22.5-8.35Z',
         'clock-countdown': 'M232,136.66A104.12,104.12,0,1,1,119.34,24,8,8,0,0,1,120.66,40,88.12,88.12,0,1,0,216,135.34,8,8,0,0,1,232,136.66ZM120,72v56a8,8,0,0,0,8,8h56a8,8,0,0,0,0-16H136V72a8,8,0,0,0-16,0Zm40-24a12,12,0,1,0-12-12A12,12,0,0,0,160,48Zm36,24a12,12,0,1,0-12-12A12,12,0,0,0,196,72Zm24,36a12,12,0,1,0-12-12A12,12,0,0,0,220,108Z',
         'timer': 'M128,44a96,96,0,1,0,96,96A96.11,96.11,0,0,0,128,44Zm0,168a72,72,0,1,1,72-72A72.08,72.08,0,0,1,128,212ZM164.49,99.51a12,12,0,0,1,0,17l-28,28a12,12,0,0,1-17-17l28-28A12,12,0,0,1,164.49,99.51ZM92,16A12,12,0,0,1,104,4h48a12,12,0,0,1,0,24H104A12,12,0,0,1,92,16Z',
         'x': 'M208.49,191.51a12,12,0,0,1-17,17L128,145,64.49,208.49a12,12,0,0,1-17-17L111,128,47.51,64.49a12,12,0,0,1,17-17L128,111l63.51-63.52a12,12,0,0,1,17,17L145,128Z',
     };
 
     __tmPhosphorBoldPaths['link-simple'] = 'M87.5,151.52l64-64a12,12,0,0,1,17,17l-64,64a12,12,0,0,1-17-17Zm131-114a60.08,60.08,0,0,0-84.87,0L103.51,67.61a12,12,0,0,0,17,17l30.07-30.06a36,36,0,0,1,50.93,50.92L171.4,135.52a12,12,0,1,0,17,17l30.08-30.06A60.09,60.09,0,0,0,218.45,37.55ZM135.52,171.4l-30.07,30.08a36,36,0,0,1-50.92-50.93l30.06-30.07a12,12,0,0,0-17-17L37.55,133.58a60,60,0,0,0,84.88,84.87l30.06-30.07a12,12,0,0,0-17-17Z';
+    __tmPhosphorBoldPaths['sun'] = 'M116,36V20a12,12,0,0,1,24,0V36a12,12,0,0,1-24,0Zm80,92a68,68,0,1,1-68-68A68.07,68.07,0,0,1,196,128Zm-24,0a44,44,0,1,0-44,44A44.05,44.05,0,0,0,172,128ZM51.51,68.49a12,12,0,1,0,17-17l-12-12a12,12,0,0,0-17,17Zm0,119-12,12a12,12,0,0,0,17,17l12-12a12,12,0,1,0-17-17ZM196,72a12,12,0,0,0,8.49-3.51l12-12a12,12,0,0,0-17-17l-12,12A12,12,0,0,0,196,72Zm8.49,115.51a12,12,0,0,0-17,17l12,12a12,12,0,0,0,17-17ZM48,128a12,12,0,0,0-12-12H20a12,12,0,0,0,0,24H36A12,12,0,0,0,48,128Zm80,80a12,12,0,0,0-12,12v16a12,12,0,0,0,24,0V220A12,12,0,0,0,128,208Zm108-92H220a12,12,0,0,0,0,24h16a12,12,0,0,0,0-24Z';
+    __tmPhosphorBoldPaths['sun-horizon'] = 'M240,148H203.89c.07-1.33.11-2.66.11-4a76,76,0,0,0-152,0c0,1.34,0,2.67.11,4H16a12,12,0,0,0,0,24H240a12,12,0,0,0,0-24ZM76,144a52,52,0,0,1,104,0c0,1.34-.07,2.67-.17,4H76.17C76.07,146.67,76,145.34,76,144Zm144,56a12,12,0,0,1-12,12H48a12,12,0,0,1,0-24H208A12,12,0,0,1,220,200ZM12.62,92.21a12,12,0,0,1,15.17-7.59l12,4a12,12,0,1,1-7.58,22.77l-12-4A12,12,0,0,1,12.62,92.21Zm56-48.41a12,12,0,1,1,22.76-7.59l4,12A12,12,0,1,1,72.62,55.8Zm140,60a12,12,0,0,1,7.59-15.18l12-4a12,12,0,0,1,7.58,22.77l-12,4a12,12,0,0,1-15.17-7.59Zm-48-55.59,4-12a12,12,0,1,1,22.76,7.59l-4,12a12,12,0,1,1-22.76-7.59Z';
+    __tmPhosphorBoldPaths['calendar-plus'] = 'M208,28H188V24a12,12,0,0,0-24,0v4H92V24a12,12,0,0,0-24,0v4H48A20,20,0,0,0,28,48V208a20,20,0,0,0,20,20H208a20,20,0,0,0,20-20V48A20,20,0,0,0,208,28ZM68,52a12,12,0,0,0,24,0h72a12,12,0,0,0,24,0h16V76H52V52ZM52,204V100H204V204Zm112-52a12,12,0,0,1-12,12H140v12a12,12,0,0,1-24,0V164H104a12,12,0,0,1,0-24h12V128a12,12,0,0,1,24,0v12h12A12,12,0,0,1,164,152Z';
+    __tmPhosphorBoldPaths['calendar-dots'] = 'M208,28H188V24a12,12,0,0,0-24,0v4H92V24a12,12,0,0,0-24,0v4H48A20,20,0,0,0,28,48V208a20,20,0,0,0,20,20H208a20,20,0,0,0,20-20V48A20,20,0,0,0,208,28ZM68,52a12,12,0,0,0,24,0h72a12,12,0,0,0,24,0h16V76H52V52ZM52,204V100H204V204Zm92-76a16,16,0,1,1-16-16A16,16,0,0,1,144,128Zm48,0a16,16,0,1,1-16-16A16,16,0,0,1,192,128ZM96,176a16,16,0,1,1-16-16A16,16,0,0,1,96,176Zm48,0a16,16,0,1,1-16-16A16,16,0,0,1,144,176Zm48,0a16,16,0,1,1-16-16A16,16,0,0,1,192,176Z';
+    __tmPhosphorBoldPaths['calendar-x'] = 'M160.49,136.49,145,152l15.52,15.51a12,12,0,0,1-17,17L128,169l-15.51,15.52a12,12,0,0,1-17-17L111,152,95.51,136.49a12,12,0,1,1,17-17L128,135l15.51-15.52a12,12,0,1,1,17,17ZM228,48V208a20,20,0,0,1-20,20H48a20,20,0,0,1-20-20V48A20,20,0,0,1,48,28H68V24a12,12,0,0,1,24,0v4h72V24a12,12,0,0,1,24,0v4h20A20,20,0,0,1,228,48ZM52,52V76H204V52H188a12,12,0,0,1-24,0H92a12,12,0,0,1-24,0ZM204,204V100H52V204Z';
     __tmPhosphorBoldPaths['arrow-up'] = 'M208.49,120.49a12,12,0,0,1-17,0L140,69V216a12,12,0,0,1-24,0V69L64.49,120.49a12,12,0,0,1-17-17l72-72a12,12,0,0,1,17,0l72,72A12,12,0,0,1,208.49,120.49Z';
     __tmPhosphorBoldPaths['arrow-down'] = 'M208.49,152.49l-72,72a12,12,0,0,1-17,0l-72-72a12,12,0,0,1,17-17L116,187V40a12,12,0,0,1,24,0V187l51.51-51.52a12,12,0,0,1,17,17Z';
     __tmPhosphorBoldPaths['list-bullets'] = 'M76,64A12,12,0,0,1,88,52H216a12,12,0,0,1,0,24H88A12,12,0,0,1,76,64Zm140,52H88a12,12,0,0,0,0,24H216a12,12,0,0,0,0-24Zm0,64H88a12,12,0,0,0,0,24H216a12,12,0,0,0,0-24ZM44,112a16,16,0,1,0,16,16A16,16,0,0,0,44,112Zm0-64A16,16,0,1,0,60,64,16,16,0,0,0,44,48Zm0,128a16,16,0,1,0,16,16A16,16,0,0,0,44,176Z';

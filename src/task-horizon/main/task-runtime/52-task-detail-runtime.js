@@ -405,6 +405,23 @@
         const heightForPlacement = Math.max(1, Math.round(popRect.height || Math.min(520, availableHeight)));
         const leftMin = Math.round(viewport.left + margin);
         const leftMax = Math.round(viewport.right - margin - popWidth);
+        const placement = String(options.placement || '').trim();
+        if (placement === 'right') {
+            let left = Math.round(anchorRect.right + gap);
+            if (left + popWidth > viewport.right - margin) {
+                left = Math.round(anchorRect.left - popWidth - gap);
+            }
+            left = Math.max(leftMin, Math.min(left, Math.max(leftMin, leftMax)));
+            const topMin = Math.round(viewport.top + margin);
+            const topMax = Math.round(viewport.bottom - margin - Math.min(heightForPlacement, availableHeight));
+            let top = Math.round(anchorRect.top);
+            top = Math.max(topMin, Math.min(top, Math.max(topMin, topMax)));
+            const maxHeight = Math.max(180, Math.round(viewport.bottom - margin - top));
+            popover.style.left = `${left}px`;
+            popover.style.top = `${top}px`;
+            popover.style.maxHeight = `${Math.min(maxHeight, availableHeight)}px`;
+            return;
+        }
         let left = Math.round(anchorRect.left + (anchorRect.width || 0) / 2 - popWidth / 2);
         left = Math.max(leftMin, Math.min(left, Math.max(leftMin, leftMax)));
 
@@ -437,7 +454,7 @@
         const year = Number(m[1]);
         const now = new Date();
         return year === now.getFullYear()
-            ? `${m[2]}-${m[3]}`
+            ? `${Number(m[2])}月${Number(m[3])}日`
             : key;
     }
 
@@ -656,6 +673,7 @@
         const hideReminder = opts.hideReminder === true || draftMode;
         const hideSchedule = opts.hideSchedule === true || draftMode;
         const hideRepeat = opts.hideRepeat === true || draftMode;
+        const scheduleTabLabel = String(opts.scheduleTabLabel || '日程').trim() || '日程';
         const closeOnDateCommit = opts.closeOnDateCommit === true
             || (opts.closeOnDateCommit !== false && String(opts.source || '').trim() === 'kanban-card');
 
@@ -804,7 +822,7 @@
         let suppressNextDayClick = false;
         let busy = false;
         const popover = document.createElement('div');
-        popover.className = `tm-task-detail-inline-popover tm-task-time-hub-popover${draftMode ? ' tm-task-time-hub-popover--draft' : ''}`;
+        popover.className = `tm-task-detail-inline-popover tm-task-time-hub-popover${draftMode ? ' tm-task-time-hub-popover--draft' : ''}${opts.contextDate === true ? ' tm-task-time-hub-popover--context-date' : ''}`;
         popover.setAttribute('role', 'dialog');
         popover.setAttribute('aria-label', '任务时间中心');
         let lastTriggerRect = null;
@@ -817,7 +835,13 @@
             lastTriggerRect = __tmGetStableTaskTimeHubAnchorRect(trigger, lastTriggerRect);
             const triggerRect = lastTriggerRect;
             if (!triggerRect) return;
-            __tmPositionTaskTimeHubPopover(popover, triggerRect);
+            __tmPositionTaskTimeHubPopover(popover, triggerRect, {
+                placement: opts.placement,
+                minWidth: opts.minWidth,
+                maxWidth: opts.maxWidth,
+                margin: opts.margin,
+                gap: opts.gap,
+            });
         };
         const positionEditorPanel = () => {
             const panel = popover.querySelector('[data-tm-time-hub-editor-panel]');
@@ -1012,10 +1036,16 @@
                 if (hideRepeat) return '';
                 const rule = getRepeatRule();
                 const currentType = rule?.enabled ? String(rule.type || 'none') : 'none';
-                const choices = [['none', '不循环'], ['daily', '每天'], ['workday', '工作日'], ['weekly', '每周'], ['monthly', '每月'], ['yearly', '每年']];
+                const currentCalendarMode = (currentType === 'monthly' || currentType === 'yearly')
+                    ? (String(rule?.calendarMode || '').trim() === 'lunar' ? 'lunar' : 'solar')
+                    : 'solar';
+                const currentChoice = currentCalendarMode === 'lunar' && (currentType === 'monthly' || currentType === 'yearly')
+                    ? `lunar-${currentType}`
+                    : currentType;
+                const choices = [['none', '不循环'], ['daily', '每天'], ['workday', '工作日'], ['weekly', '每周'], ['monthly', '每月'], ['yearly', '每年'], ['lunar-monthly', '农历每月'], ['lunar-yearly', '农历每年']];
                 return `<div class="tm-task-time-hub__subpanel" data-tm-time-hub-editor-panel>
                     <div class="tm-task-time-hub__subpanel-title">循环</div>
-                    ${choices.map(([type, label]) => `<button type="button" class="tm-task-time-hub__choice ${currentType === type ? 'is-selected' : ''}" data-tm-time-hub-repeat="${type}">${esc(label)}</button>`).join('')}
+                    ${choices.map(([type, label]) => `<button type="button" class="tm-task-time-hub__choice ${currentChoice === type ? 'is-selected' : ''}" data-tm-time-hub-repeat="${type}">${esc(label)}</button>`).join('')}
                     <button type="button" class="tm-task-time-hub__choice" data-tm-time-hub-repeat-custom>自定义循环</button>
                 </div>`;
             }
@@ -1038,7 +1068,7 @@
                 ${draftMode ? '' : `<div class="tm-task-time-hub__top">
                     <div class="tm-task-time-hub__tabs" role="tablist" aria-label="时间中心">
                         <button type="button" class="${hubState.tab === 'date' ? 'is-active' : ''}" data-tm-time-hub-tab="date" role="tab" aria-selected="${hubState.tab === 'date' ? 'true' : 'false'}">日期</button>
-                        ${hideSchedule ? '' : `<button type="button" class="${hubState.tab === 'schedule' ? 'is-active' : ''}" data-tm-time-hub-tab="schedule" role="tab" aria-selected="${hubState.tab === 'schedule' ? 'true' : 'false'}">日程</button>`}
+                        ${hideSchedule ? '' : `<button type="button" class="${hubState.tab === 'schedule' ? 'is-active' : ''}" data-tm-time-hub-tab="schedule" role="tab" aria-selected="${hubState.tab === 'schedule' ? 'true' : 'false'}">${esc(scheduleTabLabel)}</button>`}
                     </div>
                     <button type="button" class="tm-task-time-hub__close" data-tm-time-hub-close aria-label="关闭">${__tmTaskDetailTimeHubIcon('x', 'tm-task-time-hub__small-icon', 16)}</button>
                 </div>`}
@@ -1154,7 +1184,9 @@
         };
         const applyRepeatType = async (type) => {
             if (hideRepeat) return;
-            const nextType = String(type || '').trim();
+            const rawType = String(type || '').trim();
+            const nextType = rawType === 'lunar-monthly' ? 'monthly' : (rawType === 'lunar-yearly' ? 'yearly' : rawType);
+            const nextCalendarMode = (rawType === 'lunar-monthly' || rawType === 'lunar-yearly') ? 'lunar' : 'solar';
             try {
                 setBusy(true);
                 if (!nextType || nextType === 'none') {
@@ -1166,7 +1198,8 @@
                         ...current,
                         enabled: true,
                         type: nextType,
-                        every: current?.type === nextType ? current.every : 1,
+                        calendarMode: nextCalendarMode,
+                        every: current?.type === nextType && (String(current?.calendarMode || '').trim() || 'solar') === nextCalendarMode ? current.every : 1,
                         anchorDate,
                         trigger: current?.trigger || 'due',
                     }, { source: 'task-time-hub' });
@@ -1511,6 +1544,160 @@
         return await __tmOpenStandaloneTaskTimeHub(taskIdOrBlockId, anchorOrEvent, options);
     };
 
+    function __tmBuildTaskDetailWhiteboardOutlineChipHtml(model, detailTip, options = {}) {
+        const item = (model && typeof model === 'object') ? model : null;
+        if (!item || !Array.isArray(item.nodes) || !item.nodes.length) return '';
+        const tip = typeof detailTip === 'function'
+            ? detailTip
+            : (label, tipOpts = {}) => __tmBuildTooltipAttrs(label, {
+                side: 'bottom',
+                ...((tipOpts && typeof tipOpts === 'object') ? tipOpts : {}),
+            });
+        const total = Math.max(0, Number(item.stats?.total || item.nodes.length) || 0);
+        const done = Math.max(0, Math.min(total, Number(item.stats?.done || 0) || 0));
+        const outlineLabel = '\u767d\u677f\u8def\u5f84';
+        const doneLabel = '\u5df2\u5b8c\u6210';
+        const open = !!(options && typeof options === 'object' && options.open === true);
+        const label = total ? `${done}/${total}` : '';
+        return `
+            <button type="button"
+                class="bc-btn bc-btn--sm tm-task-detail-core-chip tm-task-detail-core-chip--whiteboard-outline ${open ? 'is-open' : ''}"
+                data-tm-detail-whiteboard-outline-toggle
+                aria-haspopup="dialog"
+                aria-expanded="${open ? 'true' : 'false'}"
+                ${tip(total ? `${outlineLabel}: ${doneLabel} ${done}/${total}` : outlineLabel, { ariaLabel: false })}>
+                <span class="tm-task-detail-core-chip__face" data-tm-detail-whiteboard-outline-toggle-face>
+                    ${__tmRenderTaskDetailPhosphorIcon('target', 16)}
+                    ${label ? `<span class="tm-task-detail-core-chip__text">${esc(label)}</span>` : ''}
+                </span>
+            </button>
+        `;
+    }
+
+    function __tmBuildTaskDetailWhiteboardOutlineNodeHtml(node, detailTip) {
+        const item = (node && typeof node === 'object') ? node : null;
+        if (!item) return '';
+        const id = String(item.id || '').trim();
+        const docId = String(item.docId || '').trim();
+        if (!id || !docId) return '';
+        const tip = typeof detailTip === 'function'
+            ? detailTip
+            : (label, tipOpts = {}) => __tmBuildTooltipAttrs(label, {
+                side: 'bottom',
+                ...((tipOpts && typeof tipOpts === 'object') ? tipOpts : {}),
+            });
+        const title = String(item.title || '\u4efb\u52a1').trim() || '\u4efb\u52a1';
+        const x = Number(item.x) || 0;
+        const y = Number(item.y) || 0;
+        const w = Math.max(72, Number(item.w) || 156);
+        const h = Math.max(24, Number(item.h) || 32);
+        const classes = [
+            'tm-task-detail-whiteboard-outline-node',
+            item.done ? 'is-done' : '',
+            item.current ? 'is-current' : '',
+            item.next ? 'is-next' : '',
+        ].filter(Boolean).join(' ');
+        const checkboxHtml = __tmRenderTaskCheckbox(id, item, {
+            checked: !!item.done,
+            disabled: item.snapshot === true,
+            stopMouseDown: true,
+            stopPointerDown: true,
+            stopClick: true,
+            title: item.snapshot === true ? '\u5feb\u7167\u4efb\u52a1\uff0c\u5f53\u524d\u4e0d\u53ef\u76f4\u63a5\u52fe\u9009' : '\u5b8c\u6210\u72b6\u6001',
+            onchange: "this.dispatchEvent(new CustomEvent('tm-outline-done-change', { bubbles: true, detail: { checked: this.checked } }))",
+        });
+        return `
+            <div
+                class="${esc(classes)}"
+                role="button"
+                tabindex="0"
+                data-tm-detail-whiteboard-outline-node
+                data-task-id="${esc(id)}"
+                data-doc-id="${esc(docId)}"
+                aria-label="${esc(`\u8df3\u8f6c\u81f3\u767d\u677f:${title}`)}"
+                style="left:${x.toFixed(2)}px;top:${y.toFixed(2)}px;width:${w.toFixed(2)}px;height:${h.toFixed(2)}px;"
+                ${tip(title, { ariaLabel: false })}>
+                <span class="tm-task-detail-whiteboard-outline-node__check" data-tm-detail-whiteboard-outline-check onpointerdown="event.stopPropagation()" onmousedown="event.stopPropagation()" onclick="event.stopPropagation()">${checkboxHtml}</span>
+                <span class="tm-task-detail-whiteboard-outline-node__title">${esc(title)}</span>
+            </div>
+        `;
+    }
+
+    function __tmBuildTaskDetailWhiteboardOutlineBodyHtml(model, detailTip) {
+        const item = (model && typeof model === 'object') ? model : null;
+        if (!item || !Array.isArray(item.nodes) || !item.nodes.length) return '';
+        const width = Math.max(160, Math.ceil(Number(item.width) || 0));
+        const height = Math.max(80, Math.ceil(Number(item.height) || 0));
+        const edgesHtml = (Array.isArray(item.edges) ? item.edges : []).map((edge) => {
+            const d = String(edge?.d || '').trim();
+            if (!d) return '';
+            return `<path class="tm-task-detail-whiteboard-outline-edge" d="${esc(d)}" data-from="${esc(String(edge.from || '').trim())}" data-to="${esc(String(edge.to || '').trim())}"></path>`;
+        }).join('');
+        const nodesHtml = item.nodes.map((node) => __tmBuildTaskDetailWhiteboardOutlineNodeHtml(node, detailTip)).join('');
+        return `
+            <div class="tm-task-detail-whiteboard-outline-scroll" data-tm-detail-whiteboard-outline-scroll>
+                <div class="tm-task-detail-whiteboard-outline-map" data-doc-id="${esc(String(item.docId || '').trim())}" style="width:${width}px;height:${height}px;">
+                    <svg class="tm-task-detail-whiteboard-outline-edges" width="${width}" height="${height}" viewBox="0 0 ${width} ${height}" aria-hidden="true" focusable="false">
+                        ${edgesHtml}
+                    </svg>
+                    <div class="tm-task-detail-whiteboard-outline-nodes">${nodesHtml}</div>
+                </div>
+            </div>
+        `;
+    }
+
+    function __tmBuildTaskDetailWhiteboardOutlineHtml(model, detailTip, options = {}) {
+        const item = (model && typeof model === 'object') ? model : null;
+        if (!item || !Array.isArray(item.nodes) || !item.nodes.length) return '';
+        const total = Math.max(0, Number(item.stats?.total || item.nodes.length) || 0);
+        const done = Math.max(0, Math.min(total, Number(item.stats?.done || 0) || 0));
+        const outlineLabel = '\u767d\u677f\u8def\u5f84';
+        return `
+            <div class="tm-task-detail-whiteboard-outline" data-tm-detail-whiteboard-outline-section>
+                <div class="tm-task-detail-section-head">
+                    <div class="tm-task-detail-section-title">${esc(outlineLabel)}</div>
+                    <div class="tm-task-detail-section-tools">
+                        <span class="tm-task-detail-section-count" data-tm-detail-whiteboard-outline-count>${esc(`${done}/${total}`)}</span>
+                    </div>
+                </div>
+                ${__tmBuildTaskDetailWhiteboardOutlineBodyHtml(item, detailTip)}
+            </div>
+        `;
+    }
+
+    function __tmSyncTaskDetailWhiteboardOutlineSection(root, task, detailTip, options = {}) {
+        const panel = root instanceof HTMLElement ? root : null;
+        const tid = String(task?.id || panel?.dataset?.tmDetailTaskId || panel?.__tmTaskDetailTaskId || '').trim();
+        if (!panel || !tid) return false;
+        const existingChip = panel.querySelector('[data-tm-detail-whiteboard-outline-toggle]');
+        const open = !!(options && typeof options === 'object' && options.open === true);
+        const model = (typeof __tmBuildWhiteboardTaskOutlineModel === 'function')
+            ? __tmBuildWhiteboardTaskOutlineModel(tid)
+            : null;
+        if (!model) {
+            try { existingChip?.remove?.(); } catch (e) {}
+            return false;
+        }
+        const chipHtml = __tmBuildTaskDetailWhiteboardOutlineChipHtml(model, detailTip, { open });
+        if (existingChip instanceof HTMLElement) {
+            const wrap = document.createElement('div');
+            wrap.innerHTML = chipHtml.trim();
+            const nextChip = wrap.firstElementChild;
+            if (nextChip instanceof HTMLElement) {
+                try { Array.from(existingChip.attributes).forEach((attr) => existingChip.removeAttribute(attr.name)); } catch (e) {}
+                try { Array.from(nextChip.attributes).forEach((attr) => existingChip.setAttribute(attr.name, attr.value)); } catch (e) {}
+                existingChip.innerHTML = nextChip.innerHTML;
+            } else existingChip.outerHTML = chipHtml;
+        }
+        else {
+            const coreMeta = panel.querySelector('.tm-task-detail-core-meta');
+            const focusSummaryBtn = panel.querySelector('[data-tm-detail-focus-summary-trigger]');
+            if (focusSummaryBtn instanceof HTMLElement && chipHtml) focusSummaryBtn.insertAdjacentHTML('afterend', chipHtml);
+            else if (coreMeta instanceof HTMLElement && chipHtml) coreMeta.insertAdjacentHTML('beforeend', chipHtml);
+        }
+        return true;
+    }
+
     function __tmBuildTaskDetailInnerHtml(task, options = {}) {
         const opts = (options && typeof options === 'object') ? options : {};
         const embedded = !!opts.embedded;
@@ -1553,6 +1740,13 @@
         const tomatoEstimateValue = __tmGetTaskTomatoEstimateCount(task);
         const focusSummaryValue = __tmGetTaskTomatoSummaryText(task);
         const remarkValue = __tmNormalizeRemarkMarkdown(task?.remark || '');
+        const whiteboardOutlineTaskId = String(task?.id || '').trim();
+        const whiteboardOutlineModel = (typeof __tmBuildWhiteboardTaskOutlineModel === 'function')
+            ? __tmBuildWhiteboardTaskOutlineModel(whiteboardOutlineTaskId)
+            : null;
+        const whiteboardOutlineChipHtml = whiteboardOutlineModel
+            ? __tmBuildTaskDetailWhiteboardOutlineChipHtml(whiteboardOutlineModel, detailTip, { open: false })
+            : '';
         const cleanDetailTitle = (value, fallback = '') => {
             const stripTaskSyntax = (input) => String(input || '')
                 .replace(/^[\s>*]*(?:(?:[-*+]|\d+[.)])\s*)?\[[^\]]?\]\s*/, '')
@@ -1728,11 +1922,11 @@
                         <button type="button" class="bc-btn bc-btn--sm tm-task-detail-core-chip ${focusSummaryValue ? 'has-value' : ''}" data-tm-detail-focus-summary-trigger${detailTip('时长与番茄', { ariaLabel: false })}>
                             <span class="tm-task-detail-core-chip__face" data-tm-detail-chip-face="tomatoSummary">${__tmBuildTaskDetailCoreChipFace('tomatoSummary', task)}</span>
                         </button>
+                        ${whiteboardOutlineChipHtml}
                         <input type="hidden" data-tm-detail="pinned" value="${curPinned ? '1' : ''}">
                     </div>
                     ${customFieldsHtml}
                 </div>
-
                 <section class="tm-task-detail-section tm-task-detail-section--subtasks ${children.length ? '' : 'tm-task-detail-section--subtasks-empty'}">
                     <div class="tm-task-detail-section-head">
                         <div class="tm-task-detail-section-title">子任务</div>
@@ -2225,6 +2419,33 @@
             try { btn.setAttribute('aria-label', action); } catch (e) {}
             return true;
         };
+        let activeInlinePopover = null;
+        let activeInlinePopoverTrigger = null;
+        let activeInlinePopoverTriggerRect = null;
+        let inlinePopoverCommitting = false;
+        const subtaskSaveTimers = new Map();
+        const subtaskTextareaMinHeight = 30;
+        let subtaskContentSaveDepth = 0;
+        let refreshWhiteboardOutlinePopover = () => false;
+        let openWhiteboardOutlinePopover = () => false;
+        let whiteboardOutlinePanDrag = null;
+        const isWhiteboardOutlineCheckboxTarget = (target) => {
+            const el = target instanceof Element ? target : null;
+            return !!el?.closest?.('[data-tm-detail-whiteboard-outline-check],.tm-task-checkbox,.tm-task-checkbox-wrap,input[type="checkbox"]');
+        };
+        const syncWhiteboardOutline = () => {
+            try {
+                const task = getBoundTask();
+                if (!task) return false;
+                const popoverOpen = activeInlinePopover instanceof HTMLElement
+                    && activeInlinePopover.classList.contains('tm-task-detail-inline-popover--whiteboard-outline');
+                const synced = __tmSyncTaskDetailWhiteboardOutlineSection(root, task, buildDetailTip, { open: popoverOpen });
+                if (popoverOpen) refreshWhiteboardOutlinePopover(activeInlinePopover, { closeIfMissing: true });
+                return synced;
+            } catch (e) {
+                return false;
+            }
+        };
         const getAttachmentSection = () => root.querySelector('[data-tm-detail-attachment-section]');
         const syncAttachmentSection = (taskLike = null) => {
             const task = (taskLike && typeof taskLike === 'object') ? taskLike : getBoundTask();
@@ -2545,12 +2766,20 @@
             if (!snapshot || typeof snapshot !== 'object') return;
             try { __tmRestoreTaskDetailSubtaskDraftSnapshot(root, snapshot); } catch (e) {}
         };
+        const captureRemarkDraftSnapshot = (nextTaskId = taskId) => {
+            try { return __tmCaptureTaskDetailRemarkDraftSnapshot(root, nextTaskId); } catch (e) { return null; }
+        };
+        const restoreRemarkDraftSnapshot = (snapshot) => {
+            if (!snapshot || typeof snapshot !== 'object') return;
+            try { __tmRestoreTaskDetailRemarkDraftSnapshot(root, snapshot); } catch (e) {}
+        };
         const refreshBoundDetail = async (nextTaskId = taskId) => {
             const requestedId = String(nextTaskId || '').trim();
             if (!requestedId) return;
             if (!isSessionActive()) return;
             try {
                 const draftSnapshot = captureInlineSubtaskDraftSnapshot(requestedId);
+                const remarkDraftSnapshot = captureRemarkDraftSnapshot(requestedId);
                 const nextTask = await resolveDetailNavigationTask(requestedId);
                 if (!nextTask || !isSessionActive()) {
                     try { hint('⚠️ 未找到子任务数据，无法打开详情', 'warning'); } catch (e) {}
@@ -2597,6 +2826,7 @@
                 root.innerHTML = __tmBuildTaskDetailInnerHtml(nextTask, opts);
                 __tmBindTaskDetailEditor(root, effectiveNextId, { ...options, source: `${bindSource}:open-child`, task: nextTask });
                 restoreInlineSubtaskDraftSnapshot(draftSnapshot);
+                restoreRemarkDraftSnapshot(remarkDraftSnapshot);
                 try { __tmBindFloatingTooltips(root); } catch (e) {}
             } catch (e) {
                 try { hint(`❌ 打开子任务详情失败: ${e.message}`, 'error'); } catch (err) {}
@@ -2697,6 +2927,7 @@
                 try { pinnedBtn.setAttribute('aria-label', pinned ? '取消置顶' : '置顶'); } catch (e) {}
                 try { pinnedBtn.removeAttribute('title'); } catch (e) {}
             }
+            syncWhiteboardOutline();
         };
         const serializeFormState = (formState = null) => {
             const s = (formState && typeof formState === 'object') ? formState : collectFormState();
@@ -2743,10 +2974,20 @@
             try {
                 const active = document.activeElement;
                 if (!(active instanceof Element) || !root.contains(active)) return false;
-                return !!active.closest?.('[data-tm-detail="remark"]');
+                if (active.closest?.('[data-tm-detail=remark]')) return active.dataset?.composing === 'true';
+                return false;
             } catch (e) {
                 return false;
             }
+        };
+        const getRemarkTextarea = () => {
+            const textarea = root.querySelector('textarea[data-tm-detail=remark]');
+            return textarea instanceof HTMLTextAreaElement ? textarea : null;
+        };
+        const syncRemarkSavedState = (savedValue) => {
+            const textarea = getRemarkTextarea();
+            if (!textarea) return false;
+            try { return __tmSyncTaskDetailRemarkTextareaSavedState(textarea, savedValue); } catch (e) { return false; }
         };
         const isDetailEditorFocused = () => {
             try {
@@ -2819,18 +3060,20 @@
                     syncMetaChipFaces();
                 } else if (taskMetaField === 'remark') {
                     const normalizedRemarkValue = __tmNormalizeRemarkMarkdown(nextTask.remark || '');
-                    const textarea = root.querySelector('textarea[data-tm-detail="remark"]');
+                    const textarea = getRemarkTextarea();
                     if (textarea instanceof HTMLTextAreaElement) {
-                        const isActiveRemarkEditor = document.activeElement === textarea || textarea.matches(':focus');
+                        const isActiveRemarkEditor = __tmIsTaskDetailRemarkDraftActive(root);
                         if (!isActiveRemarkEditor) {
                             textarea.value = normalizedRemarkValue;
                             syncAutoHeight(textarea, 34);
                         }
+                        syncRemarkSavedState(normalizedRemarkValue);
                     }
                     const preview = root.querySelector('[data-tm-detail-remark-preview]');
                     const remarkShell = root.querySelector('[data-tm-detail-remark-shell]');
                     const isEditingRemark = remarkShell instanceof HTMLElement && remarkShell.classList.contains('is-editing');
-                    if (preview instanceof HTMLElement && !isEditingRemark) preview.innerHTML = __tmRenderRemarkMarkdown(normalizedRemarkValue);
+                    const isDraftActive = __tmIsTaskDetailRemarkDraftActive(root);
+                    if (preview instanceof HTMLElement && !isEditingRemark && !isDraftActive) preview.innerHTML = __tmRenderRemarkMarkdown(normalizedRemarkValue);
                 } else if (taskMetaField === 'pinned') {
                     setHiddenInputValue('pinned', nextTask.pinned ? '1' : '');
                     syncMetaChipFaces();
@@ -2948,20 +3191,22 @@
                     }) || nextTask;
                     const normalizedRemarkValue = __tmNormalizeRemarkMarkdown(nextTask.remark || '');
                     {
-                        const textarea = root.querySelector('textarea[data-tm-detail="remark"]');
+                        const textarea = getRemarkTextarea();
                         if (textarea instanceof HTMLTextAreaElement) {
-                            const isActiveRemarkEditor = document.activeElement === textarea || textarea.matches(':focus');
+                            const isActiveRemarkEditor = __tmIsTaskDetailRemarkDraftActive(root);
                             if (!isActiveRemarkEditor) {
                                 textarea.value = normalizedRemarkValue;
                                 syncAutoHeight(textarea, 34);
                             }
+                            syncRemarkSavedState(normalizedRemarkValue);
                         }
                     }
                     {
                         const preview = root.querySelector('[data-tm-detail-remark-preview]');
                         const remarkShell = root.querySelector('[data-tm-detail-remark-shell]');
                         const isEditingRemark = remarkShell instanceof HTMLElement && remarkShell.classList.contains('is-editing');
-                        if (preview instanceof HTMLElement && !isEditingRemark) {
+                        const isDraftActive = __tmIsTaskDetailRemarkDraftActive(root);
+                        if (preview instanceof HTMLElement && !isEditingRemark && !isDraftActive) {
                             preview.innerHTML = __tmRenderRemarkMarkdown(normalizedRemarkValue);
                         }
                     }
@@ -3028,6 +3273,26 @@
             const boundTaskId = String(getBoundTaskId() || getBoundTask()?.id || taskId || '').trim();
             if (!boundTaskId) return;
             __tmOpenTaskDetailMoreMenu(ev.currentTarget instanceof Element ? ev.currentTarget : root.querySelector('[data-tm-detail="more"]'), boundTaskId);
+        });
+        on(root, 'click', async (ev) => {
+            const target = ev.target instanceof Element ? ev.target : null;
+            if (!target) return;
+            const toggle = target.closest('[data-tm-detail-whiteboard-outline-toggle]');
+            if (toggle instanceof HTMLElement && root.contains(toggle)) {
+                try { ev.preventDefault(); } catch (e) {}
+                try { ev.stopPropagation(); } catch (e) {}
+                openWhiteboardOutlinePopover(toggle);
+                return;
+            }
+            const node = target.closest('[data-tm-detail-whiteboard-outline-node]');
+            if (!(node instanceof HTMLElement) || !root.contains(node)) return;
+            if (isWhiteboardOutlineCheckboxTarget(target)) return;
+            try { ev.preventDefault(); } catch (e) {}
+            try { ev.stopPropagation(); } catch (e) {}
+            const nodeTaskId = String(node.getAttribute('data-task-id') || '').trim();
+            const jumped = await window.tmJumpToWhiteboardTask?.(nodeTaskId || getBoundTaskId() || taskId, ev);
+            const keepChecklistSideDetailOpen = embedded && String(root.id || '').trim() === 'tmChecklistDetailPanel';
+            if (jumped !== false && !keepChecklistSideDetailOpen) await close();
         });
         on(root.querySelector('[data-tm-detail="close"]'), 'click', close);
         on(root.querySelector('[data-tm-detail="cancel"]'), 'click', close);
@@ -3422,6 +3687,9 @@
                 syncMetaChipFaces();
                 try { __tmInvalidateTasksQueryCacheByDocId(task.root_id || task.docId); } catch (e) {}
                 lastSerialized = serialized;
+                if (Object.prototype.hasOwnProperty.call(fieldPatch || {}, 'remark')) {
+                    syncRemarkSavedState(nextRemark);
+                }
                 const currentSerialized = (() => {
                     try {
                         return serializeFormState(collectFormState());
@@ -3957,13 +4225,6 @@
             });
             return request;
         };
-        let activeInlinePopover = null;
-        let activeInlinePopoverTrigger = null;
-        let activeInlinePopoverTriggerRect = null;
-        let inlinePopoverCommitting = false;
-        const subtaskSaveTimers = new Map();
-        const subtaskTextareaMinHeight = 30;
-        let subtaskContentSaveDepth = 0;
         const setSubtaskContentEditingHold = (textarea = null, holdMs = null) => {
             const ttl = Math.max(120, Number(holdMs ?? (__tmIsMobileDevice() ? 2400 : 900)) || 0);
             const until = Date.now() + ttl;
@@ -4058,14 +4319,28 @@
                 __tmPositionTaskTimeHubPopover(activeInlinePopover, triggerRect);
                 return;
             }
+            const visualViewportObj = (window.visualViewport && typeof window.visualViewport === 'object') ? window.visualViewport : null;
+            const viewportLeft = Number.isFinite(Number(visualViewportObj?.offsetLeft)) ? Number(visualViewportObj.offsetLeft) : 0;
+            const viewportTop = Number.isFinite(Number(visualViewportObj?.offsetTop)) ? Number(visualViewportObj.offsetTop) : 0;
+            const viewportW = Math.max(1, Number(visualViewportObj?.width) || window.innerWidth || 0);
+            const viewportH = Math.max(1, Number(visualViewportObj?.height) || window.innerHeight || 0);
+            const viewportRight = viewportLeft + viewportW;
+            const viewportBottom = viewportTop + viewportH;
+            const isWhiteboardOutlinePopover = activeInlinePopover.classList.contains('tm-task-detail-inline-popover--whiteboard-outline');
+            const margin = isWhiteboardOutlinePopover ? 6 : 8;
+            if (isWhiteboardOutlinePopover) {
+                const maxWidth = Math.max(180, Math.floor(viewportW - margin * 2));
+                activeInlinePopover.style.maxWidth = `${maxWidth}px`;
+            }
             const popRect = activeInlinePopover.getBoundingClientRect();
-            const viewportW = Math.max(320, window.innerWidth || 0);
-            const viewportH = Math.max(240, window.innerHeight || 0);
-            let left = Math.round(triggerRect.left);
+            let left = isWhiteboardOutlinePopover
+                ? Math.round(triggerRect.left + (triggerRect.width / 2) - (popRect.width / 2))
+                : Math.round(triggerRect.left);
             let top = Math.round(triggerRect.bottom + 8);
-            if (left + popRect.width > viewportW - 8) left = Math.max(8, Math.round(viewportW - popRect.width - 8));
-            if (top + popRect.height > viewportH - 8) {
-                top = Math.max(8, Math.round(triggerRect.top - popRect.height - 8));
+            if (left < viewportLeft + margin) left = viewportLeft + margin;
+            if (left + popRect.width > viewportRight - margin) left = Math.max(viewportLeft + margin, Math.round(viewportRight - popRect.width - margin));
+            if (top + popRect.height > viewportBottom - margin) {
+                top = Math.max(viewportTop + margin, Math.round(triggerRect.top - popRect.height - 8));
             }
             activeInlinePopover.style.left = `${left}px`;
             activeInlinePopover.style.top = `${top}px`;
@@ -4340,6 +4615,213 @@
                 try { ev.stopPropagation(); } catch (e) {}
                 await commit();
             });
+        };
+        const getWhiteboardOutlineAvailableWidth = (popover = activeInlinePopover) => {
+            const targetPopover = popover instanceof HTMLElement ? popover : null;
+            if (!(targetPopover instanceof HTMLElement)) return 0;
+            const scroll = targetPopover.querySelector('[data-tm-detail-whiteboard-outline-scroll]');
+            const source = scroll instanceof HTMLElement ? scroll : targetPopover;
+            const rect = source.getBoundingClientRect();
+            const width = Math.round(Number(source.clientWidth || rect.width || 0));
+            return Math.max(220, width);
+        };
+        const buildWhiteboardOutlineModelForPopover = (tid, popover = activeInlinePopover) => {
+            const id = String(tid || '').trim();
+            if (!id || typeof __tmBuildWhiteboardTaskOutlineModel !== 'function') return null;
+            return __tmBuildWhiteboardTaskOutlineModel(id, {
+                availableWidth: getWhiteboardOutlineAvailableWidth(popover),
+            });
+        };
+        const centerWhiteboardOutlineCurrentNode = (popover = activeInlinePopover) => {
+            const targetPopover = popover instanceof HTMLElement ? popover : null;
+            if (!(targetPopover instanceof HTMLElement)) return false;
+            const scroll = targetPopover.querySelector('[data-tm-detail-whiteboard-outline-scroll]');
+            const current = targetPopover.querySelector('.tm-task-detail-whiteboard-outline-node.is-current');
+            if (!(scroll instanceof HTMLElement) || !(current instanceof HTMLElement)) return false;
+            const maxLeft = Math.max(0, Number(scroll.scrollWidth || 0) - Number(scroll.clientWidth || 0));
+            const maxTop = Math.max(0, Number(scroll.scrollHeight || 0) - Number(scroll.clientHeight || 0));
+            const left = Math.max(0, Math.min(maxLeft, Number(current.offsetLeft || 0) + Number(current.offsetWidth || 0) / 2 - Number(scroll.clientWidth || 0) / 2));
+            const top = Math.max(0, Math.min(maxTop, Number(current.offsetTop || 0) + Number(current.offsetHeight || 0) / 2 - Number(scroll.clientHeight || 0) * 0.68));
+            try {
+                scroll.scrollTo({ left, top, behavior: 'auto' });
+            } catch (e) {
+                scroll.scrollLeft = left;
+                scroll.scrollTop = top;
+            }
+            return true;
+        };
+        const syncWhiteboardOutlinePopoverFloatingTooltips = (popover = activeInlinePopover) => {
+            const targetPopover = popover instanceof HTMLElement ? popover : null;
+            if (!(targetPopover instanceof HTMLElement)) return false;
+            try { __tmBindFloatingTooltips(targetPopover); return true; } catch (e) { return false; }
+        };
+        const syncWhiteboardOutlinePanState = (popover = activeInlinePopover) => {
+            const targetPopover = popover instanceof HTMLElement ? popover : null;
+            if (!(targetPopover instanceof HTMLElement)) return false;
+            const scroll = targetPopover.querySelector('[data-tm-detail-whiteboard-outline-scroll]');
+            if (!(scroll instanceof HTMLElement)) return false;
+            const canPan = Number(scroll.scrollWidth || 0) > Number(scroll.clientWidth || 0) + 1
+                || Number(scroll.scrollHeight || 0) > Number(scroll.clientHeight || 0) + 1;
+            scroll.classList.toggle('can-pan', canPan);
+            return canPan;
+        };
+        const bindWhiteboardOutlinePanDrag = (popover = activeInlinePopover) => {
+            const targetPopover = popover instanceof HTMLElement ? popover : null;
+            if (!(targetPopover instanceof HTMLElement)) return false;
+            const scroll = targetPopover.querySelector('[data-tm-detail-whiteboard-outline-scroll]');
+            if (!(scroll instanceof HTMLElement) || scroll.__tmWhiteboardOutlinePanBound) return false;
+            const beginDrag = (ev) => {
+                if (!(targetPopover instanceof HTMLElement) || activeInlinePopover !== targetPopover) return;
+                if (ev?.button != null && ev.button !== 0) return;
+                const target = ev.target instanceof Element ? ev.target : null;
+                if (target?.closest?.('button,input,select,textarea,a,[data-tm-detail-whiteboard-outline-check],.tm-task-checkbox,.tm-task-checkbox-wrap')) return;
+                const startNode = target?.closest?.('[data-tm-detail-whiteboard-outline-node]');
+                const canScrollX = Number(scroll.scrollWidth || 0) > Number(scroll.clientWidth || 0) + 1;
+                const canScrollY = Number(scroll.scrollHeight || 0) > Number(scroll.clientHeight || 0) + 1;
+                if (!canScrollX && !canScrollY) return;
+                whiteboardOutlinePanDrag = {
+                    popover: targetPopover,
+                    scroll,
+                    pointerId: ev.pointerId,
+                    startX: Number(ev.clientX) || 0,
+                    startY: Number(ev.clientY) || 0,
+                    scrollLeft: Number(scroll.scrollLeft || 0),
+                    scrollTop: Number(scroll.scrollTop || 0),
+                    startNode: startNode instanceof HTMLElement ? startNode : null,
+                    moved: false,
+                };
+                if (!(startNode instanceof HTMLElement)) {
+                    try { scroll.setPointerCapture?.(ev.pointerId); } catch (e) {}
+                }
+                try {
+                    if (typeof __tmHideFloatingTooltip === 'function') __tmHideFloatingTooltip();
+                } catch (e) {}
+            };
+            on(scroll, 'pointerdown', beginDrag);
+            try { scroll.__tmWhiteboardOutlinePanBound = true; } catch (e) {}
+            return true;
+        };
+        refreshWhiteboardOutlinePopover = (popover = activeInlinePopover, options = {}) => {
+            const targetPopover = popover instanceof HTMLElement ? popover : null;
+            if (!(targetPopover instanceof HTMLElement) || !targetPopover.classList.contains('tm-task-detail-inline-popover--whiteboard-outline')) return false;
+            const tid = String(getBoundTaskId() || getBoundTask()?.id || taskId || '').trim();
+            const prevScroll = targetPopover.querySelector('[data-tm-detail-whiteboard-outline-scroll]');
+            const prevScrollLeft = prevScroll instanceof HTMLElement ? Number(prevScroll.scrollLeft || 0) : 0;
+            const prevScrollTop = prevScroll instanceof HTMLElement ? Number(prevScroll.scrollTop || 0) : 0;
+            const model = buildWhiteboardOutlineModelForPopover(tid, targetPopover);
+            if (!model) {
+                if (options?.closeIfMissing !== false) closeInlinePopover(false, 'whiteboard-outline-missing');
+                return false;
+            }
+            targetPopover.setAttribute('data-tm-whiteboard-outline-popover-for', tid);
+            targetPopover.innerHTML = __tmBuildTaskDetailWhiteboardOutlineHtml(model, buildDetailTip, { popover: true });
+            positionInlinePopover();
+            syncWhiteboardOutlinePopoverFloatingTooltips(targetPopover);
+            syncWhiteboardOutlinePanState(targetPopover);
+            bindWhiteboardOutlinePanDrag(targetPopover);
+            if (options?.centerCurrent === true) {
+                centerWhiteboardOutlineCurrentNode(targetPopover);
+            } else {
+                const nextScroll = targetPopover.querySelector('[data-tm-detail-whiteboard-outline-scroll]');
+                if (nextScroll instanceof HTMLElement) {
+                    nextScroll.scrollLeft = Math.max(0, prevScrollLeft);
+                    nextScroll.scrollTop = Math.max(0, prevScrollTop);
+                }
+            }
+            return true;
+        };
+        openWhiteboardOutlinePopover = (trigger) => {
+            if (!(trigger instanceof HTMLElement)) return false;
+            if (inlinePopoverCommitting) return false;
+            if (activeInlinePopover && activeInlinePopoverTrigger === trigger) {
+                closeInlinePopover(false, 'toggle-whiteboard-outline');
+                return true;
+            }
+            const tid = String(getBoundTaskId() || getBoundTask()?.id || taskId || '').trim();
+            let model = buildWhiteboardOutlineModelForPopover(tid, null);
+            if (!model) {
+                syncWhiteboardOutline();
+                try { hint('\u26a0 \u8be5\u4efb\u52a1\u6ca1\u6709\u767d\u677f\u8def\u5f84', 'warning'); } catch (e) {}
+                return false;
+            }
+            closeInlinePopover(false, 'replace-before-whiteboard-outline');
+            const popover = document.createElement('div');
+            popover.className = 'tm-task-detail-inline-popover tm-task-detail-inline-popover--whiteboard-outline';
+            popover.setAttribute('role', 'dialog');
+            popover.setAttribute('aria-label', '\u767d\u677f\u8def\u5f84');
+            popover.setAttribute('data-tm-whiteboard-outline-popover-for', tid);
+            popover.innerHTML = __tmBuildTaskDetailWhiteboardOutlineHtml(model, buildDetailTip, { popover: true });
+            document.body.appendChild(popover);
+            activeInlinePopover = popover;
+            activeInlinePopoverTrigger = trigger;
+            setTaskDetailActivePopover(popover);
+            const fittedModel = buildWhiteboardOutlineModelForPopover(tid, popover);
+            if (fittedModel) {
+                model = fittedModel;
+                popover.innerHTML = __tmBuildTaskDetailWhiteboardOutlineHtml(model, buildDetailTip, { popover: true });
+            }
+            try { trigger.classList.add('is-open'); } catch (e) {}
+            try { trigger.setAttribute('aria-expanded', 'true'); } catch (e) {}
+            try { __tmSyncTaskDetailWhiteboardOutlineSection(root, getBoundTask(), buildDetailTip, { open: true }); } catch (e) {}
+            positionInlinePopover();
+            centerWhiteboardOutlineCurrentNode(popover);
+            syncWhiteboardOutlinePopoverFloatingTooltips(popover);
+            syncWhiteboardOutlinePanState(popover);
+            bindWhiteboardOutlinePanDrag(popover);
+            try { __tmAnimatePopupIn(popover, { origin: 'top-left', duration: 150 }); } catch (e) {}
+            on(popover, 'tm-outline-done-change', async (ev) => {
+                const input = ev.target instanceof HTMLInputElement ? ev.target : null;
+                const node = input?.closest?.('[data-tm-detail-whiteboard-outline-node]');
+                if (!(input instanceof HTMLInputElement) || !(node instanceof HTMLElement) || !popover.contains(node)) return;
+                try { ev.preventDefault(); } catch (e) {}
+                try { ev.stopPropagation(); } catch (e) {}
+                const nodeTaskId = String(node.getAttribute('data-task-id') || '').trim();
+                if (!nodeTaskId) return;
+                const nextDone = !!input.checked;
+                try { node.classList.add('is-updating'); } catch (e) {}
+                const result = await window.tmSetDone?.(nodeTaskId, nextDone, null, {
+                    source: 'task-detail-whiteboard-outline',
+                    wait: true,
+                    skipInteractionGate: true,
+                });
+                if (result === false) input.checked = !nextDone;
+                try { __tmSyncTaskDetailWhiteboardOutlineSection(root, getBoundTask(), buildDetailTip, { open: true }); } catch (e) {}
+                refreshWhiteboardOutlinePopover(popover, { closeIfMissing: false });
+                try { node.classList.remove('is-updating'); } catch (e) {}
+            });
+            on(popover, 'click', async (ev) => {
+                const target = ev.target instanceof Element ? ev.target : null;
+                if (isWhiteboardOutlineCheckboxTarget(target)) {
+                    try { ev.stopPropagation(); } catch (e) {}
+                    return;
+                }
+                const node = target?.closest?.('[data-tm-detail-whiteboard-outline-node]');
+                if (!(node instanceof HTMLElement) || !popover.contains(node)) return;
+                if (node.dataset.tmSuppressNextClick === 'true') {
+                    try { delete node.dataset.tmSuppressNextClick; } catch (e) {}
+                    try { ev.preventDefault(); } catch (e) {}
+                    try { ev.stopPropagation(); } catch (e) {}
+                    return;
+                }
+                try { ev.preventDefault(); } catch (e) {}
+                try { ev.stopPropagation(); } catch (e) {}
+                const nodeTaskId = String(node.getAttribute('data-task-id') || '').trim();
+                const jumped = await window.tmJumpToWhiteboardTask?.(nodeTaskId || getBoundTaskId() || taskId, ev);
+                if (jumped === false) return;
+                closeInlinePopover(false, 'whiteboard-outline-node-jump');
+                const keepChecklistSideDetailOpen = embedded && String(root.id || '').trim() === 'tmChecklistDetailPanel';
+                if (!keepChecklistSideDetailOpen) await close();
+            });
+            on(popover, 'keydown', async (ev) => {
+                if (String(ev.key || '') !== 'Enter' && String(ev.key || '') !== ' ') return;
+                const target = ev.target instanceof Element ? ev.target : null;
+                if (isWhiteboardOutlineCheckboxTarget(target)) return;
+                const node = target?.closest?.('[data-tm-detail-whiteboard-outline-node]');
+                if (!(node instanceof HTMLElement) || !popover.contains(node)) return;
+                try { ev.preventDefault(); } catch (e) {}
+                node.click();
+            });
+            return true;
         };
         const openTaskDateSheetPopover = (trigger, field) => {
             if (!(trigger instanceof HTMLElement)) return;
@@ -4846,6 +5328,12 @@
                 if (hideRepeat) return '';
                 const rule = getRepeatRule();
                     const currentType = rule?.enabled ? String(rule.type || 'none') : 'none';
+                    const currentCalendarMode = (currentType === 'monthly' || currentType === 'yearly')
+                        ? (String(rule?.calendarMode || '').trim() === 'lunar' ? 'lunar' : 'solar')
+                        : 'solar';
+                    const currentChoice = currentCalendarMode === 'lunar' && (currentType === 'monthly' || currentType === 'yearly')
+                        ? `lunar-${currentType}`
+                        : currentType;
                     const choices = [
                         ['none', '不循环'],
                         ['daily', '每天'],
@@ -4853,10 +5341,12 @@
                         ['weekly', '每周'],
                         ['monthly', '每月'],
                         ['yearly', '每年'],
+                        ['lunar-monthly', '农历每月'],
+                        ['lunar-yearly', '农历每年'],
                     ];
                     return `<div class="tm-task-time-hub__subpanel" data-tm-time-hub-editor-panel>
                         <div class="tm-task-time-hub__subpanel-title">循环</div>
-                        ${choices.map(([type, label]) => `<button type="button" class="tm-task-time-hub__choice ${currentType === type ? 'is-selected' : ''}" data-tm-time-hub-repeat="${type}">${esc(label)}</button>`).join('')}
+                        ${choices.map(([type, label]) => `<button type="button" class="tm-task-time-hub__choice ${currentChoice === type ? 'is-selected' : ''}" data-tm-time-hub-repeat="${type}">${esc(label)}</button>`).join('')}
                         <button type="button" class="tm-task-time-hub__choice" data-tm-time-hub-repeat-custom>自定义循环</button>
                     </div>`;
             }
@@ -5078,7 +5568,9 @@
                 }
             };
             const applyRepeatType = async (type) => {
-                const nextType = String(type || '').trim();
+                const rawType = String(type || '').trim();
+                const nextType = rawType === 'lunar-monthly' ? 'monthly' : (rawType === 'lunar-yearly' ? 'yearly' : rawType);
+                const nextCalendarMode = (rawType === 'lunar-monthly' || rawType === 'lunar-yearly') ? 'lunar' : 'solar';
                 const task = getBoundTask() || {};
                 try {
                     setInlinePopoverBusyState(true, popover);
@@ -5091,7 +5583,8 @@
                             ...current,
                             enabled: true,
                             type: nextType,
-                            every: current?.type === nextType ? current.every : 1,
+                            calendarMode: nextCalendarMode,
+                            every: current?.type === nextType && (String(current?.calendarMode || '').trim() || 'solar') === nextCalendarMode ? current.every : 1,
                             anchorDate,
                             trigger: current?.trigger || 'due',
                         }, { source: 'task-detail-time-hub' });
@@ -5445,6 +5938,42 @@
             }
             closeInlinePopover(false, 'document-pointerdown');
         }, { capture: true });
+        on(document, 'pointermove', (ev) => {
+            const drag = whiteboardOutlinePanDrag;
+            const popover = drag?.popover instanceof HTMLElement ? drag.popover : null;
+            const scroll = drag?.scroll instanceof HTMLElement ? drag.scroll : null;
+            if (!(popover instanceof HTMLElement) || !(scroll instanceof HTMLElement) || activeInlinePopover !== popover) return;
+            if (drag.pointerId != null && ev.pointerId != null && drag.pointerId !== ev.pointerId) return;
+            const dx = (Number(ev.clientX) || 0) - Number(drag.startX || 0);
+            const dy = (Number(ev.clientY) || 0) - Number(drag.startY || 0);
+            if (Math.abs(dx) > 3 || Math.abs(dy) > 3) {
+                drag.moved = true;
+                scroll.classList.add('is-panning');
+            }
+            if (!drag.moved) return;
+            try { ev.preventDefault(); } catch (e) {}
+            try { ev.stopPropagation(); } catch (e) {}
+            scroll.scrollLeft = Math.max(0, Number(drag.scrollLeft || 0) - dx);
+            scroll.scrollTop = Math.max(0, Number(drag.scrollTop || 0) - dy);
+        }, { capture: true });
+        const finishWhiteboardOutlinePan = (ev) => {
+            const drag = whiteboardOutlinePanDrag;
+            const scroll = drag?.scroll instanceof HTMLElement ? drag.scroll : null;
+            if (!(scroll instanceof HTMLElement)) return;
+            if (drag.pointerId != null && ev?.pointerId != null && drag.pointerId !== ev.pointerId) return;
+            whiteboardOutlinePanDrag = null;
+            try { scroll.releasePointerCapture?.(drag.pointerId); } catch (e) {}
+            scroll.classList.remove('is-panning');
+            if (drag.moved && drag.startNode instanceof HTMLElement) {
+                drag.startNode.dataset.tmSuppressNextClick = 'true';
+                try { setTimeout(() => { try { delete drag.startNode.dataset.tmSuppressNextClick; } catch (e) {} }, 0); } catch (e) {}
+            }
+            if (drag.moved) {
+                try { ev?.stopPropagation?.(); } catch (e) {}
+            }
+        };
+        on(document, 'pointerup', finishWhiteboardOutlinePan, { capture: true });
+        on(document, 'pointercancel', finishWhiteboardOutlinePan, { capture: true });
         on(document, 'keydown', (ev) => {
             if (String(ev?.key || '') !== 'Escape') return;
             if (!activeInlinePopover) return;
@@ -5457,6 +5986,11 @@
         }, { capture: true });
         on(window, 'resize', () => {
             if (!activeInlinePopover) return;
+            if (activeInlinePopover instanceof HTMLElement
+                && activeInlinePopover.classList.contains('tm-task-detail-inline-popover--whiteboard-outline')) {
+                refreshWhiteboardOutlinePopover(activeInlinePopover, { closeIfMissing: false, centerCurrent: true });
+                return;
+            }
             positionInlinePopover();
             positionEditorPanel();
         });
@@ -5791,6 +6325,39 @@
                 try { if (cancelBtn instanceof HTMLButtonElement) cancelBtn.disabled = false; } catch (e) {}
                 try { syncAutoHeight(input, subtaskTextareaMinHeight); } catch (e) {}
             };
+            const refreshBoardAfterQueuedSubtask = (parentId, subtaskId) => {
+                const mode = String(state.viewMode || '').trim();
+                if (mode !== 'kanban' && mode !== 'whiteboard') return false;
+                const ids = Array.from(new Set([parentId, subtaskId].map((id) => String(id || '').trim()).filter(Boolean)));
+                if (!ids.length) return false;
+                const parentTid = String(parentId || '').trim();
+                try { if (parentTid) __tmKanbanGetCollapsedSet?.()?.delete?.(parentTid); } catch (e) {}
+                try { __tmKanbanColsHtmlCache = null; } catch (e) {}
+                try { __tmInvalidateFilteredTaskDerivedStateCache?.(); } catch (e) {}
+                try { state.listDomRenderSignature = ''; } catch (e) {}
+                const rerender = () => {
+                    try { __tmKanbanColsHtmlCache = null; } catch (e) {}
+                    try {
+                        if (__tmRerenderCurrentViewInPlace(state.modal)) return true;
+                    } catch (e) {}
+                    try {
+                        __tmScheduleViewRefresh({
+                            mode: 'current',
+                            withFilters: false,
+                            reason: 'detail-create-subtask-board-refresh',
+                            taskIds: ids,
+                            bypassDefer: true,
+                        });
+                    } catch (e) {}
+                    return false;
+                };
+                let refreshed = false;
+                try { refreshed = !!rerender(); } catch (e) {}
+                if (!refreshed) {
+                    try { requestAnimationFrame(rerender); } catch (e) { try { setTimeout(rerender, 0); } catch (e2) {} }
+                }
+                return true;
+            };
             const submitDraft = () => {
                 const taskLines = __tmSplitTaskInputLines(input.value || '');
                 if (taskLines.length === 0) {
@@ -5833,8 +6400,9 @@
                         onQueued: (tempId) => {
                             const tid = String(tempId || '').trim();
                             if (tid) tempIds.push(tid);
-                            try { __tmScheduleChecklistOptimisticSubtaskRefresh?.(parentForCreate, tid); } catch (e) {}
+                            try { __tmScheduleChecklistOptimisticSubtaskRefresh?.(parentForCreate, tid, { force: true }); } catch (e) {}
                             insertQueuedSubtaskRow(tempId, line, index);
+                            try { refreshBoardAfterQueuedSubtask(parentForCreate, tid); } catch (e) {}
                             restoreEmbeddedDetailScroll(detailScrollSnapshot, { onlyIfNear: true });
                         },
                         onError: (err) => {
@@ -6661,10 +7229,15 @@
                     armRemarkInteractionGuard();
                 }, { passive: true });
             };
+            let remarkPendingInputScrollSnapshot = null;
             const captureDetailScrollSnapshot = () => {
                 try {
                     const checklistSnapshot = __tmCaptureChecklistDetailScrollSnapshot(state.modal);
                     if (checklistSnapshot) return { kind: 'checklist', snapshot: checklistSnapshot };
+                } catch (e) {}
+                try {
+                    const kanbanSnapshot = __tmCaptureKanbanDetailScrollSnapshot(state.modal);
+                    if (kanbanSnapshot) return { kind: 'kanban', snapshot: kanbanSnapshot };
                 } catch (e) {}
                 try {
                     const standaloneSnapshot = __tmCaptureStandaloneTaskDetailScrollSnapshot();
@@ -6679,13 +7252,17 @@
                         __tmRestoreChecklistDetailScrollSnapshot(pack.snapshot, state.modal);
                         return;
                     }
+                    if (pack.kind === 'kanban') {
+                        __tmRestoreKanbanDetailScrollSnapshot(pack.snapshot, state.modal);
+                        return;
+                    }
                     if (pack.kind === 'standalone') {
                         __tmRestoreStandaloneTaskDetailScrollSnapshot(pack.snapshot);
                     }
                 } catch (e) {}
             };
-            const preserveDetailScroll = (fn) => {
-                const snapshot = captureDetailScrollSnapshot();
+            const preserveDetailScroll = (fn, snapshotOverride = null) => {
+                const snapshot = snapshotOverride || captureDetailScrollSnapshot();
                 const result = typeof fn === 'function' ? fn() : undefined;
                 restoreDetailScrollSnapshot(snapshot);
                 try { requestAnimationFrame(() => restoreDetailScrollSnapshot(snapshot)); } catch (e) {}
@@ -6729,6 +7306,7 @@
                 try { setTimeout(() => ensureRemarkVisibleOnMobile(), 320); } catch (e) {}
             };
             const syncRemarkHeight = () => syncAutoHeight(remarkTextarea, 80);
+            try { syncRemarkSavedState(root.__tmTaskDetailTask?.remark || ''); } catch (e) {}
             const syncRemarkPreview = (force = false) => {
                 if (!force && remarkShell.classList.contains('is-editing') && __tmIsMobileDevice()) return;
                 remarkPreview.innerHTML = __tmRenderRemarkMarkdown(remarkTextarea.value || '');
@@ -6741,8 +7319,8 @@
             };
             const focusRemarkTextarea = (selectAll = false) => {
                 armRemarkInteractionGuard(260);
-                try { syncRemarkHeight(); } catch (e) {}
                 preserveDetailScroll(() => {
+                    try { syncRemarkHeight(); } catch (e) {}
                     try { remarkTextarea.focus({ preventScroll: true }); } catch (e) { try { remarkTextarea.focus(); } catch (e2) {} }
                     try {
                         const caret = selectAll ? 0 : String(remarkTextarea.value || '').length;
@@ -6753,11 +7331,14 @@
                 scheduleEnsureRemarkVisibleOnMobile();
             };
             const enterRemarkEditMode = (options = {}) => {
-                remarkShell.classList.add('is-editing');
-                try { remarkShell.dataset.mode = 'edit'; } catch (e) {}
                 armRemarkInteractionGuard(320);
-                syncRemarkHeight();
-                if (options.openToolbar) setRemarkToolbarOpen(true);
+                remarkPendingInputScrollSnapshot = null;
+                preserveDetailScroll(() => {
+                    remarkShell.classList.add('is-editing');
+                    try { remarkShell.dataset.mode = 'edit'; } catch (e) {}
+                    syncRemarkHeight();
+                    if (options.openToolbar) setRemarkToolbarOpen(true);
+                });
                 focusRemarkTextarea(!!options.selectAll);
                 try {
                     requestAnimationFrame(() => {
@@ -6843,22 +7424,45 @@
                 try { ev.preventDefault(); } catch (e) {}
                 enterRemarkEditMode();
             });
+            on(remarkTextarea, 'beforeinput', () => {
+                remarkPendingInputScrollSnapshot = captureDetailScrollSnapshot();
+            });
             on(remarkTextarea, 'input', () => {
+                try { remarkTextarea.dataset.dirty = 'true'; } catch (e) {}
+                const inputScrollSnapshot = remarkPendingInputScrollSnapshot;
+                remarkPendingInputScrollSnapshot = null;
                 preserveDetailScroll(() => {
                     syncRemarkHeight();
                     syncRemarkPreview(false);
-                });
+                }, inputScrollSnapshot);
                 scheduleEnsureRemarkVisibleOnMobile();
                 scheduleAutoSave();
             });
-            on(remarkTextarea, 'focus', syncRemarkHeight);
+            on(remarkTextarea, 'compositionstart', () => {
+                remarkPendingInputScrollSnapshot = captureDetailScrollSnapshot();
+                try { remarkTextarea.dataset.composing = 'true'; } catch (e) {}
+                try { remarkTextarea.dataset.dirty = 'true'; } catch (e) {}
+            });
+            on(remarkTextarea, 'compositionend', () => {
+                try { delete remarkTextarea.dataset.composing; } catch (e) {}
+                try { remarkTextarea.dataset.dirty = 'true'; } catch (e) {}
+                scheduleAutoSave();
+            });
+            on(remarkTextarea, 'focus', () => {
+                preserveDetailScroll(() => syncRemarkHeight());
+            });
             on(remarkTextarea, 'focus', () => {
                 scheduleEnsureRemarkVisibleOnMobile();
             });
             on(remarkTextarea, 'keydown', (ev) => {
-                if (preserveDetailScroll(() => __tmHandleRemarkTextareaKeydown(remarkTextarea, ev))) {
+                let handled = false;
+                preserveDetailScroll(() => {
+                    handled = __tmHandleRemarkTextareaKeydown(remarkTextarea, ev);
+                    if (!handled) return;
                     syncRemarkHeight();
                     syncRemarkPreview(false);
+                });
+                if (handled) {
                     scheduleEnsureRemarkVisibleOnMobile();
                     scheduleAutoSave();
                     return;
@@ -6873,8 +7477,10 @@
                 }
             });
             on(remarkTextarea, 'blur', () => {
+                remarkPendingInputScrollSnapshot = null;
                 syncRemarkHeight();
                 syncRemarkPreview(true);
+                syncRemarkSavedState(root.__tmTaskDetailTask?.remark || '');
             });
             if (remarkToolbarToggle instanceof HTMLButtonElement) {
                 on(remarkToolbarToggle, 'mousedown', (ev) => {
@@ -6907,8 +7513,10 @@
                         armRemarkInteractionGuard();
                     },
                     onAfterApply: () => {
-                        syncRemarkHeight();
-                        syncRemarkPreview(false);
+                        preserveDetailScroll(() => {
+                            syncRemarkHeight();
+                            syncRemarkPreview(false);
+                        });
                         scheduleAutoSave();
                         focusRemarkTextarea(false);
                     },
@@ -6955,6 +7563,13 @@
                     syncRemarkPreview();
                 });
             } catch (e) {}
+            try {
+                const pendingRemarkDraftSnapshot = root.__tmPendingRemarkDraftSnapshot;
+                if (pendingRemarkDraftSnapshot && typeof pendingRemarkDraftSnapshot === 'object') {
+                    delete root.__tmPendingRemarkDraftSnapshot;
+                    __tmRestoreTaskDetailRemarkDraftSnapshot(root, pendingRemarkDraftSnapshot);
+                }
+            } catch (e) {}
         }
         root.querySelectorAll('textarea[data-tm-detail-custom-text-field]').forEach((textarea) => {
             if (!(textarea instanceof HTMLTextAreaElement)) return;
@@ -6994,6 +7609,7 @@
         bindCustomFieldEditors();
         bindSubtaskEditors();
         syncSubtaskVisibilityToggle();
+        try { syncWhiteboardOutline(); } catch (e) {}
         try { __tmBindFloatingTooltips(root); } catch (e) {}
         on(window, 'tm:calendar-schedule-updated', () => {
             void refreshTimeHubScheduleSummary();
@@ -7245,6 +7861,7 @@ return true;
             } catch (e) {}
         } else {
             const detailDraftSnapshot = __tmCaptureTaskDetailSubtaskDraftSnapshot(panel, selectedId);
+            const remarkDraftSnapshot = __tmCaptureTaskDetailRemarkDraftSnapshot(panel, selectedId);
             try {
                 __tmPushDetailDebug('detail-rebuild-html', {
                     taskId: String(selectedId || '').trim(),
@@ -7283,6 +7900,7 @@ return true;
                 }
             });
             try { __tmRestoreTaskDetailSubtaskDraftSnapshot(panel, detailDraftSnapshot); } catch (e) {}
+            try { __tmRestoreTaskDetailRemarkDraftSnapshot(panel, remarkDraftSnapshot); } catch (e) {}
         }
         const backdrop = modal.querySelector('#tmChecklistSheetBackdrop');
         const sheet = modal.querySelector('#tmChecklistSheet');
@@ -7453,6 +8071,7 @@ return true;
             } catch (e) {}
         } else {
             const detailDraftSnapshot = __tmCaptureTaskDetailSubtaskDraftSnapshot(panel, selectedId);
+            const remarkDraftSnapshot = __tmCaptureTaskDetailRemarkDraftSnapshot(panel, selectedId);
             try {
                 __tmPushDetailDebug('detail-rebuild-html', {
                     taskId: String(selectedId || '').trim(),
@@ -7488,6 +8107,7 @@ return true;
                 }
             });
             try { __tmRestoreTaskDetailSubtaskDraftSnapshot(panel, detailDraftSnapshot); } catch (e) {}
+            try { __tmRestoreTaskDetailRemarkDraftSnapshot(panel, remarkDraftSnapshot); } catch (e) {}
         }
         try { panel.__tmTaskDetailTask = task || null; } catch (e) {}
         try { __tmRememberTaskDetailLocationSignature(panel, task); } catch (e) {}
@@ -7543,6 +8163,69 @@ return true;
         return true;
     }
 
+
+    function __tmPatchVisibleTaskDetailSubtaskPriorityInPlace(taskId) {
+        const rawId = String(taskId || '').trim();
+        if (!rawId) return false;
+        const aliases = new Set();
+        const addAlias = (value) => {
+            const tid = String(value || '').trim();
+            if (tid) aliases.add(tid);
+        };
+        addAlias(rawId);
+        try { addAlias(__tmResolveTaskDetailEffectiveId(rawId)); } catch (e) {}
+        try {
+            const runtimeAliases = globalThis.__tmRuntimeState?.getTaskIdAliases?.(rawId);
+            (Array.isArray(runtimeAliases) ? runtimeAliases : []).forEach(addAlias);
+        } catch (e) {}
+        try {
+            const storeAliases = globalThis.__tmTaskStore?.getAliases?.(rawId);
+            (Array.isArray(storeAliases) ? storeAliases : []).forEach(addAlias);
+        } catch (e) {}
+        const task = Array.from(aliases).map((id) => {
+            try { return __tmGetTaskDetailTaskById(id, { includePending: true, preferPending: true, includeWhiteboard: true }); } catch (e) { return null; }
+        }).find((item) => item && typeof item === 'object') || null;
+        if (!task) return false;
+        const color = __tmGetPriorityAccentColor(__tmResolveTaskPriorityValue(task)) || '#a9afb8';
+        const matchesSubtaskId = (value) => {
+            const tid = String(value || '').trim();
+            if (!tid) return false;
+            if (aliases.has(tid)) return true;
+            try {
+                const resolvedId = String(__tmResolveTaskDetailEffectiveId(tid) || tid).trim();
+                return !!resolvedId && aliases.has(resolvedId);
+            } catch (e) {
+                return false;
+            }
+        };
+        const panels = [];
+        const addPanel = (panel) => {
+            if (panel instanceof HTMLElement && !panels.includes(panel)) panels.push(panel);
+        };
+        try {
+            const modal = state.modal instanceof Element ? state.modal : null;
+            addPanel(modal ? __tmResolveChecklistDetailPanel(modal).panel : null);
+            addPanel(modal ? __tmResolveTaskDetailSheetPanel(modal) : null);
+            addPanel(modal?.querySelector?.('#tmKanbanDetailPanel'));
+        } catch (e) {}
+        try { addPanel(document.getElementById('tm-task-detail-overlay')); } catch (e) {}
+        let touched = false;
+        panels.forEach((panel) => {
+            if (!__tmIsTaskDetailRootUsable(panel, { requireConnected: true })) return;
+            panel.querySelectorAll('[data-tm-detail-subtask-menu]').forEach((row) => {
+                if (!(row instanceof HTMLElement)) return;
+                const subtaskId = String(row.getAttribute('data-tm-detail-subtask-menu') || '').trim();
+                if (!matchesSubtaskId(subtaskId)) return;
+                const checkbox = row.querySelector('.tm-task-checkbox');
+                if (checkbox instanceof HTMLInputElement) {
+                    checkbox.style.setProperty('--tm-checklist-checkbox-color', color);
+                    checkbox.style.borderColor = color;
+                    touched = true;
+                }
+            });
+        });
+        return touched;
+    }
 
     function __tmPatchTaskDetailPanelInPlace(panelEl, taskId, patch = {}) {
         const panel = panelEl instanceof Element ? panelEl : null;
@@ -7707,9 +8390,17 @@ return true;
         if (Object.prototype.hasOwnProperty.call(nextPatch, 'remark')) {
             const remarkValue = __tmNormalizeRemarkMarkdown(task?.remark || '');
             const textarea = panel.querySelector('textarea[data-tm-detail="remark"]');
-            if (textarea instanceof HTMLTextAreaElement && textarea !== document.activeElement) textarea.value = remarkValue;
+            const isDraftActive = typeof __tmIsTaskDetailRemarkDraftActive === 'function'
+                ? __tmIsTaskDetailRemarkDraftActive(panel)
+                : textarea instanceof HTMLTextAreaElement && textarea === document.activeElement;
+            if (textarea instanceof HTMLTextAreaElement) {
+                try { __tmSyncTaskDetailRemarkTextareaSavedState(textarea, remarkValue); } catch (e) {}
+                if (!isDraftActive) textarea.value = remarkValue;
+            }
             const preview = panel.querySelector('[data-tm-detail-remark-preview]');
-            if (preview instanceof HTMLElement) {
+            const remarkShell = panel.querySelector('[data-tm-detail-remark-shell]');
+            const isEditingRemark = remarkShell instanceof HTMLElement && remarkShell.classList.contains('is-editing');
+            if (preview instanceof HTMLElement && !isDraftActive && !isEditingRemark) {
                 preview.innerHTML = __tmRenderRemarkMarkdown(remarkValue);
                 touched = true;
             }
@@ -7998,6 +8689,7 @@ refreshed = !!__tmRefreshChecklistSelectionInPlace(state.modal, 'visible-task-de
                             });
                         } catch (e) {}
                         const overlayDraftSnapshot = __tmCaptureTaskDetailSubtaskDraftSnapshot(overlay, tid);
+                        const overlayRemarkDraftSnapshot = __tmCaptureTaskDetailRemarkDraftSnapshot(overlay, tid);
                         try {
                             __tmPushDetailDebug('detail-rebuild-html', {
                                 taskId: tid,
@@ -8020,6 +8712,7 @@ refreshed = !!__tmRefreshChecklistSelectionInPlace(state.modal, 'visible-task-de
                             task,
                         });
                         try { __tmRestoreTaskDetailSubtaskDraftSnapshot(overlay, overlayDraftSnapshot); } catch (e) {}
+                        try { __tmRestoreTaskDetailRemarkDraftSnapshot(overlay, overlayRemarkDraftSnapshot); } catch (e) {}
                         try { __tmBindFloatingTooltips(overlay); } catch (e) {}
                         refreshed = true;
                     } else {
@@ -8069,6 +8762,7 @@ refreshed = !!__tmRefreshChecklistSelectionInPlace(state.modal, 'visible-task-de
                                 });
                             } catch (e) {}
                             const overlayDraftSnapshot = __tmCaptureTaskDetailSubtaskDraftSnapshot(overlay, tid);
+                            const overlayRemarkDraftSnapshot = __tmCaptureTaskDetailRemarkDraftSnapshot(overlay, tid);
                             try {
                                 __tmPushDetailDebug('detail-rebuild-html', {
                                     taskId: tid,
@@ -8091,6 +8785,7 @@ refreshed = !!__tmRefreshChecklistSelectionInPlace(state.modal, 'visible-task-de
                                 task,
                             });
                             try { __tmRestoreTaskDetailSubtaskDraftSnapshot(overlay, overlayDraftSnapshot); } catch (e) {}
+                            try { __tmRestoreTaskDetailRemarkDraftSnapshot(overlay, overlayRemarkDraftSnapshot); } catch (e) {}
                             try { __tmBindFloatingTooltips(overlay); } catch (e) {}
                             refreshed = true;
                         }
@@ -8462,6 +9157,7 @@ refreshed = !!__tmRefreshChecklistSelectionInPlace(state.modal, 'visible-task-de
         }
         if (!__tmIsTaskDetailRootUsable(panel, { taskId: selectedId })) return false;
         const detailDraftSnapshot = __tmCaptureTaskDetailSubtaskDraftSnapshot(panel, selectedId);
+        const remarkDraftSnapshot = __tmCaptureTaskDetailRemarkDraftSnapshot(panel, selectedId);
         try {
             __tmPushDetailDebug('detail-rebuild-html', {
                 taskId: String(selectedId || '').trim(),
@@ -8492,6 +9188,7 @@ refreshed = !!__tmRefreshChecklistSelectionInPlace(state.modal, 'visible-task-de
             }
         });
         try { __tmRestoreTaskDetailSubtaskDraftSnapshot(panel, detailDraftSnapshot); } catch (e) {}
+        try { __tmRestoreTaskDetailRemarkDraftSnapshot(panel, remarkDraftSnapshot); } catch (e) {}
         __tmClearKanbanDetailFloatingHandlers();
         __tmKanbanDetailSyntheticClickSuppressCleanup = __tmBindKanbanDetailSyntheticClickSuppress(modal);
         __tmKanbanDetailOutsidePointerDownHandler = (ev) => {

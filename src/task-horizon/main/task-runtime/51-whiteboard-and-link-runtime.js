@@ -63,6 +63,30 @@
                 });
                 WhiteboardStore.scheduleSave();
             }
+            let wbLayoutDirty = false;
+            const pos0 = (WhiteboardStore.data?.nodePos && typeof WhiteboardStore.data.nodePos === 'object' && !Array.isArray(WhiteboardStore.data.nodePos))
+                ? { ...WhiteboardStore.data.nodePos }
+                : {};
+            ids.forEach((id) => {
+                if (id in pos0) {
+                    delete pos0[id];
+                    wbLayoutDirty = true;
+                }
+            });
+            if (wbLayoutDirty) WhiteboardStore.data.nodePos = pos0;
+            const placed0 = (WhiteboardStore.data?.placedTaskIds && typeof WhiteboardStore.data.placedTaskIds === 'object' && !Array.isArray(WhiteboardStore.data.placedTaskIds))
+                ? { ...WhiteboardStore.data.placedTaskIds }
+                : {};
+            ids.forEach((id) => {
+                if (id in placed0) {
+                    delete placed0[id];
+                    wbLayoutDirty = true;
+                }
+            });
+            if (wbLayoutDirty) {
+                WhiteboardStore.data.placedTaskIds = placed0;
+                WhiteboardStore.scheduleSave();
+            }
         } catch (e) {}
         try {
             const pos0 = __tmGetWhiteboardNodePosMap();
@@ -152,7 +176,10 @@
                     dirty = true;
                 }
             });
-            if (dirty) SettingsStore.data.whiteboardDetachedChildren = detached;
+            if (dirty) {
+                SettingsStore.data.whiteboardDetachedChildren = detached;
+                try { WhiteboardStore?.syncFromSettings?.(SettingsStore.data, 'cleanup-stale-detached'); } catch (e) {}
+            }
         } catch (e) {}
         try {
             if (staleSet.has(String(state.whiteboardSelectedTaskId || '').trim())) state.whiteboardSelectedTaskId = '';
@@ -200,32 +227,36 @@
 
     function __tmGetTaskLinkArrayCacheKey(list) {
         const source = Array.isArray(list) ? list : [];
-        const len = source.length;
-        if (!len) return '0';
-        const first = source[0] || {};
-        const last = source[len - 1] || {};
-        return [
-            len,
-            String(first.id || first.from || '').trim(),
-            String(first.to || '').trim(),
-            String(last.id || last.from || '').trim(),
-            String(last.to || '').trim(),
-        ].join('|');
+        if (!source.length) return '[]';
+        try {
+            return JSON.stringify(source.map((item) => ({
+                id: String(item?.id || '').trim(),
+                from: String(item?.from || '').trim(),
+                to: String(item?.to || '').trim(),
+                docId: String(item?.docId || '').trim(),
+                createdAt: String(item?.createdAt || '').trim(),
+            })));
+        } catch (e) {
+            return String(source.length);
+        }
     }
 
     function __tmGetManualTaskLinksRuntime() {
         const whiteboardLoaded = !!WhiteboardStore.loaded;
-        const srcA = Array.isArray(SettingsStore.data.whiteboardLinks) ? SettingsStore.data.whiteboardLinks : [];
+        let srcA = Array.isArray(SettingsStore.data.whiteboardLinks) ? SettingsStore.data.whiteboardLinks : [];
         let srcB = Array.isArray(WhiteboardStore.data?.links) ? WhiteboardStore.data.links : [];
-        if (whiteboardLoaded && srcA.length > 0 && srcB.length === 0) {
+        let settingsKey = __tmGetTaskLinkArrayCacheKey(srcA);
+        let whiteboardKey = __tmGetTaskLinkArrayCacheKey(srcB);
+        if (whiteboardLoaded && settingsKey !== whiteboardKey) {
             try {
-                WhiteboardStore.data.links = srcA.slice();
-                WhiteboardStore.scheduleSave();
+                SettingsStore.data.whiteboardLinks = srcB.slice();
+                SettingsStore.syncToLocal();
+                srcA = Array.isArray(SettingsStore.data.whiteboardLinks) ? SettingsStore.data.whiteboardLinks : [];
+                settingsKey = __tmGetTaskLinkArrayCacheKey(srcA);
                 srcB = Array.isArray(WhiteboardStore.data?.links) ? WhiteboardStore.data.links : srcB;
+                whiteboardKey = __tmGetTaskLinkArrayCacheKey(srcB);
             } catch (e) {}
         }
-        const settingsKey = __tmGetTaskLinkArrayCacheKey(srcA);
-        const whiteboardKey = __tmGetTaskLinkArrayCacheKey(srcB);
         if (__tmManualTaskLinksRuntimeCache.settingsRef === srcA
             && __tmManualTaskLinksRuntimeCache.settingsKey === settingsKey
             && __tmManualTaskLinksRuntimeCache.whiteboardRef === srcB
@@ -235,7 +266,7 @@
             && __tmManualTaskLinksRuntimeCache.byDoc instanceof Map) {
             return __tmManualTaskLinksRuntimeCache;
         }
-        const src = [...srcA, ...srcB];
+        const src = whiteboardLoaded ? srcB : srcA;
         const out = [];
         const seen = new Set();
         const byDoc = new Map();
@@ -330,6 +361,439 @@
         return { incoming, outgoing };
     }
 
+    function __tmGetWhiteboardOutlineTaskLike(taskId, docId = '') {
+        const id = String(taskId || '').trim();
+        const didHint = String(docId || '').trim();
+        if (!id) return null;
+        const live = state.flatTasks?.[id];
+        if (live && typeof live === 'object') {
+            const liveDocId = String(live.root_id || live.docId || __tmGetTaskDocIdById(id) || '').trim();
+            if (didHint && liveDocId && liveDocId !== didHint) return null;
+            return { ...live, id, root_id: liveDocId || didHint, docId: liveDocId || didHint };
+        }
+        const snap = __tmGetWhiteboardCardSnapshot(id);
+        if (snap && typeof snap === 'object') {
+            const snapDocId = String(snap.docId || '').trim();
+            if (didHint && snapDocId && snapDocId !== didHint) return null;
+            const content = String(snap.content || snap.raw_content || snap.markdown || '').trim();
+            return {
+                id,
+                root_id: snapDocId || didHint,
+                docId: snapDocId || didHint,
+                content,
+                raw_content: content,
+                markdown: String(snap.markdown || content || '').trim(),
+                parentTaskId: String(snap.parentTaskId || '').trim(),
+                done: !!snap.done,
+                __tmWhiteboardSnapshot: true,
+            };
+        }
+        return null;
+    }
+
+    function __tmGetWhiteboardOutlineTaskTitle(taskLike, taskId = '') {
+        const item = (taskLike && typeof taskLike === 'object') ? taskLike : {};
+        const stripTaskSyntax = (input) => String(input || '')
+            .replace(/^[\s>*]*(?:(?:[-*+]|\d+[.)])\s*)?\[[^\]]?\]\s*/, '')
+            .replace(/\r?\n+/g, ' ')
+            .replace(/\s{2,}/g, ' ')
+            .trim();
+        const candidates = [];
+        try {
+            const parsed = API?.parseTaskStatus?.(String(item.markdown || ''));
+            if (parsed?.content) candidates.push(parsed.content);
+        } catch (e) {}
+        candidates.push(item.content, item.raw_content, item.markdown);
+        for (const value of candidates) {
+            const title = stripTaskSyntax(value);
+            if (title) return title;
+        }
+        const id = String(taskId || item.id || '').trim();
+        return id ? `任务 ${id.slice(-6)}` : '任务';
+    }
+
+    function __tmIsWhiteboardOutlineTaskDone(taskLike) {
+        const item = (taskLike && typeof taskLike === 'object') ? taskLike : null;
+        if (!item) return false;
+        try {
+            if (typeof __tmIsTaskDoneEffective === 'function') return !!__tmIsTaskDoneEffective(item);
+        } catch (e) {}
+        return item.done === true;
+    }
+
+    function __tmCollectWhiteboardOutlineReachable(startId, adjacency, options = {}) {
+        const start = String(startId || '').trim();
+        const graph = adjacency instanceof Map ? adjacency : new Map();
+        const opts = (options && typeof options === 'object') ? options : {};
+        const maxNodes = Math.max(1, Number(opts.maxNodes) || 48);
+        const seen = new Set();
+        const depth = new Map();
+        const queue = start ? [start] : [];
+        if (start) depth.set(start, 0);
+        let truncated = false;
+        while (queue.length) {
+            const id = String(queue.shift() || '').trim();
+            if (!id || seen.has(id)) continue;
+            if (seen.size >= maxNodes) {
+                truncated = true;
+                break;
+            }
+            seen.add(id);
+            const nextDepth = (Number(depth.get(id)) || 0) + 1;
+            (graph.get(id) || []).forEach((nextId0) => {
+                const nextId = String(nextId0 || '').trim();
+                if (!nextId || seen.has(nextId)) return;
+                if (!depth.has(nextId)) depth.set(nextId, nextDepth);
+                queue.push(nextId);
+            });
+        }
+        return { ids: seen, depth, truncated };
+    }
+
+    function __tmCollectWhiteboardOutlineConnectedComponent(startId, outAdjacency, reverseAdjacency, options = {}) {
+        const start = String(startId || '').trim();
+        const outGraph = outAdjacency instanceof Map ? outAdjacency : new Map();
+        const reverseGraph = reverseAdjacency instanceof Map ? reverseAdjacency : new Map();
+        const opts = (options && typeof options === 'object') ? options : {};
+        const requestedMaxNodes = Number(opts.maxNodes);
+        const maxNodes = Number.isFinite(requestedMaxNodes) && requestedMaxNodes > 0
+            ? Math.max(1, Math.round(requestedMaxNodes))
+            : Infinity;
+        const seen = new Set();
+        const depth = new Map();
+        const queue = start ? [start] : [];
+        if (start) depth.set(start, 0);
+        let truncated = false;
+        while (queue.length) {
+            const id = String(queue.shift() || '').trim();
+            if (!id || seen.has(id)) continue;
+            if (seen.size >= maxNodes) {
+                truncated = true;
+                break;
+            }
+            seen.add(id);
+            const nextDepth = (Number(depth.get(id)) || 0) + 1;
+            const neighborSeen = new Set();
+            [...(reverseGraph.get(id) || []), ...(outGraph.get(id) || [])].forEach((nextId0) => {
+                const nextId = String(nextId0 || '').trim();
+                if (!nextId || seen.has(nextId) || neighborSeen.has(nextId)) return;
+                neighborSeen.add(nextId);
+                if (!depth.has(nextId)) depth.set(nextId, nextDepth);
+                queue.push(nextId);
+            });
+        }
+        return { ids: seen, depth, truncated };
+    }
+
+    function __tmWhiteboardOutlinePointsToRoundedPath(pts, radius = 8) {
+        if (!Array.isArray(pts) || pts.length < 2) return '';
+        const fmt = (n) => Number(n || 0).toFixed(2);
+        if (pts.length === 2) return `M ${fmt(pts[0].x)} ${fmt(pts[0].y)} L ${fmt(pts[1].x)} ${fmt(pts[1].y)}`;
+        const r0 = Math.max(0, Number(radius) || 0);
+        let d = `M ${fmt(pts[0].x)} ${fmt(pts[0].y)}`;
+        for (let i = 1; i < pts.length - 1; i += 1) {
+            const p0 = pts[i - 1];
+            const p1 = pts[i];
+            const p2 = pts[i + 1];
+            const v1x = Number(p1.x) - Number(p0.x);
+            const v1y = Number(p1.y) - Number(p0.y);
+            const v2x = Number(p2.x) - Number(p1.x);
+            const v2y = Number(p2.y) - Number(p1.y);
+            const l1 = Math.hypot(v1x, v1y);
+            const l2 = Math.hypot(v2x, v2y);
+            if (!(l1 > 0) || !(l2 > 0) || r0 <= 0) {
+                d += ` L ${fmt(p1.x)} ${fmt(p1.y)}`;
+                continue;
+            }
+            const r = Math.min(r0, l1 / 2, l2 / 2);
+            const inX = Number(p1.x) - (v1x / l1) * r;
+            const inY = Number(p1.y) - (v1y / l1) * r;
+            const outX = Number(p1.x) + (v2x / l2) * r;
+            const outY = Number(p1.y) + (v2y / l2) * r;
+            d += ` L ${fmt(inX)} ${fmt(inY)} Q ${fmt(p1.x)} ${fmt(p1.y)} ${fmt(outX)} ${fmt(outY)}`;
+        }
+        const last = pts[pts.length - 1];
+        return `${d} L ${fmt(last.x)} ${fmt(last.y)}`;
+    }
+
+    function __tmBuildWhiteboardOutlineRoundedPath(fromRect, toRect) {
+        const from = (fromRect && typeof fromRect === 'object') ? fromRect : null;
+        const to = (toRect && typeof toRect === 'object') ? toRect : null;
+        if (!from || !to) return '';
+        const fromX = Number(from.x) + Number(from.w) / 2;
+        const fromY = Number(from.y) + Number(from.h);
+        const toX = Number(to.x) + Number(to.w) / 2;
+        const toY = Number(to.y);
+        if (![fromX, fromY, toX, toY].every(Number.isFinite)) return '';
+        if (Math.abs(fromX - toX) < 4) {
+            return __tmWhiteboardOutlinePointsToRoundedPath([{ x: fromX, y: fromY }, { x: toX, y: toY }], 8);
+        }
+        const midY = (fromY + toY) / 2;
+        return __tmWhiteboardOutlinePointsToRoundedPath([
+            { x: fromX, y: fromY },
+            { x: fromX, y: midY },
+            { x: toX, y: midY },
+            { x: toX, y: toY },
+        ], 8);
+    }
+
+    function __tmBuildWhiteboardTaskOutlineModel(taskId, options = {}) {
+        const id = String(taskId || '').trim();
+        if (!id) return null;
+        try {
+            if (typeof __tmIsOptimisticTempTaskId === 'function' && __tmIsOptimisticTempTaskId(id)) return null;
+        } catch (e) {}
+        const location = typeof __tmResolveWhiteboardTaskLocation === 'function'
+            ? __tmResolveWhiteboardTaskLocation(id)
+            : null;
+        if (!location) return null;
+        const docId = String(location.docId || '').trim();
+        if (!docId) return null;
+        const opts = (options && typeof options === 'object') ? options : {};
+        const requestedMaxNodes = Number(opts.maxNodes);
+        const maxNodes = Number.isFinite(requestedMaxNodes) && requestedMaxNodes > 0
+            ? Math.max(4, Math.round(requestedMaxNodes))
+            : Infinity;
+        const allLinks = __tmGetAllTaskLinks({ docId, includeAuto: false });
+
+        const taskById = new Map();
+        const addTask = (tid) => {
+            const key = String(tid || '').trim();
+            if (!key) return null;
+            if (taskById.has(key)) return taskById.get(key);
+            const taskLike = __tmGetWhiteboardOutlineTaskLike(key, docId);
+            if (taskLike) taskById.set(key, taskLike);
+            return taskLike;
+        };
+        const currentTaskLike = addTask(id);
+        if (!currentTaskLike) return null;
+        const buildSingleNodeModel = () => {
+            const padX = Math.max(6, Math.min(24, Number(opts.padX) || 10));
+            const padY = Math.max(5, Math.min(18, Number(opts.padY) || 7));
+            const availableWidth = Math.max(0, Math.round(Number(opts.availableWidth) || 0));
+            const requestedNodeW = Number(opts.nodeWidth);
+            const fitNodeW = availableWidth > 0 ? Math.max(164, availableWidth - padX * 2 - 22) : 0;
+            const nodeW = Math.max(144, Math.min(460, Number.isFinite(requestedNodeW) ? requestedNodeW : (fitNodeW || 220)));
+            const nodeH = Math.max(26, Math.min(40, Number(opts.nodeHeight) || 27));
+            const contentW = Math.max(nodeW, availableWidth > 0 ? availableWidth - padX * 2 : 0);
+            const width = Math.ceil(contentW + padX * 2);
+            const height = Math.ceil(Math.max(80, nodeH + padY * 2));
+            const node = {
+                id,
+                docId,
+                title: __tmGetWhiteboardOutlineTaskTitle(currentTaskLike, id),
+                done: __tmIsWhiteboardOutlineTaskDone(currentTaskLike),
+                current: true,
+                next: false,
+                snapshot: currentTaskLike?.__tmWhiteboardSnapshot === true,
+                x: padX + (contentW - nodeW) / 2,
+                y: (height - nodeH) / 2,
+                w: nodeW,
+                h: nodeH,
+            };
+            return {
+                taskId: id,
+                docId,
+                location,
+                width,
+                height,
+                nodeWidth: nodeW,
+                nodeHeight: nodeH,
+                nodes: [node],
+                edges: [],
+                stats: { total: 1, done: node.done ? 1 : 0, links: 0 },
+                singleSequence: true,
+                truncated: false,
+            };
+        };
+        const links = [];
+        const out = new Map();
+        const reverse = new Map();
+        const linkOrder = new Map();
+        allLinks.forEach((link, index) => {
+            const from = String(link?.from || '').trim();
+            const to = String(link?.to || '').trim();
+            if (!from || !to || from === to) return;
+            if (!addTask(from) || !addTask(to)) return;
+            const normalized = {
+                id: String(link?.id || `outline_${docId}_${from}_${to}_${index}`).trim(),
+                from,
+                to,
+                docId,
+            };
+            links.push(normalized);
+            if (!out.has(from)) out.set(from, []);
+            if (!reverse.has(to)) reverse.set(to, []);
+            out.get(from).push(to);
+            reverse.get(to).push(from);
+            if (!linkOrder.has(from)) linkOrder.set(from, index);
+            if (!linkOrder.has(to)) linkOrder.set(to, index + 0.25);
+        });
+        if (!links.length || !taskById.has(id)) return buildSingleNodeModel();
+
+        const orderById = new Map();
+        (Array.isArray(state.filteredTasks) ? state.filteredTasks : []).forEach((task, index) => {
+            const tid = String(task?.id || '').trim();
+            if (tid && !orderById.has(tid)) orderById.set(tid, index);
+        });
+        const taskOrder = (tid) => {
+            const key = String(tid || '').trim();
+            if (orderById.has(key)) return Number(orderById.get(key));
+            if (linkOrder.has(key)) return 100000 + Number(linkOrder.get(key));
+            const taskLike = taskById.get(key) || __tmGetWhiteboardOutlineTaskLike(key, docId);
+            const created = __tmTaskCreatedOrderValue(taskLike);
+            return Number.isFinite(created) ? 200000 + created : 999999999;
+        };
+        const sortIds = (ids) => ids.sort((a, b) => {
+            const av = taskOrder(a);
+            const bv = taskOrder(b);
+            if (av !== bv) return av - bv;
+            return String(a || '').localeCompare(String(b || ''));
+        });
+        out.forEach((list) => sortIds(list));
+        reverse.forEach((list) => sortIds(list));
+
+        const component = __tmCollectWhiteboardOutlineConnectedComponent(id, out, reverse, { maxNodes });
+        const nodeIdSet = new Set(component.ids);
+        let truncated = !!component.truncated;
+        if (nodeIdSet.size > maxNodes) {
+            const ranked = Array.from(nodeIdSet).sort((a, b) => {
+                if (a === id) return -1;
+                if (b === id) return 1;
+                const ad = Number(component.depth.get(a) ?? 9999);
+                const bd = Number(component.depth.get(b) ?? 9999);
+                if (ad !== bd) return ad - bd;
+                return taskOrder(a) - taskOrder(b);
+            });
+            nodeIdSet.clear();
+            ranked.slice(0, maxNodes).forEach((tid) => nodeIdSet.add(tid));
+            nodeIdSet.add(id);
+            truncated = true;
+        }
+
+        const relevantLinks = links.filter((link) => nodeIdSet.has(link.from) && nodeIdSet.has(link.to));
+        if (!relevantLinks.length) return buildSingleNodeModel();
+        const nodeIds = sortIds(Array.from(nodeIdSet).filter((tid) => taskById.has(tid)));
+        if (!nodeIds.includes(id)) return null;
+
+        const relevantOut = new Map(nodeIds.map((tid) => [tid, []]));
+        const indegree = new Map(nodeIds.map((tid) => [tid, 0]));
+        relevantLinks.forEach((link) => {
+            if (!relevantOut.has(link.from)) relevantOut.set(link.from, []);
+            relevantOut.get(link.from).push(link.to);
+            indegree.set(link.to, (indegree.get(link.to) || 0) + 1);
+        });
+        relevantOut.forEach((list) => sortIds(list));
+
+        const level = new Map();
+        const indegreeWork = new Map(indegree);
+        const roots = sortIds(nodeIds.filter((tid) => (indegreeWork.get(tid) || 0) === 0));
+        const queue = roots.length ? roots.slice() : [id];
+        queue.forEach((tid) => level.set(tid, 0));
+        const processed = new Set();
+        while (queue.length) {
+            const cur = String(queue.shift() || '').trim();
+            if (!cur || processed.has(cur)) continue;
+            processed.add(cur);
+            const nextLevel = (Number(level.get(cur)) || 0) + 1;
+            (relevantOut.get(cur) || []).forEach((to) => {
+                level.set(to, Math.max(Number(level.get(to) || 0), nextLevel));
+                const n = (Number(indegreeWork.get(to)) || 0) - 1;
+                indegreeWork.set(to, n);
+                if (n <= 0 && !processed.has(to) && !queue.includes(to)) {
+                    queue.push(to);
+                    sortIds(queue);
+                }
+            });
+        }
+        nodeIds.filter((tid) => !level.has(tid)).forEach((tid) => {
+            const incoming = relevantLinks.filter((link) => link.to === tid).map((link) => level.get(link.from)).filter((x) => Number.isFinite(Number(x)));
+            const fallback = incoming.length ? (Math.max(...incoming.map(Number)) + 1) : (Number(level.get(id)) || 0);
+            level.set(tid, fallback);
+            truncated = true;
+        });
+        const minLevel = Math.min(...Array.from(level.values()).map((x) => Number(x) || 0));
+        if (Number.isFinite(minLevel) && minLevel !== 0) {
+            level.forEach((value, key) => level.set(key, (Number(value) || 0) - minLevel));
+        }
+
+        const padX = Math.max(6, Math.min(24, Number(opts.padX) || 10));
+        const padY = Math.max(5, Math.min(18, Number(opts.padY) || 7));
+        const layers = new Map();
+        nodeIds.forEach((tid) => {
+            const lv = Math.max(0, Math.round(Number(level.get(tid)) || 0));
+            if (!layers.has(lv)) layers.set(lv, []);
+            layers.get(lv).push(tid);
+        });
+        layers.forEach((list) => sortIds(list));
+        const layerEntries = Array.from(layers.entries()).sort((a, b) => a[0] - b[0]);
+        const maxLayerCount = Math.max(1, ...layerEntries.map(([, list]) => list.length));
+        const singleSequence = maxLayerCount <= 1 && relevantLinks.length === Math.max(0, nodeIds.length - 1);
+        const availableWidth = Math.max(0, Math.round(Number(opts.availableWidth) || 0));
+        const requestedNodeW = Number(opts.nodeWidth);
+        const singleFitNodeW = availableWidth > 0 ? Math.max(164, availableWidth - padX * 2 - 22) : 0;
+        const wideNodeW = Math.max(144, Math.min(460, Number.isFinite(requestedNodeW) ? requestedNodeW : (singleFitNodeW || 240)));
+        const compactNodeW = Math.max(96, Math.min(180, Number.isFinite(requestedNodeW) ? requestedNodeW : 144));
+        const layerNodeWidth = (list) => (Array.isArray(list) && list.length > 1 ? compactNodeW : wideNodeW);
+        const nodeH = Math.max(26, Math.min(40, Number(opts.nodeHeight) || 27));
+        const colGap = Math.max(10, Math.min(40, Number(opts.colGap) || 16));
+        const rowGap = Math.max(8, Math.min(44, Number(opts.rowGap) || 14));
+        const layerWidths = layerEntries.map(([, list]) => {
+            const rowNodeW = layerNodeWidth(list);
+            return list.length * rowNodeW + Math.max(0, list.length - 1) * colGap;
+        });
+        const singleAvailableContentW = singleSequence && availableWidth > 0 ? Math.max(wideNodeW, availableWidth - padX * 2) : 0;
+        const contentW = Math.max(wideNodeW, ...layerWidths, singleAvailableContentW);
+        const width = Math.ceil(contentW + padX * 2);
+        const height = Math.ceil(layerEntries.length * nodeH + Math.max(0, layerEntries.length - 1) * rowGap + padY * 2);
+        const nodeModels = [];
+        const nodeRectById = new Map();
+        layerEntries.forEach(([, list], rowIndex) => {
+            const rowNodeW = layerNodeWidth(list);
+            const rowW = list.length * rowNodeW + Math.max(0, list.length - 1) * colGap;
+            const startX = padX + (contentW - rowW) / 2;
+            const y = padY + rowIndex * (nodeH + rowGap);
+            list.forEach((tid, colIndex) => {
+                const taskLike = taskById.get(tid);
+                const x = startX + colIndex * (rowNodeW + colGap);
+                const rect = { x, y, w: rowNodeW, h: nodeH };
+                nodeRectById.set(tid, rect);
+                nodeModels.push({
+                    id: tid,
+                    docId,
+                    title: __tmGetWhiteboardOutlineTaskTitle(taskLike, tid),
+                    done: __tmIsWhiteboardOutlineTaskDone(taskLike),
+                    current: tid === id,
+                    next: (relevantLinks || []).some((link) => link.from === id && link.to === tid),
+                    snapshot: taskLike?.__tmWhiteboardSnapshot === true,
+                    ...rect,
+                });
+            });
+        });
+        const edgeModels = relevantLinks.map((link) => {
+            const fromRect = nodeRectById.get(link.from);
+            const toRect = nodeRectById.get(link.to);
+            const d = __tmBuildWhiteboardOutlineRoundedPath(fromRect, toRect);
+            return d ? { ...link, d } : null;
+        }).filter(Boolean);
+        const doneCount = nodeModels.filter((node) => node.done).length;
+        return {
+            taskId: id,
+            docId,
+            location,
+            width,
+            height,
+            nodeWidth: wideNodeW,
+            compactNodeWidth: compactNodeW,
+            nodeHeight: nodeH,
+            nodes: nodeModels,
+            edges: edgeModels,
+            stats: { total: nodeModels.length, done: doneCount, links: edgeModels.length },
+            singleSequence,
+            truncated,
+        };
+    }
+
     function __tmGetDetachedChildrenMap() {
         const map0 = SettingsStore.data.whiteboardDetachedChildren;
         if (!map0 || typeof map0 !== 'object' || Array.isArray(map0)) return {};
@@ -360,6 +824,7 @@
         });
         if (changed) {
             SettingsStore.data.whiteboardDetachedChildren = next;
+            try { WhiteboardStore?.syncFromSettings?.(SettingsStore.data, 'normalize-detached-children'); } catch (e) {}
             try { SettingsStore.syncToLocal(); } catch (e) {}
         }
         return changed ? next : map0;
@@ -396,6 +861,12 @@
             next[id] = { detached: true, manual: true, updatedAt: String(Date.now()), parentTaskId: pid };
         } else delete next[id];
         SettingsStore.data.whiteboardDetachedChildren = next;
+        if (WhiteboardStore.loaded) {
+            try {
+                WhiteboardStore.data.detachedChildren = { ...next };
+                WhiteboardStore.scheduleSave();
+            } catch (e) {}
+        }
         try { SettingsStore.syncToLocal(); } catch (e) {}
     }
 
@@ -529,6 +1000,12 @@
         if (ids.length > 0) next[gid] = ids;
         else delete next[gid];
         SettingsStore.data.whiteboardAllTabsDocOrderByGroup = next;
+        if (WhiteboardStore.loaded) {
+            try {
+                WhiteboardStore.data.allTabsDocOrderByGroup = { ...next };
+                WhiteboardStore.scheduleSave();
+            } catch (e) {}
+        }
         try { SettingsStore.syncToLocal(); } catch (e) {}
         if (o.persist) {
             try { SettingsStore.save(); } catch (e) {}
@@ -607,6 +1084,16 @@
             : !!(prev && typeof prev === 'object' && prev.manual === true);
         next[id] = { docId: did, x: Math.round(xx), y: Math.round(yy), manual, updatedAt: String(Date.now()) };
         SettingsStore.data.whiteboardNodePos = next;
+        if (WhiteboardStore.loaded) {
+            try {
+                const pos = (WhiteboardStore.data?.nodePos && typeof WhiteboardStore.data.nodePos === 'object' && !Array.isArray(WhiteboardStore.data.nodePos))
+                    ? { ...WhiteboardStore.data.nodePos }
+                    : {};
+                pos[id] = next[id];
+                WhiteboardStore.data.nodePos = pos;
+                WhiteboardStore.scheduleSave();
+            } catch (e) {}
+        }
         try { SettingsStore.syncToLocal(); } catch (e) {}
         if (o.persist) {
             try { SettingsStore.save(); } catch (e) {}
@@ -633,10 +1120,118 @@
         if (placed) next[id] = true;
         else delete next[id];
         SettingsStore.data.whiteboardPlacedTaskIds = next;
+        if (WhiteboardStore.loaded) {
+            try {
+                const placedMap = (WhiteboardStore.data?.placedTaskIds && typeof WhiteboardStore.data.placedTaskIds === 'object' && !Array.isArray(WhiteboardStore.data.placedTaskIds))
+                    ? { ...WhiteboardStore.data.placedTaskIds }
+                    : {};
+                if (placed) placedMap[id] = true;
+                else delete placedMap[id];
+                WhiteboardStore.data.placedTaskIds = placedMap;
+                WhiteboardStore.scheduleSave();
+            } catch (e) {}
+        }
         try { SettingsStore.syncToLocal(); } catch (e) {}
         if (o.persist) {
             try { SettingsStore.save(); } catch (e) {}
         }
+    }
+
+    function __tmResolveWhiteboardTaskLocation(taskId) {
+        const id = String(taskId || '').trim();
+        if (!id) return null;
+        const task = state.flatTasks?.[id] || null;
+        const snapshot = __tmGetWhiteboardCardSnapshot(id);
+        if (!task && !snapshot) return null;
+        const docId = String(task?.root_id || task?.docId || __tmGetTaskDocIdById(id) || snapshot?.docId || '').trim();
+        if (!docId) return null;
+        const placedMap = __tmGetWhiteboardPlacedTaskMap();
+        const showDoneTasks = !!SettingsStore.data.whiteboardShowDone;
+        const filteredVisibleIds = new Set();
+        (Array.isArray(state.filteredTasks) ? state.filteredTasks : []).forEach((item) => {
+            const tid = String(item?.id || '').trim();
+            if (!tid) return;
+            const did = String(item?.root_id || item?.docId || __tmGetTaskDocIdById(tid) || '').trim();
+            if (did !== docId) return;
+            if (!showDoneTasks && !!item?.done) return;
+            filteredVisibleIds.add(tid);
+        });
+        const getTaskLike = (tid) => {
+            const key = String(tid || '').trim();
+            if (!key) return null;
+            const live = state.flatTasks?.[key];
+            if (live && typeof live === 'object') return live;
+            const snap = __tmGetWhiteboardCardSnapshot(key);
+            if (!snap || typeof snap !== 'object') return null;
+            return {
+                id: key,
+                root_id: String(snap.docId || '').trim(),
+                docId: String(snap.docId || '').trim(),
+                parentTaskId: String(snap.parentTaskId || '').trim(),
+                done: !!snap.done,
+            };
+        };
+        const isWhiteboardTaskVisible = (tid) => {
+            const key = String(tid || '').trim();
+            if (!key) return false;
+            const item = getTaskLike(key);
+            if (!item) return false;
+            const did = String(item?.root_id || item?.docId || __tmGetTaskDocIdById(key) || '').trim();
+            if (did !== docId) return false;
+            if (placedMap[key]) return true;
+            if (!showDoneTasks && !!item?.done) return false;
+            return filteredVisibleIds.has(key);
+        };
+        const path = [id];
+        let cur = id;
+        const seen = new Set();
+        while (cur && !seen.has(cur)) {
+            seen.add(cur);
+            const parentId = __tmResolveWhiteboardTaskParentId(cur);
+            if (!parentId) break;
+            const parentDocId = String(__tmGetTaskDocIdById(parentId) || __tmGetWhiteboardCardSnapshot(parentId)?.docId || '').trim();
+            if (parentDocId && parentDocId !== docId) break;
+            if (__tmIsWhiteboardChildDetached(cur)) break;
+            path.push(parentId);
+            cur = parentId;
+        }
+        let rootPlacedIndex = -1;
+        path.forEach((tid, index) => {
+            const key = String(tid || '').trim();
+            if (placedMap[key] && isWhiteboardTaskVisible(key)) rootPlacedIndex = index;
+        });
+        if (rootPlacedIndex < 0) return null;
+        const rootPlacedId = String(path[rootPlacedIndex] || '').trim();
+        if (rootPlacedId === id) return { taskId: id, docId, targetTaskId: id };
+        const collapsed = __tmKanbanGetCollapsedSet();
+        const renderPath = path.slice(0, rootPlacedIndex + 1).reverse();
+        let visibleTargetId = rootPlacedId;
+        let inheritedHideCompleted = false;
+        for (let i = 1; i < renderPath.length; i += 1) {
+            const parentId = String(renderPath[i - 1] || '').trim();
+            const childId = String(renderPath[i] || '').trim();
+            if (!parentId || !childId) return null;
+            if (collapsed.has(parentId)) return { taskId: id, docId, targetTaskId: parentId };
+            const parentTask = getTaskLike(parentId);
+            const childTask = getTaskLike(childId);
+            if (!parentTask || !childTask || !isWhiteboardTaskVisible(childId)) {
+                return { taskId: id, docId, targetTaskId: visibleTargetId };
+            }
+            let keepChild = true;
+            try {
+                keepChild = __tmShouldKeepChildTaskVisible(parentTask, childTask, inheritedHideCompleted);
+            } catch (e) {
+                keepChild = !(inheritedHideCompleted || state.showCompletedTasks !== true) || !childTask?.done;
+            }
+            if (!keepChild) return { taskId: id, docId, targetTaskId: visibleTargetId };
+            visibleTargetId = childId;
+            try {
+                inheritedHideCompleted = __tmResolveHideCompletedDescendantsFlag(parentTask, inheritedHideCompleted);
+            } catch (e) {
+                inheritedHideCompleted = inheritedHideCompleted || state.showCompletedTasks !== true;
+            }
+        }
+        return { taskId: id, docId, targetTaskId: id };
     }
 
     function __tmRemapWhiteboardTaskId(oldId, newId, opts = {}) {
@@ -705,6 +1300,7 @@
             }
         } catch (e) {}
         if (changed) {
+            try { WhiteboardStore?.syncFromSettings?.(SettingsStore.data, 'remap-task-id'); } catch (e) {}
             try { SettingsStore.syncToLocal(); } catch (e) {}
             if (o.persist !== false) {
                 try { SettingsStore.save(); } catch (e) {}
@@ -741,6 +1337,12 @@
         const next = { ...__tmGetWhiteboardDocFrameSizeMap() };
         next[id] = { w: Math.max(520, Math.round(ww)), h: Math.max(220, Math.round(hh)), updatedAt: String(Date.now()) };
         SettingsStore.data.whiteboardDocFrameSize = next;
+        if (WhiteboardStore.loaded) {
+            try {
+                WhiteboardStore.data.docFrameSize = { ...next };
+                WhiteboardStore.scheduleSave();
+            } catch (e) {}
+        }
         try { SettingsStore.syncToLocal(); } catch (e) {}
         if (o.persist) {
             try { SettingsStore.save(); } catch (e) {}
@@ -1090,6 +1692,27 @@
             const inlineAnchor = __tmInlineEditorState?.anchorEl;
             if (inlineAnchor instanceof Element && document.body.contains(inlineAnchor)) reasons.push('global-inline-editor-open');
         } catch (e) {}
+        try {
+            const quickbarRemarkEditor = document.querySelector('.sy-custom-props-floatbar__input-editor.is-visible.is-remark');
+            const quickbarTextarea = quickbarRemarkEditor?.querySelector?.('.sy-custom-props-floatbar__textarea');
+            if (quickbarTextarea instanceof HTMLTextAreaElement && !quickbarTextarea.disabled) {
+                reasons.push('global-quickbar-remark-active');
+                if (quickbarTextarea.dataset.dirty === 'true') reasons.push('global-quickbar-remark-dirty');
+                if (quickbarTextarea.dataset.composing === 'true') reasons.push('global-quickbar-remark-composing');
+                if (quickbarTextarea.dataset.saving === 'true') reasons.push('global-quickbar-remark-saving');
+            }
+        } catch (e) {}
+        try {
+            if (__tmCellEditorState && String(__tmCellEditorState.field || '').trim() === 'remark') {
+                const td = __tmCellEditorState.td;
+                const textarea = td?.querySelector?.('.tm-cell-editor-textarea');
+                if (textarea instanceof HTMLTextAreaElement) {
+                    reasons.push('global-table-remark-active');
+                    if (textarea.dataset.dirty === 'true') reasons.push('global-table-remark-dirty');
+                    if (textarea.dataset.composing === 'true') reasons.push('global-table-remark-composing');
+                }
+            }
+        } catch (e) {}
         return Array.from(new Set(reasons));
     }
 
@@ -1196,6 +1819,127 @@
         }
     }
 
+    function __tmIsTaskDetailRemarkDraftTarget(root, target) {
+        if (!(root instanceof Element) || !(target instanceof Element)) return false;
+        if (!root.contains(target)) return false;
+        return !!target.closest?.('[data-tm-detail=remark], [data-tm-detail-remark-shell], [data-tm-detail-remark-toolbar], [data-tm-detail-remark-toolbar-toggle], [data-tm-detail-remark-activator]');
+    }
+
+    function __tmIsTaskDetailRemarkDraftActive(rootEl) {
+        const root = rootEl instanceof Element ? rootEl : null;
+        if (!(root instanceof Element)) return false;
+        try {
+            const textarea = root.querySelector('textarea[data-tm-detail=remark]');
+            if (!(textarea instanceof HTMLTextAreaElement)) return false;
+            const shell = root.querySelector('[data-tm-detail-remark-shell]');
+            if (shell instanceof HTMLElement && shell.classList.contains('is-editing')) return true;
+            if (textarea.dataset.dirty === 'true' || textarea.dataset.composing === 'true') return true;
+            return __tmIsTaskDetailRemarkDraftTarget(root, document.activeElement);
+        } catch (e) {
+            return false;
+        }
+    }
+
+    function __tmCaptureTaskDetailRemarkDraftSnapshot(rootEl, expectedTaskId = '') {
+        const root = rootEl instanceof Element ? rootEl : null;
+        if (!(root instanceof Element)) return null;
+        try {
+            const currentId = __tmResolveTaskDetailRootTaskId(root);
+            const requestedId = String(expectedTaskId || currentId || '').trim();
+            if (requestedId && currentId && !__tmAreTaskRuntimeIdsEquivalent(currentId, requestedId)) return null;
+            const textarea = root.querySelector('textarea[data-tm-detail=remark]');
+            if (!(textarea instanceof HTMLTextAreaElement)) return null;
+            const shell = root.querySelector('[data-tm-detail-remark-shell]');
+            const toolbar = root.querySelector('[data-tm-detail-remark-toolbar]');
+            const active = document.activeElement === textarea;
+            const editing = shell instanceof HTMLElement && shell.classList.contains('is-editing');
+            const savedValue = __tmNormalizeRemarkMarkdown(textarea.dataset.savedValue || root.__tmTaskDetailTask?.remark || '');
+            const nextValue = String(textarea.value || '');
+            const dirty = __tmNormalizeRemarkMarkdown(nextValue) !== savedValue || textarea.dataset.dirty === 'true';
+            if (!editing && !dirty && !active && textarea.dataset.composing !== 'true') return null;
+            return {
+                taskId: currentId || requestedId,
+                value: nextValue,
+                savedValue,
+                editing,
+                dirty,
+                composing: textarea.dataset.composing === 'true',
+                focused: active,
+                selectionStart: active ? Number(textarea.selectionStart || 0) : 0,
+                selectionEnd: active ? Number(textarea.selectionEnd || textarea.selectionStart || 0) : 0,
+                toolbarOpen: toolbar instanceof HTMLElement && toolbar.classList.contains('is-open'),
+            };
+        } catch (e) {
+            return null;
+        }
+    }
+
+    function __tmRestoreTaskDetailRemarkDraftSnapshot(rootEl, snapshot) {
+        const root = rootEl instanceof Element ? rootEl : null;
+        if (!(root instanceof Element) || !snapshot || typeof snapshot !== 'object') return false;
+        try {
+            const taskId = String(snapshot.taskId || '').trim();
+            const currentId = __tmResolveTaskDetailRootTaskId(root);
+            if (taskId && currentId && !__tmAreTaskRuntimeIdsEquivalent(taskId, currentId)) return false;
+            const textarea = root.querySelector('textarea[data-tm-detail=remark]');
+            if (!(textarea instanceof HTMLTextAreaElement)) {
+                try { root.__tmPendingRemarkDraftSnapshot = snapshot; } catch (e) {}
+                return false;
+            }
+            const shell = root.querySelector('[data-tm-detail-remark-shell]');
+            const preview = root.querySelector('[data-tm-detail-remark-preview]');
+            const toolbar = root.querySelector('[data-tm-detail-remark-toolbar]');
+            const value = String(snapshot.value || '');
+            textarea.value = value;
+            textarea.dataset.savedValue = __tmNormalizeRemarkMarkdown(snapshot.savedValue || root.__tmTaskDetailTask?.remark || '');
+            if (snapshot.composing === true) textarea.dataset.composing = 'true';
+            else delete textarea.dataset.composing;
+            if (snapshot.dirty === true || __tmNormalizeRemarkMarkdown(value) !== __tmNormalizeRemarkMarkdown(textarea.dataset.savedValue || '')) textarea.dataset.dirty = 'true';
+            else delete textarea.dataset.dirty;
+            if (shell instanceof HTMLElement) {
+                shell.classList.toggle('is-editing', snapshot.editing === true);
+                try { shell.dataset.mode = snapshot.editing === true ? 'edit' : 'preview'; } catch (e) {}
+                try { shell.dataset.toolbarOpen = snapshot.toolbarOpen === true ? 'true' : 'false'; } catch (e) {}
+            }
+            if (toolbar instanceof HTMLElement) {
+                toolbar.classList.toggle('is-open', snapshot.toolbarOpen === true);
+                toolbar.hidden = snapshot.toolbarOpen !== true;
+            }
+            if (preview instanceof HTMLElement) preview.innerHTML = __tmRenderRemarkMarkdown(value);
+            try {
+                textarea.style.height = 'auto';
+                textarea.style.height = `${Math.max(snapshot.editing === true ? 80 : 34, Math.ceil(Number(textarea.scrollHeight) || 0))}px`;
+            } catch (e) {}
+            if (snapshot.focused === true || snapshot.editing === true) {
+                const focus = () => {
+                    try { textarea.focus({ preventScroll: true }); } catch (e) { try { textarea.focus(); } catch (e2) {} }
+                    try {
+                        const start = Math.max(0, Number(snapshot.selectionStart || 0));
+                        const end = Math.max(start, Number(snapshot.selectionEnd || snapshot.selectionStart || 0));
+                        textarea.setSelectionRange(start, end);
+                    } catch (e) {}
+                };
+                try { requestAnimationFrame(focus); } catch (e) { focus(); }
+            }
+            return true;
+        } catch (e) {
+            return false;
+        }
+    }
+
+    function __tmSyncTaskDetailRemarkTextareaSavedState(textarea, savedValue) {
+        if (!(textarea instanceof HTMLTextAreaElement)) return false;
+        const nextSaved = __tmNormalizeRemarkMarkdown(savedValue || '');
+        try { textarea.dataset.savedValue = nextSaved; } catch (e) {}
+        const currentValue = __tmNormalizeRemarkMarkdown(textarea.value || '');
+        if (currentValue === nextSaved) {
+            try { delete textarea.dataset.dirty; } catch (e) {}
+            return true;
+        }
+        try { textarea.dataset.dirty = 'true'; } catch (e) {}
+        return false;
+    }
+
     function __tmMarkTaskDetailRootClosing(rootEl, options = {}) {
         const root = rootEl instanceof Element ? rootEl : null;
         if (!(root instanceof Element)) return false;
@@ -1271,7 +2015,10 @@
             let waitMs = holdMsLeft;
             if (reasons.some((reason) => reason === 'active-popover' || reason === 'menu-open' || reason === 'inline-editor-open')) waitMs = Math.max(waitMs, 220);
             if (reasons.some((reason) => reason === 'subtask-content-active' || reason === 'subtask-content-editing' || reason === 'subtask-content-saving' || reason === 'subtask-content-composing')) waitMs = Math.max(waitMs, 220);
+            if (reasons.some((reason) => reason === 'remark-active' || reason === 'remark-dirty' || reason === 'remark-composing')) waitMs = Math.max(waitMs, 260);
             if (reasons.some((reason) => reason === 'global-popover-open' || reason === 'global-inline-editor-open')) waitMs = Math.max(waitMs, 260);
+            if (reasons.some((reason) => String(reason || '').startsWith('global-quickbar-remark-'))) waitMs = Math.max(waitMs, 320);
+            if (reasons.some((reason) => String(reason || '').startsWith('global-table-remark-'))) waitMs = Math.max(waitMs, 320);
             if (reasons.includes('global-menu-open')) waitMs = Math.max(waitMs, 220);
             if (reasons.includes('pending-save')) waitMs = Math.max(waitMs, 180);
             if (reasons.includes('closing')) waitMs = Math.max(waitMs, 120);
@@ -1890,11 +2637,12 @@ try {
                 const statusPatch = Object.prototype.hasOwnProperty.call(nextPatch, 'customStatus')
                     ? { customStatus: String(nextPatch.customStatus || '').trim() }
                     : null;
-                __tmApplyDoneOptimisticLocal(tid, doneValue, statusPatch, String(options.source || '').trim());
+                __tmApplyDoneOptimisticLocal(tid, doneValue, statusPatch, String(options.source || '').trim(), options);
                 const restPatch = { ...nextPatch };
                 delete restPatch.done;
                 if (Object.keys(restPatch).length > 0) {
                     __tmApplyAttrPatchLocally(tid, restPatch, {
+                        ...((options && typeof options === 'object') ? options : {}),
                         render: false,
                         withFilters: false,
                         source: String(options.source || 'task-local-done').trim() || 'task-local-done',
@@ -1913,12 +2661,13 @@ try {
                 if (statusId) {
                     const statusOption = __tmFindStatusOptionById(statusId);
                     const marker = __tmNormalizeCompatTaskStatusMarker(statusOption?.marker, __tmGuessStatusOptionDefaultMarker(statusOption));
-                    __tmApplyTaskStatusLocalState(tid, statusId, marker);
+                    __tmApplyTaskStatusLocalState(tid, statusId, marker, options);
                 }
                 const restPatch = { ...nextPatch };
                 delete restPatch.customStatus;
                 if (Object.keys(restPatch).length > 0) {
                     __tmApplyAttrPatchLocally(tid, restPatch, {
+                        ...((options && typeof options === 'object') ? options : {}),
                         render: false,
                         withFilters: false,
                         source: String(options.source || 'task-local-status').trim() || 'task-local-status',
@@ -1933,6 +2682,7 @@ try {
                 return true;
             }
             __tmApplyAttrPatchLocally(tid, nextPatch, {
+                ...((options && typeof options === 'object') ? options : {}),
                 render: false,
                 withFilters: false,
                 source: String(options.source || 'task-local-attr').trim() || 'task-local-attr',
@@ -1944,11 +2694,15 @@ try {
             const prevPatch = (inversePatch && typeof inversePatch === 'object') ? inversePatch : {};
             if (!tid || !Object.keys(prevPatch).length) return false;
             if (Object.prototype.hasOwnProperty.call(prevPatch, 'done')) {
-                __tmRollbackDoneOptimisticLocal(tid, prevPatch, String(options.source || '').trim());
+                __tmRollbackDoneOptimisticLocal(tid, prevPatch, String(options.source || '').trim(), options);
                 const restPatch = { ...prevPatch };
                 delete restPatch.done;
                 if (Object.keys(restPatch).length > 0) {
-                    __tmRollbackAttrPatchLocally(tid, restPatch, { render: false, withFilters: false });
+                    __tmRollbackAttrPatchLocally(tid, restPatch, {
+                        ...((options && typeof options === 'object') ? options : {}),
+                        render: false,
+                        withFilters: false,
+                    });
                 }
                 return true;
             }
@@ -1957,16 +2711,24 @@ try {
                 if (statusId) {
                     const statusOption = __tmFindStatusOptionById(statusId);
                     const marker = __tmNormalizeCompatTaskStatusMarker(statusOption?.marker, __tmGuessStatusOptionDefaultMarker(statusOption));
-                    __tmApplyTaskStatusLocalState(tid, statusId, marker);
+                    __tmApplyTaskStatusLocalState(tid, statusId, marker, options);
                 }
                 const restPatch = { ...prevPatch };
                 delete restPatch.customStatus;
                 if (Object.keys(restPatch).length > 0) {
-                    __tmRollbackAttrPatchLocally(tid, restPatch, { render: false, withFilters: false });
+                    __tmRollbackAttrPatchLocally(tid, restPatch, {
+                        ...((options && typeof options === 'object') ? options : {}),
+                        render: false,
+                        withFilters: false,
+                    });
                 }
                 return true;
             }
-            __tmRollbackAttrPatchLocally(tid, prevPatch, { render: false, withFilters: false });
+            __tmRollbackAttrPatchLocally(tid, prevPatch, {
+                ...((options && typeof options === 'object') ? options : {}),
+                render: false,
+                withFilters: false,
+            });
             return true;
         },
     };
@@ -2288,7 +3050,9 @@ return false;
             && !state.groupByTaskName
             && !state.quadrantEnabled;
         if (checklistOrListSimpleDonePatch) {
-return false;
+            const completionVisibilityMayChange = state.showCompletedTasks !== true
+                && patchKeys.some((key) => key === 'done' || key === 'customStatus');
+            if (!completionVisibilityMayChange) return false;
         }
         if (opts.forceProjectionRefresh === true) return true;
         if (__tmDoesPatchAffectProjection(taskId, patch)) return true;
@@ -2497,6 +3261,10 @@ return false;
                         previousDone: plan.previousDone === true,
                         previousStatusId: String(plan?.statusBefore?.statusId || '').trim(),
                         rewardPriorityScore: Number(plan.rewardPriorityScore) || 0,
+                        skipViewRefresh: opts.skipViewRefresh === true,
+                        skipOptimisticRefresh: opts.skipOptimisticRefresh === true || opts.skipViewRefresh === true,
+                        skipSettledRefresh: opts.skipSettledRefresh === true,
+                        refreshAncestorViews: opts.refreshAncestorViews !== false,
                     });
                 } else if (plan.statusPatch && Object.keys(plan.statusPatch).length > 0) {
                     await __tmApplyTaskStatus(taskId, String(plan.statusPatch.customStatus || '').trim(), {
@@ -4557,8 +5325,15 @@ return false;
             },
         },
         detail: {
-            patchTask(taskId) {
-                return !!__tmRefreshVisibleTaskDetailForTask(taskId);
+            patchTask(taskId, patch = {}) {
+                const nextPatch = (patch && typeof patch === 'object') ? patch : {};
+                let touched = false;
+                if (Object.prototype.hasOwnProperty.call(nextPatch, 'priority')
+                    && typeof __tmPatchVisibleTaskDetailSubtaskPriorityInPlace === 'function') {
+                    touched = !!__tmPatchVisibleTaskDetailSubtaskPriorityInPlace(taskId) || touched;
+                }
+                touched = !!__tmRefreshVisibleTaskDetailForTask(taskId) || touched;
+                return touched;
             },
         },
         timeline: {
@@ -4700,11 +5475,51 @@ return false;
                         touched = !!__tmUpdateTaskContentInDOM(node, task) || touched;
                     }
                     if (Object.prototype.hasOwnProperty.call(patch, 'done')) {
+                        if (node.classList.contains('tm-kanban-card')) node.classList.toggle('tm-kanban-card--done', !!task.done);
                         const checkbox = node.querySelector('.tm-task-checkbox');
                         if (checkbox instanceof HTMLInputElement) checkbox.checked = !!task.done;
                         const title = node.querySelector('.tm-whiteboard-stream-task-title, .tm-task-content-clickable, .tm-task-text');
                         if (title instanceof HTMLElement) title.classList.toggle('tm-task-done', !!task.done);
                         touched = true;
+                    }
+                    if (Object.prototype.hasOwnProperty.call(patch, 'done')
+                        || Object.prototype.hasOwnProperty.call(patch, 'customStatus')) {
+                        if (node.classList.contains('tm-whiteboard-node')) {
+                            let meta = node.classList.contains('tm-whiteboard-subcard')
+                                ? node.querySelector(':scope > .tm-kanban-subtask-row-main .tm-kanban-subtask-meta')
+                                : node.querySelector(':scope > .tm-kanban-card-top .tm-kanban-card-meta');
+                            const chip = meta?.querySelector?.(':scope > .tm-status-tag');
+                            const shouldRenderStatus = __tmTaskCardFieldEnabled('whiteboard', 'status') && __tmShouldRenderTaskCardStatus(task);
+                            if (!(meta instanceof HTMLElement) && shouldRenderStatus) {
+                                const text = node.classList.contains('tm-whiteboard-subcard')
+                                    ? node.querySelector(':scope > .tm-kanban-subtask-row-main .tm-kanban-subtask-text')
+                                    : node.querySelector(':scope > .tm-kanban-card-top .tm-kanban-card-text');
+                                if (text instanceof HTMLElement) {
+                                    meta = document.createElement('div');
+                                    meta.className = node.classList.contains('tm-whiteboard-subcard') ? 'tm-kanban-subtask-meta' : 'tm-kanban-card-meta';
+                                    text.appendChild(meta);
+                                }
+                            }
+                            if (chip instanceof HTMLElement && !shouldRenderStatus) {
+                                chip.remove();
+                                touched = true;
+                            } else if (meta instanceof HTMLElement && shouldRenderStatus) {
+                                const opt = __tmResolveTaskStatusDisplayOption(task, __tmGetStatusOptions(SettingsStore.data.customStatusOptions || []), {
+                                    fallbackColor: task?.done ? '#9e9e9e' : '#757575',
+                                    fallbackName: task?.done ? '完成' : '待办',
+                                });
+                                const targetChip = chip instanceof HTMLElement ? chip : document.createElement('span');
+                                if (!(chip instanceof HTMLElement)) {
+                                    targetChip.className = 'tm-status-tag';
+                                    meta.appendChild(targetChip);
+                                }
+                                targetChip.setAttribute('style', `${__tmBuildStatusChipStyle(opt.color || '#757575')};cursor:${task?.done ? 'default' : 'pointer'};`);
+                                if (task?.done) targetChip.removeAttribute('onclick');
+                                else targetChip.setAttribute('onclick', `tmWhiteboardEditStatus('${escSq(tid)}', this, event)`);
+                                targetChip.textContent = String(opt.name || opt.id || '').trim();
+                                touched = true;
+                            }
+                        }
                     }
                     if (Object.prototype.hasOwnProperty.call(patch, 'completionTime') || Object.prototype.hasOwnProperty.call(patch, 'startDate') || Object.prototype.hasOwnProperty.call(patch, 'duration') || Object.prototype.hasOwnProperty.call(patch, 'tomatoEstimateCount') || Object.prototype.hasOwnProperty.call(patch, 'tomatoCount') || Object.prototype.hasOwnProperty.call(patch, 'tomatoMinutes') || Object.prototype.hasOwnProperty.call(patch, 'tomatoHours')) {
                         touched = !!__tmUpdateWhiteboardTaskTimeInDOM(tid) || touched;
@@ -4784,7 +5599,7 @@ refreshed = checklistPatched || refreshed;
         if (viewMode === 'kanban') refreshed = !!__tmViewControllers.kanban.patchTask(tid, nextPatch) || refreshed;
         if (viewMode === 'whiteboard') refreshed = !!__tmViewControllers.whiteboard.patchTask(tid, nextPatch) || refreshed;
         if (opts.skipDetailPatch !== true) {
-            refreshedDetail = !!__tmViewControllers.detail.patchTask(tid);
+            refreshedDetail = !!__tmViewControllers.detail.patchTask(tid, nextPatch);
             refreshed = refreshedDetail || refreshed;
         }
         if (hasTaskDatePatch) {
@@ -5309,6 +6124,7 @@ previousAttachmentPaths: attachmentPreviousSnapshot.paths,
                 affectsProjection: plan.affectsProjection === true,
                 background: opts.background === true,
                 skipInteractionGate: opts.skipInteractionGate === true,
+                refreshAncestorViews: opts.refreshAncestorViews !== false,
                 skipFlush: opts.skipFlush === true,
                 attrTargetId: String(opts.attrTargetId || '').trim(),
                 mirrorTaskAttrs: opts.mirrorTaskAttrs !== false,
@@ -5554,6 +6370,9 @@ previousAttachmentPaths: attachmentPreviousSnapshot.paths,
 
     function __tmCloseCellEditor(shouldRerender) {
         const last = __tmCellEditorState;
+        if (__tmCellEditorState?.restore) {
+            try { __tmCellEditorState.restore(); } catch (e) {}
+        }
         if (__tmCellEditorState?.cleanup) {
             try { __tmCellEditorState.cleanup(); } catch (e) {}
         }
@@ -6203,7 +7022,53 @@ previousAttachmentPaths: attachmentPreviousSnapshot.paths,
             td.appendChild(input);
             try { __tmBindRemarkTextareaUndoHistory(input); } catch (e) {}
             const focusState = __tmPrimeCellTextEditorFocus(input, cleanupFns, { selection: 'end' });
-            const save = () => commitAndClose(input.value, false);
+            let closed = false;
+            const restoreDisplay = (value) => {
+                if (!(td instanceof HTMLElement)) return;
+                const text = __tmNormalizeRemarkMarkdown(value);
+                try { td.setAttribute('title', text); } catch (e) {}
+                td.innerHTML = `<span class="tm-task-remark-text">${esc(text)}</span>`;
+            };
+            const setCloseRestore = (valueGetter) => {
+                if (!__tmCellEditorState || __tmCellEditorState.td !== td) return;
+                __tmCellEditorState.restore = () => {
+                    const value = typeof valueGetter === 'function' ? valueGetter() : valueGetter;
+                    restoreDisplay(value);
+                };
+            };
+            setCloseRestore(() => input.value);
+            const save = () => {
+                if (closed) return Promise.resolve(false);
+                closed = true;
+                setCloseRestore(() => input.value);
+                return commitAndClose(input.value, false);
+            };
+            const closeWithoutSave = () => {
+                if (closed) return;
+                closed = true;
+                setCloseRestore(task.remark || '');
+                cancel();
+            };
+            const closeOnOutsidePointerDown = (e) => {
+                const target = e?.target;
+                if (target === input) return;
+                save();
+            };
+            document.addEventListener('pointerdown', closeOnOutsidePointerDown, true);
+            cleanupFns.push(() => document.removeEventListener('pointerdown', closeOnOutsidePointerDown, true));
+            document.addEventListener('mousedown', closeOnOutsidePointerDown, true);
+            cleanupFns.push(() => document.removeEventListener('mousedown', closeOnOutsidePointerDown, true));
+            input.oninput = () => {
+                try { input.dataset.dirty = 'true'; } catch (e) {}
+            };
+            input.oncompositionstart = () => {
+                try { input.dataset.composing = 'true'; } catch (e) {}
+                try { input.dataset.dirty = 'true'; } catch (e) {}
+            };
+            input.oncompositionend = () => {
+                try { delete input.dataset.composing; } catch (e) {}
+                try { input.dataset.dirty = 'true'; } catch (e) {}
+            };
             input.onblur = () => {
                 if (!focusState.isReady()) {
                     focusState.focus();
@@ -6212,7 +7077,10 @@ previousAttachmentPaths: attachmentPreviousSnapshot.paths,
                 save();
             };
             input.onkeydown = (e) => {
-                if (e.key === 'Escape') cancel();
+                if (e.key === 'Escape') {
+                    closeWithoutSave();
+                    return;
+                }
                 if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) {
                     try { e.preventDefault(); } catch (err) {}
                     save();
@@ -6372,6 +7240,14 @@ previousAttachmentPaths: attachmentPreviousSnapshot.paths,
         try {
             if (root.querySelector?.('[data-tm-detail-subtask-draft]')) {
                 reasons.push('subtask-draft-open');
+            }
+        } catch (e) {}
+        try {
+            const remarkTextarea = root.querySelector?.('textarea[data-tm-detail=remark]');
+            if (remarkTextarea instanceof HTMLTextAreaElement) {
+                if (__tmIsTaskDetailRemarkDraftActive(root)) reasons.push('remark-active');
+                if (remarkTextarea.dataset.dirty === 'true') reasons.push('remark-dirty');
+                if (remarkTextarea.dataset.composing === 'true') reasons.push('remark-composing');
             }
         } catch (e) {}
         try {
@@ -8281,6 +9157,7 @@ previousAttachmentPaths: attachmentPreviousSnapshot.paths,
                     count: Array.isArray(group.items) ? group.items.length : 0,
                     labelColor: __tmGetTimeGroupLabelColor(group),
                     durationSum: calculateGroupDuration(group.items || []),
+                    sortValue: Number(group.sortValue),
                     collapsed: !!isCollapsed,
                 });
                 if (!isCollapsed) {
@@ -8329,11 +9206,7 @@ previousAttachmentPaths: attachmentPreviousSnapshot.paths,
 
     function __tmResolveHideCompletedDescendantsFlag(taskOrId, inheritedHideCompleted = false) {
         if (inheritedHideCompleted) return true;
-        const tid = typeof taskOrId === 'string'
-            ? String(taskOrId || '').trim()
-            : String(taskOrId?.id || '').trim();
-        if (!tid) return false;
-        return !__tmShouldShowCompletedSubtasksForTask(tid);
+        return state.showCompletedTasks !== true;
     }
 
     function __tmShouldKeepChildTaskVisible(parentTask, childTask, inheritedHideCompleted = false) {
@@ -8419,7 +9292,7 @@ previousAttachmentPaths: attachmentPreviousSnapshot.paths,
         }
         if (kind === 'completionTime') {
             const icon = __tmRenderLucideIcon('calendar-check', 'tm-task-detail-core-chip__icon');
-            const text = __tmFormatTaskTimeCompact(value);
+            const text = __tmFormatTaskCardDateValueFromValue(value);
             return text ? `${icon}<span class="tm-task-detail-core-chip__text">${esc(text)}</span>` : icon;
         }
         if (kind === 'taskCompleteAt') {
@@ -8428,7 +9301,7 @@ previousAttachmentPaths: attachmentPreviousSnapshot.paths,
             return text ? `${icon}<span class="tm-task-detail-core-chip__text">${esc(text)}</span>` : icon;
         }
         const icon = __tmRenderLucideIcon('calendar-plus-2', 'tm-task-detail-core-chip__icon');
-        const text = __tmFormatTaskTimeCompact(value);
+        const text = __tmFormatTaskCardDateValueFromValue(value);
         return text ? `${icon}<span class="tm-task-detail-core-chip__text">${esc(text)}</span>` : icon;
     }
 

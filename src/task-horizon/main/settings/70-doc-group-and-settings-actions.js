@@ -1,3 +1,854 @@
+    async function __tmSaveDocTabCustomGroups(nextGroups, options = {}) {
+        SettingsStore.data.docTabCustomGroups = __tmNormalizeDocTabCustomGroups(nextGroups);
+        let activeDocTabGroupReset = false;
+        let activeDocTabGroupAffected = false;
+        try {
+            const activeGroupId = typeof __tmParseDocTabCustomGroupActiveId === 'function'
+                ? __tmParseDocTabCustomGroupActiveId(state.activeDocId)
+                : '';
+            if (activeGroupId) {
+                activeDocTabGroupAffected = true;
+                const docIds = __tmGetDocTabCustomGroupDocIdSet(activeGroupId, {
+                    currentGroupId: SettingsStore?.data?.currentGroupId || 'all',
+                    docs: state.taskTree || []
+                });
+                if (!(docIds instanceof Set) || !docIds.size) {
+                    state.activeDocId = 'all';
+                    activeDocTabGroupReset = true;
+                }
+            }
+        } catch (e) {}
+        await SettingsStore.save();
+        if (activeDocTabGroupReset || activeDocTabGroupAffected) {
+            try { applyFilters(); } catch (e) {}
+        }
+        if (state.modal && document.body.contains(state.modal)) {
+            try { render(); } catch (e) {}
+        }
+        if (options?.refreshSettings !== false && state.settingsModal && document.body.contains(state.settingsModal)) {
+            try { showSettings(); } catch (e) {}
+        }
+        if (state.docTabCustomGroupSettingsModal && document.body.contains(state.docTabCustomGroupSettingsModal)) {
+            try { __tmRenderDocTabCustomGroupSettingsModal(); } catch (e) {}
+        }
+        return SettingsStore.data.docTabCustomGroups;
+    }
+
+    function __tmCreateDocTabCustomGroupId() {
+        const existing = new Set(__tmGetDocTabCustomGroups().map((group) => String(group?.id || '').trim()).filter(Boolean));
+        let id = '';
+        do {
+            id = `tabg_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 7)}`;
+        } while (existing.has(id));
+        return id;
+    }
+
+    function __tmFindDocTabCustomGroup(groups, groupId) {
+        const gid = String(groupId || '').trim();
+        if (!gid) return null;
+        return (Array.isArray(groups) ? groups : []).find((group) => String(group?.id || '').trim() === gid) || null;
+    }
+
+    function __tmIsEditableDocTabCustomGroupForCurrentScope(group) {
+        return !!(group && typeof __tmIsDocTabCustomGroupInScope === 'function'
+            && __tmIsDocTabCustomGroupInScope(group, __tmGetCurrentDocTabCustomGroupScopeId()));
+    }
+
+    function __tmFindEditableDocTabCustomGroup(groups, groupId) {
+        const group = __tmFindDocTabCustomGroup(groups, groupId);
+        return __tmIsEditableDocTabCustomGroupForCurrentScope(group) ? group : null;
+    }
+
+    function __tmGetDocTabCustomGroupCurrentTabBarEntry(groupId) {
+        const gid = String(groupId || '').trim();
+        if (!gid || typeof __tmBuildDocTabGroupedView !== 'function') return null;
+        const currentGroupId = String(SettingsStore.data.currentGroupId || 'all').trim() || 'all';
+        const visibleDocs = typeof __tmGetVisibleDocTabsForCurrentGroup === 'function'
+            ? __tmGetVisibleDocTabsForCurrentGroup()
+            : __tmSortDocEntriesForTabs(state.taskTree || [], currentGroupId);
+        const view = __tmBuildDocTabGroupedView(visibleDocs, {
+            currentGroupId,
+            activeDocId: state.activeDocId
+        });
+        return (Array.isArray(view?.groups) ? view.groups : [])
+            .find((entry) => String(entry?.id || '').trim() === gid) || null;
+    }
+
+    function __tmIsDocTabCustomGroupShownInCurrentTabBar(groupId) {
+        return !!__tmGetDocTabCustomGroupCurrentTabBarEntry(groupId);
+    }
+
+    function __tmIsDocShownInDocTabCustomGroupCurrentTabBar(docId, groupId) {
+        const id = String(docId || '').trim();
+        if (!id) return false;
+        const entry = __tmGetDocTabCustomGroupCurrentTabBarEntry(groupId);
+        return (Array.isArray(entry?.members) ? entry.members : [])
+            .some((member) => String(member?.id || '').trim() === id);
+    }
+
+    function __tmHintPinnedDocTabCustomGroupHidden(docId, groupId, actionText = '已加入页签组') {
+        const id = String(docId || '').trim();
+        const gid = String(groupId || '').trim();
+        if (!id || !gid || typeof __tmIsDocPinnedInGroup !== 'function') return false;
+        const currentGroupId = String(SettingsStore.data.currentGroupId || 'all').trim() || 'all';
+        if (!__tmIsDocPinnedInGroup(id, currentGroupId)) return false;
+        if (__tmIsDocShownInDocTabCustomGroupCurrentTabBar(id, gid)) return false;
+        const groupShown = __tmIsDocTabCustomGroupShownInCurrentTabBar(gid);
+        try {
+            hint(`⚠ ${actionText}，但该页签已钉住。请取消钉住该页签，${groupShown ? '它才会进入页签组' : '页签组才会显示并收纳它'}`, 'warning');
+        } catch (e) {}
+        return true;
+    }
+
+    function __tmResolveDocTabCustomGroupSettingsActiveId(preferredId = '') {
+        const groups = __tmGetDocTabCustomGroupsForDocGroup();
+        const preferred = String(preferredId || '').trim();
+        const fromState = String(state.docTabCustomGroupSettingsActiveGroupId || '').trim();
+        const fromActiveTab = typeof __tmParseDocTabCustomGroupActiveId === 'function'
+            ? __tmParseDocTabCustomGroupActiveId(state.activeDocId)
+            : '';
+        const candidates = [preferred, fromState, fromActiveTab]
+            .map((id) => String(id || '').trim())
+            .filter(Boolean);
+        let id = candidates.find((candidate) => groups.some((group) => String(group?.id || '').trim() === candidate)) || '';
+        if (!id && groups.length) id = String(groups[0]?.id || '').trim();
+        state.docTabCustomGroupSettingsActiveGroupId = id;
+        return id;
+    }
+
+    function __tmGetDocTabCustomGroupSettingsDocs() {
+        const currentGroupId = String(SettingsStore.data.currentGroupId || 'all').trim() || 'all';
+        const rawDocs = typeof __tmGetVisibleDocTabsForCurrentGroup === 'function'
+            ? __tmGetVisibleDocTabsForCurrentGroup()
+            : __tmSortDocEntriesForTabs(state.taskTree || [], currentGroupId);
+        const metaMap = __tmBuildDocTabGroupDocMetaMap(rawDocs);
+        const docs = (Array.isArray(rawDocs) ? rawDocs : [])
+            .map((doc) => {
+                const id = String(doc?.id || '').trim();
+                return id ? { ...(metaMap.get(id) || doc || {}), id } : null;
+            })
+            .filter(Boolean);
+        return typeof __tmSortDocTabCustomGroupMembersForMenu === 'function'
+            ? __tmSortDocTabCustomGroupMembersForMenu(docs, rawDocs)
+            : docs;
+    }
+
+    function __tmGetDocTabCustomGroupSettingsContextName() {
+        const currentGroupId = String(SettingsStore.data.currentGroupId || 'all').trim() || 'all';
+        if (currentGroupId === 'all') return '全部文档';
+        const group = (Array.isArray(SettingsStore.data.docGroups) ? SettingsStore.data.docGroups : [])
+            .find((item) => String(item?.id || '').trim() === currentGroupId);
+        return __tmResolveDocGroupName(group) || '当前文档分组';
+    }
+
+    function __tmCloseDocTabCustomGroupSettingsModal() {
+        try { state.__docTabCustomGroupSettingsUnstack?.(); } catch (e) {}
+        state.__docTabCustomGroupSettingsUnstack = null;
+        try { state.docTabCustomGroupSettingsModal?.remove?.(); } catch (e) {}
+        state.docTabCustomGroupSettingsModal = null;
+    }
+
+    function __tmRenderDocTabCustomGroupSettingsModal() {
+        const modal = state.docTabCustomGroupSettingsModal;
+        if (!(modal instanceof HTMLElement)) return;
+        const allGroups = __tmGetDocTabCustomGroups();
+        const groups = __tmGetDocTabCustomGroupsForDocGroup();
+        const foreignGroupCount = Math.max(0, allGroups.length - groups.length);
+        const activeGroupId = __tmResolveDocTabCustomGroupSettingsActiveId();
+        const activeGroup = __tmFindDocTabCustomGroup(groups, activeGroupId);
+        const contextName = __tmGetDocTabCustomGroupSettingsContextName();
+        const currentGroupId = String(SettingsStore.data.currentGroupId || 'all').trim() || 'all';
+        const docs = __tmGetDocTabCustomGroupSettingsDocs();
+        const currentDocIds = new Set(docs.map((doc) => String(doc?.id || '').trim()).filter(Boolean));
+        const entries = Array.isArray(activeGroup?.entries) ? activeGroup.entries : [];
+        const directEntryByDocId = new Map(entries.map((entry) => [String(entry?.id || '').trim(), entry]).filter(([id]) => !!id));
+        const expanded = activeGroup ? __tmExpandDocTabCustomGroup(activeGroup, docs) : new Map();
+        const activeGroupName = String(activeGroup?.name || '').trim() || '未命名页签组';
+        const activeGroupMembers = activeGroup
+            ? docs.filter((doc) => expanded.has(String(doc?.id || '').trim()))
+            : [];
+        const activeGroupColor = activeGroup && typeof __tmGetDocTabCustomGroupColor === 'function'
+            ? __tmGetDocTabCustomGroupColor(activeGroup, activeGroupMembers)
+            : 'var(--tm-primary-color)';
+        const activeGroupHasCustomColor = !!__tmNormalizeHexColor(activeGroup?.color || activeGroup?.tabColor || activeGroup?.bgColor, '');
+        const groupsHtml = groups.length ? groups.map((group) => {
+            const gid = String(group?.id || '').trim();
+            if (!gid) return '';
+            const name = String(group?.name || '').trim() || '未命名页签组';
+            const count = Array.isArray(group?.entries) ? group.entries.length : 0;
+            return `
+                <button type="button" class="tm-doc-tab-group-settings-group${gid === activeGroupId ? ' is-active' : ''}" onclick="tmSelectDocTabCustomGroupSettingsGroup('${escSq(gid)}')">
+                    <span>${esc(name)}</span>
+                    <small>${count}</small>
+                </button>
+            `;
+        }).join('') : `
+            <div class="tm-doc-tab-group-settings-empty">暂无页签组</div>
+        `;
+        const foreignGroupsHtml = foreignGroupCount ? `
+            <div class="tm-doc-tab-group-settings-scope-note">
+                另有 ${foreignGroupCount} 个页签组属于其他文档分组，当前不可编辑；切换到对应文档分组后再管理。
+            </div>
+        ` : '';
+        const rowsHtml = activeGroup ? (docs.length ? docs.map((doc) => {
+            const docId = String(doc?.id || '').trim();
+            if (!docId) return '';
+            const treeGuideHtml = typeof __tmRenderDocTabGroupTreeGuide === 'function'
+                ? __tmRenderDocTabGroupTreeGuide(doc.__tmDocTabGroupMenuLineParts)
+                : '';
+            const directEntry = directEntryByDocId.get(docId) || null;
+            const relation = expanded.get(docId) || null;
+            const inherited = !!(relation && relation.direct === false);
+            const includeChildren = !!directEntry?.includeChildren;
+            const childDocs = __tmGetDocTabChildDocs(docId, docs).filter((child) => String(child?.id || '').trim() !== docId);
+            const childDocsInCurrentTabs = childDocs.filter((child) => currentDocIds.has(String(child?.id || '').trim()));
+            const docName = __tmGetDocDisplayName(doc, doc.name || '未命名文档');
+            const inheritedFromId = inherited ? String(relation?.entryId || '').trim() : '';
+            const inheritedFromName = inheritedFromId
+                ? __tmGetDocDisplayName(inheritedFromId, __tmGetDocRawName(inheritedFromId, inheritedFromId))
+                : '';
+            const pinned = __tmIsDocPinnedInGroup(docId, currentGroupId);
+            return `
+                <div class="tm-doc-tab-group-settings-row${directEntry ? ' is-direct' : ''}${inherited ? ' is-inherited' : ''}${pinned ? ' is-pinned' : ''}">
+                    <div class="tm-doc-tab-group-settings-tree">${treeGuideHtml}</div>
+                    <div class="tm-doc-tab-group-settings-card">
+                        <label class="tm-doc-tab-group-settings-check">
+                            <input class="b3-switch fn__flex-center" type="checkbox" ${directEntry ? 'checked' : ''} onchange="tmToggleDocTabCustomGroupDocIncluded('${escSq(activeGroupId)}', '${escSq(docId)}', this.checked)">
+                        </label>
+                        <div class="tm-doc-tab-group-settings-doc">
+                            <div class="tm-doc-tab-group-settings-doc-main">
+                                ${__tmRenderDocIcon(doc, { size: 14 })}
+                                <span title="${esc(docName)}">${esc(docName)}</span>
+                                ${directEntry ? '<em>直接加入</em>' : ''}
+                                ${inherited ? `<em>由 ${esc(inheritedFromName || '上级文档')} 带入</em>` : ''}
+                                ${pinned ? '<em>已钉住</em>' : ''}
+                            </div>
+                            <div class="tm-doc-tab-group-settings-doc-sub">
+                                ${childDocsInCurrentTabs.length
+                                    ? `当前页签中有 ${childDocsInCurrentTabs.length} 个子文档${includeChildren ? '，会随此文档收入分组' : ''}`
+                                    : '当前页签中未检测到子文档'}
+                            </div>
+                        </div>
+                        <label class="tm-doc-tab-group-settings-child-toggle${directEntry ? '' : ' is-disabled'}">
+                            <input class="b3-switch fn__flex-center" type="checkbox" ${includeChildren ? 'checked' : ''} ${directEntry ? '' : 'disabled'} onchange="tmToggleDocTabCustomGroupEntryChildren('${escSq(activeGroupId)}', '${escSq(docId)}', this.checked)">
+                            <span>包含子文档</span>
+                        </label>
+                    </div>
+                </div>
+            `;
+        }).join('') : `
+            <div class="tm-doc-tab-group-settings-empty">当前文档分组没有可选页签</div>
+        `) : `
+            <div class="tm-doc-tab-group-settings-empty">先新建一个页签组</div>
+        `;
+        const externalEntries = activeGroup ? entries.filter((entry) => {
+            const id = String(entry?.id || '').trim();
+            return id && !currentDocIds.has(id);
+        }) : [];
+        const externalHtml = externalEntries.length ? `
+            <div class="tm-doc-tab-group-settings-offscreen">
+                <div class="tm-doc-tab-group-settings-section-title">不在当前页签栏的直接成员</div>
+                ${externalEntries.map((entry) => {
+                    const docId = String(entry?.id || '').trim();
+                    const docName = __tmGetDocDisplayName(docId, __tmGetDocRawName(docId, docId));
+                    return `
+                        <div class="tm-doc-tab-group-settings-offscreen-row">
+                            <span>${esc(docName)}</span>
+                            <small>${esc(docId.slice(0, 8))}...</small>
+                            <button type="button" class="tm-btn tm-btn-danger" onclick="tmRemoveDocFromDocTabCustomGroup('${escSq(activeGroupId)}', '${escSq(docId)}')">移除</button>
+                        </div>
+                    `;
+                }).join('')}
+            </div>
+        ` : '';
+
+        modal.innerHTML = `
+            <div class="tm-box tm-doc-tab-group-settings-box" onclick="event.stopPropagation()">
+                <div class="tm-header">
+                    <div>
+                        <div style="font-size:18px;font-weight:700;color:var(--tm-text-color);">页签分组设置</div>
+                        <div style="font-size:12px;color:var(--tm-secondary-text);margin-top:3px;">${esc(contextName)} / 仅当前文档分组</div>
+                    </div>
+                    <button class="tm-btn tm-btn-gray" type="button" onclick="tmCloseDocTabCustomGroupSettings()">关闭</button>
+                </div>
+                <div class="tm-doc-tab-group-settings-layout">
+                    <aside class="tm-doc-tab-group-settings-sidebar">
+                        <button type="button" class="tm-btn tm-btn-primary" onclick="tmCreateDocTabCustomGroupFromSettings()" style="width:100%;justify-content:center;">新建页签组</button>
+                        <div class="tm-doc-tab-group-settings-groups">${groupsHtml}</div>
+                        ${foreignGroupsHtml}
+                    </aside>
+                    <section class="tm-doc-tab-group-settings-main">
+                        ${activeGroup ? `
+                            <div class="tm-doc-tab-group-settings-toolbar">
+                                <div class="tm-doc-tab-group-settings-title">
+                                    <strong>${esc(activeGroupName)}</strong>
+                                    <span>${entries.length} 个直接成员，${docs.length} 个当前页签可选</span>
+                                </div>
+                                <div class="tm-doc-tab-group-settings-actions">
+                                    <button type="button" class="tm-btn tm-btn-secondary tm-doc-tab-group-settings-color-btn" onclick="tmSetDocTabCustomGroupColor('${escSq(activeGroupId)}')" title="设置页签组颜色">
+                                        ${__tmRenderLucideIcon('brush-cleaning', '', { size: 13 })}
+                                        <span class="tm-doc-tab-group-settings-color-swatch" style="background:${esc(activeGroupColor)}"></span>
+                                        <span>颜色</span>
+                                    </button>
+                                    ${activeGroupHasCustomColor ? `<button type="button" class="tm-btn tm-btn-gray" onclick="tmResetDocTabCustomGroupColor('${escSq(activeGroupId)}')">恢复自动</button>` : ''}
+                                    <button type="button" class="tm-btn tm-btn-secondary" onclick="tmRenameDocTabCustomGroup('${escSq(activeGroupId)}')">重命名</button>
+                                    <button type="button" class="tm-btn tm-btn-danger" onclick="tmDeleteDocTabCustomGroup('${escSq(activeGroupId)}')">删除</button>
+                                </div>
+                            </div>
+                            <div class="tm-doc-tab-group-settings-list">${rowsHtml}</div>
+                            ${externalHtml}
+                        ` : rowsHtml}
+                    </section>
+                </div>
+                <style>
+                    .tm-doc-tab-group-settings-box {
+                        width: min(92vw, 880px);
+                        height: min(82vh, 680px);
+                        display: flex;
+                        flex-direction: column;
+                        overflow: hidden;
+                    }
+                    .tm-doc-tab-group-settings-layout {
+                        display: grid;
+                        grid-template-columns: 220px minmax(0, 1fr);
+                        min-height: 0;
+                        flex: 1;
+                    }
+                    .tm-doc-tab-group-settings-sidebar {
+                        border-right: 1px solid var(--tm-border-color);
+                        padding: 14px;
+                        display: flex;
+                        flex-direction: column;
+                        gap: 12px;
+                        min-width: 0;
+                        overflow: auto;
+                    }
+                    .tm-doc-tab-group-settings-groups {
+                        display: flex;
+                        flex-direction: column;
+                        gap: 6px;
+                    }
+                    .tm-doc-tab-group-settings-group {
+                        border: 1px solid var(--tm-border-color);
+                        background: var(--tm-bg-color);
+                        color: var(--tm-text-color);
+                        border-radius: 6px;
+                        padding: 8px 9px;
+                        display: flex;
+                        align-items: center;
+                        justify-content: space-between;
+                        gap: 10px;
+                        cursor: pointer;
+                        min-width: 0;
+                        text-align: left;
+                    }
+                    .tm-doc-tab-group-settings-group span {
+                        min-width: 0;
+                        overflow: hidden;
+                        text-overflow: ellipsis;
+                        white-space: nowrap;
+                    }
+                    .tm-doc-tab-group-settings-group small {
+                        color: var(--tm-secondary-text);
+                        flex: 0 0 auto;
+                    }
+                    .tm-doc-tab-group-settings-group.is-active {
+                        border-color: var(--tm-primary-color);
+                        box-shadow: inset 0 0 0 1px var(--tm-primary-color);
+                    }
+                    .tm-doc-tab-group-settings-main {
+                        min-width: 0;
+                        min-height: 0;
+                        display: flex;
+                        flex-direction: column;
+                        padding: 14px;
+                        gap: 12px;
+                        overflow: hidden;
+                    }
+                    .tm-doc-tab-group-settings-toolbar {
+                        display: flex;
+                        align-items: center;
+                        justify-content: space-between;
+                        gap: 12px;
+                        flex-wrap: wrap;
+                    }
+                    .tm-doc-tab-group-settings-title {
+                        display: flex;
+                        flex-direction: column;
+                        gap: 3px;
+                        min-width: 0;
+                    }
+                    .tm-doc-tab-group-settings-title strong {
+                        font-size: 15px;
+                        overflow: hidden;
+                        text-overflow: ellipsis;
+                        white-space: nowrap;
+                    }
+                    .tm-doc-tab-group-settings-title span,
+                    .tm-doc-tab-group-settings-empty,
+                    .tm-doc-tab-group-settings-section-title {
+                        font-size: 12px;
+                        color: var(--tm-secondary-text);
+                    }
+                    .tm-doc-tab-group-settings-actions {
+                        display: flex;
+                        align-items: center;
+                        gap: 8px;
+                        flex-wrap: wrap;
+                    }
+                    .tm-doc-tab-group-settings-color-btn {
+                        display: inline-flex;
+                        align-items: center;
+                        justify-content: center;
+                        gap: 6px;
+                        line-height: 1;
+                    }
+                    .tm-doc-tab-group-settings-color-btn svg {
+                        display: block;
+                        width: 13px;
+                        height: 13px;
+                        flex: 0 0 auto;
+                        transform: translateY(-1px);
+                    }
+                    .tm-doc-tab-group-settings-color-swatch {
+                        display: inline-block;
+                        width: 14px;
+                        height: 14px;
+                        border-radius: 4px;
+                        border: 1px solid color-mix(in srgb, var(--tm-text-color) 18%, transparent);
+                        box-sizing: border-box;
+                        flex: 0 0 auto;
+                    }
+                    .tm-doc-tab-group-settings-list {
+                        min-height: 0;
+                        overflow: auto;
+                        display: flex;
+                        flex-direction: column;
+                        gap: 8px;
+                        padding-right: 2px;
+                    }
+                    .tm-doc-tab-group-settings-row {
+                        display: grid;
+                        grid-template-columns: auto minmax(0, 1fr);
+                        align-items: stretch;
+                        gap: 6px;
+                    }
+                    .tm-doc-tab-group-settings-card {
+                        display: grid;
+                        grid-template-columns: 34px minmax(0, 1fr) auto;
+                        align-items: center;
+                        gap: 10px;
+                        border: 1px solid var(--tm-border-color);
+                        border-radius: 7px;
+                        background: var(--tm-card-bg);
+                        padding: 9px 10px;
+                        min-width: 0;
+                    }
+                    .tm-doc-tab-group-settings-tree {
+                        align-self: stretch;
+                        display: flex;
+                        align-items: stretch;
+                        min-width: 0;
+                    }
+                    .tm-doc-tab-group-settings-tree .tm-doc-tab-tree-guide {
+                        height: auto;
+                        margin: 0;
+                    }
+                    .tm-doc-tab-group-settings-tree .tm-doc-tab-tree-guide-seg::before,
+                    .tm-doc-tab-group-settings-tree .tm-doc-tab-tree-guide-seg::after {
+                        content: none;
+                        display: none;
+                    }
+                    .tm-doc-tab-group-settings-row.is-inherited .tm-doc-tab-group-settings-card {
+                        background: color-mix(in srgb, var(--tm-primary-color) 5%, var(--tm-card-bg));
+                    }
+                    .tm-doc-tab-group-settings-check {
+                        display: flex;
+                        align-items: center;
+                        justify-content: center;
+                    }
+                    .tm-doc-tab-group-settings-doc {
+                        min-width: 0;
+                        display: flex;
+                        flex-direction: column;
+                        gap: 4px;
+                    }
+                    .tm-doc-tab-group-settings-doc-main {
+                        display: flex;
+                        align-items: center;
+                        gap: 6px;
+                        min-width: 0;
+                    }
+                    .tm-doc-tab-group-settings-doc-main > span {
+                        min-width: 0;
+                        overflow: hidden;
+                        text-overflow: ellipsis;
+                        white-space: nowrap;
+                    }
+                    .tm-doc-tab-group-settings-doc-main em {
+                        font-style: normal;
+                        flex: 0 0 auto;
+                        font-size: 11px;
+                        color: var(--tm-secondary-text);
+                        background: var(--tm-hover-bg);
+                        border-radius: 999px;
+                        padding: 1px 6px;
+                    }
+                    .tm-doc-tab-group-settings-doc-sub {
+                        font-size: 12px;
+                        color: var(--tm-secondary-text);
+                        line-height: 1.5;
+                    }
+                    .tm-doc-tab-group-settings-child-toggle {
+                        display: flex;
+                        align-items: center;
+                        gap: 6px;
+                        font-size: 12px;
+                        color: var(--tm-text-color);
+                        white-space: nowrap;
+                    }
+                    .tm-doc-tab-group-settings-child-toggle.is-disabled {
+                        color: var(--tm-secondary-text);
+                        opacity: 0.62;
+                    }
+                    .tm-doc-tab-group-settings-offscreen {
+                        border-top: 1px solid var(--tm-border-color);
+                        padding-top: 10px;
+                        display: flex;
+                        flex-direction: column;
+                        gap: 6px;
+                    }
+                    .tm-doc-tab-group-settings-offscreen-row {
+                        display: grid;
+                        grid-template-columns: minmax(0, 1fr) auto auto;
+                        gap: 8px;
+                        align-items: center;
+                        font-size: 12px;
+                    }
+                    .tm-doc-tab-group-settings-offscreen-row span {
+                        min-width: 0;
+                        overflow: hidden;
+                        text-overflow: ellipsis;
+                        white-space: nowrap;
+                    }
+                    .tm-doc-tab-group-settings-offscreen-row small {
+                        color: var(--tm-secondary-text);
+                    }
+                    .tm-doc-tab-group-settings-empty {
+                        padding: 16px;
+                        border: 1px dashed var(--tm-border-color);
+                        border-radius: 8px;
+                        background: var(--tm-rule-group-bg);
+                    }
+                    .tm-doc-tab-group-settings-scope-note {
+                        padding: 10px;
+                        border: 1px solid var(--tm-border-color);
+                        border-radius: 7px;
+                        background: var(--tm-rule-group-bg);
+                        color: var(--tm-secondary-text);
+                        font-size: 12px;
+                        line-height: 1.5;
+                    }
+                    @media (max-width: 720px) {
+                        .tm-doc-tab-group-settings-box {
+                            width: 100vw;
+                            height: 100dvh;
+                            border-radius: 0;
+                        }
+                        .tm-doc-tab-group-settings-layout {
+                            grid-template-columns: 1fr;
+                            grid-template-rows: auto minmax(0, 1fr);
+                        }
+                        .tm-doc-tab-group-settings-sidebar {
+                            border-right: 0;
+                            border-bottom: 1px solid var(--tm-border-color);
+                            max-height: 180px;
+                        }
+                        .tm-doc-tab-group-settings-row {
+                            grid-template-columns: auto minmax(0, 1fr);
+                        }
+                        .tm-doc-tab-group-settings-card {
+                            grid-template-columns: 34px minmax(0, 1fr);
+                        }
+                        .tm-doc-tab-group-settings-child-toggle {
+                            grid-column: 2;
+                            justify-self: start;
+                        }
+                    }
+                </style>
+            </div>
+        `;
+    }
+
+    window.tmCreateDocTabCustomGroupWithDoc = async function(docId) {
+        const id = String(docId || '').trim();
+        if (!id) {
+            hint('⚠ 未找到当前文档', 'warning');
+            return null;
+        }
+        const docName = __tmGetDocDisplayName(id, __tmGetDocRawName(id, '未命名文档'));
+        const name = await showPrompt('新建页签组', '请输入页签组名称', docName || '新页签组');
+        if (name === null || name === undefined) return null;
+        const groupName = String(name || '').trim();
+        if (!groupName) {
+            hint('⚠ 页签组名称不能为空', 'warning');
+            return null;
+        }
+        const groups = __tmGetDocTabCustomGroups();
+        const group = {
+            id: __tmCreateDocTabCustomGroupId(),
+            docGroupId: __tmGetCurrentDocTabCustomGroupScopeId(),
+            name: groupName,
+            showInTabBar: true,
+            entries: [{ id, includeChildren: false }]
+        };
+        groups.push(group);
+        state.docTabCustomGroupSettingsActiveGroupId = group.id;
+        await __tmSaveDocTabCustomGroups(groups);
+        const warned = __tmHintPinnedDocTabCustomGroupHidden(id, group.id, `已新建页签组“${groupName}”`);
+        if (!warned) hint(`✅ 已新建页签组“${groupName}”`, 'success');
+        return group;
+    };
+
+    window.tmCreateDocTabCustomGroupFromSettings = async function() {
+        const name = await showPrompt('新建页签组', '请输入页签组名称', '新页签组');
+        if (name === null || name === undefined) return null;
+        const groupName = String(name || '').trim();
+        if (!groupName) {
+            hint('⚠ 页签组名称不能为空', 'warning');
+            return null;
+        }
+        const groups = __tmGetDocTabCustomGroups();
+        const group = {
+            id: __tmCreateDocTabCustomGroupId(),
+            docGroupId: __tmGetCurrentDocTabCustomGroupScopeId(),
+            name: groupName,
+            showInTabBar: true,
+            entries: []
+        };
+        groups.push(group);
+        state.docTabCustomGroupSettingsActiveGroupId = group.id;
+        await __tmSaveDocTabCustomGroups(groups);
+        hint(`✅ 已创建页签组“${groupName}”`, 'success');
+        return group;
+    };
+
+    window.tmAddDocToDocTabCustomGroup = async function(groupId, docId, includeChildren = false) {
+        const gid = String(groupId || '').trim();
+        const id = String(docId || '').trim();
+        if (!gid || !id) return false;
+        const groups = __tmGetDocTabCustomGroups();
+        const group = __tmFindEditableDocTabCustomGroup(groups, gid);
+        if (!group) {
+            hint('⚠ 当前文档分组下未找到该页签组', 'warning');
+            return false;
+        }
+        if (!Array.isArray(group.entries)) group.entries = [];
+        const existing = group.entries.find((entry) => String(entry?.id || '').trim() === id);
+        if (existing) {
+            existing.includeChildren = !!(existing.includeChildren || includeChildren);
+            await __tmSaveDocTabCustomGroups(groups);
+            const warned = __tmHintPinnedDocTabCustomGroupHidden(id, gid, `该文档已在“${group.name || '未命名页签组'}”中`);
+            if (!warned) hint(`ℹ 该文档已在“${group.name || '未命名页签组'}”中`, 'info');
+            return true;
+        }
+        group.entries.push({ id, includeChildren: !!includeChildren });
+        await __tmSaveDocTabCustomGroups(groups);
+        const warned = __tmHintPinnedDocTabCustomGroupHidden(id, gid, `已添加到页签组“${group.name || '未命名页签组'}”`);
+        if (!warned) hint(`✅ 已添加到页签组“${group.name || '未命名页签组'}”`, 'success');
+        return true;
+    };
+
+    window.tmAddDocTabCustomGroupEntryFromInput = async function(groupId, buttonEl) {
+        const btn = buttonEl instanceof HTMLElement ? buttonEl : null;
+        const input = btn?.parentElement?.querySelector?.('[data-tm-doc-tab-group-entry-input]');
+        const docId = String(input?.value || '').trim();
+        if (!docId) {
+            hint('⚠ 请输入文档 ID', 'warning');
+            return;
+        }
+        const ok = await window.tmAddDocToDocTabCustomGroup?.(groupId, docId, false);
+        if (ok && input) input.value = '';
+    };
+
+    window.tmRemoveDocFromDocTabCustomGroup = async function(groupId, docId) {
+        const gid = String(groupId || '').trim();
+        const id = String(docId || '').trim();
+        if (!gid || !id) return false;
+        const groups = __tmGetDocTabCustomGroups();
+        const group = __tmFindEditableDocTabCustomGroup(groups, gid);
+        if (!group || !Array.isArray(group.entries)) return false;
+        const before = group.entries.length;
+        group.entries = group.entries.filter((entry) => String(entry?.id || '').trim() !== id);
+        if (group.entries.length === before) {
+            hint('⚠ 该文档不是页签组的直接成员', 'warning');
+            return false;
+        }
+        await __tmSaveDocTabCustomGroups(groups);
+        hint(`✅ 已从页签组“${group.name || '未命名页签组'}”移除`, 'success');
+        return true;
+    };
+
+    window.tmToggleDocTabCustomGroupEntryChildren = async function(groupId, docId, includeChildren) {
+        const gid = String(groupId || '').trim();
+        const id = String(docId || '').trim();
+        if (!gid || !id) return;
+        const groups = __tmGetDocTabCustomGroups();
+        const group = __tmFindEditableDocTabCustomGroup(groups, gid);
+        const entry = Array.isArray(group?.entries)
+            ? group.entries.find((item) => String(item?.id || '').trim() === id)
+            : null;
+        if (!entry) return;
+        entry.includeChildren = !!includeChildren;
+        await __tmSaveDocTabCustomGroups(groups);
+    };
+
+    window.tmRenameDocTabCustomGroup = async function(groupId) {
+        const gid = String(groupId || '').trim();
+        const groups = __tmGetDocTabCustomGroups();
+        const group = __tmFindEditableDocTabCustomGroup(groups, gid);
+        if (!group) return;
+        const oldName = String(group.name || '').trim() || '未命名页签组';
+        const next = await showPrompt('重命名页签组', '请输入新的页签组名称', oldName);
+        if (next === null || next === undefined) return;
+        const name = String(next || '').trim();
+        if (!name) {
+            hint('⚠ 页签组名称不能为空', 'warning');
+            return;
+        }
+        if (name === oldName) return;
+        group.name = name;
+        await __tmSaveDocTabCustomGroups(groups);
+        hint('✅ 页签组已重命名', 'success');
+    };
+
+    window.tmSetDocTabCustomGroupColor = function(groupId) {
+        const gid = String(groupId || '').trim();
+        const groups = __tmGetDocTabCustomGroups();
+        const group = __tmFindEditableDocTabCustomGroup(groups, gid);
+        if (!group) {
+            hint('⚠ 当前文档分组下未找到该页签组', 'warning');
+            return;
+        }
+        const docs = __tmGetDocTabCustomGroupSettingsDocs();
+        const expanded = __tmExpandDocTabCustomGroup(group, docs);
+        const members = docs.filter((doc) => expanded.has(String(doc?.id || '').trim()));
+        const initial = typeof __tmGetDocTabCustomGroupColor === 'function'
+            ? __tmGetDocTabCustomGroupColor(group, members)
+            : 'var(--tm-primary-color)';
+        __tmOpenColorPickerDialog('页签组颜色', initial, async (next) => {
+            const color = __tmNormalizeHexColor(next, '');
+            if (!color) return;
+            group.color = color;
+            delete group.tabColor;
+            delete group.bgColor;
+            await __tmSaveDocTabCustomGroups(groups, { refreshSettings: true });
+            hint('✅ 页签组颜色已更新', 'success');
+        }, __tmBuildPresetColorPickerOptions(initial));
+    };
+
+    window.tmResetDocTabCustomGroupColor = async function(groupId) {
+        const gid = String(groupId || '').trim();
+        const groups = __tmGetDocTabCustomGroups();
+        const group = __tmFindEditableDocTabCustomGroup(groups, gid);
+        if (!group) {
+            hint('⚠ 当前文档分组下未找到该页签组', 'warning');
+            return;
+        }
+        const hadCustomColor = !!__tmNormalizeHexColor(group.color || group.tabColor || group.bgColor, '');
+        delete group.color;
+        delete group.tabColor;
+        delete group.bgColor;
+        if (!hadCustomColor) return;
+        await __tmSaveDocTabCustomGroups(groups, { refreshSettings: true });
+        hint('✅ 已恢复页签组自动颜色', 'success');
+    };
+
+    window.tmDeleteDocTabCustomGroup = async function(groupId) {
+        const gid = String(groupId || '').trim();
+        const groups = __tmGetDocTabCustomGroups();
+        const group = __tmFindEditableDocTabCustomGroup(groups, gid);
+        if (!group) return;
+        const name = String(group.name || '').trim() || '未命名页签组';
+        if (!confirm(`确定要删除页签组“${name}”吗？`)) return;
+        if (typeof __tmParseDocTabCustomGroupActiveId === 'function' && __tmParseDocTabCustomGroupActiveId(state.activeDocId) === gid) {
+            state.activeDocId = 'all';
+        }
+        if (String(state.docTabCustomGroupSettingsActiveGroupId || '').trim() === gid) {
+            state.docTabCustomGroupSettingsActiveGroupId = '';
+        }
+        await __tmSaveDocTabCustomGroups(groups.filter((item) => String(item?.id || '').trim() !== gid));
+        hint('✅ 页签组已删除', 'success');
+    };
+
+    window.tmSelectDocTabCustomGroupSettingsGroup = function(groupId) {
+        const gid = String(groupId || '').trim();
+        state.docTabCustomGroupSettingsActiveGroupId = gid;
+        __tmRenderDocTabCustomGroupSettingsModal();
+    };
+
+    window.tmToggleDocTabCustomGroupDocIncluded = async function(groupId, docId, included) {
+        const gid = String(groupId || '').trim();
+        const id = String(docId || '').trim();
+        if (!gid || !id) return;
+        const groups = __tmGetDocTabCustomGroups();
+        const group = __tmFindEditableDocTabCustomGroup(groups, gid);
+        if (!group) {
+            hint('⚠ 当前文档分组下未找到该页签组', 'warning');
+            return;
+        }
+        if (!Array.isArray(group.entries)) group.entries = [];
+        const before = group.entries.length;
+        if (included) {
+            const existing = group.entries.find((entry) => String(entry?.id || '').trim() === id);
+            if (!existing) group.entries.push({ id, includeChildren: false });
+        } else {
+            group.entries = group.entries.filter((entry) => String(entry?.id || '').trim() !== id);
+        }
+        const changed = included
+            ? group.entries.length !== before
+            : group.entries.length !== before;
+        await __tmSaveDocTabCustomGroups(groups, { refreshSettings: true });
+        if (changed) {
+            const warned = included ? __tmHintPinnedDocTabCustomGroupHidden(id, gid, '已加入页签组') : false;
+            if (!warned) {
+                try { hint(included ? '✅ 已加入页签组' : '✅ 已移出页签组', 'success'); } catch (e) {}
+            }
+        }
+    };
+
+    window.tmCloseDocTabCustomGroupSettings = function() {
+        __tmCloseDocTabCustomGroupSettingsModal();
+    };
+
+    window.tmOpenDocTabCustomGroupSettings = function(groupId = '') {
+        try { __tmHideDocTabMenu?.(); } catch (e) {}
+        const preferred = String(groupId || '').trim();
+        if (preferred) state.docTabCustomGroupSettingsActiveGroupId = preferred;
+        if (state.docTabCustomGroupSettingsModal && document.body.contains(state.docTabCustomGroupSettingsModal)) {
+            __tmRenderDocTabCustomGroupSettingsModal();
+            return;
+        }
+        const modal = document.createElement('div');
+        modal.className = 'tm-modal tm-doc-tab-group-settings-modal';
+        modal.style.zIndex = '200004';
+        modal.onclick = (ev) => {
+            if (ev.target === modal) __tmCloseDocTabCustomGroupSettingsModal();
+        };
+        state.docTabCustomGroupSettingsModal = modal;
+        document.body.appendChild(modal);
+        __tmRenderDocTabCustomGroupSettingsModal();
+        try {
+            state.__docTabCustomGroupSettingsUnstack = __tmModalStackBind(() => __tmCloseDocTabCustomGroupSettingsModal());
+        } catch (e) {}
+        try {
+            __tmApplyPopupOpenAnimation(modal, modal.querySelector('.tm-doc-tab-group-settings-box'), {
+                scaleFrom: 0.985,
+                translateY: '8px'
+            });
+        } catch (e) {}
+    };
+
     window.clearCurrentGroupDocs = async function() {
         if (!confirm('确定要清空当前分组的所有文档吗？')) return;
 
@@ -1889,6 +2740,42 @@
         return Array.from(keys);
     }
 
+    function __tmCollapseAllVisibleGroupsIfEnabled() {
+        if (!SettingsStore.data.collapseAllIncludesGroups) return false;
+        const nextGroups = new Set(state.collapsedGroups || []);
+        const expandedCompletedGroups = __tmGetExpandedCompletedGroupsSet();
+        __tmCollectVisibleGroupKeysFromDom().forEach((key) => {
+            if (__tmIsCompletedRootGroupKey(key)) {
+                const normalizedKey = __tmNormalizeCompletedRootGroupKey(key);
+                expandedCompletedGroups.delete(normalizedKey);
+                if (state.docTabsArchiveMode === true) nextGroups.add(normalizedKey);
+                else nextGroups.delete(normalizedKey);
+                return;
+            }
+            nextGroups.add(key);
+        });
+        state.collapsedGroups = nextGroups;
+        SettingsStore.data.collapsedGroups = [...nextGroups];
+        __tmPersistExpandedCompletedGroups();
+        try { Storage.set('tm_collapsed_groups', SettingsStore.data.collapsedGroups); } catch (e) {}
+        return true;
+    }
+
+    function __tmExpandAllVisibleGroupsIfEnabled() {
+        if (!SettingsStore.data.collapseAllIncludesGroups) return false;
+        const visibleGroupKeys = new Set(__tmCollectVisibleGroupKeysFromDom());
+        const expandedCompletedGroups = __tmGetExpandedCompletedGroupsSet();
+        visibleGroupKeys.forEach((key) => {
+            if (__tmIsCompletedRootGroupKey(key)) expandedCompletedGroups.add(__tmNormalizeCompletedRootGroupKey(key));
+        });
+        const nextGroups = new Set(Array.from(state.collapsedGroups || []).filter((key) => !visibleGroupKeys.has(String(key || '').trim())));
+        state.collapsedGroups = nextGroups;
+        SettingsStore.data.collapsedGroups = [...nextGroups];
+        __tmPersistExpandedCompletedGroups();
+        try { Storage.set('tm_collapsed_groups', SettingsStore.data.collapsedGroups); } catch (e) {}
+        return true;
+    }
+
     window.tmCollapseAllTasks = async function() {
         if (state.viewMode === 'kanban' || state.viewMode === 'whiteboard') {
             const filtered = Array.isArray(state.filteredTasks) ? state.filteredTasks : [];
@@ -1901,13 +2788,13 @@
                 // 子任务可能因为已完成列等原因不在同列显示，但父任务仍应纳入“全部折叠”。
                 collapsed.add(id);
             });
+            __tmCollapseAllVisibleGroupsIfEnabled();
             __tmKanbanPersistCollapsed();
             render();
             return;
         }
         const filteredSet = new Set(state.filteredTasks.map(t => t.id));
         const next = new Set(state.collapsedTaskIds || []);
-        const expandedCompletedGroups = __tmGetExpandedCompletedGroupsSet();
         const applyCollapse = (list) => {
             list.forEach(t => {
                 const hasVisibleChild = (t.children || []).some(c => filteredSet.has(c.id));
@@ -1925,23 +2812,7 @@
         SettingsStore.data.collapsedTaskIds = [...next];
         __tmMarkCollapseStateChanged();
         try { Storage.set('tm_collapsed_task_ids', SettingsStore.data.collapsedTaskIds); } catch (e) {}
-        if (SettingsStore.data.collapseAllIncludesGroups) {
-            const nextGroups = new Set(state.collapsedGroups || []);
-            __tmCollectVisibleGroupKeysFromDom().forEach((key) => {
-                if (__tmIsCompletedRootGroupKey(key)) {
-                    const normalizedKey = __tmNormalizeCompletedRootGroupKey(key);
-                    expandedCompletedGroups.delete(normalizedKey);
-                    if (state.docTabsArchiveMode === true) nextGroups.add(normalizedKey);
-                    else nextGroups.delete(normalizedKey);
-                    return;
-                }
-                nextGroups.add(key);
-            });
-            state.collapsedGroups = nextGroups;
-            SettingsStore.data.collapsedGroups = [...nextGroups];
-            __tmPersistExpandedCompletedGroups();
-            try { Storage.set('tm_collapsed_groups', SettingsStore.data.collapsedGroups); } catch (e) {}
-        }
+        __tmCollapseAllVisibleGroupsIfEnabled();
         try { __tmResetFlipState(state.modal); } catch (e) {}
         if (!(state.modal && __tmApplyVisibilityFromState(state.modal))) {
             if (!__tmRerenderCollapseInPlace()) render();
@@ -1952,6 +2823,7 @@
     window.tmExpandAllTasks = async function() {
         if (state.viewMode === 'kanban' || state.viewMode === 'whiteboard') {
             __tmKanbanGetCollapsedSet().clear();
+            __tmExpandAllVisibleGroupsIfEnabled();
             __tmKanbanPersistCollapsed();
             render();
             return;
@@ -1960,18 +2832,7 @@
         SettingsStore.data.collapsedTaskIds = [];
         __tmMarkCollapseStateChanged();
         try { Storage.set('tm_collapsed_task_ids', []); } catch (e) {}
-        if (SettingsStore.data.collapseAllIncludesGroups) {
-            const visibleGroupKeys = new Set(__tmCollectVisibleGroupKeysFromDom());
-            const expandedCompletedGroups = __tmGetExpandedCompletedGroupsSet();
-            visibleGroupKeys.forEach((key) => {
-                if (__tmIsCompletedRootGroupKey(key)) expandedCompletedGroups.add(__tmNormalizeCompletedRootGroupKey(key));
-            });
-            const nextGroups = new Set(Array.from(state.collapsedGroups || []).filter((key) => !visibleGroupKeys.has(String(key || '').trim())));
-            state.collapsedGroups = nextGroups;
-            SettingsStore.data.collapsedGroups = [...nextGroups];
-            __tmPersistExpandedCompletedGroups();
-            try { Storage.set('tm_collapsed_groups', SettingsStore.data.collapsedGroups); } catch (e) {}
-        }
+        __tmExpandAllVisibleGroupsIfEnabled();
         try { __tmResetFlipState(state.modal); } catch (e) {}
         if (!__tmRerenderCollapseInPlace()) render();
         await SettingsStore.save();

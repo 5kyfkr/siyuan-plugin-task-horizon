@@ -1688,7 +1688,7 @@
                 line-height: 26px;
                 cursor: pointer;
                 user-select: none;
-                transition: all 0.2s;
+                transition: background-color 0.2s, border-color 0.2s, color 0.2s;
             }
             .sy-custom-props-floatbar__prop:hover {
                 background: var(--b3-theme-background);
@@ -2387,7 +2387,7 @@
                 color: var(--b3-theme-on-surface);
                 cursor: pointer;
                 user-select: none;
-                transition: all 0.2s;
+                transition: background-color 0.2s, border-color 0.2s, color 0.2s;
                 padding: 0;
             }
             .sy-custom-props-floatbar__action .qb-icon {
@@ -2830,6 +2830,8 @@
                 textarea.disabled = !useTextarea;
                 textarea.oninput = null;
                 textarea.onkeydown = null;
+                textarea.oncompositionstart = null;
+                textarea.oncompositionend = null;
             }
             inputEditor.classList.toggle('is-remark', useTextarea);
             inputEditor.classList.remove('is-duration', 'is-focus-summary');
@@ -3645,7 +3647,7 @@
             const rawValue = String(value ?? '').trim();
             if (!rawValue) return '';
             if (attrKey === 'taskCompleteAt') return formatTaskCompletedAtLikeManager(rawValue);
-            if (config?.type === 'date') return formatTaskTimeLikeManager(rawValue);
+            if (config?.type === 'date') return formatTaskCardDateLikeManager(rawValue);
             if (attrKey === 'custom-remark') return truncateInlineValue(rawValue, 24);
             if (attrKey === 'custom-duration') return truncateInlineValue(formatQuickbarDurationDisplay(rawValue), 12);
             if (attrKey === 'custom-focus-summary') return formatFocusSummaryDisplay(currentProps);
@@ -4144,6 +4146,15 @@
             return formatDate(s);
         }
 
+        function formatTaskCardDateLikeManager(value) {
+            const full = formatTaskTimeLikeManager(value);
+            if (!/^\d{4}-\d{2}-\d{2}$/.test(full)) return full;
+            const year = Number(full.slice(0, 4));
+            return year === new Date().getFullYear()
+                ? `${Number(full.slice(5, 7))}月${Number(full.slice(8, 10))}日`
+                : full;
+        }
+
         function formatTaskCompletedAtLikeManager(value) {
             const s = String(value || '').trim();
             if (!s) return '';
@@ -4199,7 +4210,7 @@
                 `.trim();
             }
             if (attrKey === 'custom-completion-time') {
-                const timeText = formatTaskTimeLikeManager(rawValue);
+                const timeText = formatTaskCardDateLikeManager(rawValue);
                 if (!timeText) return '';
                 return `
                     <span class="sy-custom-props-inline-chip sy-custom-props-inline-chip--time" data-inline-attr="${escapedAttr}" data-inline-type="${config.type}" data-inline-name="${escapedName}" data-inline-value="${escapedValue}" title="${escapedName}">
@@ -4255,7 +4266,7 @@
             }
             const isDate = config.type === 'date';
             const displayValue = isDate
-                ? formatTaskTimeLikeManager(rawValue)
+                ? formatTaskCardDateLikeManager(rawValue)
                 : truncateInlineValue(rawValue, attrKey === 'custom-remark' ? 24 : 10);
             if (!displayValue) return '';
             return `
@@ -4681,7 +4692,13 @@
                             try {
                                 // 确保传递正确的事件对象
                                 const eventObj = e || (typeof event !== 'undefined' ? event : undefined);
-                                const opened = await openTaskDetail(detailId, eventObj);
+                                const fallbackTitle = String(resolveCurrentTaskName() || '').trim();
+                                const opened = await openTaskDetail(detailId, eventObj, {
+                                    source: 'quickbar-detail-open',
+                                    forceFresh: true,
+                                    fallbackTitle,
+                                    fallbackContent: fallbackTitle,
+                                });
                                 if (opened) {
                                     hideFloatBar();
                                     return;
@@ -5437,6 +5454,10 @@
             if (textarea instanceof HTMLTextAreaElement) {
                 textarea.value = currentValue || '';
                 textarea.placeholder = config.placeholder || '输入内容...';
+                try { textarea.dataset.savedValue = isRemark ? normalizeRemarkMarkdown(currentValue || '') : ''; } catch (e) {}
+                try { delete textarea.dataset.dirty; } catch (e) {}
+                try { delete textarea.dataset.composing; } catch (e) {}
+                try { delete textarea.dataset.saving; } catch (e) {}
                 if (isRemark && remarkTools && typeof remarkTools.bindUndoHistory === 'function') {
                     try { remarkTools.bindUndoHistory(textarea); } catch (e) {}
                     try { remarkTools.resetUndoHistory?.(textarea); } catch (e) {}
@@ -5526,26 +5547,58 @@
                     ? normalizeTomatoCountValue(valueSource.value || '')
                     : String(valueSource.value || '').trim();
 
-                const result = await saveTaskAttrWithUndo(blockIdAtOpen, config.attrKey, newValue, {
-                    label: config.name,
-                });
+                if (isRemark && textarea instanceof HTMLTextAreaElement) {
+                    try { textarea.dataset.saving = 'true'; } catch (e) {}
+                }
+
+                let result = { success: false };
+                try {
+                    result = await saveTaskAttrWithUndo(blockIdAtOpen, config.attrKey, newValue, {
+                        label: config.name,
+                    });
+                } catch (e) {
+                    result = { success: false };
+                } finally {
+                    if (isRemark && textarea instanceof HTMLTextAreaElement) {
+                        try { delete textarea.dataset.saving; } catch (e) {}
+                    }
+                }
 
                 if (!applySaveResult(newValue, result)) {
                     return;
                 }
 
                 inputEditor.classList.remove('is-visible');
+                if (isRemark && textarea instanceof HTMLTextAreaElement) {
+                    try { textarea.dataset.savedValue = newValue; } catch (e) {}
+                    try { delete textarea.dataset.dirty; } catch (e) {}
+                    clearQuickbarRemarkDraftState('saved');
+                }
             };
 
             if (textarea instanceof HTMLTextAreaElement) {
                 textarea.oninput = () => {
+                    if (isRemark) {
+                        try { textarea.dataset.dirty = 'true'; } catch (e) {}
+                    }
                     syncInputEditorTextareaHeight(textarea, 76);
                     repositionEditor();
+                };
+                textarea.oncompositionstart = () => {
+                    if (!isRemark) return;
+                    try { textarea.dataset.composing = 'true'; } catch (e) {}
+                    try { textarea.dataset.dirty = 'true'; } catch (e) {}
+                };
+                textarea.oncompositionend = () => {
+                    if (!isRemark) return;
+                    try { delete textarea.dataset.composing; } catch (e) {}
+                    try { textarea.dataset.dirty = 'true'; } catch (e) {}
                 };
                 textarea.onkeydown = (e) => {
                     if (isRemark && remarkTools && typeof remarkTools.handleTextareaKeydown === 'function') {
                         const handled = remarkTools.handleTextareaKeydown(textarea, e);
                         if (handled) {
+                            try { textarea.dataset.dirty = 'true'; } catch (err) {}
                             syncInputEditorTextareaHeight(textarea, 76);
                             repositionEditor();
                             return;
@@ -5594,6 +5647,7 @@
                         else if (action === 'quote' && typeof remarkTools.toggleLinePrefix === 'function') remarkTools.toggleLinePrefix(textarea, '> ');
                         else if (action === 'bullet' && typeof remarkTools.toggleLinePrefix === 'function') remarkTools.toggleLinePrefix(textarea, '- ');
                         else if (action === 'ordered' && typeof remarkTools.toggleOrderedList === 'function') remarkTools.toggleOrderedList(textarea);
+                        try { textarea.dataset.dirty = 'true'; } catch (err) {}
                         syncInputEditorTextareaHeight(textarea, 76);
                         repositionEditor();
                     };

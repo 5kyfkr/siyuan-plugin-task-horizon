@@ -290,7 +290,15 @@
         const __tmRenderKanbanBodyHtml = () => {
             const isGloballyLocked = GlobalLock.isLocked();
             const activeDocId = String(state.activeDocId || '').trim();
-            const isAllTabsView = !(activeDocId && activeDocId !== 'all');
+            const currentGroupId = String(SettingsStore.data.currentGroupId || 'all').trim() || 'all';
+            const activeDocTabCustomGroupDocIds = (typeof __tmGetActiveDocTabCustomGroupDocIdSet === 'function')
+                ? __tmGetActiveDocTabCustomGroupDocIdSet(activeDocId, {
+                    currentGroupId,
+                    docs: state.taskTree || []
+                })
+                : null;
+            const isDocTabCustomGroupActive = activeDocTabCustomGroupDocIds instanceof Set && activeDocTabCustomGroupDocIds.size > 0;
+            const isAllTabsView = !(activeDocId && activeDocId !== 'all') || isDocTabCustomGroupActive;
             const isCompact = !!SettingsStore.data.kanbanCompactMode;
             const baseKanbanW0 = Number(SettingsStore.data.kanbanColumnWidth);
             const baseKanbanW = Number.isFinite(baseKanbanW0) ? Math.max(220, Math.min(520, Math.round(baseKanbanW0))) : 320;
@@ -303,7 +311,6 @@
             const headingMode = boardMode === 'heading';
             const timeBoardMode = boardMode === 'time';
             const showDoneCol = (headingMode || timeBoardMode) && !!state.showCompletedTasks && !!SettingsStore.data.kanbanShowDoneColumn;
-            const currentGroupId = String(SettingsStore.data.currentGroupId || 'all').trim() || 'all';
             const statusOptionsRaw = Array.isArray(SettingsStore.data.customStatusOptions) ? SettingsStore.data.customStatusOptions : [];
             const statusOptions = __tmGetStatusOptions(statusOptionsRaw)
                 .map(o => ({ id: String(o?.id || '').trim(), name: String(o?.name || '').trim(), color: String(o?.color || '').trim(), marker: o?.marker }))
@@ -332,8 +339,26 @@
             });
             const getKanbanParentTaskId = (task) => {
                 const id = String(task?.id || '').trim();
-                const pid = String(task?.parentTaskId || task?.parentId || task?.parent_id || task?.parent_task_id || '').trim();
-                return pid && pid !== id ? pid : '';
+                const pid = String(task?.parentTaskId || task?.parent_task_id || '').trim();
+                if (!pid || pid === id) return '';
+                const resolveAlias = (value) => {
+                    const raw = String(value || '').trim();
+                    if (!raw) return '';
+                    try {
+                        const fromIdentity = String(globalThis.__tmTaskIdentity?.resolve?.(raw) || '').trim();
+                        if (fromIdentity) return fromIdentity;
+                    } catch (e) {}
+                    try {
+                        const fromOptimistic = typeof __tmResolveOptimisticTaskId === 'function'
+                            ? String(__tmResolveOptimisticTaskId(raw) || '').trim()
+                            : '';
+                        if (fromOptimistic) return fromOptimistic;
+                    } catch (e) {}
+                    return raw;
+                };
+                const resolvedId = resolveAlias(id);
+                const resolvedPid = resolveAlias(pid);
+                return resolvedPid && resolvedId && resolvedPid === resolvedId ? '' : pid;
             };
             const getRawKanbanTaskById = (taskId) => {
                 const tid = String(taskId || '').trim();
@@ -430,6 +455,7 @@
                     if (!state.showCompletedTasks && !!task.done) return false;
                     if (isHiddenKanbanCompletedDescendant(task)) return false;
                     const docId = String(task?.root_id || task?.docId || '').trim();
+                    if (isDocTabCustomGroupActive && docId && !activeDocTabCustomGroupDocIds.has(docId)) return false;
                     if (!isAllTabsView && activeDocId && docId && docId !== activeDocId) return false;
                     return true;
                 };

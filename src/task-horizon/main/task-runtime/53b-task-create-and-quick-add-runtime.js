@@ -53,7 +53,7 @@
     function __tmResolveDefaultDocId() {
         const configuredDocId = __tmResolveConfiguredQuickAddDocId();
         if (configuredDocId) return configuredDocId;
-        if (state.activeDocId && state.activeDocId !== 'all') return state.activeDocId;
+        if (state.activeDocId && state.activeDocId !== 'all' && !(typeof __tmIsDocTabCustomGroupActiveId === 'function' && __tmIsDocTabCustomGroupActiveId(state.activeDocId))) return state.activeDocId;
         if (state.taskTree && state.taskTree.length > 0) return state.taskTree[0].id;
         if (state.selectedDocIds && state.selectedDocIds.length > 0) return state.selectedDocIds[0];
         const cacheEnt = __tmQuickbarResolveConfiguredDocIds?.__cache;
@@ -303,6 +303,11 @@
         aliases.forEach((id) => {
             if (task) return;
             task = state.pendingInsertedTasks?.[id] || null;
+        });
+        aliases.forEach((id) => {
+            if (task) return;
+            task = (Array.isArray(state.filteredTasks) ? state.filteredTasks : [])
+                .find((item) => String(item?.id || '').trim() === id) || null;
         });
         if (!task) {
             try {
@@ -927,7 +932,15 @@
         const currentRule = typeof __tmGetCurrentRule === 'function' ? __tmGetCurrentRule() : null;
         if (currentRule && !__tmIsAllRuleLike(currentRule)) return false;
         const activeDocId = String(state.activeDocId || 'all').trim() || 'all';
-        if (activeDocId !== 'all' && activeDocId !== docId) return false;
+        const customGroupDocIds = (typeof __tmGetActiveDocTabCustomGroupDocIdSet === 'function')
+            ? __tmGetActiveDocTabCustomGroupDocIdSet(activeDocId, {
+                currentGroupId: SettingsStore?.data?.currentGroupId || 'all',
+                docs: state.taskTree || []
+            })
+            : null;
+        if (customGroupDocIds instanceof Set && customGroupDocIds.size) {
+            if (!customGroupDocIds.has(docId)) return false;
+        } else if (activeDocId !== 'all' && activeDocId !== docId) return false;
         if (nextTask.done === true && state.showCompletedTasks !== true) return false;
         return true;
     }
@@ -953,6 +966,15 @@
         if (currentRule && !__tmIsAllRuleLike(currentRule)) return false;
         if (task.done === true && state.showCompletedTasks !== true) return false;
         const activeDocId = String(state.activeDocId || 'all').trim() || 'all';
+        const customGroupDocIds = (typeof __tmGetActiveDocTabCustomGroupDocIdSet === 'function')
+            ? __tmGetActiveDocTabCustomGroupDocIdSet(activeDocId, {
+                currentGroupId: SettingsStore?.data?.currentGroupId || 'all',
+                docs: state.taskTree || []
+            })
+            : null;
+        if (customGroupDocIds instanceof Set && customGroupDocIds.size) {
+            return customGroupDocIds.has(sourceDocId) || customGroupDocIds.has(targetDocId);
+        }
         return activeDocId === 'all' || activeDocId === sourceDocId || activeDocId === targetDocId;
     }
 
@@ -1005,7 +1027,15 @@
         const targetDocId = String(nextTask.root_id || nextTask.docId || data.targetDocId || '').trim();
         const sourceDocId = String(data?.snapshot?.docId || data.sourceDocId || data.docId || '').trim();
         const activeDocId = String(state.activeDocId || 'all').trim() || 'all';
-        const shouldVisible = activeDocId === 'all' || activeDocId === targetDocId;
+        const customGroupDocIds = (typeof __tmGetActiveDocTabCustomGroupDocIdSet === 'function')
+            ? __tmGetActiveDocTabCustomGroupDocIdSet(activeDocId, {
+                currentGroupId: SettingsStore?.data?.currentGroupId || 'all',
+                docs: state.taskTree || []
+            })
+            : null;
+        const shouldVisible = (customGroupDocIds instanceof Set && customGroupDocIds.size)
+            ? customGroupDocIds.has(targetDocId)
+            : (activeDocId === 'all' || activeDocId === targetDocId);
         try { __tmRemoveTaskFromFilteredLocalState(tid); } catch (e) {}
         if (shouldVisible) {
             const existing = new Set((Array.isArray(state.filteredTasks) ? state.filteredTasks : [])
@@ -2037,8 +2067,9 @@
         return touched;
     }
 
-    function __tmApplyDoneOptimisticLocal(taskId, done, statusPatch = null, source = '') {
+    function __tmApplyDoneOptimisticLocal(taskId, done, statusPatch = null, source = '', options = {}) {
         const tid = String(taskId || '').trim();
+        const opts = (options && typeof options === 'object') ? options : {};
         const task = globalThis.__tmRuntimeState?.getTaskById?.(tid, { includePending: true, preferPending: true })
             || state.pendingInsertedTasks?.[tid]
             || state.flatTasks?.[tid]
@@ -2050,6 +2081,7 @@
             : {};
         if (nextStatusPatch && Object.keys(nextStatusPatch).length > 0) {
             __tmApplyAttrPatchLocally(tid, nextStatusPatch, {
+                ...opts,
                 render: false,
                 withFilters: true,
                 source: String(source || 'done-local').trim() || 'done-local',
@@ -2087,7 +2119,7 @@
         try {
             __tmSyncTaskPriorityScoreLocal(tid, {
                 includeAncestors: true,
-                refreshAncestorViews: true,
+                refreshAncestorViews: opts.refreshAncestorViews !== false,
                 reason: 'done-local-priority-sync',
             });
         } catch (e) {}
@@ -2098,8 +2130,9 @@
         return true;
     }
 
-    function __tmRollbackDoneOptimisticLocal(taskId, inversePatch, source = '') {
+    function __tmRollbackDoneOptimisticLocal(taskId, inversePatch, source = '', options = {}) {
         const tid = String(taskId || '').trim();
+        const opts = (options && typeof options === 'object') ? options : {};
         const task = globalThis.__tmRuntimeState?.getTaskById?.(tid, { includePending: true, preferPending: true })
             || state.pendingInsertedTasks?.[tid]
             || state.flatTasks?.[tid]
@@ -2132,7 +2165,7 @@
         try {
             __tmSyncTaskPriorityScoreLocal(tid, {
                 includeAncestors: true,
-                refreshAncestorViews: true,
+                refreshAncestorViews: opts.refreshAncestorViews !== false,
                 reason: 'done-rollback-priority-sync',
             });
         } catch (e) {}
@@ -3070,6 +3103,8 @@
         try { __tmAttachOptimisticChildToParentCandidates(parentTask, pid, nextTask); } catch (e) {}
         try { state.collapsedTaskIds?.delete?.(pid); } catch (e) {}
         try { if (rawPid !== pid) state.collapsedTaskIds?.delete?.(rawPid); } catch (e) {}
+        try { __tmKanbanGetCollapsedSet?.()?.delete?.(pid); } catch (e) {}
+        try { if (rawPid !== pid) __tmKanbanGetCollapsedSet?.()?.delete?.(rawPid); } catch (e) {}
         let insertedPending = false;
         try {
             insertedPending = !!globalThis.__tmTaskStore?.createPendingTask?.(nextTask, {
@@ -3098,6 +3133,7 @@
                 } catch (e) {}
             }
         }
+        try { __tmKanbanColsHtmlCache = null; } catch (e) {}
         if (opts.skipMainRefresh !== true) {
             __tmRefreshAfterOptimisticTaskCreate(tid, 'create-subtask-optimistic');
         } else {

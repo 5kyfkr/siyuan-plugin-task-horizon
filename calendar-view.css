@@ -3875,9 +3875,9 @@
     box-shadow: 0 0 0 2px color-mix(in srgb, var(--tm-primary-color) 18%, transparent);
 }
 
-.tm-calendar-host .fc .fc-dayGridMonth-view .fc-daygrid-day.fc-day-today .fc-daygrid-day-number:not(:has(.tm-cn-holiday-dot)):not(:has(.tm-cn-day-number-text)),
-.tm-calendar-host.fc .fc-dayGridMonth-view .fc-daygrid-day.fc-day-today .fc-daygrid-day-number:not(:has(.tm-cn-holiday-dot)):not(:has(.tm-cn-day-number-text)),
-.tm-calendar-wrap .fc .fc-dayGridMonth-view .fc-daygrid-day.fc-day-today .fc-daygrid-day-number:not(:has(.tm-cn-holiday-dot)):not(:has(.tm-cn-day-number-text)) {
+.tm-calendar-host .fc .fc-dayGridMonth-view .fc-daygrid-day.fc-day-today .fc-daygrid-day-number.tm-calendar-day-number--today-ready,
+.tm-calendar-host.fc .fc-dayGridMonth-view .fc-daygrid-day.fc-day-today .fc-daygrid-day-number.tm-calendar-day-number--today-ready,
+.tm-calendar-wrap .fc .fc-dayGridMonth-view .fc-daygrid-day.fc-day-today .fc-daygrid-day-number.tm-calendar-day-number--today-ready {
     min-width: 22px;
     min-height: 16px;
     padding: 0 6px;

@@ -438,6 +438,13 @@
         return String(value || '').trim().toLowerCase() === 'weekday' ? 'weekday' : 'date';
     }
 
+    function __tmNormalizeTaskRepeatCalendarMode(value, repeatType) {
+        const type = __tmNormalizeTaskRepeatType(repeatType);
+        if (type !== 'monthly' && type !== 'yearly') return 'solar';
+        const raw = String(value || '').trim().toLowerCase();
+        return raw === 'lunar' || raw === '农历' ? 'lunar' : 'solar';
+    }
+
     function __tmNormalizeTaskRepeatUntil(value) {
         return __tmNormalizeDateOnly(value);
     }
@@ -503,6 +510,7 @@
                 type: 'none',
                 every: 1,
                 monthlyMode: 'date',
+                calendarMode: 'solar',
                 until: '',
                 anchorDate: __tmNormalizeDateOnly(
                     opts.anchorDate
@@ -532,6 +540,7 @@
             type: enabled ? type : 'none',
             every: __tmNormalizeTaskRepeatEvery(raw.every, type),
             monthlyMode: __tmNormalizeTaskRepeatMonthlyMode(raw.monthlyMode, type),
+            calendarMode: __tmNormalizeTaskRepeatCalendarMode(raw.calendarMode || raw.repeatCalendarMode, type),
             until: enabled ? __tmNormalizeTaskRepeatUntil(raw.until || raw.repeatUntil || '') : '',
             anchorDate: fallbackAnchor,
         };
@@ -602,6 +611,140 @@
         return new Date(year, month, day, 12, 0, 0, 0);
     }
 
+    const __TM_LUNAR_MONTH_TEXT_MAP = {
+        '正': 1, '一': 1, '二': 2, '三': 3, '四': 4, '五': 5, '六': 6,
+        '七': 7, '八': 8, '九': 9, '十': 10, '十一': 11, '冬': 11,
+        '十二': 12, '腊': 12,
+    };
+
+    function __tmParseLunarChineseNumber(text) {
+        const raw = String(text || '').trim();
+        if (!raw) return 0;
+        if (/^\d+$/.test(raw)) return parseInt(raw, 10) || 0;
+        const s = raw.replace(/[月日号]/g, '').replace(/^初/, '');
+        const digitMap = { 零: 0, 〇: 0, 一: 1, 二: 2, 两: 2, 三: 3, 四: 4, 五: 5, 六: 6, 七: 7, 八: 8, 九: 9 };
+        if (s.startsWith('廿')) return 20 + (digitMap[s.slice(1)] || 0);
+        if (s.startsWith('卅')) return 30 + (digitMap[s.slice(1)] || 0);
+        if (s === '十') return 10;
+        if (s.startsWith('十')) return 10 + (digitMap[s.slice(1)] || 0);
+        if (s.includes('十')) {
+            const parts = s.split('十');
+            return (digitMap[parts[0]] || 0) * 10 + (digitMap[parts[1]] || 0);
+        }
+        return digitMap[s] || 0;
+    }
+
+    function __tmParseLunarMonthText(text) {
+        const raw = String(text || '').trim().replace(/^闰/, '').replace(/月$/u, '');
+        if (!raw) return 0;
+        if (/^\d+$/.test(raw)) return parseInt(raw, 10) || 0;
+        return __TM_LUNAR_MONTH_TEXT_MAP[raw] || __tmParseLunarChineseNumber(raw);
+    }
+
+    let __tmChineseCalendarFormatter = null;
+    function __tmGetChineseCalendarFormatter() {
+        if (__tmChineseCalendarFormatter) return __tmChineseCalendarFormatter;
+        try {
+            __tmChineseCalendarFormatter = new Intl.DateTimeFormat('zh-CN-u-ca-chinese', {
+                year: 'numeric',
+                month: 'long',
+                day: 'numeric',
+            });
+        } catch (e) {
+            __tmChineseCalendarFormatter = null;
+        }
+        return __tmChineseCalendarFormatter;
+    }
+
+    function __tmGetLunarDateInfo(dateLike) {
+        const dt = (dateLike instanceof Date) ? new Date(dateLike.getTime()) : __tmBuildLocalNoonDateFromKey(dateLike);
+        if (!(dt instanceof Date) || Number.isNaN(dt.getTime())) return null;
+        const formatter = __tmGetChineseCalendarFormatter();
+        if (!formatter) return null;
+        try {
+            const parts = formatter.formatToParts(dt);
+            const getPart = (type) => String((parts.find((part) => part.type === type) || {}).value || '').trim();
+            const monthText = getPart('month');
+            const dayText = getPart('day');
+            const relatedYearText = getPart('relatedYear') || getPart('year');
+            const relatedYear = parseInt(relatedYearText, 10);
+            const month = __tmParseLunarMonthText(monthText);
+            const day = __tmParseLunarChineseNumber(dayText);
+            const isLeap = /^闰/.test(monthText);
+            if (!Number.isFinite(relatedYear) || !month || !day) return null;
+            return { relatedYear, month, day, isLeap };
+        } catch (e) {
+            return null;
+        }
+    }
+
+    function __tmGetLunarMonthIndex(info) {
+        if (!info || !Number.isFinite(Number(info.relatedYear)) || !Number.isFinite(Number(info.month))) return Number.NaN;
+        return Number(info.relatedYear) * 12 + Number(info.month) - 1;
+    }
+
+    function __tmFindTaskRepeatNextLunarMonthlyDate(baseDate, rule) {
+        const base = (baseDate instanceof Date) ? new Date(baseDate.getTime()) : __tmBuildLocalNoonDateFromKey(baseDate);
+        const anchor = __tmBuildLocalNoonDateFromKey(rule?.anchorDate) || base;
+        const anchorInfo = __tmGetLunarDateInfo(anchor);
+        if (!(base instanceof Date) || Number.isNaN(base.getTime()) || !anchorInfo) return null;
+        const anchorIndex = __tmGetLunarMonthIndex(anchorInfo);
+        if (!Number.isFinite(anchorIndex)) return null;
+        const every = Math.max(1, Number(rule?.every) || 1);
+        const cursor = new Date(base.getTime());
+        cursor.setDate(cursor.getDate() + 1);
+        cursor.setHours(12, 0, 0, 0);
+        const guardLimit = Math.min(130000, Math.max(800, (every + 2) * 34 + 400));
+        for (let i = 0; i < guardLimit; i += 1) {
+            const info = __tmGetLunarDateInfo(cursor);
+            if (info
+                && info.day === anchorInfo.day
+                && info.isLeap === anchorInfo.isLeap) {
+                const diffMonths = __tmGetLunarMonthIndex(info) - anchorIndex;
+                if (diffMonths > 0 && diffMonths % every === 0) return new Date(cursor.getTime());
+            }
+            cursor.setDate(cursor.getDate() + 1);
+        }
+        return null;
+    }
+
+    function __tmFindTaskRepeatLunarYearDate(relatedYear, anchorInfo) {
+        const year = Math.trunc(Number(relatedYear));
+        if (!Number.isFinite(year) || !anchorInfo) return null;
+        const start = new Date(year, 0, 1, 12, 0, 0, 0);
+        for (let i = 0; i < 430; i += 1) {
+            const info = __tmGetLunarDateInfo(start);
+            if (info
+                && info.relatedYear === year
+                && info.month === anchorInfo.month
+                && info.day === anchorInfo.day
+                && info.isLeap === anchorInfo.isLeap) {
+                return new Date(start.getTime());
+            }
+            start.setDate(start.getDate() + 1);
+        }
+        return null;
+    }
+
+    function __tmFindTaskRepeatNextLunarYearlyDate(baseDate, rule) {
+        const base = (baseDate instanceof Date) ? new Date(baseDate.getTime()) : __tmBuildLocalNoonDateFromKey(baseDate);
+        const anchor = __tmBuildLocalNoonDateFromKey(rule?.anchorDate) || base;
+        const anchorInfo = __tmGetLunarDateInfo(anchor);
+        if (!(base instanceof Date) || Number.isNaN(base.getTime()) || !anchorInfo) return null;
+        const baseInfo = __tmGetLunarDateInfo(base) || anchorInfo;
+        const every = Math.max(1, Number(rule?.every) || 1);
+        let diffYears = Math.max(0, Number(baseInfo.relatedYear) - Number(anchorInfo.relatedYear));
+        const mod = diffYears % every;
+        if (mod !== 0) diffYears += (every - mod);
+        let relatedYear = Number(anchorInfo.relatedYear) + diffYears;
+        for (let i = 0; i < 30; i += 1) {
+            const candidate = __tmFindTaskRepeatLunarYearDate(relatedYear, anchorInfo);
+            if (candidate && candidate.getTime() > base.getTime()) return candidate;
+            relatedYear += every;
+        }
+        return null;
+    }
+
     function __tmAdvanceTaskRepeatDateKey(dateKey, ruleInput) {
         const key = __tmNormalizeDateOnly(dateKey);
         if (!key) return '';
@@ -628,11 +771,15 @@
             next = new Date(base.getTime());
             next.setDate(next.getDate() + rule.every * 7);
         } else if (rule.type === 'monthly') {
-            next = rule.monthlyMode === 'weekday'
+            next = rule.calendarMode === 'lunar'
+                ? __tmFindTaskRepeatNextLunarMonthlyDate(base, rule)
+                : rule.monthlyMode === 'weekday'
                 ? __tmBuildTaskRepeatMonthlyWeekdayDate(base, rule.every)
                 : __tmBuildTaskRepeatMonthlyDate(base, rule.every, rule.anchorDate);
         } else if (rule.type === 'yearly') {
-            next = __tmBuildTaskRepeatYearlyDate(base, rule.every);
+            next = rule.calendarMode === 'lunar'
+                ? __tmFindTaskRepeatNextLunarYearlyDate(base, rule)
+                : __tmBuildTaskRepeatYearlyDate(base, rule.every);
         }
         const nextKey = __tmFormatDateKeyFromDate(next);
         if (!nextKey) return key;
@@ -683,11 +830,21 @@
         return '不循环';
     }
 
+    function __tmGetTaskRepeatCalendarUnitLabel(type, every, calendarMode) {
+        const repeatType = __tmNormalizeTaskRepeatType(type);
+        const mode = __tmNormalizeTaskRepeatCalendarMode(calendarMode, repeatType);
+        const n = __tmNormalizeTaskRepeatEvery(every, repeatType);
+        if (mode !== 'lunar') return __tmGetTaskRepeatUnitLabel(repeatType, n);
+        if (repeatType === 'monthly') return n > 1 ? `每${n}个农历月` : '农历每月';
+        if (repeatType === 'yearly') return n > 1 ? `每${n}个农历年` : '农历每年';
+        return __tmGetTaskRepeatUnitLabel(repeatType, n);
+    }
+
     function __tmGetTaskRepeatSummary(ruleInput, options = {}) {
         const rule = __tmNormalizeTaskRepeatRule(ruleInput, options);
         if (!rule.enabled || rule.type === 'none') return '';
         const triggerText = rule.trigger === 'complete' ? '完成后' : '到期后';
-        const unitText = __tmGetTaskRepeatUnitLabel(rule.type, rule.every);
+        const unitText = __tmGetTaskRepeatCalendarUnitLabel(rule.type, rule.every, rule.calendarMode);
         const untilText = rule.until ? ` · 至 ${rule.until}` : '';
         return `${triggerText}${unitText}${untilText}`;
     }
@@ -707,6 +864,28 @@
             return `按星期（第${__tmGetTaskRepeatMonthWeekOrdinal(anchorDate)}个${__tmGetTaskRepeatWeekdayLabel(anchorDate)}）`;
         }
         return `按日期（${anchorDate.getDate()}日）`;
+    }
+
+    function __tmFormatTaskRepeatLunarDay(day) {
+        const n = Math.max(1, Math.min(30, Number(day) || 1));
+        const digits = ['', '一', '二', '三', '四', '五', '六', '七', '八', '九'];
+        if (n <= 10) return ['初一', '初二', '初三', '初四', '初五', '初六', '初七', '初八', '初九', '初十'][n - 1];
+        if (n < 20) return `十${digits[n - 10]}`;
+        if (n === 20) return '二十';
+        if (n < 30) return `廿${digits[n - 20]}`;
+        return '三十';
+    }
+
+    function __tmGetTaskRepeatLunarCaption(type, anchorDateLike) {
+        const repeatType = __tmNormalizeTaskRepeatType(type);
+        const info = __tmGetLunarDateInfo(anchorDateLike);
+        if (!info) return repeatType === 'yearly' ? '农历每年' : '农历每月';
+        const monthText = ['正月', '二月', '三月', '四月', '五月', '六月', '七月', '八月', '九月', '十月', '冬月', '腊月'][info.month - 1] || `${info.month}月`;
+        const dayText = __tmFormatTaskRepeatLunarDay(info.day);
+        const leap = info.isLeap ? '闰' : '';
+        return repeatType === 'yearly'
+            ? `农历每年（${leap}${monthText}${dayText}）`
+            : `农历每月（${dayText}）`;
     }
 
     function __tmIsRecurringInstanceTask(task) {

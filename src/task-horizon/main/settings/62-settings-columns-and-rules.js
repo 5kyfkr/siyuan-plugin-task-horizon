@@ -123,9 +123,17 @@
         const options = SettingsStore.data.customStatusOptions || [];
         const compatMode = __tmIsLegacyWin7CompatMode();
         const markerInputTitle = compatMode
-            ? '兼容模式下旧版思源仅支持空格和 X；未完成状态统一为空格，完成状态为 X。'
-            : '写入任务 - [ ] 方括号中的单字节字符；空格表示未完成，其他字符会被思源视为已勾选。';
-        const rows = options.map((opt, index) => {
+            ? '兼容模式下旧版思源仅支持空格和 X；未完成状态的语法标记统一为空格，完成状态为 X。'
+            : '写入任务 - [ ] 方括号中的单字节语法标记；空格表示未完成，其他字符会被思源视为已勾选。';
+        const rows = [`
+            <div style="display: flex; align-items: center; gap: 6px; margin: 2px 0 6px; flex-wrap: wrap; color: var(--tm-secondary-text); font-size: 12px; font-weight: 600;">
+                <span style="width: 24px; min-width: 24px;"></span>
+                <span style="width: 100px;">状态名</span>
+                <span style="width: 120px;">属性名</span>
+                <span style="width: 56px; text-align: center;">语法标记</span>
+            </div>
+        `];
+        rows.push(...options.map((opt, index) => {
             const displayMarker = __tmGetCompatStatusOptionMarker(opt);
             return `
             <div style="display: flex; align-items: center; gap: 6px; margin-bottom: 6px; flex-wrap: wrap;">
@@ -145,7 +153,7 @@
                 </div>
                 <button class="tm-btn tm-btn-danger" onclick="deleteStatusOption(${index})" style="padding: 2px 6px; font-size: 11px;">删除</button>
             </div>
-        `; });
+        `; }));
         const draft = __tmGetStatusOptionDraft();
         if (draft) {
             rows.push(`
@@ -404,6 +412,12 @@
         __tmNormalizeCheckboxStatusBindingConfig(SettingsStore.data);
         await SettingsStore.save();
         render();
+    };
+
+    window.updateAutoCompleteParentOnSubtasksDone = async function(enabled) {
+        SettingsStore.data.autoCompleteParentOnSubtasksDone = !!enabled;
+        await SettingsStore.save();
+        showSettings();
     };
 
     window.updateStatusOption = async function(index, field, value) {

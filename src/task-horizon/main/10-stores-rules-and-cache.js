@@ -1966,10 +1966,18 @@
                 feed('__other__');
                 (Array.isArray(state?.otherBlocks) ? state.otherBlocks : []).forEach((task, index) => walk(task, '__other__', '', index));
             } else {
+                const customGroupDocIds = (typeof __tmGetActiveDocTabCustomGroupDocIdSet === 'function')
+                    ? __tmGetActiveDocTabCustomGroupDocIdSet(activeDocId, {
+                        currentGroupId: SettingsStore?.data?.currentGroupId || 'all',
+                        docs: state?.taskTree || []
+                    })
+                    : null;
+                const isCustomGroup = customGroupDocIds instanceof Set && customGroupDocIds.size > 0;
                 const docs = Array.isArray(state?.taskTree) ? state.taskTree : [];
                 docs.forEach((doc, index) => {
                     const docId = String(doc?.id || '').trim();
-                    if (activeDocId !== 'all' && docId !== activeDocId) return;
+                    if (isCustomGroup && !customGroupDocIds.has(docId)) return;
+                    if (!isCustomGroup && activeDocId !== 'all' && docId !== activeDocId) return;
                     scanDoc(doc, index);
                 });
                 if (activeDocId === 'all') {
@@ -4321,6 +4329,7 @@
         'defaultDocIdByGroup',
         'allDocsExcludedDocIds',
         'docGroups',
+        'docTabCustomGroups',
         'otherBlockRefs',
         'docPinnedByGroup',
         'collapsedTaskIds',
@@ -4491,104 +4500,125 @@
         }).filter(Boolean);
     }
 
-    function __tmMergeWhiteboardLinkArrays(remoteInput, localInput) {
-        const out = new Map();
-        const push = (list) => {
-            __tmNormalizeWhiteboardLinkArray(list).forEach((link) => {
-                const semanticKey = `${link.docId}::${link.from}->${link.to}`;
-                const prev = out.get(semanticKey);
-                if (!prev) {
-                    out.set(semanticKey, link);
-                    return;
-                }
-                const prevTs = __tmParseUpdatedAtNumber(prev.createdAt);
-                const nextTs = __tmParseUpdatedAtNumber(link.createdAt);
-                if (nextTs >= prevTs) out.set(semanticKey, link);
-            });
-        };
-        push(remoteInput);
-        push(localInput);
-        return Array.from(out.values());
-    }
-
-    function __tmMergeTimestampedObjectMaps(remoteInput, localInput) {
-        const remote = (remoteInput && typeof remoteInput === 'object' && !Array.isArray(remoteInput)) ? remoteInput : {};
-        const local = (localInput && typeof localInput === 'object' && !Array.isArray(localInput)) ? localInput : {};
+    function __tmNormalizeWhiteboardNodePosMap(input) {
+        const raw = (input && typeof input === 'object' && !Array.isArray(input)) ? input : {};
         const out = {};
-        const ids = new Set([...Object.keys(remote), ...Object.keys(local)]);
-        ids.forEach((id0) => {
-            const id = String(id0 || '').trim();
+        Object.keys(raw).forEach((k) => {
+            const id = String(k || '').trim();
             if (!id) return;
-            const rv = remote[id];
-            const lv = local[id];
-            if (rv == null && lv == null) return;
-            if (rv == null) {
-                out[id] = __tmCloneJsonSafe(lv, lv);
-                return;
-            }
-            if (lv == null) {
-                out[id] = __tmCloneJsonSafe(rv, rv);
-                return;
-            }
-            const rTs = __tmParseUpdatedAtNumber(rv?.updatedAt);
-            const lTs = __tmParseUpdatedAtNumber(lv?.updatedAt);
-            out[id] = __tmCloneJsonSafe(lTs >= rTs ? lv : rv, lTs >= rTs ? lv : rv);
+            const item = raw[k];
+            if (!item || typeof item !== 'object') return;
+            const docId = String(item.docId || '').trim();
+            const x = Number(item.x);
+            const y = Number(item.y);
+            if (!docId || !Number.isFinite(x) || !Number.isFinite(y)) return;
+            out[id] = {
+                docId,
+                x: Math.round(x),
+                y: Math.round(y),
+                manual: item.manual === true,
+                updatedAt: String(item.updatedAt || Date.now()),
+            };
         });
         return out;
     }
 
-    function __tmMergeWhiteboardNotes(remoteInput, localInput) {
-        const out = new Map();
-        const push = (list) => {
-            const arr = Array.isArray(list) ? list : [];
-            arr.forEach((item, index) => {
-                const note = (item && typeof item === 'object') ? item : {};
-                const id = String(note.id || '').trim() || `note_${index}`;
-                const prev = out.get(id);
-                if (!prev) {
-                    out.set(id, __tmCloneJsonSafe({ ...note, id }, { ...note, id }));
-                    return;
-                }
-                const prevTs = Math.max(__tmParseUpdatedAtNumber(prev.updatedAt), __tmParseUpdatedAtNumber(prev.createdAt));
-                const nextTs = Math.max(__tmParseUpdatedAtNumber(note.updatedAt), __tmParseUpdatedAtNumber(note.createdAt));
-                if (nextTs >= prevTs) out.set(id, __tmCloneJsonSafe({ ...note, id }, { ...note, id }));
-            });
-        };
-        push(remoteInput);
-        push(localInput);
-        return Array.from(out.values());
-    }
-
-    function __tmMergeWhiteboardPlacedTaskIds(remoteInput, localInput) {
-        const remote = (remoteInput && typeof remoteInput === 'object' && !Array.isArray(remoteInput)) ? remoteInput : {};
-        const local = (localInput && typeof localInput === 'object' && !Array.isArray(localInput)) ? localInput : {};
+    function __tmNormalizeWhiteboardPlacedTaskIds(input) {
+        const raw = (input && typeof input === 'object' && !Array.isArray(input)) ? input : {};
         const out = {};
-        [...Object.keys(remote), ...Object.keys(local)].forEach((id0) => {
-            const id = String(id0 || '').trim();
-            if (!id) return;
-            if (remote[id] || local[id]) out[id] = true;
+        Object.keys(raw).forEach((k) => {
+            const id = String(k || '').trim();
+            if (id && raw[k]) out[id] = true;
         });
         return out;
+    }
+
+    function __tmNormalizeWhiteboardDetachedChildrenMap(input) {
+        const raw = (input && typeof input === 'object' && !Array.isArray(input)) ? input : {};
+        const out = {};
+        Object.keys(raw).forEach((k) => {
+            const id = String(k || '').trim();
+            if (!id) return;
+            const item = raw[k];
+            if (item && typeof item === 'object' && item.detached === true) {
+                out[id] = {
+                    ...__tmCloneJsonSafe(item, item),
+                    detached: true,
+                    parentTaskId: String(item.parentTaskId || '').trim(),
+                    updatedAt: String(item.updatedAt || Date.now()),
+                };
+            } else if (item === true) {
+                out[id] = { detached: true, manual: true, parentTaskId: '', updatedAt: String(Date.now()) };
+            }
+        });
+        return out;
+    }
+
+    function __tmNormalizeWhiteboardNoteArray(input) {
+        const list = Array.isArray(input) ? input : [];
+        return list.map((item, index) => {
+            if (!item || typeof item !== 'object') return null;
+            const note = __tmCloneJsonSafe(item, item);
+            const id = String(note.id || '').trim() || `note_${index}`;
+            note.id = id;
+            note.updatedAt = String(note.updatedAt || note.createdAt || Date.now());
+            return note;
+        }).filter(Boolean);
+    }
+
+    function __tmNormalizeWhiteboardDocFrameSizeMap(input) {
+        const raw = (input && typeof input === 'object' && !Array.isArray(input)) ? input : {};
+        const out = {};
+        Object.keys(raw).forEach((k) => {
+            const id = String(k || '').trim();
+            if (!id) return;
+            const item = raw[k];
+            const w = Number(item?.w);
+            const h = Number(item?.h);
+            if (!Number.isFinite(w) || !Number.isFinite(h)) return;
+            out[id] = {
+                w: Math.max(520, Math.round(w)),
+                h: Math.max(220, Math.round(h)),
+                updatedAt: String(item?.updatedAt || Date.now()),
+            };
+        });
+        return out;
+    }
+
+    function __tmNormalizeWhiteboardAllTabsDocOrderMap(input) {
+        const raw = (input && typeof input === 'object' && !Array.isArray(input)) ? input : {};
+        const out = {};
+        Object.keys(raw).forEach((k) => {
+            const gid = String(k || '').trim() || 'all';
+            const ids = Array.isArray(raw[k]) ? raw[k] : [];
+            const nextIds = Array.from(new Set(ids.map((id) => String(id || '').trim()).filter(Boolean)));
+            if (nextIds.length > 0) out[gid] = nextIds;
+        });
+        return out;
+    }
+
+    function __tmIsPlainObjectWithKeys(value) {
+        return !!(value && typeof value === 'object' && !Array.isArray(value) && Object.keys(value).length > 0);
     }
 
     function __tmBuildWhiteboardSettingsState(data) {
         const src = (data && typeof data === 'object') ? data : {};
         return {
             whiteboardStateVersion: __tmParseVersionNumber(src.whiteboardStateVersion),
-            whiteboardLinks: __tmCloneJsonSafe(src.whiteboardLinks || [], []),
-            whiteboardDetachedChildren: __tmCloneJsonSafe(src.whiteboardDetachedChildren || {}, {}),
-            whiteboardNotes: __tmCloneJsonSafe(src.whiteboardNotes || [], []),
+            whiteboardLinks: __tmNormalizeWhiteboardLinkArray(src.whiteboardLinks),
+            whiteboardDetachedChildren: __tmNormalizeWhiteboardDetachedChildrenMap(src.whiteboardDetachedChildren),
+            whiteboardNotes: __tmNormalizeWhiteboardNoteArray(src.whiteboardNotes),
             whiteboardTool: String(src.whiteboardTool || 'pan').trim() || 'pan',
             whiteboardSidebarCollapsed: !!src.whiteboardSidebarCollapsed,
             whiteboardSidebarWidth: Number(src.whiteboardSidebarWidth) || 300,
             whiteboardShowDone: !!src.whiteboardShowDone,
             whiteboardCardFields: __tmCloneJsonSafe(src.whiteboardCardFields || [], []),
             whiteboardView: __tmCloneJsonSafe(src.whiteboardView || { x: 64, y: 40, zoom: 1 }, { x: 64, y: 40, zoom: 1 }),
-            whiteboardNodePos: __tmCloneJsonSafe(src.whiteboardNodePos || {}, {}),
-            whiteboardPlacedTaskIds: __tmCloneJsonSafe(src.whiteboardPlacedTaskIds || {}, {}),
-            whiteboardDocFrameSize: __tmCloneJsonSafe(src.whiteboardDocFrameSize || {}, {}),
+            whiteboardNodePos: __tmNormalizeWhiteboardNodePosMap(src.whiteboardNodePos),
+            whiteboardPlacedTaskIds: __tmNormalizeWhiteboardPlacedTaskIds(src.whiteboardPlacedTaskIds),
+            whiteboardDocFrameSize: __tmNormalizeWhiteboardDocFrameSizeMap(src.whiteboardDocFrameSize),
             whiteboardAllTabsLayoutMode: String(src.whiteboardAllTabsLayoutMode || 'board').trim() || 'board',
-            whiteboardAllTabsDocOrderByGroup: __tmCloneJsonSafe(src.whiteboardAllTabsDocOrderByGroup || {}, {}),
+            whiteboardAllTabsDocOrderByGroup: __tmNormalizeWhiteboardAllTabsDocOrderMap(src.whiteboardAllTabsDocOrderByGroup),
             whiteboardSequenceMode: !!src.whiteboardSequenceMode,
         };
     }
@@ -4599,6 +4629,50 @@
         } catch (e) {
             return '';
         }
+    }
+
+    function __tmHasWhiteboardSettingsContent(data) {
+        const state = __tmBuildWhiteboardSettingsState(data);
+        if (Array.isArray(state.whiteboardLinks) && state.whiteboardLinks.length) return true;
+        if (Array.isArray(state.whiteboardNotes) && state.whiteboardNotes.length) return true;
+        return [
+            state.whiteboardDetachedChildren,
+            state.whiteboardNodePos,
+            state.whiteboardPlacedTaskIds,
+            state.whiteboardDocFrameSize,
+            state.whiteboardAllTabsDocOrderByGroup,
+        ].some((item) => item && typeof item === 'object' && !Array.isArray(item) && Object.keys(item).length > 0);
+    }
+
+    function __tmHasWhiteboardSettingsPayload(data) {
+        const src = (data && typeof data === 'object') ? data : null;
+        if (!src) return false;
+        return Object.prototype.hasOwnProperty.call(src, 'whiteboardStateVersion')
+            || Object.prototype.hasOwnProperty.call(src, 'whiteboardLinks')
+            || Object.prototype.hasOwnProperty.call(src, 'whiteboardNotes')
+            || Object.prototype.hasOwnProperty.call(src, 'whiteboardNodePos')
+            || Object.prototype.hasOwnProperty.call(src, 'whiteboardPlacedTaskIds')
+            || Object.prototype.hasOwnProperty.call(src, 'whiteboardDocFrameSize')
+            || Object.prototype.hasOwnProperty.call(src, 'whiteboardAllTabsDocOrderByGroup');
+    }
+
+    function __tmShouldUseRemoteWhiteboardSettings(remoteData, localData, loadedVersion = 0, localChanged = false) {
+        const remote = (remoteData && typeof remoteData === 'object') ? remoteData : null;
+        if (!remote || !__tmHasWhiteboardSettingsPayload(remote)) return false;
+        if (localChanged) return false;
+        const remoteVersion = __tmParseVersionNumber(remote.whiteboardStateVersion);
+        const baseVersion = __tmParseVersionNumber(loadedVersion);
+        if (remoteVersion > baseVersion) return true;
+        if (remoteVersion < baseVersion) return false;
+        return baseVersion <= 0
+            && !__tmHasWhiteboardSettingsContent(localData)
+            && __tmHasWhiteboardSettingsContent(remote);
+    }
+
+    function __tmAssignWhiteboardSettingsState(target, source) {
+        const out = (target && typeof target === 'object') ? target : {};
+        Object.assign(out, __tmBuildWhiteboardSettingsState(source));
+        return out;
     }
 
     function __tmBuildCollapsedSessionState(data) {
@@ -4642,46 +4716,6 @@
             || __tmParseUpdatedAtNumber(src.settingsUpdatedAt);
     }
 
-    function __tmMergeWhiteboardSettingsState(remoteData, localData) {
-        const remote = __tmBuildWhiteboardSettingsState(remoteData);
-        const local = __tmBuildWhiteboardSettingsState(localData);
-        return {
-            whiteboardStateVersion: Math.max(__tmParseVersionNumber(remote.whiteboardStateVersion), __tmParseVersionNumber(local.whiteboardStateVersion)),
-            whiteboardLinks: __tmMergeWhiteboardLinkArrays(remote.whiteboardLinks, local.whiteboardLinks),
-            whiteboardDetachedChildren: __tmMergeTimestampedObjectMaps(remote.whiteboardDetachedChildren, local.whiteboardDetachedChildren),
-            whiteboardNotes: __tmMergeWhiteboardNotes(remote.whiteboardNotes, local.whiteboardNotes),
-            whiteboardTool: String(local.whiteboardTool || remote.whiteboardTool || 'pan').trim() || 'pan',
-            whiteboardSidebarCollapsed: local.whiteboardSidebarCollapsed,
-            whiteboardSidebarWidth: Number(local.whiteboardSidebarWidth) || Number(remote.whiteboardSidebarWidth) || 300,
-            whiteboardShowDone: local.whiteboardShowDone,
-            whiteboardCardFields: __tmCloneJsonSafe(local.whiteboardCardFields || remote.whiteboardCardFields || [], []),
-            whiteboardView: __tmCloneJsonSafe(local.whiteboardView || remote.whiteboardView || { x: 64, y: 40, zoom: 1 }, { x: 64, y: 40, zoom: 1 }),
-            whiteboardNodePos: __tmMergeTimestampedObjectMaps(remote.whiteboardNodePos, local.whiteboardNodePos),
-            whiteboardPlacedTaskIds: __tmMergeWhiteboardPlacedTaskIds(remote.whiteboardPlacedTaskIds, local.whiteboardPlacedTaskIds),
-            whiteboardDocFrameSize: __tmMergeTimestampedObjectMaps(remote.whiteboardDocFrameSize, local.whiteboardDocFrameSize),
-            whiteboardAllTabsLayoutMode: String(local.whiteboardAllTabsLayoutMode || remote.whiteboardAllTabsLayoutMode || 'board').trim() || 'board',
-            whiteboardAllTabsDocOrderByGroup: {
-                ...__tmCloneJsonSafe(remote.whiteboardAllTabsDocOrderByGroup || {}, {}),
-                ...__tmCloneJsonSafe(local.whiteboardAllTabsDocOrderByGroup || {}, {}),
-            },
-            whiteboardSequenceMode: !!(local.whiteboardSequenceMode || remote.whiteboardSequenceMode),
-        };
-    }
-
-    function __tmApplyMergedWhiteboardContentState(target, remoteData) {
-        const out = (target && typeof target === 'object') ? target : {};
-        const merged = __tmMergeWhiteboardSettingsState(remoteData, out);
-        out.whiteboardStateVersion = merged.whiteboardStateVersion;
-        out.whiteboardLinks = merged.whiteboardLinks;
-        out.whiteboardDetachedChildren = merged.whiteboardDetachedChildren;
-        out.whiteboardNotes = merged.whiteboardNotes;
-        out.whiteboardNodePos = merged.whiteboardNodePos;
-        out.whiteboardPlacedTaskIds = merged.whiteboardPlacedTaskIds;
-        out.whiteboardDocFrameSize = merged.whiteboardDocFrameSize;
-        out.whiteboardAllTabsDocOrderByGroup = merged.whiteboardAllTabsDocOrderByGroup;
-        return out;
-    }
-
     function __tmNormalizeWhiteboardStoreData(input) {
         const raw = (input && typeof input === 'object') ? input : {};
         const cards0 = (raw.cards && typeof raw.cards === 'object' && !Array.isArray(raw.cards)) ? raw.cards : {};
@@ -4712,22 +4746,117 @@
                 updatedAt: String(v.updatedAt || Date.now()),
             };
         });
-        return {
+        const out = {
             version: __tmParseVersionNumber(raw.version),
             cards,
             links: __tmNormalizeWhiteboardLinkArray(raw.links),
+            nodePos: __tmNormalizeWhiteboardNodePosMap(raw.nodePos || raw.whiteboardNodePos),
+            placedTaskIds: __tmNormalizeWhiteboardPlacedTaskIds(raw.placedTaskIds || raw.whiteboardPlacedTaskIds),
+            detachedChildren: __tmNormalizeWhiteboardDetachedChildrenMap(raw.detachedChildren || raw.whiteboardDetachedChildren),
+            notes: __tmNormalizeWhiteboardNoteArray(raw.notes || raw.whiteboardNotes),
+            docFrameSize: __tmNormalizeWhiteboardDocFrameSizeMap(raw.docFrameSize || raw.whiteboardDocFrameSize),
+            allTabsDocOrderByGroup: __tmNormalizeWhiteboardAllTabsDocOrderMap(raw.allTabsDocOrderByGroup || raw.whiteboardAllTabsDocOrderByGroup),
         };
+        const updatedAt = String(raw.updatedAt || '').trim();
+        if (updatedAt) out.updatedAt = updatedAt;
+        return out;
     }
 
-    function __tmMergeWhiteboardStoreData(remoteInput, localInput) {
-        const remote = __tmNormalizeWhiteboardStoreData(remoteInput);
-        const local = __tmNormalizeWhiteboardStoreData(localInput);
-        const cards = __tmMergeTimestampedObjectMaps(remote.cards, local.cards);
-        return {
-            version: Math.max(remote.version, local.version),
-            cards,
-            links: __tmMergeWhiteboardLinkArrays(remote.links, local.links),
-        };
+    function __tmBuildWhiteboardStoreDataFromSettings(settingsData, baseData = null) {
+        const base = __tmNormalizeWhiteboardStoreData(baseData || {});
+        const settings = __tmBuildWhiteboardSettingsState(settingsData || {});
+        return __tmNormalizeWhiteboardStoreData({
+            ...base,
+            links: settings.whiteboardLinks,
+            nodePos: settings.whiteboardNodePos,
+            placedTaskIds: settings.whiteboardPlacedTaskIds,
+            detachedChildren: settings.whiteboardDetachedChildren,
+            notes: settings.whiteboardNotes,
+            docFrameSize: settings.whiteboardDocFrameSize,
+            allTabsDocOrderByGroup: settings.whiteboardAllTabsDocOrderByGroup,
+        });
+    }
+
+    function __tmFillWhiteboardStoreMissingFieldsFromSettings(storeData, settingsData) {
+        const raw = (storeData && typeof storeData === 'object') ? storeData : {};
+        const rawVersion = __tmParseVersionNumber(raw.version);
+        const hasField = (...keys) => keys.some((key) => Object.prototype.hasOwnProperty.call(raw, key));
+        const next = __tmNormalizeWhiteboardStoreData(storeData || {});
+        const settings = __tmBuildWhiteboardSettingsState(settingsData || {});
+        if ((!hasField('links', 'whiteboardLinks') || rawVersion <= 0) && !next.links.length && settings.whiteboardLinks.length) next.links = settings.whiteboardLinks;
+        if ((!hasField('nodePos', 'whiteboardNodePos') || rawVersion <= 0) && !__tmIsPlainObjectWithKeys(next.nodePos) && __tmIsPlainObjectWithKeys(settings.whiteboardNodePos)) next.nodePos = settings.whiteboardNodePos;
+        if ((!hasField('placedTaskIds', 'whiteboardPlacedTaskIds') || rawVersion <= 0) && !__tmIsPlainObjectWithKeys(next.placedTaskIds) && __tmIsPlainObjectWithKeys(settings.whiteboardPlacedTaskIds)) next.placedTaskIds = settings.whiteboardPlacedTaskIds;
+        if ((!hasField('detachedChildren', 'whiteboardDetachedChildren') || rawVersion <= 0) && !__tmIsPlainObjectWithKeys(next.detachedChildren) && __tmIsPlainObjectWithKeys(settings.whiteboardDetachedChildren)) next.detachedChildren = settings.whiteboardDetachedChildren;
+        if ((!hasField('notes', 'whiteboardNotes') || rawVersion <= 0) && !next.notes.length && settings.whiteboardNotes.length) next.notes = settings.whiteboardNotes;
+        if ((!hasField('docFrameSize', 'whiteboardDocFrameSize') || rawVersion <= 0) && !__tmIsPlainObjectWithKeys(next.docFrameSize) && __tmIsPlainObjectWithKeys(settings.whiteboardDocFrameSize)) next.docFrameSize = settings.whiteboardDocFrameSize;
+        if ((!hasField('allTabsDocOrderByGroup', 'whiteboardAllTabsDocOrderByGroup') || rawVersion <= 0) && !__tmIsPlainObjectWithKeys(next.allTabsDocOrderByGroup) && __tmIsPlainObjectWithKeys(settings.whiteboardAllTabsDocOrderByGroup)) next.allTabsDocOrderByGroup = settings.whiteboardAllTabsDocOrderByGroup;
+        return __tmNormalizeWhiteboardStoreData(next);
+    }
+
+    function __tmApplyWhiteboardStoreDataToSettings(storeData, settingsData) {
+        const target = (settingsData && typeof settingsData === 'object') ? settingsData : {};
+        const state = __tmNormalizeWhiteboardStoreData(storeData || {});
+        target.whiteboardLinks = state.links;
+        target.whiteboardNodePos = state.nodePos;
+        target.whiteboardPlacedTaskIds = state.placedTaskIds;
+        target.whiteboardDetachedChildren = state.detachedChildren;
+        target.whiteboardNotes = state.notes;
+        target.whiteboardDocFrameSize = state.docFrameSize;
+        target.whiteboardAllTabsDocOrderByGroup = state.allTabsDocOrderByGroup;
+        target.whiteboardStateVersion = Math.max(
+            __tmParseVersionNumber(target.whiteboardStateVersion),
+            __tmParseVersionNumber(state.version)
+        );
+        return target;
+    }
+
+    function __tmGetWhiteboardStoreFingerprint(data) {
+        try {
+            const state = __tmNormalizeWhiteboardStoreData(data);
+            delete state.updatedAt;
+            return JSON.stringify(state);
+        } catch (e) {
+            return '';
+        }
+    }
+
+    function __tmHasWhiteboardStoreContent(data) {
+        const state = __tmNormalizeWhiteboardStoreData(data);
+        return Object.keys(state.cards || {}).length > 0
+            || (Array.isArray(state.links) && state.links.length > 0)
+            || __tmIsPlainObjectWithKeys(state.nodePos)
+            || __tmIsPlainObjectWithKeys(state.placedTaskIds)
+            || __tmIsPlainObjectWithKeys(state.detachedChildren)
+            || (Array.isArray(state.notes) && state.notes.length > 0)
+            || __tmIsPlainObjectWithKeys(state.docFrameSize)
+            || __tmIsPlainObjectWithKeys(state.allTabsDocOrderByGroup);
+    }
+
+    function __tmHasWhiteboardStorePayload(data) {
+        const src = (data && typeof data === 'object') ? data : null;
+        if (!src) return false;
+        return Object.prototype.hasOwnProperty.call(src, 'version')
+            || Object.prototype.hasOwnProperty.call(src, 'cards')
+            || Object.prototype.hasOwnProperty.call(src, 'links')
+            || Object.prototype.hasOwnProperty.call(src, 'nodePos')
+            || Object.prototype.hasOwnProperty.call(src, 'placedTaskIds')
+            || Object.prototype.hasOwnProperty.call(src, 'detachedChildren')
+            || Object.prototype.hasOwnProperty.call(src, 'notes')
+            || Object.prototype.hasOwnProperty.call(src, 'docFrameSize')
+            || Object.prototype.hasOwnProperty.call(src, 'allTabsDocOrderByGroup');
+    }
+
+    function __tmShouldUseRemoteWhiteboardStoreData(remoteData, localData, loadedVersion = 0, localChanged = false) {
+        const remote = (remoteData && typeof remoteData === 'object') ? remoteData : null;
+        if (!remote || !__tmHasWhiteboardStorePayload(remote)) return false;
+        if (localChanged) return false;
+        const remoteVersion = __tmParseVersionNumber(remote.version);
+        const baseVersion = __tmParseVersionNumber(loadedVersion);
+        if (remoteVersion > baseVersion) return true;
+        if (remoteVersion < baseVersion) return false;
+        return baseVersion <= 0
+            && !__tmHasWhiteboardStoreContent(localData)
+            && __tmHasWhiteboardStoreContent(remote);
     }
 
     function __tmGetTaskHeadingColumnLabel() {
@@ -6158,6 +6287,8 @@
             viewProfiles: {
                 global: { ruleId: null, groupMode: 'doc' },
                 allTabs: {},
+                docTabGroups: {},
+                docTabGroupAllTabs: {},
                 groups: {},
                 docs: {}
             },
@@ -6301,6 +6432,7 @@
             customDurationOptions: [],
             checkboxDoneStatusId: 'done',
             checkboxUndoneStatusId: 'todo',
+            autoCompleteParentOnSubtasksDone: false,
             customFieldDefs: [],
             customFieldDefsVersion: 0,
             taskMetaAttrKeys: {},
@@ -6314,6 +6446,9 @@
             // 文档页签钉住（按分组存储）
             // 结构: { [groupId]: ['docId1', 'docId2'] }
             docPinnedByGroup: {},
+            // 文档页签自定义分组
+            // 结构: [{ id: 'uuid', name: '分组名', entries: [{ id: 'docId', includeChildren: boolean }] }]
+            docTabCustomGroups: [],
             // 文档页签排序：created_desc | created_asc | deadline_desc | deadline_asc | name_asc | name_desc
             docTabSortMode: 'created_desc',
             // 文档显示名称：name | alias
@@ -6600,8 +6735,10 @@
             return payload;
         },
 
-        async load() {
+        async load(options = {}) {
             if (this.loaded) return;
+            const opt = (options && typeof options === 'object') ? options : {};
+            const preferRemoteWhiteboardSameVersion = opt.preferRemoteWhiteboardSameVersion === true;
 
             // 先从本地缓存加载一份作为兜底（避免云端旧版本配置缺字段导致覆盖丢失）
             // 云端数据存在时，再用云端字段覆盖本地字段
@@ -6635,6 +6772,10 @@
                                 const cloudCollapseUpdatedAt = __tmGetCollapsedSessionUpdatedAt(cloudData);
                                 const localWhiteboardStateVersion = __tmParseVersionNumber(this.data.whiteboardStateVersion);
                                 const cloudWhiteboardStateVersion = __tmParseVersionNumber(cloudData.whiteboardStateVersion);
+                                const shouldApplyCloudWhiteboardState = __tmShouldUseRemoteWhiteboardSettings(cloudData, localSettingsBeforeCloud, localWhiteboardStateVersion, false)
+                                    || (preferRemoteWhiteboardSameVersion
+                                        && cloudWhiteboardStateVersion >= localWhiteboardStateVersion
+                                        && __tmHasWhiteboardSettingsPayload(cloudData));
                                 const localCustomFieldDefsVersion = __tmParseVersionNumber(this.data.customFieldDefsVersion);
                                 const cloudCustomFieldDefsVersion = __tmParseVersionNumber(cloudData.customFieldDefsVersion);
                                 const resolvedCustomFieldSchema = __tmResolveCustomFieldDefsOnLoad(
@@ -6657,8 +6798,8 @@
                                         });
                                     }
                                     __tmApplySettingsFieldUpdatesByMap(this.data, cloudData);
-                                    if (cloudWhiteboardStateVersion > localWhiteboardStateVersion) {
-                                        __tmApplyMergedWhiteboardContentState(this.data, cloudData);
+                                    if (shouldApplyCloudWhiteboardState) {
+                                        __tmAssignWhiteboardSettingsState(this.data, cloudData);
                                     }
                                     {
                                         const cloudTreeGuidesUpdatedAt = __tmParseUpdatedAtNumber(cloudData.checklistCompactTreeGuidesUpdatedAt)
@@ -6880,6 +7021,7 @@
                                 if (cloudData.priorityScoreConfig && typeof cloudData.priorityScoreConfig === 'object') this.data.priorityScoreConfig = cloudData.priorityScoreConfig;
                                 if (cloudData.quadrantConfig && typeof cloudData.quadrantConfig === 'object') this.data.quadrantConfig = cloudData.quadrantConfig;
                                 if (shouldApplyCloudDocGroupState && Array.isArray(cloudData.docGroups)) this.data.docGroups = cloudData.docGroups;
+                                if (shouldApplyCloudDocGroupState && Array.isArray(cloudData.docTabCustomGroups)) this.data.docTabCustomGroups = __tmNormalizeDocTabCustomGroups(cloudData.docTabCustomGroups);
                                 if (shouldApplyCloudDocGroupState && Array.isArray(cloudData.otherBlockRefs)) this.data.otherBlockRefs = cloudData.otherBlockRefs;
                                 if (shouldApplyCloudDocGroupState && cloudData.docPinnedByGroup && typeof cloudData.docPinnedByGroup === 'object') this.data.docPinnedByGroup = cloudData.docPinnedByGroup;
                                 if (cloudData.currentGroupId) this.data.currentGroupId = cloudData.currentGroupId;
@@ -6935,6 +7077,7 @@
                                 if (Array.isArray(cloudData.customDurationOptions)) this.data.customDurationOptions = cloudData.customDurationOptions;
                                 if (typeof cloudData.checkboxDoneStatusId === 'string') this.data.checkboxDoneStatusId = cloudData.checkboxDoneStatusId;
                                 if (typeof cloudData.checkboxUndoneStatusId === 'string') this.data.checkboxUndoneStatusId = cloudData.checkboxUndoneStatusId;
+                                if (typeof cloudData.autoCompleteParentOnSubtasksDone === 'boolean') this.data.autoCompleteParentOnSubtasksDone = cloudData.autoCompleteParentOnSubtasksDone;
                                 if (cloudData.taskMetaAttrKeys && typeof cloudData.taskMetaAttrKeys === 'object') this.data.taskMetaAttrKeys = __tmNormalizeTaskMetaAttrKeySettings(cloudData.taskMetaAttrKeys);
                                 if (cloudData.taskMetaAttrKeyAliases && typeof cloudData.taskMetaAttrKeyAliases === 'object') this.data.taskMetaAttrKeyAliases = __tmNormalizeTaskMetaAttrAliasSettings(cloudData.taskMetaAttrKeyAliases);
                                 this.data.customFieldDefs = resolvedCustomFieldSchema.defs;
@@ -6969,7 +7112,6 @@
                                 if (typeof cloudData.completedTasksInlineInGroups === 'boolean') this.data.completedTasksInlineInGroups = cloudData.completedTasksInlineInGroups;
                                 if (typeof cloudData.collapseAllIncludesGroups === 'boolean') this.data.collapseAllIncludesGroups = cloudData.collapseAllIncludesGroups;
                                 if (typeof cloudData.enableGroupTaskBgByGroupColor === 'boolean') this.data.enableGroupTaskBgByGroupColor = cloudData.enableGroupTaskBgByGroupColor;
-                                __tmApplyMergedWhiteboardContentState(this.data, cloudData);
                                 if (typeof cloudData.whiteboardAutoConnectByCreated === 'boolean') this.data.whiteboardAutoConnectByCreated = cloudData.whiteboardAutoConnectByCreated;
                                 if (typeof cloudData.whiteboardTool === 'string') this.data.whiteboardTool = cloudData.whiteboardTool;
                                 if (typeof cloudData.whiteboardSidebarCollapsed === 'boolean') this.data.whiteboardSidebarCollapsed = cloudData.whiteboardSidebarCollapsed;
@@ -6980,6 +7122,7 @@
                                 if (typeof cloudData.whiteboardAutoLayout === 'boolean') this.data.whiteboardAutoLayout = cloudData.whiteboardAutoLayout;
                                 if (typeof cloudData.whiteboardAllTabsLayoutMode === 'string') this.data.whiteboardAllTabsLayoutMode = cloudData.whiteboardAllTabsLayoutMode;
                                 if (typeof cloudData.whiteboardSequenceMode === 'boolean') this.data.whiteboardSequenceMode = cloudData.whiteboardSequenceMode;
+                                __tmAssignWhiteboardSettingsState(this.data, shouldApplyCloudWhiteboardState ? cloudData : localSettingsBeforeCloud);
                                 if (cloudData.docColorMap && typeof cloudData.docColorMap === 'object') this.data.docColorMap = cloudData.docColorMap;
                                 if (typeof cloudData.docColorSeed === 'number') this.data.docColorSeed = cloudData.docColorSeed;
                                 if (cloudData.docDefaultColorScheme && typeof cloudData.docDefaultColorScheme === 'object') this.data.docDefaultColorScheme = cloudData.docDefaultColorScheme;
@@ -7332,6 +7475,7 @@
             this.data.priorityScoreConfig = Storage.get('tm_priority_score_config', this.data.priorityScoreConfig) || this.data.priorityScoreConfig;
             this.data.quadrantConfig = Storage.get('tm_quadrant_config', this.data.quadrantConfig);
             this.data.docGroups = Storage.get('tm_doc_groups', []);
+            this.data.docTabCustomGroups = __tmNormalizeDocTabCustomGroups(Storage.get('tm_doc_tab_custom_groups', this.data.docTabCustomGroups));
             this.data.otherBlockRefs = Storage.get('tm_other_block_refs', this.data.otherBlockRefs) || [];
             this.data.docPinnedByGroup = Storage.get('tm_doc_pinned_by_group', this.data.docPinnedByGroup) || {};
             this.data.currentGroupId = Storage.get('tm_current_group_id', 'all');
@@ -7339,6 +7483,7 @@
             this.data.customDurationOptions = Storage.get('tm_custom_duration_options', this.data.customDurationOptions);
             this.data.checkboxDoneStatusId = String(Storage.get('tm_checkbox_done_status_id', this.data.checkboxDoneStatusId) || this.data.checkboxDoneStatusId || '');
             this.data.checkboxUndoneStatusId = String(Storage.get('tm_checkbox_undone_status_id', this.data.checkboxUndoneStatusId) || this.data.checkboxUndoneStatusId || '');
+            this.data.autoCompleteParentOnSubtasksDone = !!Storage.get('tm_auto_complete_parent_on_subtasks_done', this.data.autoCompleteParentOnSubtasksDone);
             this.data.customFieldDefs = Storage.get('tm_custom_field_defs', this.data.customFieldDefs) || this.data.customFieldDefs;
             this.data.customFieldDefsVersion = __tmParseVersionNumber(Storage.get('tm_custom_field_defs_version', this.data.customFieldDefsVersion));
             this.data.taskMetaAttrKeys = __tmNormalizeTaskMetaAttrKeySettings(Storage.get('tm_task_meta_attr_keys', this.data.taskMetaAttrKeys));
@@ -7763,6 +7908,7 @@
             Storage.set('tm_priority_score_config', this.data.priorityScoreConfig || {});
             Storage.set('tm_quadrant_config', this.data.quadrantConfig);
             Storage.set('tm_doc_groups', this.data.docGroups);
+            Storage.set('tm_doc_tab_custom_groups', __tmNormalizeDocTabCustomGroups(this.data.docTabCustomGroups));
             const legacyOtherBlockRefs = __tmNormalizeOtherBlockRefs(this.data.otherBlockRefs);
             if (legacyOtherBlockRefs.length > 0) Storage.set('tm_other_block_refs', legacyOtherBlockRefs);
             else Storage.remove('tm_other_block_refs');
@@ -7774,6 +7920,7 @@
             Storage.set('tm_custom_duration_options', this.data.customDurationOptions);
             Storage.set('tm_checkbox_done_status_id', String(this.data.checkboxDoneStatusId || '').trim());
             Storage.set('tm_checkbox_undone_status_id', String(this.data.checkboxUndoneStatusId || '').trim());
+            Storage.set('tm_auto_complete_parent_on_subtasks_done', !!this.data.autoCompleteParentOnSubtasksDone);
             Storage.set('tm_custom_field_defs', Array.isArray(this.data.customFieldDefs) ? this.data.customFieldDefs : []);
             Storage.set('tm_custom_field_defs_version', __tmParseVersionNumber(this.data.customFieldDefsVersion));
             this.data.taskMetaAttrKeys = __tmNormalizeTaskMetaAttrKeySettings(this.data.taskMetaAttrKeys);
@@ -7930,6 +8077,7 @@
             this.data.allDocsExcludedDocIds = __tmNormalizeDocGroupExcludedDocIds(this.data.allDocsExcludedDocIds);
             const rawDocGroups = Array.isArray(this.data.docGroups) ? this.data.docGroups : [];
             this.data.docGroups = rawDocGroups.map((group) => __tmNormalizeDocGroupConfig(group, this.data.docDefaultColorScheme)).filter(Boolean);
+            this.data.docTabCustomGroups = __tmNormalizeDocTabCustomGroups(this.data.docTabCustomGroups);
             const pinMap0 = this.data.docPinnedByGroup;
             const pinMap = (pinMap0 && typeof pinMap0 === 'object' && !Array.isArray(pinMap0)) ? pinMap0 : {};
             const normalizedPinMap = {};
@@ -8076,6 +8224,7 @@
             this.data.pointsPenaltyConfirmModalEnabled = this.data.pointsPenaltyConfirmModalEnabled !== false;
             this.data.newTaskDailyNoteAppendToBottom = !!this.data.newTaskDailyNoteAppendToBottom;
             this.data.headingGroupCreateAtSectionEnd = !!this.data.headingGroupCreateAtSectionEnd;
+            this.data.autoCompleteParentOnSubtasksDone = !!this.data.autoCompleteParentOnSubtasksDone;
             this.data.taskDetailShowCompletedSubtasks = __tmNormalizeTaskDetailShowCompletedSubtasksSetting(
                 this.data.taskDetailShowCompletedSubtasks,
                 __tmNormalizeTaskDetailShowCompletedSubtasksSetting(this.data.taskDetailCompletedSubtasksVisibilityByTask, __TM_TASK_DETAIL_SHOW_COMPLETED_SUBTASKS_DEFAULT)
@@ -8218,9 +8367,9 @@
                 if (appliedRemoteSettingFields.length) {
                     this.normalizeColumns();
                 }
-                if (remoteWhiteboardStateVersion > loadedWhiteboardStateVersion) {
-                    const mergedWhiteboardState = __tmMergeWhiteboardSettingsState(remoteSettings, this.data);
-                    Object.assign(this.data, mergedWhiteboardState);
+                const __wbSaveUseRemote = __tmShouldUseRemoteWhiteboardSettings(remoteSettings, this.data, loadedWhiteboardStateVersion, whiteboardChangedLocal);
+                if (__wbSaveUseRemote) {
+                    __tmAssignWhiteboardSettingsState(this.data, remoteSettings);
                 }
                 if (!docGroupChangedLocal && __tmShouldPreferRemoteDocGroupState(this.data, remoteSettings, {
                     localSettingsUpdatedAt: this.data.settingsUpdatedAt,
@@ -8293,6 +8442,15 @@
                         remoteWhiteboardStateVersion
                     );
                 }
+                const shouldTouchWhiteboardDataFile = whiteboardChangedLocal && [
+                    'whiteboardLinks',
+                    'whiteboardDetachedChildren',
+                    'whiteboardNotes',
+                    'whiteboardNodePos',
+                    'whiteboardPlacedTaskIds',
+                    'whiteboardDocFrameSize',
+                    'whiteboardAllTabsDocOrderByGroup',
+                ].some((key) => settingsFieldChange.changedKeys.has(key));
                 if (collapseChangedLocal) {
                     this.data.collapseStateUpdatedAt = Date.now();
                 } else {
@@ -8325,7 +8483,16 @@
                 formData.append('isDir', 'false');
                 formData.append('file', new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' }));
 
-                await fetch('/api/file/putFile', { method: 'POST', body: formData }).catch(() => null);
+                const settingsPutRes = await fetch('/api/file/putFile', { method: 'POST', body: formData }).catch(() => null);
+                const settingsPutOk = !!(settingsPutRes && settingsPutRes.ok);
+                if (shouldTouchWhiteboardDataFile && settingsPutOk) {
+                    try {
+                        if (WhiteboardStore && !WhiteboardStore.loaded) await WhiteboardStore.load?.();
+                        let touchedWhiteboardDataFile = !!WhiteboardStore?.syncFromSettings?.(this.data, 'settings-whiteboard');
+                        if (!touchedWhiteboardDataFile) touchedWhiteboardDataFile = !!WhiteboardStore?.touch?.('settings-whiteboard');
+                        if (touchedWhiteboardDataFile) await WhiteboardStore?.saveNow?.();
+                    } catch (e) {}
+                }
             } catch (e) {
             } finally {
                 this.saving = false;
@@ -8424,14 +8591,23 @@
         saveTimer: null,
         saveDirty: false,
         loadedVersion: 0,
+        lastFingerprint: '',
+        touchDirty: false,
+        touchReason: '',
 
         normalize() {
             this.data = __tmNormalizeWhiteboardStoreData(this.data);
         },
 
-        async load() {
-            if (this.loaded) return;
+        async load(options = {}) {
+            const opt = (options && typeof options === 'object') ? options : {};
+            const preferRemoteSameVersion = opt.preferRemoteSameVersion === true;
+            if (this.loaded) {
+                return;
+            }
             try { this.normalize(); } catch (e) {}
+            const localVersionBefore = __tmParseVersionNumber(this.data?.version);
+            let remoteVersion = 0;
             try {
                 const res = await fetch('/api/file/getFile', {
                     method: 'POST',
@@ -8442,15 +8618,64 @@
                     const text = await res.text();
                     if (text && text.trim()) {
                         const json = JSON.parse(text);
-                        if (json && typeof json === 'object') this.data = json;
+                        remoteVersion = __tmParseVersionNumber(json?.version);
+                        if (__tmShouldUseRemoteWhiteboardStoreData(json, this.data, localVersionBefore, false)
+                            || (preferRemoteSameVersion
+                                && remoteVersion >= localVersionBefore
+                                && __tmHasWhiteboardStorePayload(json))) {
+                            this.data = json;
+                        }
                     }
+                }
+            } catch (e) {
+            }
+            const beforeSettingsFillFingerprint = __tmGetWhiteboardStoreFingerprint(this.data);
+            try { this.data = __tmFillWhiteboardStoreMissingFieldsFromSettings(this.data, SettingsStore?.data); } catch (e) {}
+            const filledFromSettings = __tmGetWhiteboardStoreFingerprint(this.data) !== beforeSettingsFillFingerprint;
+            try {
+                if (SettingsStore?.data) {
+                    __tmApplyWhiteboardStoreDataToSettings(this.data, SettingsStore.data);
+                    SettingsStore.syncToLocal?.();
+                    SettingsStore.refreshSettingsFieldSyncState?.();
+                    SettingsStore.loadedWhiteboardStateVersion = __tmParseVersionNumber(SettingsStore.data.whiteboardStateVersion);
+                    SettingsStore.lastWhiteboardFingerprint = __tmGetWhiteboardSettingsFingerprint(SettingsStore.data);
                 }
             } catch (e) {}
             try { this.normalize(); } catch (e) {}
             try { Storage.set(WHITEBOARD_DATA_CACHE_KEY, this.data || { version: 0, cards: {}, links: [] }); } catch (e) {}
+            try { __tmClearWhiteboardCardSnapshotCache(); } catch (e) {}
             this.loaded = true;
             this.loadedVersion = __tmParseVersionNumber(this.data?.version);
+            this.lastFingerprint = filledFromSettings ? beforeSettingsFillFingerprint : __tmGetWhiteboardStoreFingerprint(this.data);
+            if (filledFromSettings) {
+                this.touchDirty = true;
+                this.touchReason = this.touchReason ? `${this.touchReason},migrate-settings` : 'migrate-settings';
+                this.scheduleSave();
+            }
             if (this.saveDirty) this.scheduleSave();
+        },
+
+        touch(reason = '') {
+            if (!this.loaded) return false;
+            try { this.normalize(); } catch (e) {}
+            this.data.updatedAt = String(Date.now());
+            this.touchDirty = true;
+            const r = String(reason || '').trim();
+            if (r) this.touchReason = this.touchReason ? `${this.touchReason},${r}` : r;
+            this.scheduleSave();
+            return true;
+        },
+
+        syncFromSettings(settingsData = null, reason = 'settings-whiteboard') {
+            if (!this.loaded) return false;
+            const before = __tmGetWhiteboardStoreFingerprint(this.data);
+            try { this.data = __tmBuildWhiteboardStoreDataFromSettings(settingsData || SettingsStore?.data || {}, this.data); } catch (e) {}
+            const after = __tmGetWhiteboardStoreFingerprint(this.data);
+            if (after === before) return false;
+            const r = String(reason || '').trim();
+            if (r) this.touchReason = this.touchReason ? `${this.touchReason},${r}` : r;
+            this.scheduleSave();
+            return true;
         },
 
         scheduleSave() {
@@ -8463,18 +8688,41 @@
         },
 
         async saveNow() {
-            if (!this.loaded) return;
+            try { if (this.saveTimer) clearTimeout(this.saveTimer); } catch (e) {}
+            this.saveTimer = null;
+            if (!this.loaded) {
+                return;
+            }
             if (this.saving) return;
             if (!this.saveDirty) return;
             this.saving = true;
             this.saveDirty = false;
+            const pendingTouchDirty = !!this.touchDirty;
+            const pendingTouchReason = String(this.touchReason || '').trim();
+            this.touchDirty = false;
+            this.touchReason = '';
+            const loadedVersionBefore = __tmParseVersionNumber(this.loadedVersion);
+            let changedLocal = false;
+            let fingerprintChangedLocal = false;
+            let remoteVersion = 0;
             try {
                 this.normalize();
+                fingerprintChangedLocal = __tmGetWhiteboardStoreFingerprint(this.data) !== String(this.lastFingerprint || '');
+                changedLocal = pendingTouchDirty || fingerprintChangedLocal;
                 const remoteData = await __tmReadJsonFile(WHITEBOARD_DATA_FILE_PATH);
-                const remoteVersion = __tmParseVersionNumber(remoteData?.version);
-                if (remoteVersion > __tmParseVersionNumber(this.loadedVersion)) {
-                    this.data = __tmMergeWhiteboardStoreData(remoteData, this.data);
+                remoteVersion = __tmParseVersionNumber(remoteData?.version);
+                const touchOnly = pendingTouchDirty && !fingerprintChangedLocal;
+                const useRemoteAsTouchBase = touchOnly
+                    && remoteVersion >= loadedVersionBefore
+                    && __tmHasWhiteboardStorePayload(remoteData);
+                if (useRemoteAsTouchBase) {
+                    this.data = __tmNormalizeWhiteboardStoreData(remoteData);
+                } else if (__tmShouldUseRemoteWhiteboardStoreData(remoteData, this.data, this.loadedVersion, changedLocal)) {
+                    this.data = __tmNormalizeWhiteboardStoreData(remoteData);
+                    try { Storage.set(WHITEBOARD_DATA_CACHE_KEY, this.data || { version: 0, cards: {}, links: [] }); } catch (e) {}
+                    return;
                 }
+                if (changedLocal) this.data.updatedAt = String(Date.now());
                 this.data.version = Math.max(
                     __tmParseVersionNumber(this.data?.version),
                     __tmParseVersionNumber(this.loadedVersion),
@@ -8496,6 +8744,7 @@
             } finally {
                 this.saving = false;
                 this.loadedVersion = __tmParseVersionNumber(this.data?.version);
+                this.lastFingerprint = __tmGetWhiteboardStoreFingerprint(this.data);
                 if (this.saveDirty) this.scheduleSave();
             }
         },

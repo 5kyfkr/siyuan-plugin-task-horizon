@@ -38,6 +38,7 @@
     const TM_DOC_GROUP_SETTING_KEYS = Object.freeze([
         'selectedDocIds',
         'docGroups',
+        'docTabCustomGroups',
         'otherBlockRefs',
         'docPinnedByGroup',
         'docTabSortMode',

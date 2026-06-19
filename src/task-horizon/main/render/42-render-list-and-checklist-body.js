@@ -301,7 +301,9 @@
                     ? __tmBuildDocGroupQuickAddBtnHtml(row.docId || row.id, '新建任务')
                     : ((row.kind === 'h2' && state.groupByDocName)
                         ? __tmBuildHeadingGroupCreateBtnHtml(row.docId, row.headingId, '在该标题下新建任务')
-                        : '');
+                        : (row.kind === 'time'
+                            ? __tmBuildTimeGroupQuickAddBtnHtml((typeof __tmIsDocTabCustomGroupActiveId === 'function' && __tmIsDocTabCustomGroupActiveId(state.activeDocId)) ? '' : state.activeDocId, row)
+                            : ''));
                 const labelHtml = row.kind === 'doc'
                     ? __tmRenderDocGroupLabel(row.docId || row.id, row.label || '')
                     : (row.kind === 'h2'
@@ -375,6 +377,7 @@
                 const multiSelectCls = isMultiSelected ? ' tm-task-row--multi-selected' : '';
                 const activeCls = String(task.id) === activeId ? ' tm-checklist-item--active' : '';
                 const doneCls = task.done ? ' tm-checklist-item--done' : '';
+                const branchLeadingCls = hasChildren ? ' tm-checklist-item--has-branch-leading' : '';
                 const reminderHtml = __tmHasReminderMark(task) ? __tmRenderReminderIcon() : '';
                 const completedTodayBadgeHtml = row?.inCompletedRootGroup === true
                     ? __tmRenderCompletedTodayBadge(task, { todayKey: completedTodayKey })
@@ -386,7 +389,8 @@
                 const statusChipStyle = __tmBuildStatusChipStyle(statusOption.color);
                 const indent = checklistCompact ? depth * 14 : depth * 22;
                 const showTaskDocName = globalThis.__tmViewPolicy?.shouldShowCompactChecklistDocName?.() ?? __tmShouldShowCompactChecklistDocName();
-                const isAllTabsView = !(state.activeDocId && state.activeDocId !== 'all');
+                const isAllTabsView = !(state.activeDocId && state.activeDocId !== 'all')
+                    || (typeof __tmIsDocTabCustomGroupActiveId === 'function' && __tmIsDocTabCustomGroupActiveId(state.activeDocId));
                 const showCompactDocName = checklistCompact && isAllTabsView && compactChecklistMetaFieldSet.has('docName') && !!task.docName;
                 const showCompactStartDate = checklistCompact && compactChecklistMetaFieldSet.has('startDate') && !!task.startDate;
                 const showCompactCompletionTime = checklistCompact && compactChecklistMetaFieldSet.has('completionTime') && !!task.completionTime;
@@ -479,7 +483,7 @@
                     : '';
                 renderedChecklistTaskCount += 1;
                 return `
-                    <div class="tm-checklist-item${activeCls}${doneCls}${timerCls}${multiSelectCls}" data-id="${esc(String(task.id || ''))}" data-depth="${depth}" ${itemDragAttrs} ondragenter="tmTaskRowDragOver(event, '${escSq(String(task.id || ''))}')" ondragover="tmTaskRowDragOver(event, '${escSq(String(task.id || ''))}')" ondragleave="tmTaskRowDragLeave(event, '${escSq(String(task.id || ''))}')" ondrop="tmTaskRowDrop(event, '${escSq(String(task.id || ''))}')" ${touchDragAttr} style="${itemIndentStyle}${accentStyle}${baseBg}${progressBg}" onclick="tmChecklistSelectTask('${escSq(String(task.id || ''))}', event)" ${itemContextMenuAttr}>
+                    <div class="tm-checklist-item${activeCls}${doneCls}${branchLeadingCls}${timerCls}${multiSelectCls}" data-id="${esc(String(task.id || ''))}" data-depth="${depth}" ${itemDragAttrs} ondragenter="tmTaskRowDragOver(event, '${escSq(String(task.id || ''))}')" ondragover="tmTaskRowDragOver(event, '${escSq(String(task.id || ''))}')" ondragleave="tmTaskRowDragLeave(event, '${escSq(String(task.id || ''))}')" ondrop="tmTaskRowDrop(event, '${escSq(String(task.id || ''))}')" ${touchDragAttr} style="${itemIndentStyle}${accentStyle}${baseBg}${progressBg}" onclick="tmChecklistSelectTask('${escSq(String(task.id || ''))}', event)" ${itemContextMenuAttr}>
                         ${treeGuides}
                         <div class="tm-checklist-leading${hasChildren ? ' tm-checklist-leading--branch' : ''}${hasChildren && collapsed ? ' tm-checklist-leading--collapsed' : ''}">
                             ${hasChildren ? `<span class="tm-tree-toggle" onclick="tmToggleCollapse('${escSq(String(task.id || ''))}', event)" style="opacity:1;pointer-events:auto;color:var(--tm-checklist-parent-toggle-color);">${__tmRenderToggleIcon(16, collapsed ? 0 : 90, 'tm-tree-toggle-icon')}</span>` : '<span class="tm-tree-toggle tm-tree-toggle--placeholder" aria-hidden="true"></span>'}

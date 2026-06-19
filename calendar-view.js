@@ -1259,9 +1259,9 @@
 .tm-calendar-host .fc .fc-dayGridMonth-view .fc-daygrid-day.fc-day-today .tm-cn-day-number-text,
 .tm-calendar-host.fc .fc-dayGridMonth-view .fc-daygrid-day.fc-day-today .tm-cn-day-number-text,
 .tm-calendar-wrap .fc .fc-dayGridMonth-view .fc-daygrid-day.fc-day-today .tm-cn-day-number-text{min-width:22px !important;height:16px !important;min-height:16px !important;padding:0 6px !important;border-radius:5px !important;background:var(--tm-primary-color) !important;color:var(--tm-calendar-today-date-text, #fff) !important;box-shadow:0 0 0 2px color-mix(in srgb, var(--tm-primary-color) 18%, transparent) !important;}
-.tm-calendar-host .fc .fc-dayGridMonth-view .fc-daygrid-day.fc-day-today .fc-daygrid-day-number:not(:has(.tm-cn-holiday-dot)):not(:has(.tm-cn-day-number-text)),
-.tm-calendar-host.fc .fc-dayGridMonth-view .fc-daygrid-day.fc-day-today .fc-daygrid-day-number:not(:has(.tm-cn-holiday-dot)):not(:has(.tm-cn-day-number-text)),
-.tm-calendar-wrap .fc .fc-dayGridMonth-view .fc-daygrid-day.fc-day-today .fc-daygrid-day-number:not(:has(.tm-cn-holiday-dot)):not(:has(.tm-cn-day-number-text)){min-width:22px !important;height:16px !important;min-height:16px !important;padding:0 6px !important;border-radius:5px !important;background:var(--tm-primary-color) !important;color:var(--tm-calendar-today-date-text, #fff) !important;box-shadow:0 0 0 2px color-mix(in srgb, var(--tm-primary-color) 18%, transparent) !important;}
+.tm-calendar-host .fc .fc-dayGridMonth-view .fc-daygrid-day.fc-day-today .fc-daygrid-day-number.tm-calendar-day-number--today-ready,
+.tm-calendar-host.fc .fc-dayGridMonth-view .fc-daygrid-day.fc-day-today .fc-daygrid-day-number.tm-calendar-day-number--today-ready,
+.tm-calendar-wrap .fc .fc-dayGridMonth-view .fc-daygrid-day.fc-day-today .fc-daygrid-day-number.tm-calendar-day-number--today-ready{min-width:22px !important;height:16px !important;min-height:16px !important;padding:0 6px !important;border-radius:5px !important;background:var(--tm-primary-color) !important;color:var(--tm-calendar-today-date-text, #fff) !important;box-shadow:0 0 0 2px color-mix(in srgb, var(--tm-primary-color) 18%, transparent) !important;}
 .tm-calendar-host .fc .fc-daygrid-day-number .tm-cn-holiday-dot,
 #tmCalendarSideDockTimeline .fc .fc-daygrid-day-number .tm-cn-holiday-dot,
 .tm-calendar-wrap .fc .fc-daygrid-day-number .tm-cn-holiday-dot{order:1 !important;box-sizing:border-box !important;width:14px !important;min-width:14px !important;max-width:14px !important;height:14px !important;min-height:14px !important;max-height:14px !important;aspect-ratio:1 / 1 !important;padding:0 !important;border-radius:50% !important;flex:0 0 14px !important;margin:0 !important;line-height:14px !important;align-self:center !important;transform:translateY(1px) !important;}
@@ -4748,20 +4748,22 @@
                             title = String(el?.getAttribute?.('data-task-title') || '').trim();
                             calendarId = String(el?.getAttribute?.('data-calendar-id') || '').trim();
                             durMin = Number(el?.getAttribute?.('data-task-duration-min'));
-                            if (taskId && (!title || !calendarId || !Number.isFinite(durMin))) {
+                            if (taskId) {
                                 try {
                                     const meta = (typeof window.tmCalendarGetTaskDragMeta === 'function') ? window.tmCalendarGetTaskDragMeta(taskId) : null;
                                     if (!title) title = String(meta?.title || '').trim();
                                     if (!calendarId) calendarId = String(meta?.calendarId || '').trim();
-                                    if (!Number.isFinite(durMin)) durMin = Number(meta?.durationMin);
+                                    const metaDurationMin = Number(meta?.durationMin);
+                                    if (Number.isFinite(metaDurationMin) && metaDurationMin > 0) durMin = metaDurationMin;
                                 } catch (e) {}
                             }
                             if (!title) {
                                 try { title = String(el?.querySelector?.('.tm-task-content-clickable')?.textContent || '').trim(); } catch (e) {}
                             }
                         }
-                        if (!calendarId) calendarId = pickDefaultCalendarId(settings);
-                        const safeMin = clampNewScheduleDurationMin(durMin, settings);
+                        const liveSettings = getSettings();
+                        if (!calendarId) calendarId = pickDefaultCalendarId(liveSettings);
+                        const safeMin = clampNewScheduleDurationMin(durMin, liveSettings);
                         return {
                             title: title || '任务',
                             duration: toDurationStr(safeMin),
@@ -6335,14 +6337,12 @@
             const allDay = hit?.allDay === true;
             const viewType = String(state.calendar?.view?.type || '').trim();
             syncPreviewDayCell(viewType === 'dayGridMonth' ? formatDateKey(start) : '');
-            const safeMin = (Number.isFinite(Number(payload.durationMin)) && Number(payload.durationMin) > 0)
-                ? Math.round(Number(payload.durationMin))
-                : 60;
+            const settings = getSettings();
+            const safeMin = clampNewScheduleDurationMin(Number(payload.durationMin), settings);
             const end = allDay
                 ? new Date(start.getTime() + 24 * 60 * 60000)
                 : new Date(start.getTime() + safeMin * 60000);
             const title = String(payload.title || '').trim() || '任务';
-            const settings = getSettings();
             const calId = String(payload.calendarId || '').trim() || pickDefaultCalendarId(settings);
             const defs = getCalendarDefs(settings);
             const color = String(defs.find((d) => String(d?.id || '').trim() === calId)?.color || 'var(--tm-primary-color)').trim() || 'var(--tm-primary-color)';
@@ -6620,11 +6620,11 @@
                 const hit = getDropInfo(e.target, e.clientX, e.clientY);
                 const start = (hit?.start instanceof Date) ? hit.start : new Date();
                 const allDay = hit?.allDay === true;
-                const safeMin = (Number.isFinite(durationMin) && durationMin > 0) ? Math.round(durationMin) : 60;
+                const settings = getSettings();
+                const safeMin = clampNewScheduleDurationMin(durationMin, settings);
                 const end = allDay
                     ? new Date(start.getTime() + 24 * 60 * 60000)
                     : new Date(start.getTime() + safeMin * 60000);
-                const settings = getSettings();
                 const calId = calendarId || pickDefaultCalendarId(settings);
                 if (await maybeUpdateEmptyTaskDueDateFromAllDayDrop(payload, start, allDay, {
                     source: 'calendar-drop-task-due-date',
@@ -6766,6 +6766,7 @@
             const repeatEvery0 = getScheduleRepeatEvery(base, repeatType0);
             const repeatUntil0 = getScheduleRepeatUntil(base);
             const repeatMonthlyMode0 = getScheduleRepeatMonthlyMode(base, repeatType0);
+            const repeatCalendarMode0 = getScheduleRepeatCalendarMode(base, repeatType0);
             const notificationSchedules0 = sanitizeScheduleNotificationSchedules(base.notificationSchedules);
             const completedOccurrences0 = normalizeScheduleCompletedOccurrences(base.completedOccurrences);
             const skippedOccurrences0 = normalizeScheduleSkippedOccurrences(base.skippedOccurrences);
@@ -6797,6 +6798,13 @@
                 repeat: base.repeat,
                 recurrence: base.recurrence,
             }, repeatType0) !== repeatMonthlyMode0) changed = true;
+            if (getScheduleRepeatCalendarMode({
+                repeatCalendarMode: base.repeatCalendarMode,
+                calendarMode: base.calendarMode,
+                recurrenceCalendarMode: base.recurrenceCalendarMode,
+                repeat: base.repeat,
+                recurrence: base.recurrence,
+            }, repeatType0) !== repeatCalendarMode0) changed = true;
             if (JSON.stringify(base.notificationSchedules || {}) !== JSON.stringify(notificationSchedules0)) changed = true;
             if (JSON.stringify(Array.isArray(base.completedOccurrences) ? base.completedOccurrences : []) !== JSON.stringify(completedOccurrences0)) changed = true;
             if (JSON.stringify(Array.isArray(base.skippedOccurrences) ? base.skippedOccurrences : []) !== JSON.stringify(skippedOccurrences0)) changed = true;
@@ -6813,6 +6821,7 @@
                 repeatEvery: repeatEvery0,
                 repeatUntil: repeatUntil0,
                 repeatMonthlyMode: repeatMonthlyMode0,
+                repeatCalendarMode: repeatCalendarMode0,
                 notificationSchedules: notificationSchedules0,
                 completedOccurrences: completedOccurrences0,
                 skippedOccurrences: skippedOccurrences0,
@@ -6891,6 +6900,25 @@
         return normalizeScheduleRepeatMonthlyMode(raw, repeatType || getScheduleRepeatType(base));
     }
 
+    function normalizeScheduleRepeatCalendarMode(value, repeatType) {
+        const type = normalizeScheduleRepeatType(repeatType);
+        if (type !== 'monthly' && type !== 'yearly') return 'solar';
+        const raw = String(value || '').trim().toLowerCase();
+        return raw === 'lunar' || raw === '农历' ? 'lunar' : 'solar';
+    }
+
+    function getScheduleRepeatCalendarMode(item, repeatType) {
+        const base = (item && typeof item === 'object') ? item : {};
+        const raw = (
+            base.repeatCalendarMode
+            ?? base.calendarMode
+            ?? base.recurrenceCalendarMode
+            ?? (base.repeat && typeof base.repeat === 'object' ? (base.repeat.calendarMode ?? base.repeat.repeatCalendarMode) : '')
+            ?? (base.recurrence && typeof base.recurrence === 'object' ? (base.recurrence.calendarMode ?? base.recurrence.repeatCalendarMode) : '')
+        );
+        return normalizeScheduleRepeatCalendarMode(raw, repeatType || getScheduleRepeatType(base));
+    }
+
     function getScheduleRepeatUnitLabel(repeatType, every) {
         const type = normalizeScheduleRepeatType(repeatType);
         normalizeScheduleRepeatEvery(every, type);
@@ -6900,6 +6928,113 @@
         if (type === 'monthly') return '个月';
         if (type === 'yearly') return '年';
         return '次';
+    }
+
+    const TM_SCHEDULE_LUNAR_MONTH_TEXT_MAP = {
+        '正': 1, '一': 1, '二': 2, '三': 3, '四': 4, '五': 5, '六': 6,
+        '七': 7, '八': 8, '九': 9, '十': 10, '十一': 11, '冬': 11,
+        '十二': 12, '腊': 12,
+    };
+    let __tmScheduleChineseCalendarFormatter = null;
+
+    function parseScheduleLunarChineseNumber(text) {
+        const raw = String(text || '').trim();
+        if (!raw) return 0;
+        if (/^\d+$/.test(raw)) return parseInt(raw, 10) || 0;
+        const s = raw.replace(/[月日号]/g, '').replace(/^初/, '');
+        const digitMap = { 零: 0, 〇: 0, 一: 1, 二: 2, 两: 2, 三: 3, 四: 4, 五: 5, 六: 6, 七: 7, 八: 8, 九: 9 };
+        if (s.startsWith('廿')) return 20 + (digitMap[s.slice(1)] || 0);
+        if (s.startsWith('卅')) return 30 + (digitMap[s.slice(1)] || 0);
+        if (s === '十') return 10;
+        if (s.startsWith('十')) return 10 + (digitMap[s.slice(1)] || 0);
+        if (s.includes('十')) {
+            const parts = s.split('十');
+            return (digitMap[parts[0]] || 0) * 10 + (digitMap[parts[1]] || 0);
+        }
+        return digitMap[s] || 0;
+    }
+
+    function parseScheduleLunarMonthText(text) {
+        const raw = String(text || '').trim().replace(/^闰/, '').replace(/月$/u, '');
+        if (!raw) return 0;
+        if (/^\d+$/.test(raw)) return parseInt(raw, 10) || 0;
+        return TM_SCHEDULE_LUNAR_MONTH_TEXT_MAP[raw] || parseScheduleLunarChineseNumber(raw);
+    }
+
+    function getScheduleChineseCalendarFormatter() {
+        if (__tmScheduleChineseCalendarFormatter) return __tmScheduleChineseCalendarFormatter;
+        try {
+            __tmScheduleChineseCalendarFormatter = new Intl.DateTimeFormat('zh-CN-u-ca-chinese', {
+                year: 'numeric',
+                month: 'long',
+                day: 'numeric',
+            });
+        } catch (e) {
+            __tmScheduleChineseCalendarFormatter = null;
+        }
+        return __tmScheduleChineseCalendarFormatter;
+    }
+
+    function getScheduleLunarDateInfo(dateLike) {
+        const dt = dateLike instanceof Date ? new Date(dateLike.getTime()) : parseDateOnly(dateLike);
+        if (!(dt instanceof Date) || Number.isNaN(dt.getTime())) return null;
+        dt.setHours(12, 0, 0, 0);
+        const formatter = getScheduleChineseCalendarFormatter();
+        if (!formatter) return null;
+        try {
+            const parts = formatter.formatToParts(dt);
+            const getPart = (type) => String((parts.find((part) => part.type === type) || {}).value || '').trim();
+            const monthText = getPart('month');
+            const dayText = getPart('day');
+            const relatedYearText = getPart('relatedYear') || getPart('year');
+            const relatedYear = parseInt(relatedYearText, 10);
+            const month = parseScheduleLunarMonthText(monthText);
+            const day = parseScheduleLunarChineseNumber(dayText);
+            const isLeap = /^闰/.test(monthText);
+            if (!Number.isFinite(relatedYear) || !month || !day) return null;
+            return { relatedYear, month, day, isLeap };
+        } catch (e) {
+            return null;
+        }
+    }
+
+    function getScheduleLunarMonthIndex(info) {
+        if (!info || !Number.isFinite(Number(info.relatedYear)) || !Number.isFinite(Number(info.month))) return Number.NaN;
+        return Number(info.relatedYear) * 12 + Number(info.month) - 1;
+    }
+
+    function formatScheduleLunarDay(day) {
+        const n = Math.max(1, Math.min(30, Number(day) || 1));
+        return TM_CN_LUNAR_DAY_NAMES[n] || `${n}`;
+    }
+
+    function getScheduleRepeatLunarCaption(repeatType, anchorDateLike) {
+        const type = normalizeScheduleRepeatType(repeatType);
+        const info = getScheduleLunarDateInfo(anchorDateLike);
+        if (!info) return type === 'yearly' ? '农历每年' : '农历每月';
+        const monthText = ['正月', '二月', '三月', '四月', '五月', '六月', '七月', '八月', '九月', '十月', '冬月', '腊月'][info.month - 1] || `${info.month}月`;
+        const dayText = formatScheduleLunarDay(info.day);
+        const leap = info.isLeap ? '闰' : '';
+        return type === 'yearly' ? `农历每年（${leap}${monthText}${dayText}）` : `农历每月（${dayText}）`;
+    }
+
+    function isScheduleLunarOccurrenceDate(candidate, anchor, repeatType, every) {
+        const anchorInfo = getScheduleLunarDateInfo(anchor);
+        const candidateInfo = getScheduleLunarDateInfo(candidate);
+        if (!anchorInfo || !candidateInfo) return false;
+        if (candidateInfo.day !== anchorInfo.day || candidateInfo.isLeap !== anchorInfo.isLeap) return false;
+        const type = normalizeScheduleRepeatType(repeatType);
+        const step = Math.max(1, Number(every) || 1);
+        if (type === 'monthly') {
+            const diffMonths = getScheduleLunarMonthIndex(candidateInfo) - getScheduleLunarMonthIndex(anchorInfo);
+            return diffMonths >= 0 && diffMonths % step === 0;
+        }
+        if (type === 'yearly') {
+            if (candidateInfo.month !== anchorInfo.month) return false;
+            const diffYears = Number(candidateInfo.relatedYear) - Number(anchorInfo.relatedYear);
+            return diffYears >= 0 && diffYears % step === 0;
+        }
+        return false;
     }
 
     function getScheduleRepeatUntil(item) {
@@ -7083,6 +7218,7 @@
         const repeatEvery = getScheduleRepeatEvery(item, repeatType);
         const repeatUntil = getScheduleRepeatUntil(item);
         const repeatMonthlyMode = getScheduleRepeatMonthlyMode(item, repeatType);
+        const repeatCalendarMode = getScheduleRepeatCalendarMode(item, repeatType);
         const skippedOccurrenceSet = getScheduleSkippedOccurrenceSet(item);
         const limit = Math.max(1, Math.min(Number(options?.limit) || 400, 2400));
         const out = [];
@@ -7157,6 +7293,20 @@
             return out;
         }
         if (repeatType === 'monthly') {
+            if (repeatCalendarMode === 'lunar') {
+                const scanStart = new Date(Math.max(baseStart.getTime(), rangeStartMs - durationMs - 86400000));
+                scanStart.setHours(baseStart.getHours(), baseStart.getMinutes(), baseStart.getSeconds(), baseStart.getMilliseconds());
+                const scanEndMs = rangeEndMs + durationMs + 86400000;
+                for (let cursor = scanStart, guard = 0; out.length < limit && cursor.getTime() < scanEndMs && guard < 5000; guard += 1) {
+                    if (cursor.getTime() >= baseStart.getTime()
+                        && isScheduleLunarOccurrenceDate(cursor, baseStart, 'monthly', repeatEvery)
+                        && !pushOccurrence(new Date(cursor.getTime()))) {
+                        break;
+                    }
+                    cursor = buildScheduleOccurrenceDate(cursor, 1);
+                }
+                return out;
+            }
             const rangeStartDate = new Date(rangeStartMs);
             const baseMonthIndex = baseStart.getFullYear() * 12 + baseStart.getMonth();
             const rangeMonthIndex = rangeStartDate.getFullYear() * 12 + rangeStartDate.getMonth();
@@ -7172,6 +7322,20 @@
             return out;
         }
         if (repeatType === 'yearly') {
+            if (repeatCalendarMode === 'lunar') {
+                const scanStart = new Date(Math.max(baseStart.getTime(), rangeStartMs - durationMs - 86400000));
+                scanStart.setHours(baseStart.getHours(), baseStart.getMinutes(), baseStart.getSeconds(), baseStart.getMilliseconds());
+                const scanEndMs = rangeEndMs + durationMs + 86400000;
+                for (let cursor = scanStart, guard = 0; out.length < limit && cursor.getTime() < scanEndMs && guard < 20000; guard += 1) {
+                    if (cursor.getTime() >= baseStart.getTime()
+                        && isScheduleLunarOccurrenceDate(cursor, baseStart, 'yearly', repeatEvery)
+                        && !pushOccurrence(new Date(cursor.getTime()))) {
+                        break;
+                    }
+                    cursor = buildScheduleOccurrenceDate(cursor, 1);
+                }
+                return out;
+            }
             const rangeStartDate = new Date(rangeStartMs);
             const jumpYears = Math.max(0, rangeStartDate.getFullYear() - baseStart.getFullYear() - 1);
             const startStep = Math.max(0, Math.floor(jumpYears / repeatEvery) * repeatEvery);
@@ -8241,6 +8405,7 @@
             String(getScheduleRepeatEvery(item) || '1'),
             String(getScheduleRepeatUntil(item) || ''),
             String(getScheduleRepeatMonthlyMode(item) || 'date'),
+            String(getScheduleRepeatCalendarMode(item) || 'solar'),
             String(settings?.scheduleReminderDefaultMode || '').trim(),
             String(settings?.allDayReminderEnabled ? '1' : '0'),
             String(settings?.allDayReminderTime || '').trim(),
@@ -10567,6 +10732,13 @@
             if (d0) {
                 taskId = String(d0.getAttribute('data-id') || d0.getAttribute('data-task-id') || '').trim();
                 if (!calendarId) calendarId = String(d0.getAttribute('data-calendar-id') || '').trim();
+                if (!titleFromPayload) titleFromPayload = String(d0.getAttribute('data-task-title') || '').trim();
+                if (!(Number.isFinite(durationFromPayload) && durationFromPayload > 0)) {
+                    const attrDurationMin = Number(d0.getAttribute('data-task-duration-min'));
+                    if (Number.isFinite(attrDurationMin) && attrDurationMin > 0) {
+                        durationFromPayload = Math.max(15, Math.round(attrDurationMin));
+                    }
+                }
             }
         } catch (e) {}
         try { if (!taskId) taskId = String(dt?.getData?.('application/x-tm-task-id') || '').trim(); } catch (e) {}
@@ -10610,10 +10782,8 @@
                 : null;
             if (meta && typeof meta === 'object') {
                 if (!calendarId) calendarId = String(meta.calendarId || '').trim() || calendarId;
-                if (!(Number.isFinite(durationFromPayload) && durationFromPayload > 0)) {
-                    const m = Number(meta.durationMin);
-                    if (Number.isFinite(m) && m > 0) durationMin = Math.max(15, Math.round(m));
-                }
+                const m = Number(meta.durationMin);
+                if (Number.isFinite(m) && m > 0) durationMin = Math.max(15, Math.round(m));
                 if (!titleFromPayload) {
                     const mt = String(meta.title || '').trim();
                     if (mt) title = mt;
@@ -10808,21 +10978,22 @@
         const times = (Array.isArray(timeKeys) ? timeKeys : [timeKeys])
             .map((it) => String(it || '').trim())
             .filter(Boolean);
-        if (!id || !day || !times.length) throw new Error('提醒实例信息不完整');
+        if (!id || !day) throw new Error('提醒实例信息不完整');
+        const occurrenceTimes = times.length ? times : [''];
         const api = globalThis.__tomatoReminder || null;
-        if (typeof api?.setOccurrenceDone === 'function') {
+        if (times.length && typeof api?.setOccurrenceDone === 'function') {
             for (const timeKey of times) {
                 const result = api.setOccurrenceDone(id, day, timeKey, done !== false);
                 if (result && typeof result.then === 'function') await result;
                 if (result === false) throw new Error('提醒完成接口返回失败');
             }
-        } else if (done !== false && typeof api?.completeOccurrence === 'function') {
+        } else if (times.length && done !== false && typeof api?.completeOccurrence === 'function') {
             for (const timeKey of times) {
                 const result = api.completeOccurrence(id, day, timeKey);
                 if (result && typeof result.then === 'function') await result;
                 if (result === false) throw new Error('提醒完成接口返回失败');
             }
-        } else if (done === false && typeof api?.uncompleteOccurrence === 'function') {
+        } else if (times.length && done === false && typeof api?.uncompleteOccurrence === 'function') {
             for (const timeKey of times) {
                 const result = api.uncompleteOccurrence(id, day, timeKey);
                 if (result && typeof result.then === 'function') await result;
@@ -10836,11 +11007,16 @@
             if (!existing) throw new Error('提醒完成接口不可用');
             const completed = Array.isArray(existing.completedOccurrences) ? existing.completedOccurrences.slice() : [];
             const nowIso = new Date().toISOString();
-            const targetKeys = new Set(times.map((timeKey) => reminderOccurrenceKey(day, timeKey)).filter(Boolean));
-            const rest = completed.filter((it) => !targetKeys.has(reminderOccurrenceKey(it?.date || it?.dateKey || it?.day, it?.time || it?.timeKey)));
+            const targetKeys = new Set(occurrenceTimes.map((timeKey) => reminderOccurrenceKey(day, timeKey)).filter(Boolean));
+            if (day) targetKeys.add(day);
+            const getCompletedEntryKey = (it) => {
+                if (typeof it === 'string') return it.trim();
+                return reminderOccurrenceKey(it?.date || it?.dateKey || it?.day, it?.time || it?.timeKey);
+            };
+            const rest = completed.filter((it) => !targetKeys.has(getCompletedEntryKey(it)));
             const completedOccurrences = done === false
                 ? rest
-                : times.map((timeKey) => ({ date: day, time: timeKey, doneAt: nowIso })).concat(rest);
+                : occurrenceTimes.map((timeKey) => ({ date: day, ...(timeKey ? { time: timeKey } : {}), doneAt: nowIso })).concat(rest);
             const next = {
                 ...existing,
                 blockId: id,
@@ -10860,6 +11036,18 @@
         }
         try { clearReminderCalendarCache(); } catch (e) {}
         try { scheduleReminderCalendarRefetch(); } catch (e) {}
+        try {
+            window.dispatchEvent(new CustomEvent('tomato-reminder-updated', {
+                detail: {
+                    blockId: id,
+                    dateKey: day,
+                    timeKeys: times,
+                    done: done !== false,
+                    action: done === false ? 'uncomplete' : 'complete',
+                    source: 'calendar-reminder-checkbox',
+                },
+            }));
+        } catch (e) {}
         return true;
     }
 
@@ -10918,6 +11106,21 @@
                 applied = true;
                 return true;
             }
+            if (source === 'taskdate' && isRecurringTaskDateReadOnlyOccurrence(ext) && !nextDone) {
+                const completedAt = String(ext?.__tmRecurringCompletedAt || '').trim();
+                if (!tid || !completedAt || typeof window.tmSetDetachedTaskRepeatHistoryEntry !== 'function') {
+                    throw new Error('循环记录撤销接口不可用');
+                }
+                const result = window.tmSetDetachedTaskRepeatHistoryEntry(tid, false, { completedAt }, {
+                    source: 'calendar-recurring-instance-uncomplete',
+                    refresh: true,
+                    refreshCalendar: true,
+                    withFilters: true,
+                });
+                if (result && typeof result.then === 'function') await result;
+                applied = true;
+                return true;
+            }
             if (!tid || typeof window.tmSetDone !== 'function') {
                 throw new Error('任务完成接口不可用');
             }
@@ -10957,7 +11160,15 @@
         return getSettings().showOtherBlockCheckbox === true;
     }
 
+    function isRecurringTaskDateReadOnlyOccurrence(ext) {
+        return String(ext?.__tmSource || '').trim() === 'taskdate'
+            && ext?.__tmTaskDateReadOnly === true
+            && !!String(ext?.__tmRecurringCompletedAt || '').trim()
+            && !!String(ext?.__tmSourceTaskId || ext?.__tmTaskId || '').trim();
+    }
+
     function shouldDisableCalendarEventCheckbox(ext) {
+        if (isRecurringTaskDateReadOnlyOccurrence(ext)) return false;
         return ext?.__tmTaskDateReadOnly === true;
     }
 
@@ -11509,14 +11720,12 @@
                 return;
             }
             const allDay = hit?.allDay === true;
-            const safeMin = (Number.isFinite(Number(payload.durationMin)) && Number(payload.durationMin) > 0)
-                ? Math.round(Number(payload.durationMin))
-                : 60;
+            const settings = getSettings();
+            const safeMin = clampNewScheduleDurationMin(Number(payload.durationMin), settings);
             const end = allDay
                 ? new Date(start.getTime() + 24 * 60 * 60000)
                 : new Date(start.getTime() + safeMin * 60000);
             const title = String(payload.title || '').trim() || '任务';
-            const settings = getSettings();
             const calId = String(payload.calendarId || '').trim() || pickDefaultCalendarId(settings);
             const defs = getCalendarDefs(settings);
             const color = String(defs.find((d) => String(d?.id || '').trim() === calId)?.color || 'var(--tm-primary-color)').trim() || 'var(--tm-primary-color)';
@@ -11809,13 +12018,12 @@
                 if (!hit?.start) return;
                 const start = hit.start;
                 const allDay = hit.allDay === true;
-                const safeMin = (Number.isFinite(Number(payload.durationMin)) && Number(payload.durationMin) > 0)
-                    ? Math.round(Number(payload.durationMin))
-                    : 60;
+                const settings = getSettings();
+                const safeMin = clampNewScheduleDurationMin(Number(payload.durationMin), settings);
                 const end = allDay
                     ? new Date(start.getTime() + 24 * 60 * 60000)
                     : new Date(start.getTime() + safeMin * 60000);
-                const calendarId = String(payload.calendarId || '').trim() || pickDefaultCalendarId(getSettings());
+                const calendarId = String(payload.calendarId || '').trim() || pickDefaultCalendarId(settings);
                 if (await maybeUpdateEmptyTaskDueDateFromAllDayDrop(payload, start, allDay, {
                     source: 'side-calendar-drop-task-due-date',
                     viewType: String(state.sideDay?.calendar?.view?.type || '').trim(),
@@ -11871,7 +12079,9 @@
                             if (!calendarId) calendarId = String(meta.calendarId || '').trim();
                         }
                     } catch (e) {}
-                    if (!calendarId) calendarId = pickDefaultCalendarId(settings || getSettings());
+                    const liveSettings = getSettings();
+                    if (!calendarId) calendarId = pickDefaultCalendarId(liveSettings);
+                    safeMin = clampNewScheduleDurationMin(safeMin, liveSettings);
                     return {
                         title,
                         duration: toDurationStr(safeMin),
@@ -12241,17 +12451,21 @@
                         try { info?.event?.remove?.(); } catch (e2) {}
                         return;
                     }
-                    if (!(end instanceof Date) || Number.isNaN(end.getTime()) || end.getTime() <= start.getTime()) {
-                        end = new Date(start.getTime() + durMin * 60000);
-                    }
-                    const title = String(payload?.title || info?.event?.title || '').trim() || '任务';
-                    const calendarId = String(ext.calendarId || payload?.calendarId || '').trim() || pickDefaultCalendarId(settings);
                     const dropAllDayHint = (() => {
                         const t = info?.jsEvent?.target;
                         if (!(t instanceof Element)) return false;
                         return !!t.closest('.fc-timegrid-all-day, .fc-timegrid-allday, .fc-daygrid-day');
                     })();
                     const allDay = (info?.event?.allDay === true) || dropAllDayHint;
+                    if (allDay) {
+                        if (!(end instanceof Date) || Number.isNaN(end.getTime()) || end.getTime() <= start.getTime()) {
+                            end = new Date(start.getTime() + 24 * 60 * 60000);
+                        }
+                    } else {
+                        end = new Date(start.getTime() + durMin * 60000);
+                    }
+                    const title = String(payload?.title || info?.event?.title || '').trim() || '任务';
+                    const calendarId = String(ext.calendarId || payload?.calendarId || '').trim() || pickDefaultCalendarId(settings);
                     if (await maybeUpdateEmptyTaskDueDateFromAllDayDrop({ ...(payload || {}), taskId }, start, allDay, {
                         source: 'side-calendar-receive-task-due-date',
                         viewType: String(state.sideDay?.calendar?.view?.type || '').trim(),
@@ -12411,6 +12625,7 @@
                             repeatEvery: Number(ext.__tmRepeatEvery),
                             repeatUntil: String(ext.__tmRepeatUntil || ''),
                             repeatMonthlyMode: String(ext.__tmRepeatMonthlyMode || ''),
+                            repeatCalendarMode: String(ext.__tmRepeatCalendarMode || ''),
                             notificationSchedules: sanitizeScheduleNotificationSchedules(ext.__tmNotificationSchedules),
                         });
                     } catch (e2) {
@@ -12928,6 +13143,7 @@
             const repeatEvery = getScheduleRepeatEvery(it, repeatType);
             const repeatUntil = getScheduleRepeatUntil(it);
             const repeatMonthlyMode = getScheduleRepeatMonthlyMode(it, repeatType);
+            const repeatCalendarMode = getScheduleRepeatCalendarMode(it, repeatType);
             const completedOccurrenceSet = getScheduleCompletedOccurrenceSet(it);
             const isDetachedTaskOccurrence = isTaskDateRecurringExceptionScheduleItem(it);
             const isDetachedScheduleOccurrence = isDetachedScheduleOccurrenceItem(it);
@@ -12974,6 +13190,7 @@
                         __tmRepeatEvery: repeatEvery,
                         __tmRepeatUntil: repeatUntil,
                         __tmRepeatMonthlyMode: repeatMonthlyMode,
+                        __tmRepeatCalendarMode: repeatCalendarMode,
                         __tmScheduleBaseStart: safeISO(start),
                         __tmScheduleBaseEnd: safeISO(end),
                         __tmOccurrenceStartMs: occStartMs,
@@ -14388,14 +14605,31 @@
     function getReminderTimes(reminder) {
         const set = new Set();
         const out = [];
-        const arr = Array.isArray(reminder?.times) ? reminder.times : [];
-        for (const it of arr) {
+        const push = (it) => {
             const p = parseReminderTime(it);
-            if (!p) continue;
-            if (set.has(p.key)) continue;
+            if (!p || set.has(p.key)) return;
             set.add(p.key);
             out.push(p.key);
-        }
+        };
+        const arr = Array.isArray(reminder?.times) ? reminder.times : [];
+        for (const it of arr) push(it);
+        [
+            reminder?.time,
+            reminder?.timeKey,
+            reminder?.reminderTime,
+            reminder?.notifyTime,
+            reminder?.at,
+        ].forEach(push);
+        [
+            reminder?.dateTime,
+            reminder?.datetime,
+            reminder?.remindAt,
+            reminder?.scheduledAt,
+        ].forEach((value) => {
+            const dt = new Date(String(value || '').replace(' ', 'T'));
+            if (!(dt instanceof Date) || Number.isNaN(dt.getTime())) return;
+            push(`${pad2(dt.getHours())}:${pad2(dt.getMinutes())}`);
+        });
         return out.sort();
     }
 
@@ -14559,9 +14793,10 @@
 
     function isReminderDateCompleted(reminder, dateKey, times, completedSet) {
         const arr = Array.isArray(times) ? times : [];
-        if (arr.length === 0) return false;
         const set = completedSet instanceof Set ? completedSet : getReminderCompletedSet(reminder);
-        return arr.every((t) => set.has(reminderOccurrenceKey(dateKey, t)));
+        const dayKey = String(dateKey || '').trim();
+        if (arr.length === 0) return !!dayKey && set.has(dayKey);
+        return arr.every((t) => set.has(reminderOccurrenceKey(dayKey, t)) || set.has(dayKey));
     }
 
     async function loadReminderBlocks() {
@@ -14861,6 +15096,12 @@
             labelEl.appendChild(text);
             return text;
         };
+        const markMonthTodayCell = (labelEl, dateKey) => {
+            if (!labelEl) return;
+            const todayKey = formatDateKey(new Date());
+            const isToday = String(dateKey || '').trim() === todayKey;
+            try { labelEl.classList.toggle('tm-calendar-day-number--today-ready', isToday); } catch (e) {}
+        };
         const ensure = (labelEl, dateKey) => {
             if (!labelEl) return;
             try {
@@ -14868,7 +15109,10 @@
             } catch (e) {}
             const isWeek = !!labelEl.closest?.('.fc-col-header-cell');
             if (isWeek && hideHeaderHolidayDots) return;
-            if (!isWeek) ensureMonthDayNumberText(labelEl);
+            if (!isWeek) {
+                ensureMonthDayNumberText(labelEl);
+                markMonthTodayCell(labelEl, dateKey);
+            }
             const it = map.get(String(dateKey || ''));
             if (!it) return;
             const type = Number(it.type);
@@ -14988,6 +15232,12 @@
             labelEl.appendChild(text);
             return text;
         };
+        const markMonthTodayCell = (labelEl, dateKey) => {
+            if (!labelEl) return;
+            const todayKey = formatDateKey(new Date());
+            const isToday = String(dateKey || '').trim() === todayKey;
+            try { labelEl.classList.toggle('tm-calendar-day-number--today-ready', isToday); } catch (e) {}
+        };
         const lunarFor = (dateKey) => {
             const it = map.get(String(dateKey || ''));
             const l = String(it?.lunar || '').trim();
@@ -15018,6 +15268,7 @@
             const num = cellEl.querySelector('.fc-daygrid-day-number');
             if (!num) return;
             const dateText = ensureMonthDayNumberText(num);
+            markMonthTodayCell(num, dateKey);
             const el = document.createElement('span');
             el.className = 'tm-cn-lunar tm-cn-lunar--month';
             el.textContent = lunar;
@@ -15860,6 +16111,7 @@
         const repeatEvery0 = getScheduleRepeatEvery(init, repeatType0);
         const repeatUntil0 = getScheduleRepeatUntil(init);
         const repeatMonthlyMode0 = getScheduleRepeatMonthlyMode(init, repeatType0);
+        const repeatCalendarMode0 = getScheduleRepeatCalendarMode(init, repeatType0);
         const start = init.start instanceof Date ? init.start : null;
         const end = init.end instanceof Date ? init.end : null;
         const title0 = normalizeCalendarScheduleTitleText(init.title, '');
@@ -15962,6 +16214,14 @@
                     </select>
                     <div class="tm-calendar-edit-value" data-tm-cal-field="repeatMonthlySummary" style="opacity:.85;">${esc(start ? `每月${getScheduleMonthlyWeekPatternLabel(start)}` : '根据开始时间自动计算')}</div>
                 </div>
+                <div class="tm-calendar-edit-row tm-calendar-edit-row--repeat-detail" data-tm-cal-row="repeatCalendarMode"${taskDateEditor ? ' style="opacity:.55;"' : ''}>
+                    <div class="tm-calendar-edit-label">历法</div>
+                    <select class="tm-calendar-edit-input" data-tm-cal-field="repeatCalendarMode" ${taskDateEditor ? 'disabled' : ''}>
+                        <option value="solar" ${repeatCalendarMode0 !== 'lunar' ? 'selected' : ''}>公历</option>
+                        <option value="lunar" ${repeatCalendarMode0 === 'lunar' ? 'selected' : ''}>农历</option>
+                    </select>
+                    <div class="tm-calendar-edit-value" data-tm-cal-field="repeatCalendarSummary" style="opacity:.85;">${esc(repeatCalendarMode0 === 'lunar' ? getScheduleRepeatLunarCaption(repeatType0, start || init.start || new Date()) : '按公历循环')}</div>
+                </div>
                 <div class="tm-calendar-edit-row tm-calendar-edit-row--repeat-detail" data-tm-cal-row="repeatUntil"${taskDateEditor ? ' style="opacity:.55;"' : ''}>
                     <div class="tm-calendar-edit-label">循环截止</div>
                     <input class="tm-calendar-edit-input" type="date" value="${esc(repeatUntil0)}" data-tm-cal-field="repeatUntil" ${taskDateEditor ? 'disabled' : ''}>
@@ -16059,31 +16319,55 @@
         syncColorPresetState();
         const syncMonthlyModeSummary = () => {
             const monthlyModeEl = modal.querySelector('[data-tm-cal-field="repeatMonthlyMode"]');
-            const summaryEl = modal.querySelector('[data-tm-cal-field="repeatMonthlySummary"]');
-            if (!(monthlyModeEl instanceof HTMLSelectElement) || !summaryEl) return;
+            const monthlySummaryEl = modal.querySelector('[data-tm-cal-field="repeatMonthlySummary"]');
+            const calendarModeEl = modal.querySelector('[data-tm-cal-field="repeatCalendarMode"]');
+            const calendarSummaryEl = modal.querySelector('[data-tm-cal-field="repeatCalendarSummary"]');
+            if (!(monthlyModeEl instanceof HTMLSelectElement)) return;
             if (taskDateEditor) {
                 monthlyModeEl.disabled = true;
                 monthlyModeEl.style.opacity = '0.55';
-                summaryEl.textContent = '任务日期事件不可编辑循环规则';
+                if (calendarModeEl instanceof HTMLSelectElement) {
+                    calendarModeEl.disabled = true;
+                    calendarModeEl.style.opacity = '0.55';
+                }
+                if (monthlySummaryEl) monthlySummaryEl.textContent = '任务日期事件不可编辑循环规则';
+                if (calendarSummaryEl) calendarSummaryEl.textContent = '任务日期事件不可编辑循环规则';
                 return;
             }
             const repeatType = normalizeScheduleRepeatType(getInputValue('repeatType') || repeatType0);
             const startDraft = getStartDraft();
             const isMonthly = repeatType === 'monthly';
-            monthlyModeEl.disabled = !isMonthly;
-            monthlyModeEl.style.opacity = isMonthly ? '1' : '0.55';
-            if (!isMonthly) {
-                summaryEl.textContent = '仅每月循环时生效';
-                return;
+            const isYearly = repeatType === 'yearly';
+            const calendarMode = normalizeScheduleRepeatCalendarMode(
+                calendarModeEl instanceof HTMLSelectElement ? calendarModeEl.value : repeatCalendarMode0,
+                repeatType
+            );
+            const showCalendarMode = isMonthly || isYearly;
+            const showMonthlyMode = isMonthly && calendarMode !== 'lunar';
+            setFieldRowHidden('repeatCalendarMode', !showCalendarMode);
+            setFieldRowHidden('repeatMonthlyMode', !showMonthlyMode);
+            monthlyModeEl.disabled = !showMonthlyMode;
+            monthlyModeEl.style.opacity = showMonthlyMode ? '1' : '0.55';
+            if (calendarModeEl instanceof HTMLSelectElement) {
+                calendarModeEl.disabled = !showCalendarMode;
+                calendarModeEl.style.opacity = showCalendarMode ? '1' : '0.55';
             }
-            const monthlyMode = normalizeScheduleRepeatMonthlyMode(monthlyModeEl.value || repeatMonthlyMode0, repeatType);
-            if (!(startDraft instanceof Date) || Number.isNaN(startDraft.getTime())) {
-                summaryEl.textContent = monthlyMode === 'weekday' ? '根据开始时间计算第 N 个星期几' : '根据开始时间确定每月日期';
-                return;
+            if (monthlySummaryEl) {
+                if (!isMonthly) monthlySummaryEl.textContent = '仅每月循环时生效';
+                else if (calendarMode === 'lunar') monthlySummaryEl.textContent = '农历每月按农历日期计算';
+                else if (!(startDraft instanceof Date) || Number.isNaN(startDraft.getTime())) {
+                    monthlySummaryEl.textContent = '根据开始时间确定每月日期';
+                } else {
+                    monthlySummaryEl.textContent = normalizeScheduleRepeatMonthlyMode(monthlyModeEl.value || repeatMonthlyMode0, repeatType) === 'weekday'
+                        ? `每月${getScheduleMonthlyWeekPatternLabel(startDraft)}`
+                        : `每月${startDraft.getDate()}日`;
+                }
             }
-            summaryEl.textContent = monthlyMode === 'weekday'
-                ? `每月${getScheduleMonthlyWeekPatternLabel(startDraft)}`
-                : `每月${startDraft.getDate()}日`;
+            if (calendarSummaryEl) {
+                calendarSummaryEl.textContent = calendarMode === 'lunar'
+                    ? getScheduleRepeatLunarCaption(repeatType, startDraft || init.start || new Date())
+                    : '按公历循环';
+            }
         };
         const calendarSelEl = modal.querySelector('[data-tm-cal-field="calendarId"]');
         if (calendarSelEl) {
@@ -16099,9 +16383,12 @@
             if (!(untilEl instanceof HTMLInputElement)) return;
             const disabled = taskDateEditor || repeatType === 'none';
             const showRepeatDetails = repeatType !== 'none';
-            const showMonthlyMode = repeatType === 'monthly';
+            const calendarMode = normalizeScheduleRepeatCalendarMode(getInputValue('repeatCalendarMode') || repeatCalendarMode0, repeatType);
+            const showCalendarMode = repeatType === 'monthly' || repeatType === 'yearly';
+            const showMonthlyMode = repeatType === 'monthly' && calendarMode !== 'lunar';
             setFieldRowHidden('repeatEvery', !showRepeatDetails);
             setFieldRowHidden('repeatMonthlyMode', !showMonthlyMode);
+            setFieldRowHidden('repeatCalendarMode', !showCalendarMode);
             setFieldRowHidden('repeatUntil', !showRepeatDetails);
             if (repeatEveryEl instanceof HTMLInputElement) {
                 repeatEveryEl.disabled = disabled;
@@ -16137,6 +16424,13 @@
                 syncMonthlyModeSummary();
             }, { signal: abort.signal });
         }
+        const repeatCalendarModeEl = modal.querySelector('[data-tm-cal-field="repeatCalendarMode"]');
+        if (repeatCalendarModeEl) {
+            repeatCalendarModeEl.addEventListener('change', () => {
+                syncMonthlyModeSummary();
+                syncRepeatRuleState();
+            }, { signal: abort.signal });
+        }
         const startEl = modal.querySelector('[data-tm-cal-field="start"]');
         if (startEl) {
             startEl.addEventListener('input', () => {
@@ -16149,11 +16443,12 @@
             const repeatEvery = normalizeScheduleRepeatEvery(getInputValue('repeatEvery') || repeatEvery0, repeatType);
             const repeatUntil = repeatType === 'none' ? '' : normalizeScheduleRepeatUntil(getInputValue('repeatUntil'));
             const repeatMonthlyMode = normalizeScheduleRepeatMonthlyMode(getInputValue('repeatMonthlyMode') || repeatMonthlyMode0, repeatType);
+            const repeatCalendarMode = normalizeScheduleRepeatCalendarMode(getInputValue('repeatCalendarMode') || repeatCalendarMode0, repeatType);
             const startKey = nextStart instanceof Date && !Number.isNaN(nextStart.getTime()) ? formatDateKey(nextStart) : '';
             if (repeatType !== 'none' && repeatUntil && startKey && repeatUntil < startKey) {
                 throw new Error('循环截止不能早于开始日期');
             }
-            return { repeatType, repeatEvery, repeatUntil, repeatMonthlyMode };
+            return { repeatType, repeatEvery, repeatUntil, repeatMonthlyMode, repeatCalendarMode };
         };
 
         modal.addEventListener('click', async (e) => {
@@ -16187,7 +16482,7 @@
                 );
                 const repeatDraft = canUseInputTime
                     ? readRepeatRuleFromModal(nextStart)
-                    : { repeatType: repeatType0, repeatEvery: repeatEvery0, repeatUntil: repeatUntil0, repeatMonthlyMode: repeatMonthlyMode0 };
+                    : { repeatType: repeatType0, repeatEvery: repeatEvery0, repeatUntil: repeatUntil0, repeatMonthlyMode: repeatMonthlyMode0, repeatCalendarMode: repeatCalendarMode0 };
                 const currentViewItem = {
                     ...(init && typeof init === 'object' ? init : {}),
                     id: scheduleId,
@@ -16203,6 +16498,7 @@
                     repeatEvery: repeatDraft.repeatEvery,
                     repeatUntil: repeatDraft.repeatUntil,
                     repeatMonthlyMode: repeatDraft.repeatMonthlyMode,
+                    repeatCalendarMode: repeatDraft.repeatCalendarMode,
                     notificationSchedules: sanitizeScheduleNotificationSchedules(
                         init?.notificationSchedules
                     ),
@@ -16263,6 +16559,7 @@
                                 repeatEvery: repeatDraft2.repeatEvery,
                                 repeatUntil: repeatDraft2.repeatUntil,
                                 repeatMonthlyMode: repeatDraft2.repeatMonthlyMode,
+                                repeatCalendarMode: repeatDraft2.repeatCalendarMode,
                                 notificationSchedules: sanitizeScheduleNotificationSchedules(prevItem?.notificationSchedules),
                             };
                             nextList[idx] = {
@@ -16418,6 +16715,7 @@
                     repeatEvery: repeatDraft.repeatEvery,
                     repeatUntil: repeatDraft.repeatUntil,
                     repeatMonthlyMode: repeatDraft.repeatMonthlyMode,
+                    repeatCalendarMode: repeatDraft.repeatCalendarMode,
                 };
                 const isRecurringEdit = idx >= 0 && normalizeScheduleRepeatType(getScheduleRepeatType(prevItem)) !== 'none';
                 let mutationResult = null;
@@ -17255,17 +17553,21 @@
                         try { info?.event?.remove?.(); } catch (e2) {}
                         return;
                     }
-                    if (!(end instanceof Date) || Number.isNaN(end.getTime()) || end.getTime() <= start.getTime()) {
-                        end = new Date(start.getTime() + durMin * 60000);
-                    }
-                    const calendarId = String(ext.calendarId || payload?.calendarId || '').trim() || pickDefaultCalendarId(settings);
-                    const title = String(payload?.title || info?.event?.title || '').trim() || '任务';
                     const dropAllDayHint = (() => {
                         const t = info?.jsEvent?.target;
                         if (!(t instanceof Element)) return false;
                         return !!t.closest('.fc-timegrid-all-day, .fc-timegrid-allday, .fc-daygrid-day');
                     })();
                     const allDay = (info?.event?.allDay === true) || dropAllDayHint;
+                    if (allDay) {
+                        if (!(end instanceof Date) || Number.isNaN(end.getTime()) || end.getTime() <= start.getTime()) {
+                            end = new Date(start.getTime() + 24 * 60 * 60000);
+                        }
+                    } else {
+                        end = new Date(start.getTime() + durMin * 60000);
+                    }
+                    const calendarId = String(ext.calendarId || payload?.calendarId || '').trim() || pickDefaultCalendarId(settings);
+                    const title = String(payload?.title || info?.event?.title || '').trim() || '任务';
                     if (await maybeUpdateEmptyTaskDueDateFromAllDayDrop({ ...(payload || {}), taskId }, start, allDay, {
                         source: 'calendar-receive-task-due-date',
                         viewType: String(calendar?.view?.type || '').trim(),
@@ -18038,6 +18340,7 @@
                             repeatEvery: Number(ext.__tmRepeatEvery),
                             repeatUntil: String(ext.__tmRepeatUntil || ''),
                             repeatMonthlyMode: String(ext.__tmRepeatMonthlyMode || ''),
+                            repeatCalendarMode: String(ext.__tmRepeatCalendarMode || ''),
                             notificationSchedules: sanitizeScheduleNotificationSchedules(ext.__tmNotificationSchedules),
                         });
                     } catch (e2) {
@@ -19031,6 +19334,11 @@
                         reminderMode: reminderMode0,
                         reminderEnabled: extra.reminderEnabled,
                         reminderOffsetMin: extra.reminderOffsetMin,
+                        repeatType: normalizeScheduleRepeatType(extra.repeatType || 'none'),
+                        repeatEvery: normalizeScheduleRepeatEvery(extra.repeatEvery || 1, extra.repeatType || 'none'),
+                        repeatUntil: normalizeScheduleRepeatUntil(extra.repeatUntil || ''),
+                        repeatMonthlyMode: normalizeScheduleRepeatMonthlyMode(extra.repeatMonthlyMode || 'date', extra.repeatType || 'monthly'),
+                        repeatCalendarMode: normalizeScheduleRepeatCalendarMode(extra.repeatCalendarMode || 'solar', extra.repeatType || 'monthly'),
                     };
                 }
             }
@@ -19073,6 +19381,11 @@
             reminderMode: reminderMode0,
             reminderEnabled: extra.reminderEnabled,
             reminderOffsetMin: extra.reminderOffsetMin,
+            repeatType: normalizeScheduleRepeatType(extra.repeatType || 'none'),
+            repeatEvery: normalizeScheduleRepeatEvery(extra.repeatEvery || 1, extra.repeatType || 'none'),
+            repeatUntil: normalizeScheduleRepeatUntil(extra.repeatUntil || ''),
+            repeatMonthlyMode: normalizeScheduleRepeatMonthlyMode(extra.repeatMonthlyMode || 'date', extra.repeatType || 'monthly'),
+            repeatCalendarMode: normalizeScheduleRepeatCalendarMode(extra.repeatCalendarMode || 'solar', extra.repeatType || 'monthly'),
         };
     }
 

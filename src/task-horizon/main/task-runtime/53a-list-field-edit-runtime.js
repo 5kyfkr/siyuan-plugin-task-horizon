@@ -57,6 +57,60 @@
         return true;
     };
 
+    window.tmSetTaskCompletionTime = async function(id, value, opts = {}) {
+        const tid = String(id || '').trim();
+        if (!tid) return false;
+        const options = (opts && typeof opts === 'object') ? opts : {};
+        const raw = String(value || '').trim();
+        const next = raw ? __tmNormalizeDateOnly(raw) : '';
+        if (raw && !next) {
+            if (options.silent !== true) hint('⚠ 日期格式无效，请使用 YYYY-MM-DD', 'warning');
+            return false;
+        }
+        if (__tmShouldUseChecklistLegacyFieldCommit(options)) {
+            try {
+                await __tmRequestChecklistLegacyTaskPatch(tid, { completionTime: next }, {
+                    source: String(options.source || 'external-completion-time').trim() || 'external-completion-time',
+                    label: '截止日期',
+                    skipDetailPatch: options.skipDetailPatch === true,
+                    optimisticProjectionRefresh: options.optimisticProjectionRefresh === true,
+                });
+                if (options.silent !== true) hint(next ? '✅ 截止日期已更新' : '✅ 截止日期已清空', 'success');
+                return true;
+            } catch (e) {
+                if (options.silent !== true) hint(`❌ 更新失败: ${e.message}`, 'error');
+                return false;
+            }
+        }
+        const shouldWait = options.wait === true || options.forceImmediate === true;
+        const patchTask = globalThis.__tmRequireTaskOutbox?.('patchTask');
+        if (typeof patchTask !== 'function') throw new Error('任务写入队列未就绪: patchTask');
+        const result = patchTask(tid, { completionTime: next }, {
+            source: String(options.source || 'external-completion-time').trim() || 'external-completion-time',
+            label: '截止日期',
+            skipDetailPatch: options.skipDetailPatch === true,
+            defer: options.defer === true,
+            forceImmediate: options.forceImmediate === true,
+            background: options.forceImmediate === true ? undefined : true,
+            wait: shouldWait ? true : false,
+            queueDelayMs: Object.prototype.hasOwnProperty.call(options, 'queueDelayMs') ? options.queueDelayMs : undefined,
+            skipInteractionGate: options.skipInteractionGate === true || !shouldWait,
+            skipSettledRefresh: options.skipSettledRefresh !== false,
+            optimisticProjectionRefresh: options.optimisticProjectionRefresh === true,
+            showErrorHint: options.silent !== true,
+        });
+        if (shouldWait) {
+            const waitedResult = await result;
+            if (waitedResult !== false && options.silent !== true) hint(next ? '✅ 截止日期已更新' : '✅ 截止日期已清空', 'success');
+            return waitedResult !== false;
+        }
+        Promise.resolve(result).catch((e) => {
+            if (options.silent !== true) hint(`❌ 更新失败: ${e.message}`, 'error');
+        });
+        if (options.silent !== true) hint(next ? '✅ 截止日期已更新' : '✅ 截止日期已清空', 'success');
+        return true;
+    };
+
     function __tmOpenPriorityInlinePicker(anchorEl, options = {}) {
         if (!(anchorEl instanceof HTMLElement)) return;
         const opts = (options && typeof options === 'object') ? options : {};
@@ -588,4 +642,3 @@
             editor.appendChild(wrap);
         });
     };
-

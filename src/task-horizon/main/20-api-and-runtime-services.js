@@ -798,6 +798,7 @@
                         d.box as notebook,
                         d.created,
                         d.updated,
+                        d.sort,
                         d.ial as ial,
                         COALESCE(attr.alias, '') as alias
                     FROM blocks d
@@ -823,7 +824,8 @@
                         notebook: doc.notebook || '',
                         taskCount: 0,
                         created: doc.created,
-                        updated: doc.updated
+                        updated: doc.updated,
+                        sort: doc.sort
                     }));
                 }
                 return [];
@@ -5571,7 +5573,7 @@
                 const affectAncestors = __tmDoesPatchAffectAncestorPriorityScore(nextPatch);
                 __tmSyncTaskPriorityScoreLocal(tid, {
                     includeAncestors: affectAncestors,
-                    refreshAncestorViews: affectAncestors && options.render === false,
+                    refreshAncestorViews: affectAncestors && options.render === false && options.refreshAncestorViews !== false,
                     reason: 'attr-patch-priority-sync',
                 });
             } catch (e) {}
@@ -5762,7 +5764,7 @@
                 const affectAncestors = __tmDoesPatchAffectAncestorPriorityScore(prevPatch);
                 __tmSyncTaskPriorityScoreLocal(tid, {
                     includeAncestors: affectAncestors,
-                    refreshAncestorViews: affectAncestors && options.render === false,
+                    refreshAncestorViews: affectAncestors && options.render === false && options.refreshAncestorViews !== false,
                     reason: 'attr-patch-priority-rollback-sync',
                 });
             } catch (e) {}
@@ -6093,6 +6095,10 @@ onBlockInserted: (info) => {
                 previousStatusId: String(op?.data?.previousStatusId || '').trim(),
                 rewardPriorityScore: Number(op?.data?.rewardPriorityScore) || 0,
                 recordUndo: op?.data?.recordUndo !== false,
+                skipViewRefresh: op?.data?.skipViewRefresh === true,
+                skipOptimisticRefresh: op?.data?.skipOptimisticRefresh === true || op?.data?.skipViewRefresh === true,
+                skipSettledRefresh: op?.data?.skipSettledRefresh === true,
+                refreshAncestorViews: op?.data?.refreshAncestorViews !== false,
             });
         }
         if (type === 'moveTask') {
@@ -6190,6 +6196,7 @@ onBlockInserted: (info) => {
             if (op?.data?.optimistic === false) return true;
             __tmTaskStateKernel.patchTaskLocal(taskId, patch, {
                 source: String(op?.data?.source || '').trim(),
+                refreshAncestorViews: op?.data?.refreshAncestorViews !== false,
             });
             try { __tmMarkLocalTaskPatchWatermark(taskId, patch, op?.data || {}); } catch (e) {}
             if (op?.data?.skipViewRefresh === true) {
@@ -6268,11 +6275,12 @@ onBlockInserted: (info) => {
                 : {
                     done: !!op?.data?.done,
                     ...statusPatch,
-                };
+            };
             __tmTaskStateKernel.patchTaskLocal(taskId, patch, {
                 source: String(op?.data?.source || 'set-done-optimistic').trim() || 'set-done-optimistic',
+                refreshAncestorViews: op?.data?.refreshAncestorViews !== false,
             });
-            if (taskId && op?.data?.skipOptimisticRefresh !== true) {
+            if (taskId && op?.data?.skipOptimisticRefresh !== true && op?.data?.skipViewRefresh !== true) {
                 let optimisticProjectionRefresh = false;
                 try {
                     optimisticProjectionRefresh = typeof __tmDoesPatchNeedOptimisticProjectionRefresh === 'function'
@@ -6539,6 +6547,7 @@ onBlockInserted: (info) => {
             if (op?.data?.optimistic === false) return;
             __tmTaskStateKernel.rollbackTaskLocal(taskId, inversePatch, {
                 source: String(op?.data?.source || '').trim(),
+                refreshAncestorViews: op?.data?.refreshAncestorViews !== false,
             });
             try { __tmClearLocalTaskPatchWatermark(taskId, op?.data?.patch || inversePatch); } catch (e) {}
             if (op?.data?.skipViewRefresh === true) {
@@ -9607,6 +9616,9 @@ const wait = !!options.wait;
     };
     const __TM_REMINDER_REPEAT_MODE_FOLLOW_TASK = 'followTaskRepeat';
     const __TM_REMINDER_SNAPSHOT_TTL_MS = 1800;
+    const __TM_REMINDER_FOLLOW_TASK_DONE_RECENT_MS = 10 * 60 * 1000;
+    const __TM_REMINDER_UPDATE_EVENT_NAMES = ['tomato-reminder-updated', 'tomato-reminder-badge-update'];
+    const __tmReminderFollowTaskDoneSignatures = new Map();
 
     function __tmReminderToDateSafe(value) {
         if (value instanceof Date) return new Date(value.getTime());
@@ -9669,6 +9681,146 @@ const wait = !!options.wait;
         return String(value || '').trim().toLowerCase() === 'weekday' ? 'weekday' : 'date';
     }
 
+    function __tmNormalizeReminderCalendarMode(value, interval) {
+        const type = __tmNormalizeReminderInterval(interval || 'once');
+        if (type !== 'monthly' && type !== 'yearly') return 'solar';
+        const raw = String(value || '').trim().toLowerCase();
+        return raw === 'lunar' || raw === '农历' ? 'lunar' : 'solar';
+    }
+
+    const __TM_REMINDER_LUNAR_MONTH_TEXT_MAP = {
+        '正': 1, '一': 1, '二': 2, '三': 3, '四': 4, '五': 5, '六': 6,
+        '七': 7, '八': 8, '九': 9, '十': 10, '十一': 11, '冬': 11,
+        '十二': 12, '腊': 12,
+    };
+    let __tmReminderChineseCalendarFormatter = null;
+
+    function __tmParseReminderLunarChineseNumber(text) {
+        const raw = String(text || '').trim();
+        if (!raw) return 0;
+        if (/^\d+$/.test(raw)) return parseInt(raw, 10) || 0;
+        const s = raw.replace(/[月日号]/g, '').replace(/^初/, '');
+        const digitMap = { 零: 0, 〇: 0, 一: 1, 二: 2, 两: 2, 三: 3, 四: 4, 五: 5, 六: 6, 七: 7, 八: 8, 九: 9 };
+        if (s.startsWith('廿')) return 20 + (digitMap[s.slice(1)] || 0);
+        if (s.startsWith('卅')) return 30 + (digitMap[s.slice(1)] || 0);
+        if (s === '十') return 10;
+        if (s.startsWith('十')) return 10 + (digitMap[s.slice(1)] || 0);
+        if (s.includes('十')) {
+            const parts = s.split('十');
+            return (digitMap[parts[0]] || 0) * 10 + (digitMap[parts[1]] || 0);
+        }
+        return digitMap[s] || 0;
+    }
+
+    function __tmParseReminderLunarMonthText(text) {
+        const raw = String(text || '').trim().replace(/^闰/, '').replace(/月$/u, '');
+        if (!raw) return 0;
+        if (/^\d+$/.test(raw)) return parseInt(raw, 10) || 0;
+        return __TM_REMINDER_LUNAR_MONTH_TEXT_MAP[raw] || __tmParseReminderLunarChineseNumber(raw);
+    }
+
+    function __tmGetReminderChineseCalendarFormatter() {
+        if (__tmReminderChineseCalendarFormatter) return __tmReminderChineseCalendarFormatter;
+        try {
+            __tmReminderChineseCalendarFormatter = new Intl.DateTimeFormat('zh-CN-u-ca-chinese', {
+                year: 'numeric',
+                month: 'long',
+                day: 'numeric',
+            });
+        } catch (e) {
+            __tmReminderChineseCalendarFormatter = null;
+        }
+        return __tmReminderChineseCalendarFormatter;
+    }
+
+    function __tmGetReminderLunarDateInfo(dateLike) {
+        const dt = dateLike instanceof Date ? new Date(dateLike.getTime()) : __tmReminderToDateSafe(dateLike);
+        if (!(dt instanceof Date) || Number.isNaN(dt.getTime())) return null;
+        dt.setHours(12, 0, 0, 0);
+        const formatter = __tmGetReminderChineseCalendarFormatter();
+        if (!formatter) return null;
+        try {
+            const parts = formatter.formatToParts(dt);
+            const getPart = (type) => String((parts.find((part) => part.type === type) || {}).value || '').trim();
+            const monthText = getPart('month');
+            const dayText = getPart('day');
+            const relatedYearText = getPart('relatedYear') || getPart('year');
+            const relatedYear = parseInt(relatedYearText, 10);
+            const month = __tmParseReminderLunarMonthText(monthText);
+            const day = __tmParseReminderLunarChineseNumber(dayText);
+            const isLeap = /^闰/.test(monthText);
+            if (!Number.isFinite(relatedYear) || !month || !day) return null;
+            return { relatedYear, month, day, isLeap };
+        } catch (e) {
+            return null;
+        }
+    }
+
+    function __tmGetReminderLunarMonthIndex(info) {
+        if (!info || !Number.isFinite(Number(info.relatedYear)) || !Number.isFinite(Number(info.month))) return Number.NaN;
+        return Number(info.relatedYear) * 12 + Number(info.month) - 1;
+    }
+
+    function __tmBuildReminderLunarYearDate(relatedYear, anchorInfo) {
+        const year = Math.trunc(Number(relatedYear));
+        if (!Number.isFinite(year) || !anchorInfo) return null;
+        const start = new Date(year, 0, 1, 12, 0, 0, 0);
+        for (let i = 0; i < 430; i += 1) {
+            const info = __tmGetReminderLunarDateInfo(start);
+            if (info
+                && info.relatedYear === year
+                && info.month === anchorInfo.month
+                && info.day === anchorInfo.day
+                && info.isLeap === anchorInfo.isLeap) {
+                return new Date(start.getTime());
+            }
+            start.setDate(start.getDate() + 1);
+        }
+        return null;
+    }
+
+    function __tmFindReminderNextLunarMonthlyDate(baseDate, rule) {
+        const base = baseDate instanceof Date ? new Date(baseDate.getTime()) : __tmReminderToDateSafe(baseDate);
+        const anchor = __tmReminderToDateSafe(rule?.anchorDate || base);
+        const anchorInfo = __tmGetReminderLunarDateInfo(anchor);
+        if (!(base instanceof Date) || Number.isNaN(base.getTime()) || !anchorInfo) return null;
+        const anchorIndex = __tmGetReminderLunarMonthIndex(anchorInfo);
+        if (!Number.isFinite(anchorIndex)) return null;
+        const every = Math.max(1, Number(rule?.every) || 1);
+        const cursor = new Date(base.getTime());
+        cursor.setDate(cursor.getDate() + 1);
+        cursor.setHours(12, 0, 0, 0);
+        const guardLimit = Math.min(130000, Math.max(800, (every + 2) * 34 + 400));
+        for (let i = 0; i < guardLimit; i += 1) {
+            const info = __tmGetReminderLunarDateInfo(cursor);
+            if (info && info.day === anchorInfo.day && info.isLeap === anchorInfo.isLeap) {
+                const diffMonths = __tmGetReminderLunarMonthIndex(info) - anchorIndex;
+                if (diffMonths >= 0 && diffMonths % every === 0) return new Date(cursor.getTime());
+            }
+            cursor.setDate(cursor.getDate() + 1);
+        }
+        return null;
+    }
+
+    function __tmFindReminderNextLunarYearlyDate(baseDate, rule) {
+        const base = baseDate instanceof Date ? new Date(baseDate.getTime()) : __tmReminderToDateSafe(baseDate);
+        const anchor = __tmReminderToDateSafe(rule?.anchorDate || base);
+        const anchorInfo = __tmGetReminderLunarDateInfo(anchor);
+        if (!(base instanceof Date) || Number.isNaN(base.getTime()) || !anchorInfo) return null;
+        const baseInfo = __tmGetReminderLunarDateInfo(base) || anchorInfo;
+        const every = Math.max(1, Number(rule?.every) || 1);
+        let diffYears = Math.max(0, Number(baseInfo.relatedYear) - Number(anchorInfo.relatedYear));
+        const mod = diffYears % every;
+        if (mod !== 0) diffYears += (every - mod);
+        let relatedYear = Number(anchorInfo.relatedYear) + diffYears;
+        for (let i = 0; i < 30; i += 1) {
+            const candidate = __tmBuildReminderLunarYearDate(relatedYear, anchorInfo);
+            if (candidate && candidate.getTime() > base.getTime()) return candidate;
+            relatedYear += every;
+        }
+        return null;
+    }
+
     function __tmNormalizeReminderTaskRepeatRule(value) {
         let raw = value;
         if (typeof raw === 'string') {
@@ -9688,6 +9840,7 @@ const wait = !!options.wait;
             type,
             every: Math.max(1, Math.min(3650, parseInt(raw.every, 10) || 1)),
             monthlyMode: __tmNormalizeReminderMonthlyMode(raw.monthlyMode || ''),
+            calendarMode: __tmNormalizeReminderCalendarMode(raw.calendarMode || raw.repeatCalendarMode || '', type),
             until: __tmNormalizeReminderDateKey(raw.until || raw.repeatUntil || ''),
             anchorDate: __tmNormalizeReminderDateKey(raw.anchorDate || ''),
         };
@@ -9901,6 +10054,7 @@ const wait = !!options.wait;
             interval: __tmNormalizeReminderInterval(raw),
             every: __tmGetReminderEvery(raw),
             monthlyMode: __tmNormalizeReminderMonthlyMode(raw.monthlyMode || raw.repeatMonthlyMode || raw.monthly_mode || ''),
+            calendarMode: __tmNormalizeReminderCalendarMode(raw.calendarMode || raw.repeatCalendarMode || raw.repeat_calendar_mode || '', __tmNormalizeReminderInterval(raw)),
             times,
             startDate: __tmNormalizeReminderDateKey(
                 raw.startDate
@@ -9942,6 +10096,11 @@ const wait = !!options.wait;
         const nowMinutes = from.getHours() * 60 + from.getMinutes();
         const startKey = __tmGetReminderStartDateKey(reminder);
         const interval = __tmNormalizeReminderInterval(reminder?.interval || 'daily');
+        const repeatRule = __tmNormalizeReminderTaskRepeatRule(reminder?.taskRepeatRule);
+        const calendarMode = __tmNormalizeReminderCalendarMode(
+            reminder?.calendarMode || reminder?.repeatCalendarMode || repeatRule?.calendarMode || '',
+            interval
+        );
         const every = interval === 'once' ? 1 : __tmGetReminderEvery(reminder);
         const endDate = reminder?.endDate ? __tmNormalizeReminderDateKey(reminder.endDate) : '';
         const isBeforeStartDate = (dateKey) => dateKey < startKey;
@@ -10070,6 +10229,25 @@ const wait = !!options.wait;
         if (interval === 'monthly') {
             const anchor = new Date(`${startKey}T00:00:00`);
             if (Number.isNaN(anchor.getTime())) return null;
+            if (calendarMode === 'lunar') {
+                let cursor = new Date(from);
+                cursor.setHours(0, 0, 0, 0);
+                cursor.setDate(cursor.getDate() - 1);
+                for (let i = 0; i < 120; i += 1) {
+                    const next = __tmFindReminderNextLunarMonthlyDate(cursor, { anchorDate: anchor, every });
+                    if (!next) return null;
+                    const candidateKey = __tmNormalizeReminderDateKey(next);
+                    if (isBeyondEndDate(candidateKey)) return null;
+                    if (candidateKey < nowKey) {
+                        cursor = next;
+                        continue;
+                    }
+                    const at = candidateKey === nowKey ? pickOnDate(candidateKey, true) : pickEarliest(candidateKey);
+                    if (at) return at;
+                    cursor = next;
+                }
+                return null;
+            }
             const anchorY = anchor.getFullYear();
             const anchorM = anchor.getMonth();
             const fromY = from.getFullYear();
@@ -10113,6 +10291,25 @@ const wait = !!options.wait;
         if (interval === 'yearly') {
             const anchor = new Date(`${startKey}T00:00:00`);
             if (Number.isNaN(anchor.getTime())) return null;
+            if (calendarMode === 'lunar') {
+                let cursor = new Date(from);
+                cursor.setHours(0, 0, 0, 0);
+                cursor.setDate(cursor.getDate() - 1);
+                for (let i = 0; i < 30; i += 1) {
+                    const next = __tmFindReminderNextLunarYearlyDate(cursor, { anchorDate: anchor, every });
+                    if (!next) return null;
+                    const candidateKey = __tmNormalizeReminderDateKey(next);
+                    if (isBeyondEndDate(candidateKey)) return null;
+                    if (candidateKey < nowKey) {
+                        cursor = next;
+                        continue;
+                    }
+                    const at = candidateKey === nowKey ? pickOnDate(candidateKey, true) : pickEarliest(candidateKey);
+                    if (at) return at;
+                    cursor = next;
+                }
+                return null;
+            }
             const targetMonth = anchor.getMonth();
             const targetDay = anchor.getDate();
             const anchorY = anchor.getFullYear();
@@ -10164,7 +10361,13 @@ const wait = !!options.wait;
             const nowMinutes = to.getHours() * 60 + to.getMinutes();
             const startKey = __tmGetReminderStartDateKey(reminder);
             const interval = __tmNormalizeReminderInterval(reminder?.interval || 'daily');
+            const repeatRule = __tmNormalizeReminderTaskRepeatRule(reminder?.taskRepeatRule);
+            const calendarMode = __tmNormalizeReminderCalendarMode(
+                reminder?.calendarMode || reminder?.repeatCalendarMode || repeatRule?.calendarMode || '',
+                interval
+            );
             const every = interval === 'once' ? 1 : __tmGetReminderEvery(reminder);
+            const endKey = __tmNormalizeReminderDateKey(reminder?.endDate || '');
 
             const pickLatestOnDate = (dateKey, requirePastTime) => {
                 const base = new Date(`${dateKey}T00:00:00`);
@@ -10261,6 +10464,28 @@ const wait = !!options.wait;
             if (interval === 'monthly') {
                 const anchor = new Date(`${startKey}T00:00:00`);
                 if (Number.isNaN(anchor.getTime())) return null;
+                if (endKey && nowKey > endKey) return null;
+                if (calendarMode === 'lunar') {
+                    const anchorInfo = __tmGetReminderLunarDateInfo(anchor);
+                    if (!anchorInfo) return null;
+                    const anchorIndex = __tmGetReminderLunarMonthIndex(anchorInfo);
+                    let candidate = new Date(to);
+                    candidate.setHours(12, 0, 0, 0);
+                    for (let i = 0; i < 130000; i += 1) {
+                        if (candidate.getTime() < anchor.getTime()) break;
+                        const info = __tmGetReminderLunarDateInfo(candidate);
+                        if (info && info.day === anchorInfo.day && info.isLeap === anchorInfo.isLeap) {
+                            const diffMonths = __tmGetReminderLunarMonthIndex(info) - anchorIndex;
+                            if (diffMonths >= 0 && diffMonths % every === 0) {
+                                const candidateKey = __tmNormalizeReminderDateKey(candidate);
+                                const at = pickLatestOnDate(candidateKey, candidateKey === nowKey);
+                                if (at) return at;
+                            }
+                        }
+                        candidate.setDate(candidate.getDate() - 1);
+                    }
+                    return null;
+                }
                 const anchorY = anchor.getFullYear();
                 const anchorM = anchor.getMonth();
                 const toY = to.getFullYear();
@@ -10298,6 +10523,23 @@ const wait = !!options.wait;
             if (interval === 'yearly') {
                 const anchor = new Date(`${startKey}T00:00:00`);
                 if (Number.isNaN(anchor.getTime())) return null;
+                if (endKey && nowKey > endKey) return null;
+                if (calendarMode === 'lunar') {
+                    const anchorInfo = __tmGetReminderLunarDateInfo(anchor);
+                    if (!anchorInfo) return null;
+                    let relatedYear = to.getFullYear();
+                    for (let i = 0; i < 30; i += 1) {
+                        const candidate = __tmBuildReminderLunarYearDate(relatedYear, anchorInfo);
+                        if (candidate && candidate.getTime() <= to.getTime()) {
+                            const candidateKey = __tmNormalizeReminderDateKey(candidate);
+                            const at = pickLatestOnDate(candidateKey, candidateKey === nowKey);
+                            if (at) return at;
+                        }
+                        relatedYear -= every;
+                        if (relatedYear < Number(anchorInfo.relatedYear)) break;
+                    }
+                    return null;
+                }
                 const targetMonth = anchor.getMonth();
                 const targetDay = anchor.getDate();
                 const anchorY = anchor.getFullYear();
@@ -10583,6 +10825,258 @@ const wait = !!options.wait;
         const plan = Array.isArray(delays) ? delays : [0, 600, 1600, 3200, 5200, 8000];
         plan.forEach((ms) => {
             try { __tmRefreshReminderMarkForTask(tid, Math.max(0, Number(ms) || 0)); } catch (e) {}
+        });
+    }
+
+    function __tmParseReminderRecordFromValue(value, taskId = '') {
+        let raw = value;
+        if (typeof raw === 'string') {
+            const text = String(raw || '').trim();
+            if (!text) return null;
+            try { raw = JSON.parse(text); } catch (e) { return null; }
+        }
+        if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return null;
+        return __tmNormalizeReminderRecord(raw, taskId);
+    }
+
+    function __tmGetReminderCompletedEntries(reminder) {
+        const arr = reminder?.completedOccurrences || reminder?.completed || reminder?.done || [];
+        if (!Array.isArray(arr)) return [];
+        return arr.map((item, index) => {
+            if (!item) return null;
+            if (typeof item === 'string') {
+                const key = String(item || '').trim();
+                if (!key) return null;
+                const parts = key.split(/\s+/);
+                return {
+                    key,
+                    dateKey: __tmNormalizeReminderDateKey(parts[0] || ''),
+                    timeKey: String(parts[1] || '').trim(),
+                    doneAt: '',
+                    doneAtMs: Number.NaN,
+                    index,
+                };
+            }
+            const entry = (item && typeof item === 'object' && !Array.isArray(item)) ? item : {};
+            const dateKey = __tmNormalizeReminderDateKey(entry.date || entry.dateKey || entry.day || '');
+            const parsedTime = __tmParseReminderTime(entry.time || entry.timeKey || entry.at || '');
+            const timeKey = parsedTime?.key || String(entry.time || entry.timeKey || '').trim();
+            const key = __tmReminderOccurrenceKey(dateKey, timeKey);
+            if (!key) return null;
+            const doneAt = String(
+                entry.doneAt
+                || entry.completedAt
+                || entry.completed_at
+                || entry.markedAt
+                || entry.finishedAt
+                || entry.updatedAt
+                || ''
+            ).trim();
+            const doneAtDate = doneAt ? __tmReminderToDateSafe(doneAt) : null;
+            const doneAtMs = doneAtDate instanceof Date && !Number.isNaN(doneAtDate.getTime()) ? doneAtDate.getTime() : Number.NaN;
+            return { key, dateKey, timeKey, doneAt, doneAtMs, index };
+        }).filter(Boolean);
+    }
+
+    function __tmGetReminderCompletedKeySet(reminder) {
+        return new Set(__tmGetReminderCompletedEntries(reminder).map((entry) => entry.key).filter(Boolean));
+    }
+
+    function __tmReminderUpdateDetailLooksDone(detail = {}) {
+        const d = (detail && typeof detail === 'object') ? detail : {};
+        const negativeText = [
+            d.action,
+            d.reason,
+            d.source,
+            d.status,
+            d.kind,
+            d.event,
+        ].map((value) => String(value || '').trim().toLowerCase()).join(' ');
+        if (/uncomplete|undo|cancel|delete|remove|clear|unchecked|undone/.test(negativeText)) return false;
+        if (d.done === true || d.completed === true || d.checked === true || d.nextDone === true) return true;
+        return /complete|completed|done|finish|finished|checked|occurrence-done|mark-done/.test(negativeText);
+    }
+
+    function __tmRememberReminderFollowTaskDoneSignature(signature) {
+        const key = String(signature || '').trim();
+        if (!key) return;
+        __tmReminderFollowTaskDoneSignatures.set(key, Date.now());
+        if (__tmReminderFollowTaskDoneSignatures.size <= 240) return;
+        const cutoff = Date.now() - 2 * 60 * 60 * 1000;
+        Array.from(__tmReminderFollowTaskDoneSignatures.entries()).forEach(([sig, ts]) => {
+            if (Number(ts) < cutoff || __tmReminderFollowTaskDoneSignatures.size > 200) {
+                __tmReminderFollowTaskDoneSignatures.delete(sig);
+            }
+        });
+    }
+
+    function __tmPickReminderFollowTaskCompletedEntry(reminder, task, options = {}) {
+        const opts = (options && typeof options === 'object') ? options : {};
+        const entries = __tmGetReminderCompletedEntries(reminder);
+        if (!entries.length) return null;
+        const taskAnchor = __tmNormalizeReminderDateKey(
+            reminder?.taskCompletionTime
+            || task?.completionTime
+            || task?.completion_time
+            || reminder?.taskStartDate
+            || task?.startDate
+            || task?.start_date
+            || ''
+        );
+        const candidates = taskAnchor ? entries.filter((entry) => entry.dateKey === taskAnchor) : entries.slice();
+        if (!candidates.length) return null;
+        const previousSet = opts.previousReminder ? __tmGetReminderCompletedKeySet(opts.previousReminder) : new Set();
+        const hasPrevious = opts.previousReminder && typeof opts.previousReminder === 'object';
+        const nowMs = Date.now();
+        const detailLooksDone = __tmReminderUpdateDetailLooksDone(opts.detail);
+        candidates.sort((a, b) => {
+            const aMs = Number.isFinite(a.doneAtMs) ? a.doneAtMs : 0;
+            const bMs = Number.isFinite(b.doneAtMs) ? b.doneAtMs : 0;
+            if (aMs !== bMs) return bMs - aMs;
+            return b.index - a.index;
+        });
+        for (const entry of candidates) {
+            const isNew = hasPrevious ? !previousSet.has(entry.key) : false;
+            const isRecent = Number.isFinite(entry.doneAtMs)
+                && Math.abs(nowMs - entry.doneAtMs) <= __TM_REMINDER_FOLLOW_TASK_DONE_RECENT_MS;
+            if (!isNew && !isRecent && !detailLooksDone) continue;
+            const signature = `${String(task?.id || '').trim()}|${entry.key}|${entry.doneAt || ''}`;
+            if (__tmReminderFollowTaskDoneSignatures.has(signature)) continue;
+            return { entry, signature };
+        }
+        return null;
+    }
+
+    async function __tmMaybeAdvanceRecurringTaskFromReminderRecord(taskIdOrBlockId, reminderInput, options = {}) {
+        const requestedId = String(taskIdOrBlockId || '').trim();
+        if (!requestedId || !SettingsStore?.data?.enableTomatoIntegration) return false;
+        const opts = (options && typeof options === 'object') ? options : {};
+        const reminder = __tmParseReminderRecordFromValue(reminderInput, requestedId);
+        if (!reminder || __tmGetReminderRepeatMode(reminder) !== __TM_REMINDER_REPEAT_MODE_FOLLOW_TASK) return false;
+        let taskId = requestedId;
+        try {
+            const resolved = await __tmResolveTaskIdFromAnyBlockId(requestedId);
+            if (resolved) taskId = String(resolved || '').trim() || taskId;
+        } catch (e) {}
+        let task = null;
+        try {
+            task = typeof __tmResolveTaskForRepeat === 'function'
+                ? await __tmResolveTaskForRepeat(taskId)
+                : (globalThis.__tmRuntimeState?.getTaskById?.(taskId) || state.flatTasks?.[taskId] || null);
+        } catch (e) {
+            task = null;
+        }
+        if (!task?.id) return false;
+        try { if (typeof __tmIsRecurringInstanceTask === 'function' && __tmIsRecurringInstanceTask(task)) return false; } catch (e) {}
+        let alreadyDone = !!task.done;
+        try {
+            if (typeof __tmIsTaskDoneEffective === 'function') alreadyDone = !!__tmIsTaskDoneEffective(task);
+        } catch (e) {}
+        if (alreadyDone) return false;
+        const repeatRule = typeof __tmGetTaskRepeatRule === 'function'
+            ? __tmGetTaskRepeatRule(task)
+            : __tmNormalizeTaskRepeatRule(task.repeatRule || task.repeat_rule || '', {
+                startDate: task?.startDate,
+                completionTime: task?.completionTime,
+            });
+        if (!repeatRule?.enabled || repeatRule.type === 'none') return false;
+        const picked = __tmPickReminderFollowTaskCompletedEntry(reminder, task, {
+            detail: opts.detail || null,
+            previousReminder: opts.previousReminder || null,
+        });
+        if (!picked?.entry) return false;
+        __tmRememberReminderFollowTaskDoneSignature(picked.signature);
+        const completedAt = picked.entry.doneAt || __tmNowInChinaTimezoneIso();
+        try {
+            if (typeof window?.tmSetDone === 'function') {
+                const setDoneResult = await window.tmSetDone(task.id, true, null, {
+                    wait: true,
+                    suppressHint: true,
+                    source: 'tomato-reminder-follow-task-repeat',
+                });
+                if (setDoneResult === false) {
+                    __tmReminderFollowTaskDoneSignatures.delete(picked.signature);
+                    return false;
+                }
+            } else {
+                __tmReminderFollowTaskDoneSignatures.delete(picked.signature);
+                return false;
+            }
+            try { if (typeof __tmClearRecurringTaskAdvanceTimer === 'function') __tmClearRecurringTaskAdvanceTimer(task.id); } catch (e) {}
+            if (typeof __tmAdvanceRecurringTaskAfterCompletion === 'function') {
+                await __tmAdvanceRecurringTaskAfterCompletion(task.id, {
+                    source: 'tomato-reminder-follow-task-repeat',
+                    completedAt,
+                });
+            }
+            return true;
+        } catch (e) {
+            __tmReminderFollowTaskDoneSignatures.delete(picked.signature);
+            try { console.warn('[提醒联动] 跟随任务循环推进失败:', e); } catch (e2) {}
+            return false;
+        }
+    }
+
+    function __tmMaybeAdvanceRecurringTaskFromReminderAttr(taskId, attrValue, detail = {}) {
+        const tid = String(taskId || '').trim();
+        if (!tid) return false;
+        const previousSnapshot = __tmPeekTaskReminderSnapshotByAnyId(tid);
+        return Promise.resolve(__tmMaybeAdvanceRecurringTaskFromReminderRecord(tid, attrValue, {
+            detail,
+            previousReminder: previousSnapshot?.reminder || null,
+        })).catch(() => false);
+    }
+
+    function __tmExtractReminderUpdatedEventPayload(eventLike) {
+        const detail = (eventLike?.detail && typeof eventLike.detail === 'object') ? eventLike.detail : {};
+        const reminder = detail.reminder || detail.record || detail.data || detail.item || detail.block || null;
+        const rawCandidate = detail.value || detail.attrValue || detail.reminderData || detail.reminder_data || reminder || null;
+        const rawValue = (typeof rawCandidate === 'string' || (rawCandidate && typeof rawCandidate === 'object'))
+            ? rawCandidate
+            : null;
+        const id = String(
+            detail.taskId
+            || detail.blockId
+            || detail.block_id
+            || detail.taskBlockId
+            || detail.task_block_id
+            || detail.targetBlockId
+            || detail.target_block_id
+            || detail.id
+            || reminder?.blockId
+            || reminder?.block_id
+            || reminder?.taskBlockId
+            || reminder?.targetBlockId
+            || ''
+        ).trim();
+        return { detail, id, rawValue };
+    }
+
+    function __tmMaybeAdvanceRecurringTaskFromReminderUpdateEvent(eventLike) {
+        const payload = __tmExtractReminderUpdatedEventPayload(eventLike);
+        const id = String(payload.id || '').trim();
+        if (!id) return false;
+        const previousSnapshot = __tmPeekTaskReminderSnapshotByAnyId(id);
+        if (payload.rawValue) {
+            return Promise.resolve(__tmMaybeAdvanceRecurringTaskFromReminderRecord(id, payload.rawValue, {
+                detail: payload.detail,
+                previousReminder: previousSnapshot?.reminder || null,
+            })).catch(() => false);
+        }
+        return new Promise((resolve) => {
+            try {
+                setTimeout(() => {
+                    Promise.resolve(__tmGetTaskReminderSnapshotByAnyId(id, { force: true }))
+                        .then((snapshot) => __tmMaybeAdvanceRecurringTaskFromReminderRecord(id, snapshot?.reminder || null, {
+                            detail: payload.detail,
+                            previousReminder: previousSnapshot?.reminder || null,
+                        }))
+                        .then(resolve)
+                        .catch(() => resolve(false));
+                }, 160);
+            } catch (e) {
+                resolve(false);
+            }
         });
     }
 
@@ -13756,6 +14250,69 @@ if (hasStatusPatch) {
         return `- [${nextMarker}] ${content}`;
     }
 
+    function __tmIsTaskListItemMarkdown(markdown) {
+        const md = String(markdown || '');
+        if (!md) return false;
+        const newlineIndex = md.indexOf('\n');
+        const firstLine = newlineIndex >= 0 ? md.slice(0, newlineIndex) : md;
+        return !!__tmGetTaskListItemMarkerPrefixMatch(firstLine);
+    }
+
+    function __tmIsTaskListItemMarkerApiError(error) {
+        const message = String(error?.message || error || '').trim();
+        return /block is not a task list item/i.test(message);
+    }
+
+    function __tmBuildStaleTaskBlockError(taskId, cause = null) {
+        const tid = String(taskId || '').trim();
+        const err = new Error('\u4efb\u52a1\u5757\u5df2\u53d8\u5316\u6216\u7f13\u5b58\u8fc7\u671f\uff0c\u8bf7\u5237\u65b0\u4efb\u52a1\u7ba1\u7406\u5668\u540e\u91cd\u8bd5');
+        err.code = 'TM_TASK_BLOCK_NOT_TASK_ITEM';
+        err.taskId = tid;
+        if (cause) err.cause = cause;
+        return err;
+    }
+
+    function __tmIsStaleTaskBlockError(error) {
+        return String(error?.code || '').trim() === 'TM_TASK_BLOCK_NOT_TASK_ITEM'
+            || __tmIsTaskListItemMarkerApiError(error);
+    }
+
+    async function __tmHandleStaleTaskBlockForRefresh(taskId, taskLike = null, options = {}) {
+        const tid = String(taskId || '').trim();
+        const task = (taskLike && typeof taskLike === 'object') ? taskLike : null;
+        const opts = (options && typeof options === 'object') ? options : {};
+        const docIds = new Set([
+            String(opts.docId || '').trim(),
+            String(task?.root_id || '').trim(),
+            String(task?.docId || '').trim(),
+        ].filter(Boolean));
+        if (!docIds.size && tid) {
+            try {
+                const rows = await API.getBlocksByIds([tid]);
+                const row = Array.isArray(rows) && rows.length > 0 ? rows[0] : null;
+                const rootId = String(row?.root_id || '').trim();
+                if (rootId) docIds.add(rootId);
+            } catch (e) {}
+        }
+        try {
+            if (docIds.size) docIds.forEach((docId) => __tmInvalidateTasksQueryCacheByDocId(docId));
+            else __tmInvalidateAllSqlCaches();
+        } catch (e) {}
+        try { window.__tmCalendarAllTasksCache = null; } catch (e) {}
+        try {
+            __tmRefreshViewsAfterTaskMutation({
+                refresh: opts.refresh !== false,
+                refreshCalendar: false,
+                withFilters: true,
+                hard: true,
+                reason: String(opts.reason || 'stale-task-block').trim() || 'stale-task-block',
+                taskIds: tid ? [tid] : [],
+            });
+        } catch (e) {}
+        try { globalThis.__taskHorizonQuickbarRefreshInline?.(); } catch (e) {}
+        try { globalThis.__taskHorizonQuickbarRefresh?.(); } catch (e) {}
+    }
+
     async function __tmUpdateTaskListItemMarkerWithFallback(taskId, marker) {
         const tid = String(taskId || '').trim();
         if (!tid) throw new Error('缺少任务 ID');
@@ -13781,10 +14338,22 @@ if (hasStatusPatch) {
             }
             let kramdown = '';
             try { kramdown = await API.getBlockKramdown(tid); } catch (e) { kramdown = ''; }
-            const nextMarkdown = __tmReplaceTaskListItemMarkerInMarkdown(kramdown, nextMarker);
+            const nextMarkdown = __tmIsTaskListItemMarkdown(kramdown)
+                ? __tmReplaceTaskListItemMarkerInMarkdown(kramdown, nextMarker)
+                : '';
             if (!nextMarkdown) {
+                if (errorForFallback && __tmIsTaskListItemMarkerApiError(errorForFallback)) {
+                    try {
+                        await __tmHandleStaleTaskBlockForRefresh(tid, taskForRetention, {
+                            reason: 'marker-update-not-task-item',
+                        });
+                    } catch (e) {}
+                    const staleError = __tmBuildStaleTaskBlockError(tid, errorForFallback);
+                    staleError.refreshRequested = true;
+                    throw staleError;
+                }
                 if (errorForFallback) throw errorForFallback;
-                throw new Error('无法解析任务 Markdown');
+                throw new Error('\u65e0\u6cd5\u89e3\u6790\u4efb\u52a1 Markdown');
             }
             const updateResult = await __tmBackendAdapter.updateBlock(tid, nextMarkdown);
             const nextId = String(updateResult?.id || tid).trim() || tid;
@@ -13942,7 +14511,7 @@ if (hasStatusPatch) {
         try {
             __tmSyncTaskPriorityScoreLocal(tid, {
                 includeAncestors: true,
-                refreshAncestorViews: true,
+                refreshAncestorViews: opts.refreshAncestorViews !== false,
                 reason: 'status-local-priority-sync',
             });
         } catch (e) {}
@@ -14153,6 +14722,15 @@ __tmPushStatusDebug('apply-status:start', {
                     error: String(e?.message || e || ''),
                     markerResult,
                 }, suppressionIds, { force: true });
+                if (__tmIsStaleTaskBlockError(e) && e?.refreshRequested !== true) {
+                    try {
+                        await __tmHandleStaleTaskBlockForRefresh(context.persistId, task, {
+                            docId: context.docId,
+                            reason: 'apply-status-stale-task-block',
+                            refresh: opts.refresh !== false,
+                        });
+                    } catch (refreshErr) {}
+                }
                 if (markerResult && prevMarker !== nextMarker) {
                     try { await __tmUpdateTaskListItemMarkerWithFallback(context.persistId, prevMarker); } catch (rollbackErr) {}
                 }
@@ -14718,6 +15296,7 @@ __tmPushStatusDebug('apply-status:start', {
     let __tmQuickbarTaskUpdateHandler = null;
     let __tmQuickbarRelayStorageHandler = null;
     let __tmQuickbarRelayPollTimer = null;
+    let __tmReminderFollowTaskRepeatUpdateHandler = null;
     const __tmQuickbarRelayLastTokenByKey = new Map();
     let __tmEditorTitleIconMenuHandler = null;
     let __tmContentMenuHandler = null;
@@ -14732,6 +15311,9 @@ __tmPushStatusDebug('apply-status:start', {
     const __tmNativeDocCheckboxSyncIgnoreMap = new Map();
     const __tmNativeDocCheckboxInsertedBlockMap = new Map();
     const __tmNativeDocCheckboxSyncQueue = [];
+    const __tmNativeDocCheckboxSyncQueuedIds = new Set();
+    const __tmNativeDocCheckboxSyncRunningIds = new Set();
+    const __tmNativeDocCheckboxSyncDirtyIds = new Set();
     let __tmNativeDocCheckboxSyncQueueRunning = false;
     const __tmNativeDocCheckboxPendingBatch = new Map();
     let __tmNativeDocCheckboxBatchTimer = null;
@@ -14823,10 +15405,18 @@ __tmPushStatusDebug('apply-status:start', {
         const out = [];
         const seen = new Set();
         const activeDocId = String(state.activeDocId || 'all').trim() || 'all';
+        const activeDocTabCustomGroupDocIds = (typeof __tmGetActiveDocTabCustomGroupDocIdSet === 'function')
+            ? __tmGetActiveDocTabCustomGroupDocIdSet(activeDocId, {
+                currentGroupId: SettingsStore?.data?.currentGroupId || 'all',
+                docs: state.taskTree || []
+            })
+            : null;
+        const isDocTabCustomGroupActive = activeDocTabCustomGroupDocIds instanceof Set && activeDocTabCustomGroupDocIds.size > 0;
         const pushTask = (task) => {
             if (!task || typeof task !== 'object') return;
             const taskDocId = String(task?.root_id || task?.docId || '').trim();
-            if (!__tmIsOtherBlockTabId(activeDocId) && activeDocId !== 'all' && taskDocId && taskDocId !== activeDocId) return;
+            if (isDocTabCustomGroupActive && taskDocId && !activeDocTabCustomGroupDocIds.has(taskDocId)) return;
+            if (!isDocTabCustomGroupActive && !__tmIsOtherBlockTabId(activeDocId) && activeDocId !== 'all' && taskDocId && taskDocId !== activeDocId) return;
             const id = String(task.id || '').trim();
             if (id && seen.has(id)) return;
             if (id) seen.add(id);
@@ -14852,7 +15442,8 @@ __tmPushStatusDebug('apply-status:start', {
         }
         (Array.isArray(state.taskTree) ? state.taskTree : []).forEach((doc) => {
             const docId = String(doc?.id || '').trim();
-            if (activeDocId !== 'all' && docId !== activeDocId) return;
+            if (isDocTabCustomGroupActive && !activeDocTabCustomGroupDocIds.has(docId)) return;
+            if (!isDocTabCustomGroupActive && activeDocId !== 'all' && docId !== activeDocId) return;
             appendWalk(doc?.tasks || []);
         });
         return out;
@@ -14865,9 +15456,17 @@ __tmPushStatusDebug('apply-status:start', {
         const activeDocId = String(state.activeDocId || 'all').trim() || 'all';
         const homepageTasks = __tmCollectHomepageTasks();
         const todayKey = __tmNormalizeDateOnly(new Date());
+        const activeDocTabCustomGroupId = (typeof __tmParseDocTabCustomGroupActiveId === 'function')
+            ? __tmParseDocTabCustomGroupActiveId(activeDocId)
+            : '';
+        const activeDocTabCustomGroup = activeDocTabCustomGroupId && typeof __tmFindDocTabCustomGroupById === 'function'
+            ? __tmFindDocTabCustomGroupById(activeDocTabCustomGroupId)
+            : null;
         const docName = activeDocId === 'all'
             ? ''
-            : String((Array.isArray(state.taskTree) ? state.taskTree : []).find((doc) => String(doc?.id || '').trim() === activeDocId)?.name || '').trim();
+            : (activeDocTabCustomGroup
+                ? String(activeDocTabCustomGroup.name || '').trim()
+                : String((Array.isArray(state.taskTree) ? state.taskTree : []).find((doc) => String(doc?.id || '').trim() === activeDocId)?.name || '').trim());
         const currentRule = state.currentRule
             ? (Array.isArray(state.filterRules) ? state.filterRules.find((rule) => String(rule?.id || '').trim() === String(state.currentRule || '').trim()) : null)
             : null;
@@ -15581,6 +16180,20 @@ async function __tmRefreshAfterWake(reason) {
         const snap = (snapshot && typeof snapshot === 'object') ? snapshot : null;
         const docId = String(snap?.activeDocId || '').trim();
         if (!docId || docId === 'all' || __tmIsOtherBlockTabId(docId)) return false;
+        if (typeof __tmIsDocTabCustomGroupActiveId === 'function' && __tmIsDocTabCustomGroupActiveId(docId)) {
+            const docIds = typeof __tmGetActiveDocTabCustomGroupDocIdSet === 'function'
+                ? __tmGetActiveDocTabCustomGroupDocIdSet(docId, {
+                    currentGroupId: SettingsStore?.data?.currentGroupId || 'all',
+                    docs: state.taskTree || []
+                })
+                : null;
+            if (!(docIds instanceof Set) || !docIds.size) return false;
+            state.activeDocId = docId;
+            if (Object.prototype.hasOwnProperty.call(snap, 'docTabsArchiveMode')) {
+                state.docTabsArchiveMode = snap.docTabsArchiveMode === true;
+            }
+            return true;
+        }
         const exists = (Array.isArray(state.taskTree) ? state.taskTree : [])
             .some((doc) => String(doc?.id || '').trim() === docId);
         if (!exists) return false;
@@ -16355,8 +16968,15 @@ refreshOk = false;
         if (!list.length) return '';
         let html = '';
         const stack = [];
+        const renderListStyle = (indent, parentIndent) => {
+            const current = Math.max(0, Number(indent) || 0);
+            const parent = Math.max(0, Number(parentIndent) || 0);
+            const delta = Math.max(0, current - parent);
+            return delta > 0 ? ` style="margin-inline-start:${delta}ch;"` : '';
+        };
         const openList = (type, indent) => {
-            html += `<${type}>`;
+            const parentIndent = stack.length ? stack[stack.length - 1].indent : 0;
+            html += `<${type}${renderListStyle(indent, parentIndent)}>`;
             stack.push({ type, indent, liOpen: false });
         };
         const closeList = () => {
@@ -16918,11 +17538,40 @@ refreshOk = false;
         return true;
     }
 
+    function __tmStopRemarkTextareaShortcutEvent(event) {
+        try { event.preventDefault(); } catch (e) {}
+        try { event.stopPropagation(); } catch (e) {}
+        try { event.stopImmediatePropagation(); } catch (e) {}
+    }
+
+    function __tmParseRemarkListLine(line) {
+        const source = String(line || '');
+        const orderedMatch = source.match(/^([ \t]*)(\d+)\.(?:[ \t]+|$)(.*)$/);
+        if (orderedMatch) {
+            return {
+                type: 'ordered',
+                indent: orderedMatch[1] || '',
+                index: Math.max(1, Number(orderedMatch[2]) || 1),
+                body: String(orderedMatch[3] || ''),
+            };
+        }
+        const bulletMatch = source.match(/^([ \t]*)([-*+])(?:[ \t]+|$)(.*)$/);
+        if (bulletMatch) {
+            return {
+                type: 'bullet',
+                indent: bulletMatch[1] || '',
+                marker: bulletMatch[2] || '-',
+                body: String(bulletMatch[3] || ''),
+            };
+        }
+        return null;
+    }
+
     function __tmHandleRemarkTextareaKeydown(textarea, event) {
         if (!(textarea instanceof HTMLTextAreaElement) || !event || event.defaultPrevented) return false;
         if (__tmHandleRemarkTextareaUndoRedoKeydown(textarea, event)) return true;
         if (event.key === 'Tab' && !event.altKey && !event.ctrlKey && !event.metaKey && !event.isComposing) {
-            event.preventDefault();
+            __tmStopRemarkTextareaShortcutEvent(event);
             return __tmAdjustRemarkIndent(textarea, !!event.shiftKey);
         }
         const isMeta = !!(event.metaKey || event.ctrlKey);
@@ -16948,16 +17597,15 @@ refreshOk = false;
         const lineEndIndex = value.indexOf('\n', start);
         const lineEnd = lineEndIndex < 0 ? value.length : lineEndIndex;
         const line = value.slice(lineStart, lineEnd);
-        const orderedMatch = line.match(/^(\s*)(\d+)\.\s*(.*)$/);
-        const bulletMatch = line.match(/^(\s*)([-*+])\s*(.*)$/);
-        if (!orderedMatch && !bulletMatch) return false;
-        event.preventDefault();
-        if (orderedMatch) {
-            const indent = orderedMatch[1] || '';
-            const index = Math.max(1, Number(orderedMatch[2]) || 1);
-            const body = String(orderedMatch[3] || '');
+        const listLine = __tmParseRemarkListLine(line);
+        if (!listLine) return false;
+        __tmStopRemarkTextareaShortcutEvent(event);
+        if (listLine.type === 'ordered') {
+            const indent = listLine.indent || '';
+            const index = Math.max(1, Number(listLine.index) || 1);
+            const body = String(listLine.body || '');
             if (!body.trim()) {
-                const nextLine = line.replace(/^(\s*)\d+\.\s*$/, '$1');
+                const nextLine = indent;
                 const nextValue = `${value.slice(0, lineStart)}${nextLine}${value.slice(lineEnd)}`;
                 const cursor = lineStart + nextLine.length;
                 __tmSetTextareaValueAndSelection(textarea, nextValue, cursor);
@@ -16969,11 +17617,11 @@ refreshOk = false;
             __tmSetTextareaValueAndSelection(textarea, nextValue, cursor);
             return true;
         }
-        const indent = bulletMatch[1] || '';
-        const marker = bulletMatch[2] || '-';
-        const body = String(bulletMatch[3] || '');
+        const indent = listLine.indent || '';
+        const marker = listLine.marker || '-';
+        const body = String(listLine.body || '');
         if (!body.trim()) {
-            const nextLine = line.replace(/^(\s*)[-*+]\s*$/, '$1');
+            const nextLine = indent;
             const nextValue = `${value.slice(0, lineStart)}${nextLine}${value.slice(lineEnd)}`;
             const cursor = lineStart + nextLine.length;
             __tmSetTextareaValueAndSelection(textarea, nextValue, cursor);
@@ -17279,10 +17927,6 @@ refreshOk = false;
         const kanbanCollapsedIds = state.__tmKanbanCollapsedIds instanceof Set ? Array.from(state.__tmKanbanCollapsedIds).sort() : [];
         const kanbanCollapsedColumnKeys = state.__tmKanbanCollapsedColumnKeys instanceof Set ? Array.from(state.__tmKanbanCollapsedColumnKeys).sort() : [];
         const quadrantRules = Array.isArray(SettingsStore.data?.quadrantConfig?.rules) ? SettingsStore.data.quadrantConfig.rules : [];
-        const taskDetailShowCompletedSubtasks = typeof __tmNormalizeTaskDetailShowCompletedSubtasksSetting === 'function'
-            ? __tmNormalizeTaskDetailShowCompletedSubtasksSetting(SettingsStore.data?.taskDetailShowCompletedSubtasks, true)
-            : SettingsStore.data?.taskDetailShowCompletedSubtasks !== false;
-
         feed(options.isAllTabsView ? 1 : 0);
         feed(options.isCompact ? 1 : 0);
         feed(options.kanbanColW);
@@ -17355,8 +17999,6 @@ refreshOk = false;
 
         feed(kanbanCollapsedColumnKeys.length);
         kanbanCollapsedColumnKeys.forEach(feed);
-
-        feed(taskDetailShowCompletedSubtasks ? 1 : 0);
 
         feed(filtered.length);
         filtered.forEach((task) => {
@@ -18913,6 +19555,7 @@ refreshOk = false;
             ? ''
             : __tmGetSafeViewMode(state.viewMode || SettingsStore.data.defaultViewMode || 'checklist');
         const buttonStyle = opts.compact ? ' style="line-height:28px; padding:0 10px;"' : '';
+        const useMobileBottomSwitch = opts.mobileBottom === true;
         const buttons = __tmGetEnabledViews().map((viewId) => {
             const view = __TM_ALL_VIEWS.find(v => v.id === viewId);
             if (!view) return '';
@@ -18920,7 +19563,10 @@ refreshOk = false;
                 ? ' oncontextmenu="return tmHandleCalendarViewButtonContextMenu(event)"'
                 : '';
             const active = activeMode === view.id;
-            return `<button class="tm-view-seg-item bc-tabs-trigger ${active ? 'tm-view-seg-item--active' : ''}" data-state="${active ? 'active' : 'inactive'}" onclick="tmSwitchViewMode('${view.id}')"${extra} role="tab" aria-selected="${active ? 'true' : 'false'}"${buttonStyle}>${view.label}</button>`;
+            const onclick = useMobileBottomSwitch
+                ? `return tmSwitchViewModeFromMobileBottomNav('${escSq(view.id)}', event)`
+                : `tmSwitchViewMode('${escSq(view.id)}')`;
+            return `<button type="button" class="tm-view-seg-item bc-tabs-trigger ${active ? 'tm-view-seg-item--active' : ''}" data-state="${active ? 'active' : 'inactive'}" data-tm-view-mode="${__tmEscAttr(view.id)}" onclick="${onclick}"${extra} role="tab" aria-selected="${active ? 'true' : 'false'}"${buttonStyle}>${view.label}</button>`;
         }).join('');
         return buttons;
     };
@@ -22418,6 +23064,11 @@ const renderBodyHtml = state.renderChecklistBodyHtml;
         __tmPreserveActiveDetailNotePanelDuringBodySwap(body, nextBody);
         try { body.replaceWith(nextBody); } catch (e) { return false; }
         try { __tmBindWhiteboardViewportInput(modal); } catch (e) {}
+        const scheduleWhiteboardLayoutRefresh = () => {
+            try { __tmApplyWhiteboardTransform(); } catch (e) {
+                try { __tmScheduleWhiteboardEdgeRedraw(); } catch (e2) {}
+            }
+        };
         try { if (typeof __tmUpdateWhiteboardNavigator === 'function') __tmUpdateWhiteboardNavigator(); } catch (e) {}
         try { __tmRefreshChecklistSelectionInPlace(modal, 'whiteboard-rerender'); } catch (e) {}
         __tmBindFloatingTooltipsAfterLocalRerender(modal);
@@ -22436,9 +23087,11 @@ const renderBodyHtml = state.renderChecklistBodyHtml;
                 }
             } catch (e) {}
             try { __tmRefreshChecklistSelectionInPlace(modal, 'whiteboard-rerender-restore'); } catch (e) {}
+            scheduleWhiteboardLayoutRefresh();
         };
         try { restore(); } catch (e) {}
         try { requestAnimationFrame(restore); } catch (e) {}
+        try { requestAnimationFrame(() => requestAnimationFrame(scheduleWhiteboardLayoutRefresh)); } catch (e) {}
         return true;
     }
 

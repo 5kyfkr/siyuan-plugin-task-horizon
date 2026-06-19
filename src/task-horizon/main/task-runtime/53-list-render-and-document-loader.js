@@ -784,12 +784,14 @@
                 const toggle = `<span class="tm-group-toggle${isCollapsed ? ' tm-group-toggle--collapsed' : ''}" onclick="tmToggleGroupCollapse('${group.key}', event)" style="cursor:pointer;margin-right:0;display:inline-flex;align-items:center;justify-content:center;width:16px;"><svg class="tm-group-toggle-icon" viewBox="0 0 16 16" width="16" height="16"><path d="M6 4l4 4-4 4" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg></span>`;
                 const labelColor = __tmGetTimeGroupLabelColor(group);
                 const groupKey = String(group.key || '').trim();
+                const hasWeekdayChip = group.kind === 'time' && String(group.labelHtml || '').includes('tm-time-group-weekday-chip');
                 const timeGroupDropAttrs = `data-group-kind="time" data-group-key="${esc(groupKey)}" ondragenter="tmTimeGroupDragOver(event, '${groupKey}')" ondragover="tmTimeGroupDragOver(event, '${groupKey}')" ondragleave="tmTimeGroupDragLeave(event)" ondrop="tmTimeGroupDrop(event, '${groupKey}')"`;
+                const quickAddBtnHtml = __tmBuildTimeGroupQuickAddBtnHtml(state.activeDocId, group);
 
                 // 计算该分组下所有任务的时长总和
                 const durationSum = calculateGroupDuration(group.items);
 
-                allRows.push(`<tr class="tm-group-row" ${timeGroupDropAttrs}><td colspan="${colCount}" onclick="tmToggleGroupCollapse('${groupKey}', event)" style="cursor:pointer;background:var(--tm-header-bg);font-weight:bold;color:var(--tm-text-color);"><div class="tm-group-sticky">${toggle}<span class="tm-group-label" style="color:${labelColor};">${String(group.labelHtml || esc(group.label))}</span><span class="tm-badge tm-badge--count">${group.items.length}</span>${durationSum ? `<span class="tm-badge tm-badge--duration"><span class="tm-badge__icon">${__tmRenderBadgeIcon('chart-column')}</span>${esc(durationSum)}</span>` : ''}</div></td></tr>`);
+                allRows.push(`<tr class="tm-group-row" ${timeGroupDropAttrs}><td colspan="${colCount}" onclick="tmToggleGroupCollapse('${groupKey}', event)" style="cursor:pointer;background:var(--tm-header-bg);font-weight:bold;color:var(--tm-text-color);"><div class="tm-group-sticky">${toggle}<span class="tm-group-label tm-group-label--time${hasWeekdayChip ? ' tm-group-label--has-weekday-chip' : ''}" style="color:${labelColor};">${String(group.labelHtml || esc(group.label))}</span><span class="tm-badge tm-badge--count">${group.items.length}</span>${durationSum ? `<span class="tm-badge tm-badge--duration"><span class="tm-badge__icon">${__tmRenderBadgeIcon('chart-column')}</span>${esc(durationSum)}</span>` : ''}${quickAddBtnHtml}</div></td></tr>`);
 
                 if (!isCollapsed) {
                     currentGroupBg = enableGroupBg
@@ -2436,6 +2438,9 @@ return finish(false, 'noop');
                 } else {
                     try { __tmClearRecurringTaskAdvanceTimer(id); } catch (e) {}
                 }
+                if (targetDone && !taskWasDone && opts.skipAutoCompleteParent !== true) {
+                    try { void __tmMaybeAutoCompleteParentAfterSubtaskDone(id, opts).catch(() => null); } catch (e) {}
+                }
                 if (useCalendarLocalRefresh) {
                     try { globalThis.__tmCalendar?.syncTaskDoneInPlace?.(id, !!done, { allowRefetch: true }); } catch (e) {}
                 } else if (!useLocalRefreshMode) {
@@ -2701,6 +2706,12 @@ return finish(false, 'noop');
                         touchMetaStore: false,
                         skipFlush: false,
                         source: String(opts.source || 'set-done-status-link').trim() || 'set-done-status-link',
+                        skipViewRefresh: opts.skipViewRefresh === true,
+                        skipOptimisticRefresh: opts.skipOptimisticRefresh === true || opts.skipViewRefresh === true,
+                        skipSettledRefresh: opts.skipSettledRefresh === true,
+                        optimisticProjectionRefresh: opts.optimisticProjectionRefresh === true,
+                        forceProjectionRefresh: opts.forceProjectionRefresh === true,
+                        refreshAncestorViews: opts.refreshAncestorViews !== false,
                     }).catch((statusErr) => {
                         try { console.error('[完成状态] 状态联动保存失败:', statusErr); } catch (e) {}
                     });
@@ -2845,6 +2856,9 @@ return finish(false, 'noop');
             } else {
                 try { __tmClearRecurringTaskAdvanceTimer(id); } catch (e) {}
             }
+            if (actualDone && !originalDone && opts.skipAutoCompleteParent !== true) {
+                try { void __tmMaybeAutoCompleteParentAfterSubtaskDone(id, opts).catch(() => null); } catch (e) {}
+            }
 
         } catch (err) {
             console.error('[完成操作失败]', err);
@@ -2914,6 +2928,160 @@ return finish(false, 'noop');
         }
     };
 
+    const __tmAutoCompleteParentTaskIdsInFlight = new Set();
+
+    function __tmAutoCompleteGetTaskById(taskId) {
+        const tid = String(taskId || '').trim();
+        if (!tid) return null;
+        return globalThis.__tmRuntimeState?.getTaskById?.(tid, { includePending: true, preferPending: true })
+            || state.pendingInsertedTasks?.[tid]
+            || state.flatTasks?.[tid]
+            || null;
+    }
+
+    function __tmAutoCompleteGetParentTaskId(task) {
+        return String(task?.parentTaskId || task?.parent_task_id || '').trim();
+    }
+
+    function __tmAutoCompleteIsTaskDone(task) {
+        if (!(task && typeof task === 'object')) return false;
+        if (task.done === true) return true;
+        try {
+            if (typeof __tmIsTaskDoneEffective === 'function') return !!__tmIsTaskDoneEffective(task);
+        } catch (e) {}
+        return false;
+    }
+
+    function __tmFindParentTaskIdForAutoComplete(childId, childTask = null) {
+        const cid = String(childId || '').trim();
+        if (!cid) return '';
+        const directParentId = __tmAutoCompleteGetParentTaskId(childTask || __tmAutoCompleteGetTaskById(cid));
+        if (directParentId) return directParentId;
+        let found = '';
+        const walk = (tasks, parentId = '') => {
+            if (!Array.isArray(tasks) || found) return;
+            tasks.forEach((task) => {
+                if (found || !(task && typeof task === 'object')) return;
+                const tid = String(task.id || task.blockId || '').trim();
+                if (tid === cid) {
+                    found = String(parentId || '').trim();
+                    return;
+                }
+                if (Array.isArray(task.children) && task.children.length) walk(task.children, tid || parentId);
+            });
+        };
+        try { (Array.isArray(state.taskTree) ? state.taskTree : []).forEach((doc) => walk(doc?.tasks)); } catch (e) {}
+        try { walk(state.filteredTasks); } catch (e) {}
+        return found;
+    }
+
+    function __tmCollectDirectChildrenForAutoComplete(parentId) {
+        const pid = String(parentId || '').trim();
+        if (!pid) return [];
+        const children = new Map();
+        const addChild = (child) => {
+            if (!(child && typeof child === 'object')) return;
+            const cid = String(child.id || child.blockId || '').trim();
+            if (!cid || cid === pid) return;
+            children.set(cid, child);
+        };
+        const parentTask = __tmAutoCompleteGetTaskById(pid);
+        (Array.isArray(parentTask?.children) ? parentTask.children : []).forEach(addChild);
+        const scanMap = (taskMap) => {
+            Object.values((taskMap && typeof taskMap === 'object') ? taskMap : {}).forEach((task) => {
+                if (__tmAutoCompleteGetParentTaskId(task) === pid) addChild(task);
+            });
+        };
+        scanMap(state.flatTasks);
+        scanMap(state.pendingInsertedTasks);
+        const walk = (tasks, parentOfCurrent = '') => {
+            if (!Array.isArray(tasks)) return;
+            tasks.forEach((task) => {
+                if (!(task && typeof task === 'object')) return;
+                const tid = String(task.id || task.blockId || '').trim();
+                if (String(parentOfCurrent || '').trim() === pid || __tmAutoCompleteGetParentTaskId(task) === pid) addChild(task);
+                if (Array.isArray(task.children) && task.children.length) walk(task.children, tid || parentOfCurrent);
+            });
+        };
+        try { (Array.isArray(state.taskTree) ? state.taskTree : []).forEach((doc) => walk(doc?.tasks)); } catch (e) {}
+        try { walk(state.filteredTasks); } catch (e) {}
+        return Array.from(children.values());
+    }
+
+    async function __tmMaybeAutoCompleteParentAfterSubtaskDone(childId, options = {}) {
+        if (SettingsStore?.data?.autoCompleteParentOnSubtasksDone !== true) return false;
+        const opts = (options && typeof options === 'object') ? options : {};
+        if (opts.skipAutoCompleteParent === true) return false;
+        const cid = String(childId || '').trim();
+        if (!cid) return false;
+        let childTask = __tmAutoCompleteGetTaskById(cid);
+        let parentId = __tmFindParentTaskIdForAutoComplete(cid, childTask);
+        let refreshedDoc = false;
+        const refreshDocForAutoComplete = async () => {
+            if (refreshedDoc || opts.skipFreshDoc === true || typeof __tmRefreshTaskDocForFreshDetail !== 'function') return false;
+            refreshedDoc = true;
+            try {
+                const freshTask = await __tmRefreshTaskDocForFreshDetail(cid, childTask, {
+                    source: String(opts.source || 'auto-complete-parent-fresh-doc').trim() || 'auto-complete-parent-fresh-doc',
+                });
+                if (freshTask && typeof freshTask === 'object') childTask = freshTask;
+                return true;
+            } catch (e) {
+                return false;
+            }
+        };
+        if ((!parentId || parentId === cid) && await refreshDocForAutoComplete()) {
+            parentId = __tmFindParentTaskIdForAutoComplete(cid, childTask);
+        }
+        if (!parentId || parentId === cid) return false;
+        let parentTask = __tmAutoCompleteGetTaskById(parentId);
+        if (!parentTask && await refreshDocForAutoComplete()) {
+            parentId = __tmFindParentTaskIdForAutoComplete(cid, childTask);
+            parentTask = __tmAutoCompleteGetTaskById(parentId);
+        }
+        if (!parentTask || __tmAutoCompleteIsTaskDone(parentTask)) return false;
+        if (__tmAutoCompleteParentTaskIdsInFlight.has(parentId)) return false;
+        let children = __tmCollectDirectChildrenForAutoComplete(parentId);
+        if (!children.length && await refreshDocForAutoComplete()) {
+            parentId = __tmFindParentTaskIdForAutoComplete(cid, childTask);
+            parentTask = __tmAutoCompleteGetTaskById(parentId);
+            if (!parentId || parentId === cid || !parentTask || __tmAutoCompleteIsTaskDone(parentTask)) return false;
+            children = __tmCollectDirectChildrenForAutoComplete(parentId);
+        }
+        if (!children.length) return false;
+        if (!children.every((child) => {
+            const childTaskId = String(child?.id || child?.blockId || '').trim();
+            const latestChild = childTaskId ? (__tmAutoCompleteGetTaskById(childTaskId) || child) : child;
+            return childTaskId === cid || __tmAutoCompleteIsTaskDone(latestChild);
+        })) {
+            if (!await refreshDocForAutoComplete()) return false;
+            parentId = __tmFindParentTaskIdForAutoComplete(cid, childTask);
+            parentTask = __tmAutoCompleteGetTaskById(parentId);
+            if (!parentId || parentId === cid || !parentTask || __tmAutoCompleteIsTaskDone(parentTask)) return false;
+            children = __tmCollectDirectChildrenForAutoComplete(parentId);
+            if (!children.length || !children.every((child) => {
+                const childTaskId = String(child?.id || child?.blockId || '').trim();
+                const latestChild = childTaskId ? (__tmAutoCompleteGetTaskById(childTaskId) || child) : child;
+                return childTaskId === cid || __tmAutoCompleteIsTaskDone(latestChild);
+            })) return false;
+        }
+        __tmAutoCompleteParentTaskIdsInFlight.add(parentId);
+        try {
+            const result = await window.tmSetDone?.(parentId, true, null, {
+                source: 'auto-complete-parent-on-subtasks-done',
+                suppressHint: true,
+                wait: true,
+                force: true,
+                skipInteractionGate: true,
+            });
+            return result !== false;
+        } finally {
+            __tmAutoCompleteParentTaskIdsInFlight.delete(parentId);
+        }
+    }
+
+    try { globalThis.__tmMaybeAutoCompleteParentAfterSubtaskDone = __tmMaybeAutoCompleteParentAfterSubtaskDone; } catch (e) {}
+
     function __tmQueueSetDoneTask(taskId, done, task, options = {}) {
         const tid = String(taskId || '').trim();
         const opts = (options && typeof options === 'object') ? options : {};
@@ -2974,6 +3142,10 @@ return finish(false, 'noop');
                 recordUndo: opts.recordUndo !== false,
                 withFilters: opts.withFilters === true,
                 skipInteractionGate: opts.skipInteractionGate === true,
+                skipViewRefresh: opts.skipViewRefresh === true,
+                skipOptimisticRefresh: opts.skipOptimisticRefresh === true || opts.skipViewRefresh === true,
+                skipSettledRefresh: opts.skipSettledRefresh === true,
+                refreshAncestorViews: opts.refreshAncestorViews !== false,
             },
             inversePatch,
         }, {
@@ -3016,6 +3188,9 @@ return finish(false, 'noop');
                         scheduleId: String(opts.scheduleId || '').trim(),
                     });
                 } catch (e) {}
+                if (!originalDone && opts.skipAutoCompleteParent !== true) {
+                    try { void __tmMaybeAutoCompleteParentAfterSubtaskDone(tid, opts).catch(() => null); } catch (e) {}
+                }
             } else {
                 try { __tmClearRecurringTaskAdvanceTimer(tid); } catch (e) {}
             }
@@ -3073,12 +3248,50 @@ if (ev) {
         const checklistLocalRestoreSnapshot = shouldPreserveMobileChecklistScroll
             ? __tmCaptureChecklistRenderRestore()
             : null;
+        const targetDone = !!done;
         if (__tmIsRecurringInstanceTask(task)) {
-            if (opts.suppressHint !== true) hint('⚠️ 循环完成实例为只读记录，请在原任务中继续操作', 'warning');
-            if (ev?.target) {
-                try { ev.target.checked = true; } catch (e) {}
+            if (targetDone !== false) {
+                if (opts.suppressHint !== true) hint('⚠️ 循环完成实例只能撤销完成，请在这里取消勾选', 'warning');
+                if (ev?.target) {
+                    try { ev.target.checked = true; } catch (e) {}
+                }
+                return false;
             }
-            return false;
+            const sourceTaskId = String(__tmResolveRecurringInstanceSourceTaskId(tid, task) || '').trim();
+            const completedAt = String(task?.recurringCompletedAt || '').trim();
+            if (!sourceTaskId || !completedAt) {
+                if (opts.suppressHint !== true) hint('⚠️ 未找到可撤销的循环记录', 'warning');
+                if (ev?.target) {
+                    try { ev.target.checked = true; } catch (e) {}
+                }
+                return false;
+            }
+            try {
+                const result = await __tmDeleteTaskRepeatHistoryEntry(sourceTaskId, completedAt, {
+                    source: String(opts.source || 'recurring-instance-uncomplete').trim() || 'recurring-instance-uncomplete',
+                    recordUndo: opts.recordUndo !== false,
+                });
+                if (!result) {
+                    if (opts.suppressHint !== true) hint('⚠️ 未找到可撤销的循环记录', 'warning');
+                    if (ev?.target) {
+                        try { ev.target.checked = true; } catch (e) {}
+                    }
+                    return false;
+                }
+                if (ev?.target) {
+                    try { ev.target.checked = false; } catch (e) {}
+                }
+                try { __tmRestoreChecklistRenderRestore(checklistLocalRestoreSnapshot); } catch (e) {}
+                if (opts.suppressHint !== true) hint('✅ 已撤销循环完成记录', 'success');
+                return true;
+            } catch (e) {
+                if (opts.suppressHint !== true) hint(`❌ 撤销失败: ${e?.message || String(e)}`, 'error');
+                if (ev?.target) {
+                    try { ev.target.checked = true; } catch (e2) {}
+                }
+                try { __tmRestoreChecklistRenderRestore(checklistLocalRestoreSnapshot); } catch (e2) {}
+                return false;
+            }
         }
         if (!task) {
             try { task = await __tmEnsureTaskInStateById(tid); } catch (e) { task = null; }
@@ -3086,7 +3299,6 @@ if (ev) {
         if (!task || __tmIsCollectedOtherBlockTask(task)) {
             return await __tmSetDoneKernel(tid, done, ev, opts);
         }
-        const targetDone = !!done;
         if (!!task.done === targetDone) return;
         try {
             const request = __tmQueueSetDoneTask(tid, targetDone, task, {
@@ -3096,6 +3308,7 @@ if (ev) {
                 scheduleId: String(opts.scheduleId || '').trim(),
                 recordUndo: opts.recordUndo !== false,
                 wait: opts.wait === true,
+                skipAutoCompleteParent: opts.skipAutoCompleteParent === true,
                 skipInteractionGate: opts.skipInteractionGate === true,
             });
             try { __tmRestoreChecklistRenderRestore(checklistLocalRestoreSnapshot); } catch (e) {}
@@ -3212,7 +3425,7 @@ hint(`❌ 操作失败: ${e.message}`, 'error');
             let retries = 0;
             const maxRetries = 20; // 最多等待 5秒 (250ms * 20)
             while (retries < maxRetries) {
-                const res = await API.getTasksByDocuments([docId], __TM_TASK_INDEX_QUERY_LIMIT);
+                const res = await API.getTasksByDocuments([docId], __TM_TASK_INDEX_QUERY_LIMIT, { forceFresh: opts.forceFresh === true });
 
                 // 检查是否包含期望的ID
                 if (res.tasks && res.tasks.find(t => t.id === expectId)) {
@@ -3233,7 +3446,7 @@ hint(`❌ 操作失败: ${e.message}`, 'error');
                 retries++;
             }
         } else {
-             const res = await API.getTasksByDocuments([docId], __TM_TASK_INDEX_QUERY_LIMIT);
+             const res = await API.getTasksByDocuments([docId], __TM_TASK_INDEX_QUERY_LIMIT, { forceFresh: opts.forceFresh === true });
              flatTasks = res.tasks || [];
              queryTime = res.queryTime || 0;
         }
@@ -3593,7 +3806,195 @@ hint(`❌ 操作失败: ${e.message}`, 'error');
         }
 }
 
-    window.tmOpenTaskDetail = async function(id, ev) {
+    const __tmFreshTaskDetailDocReloads = new Map();
+
+    function __tmIsQuickbarTaskDetailOpenEvent(ev) {
+        const target = ev?.target instanceof Element ? ev.target : null;
+        if (!target) return false;
+        try {
+            return !!target.closest('.sy-custom-props-floatbar, .sy-custom-props-floatbar__action[data-action="more"]');
+        } catch (e) {
+            return false;
+        }
+    }
+
+    async function __tmRefreshTaskDocForFreshDetail(taskId, fallbackTask = null, options = {}) {
+        const opts = (options && typeof options === 'object') ? options : {};
+        const tid = String(taskId || fallbackTask?.id || '').trim();
+        if (!tid && !(fallbackTask && typeof fallbackTask === 'object')) return null;
+        const fallbackTitle = String(opts.fallbackTitle || '').trim();
+        const fallbackContent = String(opts.fallbackContent || fallbackTitle || '').trim();
+        const chooseText = (nextValue, fallbackValue) => {
+            const nextText = String(nextValue || '').trim();
+            if (nextText && nextText !== '(无内容)') return nextValue;
+            const fallbackText = String(fallbackValue || '').trim();
+            if (fallbackText && fallbackText !== '(无内容)') return fallbackValue;
+            return nextValue;
+        };
+        const isEmptyTaskText = (value) => {
+            let text = String(value || '').trim();
+            if (!text) return true;
+            try {
+                if (typeof API?.extractTaskContentLine === 'function') {
+                    text = String(API.extractTaskContentLine(text) || text).trim();
+                }
+            } catch (e) {}
+            try {
+                if (typeof API?.normalizeTaskContent === 'function') {
+                    text = String(API.normalizeTaskContent(text) || text).trim();
+                }
+            } catch (e) {}
+            text = text
+                .replace(/^\s*(?:[-*+]|\d+[.)])\s*\[[^\]]*\]\s*/, '')
+                .replace(/\s*\{:\s*[^}]*\}\s*$/g, '')
+                .trim();
+            return !text || text === '(无内容)';
+        };
+        const mergeTaskDetailData = (freshTask, sourceTask) => {
+            const fresh = (freshTask && typeof freshTask === 'object') ? { ...freshTask } : null;
+            const source = (sourceTask && typeof sourceTask === 'object') ? sourceTask : null;
+            if (!fresh) return source ? { ...source } : null;
+            if (!source) return fresh;
+            fresh.content = chooseText(fresh.content, source.content);
+            fresh.raw_content = chooseText(fresh.raw_content, source.raw_content || source.content);
+            fresh.markdown = chooseText(fresh.markdown, source.markdown);
+            fresh.otherBlockRawContent = chooseText(fresh.otherBlockRawContent, source.otherBlockRawContent);
+            fresh.otherBlockContent = chooseText(fresh.otherBlockContent, source.otherBlockContent);
+            fresh.docName = chooseText(fresh.docName, source.docName);
+            fresh.doc_name = chooseText(fresh.doc_name, source.doc_name);
+            fresh.h2 = chooseText(fresh.h2, source.h2);
+            fresh.h2Id = chooseText(fresh.h2Id, source.h2Id);
+            fresh.h2Path = chooseText(fresh.h2Path, source.h2Path);
+            fresh.h2Created = chooseText(fresh.h2Created, source.h2Created);
+            if (!Array.isArray(fresh.children) || fresh.children.length <= 0) {
+                if (Array.isArray(source.children) && source.children.length > 0) fresh.children = source.children;
+            }
+            if (isEmptyTaskText(fresh.content) && fallbackContent) fresh.content = fallbackContent;
+            if (isEmptyTaskText(fresh.raw_content) && fallbackContent) fresh.raw_content = fallbackContent;
+            if (isEmptyTaskText(fresh.markdown) && fallbackContent) fresh.markdown = fallbackContent;
+            if (isEmptyTaskText(fresh.otherBlockRawContent) && fallbackTitle) fresh.otherBlockRawContent = fallbackTitle;
+            if (isEmptyTaskText(fresh.otherBlockContent) && fallbackTitle) fresh.otherBlockContent = fallbackTitle;
+            return fresh;
+        };
+        const hasUsableTaskTitle = (taskLike) => {
+            const candidates = [taskLike?.content, taskLike?.raw_content, taskLike?.markdown, taskLike?.otherBlockRawContent, taskLike?.otherBlockContent];
+            return candidates.some((value) => !isEmptyTaskText(value));
+        };
+        let task = (fallbackTask && typeof fallbackTask === 'object') ? fallbackTask : null;
+        if (!task && tid) {
+            try {
+                task = globalThis.__tmRuntimeState?.getTaskById?.(tid, { includePending: true, preferPending: true })
+                    || state.flatTasks?.[tid]
+                    || state.pendingInsertedTasks?.[tid]
+                    || null;
+            } catch (e) { task = null; }
+        }
+        let docId = String(task?.root_id || task?.docId || '').trim();
+        if (!docId && tid) {
+            let blockTask = null;
+            try { blockTask = await __tmBuildTaskLikeFromBlockId(tid); } catch (e) { blockTask = null; }
+            if (blockTask && typeof blockTask === 'object') {
+                task = task
+                    ? {
+                        ...blockTask,
+                        ...task,
+                        children: Array.isArray(task.children) ? task.children : blockTask.children,
+                    }
+                    : blockTask;
+                docId = String(task?.root_id || task?.docId || '').trim();
+            }
+        }
+        if (tid && (!hasUsableTaskTitle(task) || (fallbackTitle && isEmptyTaskText(task?.content)))) {
+            let blockTask = null;
+            try { blockTask = await __tmBuildTaskLikeFromBlockId(tid); } catch (e) { blockTask = null; }
+            if (blockTask && typeof blockTask === 'object') {
+                task = mergeTaskDetailData(task, blockTask) || blockTask;
+                docId = String(task?.root_id || task?.docId || docId || '').trim();
+            }
+        }
+        if (!docId) {
+            if (!task && fallbackTitle) {
+                return {
+                    id: tid,
+                    content: fallbackTitle,
+                    raw_content: fallbackContent || fallbackTitle,
+                    markdown: fallbackContent || fallbackTitle,
+                };
+            }
+            if (task && fallbackTitle && isEmptyTaskText(task.content)) task.content = fallbackTitle;
+            if (task && fallbackContent && isEmptyTaskText(task.raw_content)) task.raw_content = fallbackContent;
+            return task;
+        }
+        try {
+            if (typeof __tmFlushSqlTransactionsSafe === 'function') {
+                await __tmFlushSqlTransactionsSafe(String(opts.source || 'task-detail-fresh-doc'));
+            }
+        } catch (e) {}
+        let reloadPromise = __tmFreshTaskDetailDocReloads.get(docId);
+        if (!reloadPromise) {
+            reloadPromise = reloadDocTasksProtected(docId, null, null, null, {
+                applyFilters: opts.applyFilters === true,
+                render: false,
+                saveMeta: false,
+                forceFresh: opts.forceFresh !== false,
+                forceDocFlowOrder: opts.forceDocFlowOrder === true,
+                forceHeadingContext: opts.forceHeadingContext === true,
+            });
+            __tmFreshTaskDetailDocReloads.set(docId, reloadPromise);
+        }
+        try {
+            await reloadPromise;
+        } catch (e) {
+            return task;
+        } finally {
+            try {
+                if (__tmFreshTaskDetailDocReloads.get(docId) === reloadPromise) {
+                    __tmFreshTaskDetailDocReloads.delete(docId);
+                }
+            } catch (e) {}
+        }
+        const resolveFresh = (id) => {
+            const targetId = String(id || '').trim();
+            if (!targetId) return null;
+            try {
+                return (typeof __tmGetTaskDetailTaskById === 'function'
+                    ? __tmGetTaskDetailTaskById(targetId, { includePending: true, preferPending: true, includeWhiteboard: true })
+                    : null)
+                    || globalThis.__tmRuntimeState?.getTaskById?.(targetId, { includePending: true, preferPending: true })
+                    || state.flatTasks?.[targetId]
+                    || state.pendingInsertedTasks?.[targetId]
+                    || null;
+            } catch (e) {
+                return null;
+            }
+        };
+        const freshTask = resolveFresh(tid) || resolveFresh(task?.id) || null;
+        let mergedTask = mergeTaskDetailData(freshTask, task) || task;
+        if (tid && (!hasUsableTaskTitle(mergedTask) || (fallbackTitle && isEmptyTaskText(mergedTask?.content)))) {
+            let blockTask = null;
+            try { blockTask = await __tmBuildTaskLikeFromBlockId(tid); } catch (e) { blockTask = null; }
+            if (blockTask && typeof blockTask === 'object') {
+                mergedTask = mergeTaskDetailData(mergedTask, blockTask) || blockTask;
+            }
+        }
+        if (!mergedTask && fallbackTitle) {
+            mergedTask = {
+                id: tid,
+                content: fallbackTitle,
+                raw_content: fallbackContent || fallbackTitle,
+                markdown: fallbackContent || fallbackTitle,
+            };
+        }
+        if (mergedTask && fallbackTitle && isEmptyTaskText(mergedTask.content)) mergedTask.content = fallbackTitle;
+        if (mergedTask && fallbackContent && isEmptyTaskText(mergedTask.raw_content)) mergedTask.raw_content = fallbackContent;
+        return mergedTask;
+    }
+
+    try { globalThis.__tmRefreshTaskDocForFreshDetail = __tmRefreshTaskDocForFreshDetail; } catch (e) {}
+
+    window.tmOpenTaskDetail = async function(id, ev, options = {}) {
+        const detailOpenOptions = (options && typeof options === 'object') ? options : {};
+        const shouldFreshenDetailOpen = detailOpenOptions.forceFresh === true || __tmIsQuickbarTaskDetailOpenEvent(ev);
         try {
             ev?.stopPropagation?.();
             ev?.preventDefault?.();
@@ -3647,8 +4048,21 @@ hint(`❌ 操作失败: ${e.message}`, 'error');
         if (__tmIsRecurringInstanceTask(task)) {
             const sourceTaskId = String(task?.sourceTaskId || task?.recurringSourceTaskId || '').trim();
             if (sourceTaskId) {
-                return await window.tmOpenTaskDetail(sourceTaskId, ev);
+                return await window.tmOpenTaskDetail(sourceTaskId, ev, detailOpenOptions);
             }
+        }
+        if (shouldFreshenDetailOpen) {
+            try {
+                const freshTask = await __tmRefreshTaskDocForFreshDetail(tid, task, {
+                    source: String(detailOpenOptions.source || 'quickbar-detail-open').trim() || 'quickbar-detail-open',
+                    fallbackTitle: String(detailOpenOptions.fallbackTitle || '').trim(),
+                    fallbackContent: String(detailOpenOptions.fallbackContent || detailOpenOptions.fallbackTitle || '').trim(),
+                });
+                if (freshTask && typeof freshTask === 'object') {
+                    task = freshTask;
+                    tid = String(task.id || tid).trim() || tid;
+                }
+            } catch (e) {}
         }
         try {
             task = __tmCacheTaskInState(task, {
@@ -4865,6 +5279,94 @@ hint(`❌ 操作失败: ${e.message}`, 'error');
                 setTimeout(() => { try { timer?.refreshUI?.(); } catch (e) {} }, 150);
             }
         };
+        const getDateShortcutValue = (offsetDays) => {
+            const target = new Date();
+            target.setHours(12, 0, 0, 0);
+            target.setDate(target.getDate() + (Number(offsetDays) || 0));
+            return __tmNormalizeDateOnly(target);
+        };
+        const createDateBlock = () => {
+            const wrap = document.createElement('div');
+            wrap.className = 'tm-task-context-date';
+            const title = document.createElement('div');
+            title.className = 'tm-task-context-date__title';
+            title.textContent = '日期';
+            wrap.appendChild(title);
+            const row = document.createElement('div');
+            row.className = 'tm-task-context-date__row';
+            const currentDate = __tmNormalizeDateOnly(task?.completionTime || task?.completion_time || '');
+            const shortcuts = [
+                { mode: 'set', label: '今天', value: getDateShortcutValue(0), icon: 'sun' },
+                { mode: 'set', label: '明天', value: getDateShortcutValue(1), icon: 'sun-horizon' },
+                { mode: 'set', label: '下周', value: getDateShortcutValue(7), icon: 'calendar-plus' },
+                { mode: 'pick', label: '选择日期', icon: 'calendar-dots' },
+                { mode: 'clear', label: '清除日期', value: '', icon: 'calendar-x', danger: true },
+            ];
+            shortcuts.forEach((opt) => {
+                const active = (opt.mode === 'set' && currentDate && opt.value === currentDate)
+                    || (opt.mode === 'clear' && !currentDate);
+                const btn = document.createElement('button');
+                btn.type = 'button';
+                btn.className = `tm-task-context-date__btn${active ? ' is-active' : ''}${opt.danger ? ' tm-task-context-date__btn--clear' : ''}`;
+                btn.setAttribute('aria-label', opt.label);
+                btn.setAttribute('aria-pressed', active ? 'true' : 'false');
+                btn.title = opt.value ? `${opt.label} ${opt.value}` : opt.label;
+                btn.innerHTML = __tmPhosphorBoldSvg(opt.icon, { size: 16, className: 'tm-task-context-date__icon' });
+                btn.onclick = (e) => {
+                    e.stopPropagation();
+                    e.preventDefault();
+                    if (opt.mode === 'pick') {
+                        if (typeof window.tmOpenTaskTimeHub !== 'function') {
+                            hint('⚠ 日期面板未就绪', 'warning');
+                            return;
+                        }
+                        btn.setAttribute('aria-haspopup', 'dialog');
+                        Promise.resolve(window.tmOpenTaskTimeHub(taskId, btn, {
+                            task,
+                            activeField: 'completionTime',
+                            source: 'context-menu-completion-time',
+                            placement: 'right',
+                            contextDate: true,
+                            closeOnDateCommit: true,
+                            scheduleTabLabel: '时间段',
+                            onClose: () => {
+                                try { btn.classList.remove('is-open'); } catch (e2) {}
+                                try { menu.remove(); } catch (e2) {}
+                                try {
+                                    if (state.taskContextMenuCloseHandler) {
+                                        __tmClearOutsideCloseHandler(state.taskContextMenuCloseHandler);
+                                        state.taskContextMenuCloseHandler = null;
+                                    }
+                                } catch (e2) {}
+                            },
+                        }))
+                            .catch((err) => {
+                                hint(`❌ 截止日期更新失败: ${err?.message || err}`, 'error');
+                            });
+                        return;
+                    }
+                    btn.disabled = true;
+                    const savePromise = typeof window.tmSetTaskCompletionTime === 'function'
+                        ? window.tmSetTaskCompletionTime(taskId, opt.value || '', {
+                            source: 'context-menu-completion-time',
+                            background: true,
+                            queueDelayMs: 0,
+                            skipInteractionGate: true,
+                            silent: true,
+                        })
+                        : Promise.reject(new Error('任务日期写入函数未就绪'));
+                    menu.remove();
+                    Promise.resolve(savePromise).then((ok) => {
+                        if (!ok) hint('❌ 截止日期更新失败', 'error');
+                    }).catch((err) => {
+                        hint(`❌ 截止日期更新失败: ${err?.message || err}`, 'error');
+                    });
+                };
+                row.appendChild(btn);
+            });
+            wrap.appendChild(row);
+            return wrap;
+        };
         const createPriorityBlock = () => {
             const wrap = document.createElement('div');
             wrap.className = 'tm-task-context-priority';
@@ -4972,6 +5474,7 @@ hint(`❌ 操作失败: ${e.message}`, 'error');
         }
 
         if (task) {
+            menu.appendChild(createDateBlock());
             menu.appendChild(createPriorityBlock());
             hasContextTopBlock = true;
         }
@@ -5130,6 +5633,7 @@ hint(`❌ 操作失败: ${e.message}`, 'error');
         const closeHandler = (ev) => {
             try {
                 if (menu.contains(ev?.target)) return;
+                if (ev?.target instanceof Element && ev.target.closest('.tm-task-time-hub-popover')) return;
             } catch (e) {}
             menu.remove();
             try { __tmClearOutsideCloseHandler(closeHandler); } catch (e) {}

@@ -1063,9 +1063,45 @@
 
     const __TM_NATIVE_DOC_CHECKBOX_SYNC_DELAY_MS = 260;
 
+    function __tmResolveNativeDocEventElement(target) {
+        try {
+            if (target instanceof Element) return target;
+            if (target?.parentElement instanceof Element) return target.parentElement;
+        } catch (e) {}
+        return null;
+    }
+
+    function __tmIsNativeDocCheckboxSyncExcludedTarget(target) {
+        const node = __tmResolveNativeDocEventElement(target);
+        if (!(node instanceof Element)) return false;
+        try {
+            if (typeof __tmIsTaskDetailNoteViewLocalEventTarget === 'function'
+                && __tmIsTaskDetailNoteViewLocalEventTarget(node)) return true;
+        } catch (e) {}
+        try {
+            if (node.closest?.([
+                '.tm-modal',
+                '.siyuan-comment-popover',
+                '#siyuan-comment-app',
+                '.siyuan-comment-preview-wysiwyg',
+                '.block__popover',
+                '.b3-dialog',
+                '.protyle--preview',
+                '.protyle--embed',
+                '.protyle-util',
+                '.protyle-hint',
+                '[data-siyuan-comment-popover-protyle="true"]',
+            ].join(','))) return true;
+        } catch (e) {}
+        return false;
+    }
+
     function __tmFindNativeDocTaskListItem(target) {
         try {
-            return globalThis.__tmCompat?.resolveNativeTaskListItem?.(target) || null;
+            if (__tmIsNativeDocCheckboxSyncExcludedTarget(target)) return null;
+            const listItem = globalThis.__tmCompat?.resolveNativeTaskListItem?.(target) || null;
+            if (listItem instanceof Element && __tmIsNativeDocCheckboxSyncExcludedTarget(listItem)) return null;
+            return listItem;
         } catch (e) {
             return null;
         }
@@ -1111,7 +1147,8 @@
     function __tmReadNativeDocTaskDoneFromDom(blockId) {
         const rawId = String(blockId || '').trim();
         if (!rawId) return null;
-        const listItem = globalThis.__tmCompat?.findTaskListItemById?.(rawId) || null;
+        const scopedItems = __tmFindNativeDocTaskListItemsByIds([rawId]);
+        const listItem = scopedItems[0] || null;
         return listItem instanceof Element ? __tmReadNativeDocTaskDoneFromListItem(listItem) : null;
     }
 
@@ -1130,7 +1167,8 @@
 
     function __tmFindNativeDocTaskListItemsByIds(blockIds) {
         const items = globalThis.__tmCompat?.findTaskListItemsByIds?.(blockIds) || [];
-        return Array.isArray(items) ? items : [];
+        return (Array.isArray(items) ? items : [])
+            .filter((item) => item instanceof Element && !__tmIsNativeDocCheckboxSyncExcludedTarget(item));
     }
 
     function __tmMirrorNativeDocTaskStatusAttr(blockIds, customStatus) {
@@ -1441,6 +1479,94 @@
         return true;
     }
 
+    function __tmScheduleNativeDocCheckboxDetailRefresh(taskId, taskLike = null, options = {}) {
+        const tid = String(taskId || '').trim();
+        if (!tid) return false;
+        const opts = (options && typeof options === 'object') ? options : {};
+        const source = String(opts.source || 'native-doc-checkbox-sync').trim() || 'native-doc-checkbox-sync';
+        const collectVisibleTargets = () => {
+            try {
+                const targets = typeof __tmCollectVisibleTaskDetailTargetIds === 'function'
+                    ? __tmCollectVisibleTaskDetailTargetIds()
+                    : [];
+                return (Array.isArray(targets) ? targets : [])
+                    .map((targetId) => String(targetId || '').trim())
+                    .filter(Boolean);
+            } catch (e) {
+                return [];
+            }
+        };
+        const isSameDetailTask = (left, right) => {
+            const a = String(left || '').trim();
+            const b = String(right || '').trim();
+            if (!a || !b) return false;
+            try {
+                if (typeof __tmAreTaskDetailIdsEquivalent === 'function') {
+                    return !!__tmAreTaskDetailIdsEquivalent(a, b);
+                }
+            } catch (e) {}
+            return a === b;
+        };
+        const isVisibleTarget = (targetId, targets) => {
+            const rawTargetId = String(targetId || '').trim();
+            if (!rawTargetId || !Array.isArray(targets) || !targets.length) return false;
+            return targets.some((id) => isSameDetailTask(id, rawTargetId));
+        };
+        const visibleTargets = collectVisibleTargets();
+        if (!visibleTargets.length) return false;
+        const refreshOne = (targetId, reason = '') => {
+            const targetTid = String(targetId || '').trim();
+            if (!targetTid || typeof __tmRefreshVisibleTaskDetailForTask !== 'function') return false;
+            try {
+                return !!__tmRefreshVisibleTaskDetailForTask(targetTid, {
+                    forceRebuild: true,
+                    source: reason ? `${source}:${reason}` : source,
+                });
+            } catch (e) {
+                return false;
+            }
+        };
+        const knownParentId = String(taskLike?.parentTaskId || taskLike?.parent_task_id || '').trim();
+        let touchedVisibleDetail = false;
+        if (isVisibleTarget(tid, visibleTargets)) {
+            touchedVisibleDetail = !!refreshOne(tid, 'task') || touchedVisibleDetail;
+        }
+        if (knownParentId && knownParentId !== tid && isVisibleTarget(knownParentId, visibleTargets)) {
+            touchedVisibleDetail = !!refreshOne(knownParentId, 'parent') || touchedVisibleDetail;
+        }
+        if (!touchedVisibleDetail) return false;
+        const run = async () => {
+            let latestTask = null;
+            try {
+                if (typeof globalThis.__tmRefreshTaskDocForFreshDetail === 'function') {
+                    latestTask = await globalThis.__tmRefreshTaskDocForFreshDetail(tid, taskLike, {
+                        source: `${source}:detail-refresh`,
+                        forceFresh: opts.forceFresh !== false,
+                    });
+                }
+            } catch (e) {
+                latestTask = null;
+            }
+            const parentId = String(
+                latestTask?.parentTaskId
+                || latestTask?.parent_task_id
+                || taskLike?.parentTaskId
+                || taskLike?.parent_task_id
+                || ''
+            ).trim();
+            if (parentId && parentId !== tid && isVisibleTarget(parentId, visibleTargets)) refreshOne(parentId, 'parent-fresh');
+            try {
+                visibleTargets.forEach((targetId) => {
+                    if (isSameDetailTask(targetId, tid) || (parentId && isSameDetailTask(targetId, parentId))) {
+                        refreshOne(targetId, 'visible-target');
+                    }
+                });
+            } catch (e) {}
+        };
+        try { Promise.resolve().then(run).catch(() => null); } catch (e) {}
+        return true;
+    }
+
     async function __tmSyncNativeDocCheckboxLinkedStatus(blockId) {
         const rawId = String(blockId || '').trim();
         if (!rawId) return false;
@@ -1526,6 +1652,10 @@
                     });
                 } catch (e) {}
             }
+            if (domDone && !effectiveTaskDoneBefore) {
+                try { void globalThis.__tmMaybeAutoCompleteParentAfterSubtaskDone?.(tid, { source: 'native-doc-checkbox-sync' }).catch(() => null); } catch (e) {}
+            }
+            try { __tmScheduleNativeDocCheckboxDetailRefresh(tid, task, { source: 'native-doc-checkbox-sync' }); } catch (e) {}
             return true;
         }
         const persistedAttrsBefore = await __tmReadDocCheckboxBlockAttrs(tid);
@@ -1609,6 +1739,10 @@
                     });
                 } catch (e) {}
             }
+            if (domDone && !wasDoneBefore) {
+                try { void globalThis.__tmMaybeAutoCompleteParentAfterSubtaskDone?.(tid, { source: 'native-doc-checkbox-sync' }).catch(() => null); } catch (e) {}
+            }
+            try { __tmScheduleNativeDocCheckboxDetailRefresh(tid, task, { source: 'native-doc-checkbox-sync' }); } catch (e) {}
             if (shouldDispatchTaskReward) {
                 try {
                     __tmDispatchTaskCompletedForReward(task, {
@@ -1714,6 +1848,10 @@
                 });
             } catch (e) {}
         }
+        if (domDone && !wasDoneBefore) {
+            try { void globalThis.__tmMaybeAutoCompleteParentAfterSubtaskDone?.(tid, { source: 'native-doc-checkbox-sync' }).catch(() => null); } catch (e) {}
+        }
+        try { __tmScheduleNativeDocCheckboxDetailRefresh(tid, task, { source: 'native-doc-checkbox-sync' }); } catch (e) {}
         if (shouldDispatchTaskReward) {
             try {
                 __tmDispatchTaskCompletedForReward(task, {
@@ -1759,8 +1897,24 @@
                     const nextBlockId = String(__tmNativeDocCheckboxSyncQueue.shift() || '').trim();
                     if (!nextBlockId) continue;
                     try {
+                        __tmNativeDocCheckboxSyncQueuedIds.delete(nextBlockId);
+                        __tmNativeDocCheckboxSyncRunningIds.add(nextBlockId);
+                        __tmNativeDocCheckboxSyncDirtyIds.delete(nextBlockId);
+                    } catch (e) {}
+                    try {
                         await __tmSyncNativeDocCheckboxLinkedStatus(nextBlockId);
                     } catch (e) {}
+                    finally {
+                        let shouldRerun = false;
+                        try {
+                            shouldRerun = __tmNativeDocCheckboxSyncDirtyIds.has(nextBlockId);
+                            __tmNativeDocCheckboxSyncRunningIds.delete(nextBlockId);
+                            __tmNativeDocCheckboxSyncDirtyIds.delete(nextBlockId);
+                        } catch (e) {
+                            shouldRerun = false;
+                        }
+                        if (shouldRerun) __tmEnqueueNativeDocCheckboxStatusSync(nextBlockId);
+                    }
                 }
             } finally {
                 __tmNativeDocCheckboxSyncQueueRunning = false;
@@ -1770,12 +1924,25 @@
             }
         }).catch(() => {
             __tmNativeDocCheckboxSyncQueueRunning = false;
+            try {
+                __tmNativeDocCheckboxSyncQueuedIds.clear();
+                __tmNativeDocCheckboxSyncRunningIds.clear();
+                __tmNativeDocCheckboxSyncDirtyIds.clear();
+            } catch (e) {}
         });
     }
 
     function __tmEnqueueNativeDocCheckboxStatusSync(blockId) {
         const rawId = String(blockId || '').trim();
         if (!rawId) return;
+        try {
+            if (__tmNativeDocCheckboxSyncRunningIds.has(rawId)) {
+                __tmNativeDocCheckboxSyncDirtyIds.add(rawId);
+                return;
+            }
+            if (__tmNativeDocCheckboxSyncQueuedIds.has(rawId)) return;
+            __tmNativeDocCheckboxSyncQueuedIds.add(rawId);
+        } catch (e) {}
         __tmNativeDocCheckboxSyncQueue.push(rawId);
         __tmDrainNativeDocCheckboxSyncQueue();
     }
