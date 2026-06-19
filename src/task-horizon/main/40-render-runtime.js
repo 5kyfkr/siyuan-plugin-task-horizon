@@ -1231,6 +1231,15 @@ return;
                         overflow: hidden;
                         text-overflow: ellipsis;
                     }
+                    .tm-doc-tab-custom-group-menu-list {
+                        scrollbar-width: none;
+                        -ms-overflow-style: none;
+                    }
+                    .tm-doc-tab-custom-group-menu-list::-webkit-scrollbar {
+                        width: 0;
+                        height: 0;
+                        display: none;
+                    }
                     .tm-doc-tab-tree-guide {
                         display: inline-flex;
                         align-items: stretch;

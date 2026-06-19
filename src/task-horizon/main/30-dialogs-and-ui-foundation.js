@@ -11417,7 +11417,8 @@ return Number(state.contextInteractionQuietUntil || 0);
         menu.appendChild(header);
 
         const list = document.createElement('div');
-        list.style.cssText = 'display:flex; flex-direction:column; gap:4px; min-width:0; max-height:min(360px, calc(100vh - 88px)); overflow:auto; padding:2px 0 0;';
+        list.className = 'tm-doc-tab-custom-group-menu-list';
+        list.style.cssText = 'display:flex; flex-direction:column; gap:4px; min-width:0; max-height:min(360px, calc(100vh - 88px)); overflow-x:hidden; overflow-y:hidden; padding:2px 0 0;';
         const aggregateActive = __tmParseDocTabCustomGroupActiveId(state.activeDocId) === gid;
         const allRow = document.createElement('div');
         allRow.className = 'tm-doc-tab-tree-menu-row tm-doc-tab-tree-menu-row--all';
@@ -11574,6 +11575,10 @@ return Number(state.contextInteractionQuietUntil || 0);
             rows.forEach((row) => {
                 try { row.style.width = '100%'; } catch (e) {}
             });
+        } catch (e) {}
+        try {
+            const needsVerticalScroll = Math.ceil(Number(list.scrollHeight) || 0) > Math.ceil(Number(list.clientHeight) || 0) + 1;
+            list.style.overflowY = needsVerticalScroll ? 'auto' : 'hidden';
         } catch (e) {}
         try { __tmClampFloatingMenuToViewport(menu, anchorX, anchorY); } catch (e) {}
         try { __tmAnimatePopupIn(menu, { origin: 'top-left' }); } catch (e) {}
